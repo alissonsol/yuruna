@@ -106,16 +106,18 @@ func (a *Agent) noteFidoAttempt(at FidoAttempt) {
 
 // FidoTest runs one real Fido resolve for a pool arch and returns the full
 // capture. It mints a URL and downloads nothing, so it is safe to run while a
-// download is in flight. The outcome ALSO feeds the family's remembered
-// failure, in both directions: a failed test re-arms it, and a successful test
-// clears it -- an operator who just fixed the guest should see the family come
-// back on the spot, not after the failure TTL runs out.
+// download is in flight -- it waits for any resolve already running rather than
+// opening a second Microsoft session beside it, and its answer becomes the one
+// the pool rows share. The outcome ALSO feeds the family's remembered failure,
+// in both directions: a failed test re-arms it, and a successful test clears it
+// -- an operator who just fixed the guest should see the family come back on the
+// spot, not after the failure TTL runs out.
 func (a *Agent) FidoTest(ctx context.Context, arch string) (FidoAttempt, error) {
 	fidoArch, ok := fidoArchFor(arch)
 	if !ok {
 		return FidoAttempt{}, fmt.Errorf("no Fido architecture for %q", arch)
 	}
-	at := a.resolver.Fido.Attempt(ctx, fidoArch)
+	at := a.resolver.Fido.FreshAttempt(ctx, fidoArch)
 	if at.Error != "" {
 		a.noteFidoOutcome(fmt.Errorf("%s", at.Error))
 	} else {

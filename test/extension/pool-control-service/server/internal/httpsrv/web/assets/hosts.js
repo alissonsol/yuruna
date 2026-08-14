@@ -12,11 +12,14 @@
   let hostnamesVisible = false;
   let sortKey = 'hostId';
   let sortAsc = true;
-  // Hardware facts by host id, from /api/hosts/facts. Fetched at page load and
-  // on the header Refresh only: the countdown's periodic reload re-reads the
-  // host LIST, but hardware changes on the scale of an upgrade, and the fetch
-  // fans out to every host in the pool -- a per-minute poll multiplied by every
-  // open tab would hit each machine for values that cannot have moved.
+  // Each host's own account of itself from /api/hosts/facts -- hardware and the
+  // two repository columns -- keyed the way rows are: host id when there is
+  // one, address otherwise. Fetched at page load and on the header Refresh
+  // only: the countdown's periodic reload re-reads the host LIST, but hardware
+  // changes on the scale of an upgrade and a repository on the scale of a
+  // re-clone, and the fetch fans out to every machine the page lists -- a
+  // per-minute poll multiplied by every open tab would hit each one for values
+  // that cannot have moved.
   let facts = {};
 
   // The dashboard collapses control state into remote/onsite. This page shows
@@ -40,10 +43,93 @@
     return [h.slice(0, 8), h.slice(8, 12), h.slice(12, 16), h.slice(16, 20), h.slice(20)].join('-');
   }
 
-  function accessCell(access) {
-    if (!access) return Y.el('span', { class: 'muted', text: '—' });
-    if (access === 'denied') return Y.el('strong', { text: 'DENIED' });
-    return Y.el('span', { text: access });
+  // The two repository columns are the host's own account of what it runs on,
+  // read from the clone it holds (or, when it holds none, from a probe of the
+  // url it was configured with). So they answer for EVERY host, pooled or not,
+  // and the value is the repository name rather than a status word: an
+  // operator reads the table to see which machines are on which repository.
+  const REPO_ACCESS_LABEL = { frameworkAccess: 'framework', projectAccess: 'project' };
+  // Where each column's repository lives, reported beside the name it belongs to.
+  const REPO_URL_KEY = { frameworkAccess: 'frameworkUrl', projectAccess: 'projectUrl' };
+  const NO_ACCESS = 'No access';
+
+  // The pool's separate question -- can this MEMBER read what its pool assigned
+  // -- is answered in the host's registration record, and denied is the one
+  // value that needs an operator. It rides the project cell's tooltip: the
+  // column itself shows what the host holds, which is a different fact.
+  const POOL_ACCESS_HINT = {
+    denied: 'The pool assigned this host a project its git credential cannot read — grant its GH_TOKEN access to that repo, or reassign the pool to one every member can read. Its cycles fail until then, and no retry can fix it.',
+    unreachable: 'The project this host’s pool assigned did not answer — network, not permission. Transient: the cycle’s clone retries through the normal backoff.'
+  };
+
+  // Raw value for a repository column, or '' when the host did not report one.
+  function accessValue(h, key) {
+    const f = facts[factKey(h)];
+    if (!f || !f.ok) return '';
+    return String(f[key] || '');
+  }
+
+  // What a repository column's cell may become an href to, or '' for none. The
+  // host normalizes the value; this is the second of two checks, and it is here
+  // because the string reaches an href and arrives from a machine the page does
+  // not control -- a javascript: or data: url must never get there on the
+  // strength of the far end having been well behaved.
+  //
+  // file: is allowed alongside http(s): a host whose repository is a local copy
+  // is a legitimate lab setup, and the operator asked which one it is. Most
+  // browsers refuse to NAVIGATE there from a served page, but the link still
+  // names the location and copies.
+  function accessUrl(h, key) {
+    const f = facts[factKey(h)];
+    if (!f || !f.ok) return '';
+    const s = String(f[REPO_URL_KEY[key]] || '').trim();
+    if (!s) return '';
+    try {
+      const p = new URL(s).protocol;
+      return (p === 'http:' || p === 'https:' || p === 'file:') ? s : '';
+    } catch (e) {
+      return '';
+    }
+  }
+
+  // The name, linked to the repository it names. An operator reading this table
+  // is asking whether a machine is on the repository they think it is, and the
+  // answer is one click from the cell rather than a url to retype. A host that
+  // reported no location (an older build, a remote nothing can be addressed at)
+  // keeps the plain text: the cell never links nowhere.
+  function repoEl(url, attrs, text) {
+    if (!url) return Y.el('span', attrs, text);
+    const linked = Object.assign({}, attrs, { href: url, target: '_blank', rel: 'noopener' });
+    return Y.el('a', linked, text);
+  }
+
+  function accessCell(h, key, error) {
+    const what = REPO_ACCESS_LABEL[key];
+    const value = accessValue(h, key);
+    const url = accessUrl(h, key);
+    // The url ends the tooltip rather than sitting inside it: the cell shows a
+    // name, and where that name came from is what an operator checks before
+    // following the link.
+    const where = url ? ' ' + url : '';
+    const poolHint = key === 'projectAccess' ? POOL_ACCESS_HINT[h.access] : '';
+    if (value === NO_ACCESS) {
+      // Linked to the url it could NOT read, which is the one an operator
+      // checks first: a url naming the wrong repository looks exactly like a
+      // credential that is missing one until someone follows it.
+      return repoEl(url, {
+        title: 'This host cannot read the ' + what + ' repository it is configured with — check its git credential and the url in test.config.yml.' + where
+      }, Y.el('strong', { text: NO_ACCESS }));
+    }
+    if (value) {
+      return repoEl(url, {
+        title: (poolHint ? poolHint + ' ' : '') + 'The ' + what + ' repository this host holds.' + where
+      }, value);
+    }
+    return Y.el('span', {
+      class: 'muted', text: '—',
+      title: poolHint || error ||
+        'This host has no ' + what + ' repository and none configured, or it has not answered yet.'
+    });
   }
 
   // Two different blanks, and they need different answers from the operator:
@@ -90,10 +176,18 @@
     return Y.el('span', { class: 'muted', text: '—', title: error || 'This host has not reported hardware facts.' });
   }
 
+  // The identity a row's facts arrive under. A discovered host that could not
+  // name itself is known by the address it answered at, and the endpoint keys
+  // it the same way -- so both halves agree without either knowing whether the
+  // row came from the aggregator or from a scan.
+  function factKey(h) {
+    return h.hostId || h.address || '';
+  }
+
   // Raw number for a fact, or null when the host has none -- null is what the
   // sort ranks last, same as the string columns' blanks.
   function factValue(h, key) {
-    const f = facts[h.hostId];
+    const f = facts[factKey(h)];
     if (!f || !f.ok) return null;
     const v = Number(f[FACT_KEY[key]]);
     return v > 0 ? v : null;
@@ -108,6 +202,7 @@
   // to one end of the table as a blank, away from the machines beside it.
   function sortValue(h, key) {
     if (FACT_KEY[key]) return factValue(h, key);
+    if (REPO_ACCESS_LABEL[key]) return accessValue(h, key).toLowerCase();
     if (key === 'hostId') return String(h.hostId || h.address || '').toLowerCase();
     return String(h[key] || '').toLowerCase();
   }
@@ -199,18 +294,19 @@
     }
 
     const control = Y.el('span', { text: h.control, title: CONTROL_HINT[h.control] || '' });
-    const f = facts[h.hostId];
+    const f = facts[factKey(h)];
     const factErr = f && !f.ok ? (f.error || '') : '';
     return Y.el('tr', {}, [
       Y.el('td', {}, [hostCell(h)]),
       Y.el('td', {}, [hostnameCell(h.hostname)]),
-      Y.el('td', {}, [typeCell(h.type)]),
+      Y.el('td', { class: 'host-type' }, [typeCell(h.type)]),
       Y.el('td', {}, [factCell(fmtBytes(factValue(h, 'memory')), factErr)]),
       Y.el('td', {}, [factCell(factValue(h, 'cores'), factErr)]),
       Y.el('td', {}, [factCell(fmtBytes(factValue(h, 'storageTotal')), factErr)]),
       Y.el('td', {}, [factCell(fmtBytes(factValue(h, 'storageFree')), factErr)]),
       Y.el('td', {}, [control]),
-      Y.el('td', {}, [accessCell(h.access)]),
+      Y.el('td', {}, [accessCell(h, 'frameworkAccess', factErr)]),
+      Y.el('td', {}, [accessCell(h, 'projectAccess', factErr)]),
       Y.el('td', {}, [sel])
     ]);
   }
@@ -276,7 +372,7 @@
       hostnamesVisible = !!d.hostnamesVisible;
       render();
       if (d.statusError) {
-        Y.notice('warn', 'Aggregator unavailable (' + d.statusError + '); control state and project access are unknown. Moving hosts still works.');
+        Y.notice('warn', 'Aggregator unavailable (' + d.statusError + '); control state is unknown. Moving hosts still works.');
       } else {
         Y.clearNotice();
       }

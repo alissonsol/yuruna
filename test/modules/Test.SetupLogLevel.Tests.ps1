@@ -40,6 +40,7 @@
     Run: Invoke-Pester -Path test/modules/Test.SetupLogLevel.Tests.ps1
 #>
 
+BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
 $setup    = Join-Path $repoRoot 'install/setup.ps1'
@@ -56,8 +57,8 @@ function Get-ScriptAst {
     return $ast
 }
 
-$setupAst = Get-ScriptAst -Path $setup
-$setupSrc = Get-Content -LiteralPath $setup -Raw
+$script:setupAst = Get-ScriptAst -Path $setup
+$script:setupSrc = Get-Content -LiteralPath $setup -Raw
 
 # Every repo script install/setup.ps1 starts in a child pwsh. Read from the
 # Invoke-RepoScript / Invoke-ServiceVMReset call sites rather than listed by
@@ -79,10 +80,12 @@ function Get-SetupChildScriptName {
     return $names.ToArray()
 }
 
+}
+
 Describe 'setup -logLevel -- the parameter exists and carries the whole cascade' {
 
     It 'declares -logLevel over the five canonical levels' {
-        $param = $setupAst.ParamBlock.Parameters |
+        $param = $script:setupAst.ParamBlock.Parameters |
             Where-Object { $_.Name.VariablePath.UserPath -eq 'logLevel' }
         Assert-True ($null -ne $param) 'install/setup.ps1 must take -logLevel'
         $validate = $param.Attributes |
@@ -95,19 +98,19 @@ Describe 'setup -logLevel -- the parameter exists and carries the whole cascade'
     }
 
     It 'resolves through the shared cascade rather than its own preference edits' {
-        Assert-True ($setupSrc -match 'Test\.LogLevel\\Resolve-LogLevel') `
+        Assert-True ($script:setupSrc -match 'Test\.LogLevel\\Resolve-LogLevel') `
             'the level must come from Test.LogLevel (which is what publishes $env:YURUNA_LOG_LEVEL); a private cascade would reach no child'
     }
 
     It 'forwards the resolved level across the Windows elevated relaunch' {
         # The relaunch is the one hop the environment does not survive: RunAs
         # builds the process through the AppInfo service.
-        Assert-True ($setupSrc -match "relaunchArgs \+= @\('-logLevel'") `
+        Assert-True ($script:setupSrc -match "relaunchArgs \+= @\('-logLevel'") `
             'the elevated run must be given the level as an argument, like it is given -LogPath'
     }
 
     It 'records the level in the run log header' {
-        Assert-True ($setupSrc -match "log level\s*:") `
+        Assert-True ($script:setupSrc -match "log level\s*:") `
             'a transcript missing what someone expected has to say which level produced it'
     }
 }
@@ -117,8 +120,12 @@ Describe 'setup -logLevel -- every script the setup starts honours the inherited
     It 'each child script calls Use-LogLevelFromEnv' {
         $missing = [System.Collections.Generic.List[string]]::new()
         $checked = 0
-        foreach ($name in (Get-SetupChildScriptName -Ast $setupAst)) {
-            $path = Join-Path $repoRoot (Join-Path 'test' $name)
+        foreach ($name in (Get-SetupChildScriptName -Ast $script:setupAst)) {
+            # Mirrors how the setup resolves these children: it names them bare and
+            # joins them under $TestRoot/service, so a bare name is only ever found
+            # there. The $checked floor below is what keeps a future move from
+            # turning this guard into a silent no-op.
+            $path = Join-Path $repoRoot (Join-Path 'test' (Join-Path 'service' $name))
             if (-not (Test-Path -LiteralPath $path)) { continue }
             $checked++
             if ((Get-Content -LiteralPath $path -Raw) -notmatch 'Use-LogLevelFromEnv') {

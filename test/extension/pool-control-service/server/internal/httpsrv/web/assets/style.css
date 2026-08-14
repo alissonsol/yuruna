@@ -200,10 +200,12 @@ footer.app a { color: var(--chrome-muted); }
 /* Wider than the other Yuruna UIs on purpose. Every page here is a table whose
    columns are each load-bearing -- a pool, its test set, its members and their
    state -- and at 1100px the member and framework/project columns wrap into
-   unreadable stacks. The cap is still a cap: prose keeps a readable measure on
-   a 4K display instead of running the full width. */
+   unreadable stacks. The Hosts table carries ten such columns, four of them
+   hardware facts, and wraps its cells at 1400px on a display with room to
+   spare. The cap is still a cap: prose keeps a readable measure on a 4K
+   display instead of running the full width. */
 main {
-  max-width: 1400px; margin: 0 auto;
+  max-width: 1700px; margin: 0 auto;
   padding: 1.25rem;
   padding: 1.25rem max(1.25rem, env(safe-area-inset-right)) 1.25rem max(1.25rem, env(safe-area-inset-left));
 }
@@ -222,6 +224,13 @@ th { color: var(--muted); font-weight: 600; font-size: .82rem; text-transform: u
    over its tr's. */
 tbody tr:nth-child(odd) { background: var(--band-odd); }
 tbody tr:nth-child(even) { background: var(--band-even); }
+/* A host type is ONE name that happens to contain dots and a hyphen
+   ("windows.hyper-v"), and auto table layout treats both as break points --
+   it hands the width to the columns beside it and leaves a lone "v" on a
+   second line while the row still has room. The value is only readable as a
+   single token, so it never wraps; the column then reserves what it needs and
+   the phone breakpoint's horizontal scroll absorbs the rest. */
+td.host-type { white-space: nowrap; }
 button { font: inherit; padding: .35rem .7rem; border: 1px solid var(--line); background: var(--btn-bg); color: var(--fg); border-radius: 5px; cursor: pointer; }
 button:hover { background: var(--btn-hover); }
 button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }

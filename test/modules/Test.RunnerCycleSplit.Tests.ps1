@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42b9d4e1-7c53-4a08-8bd6-0f92e5a37c14
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,10 +37,11 @@
     them into the per-cycle path fails here instead of on a live lab host.
 #>
 
+BeforeAll {
 $ErrorActionPreference = 'Stop'
 $testRoot   = Split-Path -Parent $PSScriptRoot
-$cycleFile  = Join-Path $PSScriptRoot 'Invoke-TestCycleRunner.ps1'
-$outerFile  = Join-Path $testRoot 'Invoke-TestRunner.ps1'
+$script:cycleFile  = Join-Path $PSScriptRoot 'Invoke-TestCycleRunner.ps1'
+$script:outerFile  = Join-Path $testRoot 'Invoke-TestRunner.ps1'
 $loopModule = Join-Path $PSScriptRoot 'Test.RunnerOuterLoop.psm1'
 
 Import-Module $loopModule -Force -DisableNameChecking
@@ -52,9 +53,13 @@ function Get-CommandNameList {
         ForEach-Object { $_.GetCommandName() } | Where-Object { $_ })
 }
 
+}
+
 Describe 'Per-cycle runner never performs once-per-runner startup' {
-    $cycleCommands = Get-CommandNameList -Path $cycleFile
-    $outerCommands = Get-CommandNameList -Path $outerFile
+    BeforeAll {
+    $script:cycleCommands = Get-CommandNameList -Path $script:cycleFile
+    $script:outerCommands = Get-CommandNameList -Path $script:outerFile
+    }
 
     It 'does not run the single-instance pidfile dance (it would stop its own parent)' {
         ($cycleCommands -contains 'Get-RunnerInstanceState') | Should -Be $false
@@ -73,12 +78,14 @@ Describe 'Per-cycle runner never performs once-per-runner startup' {
         ($outerCommands -contains 'Initialize-RunnerState')     | Should -Be $true
     }
     It 'spawns the cycle runner rather than the inner runner directly' {
-        (Get-Content $outerFile -Raw) | Should -Match 'Invoke-TestCycleRunner\.ps1'
+        (Get-Content $script:outerFile -Raw) | Should -Match 'Invoke-TestCycleRunner\.ps1'
     }
 }
 
 Describe 'Cycle outcomes are reported, not acted on, inside the cycle' {
-    $cycleFnText = (Get-Command Invoke-RunnerOuterCycle).Definition
+    BeforeAll {
+    $script:cycleFnText = (Get-Command Invoke-RunnerOuterCycle).Definition
+    }
 
     It 'never sleeps inside the cycle (the caller owns every wait, so Ctrl+C stays observable)' {
         # A Start-Sleep here runs where the operator's Ctrl+C flag does not exist,
@@ -100,7 +107,8 @@ Describe 'The cycle process keeps its console clean' {
     # the child leaves on the success stream lands between those lines, and the
     # bool-returning state writers are the easy way to do it by accident: the
     # value looks discarded at the call site and prints a bare "True".
-    $boolReturningWriter = @('Write-YurunaStateFile', 'Write-YurunaStateFileJson')
+    BeforeAll {
+    $script:boolReturningWriter = @('Write-YurunaStateFile', 'Write-YurunaStateFileJson')
 
     function Get-UncapturedCall {
         [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
@@ -120,13 +128,14 @@ Describe 'The cycle process keeps its console clean' {
             $pipeline.Parent -is [System.Management.Automation.Language.StatementBlockAst]
         } | ForEach-Object { "$($_.GetCommandName()) at line $($_.Extent.StartLineNumber)" })
     }
+    }
 
     It 'leaves no state-writer boolean on the cycle runner''s success stream' {
-        $leaks = Get-UncapturedCall -Path $cycleFile -Name $boolReturningWriter
+        $leaks = Get-UncapturedCall -Path $script:cycleFile -Name $boolReturningWriter
         $leaks -join '; ' | Should -Be ''
     }
     It 'leaves no state-writer boolean on the outer runner''s success stream' {
-        $leaks = Get-UncapturedCall -Path $outerFile -Name $boolReturningWriter
+        $leaks = Get-UncapturedCall -Path $script:outerFile -Name $boolReturningWriter
         $leaks -join '; ' | Should -Be ''
     }
 }

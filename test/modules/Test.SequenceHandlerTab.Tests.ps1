@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42c3d4e5-f6a7-4081-9b93-4c5d6e7f8091
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,22 +30,25 @@
     type/drain/Enter tails remain unshared and are out of scope for these guards.)
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
-$src  = Get-Content (Join-Path $here 'Test.SequenceHandler.psm1') -Raw
+$script:src  = Get-Content (Join-Path $here 'Test.SequenceHandler.psm1') -Raw
 
 function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
 
+}
+
 Describe 'sequence-handler-tab -- the Tab-navigation prefix is shared by one helper' {
     It 'defines a Send-TabNavigation helper' {
-        Assert-True ($src -match '(?m)^function Send-TabNavigation\b') `
+        Assert-True ($script:src -match '(?m)^function Send-TabNavigation\b') `
             'the duplicated Tab-navigation loop must collapse into one helper'
     }
     It 'both keyboard-input handlers delegate to Send-TabNavigation' {
-        $n = ([regex]::Matches($src, [regex]::Escape('Send-TabNavigation -Context $c'))).Count
+        $n = ([regex]::Matches($script:src, [regex]::Escape('Send-TabNavigation -Context $c'))).Count
         Assert-True ($n -eq 2) "expected both handlers to call Send-TabNavigation, found $n"
     }
     It 'the Tab-press debug/loop now appears exactly once (inside the helper)' {
-        $n = ([regex]::Matches($src, [regex]::Escape('Sending $tabCount Tab'))).Count
+        $n = ([regex]::Matches($script:src, [regex]::Escape('Sending $tabCount Tab'))).Count
         Assert-True ($n -eq 1) "expected exactly one Tab-navigation loop after dedup, found $n"
     }
 }

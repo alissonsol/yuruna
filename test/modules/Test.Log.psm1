@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456790
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -608,11 +608,57 @@ function Stop-LogFile {
             # cycle.events.ndjson. NDJSON write is best-effort; the
             # gap-sentinel inside Write-CycleNdjsonEvent surfaces
             # any failure.
+            # --- REGION: https://yuruna.link/network#why-a-cycle-records-the-churn-it-met
+            # How many times this host's address moved while the cycle ran. On a
+            # host whose lease is deliberately short, that number is what makes
+            # the verdict mean something: a pass with three changes inside it is
+            # evidence the harness survives IP instability, and a pass with none
+            # is evidence only that the network was quiet. Without it the two are
+            # the same word in the same place. Soft dependency, and zero when the
+            # beacon module is absent, so a host that never renumbers reports 0
+            # rather than failing to close its cycle.
+            # -1, not 0, when the count cannot be taken. Zero is a MEANINGFUL
+            # answer here -- it is the one that says this cycle ran on a quiet
+            # network and proves nothing about surviving churn -- so a failure to
+            # measure must not be able to imitate it. Reporting an unmeasured
+            # cycle as zero is worse than reporting nothing: it reads as evidence.
+            $addressChanges = -1
+            # Imported rather than probed for. A Get-Command guard on a module
+            # nothing else in this session state loads is a guard that is always
+            # false, which is exactly how this silently recorded 0 for every
+            # cycle. The beacon module imports nothing, so there is no cycle.
+            if (-not (Get-Command Get-HostAddressChangeCount -ErrorAction SilentlyContinue)) {
+                try {
+                    Import-Module (Join-Path $PSScriptRoot 'Test.HostAddressBeacon.psm1') -Force -DisableNameChecking -ErrorAction Stop
+                } catch {
+                    Write-Verbose "Stop-LogFile: host-address beacon module unavailable -- $($_.Exception.Message)"
+                }
+            }
+            $runtimeDir = if ($env:YURUNA_RUNTIME_DIR) { $env:YURUNA_RUNTIME_DIR }
+                          else { Join-Path (Split-Path -Parent $PSScriptRoot) 'status' -AdditionalChildPath 'runtime' }
+            if ((Get-Command Get-HostAddressChangeCount -ErrorAction SilentlyContinue) -and
+                $global:__YurunaCycleStartUtc) {
+                try {
+                    $addressChanges = Get-HostAddressChangeCount -RuntimeDir $runtimeDir `
+                        -StartUtc ([datetime]::Parse($global:__YurunaCycleStartUtc).ToUniversalTime()) `
+                        -EndUtc ([datetime]::UtcNow)
+                } catch {
+                    Write-Warning "Stop-LogFile: could not count host address changes -- $($_.Exception.Message)"
+                }
+            }
             Write-CycleNdjsonEvent -EventRecord @{
                 timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
                 event     = 'cycle_end'
                 outcome   = [string]$Outcome
                 reason    = [string]$Reason
+                hostAddressChangesDuringCycle = [int]$addressChanges
+            }
+            # Said out loud on a pass, because that is the case where a low count
+            # quietly weakens the claim. A failing cycle has a louder problem.
+            if ($addressChanges -lt 0) {
+                Write-Warning "Host address changes during this cycle could not be counted; the cycle record carries -1 rather than a number that would read as 'none happened'."
+            } elseif ($Outcome -eq 'pass') {
+                Write-Information "Cycle passed with $addressChanges host address change(s) inside it." -InformationAction Continue
             }
         }
         if ($global:__YurunaLogFile) {

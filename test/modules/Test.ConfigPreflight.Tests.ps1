@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 4279eb7c-6790-4ef6-934f-bbde817895d6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,6 +36,7 @@
     and Pester 5+. Run: Invoke-Pester -Path test/modules/Test.ConfigPreflight.Tests.ps1
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.ConfigPreflight.psm1') -Force -DisableNameChecking
 
@@ -48,16 +49,16 @@ function Assert-True  { param($Condition, [string]$Because='') if (-not $Conditi
 # deleted during discovery and every It would then spawn against a gate script
 # that no longer exists. $PID is stable across the two passes.
 $preflightRoot = Join-Path ([System.IO.Path]::GetTempPath()) "yuruna-configpreflight-tests-$PID"
-$gateRoot      = Join-Path $preflightRoot 'testroot-with-gate'     # TestRoot that HAS Test-Config.ps1
-$emptyRoot     = Join-Path $preflightRoot 'testroot-without-gate'  # TestRoot that does NOT
-$planRoot      = Join-Path $preflightRoot 'plans'                  # the per-test stub scripts
+$script:gateRoot      = Join-Path $preflightRoot 'testroot-with-gate'     # TestRoot that HAS Test-Config.ps1
+$script:emptyRoot     = Join-Path $preflightRoot 'testroot-without-gate'  # TestRoot that does NOT
+$script:planRoot      = Join-Path $preflightRoot 'plans'                  # the per-test stub scripts
 
 # The stand-in for test/Test-Config.ps1. Invoke-ConfigGate spawns it as
 #   pwsh -NoProfile -ExecutionPolicy Bypass -File <gate> -SkipSend -ConfigPath <cfg>
 # so it must accept exactly those two parameters. It replays a scripted
 # transcript and exit code out of the JSON at -ConfigPath, and records how it
 # was called so a test can prove the spawn happened (or did not).
-$stubGateBody = @'
+$script:stubGateBody = @'
 [CmdletBinding()]
 param(
     [switch]$SkipSend,
@@ -120,7 +121,7 @@ function Get-GateOutcome {
 # "=" banner, the FAILURES header, the per-failure detail, then the matching
 # END OF FAILURES footer between two more banners. The gate's excerpt logic
 # keys off exactly this, so the stub reproduces it verbatim.
-$failuresTranscript = @(
+$script:failuresTranscript = @(
     'Checking config files...',
     'UNRELATED-CHATTER-BEFORE',
     '',
@@ -140,11 +141,13 @@ $failuresTranscript = @(
     'UNRELATED-CHATTER-AFTER'
 )
 
+}
+
 Describe 'Invoke-ConfigGate' {
 
     BeforeAll {
-        foreach ($d in @($gateRoot, $emptyRoot, $planRoot)) { New-Item -ItemType Directory -Path $d -Force | Out-Null }
-        Set-Content -LiteralPath (Join-Path $gateRoot 'Test-Config.ps1') -Value $stubGateBody
+        foreach ($d in @($script:gateRoot, $script:emptyRoot, $script:planRoot)) { New-Item -ItemType Directory -Path $d -Force | Out-Null }
+        Set-Content -LiteralPath (Join-Path $script:gateRoot 'Test-Config.ps1') -Value $script:stubGateBody
     }
 
     AfterAll {
@@ -154,8 +157,8 @@ Describe 'Invoke-ConfigGate' {
     Context 'bypass paths' {
 
         It 'passes and reports skipped when TestRoot has no Test-Config.ps1' {
-            $plan = New-GatePlan -Root $planRoot -Name 'absent-gate' -Stdout @('must not run') -ExitCode 9
-            $o    = Get-GateOutcome -TestRoot $emptyRoot -ConfigPath $plan.ConfigPath
+            $plan = New-GatePlan -Root $script:planRoot -Name 'absent-gate' -Stdout @('must not run') -ExitCode 9
+            $o    = Get-GateOutcome -TestRoot $script:emptyRoot -ConfigPath $plan.ConfigPath
             Assert-Equal -Expected $true -Actual $o.Result.passed  -Because 'a harness without the gate script must not be blocked from cycling'
             Assert-Equal -Expected $true -Actual $o.Result.skipped
             Assert-Equal -Expected 0     -Actual $o.Result.exitCode
@@ -164,8 +167,8 @@ Describe 'Invoke-ConfigGate' {
         }
 
         It 'passes and reports skipped for -Skip, without spawning Test-Config.ps1 at all' {
-            $plan = New-GatePlan -Root $planRoot -Name 'skip' -Stdout @('must not run') -ExitCode 9
-            $o    = Get-GateOutcome -TestRoot $gateRoot -ConfigPath $plan.ConfigPath -Skip
+            $plan = New-GatePlan -Root $script:planRoot -Name 'skip' -Stdout @('must not run') -ExitCode 9
+            $o    = Get-GateOutcome -TestRoot $script:gateRoot -ConfigPath $plan.ConfigPath -Skip
             Assert-Equal -Expected $true -Actual $o.Result.passed
             Assert-Equal -Expected $true -Actual $o.Result.skipped
             Assert-Equal -Expected 0     -Actual $o.Result.exitCode -Because 'a bypassed gate never carries a child exit code'
@@ -177,8 +180,8 @@ Describe 'Invoke-ConfigGate' {
     Context 'green gate' {
 
         It 'spawns Test-Config.ps1 with -SkipSend and the caller ConfigPath, then says nothing' {
-            $plan = New-GatePlan -Root $planRoot -Name 'green' -Stdout @('  PASS:  12   WARN:   0   FAIL:   0') -ExitCode 0
-            $o    = Get-GateOutcome -TestRoot $gateRoot -ConfigPath $plan.ConfigPath
+            $plan = New-GatePlan -Root $script:planRoot -Name 'green' -Stdout @('  PASS:  12   WARN:   0   FAIL:   0') -ExitCode 0
+            $o    = Get-GateOutcome -TestRoot $script:gateRoot -ConfigPath $plan.ConfigPath
             Assert-Equal -Expected $true  -Actual $o.Result.passed
             Assert-Equal -Expected $false -Actual $o.Result.skipped -Because 'the gate really ran'
             Assert-Equal -Expected 0      -Actual $o.Result.exitCode
@@ -196,8 +199,8 @@ Describe 'Invoke-ConfigGate' {
     Context 'red gate' {
 
         It 'fails, propagates the child exit code, and repeats only the FAILURES block' {
-            $plan = New-GatePlan -Root $planRoot -Name 'red' -Stdout $failuresTranscript -ExitCode 7
-            $o    = Get-GateOutcome -TestRoot $gateRoot -ConfigPath $plan.ConfigPath -CallerName 'Invoke-TestRunner'
+            $plan = New-GatePlan -Root $script:planRoot -Name 'red' -Stdout $script:failuresTranscript -ExitCode 7
+            $o    = Get-GateOutcome -TestRoot $script:gateRoot -ConfigPath $plan.ConfigPath -CallerName 'Invoke-TestRunner'
             Assert-Equal -Expected $false -Actual $o.Result.passed
             Assert-Equal -Expected 7      -Actual $o.Result.exitCode -Because 'the caller reports the child exit code, not a generic 1'
             Assert-Equal -Expected $false -Actual $o.Result.skipped
@@ -212,8 +215,8 @@ Describe 'Invoke-ConfigGate' {
         }
 
         It 'finds the FAILURES block even when the child wrote it to stderr' {
-            $plan = New-GatePlan -Root $planRoot -Name 'red-stderr' -Stderr $failuresTranscript -ExitCode 2
-            $o    = Get-GateOutcome -TestRoot $gateRoot -ConfigPath $plan.ConfigPath
+            $plan = New-GatePlan -Root $script:planRoot -Name 'red-stderr' -Stderr $script:failuresTranscript -ExitCode 2
+            $o    = Get-GateOutcome -TestRoot $script:gateRoot -ConfigPath $plan.ConfigPath
             Assert-Equal -Expected $false -Actual $o.Result.passed
             Assert-Equal -Expected 2      -Actual $o.Result.exitCode
             Assert-True  ($o.Text -match 'poolStorageNetworkPath is not reachable') `
@@ -231,8 +234,8 @@ Describe 'Invoke-ConfigGate' {
                 '        ssh transport unreachable',
                 'TRUNCATED-TAIL-AFTER-CRASH'
             )
-            $plan = New-GatePlan -Root $planRoot -Name 'red-truncated' -Stdout $truncated -ExitCode 1
-            $o    = Get-GateOutcome -TestRoot $gateRoot -ConfigPath $plan.ConfigPath
+            $plan = New-GatePlan -Root $script:planRoot -Name 'red-truncated' -Stdout $truncated -ExitCode 1
+            $o    = Get-GateOutcome -TestRoot $script:gateRoot -ConfigPath $plan.ConfigPath
             Assert-Equal -Expected $false -Actual $o.Result.passed
             Assert-True  ($o.Text -match 'ssh transport unreachable') 'a partial block is surfaced, not swallowed'
             Assert-True  ($o.Text -match 'TRUNCATED-TAIL-AFTER-CRASH') 'with no footer the excerpt runs to the end of the capture'
@@ -240,8 +243,8 @@ Describe 'Invoke-ConfigGate' {
 
         It 'falls back to the last lines of output when the child fails without a FAILURES block' {
             $crash = @('Loading config...', 'System.Exception: the yaml blew up', 'at <ScriptBlock>, line 12')
-            $plan  = New-GatePlan -Root $planRoot -Name 'red-crash' -Stdout $crash -ExitCode 3
-            $o     = Get-GateOutcome -TestRoot $gateRoot -ConfigPath $plan.ConfigPath
+            $plan  = New-GatePlan -Root $script:planRoot -Name 'red-crash' -Stdout $crash -ExitCode 3
+            $o     = Get-GateOutcome -TestRoot $script:gateRoot -ConfigPath $plan.ConfigPath
             Assert-Equal -Expected $false -Actual $o.Result.passed
             Assert-Equal -Expected 3      -Actual $o.Result.exitCode
             Assert-True  ($o.Text -match 'did not emit a FAILURES block') 'the operator is told why there is no excerpt'
@@ -250,8 +253,8 @@ Describe 'Invoke-ConfigGate' {
         }
 
         It 'still reports the failure when the child produces no output at all' {
-            $plan = New-GatePlan -Root $planRoot -Name 'red-silent' -ExitCode 4
-            $o    = Get-GateOutcome -TestRoot $gateRoot -ConfigPath $plan.ConfigPath
+            $plan = New-GatePlan -Root $script:planRoot -Name 'red-silent' -ExitCode 4
+            $o    = Get-GateOutcome -TestRoot $script:gateRoot -ConfigPath $plan.ConfigPath
             Assert-Equal -Expected $false -Actual $o.Result.passed
             Assert-Equal -Expected 4      -Actual $o.Result.exitCode
             Assert-True  ($o.Text -match 'Pre-cycle config gate FAILED') 'an opaque child failure still stops the cycle with a banner'

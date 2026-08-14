@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 421e2a7b-3d84-4f61-9a05-8e6d2b9c4f17
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,11 +36,13 @@
          detail so a non-zero exit is always diagnosable.
 
     AST/source-only -- no OCR engine, worker process, or host I/O is required.
-    The throw-based Assert-* helpers are defined at script scope and referenced
-    from It blocks, so this runs under Pester 4.10.1 (Pester 5's scope split
-    hides top-level helpers from It blocks).
+    The throw-based Assert-* helpers live in the file's BeforeAll, which is the
+    scope Pester 5 shares with the It blocks; defining them at script scope
+    instead makes every It fail on a missing command rather than on an
+    assertion.
 #>
 
+BeforeAll {
 $here       = Split-Path -Parent $PSCommandPath
 $modulePath = Join-Path $here 'Test.OcrEngine.psm1'
 
@@ -182,8 +184,10 @@ function Test-FunctionPinsNativeEap {
 }
 
 $rootAst   = Get-ModuleAst -Path $modulePath
-$invokeWin = Get-FunctionAst -RootAst $rootAst -FunctionName 'Invoke-WinRtOcr'
-$getVision = Get-FunctionAst -RootAst $rootAst -FunctionName 'Get-VisionOcrBinaryPath'
+$script:invokeWin = Get-FunctionAst -RootAst $rootAst -FunctionName 'Invoke-WinRtOcr'
+$script:getVision = Get-FunctionAst -RootAst $rootAst -FunctionName 'Get-VisionOcrBinaryPath'
+
+}
 
 Describe 'WinRT worker fallback emits a counted structured event' {
     It 'declares a module-scoped worker fallback counter' {
@@ -191,8 +195,8 @@ Describe 'WinRT worker fallback emits a counted structured event' {
             'a chronic worker fallback must be counted, not just Verbose-logged'
     }
     It 'Invoke-WinRtOcr increments the counter and emits an ocr_worker_fallback event' {
-        Assert-True (Test-AstReferencesVar -Ast $invokeWin -VarName 'WinRtOcrWorkerFallbackCount') 'the fallback path touches the counter'
-        Assert-True (Test-AstContainsString -Ast $invokeWin -Value 'ocr_worker_fallback') 'the fallback emits a structured event a remediator can route on'
+        Assert-True (Test-AstReferencesVar -Ast $script:invokeWin -VarName 'WinRtOcrWorkerFallbackCount') 'the fallback path touches the counter'
+        Assert-True (Test-AstContainsString -Ast $script:invokeWin -Value 'ocr_worker_fallback') 'the fallback emits a structured event a remediator can route on'
     }
 }
 
@@ -202,11 +206,11 @@ Describe 'Vision swiftc negative cache + one-time slow-path event' {
             'a missing/broken swiftc must be probed once, not on every OCR poll'
     }
     It 'Get-VisionOcrBinaryPath short-circuits on the negative-probe flag' {
-        Assert-True (Test-AstIfConditionOnVar -Ast $getVision -VarName 'VisionOcrBinaryProbeFailed') `
+        Assert-True (Test-AstIfConditionOnVar -Ast $script:getVision -VarName 'VisionOcrBinaryProbeFailed') `
             'the flag must gate an early return so the compile is not re-attempted every poll'
     }
     It 'Get-VisionOcrBinaryPath latches the slow path via Write-VisionOcrSlowPathEvent' {
-        Assert-True (Test-AstCallsCommand -Ast $getVision -CommandName 'Write-VisionOcrSlowPathEvent') `
+        Assert-True (Test-AstCallsCommand -Ast $script:getVision -CommandName 'Write-VisionOcrSlowPathEvent') `
             'swiftc-missing and compile-fail both latch the negative cache and emit the event'
     }
     It 'emits a one-time ocr_vision_slowpath event' {
@@ -218,18 +222,18 @@ Describe 'Vision swiftc negative cache + one-time slow-path event' {
         Assert-True (Test-AstAssignsVar -Ast $clr -VarName 'VisionOcrBinaryProbeFailed') 'the seam must clear the negative cache'
     }
     It 'Get-VisionOcrBinaryPath pins the native-command EAP so a swiftc non-zero exit is caught, not thrown' {
-        Assert-True (Test-FunctionPinsNativeEap -FuncAst $getVision) `
+        Assert-True (Test-FunctionPinsNativeEap -FuncAst $script:getVision) `
             'without the pin a non-zero swiftc exit throws under EAP=Stop before the compile-fail branch latches the cache'
     }
 }
 
 Describe 'WinRT one-shot is EAP-guarded and diagnosable' {
     It 'Invoke-WinRtOcr pins the native-command EAP' {
-        Assert-True (Test-FunctionPinsNativeEap -FuncAst $invokeWin) `
+        Assert-True (Test-FunctionPinsNativeEap -FuncAst $script:invokeWin) `
             'without the pin a non-zero powershell.exe exit throws NativeCommandExitException before the diagnostic branch on PS 7.4+'
     }
     It 'the one-shot failure detail includes stdout strings, not ErrorRecord only' {
-        Assert-True (Test-FunctionThrowsWithVar -FuncAst $invokeWin -VarName 'detail') `
+        Assert-True (Test-FunctionThrowsWithVar -FuncAst $script:invokeWin -VarName 'detail') `
             'a failing powershell.exe often writes its diagnostic to stdout; an ErrorRecord-only filter throws with an empty detail'
     }
 }
@@ -254,7 +258,7 @@ Describe 'ocr-hash-cache -- content-addressed temp-path hashing is centralized' 
         Assert-True (Test-AstCallsCommand -Ast $res -CommandName 'Get-OcrSourceHashKey') 'the cache helper hashes via the shared slice helper'
     }
     It 'Get-VisionOcrBinaryPath reuses the shared hash-key helper for its third copy' {
-        Assert-True (Test-AstCallsCommand -Ast $getVision -CommandName 'Get-OcrSourceHashKey') `
+        Assert-True (Test-AstCallsCommand -Ast $script:getVision -CommandName 'Get-OcrSourceHashKey') `
             'the third inline hash-slice copy must reuse the shared helper'
     }
     It 'the raw SHA-256 HashData invocation appears exactly once (inside the helper)' {

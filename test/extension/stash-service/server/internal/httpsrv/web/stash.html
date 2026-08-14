@@ -30,6 +30,32 @@
     </div>
   </header>
   <main id="main">
+    <!-- Same lab-token prompt as the list page: viewing and downloading render
+         regardless, and Delete is the one action that needs a session. -->
+    <section id="login" class="login" hidden>
+      <form id="login-form" class="row">
+        <input id="lab-token" type="text" maxlength="6" size="8"
+               autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"
+               placeholder="Lab token" aria-label="Six-character lab token from the dashboard">
+        <button type="submit" class="btn primary">Unlock actions</button>
+        <span id="login-error" class="muted"></span>
+      </form>
+      <p class="muted">
+        The 6-character code on the Yuruna hosts dashboard's <em>Lab token</em>
+        tile; upper or lower case both work. Opening this page from that
+        dashboard unlocks it without the code. Needed only to delete.
+      </p>
+      <p class="muted">
+        If unlocking answers that the code <em>could not be checked</em>, the
+        code is not the problem — the pool aggregator that checks it is
+        unreachable, and you cannot unlock until it is back.
+      </p>
+    </section>
+    <p id="gate-unconfigured" class="muted" hidden>
+      No pool aggregator is configured, so no Lab token can be checked and
+      nothing here can be deleted. Set <code>--aggregator-url</code> on the
+      daemon to enable it.
+    </p>
     <div id="msg"></div>
     <div id="detail" class="muted">Loading…</div>
   </main>

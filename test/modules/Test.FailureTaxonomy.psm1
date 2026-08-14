@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42b7e3c5-9a14-4d28-8f63-1e0a2b4c6d80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -58,8 +58,22 @@ $script:FailureClassEnum = @(
     # call usually answers seconds later. It therefore belongs in the transient
     # fast-retry allow-lists, and must never be reported as script_error -- the
     # guest script never ran, and sending a reader to debug it wastes the cycle.
+    # payload_unavailable: the guest was reached and ran the fetch wrapper, but no
+    # source served the script, so the payload never executed. Distinct from
+    # ip_not_discovered, where the HOST could not name the guest: here the guest is
+    # up and talking, and it is the host that it cannot reach. Distinct from
+    # script_error for the reason that matters most -- nothing ran, so there is no
+    # script to debug and no guest state to distrust, which is what makes replaying
+    # the step sound. The usual cause is a host that renumbered under DHCP while the
+    # guest still held its old address; the guest re-asks the pool directory and
+    # normally recovers, so this belongs in the transient fast-retry allow-lists.
+    # It stays ONE class rather than splitting on which leg failed: whether the
+    # payload arrives next time depends on the host becoming reachable again, not
+    # on the GitHub fallback, so a terminal 404 from that fallback does not make
+    # the failure permanent. Where the fallback IS the dead end -- a private
+    # repository with no token -- the recovery text names it.
     'bootstrap_sync', 'plan_invalid', 'elevation_required', 'project_access_denied',
-    'host_network_degraded', 'ip_not_discovered', 'unknown'
+    'host_network_degraded', 'ip_not_discovered', 'payload_unavailable', 'unknown'
 )
 $script:SeverityEnum = @('hard', 'soft', 'unknown')
 

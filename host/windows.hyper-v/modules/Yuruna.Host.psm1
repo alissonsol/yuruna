@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -4339,7 +4339,7 @@ function Remove-OrphanedVMFileAccess {
         (S-1-5-83-0), capability SIDs, and live VMs' own ACEs stay, so it is
         safe to run while other VMs use the file. Set-Acl writes a SMALLER
         descriptor, so it succeeds even when the on-disk ACL is already at
-        the limit. See https://yuruna.link/vmconfig#hyper-v-iso-ace-bloat.
+        the limit. See https://yuruna.link/vmconfig#hyper-v-iso-ace-bloat
     .OUTPUTS
         System.Int32 -- the number of stale per-VM ACEs removed.
     #>

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.11
+# Version: 2026.08.14
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -88,24 +88,14 @@ HTTP_ADDR="${STASH_HTTP_ADDR-0.0.0.0:80}"
 POOL_WINDOW_DAYS="${STASH_POOL_WINDOW_DAYS:-30}"
 AGGREGATOR_URL_SEED=$(sed -nE "s/^YURUNA_AGGREGATOR_URL='(.*)'\$/\1/p" /etc/yuruna/pool.env 2>/dev/null | head -n1 || true)
 AGGREGATOR_URL="${STASH_AGGREGATOR_URL:-$AGGREGATOR_URL_SEED}"
-# Host IP (the deploying host): the one non-VM source allowed to DELETE stashes;
-# reads and writes stay open to any host. Sed-extracted from the seed's
-# host.env (never sourced); empty leaves deletes VM-local-only. An operator
-# STASH_HOST_IP export wins for a dev launch off the seed.
-HOST_IP_SEED=$(sed -nE 's/^YURUNA_STATUS_SERVICE_IP=(.*)$/\1/p' /etc/yuruna/host.env 2>/dev/null | head -n1 || true)
-HOST_IP="${STASH_HOST_IP:-$HOST_IP_SEED}"
-# Said out loud during bring-up, not only in the summary below: the seed value
-# is the guest-reachable HOST address, while the gate compares against the
-# SOURCE address a browser arrives from. On a multi-homed host, or one
-# re-addressed since the seed was baked, those differ and every delete from
-# the host is then refused -- a build-time line is the cheapest place to
-# notice, since the symptom only appears later and only on a click.
-if [ -n "$HOST_IP" ]; then
-  if [ -n "${STASH_HOST_IP:-}" ]; then HOST_IP_FROM="STASH_HOST_IP"; else HOST_IP_FROM="/etc/yuruna/host.env"; fi
-  echo "Delete authorization: this VM plus host IP $HOST_IP (from $HOST_IP_FROM)."
+# Delete authorization rides on the aggregator URL above: the daemon holds no
+# lab auth token of its own, so the aggregator is what judges a Lab token or a
+# dashboard control proof. Without one, nothing can be deleted through the UI.
+if [ -n "$AGGREGATOR_URL" ]; then
+  echo "Delete authorization: Lab token or Yuruna hosts dashboard link, checked by $AGGREGATOR_URL."
 else
-  echo "WARNING: no host IP resolved (STASH_HOST_IP unset, /etc/yuruna/host.env carries none)."
-  echo "         Only this VM will be able to DELETE stashes; a browser on the host gets 403."
+  echo "WARNING: no aggregator URL resolved (STASH_AGGREGATOR_URL unset, /etc/yuruna/pool.env carries none)."
+  echo "         Browsing and creating still work, but nothing can be DELETED through the UI."
 fi
 # Presence beacon (§4.7): the daemon self-announces to the aggregator on
 # boot, every PRESENCE_INTERVAL, and at shutdown, so the pool dashboard's
@@ -262,7 +252,6 @@ HTTP_ADDR=$HTTP_ADDR
 POOL_WINDOW_DAYS=$POOL_WINDOW_DAYS
 AGGREGATOR_URL=$AGGREGATOR_URL
 HOST_ID=$HOST_ID
-HOST_IP=$HOST_IP
 PRESENCE_INTERVAL=$PRESENCE_INTERVAL
 ENV
 
@@ -285,7 +274,7 @@ Wants=network-online.target
 Type=simple
 User=$SERVICE_USER
 EnvironmentFile=/etc/yuruna/stash.env
-ExecStart=/usr/local/bin/stash-service --share-folder \${SHARE_FOLDER} --metadata-dir \${METADATA_DIR} --buffer-dir \${BUFFER_DIR} --http-addr=\${HTTP_ADDR} --pool-window-days=\${POOL_WINDOW_DAYS} --aggregator-url=\${AGGREGATOR_URL} --host-id=\${HOST_ID} --host-ip=\${HOST_IP} --presence-interval=\${PRESENCE_INTERVAL}
+ExecStart=/usr/local/bin/stash-service --share-folder \${SHARE_FOLDER} --metadata-dir \${METADATA_DIR} --buffer-dir \${BUFFER_DIR} --http-addr=\${HTTP_ADDR} --pool-window-days=\${POOL_WINDOW_DAYS} --aggregator-url=\${AGGREGATOR_URL} --host-id=\${HOST_ID} --presence-interval=\${PRESENCE_INTERVAL}
 Restart=on-failure
 RestartSec=5
 StandardOutput=journal
@@ -342,12 +331,12 @@ if [ -n "$HTTP_ADDR" ]; then
 else
   echo "  UI/API     : disabled (STASH_HTTP_ADDR empty)"
 fi
-if [ -n "$HOST_IP" ]; then
-  echo "  Delete from: this VM, or $HOST_IP -- any other source is refused"
-  echo "               (on the browsing machine, 'ip route get <vm-ip>' shows the address it will be seen as)"
+if [ -n "$AGGREGATOR_URL" ]; then
+  echo "  Delete     : unlock with the dashboard Lab token, or arrive from the Yuruna hosts dashboard"
+  echo "               (reaches every host's stashes on the share, not only this one's)"
 else
-  echo "  Delete from: this VM only -- no host IP was resolved"
-  echo "               (re-run with STASH_HOST_IP=<address> to allow the browsing host)"
+  echo "  Delete     : unavailable -- no aggregator URL, so no Lab token can be checked"
+  echo "               (re-run with STASH_AGGREGATOR_URL=<url> to enable it)"
 fi
 echo "  systemd    : sudo systemctl status stash-service.service"
 echo "  logs       : sudo journalctl -u stash-service.service -f"

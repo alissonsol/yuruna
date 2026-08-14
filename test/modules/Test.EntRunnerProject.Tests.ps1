@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42d8e9f0-a1b2-4c34-9d56-7e8f9a0b1c25
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,13 +29,14 @@
     stream). Pester 4.10.1.
 #>
 
+BeforeAll {
 $here       = Split-Path -Parent $PSCommandPath
 $scriptPath = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath 'Invoke-TestRunner.ps1')).Path
 # The AST is an unqualified file-scope variable: inside an It block a $script: reference
 # resolves to the test runner's own script scope, not this file's, so a $script:-qualified
 # fixture reaches the assertions as $null.
 $errs = $null
-$runnerAst = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$errs)
+$script:runnerAst = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$errs)
 if ($errs) { throw "Parse errors in Invoke-TestRunner.ps1: $($errs[0].Message)" }
 
 function Get-YamlPreflightIf {
@@ -52,17 +53,19 @@ function Get-BodyNodeCount {
     @($Body.FindAll($Predicate, $true)).Count
 }
 
+}
+
 Describe 'The outer runner hard-fails on a missing powershell-yaml' {
     It 'has a powershell-yaml availability pre-flight' {
-        (Get-YamlPreflightIf -Ast $runnerAst) | Should -Not -BeNullOrEmpty
+        (Get-YamlPreflightIf -Ast $script:runnerAst) | Should -Not -BeNullOrEmpty
     }
     It 'refuses to start (the pre-flight body exits) rather than warn and continue' {
-        $body = (Get-YamlPreflightIf -Ast $runnerAst).Clauses[0].Item2
+        $body = (Get-YamlPreflightIf -Ast $script:runnerAst).Clauses[0].Item2
         (Get-BodyNodeCount $body { param($n) $n -is [System.Management.Automation.Language.ExitStatementAst] }) |
             Should -BeGreaterOrEqual 1
     }
     It 'routes the reason through Write-OuterLog so it lands in outer.log' {
-        $body = (Get-YamlPreflightIf -Ast $runnerAst).Clauses[0].Item2
+        $body = (Get-YamlPreflightIf -Ast $script:runnerAst).Clauses[0].Item2
         (Get-BodyNodeCount $body { param($n)
             $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Write-OuterLog'
         }) | Should -BeGreaterOrEqual 1
@@ -72,7 +75,7 @@ Describe 'The outer runner hard-fails on a missing powershell-yaml' {
         # report powershell-yaml missing and Write-OuterLog stubbed away. If the block
         # exits, the child returns 1 and the trailing marker never prints; a warn-and-
         # continue block would fall through to the marker and exit 0.
-        $blockText = (Get-YamlPreflightIf -Ast $runnerAst).Extent.Text
+        $blockText = (Get-YamlPreflightIf -Ast $script:runnerAst).Extent.Text
         $child = @"
 function Write-OuterLog { param([Parameter(ValueFromRemainingArguments)]`$a) }
 function Get-Module { `$null }

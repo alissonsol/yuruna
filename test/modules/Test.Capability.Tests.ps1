@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42b6d9f1-3c75-4e82-a0d4-6f8b1c2e3a49
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,6 +28,7 @@
     helpers (matching the production Copy-FailureArtifactsToStatusLog pattern).
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.Capability.psm1') -Force -DisableNameChecking -ErrorAction SilentlyContinue
 
@@ -64,6 +65,8 @@ function Remove-RegFixture {
     $global:__YurunaRunId   = $Fixture.Saved.RunId
     $env:YURUNA_RUNTIME_DIR = $Fixture.Saved.RuntimeDir
     Remove-Item -LiteralPath $Fixture.Tmp -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 }
 
 Describe 'Write-HostRegistrationRecord' {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345672a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,6 +44,45 @@ $script:Fail = Get-SequenceFailureState
 # per language rather than two bare literals that can silently drift; the
 # Test.NonzeroExitSentinel drift-guard asserts the bash producer agrees.
 $script:NonzeroScriptExitSentinel = 'NONZERO SCRIPT EXIT:'
+
+# The wrapper prints the sentinel for two different events, and only it can tell
+# them apart: a script that RAN and exited non-zero, and a payload that was never
+# served so nothing ran at all. It already says which in the parenthetical it
+# appends. Matching only the sentinel discards that, and the second event then
+# arrives as the verb registry's script_error -- a script to debug that never
+# existed, and a class the transient allow-lists exclude, so the failure most
+# likely to clear on its own is the one nothing retries.
+#
+# These are the never-ran reasons that are SAFE to retry. Two are deliberately
+# absent. "(exit N)" is the script's own non-zero status -- it ran, and
+# script_error is correct. "(integrity mismatch -- refusing to run)" also never
+# ran, but it is a refusal, not a shortage: the fetched bytes did not match the
+# host's digest, and a retry is the one response that must not be advertised for
+# it. The strings are mirrored from automation/fetch-and-execute.sh and pinned
+# against it by a drift guard, the same coupling the sentinel itself uses.
+$script:PayloadUnavailableReason = @(
+    '(no fetch source)',
+    '(fetch failed, wget exit ',
+    '(could not create temp file)'
+)
+
+function Test-GuestPayloadUnavailable {
+    <#
+    .SYNOPSIS
+        Did the guest report that no source served the script, so nothing ran?
+    .OUTPUTS
+        [bool] true only for a wrapper failure that never reached the payload.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([AllowNull()][string]$Output)
+    if ([string]::IsNullOrEmpty($Output)) { return $false }
+    if ($Output -notmatch [regex]::Escape($script:NonzeroScriptExitSentinel)) { return $false }
+    foreach ($reason in $script:PayloadUnavailableReason) {
+        if ($Output.Contains($reason)) { return $true }
+    }
+    return $false
+}
 
 # Console-typed length above which a fetchAndExecute step is flagged.
 #
@@ -500,6 +539,14 @@ Register-SequenceAction -Name 'loadDiskSnapshot' -HostIORequirement @() -OcrRequ
         param([hashtable]$c)
         $snapId = & $c.ExpandVariable $c.Step.id $c.Vars
         if (-not $snapId) { Write-Warning "      loadDiskSnapshot: missing required 'id' field."; return $false }
+        # A restore boots the guest again, so it goes back for a fresh lease and
+        # the address ssh proved a moment ago belongs to the generation being
+        # discarded. Forget it here rather than letting the age bound retire it:
+        # the bound exists for addresses that MIGHT have moved, and this one
+        # certainly has.
+        if (Get-Command Clear-ProvenGuestAddress -ErrorAction SilentlyContinue) {
+            Clear-ProvenGuestAddress -VMName $c.VMName
+        }
         if (-not (Get-Command Restore-VMDiskSnapshot -ErrorAction SilentlyContinue)) {
             Write-Warning "      loadDiskSnapshot: Restore-VMDiskSnapshot not loaded (Yuruna.Host import missing)."
             return $false
@@ -1186,7 +1233,13 @@ Register-SequenceAction -Name 'sshExec' -HostIORequirement @() -OcrRequired $fal
         # below, so a successful step never leaves the signal behind for a later
         # step's failure record to pick up.
         $script:Fail.StepGuestAddressUnresolved = $null
-        $result  = Invoke-GuestSsh -VMName $c.VMName -GuestKey $c.GuestKey -Command $cmd -TimeoutSeconds $timeout
+        $script:Fail.StepGuestTransportLost     = $null
+        # No reconnect by default: this verb runs whatever command the YAML
+        # names, and a dropped transport leaves it unknown whether that command
+        # already ran. A step whose command is safe to repeat opts in with
+        # `transportRetries:`.
+        $transportRetries = $null -ne $c.Step.transportRetries ? [int]$c.Step.transportRetries : 0
+        $result  = Invoke-GuestSsh -VMName $c.VMName -GuestKey $c.GuestKey -Command $cmd -TimeoutSeconds $timeout -TransportRetryCount $transportRetries
         Write-Debug "      sshExec output: $($result.output)"
         [void](Publish-GuestRetryMarker -Output $result.output -GuestKey $c.GuestKey -VmName $c.VMName)
         if (-not $result.success) {
@@ -1195,6 +1248,7 @@ Register-SequenceAction -Name 'sshExec' -HostIORequirement @() -OcrRequired $fal
                 return $true
             }
             if (-not $result.addressResolved) { $script:Fail.StepGuestAddressUnresolved = $true }
+            if ($result.transportLost) { $script:Fail.StepGuestTransportLost = $true }
             Write-Warning "      sshExec failed (exit=$($result.exitCode)): $masked"
             if ($result.output) { Write-Warning "      output: $($result.output)" }
             return $false
@@ -1213,11 +1267,35 @@ Register-SequenceAction -Name 'sshFetchAndExecute' -HostIORequirement @() -OcrRe
         $timeout = $c.Step.timeoutSeconds ? [int]$c.Step.timeoutSeconds : $c.DefaultTimeoutSeconds
         Write-Debug "      sshFetchAndExecute: $cmd"
         $script:Fail.StepGuestAddressUnresolved = $null
-        $result  = Invoke-GuestSsh -VMName $c.VMName -GuestKey $c.GuestKey -Command $cmd -TimeoutSeconds $timeout
+        $script:Fail.StepGuestTransportLost     = $null
+        $script:Fail.StepGuestRunLost           = $null
+        $script:Fail.StepGuestPayloadUnavailable = $null
+        # --- REGION: https://yuruna.link/network#why-detached-is-the-default-for-fetched-scripts
+        # Detached by default. The payload runs under a supervisor on the guest
+        # and outlives the session, so a renumber costs a re-attach instead of
+        # the step -- and, unlike a re-run, that is sound for a payload that
+        # seeds records and then asserts counts over them, which is most of what
+        # this verb carries. `detach: false` opts a step out.
+        #
+        # The token is derived rather than random, and that is load-bearing
+        # twice: a reconnect within the step attaches to the same run, and a
+        # warm resume that re-enters this step on a guest that is still up
+        # attaches to the work already in flight rather than starting it again.
+        $detach = $null -ne $c.Step.detach ? [bool]$c.Step.detach : $true
+        $detachToken = ''
+        if ($detach) {
+            $detachToken = Get-GuestRunToken -SequencePath $c.SequencePath -StepNumber $c.StepNum -VMName $c.VMName
+        }
+        $transportRetries = $null -ne $c.Step.transportRetries ? [int]$c.Step.transportRetries : 0
+        $result  = Invoke-GuestSsh -VMName $c.VMName -GuestKey $c.GuestKey -Command $cmd -TimeoutSeconds $timeout `
+                       -TransportRetryCount $transportRetries -DetachToken $detachToken
         Write-Debug "      sshFetchAndExecute output: $($result.output)"
         [void](Publish-GuestRetryMarker -Output $result.output -GuestKey $c.GuestKey -VmName $c.VMName)
         if (-not $result.success) {
             if (-not $result.addressResolved) { $script:Fail.StepGuestAddressUnresolved = $true }
+            if ($result.transportLost) { $script:Fail.StepGuestTransportLost = $true }
+            if ($result.runLost) { $script:Fail.StepGuestRunLost = $true }
+            if (Test-GuestPayloadUnavailable -Output $result.output) { $script:Fail.StepGuestPayloadUnavailable = $true }
             Write-Warning "      sshFetchAndExecute failed (exit=$($result.exitCode)): $cmd"
             if ($result.output) { Write-Warning "      output: $($result.output)" }
             return $false

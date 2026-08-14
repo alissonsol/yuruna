@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42f3a1c8-7b2d-4e59-8c04-1d6ea9b73f52
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,7 +50,7 @@
     caller can see. Mandatory parameters are a prompt too, and are not detectable
     this way; the predicate's own companion takes none for that reason.
 
-    THE INVENTORY. $KnownPromptSite carries the prompt sites that reach an
+    THE INVENTORY. $script:KnownPromptSite carries the prompt sites that reach an
     operator by some other route, one explicit file+function entry at a time with
     a written reason -- never a directory glob, because a glob keeps admitting
     sites nobody read.
@@ -66,6 +66,7 @@
          (or Invoke-Pester -Path test/modules/Test.NoUngatedPrompt.Tests.ps1)
 #>
 
+BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
 
@@ -85,7 +86,7 @@ if (-not (Get-Command -Name 'Describe' -ErrorAction SilentlyContinue)) {
 # --- the inventory of prompts protected by something other than the predicate -
 # File is repo-relative with forward slashes; Function is '' for a prompt at file
 # scope; Max is the number of prompt sites that body may contain.
-$KnownPromptSite = @(
+$script:KnownPromptSite = @(
     @{
         File = 'install/setup.ps1'; Function = 'Read-Choice'; Max = 1
         Reason = @'
@@ -279,6 +280,8 @@ function Test-KnownPromptSite {
     return $false
 }
 
+}
+
 Describe 'No ungated console prompt' {
 
     It 'parses every scanned file' {
@@ -286,7 +289,7 @@ Describe 'No ungated console prompt' {
     }
 
     It 'reaches every prompt through the shared predicate, or through a known site' {
-        $offenders = @($promptSite | Where-Object { -not $_.Guarded -and -not (Test-KnownPromptSite -Site $_ -Inventory $KnownPromptSite) })
+        $offenders = @($promptSite | Where-Object { -not $_.Guarded -and -not (Test-KnownPromptSite -Site $_ -Inventory $script:KnownPromptSite) })
         $detail = ($offenders | ForEach-Object {
             $where = if ($_.Function) { $_.Function } else { '<file scope>' }
             "  $($_.File):$($_.Line)  $($_.Kind) in $where"
@@ -298,14 +301,14 @@ Call Test-YurunaCanPrompt before the prompt and take the non-interactive path, o
 call Assert-YurunaPromptable to fail naming the parameter that answers it in
 advance. Both come from automation/Yuruna.Common.psm1. If the prompt genuinely
 belongs to a tool an operator runs by hand, add a file+function entry to
-`$KnownPromptSite with the reason.
+`$script:KnownPromptSite with the reason.
 "@
     }
 
     It 'never lets a known site grow a new prompt' {
         # Only growth fails. A body that loses a prompt is a body that got safer,
         # and making that fail would turn every deletion into a two-file edit.
-        $grown = foreach ($known in $KnownPromptSite) {
+        $grown = foreach ($known in $script:KnownPromptSite) {
             $actual = @($promptSite | Where-Object { $_.File -eq $known.File -and $_.Function -eq $known.Function }).Count
             if ($actual -gt $known.Max) {
                 $where = if ($known.Function) { $known.Function } else { '<file scope>' }
@@ -322,7 +325,7 @@ in its reason why the new question is safe where it is asked.
         # Stale entries are reported, not failed: an entry outlives its prompt the
         # moment someone guards or deletes it, and a change that improves another
         # file should never be blocked by bookkeeping in this one.
-        $stale = foreach ($known in $KnownPromptSite) {
+        $stale = foreach ($known in $script:KnownPromptSite) {
             $actual = @($promptSite | Where-Object { $_.File -eq $known.File -and $_.Function -eq $known.Function }).Count
             if ($actual -eq 0) {
                 $where = if ($known.Function) { $known.Function } else { '<file scope>' }

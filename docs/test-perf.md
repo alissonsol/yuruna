@@ -71,7 +71,7 @@ regardless of history depth.
 A sequence is a stable user-facing concept that occasionally gets
 renamed. A GUID rescues you from that one rename. Steps don't deserve
 the same treatment — renames are rare, and you accept the
-discontinuity when they happen.
+discontinuity.
 
 GUID shape: `42xxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` — first two hex
 chars are the literal `42` (a visual filter in mixed-source logs),
@@ -124,7 +124,7 @@ appears more than once in one sequence run (handles loops, repeated
 prompts).
 
 `stepOrdinal` is the step's position in the executing `steps:` array
-at the time it ran — a snapshot. If a step gets inserted at position
+at the time it ran — a snapshot. If a step is inserted at position
 5, old position-5 rows keep their ordinal; new rows show ordinal 6.
 **Cross-cycle joins go on `stepName`, never on `stepOrdinal`.**
 
@@ -357,8 +357,7 @@ Every entry point is defensive: a missing module, missing
 
 ## Explicit non-goals
 
-- **Not** extending `status.json` — rewritten on every step write, so
-  piling history on it makes that cost worse.
+- **Not** extending `status.json` — rewritten on every step write, so piling history on it makes that cost worse.
 - **Not** Prometheus / Loki for the canonical store. Prometheus is for
   high-frequency gauges; perf-step durations are sparse rich events.
   (Promtail still tails `outer.log` for human debugging — orthogonal.)
@@ -370,6 +369,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.11
+Last review: 2026.08.14
 
 Back to [Yuruna](../README.md)

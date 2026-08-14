@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42a9b8c7-d6e5-4f43-8210-9a8b7c6d5e40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,12 +28,15 @@
     they can run; the cross-platform contract block runs everywhere.
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.StatusFirewall.psm1') -Force -DisableNameChecking
 
 function Assert-Equal { param($Expected, $Actual, [string]$Because = '') if ($Expected -ne $Actual) { throw "Expected '$Expected' but got '$Actual'. $Because" } }
 function Assert-True  { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
 function Assert-False { param($Condition, [string]$Because = '') if ($Condition) { throw "Expected false. $Because" } }
+
+}
 
 Describe 'Get-YurunaStatusFirewallRuleName' {
     It 'builds the canonical Windows rule DisplayName' {

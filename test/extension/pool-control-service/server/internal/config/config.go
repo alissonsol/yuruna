@@ -16,8 +16,12 @@ const (
 	// DefaultHTTPAddress is the UI/API listen address (empty disables the server).
 	DefaultHTTPAddress = "0.0.0.0:80"
 
-	// DefaultPresenceInterval is the re-announce cadence for the beacon.
-	DefaultPresenceInterval = 15 * time.Minute
+	// DefaultPresenceInterval is the re-announce cadence for the beacon. Kept
+	// shorter than the aggregator's extension health grace: re-announcing is
+	// how a renumbered service tells the pool its new address, so a cadence
+	// slower than the grace leaves the area unresolvable between the moment the
+	// old address is refused and the next announce.
+	DefaultPresenceInterval = 2 * time.Minute
 
 	// MaxRequestBytes caps mutating request bodies.
 	MaxRequestBytes = 1 << 20

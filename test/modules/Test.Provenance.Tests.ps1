@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 4260f181-a3d7-4772-b069-c453a1938b2a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,6 +32,7 @@
     and Pester 5+. Run: Invoke-Pester -Path test/modules/Test.Provenance.Tests.ps1
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.Provenance.psm1') -Force -DisableNameChecking
 
@@ -44,7 +45,7 @@ function Assert-True  { param($Condition, [string]$Because='') if (-not $Conditi
 # torn down during discovery and every It would then probe a path that no
 # longer exists. $PID keeps the name identical across the two passes while
 # staying unique per test process.
-$provRoot = Join-Path ([System.IO.Path]::GetTempPath()) "yuruna-provenance-tests-$PID"
+$script:provRoot = Join-Path ([System.IO.Path]::GetTempPath()) "yuruna-provenance-tests-$PID"
 
 # Writes a placeholder base image and, optionally, its sidecar.
 #   -SidecarLine omitted  -> no sidecar file at all
@@ -87,14 +88,16 @@ function Get-ProvenanceEmission {
     }
 }
 
+}
+
 Describe 'Test.Provenance' {
 
     BeforeAll {
-        New-Item -ItemType Directory -Path $provRoot -Force | Out-Null
+        New-Item -ItemType Directory -Path $script:provRoot -Force | Out-Null
     }
 
     AfterAll {
-        Remove-Item -LiteralPath $provRoot -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $script:provRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
 
     Context 'Get-BaseImageProvenance sidecar path' {
@@ -106,13 +109,13 @@ Describe 'Test.Provenance' {
             @{ imageName = 'image-with-no-extension';          sidecarName = 'image-with-no-extension.txt' }
         ) {
             param($imageName, $sidecarName)
-            $p = Get-BaseImageProvenance -BaseImagePath (Join-Path $provRoot $imageName)
-            Assert-Equal -Expected (Join-Path $provRoot $sidecarName) -Actual $p.ProvenancePath `
+            $p = Get-BaseImageProvenance -BaseImagePath (Join-Path $script:provRoot $imageName)
+            Assert-Equal -Expected (Join-Path $script:provRoot $sidecarName) -Actual $p.ProvenancePath `
                 -Because 'the version dots in a real ISO name must not be mistaken for the extension'
         }
 
         It 'reports an absent sidecar with empty fields instead of throwing' {
-            $img = New-ImageFixture -Root $provRoot -ImageName 'absent-sidecar.iso'
+            $img = New-ImageFixture -Root $script:provRoot -ImageName 'absent-sidecar.iso'
             $p   = Get-BaseImageProvenance -BaseImagePath $img
             Assert-Equal -Expected $false -Actual $p.FileExists
             Assert-Equal -Expected ''     -Actual $p.Filename
@@ -121,7 +124,7 @@ Describe 'Test.Provenance' {
         }
 
         It 'reports an absent sidecar for an image in a directory that does not exist' {
-            $p = Get-BaseImageProvenance -BaseImagePath (Join-Path (Join-Path $provRoot 'no-such-dir') 'ghost.iso')
+            $p = Get-BaseImageProvenance -BaseImagePath (Join-Path (Join-Path $script:provRoot 'no-such-dir') 'ghost.iso')
             Assert-Equal -Expected $false -Actual $p.FileExists
             Assert-Equal -Expected ''     -Actual $p.Url
         }
@@ -130,7 +133,7 @@ Describe 'Test.Provenance' {
     Context 'Get-BaseImageProvenance sidecar contents' {
 
         It 'returns the trimmed filename and url from a two-line sidecar' {
-            $img = New-ImageFixture -Root $provRoot -ImageName 'two-line.iso' -SidecarLine @(
+            $img = New-ImageFixture -Root $script:provRoot -ImageName 'two-line.iso' -SidecarLine @(
                 '  ubuntu-24.04.4-desktop-amd64.iso  ',
                 "`thttps://releases.ubuntu.com/24.04/ubuntu-24.04.4-desktop-amd64.iso "
             )
@@ -141,7 +144,7 @@ Describe 'Test.Provenance' {
         }
 
         It 'leaves Url empty when the sidecar carries only the filename line' {
-            $img = New-ImageFixture -Root $provRoot -ImageName 'one-line.iso' -SidecarLine @('ubuntu-24.04.4-desktop-amd64.iso')
+            $img = New-ImageFixture -Root $script:provRoot -ImageName 'one-line.iso' -SidecarLine @('ubuntu-24.04.4-desktop-amd64.iso')
             $p   = Get-BaseImageProvenance -BaseImagePath $img
             Assert-Equal -Expected $true -Actual $p.FileExists
             Assert-Equal -Expected 'ubuntu-24.04.4-desktop-amd64.iso' -Actual $p.Filename
@@ -149,7 +152,7 @@ Describe 'Test.Provenance' {
         }
 
         It 'reports FileExists with empty fields for a zero-byte sidecar' {
-            $img = New-ImageFixture -Root $provRoot -ImageName 'empty-sidecar.iso' -SidecarLine @()
+            $img = New-ImageFixture -Root $script:provRoot -ImageName 'empty-sidecar.iso' -SidecarLine @()
             $p   = Get-BaseImageProvenance -BaseImagePath $img
             Assert-Equal -Expected $true -Actual $p.FileExists -Because 'the file is there; it just has nothing in it'
             Assert-Equal -Expected ''    -Actual $p.Filename
@@ -157,14 +160,14 @@ Describe 'Test.Provenance' {
         }
 
         It 'still reads the url when the filename line is blank' {
-            $img = New-ImageFixture -Root $provRoot -ImageName 'blank-first.iso' -SidecarLine @('', 'https://example.test/images/blank-first.iso')
+            $img = New-ImageFixture -Root $script:provRoot -ImageName 'blank-first.iso' -SidecarLine @('', 'https://example.test/images/blank-first.iso')
             $p   = Get-BaseImageProvenance -BaseImagePath $img
             Assert-Equal -Expected ''    -Actual $p.Filename
             Assert-Equal -Expected 'https://example.test/images/blank-first.iso' -Actual $p.Url -Because 'line 2 is the url regardless of what line 1 holds'
         }
 
         It 'ignores everything past the first two lines' {
-            $img = New-ImageFixture -Root $provRoot -ImageName 'extra-lines.iso' -SidecarLine @(
+            $img = New-ImageFixture -Root $script:provRoot -ImageName 'extra-lines.iso' -SidecarLine @(
                 'ubuntu-24.04.4-desktop-amd64.iso',
                 'https://example.test/images/extra.iso',
                 'sha256:deadbeef',
@@ -179,7 +182,7 @@ Describe 'Test.Provenance' {
     Context 'Write-BaseImageProvenance' {
 
         It 'warns that the provenance FILE is missing when there is no sidecar' {
-            $img = New-ImageFixture -Root $provRoot -ImageName 'emit-no-sidecar.iso'
+            $img = New-ImageFixture -Root $script:provRoot -ImageName 'emit-no-sidecar.iso'
             $e   = Get-ProvenanceEmission -BaseImagePath $img
             Assert-Equal -Expected 1 -Actual $e.Warnings.Count
             Assert-Equal -Expected 'base image provenance file not present' -Actual $e.Warnings[0] `
@@ -188,7 +191,7 @@ Describe 'Test.Provenance' {
         }
 
         It 'warns that provenance is not present when the sidecar has no url line' {
-            $img = New-ImageFixture -Root $provRoot -ImageName 'emit-no-url.iso' -SidecarLine @('ubuntu-24.04.4-desktop-amd64.iso')
+            $img = New-ImageFixture -Root $script:provRoot -ImageName 'emit-no-url.iso' -SidecarLine @('ubuntu-24.04.4-desktop-amd64.iso')
             $e   = Get-ProvenanceEmission -BaseImagePath $img
             Assert-Equal -Expected 1 -Actual $e.Warnings.Count
             Assert-Equal -Expected 'base image provenance not present' -Actual $e.Warnings[0] `
@@ -197,7 +200,7 @@ Describe 'Test.Provenance' {
         }
 
         It 'treats a whitespace-only url line as absent' {
-            $img = New-ImageFixture -Root $provRoot -ImageName 'emit-blank-url.iso' -SidecarLine @('ubuntu.iso', "   `t ")
+            $img = New-ImageFixture -Root $script:provRoot -ImageName 'emit-blank-url.iso' -SidecarLine @('ubuntu.iso', "   `t ")
             $e   = Get-ProvenanceEmission -BaseImagePath $img
             Assert-Equal -Expected 1 -Actual $e.Warnings.Count
             Assert-Equal -Expected 'base image provenance not present' -Actual $e.Warnings[0]
@@ -206,7 +209,7 @@ Describe 'Test.Provenance' {
 
         It 'emits the url on the information stream so it lands in the transcript at the default logLevel' {
             $url = 'https://cdn.example.test/images/al2023-kvm.qcow2'
-            $img = New-ImageFixture -Root $provRoot -ImageName 'emit-ok.qcow2' -SidecarLine @('al2023-kvm.qcow2', $url)
+            $img = New-ImageFixture -Root $script:provRoot -ImageName 'emit-ok.qcow2' -SidecarLine @('al2023-kvm.qcow2', $url)
             $e   = Get-ProvenanceEmission -BaseImagePath $img
             Assert-Equal -Expected 0 -Actual $e.Warnings.Count -Because 'a healthy sidecar produces no warning'
             Assert-Equal -Expected 1 -Actual $e.Information.Count -Because 'verbose would hide the only durable link to the upstream image rev'
@@ -215,7 +218,7 @@ Describe 'Test.Provenance' {
 
         It 'emits the url even when the sidecar filename line is blank' {
             $url = 'https://cdn.example.test/images/nameless.iso'
-            $img = New-ImageFixture -Root $provRoot -ImageName 'emit-nameless.iso' -SidecarLine @('', $url)
+            $img = New-ImageFixture -Root $script:provRoot -ImageName 'emit-nameless.iso' -SidecarLine @('', $url)
             $e   = Get-ProvenanceEmission -BaseImagePath $img
             Assert-Equal -Expected 0 -Actual $e.Warnings.Count
             Assert-Equal -Expected "Provenance: $url" -Actual $e.Information[0] -Because 'only the url gates the audit-trail line, not the filename'

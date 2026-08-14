@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42c3f5a8-0e61-4d92-b7a4-3f8c1d6e9b57
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,15 +32,17 @@
     requires it to equal the css anchor, so a reintroduced '+' or a drifted rename
     is caught.
 
-    The throw-based Assert-* helpers are defined at script scope and referenced from
-    It blocks, so this runs under Pester 4.10.1 (Pester 5's scope split hides
-    top-level helpers from It blocks).
+    The throw-based Assert-* helpers live in the file's BeforeAll, which is the
+    scope Pester 5 shares with the It blocks; defining them at script scope
+    instead makes every It fail on a missing command rather than on an
+    assertion.
 #>
 
+BeforeAll {
 $here    = Split-Path -Parent $PSCommandPath
 $repo    = Split-Path -Parent (Split-Path -Parent $here)
 $cssPath = Join-Path $repo 'test/status/yuruna.common.css'
-$defPath = Join-Path $repo 'docs/definition.md'
+$script:defPath = Join-Path $repo 'docs/definition.md'
 
 function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
 function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
@@ -72,31 +74,33 @@ function ConvertTo-Slug([string]$heading) {
 # fixture declared inside one reaches the assertions as $null. Only file-level
 # declarations preceding the first Describe survive into the run pass.
 $css = Get-Content -Raw -LiteralPath $cssPath
-$faint = [regex]::Matches($css, '--fg-faint:\s*(#[0-9a-fA-F]{6})') | ForEach-Object { $_.Groups[1].Value }
+$script:faint = [regex]::Matches($css, '--fg-faint:\s*(#[0-9a-fA-F]{6})') | ForEach-Object { $_.Groups[1].Value }
+
+}
 
 Describe 'status-page polish: WCAG contrast + REGION anchor integrity' {
 
     It 'exposes exactly two --fg-faint values (light + dark theme)' {
-        Assert-Equal -Expected 2 -Actual $faint.Count -Because 'expected a light and a dark --fg-faint'
+        Assert-Equal -Expected 2 -Actual $script:faint.Count -Because 'expected a light and a dark --fg-faint'
     }
 
     It 'light-theme --fg-faint meets WCAG AA (>= 4.5:1) on the near-white background' {
         # Worst-case light background the faint text sits on (--bg-primary #f9fafb).
-        $c = Get-Contrast $faint[0] '#f9fafb'
-        Assert-True ($c -ge 4.5) "light --fg-faint $($faint[0]) has $([Math]::Round($c,2)):1, needs >= 4.5:1"
+        $c = Get-Contrast $script:faint[0] '#f9fafb'
+        Assert-True ($c -ge 4.5) "light --fg-faint $($script:faint[0]) has $([Math]::Round($c,2)):1, needs >= 4.5:1"
     }
 
     It 'dark-theme --fg-faint meets WCAG AA (>= 4.5:1) on the elevated dark background' {
         # Worst-case (lightest) dark background the faint text sits on (--bg-elevated #111827).
-        $c = Get-Contrast $faint[1] '#111827'
-        Assert-True ($c -ge 4.5) "dark --fg-faint $($faint[1]) has $([Math]::Round($c,2)):1, needs >= 4.5:1"
+        $c = Get-Contrast $script:faint[1] '#111827'
+        Assert-True ($c -ge 4.5) "dark --fg-faint $($script:faint[1]) has $([Math]::Round($c,2)):1, needs >= 4.5:1"
     }
 
     It 'the mobile/dark-mode REGION anchor matches its definition.md heading slug' {
         $m = [regex]::Match($css, 'definition#(defining-the-status-page-mobile[^\s]*hardening)')
         Assert-True $m.Success 'the mobile/dark-mode REGION pointer is present in the css'
         $anchor = $m.Groups[1].Value
-        $def = Get-Content -Raw -LiteralPath $defPath
+        $def = Get-Content -Raw -LiteralPath $script:defPath
         $h = [regex]::Match($def, '(?m)^###\s+(Defining the status-page mobile[^\r\n]*hardening)\s*$')
         Assert-True $h.Success 'the mobile/dark-mode heading is present in definition.md'
         $slug = ConvertTo-Slug $h.Groups[1].Value

@@ -73,6 +73,10 @@ type FidoConfig struct {
 	Script string
 	// Timeout bounds one resolve; zero uses fidoTimeout.
 	Timeout time.Duration
+	// Gate serializes this agent's resolves and shares one run's answer between
+	// the pool rows that all want the same artifact. Nil runs every caller's
+	// resolve on its own, which is what a bare FidoConfig in a test does.
+	Gate *FidoGate
 	// Observe, when set, receives every finished Attempt. It is how the agent
 	// remembers the last run for the diagnostics surface without the resolve
 	// path having to thread a second return value through every caller.
@@ -185,6 +189,10 @@ type FidoAttempt struct {
 // lets the diagnostics surface render success and failure the same way. The
 // Observe hook, when set, sees every finished attempt -- including ones that
 // died before a child started.
+//
+// This is the unconditional run: it always spends a Microsoft session. Callers
+// that want the family's answer rather than a session of their own take
+// SharedAttempt.
 func (f FidoConfig) Attempt(ctx context.Context, fidoArch string) FidoAttempt {
 	at := FidoAttempt{
 		AtUTC:    time.Now().UTC().Format(time.RFC3339),
@@ -256,14 +264,34 @@ func (f FidoConfig) Attempt(ctx context.Context, fidoArch string) FidoAttempt {
 	return at
 }
 
-// ResolveURL runs Fido and returns the short-lived signed Microsoft URL it
-// prints. Every way this can go wrong -- no interpreter, no script, a non-zero
-// exit, silence, output that is not a URL, or a run that outlives the timeout --
+// SharedAttempt is the resolve every row of this family shares: one run per
+// architecture at a time, with a recent run's answer handed to whoever asks
+// next. It is what an ordinary refresh takes, because a pool row wants the
+// artifact, not a Microsoft session of its own.
+func (f FidoConfig) SharedAttempt(ctx context.Context, fidoArch string) FidoAttempt {
+	return f.Gate.Do(ctx, fidoArch, false, func(c context.Context) FidoAttempt {
+		return f.Attempt(c, fidoArch)
+	})
+}
+
+// FreshAttempt forces a real run and makes it the answer SharedAttempt hands
+// out next. It is the diagnostics resolver test's entry point: an operator
+// asking "does this work now" is asking about a run, not about a remembered
+// verdict.
+func (f FidoConfig) FreshAttempt(ctx context.Context, fidoArch string) FidoAttempt {
+	return f.Gate.Do(ctx, fidoArch, true, func(c context.Context) FidoAttempt {
+		return f.Attempt(c, fidoArch)
+	})
+}
+
+// ResolveURL returns the short-lived signed Microsoft URL a resolve produced.
+// Every way this can go wrong -- no interpreter, no script, a non-zero exit,
+// silence, output that is not a URL, or a run that outlives the timeout --
 // comes back as an error, and the caller turns all of them into the same
 // "family unavailable" answer rather than into a daemon failure or a pool entry
 // pointing at something that was never downloaded.
 func (f FidoConfig) ResolveURL(ctx context.Context, fidoArch string) (string, error) {
-	at := f.Attempt(ctx, fidoArch)
+	at := f.SharedAttempt(ctx, fidoArch)
 	if at.Error != "" {
 		return "", errors.New(at.Error)
 	}

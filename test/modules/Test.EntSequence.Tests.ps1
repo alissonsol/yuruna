@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42e9f0a1-b2c3-4d45-9e67-8f9a0b1c2d36
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,13 +23,15 @@
     prerequisite chain at ChainEntries[0] or a partway -StartStep does not hide the
     sequence's loadDiskSnapshot first step.
 .DESCRIPTION
-    The decision is made by the script-local Get-FirstExecutedStepAction; the tests lift
-    it from the script AST and exercise it directly (StartStep=1 equivalence, prerequisite
-    chain, partway start, out-of-range, empty). An AST guard asserts the pre-start block
-    routes through it with -StartStep rather than hard-coding ChainEntries[0].steps[0].
-    Pester 4.10.1.
+    The decision is made by Get-FirstExecutedStepAction (Test.SequenceRunner.psm1, shared
+    with the orchestrator's copy of the same decision); the tests import it and exercise it
+    directly (StartStep=1 equivalence, prerequisite chain, partway start, out-of-range,
+    empty). Its descent through wrapper steps is covered in Test.SequenceRunner.Tests.ps1.
+    An AST guard asserts the pre-start block routes through it with -StartStep rather than
+    hard-coding ChainEntries[0].steps[0]. Pester 4.10.1.
 #>
 
+BeforeAll {
 $here       = Split-Path -Parent $PSCommandPath
 $scriptPath = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath 'Invoke-TestSequence.ps1')).Path
 # The AST is an unqualified file-scope variable: inside an It block a $script: reference
@@ -39,11 +41,15 @@ $scriptPath = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalCh
 $errs = $null
 $seqAst = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$errs)
 if ($errs) { throw "Parse errors in Invoke-TestSequence.ps1: $($errs[0].Message)" }
-$fnDef = $seqAst.FindAll({ param($n)
-    $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Get-FirstExecutedStepAction'
-}, $true) | Select-Object -First 1
-if (-not $fnDef) { throw "Test.EntSequence.Tests.ps1: could not lift Get-FirstExecutedStepAction from Invoke-TestSequence.ps1 (renamed or removed?)." }
-. ([ScriptBlock]::Create($fnDef.Extent.Text))
+if (-not $seqAst.Extent.Text) {
+    throw "Test.EntSequence.Tests.ps1: Invoke-TestSequence.ps1 parsed to an empty AST -- the -Not -Match guards below would pass vacuously."
+}
+Import-Module (Join-Path $here 'Test.SequenceRunner.psm1') -Force -DisableNameChecking
+# Get-FirstExecutedStepAction resolves a wrapper step through Get-StepLeadAction.
+Import-Module (Join-Path $here 'Test.SequenceResolve.psm1') -Force -DisableNameChecking
+if (-not (Get-Command Get-FirstExecutedStepAction -ErrorAction SilentlyContinue)) {
+    throw "Test.EntSequence.Tests.ps1: Test.SequenceRunner.psm1 does not export Get-FirstExecutedStepAction (renamed or removed?)."
+}
 
 function Get-MockSeqEntry {
     # A ChainEntry shaped like the plan's: .sequence.steps[].action.
@@ -58,6 +64,8 @@ function Get-CommandCallCount {
     @($Ast.FindAll({ param($n)
         $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq $wm
     }, $true)).Count
+}
+
 }
 
 Describe 'Get-FirstExecutedStepAction resolves the first executed step honoring StartStep' {

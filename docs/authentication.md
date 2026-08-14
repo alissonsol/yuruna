@@ -188,7 +188,7 @@ Trust boundary:
 
 | Layer | Mechanism | Why plaintext is acceptable |
 |-------|-----------|----------------------------|
-| Filesystem | The file is git-ignored (`.gitignore` rule `test/status/*/`); never committed, never synced. | An attacker with filesystem read access already has equivalent or greater capability — they're already on the operator's machine. |
+| Filesystem | The file is git-ignored (`.gitignore` rule `test/status/*/`); never committed, never synced. | An attacker with filesystem read access is already on the operator's machine, with equivalent or greater capability. |
 | Process | Read+write serialized by a SHA-1-of-path named mutex; atomic temp+rename. | Concurrent cycles cannot corrupt the file; not a confidentiality control. |
 | Audit | Every read / write / rotate is appended to `events.log` as one JSON line. Passwords never appear in the log. | Tampering detection, not encryption. |
 
@@ -208,6 +208,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.11
+Last review: 2026.08.14
 
 Back to [Yuruna](../README.md)

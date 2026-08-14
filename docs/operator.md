@@ -29,8 +29,8 @@ macOS / Ubuntu.
 ### A.0 Shortcut: the standalone setup script
 
 **Do [A.1](#a1-install-the-framework) and [A.2](#a2-create-the-test-user)
-first** — `setup.ps1` installs nothing, clones nothing, and does not
-create the test user. Then, signed in as the test account, from the
+first** — `setup.ps1` installs nothing, clones nothing, and creates
+no test user. Then, signed in as the test account, from the
 framework folder:
 
 ```
@@ -630,7 +630,8 @@ pwsh test/Invoke-TestProject.ps1
 
 One-shot cycle: wipes `project/`, re-clones `repositories.projectUrl`,
 runs a single cycle exactly as the runner would, and exits. Debug here
-until green — one cycle with no loop around it is the cheapest place.
+until green — one cycle with no loop around it is the cheapest place
+to debug.
 
 ### B.11 Run continuous cycles
 
@@ -640,7 +641,7 @@ pwsh test/Invoke-TestRunner.ps1
 
 The resilient outer loop: pulls the framework, runs a cycle in a fresh
 inner process, repeats; on failure it pauses until new commits land or
-a timeout passes ([test-runner.md](test-runner.md)). It auto-starts the
+a timeout passes ([runner-outer-loop.md](runner-outer-loop.md)). It auto-starts the
 status dashboard at `http://<host>:8080/` — no separate
 `Start-StatusService.ps1` step.
 
@@ -744,6 +745,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.11
+Last review: 2026.08.14
 
 Back to [Yuruna](../README.md)

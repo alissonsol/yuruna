@@ -1,7 +1,7 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
-// Stash detail view. Renders by content class, always offers download, deletes
-// only local-host stashes.
+// Stash detail view. Renders by content class, always offers download, and
+// deletes any stash once this browser is through the lab-token gate.
 
 (function () {
   const TEXT_PREVIEW_CAP = 1024 * 1024; // fallback if the server omits inlineTextCap (§6.2)
@@ -39,31 +39,30 @@
     return dl;
   }
 
-  // gate carries what /api/hostinfo says about THIS browser: the daemon accepts
-  // a delete only from the stash VM itself or the host IP it was launched with,
-  // and which of its own addresses reached the daemon is not something a browser
-  // can see. Without it this page would offer a button whose refusal is only
-  // discoverable by pressing it.
+  // gate carries what /api/session says about THIS browser: whether it is
+  // through the delete gate. Nothing on the page reveals that -- it is a fact
+  // about a credential this device holds -- so without asking, this page would
+  // offer a button whose refusal is only discoverable by pressing it.
+  //
+  // A stash owned by another host is deletable here too: the daemon writes to
+  // every host's folder on the stash share. Its owner is still named, because
+  // which machine received a stash stays worth knowing.
   function actions(v, gate) {
     const box = Y.el('div', { class: 'actions' });
     box.append(Y.el('a', { class: 'btn primary', href: Y.downloadURL(v), download: v.originalFilename || v.id, text: 'Download' }));
-    if (v.local && !gate.canDelete) {
-      box.append(Y.el('button', { class: 'btn destructive', disabled: 'disabled', title: 'This browser may not delete on this host' }, 'Delete'));
-      box.append(Y.el('span', { class: 'muted' },
-        ' This browser reaches the stash service from '
-        + (gate.clientIp || 'an address the daemon could not read')
-        + '; only the stash VM itself or the host IP it was launched with may delete.'));
-    } else if (v.local) {
+    if (gate.canDelete) {
       box.append(Y.el('button', { class: 'btn destructive', onclick: () => confirmDelete(v) }, 'Delete'));
     } else {
-      const btn = Y.el('button', { class: 'btn destructive', disabled: 'disabled', title: 'Owned by host ' + v.hostId }, 'Delete');
-      box.append(btn);
-      const where = Y.el('span', { class: 'muted' }, ' Owned by host ');
+      box.append(Y.el('button', { class: 'btn destructive', disabled: 'disabled', title: 'Unlock actions to delete' }, 'Delete'));
+      box.append(Y.el('span', { class: 'muted' }, gate.labToken
+        ? ' Locked — unlock actions with the Lab token above, or open this page from the Yuruna hosts dashboard.'
+        : ' Delete is unavailable: this service has no pool aggregator configured, so no Lab token can be checked.'));
+    }
+    if (!v.local) {
+      const where = Y.el('span', { class: 'muted' }, ' Received by host ');
       where.append(Y.el('span', { class: 'mono', text: Y.shortHost(v.hostId) }));
       if (v.remoteStashUrl) {
-        where.append(' — ', Y.el('a', { href: v.remoteStashUrl, text: 'open on that host to delete' }));
-      } else {
-        where.append('; delete it from that host’s own stash UI.');
+        where.append(' — ', Y.el('a', { href: v.remoteStashUrl, text: 'open on that host' }));
       }
       box.append(where);
     }
@@ -71,13 +70,21 @@
   }
 
   async function confirmDelete(v) {
-    if (!confirm('Delete stash ' + v.id + ' (' + (v.originalFilename || 'unnamed') + ', ' + Y.humanSize(v.sizeBytes) + ') on this host? This cannot be undone.')) return;
+    if (!confirm('Delete stash ' + v.id + ' (' + (v.originalFilename || 'unnamed') + ', ' + Y.humanSize(v.sizeBytes) + ')? This cannot be undone.')) return;
+    // Same barrier as the list page: from here on this page is describing a
+    // stash that is going away, and its Download button would fail for a reason
+    // that looks like the page's fault.
+    const done = Y.block('Deleting…');
     try {
       await Y.api(apiPath(), { method: 'DELETE' });
+      // Deliberately NOT released here: the browser is leaving, and a page that
+      // became clickable again while the next one loads would reopen the very
+      // gap this closes. The navigation takes the barrier with it.
       // Route even this static destination through the shared safeUrl gate so
       // every navigation in the UI passes one same-origin check.
       location.href = safeUrl('/') || '/';
     } catch (e) {
+      done();
       msg('error', 'Delete failed: ' + e.message);
     }
   }
@@ -159,7 +166,9 @@
 
   async function load() {
     try {
-      const info = await Y.hostInfo();
+      // Spends a control proof carried in from the dashboard before reading the
+      // gate, so a page opened through that link renders with Delete live.
+      const sess = await Y.initUnlock(load);
       const data = await Y.api(apiPath());
       const v = data.stash;
       state.inlineTextCap = data.inlineTextCap || 0;
@@ -169,7 +178,7 @@
       detail.className = '';
       Y.replace(detail,
         Y.el('h1', { text: v.originalFilename || v.id }),
-        actions(v, { canDelete: !!info.canDelete, clientIp: info.clientIp || '' }),
+        actions(v, { canDelete: sess.authed, labToken: sess.labToken }),
         await renderViewer(v),
         Y.el('div', { class: 'card' }, meta(v)),
       );

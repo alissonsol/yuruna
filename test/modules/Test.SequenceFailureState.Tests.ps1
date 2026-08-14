@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42b1f7c4-3a8e-4d52-9c61-0e7a2b3c4d5f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,6 +28,7 @@
     independent of the live verb registry; the stub is removed at file end.
 #>
 
+BeforeAll {
 $here       = Split-Path -Parent $PSCommandPath
 $modulePath = Join-Path $here 'Test.SequenceFailureState.psm1'
 $evtPath    = Join-Path $here 'Test.EventSchema.psm1'
@@ -39,12 +40,20 @@ function Assert-True  { param($Condition, [string]$Because='') if (-not $Conditi
 function Assert-Match { param([string]$Pattern, [string]$Actual, [string]$Because='') if ($Actual -notmatch $Pattern) { throw "Expected /$Pattern/ to match [$Actual]. $Because" } }
 
 # Deterministic verb registry: waitForText resolves, anything else is unknown.
-function global:Get-SequenceAction {
-    param([string]$Name)
-    if ($Name -eq 'waitForText') {
-        return [pscustomobject]@{ FailureClass = 'ocr_timeout'; Severity = 'hard'; SuggestedRecoveries = @('reconnect') }
+# Dot-sourced into the module under test rather than defined globally: the
+# builder resolves the name from its own session state first, and the stub dies
+# with the module instead of outliving the file. A global function cannot be
+# taken back -- Remove-Item on function:global: from inside a Pester block
+# reports success and leaves the command in place -- so a global stub would
+# shadow the real registry for every later file in the shared runspace.
+. (Get-Module Test.SequenceFailureState) {
+    function Get-SequenceAction {
+        param([string]$Name)
+        if ($Name -eq 'waitForText') {
+            return [pscustomobject]@{ FailureClass = 'ocr_timeout'; Severity = 'hard'; SuggestedRecoveries = @('reconnect') }
+        }
+        return $null
     }
-    return $null
 }
 
 function Reset-FailState {
@@ -67,12 +76,20 @@ function Reset-FailState {
     return $f
 }
 
-$seqPath = 'C:\repo\project\example\workload.guest.ubuntu.server.24.k8s.text-to-sql.test.yml'
+# The builder derives sequenceName with [System.IO.Path]::GetFileNameWithoutExtension,
+# which splits only on the running platform's separator -- a backslash is an
+# ordinary filename character on Linux/macOS. The path the engine hands it is
+# always a local one, so build the fixture with the native separator and the
+# basename resolves the same everywhere.
+$script:seqPath = @('C:', 'repo', 'project', 'example',
+    'workload.guest.ubuntu.server.24.k8s.text-to-sql.test.yml') -join [System.IO.Path]::DirectorySeparatorChar
+
+}
 
 Describe 'New-SequenceFailureRecord actionability enrichment (step)' {
     It 'carries sequenceName, reason, classificationSource and a repro block' {
         [void](Reset-FailState)
-        $r = New-SequenceFailureRecord -Reason step -VMName 'k8s.text-to-sql' -GuestKey 'guest.ubuntu.server.24' -HostType 'host.windows.hyper-v' -SequencePath $seqPath -LogDir 'C:\cyc' -TotalSteps 11
+        $r = New-SequenceFailureRecord -Reason step -VMName 'k8s.text-to-sql' -GuestKey 'guest.ubuntu.server.24' -HostType 'host.windows.hyper-v' -SequencePath $script:seqPath -LogDir 'C:\cyc' -TotalSteps 11
         Assert-Equal -Expected 'workload.guest.ubuntu.server.24.k8s.text-to-sql.test' -Actual $r.File.sequenceName -Because 'sequenceName from path basename'
         Assert-Equal -Expected 'step' -Actual $r.File.reason -Because 'reason'
         Assert-Equal -Expected 'verb-registry' -Actual $r.File.classificationSource -Because 'resolved verb -> verb-registry'
@@ -83,14 +100,14 @@ Describe 'New-SequenceFailureRecord actionability enrichment (step)' {
     }
     It 'builds a repro command that omits -StartStep (chain-global vs file-local trap)' {
         [void](Reset-FailState)
-        $r = New-SequenceFailureRecord -Reason step -VMName 'vm1' -GuestKey 'guest.ubuntu.server.24' -HostType 'h' -SequencePath $seqPath -LogDir 'd' -TotalSteps 11
+        $r = New-SequenceFailureRecord -Reason step -VMName 'vm1' -GuestKey 'guest.ubuntu.server.24' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 11
         Assert-Match -Pattern 'Invoke-TestSequence\.ps1' -Actual $r.File.repro.command -Because 'command runs Invoke-TestSequence'
         Assert-Match -Pattern '-SequenceName "workload\.guest\.ubuntu\.server\.24\.k8s\.text-to-sql\.test"' -Actual $r.File.repro.command -Because 'names the failing sequence'
         Assert-True ($r.File.repro.command -notmatch '-StartStep') 'command must NOT contain -StartStep'
     }
     It 'strips shell-breaking characters from the repro command (no copy-paste injection)' {
         [void](Reset-FailState)
-        $r = New-SequenceFailureRecord -Reason step -VMName 'vm";rm -rf /"' -GuestKey 'g$(whoami)' -HostType 'h' -SequencePath $seqPath -LogDir 'd' -TotalSteps 11
+        $r = New-SequenceFailureRecord -Reason step -VMName 'vm";rm -rf /"' -GuestKey 'g$(whoami)' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 11
         $cmd = $r.File.repro.command
         Assert-True ($cmd -notmatch '\$') 'no $ (interpolation) survives sanitizing'
         Assert-True ($cmd -notmatch '";')  'no quote-then-command breakout survives sanitizing'
@@ -101,14 +118,14 @@ Describe 'New-SequenceFailureRecord actionability enrichment (step)' {
     }
     It 'mirrors the actionability fields onto the flat event (incl reproCommand)' {
         [void](Reset-FailState)
-        $r = New-SequenceFailureRecord -Reason step -VMName 'vm1' -GuestKey 'g' -HostType 'h' -SequencePath $seqPath -LogDir 'd' -TotalSteps 11
+        $r = New-SequenceFailureRecord -Reason step -VMName 'vm1' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 11
         Assert-Equal -Expected $r.File.repro.command -Actual $r.Event.reproCommand -Because 'event reproCommand == file repro.command'
         Assert-Equal -Expected $r.File.sequenceName  -Actual $r.Event.sequenceName -Because 'event sequenceName'
         Assert-Equal -Expected 'verb-registry'       -Actual $r.Event.classificationSource -Because 'event classificationSource'
     }
     It 'emits an event that passes the cycle event schema validator' {
         [void](Reset-FailState)
-        $r = New-SequenceFailureRecord -Reason step -VMName 'vm1' -GuestKey 'g' -HostType 'h' -SequencePath $seqPath -LogDir 'd' -TotalSteps 11
+        $r = New-SequenceFailureRecord -Reason step -VMName 'vm1' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 11
         $violations = Test-CycleEventSchema -Record $r.Event
         Assert-Equal -Expected 0 -Actual (@($violations).Count) -Because "event must validate; got: $($violations -join '; ')"
     }
@@ -118,14 +135,14 @@ Describe 'New-SequenceFailureRecord classificationSource discrimination' {
     It 'reports unresolved-verb (and unknown class) when the verb has no registration' {
         $f = Reset-FailState
         $f.LastFailedAction = 'no_such_verb'
-        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $seqPath -LogDir 'd' -TotalSteps 5
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
         Assert-Equal -Expected 'unresolved-verb' -Actual $r.File.classificationSource -Because 'unresolved verb'
         Assert-Equal -Expected 'unknown' -Actual $r.File.failureClass -Because 'unknown class for unresolved verb'
     }
     It 'reports pattern-match when a hard-block OCR pattern fired' {
         $f = Reset-FailState
         $f.WaitForTextMatchedFailurePattern = 'kernel panic'
-        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $seqPath -LogDir 'd' -TotalSteps 5
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
         Assert-Equal -Expected 'pattern-match' -Actual $r.File.classificationSource -Because 'pattern-match source'
         Assert-Equal -Expected 'pattern_matched_failure' -Actual $r.File.failureClass -Because 'reclassified to pattern_matched_failure'
     }
@@ -139,7 +156,7 @@ Describe 'New-SequenceFailureRecord classificationSource discrimination' {
         # REPLACES a registry hint rather than merely appending to an empty one.
         $f = Reset-FailState
         $f.WaitForTextMatchedFailurePattern = 'NONZERO SCRIPT EXIT:'
-        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $seqPath -LogDir 'd' -TotalSteps 5
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
         Assert-Equal -Expected 'pattern_matched_failure' -Actual $r.File.failureClass
         $sugg = @($r.File.suggestedRecoveries)
         Assert-Equal -Expected 1 -Actual $sugg.Count -Because "expected only pause_and_inspect; got: $($sugg -join ', ')"
@@ -150,7 +167,7 @@ Describe 'New-SequenceFailureRecord classificationSource discrimination' {
         # the verb's own hint must survive untouched. Without this, a swap that
         # fired unconditionally would look correct in the test above.
         $null = Reset-FailState
-        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $seqPath -LogDir 'd' -TotalSteps 5
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
         Assert-Equal -Expected 'ocr_timeout' -Actual $r.File.failureClass
         Assert-Equal -Expected 'verb-registry' -Actual $r.File.classificationSource
         Assert-Equal -Expected 'reconnect' -Actual (@($r.File.suggestedRecoveries)[0]) -Because 'the registry hint is preserved'
@@ -162,7 +179,7 @@ Describe 'New-SequenceFailureRecord OCR causeDetail' {
         $f = Reset-FailState
         $f.WaitForTextOcrTail = 'yt2sqluser@host:~$'
         $f.WaitForTextPatternsSought = [string[]]@('login prompt', 'Not listed?')
-        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $seqPath -LogDir 'd' -TotalSteps 11
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 11
         Assert-Equal -Expected 'yt2sqluser@host:~$' -Actual $r.File.context.causeDetail.ocrTail -Because 'nested ocrTail'
         Assert-Equal -Expected 2 -Actual (@($r.File.context.causeDetail.patternsSought).Count) -Because 'nested patternsSought count'
         Assert-Equal -Expected 'yt2sqluser@host:~$' -Actual $r.Event.causeOcrTail -Because 'flat event ocr tail mirrors context'
@@ -170,7 +187,7 @@ Describe 'New-SequenceFailureRecord OCR causeDetail' {
     }
     It 'defaults to empty (array, not null) when no wait cause was captured' {
         [void](Reset-FailState)
-        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $seqPath -LogDir 'd' -TotalSteps 11
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 11
         Assert-Equal -Expected '' -Actual $r.Event.causeOcrTail -Because 'empty ocr tail'
         Assert-Equal -Expected 0 -Actual (@($r.Event.causePatternsSought).Count) -Because 'empty patterns array (not null)'
         $violations = Test-CycleEventSchema -Record $r.Event
@@ -180,7 +197,7 @@ Describe 'New-SequenceFailureRecord OCR causeDetail' {
         [void](Reset-FailState)
         $err = $null
         try { throw 'boom' } catch { $err = $_ }
-        $r = New-SequenceFailureRecord -Reason crash -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $seqPath -LogDir 'd' -TotalSteps 5 -CrashError $err
+        $r = New-SequenceFailureRecord -Reason crash -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5 -CrashError $err
         Assert-True (-not $r.File.context.Contains('causeDetail')) 'crash context has no causeDetail'
         Assert-True ($r.Event.Contains('causeOcrTail')) 'crash event keeps the uniform flat field'
     }
@@ -191,7 +208,7 @@ Describe 'New-SequenceFailureRecord crash record backfill' {
         [void](Reset-FailState)
         $err = $null
         try { throw 'boom' } catch { $err = $_ }
-        $r = New-SequenceFailureRecord -Reason crash -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $seqPath -LogDir 'd' -TotalSteps 5 -CrashError $err
+        $r = New-SequenceFailureRecord -Reason crash -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5 -CrashError $err
         Assert-Equal -Expected 'crash' -Actual $r.File.reason -Because 'reason'
         Assert-Equal -Expected 'crash' -Actual $r.File.classificationSource -Because 'classificationSource'
         Assert-True ($r.File.Contains('lastSucceededStepNumber')) 'crash record carries replay boundary'
@@ -221,5 +238,8 @@ Describe 'New-InfraFailureRecord (infra-stage failures)' {
     }
 }
 
-# Remove the global stub so later test files see the real (or absent) command.
-Remove-Item function:global:Get-SequenceAction -ErrorAction SilentlyContinue
+# Drop the module the stub was dot-sourced into, so nothing this file defined is
+# visible to the files that run after it in the shared runspace.
+AfterAll {
+    Remove-Module Test.SequenceFailureState -Force -ErrorAction SilentlyContinue
+}

@@ -85,12 +85,17 @@ Every `-interval` (default 30s) it:
    above goes silent whenever the owning host's status service is down — routinely,
    after a host reboot — while the service VM auto-restarts and keeps serving. So the
    service announces ITSELF: the stash service POSTs `{hostId, area, targetPort}` at
-   startup, every beacon period (default 15 min), and `active:false` at shutdown. The advertised URL is derived from the announce's SOURCE
+   startup, every beacon period (default 2 min), and `active:false` at shutdown. The advertised URL is derived from the announce's SOURCE
    address (an announcer can only advertise itself — the same trust squid-log
    discovery extends to any LAN client), and the row's `baseUrl` fills from the host
-   view when the host is known.
-   Entries reap after `-announce-ttl` (default 45m, two missed beacons), on a
-   goodbye, or when the address stops answering the pool's own probe (point
+   view when the host is known. Because the URL comes from the source address,
+   re-announcing is also the only way a service that has RENUMBERED reports where
+   it went — which is why the period is set from `extensionHealthGrace` (point
+   5c-ii) rather than from the TTL: a beacon slower than that grace would leave
+   the pool holding neither the old address nor the new one.
+   Entries reap after `-announce-ttl` (default 45m), on a
+   goodbye, or when the owning host retracts its marker — NOT when the address
+   stops answering the pool's own probe, which suppresses instead (point
    5c-ii); every accepted announce is pushed to Loki (`{pool,hostId,src=announce}`)
    so a collector restart restores live rows instantly instead of waiting a period.
    Open-by-design write route (no bearer): telemetry-only,
@@ -109,11 +114,16 @@ Every `-interval` (default 30s) it:
    Each poll re-confirms every advertised address (bounded, concurrent). A
    confirmed address that goes quiet is carried for **5 minutes**
    (`extensionHealthGrace`) so a service restart or a DHCP renewal does not empty
-   the panel, and is then dropped: the announce entry is deleted (a service that
-   stopped answering has gone away as far as the pool can tell — the same
-   conclusion its goodbye carries), while a registration-sourced address is
-   *suppressed* instead, because its owning host re-asserts it every poll and
-   only that host can retract it (`Stop-StashServiceVM` clears the marker).
+   the panel, and is then *suppressed* — for BOTH sources, and without removing
+   the entry. A registration-sourced address is re-asserted by its owning host on
+   every poll, so removing it would achieve nothing; an announce-sourced one
+   belongs to a service that has most likely renumbered and will re-announce from
+   its new address within a beacon period, and removing it in that gap would
+   leave the area with no record at all — so the pool would report *no stash in
+   this pool* instead of *the stash is advertised at X and X does not answer*, and
+   only the second is something an operator can act on. Removal is left to the
+   announce TTL, a goodbye, or the owning host retracting its marker
+   (`Stop-StashServiceVM` clears it).
    A suppressed entry keeps its place in `/api/v1/extension-hosts`'s `services`
    list with `suppressed`, `suppressedTarget` and `suppressReason`, and exports
    `yuruna_pool_extension_unreachable{hostId,area,target,reason}`, but is kept
@@ -444,7 +454,7 @@ Three causes account for nearly all of it:
   (`pool-aggregator-service -h`) before adding it, and re-provision the proxy
   when the binary predates the flag.
 - **The binary was never installed.** The cloud-init build is deliberately
-  soft-fail: if the deploying host's status server was unreachable at boot and
+  soft-fail: if the deploying host's status service was unreachable at boot and
   the GitHub fallback had no source, the dashboard still deployed but the
   collector did not. `ls /usr/local/bin/pool-aggregator-service` and
   `grep pool-aggregator /var/log/cloud-init-output.log` say so; the fix is a

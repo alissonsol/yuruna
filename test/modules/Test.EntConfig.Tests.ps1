@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42c7d8e9-a0b1-4c23-9d45-6e7f8a9b0c14
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,11 +24,12 @@
 .DESCRIPTION
     The two helpers are local functions in the Test-Config.ps1 script (not a module), so
     the behavioral tests extract their definitions from the script AST and dot-source
-    them into this scope. AST guards then assert the script routes both network probes
+    them into this scope. AST guards then assert the script routes every network probe
     and all three config boolean flags through the helpers, and that the probe helper
     disposes in a finally. Pester 4.10.1.
 #>
 
+BeforeAll {
 $here       = Split-Path -Parent $PSCommandPath
 $scriptPath = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath 'Test-Config.ps1')).Path
 
@@ -72,6 +73,8 @@ function Get-HelperDefinition {
     $Ast.FindAll({ param($n)
         $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $wm
     }, $true) | Select-Object -First 1
+}
+
 }
 
 Describe 'ConvertTo-YurunaBool normalizes boolean-ish config flags' {
@@ -127,8 +130,12 @@ Describe 'Test-Config.ps1 routes probes and flags through the helpers' {
         $body | Should -Match 'finally'
         $body | Should -Match '\.Dispose\(\)'
     }
-    It 'both TCP probes route through Test-TcpReachable' {
-        (Get-CommandCallCount -Ast $cfgAst -Name 'Test-TcpReachable') | Should -Be 2
+    It 'every TCP probe routes through Test-TcpReachable' {
+        # One call per probe site the validator performs: GitHub, the pool registry's
+        # advertised stash service, and Resend. An exact count, so a new probe that
+        # opens its own socket instead of calling the helper is caught here rather
+        # than leaking a handle in the long-running validator process.
+        (Get-CommandCallCount -Ast $cfgAst -Name 'Test-TcpReachable') | Should -Be 3
     }
     It 'no inline TcpClient BeginConnect remains outside the shared helper' {
         # Exactly one BeginConnect member-invoke -- the one inside Test-TcpReachable.

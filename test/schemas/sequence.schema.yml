@@ -360,6 +360,11 @@ $defs:
             timeoutSeconds: { type: integer, minimum: 0 }
             allowFailure:   { type: boolean }
             sensitive:      { type: boolean }
+            # Reconnects to spend when the SSH session dies mid-command.
+            # Defaults to 0 here: the command is whatever the YAML names, and a
+            # dropped session leaves it unknown whether that command already
+            # ran. Raise it only for a command that is safe to run twice.
+            transportRetries: { type: integer, minimum: 0, maximum: 10 }
 
       - if: { properties: { action: { const: sshFetchAndExecute } } }
         then:
@@ -367,6 +372,21 @@ $defs:
           properties:
             command:        { type: string }
             timeoutSeconds: { type: integer, minimum: 0 }
+            # As above, and likewise 0 by default: "re-runnable across cycles"
+            # is not "re-runnable against state this run already changed". Set
+            # it on a step whose script provisions; leave it off on one that
+            # seeds records and asserts over them. Only consulted when the step
+            # is NOT detached -- a detached step re-attaches instead of
+            # re-running, which needs no such judgement.
+            transportRetries: { type: integer, minimum: 0, maximum: 10 }
+            # Run the payload under the guest-side supervisor so it outlives the
+            # ssh session, and make a reconnect re-attach to it from the last
+            # line already received. Defaults to TRUE for this verb: the payload
+            # is a fetched script, the session is the fragile part, and attaching
+            # is sound even for a payload that could not be re-run. Set false to
+            # go back to a plain session for a step where the supervisor is the
+            # problem rather than the fix.
+            detach: { type: boolean }
 
       - if: { properties: { action: { const: sshWaitReady } } }
         then:

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42d6f9b2-0c4e-4a38-9b7d-2e3f4a5b6c7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,6 +24,7 @@
     real share (they touch the OS network stack).
 #>
 
+BeforeAll {
 $here       = Split-Path -Parent $PSCommandPath
 $modulePath = Join-Path $here 'Test.PoolStorage.psm1'
 Import-Module $modulePath -Force -DisableNameChecking -ErrorAction SilentlyContinue
@@ -47,6 +48,8 @@ function Get-TestPoolConfig { param([string]$LocalPath = '/mnt/ypool-nas') [pscu
 
 # N cycles, oldest-first (zero-padded so lexical == chronological).
 function Get-NSeq { param([int]$N) 1..$N | ForEach-Object { '{0:D6}.d.t.h' -f $_ } }
+
+}
 
 Describe 'Get-PoolStorageUncPath (SMB path normalization)' {
     It 'normalizes a Windows UNC input to either style' {
@@ -167,6 +170,47 @@ Describe 'Get-PoolStorageProcessErrorDetail (credential redaction)' {
     It 'leaves a message with no credential untouched' {
         $out = Get-PoolStorageProcessErrorDetail -StdErr 'mount_smbfs: server connection failed: No route to host'
         Assert-Equal -Expected ': mount_smbfs: server connection failed: No route to host' -Actual $out -Because 'unchanged'
+    }
+}
+
+Describe 'Test-PoolStorageSudoRefusal (sudo would not run it vs the mount failed)' {
+    It 'recognizes a refusal from either sudo implementation' {
+        # Both spellings are load-bearing: the C sudo and sudo-rs (Ubuntu's
+        # default from 25.10 on) describe the same refusal in different words,
+        # and the same script runs on hosts of both kinds. Missing one does not
+        # break loudly -- it turns "sudo would not run mount" into "the NAS
+        # rejected the credential", which sends the operator to reset a password
+        # that was never wrong.
+        foreach ($text in @(
+            'sudo: a password is required',
+            'sudo: a terminal is required to read the password',
+            'sudo: no tty present and no askpass program specified',
+            'sudo: interactive authentication is required',
+            'Sorry, user ytest may not run sudo on syzor202607a.',
+            'ytest is not in the sudoers file.')) {
+            Assert-True (Test-PoolStorageSudoRefusal -StdErr $text) "refusal recognised: $text"
+        }
+    }
+    It 'does not call a real mount failure a refusal' {
+        # These come back on the SAME exit code as a refusal, so a matcher that
+        # over-reaches sends the operator to edit sudoers for a share that is
+        # simply offline or misnamed.
+        foreach ($text in @(
+            'mount error(13): Permission denied',
+            'mount error(2): No such file or directory',
+            'mount error: could not resolve address for ypool-nas: Unknown error',
+            'Unable to find suitable address.',
+            '')) {
+            Assert-True (-not (Test-PoolStorageSudoRefusal -StdErr $text)) "not a refusal: $text"
+        }
+    }
+}
+
+Describe 'Get-PoolStorageLastMountError (the reason travels with the bool)' {
+    It 'reports nothing before any mount attempt has failed in this session' {
+        # Connect returns a bare bool, so a caller that cannot read the reason
+        # states one instead. The accessor exists so it can report one.
+        Assert-True ((Get-PoolStorageLastMountError) -is [string]) 'always a string, never $null'
     }
 }
 
@@ -634,17 +678,32 @@ Describe 'Remove-PoolStorageTree (retry-tolerant recursive delete)' {
         Assert-True (Remove-PoolStorageTree -Path $gone -Confirm:$false) 'missing path -> true'
     }
     It 'gives up on its budget and returns false rather than throwing' {
-        # An open handle makes the delete fail the same way every retry, which is the
-        # branch that must surface as a warning + $false instead of a terminating error.
+        # The tree has to fail to delete the same way on every retry, which is the
+        # branch that must surface as a warning + $false instead of a terminating
+        # error. What makes a delete fail is platform-specific: Windows enforces the
+        # share mode of an open handle, while POSIX unlinks a file that still has
+        # open handles and instead refuses when the CONTAINING directory is not
+        # writable -- so an open handle alone leaves the tree deletable here.
         $root = Join-Path ([System.IO.Path]::GetTempPath()) ('yrn-rmtree-' + [guid]::NewGuid().ToString('N'))
-        $null = New-Item -ItemType Directory -Force -Path $root
-        $held = Join-Path $root 'locked.bin'
-        $fs   = [System.IO.File]::Open($held, 'CreateNew', 'Write', 'None')
+        $hold = Join-Path $root 'held'
+        $null = New-Item -ItemType Directory -Force -Path $hold
+        $held = Join-Path $hold 'locked.bin'
+        $fs   = $null
+        if ($IsWindows) {
+            $fs = [System.IO.File]::Open($held, 'CreateNew', 'Write', 'None')
+        } else {
+            Set-Content -LiteralPath $held -Value 'x'
+            & chmod 'a-w' $hold
+        }
         try {
             $r = Remove-PoolStorageTree -Path $root -BudgetSeconds 1 -DelayMilliseconds 100 -Confirm:$false -WarningAction SilentlyContinue
             Assert-True (-not $r) 'undeletable tree -> false'
             Assert-True (Test-Path -LiteralPath $root) 'the tree survives'
-        } finally { $fs.Dispose(); Remove-Item -Recurse -Force -LiteralPath $root -ErrorAction SilentlyContinue }
+        } finally {
+            if ($fs) { $fs.Dispose() }
+            if (-not $IsWindows) { & chmod 'u+w' $hold }
+            Remove-Item -Recurse -Force -LiteralPath $root -ErrorAction SilentlyContinue
+        }
     }
     It 'honors -WhatIf' {
         $root = Join-Path ([System.IO.Path]::GetTempPath()) ('yrn-rmtree-' + [guid]::NewGuid().ToString('N'))

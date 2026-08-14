@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42ca0b24-d5cf-4c36-8488-7537249b3b3d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,8 +22,8 @@
     host-neutral entry point in test/ to this host's copy of a script under
     host/<host type>/.
 .DESCRIPTION
-    Throw-based assertions, helpers at file scope (Pester 5's scope split hides
-    Describe-scoped helpers from It blocks).
+    Throw-based assertions, helpers in the file's BeforeAll -- the scope Pester 5
+    shares with the It blocks.
 
     The cases that matter are the ones that fail SILENTLY in production:
 
@@ -44,6 +44,7 @@
     host, and the end-to-end cases use whatever Get-HostType reports here.
 #>
 
+BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = Split-Path -Parent (Split-Path -Parent $here)
 
@@ -132,6 +133,7 @@ function Remove-RedirectFixture {
         Justification = 'Test teardown: removes the temp directory tree.')]
     param([Parameter(Mandatory)][hashtable]$Fixture)
     Remove-Item -LiteralPath $Fixture.Root -Recurse -Force -ErrorAction SilentlyContinue
+}
 }
 
 Describe 'Test-ScriptRequiresElevation' {

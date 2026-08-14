@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42d15e27-b2c3-4d4e-9f50-6b7c8d9e0f1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -3529,15 +3529,44 @@ function Invoke-GuestProvisionIteration {
                     $wrDone = $true
                 } else {
                     $wrAttempt++
-                    Write-Output "  WARM-RESUME ($wrAttempt/$($cfg.WarmResumeMaxAttempts)): '$($wrDec.ResumeSequence)' failed transiently ($($wrCp.FailureClass)); resuming at step $($wrCp.ResumeFromStep) on VM '$VMName' instead of redoing it from the top."
+                    # The checkpoint names the step that FAILED, and its work may
+                    # be half-applied to the guest -- transient says why it
+                    # stopped, not how far it got. Restart from the restore point
+                    # that precedes it so the replayed steps run against the state
+                    # they were written for; with no such boundary the checkpoint
+                    # stands and behavior is unchanged.
+                    $wrStep    = [int]$wrCp.ResumeFromStep
+                    $wrRewound = $false
+                    if (Get-Command Get-WarmResumeRewindStep -ErrorAction SilentlyContinue) {
+                        # ResumeSequence is the workload-list entry verbatim, which is
+                        # allowed to carry a .yml suffix. The resolver appends its own,
+                        # so a suffixed name looks for <name>.yml.yml, finds nothing, and
+                        # the boundary lookup comes back empty -- which reads exactly like
+                        # a sequence with no restore point and drops the rewind without
+                        # saying so. Strip it the same way the decision does when matching.
+                        $wrSeqName = [string]$wrDec.ResumeSequence -replace '\.ya?ml$', ''
+                        $wrSeqPath = if (Get-Command Resolve-SequencePath -ErrorAction SilentlyContinue) {
+                            try { Resolve-SequencePath -SequencesDir $SequencesDir -Name $wrSeqName -HostType $HostType -RepoRoot $RepoRoot } catch { '' }
+                        } else { '' }
+                        $wrRw = Get-WarmResumeRewindStep -StepAction (Get-WarmResumeStepAction -Path ([string]$wrSeqPath)) `
+                            -ResumeFromStep ([int]$wrCp.ResumeFromStep)
+                        $wrStep    = [int]$wrRw.ResumeFromStep
+                        $wrRewound = [bool]$wrRw.Rewound
+                    }
+                    if ($wrRewound) {
+                        Write-Output "  WARM-RESUME ($wrAttempt/$($cfg.WarmResumeMaxAttempts)): '$($wrDec.ResumeSequence)' failed transiently ($($wrCp.FailureClass)) at step $($wrCp.ResumeFromStep); step $($wrCp.ResumeFromStep) may be half-applied, so resuming from the loadDiskSnapshot at step $wrStep on VM '$VMName' and REPLAYING $([int]$wrCp.ResumeFromStep - $wrStep) step(s) against restored state."
+                    } else {
+                        Write-Output "  WARM-RESUME ($wrAttempt/$($cfg.WarmResumeMaxAttempts)): '$($wrDec.ResumeSequence)' failed transiently ($($wrCp.FailureClass)); resuming at step $wrStep on VM '$VMName' instead of redoing it from the top."
+                    }
                     if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
                         $wrEv = New-WarmResumeEvent -GuestKey $GuestKey -VmName $VMName -SequenceName $wrDec.ResumeSequence `
-                            -ResumeFromStep ([int]$wrCp.ResumeFromStep) -FailureClass $wrCp.FailureClass -Attempt $wrAttempt -HostType $HostType
+                            -ResumeFromStep $wrStep -FailureClass $wrCp.FailureClass -Attempt $wrAttempt -HostType $HostType `
+                            -CheckpointStep ([int]$wrCp.ResumeFromStep)
                         Send-CycleEventSafely -EventRecord ([hashtable]$wrEv)
                     }
                     $r = Start-GuestWorkload -HostType $HostType -GuestKey $GuestKey -VMName $VMName -RepoRoot $RepoRoot `
                         -SequencesDir $SequencesDir -SequenceNames $workSeqs -EffectiveVariables $cascadeVarsMap `
-                        -ResumeFromSequence $wrDec.ResumeSequence -ResumeFromStep ([int]$wrCp.ResumeFromStep)
+                        -ResumeFromSequence $wrDec.ResumeSequence -ResumeFromStep $wrStep
                     if ($r.success) {
                         Write-Output "  WARM-RESUME: '$($wrDec.ResumeSequence)' recovered after $wrAttempt attempt(s)."
                         $wrDone = $true

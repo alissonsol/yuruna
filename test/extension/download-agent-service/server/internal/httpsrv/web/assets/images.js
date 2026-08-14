@@ -116,6 +116,34 @@
     return Y.el('code', { title: img.sourceUrl, text: img.sourceUrl });
   }
 
+  // manualHint is the way out for a row whose resolver cannot run: the page that
+  // hands the artifact over, the choices to make on it, and the pool folder to
+  // drop the file into. It REPLACES the raw resolver error, which named a
+  // failure the operator has no way to act on; that text survives as the line's
+  // tooltip, and the Diagnostics page still carries the whole capture.
+  function manualHint(img) {
+    const mf = img.manualFallback;
+    if (!mf || !mf.pageUrl) return null;
+    // Both targets open in a new tab: the publisher page so the pool view is
+    // not lost, and the folder because a browser may well refuse to follow a
+    // file:// link at all -- losing this page to a blocked navigation would
+    // cost the operator the very instructions they were following.
+    const link = (href, text) => Y.el('a', { href: href, target: '_blank', rel: 'noopener noreferrer', text: text });
+    const parts = ['Fido failed. Visit ', link(mf.pageUrl, 'this page'), '. Select '];
+    (mf.selections || []).forEach((sel, i) => {
+      if (i > 0) parts.push(', ');
+      parts.push(Y.el('em', { text: sel }));
+    });
+    parts.push('. Copy the downloaded file into ');
+    parts.push(mf.folderUrl ? link(mf.folderUrl, 'this folder') : Y.el('span', { text: 'this folder' }));
+    parts.push('.');
+
+    const why = img.lastError || img.unavailableReason || '';
+    const kids = [Y.el('div', { class: 'hint', title: why }, parts)];
+    if (mf.folder) kids.push(Y.el('div', { class: 'muted mono', text: mf.folder }));
+    return Y.el('div', {}, kids);
+  }
+
   function query(img) {
     return '?arch=' + encodeURIComponent(img.arch) + '&variant=' + encodeURIComponent(img.variant);
   }
@@ -164,11 +192,17 @@
   function rowEl(img) {
     const stateCell = Y.el('td', {}, [badge(img.state), progressBar(img)]);
     // The reason sits with the badge, not in a tooltip: "unavailable" on its own
-    // is the same dead end as no row at all.
-    if (img.unavailableReason) {
-      stateCell.appendChild(Y.el('div', { class: 'muted', text: img.unavailableReason }));
+    // is the same dead end as no row at all. A row with a hand-download path
+    // carries that instead -- it says the same thing and adds what to do.
+    const hint = manualHint(img);
+    if (hint) {
+      stateCell.appendChild(hint);
+    } else {
+      if (img.unavailableReason) {
+        stateCell.appendChild(Y.el('div', { class: 'muted', text: img.unavailableReason }));
+      }
+      if (img.lastError) stateCell.appendChild(Y.el('div', { class: 'err-line', text: img.lastError }));
     }
-    if (img.lastError) stateCell.appendChild(Y.el('div', { class: 'err-line', text: img.lastError }));
 
     // variant is the requested preference; resolvedVariant is what the resolver
     // landed on. Naming both only when they differ is what tells an operator

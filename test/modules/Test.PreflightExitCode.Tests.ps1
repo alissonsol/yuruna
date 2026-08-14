@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42f1c7a4-9b3e-4d21-8c05-6ea41d9b73c2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,11 +35,14 @@
     do not regress to `return $false`. Nothing here needs docker or a cluster.
 #>
 
+BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
-$autoDir  = Join-Path $repoRoot 'automation'
+$script:autoDir  = Join-Path $repoRoot 'automation'
 
 function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
+
+}
 
 Describe 'preflight-exit-code' {
     It 'a refused deploy exits non-zero (Set-Resource, Set-Component, Set-Workload)' {
@@ -47,7 +50,7 @@ Describe 'preflight-exit-code' {
         # and refusing is only visible to `set -e` as a non-zero exit code.
         $missingRoot = Join-Path ([System.IO.Path]::GetTempPath()) "yuruna-no-such-root-$([guid]::NewGuid())"
         foreach ($e in 'Set-Resource', 'Set-Component', 'Set-Workload') {
-            $script = Join-Path $autoDir "$e.ps1"
+            $script = Join-Path $script:autoDir "$e.ps1"
             & pwsh -NoProfile -File $script $missingRoot 'localhost' *> $null
             Assert-True ($LASTEXITCODE -ne 0) `
                 "$e exited $LASTEXITCODE on a refused deploy; bash 'set -e' reads 0 as success and marches on"
@@ -56,7 +59,7 @@ Describe 'preflight-exit-code' {
     It 'the refusal guards exit 1 rather than returning $false' {
         # `return $false` at script scope does NOT set the process exit code.
         foreach ($e in 'Set-Resource', 'Set-Component', 'Set-Workload') {
-            $src = Get-Content -LiteralPath (Join-Path $autoDir "$e.ps1") -Raw
+            $src = Get-Content -LiteralPath (Join-Path $script:autoDir "$e.ps1") -Raw
             Assert-True (-not ($src -match '(?m)^\s*if \(-not \$roots\) \{ return \$false \}')) `
                 "$e must not return `$false from the root guard -- that exits the process 0"
             Assert-True ($src -match '(?s)if \(-not \$roots\) \{[^}]*\bexit 1\b') `
@@ -64,7 +67,7 @@ Describe 'preflight-exit-code' {
         }
     }
     It 'Set-Workload exits 1 when the runtime pre-flight refuses' {
-        $src = Get-Content -LiteralPath (Join-Path $autoDir 'Set-Workload.ps1') -Raw
+        $src = Get-Content -LiteralPath (Join-Path $script:autoDir 'Set-Workload.ps1') -Raw
         Assert-True ($src -match '(?s)if \(-not \$runtimeOk\) \{[^}]*\bexit 1\b') `
             'the runtime pre-flight guard must exit 1, not return $false'
     }
@@ -72,14 +75,14 @@ Describe 'preflight-exit-code' {
         # Test-Runtime streams its docker images/containers tables to stdout on the
         # healthy path, so `& Test-Runtime.ps1` yields a collection. Testing the
         # collection for truthiness reads any non-empty table as a pass.
-        $src = Get-Content -LiteralPath (Join-Path $autoDir 'Set-Workload.ps1') -Raw
+        $src = Get-Content -LiteralPath (Join-Path $script:autoDir 'Set-Workload.ps1') -Raw
         Assert-True ($src -match '\$runtimeOutput\[-1\]') `
             'the verdict must be taken from the last emitted object'
     }
     It 'Test-Runtime reports its problems on a stream the default logLevel cannot silence' {
         # logLevel 'Error' (the entrypoints' default) silences Information AND
         # Warning; a pre-flight that reported problems there printed nothing at all.
-        $src = Get-Content -LiteralPath (Join-Path $autoDir 'Test-Runtime.ps1') -Raw
+        $src = Get-Content -LiteralPath (Join-Path $script:autoDir 'Test-Runtime.ps1') -Raw
         Assert-True ($src -match '(?s)if \(\$problems\.Count -gt 0\) \{[^}]*Write-Error') `
             'the PROBLEMS FOUND report must reach the error stream'
     }
@@ -87,7 +90,7 @@ Describe 'preflight-exit-code' {
         # A zero-length file with the +x bit satisfies Get-Command and even runs as
         # an empty script under bash (exit 0, no output). The probe must treat "no
         # output" as "not usable", and must not let the execve failure escape raw.
-        $src = Get-Content -LiteralPath (Join-Path $autoDir 'Test-Runtime.ps1') -Raw
+        $src = Get-Content -LiteralPath (Join-Path $script:autoDir 'Test-Runtime.ps1') -Raw
         Assert-True ($src -match 'function Get-ToolProbeOutput') `
             'Test-Runtime must probe tools through the runnable-check helper'
         Assert-True ($src -match "Get-ToolProbeOutput -Name 'helm'") `

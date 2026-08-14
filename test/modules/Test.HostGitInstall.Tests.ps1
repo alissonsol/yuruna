@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42d1e2f3-4a5b-4c6d-8e7f-9a0b1c2d3e4f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,10 +31,11 @@
     AST/source-only. Runs under Pester 4.10.1 (script-scoped throw helper).
 #>
 
+BeforeAll {
 $here       = Split-Path -Parent $PSCommandPath
 $repoRoot   = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
 $modulePath = Join-Path $repoRoot 'test/modules/Test.HostGit.psm1'
-$helper     = 'Install-YurunaGalleryModuleIfMissing'
+$script:helper     = 'Install-YurunaGalleryModuleIfMissing'
 
 function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
 
@@ -83,18 +84,20 @@ function Get-CommandCallCount {
 
 $rootAst = Get-ModuleAst -Path $modulePath
 
+}
+
 Describe 'hostgit-install -- the PSGallery install policy is shared by one helper' {
     It 'defines an Install-YurunaGalleryModuleIfMissing helper' {
         $found = $rootAst.FindAll({
-            param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $helper
+            param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $script:helper
         }, $true)
         Assert-True (@($found).Count -eq 1) 'the two byte-identical install bodies must collapse into one helper'
     }
     It 'both Install-*IfMissing wrappers delegate to the shared helper' {
         $yaml = Get-FunctionAst -RootAst $rootAst -FunctionName 'Install-PowerShellYamlIfMissing'
         $psa  = Get-FunctionAst -RootAst $rootAst -FunctionName 'Install-PSScriptAnalyzerIfMissing'
-        Assert-True (Test-AstCallsCommand -Ast $yaml -CommandName $helper) 'Install-PowerShellYamlIfMissing must delegate to the shared policy'
-        Assert-True (Test-AstCallsCommand -Ast $psa -CommandName $helper) 'Install-PSScriptAnalyzerIfMissing must delegate to the shared policy'
+        Assert-True (Test-AstCallsCommand -Ast $yaml -CommandName $script:helper) 'Install-PowerShellYamlIfMissing must delegate to the shared policy'
+        Assert-True (Test-AstCallsCommand -Ast $psa -CommandName $script:helper) 'Install-PSScriptAnalyzerIfMissing must delegate to the shared policy'
     }
     It 'the raw Install-Module call now appears exactly once (inside the helper)' {
         $n = Get-CommandCallCount -Ast $rootAst -CommandName 'Install-Module'
@@ -106,7 +109,7 @@ Describe 'hostgit-install -- the PSGallery install policy is shared by one helpe
         }, $true)
         Assert-True (@($exportCalls).Count -ge 1) 'Export-ModuleMember must be present'
         $exportText = ($exportCalls | ForEach-Object { $_.Extent.Text }) -join "`n"
-        Assert-True ($exportText -notmatch [regex]::Escape($helper)) 'the shared policy helper must not be exported'
+        Assert-True ($exportText -notmatch [regex]::Escape($script:helper)) 'the shared policy helper must not be exported'
         Assert-True ($exportText -match 'Install-PowerShellYamlIfMissing') 'Install-PowerShellYamlIfMissing must remain exported'
         Assert-True ($exportText -match 'Install-PSScriptAnalyzerIfMissing') 'Install-PSScriptAnalyzerIfMissing must remain exported'
     }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bd0e1f2a3b63
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,13 +29,14 @@
     while utf8BOM prefixes one. Pester 4.10.1.
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 
 # Unqualified, at file scope above the Describes. An It body resolves an
 # unqualified file-level variable but not a $script:-qualified one: the run pass
 # re-enters the file in a fresh scope, so $script: writes land in a script scope
 # the It bodies never see, and the path would arrive at the AST guard as $null.
-$sss = Join-Path (Split-Path -Parent $here) 'Start-StatusService.ps1'
+$script:sss = Join-Path (Split-Path -Parent $here) 'Start-StatusService.ps1'
 
 function Get-StatusFileWriteEncoding {
     <# Describes the encoding of the [IO.File]::WriteAllText call whose first argument
@@ -65,17 +66,19 @@ function Get-StatusFileWriteEncoding {
     return '(no $StatusFile WriteAllText)'
 }
 
+}
+
 Describe 'svc-status: the parent repoUrl writer writes status.json BOM-less' {
 
     Context 'source: the $StatusFile WriteAllText uses a BOM-less UTF8Encoding (AST)' {
         It 'binds [IO.File]::WriteAllText($StatusFile, ..., [UTF8Encoding]::new($false))' {
-            (Get-StatusFileWriteEncoding -Path $sss) | Should -Be 'bomless-utf8'
+            (Get-StatusFileWriteEncoding -Path $script:sss) | Should -Be 'bomless-utf8'
         }
     }
 
     Context 'encoding semantics' {
         It 'a BOM-less UTF8Encoding writes no BOM and round-trips; utf8BOM prefixes a BOM' {
-            $dir = Join-Path $env:TEMP ('svcstatus-' + [guid]::NewGuid().ToString('N'))
+            $dir = Join-Path ([System.IO.Path]::GetTempPath()) ('svcstatus-' + [guid]::NewGuid().ToString('N'))
             New-Item -ItemType Directory -Path $dir -Force | Out-Null
             try {
                 $doc = [pscustomobject]@{ repoUrl = 'https://example.test/x'; overallStatus = 'pass' }

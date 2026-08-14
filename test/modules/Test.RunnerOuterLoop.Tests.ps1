@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 428c1a6d-4b29-4e07-9d51-7a2c8e0b5f31
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,6 +23,7 @@
     Get-OuterAutoRemediation / Get-OuterStepTimeoutSeconds (pool > test.config.yml > default).
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.Config.psm1')          -Force -DisableNameChecking -ErrorAction SilentlyContinue
 Import-Module (Join-Path $here 'Test.RunnerOuterLoop.psm1') -Force -DisableNameChecking -ErrorAction SilentlyContinue
@@ -52,15 +53,17 @@ function New-TempConfig {
 # first It runs, so a path declared inside one reaches the assertion as $null. Fixtures
 # that write temp files go in BeforeAll/AfterAll instead (see below), which run in the
 # run phase and so are still standing when the It executes.
-$InnerScriptPath = 'C:\repo\test\modules\Invoke-TestRunnerInnerLoop.ps1'
+$script:InnerScriptPath = 'C:\repo\test\modules\Invoke-TestRunnerInnerLoop.ps1'
+
+}
 
 Describe 'Test-OuterNoStatusServiceForwarded (embedded -NoStatusService detection)' {
     It 'is TRUE when -NoStatusService is forwarded (real New-InnerRunnerArgList shape)' {
-        $al = New-InnerRunnerArgList -ScriptPath $InnerScriptPath -Parameters ([ordered]@{ ConfigPath = 'C:\x.yml'; NoStatusService = ([switch]$true); HostType = 'host.windows.hyper-v' })
+        $al = New-InnerRunnerArgList -ScriptPath $script:InnerScriptPath -Parameters ([ordered]@{ ConfigPath = 'C:\x.yml'; NoStatusService = ([switch]$true); HostType = 'host.windows.hyper-v' })
         Assert-True (Test-OuterNoStatusServiceForwarded -ArgList $al) 'the embedded -NoStatusService token in the combined -Command element is detected'
     }
     It 'is FALSE when -NoStatusService is NOT forwarded' {
-        $al = New-InnerRunnerArgList -ScriptPath $InnerScriptPath -Parameters ([ordered]@{ ConfigPath = 'C:\x.yml'; HostType = 'host.windows.hyper-v' })
+        $al = New-InnerRunnerArgList -ScriptPath $script:InnerScriptPath -Parameters ([ordered]@{ ConfigPath = 'C:\x.yml'; HostType = 'host.windows.hyper-v' })
         Assert-False (Test-OuterNoStatusServiceForwarded -ArgList $al) 'no -NoStatusService forwarded'
     }
     It 'does not false-match a longer -NoStatusServiceFoo token' {
@@ -243,7 +246,7 @@ Describe 'Get-OuterStatusBaseUrl (never localhost)' {
             Remove-Item Env:\YURUNA_STATUS_PUBLIC_URL -ErrorAction SilentlyContinue
             Assert-Equal -Expected '' -Actual (Get-OuterStatusBaseUrl -ConfigPath $cfgOff) `
                 -Because 'statusService.enabled false means there is nothing to link to'
-            $al = New-InnerRunnerArgList -ScriptPath $InnerScriptPath -Parameters ([ordered]@{ NoStatusService = ([switch]$true) })
+            $al = New-InnerRunnerArgList -ScriptPath $script:InnerScriptPath -Parameters ([ordered]@{ NoStatusService = ([switch]$true) })
             Assert-Equal -Expected '' -Actual (Get-OuterStatusBaseUrl -ConfigPath $cfgOn -ArgList $al) `
                 -Because 'a forwarded -NoStatusService means no server was started'
         } finally {

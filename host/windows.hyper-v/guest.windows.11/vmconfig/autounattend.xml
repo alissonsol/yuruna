@@ -214,8 +214,11 @@
                     <CommandLine>net user ywuser1 /logonpasswordchg:yes</CommandLine>
                     <Description>Expire default password so user must change it on next login</Description>
                 </SynchronousCommand>
-                <!-- Puts repositories.ghToken into the user's PowerShell profile and
-                     points git at it, so a private frameworkUrl/projectUrl clones
+                <!-- Establishes this guest's Yuruna coordinates and its GitHub
+                     credentials. Writes host.env, installs the host-address
+                     resolver plus the schedule that keeps it running, and puts
+                     repositories.ghToken into the user's PowerShell profile with git
+                     pointed at it so a private frameworkUrl/projectUrl clones
                      unattended. Passed as -EncodedCommand because the bootstrap is a
                      multi-line script full of quotes, '$' and redirection: inline, every
                      shell metacharacter would have to be XML-escaped onto one line, where
@@ -223,8 +226,8 @@
                      on an unwatched VM. New-VM.ps1 base64s it into this slot. -->
                 <SynchronousCommand wcm:action="add">
                     <Order>6</Order>
-                    <CommandLine>powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand GH_BOOTSTRAP_B64_PLACEHOLDER</CommandLine>
-                    <Description>Configure GH_TOKEN and git credentials</Description>
+                    <CommandLine>powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand GUEST_BOOTSTRAP_B64_PLACEHOLDER</CommandLine>
+                    <Description>Establish Yuruna host coordinates and git credentials</Description>
                 </SynchronousCommand>
             </FirstLogonCommands>
         </component>

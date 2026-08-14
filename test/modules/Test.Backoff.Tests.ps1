@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42f7a8b9-c0d1-4e23-9a45-6b7c8d9e0f13
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,11 +29,13 @@
     derived from base (not a constant). The upper-bound and spread cases fail
     against an additive fixed-jitter implementation.
 
-    The throw-based Assert-* helpers are defined at script scope and referenced
-    from It blocks, so this runs under Pester 4.10.1 (Pester 5's scope split
-    hides top-level helpers from It blocks).
+    The throw-based Assert-* helpers live in the file's BeforeAll, which is the
+    scope Pester 5 shares with the It blocks; defining them at script scope
+    instead makes every It fail on a missing command rather than on an
+    assertion.
 #>
 
+BeforeAll {
 $here       = Split-Path -Parent $PSCommandPath
 $modulePath = Join-Path $here 'Test.Backoff.psm1'
 
@@ -51,6 +53,8 @@ function Get-ExpectedBase {
     $b = [int][Math]::Min(59, [Math]::Pow(2, $exp))
     if ($b -lt 1) { $b = 1 }
     return $b
+}
+
 }
 
 Describe 'Get-PollDelay proportional down-jitter' {

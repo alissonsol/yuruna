@@ -98,6 +98,7 @@ Everything lives under the pool share:
       <upstreamFilename>.<sha256[:12]>.meta.json  its sidecar
       <older generation> + sidecar                one previous, retained
       .staging/                            agent-private, swept on every scan
+      manual/<arch>.<variant>/             drop a hand-downloaded artifact here
   download-agent-service/
     audit.jsonl                            one line per unlock and mutation
     status.json                            last snapshot
@@ -125,7 +126,9 @@ already streaming keeps its handle on the old generation. Content addressing
 also gives free dedup: a re-download whose hash matches an existing generation
 just re-stamps freshness and rewrites the pointer.
 
-**Retention** is the pointer's generation plus one previous, per identity.
+**Retention** is the pointer's generation plus one previous, per identity. The
+`manual/` folders are outside it: they hold nothing the agent put there, and a
+file waiting in one is adopted rather than swept.
 
 **The lease.** Nothing stops two machines sharing one NAS from each running an
 agent, so the agents keep a lease at `images/.agent-lease.json`,
@@ -199,11 +202,50 @@ Best effort means exactly that:
   after a build. The cloud-init log says which state the VM is in --
   look for the `Windows 11 family ENABLED` or `Windows 11 family UNAVAILABLE`
   line in `/var/log/cloud-init-output.log`.
+- **Microsoft can simply refuse.** A resolve costs one session on their front
+  end, and a session it considers too chatty for the address it came from is
+  rejected outright: Fido prints `Error: Sentinel marked this request as
+  rejected.` and exits 3. Nothing about that is retryable within the minute, so
+  the agent spends as few sessions as it can -- **one resolve per architecture at
+  a time, shared by every host type's row**, with a minted URL reused for half an
+  hour and a refusal answering the other rows for five minutes instead of each
+  of them earning its own. Without that, one scan pass asks three times within
+  seconds from a single address, and the rows that lose the race are the ones
+  that come back rejected.
 
 When any of that fails, the agent reports the family **absent** and the hosts
 silently do what they always do: Hyper-V and UTM run Fido themselves, KVM asks
 for a manual download. An agent that does not hold Windows media is an
 ordinary state, not a fault -- nothing regresses, and nothing warns.
+
+### When the resolver is refused: the drop folder
+
+A refusal is not a dead end -- a person with a browser is never refused -- so the
+Windows row stops showing a failure nobody can act on and shows the way around
+it instead: *visit **this page**, select these options, copy the downloaded file
+into **this folder***, with the page and the folder as links. The choices and the
+page are the same ones the host `Get-Image.ps1` scripts print, per architecture,
+so whichever surface sent you there you fetch the artifact the pool would have
+held anyway. The raw resolver error stays available: it is the line's tooltip,
+and the [Diagnostics page](#diagnostics) keeps the whole capture.
+
+The folder is `images/<hostType>/guest.windows.11/manual/<arch>.<variant>/` on
+the pool share. The agent creates it as soon as the family goes unavailable, and
+the UI names it as the share path -- `//nas/share/...`, what your file manager
+opens -- when the daemon was given `--pool-network-path`, which the guest seed
+fills in from the pool config; otherwise it names its own mount point.
+
+What happens next needs no button. Within one scan the agent notices the file,
+waits until it has stopped growing (a copy in progress must not be published as
+a whole ISO), hashes it, moves it in under the usual generation name, writes the
+sidecar and flips the pointer. From that moment it is an ordinary pool entry:
+served to every host over the LAN, counted in the totals, deletable and
+prunable. Its `checksumVerdict` is `none` and its `sourceUrl` is the page it came
+from -- the agent proves nothing about bytes it did not download, and says so.
+
+Only best-effort families adopt this way. A family with a working resolver would
+have its hand-placed copy replaced by the next scan, silently, so the drop is
+refused rather than quietly undone.
 
 **The gain, when it works, is real but uneven.** On Hyper-V and UTM it saves a
 repeated multi-gigabyte pull. On **KVM it is a new capability**: that script has
@@ -244,7 +286,7 @@ time; auto-seed status and the last seed outcome.
 | `checksumVerdict` | `verified` (publisher checksum matched), `unpublished` (family publishes none), `none` |
 | `sourceUrl` / `downloadedAt` | Provenance: exactly where these bytes came from and when |
 | Progress | `bytesDone`/`bytesTotal` while a download is in flight |
-| Last error | On a `failed` row, the string the attempt died with |
+| Last error | On a `failed` row, the string the attempt died with -- replaced, on a Windows row whose resolver cannot run, by the [hand-download instructions](#when-the-resolver-is-refused-the-drop-folder) |
 
 **Totals row** -- pool bytes used, with per-hostType subtotals: the answer to
 "what is eating the share".
@@ -365,8 +407,7 @@ their rotation, and believes only a definite answer. Two consequences:
 
 A rejected code answers `401`, and eight rejections from one address inside ten
 minutes answer `429` without troubling the aggregator -- so a typo loop cannot
-burn through the lab's shared attempt budget. Every attempt, accepted or not, is
-recorded in the audit log.
+burn through the lab's shared attempt budget. Every attempt, accepted or not, is recorded in the audit log.
 
 **The code is public on the LAN by design.** The aggregator publishes it on its
 open `/metrics` and paints it on a dashboard tile, so anyone who can reach the
@@ -399,8 +440,9 @@ script therefore forwards **host `:8082` to guest `:80`** and writes the marker'
 `downloadAgentServiceBaseUrl` as `http://<mac-lan-ip>:8082/`. On a bridged host
 the marker carries the VM's own address and no forward is needed.
 
-The port is fixed, not picked at run time: `:80` is the caching proxy's CA-cert
-endpoint, `:2222` is the stash service, and `:8081` is the pool-control service.
+The port is fixed, not picked at run time: `:80` is the caching-proxy service's
+CA-cert endpoint, `:2222` is the stash service, and `:8081` is the pool-control
+service.
 Asking for a port already forwarded would attach to that forwarder and publish
 the wrong service at the advertised URL.
 
@@ -452,7 +494,7 @@ default-off, so only opt-in hosts are affected.
 
 The merge is additive only. A host carried over from an older build keeps a
 `download-agent-service-passcode` entry in its runtime `users.yml`, and possibly
-a value under that key in `vault.yml`, that nothing reads. Neither grants access
+a value under that key in `vault.yml`. Neither grants access
 to anything -- no daemon compares against them and no seed carries them -- so
 leaving them is harmless. Delete both by hand if you would rather the vault
 held only live credentials.
@@ -473,6 +515,7 @@ held only live credentials.
 | UI actions return "read-only" / show a `leaseHolder` | Another agent on the same NAS holds the lease | Expected. Use that agent's UI, or stop it -- the lease expires after three scan intervals |
 | An entry is stale and refuses to refresh | The origin is unreachable directly | The pool keeps serving the previous verified generation. Nothing to do but restore origin reachability; the next scan retries |
 | `guest.windows.11` never appears in the pool, or stays `absent` after a Force refresh | Best-effort family: no PowerShell, no Fido, or Fido could not mint a URL under Linux pwsh | Open the **Diagnostics** page: the family card carries the exact failure, the last resolver run shows both output streams, and the gated Resolver test reruns the resolve on demand. A VM built before this family (or before the platform-gate patch) needs a Stop/Start rebuild. Hosts are unaffected either way: Hyper-V and UTM run Fido themselves, KVM stays manual |
+| `Fido failed: exit status 3 (Error: Sentinel marked this request as rejected.)` | Microsoft refused the session; their front end, not the agent or the network | Follow the instructions on the row: fetch the ISO from the page it links and copy it into the folder it links. The agent adopts it within one scan and serves it to every host. Retrying sooner mostly spends more sessions from the same address, which is what earns the refusal -- the agent already spaces its own attempts out |
 | Pool is eating the share | Retention is current + previous per identity | Prune previous on the fat rows, or Delete entries for host types this lab no longer runs |
 
 The manual smoke test for the daemon build itself is
@@ -486,8 +529,8 @@ by hand to verify the daemon compiles and starts on a vanilla guest.
   context of the rest of the pool tooling.
 - [pool-storage.md](pool-storage.md) -- the pool share itself: paths,
   credentials, and the on-share layout.
-- [caching.md](caching.md) -- the squid caching proxy the agent's byte downloads
-  ride through, and its offline-mode behavior.
+- [caching.md](caching.md) -- the squid caching-proxy service the agent's byte
+  downloads ride through, and its offline-mode behavior.
 - [network.md](network.md) -- the Shared-NAT host-port allocation table.
 - [test-config.md](test-config.md#downloadagentservice--the-pool-wide-image-downloader) --
   the config-key reference.
@@ -499,6 +542,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.11
+Last review: 2026.08.14
 
 Back to [Yuruna](../README.md)

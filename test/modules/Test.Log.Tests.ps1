@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42e9c5b7-2d18-4a3f-bc60-7f1e9a8d2c40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,6 +28,7 @@
     `degradation` event passes Test-CycleEventSchema with zero violations.
 #>
 
+BeforeAll {
 $here       = Split-Path -Parent $PSCommandPath
 $modulePath = Join-Path $here 'Test.Log.psm1'
 $evtPath    = Join-Path $here 'Test.EventSchema.psm1'
@@ -77,6 +78,8 @@ function Restore-ArchiveFixture {
     $global:__YurunaLogFile     = $Fixture.Saved.LogFile
     $env:YURUNA_LOG_DIR         = $Fixture.Saved.LogDir
     if ($Fixture.Tmp) { Remove-Item -LiteralPath $Fixture.Tmp -Recurse -Force -ErrorAction SilentlyContinue }
+}
+
 }
 
 Describe 'New-YurunaDegradationRecord' {

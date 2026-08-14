@@ -17,7 +17,7 @@ service:
   startScript: Start-PoolControlServiceVM.ps1
   stopScript: Stop-PoolControlServiceVM.ps1
   markerBaseUrlKey: poolControlServiceBaseUrl
-  beaconInterval: 15m
+  beaconInterval: 2m
   # Everything this service mutates IS pool configuration: which pools exist,
   # which hosts belong to them, which test set each one runs.
   writeGate: lab-token

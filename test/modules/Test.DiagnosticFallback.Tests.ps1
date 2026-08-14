@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42c9d0e1-f2a3-4b45-9789-ac0d1e2f3a41
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,6 +31,7 @@
     run under Pester 4.10.1.
 #>
 
+BeforeAll {
 $here    = Split-Path -Parent $PSCommandPath
 $modPath = Join-Path $here 'Test.Diagnostic.psm1'
 Import-Module $modPath -Force
@@ -71,6 +72,8 @@ function Get-PickerDefCount {
         $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
         $n.Name -eq 'Select-MoreInformativeDiagResult'
     }, $true)).Count
+}
+
 }
 
 Describe 'Select-MoreInformativeDiagResult keeps the fuller failed-rung capture' {

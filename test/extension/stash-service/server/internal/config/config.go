@@ -43,11 +43,21 @@ const (
 
 // Presence beacon (§4.7). The daemon self-announces to the pool-aggregator-service
 // so the dashboard's Extension hosts row exists without depending on the
-// owning host's status service being up. 15 minutes keeps the row alive well
-// inside the aggregator's announce TTL while staying negligible traffic; the
-// area is the extension-area name the pool dashboard groups rows by.
+// owning host's status service being up; the area is the extension-area name
+// the pool dashboard groups rows by.
+//
+// The period is set by the aggregator's health grace, not by the announce TTL.
+// An announce carries no address -- the aggregator derives one from the
+// connection's source address -- so re-announcing is also the ONLY way a
+// renumbered service tells the pool where it went, and the aggregator refuses
+// the previous address once it has been unanswerable for that grace. A period
+// longer than the grace therefore opens a window where the pool holds neither
+// address and every consumer resolves nothing; several periods inside it mean a
+// service that renumbers is re-learned before, or shortly after, the address it
+// left is refused. Two minutes is still negligible traffic (one small POST per
+// service) and stays far inside the announce TTL.
 const (
-	DefaultPresenceInterval = 15 * time.Minute
+	DefaultPresenceInterval = 2 * time.Minute
 	PresenceArea            = "stash-service"
 )
 

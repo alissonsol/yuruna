@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 4258d7b3-f0cd-4067-93af-fd6942a23808
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -49,24 +49,10 @@
     Run: Invoke-Pester -Path test/modules/Test.HostClockSkew.Tests.ps1
 #>
 
+BeforeAll {
 $here      = Split-Path -Parent $PSCommandPath
 $sharedFile = Join-Path $here 'Test.HostCondition.psm1'
-$hostFiles  = [ordered]@{
-    'host.windows.hyper-v' = Join-Path $here 'Test.HostCondition.Windows.psm1'
-    'host.macos.utm'       = Join-Path $here 'Test.HostCondition.Mac.psm1'
-    'host.ubuntu.kvm'      = Join-Path $here 'Test.HostCondition.Linux.psm1'
-}
-$assertFn = @{
-    'host.windows.hyper-v' = 'Assert-WindowsHostConditionSet'
-    'host.macos.utm'       = 'Assert-MacHostConditionSet'
-    'host.ubuntu.kvm'      = 'Assert-LinuxHostConditionSet'
-}
-$syncFn = @{
-    'host.windows.hyper-v' = 'Sync-WindowsHostClock'
-    'host.macos.utm'       = 'Sync-MacHostClock'
-    'host.ubuntu.kvm'      = 'Sync-LinuxHostClock'
-}
-$outerLoopFile = Join-Path $here 'Test.RunnerOuterLoop.psm1'
+$script:outerLoopFile = Join-Path $here 'Test.RunnerOuterLoop.psm1'
 
 function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
 
@@ -139,6 +125,47 @@ function Get-LoopbackUdpListener {
         Port     = ([System.Net.IPEndPoint]$listener.Client.LocalEndPoint).Port
     }
 }
+
+}
+
+# The three host types this file holds to the same clock contract. The list is
+# built at FILE scope because every Describe body is executed while the file is
+# being discovered, which happens before any BeforeAll runs: a list assigned in
+# BeforeAll is still $null when the foreach that emits the per-host Its reads it,
+# so the loop emits no tests at all and its Describe passes without asserting
+# anything. Each case then reaches its It through -TestCases for the same
+# reason -- discovery's loop variable is gone by the time the body executes, so a
+# $case read inside the body would arrive as $null and assert against an empty
+# path. Nothing here may have a side effect: discovery builds and discards this
+# scope before the first It runs.
+$discoveryHere = Split-Path -Parent $PSCommandPath
+
+$hostClockCases = @(
+    @{ HostType = 'host.windows.hyper-v'
+       Path     = (Join-Path $discoveryHere 'Test.HostCondition.Windows.psm1')
+       AssertFn = 'Assert-WindowsHostConditionSet'
+       SyncFn   = 'Sync-WindowsHostClock' },
+    @{ HostType = 'host.macos.utm'
+       Path     = (Join-Path $discoveryHere 'Test.HostCondition.Mac.psm1')
+       AssertFn = 'Assert-MacHostConditionSet'
+       SyncFn   = 'Sync-MacHostClock' },
+    @{ HostType = 'host.ubuntu.kvm'
+       Path     = (Join-Path $discoveryHere 'Test.HostCondition.Linux.psm1')
+       AssertFn = 'Assert-LinuxHostConditionSet'
+       SyncFn   = 'Sync-LinuxHostClock' }
+)
+
+# A renamed or moved host-condition module must fail the file loudly here rather
+# than let the per-host guards quietly stop covering that platform.
+foreach ($hostClockCase in $hostClockCases) {
+    if (-not (Test-Path -LiteralPath $hostClockCase.Path)) {
+        throw "Host condition module not found for $($hostClockCase.HostType): $($hostClockCase.Path)"
+    }
+}
+
+# Only these two platforms repair the clock through sudo; Windows elevates a
+# different way, so the no-prompt guard below does not apply to it.
+$hostClockSudoCases = @($hostClockCases | Where-Object { $_.HostType -in @('host.macos.utm', 'host.ubuntu.kvm') })
 
 Describe 'host-clock-skew measurement' {
 
@@ -221,24 +248,25 @@ Describe 'host-clock-skew reporting on a cycle' {
             'the latch must be initialized at module scope'
     }
 
-    foreach ($entry in $hostFiles.GetEnumerator()) {
-        $ht   = $entry.Key
-        $path = $entry.Value
-        It "reports a skewed clock once per cycle: $ht" {
-            $fn = Get-FunctionAst -Path $path -Name $assertFn[$ht]
-            Assert-True ($null -ne $fn) "$($assertFn[$ht]) must exist"
+    foreach ($case in $hostClockCases) {
+        It "reports a skewed clock once per cycle: $($case.HostType)" -TestCases @(@{
+            HostType = $case.HostType; Path = $case.Path; AssertFn = $case.AssertFn
+        }) {
+            param([string]$HostType, [string]$Path, [string]$AssertFn)
+            $fn = Get-FunctionAst -Path $Path -Name $AssertFn
+            Assert-True ($null -ne $fn) "$AssertFn must exist"
             $calls = @($fn.FindAll({
                 param($n)
                 $n -is [System.Management.Automation.Language.CommandAst] -and
                 $n.GetCommandName() -eq 'Write-HostClockDriftWarning'
             }, $true))
-            Assert-True ($calls.Count -ge 1) "$ht must consult the shared clock report"
+            Assert-True ($calls.Count -ge 1) "$HostType must consult the shared clock report"
             # A bare statement, never a condition: the clock must not decide
             # whether this host is allowed to run.
             foreach ($call in $calls) {
                 Assert-True ($call.Parent -is [System.Management.Automation.Language.PipelineAst] -and
                              $call.Parent.Parent -is [System.Management.Automation.Language.NamedBlockAst]) `
-                    "$ht must call the clock report as a statement, not gate on it: $($call.Extent.Text)"
+                    "$HostType must call the clock report as a statement, not gate on it: $($call.Extent.Text)"
             }
         }
     }
@@ -246,40 +274,44 @@ Describe 'host-clock-skew reporting on a cycle' {
 
 Describe 'host-clock-skew repair' {
 
-    foreach ($entry in $hostFiles.GetEnumerator()) {
-        $ht   = $entry.Key
-        $path = $entry.Value
-        It "can put its own clock back under NTP discipline: $ht" {
-            $fn = Get-FunctionAst -Path $path -Name $syncFn[$ht]
-            Assert-True ($null -ne $fn) "$($syncFn[$ht]) must exist"
+    foreach ($case in $hostClockCases) {
+        It "can put its own clock back under NTP discipline: $($case.HostType)" -TestCases @(@{
+            Path = $case.Path; SyncFn = $case.SyncFn
+        }) {
+            param([string]$Path, [string]$SyncFn)
+            $fn = Get-FunctionAst -Path $Path -Name $SyncFn
+            Assert-True ($null -ne $fn) "$SyncFn must exist"
             # Best-effort by contract: a clock fix needs privileges the
             # caller may not hold, and no caller may be left to throw.
             Assert-True ($fn.Extent.Text -match 'Succeeded') 'must report a Succeeded status rather than throwing'
         }
     }
 
-    It 'registers every host clock-sync path with the dispatcher' {
+    It 'registers every host clock-sync path with the dispatcher' -TestCases @(@{ Cases = $hostClockCases }) {
+        param($Cases)
         $ast = Get-FileAst -Path $sharedFile
-        foreach ($ht in $hostFiles.Keys) {
-            Assert-True ($ast.Extent.Text -match [regex]::Escape($syncFn[$ht])) `
-                "$ht must register $($syncFn[$ht]) as its ClockSync capability"
+        foreach ($case in $Cases) {
+            Assert-True ($ast.Extent.Text -match [regex]::Escape($case.SyncFn)) `
+                "$($case.HostType) must register $($case.SyncFn) as its ClockSync capability"
         }
     }
 
-    It 'never blocks an unattended host on a password prompt' {
+    It 'never blocks an unattended host on a password prompt' -TestCases @(@{ Cases = $hostClockSudoCases }) {
+        param($Cases)
         # A sudo prompt in the sync path is a hang, not a failed sync: the
         # runner calls this with no console.
-        foreach ($ht in @('host.macos.utm', 'host.ubuntu.kvm')) {
-            $fn = Get-FunctionAst -Path $hostFiles[$ht] -Name $syncFn[$ht]
+        Assert-True (@($Cases).Count -eq 2) 'both sudo-based host types must reach this guard'
+        foreach ($case in $Cases) {
+            $fn = Get-FunctionAst -Path $case.Path -Name $case.SyncFn
             $sudoCalls = @($fn.FindAll({
                 param($n)
                 $n -is [System.Management.Automation.Language.CommandAst] -and
                 $n.GetCommandName() -eq 'sudo'
             }, $true))
-            Assert-True ($sudoCalls.Count -ge 1) "$ht is expected to need sudo"
+            Assert-True ($sudoCalls.Count -ge 1) "$($case.HostType) is expected to need sudo"
             foreach ($call in $sudoCalls) {
                 Assert-True ($call.Extent.Text -match 'sudo\s+-n\b') `
-                    "$ht must call sudo with -n so it can never wait on a prompt: $($call.Extent.Text)"
+                    "$($case.HostType) must call sudo with -n so it can never wait on a prompt: $($call.Extent.Text)"
             }
         }
     }
@@ -290,7 +322,7 @@ Describe 'host-clock-skew repair' {
         # rather than hangs -- so per-cycle it could only ever log a failure,
         # once per host, forever. The runner reports the skew instead and
         # leaves the repair to a console that can answer for it.
-        $fn = Get-FunctionAst -Path $outerLoopFile -Name 'Invoke-RunnerOuterCycle'
+        $fn = Get-FunctionAst -Path $script:outerLoopFile -Name 'Invoke-RunnerOuterCycle'
         Assert-True ($null -ne $fn) 'the per-cycle function must exist'
         $syncCalls = @($fn.FindAll({
             param($n)
@@ -312,9 +344,41 @@ Describe 'host-clock-skew repair where a console can answer' {
         Assert-True ($null -ne $offer) 'Test-Config must offer to fix a skewed clock'
         # The offer is the operator's decision, and the unattended config
         # gate runs this same file -- so it must ask, and only when asked to
-        # a console that can answer.
-        Assert-True ($offer.Extent.Text -match 'Read-Host')      'the fix must be offered, not applied silently'
-        Assert-True ($offer.Extent.Text -match 'UserInteractive') 'the offer must be skipped on a headless run'
+        # a console that can answer. The promptability question has one
+        # canonical spelling (redirected stdin OR stdout, the non-interactive
+        # environment contract, and a missing console object all disqualify);
+        # a local re-spelling here would pass on a headless run whose stdout is
+        # captured, and stall it on a keystroke nobody knows to press.
+        $prompts = @($offer.FindAll({
+            param($n)
+            $n -is [System.Management.Automation.Language.CommandAst] -and
+            $n.GetCommandName() -eq 'Read-Host'
+        }, $true))
+        $gates = @($offer.FindAll({
+            param($n)
+            $n -is [System.Management.Automation.Language.CommandAst] -and
+            $n.GetCommandName() -eq 'Test-YurunaCanPrompt'
+        }, $true))
+        Assert-True ($prompts.Count -ge 1) 'the fix must be offered, not applied silently'
+        Assert-True ($gates.Count -ge 1) `
+            'the offer must consult Test-YurunaCanPrompt so it is skipped on a headless run'
+        Assert-True ($gates[0].Extent.StartLineNumber -lt $prompts[0].Extent.StartLineNumber) `
+            'the promptability gate must run before the question it guards'
+        # A gate whose answer is discarded skips nothing, so it has to decide a
+        # branch rather than merely appear.
+        $gatedIf = @($offer.FindAll({
+            param($n)
+            $n -is [System.Management.Automation.Language.IfStatementAst] -and
+            @($n.Clauses | ForEach-Object {
+                $_.Item1.FindAll({
+                    param($c)
+                    $c -is [System.Management.Automation.Language.CommandAst] -and
+                    $c.GetCommandName() -eq 'Test-YurunaCanPrompt'
+                }, $true)
+            }).Count -gt 0
+        }, $true))
+        Assert-True ($gatedIf.Count -ge 1) `
+            'the promptability answer must control a branch, not be evaluated and dropped'
         # The sync underneath is `sudo -n` throughout, so an accepted offer
         # dies on "a password is required" unless the cache is primed first.
         $prime = @($offer.FindAll({
@@ -333,17 +397,22 @@ Describe 'host-clock-skew repair where a console can answer' {
             'the sudo cache must be primed before the sync that spends it'
     }
 
-    foreach ($entry in $hostFiles.GetEnumerator()) {
-        $ht   = $entry.Key
-        $path = $entry.Value
-        It "keeps the durable fix on the operator-facing host-prep path: $ht" {
-            $setFn = $assertFn[$ht] -replace '^Assert-', 'Set-'
-            $fn = Get-FunctionAst -Path $path -Name $setFn
+    foreach ($case in $hostClockCases) {
+        It "keeps the durable fix on the operator-facing host-prep path: $($case.HostType)" -TestCases @(@{
+            Path = $case.Path; AssertFn = $case.AssertFn; SyncFn = $case.SyncFn
+        }) {
+            param([string]$Path, [string]$AssertFn, [string]$SyncFn)
+            $setFn = $AssertFn -replace '^Assert-', 'Set-'
+            $fn = Get-FunctionAst -Path $Path -Name $setFn
             Assert-True ($null -ne $fn) "$setFn must exist"
+            # Bind to a local so the parameter is referenced in the body itself:
+            # the predicate below captures it, but PSReviewUnusedParameter cannot
+            # see a use that only occurs inside a scriptblock handed to FindAll.
+            $wanted = $SyncFn
             $calls = @($fn.FindAll({
                 param($n)
                 $n -is [System.Management.Automation.Language.CommandAst] -and
-                $n.GetCommandName() -eq $syncFn[$ht]
+                $n.GetCommandName() -eq $wanted
             }, $true))
             Assert-True ($calls.Count -ge 1) `
                 "$setFn (reached from Enable-TestAutomation.ps1) must still discipline the clock"

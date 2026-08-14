@@ -201,7 +201,7 @@ message, and the status pages render it in place of a bare `HTTP 403`:
 2. **You typed the host URL instead of following the dashboard link.** The proof lives in that
    tab's `sessionStorage` and is per-origin: arriving on one of the host's addresses and then
    switching to another loses it. Re-enter through the dashboard host link. A minted proof
-   lasts about 15 minutes.
+   lasts about 15 minutes; the config page shows a countdown and warns before it lapses.
 3. **The host has no `lab-auth-token` vault entry** (or an empty vault key) — non-loopback
    control is refused by design until the host is enrolled. Read the current Lab token off
    the dashboard and run `pwsh test/lab/Set-LabToken.ps1 -LabToken <code> -BounceStatusService`
@@ -239,6 +239,19 @@ via the dashboard again" vs "enroll the host first" are different fixes. The not
 is static: each `reason` resolves through a fixed map of prewritten texts in
 [`test/status/yuruna.common.js`](../test/status/yuruna.common.js), so no server-supplied
 text is ever interpolated into the page.
+
+## Pause and resume: the flag-file back-channel
+
+The four pause/resume routes flip one of two flag files, each mirrored into
+`status.json` so the next UI poll flips the banner:
+
+- `control.step-pause` — `Invoke-Sequence` checks it at every step boundary;
+  the run stops after the running step finishes.
+- `control.cycle-pause` — `Invoke-TestRunner` checks it at the cycle boundary;
+  the run stops after the current cycle finishes cleanup.
+
+The parent-side `Write-StatusJson` keeps file and JSON in sync by re-reading
+the flag files on each write.
 
 ## GET /control/runner-status
 
@@ -408,6 +421,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.11
+Last review: 2026.08.14
 
 Back to [Yuruna](../README.md)

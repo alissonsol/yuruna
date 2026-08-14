@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42c9d0e1-f2a3-4b45-9678-9a0b1c2d3e42
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,8 +20,10 @@
 # (Invoke-GitPull), HEAD short-hash reporting, the Restart-Manager /
 # PEB cwd scanner that diagnoses Windows file-locker PIDs when
 # Remove-Item fails, the wipe-and-re-clone of the project-under-test,
-# and the on-demand PSGallery installs (powershell-yaml,
-# PSScriptAnalyzer) the runner needs but pwsh 7 doesn't ship.
+# the framework/project repository-access answer a host serves to the
+# pool UIs (Get-HostRepositoryAccess), and the on-demand PSGallery
+# installs (powershell-yaml, PSScriptAnalyzer) the runner needs but
+# pwsh 7 doesn't ship.
 
 function Get-GitUpstreamStatus {
     <#
@@ -873,6 +875,79 @@ function Update-ProjectClone {
     return @{ success = $true; skipped = $false; errorMessage = $null }
 }
 
+function Resolve-GitRemoteLink {
+    <#
+    .SYNOPSIS
+    One git remote value as a location a browser can be pointed at:
+    [pscustomobject] @{ Url; Kind }.
+    .DESCRIPTION
+    Pure string work -- no filesystem, no network -- so it answers for a remote
+    this machine cannot reach as readily as for one it just cloned, and it never
+    leaves the value it was given for a different one: a remote naming a local
+    copy stays that local copy.
+
+    Every clone form is normalized to something addressable:
+
+      - https/http keeps its scheme, minus any embedded `user:password@`
+        userinfo (the result reaches unauthenticated surfaces, so a credential
+        written into a remote must not travel with it) and minus a trailing
+        `.git` (the web route is not served under the repository path).
+      - ssh:// and the scp-like `git@host:owner/repo.git` are the same
+        repository reached over a different transport, so both rewrite to the
+        https location that serves it in a browser.
+      - a rooted local path becomes a file: URL, drive letters and UNC shares
+        included. A trailing `.git` is kept here: a bare clone's directory is
+        literally named that.
+      - any other scheme is passed through untouched. Nothing here can improve
+        it, and the consumer is what decides which schemes may become a link.
+
+    Kind names which of those answered -- 'web', 'file', 'other', or '' when
+    the input names nothing -- so a caller that needs specifically a web URL
+    can tell one from a local path without re-parsing the grammar.
+
+    A RELATIVE path ('../sibling.git') yields nothing: it has no meaning away
+    from the repository that holds it, and this helper is deliberately given no
+    directory to resolve it against.
+    .OUTPUTS
+    [pscustomobject] @{ Url = [string]; Kind = 'web'|'file'|'other'|'' }
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([Parameter()][AllowNull()][AllowEmptyString()][string]$Url)
+
+    $s = "$Url".Trim()
+    if (-not $s) { return [pscustomobject]@{ Url = ''; Kind = '' } }
+
+    # https is matched FIRST because its optional userinfo (`https://user@host/`)
+    # would otherwise read as the scp-like form's `user@host:`.
+    $web = ''
+    if ($s -match '^(?<scheme>https?://)(?:[^/@]+@)?(?<rest>.+)$') {
+        $web = $Matches['scheme'] + $Matches['rest']
+    } elseif ($s -match '^ssh://(?:[^@/]+@)?(?<hostname>[^/:]+)(?::\d+)?/(?<path>.+)$') {
+        $web = 'https://' + $Matches['hostname'] + '/' + ($Matches['path'] -replace '^/+', '')
+    } elseif ($s -match '^[^@/\\]+@(?<hostname>[^:/\\]+):(?<path>.+)$') {
+        # scp-like remote. The user@ prefix is required so a Windows drive
+        # path (C:/git/...) can never match as host:path.
+        $web = 'https://' + $Matches['hostname'] + '/' + ($Matches['path'] -replace '^/+', '')
+    }
+    if ($web) { return [pscustomobject]@{ Url = ($web -replace '/+$', '' -replace '\.git$', ''); Kind = 'web' } }
+
+    if ($s -match '^file://') { return [pscustomobject]@{ Url = $s; Kind = 'file' } }
+    if ($s -match '^[A-Za-z][A-Za-z0-9+.-]*://') { return [pscustomobject]@{ Url = $s; Kind = 'other' } }
+
+    # A path. Separators are normalized before escaping so one branch serves
+    # both platforms; '%' goes first, or it would re-escape the escapes.
+    $p = $s -replace '\\', '/'
+    $esc = $p -replace '%', '%25' -replace ' ', '%20' -replace '#', '%23' -replace '\?', '%3F'
+    if ($p -match '^//[^/]') {
+        # UNC share: the server takes the authority position (file://server/share).
+        return [pscustomobject]@{ Url = ('file:' + $esc); Kind = 'file' }
+    }
+    if ($p -match '^[A-Za-z]:/') { return [pscustomobject]@{ Url = ('file:///' + $esc); Kind = 'file' } }
+    if ($p.StartsWith('/'))      { return [pscustomobject]@{ Url = ('file://' + $esc); Kind = 'file' } }
+    return [pscustomobject]@{ Url = ''; Kind = '' }
+}
+
 function Resolve-GitRepositoryWebUrl {
     <#
     .SYNOPSIS
@@ -889,12 +964,10 @@ function Resolve-GitRepositoryWebUrl {
       - an ssh:// remote.
 
     This helper walks those forms back to the underlying web remote:
-    ssh forms are rewritten to https, and a local path is followed through
-    the clone chain's remote.origin.url (bounded hops, so an origin cycle
-    cannot loop). http(s) inputs are normalized for linking: embedded
-    userinfo credentials are stripped (repoUrl lands on unauthenticated
-    status surfaces) and a trailing .git is removed (the /commit/<sha> web
-    route is not served under the .git repository path).
+    Resolve-GitRemoteLink normalizes the direct forms (ssh rewritten to https,
+    userinfo credentials stripped, trailing .git removed), and anything it does
+    not answer with a web URL is followed through the clone chain's
+    remote.origin.url instead (bounded hops, so an origin cycle cannot loop).
 
     Returns $null when no web URL can be derived; callers keep their raw
     value so a non-linkable repo still renders as plain text.
@@ -910,22 +983,12 @@ function Resolve-GitRepositoryWebUrl {
         if ([string]::IsNullOrWhiteSpace($current)) { return $null }
         $current = $current.Trim()
 
-        if ($current -match '^(?<scheme>https?://)(?:[^/@]+@)?(?<rest>.+)$') {
-            $web = $Matches['scheme'] + $Matches['rest']
-            return ($web -replace '/+$', '' -replace '\.git$', '')
-        }
-        if ($current -match '^ssh://(?:[^@/]+@)?(?<hostname>[^/:]+)(?::\d+)?/(?<path>.+)$') {
-            $web = 'https://' + $Matches['hostname'] + '/' + ($Matches['path'] -replace '^/+', '')
-            return ($web -replace '/+$', '' -replace '\.git$', '')
-        }
-        # scp-like remote. The user@ prefix is required so a Windows drive
-        # path (C:/git/...) can never match as host:path.
-        if ($current -match '^[^@/\\]+@(?<hostname>[^:/\\]+):(?<path>.+)$') {
-            $web = 'https://' + $Matches['hostname'] + '/' + ($Matches['path'] -replace '^/+', '')
-            return ($web -replace '/+$', '' -replace '\.git$', '')
-        }
+        $link = Resolve-GitRemoteLink -Url $current
+        if ($link.Kind -eq 'web') { return $link.Url }
 
-        # Local clone path: follow its origin one hop and re-classify.
+        # Local clone path: follow its origin one hop and re-classify. A file:
+        # URL is a location, not a link base a /commit/<sha> route can be built
+        # on, so it takes this branch too rather than being returned.
         if (-not (Test-Path -LiteralPath $current)) { return $null }
         $originUrl = $null
         try {
@@ -940,6 +1003,155 @@ function Resolve-GitRepositoryWebUrl {
         $current = $originUrl
     }
     return $null
+}
+
+function Get-GitRepositoryName {
+    <#
+    .SYNOPSIS
+        The repository name at the end of a clone URL or path
+        ('https://github.com/alius-git/amisad.dev' -> 'amisad.dev'), or '' when
+        the input names nothing.
+    .DESCRIPTION
+        Pure string work -- no filesystem, no network, so it answers for a URL
+        this machine cannot reach as readily as for one it just cloned.
+
+        Every clone form ends in the same thing: the name after the last
+        separator. https and ssh:// separate with '/', the scp-like form
+        (git@github.com:owner/repo.git) may end its host with ':', and a local
+        clone path uses the platform separator -- so all three are cut at once
+        rather than by parsing each grammar. A trailing '.git' and trailing
+        slashes are dropped: a remote written either way is the same repository
+        and must not read as two different names.
+    .OUTPUTS
+        [string] the name, or '' when none can be read.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter()][AllowNull()][AllowEmptyString()][string]$Url)
+
+    if ([string]::IsNullOrWhiteSpace($Url)) { return '' }
+    $s = $Url.Trim() -replace '[\\/]+$', ''
+    $s = $s -replace '\.git$', ''
+    # Strip a query string / fragment before cutting: a browser-copied URL can
+    # carry one, and it is not part of the name.
+    $s = ($s -split '[?#]')[0] -replace '[\\/]+$', ''
+    if ([string]::IsNullOrWhiteSpace($s)) { return '' }
+    $name = ($s -split '[\\/:]')[-1]
+    return "$name".Trim()
+}
+
+function Test-GitRemoteAccess {
+    <#
+    .SYNOPSIS
+        Can this host read the repository at $Url right now? One bounded,
+        prompt-proof `git ls-remote` through the host's own credential chain.
+    .DESCRIPTION
+        Answers the question a clone would answer, without cloning: whether the
+        credential and the network this machine actually has can reach the
+        repository someone configured for it. Reaches the remote through
+        Invoke-GitNetworkCommand, so it can never block on an interactive
+        credential prompt and it tries the same credential sources a cycle's
+        clone would.
+
+        The auth/network split is kept because the two need different answers
+        from an operator (grant the token access vs. wait), even where the
+        caller collapses them into one word for display.
+    .OUTPUTS
+        [pscustomobject] @{ Reachable = [bool]; Reason = 'ok'|'denied'|'unreachable';
+                            Detail = [string] }
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Url,
+        [Parameter()][int]$TimeoutSeconds = 20
+    )
+    if ([string]::IsNullOrWhiteSpace($Url)) {
+        return [pscustomobject]@{ Reachable = $false; Reason = 'unreachable'; Detail = 'no url' }
+    }
+    $probe = Invoke-GitNetworkCommand -GitArgs @('ls-remote', '--exit-code', '--quiet', $Url.Trim(), 'HEAD') -TimeoutSeconds $TimeoutSeconds
+    if ($probe.ExitCode -eq 0) {
+        return [pscustomobject]@{ Reachable = $true; Reason = 'ok'; Detail = '' }
+    }
+    $reason = if (Test-GitRemoteAuthFailure -Output $probe.Output) { 'denied' } else { 'unreachable' }
+    return [pscustomobject]@{ Reachable = $false; Reason = $reason; Detail = "$($probe.Output)".Trim() }
+}
+
+function Get-HostRepositoryAccess {
+    <#
+    .SYNOPSIS
+        What this host can say about one of its two repositories (framework or
+        project): the repository name it holds, or that it has no access to the
+        one it was configured with.
+    .DESCRIPTION
+        Answers for the pool UI's repository columns, where an operator is
+        asking one question of a whole lab at once: does this host have the
+        repository I think it has? So the answer is a NAME when the host can
+        produce one, and 'No access' when it was pointed at a repository it
+        cannot get to.
+
+        The clone this host already holds is the cheap and truthful source: its
+        remote.origin.url is what the host actually tracks, which is not always
+        the configured URL (a pool assignment overrides it for a cycle). Only
+        when there is no readable clone is the configured URL probed, and that
+        probe is what separates a host that cannot reach the repository from
+        one that simply has not cloned it yet.
+
+        A host with neither a clone nor a configured URL reports NOTHING (an
+        empty Access): the in-tree project layout is a legitimate setup, not a
+        failure, and the caller renders a blank rather than an alarm.
+
+        The probe is opt-in (-Probe) because it is the only branch that touches
+        the network: a caller answering a request under a deadline runs the
+        local read inline and defers the probe.
+    .OUTPUTS
+        [pscustomobject] @{ Access; Source; Url }.
+          Access -- the repository name, 'No access', or '' (nothing configured,
+                   or the probe was not run).
+          Source -- 'clone' | 'probe' | 'denied' | 'unreachable' | 'unconfigured'
+                   | 'unprobed', which is the reason behind Access.
+          Url    -- where that repository lives, normalized for linking by
+                   Resolve-GitRemoteLink: the clone's own origin, or the
+                   configured url when the answer came from a probe (including
+                   the one that failed -- an operator checking a 'No access'
+                   row wants the url it could not read). Empty when the name
+                   came from a remote form nothing can be addressed at.
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter()][AllowNull()][AllowEmptyString()][string]$RepoDir,
+        [Parameter()][AllowNull()][AllowEmptyString()][string]$ConfiguredUrl,
+        [Parameter()][switch]$Probe,
+        [Parameter()][int]$TimeoutSeconds = 20
+    )
+    $originUrl = ''
+    if (-not [string]::IsNullOrWhiteSpace($RepoDir) -and (Test-Path -LiteralPath (Join-Path $RepoDir '.git'))) {
+        try {
+            $raw = & git -C $RepoDir config --get remote.origin.url 2>$null
+            if ([int]$LASTEXITCODE -eq 0 -and $raw) { $originUrl = "$(@($raw)[0])".Trim() }
+        } catch { Write-Verbose "Get-HostRepositoryAccess: remote.origin.url read failed: $($_.Exception.Message)" }
+    }
+    $name = Get-GitRepositoryName -Url $originUrl
+    if ($name) {
+        return [pscustomobject]@{ Access = $name; Source = 'clone'; Url = (Resolve-GitRemoteLink -Url $originUrl).Url }
+    }
+
+    $url = "$ConfiguredUrl".Trim()
+    if (-not $url) { return [pscustomobject]@{ Access = ''; Source = 'unconfigured'; Url = '' } }
+    # Nothing to point at while the answer is still pending: the caller renders
+    # a blank for this, and a link under a blank name leads somewhere the
+    # operator has not been told about yet.
+    if (-not $Probe) { return [pscustomobject]@{ Access = ''; Source = 'unprobed'; Url = '' } }
+
+    $link = (Resolve-GitRemoteLink -Url $url).Url
+    $result = Test-GitRemoteAccess -Url $url -TimeoutSeconds $TimeoutSeconds
+    if ($result.Reachable) {
+        # Reachable but not cloned: the configured URL names the repository this
+        # host is about to hold, and it is the same name the clone will report.
+        return [pscustomobject]@{ Access = (Get-GitRepositoryName -Url $url); Source = 'probe'; Url = $link }
+    }
+    return [pscustomobject]@{ Access = 'No access'; Source = $result.Reason; Url = $link }
 }
 
 # Shared PSGallery module-install policy for the two dependency bootstrappers below:
@@ -1028,4 +1240,4 @@ function Install-PSScriptAnalyzerIfMissing {
     return Install-YurunaGalleryModuleIfMissing -Name 'PSScriptAnalyzer' @PSBoundParameters
 }
 
-Export-ModuleMember -Function Invoke-GitPull, Get-GitUpstreamStatus, Get-GitUnmergedPath, Test-GitWorktreeMerged, Get-CurrentGitCommit, Get-FileLockingProcess, Update-ProjectClone, Resolve-GitRepositoryWebUrl, Install-PowerShellYamlIfMissing, Install-PSScriptAnalyzerIfMissing, Test-GitRemoteAuthFailure, Write-GitAuthRefreshBanner, Invoke-GitNetworkCommand, Get-YurunaGitCredentialArg, Get-YurunaGhCliCredentialArg, Get-YurunaGitAuthAttemptList
+Export-ModuleMember -Function Invoke-GitPull, Get-GitUpstreamStatus, Get-GitUnmergedPath, Test-GitWorktreeMerged, Get-CurrentGitCommit, Get-FileLockingProcess, Update-ProjectClone, Resolve-GitRepositoryWebUrl, Resolve-GitRemoteLink, Get-GitRepositoryName, Test-GitRemoteAccess, Get-HostRepositoryAccess, Install-PowerShellYamlIfMissing, Install-PSScriptAnalyzerIfMissing, Test-GitRemoteAuthFailure, Write-GitAuthRefreshBanner, Invoke-GitNetworkCommand, Get-YurunaGitCredentialArg, Get-YurunaGhCliCredentialArg, Get-YurunaGitAuthAttemptList

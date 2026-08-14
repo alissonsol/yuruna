@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42cc5fb9-b972-4368-a17d-b35c17f67b28
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,32 +33,35 @@
     Pester 4.10.1.
 #>
 
+BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
 $autoDir  = Join-Path $repoRoot 'automation'
-$module   = Join-Path $autoDir 'Yuruna.LogLevel.psm1'
-$entrypoints = 'yuruna','Set-Component','Set-Resource','Set-Workload','Invoke-Clear'
+$script:module   = Join-Path $autoDir 'Yuruna.LogLevel.psm1'
+$script:entrypoints = 'yuruna','Set-Component','Set-Resource','Set-Workload','Invoke-Clear'
 
 function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
 
+}
+
 Describe 'yuruna-rootset -- root resolution lives once, called before the eviction' {
     It 'Yuruna.LogLevel defines and exports Resolve-YurunaRootSet' {
-        $src = Get-Content -LiteralPath $module -Raw
+        $src = Get-Content -LiteralPath $script:module -Raw
         Assert-True ($src -match '(?m)^function Resolve-YurunaRootSet\b') 'Resolve-YurunaRootSet must be defined'
         Assert-True (($src -split "`n" | Where-Object { $_ -match 'Export-ModuleMember' }) -match 'Resolve-YurunaRootSet') 'must be exported'
     }
     It 'the raw project-root Resolve-Path guard lives in exactly one place -- the resolver' {
         $needle = '$resolved_root = Resolve-Path -LiteralPath $project_root'
-        $inModule = ([regex]::Matches((Get-Content -LiteralPath $module -Raw), [regex]::Escape('Resolve-Path -LiteralPath $ProjectRoot'))).Count
+        $inModule = ([regex]::Matches((Get-Content -LiteralPath $script:module -Raw), [regex]::Escape('Resolve-Path -LiteralPath $ProjectRoot'))).Count
         Assert-True ($inModule -eq 1) "the resolver must own the one project-root Resolve-Path, found $inModule"
-        foreach ($e in $entrypoints) {
+        foreach ($e in $script:entrypoints) {
             $src = Get-Content -LiteralPath (Join-Path $autoDir "$e.ps1") -Raw
             $n = ([regex]::Matches($src, [regex]::Escape($needle))).Count
             Assert-True ($n -eq 0) "$e must not inline the project-root guard, found $n"
         }
     }
     It 'each entrypoint delegates to Resolve-YurunaRootSet before the eviction' {
-        foreach ($e in $entrypoints) {
+        foreach ($e in $script:entrypoints) {
             $src = Get-Content -LiteralPath (Join-Path $autoDir "$e.ps1") -Raw
             $callIdx  = $src.IndexOf('Resolve-YurunaRootSet -ScriptRoot $PSScriptRoot')
             $evictIdx = $src.IndexOf('Get-Module Yuruna.* | Remove-Module')

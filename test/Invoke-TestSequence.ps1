@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456708
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -649,7 +649,8 @@ if ((Get-VMState -VMName $VMName) -ne 'absent') {
 }
 
 # --- REGION: Ensure VM is running
-# Skipped when the first EXECUTED step (honoring -StartStep) is `loadDiskSnapshot`:
+# Skipped when the first EXECUTED step (honoring -StartStep, and reading through a
+# wrapper such as `retry` to the inner step that actually runs) is `loadDiskSnapshot`:
 # that handler tolerates a stopped VM as input (its host driver gates the pre-restore
 # Stop-VM on `if running`), runs the restore against the offline disk,
 # and starts the VM itself on return. Pre-booting here would only force
@@ -658,24 +659,9 @@ if ((Get-VMState -VMName $VMName) -ne 'absent') {
 $VmStartTimeoutSeconds = $Config.vmStart.startTimeoutSeconds ? [int]$Config.vmStart.startTimeoutSeconds : 120
 $VmBootDelaySeconds    = $Config.vmStart.bootDelaySeconds    ? [int]$Config.vmStart.bootDelaySeconds    : 15
 
-function Get-FirstExecutedStepAction {
-    # The action of the step that ACTUALLY executes first for this run. The chain is a
-    # flat concatenation across ChainEntries -- a prerequisite chain can occupy
-    # ChainEntries[0], and -StartStep can begin the run partway in -- so the first
-    # executed step is not necessarily ChainEntries[0].steps[0]. Resolve it by the
-    # global 1-based StartStep index. Returns $null when StartStep is past the end (the
-    # StartStep range-check just below reports that; here it simply means "start the VM").
-    [OutputType([string])]
-    param($ChainEntries, [int]$StartStep = 1)
-    $idx = 0
-    foreach ($entry in $ChainEntries) {
-        foreach ($step in @($entry.sequence.steps)) {
-            $idx++
-            if ($idx -eq $StartStep) { return [string]$step.action }
-        }
-    }
-    return $null
-}
+# Get-FirstExecutedStepAction (Test.SequenceRunner.psm1) returns $null when StartStep
+# is past the end -- the StartStep range-check just below reports that; here it simply
+# means "start the VM".
 $firstStepAction = Get-FirstExecutedStepAction -ChainEntries $ChainEntries -StartStep $StartStep
 
 if ($firstStepAction -eq 'loadDiskSnapshot') {
@@ -867,6 +853,9 @@ try {
         -SequenceName $SequenceName `
         -ShowSensitive:$ShowSensitive
     if (-not $result.ok) {
+        # Evidence first: the guest is still up and holding the state that failed.
+        $failedVm = if ($result.finishedVmName) { [string]$result.finishedVmName } else { $VMName }
+        Save-ChainFailureArtifact -VMName $failedVm -GuestKey $GuestKey -RepoRoot $RepoRoot -ModulesDir $ModulesDir
         $script:TestSequenceOutcome = 'fail'
         $script:TestSequenceReason  = "chain '$SequenceName' (StartStep=$StartStep)"
         exit $ExitFailure

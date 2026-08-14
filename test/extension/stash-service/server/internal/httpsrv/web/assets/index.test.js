@@ -8,18 +8,20 @@
   concatenated after common.js and exercised through the elements it wires.
 
   Covers the selection + delete surface:
-    - a remote-host row (which the daemon refuses to DELETE) gets no checkbox and
-      no Delete button, so the page offers no control the server would reject;
-    - a browser the daemon will not accept a delete FROM gets the same treatment
-      on every row, plus one line naming the address it was seen as;
+    - an unlocked browser gets a checkbox and a Delete on EVERY row, another
+      host's included -- the daemon writes to the whole stash share;
+    - a locked browser gets neither, on any row, plus one line saying so and the
+      lab-token prompt revealed;
     - "All" checks/unchecks exactly the selectable rows and drives the enabled
       state of "Delete selected";
     - the auto-refresh countdown parks while rows are selected, so a poll cannot
       re-render the table out from under a half-built selection;
     - a per-row Delete removes that row without re-fetching the list, and moves
       the count and the paging offset with it;
-    - a bulk delete confirms first, sends one DELETE per selected row, then
-      reloads the list.
+    - a bulk delete confirms first, sends ONE request naming every selected
+      stash, then reloads the list;
+    - a per-stash refusal inside that one response is reported and does not hide
+      the deletes that worked.
 */
 'use strict';
 const fs = require('fs');
@@ -76,23 +78,55 @@ function makeEl(tag) {
 
 // The ids index.html carries. getElementById returns null for anything else, which
 // is how the page's optional chrome (header/menu) stays inert under the shim.
+const SORT_KEYS = ['type', 'id', 'name', 'host', 'user', 'size', 'created', 'status'];
 const PAGE_IDS = ['q', 'class', 'host', 'refresh', 'rows', 'status', 'msg', 'more',
   'delete-note', 'pick-all', 'delete-selected', 'footer-ip-list', 'last-loaded',
-  'countdown', 'footer-refresh'];
+  'countdown', 'footer-refresh', 'login', 'login-form', 'lab-token', 'login-error',
+  'gate-unconfigured']
+  // Each sortable column carries a header cell (which holds aria-sort) and the
+  // button inside it (which takes the click).
+  .concat(SORT_KEYS.map((k) => 'th-' + k))
+  .concat(SORT_KEYS.map((k) => 'sort-' + k));
 
 // Page-scoped state. bootPage rebuilds all of it and runs the scripts in a fresh
 // context, so a second page can be raised under different host facts -- the
 // delete gate is answered per browser, and its "no" is only observable on a page
 // that loaded under it.
-let byId, ticks, calls, corpus, confirmAnswer, confirmed, hostinfo;
+let byId, ticks, calls, corpus, confirmAnswer, confirmed, session, refuse, pageBody, failDelete;
 
 function respond(body) { return Promise.resolve({ ok: true, json: () => Promise.resolve(body) }); }
 
+// Whether the page barrier (Y.block) is up right now. Read at the moment a
+// request is made, which is the only way to observe a state that exists solely
+// between two awaits.
+function blocked() {
+  return pageBody.children.some((c) => String(c.className).split(' ')[0] === 'blocking');
+}
+
 function fakeFetch(p, o) {
   const method = (o && o.method) || 'GET';
-  calls.push({ path: p, method });
-  if (p === '/api/hostinfo') return respond(Object.assign({ ok: true, serverIps: '10.0.0.2', version: '1', localHostId: 'h1' }, hostinfo));
+  const body = (o && o.body) ? JSON.parse(o.body) : null;
+  calls.push({ path: p, method, body, blocked: blocked() });
+  if (p === '/api/hostinfo') return respond({ ok: true, serverIps: '10.0.0.2', version: '1', localHostId: 'h1' });
+  if (p === '/api/session') return respond(Object.assign({ ok: true }, session));
+  if (p === '/api/login') { session = { authed: true, labToken: true, configured: true }; return respond({ ok: true }); }
   if (p.startsWith('/api/stashes?')) return respond({ ok: true, total: corpus.length, stashes: corpus.slice() });
+  // The bulk route: one request naming every selected stash, answered with one
+  // verdict each. `refuse` names an id the daemon rejects, so the page's
+  // handling of a partial failure is exercised against a real response shape.
+  if (p === '/api/stashes/delete' && failDelete) {
+    // A refusal of the whole request, not a per-stash verdict: what it proves is
+    // that the barrier comes down on the failure path too, which is the one way
+    // this feature could leave the page permanently unusable.
+    return Promise.resolve({ ok: false, status: 503, json: () => Promise.resolve({ ok: false, error: 'share is offline' }) });
+  }
+  if (p === '/api/stashes/delete') {
+    const results = body.stashes.map((s) => (s.id === refuse
+      ? { id: s.id, hostId: s.hostId, ok: false, error: 'stash not found' }
+      : { id: s.id, hostId: s.hostId, ok: true }));
+    corpus = corpus.filter((s) => !results.some((r) => r.ok && r.id === s.id));
+    return respond({ ok: true, requested: results.length, deleted: results.filter((r) => r.ok).length, failed: results.filter((r) => !r.ok).length, results });
+  }
   if (method === 'DELETE' && p.startsWith('/api/stashes/')) {
     const id = p.split('/').pop();
     corpus = corpus.filter((s) => s.id !== id);
@@ -101,11 +135,15 @@ function fakeFetch(p, o) {
   return respond({ ok: true });
 }
 
-function bootPage(info) {
-  hostinfo = info;
+function bootPage(sess) {
+  session = sess;
+  refuse = null;
   byId = {};
   for (const id of PAGE_IDS) byId[id] = makeEl('div');
   byId.countdown.textContent = '60';
+  // The barrier is appended to <body>, so the shim needs one to append to.
+  pageBody = makeEl('body');
+  failDelete = false;
   ticks = [];   // captured setInterval callbacks (the footer's 1 s tick)
   calls = [];   // every fetch: { path, method }
   confirmAnswer = true;
@@ -131,14 +169,16 @@ function bootPage(info) {
     setInterval: (fn) => { ticks.push(fn); return ticks.length; },
     fetch: (p, o) => fakeFetch(p, o),
     confirm: (msg) => { confirmed++; assert.match(msg, /cannot be undone/, 'bulk delete warns the action is final'); return confirmAnswer; },
-    location: { origin: 'https://stash.test', href: '', reload() {} },
+    location: { origin: 'https://stash.test', href: '', hash: '', pathname: '/', search: '', reload() {} },
     document: {
       readyState: 'complete',
       hidden: false,
+      body: pageBody,
       createElement: makeEl,
       createTextNode: makeText,
       getElementById: (id) => byId[id] || null,
       addEventListener() {},
+      removeEventListener() {},
     },
   };
   sandbox.globalThis = sandbox;
@@ -146,15 +186,17 @@ function bootPage(info) {
   vm.runInContext(commonSrc + '\n;globalThis.__Y = Y;\n' + indexSrc, sandbox, { filename: 'index-page.js' });
 }
 
-// The page under test throughout: a browser the daemon accepts deletes from.
-bootPage({ clientIp: '10.0.0.9', canDelete: true });
+// The page under test throughout: a browser that has been through the gate.
+const UNLOCKED = { authed: true, labToken: true, configured: true };
+const LOCKED = { authed: false, labToken: true, configured: true };
+bootPage(UNLOCKED);
 
 // --- helpers ----------------------------------------------------------------
 
 const settle = () => new Promise((r) => setTimeout(r, 0));
 function fire(el, type) {
   let stopped = false;
-  const ev = { stopPropagation() { stopped = true; } };
+  const ev = { stopPropagation() { stopped = true; }, preventDefault() {} };
   for (const fn of (el.listeners[type] || [])) fn(ev);
   return stopped;
 }
@@ -163,18 +205,21 @@ const cellOf = (tr, i) => tr.children[i];
 const pickOf = (tr) => cellOf(tr, 0).children[0] || null;           // leading select column
 const delOf = (tr) => cellOf(tr, tr.children.length - 1).children[0] || null; // trailing action column
 const listLoads = () => calls.filter((c) => c.path.startsWith('/api/stashes?')).length;
+const bulkCalls = () => calls.filter((c) => c.path === '/api/stashes/delete');
 
 (async function () {
   await settle();
 
-  // (1) Initial render: one row per stash, and the remote row carries neither
-  // control -- delete is local-host-only, so the page shows no button the daemon
-  // would answer with a 403.
+  // (1) Initial render: one row per stash, every one of them deletable. The
+  // third is owned by another host and carries the same controls as the rest --
+  // the daemon writes to every host's folder on the share, so withholding them
+  // would hide a delete the server would have accepted.
   assert.strictEqual(rowsOf().length, 3, 'three rows render');
   assert.ok(pickOf(rowsOf()[0]) && delOf(rowsOf()[0]), 'a local row has a checkbox and a Delete button');
-  assert.strictEqual(pickOf(rowsOf()[2]), null, 'the remote row has no checkbox');
-  assert.strictEqual(delOf(rowsOf()[2]), null, 'the remote row has no Delete button');
+  assert.ok(pickOf(rowsOf()[2]), 'the remote row has a checkbox too');
+  assert.ok(delOf(rowsOf()[2]), 'the remote row has a Delete button too');
   assert.strictEqual(byId.status.textContent, '3 stashes (showing 3)', 'status counts every stash');
+  assert.strictEqual(byId.login.hidden, true, 'an unlocked browser is not asked for the lab token');
 
   // (2) Both controls stop the click, so acting on a row never also opens it.
   assert.ok(fire(cellOf(rowsOf()[0], 0), 'click'), 'the select cell stops the row click');
@@ -184,11 +229,11 @@ const listLoads = () => calls.filter((c) => c.path.startsWith('/api/stashes?')).
   assert.strictEqual(byId['delete-selected'].disabled, true, 'Delete selected is disabled with no selection');
   assert.strictEqual(byId['pick-all'].disabled, false, 'All is enabled while selectable rows exist');
 
-  // (4) "All" checks exactly the selectable rows and enables the bulk button.
+  // (4) "All" checks every row and enables the bulk button.
   byId['pick-all'].checked = true;
   fire(byId['pick-all'], 'change');
-  assert.strictEqual(pickOf(rowsOf()[0]).checked, true, 'All checks the first local row');
-  assert.strictEqual(pickOf(rowsOf()[1]).checked, true, 'All checks the second local row');
+  assert.strictEqual(pickOf(rowsOf()[0]).checked, true, 'All checks the first row');
+  assert.strictEqual(pickOf(rowsOf()[2]).checked, true, 'All checks the remote row as well');
   assert.strictEqual(byId['delete-selected'].disabled, false, 'Delete selected enables once rows are selected');
 
   // (5) The countdown parks while a selection is pending: 60 ticks (a full
@@ -218,7 +263,7 @@ const listLoads = () => calls.filter((c) => c.path.startsWith('/api/stashes?')).
   fire(byId['delete-selected'], 'click');
   await settle();
   assert.strictEqual(confirmed, 1, 'the bulk delete asks for confirmation');
-  assert.strictEqual(calls.filter((c) => c.method === 'DELETE').length, 0, 'a declined confirmation sends no DELETE');
+  assert.strictEqual(bulkCalls().length, 0, 'a declined confirmation sends no request');
   assert.strictEqual(rowsOf().length, 3, 'a declined confirmation leaves every row in place');
   byId['pick-all'].checked = false;
   fire(byId['pick-all'], 'change');
@@ -228,51 +273,167 @@ const listLoads = () => calls.filter((c) => c.path.startsWith('/api/stashes?')).
   const loadsBefore = listLoads();
   fire(delOf(rowsOf()[0]), 'click');
   await settle();
-  assert.deepStrictEqual(calls[calls.length - 1], { path: '/api/stashes/h1/2026/07/06/aaa', method: 'DELETE' }, 'the row DELETEs its own permalink');
+  assert.deepStrictEqual(calls[calls.length - 1].path, '/api/stashes/h1/2026/07/06/aaa', 'the row DELETEs its own permalink');
+  assert.strictEqual(calls[calls.length - 1].method, 'DELETE', 'a single row still uses the REST verb');
   assert.strictEqual(rowsOf().length, 2, 'the deleted row leaves the table');
   assert.strictEqual(byId.status.textContent, '2 stashes (showing 2)', 'the count drops with the row');
   assert.strictEqual(listLoads(), loadsBefore, 'a per-row delete does not reload the list');
 
-  // (9) Bulk delete: one DELETE per selected row, then a reload showing what
-  // survived (here the remote row, which was never selectable).
+  // (9) Bulk delete: ONE request naming every selected stash -- including the
+  // remote one -- then a reload showing what survived.
   confirmAnswer = true;
   byId['pick-all'].checked = true;
   fire(byId['pick-all'], 'change');
   fire(byId['delete-selected'], 'click');
   await settle();
   await settle();
-  assert.deepStrictEqual(calls.filter((c) => c.method === 'DELETE').map((c) => c.path),
-    ['/api/stashes/h1/2026/07/06/aaa', '/api/stashes/h1/2026/07/06/bbb'],
-    'every delete so far targeted its own row and no other');
+  assert.strictEqual(bulkCalls().length, 1, 'the whole selection goes in one request');
+  assert.deepStrictEqual(bulkCalls()[0].body.stashes, [
+    { hostId: 'h1', year: '2026', month: '07', day: '06', id: 'bbb' },
+    { hostId: 'h2', year: '2026', month: '07', day: '06', id: 'ccc' },
+  ], 'every selected stash is named by host and date, the remote one included');
   assert.strictEqual(listLoads(), loadsBefore + 1, 'a bulk delete reloads the list afterward');
-  assert.strictEqual(rowsOf().length, 1, 'only the undeletable remote row remains');
-  assert.strictEqual(byId.status.textContent, '1 stash (showing 1)', 'the reloaded count is the server\'s, singular');
+  assert.strictEqual(rowsOf().length, 0, 'nothing remains');
   assert.strictEqual(byId['delete-selected'].disabled, true, 'the reloaded page starts with nothing selected');
-  assert.strictEqual(byId['pick-all'].disabled, true, 'All is disabled when no row is selectable');
 
-  // (10) The same corpus, seen by a browser the daemon will not accept a delete
-  // FROM: every row loses its controls -- including the two owned by this very
-  // host -- and the page states the reason once, naming the address the daemon
-  // saw. That address is the operator's only way to tell "wrong machine" from
-  // "this VM was built with the wrong host IP".
-  bootPage({ clientIp: '192.0.2.55', canDelete: false });
+  // (10) A per-stash refusal inside that one response is reported, and does not
+  // hide the deletes that worked alongside it.
+  bootPage(UNLOCKED);
   await settle();
-  assert.strictEqual(rowsOf().length, 3, 'every row still renders when delete is off');
-  assert.strictEqual(pickOf(rowsOf()[0]), null, 'a local row has no checkbox when this browser may not delete');
-  assert.strictEqual(delOf(rowsOf()[0]), null, 'a local row has no Delete button when this browser may not delete');
+  refuse = 'bbb';
+  byId['pick-all'].checked = true;
+  fire(byId['pick-all'], 'change');
+  fire(byId['delete-selected'], 'click');
+  await settle();
+  await settle();
+  assert.strictEqual(rowsOf().length, 1, 'the refused stash is the only row left');
+  const err = byId.msg.children[0];
+  assert.ok(err, 'the page reports the refusal');
+  assert.match(err.textContent, /1 of 3 could not be deleted/, 'the report counts the refusal against the selection');
+  assert.match(err.textContent, /bbb .*not found/, 'the report names the stash and the reason the daemon gave');
+
+  // (11) The same corpus seen by a LOCKED browser: no row offers a control --
+  // there is nothing to press that the daemon would refuse -- the reason is
+  // stated once, and the lab-token prompt is revealed.
+  bootPage(LOCKED);
+  await settle();
+  assert.strictEqual(rowsOf().length, 3, 'every row still renders when delete is locked');
+  assert.strictEqual(pickOf(rowsOf()[0]), null, 'a row has no checkbox while the page is locked');
+  assert.strictEqual(delOf(rowsOf()[0]), null, 'a row has no Delete button while the page is locked');
   assert.strictEqual(byId['pick-all'].disabled, true, 'All is disabled when no row is selectable');
   assert.strictEqual(byId['delete-selected'].disabled, true, 'Delete selected is disabled when no row is selectable');
+  assert.strictEqual(byId.login.hidden, false, 'the lab-token prompt is shown to a locked browser');
   const note = byId['delete-note'].children[0];
   assert.ok(note, 'the page explains why delete is not on offer');
-  assert.match(note.textContent, /192\.0\.2\.55/, 'the note names the address the daemon saw');
+  assert.match(note.textContent, /Unlock actions/, 'the note says how to get the controls back');
 
-  // (11) The same page for a browser that MAY delete carries no such note --
-  // the explanation appears only where it changes what is on screen.
-  bootPage({ clientIp: '10.0.0.9', canDelete: true });
+  // (12) Unlocking in place: the code goes to /api/login and the page re-renders
+  // with its controls, without a reload that would lose the operator's place.
+  byId['lab-token'].value = 'ABC123';
+  fire(byId['login-form'], 'submit');
   await settle();
-  assert.strictEqual(byId['delete-note'].children.length, 0, 'no note when the controls are on offer');
-  assert.strictEqual(calls.filter((c) => c.path === '/api/hostinfo').length, 1,
-    'the three consumers of host facts share one request');
+  await settle();
+  const login = calls.filter((c) => c.path === '/api/login');
+  assert.strictEqual(login.length, 1, 'the lab token is submitted once');
+  assert.strictEqual(login[0].body.labToken, 'abc123', 'the code is lower-cased before it is sent, so a code read off the tile in capitals works');
+  assert.ok(delOf(rowsOf()[0]), 'the controls appear once the session is unlocked');
+  assert.strictEqual(byId.login.hidden, true, 'the prompt goes away once this browser is through');
+  assert.strictEqual(byId['delete-note'].children.length, 0, 'and so does the note explaining its absence');
+
+  // (13) Sorting. The page does not reorder the rows it holds -- it asks the
+  // daemon for a differently ordered page -- so what each click has to produce
+  // is the right query, and a header state that says which one is active.
+  bootPage(UNLOCKED);
+  await settle();
+  const lastList = () => calls.filter((c) => c.path.startsWith('/api/stashes?')).pop().path;
+  const ariaOf = (key) => byId['th-' + key].getAttribute('aria-sort');
+
+  assert.match(lastList(), /sort=created&dir=desc/, 'the first load asks for the default order, newest first');
+  assert.strictEqual(ariaOf('created'), 'descending', 'the default column is marked before anything is clicked');
+  assert.strictEqual(ariaOf('size'), 'none', 'the columns not being sorted on are marked as such');
+
+  // A first click on a quantity opens at the useful end: biggest first.
+  fire(byId['sort-size'], 'click');
+  await settle();
+  assert.match(lastList(), /sort=size&dir=desc/, 'a first click on Size asks for the largest first');
+  assert.strictEqual(ariaOf('size'), 'descending', 'Size is marked as the active column');
+  assert.strictEqual(ariaOf('created'), 'none', 'the previously active column is released');
+
+  // A second click on the same column reverses it.
+  fire(byId['sort-size'], 'click');
+  await settle();
+  assert.match(lastList(), /sort=size&dir=asc/, 'clicking the active column again reverses it');
+  assert.strictEqual(ariaOf('size'), 'ascending', 'and the header follows');
+
+  // A first click on a name opens at the top of the alphabet instead -- the
+  // direction is per column, and moving to a new one does not carry the old
+  // one's direction across.
+  fire(byId['sort-name'], 'click');
+  await settle();
+  assert.match(lastList(), /sort=name&dir=asc/, 'a first click on Name asks for A first, not the direction Size was left in');
+  assert.strictEqual(ariaOf('name'), 'ascending');
+  assert.strictEqual(ariaOf('size'), 'none');
+
+  // Sorting starts from the top: an offset counts into an order, and the order
+  // just changed.
+  assert.match(lastList(), /offset=0/, 'a sort reloads from the first page');
+
+  // The sort survives a filter change, so narrowing a list does not silently
+  // reorder it back to the default.
+  byId.class.value = 'text';
+  fire(byId.class, 'change');
+  await settle();
+  assert.match(lastList(), /sort=name&dir=asc/, 'a filter change keeps the chosen order');
+  assert.match(lastList(), /class=text/, 'and applies the filter');
+
+  // (14) The page barrier. A delete makes the rows on screen untrue -- their
+  // bytes are going -- so the page refuses input until it can be trusted again.
+  // The state only exists between two awaits, so it is observed the way anything
+  // transient is: by recording it at the moment each request goes out.
+  bootPage(UNLOCKED);
+  await settle();
+  assert.strictEqual(blocked(), false, 'an idle page is not blocked');
+
+  byId['pick-all'].checked = true;
+  fire(byId['pick-all'], 'change');
+  fire(byId['delete-selected'], 'click');
+  await settle();
+  await settle();
+
+  const bulk = calls.find((c) => c.path === '/api/stashes/delete');
+  assert.ok(bulk, 'the bulk delete was sent');
+  assert.strictEqual(bulk.blocked, true, 'the page is blocked while the delete is in flight');
+  // The half that matters most: the reload AFTER the delete runs behind the
+  // barrier too. That is the window where the daemon has already unlinked the
+  // bytes and the old rows are still on screen offering Download.
+  const reload = calls.filter((c) => c.path.startsWith('/api/stashes?')).pop();
+  assert.strictEqual(reload.blocked, true, 'the page stays blocked through the reload that follows');
+  assert.strictEqual(blocked(), false, 'and is released once the fresh list is rendered');
+
+  // (15) The failure path releases it too. A barrier that outlived a failed
+  // request would leave the page permanently unusable -- worse than the
+  // confusion it exists to prevent.
+  bootPage(UNLOCKED);
+  await settle();
+  failDelete = true;
+  byId['pick-all'].checked = true;
+  fire(byId['pick-all'], 'change');
+  fire(byId['delete-selected'], 'click');
+  await settle();
+  await settle();
+  assert.strictEqual(blocked(), false, 'a refused delete still releases the page');
+  assert.match(byId.msg.children[0].textContent, /could not be deleted/, 'and the refusal is reported');
+  assert.ok(calls.filter((c) => c.path.startsWith('/api/stashes?')).length > 1,
+    'a refused delete still reloads: it may have deleted part of the selection');
+
+  // (16) A per-row delete raises the same barrier.
+  bootPage(UNLOCKED);
+  await settle();
+  fire(delOf(rowsOf()[0]), 'click');
+  await settle();
+  const single = calls.filter((c) => c.method === 'DELETE').pop();
+  assert.strictEqual(single.blocked, true, 'a per-row delete blocks the page while it runs');
+  assert.strictEqual(blocked(), false, 'and releases it when the row is gone');
 
   console.log('PASS: index.js');
 })().catch(function (e) { console.error(e && e.stack || e); process.exit(1); });

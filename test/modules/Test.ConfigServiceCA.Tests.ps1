@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42a3b6c9-1d4e-4f82-9a05-3b6c7d8e9f04
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,6 +27,7 @@
     throwaway directory. Run: Invoke-Pester -Path test/modules/Test.ConfigServiceCA.Tests.ps1
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 
 # The throwaway runtime dir is named from $PID, and the name is held in an
@@ -50,6 +51,8 @@ New-Item -ItemType Directory -Force -Path $CaTestRuntime | Out-Null
 Import-Module (Join-Path $here 'Test.ConfigServiceCA.psm1') -Force -DisableNameChecking
 
 function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
+
+}
 
 Describe 'Test.ConfigServiceCA' {
     # Cleanup belongs in AfterAll, not at the end of the file: file-level code runs

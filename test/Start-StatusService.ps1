@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456740
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -678,6 +678,11 @@ Import-Module (Join-Path `$repoRoot 'test/modules/Test.Extension.psm1')      -Fo
 # each re-deriving that logic. This detached server has its own runspace,
 # so the module must be imported here for the command to resolve.
 Import-Module (Join-Path `$repoRoot 'test/modules/Test.SingleInstance.psm1') -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
+# Get-HostStorageFact answers /control/host-facts' storage figures. It lives
+# in a module because the counting rule it implements -- one figure per space
+# pool, permanent devices only -- is platform-specific enough to be worth
+# testing directly, which a handler body baked into this here-string is not.
+Import-Module (Join-Path `$repoRoot 'test/modules/Test.HostFacts.psm1') -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
 # A name-keyed deny-list only protects the name it knows. Every secret this
 # server refuses has derivative forms carrying the same bytes under a different
 # name -- a parsed JSON snapshot of the file, or the pre-write backup taken
@@ -884,6 +889,16 @@ try {
     # already-built cache skips ConvertTo-Json + GetBytes entirely.
     `$perfAggregatesCache = `$null
     `$perfAggregatesBytes = `$null
+    # /control/host-facts' repository columns, keyed 'framework' / 'project' ->
+    # @{ Access; Link; Url; At }. Only the NETWORK answer is cached: reading the clone this
+    # host holds is a local git call and stays live, but probing a configured
+    # URL costs a round trip through the credential chain, and the pool's
+    # fan-out gives every host in the lab one shared six-second budget. So the
+    # probe runs AFTER the response is sent and the next request serves its
+    # answer -- a machine that has not cloned yet reads blank for one refresh
+    # rather than making its own hardware columns time out with it.
+    `$repoAccessCache = @{}
+    `$repoAccessCacheTtl = [TimeSpan]::FromMinutes(10)
     while (`$listener.IsListening) {
       # Outer try/catch: any throw below MUST NOT kill the server.
       # `$listener.EndGetContext(...)` MUST stay inside this try, since
@@ -1263,15 +1278,21 @@ try {
                 continue
             }
 
-            # --- REGION: /control/host-facts: machine hardware facts for pool UIs
+            # --- REGION: /control/host-facts: machine facts for pool UIs
             # Read-only GET, open like the other LAN reads: RAM, physical core
-            # count, and local fixed-disk totals as raw bytes/counts -- the
+            # count, and permanent-storage totals as raw bytes/counts -- the
             # consumer picks display units. Physical cores (not logical
             # processors) because capacity planning cares about the silicon;
             # when the platform cannot enumerate them (some ARM guests, some
-            # VMs) the logical count is served rather than a zero. Network and
-            # removable mounts are excluded so shared pool storage is not
-            # counted once per host that mounts it.
+            # VMs) the logical count is served rather than a zero. Storage is
+            # what the machine keeps: Get-HostStorageFact counts each space
+            # pool once and leaves out what is only attached to the host --
+            # see Test.HostFacts.psm1 for why both halves of that are needed.
+            #
+            # frameworkAccess / projectAccess ride along because they answer the
+            # same kind of question about the same machine -- what this host IS,
+            # asked of the host itself -- and a pool UI that already fans out
+            # here must not pay a second round trip per host to ask them.
             if (`$path -eq 'control/host-facts') {
                 if (`$req.HttpMethod -ne 'GET' -and `$req.HttpMethod -ne 'HEAD') {
                     `$res.Headers.Add('Allow', 'GET')
@@ -1306,22 +1327,64 @@ try {
                 `$hfStorTotal = [long]0
                 `$hfStorFree  = [long]0
                 try {
-                    foreach (`$hfDrive in [System.IO.DriveInfo]::GetDrives()) {
-                        if (`$hfDrive.DriveType -ne [System.IO.DriveType]::Fixed -or -not `$hfDrive.IsReady) { continue }
-                        # Loop/overlay pseudo-mounts (snap images and the like)
-                        # report as Fixed but are carved out of a disk already
-                        # counted; summing them inflates the total.
-                        if (`$hfDrive.DriveFormat -in @('squashfs', 'overlay', 'tmpfs', 'ramfs')) { continue }
-                        `$hfStorTotal += [long]`$hfDrive.TotalSize
-                        `$hfStorFree  += [long]`$hfDrive.AvailableFreeSpace
-                    }
+                    `$hfStorage   = Get-HostStorageFact
+                    `$hfStorTotal = [long]`$hfStorage.TotalBytes
+                    `$hfStorFree  = [long]`$hfStorage.FreeBytes
                 } catch { `$null = `$_ }
+                # The two repositories a host runs on: the framework is the
+                # checkout this service runs FROM, and the project is the clone
+                # beside it. Named from each clone's own remote.origin.url,
+                # which is what the host actually tracks -- a pool assignment
+                # overrides the configured URL for a cycle, and the operator
+                # asking this question wants the repository that is there.
+                #
+                # Each name travels with the location it was read from, so a
+                # consumer can offer the repository itself rather than a name to
+                # retype. It is normalized for linking here, at the machine that
+                # holds it: a credential written into a remote is stripped
+                # BEFORE the value leaves the host, since this route is an open
+                # LAN read.
+                `$hfAccess = @{ framework = ''; project = '' }
+                `$hfLink   = @{ framework = ''; project = '' }
+                `$hfProbeQueue = @()
+                if (Import-RouteModule -ModuleRelativePath 'test/modules/Test.HostGit.psm1' -RequiredCommand 'Get-HostRepositoryAccess') {
+                    `$hfUrl = @{ framework = ''; project = '' }
+                    if (Import-RouteModule -ModuleRelativePath 'test/modules/Test.Config.psm1' -RequiredCommand @('Read-TestConfig', 'Get-TestConfigValue')) {
+                        try {
+                            `$hfCfg = Read-TestConfig -Path (Join-Path `$repoRoot 'test/test.config.yml')
+                            `$hfUrl.framework = "`$(Get-TestConfigValue -Config `$hfCfg -Path 'repositories.frameworkUrl')".Trim()
+                            `$hfUrl.project   = "`$(Get-TestConfigValue -Config `$hfCfg -Path 'repositories.projectUrl')".Trim()
+                        } catch { `$null = `$_ }
+                    }
+                    foreach (`$hfRepo in @(
+                        @{ Key = 'framework'; Dir = `$repoRoot },
+                        @{ Key = 'project';   Dir = (Join-Path `$repoRoot 'project') })) {
+                        `$hfRead = Get-HostRepositoryAccess -RepoDir `$hfRepo.Dir -ConfiguredUrl `$hfUrl[`$hfRepo.Key]
+                        if (`$hfRead.Source -ne 'unprobed') {
+                            `$hfAccess[`$hfRepo.Key] = `$hfRead.Access
+                            `$hfLink[`$hfRepo.Key]   = `$hfRead.Url
+                            `$repoAccessCache.Remove(`$hfRepo.Key)
+                            continue
+                        }
+                        `$hfHit = `$repoAccessCache[`$hfRepo.Key]
+                        if (`$hfHit -and ((Get-Date) - `$hfHit.At) -lt `$repoAccessCacheTtl -and `$hfHit.Url -eq `$hfUrl[`$hfRepo.Key]) {
+                            `$hfAccess[`$hfRepo.Key] = `$hfHit.Access
+                            `$hfLink[`$hfRepo.Key]   = `$hfHit.Link
+                        } else {
+                            `$hfProbeQueue += @{ Key = `$hfRepo.Key; Dir = `$hfRepo.Dir; Url = `$hfUrl[`$hfRepo.Key] }
+                        }
+                    }
+                }
                 `$payload = @{
                     ok                = `$true
                     memoryBytes       = `$hfMemory
                     cores             = `$hfCores
                     storageTotalBytes = `$hfStorTotal
                     storageFreeBytes  = `$hfStorFree
+                    frameworkAccess   = `$hfAccess.framework
+                    projectAccess     = `$hfAccess.project
+                    frameworkUrl      = `$hfLink.framework
+                    projectUrl        = `$hfLink.project
                 } | ConvertTo-Json -Compress
                 `$body = [System.Text.Encoding]::UTF8.GetBytes(`$payload)
                 `$res.ContentLength64 = `$body.Length
@@ -1329,6 +1392,21 @@ try {
                     `$res.OutputStream.Write(`$body, 0, `$body.Length)
                 }
                 `$res.OutputStream.Close()
+                # Deliberately after the response: this is the network probe,
+                # and the caller's budget covers the whole lab (see
+                # `$repoAccessCache). A host with no clone of a configured
+                # repository is the only case that reaches here.
+                foreach (`$hfQ in `$hfProbeQueue) {
+                    try {
+                        `$hfProbe = Get-HostRepositoryAccess -RepoDir `$hfQ.Dir -ConfiguredUrl `$hfQ.Url -Probe -TimeoutSeconds 20
+                        # Url is the configured value this entry answers FOR (the
+                        # key the next request re-checks it against); Link is the
+                        # linkable form of it that the answer carries.
+                        `$repoAccessCache[`$hfQ.Key] = @{ Access = `$hfProbe.Access; Link = `$hfProbe.Url; Url = `$hfQ.Url; At = (Get-Date) }
+                    } catch {
+                        Write-ServerErr "host-facts `$(`$hfQ.Key) access probe failed: `$(`$_.Exception.Message)"
+                    }
+                }
                 continue
             }
 
@@ -2097,16 +2175,8 @@ try {
             }
 
             # --- REGION: Control endpoints: Pause/Continue back-channel from UI
-            # Two pause switches, each backed by a flag file, mirrored
-            # into status.json so the next UI poll flips the banner:
-            #   control.step-pause  -- Invoke-Sequence checks at every
-            #                         step boundary; stops after the
-            #                         running step finishes.
-            #   control.cycle-pause -- Invoke-TestRunner checks at the
-            #                         cycle boundary; stops after the
-            #                         current cycle finishes cleanup.
-            # Parent-side Write-StatusJson keeps both in sync by
-            # re-reading the files on each write.
+            # Flag-file semantics:
+            # docs/control-routes.md#pause-and-resume-the-flag-file-back-channel
             if (`$path -eq 'control/step-pause' -or `$path -eq 'control/step-resume' -or
                 `$path -eq 'control/cycle-pause' -or `$path -eq 'control/cycle-resume') {
                 `$isCycle = (`$path -like 'control/cycle-*')
@@ -2731,27 +2801,11 @@ try {
                 continue
             }
 
-            # --- REGION: /archive/<cycle-folder>.zip: one cycle's results, packed
-            # A cycle folder is a tree -- transcripts, the events feed, a
-            # subfolder per guest -- so sending one to a colleague meant
-            # picking files out of a directory listing one at a time. This
-            # serves the whole folder as a single archive, which is what
-            # share-cycle.html hands to the operator's mail client.
-            #
-            # Zip, because the archive's whole life is a browser download that
-            # becomes a mail attachment. A .zip is a shape both ends already
-            # understand: download reputation checks see a common type, mail
-            # scanners can look inside it, and Windows and macOS open one with
-            # nothing installed. A gzipped tarball is opaque to all three and
-            # gets flagged or quarantined unread.
-            #
-            # The leaf is matched against the cycle-folder grammar rather than
-            # sanitised: the only thing this route may ever name is one results
-            # folder directly under log/, and no path separator survives that
-            # match, so the archive cannot be aimed anywhere else on disk. The
-            # same grammar the aggregator's listing parser uses to find these
-            # folders (pickFolderFromListing), plus the .incomplete suffix a
-            # running cycle carries.
+            # --- REGION: https://yuruna.link/control-routes#sharing-one-cycle-archivecycle-folderzip-and-share-cyclehtml
+            # Packs one cycle folder into a single .zip for share-cycle.html. The
+            # leaf is matched against the cycle-folder grammar rather than
+            # sanitised, so no path separator survives and the archive cannot be
+            # aimed anywhere else on disk.
             if (`$path -like 'archive/*') {
                 `$leaf = `$path.Substring(8)
                 if (`$leaf -notmatch '^(\d{6}\.(\d{4}-\d{2}-\d{2})\.(\d{2}-\d{2}-\d{2})\.([0-9a-fA-F]{32})(?:\.incomplete)?)\.zip`$') {
@@ -3222,6 +3276,58 @@ $serverReady = Wait-WithProgress -Activity "Status service: waiting for http://l
 if (-not $serverReady) {
     Write-Warning "Status service process started but port $Port is not responding after $script:StatusServiceReadyTimeoutSeconds seconds."
     Write-Warning "Check the server error log: $(Join-Path $RuntimeDir 'server.err')"
+}
+
+# --- REGION: https://yuruna.link/network#defining-yuruna-host-locate-lib
+# Host-address beacon. Guests resolve a moved host through the pool directory,
+# and that directory can only be as current as what reaches it: its own
+# discovery tails the squid access log, which is pull-only and so lags exactly
+# when it matters -- a host appears there when it or its guests pull through
+# the proxy, so between cycles the view ages out and still names the address
+# the host has just left. This is the push half.
+#
+# Spawned only once the port answered. The beacon advertises THIS service; an
+# announcement for an address nothing serves would be worse than none, and the
+# probe above is what distinguishes the two.
+#
+# Detached rather than a timer inside the server: that process blocks
+# indefinitely in HttpListener.GetContext() by design, so it has no tick site.
+# Same idiom as the pool push forwarder. Single-instance via its own lock, so
+# the per-cycle Start-StatusService call cannot stack beacons; spawn failure is
+# non-fatal, exactly like every other best-effort pool hook.
+#
+# -NonInteractive is load-bearing, not decoration: a cmdlet reached with a
+# missing Mandatory parameter PROMPTS, and a prompt in a detached process with
+# no console never returns. It converts that whole class from a silent hang
+# into a logged throw the error file captures.
+if ($serverReady) {
+    try {
+        $beaconScript = Join-Path $RepoRoot 'test/modules/Invoke-HostAddressBeacon.ps1'
+        if (Test-Path -LiteralPath $beaconScript) {
+            $beaconErr = Join-Path $RuntimeDir 'hostaddress.beacon.err'
+            if ($IsWindows) {
+                $beaconStdin = Join-Path $RuntimeDir 'hostaddress.beacon.stdin.empty'
+                if (-not (Test-Path -LiteralPath $beaconStdin)) { [System.IO.File]::WriteAllBytes($beaconStdin, [byte[]]@()) }
+                $beaconOut = Join-Path $RuntimeDir 'hostaddress.beacon.out'
+                Start-Process -FilePath 'pwsh' `
+                    -ArgumentList '-NoProfile', '-NonInteractive', '-WindowStyle', 'Hidden', '-File', ('"' + $beaconScript + '"'), '-StatusPort', "$Port" `
+                    -RedirectStandardInput  $beaconStdin `
+                    -RedirectStandardOutput $beaconOut `
+                    -RedirectStandardError  $beaconErr | Out-Null
+            } else {
+                # stdout to a file, NOT /dev/null. The address-change history is
+                # written with Write-Information, which goes to stdout, so
+                # discarding it discards the only local record of when this host
+                # moved -- and that record is what an operator reconstructs a
+                # failed cycle from. Warnings already reach the .err file; the
+                # changes are the part worth keeping.
+                $beaconOut = Join-Path $RuntimeDir 'hostaddress.beacon.out'
+                & bash -c "set -m; nohup pwsh -NoProfile -NonInteractive -File '$beaconScript' -StatusPort '$Port' </dev/null >>'$beaconOut' 2>'$beaconErr' & echo `$!" | Out-Null
+            }
+        }
+    } catch {
+        Write-Verbose "Host-address beacon spawn (non-fatal): $($_.Exception.Message)"
+    }
 }
 
 # Persist the framework HEAD SHA the new server was launched against so a

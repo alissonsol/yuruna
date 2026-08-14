@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42194e68-1535-4731-bba7-f7195cc13b3c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,6 +36,7 @@
 # Run under Pester 4.10.1 (the repo test convention): the top-level helper and
 # Describe-body setup below are invisible inside It blocks under Pester 5's
 # discovery/run scope split. See feedback_repo_tests_need_pester4.
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.YurunaDir.psm1') -Force
 Import-Module (Join-Path $here 'Test.Recovery.psm1')  -Force
@@ -51,19 +52,21 @@ function Write-TempPidFile {
 # This process, the stand-in for "the PowerShell process that wrote the pidfile".
 # It is captured at FILE scope because a Describe body is executed during
 # discovery and its variables are discarded before any It runs -- an in-Describe
-# $me would reach the assertions as $null, quietly turning every case into the
+# $script:me would reach the assertions as $null, quietly turning every case into the
 # null-process case.
-$me = Get-Process -Id $PID
+$script:me = Get-Process -Id $PID
+
+}
 
 Describe 'Test-PidFileIdentity' {
     It 'is true for the owning PowerShell process when the pidfile mtime is at/after its start' {
         $pf = Write-TempPidFile -PidValue $PID -Mtime (Get-Date)
-        try { Test-PidFileIdentity -PidFile $pf -Process $me | Should -Be $true }
+        try { Test-PidFileIdentity -PidFile $pf -Process $script:me | Should -Be $true }
         finally { Remove-Item -LiteralPath $pf -Force -ErrorAction SilentlyContinue }
     }
     It 'is false when the process started AFTER the pidfile mtime (recycled PID)' {
-        $pf = Write-TempPidFile -PidValue $PID -Mtime ($me.StartTime.AddMinutes(-10))
-        try { Test-PidFileIdentity -PidFile $pf -Process $me | Should -Be $false }
+        $pf = Write-TempPidFile -PidValue $PID -Mtime ($script:me.StartTime.AddMinutes(-10))
+        try { Test-PidFileIdentity -PidFile $pf -Process $script:me | Should -Be $false }
         finally { Remove-Item -LiteralPath $pf -Force -ErrorAction SilentlyContinue }
     }
     It 'is false for a non-PowerShell process' {
@@ -79,7 +82,7 @@ Describe 'Test-PidFileIdentity' {
         finally { Remove-Item -LiteralPath $pf -Force -ErrorAction SilentlyContinue }
     }
     It 'is false when the pidfile is missing' {
-        Test-PidFileIdentity -PidFile (Join-Path ([IO.Path]::GetTempPath()) 'yuruna-absent.pid') -Process $me | Should -Be $false
+        Test-PidFileIdentity -PidFile (Join-Path ([IO.Path]::GetTempPath()) 'yuruna-absent.pid') -Process $script:me | Should -Be $false
     }
 }
 

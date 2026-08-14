@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456820
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,7 +37,10 @@
 # /healthz, and publishes the address. Doing it there rather than per sequence
 # means an unreachable stash stops the cycle before its long provisioning
 # stages instead of after them, and later scenarios resolve the address without
-# re-probing for a VM this host may not run at all.
+# re-deriving it from a VM this host may not run at all. What the warm-up
+# cannot settle is the REST of the cycle: it proves the address once, and a
+# cycle runs for tens of minutes, so Resolve-Host re-probes what was published
+# before handing it out and republishes whatever it falls through to.
 
 function Get-StashServiceInfo {
     <#
@@ -106,7 +109,11 @@ function Get-PublishedStashServiceHost {
 
         The file is per-cycle state, not a cache: the pre-flight rewrites it
         on success and clears it on failure, so a stash that moved between
-        cycles never leaves a stale address behind for the next one.
+        cycles never leaves a stale address behind for the next one. Within a
+        cycle the same guarantee is Resolve-Host's, which probes this value
+        before returning it and rewrites the file when it has to fall through
+        -- so a stash that moves mid-cycle does not strand the rest of it
+        either.
     .OUTPUTS
         [string] address, or '' when none is published.
     #>
@@ -275,9 +282,17 @@ function Resolve-Host {
            caching-proxy-service and edge VMs are discovered by -- so a stash-service VM on this
            host is always found at its current address, never a hard-coded
            literal.
-        2. The address published for this cycle (Get-PublishedStashServiceHost): the
-           one the pre-flight already proved answers /healthz, so a sequence
-           agrees with the cycle instead of re-deriving it.
+        2. The address published for this cycle (Get-PublishedStashServiceHost),
+           re-probed before it is handed out: the one the pre-flight proved
+           answers /healthz, so a sequence agrees with the cycle instead of
+           re-deriving it -- for as long as it still answers. The pre-flight
+           runs once and a cycle runs for tens of minutes, so on a lab whose
+           service addresses come from DHCP the published address can stop
+           being the stash's address while the cycle that published it is still
+           running. Trusting it unprobed hands a guest an address nothing is
+           listening on, tens of minutes into a chain, with the pool already
+           holding the right one; the probe costs one /healthz and converts
+           that into a fall-through.
         3. Whatever the framework can discover for the area
            (Get-ExtensionHostAddress 'stash-service'): an operator pin, and the
            pool's record of where it sees the service announcing itself right
@@ -308,15 +323,23 @@ function Resolve-Host {
     if ($ip) { return $ip }
     $published = Get-PublishedStashServiceHost
     if ($published) {
-        Write-Verbose "stash-service.ResolveHost: using the address published for this cycle ($published)."
-        return $published
+        if (Test-StashServiceHost -Address $published) {
+            Write-Verbose "stash-service.ResolveHost: using the address published for this cycle ($published)."
+            return $published
+        }
+        Write-Warning "stash-service.ResolveHost: the address published for this cycle ($published) no longer answers /healthz; asking the pool for the stash's current address."
     }
     $discovered = Get-DiscoveredStashServiceHost
     if ($discovered) {
         Write-Verbose "stash-service.ResolveHost: using the discovered address ($discovered)."
+        # Republish so the rest of the cycle resolves the address that answered
+        # rather than each expansion paying for the same rediscovery -- and so a
+        # later expansion cannot go back to the dead one this call just rejected.
+        $null = Publish-StashServiceHost -Address $discovered
         return $discovered
     }
-    Write-Warning "stash-service.ResolveHost: no IPv4 for '$VMName' (is it running?), no address published for this cycle, and nothing -- operator pin or pool -- reports a live stash service."
+    $publishedNote = if ($published) { "the address published for this cycle ($published) no longer answers" } else { 'no address published for this cycle' }
+    Write-Warning "stash-service.ResolveHost: no IPv4 for '$VMName' (is it running?), $publishedNote, and nothing -- operator pin or pool -- reports a live stash service."
     return ''
 }
 

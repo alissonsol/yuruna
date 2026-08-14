@@ -16,6 +16,10 @@ const (
 	PhaseDownloading = "downloading"
 	PhaseVerifying   = "verifying"
 	PhasePromoting   = "promoting"
+	// PhaseAdopting is the hand-placed artifact being hashed on its way into the
+	// pool. It is a phase of its own because it is the one that runs with no
+	// origin behind it: nothing was resolved, probed or downloaded.
+	PhaseAdopting = "adopting"
 )
 
 // Progress is one flight's live byte counter. It is an io.Writer so the

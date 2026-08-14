@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42ad2307-9a03-4f84-a1e4-d45e7d08db4d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,6 +20,7 @@
 # its end and exits 0 -- so a harness that shells this out records a PASS for a
 # suite that executed no assertion at all. A test that cannot run must say so in
 # its exit code; silence that reads as success is worse than no test.
+BeforeAll {
 if (-not (Get-Command -Name Describe -ErrorAction SilentlyContinue)) {
     Write-Error ("Pester is not available, so this suite cannot run. Install it with " +
                  "'Install-Module Pester -Scope CurrentUser', then re-run with " +
@@ -106,7 +107,9 @@ function Get-ReaderKeyPath {
 
 # Read and warned about rather than honoured: an older file may still carry it,
 # and the run says so instead of silently ignoring a key the operator wrote.
-$obsoleteReaderKey = @('lab.createDefaultPool')
+$script:obsoleteReaderKey = @('lab.createDefaultPool')
+
+}
 
 Describe 'the answer document the writer emits' {
     It 'carries exactly the keys the reader asks the file for' {
@@ -114,7 +117,7 @@ Describe 'the answer document the writer emits' {
             -StorageKind 'nas' -LocalRoot '/srv/yuruna' -NetworkPath '//ypool-nas/work/yuruna.pool' `
             -NetworkUser 'yuruna-pool' -OnFailure 'local' -LabName 'workshop'
         $written = @(Get-DocumentKeyPath -Document $doc) | Sort-Object
-        $read    = @(Get-ReaderKeyPath -Ast $setupAst | Where-Object { $_ -notin $obsoleteReaderKey }) | Sort-Object
+        $read    = @(Get-ReaderKeyPath -Ast $setupAst | Where-Object { $_ -notin $script:obsoleteReaderKey }) | Sort-Object
         Assert-Equal ($read -join ', ') ($written -join ', ') 'the writer and the reader must agree on the key set'
     }
     It 'omits the lab section for a standalone setup' {

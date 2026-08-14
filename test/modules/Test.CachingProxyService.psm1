@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456821
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -792,6 +792,18 @@ function Get-PoolAggregatorServiceSeedUrl {
         $backoffMs = [Math]::Min(15000, $backoffMs * 2)
     }
     if (-not $winner) { return '' }
+
+    # The stored address the repair below decides on. Read here rather than
+    # taken from the claim list: that list holds only the addresses that
+    # survived its filters, and labels them with a display string, whereas
+    # what a repair turns on is the state key's own value. The read is off
+    # the hot path -- a winner exists, so the probes above already ran, and
+    # the resolution is memoized below.
+    $stateIp = ''
+    try {
+        $state = Read-CachingProxyServiceState
+        if ($state -and $state.ipAddress) { $stateIp = [string]$state.ipAddress }
+    } catch { $null = $_ }
 
     # Repair a stored address that lost to a live one, so the next call pays
     # no probe to disprove it again. Only an address this host already

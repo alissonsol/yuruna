@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 429d1e7a-2c84-4f61-9a05-7e6d2b8c4f13
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,11 +40,13 @@
     mentions $IsLinux / $errMsg / the preference cannot keep a guard green after
     the underlying code is removed. No tesseract binary or host I/O is required.
 
-    The throw-based Assert-* helpers are defined at script scope and referenced
-    from It blocks, so this runs under Pester 4.10.1 (Pester 5's scope split
-    hides top-level helpers from It blocks).
+    The throw-based Assert-* helpers live in the file's BeforeAll, which is the
+    scope Pester 5 shares with the It blocks; defining them at script scope
+    instead makes every It fail on a missing command rather than on an
+    assertion.
 #>
 
+BeforeAll {
 $here       = Split-Path -Parent $PSCommandPath
 $modulePath = Join-Path $here 'Test.Tesseract.psm1'
 
@@ -164,34 +166,36 @@ function Test-AstContainsStringConstant {
 # down before any It runs, so an AST captured inside one arrives at the
 # assertions as $null; only file-level declarations that precede the first
 # Describe are still in scope during the run pass.
-$invokeAst  = Get-FunctionAst -Path $modulePath -FunctionName 'Invoke-TesseractOcr'
-$wordboxAst = Get-FunctionAst -Path $modulePath -FunctionName 'Get-TesseractWordBox'
-$findAst    = Get-FunctionAst -Path $modulePath -FunctionName 'Find-Tesseract'
+$script:invokeAst  = Get-FunctionAst -Path $modulePath -FunctionName 'Invoke-TesseractOcr'
+$script:wordboxAst = Get-FunctionAst -Path $modulePath -FunctionName 'Get-TesseractWordBox'
+$script:findAst    = Get-FunctionAst -Path $modulePath -FunctionName 'Find-Tesseract'
+
+}
 
 Describe 'Test.Tesseract OCR invocations are single-pass, EAP-guarded, and diagnosable' {
 
     It 'Invoke-TesseractOcr invokes tesseract exactly once (no stderr re-run)' {
-        Assert-Equal -Expected 1 -Actual (Get-VarInvocationCount -FuncAst $invokeAst -VarName 'tesseractExe') -Because `
+        Assert-Equal -Expected 1 -Actual (Get-VarInvocationCount -FuncAst $script:invokeAst -VarName 'tesseractExe') -Because `
             'a second invocation to capture stderr can diverge from the first and doubles the process spawn.'
     }
     It 'Get-TesseractWordBox invokes tesseract exactly once' {
-        Assert-Equal -Expected 1 -Actual (Get-VarInvocationCount -FuncAst $wordboxAst -VarName 'tesseractExe') -Because `
+        Assert-Equal -Expected 1 -Actual (Get-VarInvocationCount -FuncAst $script:wordboxAst -VarName 'tesseractExe') -Because `
             'the TSV path must not re-run tesseract to fetch stderr.'
     }
     It 'Invoke-TesseractOcr pins the native-command EAP via a real assignment' {
-        Assert-True (Test-FunctionPinsNativeEap -FuncAst $invokeAst) -Because `
+        Assert-True (Test-FunctionPinsNativeEap -FuncAst $script:invokeAst) -Because `
             'without $PSNativeCommandUseErrorActionPreference = $false a non-zero exit throws NativeCommandExitException on PS 7.4+ and bypasses the exit-code branch.'
     }
     It 'Get-TesseractWordBox pins the native-command EAP via a real assignment' {
-        Assert-True (Test-FunctionPinsNativeEap -FuncAst $wordboxAst) -Because `
+        Assert-True (Test-FunctionPinsNativeEap -FuncAst $script:wordboxAst) -Because `
             'the TSV path shares the same EAP=Stop exposure as Invoke-TesseractOcr.'
     }
     It 'Invoke-TesseractOcr surfaces tesseract stderr in the thrown message' {
-        Assert-True (Test-FunctionAssignsAndThrowsVar -FuncAst $invokeAst -VarName 'errMsg') -Because `
+        Assert-True (Test-FunctionAssignsAndThrowsVar -FuncAst $script:invokeAst -VarName 'errMsg') -Because `
             'a failure must carry tesseract stderr, not just an exit code.'
     }
     It 'Get-TesseractWordBox surfaces tesseract stderr in the thrown message' {
-        Assert-True (Test-FunctionAssignsAndThrowsVar -FuncAst $wordboxAst -VarName 'errMsg') -Because `
+        Assert-True (Test-FunctionAssignsAndThrowsVar -FuncAst $script:wordboxAst -VarName 'errMsg') -Because `
             'the bare exit-code throw is not diagnosable; the partitioned stderr must be included.'
     }
 }
@@ -199,11 +203,11 @@ Describe 'Test.Tesseract OCR invocations are single-pass, EAP-guarded, and diagn
 Describe 'Find-Tesseract has a real Linux filesystem-fallback branch' {
 
     It 'branches on $IsLinux (a real if-branch, not a comment mention)' {
-        Assert-True ($null -ne (Get-IfBranchBodyOnVar -FuncAst $findAst -VarName 'IsLinux')) -Because `
+        Assert-True ($null -ne (Get-IfBranchBodyOnVar -FuncAst $script:findAst -VarName 'IsLinux')) -Because `
             'Linux needs a filesystem fallback for parity with the Windows/macOS branches.'
     }
     It 'probes /usr/bin/tesseract inside the $IsLinux branch' {
-        $body = Get-IfBranchBodyOnVar -FuncAst $findAst -VarName 'IsLinux'
+        $body = Get-IfBranchBodyOnVar -FuncAst $script:findAst -VarName 'IsLinux'
         Assert-True ($null -ne $body -and (Test-AstContainsStringConstant -Ast $body -Value '/usr/bin/tesseract')) -Because `
             'the Linux branch must probe the standard package install path.'
     }

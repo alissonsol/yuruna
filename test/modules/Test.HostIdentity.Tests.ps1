@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42a1c2d3-e4f5-4061-9273-8495a6b7c8d9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,6 +27,7 @@
     integration-verified on a real host.
 #>
 
+BeforeAll {
 $here       = Split-Path -Parent $PSCommandPath
 $modulePath = Join-Path $here 'Test.HostIdentity.psm1'
 Import-Module $modulePath -Force -DisableNameChecking -ErrorAction SilentlyContinue
@@ -69,6 +70,8 @@ function New-Cand {
         Justification = 'Pure test-data constructor; mutates no state.')]
     [CmdletBinding()] param([int]$Score, [bool]$Strong, [string]$Uuid = '42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
     [pscustomobject]@{ uuid=$Uuid; hostname='h'; lastSeenUtc='2026-06-01T00:00:00Z'; score=$Score; matchedFields=@(); strong=$Strong }
+}
+
 }
 
 Describe 'Test-HostFingerprintValueUsable + ConvertTo-NormalizedFingerprintValue' {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42c8e4f6-b2d3-4a91-9e45-7f6a8b9c0d12
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,6 +36,7 @@
     Run: pwsh -NoProfile -File test/modules/Test.PoolIntentSeedUrl.Tests.ps1
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 $cachingProxyModule = Join-Path $here 'Test.CachingProxyService.psm1'
 
@@ -43,9 +44,11 @@ function Assert-Equal { param($Expected, $Actual, [string]$Because = '') if ($Ex
 
 Import-Module $cachingProxyModule -Force -DisableNameChecking
 
-$nasConfig = @{
+$script:nasConfig = @{
     pool           = @{ intentGitUrl = '' }
     networkStorage = @{ poolStorageNetworkPath = '\\ypool-nas\work\yuruna.pool' }
+}
+
 }
 
 Describe 'Get-PoolIntentSeedUrl resolution order' {
@@ -98,16 +101,16 @@ Describe 'Get-PoolIntentSeedUrl resolution order' {
 
     Context 'pool storage supplies the WRITABLE store' {
         It 'derives the guest-side NAS path when no explicit url is set' {
-            Assert-Equal -Expected '/mnt/yuruna-pool/pool-intent.git' -Actual (Get-PoolIntentSeedUrl -Config $nasConfig) `
+            Assert-Equal -Expected '/mnt/yuruna-pool/pool-intent.git' -Actual (Get-PoolIntentSeedUrl -Config $script:nasConfig) `
                 -Because 'the NAS repo is the only location the daemon can push to'
         }
         It 'honors a non-default guest mount without a doubled separator' {
             Assert-Equal -Expected '/mnt/custom/pool-intent.git' `
-                -Actual (Get-PoolIntentSeedUrl -Config $nasConfig -GuestPoolMount '/mnt/custom/')
+                -Actual (Get-PoolIntentSeedUrl -Config $script:nasConfig -GuestPoolMount '/mnt/custom/')
         }
         It 'prefers the NAS over a reachable proxy' {
             Mock Read-CachingProxyServiceState -ModuleName Test.CachingProxyService { @{ ipAddress = '192.0.2.10' } }
-            Assert-Equal -Expected '/mnt/yuruna-pool/pool-intent.git' -Actual (Get-PoolIntentSeedUrl -Config $nasConfig) `
+            Assert-Equal -Expected '/mnt/yuruna-pool/pool-intent.git' -Actual (Get-PoolIntentSeedUrl -Config $script:nasConfig) `
                 -Because 'a pull-only proxy url must never displace a writable store'
         }
     }

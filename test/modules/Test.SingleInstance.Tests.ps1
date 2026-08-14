@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 422aa14c-4ea9-404d-a5eb-6069c11a61fe
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,6 +33,7 @@
     Run: pwsh -NoProfile -File test/modules/Test.SingleInstance.Tests.ps1
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.SingleInstance.psm1') -Force -DisableNameChecking
 
@@ -119,47 +120,49 @@ function Get-TestProcessStartIso {
 $TempRoot = [System.IO.Path]::GetTempPath()
 
 $StateDir = Join-Path $TempRoot ('yuruna-si-state-' + [guid]::NewGuid().ToString('N'))
-$StatePidFile = Join-Path $StateDir 'runner.pid'
-$StateStartFile = Join-Path $StateDir 'runner.start'
+$script:StatePidFile = Join-Path $StateDir 'runner.pid'
+$script:StateStartFile = Join-Path $StateDir 'runner.start'
 
 $WriteDir = Join-Path $TempRoot ('yuruna-si-write-' + [guid]::NewGuid().ToString('N'))
-$WritePidFile = Join-Path $WriteDir 'runner.pid'
-$WriteStartFile = Join-Path $WriteDir 'runner.start'
+$script:WritePidFile = Join-Path $WriteDir 'runner.pid'
+$script:WriteStartFile = Join-Path $WriteDir 'runner.start'
 
 $StopDir = Join-Path $TempRoot ('yuruna-si-stop-' + [guid]::NewGuid().ToString('N'))
-$StopCleanupScript = Join-Path $StopDir 'Remove-TestVMFiles.ps1'
-$StopCleanupMarker = Join-Path $StopDir 'cleanup-ran.txt'
-$StopEmptyDir = Join-Path $TempRoot ('yuruna-si-empty-' + [guid]::NewGuid().ToString('N'))
+$script:StopCleanupScript = Join-Path $StopDir 'Remove-TestVMFiles.ps1'
+$script:StopCleanupMarker = Join-Path $StopDir 'cleanup-ran.txt'
+$script:StopEmptyDir = Join-Path $TempRoot ('yuruna-si-empty-' + [guid]::NewGuid().ToString('N'))
+
+}
 
 Describe 'Get-RunnerInstanceState' {
     BeforeAll { $null = New-Item -ItemType Directory -Path $StateDir -Force }
     AfterAll { Remove-Item -LiteralPath $StateDir -Recurse -Force -ErrorAction SilentlyContinue }
-    BeforeEach { Remove-Item -LiteralPath $StatePidFile, $StateStartFile -Force -ErrorAction SilentlyContinue }
+    BeforeEach { Remove-Item -LiteralPath $script:StatePidFile, $script:StateStartFile -Force -ErrorAction SilentlyContinue }
 
     It 'reports None when no pidfile exists' {
-        $s = Get-RunnerInstanceState -RunnerPidFile $StatePidFile -RunnerStartFile $StateStartFile
+        $s = Get-RunnerInstanceState -RunnerPidFile $script:StatePidFile -RunnerStartFile $script:StateStartFile
         Assert-Equal -Expected 'None' -Actual $s.status
         Assert-Equal -Expected 0 -Actual $s.pid
         Assert-Equal -Expected 'none' -Actual $s.identityVia
     }
     It 'reports Stale for a pidfile that holds no usable PID' {
         foreach ($junk in @('garbage', '', '0', '-5')) {
-            Set-Content -LiteralPath $StatePidFile -Value $junk -Encoding utf8NoBOM
-            $s = Get-RunnerInstanceState -RunnerPidFile $StatePidFile -RunnerStartFile $StateStartFile
+            Set-Content -LiteralPath $script:StatePidFile -Value $junk -Encoding utf8NoBOM
+            $s = Get-RunnerInstanceState -RunnerPidFile $script:StatePidFile -RunnerStartFile $script:StateStartFile
             Assert-Equal -Expected 'Stale' -Actual $s.status -Because "a pidfile holding '$junk' is stale, not a live runner"
             Assert-Equal -Expected 0 -Actual $s.pid
         }
     }
     It 'reports Self when the pidfile holds this process' {
-        Set-Content -LiteralPath $StatePidFile -Value "$PID" -Encoding utf8NoBOM
-        $s = Get-RunnerInstanceState -RunnerPidFile $StatePidFile -RunnerStartFile $StateStartFile
+        Set-Content -LiteralPath $script:StatePidFile -Value "$PID" -Encoding utf8NoBOM
+        $s = Get-RunnerInstanceState -RunnerPidFile $script:StatePidFile -RunnerStartFile $script:StateStartFile
         Assert-Equal -Expected 'Self' -Actual $s.status -Because 'a runner must never try to take itself over'
         Assert-Equal -Expected $PID -Actual $s.pid
     }
     It 'reports Stale when the recorded PID is gone' {
         $deadPid = Get-TestDeadPid
-        Set-Content -LiteralPath $StatePidFile -Value "$deadPid" -Encoding utf8NoBOM
-        $s = Get-RunnerInstanceState -RunnerPidFile $StatePidFile -RunnerStartFile $StateStartFile
+        Set-Content -LiteralPath $script:StatePidFile -Value "$deadPid" -Encoding utf8NoBOM
+        $s = Get-RunnerInstanceState -RunnerPidFile $script:StatePidFile -RunnerStartFile $script:StateStartFile
         Assert-Equal -Expected 'Stale' -Actual $s.status
         Assert-Equal -Expected $deadPid -Actual $s.pid -Because 'the dead PID is still reported so the caller can log it'
         Assert-Equal -Expected 'none' -Actual $s.identityVia
@@ -169,8 +172,8 @@ Describe 'Get-RunnerInstanceState' {
         # unrelated process. Taking THAT over would kill an innocent process.
         $sleeper = Get-TestSleeperProcess
         try {
-            Set-Content -LiteralPath $StatePidFile -Value "$($sleeper.Id)" -Encoding utf8NoBOM
-            $s = Get-RunnerInstanceState -RunnerPidFile $StatePidFile -RunnerStartFile $StateStartFile
+            Set-Content -LiteralPath $script:StatePidFile -Value "$($sleeper.Id)" -Encoding utf8NoBOM
+            $s = Get-RunnerInstanceState -RunnerPidFile $script:StatePidFile -RunnerStartFile $script:StateStartFile
             Assert-Equal -Expected 'Stale' -Actual $s.status
             Assert-Equal -Expected 'none' -Actual $s.identityVia
             Assert-True ([bool]$s.cmdline) 'the cmdline it rejected is reported for diagnosis'
@@ -181,8 +184,8 @@ Describe 'Get-RunnerInstanceState' {
     It 'reports OtherRunner when the cmdline matches the identity regex' {
         $sleeper = Get-TestSleeperProcess
         try {
-            Set-Content -LiteralPath $StatePidFile -Value "$($sleeper.Id)" -Encoding utf8NoBOM
-            $s = Get-RunnerInstanceState -RunnerPidFile $StatePidFile -RunnerStartFile $StateStartFile -CmdLinePattern 'Start-Sleep'
+            Set-Content -LiteralPath $script:StatePidFile -Value "$($sleeper.Id)" -Encoding utf8NoBOM
+            $s = Get-RunnerInstanceState -RunnerPidFile $script:StatePidFile -RunnerStartFile $script:StateStartFile -CmdLinePattern 'Start-Sleep'
             Assert-Equal -Expected 'OtherRunner' -Actual $s.status
             Assert-Equal -Expected 'cmdline' -Actual $s.identityVia
             Assert-Equal -Expected $sleeper.Id -Actual $s.pid
@@ -196,8 +199,8 @@ Describe 'Get-RunnerInstanceState' {
         # Invoke-TestRunnerInnerLoop.ps1, so an orphaned inner is reclaimed too.
         $inner = Start-TestChildProcess -Command 'Start-Sleep -Seconds 90 # Invoke-TestRunnerInnerLoop.ps1'
         try {
-            Set-Content -LiteralPath $StatePidFile -Value "$($inner.Id)" -Encoding utf8NoBOM
-            $s = Get-RunnerInstanceState -RunnerPidFile $StatePidFile -RunnerStartFile $StateStartFile
+            Set-Content -LiteralPath $script:StatePidFile -Value "$($inner.Id)" -Encoding utf8NoBOM
+            $s = Get-RunnerInstanceState -RunnerPidFile $script:StatePidFile -RunnerStartFile $script:StateStartFile
             Assert-Equal -Expected 'OtherRunner' -Actual $s.status
             Assert-Equal -Expected 'cmdline' -Actual $s.identityVia
         } finally {
@@ -209,16 +212,16 @@ Describe 'Get-RunnerInstanceState' {
         # pwsh whose argv carries no script name at all.
         $sleeper = Get-TestSleeperProcess
         try {
-            Set-Content -LiteralPath $StatePidFile -Value "$($sleeper.Id)" -Encoding utf8NoBOM
-            Set-Content -LiteralPath $StateStartFile -Value (Get-TestProcessStartIso -ProcessId $sleeper.Id) -Encoding utf8NoBOM
-            $s = Get-RunnerInstanceState -RunnerPidFile $StatePidFile -RunnerStartFile $StateStartFile -CmdLinePattern 'never-matches-anything'
+            Set-Content -LiteralPath $script:StatePidFile -Value "$($sleeper.Id)" -Encoding utf8NoBOM
+            Set-Content -LiteralPath $script:StateStartFile -Value (Get-TestProcessStartIso -ProcessId $sleeper.Id) -Encoding utf8NoBOM
+            $s = Get-RunnerInstanceState -RunnerPidFile $script:StatePidFile -RunnerStartFile $script:StateStartFile -CmdLinePattern 'never-matches-anything'
             Assert-Equal -Expected 'OtherRunner' -Actual $s.status
             Assert-Equal -Expected 'startTime' -Actual $s.identityVia -Because 'the sidecar decides identity before the regex is consulted'
 
             # 1.5s of skew is inside the tolerance that absorbs round-trip
             # precision loss.
-            Set-Content -LiteralPath $StateStartFile -Value (Get-TestProcessStartIso -ProcessId $sleeper.Id -SkewSeconds 1.5) -Encoding utf8NoBOM
-            $near = Get-RunnerInstanceState -RunnerPidFile $StatePidFile -RunnerStartFile $StateStartFile -CmdLinePattern 'never-matches-anything'
+            Set-Content -LiteralPath $script:StateStartFile -Value (Get-TestProcessStartIso -ProcessId $sleeper.Id -SkewSeconds 1.5) -Encoding utf8NoBOM
+            $near = Get-RunnerInstanceState -RunnerPidFile $script:StatePidFile -RunnerStartFile $script:StateStartFile -CmdLinePattern 'never-matches-anything'
             Assert-Equal -Expected 'OtherRunner' -Actual $near.status
         } finally {
             if (-not $sleeper.HasExited) { $sleeper.Kill() }
@@ -229,12 +232,12 @@ Describe 'Get-RunnerInstanceState' {
         # cmdline regex, and with no match the occupant is Stale.
         $sleeper = Get-TestSleeperProcess
         try {
-            Set-Content -LiteralPath $StatePidFile -Value "$($sleeper.Id)" -Encoding utf8NoBOM
-            Set-Content -LiteralPath $StateStartFile -Value (Get-TestProcessStartIso -ProcessId $sleeper.Id -SkewSeconds 30) -Encoding utf8NoBOM
-            $s = Get-RunnerInstanceState -RunnerPidFile $StatePidFile -RunnerStartFile $StateStartFile -CmdLinePattern 'never-matches-anything'
+            Set-Content -LiteralPath $script:StatePidFile -Value "$($sleeper.Id)" -Encoding utf8NoBOM
+            Set-Content -LiteralPath $script:StateStartFile -Value (Get-TestProcessStartIso -ProcessId $sleeper.Id -SkewSeconds 30) -Encoding utf8NoBOM
+            $s = Get-RunnerInstanceState -RunnerPidFile $script:StatePidFile -RunnerStartFile $script:StateStartFile -CmdLinePattern 'never-matches-anything'
             Assert-Equal -Expected 'Stale' -Actual $s.status
 
-            $s2 = Get-RunnerInstanceState -RunnerPidFile $StatePidFile -RunnerStartFile $StateStartFile -CmdLinePattern 'Start-Sleep'
+            $s2 = Get-RunnerInstanceState -RunnerPidFile $script:StatePidFile -RunnerStartFile $script:StateStartFile -CmdLinePattern 'Start-Sleep'
             Assert-Equal -Expected 'OtherRunner' -Actual $s2.status -Because 'the cmdline fallback still gets its say'
             Assert-Equal -Expected 'cmdline' -Actual $s2.identityVia
         } finally {
@@ -244,9 +247,9 @@ Describe 'Get-RunnerInstanceState' {
     It 'falls back to the cmdline regex when the sidecar is unparseable' {
         $sleeper = Get-TestSleeperProcess
         try {
-            Set-Content -LiteralPath $StatePidFile -Value "$($sleeper.Id)" -Encoding utf8NoBOM
-            Set-Content -LiteralPath $StateStartFile -Value 'not-a-timestamp' -Encoding utf8NoBOM
-            $s = Get-RunnerInstanceState -RunnerPidFile $StatePidFile -RunnerStartFile $StateStartFile -CmdLinePattern 'Start-Sleep'
+            Set-Content -LiteralPath $script:StatePidFile -Value "$($sleeper.Id)" -Encoding utf8NoBOM
+            Set-Content -LiteralPath $script:StateStartFile -Value 'not-a-timestamp' -Encoding utf8NoBOM
+            $s = Get-RunnerInstanceState -RunnerPidFile $script:StatePidFile -RunnerStartFile $script:StateStartFile -CmdLinePattern 'Start-Sleep'
             Assert-Equal -Expected 'OtherRunner' -Actual $s.status -Because 'a corrupt sidecar degrades to the older identity path, it does not throw'
             Assert-Equal -Expected 'cmdline' -Actual $s.identityVia
         } finally {
@@ -258,68 +261,68 @@ Describe 'Get-RunnerInstanceState' {
 Describe 'Write-RunnerPidFile' {
     BeforeAll { $null = New-Item -ItemType Directory -Path $WriteDir -Force }
     AfterAll { Remove-Item -LiteralPath $WriteDir -Recurse -Force -ErrorAction SilentlyContinue }
-    BeforeEach { Remove-Item -LiteralPath $WritePidFile, $WriteStartFile -Force -ErrorAction SilentlyContinue }
+    BeforeEach { Remove-Item -LiteralPath $script:WritePidFile, $script:WriteStartFile -Force -ErrorAction SilentlyContinue }
 
     It 'publishes the pidfile and its StartTime sidecar' {
-        Assert-Equal -Expected $true -Actual (Write-RunnerPidFile -RunnerPidFile $WritePidFile -RunnerStartFile $WriteStartFile)
-        Assert-Equal -Expected "$PID" -Actual (Get-Content -Raw -LiteralPath $WritePidFile).Trim()
+        Assert-Equal -Expected $true -Actual (Write-RunnerPidFile -RunnerPidFile $script:WritePidFile -RunnerStartFile $script:WriteStartFile)
+        Assert-Equal -Expected "$PID" -Actual (Get-Content -Raw -LiteralPath $script:WritePidFile).Trim()
 
-        $recorded = [DateTimeOffset]::Parse((Get-Content -Raw -LiteralPath $WriteStartFile).Trim()).UtcDateTime
+        $recorded = [DateTimeOffset]::Parse((Get-Content -Raw -LiteralPath $script:WriteStartFile).Trim()).UtcDateTime
         $live = (Get-Process -Id $PID).StartTime.ToUniversalTime()
         Assert-True ([Math]::Abs(($recorded - $live).TotalSeconds) -le 2) 'the sidecar records this process StartTime'
     }
     It 'writes a pair the reader classifies as Self' {
-        $null = Write-RunnerPidFile -RunnerPidFile $WritePidFile -RunnerStartFile $WriteStartFile
-        $s = Get-RunnerInstanceState -RunnerPidFile $WritePidFile -RunnerStartFile $WriteStartFile
+        $null = Write-RunnerPidFile -RunnerPidFile $script:WritePidFile -RunnerStartFile $script:WriteStartFile
+        $s = Get-RunnerInstanceState -RunnerPidFile $script:WritePidFile -RunnerStartFile $script:WriteStartFile
         Assert-Equal -Expected 'Self' -Actual $s.status
     }
     It 'loses the race instead of clobbering an existing pidfile' {
         # CreateNew + FileShare.None makes the write a compare-and-set: two
         # operators launching at the same moment cannot both believe they won.
-        Assert-Equal -Expected $true -Actual (Write-RunnerPidFile -RunnerPidFile $WritePidFile -RunnerStartFile $WriteStartFile)
-        $winner = (Get-Content -Raw -LiteralPath $WritePidFile).Trim()
+        Assert-Equal -Expected $true -Actual (Write-RunnerPidFile -RunnerPidFile $script:WritePidFile -RunnerStartFile $script:WriteStartFile)
+        $winner = (Get-Content -Raw -LiteralPath $script:WritePidFile).Trim()
 
-        $second = Write-RunnerPidFile -RunnerPidFile $WritePidFile -RunnerStartFile $WriteStartFile -WarningAction SilentlyContinue
+        $second = Write-RunnerPidFile -RunnerPidFile $script:WritePidFile -RunnerStartFile $script:WriteStartFile -WarningAction SilentlyContinue
         Assert-Equal -Expected $false -Actual $second -Because 'the loser must be told it lost'
-        Assert-Equal -Expected $winner -Actual (Get-Content -Raw -LiteralPath $WritePidFile).Trim() -Because "the winner's pidfile survives the loser"
+        Assert-Equal -Expected $winner -Actual (Get-Content -Raw -LiteralPath $script:WritePidFile).Trim() -Because "the winner's pidfile survives the loser"
         Assert-Equal -Expected 0 -Actual @(Get-ChildItem -LiteralPath $WriteDir -Filter '*.tmp').Count -Because 'the loser cleans up its staged sidecar'
     }
     It 'writes the pidfile even when no sidecar path is supplied' {
-        Assert-Equal -Expected $true -Actual (Write-RunnerPidFile -RunnerPidFile $WritePidFile)
-        Assert-Equal -Expected "$PID" -Actual (Get-Content -Raw -LiteralPath $WritePidFile).Trim()
-        Assert-True (-not (Test-Path -LiteralPath $WriteStartFile)) 'no sidecar is written when none was asked for'
+        Assert-Equal -Expected $true -Actual (Write-RunnerPidFile -RunnerPidFile $script:WritePidFile)
+        Assert-Equal -Expected "$PID" -Actual (Get-Content -Raw -LiteralPath $script:WritePidFile).Trim()
+        Assert-True (-not (Test-Path -LiteralPath $script:WriteStartFile)) 'no sidecar is written when none was asked for'
     }
     It 'writes nothing under -WhatIf' {
-        Assert-Equal -Expected $true -Actual (Write-RunnerPidFile -RunnerPidFile $WritePidFile -RunnerStartFile $WriteStartFile -WhatIf)
-        Assert-True (-not (Test-Path -LiteralPath $WritePidFile)) 'a -WhatIf write must not create the pidfile'
+        Assert-Equal -Expected $true -Actual (Write-RunnerPidFile -RunnerPidFile $script:WritePidFile -RunnerStartFile $script:WriteStartFile -WhatIf)
+        Assert-True (-not (Test-Path -LiteralPath $script:WritePidFile)) 'a -WhatIf write must not create the pidfile'
     }
 }
 
 Describe 'Stop-StaleRunner' {
     BeforeAll {
         $null = New-Item -ItemType Directory -Path $StopDir -Force
-        $null = New-Item -ItemType Directory -Path $StopEmptyDir -Force
+        $null = New-Item -ItemType Directory -Path $script:StopEmptyDir -Force
         # Stand-in for Remove-TestVMFiles.ps1: records the -Prefix it was
         # handed, so the takeover's orphan-VM sweep is observable.
         @(
             "param([string]`$Prefix = '(none)')"
-            "Set-Content -LiteralPath '$StopCleanupMarker' -Value `$Prefix -Encoding utf8NoBOM"
+            "Set-Content -LiteralPath '$script:StopCleanupMarker' -Value `$Prefix -Encoding utf8NoBOM"
             'exit 0'
-        ) -join [Environment]::NewLine | Set-Content -LiteralPath $StopCleanupScript -Encoding utf8NoBOM
+        ) -join [Environment]::NewLine | Set-Content -LiteralPath $script:StopCleanupScript -Encoding utf8NoBOM
     }
     AfterAll {
         Remove-Item -LiteralPath $StopDir -Recurse -Force -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath $StopEmptyDir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $script:StopEmptyDir -Recurse -Force -ErrorAction SilentlyContinue
     }
-    BeforeEach { Remove-Item -LiteralPath $StopCleanupMarker -Force -ErrorAction SilentlyContinue }
+    BeforeEach { Remove-Item -LiteralPath $script:StopCleanupMarker -Force -ErrorAction SilentlyContinue }
 
     It 'stops the prior occupant and clears orphan VMs with the given prefix' {
         $victim = Get-TestSleeperProcess
         try {
             Stop-StaleRunner -ProcessId $victim.Id -TestRoot $StopDir -CleanupPrefix 'unit-' -Confirm:$false
             Assert-True (-not (Get-Process -Id $victim.Id -ErrorAction SilentlyContinue)) 'the prior runner is gone'
-            Assert-True (Test-Path -LiteralPath $StopCleanupMarker) 'the orphan-VM sweep ran'
-            Assert-Equal -Expected 'unit-' -Actual (Get-Content -Raw -LiteralPath $StopCleanupMarker).Trim()
+            Assert-True (Test-Path -LiteralPath $script:StopCleanupMarker) 'the orphan-VM sweep ran'
+            Assert-Equal -Expected 'unit-' -Actual (Get-Content -Raw -LiteralPath $script:StopCleanupMarker).Trim()
         } finally {
             if (-not $victim.HasExited) { $victim.Kill() }
         }
@@ -328,7 +331,7 @@ Describe 'Stop-StaleRunner' {
         $victim = Get-TestSleeperProcess
         try {
             Stop-StaleRunner -ProcessId $victim.Id -TestRoot $StopDir -Confirm:$false
-            Assert-Equal -Expected 'test-' -Actual (Get-Content -Raw -LiteralPath $StopCleanupMarker).Trim()
+            Assert-Equal -Expected 'test-' -Actual (Get-Content -Raw -LiteralPath $script:StopCleanupMarker).Trim()
         } finally {
             if (-not $victim.HasExited) { $victim.Kill() }
         }
@@ -337,20 +340,20 @@ Describe 'Stop-StaleRunner' {
         # The operator killed the runner by hand; the VMs it stranded are still
         # there and the next cycle would fight them.
         Stop-StaleRunner -ProcessId (Get-TestDeadPid) -TestRoot $StopDir -CleanupPrefix 'gone-' -Confirm:$false
-        Assert-Equal -Expected 'gone-' -Actual (Get-Content -Raw -LiteralPath $StopCleanupMarker).Trim()
+        Assert-Equal -Expected 'gone-' -Actual (Get-Content -Raw -LiteralPath $script:StopCleanupMarker).Trim()
     }
     It 'does not throw when there is no cleanup script to run' {
         # Best-effort by contract: a caller racing the kill needs progress, not
         # a bail-out.
-        Stop-StaleRunner -ProcessId (Get-TestDeadPid) -TestRoot $StopEmptyDir -Confirm:$false
-        Assert-True (-not (Test-Path -LiteralPath $StopCleanupMarker)) 'nothing to sweep, nothing swept'
+        Stop-StaleRunner -ProcessId (Get-TestDeadPid) -TestRoot $script:StopEmptyDir -Confirm:$false
+        Assert-True (-not (Test-Path -LiteralPath $script:StopCleanupMarker)) 'nothing to sweep, nothing swept'
     }
     It 'kills nothing and cleans nothing under -WhatIf' {
         $survivor = Get-TestSleeperProcess
         try {
             Stop-StaleRunner -ProcessId $survivor.Id -TestRoot $StopDir -WhatIf
             Assert-True ([bool](Get-Process -Id $survivor.Id -ErrorAction SilentlyContinue)) 'a -WhatIf takeover must not kill the process'
-            Assert-True (-not (Test-Path -LiteralPath $StopCleanupMarker)) 'a -WhatIf takeover must not sweep VMs'
+            Assert-True (-not (Test-Path -LiteralPath $script:StopCleanupMarker)) 'a -WhatIf takeover must not sweep VMs'
         } finally {
             if (-not $survivor.HasExited) { $survivor.Kill() }
         }

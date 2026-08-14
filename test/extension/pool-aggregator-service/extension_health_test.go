@@ -123,10 +123,14 @@ func TestTargetRefusedPastTheGrace(t *testing.T) {
 	}
 }
 
-// The removal an operator asked for: a service that stops answering leaves the
-// pool. The registration side cannot be deleted (the owning host re-asserts it
-// every poll), so only the announce entry goes.
-func TestRefreshExtensionHealthDropsSilentAnnounce(t *testing.T) {
+// A service that stops answering stops being resolvable, but KEEPS its entry:
+// the usual cause is a renumber, and the service re-announces from its new
+// address within a beacon period. Removing the entry in that gap would leave the
+// area with no record at all, so the pool would report "no stash here" rather
+// than "the stash is advertised at X and X does not answer" -- and an operator
+// cannot act on the first. The announce TTL, a goodbye, or the owning host
+// retracting its marker are what remove an entry.
+func TestRefreshExtensionHealthSuppressesSilentAnnounce(t *testing.T) {
 	s := newPoolState("default", 8080)
 	hid := "422dd0cac87e4cc6831c3228f12ae689"
 	now := time.Now()
@@ -145,8 +149,107 @@ func TestRefreshExtensionHealthDropsSilentAnnounce(t *testing.T) {
 		LastError:       "connect refused",
 	}
 	s.refreshExtensionHealth(newInternalHTTPClient(probeTimeout), now)
-	if _, ok := s.announce[announceKey(hid, stashArea)]; ok {
-		t.Errorf("a service silent for longer than %s was kept in the announce view", extensionHealthGrace)
+	if _, ok := s.announce[announceKey(hid, stashArea)]; !ok {
+		t.Fatalf("a service silent for longer than %s was removed from the announce view; it should be kept, suppressed, so the refused address stays reportable", extensionHealthGrace)
+	}
+	// Suppressed, so it answers nothing: area resolution must not hand the dead
+	// address to a consumer.
+	s.mu.Lock()
+	cand := s.extensionCandidatesLocked(now)[announceKey(hid, stashArea)]
+	resolved, resolvable := s.resolveExtensionHostsLocked(now)[stashArea]
+	s.mu.Unlock()
+	if !cand.Suppressed {
+		t.Errorf("the entry for an address unanswered past %s is not suppressed", extensionHealthGrace)
+	}
+	if cand.Target != "" {
+		t.Errorf("a suppressed entry still carries Target %q; suppression moves the address to SuppressedTarget", cand.Target)
+	}
+	if cand.SuppressedTarget != target {
+		t.Errorf("SuppressedTarget = %q, want the refused address %q", cand.SuppressedTarget, target)
+	}
+	if resolvable {
+		t.Errorf("area %s resolved to %q; a refused address must not be handed out", stashArea, resolved.Target)
+	}
+}
+
+// The point of keeping the suppressed entry: the next announce re-binds the area
+// to the service's new address. A renumber must not need the announce TTL to
+// expire first. Needs a non-loopback listener for the same reason
+// TestRefreshExtensionHealthConfirmsLiveTarget does -- a loopback address is
+// refused before any probe.
+func TestSuppressedAnnounceRebindsOnNewAddress(t *testing.T) {
+	lanIP := ""
+	addrs, err := net.InterfaceAddrs()
+	if err == nil {
+		for _, a := range addrs {
+			n, okAddr := a.(*net.IPNet)
+			if !okAddr || n.IP.To4() == nil || n.IP.IsLoopback() || n.IP.IsLinkLocalUnicast() {
+				continue
+			}
+			lanIP = n.IP.String()
+			break
+		}
+	}
+	if lanIP == "" {
+		t.Skip("no non-loopback IPv4 on this machine to serve a probe from")
+	}
+	s := newPoolState("default", 8080)
+	hid := "422dd0cac87e4cc6831c3228f12ae689"
+	now := time.Now()
+	key := announceKey(hid, stashArea)
+
+	// The address it left: a port on the LAN interface with nothing behind it.
+	gone, err := net.Listen("tcp", net.JoinHostPort(lanIP, "0"))
+	if err != nil {
+		t.Skipf("cannot listen on %s: %v", lanIP, err)
+	}
+	deadURL := "http://" + gone.Addr().String()
+	_ = gone.Close()
+	s.announce[key] = &announceView{
+		HostId: hid, Area: stashArea, Target: deadURL,
+		LastSeenUnixMs: now.UnixMilli(), sourceIP: lanIP,
+	}
+	s.extHealth[key] = &extHealthView{
+		Target: deadURL, Confirmed: true,
+		FirstFailUnixMs: now.Add(-extensionHealthGrace - time.Minute).UnixMilli(),
+		LastError:       "connect refused",
+	}
+	s.refreshExtensionHealth(newInternalHTTPClient(probeTimeout), now)
+	if _, ok := s.announce[key]; !ok {
+		t.Fatalf("the entry was removed before the service could re-announce")
+	}
+
+	// The service comes back at a new address and beacons: the announce carries
+	// the new target and the poll confirms it.
+	ln, err := net.Listen("tcp", net.JoinHostPort(lanIP, "0"))
+	if err != nil {
+		t.Skipf("cannot listen on %s: %v", lanIP, err)
+	}
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == extensionHealthPath {
+			_, _ = w.Write([]byte("ok"))
+			return
+		}
+		http.NotFound(w, r)
+	})}
+	go func() { _ = srv.Serve(ln) }()
+	defer srv.Close()
+	liveURL := "http://" + ln.Addr().String()
+	s.announce[key] = &announceView{
+		HostId: hid, Area: stashArea, Target: liveURL,
+		LastSeenUnixMs: now.UnixMilli(), sourceIP: lanIP,
+	}
+	s.refreshExtensionHealth(newInternalHTTPClient(probeTimeout), now)
+
+	s.mu.Lock()
+	cand := s.extensionCandidatesLocked(now)[key]
+	resolved, resolvable := s.resolveExtensionHostsLocked(now)[stashArea]
+	s.mu.Unlock()
+	if cand.Suppressed {
+		t.Errorf("the re-announced address %s stayed suppressed: %s", liveURL, cand.SuppressReason)
+	}
+	if !resolvable || resolved.Target != liveURL {
+		t.Errorf("area %s resolved to %q (resolvable=%v), want the re-announced address %q", stashArea, resolved.Target, resolvable, liveURL)
 	}
 }
 

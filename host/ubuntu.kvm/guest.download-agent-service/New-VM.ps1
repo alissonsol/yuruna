@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42415d43-f59b-4fe5-bf94-4151fb133409
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -319,10 +319,12 @@ if ($LASTEXITCODE -eq 0) {
     }
 }
 
-# 4 GB RAM, 4 vCPU. Sized for the Go daemon streaming multi-GB artifacts
+# 2 GB RAM, 4 vCPU. Sized for the Go daemon streaming multi-GB artifacts
 # between the origins and the pool share -- it streams to the share rather than
-# holding an artifact in RAM, so the resident set stays far below this. Matches
-# the stash-service and pool-control-service VMs. The domain has no balloon
+# holding an artifact in RAM, so the resident set stays far below this. The peak
+# is the first-boot `go build` -- a stdlib-only graph that compiles in about
+# 0.4 GB with no swap in the guest -- not steady state. Matches the
+# stash-service and pool-control-service VMs. The domain has no balloon
 # target below this, so the whole amount stays committed on the host.
 # --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
 $hostCores = [int](& nproc --all)
@@ -335,7 +337,7 @@ $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
 $installArgs = @(
     '--connect',    $virshUri,
     '--name',       $VMName,
-    '--memory',     '4096',
+    '--memory',     '2048',
     '--vcpus',      "$vmCores",
     '--cpu',        'host-passthrough',
     '--os-variant', $osVariant,

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42f8c1d4-6b02-4e79-9d3a-71c5e08b4f26
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -43,6 +43,7 @@
     Run: pwsh -NoProfile -File test/modules/Test.StatusUploadAllowlist.Tests.ps1
 #>
 
+BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = Split-Path -Parent (Split-Path -Parent $here)
 $svcPath  = Join-Path $repoRoot 'test/Start-StatusService.ps1'
@@ -57,11 +58,13 @@ $SvcSource = Get-Content -Raw -LiteralPath $svcPath
 # route lives in a here-string, so the end-anchor is written as a backtick-
 # escaped `$; strip that escape to recover the regex the running service uses.
 $UploadRegexMatch = [regex]::Match($SvcSource, "uploadRel\s+-match\s+'(\\\.\([^']+\)``?\$)'")
-$UploadRegex = if ($UploadRegexMatch.Success) { $UploadRegexMatch.Groups[1].Value -replace '`\$', '$' } else { $null }
+$script:UploadRegex = if ($UploadRegexMatch.Success) { $UploadRegexMatch.Groups[1].Value -replace '`\$', '$' } else { $null }
+
+}
 
 Describe 'status-service /log-upload allowlist' {
     It 'still has an extension allowlist on the upload route' {
-        Assert-True ($null -ne $UploadRegex) `
+        Assert-True ($null -ne $script:UploadRegex) `
             "no '-match' extension allowlist found near uploadRel in $svcPath -- the write surface may have been widened"
     }
 
@@ -80,15 +83,15 @@ Describe 'status-service /log-upload allowlist' {
             'probe.json',
             'stderr.err'
         )) {
-            Assert-True ($name -match $UploadRegex) "'$name' must be accepted by the upload allowlist"
-            Assert-True ("installer-fail/vm/20260804T190716Z/$name" -match $UploadRegex) `
+            Assert-True ($name -match $script:UploadRegex) "'$name' must be accepted by the upload allowlist"
+            Assert-True ("installer-fail/vm/20260804T190716Z/$name" -match $script:UploadRegex) `
                 "'$name' must still be accepted under a bucket path"
         }
     }
 
     It 'rejects executable and extensionless uploads' {
         foreach ($name in @('evil.ps1', 'evil.exe', 'evil.sh', 'evil.bat', 'noextension', 'trailingdot.')) {
-            Assert-Equal -Expected $false -Actual ($name -match $UploadRegex) `
+            Assert-Equal -Expected $false -Actual ($name -match $script:UploadRegex) `
                 -Because "'$name' must NOT be accepted: /log-upload takes no credential"
         }
     }
@@ -96,7 +99,7 @@ Describe 'status-service /log-upload allowlist' {
     It 'does not let a bare allowed extension appear mid-name' {
         # The anchor is what makes the allowlist an allowlist. Without the
         # trailing $, 'payload.log.ps1' passes and the route writes a script.
-        Assert-Equal -Expected $false -Actual ('payload.log.ps1' -match $UploadRegex) `
+        Assert-Equal -Expected $false -Actual ('payload.log.ps1' -match $script:UploadRegex) `
             -Because 'the extension test must be anchored at end-of-string'
     }
 

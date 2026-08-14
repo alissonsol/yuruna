@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42b7c3e9-5d81-4a06-9f24-3e8d1c705b6a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,7 +23,7 @@
 .DESCRIPTION
     WHY THIS EXISTS. Every service guest is built at a size fixed in its per-host
     New-VM.ps1, and none of those guests balloon: a size is spent for as long as
-    the service runs. Four services on one machine is 24 GB of guest memory
+    the service runs. Four services on one machine is 18 GB of guest memory
     whether the host has 16 GB or 128 GB, so the only place that arithmetic can
     still change an operator's mind is ahead of the first build.
 
@@ -47,6 +47,7 @@
          (or Invoke-Pester -Path test/modules/Test.HostMemoryPreflight.Tests.ps1)
 #>
 
+BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
 
@@ -87,27 +88,29 @@ function Get-PlanRow {
     })
 }
 
-$SetupSrc = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'install/setup.ps1')
-$SetupAst = [System.Management.Automation.Language.Parser]::ParseFile(
+$script:SetupSrc = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'install/setup.ps1')
+$script:SetupAst = [System.Management.Automation.Language.Parser]::ParseFile(
     (Join-Path $repoRoot 'install/setup.ps1'), [ref]$null, [ref]$null)
 
 # The plans a real run produces, and the host sizes worth asking about:
-# 16 GB and 32 GB are the machines this is meant to catch, 24 GB is the awkward
-# middle, and 36/64/128 GB are the ones that must NOT be warned at.
+# 16 GB and 24 GB are the machines this is meant to catch, and 32/36/64/128 GB
+# are the ones that must NOT be warned at.
 # PlanStandaloneAgent is the opt-in shape (downloadAgentService.enabled: true on
 # a standalone host); the default standalone set stops at the stash.
-$PlanStandalone      = Get-PlanRow -Key (Select-SetupServiceVmKey -StorageKind 'local')
-$PlanStandaloneAgent = Get-PlanRow -Key (Select-SetupServiceVmKey -StorageKind 'local' -DownloadAgentEnabled $true)
-$PlanProxyOnly       = Get-PlanRow -Key (Select-SetupServiceVmKey -StorageKind 'none')
-$PlanLab             = Get-PlanRow -Key (Select-SetupServiceVmKey -StorageKind 'local' -Lab)
-$HostSizeMb          = @(8192, 16384, 24576, 32768, 36864, 65536, 131072)
-$PlanSet             = @(
+$script:PlanStandalone      = Get-PlanRow -Key (Select-SetupServiceVmKey -StorageKind 'local')
+$script:PlanStandaloneAgent = Get-PlanRow -Key (Select-SetupServiceVmKey -StorageKind 'local' -DownloadAgentEnabled $true)
+$script:PlanProxyOnly       = Get-PlanRow -Key (Select-SetupServiceVmKey -StorageKind 'none')
+$script:PlanLab             = Get-PlanRow -Key (Select-SetupServiceVmKey -StorageKind 'local' -Lab)
+$script:HostSizeMb          = @(8192, 16384, 24576, 32768, 36864, 65536, 131072)
+$script:PlanSet             = @(
     (Select-SetupServiceVmKey -StorageKind 'none'),
     (Select-SetupServiceVmKey -StorageKind 'local'),
     (Select-SetupServiceVmKey -StorageKind 'local' -DownloadAgentEnabled $true),
     (Select-SetupServiceVmKey -StorageKind 'local' -DownloadAgentEnabled $false),
     (Select-SetupServiceVmKey -StorageKind 'local' -Lab)
 )
+
+}
 
 Describe 'host-memory preflight -- the size comes out of the guest builders' {
     It 'reads the UTM shape (an MB count substituted into the plist)' {
@@ -187,54 +190,59 @@ Describe 'host-memory preflight -- only the services this run starts are counted
 
 Describe 'host-memory preflight -- the arithmetic across host sizes' {
     It 'sums only the services in the plan' {
-        Assert-Equal 16384 (Get-ServiceVmMemoryVerdict -Service $PlanStandalone      -HostMemoryMb 32768).CommittedMb
-        Assert-Equal 20480 (Get-ServiceVmMemoryVerdict -Service $PlanStandaloneAgent -HostMemoryMb 32768).CommittedMb
-        Assert-Equal 12288 (Get-ServiceVmMemoryVerdict -Service $PlanProxyOnly       -HostMemoryMb 32768).CommittedMb
-        Assert-Equal 24576 (Get-ServiceVmMemoryVerdict -Service $PlanLab             -HostMemoryMb 32768).CommittedMb
+        Assert-Equal 14336 (Get-ServiceVmMemoryVerdict -Service $script:PlanStandalone      -HostMemoryMb 32768).CommittedMb
+        Assert-Equal 16384 (Get-ServiceVmMemoryVerdict -Service $script:PlanStandaloneAgent -HostMemoryMb 32768).CommittedMb
+        Assert-Equal 12288 (Get-ServiceVmMemoryVerdict -Service $script:PlanProxyOnly       -HostMemoryMb 32768).CommittedMb
+        Assert-Equal 18432 (Get-ServiceVmMemoryVerdict -Service $script:PlanLab             -HostMemoryMb 32768).CommittedMb
     }
     It 'estimates a resident set larger than the guests are configured with' {
-        $v = Get-ServiceVmMemoryVerdict -Service $PlanStandalone -HostMemoryMb 32768
+        $v = Get-ServiceVmMemoryVerdict -Service $script:PlanStandalone -HostMemoryMb 32768
         Assert-True ($v.ResidentMb -gt $v.CommittedMb) 'a hypervisor holds more than the guest size; ignoring that under-reports the bill'
         Assert-True ($v.ResidentMb -lt ($v.CommittedMb * 2)) 'the overhead factor has run away'
         Assert-Equal ($v.HostMemoryMb - $v.ResidentMb) $v.RemainingMb
         Assert-Equal ($v.ResidentMb + $v.ReserveMb)    $v.NeededMb
     }
-    It 'passes a 32 GB host on the default standalone set, and warns once the agent is opted in' {
-        Assert-Equal 'ok' (Get-ServiceVmMemoryVerdict -Service $PlanStandalone -HostMemoryMb 32768).Level `
+    It 'passes a 32 GB host on every standalone shape, agent opted in or not' {
+        Assert-Equal 'ok' (Get-ServiceVmMemoryVerdict -Service $script:PlanStandalone -HostMemoryMb 32768).Level `
             -Because 'proxy + stash is sized so a 32 GB machine keeps its reserve'
-        $v = Get-ServiceVmMemoryVerdict -Service $PlanStandaloneAgent -HostMemoryMb 32768
+        Assert-Equal 'ok' (Get-ServiceVmMemoryVerdict -Service $script:PlanStandaloneAgent -HostMemoryMb 32768).Level `
+            -Because 'the extension baseline is what lets the agent join without spending the reserve'
+    }
+    It 'warns on a 24 GB host once the stash joins the proxy' {
+        $v = Get-ServiceVmMemoryVerdict -Service $script:PlanStandalone -HostMemoryMb 24576
         Assert-Equal 'warn' $v.Level
         Assert-True ($v.RemainingMb -lt $v.ReserveMb) 'the warning has to follow from the arithmetic, not from a host-size table'
     }
     It 'passes the same host once storage -- and with it two services -- is declined' {
-        Assert-Equal 'ok' (Get-ServiceVmMemoryVerdict -Service $PlanProxyOnly -HostMemoryMb 32768).Level
+        Assert-Equal 'ok' (Get-ServiceVmMemoryVerdict -Service $script:PlanProxyOnly -HostMemoryMb 24576).Level
     }
-    It 'passes a 64 GB host running a full lab, and warns at 32 GB' {
-        Assert-Equal 'ok'   (Get-ServiceVmMemoryVerdict -Service $PlanLab -HostMemoryMb 65536).Level
-        Assert-Equal 'ok'   (Get-ServiceVmMemoryVerdict -Service $PlanLab -HostMemoryMb 131072).Level
-        Assert-Equal 'warn' (Get-ServiceVmMemoryVerdict -Service $PlanLab -HostMemoryMb 32768).Level
+    It 'passes a 32 GB host running a full lab, and warns at 24 GB' {
+        Assert-Equal 'ok'   (Get-ServiceVmMemoryVerdict -Service $script:PlanLab -HostMemoryMb 32768).Level
+        Assert-Equal 'ok'   (Get-ServiceVmMemoryVerdict -Service $script:PlanLab -HostMemoryMb 65536).Level
+        Assert-Equal 'ok'   (Get-ServiceVmMemoryVerdict -Service $script:PlanLab -HostMemoryMb 131072).Level
+        Assert-Equal 'warn' (Get-ServiceVmMemoryVerdict -Service $script:PlanLab -HostMemoryMb 24576).Level
     }
     It 'warns on a 16 GB host even for the proxy alone' {
-        $v = Get-ServiceVmMemoryVerdict -Service $PlanProxyOnly -HostMemoryMb 16384
+        $v = Get-ServiceVmMemoryVerdict -Service $script:PlanProxyOnly -HostMemoryMb 16384
         Assert-Equal 'warn' $v.Level
         Assert-True ($v.Message -match 'Nothing in this run can be skipped') 'with one service left there is no service to drop, and saying otherwise is false advice'
     }
     It 'says how much MORE is wanted when the plan exceeds the machine' {
-        $v = Get-ServiceVmMemoryVerdict -Service $PlanLab -HostMemoryMb 8192
+        $v = Get-ServiceVmMemoryVerdict -Service $script:PlanLab -HostMemoryMb 8192
         Assert-Equal 'warn' $v.Level
         Assert-True ($v.RemainingMb -lt 0) 'fixture must exceed the host for this case to mean anything'
         Assert-True ($v.Message -match 'more than it has') "a negative remainder must not be printed as 'leaving -13.8 GB'"
     }
     It 'turns on the remainder against the reserve, exactly at the boundary' {
-        $v = Get-ServiceVmMemoryVerdict -Service $PlanStandalone -HostMemoryMb 32768
+        $v = Get-ServiceVmMemoryVerdict -Service $script:PlanStandalone -HostMemoryMb 32768
         $atLine    = $v.ResidentMb + $v.ReserveMb
-        Assert-Equal 'ok'   (Get-ServiceVmMemoryVerdict -Service $PlanStandalone -HostMemoryMb $atLine).Level
-        Assert-Equal 'warn' (Get-ServiceVmMemoryVerdict -Service $PlanStandalone -HostMemoryMb ($atLine - 1)).Level
-        Assert-Equal 'ok'   (Get-ServiceVmMemoryVerdict -Service $PlanStandalone -HostMemoryMb ($atLine + 1)).Level
+        Assert-Equal 'ok'   (Get-ServiceVmMemoryVerdict -Service $script:PlanStandalone -HostMemoryMb $atLine).Level
+        Assert-Equal 'warn' (Get-ServiceVmMemoryVerdict -Service $script:PlanStandalone -HostMemoryMb ($atLine - 1)).Level
+        Assert-Equal 'ok'   (Get-ServiceVmMemoryVerdict -Service $script:PlanStandalone -HostMemoryMb ($atLine + 1)).Level
     }
     It 'names the whole arithmetic in the warning, not just the verdict' {
-        $v = Get-ServiceVmMemoryVerdict -Service $PlanStandaloneAgent -HostMemoryMb 32768
-        foreach ($fragment in @('32.0 GB', '20.0 GB', '7.2 GB', '8.0 GB', '32.8 GB')) {
+        $v = Get-ServiceVmMemoryVerdict -Service $script:PlanStandaloneAgent -HostMemoryMb 24576
+        foreach ($fragment in @('24.0 GB', '16.0 GB', '4.2 GB', '8.0 GB', '27.8 GB')) {
             Assert-True ($v.Message -match [regex]::Escape($fragment)) `
                 "the warning must state $fragment (host, committed, left, reserve, needed) -- 'low memory' is not actionable"
         }
@@ -243,23 +251,23 @@ Describe 'host-memory preflight -- the arithmetic across host sizes' {
         }
     }
     It 'offers a lab only the levers a lab is allowed to pull' {
-        $v = Get-ServiceVmMemoryVerdict -Service $PlanLab -HostMemoryMb 32768
+        $v = Get-ServiceVmMemoryVerdict -Service $script:PlanLab -HostMemoryMb 24576
         Assert-True ($v.Message -notmatch 'storage\.kind = none') `
             "a lab needs the shares for its stash and its intent store, so setup rejects storage.kind = none for one"
         Assert-True ($v.Message -match 'downloadAgentService\.enabled') 'the download agent is a lever a lab does have'
     }
     It 'offers a standalone host both of its levers, with what each one is worth' {
-        $v = Get-ServiceVmMemoryVerdict -Service $PlanStandaloneAgent -HostMemoryMb 32768
+        $v = Get-ServiceVmMemoryVerdict -Service $script:PlanStandaloneAgent -HostMemoryMb 24576
         Assert-True ($v.Message -match 'storage\.kind = none')          'the storage lever'
         Assert-True ($v.Message -match 'downloadAgentService\.enabled') 'the narrower lever'
-        Assert-True ($v.Message -match '\(8\.0 GB\)')                   'what dropping both storage services is worth'
-        Assert-True ($v.Message -match '\(4\.0 GB\)')                   'what dropping the agent alone is worth'
+        Assert-True ($v.Message -match '\(4\.0 GB\)')                   'what dropping both storage services is worth'
+        Assert-True ($v.Message -match '\(2\.0 GB\)')                   'what dropping the agent alone is worth'
     }
 }
 
 Describe 'host-memory preflight -- what it does when it cannot measure' {
     It 'reports unknown -- never ok -- when the host does not state its memory' {
-        $v = Get-ServiceVmMemoryVerdict -Service $PlanStandalone -HostMemoryMb 0
+        $v = Get-ServiceVmMemoryVerdict -Service $script:PlanStandalone -HostMemoryMb 0
         Assert-Equal 'unknown' $v.Level
         Assert-True ($v.Message -match 'not checked') 'silence would read as a host that passed'
     }
@@ -270,7 +278,7 @@ Describe 'host-memory preflight -- what it does when it cannot measure' {
     It 'names the services missing from the total, and calls the total a floor' {
         $partial = Get-PlanRow -Key @('caching-proxy', 'stash', 'download-agent') -Override @{ 'stash' = 0 }
         $v = Get-ServiceVmMemoryVerdict -Service $partial -HostMemoryMb 32768
-        Assert-Equal 16384 $v.CommittedMb -Because 'an unreadable size must not be guessed at'
+        Assert-Equal 14336 $v.CommittedMb -Because 'an unreadable size must not be guessed at'
         Assert-True ($v.Message -match 'floor')  'a total missing a service is a floor, and has to say so'
         Assert-True ($v.Message -match 'stash')  'the operator has to know WHICH service is not in the figure'
     }
@@ -292,8 +300,8 @@ Describe 'host-memory preflight -- the verdict is a warning, and stays one' {
         # platforms overcommit. A host measured at 20 GB committed on 32 GB
         # completed its builds while compressing. A hard stop there would block
         # machines that work today, so 'warn' is the loudest level there is.
-        foreach ($mb in $HostSizeMb) {
-            foreach ($plan in $PlanSet) {
+        foreach ($mb in $script:HostSizeMb) {
+            foreach ($plan in $script:PlanSet) {
                 $v = Get-ServiceVmMemoryVerdict -Service (Get-PlanRow -Key $plan) -HostMemoryMb $mb
                 Assert-True ($v.Level -in @('ok', 'warn', 'unknown')) "unexpected level '$($v.Level)' at ${mb}MB"
             }
@@ -302,8 +310,8 @@ Describe 'host-memory preflight -- the verdict is a warning, and stays one' {
     It 'fits its one-line summary in the width a step outcome shows' {
         # Write-StepOutcome trims a step's detail to 140 characters, and this
         # summary IS that detail -- a summary that overflows loses its numbers.
-        foreach ($mb in $HostSizeMb) {
-            foreach ($plan in $PlanSet) {
+        foreach ($mb in $script:HostSizeMb) {
+            foreach ($plan in $script:PlanSet) {
                 $v = Get-ServiceVmMemoryVerdict -Service (Get-PlanRow -Key $plan) -HostMemoryMb $mb
                 Assert-True ($v.Summary.Length -le 140) "summary is $($v.Summary.Length) chars at ${mb}MB: $($v.Summary)"
                 Assert-True ($v.Summary -notmatch "`n") 'the step line is one line'
@@ -311,8 +319,8 @@ Describe 'host-memory preflight -- the verdict is a warning, and stays one' {
         }
     }
     It 'agrees with itself on every host size: ok exactly when the reserve survives' {
-        foreach ($mb in $HostSizeMb) {
-            foreach ($plan in $PlanSet) {
+        foreach ($mb in $script:HostSizeMb) {
+            foreach ($plan in $script:PlanSet) {
                 $v = Get-ServiceVmMemoryVerdict -Service (Get-PlanRow -Key $plan) -HostMemoryMb $mb
                 $expected = if ($v.RemainingMb -ge $v.ReserveMb) { 'ok' } else { 'warn' }
                 Assert-Equal $expected $v.Level -Because "level disagrees with the arithmetic at ${mb}MB for $($plan -join ',')"
@@ -322,10 +330,10 @@ Describe 'host-memory preflight -- the verdict is a warning, and stays one' {
     It 'reads the same on every host driver, because the builders agree' {
         foreach ($hostFolder in $HostFolder) {
             $keys = Select-SetupServiceVmKey -StorageKind 'local' -DownloadAgentEnabled $true
-            $v = Get-ServiceVmMemoryVerdict -Service (Get-PlanRow -Key $keys -From $hostFolder) -HostMemoryMb 32768
+            $v = Get-ServiceVmMemoryVerdict -Service (Get-PlanRow -Key $keys -From $hostFolder) -HostMemoryMb 24576
             Assert-Equal 'warn' $v.Level -Because "$hostFolder disagrees with the other host drivers about the same machine"
-            Assert-Equal 'ok' (Get-ServiceVmMemoryVerdict -Service (Get-PlanRow -Key (Select-SetupServiceVmKey -StorageKind 'local') -From $hostFolder) -HostMemoryMb 32768).Level `
-                -Because "$hostFolder disagrees about the default standalone set fitting the same machine"
+            Assert-Equal 'ok' (Get-ServiceVmMemoryVerdict -Service (Get-PlanRow -Key (Select-SetupServiceVmKey -StorageKind 'none') -From $hostFolder) -HostMemoryMb 24576).Level `
+                -Because "$hostFolder disagrees about the proxy alone fitting the same machine"
         }
     }
 }
@@ -341,18 +349,18 @@ Describe 'host-memory preflight -- this host answers for its own memory' {
 
 Describe 'host-memory preflight -- setup.ps1 spends it before it builds anything' {
     It 'imports the module the arithmetic lives in' {
-        Assert-True ($SetupSrc -match [regex]::Escape("automation/Yuruna.Common.psm1")) `
+        Assert-True ($script:SetupSrc -match [regex]::Escape("automation/Yuruna.Common.psm1")) `
             'Yuruna.HostRedirect imports Yuruna.Common into its own session state, which does not reach setup.ps1'
     }
     It 'names memory in the preflight step, so a skipped check is visible in the outcome list' {
-        Assert-True ($SetupSrc -match "Invoke-SetupStep -Name 'Preflight:[^']*memory[^']*'") 'the step name must say what it checked'
+        Assert-True ($script:SetupSrc -match "Invoke-SetupStep -Name 'Preflight:[^']*memory[^']*'") 'the step name must say what it checked'
     }
     It 'runs the check inside the preflight, ahead of every service bring-up' {
-        $calls = @($SetupAst.FindAll({ param($n)
+        $calls = @($script:SetupAst.FindAll({ param($n)
             $n -is [System.Management.Automation.Language.CommandAst] -and
             $n.GetCommandName() -eq 'Write-SetupMemoryHeadroom' }, $true))
         Assert-Equal 1 $calls.Count -Because 'exactly one call site'
-        $bringUp = @($SetupAst.FindAll({ param($n)
+        $bringUp = @($script:SetupAst.FindAll({ param($n)
             $n -is [System.Management.Automation.Language.CommandAst] -and
             $n.GetCommandName() -eq 'Invoke-ServiceVMEnsure' }, $true) |
             Sort-Object { $_.Extent.StartLineNumber })
@@ -361,7 +369,7 @@ Describe 'host-memory preflight -- setup.ps1 spends it before it builds anything
             'a memory report after the first VM build is a report about a decision already made'
     }
     It 'passes the check the two answers that decide which services start' {
-        $call = @($SetupAst.FindAll({ param($n)
+        $call = @($script:SetupAst.FindAll({ param($n)
             $n -is [System.Management.Automation.Language.CommandAst] -and
             $n.GetCommandName() -eq 'Write-SetupMemoryHeadroom' }, $true))[0]
         $text = $call.Extent.Text
@@ -369,13 +377,13 @@ Describe 'host-memory preflight -- setup.ps1 spends it before it builds anything
         Assert-True ($text -match '-Lab')         'without the lab answer it would miss the pool-control service'
     }
     It 'restates none of the builders numbers' {
-        foreach ($literal in @('12288', '4096', '20480', '24576')) {
-            Assert-True ($SetupSrc -notmatch "\b$literal\b") `
+        foreach ($literal in @('12288', '2048', '16384', '18432')) {
+            Assert-True ($script:SetupSrc -notmatch "\b$literal\b") `
                 "setup.ps1 hardcodes $literal -- a second copy of a guest size drifts the moment the builder changes"
         }
     }
     It 'warns and records the shortfall, and stays silent about what it could not measure' {
-        $fn = $SetupAst.FindAll({ param($n)
+        $fn = $script:SetupAst.FindAll({ param($n)
             $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
             $n.Name -eq 'Write-SetupMemoryHeadroom' }, $true) | Select-Object -First 1
         Assert-True ($null -ne $fn) 'Write-SetupMemoryHeadroom is defined in setup.ps1'
@@ -392,7 +400,7 @@ Describe 'host-memory preflight -- setup.ps1 spends it before it builds anything
         # exactly the direction that makes a host look fine when it is not. The
         # roster keys are what the two statements have in common, so they are what
         # is compared.
-        $rosterKey = @($SetupAst.FindAll({ param($n)
+        $rosterKey = @($script:SetupAst.FindAll({ param($n)
             $n -is [System.Management.Automation.Language.CommandAst] -and
             $n.GetCommandName() -eq 'Invoke-ServiceVMEnsure' }, $true) | ForEach-Object {
                 $elements = $_.CommandElements
@@ -402,7 +410,7 @@ Describe 'host-memory preflight -- setup.ps1 spends it before it builds anything
                 }
             } | Sort-Object -Unique)
         Assert-True ($rosterKey.Count -ge 1) 'fixture sanity: setup.ps1 names its service VMs with -RosterKey'
-        $selectable = @($PlanSet | ForEach-Object { $_ } | Sort-Object -Unique)
+        $selectable = @($script:PlanSet | ForEach-Object { $_ } | Sort-Object -Unique)
         foreach ($key in $rosterKey) {
             Assert-True ($selectable -contains $key) `
                 "setup.ps1 brings up the '$key' service VM and no Select-SetupServiceVmKey plan returns it -- the preflight would under-report the bill by that guest"
@@ -413,11 +421,11 @@ Describe 'host-memory preflight -- setup.ps1 spends it before it builds anything
         }
     }
     It 'reads downloadAgentService.enabled once, for both the report and the bring-up' {
-        $calls = @($SetupAst.FindAll({ param($n)
+        $calls = @($script:SetupAst.FindAll({ param($n)
             $n -is [System.Management.Automation.Language.CommandAst] -and
             $n.GetCommandName() -eq 'Get-DownloadAgentServiceEnabledValue' }, $true))
         Assert-Equal 2 $calls.Count -Because 'two callers, one reading -- two readings could disagree about which services a run starts'
-        $direct = @($SetupAst.FindAll({ param($n)
+        $direct = @($script:SetupAst.FindAll({ param($n)
             $n -is [System.Management.Automation.Language.StringConstantExpressionAst] -and
             $n.Value -eq 'downloadAgentService.enabled' }, $true))
         Assert-Equal 1 $direct.Count -Because 'the config key is named in exactly one place'

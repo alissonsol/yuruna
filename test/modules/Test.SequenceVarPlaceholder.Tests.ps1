@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42a7c8d9-0e1f-4a2b-9c3d-4e5f6a7b8c9d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,10 +29,11 @@
     AST/source-only. Runs under Pester 4.10.1 (script-scoped throw helper).
 #>
 
+BeforeAll {
 $here       = Split-Path -Parent $PSCommandPath
 $repoRoot   = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
 $modulePath = Join-Path $repoRoot 'test/modules/Test.SequenceVariable.psm1'
-$varPattern = '\$\{([^}]+)\}'
+$script:varPattern = '\$\{([^}]+)\}'
 
 function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
 
@@ -81,6 +82,8 @@ function Get-StringConstantCount {
 
 $rootAst = Get-ModuleAst -Path $modulePath
 
+}
+
 Describe 'sequence-var-placeholder -- the single-pass ${var} resolver is centralized' {
     It 'defines an Expand-VarPlaceholder helper' {
         Assert-True (Test-FunctionDefined -RootAst $rootAst -FunctionName 'Expand-VarPlaceholder') `
@@ -91,7 +94,7 @@ Describe 'sequence-var-placeholder -- the single-pass ${var} resolver is central
         Assert-True ($n -ge 2) "expected the two var-expansion sites to call Expand-VarPlaceholder, found $n"
     }
     It 'the plain-${var} regex literal now appears exactly once (inside the helper)' {
-        $n = Get-StringConstantCount -Ast $rootAst -Value $varPattern
+        $n = Get-StringConstantCount -Ast $rootAst -Value $script:varPattern
         Assert-True ($n -eq 1) "expected exactly one plain-`${var} regex literal after dedup, found $n"
     }
     It 'Expand-VarPlaceholder stays private (not in the Export-ModuleMember allowlist)' {

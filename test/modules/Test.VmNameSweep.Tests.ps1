@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42b9e3d1-7c04-4a52-9e18-3f6b28d5a4c7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,17 +30,20 @@
     Run: Invoke-Pester -Path test/modules/Test.VmNameSweep.Tests.ps1
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 $repoRoot = Split-Path -Parent (Split-Path -Parent $here)
 Import-Module (Join-Path $repoRoot 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $here 'Test.Config.psm1') -Force -DisableNameChecking
 
-$SweepRepoRoot = $repoRoot
+$script:SweepRepoRoot = $repoRoot
 
 function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
 function Assert-Equal {
     param($Expected, $Actual, [string]$Because = '')
     if ("$Expected" -ne "$Actual") { throw "Expected '$Expected' but got '$Actual'. $Because" }
+}
+
 }
 
 Describe 'Select-NameByPrefix' {
@@ -130,7 +133,7 @@ Describe 'Resolve-CleanupVmNamePrefix' {
 Describe 'Get-VMName host-driver coverage' {
 
     It 'is declared in the canonical host contract' {
-        $contract = Get-Content -Raw (Join-Path $SweepRepoRoot 'host/Yuruna.Host.Contract.psm1')
+        $contract = Get-Content -Raw (Join-Path $script:SweepRepoRoot 'host/Yuruna.Host.Contract.psm1')
         Assert-True ($contract -match "'Get-VMName'") 'the contract must list the inventory verb'
     }
 
@@ -140,7 +143,7 @@ Describe 'Get-VMName host-driver coverage' {
         # that host at all, so pin all three rather than only the host this
         # suite happens to run on.
         foreach ($driver in @('macos.utm', 'windows.hyper-v', 'ubuntu.kvm')) {
-            $path = Join-Path $SweepRepoRoot "host/$driver/modules/Yuruna.Host.psm1"
+            $path = Join-Path $script:SweepRepoRoot "host/$driver/modules/Yuruna.Host.psm1"
             $text = Get-Content -Raw $path
             Assert-True ($text -match '(?m)^function Get-VMName\b') "$driver must define Get-VMName"
             Assert-True ($text -match "Get-VMState, Get-VMName,") "$driver must export Get-VMName"
@@ -153,7 +156,7 @@ Describe 'Get-VMName host-driver coverage' {
         # sweep call the host clean, and the orphan-file pass behind it would
         # delete files still claimed by a registered VM.
         foreach ($driver in @('macos.utm', 'windows.hyper-v', 'ubuntu.kvm')) {
-            $path = Join-Path $SweepRepoRoot "host/$driver/modules/Yuruna.Host.psm1"
+            $path = Join-Path $script:SweepRepoRoot "host/$driver/modules/Yuruna.Host.psm1"
             $text = Get-Content -Raw $path
             $body = [regex]::Match($text, '(?ms)^function Get-VMName\b.*?^\}').Value
             Assert-True ($body -match 'throw') "$driver Get-VMName must throw when enumeration fails"
@@ -164,14 +167,14 @@ Describe 'Get-VMName host-driver coverage' {
 Describe 'Remove-TestVMFiles prefix sweep' {
 
     It 'accepts a list of prefixes' {
-        $text = Get-Content -Raw (Join-Path $SweepRepoRoot 'test/Remove-TestVMFiles.ps1')
+        $text = Get-Content -Raw (Join-Path $script:SweepRepoRoot 'test/Remove-TestVMFiles.ps1')
         Assert-True ($text -match '\[string\[\]\]\$Prefix') 'the sweep must take more than one prefix'
     }
 
     It 'names no hypervisor in its cleanup logic' {
         # The whole point of the contract verb: one sweep implementation for
         # every host, so a fix lands on all three at once.
-        $text = Get-Content -Raw (Join-Path $SweepRepoRoot 'test/Remove-TestVMFiles.ps1')
+        $text = Get-Content -Raw (Join-Path $script:SweepRepoRoot 'test/Remove-TestVMFiles.ps1')
         $code = ($text -split "`n" | Where-Object { $_ -notmatch '^\s*#' }) -join "`n"
         foreach ($token in @('utmctl', 'virsh ', 'Hyper-V\\Get-VM')) {
             Assert-True ($code -notmatch [regex]::Escape($token)) "cleanup logic must not call $token directly"
@@ -181,7 +184,7 @@ Describe 'Remove-TestVMFiles prefix sweep' {
     It 'refuses a prefix set that resolves to nothing' {
         # An empty prefix matches every VM on the host, including the caching
         # proxy and anything unrelated the operator is running.
-        $text = Get-Content -Raw (Join-Path $SweepRepoRoot 'test/Remove-TestVMFiles.ps1')
+        $text = Get-Content -Raw (Join-Path $script:SweepRepoRoot 'test/Remove-TestVMFiles.ps1')
         Assert-True ($text -match 'would match every VM') 'the guard against an empty prefix must be present'
     }
 }
@@ -192,7 +195,7 @@ Describe 'Concurrent-VM pre-flight' {
         # A leftover guest has to be stopped, not reported: refusing over it
         # strands the host, because the sweep that would remove it only runs
         # once a cycle starts.
-        $text = Get-Content -Raw (Join-Path $SweepRepoRoot 'test/modules/Test.HostContract.psm1')
+        $text = Get-Content -Raw (Join-Path $script:SweepRepoRoot 'test/modules/Test.HostContract.psm1')
         $body = [regex]::Match($text, '(?ms)^function Stop-ConcurrentVM\b.*?\n\}').Value
         Assert-True ($body.Length -gt 0) 'Stop-ConcurrentVM is defined'
         Assert-True ($body -match 'Get-VMName') 'enumerates through the contract'
@@ -206,7 +209,7 @@ Describe 'Concurrent-VM pre-flight' {
         # A running VM the framework does not recognize may be the
         # operator's. Stopping is recoverable; deleting is not. Removal is
         # the prefix sweep's job, where the prefix proves it is disposable.
-        $text = Get-Content -Raw (Join-Path $SweepRepoRoot 'test/modules/Test.HostContract.psm1')
+        $text = Get-Content -Raw (Join-Path $script:SweepRepoRoot 'test/modules/Test.HostContract.psm1')
         $body = [regex]::Match($text, '(?ms)^function Stop-ConcurrentVM\b.*?\n\}').Value
         Assert-True ($body -notmatch 'Remove-VM') 'the pre-flight must not delete VMs'
     }
@@ -217,7 +220,7 @@ Describe 'Concurrent-VM pre-flight' {
         # and a non-empty array is always truthy -- so `-not
         # (Stop-ConcurrentVM)` would never fire and the failure path would
         # silently stop refusing. Progress belongs on the information stream.
-        $text = Get-Content -Raw (Join-Path $SweepRepoRoot 'test/modules/Test.HostContract.psm1')
+        $text = Get-Content -Raw (Join-Path $script:SweepRepoRoot 'test/modules/Test.HostContract.psm1')
         $ast = [System.Management.Automation.Language.Parser]::ParseInput($text, [ref]$null, [ref]$null)
         $fn = @($ast.FindAll({ param($n)
             $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
@@ -232,7 +235,7 @@ Describe 'Concurrent-VM pre-flight' {
 
     It 'runs before the refusal guard in both entry points' {
         foreach ($caller in @('test/modules/Invoke-TestRunnerInnerLoop.ps1', 'test/Invoke-TestSequence.ps1')) {
-            $text = Get-Content -Raw (Join-Path $SweepRepoRoot $caller)
+            $text = Get-Content -Raw (Join-Path $script:SweepRepoRoot $caller)
             $stopAt  = $text.IndexOf('Stop-ConcurrentVM')
             $guardAt = $text.IndexOf('Assert-NoConcurrentUtmVm -')
             Assert-True ($stopAt -ge 0) "$caller must call Stop-ConcurrentVM"

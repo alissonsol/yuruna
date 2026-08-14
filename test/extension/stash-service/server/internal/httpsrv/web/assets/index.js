@@ -8,20 +8,42 @@
   const PAGE = 50;
   let offset = 0;
   let total = 0;
+  // Sortable columns in table order. `desc` is the direction a FIRST click
+  // applies: a quantity is most useful biggest-or-newest first, a name or an id
+  // is most useful from the top of the alphabet. A second click on the same
+  // column reverses whatever it is showing.
+  //
+  // Sorting reloads rather than reordering the rows on screen, because the list
+  // is paged: the daemon holds the whole matching set and this browser holds one
+  // page of it, so only the daemon can answer "the largest" without qualifying
+  // it as "the largest of the fifty you happen to have".
+  const SORTS = [
+    { key: 'type', desc: false },
+    { key: 'id', desc: false },
+    { key: 'name', desc: false },
+    { key: 'host', desc: false },
+    { key: 'user', desc: false },
+    { key: 'size', desc: true },
+    { key: 'created', desc: true },
+    { key: 'status', desc: false },
+  ];
+  // The default the daemon also falls back to, so the first render agrees with
+  // the markup's initial aria-sort without a round trip to find out.
+  let sortCol = 'created';
+  let sortAsc = false;
   const seenHosts = new Set();
   // Every rendered row in display order: { view, tr, pick }, where pick is the
-  // row's checkbox or null for a row this host may not delete. The array is the
+  // row's checkbox, or null while the page is locked. The array is the
   // selection model — the checkboxes themselves hold the state, so a row that
   // leaves the table takes its selection with it.
   let rendered = [];
   let deleting = false;
-  // The daemon gates delete twice: by which host OWNS the stash (only a local
-  // row can go, and the list already says which those are) and by which machine
-  // the request comes FROM -- the VM itself or the host IP it was launched with.
-  // gate carries the second answer for this browser, which no amount of looking
-  // at the rows can reveal, so the page can withhold a control the daemon would
-  // refuse instead of letting the operator find out by pressing it.
-  const gate = { canDelete: false, clientIp: '' };
+  // Whether this browser is through the delete gate. Nothing about a row can
+  // reveal it -- it is a fact about a credential this device holds -- so the
+  // page asks, and withholds the controls the daemon would refuse rather than
+  // letting the operator find out by pressing one. Rows from OTHER hosts are
+  // deletable too: the daemon reaches every host's folder on the stash share.
+  const gate = { canDelete: false, labToken: false };
 
   const $ = (id) => document.getElementById(id);
 
@@ -33,9 +55,35 @@
     if (q) p.set('q', q);
     if (cls) p.set('class', cls);
     if (host) p.set('host', host);
+    p.set('sort', sortCol);
+    p.set('dir', sortAsc ? 'asc' : 'desc');
     p.set('limit', String(PAGE));
     p.set('offset', String(offset));
     return p.toString();
+  }
+
+  // renderSortHeaders marks the active column on the header cells. aria-sort is
+  // the whole of it: the caret is a CSS rule keyed on that attribute, so the
+  // indicator a sighted operator sees and the one a screen reader announces can
+  // never disagree.
+  function renderSortHeaders() {
+    for (const c of SORTS) {
+      const th = $('th-' + c.key);
+      if (!th) continue;
+      th.setAttribute('aria-sort', c.key !== sortCol ? 'none' : (sortAsc ? 'ascending' : 'descending'));
+    }
+  }
+
+  // A click on the active column reverses it; a click on any other adopts that
+  // column's natural first direction. Sorting starts the list again from the
+  // top -- an offset counts into an order, so it means nothing once the order
+  // changes underneath it.
+  function sortBy(c) {
+    if (deleting) return;
+    if (sortCol === c.key) sortAsc = !sortAsc;
+    else { sortCol = c.key; sortAsc = !c.desc; }
+    renderSortHeaders();
+    load(true);
   }
 
   function statusBadge(s) {
@@ -66,33 +114,31 @@
     $('more').style.display = offset < total ? '' : 'none';
   }
 
-  // The delete-source explanation: one line above the table, not a marker per
-  // row, because the reason is a fact about this browser and is therefore the
-  // same for every row. Rendered only when it changes what the operator sees --
-  // there are local rows, and their controls are being withheld.
+  // Why the delete controls are absent: one line above the table, not a marker
+  // per row, because the reason is a fact about this browser and is therefore
+  // the same for every row. Rendered only when it changes what the operator
+  // sees -- there are rows on screen, and their controls are being withheld.
   function renderDeleteNote() {
     const el = $('delete-note');
     if (!el) return;
-    if (gate.canDelete || !rendered.some((r) => r.view.local)) { Y.replace(el); return; }
+    if (gate.canDelete || !rendered.length) { Y.replace(el); return; }
     Y.replace(el, Y.el('div', {
       class: 'notice warn',
-      text: 'Delete is not offered here: this browser reaches the stash service from '
-        + (gate.clientIp || 'an address the daemon could not read')
-        + ', and only the stash VM itself or the host IP it was launched with may delete. '
-        + 'Open this page from that host, or relaunch the daemon with that address as its host IP.',
+      text: gate.labToken
+        ? 'Delete is locked. Unlock actions with the Lab token above, or open this page from the Yuruna hosts dashboard, which unlocks it for you.'
+        : 'Delete is unavailable: this service has no pool aggregator configured, so no Lab token or dashboard link can be checked.',
     }));
   }
 
   function row(v) {
     const tr = Y.el('tr', { onclick: () => { location.href = v.permalink; } });
     const entry = { view: v, tr, pick: null };
-    // Delete is local-host-only (§8.1) and the server refuses a foreign hostId
-    // with a 403, so a remote row carries neither control: the only delete
-    // affordances on the page are ones the daemon will accept. The same holds
-    // for a browser the daemon will not accept a delete FROM -- every local row
-    // then renders as a remote one does, with the reason stated once above.
+    // Every row is deletable once this browser is through the gate, whichever
+    // host owns it: the daemon writes to the whole stash share, so a peer's
+    // stash goes the same way as one of this host's. A locked browser gets no
+    // control at all, with the reason stated once above the table.
     let del = null;
-    if (v.local && gate.canDelete) {
+    if (gate.canDelete) {
       entry.pick = Y.el('input', { type: 'checkbox', 'aria-label': 'Select stash ' + v.id, onchange: syncControls });
       del = Y.el('button', { class: 'btn destructive compact', onclick: (e) => { e.stopPropagation(); deleteOne(entry, del); } }, 'Delete');
     }
@@ -135,55 +181,89 @@
   async function deleteOne(entry, btn) {
     if (deleting || btn.disabled) return;
     btn.disabled = true;
+    // Blocked like the bulk run, and for the same reason: from the moment the
+    // request leaves, this row's Download and its permalink are promises the
+    // page can no longer keep. One unlink usually beats the grace period, so
+    // the barrier is invisible in the common case and only shows itself when
+    // the share is slow enough for the question to arise.
+    const done = Y.block('Deleting…');
     try {
       const url = Y.stashApiURL(entry.view);
       if (!url) throw new Error('malformed permalink');
       await Y.api(url, { method: 'DELETE' });
+      dropRow(entry);
     } catch (e) {
       btn.disabled = false;
       showError('Delete failed for ' + entry.view.id + ': ' + e.message);
-      return;
+    } finally {
+      done();
     }
-    dropRow(entry);
   }
 
   async function deleteSelected() {
     const picked = selected();
     if (!picked.length || deleting) return;
     const label = picked.length + ' stash' + (picked.length === 1 ? '' : 'es');
-    if (!confirm('Delete ' + label + ' on this host? This cannot be undone.')) return;
+    if (!confirm('Delete ' + label + '? This cannot be undone.')) return;
+    // A row whose permalink could not be parsed is dropped here rather than
+    // guessed at: the request must name exactly the stashes the operator picked.
+    const keys = [];
+    const unaddressable = [];
+    for (const entry of picked) {
+      const key = Y.stashKey(entry.view);
+      if (key) keys.push(key); else unaddressable.push(entry.view.id);
+    }
     deleting = true;
     syncControls();
-    // Sequential, not concurrent: each delete unlinks an artifact + sidecar and
-    // writes the local index, and a burst of parallel DELETEs buys nothing
-    // against a LAN-local daemon while making a partial failure harder to
-    // attribute. Every failure is collected so one refusal cannot hide the rest.
-    const failed = [];
-    for (const entry of picked) {
-      try {
-        const url = Y.stashApiURL(entry.view);
-        if (!url) throw new Error('malformed permalink');
-        await Y.api(url, { method: 'DELETE' });
-      } catch (e) {
-        failed.push(entry.view.id + ' (' + e.message + ')');
+    // The page is refused for the whole operation, not just the request: from
+    // the confirmation until the fresh list is on screen, every row shown is one
+    // the daemon may already have unlinked. Downloading one, or opening its
+    // permalink, would fail in a way that looks like the page's fault -- so
+    // there is nothing to press until the page can be trusted again.
+    const done = Y.block('Deleting…');
+    // One request for the whole selection, not one per row: the operator made a
+    // single decision, and the daemon records and answers it as one. The
+    // per-stash verdicts come back together, so a refusal in the middle cannot
+    // hide the deletes that worked.
+    let failed = unaddressable.map((id) => id + ' (malformed permalink)');
+    try {
+      if (keys.length) {
+        const res = await Y.api('/api/stashes/delete', {
+          method: 'POST',
+          body: JSON.stringify({ stashes: keys }),
+          headers: { 'Content-Type': 'application/json' },
+        });
+        for (const r of (res.results || [])) {
+          if (!r.ok) failed.push(r.id + ' (' + (r.error || 'refused') + ')');
+        }
       }
+    } catch (e) {
+      failed = failed.concat(keys.map((k) => k.id + ' (' + e.message + ')'));
     }
+    // The reload is unconditional. A request that failed mid-flight may still
+    // have deleted part of the selection, so the rows on screen are no more
+    // trustworthy after a failure than after a success -- and the server's view
+    // is the only one worth showing either way. `deleting` is cleared first so
+    // the reloaded page renders its controls in their normal state; load()
+    // clears #msg, so the failure report goes up after it, not before.
     deleting = false;
-    // Unlike the per-row button, a bulk delete reloads the list: enough of the
-    // page changed that the server's view is the one worth showing. load() clears
-    // #msg, so the failure report goes up after it, not before.
-    await load(true);
+    try {
+      await load(true);
+    } finally {
+      done();
+    }
     if (failed.length) showError(failed.length + ' of ' + picked.length + ' could not be deleted — ' + failed.join('; '));
   }
 
   async function load(reset) {
     if (reset) { offset = 0; rendered = []; Y.replace($('rows')); clearError(); }
     $('status').textContent = 'Loading…';
-    // Before the rows, never after: row() reads the gate as it builds each one,
-    // and the read is memoized, so this costs one request for the page's life.
-    const info = await Y.hostInfo();
-    gate.canDelete = !!info.canDelete;
-    gate.clientIp = info.clientIp || '';
+    // Before the rows, never after: row() reads the gate as it builds each one.
+    // This also spends a control proof carried in from the dashboard, so a
+    // browser that arrived by that link renders its first page already unlocked.
+    const sess = await Y.initUnlock(() => load(true));
+    gate.canDelete = sess.authed;
+    gate.labToken = sess.labToken;
     try {
       const data = await Y.api('/api/stashes?' + filterQuery());
       total = data.total;
@@ -213,6 +293,10 @@
   $('class').addEventListener('change', () => load(true));
   $('host').addEventListener('change', () => load(true));
   $('more').addEventListener('click', () => load(false));
+  for (const c of SORTS) {
+    const btn = $('sort-' + c.key);
+    if (btn) btn.addEventListener('click', () => sortBy(c));
+  }
   // "All" spans every row on screen, the ones a "Load more" appended included --
   // it is a select-all-visible, not a select-all-matching-the-query.
   $('pick-all').addEventListener('change', () => {
@@ -241,5 +325,6 @@
     refresh: () => { if (offset <= PAGE && !$('q').value) load(true); },
   });
 
+  renderSortHeaders();
   load(true);
 })();

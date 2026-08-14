@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42d1e7b3-5a94-4c26-b0f8-3e17a9d5c082
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,8 +36,9 @@
     path this function exists to avoid, WRITE -- the developer's real vault.
 #>
 
+BeforeAll {
 $ErrorActionPreference = 'Stop'
-$testRoot = Split-Path -Parent $PSScriptRoot
+$script:testRoot = Split-Path -Parent $PSScriptRoot
 Import-Module (Join-Path $PSScriptRoot 'Test.PoolAdmin.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $PSScriptRoot 'Test.Lab.psm1') -Force -DisableNameChecking
 
@@ -85,10 +86,14 @@ function Write-TestLabVault {
     return $path
 }
 
+}
+
 Describe 'New-YurunaPoolIntentStore' {
-    $work = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-lab-t-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
-    $store = Join-Path $work 'x.intent.git'
-    $created = New-YurunaPoolIntentStore -Path $store -Confirm:$false
+    BeforeAll {
+    $script:work = Join-Path ([IO.Path]::GetTempPath()) ('yuruna-lab-t-' + [Guid]::NewGuid().ToString('N').Substring(0, 8))
+    $script:store = Join-Path $work 'x.intent.git'
+    $script:created = New-YurunaPoolIntentStore -Path $store -Confirm:$false
+    }
 
     It 'creates a bare repository on main' {
         $created.Created | Should -Be $true
@@ -118,14 +123,17 @@ Describe 'New-YurunaPoolIntentStore' {
         $again.Created | Should -Be $false
     }
 
-    Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
+    AfterAll {
+        Remove-Item $work -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
 
 Describe 'New-Lab writes a usable lab vault' {
+    BeforeAll {
     $stamp = [Guid]::NewGuid().ToString('N').Substring(0, 8)
-    $work = Join-Path ([IO.Path]::GetTempPath()) ("yuruna-lab-v-$stamp")
+    $script:work = Join-Path ([IO.Path]::GetTempPath()) ("yuruna-lab-v-$stamp")
     $labName = 'pester-lab'
-    $vault = Join-Path $testRoot "status/extension/authentication/lab.$labName.vault.yml"
+    $script:vault = Join-Path $script:testRoot "status/extension/authentication/lab.$labName.vault.yml"
     # Credential names unique to this run. The subject here is what New-Lab
     # GENERATES, and the default names (yuruna-pool / yuruna-stash) are exactly
     # the ones a machine that already serves storage holds a credential for --
@@ -134,10 +142,11 @@ Describe 'New-Lab writes a usable lab vault' {
     # collide with anything on the machine, and touch no real vault entry.
     $u1 = "pester-cred-a-$stamp"
     $u2 = "pester-cred-b-$stamp"
-    $labScript = Join-Path $testRoot 'lab/New-Lab.ps1'
+    $labScript = Join-Path $script:testRoot 'lab/New-Lab.ps1'
     # Invoked through -Command, not -File: with -File every argument arrives as a
     # literal string, so a comma-separated -User would bind as ONE name.
     & pwsh -NoProfile -Command "& `"$labScript`" -Name `"$labName`" -Root `"$work`" -User `"$u1`",`"$u2`"" 2>&1 | Out-Null
+    }
 
     It 'writes the vault where the gitignore and the status-service deny-list already cover it' {
         # test/status/*/ is gitignored and 'extension/*' is denied over HTTP. The
@@ -174,8 +183,10 @@ Describe 'New-Lab writes a usable lab vault' {
         ($pw | Select-Object -Unique).Count | Should -Be $pw.Count
     }
 
-    Remove-Item $vault -Force -ErrorAction SilentlyContinue
-    Remove-Item $work  -Recurse -Force -ErrorAction SilentlyContinue
+    AfterAll {
+        Remove-Item $vault -Force -ErrorAction SilentlyContinue
+        Remove-Item $work  -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
 
 Describe 'Select-YurunaLabStorageRoot' {
@@ -230,13 +241,15 @@ Describe 'Resolve-YurunaLabVaultKey' {
 }
 
 Describe 'Get-YurunaLabVaultPassword' {
-    $dir = New-TempLabDir
-    $good = Join-Path $dir 'lab.good.vault.yml'
+    BeforeAll {
+    $script:dir = New-TempLabDir
+    $script:good = Join-Path $dir 'lab.good.vault.yml'
     [IO.File]::WriteAllText($good,
         "schemaVersion: 1`nlab:`n  name: good`nusers:`n  yuruna-pool:`n    password: p1`n  yuruna-stash:`n    password: s1`n",
         [Text.UTF8Encoding]::new($false))
-    $notAVault = Join-Path $dir 'lab.plain.vault.yml'
+    $script:notAVault = Join-Path $dir 'lab.plain.vault.yml'
     [IO.File]::WriteAllText($notAVault, "just: a scalar`n", [Text.UTF8Encoding]::new($false))
+    }
 
     It 'reads every credential out of a lab vault' {
         $m = Get-YurunaLabVaultPassword -Path $good
@@ -250,7 +263,9 @@ Describe 'Get-YurunaLabVaultPassword' {
         (Get-YurunaLabVaultPassword -Path $notAVault).Count | Should -Be 0
     }
 
-    Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue
+    AfterAll {
+        Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
 
 Describe 'Get-YurunaLabStorageRoot' {

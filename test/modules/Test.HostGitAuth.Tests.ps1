@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 4221fb98-52ab-4cf1-07e9-7351ddd76acd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,6 +30,7 @@
     stays prompt-proof. Runs under Pester 4.10.1 (script-scoped throw helper).
 #>
 
+BeforeAll {
 $here       = Split-Path -Parent $PSCommandPath
 $repoRoot   = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
 $modulePath = Join-Path $repoRoot 'test/modules/Test.HostGit.psm1'
@@ -68,9 +69,11 @@ $rootAst = Get-ModuleAst -Path $modulePath
 # silently un-testing the pull path. File-scope variables survive into the run
 # phase. The two functions get distinct names so neither guard can read the
 # other's source.
-$invokeGitPullText     = (Get-FunctionAst -RootAst $rootAst -FunctionName 'Invoke-GitPull').Extent.Text
-$updateProjectCloneText = (Get-FunctionAst -RootAst $rootAst -FunctionName 'Update-ProjectClone').Extent.Text
-$invokeGitNetworkText  = (Get-FunctionAst -RootAst $rootAst -FunctionName 'Invoke-GitNetworkCommand').Extent.Text
+$script:invokeGitPullText     = (Get-FunctionAst -RootAst $rootAst -FunctionName 'Invoke-GitPull').Extent.Text
+$script:updateProjectCloneText = (Get-FunctionAst -RootAst $rootAst -FunctionName 'Update-ProjectClone').Extent.Text
+$script:invokeGitNetworkText  = (Get-FunctionAst -RootAst $rootAst -FunctionName 'Invoke-GitNetworkCommand').Extent.Text
+
+}
 
 Describe 'Test-GitRemoteAuthFailure -- flags a credential problem, not a network outage' {
     It 'flags a missing credential (GIT_TERMINAL_PROMPT=0 -> terminal prompts disabled)' {
@@ -102,18 +105,18 @@ Describe 'Test-GitRemoteAuthFailure -- flags a credential problem, not a network
 
 Describe 'Invoke-GitPull -- the network git path stays prompt-proof' {
     It 'routes network git through the prompt-proof helper' {
-        Assert-True ($invokeGitPullText -match 'Invoke-GitNetworkCommand') 'Invoke-GitPull must call Invoke-GitNetworkCommand for network git'
+        Assert-True ($script:invokeGitPullText -match 'Invoke-GitNetworkCommand') 'Invoke-GitPull must call Invoke-GitNetworkCommand for network git'
     }
     It 'issues no raw hang-prone `git ... fetch` / `git ... pull`' {
         # The only remaining bare `git` call is the local `config --get remote.origin.url`
         # (no network, no prompt). A raw fetch/pull is the call that hung.
-        Assert-True ($invokeGitPullText -notmatch 'git\s+-C\s+\$RepoRoot\s+fetch') 'raw `git -C $RepoRoot fetch` must be gone'
-        Assert-True ($invokeGitPullText -notmatch 'git\s+-C\s+\$RepoRoot\s+pull')  'raw `git -C $RepoRoot pull` must be gone'
+        Assert-True ($script:invokeGitPullText -notmatch 'git\s+-C\s+\$RepoRoot\s+fetch') 'raw `git -C $RepoRoot fetch` must be gone'
+        Assert-True ($script:invokeGitPullText -notmatch 'git\s+-C\s+\$RepoRoot\s+pull')  'raw `git -C $RepoRoot pull` must be gone'
     }
     It 'preflights the remote and emits the refresh-access banner on auth failure' {
-        Assert-True ($invokeGitPullText -match 'ls-remote')                 'a cheap ls-remote preflight must run before the fetch'
-        Assert-True ($invokeGitPullText -match 'Test-GitRemoteAuthFailure') 'an auth failure must be classified'
-        Assert-True ($invokeGitPullText -match 'Write-GitAuthRefreshBanner') 'an auth failure must surface the refresh-access banner'
+        Assert-True ($script:invokeGitPullText -match 'ls-remote')                 'a cheap ls-remote preflight must run before the fetch'
+        Assert-True ($script:invokeGitPullText -match 'Test-GitRemoteAuthFailure') 'an auth failure must be classified'
+        Assert-True ($script:invokeGitPullText -match 'Write-GitAuthRefreshBanner') 'an auth failure must surface the refresh-access banner'
     }
 }
 
@@ -220,9 +223,9 @@ Describe 'Invoke-GitNetworkCommand -- chains the credential sources, plain git l
         else { $env:GH_TOKEN = $script:savedTokenChain }
     }
     It 'sources the ordered attempts and runs each through the prompt-proof once-runner' {
-        Assert-True ($invokeGitNetworkText -match 'Get-YurunaGitAuthAttemptList') 'the ordered credential attempts must be sourced'
-        Assert-True ($invokeGitNetworkText -match 'Invoke-GitNetworkCommandOnce') 'each attempt runs through the prompt-proof once-runner'
-        Assert-True ($invokeGitNetworkText -match 'Test-GitRemoteAuthFailure') 'a failed attempt must be classified before another source is tried'
+        Assert-True ($script:invokeGitNetworkText -match 'Get-YurunaGitAuthAttemptList') 'the ordered credential attempts must be sourced'
+        Assert-True ($script:invokeGitNetworkText -match 'Invoke-GitNetworkCommandOnce') 'each attempt runs through the prompt-proof once-runner'
+        Assert-True ($script:invokeGitNetworkText -match 'Test-GitRemoteAuthFailure') 'a failed attempt must be classified before another source is tried'
     }
     It 'falls through an auth-rejected credentialed attempt to the plain run' {
         $env:GH_TOKEN = 'ghp_UNIT_TEST_token'
@@ -245,12 +248,12 @@ Describe 'Invoke-GitNetworkCommand -- chains the credential sources, plain git l
 
 Describe 'Update-ProjectClone -- the project clone is prompt-proof too' {
     It 'clones through the prompt-proof helper, not a raw `& git clone`' {
-        Assert-True ($updateProjectCloneText -match 'Invoke-GitNetworkCommand') 'the clone must route through Invoke-GitNetworkCommand'
-        Assert-True ($updateProjectCloneText -notmatch '&\s+git\s+clone')       'the raw `& git clone` (hang-prone) must be gone'
+        Assert-True ($script:updateProjectCloneText -match 'Invoke-GitNetworkCommand') 'the clone must route through Invoke-GitNetworkCommand'
+        Assert-True ($script:updateProjectCloneText -notmatch '&\s+git\s+clone')       'the raw `& git clone` (hang-prone) must be gone'
     }
     It 'preflights the project remote before the wipe and surfaces the refresh-access banner' {
-        Assert-True ($updateProjectCloneText -match 'ls-remote')                  'the project remote must be preflighted before wiping the clone'
-        Assert-True ($updateProjectCloneText -match 'Test-GitRemoteAuthFailure')  'a project-clone auth failure must be classified'
-        Assert-True ($updateProjectCloneText -match 'Write-GitAuthRefreshBanner') 'a project-clone auth failure must surface the refresh-access banner'
+        Assert-True ($script:updateProjectCloneText -match 'ls-remote')                  'the project remote must be preflighted before wiping the clone'
+        Assert-True ($script:updateProjectCloneText -match 'Test-GitRemoteAuthFailure')  'a project-clone auth failure must be classified'
+        Assert-True ($script:updateProjectCloneText -match 'Write-GitAuthRefreshBanner') 'a project-clone auth failure must surface the refresh-access banner'
     }
 }

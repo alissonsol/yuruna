@@ -100,7 +100,7 @@ the entry, or install `osxkeychain`/`wincred`).
 
 **Azure drops static IP when deleting its ingress** — confirmed
 [here](https://stackoverflow.com/questions/66435282/how-to-make-azure-not-delete-public-ip-when-deleting-service-ingress-controlle).
-The workaround has side-effects; prefer `clear` + rebuild of
+The workaround has side effects; prefer `clear` + rebuild of
 resources/components/workloads.
 
 **`Invoke-Expression: Cannot bind argument to parameter 'Command' because it is an empty string`**
@@ -217,7 +217,7 @@ Durable capture: `feedback_module_force_import_evicts_global`.
 
 ## `utmctl start` exits 0 without starting the VM
 
-On a freshly-imported bundle, `utmctl start` can return 0 at the RPC layer
+On a freshly imported bundle, `utmctl start` can return 0 at the RPC layer
 while UTM is still finalizing bundle ingestion — the start request is
 silently dropped and the VM stays `stopped`. The exit code alone is
 therefore not evidence the VM is running: a caller that trusts it
@@ -312,6 +312,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.11
+Last review: 2026.08.14
 
 Back to [Yuruna](../README.md)

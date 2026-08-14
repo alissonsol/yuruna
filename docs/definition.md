@@ -49,8 +49,8 @@ Adding a new entry:
 `fetch-and-execute.sh` is the guest-side fetch helper. It resolves the
 base URL for `curl`-style fetches in priority order:
 
-1. **`$EXEC_BASE_URL`** — explicit override, used verbatim; a per-call
-   override always wins over auto-discovery. Classified by scheme: an
+1. **`$EXEC_BASE_URL`** — explicit per-call override, used verbatim;
+   always wins over auto-discovery. Classified by scheme: an
    `http://` override is treated as a host status service (`--no-proxy`,
    eligible for the perf-checkpoint POST);
    anything else is remote and gets neither.
@@ -122,7 +122,7 @@ load-bearing:
 **`--no-proxy`.** The host status service lives on a Hyper-V Default
 Switch / VZ shared NAT IP. If anything (subiquity leakage,
 `/etc/wgetrc`, the harness itself on the host) left `http_proxy`
-pointing at the caching-proxy-service, the probe rewrites to that proxy — which
+pointing at the caching-proxy service, the probe rewrites to that proxy — which
 is meant for external mirrors and cannot route to the host's internal
 IP — and times out. We then silently fall through to GitHub even
 though the host server is right there. `NO_PROXY` won't save us: this
@@ -205,6 +205,39 @@ work belongs inside the fetched script.
 Sources: [`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh),
 [`test/modules/Test.SequenceHandler.psm1`](../test/modules/Test.SequenceHandler.psm1).
 
+### Defining fetch-and-execute host-address mobility
+
+The coordinates in `/etc/yuruna/host.env` were written when this VM was
+provisioned. A host that renumbers under DHCP — the norm wherever the site
+router is the DHCP server and hands out short, non-sticky leases — leaves
+every guest it provisioned aimed at an address nobody answers. The GitHub leg
+cannot stand in: when the framework repository is private, a dead host is a
+dead cycle rather than a degraded one. So `resolve_fetch_source` tries to
+*repair* the address before it probes it.
+
+`yuruna-host-locate` probes the coordinate this guest already holds and
+consults the pool directory only once that has gone dead, so the common path
+costs a single LAN round trip — which is what makes it affordable in front of
+every fetch. It is seeded by cloud-init and never fetched over the network, so
+unlike the retry library it needs no digest of its own; the block is guarded
+on the file being readable, so a guest imaged before the resolver existed
+resolves exactly as it always did.
+
+A success is taken directly as `FETCH_SOURCE='host'` rather than falling into
+the `/livecheck` probe below: locate has just made that same call, so the
+evidence is already in hand and a second round trip would only re-learn it.
+A failure deliberately falls *through* instead of short-circuiting, which
+keeps [the host-unreachable
+warning](#defining-fetch-and-execute-host-unreachable-warning) the single
+place that explains a dead host. That banner then names what the directory was
+asked — the `hostId` and the caching-proxy address it was asked at — so a
+renumbered host reads as a cause already ruled out rather than the reader's
+leading hypothesis, and points at whichever coordinate of the indirection is
+missing.
+
+Source: [`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh),
+[`automation/yuruna-host-locate.sh`](../automation/yuruna-host-locate.sh).
+
 ### Defining fetch-and-execute host-unreachable warning
 
 When `/etc/yuruna/host.env` exists and names a host but `/livecheck`
@@ -269,8 +302,8 @@ problems surface distinctly from inner-script errors. When
 `source=host` the URL is a local-only IP (Hyper-V Default Switch / VZ
 shared NAT) — `--no-proxy` is added to wget for the same reason
 `resolve_base_url` does (see "host environment variables" above). For
-`source=github`, the proxy is left on so caching-proxy-service can serve cached
-external fetches.
+`source=github`, the proxy is left on so the caching-proxy service can serve
+cached external fetches.
 
 The payload fetch carries `--timeout` and `--tries`. That is a bound,
 not a retry ladder: the diagnose-rather-than-retry stance below is
@@ -366,8 +399,8 @@ The checkpoint name is the text after the leading `====`, up to a
 trailing `====` or the end of the line, trimmed. Any output line that
 does not begin with the four-equals marker is ignored, so checkpoints
 cost nothing to scripts that don't use them. The marker test is
-ANSI-tolerant: a colorized line (e.g. `echo -e "\e[1;36m==== … ===="`)
-has its leading color escapes peeled off before the column-0 test, and
+ANSI-tolerant: a colorized line has its leading color escapes peeled
+off before the column-0 test, and
 any escapes inside the captured name are stripped, so the phase name
 shows clean. The `====` must still be the first *visible* characters
 on the line — only ANSI color codes may precede it.
@@ -480,8 +513,8 @@ for the exact settings; one fine-grained token can only cover repositories
 under a single owner.
 
 **`--no-proxy` on host probes.** The host server lives on a private
-NAT IP that any inherited `http_proxy` (e.g. caching-proxy-service) cannot route
-to.
+NAT IP that any inherited `http_proxy` (e.g. the caching-proxy service) cannot
+route to.
 
 Sources (every guest script that needs framework/project repos
 re-implements this same scheme):
@@ -651,9 +684,9 @@ Source:
 `automation/Get-SystemDiagnostic.ps1` produces a read-only diagnostics
 dump grouped into 14 sections. The script's SYNOPSIS lists each
 section and what it reports; this entry covers HOW each section is
-implemented and the contracts of its helpers. Memory.md carries the
-incident-driven design rationale for specific checks (see
-[memory.md "System diagnostics" group](memory.md#system-diagnostics)).
+implemented and the contracts of its helpers. Incident-driven design
+rationale for specific checks is in the
+[memory.md "System diagnostics" group](memory.md#system-diagnostics).
 
 **Helpers**
 
@@ -939,9 +972,9 @@ the exceptions are deliberate.
 | `ubuntu.server.26`  | 12 GB   | 12 GB            | 8 GB       |
 | `windows.11`        | 12 GB   | 12 GB            | 8 GB       |
 | `caching-proxy-service`     | 12 GB   | 12 GB            | 12 GB      |
-| `stash-service`     | 4 GB    | 4 GB             | 4 GB       |
-| `download-agent-service` | 4 GB | 4 GB           | 4 GB       |
-| `pool-control-service` | 4 GB  | 4 GB             | 4 GB       |
+| `stash-service`     | 2 GB    | 2 GB             | 2 GB       |
+| `download-agent-service` | 2 GB | 2 GB           | 2 GB       |
+| `pool-control-service` | 2 GB  | 2 GB             | 2 GB       |
 | `macos.26`          | —       | 8 GB (`-MemoryMb`) | —        |
 
 **Rationale.** 12 GB carries the heaviest guest workload the cycles run: a
@@ -966,7 +999,7 @@ for the zot registry cache, and swap is masked, so an OOM is unrecoverable.
 Tune VM RAM, `cache_mem`, and zot together — see
 [caching.md](caching.md#caching-proxy-service--test-harness-operator-reference).
 
-**The extension services share one 4 GB baseline**, a working-set fit
+**The extension services share one 2 GB baseline**, a working-set fit
 rather than a budget. None of the three holds a large resident set: the
 stash streams an SCP receive to disk next to a SQLite metadata writer,
 the download agent streams artifacts through to the pool share instead
@@ -980,10 +1013,19 @@ what the test guests on the same machine can start with. The caching
 proxy is the one service that cannot join the baseline, for the
 `cache_mem` reason above.
 
-Headroom is real but no longer generous: each guest is an Ubuntu Server
-cloud image whose bring-up script installs `golang-go` and compiles the
-service in-guest on first boot, with no swap configured. That build is
-the peak, not steady state.
+What sets the baseline is not steady state but first boot: each guest is
+an Ubuntu Server cloud image whose bring-up script installs `golang-go`
+and compiles the service in-guest, with no swap configured. The stash is
+the largest of the three builds — its pure-Go SQLite driver is the
+biggest compile in any of the graphs — and peaks near 1.1 GB cold, on
+both `amd64` and `arm64`; the download agent and pool-control build
+stdlib-only graphs in about 0.4 GB. The peak does not grow with the
+guest's vCPU count, so a large host's wider `go build` parallelism does
+not raise it. That is the number the 2 GB has to carry, and the reason
+it cannot go lower without moving the build out of the guest. The size
+is not only a measurement: complete cycles carry it on all three host
+drivers, both against a central pool and standalone, with every service
+built from scratch in-guest.
 
 **Changing it.** Edit the guest's `New-VM.ps1`; the value is expressed
 differently per host — Hyper-V takes `-MemoryStartupBytes` /
@@ -1076,7 +1118,7 @@ countdown resets to 0 so the operator sees a fresh reload at once.
 Every `.html` response from `Start-StatusService.ps1` carries
 `Cache-Control: public, max-age=60, must-revalidate`, and each HTML
 file includes a matching `<meta http-equiv="Cache-Control">` tag.
-Operators often browse the status page through a shared caching-proxy-service
+Operators often browse the status page through a shared caching-proxy service
 (`Test-CachingProxyService -SetHostProxy`, corp proxy, etc.); without a
 cache window the dashboard re-fetches on every navigation/poll, and
 a `no-store` header leaks stale content through some intermediary
@@ -1119,8 +1161,8 @@ freshly polled fields.
 
 ### Defining the status-page header anatomy
 
-Every status page renders the same header shape — the same shape the
-three extension service UIs render, from a page-chrome
+Every status page renders the same header shape as the three
+extension service UIs, from a page-chrome
 stylesheet block kept byte-identical across all four stylesheets
 (`Test.ExtensionUiChrome.Tests.ps1` fails when the copies drift):
 
@@ -1383,7 +1425,7 @@ Page-specific behavior:
   right-aligned `#banner-dash-row` instead.
 - **Per-page dashboards label.** Right-aligned `#banner-dash-row`
   inside `#banner`, transparent background. Parses
-  `runtime/caching-proxy-service.txt` for a `<a href="...">` — if present,
+  `runtime/caching-proxy-service.txt` for an `<a href="...">` — if present,
   renders a **`Dashboards`** anchor to that URL (the Grafana
   dashboards browse page filtered by the `yuruna` tag, served from
   the same host as the caching-proxy service); otherwise renders text **`No
@@ -1728,7 +1770,7 @@ schema in lockstep.
 
 A multi-host pool consumer joins on `(runId, cycleStartUtc)` to identify a
 specific cycle on a specific host without parsing the leaf-name format
-or relying on hostname collisions across the pool.
+or relying on hostnames, which can collide across the pool.
 
 The four cycle-identity fields name four different things, so a consumer
 never has to guess: `cycleStartUtc` is a timestamp,
@@ -2082,7 +2124,7 @@ directly) when the autonomous loop's blast radius is bounded.
 class -- last-writer-wins, so loading a project-specific
 Test.Remediation.<area>.psm1 can replace the default for any class.
 The registry appears in `Get-YurunaRegistryDirectory` alongside
-SequenceAction / HostIO / OcrProvider / Remediation.
+SequenceAction / HostIO / OcrProvider / HostCondition.
 
 Every dispatch emits a `remediation_recommended` NDJSON event
 (failureClass, severity, recommendation, handledBy, autoApply, vmName,
@@ -2096,6 +2138,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.11
+Last review: 2026.08.14
 
 Back to [Yuruna](../README.md)

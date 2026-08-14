@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42f0a1b2-c3d4-4e56-8a78-9b0c1d2e3f40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,10 +42,12 @@
     Justification = 'The ProgressPreference capture slot under test is a runspace global by design; a test that reset a copy elsewhere would assert nothing.')]
 param()
 
+BeforeAll {
+
 $here      = Split-Path -Parent $PSCommandPath
 $logLevel  = Join-Path $here 'Test.LogLevel.psm1'
 $logRot    = Join-Path $here 'Test.LogRotation.psm1'
-$logMod    = Join-Path $here 'Test.Log.psm1'
+$script:logMod    = Join-Path $here 'Test.Log.psm1'
 
 function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
 function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
@@ -64,30 +66,32 @@ Import-Module $logRot -Force -DisableNameChecking
 # by name from here. Reaching into the module's own scope instead would clear a
 # variable nothing reads and leave the real slot holding the previous test's
 # value -- a reset that silently resets nothing.
-$ResetSavedProgress = { $global:YurunaSavedProgressPreference = $null }
+$script:ResetSavedProgress = { $global:YurunaSavedProgressPreference = $null }
+
+}
 
 Describe 'Set-LogLevelPreference restores ProgressPreference symmetrically' {
     It 'restores the captured value when the level rises above Verbose' {
         $saved = $global:ProgressPreference
-        & $ResetSavedProgress
+        & $script:ResetSavedProgress
         try {
             $global:ProgressPreference = 'Continue'
             Set-LogLevelPreference -Level 'Verbose'
             Assert-Equal 'SilentlyContinue' $global:ProgressPreference -Because 'suppressed at Verbose'
             Set-LogLevelPreference -Level 'Information'
             Assert-Equal 'Continue' $global:ProgressPreference -Because 'restored to the captured Continue when the level rose above Verbose'
-        } finally { $global:ProgressPreference = $saved; & $ResetSavedProgress }
+        } finally { $global:ProgressPreference = $saved; & $script:ResetSavedProgress }
     }
 
     It 'preserves a caller SilentlyContinue (does not force-enable the progress bar)' {
         $saved = $global:ProgressPreference
-        & $ResetSavedProgress
+        & $script:ResetSavedProgress
         try {
             $global:ProgressPreference = 'SilentlyContinue'
             Set-LogLevelPreference -Level 'Verbose'
             Set-LogLevelPreference -Level 'Information'
             Assert-Equal 'SilentlyContinue' $global:ProgressPreference -Because 'the caller SilentlyContinue is put back, not forced to Continue'
-        } finally { $global:ProgressPreference = $saved; & $ResetSavedProgress }
+        } finally { $global:ProgressPreference = $saved; & $script:ResetSavedProgress }
     }
 }
 
@@ -143,7 +147,7 @@ Describe 'Invoke-LogRotation recreates the live file after rotating' {
 Describe 'Invoke-CycleLogRotation cheap-counts before the sort' {
     It 'gates the Sort-Object behind a -Name pre-count bail (short-circuit, not just a -Name presence)' {
         $errs = $null
-        $ast = [System.Management.Automation.Language.Parser]::ParseFile($logMod, [ref]$null, [ref]$errs)
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($script:logMod, [ref]$null, [ref]$errs)
         if ($errs) { throw "Parse errors: $($errs[0].Message)" }
         $fn = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Invoke-CycleLogRotation' }, $true) | Select-Object -First 1
         Assert-True ($null -ne $fn) 'Invoke-CycleLogRotation is defined'
@@ -175,7 +179,7 @@ Describe 'Invoke-CycleLogRotation trims at a trigger below the hard limit' {
         # pollution). The invariant KEEP < TRIGGER < LIMIT is what stops the
         # top-level count from swinging KEEP..LIMIT between trims: trimming at
         # the trigger caps the steady-state backlog near the trigger instead.
-        $mod = Import-Module $logMod -Force -DisableNameChecking -PassThru
+        $mod = Import-Module $script:logMod -Force -DisableNameChecking -PassThru
         try {
             $keep    = & $mod { $script:CycleHistoryKeep }
             $trigger = & $mod { $script:CycleHistoryTrigger }
@@ -188,7 +192,7 @@ Describe 'Invoke-CycleLogRotation trims at a trigger below the hard limit' {
         # not CycleHistoryLimit -- otherwise rotation never fires until the ceiling
         # and the directory oscillates KEEP..LIMIT.
         $errs = $null
-        $ast = [System.Management.Automation.Language.Parser]::ParseFile($logMod, [ref]$null, [ref]$errs)
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($script:logMod, [ref]$null, [ref]$errs)
         if ($errs) { throw "Parse errors: $($errs[0].Message)" }
         $fn = $ast.FindAll({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Invoke-CycleLogRotation' }, $true) | Select-Object -First 1
         Assert-True ($null -ne $fn) 'Invoke-CycleLogRotation is defined'

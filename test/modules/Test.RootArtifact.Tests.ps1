@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42b8d1c4-3e07-4a96-9d25-8e14f7b02c6a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,12 +30,15 @@
     has nothing here" would report every uncached host as clean.
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.RootArtifact.psm1') -Force -DisableNameChecking
 
 function Assert-Equal { param($Expected, $Actual, [string]$Because = '') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
 function Assert-True  { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
 function Assert-False { param($Condition, [string]$Because = '') if ($Condition) { throw "Expected false. $Because" } }
+
+}
 
 Describe 'Select-RootArtifactMountLine (mounts standing under root''s home)' {
     It 'finds a macOS smbfs mount under /var/root' {
@@ -100,6 +103,10 @@ Describe 'Test-RootArtifactSudoAnswered (a refusal is not a "no")' {
             'sudo: a password is required',
             'sudo: a terminal is required to read the password; either use the -S option...',
             'sudo: no tty present and no askpass program specified',
+            # sudo-rs, the default sudo on Ubuntu from 25.10 on, states the same
+            # refusal in words the C sudo never uses. A host that upgrades gets
+            # every refusal read as "the path is absent" unless this is known.
+            'sudo: interactive authentication is required',
             'Sorry, user paulohp may not run sudo on Mac-2.')) {
             Assert-False (Test-RootArtifactSudoAnswered -ExitCode 1 -StdErr $text) "refusal recognised: $text"
         }

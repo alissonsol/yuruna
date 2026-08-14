@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42a1c2d3-e4f5-4a67-8901-b2c3d4e5f6a1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -266,15 +266,17 @@ Write-Output "  and log in with the credentials above to inspect cloud-init stat
 Write-Output ""
 
 # --- REGION: Create and configure Hyper-V VM
-# 4 GB RAM, 4 vCPU. Sized for the Go daemon + the pwsh pool-admin CLIs it
+# 2 GB RAM, 4 vCPU. Sized for the Go daemon + the pwsh pool-admin CLIs it
 # shells out to + the in-VM UI: the CLIs are short-lived and the daemon serves
 # registry reads rather than bulk data, so the resident set stays well under
-# this. Matches the stash-service and download-agent-service VMs so the operator
+# this. The peak is the first-boot `go build` -- a stdlib-only graph that
+# compiles in about 0.4 GB with no swap in the guest -- not steady state.
+# Matches the stash-service and download-agent-service VMs so the operator
 # learns one sizing baseline across the extension VMs. Memory is pinned (no
 # dynamic balloon), so every GB is committed on the host for the life of the VM.
 Write-Output "Creating new VM '$VMName' on switch '$switchName'..."
-Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 4GB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
-Set-VM -Name $VMName -MemoryStartupBytes 4GB -MemoryMinimumBytes 4GB -MemoryMaximumBytes 4GB -AutomaticCheckpointsEnabled $false | Out-Null
+Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 2GB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
+Set-VM -Name $VMName -MemoryStartupBytes 2GB -MemoryMinimumBytes 2GB -MemoryMaximumBytes 2GB -AutomaticCheckpointsEnabled $false | Out-Null
 Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
 Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
 Add-VMDvdDrive -VMName $VMName -Path $SeedIso | Out-Null

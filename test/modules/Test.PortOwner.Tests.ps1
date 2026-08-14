@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42c6a4b0-7182-4394-8ea5-2b3c4d5e6f70
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,14 +28,26 @@
     orphan-reclaim path from stopping the (self-owned) holder during the test.
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.PortOwner.psm1') -Force -DisableNameChecking
 
 function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
 function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
 
+
+}
+
+# This block has to stay at FILE scope, above the first Describe, because -Skip
+# is evaluated during discovery and BeforeAll has not run then. Computing the
+# capability in BeforeAll leaves every -Skip reading $null, and `-not $null` is
+# true, so the whole capability-gated set skips on every host including the ones
+# that can run it -- an unconditional skip wearing the costume of a probe, which
+# reports as "skipped" exactly like an honest gate. $script: on the port matters
+# for the other direction: the It bodies read it in the run phase, which a plain
+# file-scope assignment does not survive.
 # A high port unlikely to collide with a real listener on a test host.
-$FreePort = 54219
+$script:FreePort = 54219
 
 # Can this shell actually make the reservation the module probes with?
 #

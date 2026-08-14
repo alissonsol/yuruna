@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42e3f4a5-6b7c-4d8e-9f0a-1b2c3d4e5f6a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,9 +31,10 @@
     4.10.1 (script-scoped throw helper).
 #>
 
+BeforeAll {
 $here       = Split-Path -Parent $PSCommandPath
 $modulePath = Join-Path $here 'Test.OcrEngine.psm1'
-$helper     = 'Send-SoftCycleEvent'
+$script:helper     = 'Send-SoftCycleEvent'
 
 function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
 
@@ -58,29 +59,31 @@ function Get-CommandCallCount {
     return @($hits).Count
 }
 
-$rootAst = Get-ModuleAst -Path $modulePath
+$script:rootAst = Get-ModuleAst -Path $modulePath
+
+}
 
 Describe 'ocr-soft-event -- the guarded soft-instrumentation envelope is centralized' {
     It 'defines a single Send-SoftCycleEvent helper' {
-        $found = $rootAst.FindAll({
-            param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $helper
+        $found = $script:rootAst.FindAll({
+            param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $script:helper
         }, $true)
         Assert-True (@($found).Count -eq 1) 'the four hand-built event envelopes must collapse into one helper'
     }
     It 'the four OCR instrumentation sites delegate to Send-SoftCycleEvent' {
-        $n = Get-CommandCallCount -Ast $rootAst -CommandName $helper
+        $n = Get-CommandCallCount -Ast $script:rootAst -CommandName $script:helper
         Assert-True ($n -eq 4) "expected exactly four Send-SoftCycleEvent call sites, found $n"
     }
     It 'the raw Send-CycleEventSafely emit appears exactly once (inside the helper)' {
-        $n = Get-CommandCallCount -Ast $rootAst -CommandName 'Send-CycleEventSafely'
+        $n = Get-CommandCallCount -Ast $script:rootAst -CommandName 'Send-CycleEventSafely'
         Assert-True ($n -eq 1) "expected exactly one direct Send-CycleEventSafely call, found $n"
     }
     It 'Send-SoftCycleEvent stays private (not in the Export-ModuleMember allowlist)' {
-        $exportCalls = $rootAst.FindAll({
+        $exportCalls = $script:rootAst.FindAll({
             param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Export-ModuleMember'
         }, $true)
         Assert-True (@($exportCalls).Count -ge 1) 'Export-ModuleMember must be present'
         $exportText = ($exportCalls | ForEach-Object { $_.Extent.Text }) -join "`n"
-        Assert-True ($exportText -notmatch [regex]::Escape($helper)) 'Send-SoftCycleEvent must not be exported (private helper)'
+        Assert-True ($exportText -notmatch [regex]::Escape($script:helper)) 'Send-SoftCycleEvent must not be exported (private helper)'
     }
 }

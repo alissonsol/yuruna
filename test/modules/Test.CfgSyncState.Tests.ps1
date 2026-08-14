@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42e1f2a3-b4c5-4d67-89ab-ce2f3a4b5c63
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,9 +28,10 @@
     Test.ConfigSync. The throw-free Should assertions run under Pester 4.10.1.
 #>
 
+BeforeAll {
 $here        = Split-Path -Parent $PSCommandPath
 $yurunaDir   = Join-Path $here 'Test.YurunaDir.psm1'
-$configSync  = Join-Path $here 'Test.ConfigSync.psm1'
+$script:configSync  = Join-Path $here 'Test.ConfigSync.psm1'
 Import-Module $yurunaDir -Force -ErrorAction SilentlyContinue
 
 # --- REGION: AST helpers (script scope; referenced from It blocks -> Pester 4)
@@ -42,8 +43,7 @@ function Get-FileAst {
     return $ast
 }
 # Count [<TypePattern>]::<Member>(...) static invocations with exactly $ArgCount args
-# (-1 = any). The two-arg [IO.File]::Move fails if the destination exists (the
-# create-exclusive claim); a 3-arg Move(src,dest,$true) would overwrite instead.
+# (-1 = any).
 function Get-StaticInvokeCount {
     param($Ast, [string]$TypePattern, [string]$Member, [int]$ArgCount = -1)
     $tp = $TypePattern; $m = $Member; $ac = $ArgCount
@@ -51,6 +51,22 @@ function Get-StaticInvokeCount {
         $n -is [System.Management.Automation.Language.InvokeMemberExpressionAst] -and
         $n.Member.Extent.Text -eq $m -and $n.Expression.Extent.Text -match $tp -and
         ($ac -lt 0 -or (@($n.Arguments).Count -eq $ac))
+    }, $true)).Count
+}
+# Count [IO.File]::Open(...) calls that pass FileMode::CreateNew -- the claim that
+# host.uuid depends on. Only the create can serve as the lock: it is O_CREAT|O_EXCL
+# on POSIX and CREATE_NEW on Windows, so exactly one caller can bring the path into
+# existence. A rename cannot stand in for it on POSIX, where [IO.File]::Move tests
+# for the destination and then renames -- racers that pass the test together all
+# rename successfully, the last one lands on disk, and every earlier one walks away
+# with an id that was never persisted.
+function Get-CreateExclusiveOpenCount {
+    param($Ast)
+    @($Ast.FindAll({ param($n)
+        $n -is [System.Management.Automation.Language.InvokeMemberExpressionAst] -and
+        $n.Member.Extent.Text -eq 'Open' -and
+        $n.Expression.Extent.Text -match 'System\.IO\.File' -and
+        $n.Extent.Text -match 'FileMode\]::CreateNew'
     }, $true)).Count
 }
 function Get-CommandWithTextCount {
@@ -88,9 +104,11 @@ function Get-ReturnIdInCatchCount {
     $count
 }
 
+}
+
 Describe 'Get-YurunaHostId persists a stable host UUID atomically' {
     BeforeEach {
-        $script:root  = Join-Path $env:TEMP ('hostid-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+        $script:root  = Join-Path ([System.IO.Path]::GetTempPath()) ('hostid-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
         New-Item -ItemType Directory -Path $script:root -Force | Out-Null
         $script:saved = $env:YURUNA_RUNTIME_DIR
         $env:YURUNA_RUNTIME_DIR = $script:root
@@ -111,10 +129,12 @@ Describe 'Get-YurunaHostId persists a stable host UUID atomically' {
         Get-YurunaHostId | Should -Be $existing
     }
     It 'concurrent callers agree on one id (cross-process smoke)' {
-        # Smoke-level: Start-Job processes stagger, so the first usually persists
-        # host.uuid and the rest adopt it via the read fast-path -- a tight first-write
-        # race is rarely hit. The create-exclusive convergence itself is the load-bearing
-        # claim, pinned by the two-arg-Move / no-WriteAllText-of-$uuidFile AST guards below.
+        # Start-Job processes usually stagger, so the first persists host.uuid and the
+        # rest adopt it via the read fast-path. They do not always stagger, though:
+        # when they land together this reaches the real first-write race, which is why
+        # the claim has to be create-exclusive rather than a rename. The primitive
+        # itself is pinned by the create-exclusive-open / no-WriteAllText-of-$uuidFile
+        # AST guards below, which hold whether or not a given run hits the race.
         $r = $script:root; $mp = $yurunaDir
         $jobs = 1..5 | ForEach-Object {
             Start-Job -ScriptBlock {
@@ -135,20 +155,24 @@ Describe 'Get-YurunaHostId persists a stable host UUID atomically' {
     It 'returns $null (never a non-persisted id) from a write-failure catch' {
         (Get-ReturnIdInCatchCount -Ast (Get-FileAst $yurunaDir)) | Should -Be 0
     }
-    It 'writes host.uuid via a two-arg [System.IO.File]::Move (create-exclusive), not an overwrite' {
-        (Get-StaticInvokeCount -Ast (Get-FileAst $yurunaDir) -TypePattern 'System\.IO\.File' -Member 'Move' -ArgCount 2) | Should -BeGreaterOrEqual 1
+    It 'claims host.uuid with a create-exclusive open, never a rename' {
+        $hostIdAst = Get-FileAst $yurunaDir
+        (Get-CreateExclusiveOpenCount -Ast $hostIdAst) | Should -BeGreaterOrEqual 1
+        # A rename would silently re-admit the double-winner: on POSIX it tests for
+        # the destination and then renames, so simultaneous racers all succeed.
+        (Get-StaticInvokeCount -Ast $hostIdAst -TypePattern 'System\.IO\.File' -Member 'Move') | Should -Be 0
     }
-    It 'never writes the destination host.uuid directly (the temp is written, then renamed)' {
+    It 'never writes the destination host.uuid directly (the claim carries the write)' {
         (Get-WriteAllTextTargetCount -Ast (Get-FileAst $yurunaDir) -TargetVar '$uuidFile') | Should -Be 0
     }
 }
 
 Describe 'Update-TestConfigFromTemplate rewrites test.config.yml atomically (AST)' {
     It 'never writes the config path with a non-atomic Set-Content' {
-        (Get-CommandWithTextCount -Ast (Get-FileAst $configSync) -Name 'Set-Content' -Text '$ConfigPath') | Should -Be 0
+        (Get-CommandWithTextCount -Ast (Get-FileAst $script:configSync) -Name 'Set-Content' -Text '$ConfigPath') | Should -Be 0
     }
     It 'routes every config rewrite through the atomic Write-YurunaStateFile' {
-        (Get-CommandWithTextCount -Ast (Get-FileAst $configSync) -Name 'Write-YurunaStateFile' -Text '$ConfigPath') | Should -BeGreaterOrEqual 3
+        (Get-CommandWithTextCount -Ast (Get-FileAst $script:configSync) -Name 'Write-YurunaStateFile' -Text '$ConfigPath') | Should -BeGreaterOrEqual 3
     }
     It 'resolves Write-YurunaStateFile when only Test.ConfigSync is imported (self-loads its dependency)' {
         # The rewrite routes through Write-YurunaStateFile (Test.StateFile). Every consumer
@@ -156,7 +180,7 @@ Describe 'Update-TestConfigFromTemplate rewrites test.config.yml atomically (AST
         # not load the full runner set -- must have that primitive in scope, so the module
         # imports it itself. Guard against a future top-level import removal.
         Get-Module Test.StateFile, Test.ConfigSync | Remove-Module -Force -ErrorAction SilentlyContinue
-        Import-Module $configSync -Force -DisableNameChecking
+        Import-Module $script:configSync -Force -DisableNameChecking
         (Get-Command Write-YurunaStateFile -ErrorAction SilentlyContinue) | Should -Not -BeNullOrEmpty
     }
 }

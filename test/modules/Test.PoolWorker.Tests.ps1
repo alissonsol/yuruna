@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42d8b1e5-9c37-4a06-b2f8-5e1d7a4c93b0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,6 +34,7 @@
     Run: pwsh -NoProfile -File test/modules/Test.PoolWorker.Tests.ps1
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.PoolWorker.psm1') -Force -DisableNameChecking -ErrorAction SilentlyContinue
 
@@ -77,6 +78,8 @@ function New-ServiceFact {
     )
     [pscustomobject]@{ Key = $Key; VMName = $VMName; DisplayName = $DisplayName
         StartScript = $StartScript; State = $State }
+}
+
 }
 
 Describe 'Get-PoolWorkerStopScriptName' {

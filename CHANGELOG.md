@@ -4,6 +4,25 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.08.14
+
+- **More reliable test cycles.** A run now resumes from a known-good snapshot
+  instead of on top of a failed step's leftovers, reattaches to guest work
+  after a dropped connection, and rides out the host changing address
+  mid-cycle.
+
+- **Fixes across the board.** Test results are trustworthy again, the Hosts
+  page reports a machine's real storage, setup no longer hangs at an invisible
+  password prompt, and every host keeps a single identity in pool telemetry.
+
+- **Also in this release.** The Hosts page shows which repository each host
+  runs — now a link straight to it, local copies included — and fills in
+  hardware for discovered hosts. Grafana dashboards name the
+  enlistment that built them. Service VMs need 2 GB instead of 4 GB, so a
+  32 GB machine keeps its reserve. A failed scenario now leaves full
+  diagnostics, a refused Windows 11 download shows the manual workaround, and
+  service VMs never silently build from older public code.
+
 ## 2026.08.11
 
 - **Scan for unregistered hosts.** Pool Control's new Scan page sweeps a CIDR
@@ -391,6 +410,6 @@ LICENSEURI <https://yuruna.link/license>
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.11
+Last review: 2026.08.14
 
 Back to [Yuruna](README.md)

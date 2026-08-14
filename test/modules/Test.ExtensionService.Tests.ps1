@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 4290bd41-6c73-4e58-a12f-95b0e3c7d846
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,14 +36,17 @@
     Run: pwsh -NoProfile -File test/modules/Test.ExtensionService.Tests.ps1
 #>
 
+BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
 $TestRoot = Split-Path -Parent $here
-$RepoRoot = Split-Path -Parent $TestRoot
+$script:RepoRoot = Split-Path -Parent $TestRoot
 Import-Module (Join-Path $here 'Test.ExtensionService.psm1') -Force -DisableNameChecking
 
 function Assert-Equal { param($Expected, $Actual, [string]$Because = '') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
 function Assert-True  { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
 function Assert-False { param($Condition, [string]$Because = '') if ($Condition) { throw "Expected false. $Because" } }
+
+}
 
 Describe 'Get-ExtensionServiceManifest' {
     It 'reads a service block without a YAML parser' {
@@ -69,14 +72,16 @@ Describe 'Get-ExtensionServiceManifest' {
     It 'returns nothing for an area that does not exist' {
         Assert-Equal $null (Get-ExtensionServiceManifest -Area 'no-such-area')
     }
-    It 'declares a write gate for every service that changes configuration' {
+    It 'declares a write gate for every service with a destructive route' {
         # The rule the interface exists to make checkable: a route that rewrites
-        # host or pool configuration takes the lab token.
+        # host or pool configuration, or destroys stored artifacts, takes the
+        # lab token.
         $gates = @{}
         foreach ($m in (Get-ExtensionServiceManifestAll)) { $gates[$m.Area] = $m.WriteGate }
         foreach ($area in @('pool-control-service', 'download-agent-service', 'pool-aggregator-service')) {
             Assert-Equal 'lab-token' $gates[$area] -Because "$area changes host or pool configuration"
         }
+        Assert-Equal 'lab-token' $gates['stash-service'] -Because 'deleting a stash destroys stored artifacts, pool-wide'
     }
     It 'gives every declared service a display name' {
         foreach ($m in (Get-ExtensionServiceManifestAll)) {
@@ -110,8 +115,12 @@ Describe 'Get-ExtensionServiceVmRoster' {
         }
     }
     It 'names a start script that exists' {
+        # A manifest names the bare file; the service lifecycle scripts all live
+        # in test/service/, so supplying the folder is the caller's job -- the
+        # same resolution Invoke-PoolWorkerServiceTeardown performs on StopScript.
+        $serviceDir = Join-Path $TestRoot 'service'
         foreach ($row in (Get-ExtensionServiceVmRoster)) {
-            Assert-True (Test-Path -LiteralPath (Join-Path $TestRoot $row.StartScript)) "$($row.StartScript) exists"
+            Assert-True (Test-Path -LiteralPath (Join-Path $serviceDir $row.StartScript)) "$($row.StartScript) exists"
         }
     }
 }
@@ -215,15 +224,15 @@ Describe 'the Go SDK mirrors' {
         # One SDK, copied into each service module because each daemon is built
         # inside its own VM from a copy of <area>/server/ alone. The copy is
         # generated (tools/Sync-ExtensionSdk.ps1); this is what keeps it honest.
-        $sync = Join-Path $RepoRoot 'tools/Sync-ExtensionSdk.ps1'
+        $sync = Join-Path $script:RepoRoot 'tools/Sync-ExtensionSdk.ps1'
         Assert-True (Test-Path -LiteralPath $sync) 'the sync script exists'
-        & pwsh -NoProfile -File $sync -RepoRoot $RepoRoot -Verify 2>&1 | Out-Null
+        & pwsh -NoProfile -File $sync -RepoRoot $script:RepoRoot -Verify 2>&1 | Out-Null
         Assert-Equal 0 $LASTEXITCODE -Because 'run: pwsh -NoProfile -File tools/Sync-ExtensionSdk.ps1'
     }
     It 'reach every service that builds a Go daemon' {
-        $sdk = Join-Path $RepoRoot 'test/extension/extension-sdk'
+        $sdk = Join-Path $script:RepoRoot 'test/extension/extension-sdk'
         Assert-True (Test-Path -LiteralPath $sdk) 'the canonical SDK exists'
-        foreach ($goMod in (Get-ChildItem -LiteralPath (Join-Path $RepoRoot 'test/extension') -Directory |
+        foreach ($goMod in (Get-ChildItem -LiteralPath (Join-Path $script:RepoRoot 'test/extension') -Directory |
                 ForEach-Object { Join-Path $_.FullName 'server/go.mod' } | Where-Object { Test-Path -LiteralPath $_ })) {
             $mirror = Join-Path (Split-Path -Parent $goMod) 'internal/yex'
             Assert-True (Test-Path -LiteralPath $mirror) "$mirror carries the SDK mirror"

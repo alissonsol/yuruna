@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42d7e8f9-a0b1-4c23-8d45-6e7f8a9b0c1d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,17 +41,19 @@
     These are structural guards: they verify the required nodes are present and
     correctly shaped, not that the scripts execute correctly end to end.
 
-    The throw-based Assert-* helpers live at script scope and are referenced from
-    It blocks, so this runs under Pester 4.10.1 (Pester 5's scope split hides
-    top-level helpers from It blocks).
+    The throw-based Assert-* helpers live in the file's BeforeAll, which is the
+    scope Pester 5 shares with the It blocks; defining them at script scope
+    instead makes every It fail on a missing command rather than on an
+    assertion.
 #>
 
+BeforeAll {
 $here    = Split-Path -Parent $PSCommandPath
 $testDir = Split-Path -Parent $here   # .../test
 
-$removeVmFiles = Join-Path $testDir 'Remove-TestVMFiles.ps1'
-$winRtOcr      = Join-Path $testDir 'check/Test-WinRtOcr.ps1'
-$utmDriver     = Join-Path (Split-Path -Parent $testDir) 'host/macos.utm/modules/Yuruna.Host.psm1'
+$script:removeVmFiles = Join-Path $testDir 'Remove-TestVMFiles.ps1'
+$script:winRtOcr      = Join-Path $testDir 'check/Test-WinRtOcr.ps1'
+$script:utmDriver     = Join-Path (Split-Path -Parent $testDir) 'host/macos.utm/modules/Yuruna.Host.psm1'
 
 function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
 
@@ -121,9 +123,11 @@ function Test-WhileBodyAccumulator {
     return $false
 }
 
+}
+
 Describe 'The UTM stop-wait is bounded by wall-clock' {
     It 'waits on a UtcNow deadline with no iteration accumulator, and warns when never confirmed stopped' {
-        $driverAst = Get-ScriptAst $utmDriver
+        $driverAst = Get-ScriptAst $script:utmDriver
         $wait = @($driverAst.FindAll({ param($n)
             $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
             $n.Name -eq 'Wait-UtmVMPoweredOff'
@@ -142,7 +146,7 @@ Describe 'The UTM stop-wait is bounded by wall-clock' {
         # The sweep must not re-grow its own hypervisor branch: the stop-wait
         # guarantee above is only reached when removal goes through the
         # driver's Remove-VM.
-        $ast = Get-ScriptAst $removeVmFiles
+        $ast = Get-ScriptAst $script:removeVmFiles
         $commands = @($ast.FindAll({ param($n)
             $n -is [System.Management.Automation.Language.CommandAst] }, $true) |
             ForEach-Object { $_.GetCommandName() } | Where-Object { $_ })
@@ -155,7 +159,7 @@ Describe 'The UTM stop-wait is bounded by wall-clock' {
 
 Describe 'Test-WinRtOcr.ps1 uses a unique temp script name' {
     It 'names the temp OCR script with a per-run GUID, not a fixed shared name' {
-        $ast = Get-ScriptAst $winRtOcr
+        $ast = Get-ScriptAst $script:winRtOcr
         Assert-True ((Get-InvokedMember -Ast $ast) -contains 'NewGuid') 'the temp script name includes a NewGuid'
         $fixed = @(Get-StringLiteralExtent -Ast $ast | Where-Object { $_ -eq "'Test-WinRtOcr-run.ps1'" })
         Assert-True ($fixed.Count -eq 0) 'the fixed shared temp name is gone'

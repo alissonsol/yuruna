@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42e2f3a4-b5c6-4d78-9abc-de1f2a3b4c63
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,6 +42,7 @@
     Run: pwsh -NoProfile -File test/modules/Test.DiagnosticEchoVerify.Tests.ps1
 #>
 
+BeforeAll {
 $here    = Split-Path -Parent $PSCommandPath
 $modPath = Join-Path $here 'Test.Diagnostic.psm1'
 Import-Module $modPath -Force
@@ -54,7 +55,7 @@ function Assert-True  { param($Condition, [string]$Because='') if (-not $Conditi
 
 # The command as the rung builds it, from the same constructor the rung
 # calls, so the expected text and the typed text can never drift apart.
-$EchoExpected = New-DiagnosticsConsoleCommand `
+$script:EchoExpected = New-DiagnosticsConsoleCommand `
     -ServerUrl 'http://192.168.64.1:8080' `
     -FailureFolderName '003688.2026-07-20.16-18-13.4287d16ff2c346a98ea90fd3a0c307da.incomplete/test-amazon-linux-2023-01' `
     -DiagnosticsFileName '2026-07-20.16-23.system.diagnostic.yuruna.update.txt'
@@ -65,19 +66,19 @@ $EchoExpected = New-DiagnosticsConsoleCommand `
 $EchoHealthy = 'Lch0luser1@ch01host1 JS HFhttp:/7192.168.64.1:8080:F=003688.2026-07-20.16-18-13.4287d16fPZc346a9Bea90Fd3a0c307da.incomplete/test-amazon-Tinux-2023-01:N=2026-07-20.16-23.system.diagnostic.yuruna.update.txticd /tmp:cur -fsSLo y.ps1 $H/yurur'
 
 # The same line after a key stuck in autorepeat.
-$EchoCorrupt = $EchoHealthy + ('y' * 1400)
+$script:EchoCorrupt = $EchoHealthy + ('y' * 1400)
 
 # The stuck key as OCR actually renders it: a wall of repeated glyphs does
 # not survive OCR as one clean character, it comes back as mixed noise across
 # many lines ('PUPPY PY BBY PPP...'). This shape, not the clean run, is what
 # a real capture holds, so it is what pins the threshold against reality.
-$EchoMixedCorrupt = $EchoHealthy + 'rm y1.' + (('PUPPY PY BBY PPP YB BP PY BBY PPP YB ') * 40)
+$script:EchoMixedCorrupt = $EchoHealthy + 'rm y1.' + (('PUPPY PY BBY PPP YB BP PY BBY PPP YB ') * 40)
 
 # A screenful of ordinary, heterogeneous console output ABOVE the command --
 # a reboot/shutdown log rather than a repeated banner. Unlike a repeated
 # banner it offers no periodic coincidental gram hits, so it is the honest
 # test that scrollback preceding the command is not scored as corruption.
-$EchoScrollback = @'
+$script:EchoScrollback = @'
 The system is going down for reboot now. Broadcast message from root.
 Stopping User Manager for UID 1000. Removed slice User Slice of ch01user1.
 Reached target Shutdown. Reached target Final Step. Unmounting /home.
@@ -86,19 +87,21 @@ Authentication required to manage system services over the control bus.
 '@ + $EchoHealthy
 
 # Gross truncation: the echo died a few characters in.
-$EchoTruncated = 'Lch0luser1@ch01host1 JS HFhttp:/7192.168.64'
+$script:EchoTruncated = 'Lch0luser1@ch01host1 JS HFhttp:/7192.168.64'
+
+}
 
 Describe 'Test-ConsoleEchoIntact - real capture samples' {
 
     It 'passes the healthy capture despite pervasive OCR noise and a partial read' {
         # The single most important assertion in this file. If it fails, the
         # console rung stops working on every guest, healthy or not.
-        Assert-Equal -Expected 'intact' -Actual (Test-ConsoleEchoIntact -Expected $EchoExpected -OcrText $EchoHealthy) `
+        Assert-Equal -Expected 'intact' -Actual (Test-ConsoleEchoIntact -Expected $script:EchoExpected -OcrText $EchoHealthy) `
             -Because 'A correctly typed line must verify even when OCR mangles it and reads only part of it.'
     }
 
     It 'fails the autorepeat-corrupted capture' {
-        Assert-Equal -Expected 'corrupt' -Actual (Test-ConsoleEchoIntact -Expected $EchoExpected -OcrText $EchoCorrupt) `
+        Assert-Equal -Expected 'corrupt' -Actual (Test-ConsoleEchoIntact -Expected $script:EchoExpected -OcrText $script:EchoCorrupt) `
             -Because 'A stuck key appending ~1400 characters must be caught before Enter.'
     }
 
@@ -106,12 +109,12 @@ Describe 'Test-ConsoleEchoIntact - real capture samples' {
         # The default-threshold pin: this is the realistic shape of the real
         # failure (garbage read as 'PUPPY PY BBY...'), and it must be caught
         # with NO threshold override, so loosening the default breaks here.
-        Assert-Equal -Expected 'corrupt' -Actual (Test-ConsoleEchoIntact -Expected $EchoExpected -OcrText $EchoMixedCorrupt) `
+        Assert-Equal -Expected 'corrupt' -Actual (Test-ConsoleEchoIntact -Expected $script:EchoExpected -OcrText $script:EchoMixedCorrupt) `
             -Because 'A stuck key must be caught at the default threshold even when OCR scatters it into mixed glyphs.'
     }
 
     It 'fails a grossly truncated echo' {
-        Assert-Equal -Expected 'corrupt' -Actual (Test-ConsoleEchoIntact -Expected $EchoExpected -OcrText $EchoTruncated) `
+        Assert-Equal -Expected 'corrupt' -Actual (Test-ConsoleEchoIntact -Expected $script:EchoExpected -OcrText $script:EchoTruncated) `
             -Because 'An echo showing only the first few characters means the line never landed.'
     }
 
@@ -119,8 +122,8 @@ Describe 'Test-ConsoleEchoIntact - real capture samples' {
         # A threshold that only just separates the samples would be luck. The
         # corrupt sample must stay corrupt even if the tolerance is doubled,
         # and the healthy sample must stay intact even if it is quartered.
-        Assert-Equal -Expected 'corrupt' -Actual (Test-ConsoleEchoIntact -Expected $EchoExpected -OcrText $EchoCorrupt -MaxUnexplainedRun 160)
-        Assert-Equal -Expected 'intact' -Actual (Test-ConsoleEchoIntact -Expected $EchoExpected -OcrText $EchoHealthy -MaxUnexplainedRun 20)
+        Assert-Equal -Expected 'corrupt' -Actual (Test-ConsoleEchoIntact -Expected $script:EchoExpected -OcrText $script:EchoCorrupt -MaxUnexplainedRun 160)
+        Assert-Equal -Expected 'intact' -Actual (Test-ConsoleEchoIntact -Expected $script:EchoExpected -OcrText $EchoHealthy -MaxUnexplainedRun 20)
     }
 }
 
@@ -132,15 +135,15 @@ Describe 'Test-ConsoleEchoIntact - degradation to unknown' {
         # it returns nothing exactly when the damage is worst. Empty must
         # never read as intact (we would submit a destroyed line) and never
         # as corrupt (we would abandon a healthy one).
-        Assert-Equal -Expected 'unknown' -Actual (Test-ConsoleEchoIntact -Expected $EchoExpected -OcrText '')
+        Assert-Equal -Expected 'unknown' -Actual (Test-ConsoleEchoIntact -Expected $script:EchoExpected -OcrText '')
     }
 
     It 'returns unknown when OCR read too little to judge' {
-        Assert-Equal -Expected 'unknown' -Actual (Test-ConsoleEchoIntact -Expected $EchoExpected -OcrText 'ch01host1')
+        Assert-Equal -Expected 'unknown' -Actual (Test-ConsoleEchoIntact -Expected $script:EchoExpected -OcrText 'ch01host1')
     }
 
     It 'returns unknown for whitespace-only OCR text' {
-        Assert-Equal -Expected 'unknown' -Actual (Test-ConsoleEchoIntact -Expected $EchoExpected -OcrText "   `n `t  `n  ")
+        Assert-Equal -Expected 'unknown' -Actual (Test-ConsoleEchoIntact -Expected $script:EchoExpected -OcrText "   `n `t  `n  ")
     }
 
     It 'returns unknown when there is no expected command to compare against' {
@@ -158,21 +161,21 @@ Describe 'Test-ConsoleEchoIntact - noise tolerance properties' {
         $chars = $EchoHealthy.ToCharArray()
         for ($i = 7; $i -lt $chars.Length; $i += 11) { $chars[$i] = '#' }
         $noisy = -join $chars
-        Assert-Equal -Expected 'intact' -Actual (Test-ConsoleEchoIntact -Expected $EchoExpected -OcrText $noisy) `
+        Assert-Equal -Expected 'intact' -Actual (Test-ConsoleEchoIntact -Expected $script:EchoExpected -OcrText $noisy) `
             -Because 'Roughly 9% of characters corrupted at random must still verify.'
     }
 
     It 'catches a stuck key regardless of which character sticks' {
         foreach ($ch in 'y', 'a', '0', '.', '/', 'm') {
             $sample = $EchoHealthy + ($ch * 400)
-            Assert-Equal -Expected 'corrupt' -Actual (Test-ConsoleEchoIntact -Expected $EchoExpected -OcrText $sample) `
+            Assert-Equal -Expected 'corrupt' -Actual (Test-ConsoleEchoIntact -Expected $script:EchoExpected -OcrText $sample) `
                 -Because "A stuck '$ch' must be caught even when the character occurs in the command."
         }
     }
 
     It 'catches garbage inserted in the middle of the line, not only at the end' {
         $mid = $EchoHealthy.Insert(120, ('q' * 300))
-        Assert-Equal -Expected 'corrupt' -Actual (Test-ConsoleEchoIntact -Expected $EchoExpected -OcrText $mid)
+        Assert-Equal -Expected 'corrupt' -Actual (Test-ConsoleEchoIntact -Expected $script:EchoExpected -OcrText $mid)
     }
 
     It 'ignores an arbitrarily long shell prompt or banner ahead of the command' {
@@ -180,7 +183,7 @@ Describe 'Test-ConsoleEchoIntact - noise tolerance properties' {
         # unbounded, so run counting must not start until the command itself
         # has been recognized.
         $banner = ('Welcome to Amazon Linux 2023. Last login: Mon Jul 20 16:18:13 2026 from 192.168.64.1. ' * 6)
-        Assert-Equal -Expected 'intact' -Actual (Test-ConsoleEchoIntact -Expected $EchoExpected -OcrText ($banner + $EchoHealthy))
+        Assert-Equal -Expected 'intact' -Actual (Test-ConsoleEchoIntact -Expected $script:EchoExpected -OcrText ($banner + $EchoHealthy))
     }
 
     It 'ignores a screenful of heterogeneous scrollback ahead of the command' {
@@ -190,14 +193,14 @@ Describe 'Test-ConsoleEchoIntact - noise tolerance properties' {
         # command, so a naive "count everything after the first explained
         # position" measure scored a perfectly healthy frame as corrupt and
         # abandoned the capture without pressing Enter. It must verify.
-        Assert-Equal -Expected 'intact' -Actual (Test-ConsoleEchoIntact -Expected $EchoExpected -OcrText $EchoScrollback) `
+        Assert-Equal -Expected 'intact' -Actual (Test-ConsoleEchoIntact -Expected $script:EchoExpected -OcrText $script:EchoScrollback) `
             -Because 'A healthy command with unrelated scrollback above it must not be judged corrupt.'
     }
 
     It 'still catches corruption that trails scrollback plus the command' {
         # The complement of the guard above: excluding leading scrollback must
         # not blind the check to garbage that follows the command echo.
-        Assert-Equal -Expected 'corrupt' -Actual (Test-ConsoleEchoIntact -Expected $EchoExpected -OcrText ($EchoScrollback + ('y' * 400)))
+        Assert-Equal -Expected 'corrupt' -Actual (Test-ConsoleEchoIntact -Expected $script:EchoExpected -OcrText ($script:EchoScrollback + ('y' * 400)))
     }
 }
 
@@ -209,7 +212,7 @@ Describe 'Test-ConsoleEchoIntact - equality-style checks are excluded by constru
         # (Content-Type, the trailing rm) fails here rather than in the field.
         Assert-True -Condition ($EchoHealthy -notmatch 'Content-Type') 'Sample must not contain the command tail.'
         Assert-True -Condition ($EchoHealthy -notmatch 'rm -f')        'Sample must not contain the trailing rm.'
-        Assert-Equal -Expected 'intact' -Actual (Test-ConsoleEchoIntact -Expected $EchoExpected -OcrText $EchoHealthy)
+        Assert-Equal -Expected 'intact' -Actual (Test-ConsoleEchoIntact -Expected $script:EchoExpected -OcrText $EchoHealthy)
     }
 
     It 'judges the line as a whole rather than asking whether fragments appear somewhere' {
@@ -224,8 +227,8 @@ Describe 'Test-ConsoleEchoIntact - equality-style checks are excluded by constru
         # CONTAINS the healthy one verbatim, so any predicate satisfied by
         # "the expected content is present" passes it. Only a predicate that
         # also weighs what is present in EXCESS can tell them apart.
-        Assert-True -Condition ($EchoCorrupt.StartsWith($EchoHealthy)) 'Corrupt sample must contain the healthy one intact.'
-        Assert-Equal -Expected 'intact' -Actual (Test-ConsoleEchoIntact -Expected $EchoExpected -OcrText $EchoHealthy)
-        Assert-Equal -Expected 'corrupt' -Actual (Test-ConsoleEchoIntact -Expected $EchoExpected -OcrText $EchoCorrupt)
+        Assert-True -Condition ($script:EchoCorrupt.StartsWith($EchoHealthy)) 'Corrupt sample must contain the healthy one intact.'
+        Assert-Equal -Expected 'intact' -Actual (Test-ConsoleEchoIntact -Expected $script:EchoExpected -OcrText $EchoHealthy)
+        Assert-Equal -Expected 'corrupt' -Actual (Test-ConsoleEchoIntact -Expected $script:EchoExpected -OcrText $script:EchoCorrupt)
     }
 }

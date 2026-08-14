@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42f8a7b6-c5d4-4e83-9210-3f4a5b6c7d81
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -111,6 +111,13 @@ $script:TypedField = @{
     stack               = 'string'
     attempt             = 'int'
     maxAttempts         = 'int'
+    # Warm resume. resumeFromStep is the step actually restarted; checkpointStep
+    # and rewoundSteps appear only when that differs from the recorded
+    # checkpoint, i.e. when the resume was pulled back to a restore boundary and
+    # work was deliberately replayed.
+    resumeFromStep      = 'int'
+    checkpointStep      = 'int'
+    rewoundSteps        = 'int'
     transient           = 'bool'
     permanent           = 'bool'
     sleepSeconds        = 'int-or-null'

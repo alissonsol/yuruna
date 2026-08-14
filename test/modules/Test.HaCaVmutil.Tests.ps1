@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42a1b2c3-d4e5-4f67-8901-ac0d1e2f3a62
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,6 +30,7 @@
     released on both the success and the load-throw paths. Pester 4.10.1.
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 
 # --- REGION: Comment-proof structural guards over the source AST
@@ -85,7 +86,7 @@ function Test-DisposeNullGuarded {
 # test runner's own script scope, not this file's, so a $script:-qualified AST reaches the
 # structural guards as $null.
 $vmUtilPath = Join-Path $here 'Test.VMUtility.psm1'
-$cmpAst     = Get-CompareScreenshotAst -Path $vmUtilPath
+$script:cmpAst     = Get-CompareScreenshotAst -Path $vmUtilPath
 
 # --- REGION: Windows-only image factory (System.Drawing.Bitmap is Windows-supported)
 function Get-TestPng {
@@ -105,20 +106,22 @@ function Get-TestPng {
     return $Path
 }
 
+}
+
 Describe 'ha-ca-vmutil: Compare-Screenshot releases its GDI+ bitmaps on every path' {
 
     Context 'structure: both source bitmaps are disposed in a finally (AST)' {
         It 'defines Compare-Screenshot' {
-            $cmpAst | Should -Not -BeNullOrEmpty
+            $script:cmpAst | Should -Not -BeNullOrEmpty
         }
         It 'disposes $ref exactly once, and that dispose is inside a finally' {
-            $refDisposes = Get-DisposeInvocation -Ast $cmpAst -VarName 'ref'
+            $refDisposes = Get-DisposeInvocation -Ast $script:cmpAst -VarName 'ref'
             $refDisposes.Count | Should -Be 1
             (Test-NodeInFinally -Node $refDisposes[0]) | Should -BeTrue
         }
         It 'disposes $ref and $act inside a finally, each null-guarded' {
-            $refFinal = @(Get-DisposeInvocation -Ast $cmpAst -VarName 'ref' | Where-Object { Test-NodeInFinally -Node $_ })
-            $actFinal = @(Get-DisposeInvocation -Ast $cmpAst -VarName 'act' | Where-Object { Test-NodeInFinally -Node $_ })
+            $refFinal = @(Get-DisposeInvocation -Ast $script:cmpAst -VarName 'ref' | Where-Object { Test-NodeInFinally -Node $_ })
+            $actFinal = @(Get-DisposeInvocation -Ast $script:cmpAst -VarName 'act' | Where-Object { Test-NodeInFinally -Node $_ })
             $refFinal.Count | Should -BeGreaterOrEqual 1
             $actFinal.Count | Should -BeGreaterOrEqual 1
             (Test-DisposeNullGuarded -Node $refFinal[0] -VarName 'ref') | Should -BeTrue
@@ -133,7 +136,7 @@ Describe 'ha-ca-vmutil: Compare-Screenshot releases its GDI+ bitmaps on every pa
         }
 
         It 'returns match=$true, similarity 1.0 for identical images' -Skip:(-not $IsWindows) {
-            $dir = Join-Path $env:TEMP ('vmu-' + [guid]::NewGuid().ToString('N'))
+            $dir = Join-Path ([System.IO.Path]::GetTempPath()) ('vmu-' + [guid]::NewGuid().ToString('N'))
             New-Item -ItemType Directory -Path $dir -Force | Out-Null
             try {
                 $a = Get-TestPng -Path (Join-Path $dir 'a.png') -R 10 -G 120 -B 200
@@ -145,7 +148,7 @@ Describe 'ha-ca-vmutil: Compare-Screenshot releases its GDI+ bitmaps on every pa
             } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
         }
         It 'returns match=$false for clearly different images' -Skip:(-not $IsWindows) {
-            $dir = Join-Path $env:TEMP ('vmu-' + [guid]::NewGuid().ToString('N'))
+            $dir = Join-Path ([System.IO.Path]::GetTempPath()) ('vmu-' + [guid]::NewGuid().ToString('N'))
             New-Item -ItemType Directory -Path $dir -Force | Out-Null
             try {
                 $black = Get-TestPng -Path (Join-Path $dir 'black.png') -R 0 -G 0 -B 0
@@ -156,7 +159,7 @@ Describe 'ha-ca-vmutil: Compare-Screenshot releases its GDI+ bitmaps on every pa
             } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
         }
         It 'resizes a size-mismatched actual and still compares (resize branch)' -Skip:(-not $IsWindows) {
-            $dir = Join-Path $env:TEMP ('vmu-' + [guid]::NewGuid().ToString('N'))
+            $dir = Join-Path ([System.IO.Path]::GetTempPath()) ('vmu-' + [guid]::NewGuid().ToString('N'))
             New-Item -ItemType Directory -Path $dir -Force | Out-Null
             try {
                 $ref = Get-TestPng -Path (Join-Path $dir 'ref.png') -Width 40 -Height 40 -R 30 -G 60 -B 90
@@ -167,7 +170,7 @@ Describe 'ha-ca-vmutil: Compare-Screenshot releases its GDI+ bitmaps on every pa
             } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
         }
         It 'reports the missing file for an absent reference or actual' -Skip:(-not $IsWindows) {
-            $dir = Join-Path $env:TEMP ('vmu-' + [guid]::NewGuid().ToString('N'))
+            $dir = Join-Path ([System.IO.Path]::GetTempPath()) ('vmu-' + [guid]::NewGuid().ToString('N'))
             New-Item -ItemType Directory -Path $dir -Force | Out-Null
             try {
                 $a = Get-TestPng -Path (Join-Path $dir 'a.png') -R 1 -G 2 -B 3
@@ -180,7 +183,7 @@ Describe 'ha-ca-vmutil: Compare-Screenshot releases its GDI+ bitmaps on every pa
             } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
         }
         It 'releases both source files after a successful compare (deletable)' -Skip:(-not $IsWindows) {
-            $dir = Join-Path $env:TEMP ('vmu-' + [guid]::NewGuid().ToString('N'))
+            $dir = Join-Path ([System.IO.Path]::GetTempPath()) ('vmu-' + [guid]::NewGuid().ToString('N'))
             New-Item -ItemType Directory -Path $dir -Force | Out-Null
             try {
                 $a = Get-TestPng -Path (Join-Path $dir 'a.png') -R 44 -G 88 -B 132
@@ -193,7 +196,7 @@ Describe 'ha-ca-vmutil: Compare-Screenshot releases its GDI+ bitmaps on every pa
             } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
         }
         It 'releases the reference file when the actual image fails to load (throw path)' -Skip:(-not $IsWindows) {
-            $dir = Join-Path $env:TEMP ('vmu-' + [guid]::NewGuid().ToString('N'))
+            $dir = Join-Path ([System.IO.Path]::GetTempPath()) ('vmu-' + [guid]::NewGuid().ToString('N'))
             New-Item -ItemType Directory -Path $dir -Force | Out-Null
             try {
                 $ref     = Get-TestPng -Path (Join-Path $dir 'ref.png') -R 12 -G 34 -B 56

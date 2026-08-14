@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42e3a71c-8b95-4d20-a6f4-9c1e5b07d3f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,6 +42,7 @@
     Run: pwsh -NoProfile -File test/modules/Test.PoolAggregatorServiceSeedUrl.Tests.ps1
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 $cachingProxyModule = Join-Path $here 'Test.CachingProxyService.psm1'
 
@@ -59,6 +60,8 @@ function Use-ConfigProxyAddress {
     $path = Join-Path $configDir "config-$Address.yml"
     [System.IO.File]::WriteAllText($path, "vmStart:`n  cachingProxyIp: $Address`n", [System.Text.UTF8Encoding]::new($false))
     $env:YURUNA_CONFIG_PATH = $path
+}
+
 }
 
 Describe 'Get-PoolAggregatorServiceSeedUrl believes a claim only once it answers' {

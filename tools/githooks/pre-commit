@@ -131,8 +131,22 @@ staged=$(git diff --cached --name-only --diff-filter=ACM |
 if [ -n "$staged" ]; then
     printf '%s\n' "$retired_names" | while IFS='|' read -r old new; do
         [ -n "$old" ] || continue
+        # A retired spelling inside a ${...} shell expansion is not a use of the
+        # retired thing. `${GH_TOKEN:-}` reads the environment variable of that
+        # name -- current and correct -- but contains the literal `GH_TOKEN:`
+        # that names the retired CONFIG KEY, so a substring match reports it on
+        # every commit touching the fetch path and the pass turns into noise
+        # nobody reads. Requiring the character before the match to be anything
+        # but `{` drops that form and keeps every other one: a yaml key at line
+        # start still matches through `^`, and a bare `$YURUNA_HOST_IP` still
+        # matches because `$` is not `{`.
+        #
+        # The spelling is escaped into the regex rather than passed to -F, so a
+        # path entry like test/New-Pool.ps1 keeps matching only itself and not
+        # any character in place of the dots.
+        esc=$(printf '%s' "$old" | sed 's/[][\.*+?(){}|^$\\]/\\&/g')
         hits=$(printf '%s\n' "$staged" | tr '\n' '\0' |
-            xargs -0 grep -l -F -- "$old" 2>/dev/null)
+            xargs -0 grep -l -E -- "(^|[^{])$esc" 2>/dev/null)
         if [ -n "$hits" ]; then
             echo "pre-commit: retired name '$old' (use '$new') in:" >&2
             printf '  %s\n' $hits >&2

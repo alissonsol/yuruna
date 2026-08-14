@@ -127,7 +127,8 @@ Each anchor line in the base reads
 | `RUNCMD_QUIET_LOGLEVEL` | `runcmd:` block for quiet/loglevel kernel-cmdline quirks | per-host as needed |
 | `POWER_STATE` | `power_state:` directive (reboot/poweroff after first boot) | per-host as needed |
 
-The overlay file uses the same line format as section headers; the lines
+The overlay file uses the same anchor-line format as its section
+headers; the lines
 between one header and the next (or end of file) are the substitution
 payload. An empty payload deletes the anchor line outright.
 
@@ -586,7 +587,7 @@ mkdir -p /target/etc/default && test -f /target/etc/default/motd-news && sed -i 
 
 `update-motd.d` scripts and `motd-news` produce many lines of output on
 first login (legal banners, "[N] updates can be installed immediately",
-canonical advertising). They scroll the OCR harness past the
+Canonical advertising). They scroll the OCR harness past the
 `Password:` prompt before it can be matched, AND clutter every SSH
 session's stdout. Stripping the executable bit and disabling
 `motd-news` zeroes both.
@@ -600,8 +601,8 @@ session's stdout. Stripping the executable bit and disabling
 blacklist hv_balloon
 ```
 
-The synthetic balloon driver only loads under Hyper-V, and its
-memory-pressure notifications spam the console and pollute OCR. The
+The synthetic balloon driver's memory-pressure notifications spam the
+console and pollute OCR. The
 file is inert on KVM/QEMU and macOS UTM, where `hv_balloon` never
 loads — kept for cross-host symmetry of the runcmd / write_files
 shape.
@@ -848,6 +849,58 @@ Two artifacts written for the dev iteration loop:
   Rebuild the guest if `Test-YurunaHost.ps1` fails after a host reboot.
 - **libvirt 'default' (KVM):** the gateway is stable at
   `192.168.122.1` — no rebuild needed.
+
+### Host address refresh timer
+
+```
+[Unit]
+After=network.target NetworkManager-wait-online.service systemd-networkd-wait-online.service
+Before=network-online.target
+[Service]
+Type=oneshot
+TimeoutStartSec=30
+ExecStart=/usr/local/lib/yuruna/yuruna-host-locate.sh
+[Install]
+WantedBy=network-online.target
+---
+[Timer]
+OnBootSec=30s
+OnUnitActiveSec=60s
+AccuracySec=5s
+```
+
+The host coordinates in `/etc/yuruna/host.env` are baked at `New-VM` time and
+nothing in the guest re-resolves them. `fetch-and-execute.sh` repairs the
+address at the top of each step, which leaves one window open: a step that
+runs for many minutes can watch the host renumber underneath it and has no
+way back. The timer closes that window for everything that never passes
+through the fetch path at all — the project's own scripts, the perf
+checkpoints, the log uploads — all of which read the same `host.env`.
+
+The service VMs (`pool-control-service`, `download-agent-service`,
+`stash-service`, `caching-proxy-service`) need it hardest: they are
+provisioned once and then run for weeks, so they accumulate renumbers a test
+guest rebuilt every cycle never sees, and nobody is typing into them.
+
+Affordable at a one-minute cadence because `yuruna-host-locate` probes the
+coordinate the guest already holds before it consults the pool directory:
+while the address is still good the tick costs one LAN round trip and no
+writes. A `oneshot` rather than a daemon — no state carries between ticks,
+and a oneshot cannot wedge. `TimeoutStartSec=30` is the backstop for the day
+one of the resolver's own wall-clock caps stops holding, so a resolver that
+cannot finish never holds the boot open.
+
+The unit is ordered *into* the `network-online.target` barrier rather than
+after it. Anything in the guest that needs the host waits on that target, so
+finishing before it is what guarantees those consumers never read a stale
+address — without this unit naming a single one of them, which is the whole
+point of the indirection. The `After=` line lists both wait-online
+implementations because ordering against an absent unit is a no-op, so one
+line covers whichever the image ships and still runs with an address in hand
+rather than before DHCP has answered.
+
+Source: [`automation/yuruna-host-locate.sh`](../automation/yuruna-host-locate.sh),
+[`host/vmconfig/pool-control-service.base.user-data`](../host/vmconfig/pool-control-service.base.user-data).
 
 ### wget no_proxy
 
@@ -1099,7 +1152,7 @@ Retry apt fetches on transient network errors. Cloud-init's default is one-shot;
 
 ### Unattended-upgrades schedule
 
-unattended-upgrades enable flags. Both timers (apt-daily.timer + apt-daily-upgrade.timer) ship with the apt package and are enabled by default -- this dropin turns the upgrade phase on. Update-Package-Lists = run `apt-get update` daily; Unattended-Upgrade = run the upgrade phase daily. Auto-clean keeps /var/cache/apt bounded between cycles. The default /etc/apt/apt.conf.d/50unattended-upgrades scopes upgrades to the security pocket only -- leave that conservative; widening to all pockets risks pulling in a kernel that needs a reboot we can't schedule on a long-lived cache box.
+unattended-upgrades enable flags. Both timers (apt-daily.timer + apt-daily-upgrade.timer) ship with the apt package and are enabled by default -- this drop-in turns the upgrade phase on. Update-Package-Lists = run `apt-get update` daily; Unattended-Upgrade = run the upgrade phase daily. Auto-clean keeps /var/cache/apt bounded between cycles. The default /etc/apt/apt.conf.d/50unattended-upgrades scopes upgrades to the security pocket only -- leave that conservative; widening to all pockets risks pulling in a kernel that needs a reboot we can't schedule on a long-lived cache box.
 
 ### Pool intent store over read-only HTTP
 
@@ -1335,7 +1388,7 @@ The internet-connectivity probe is an HTTPS GET to Google's well-known 204 endpo
 
 Two reasons NOT to fold this into squid-exporter:
 - squid-exporter taps squid's cachemgr counters; offline_mode is a config directive, not a counter, so surfacing it would need a fork.
-- When squid is DOWN, squid-exporter's metrics stop publishing and Grafana shows "No data" -- exactly when the operator needs to know whether offline_mode was supposed to be on. This exporter reads the file directly, so the signal survives a crashed squid.
+- When squid is DOWN, squid-exporter's metrics stop publishing and Grafana shows "No data" -- exactly when the operator needs to know whether offline_mode was supposed to be on. This exporter publishes independently of squid, so the signal survives a crashed squid.
 
 ### zot manifest canary exporter
 
@@ -1411,7 +1464,7 @@ Provisioned Grafana unified-alerting rule (`Yuruna` folder) that fires when the 
 
 ### Yuruna host coordinates for source fetch
 
-Yuruna host (status service) coordinates. Baked into the seed by the platform New-VM.ps1 (Get-GuestReachableHostIp + statusService.port). The runcmd build block below sources this to fetch the collector + parser source from the LOCAL host working tree (http://IP:PORT/yuruna-repo/) -- the host repo is the source of truth, so a rebuild never waits on the private->public github mirror. Same resolution as fetch-and-execute.sh. Empty IP/PORT (coordinates unavailable, e.g. status service disabled) fall back to github raw.
+Yuruna host (status service) coordinates. Baked into the seed by the platform New-VM.ps1 (Get-GuestReachableHostIp + statusService.port). The runcmd build block below sources this to fetch the collector + parser source from the LOCAL host working tree (http://IP:PORT/yuruna-repo/) -- the host repo is the source of truth, so a rebuild never waits on the private->public GitHub mirror. Same resolution as fetch-and-execute.sh. Empty IP/PORT (coordinates unavailable, e.g. status service disabled) fall back to GitHub raw.
 
 `--no-proxy` is required on the host path: the host IP is private and this VM's own squid is in `offline_mode`, so routing that fetch through a proxy would fail. Sourcing `host.env` is safe here -- host-baked IP/PORT only, never operator free-text (a malformed value would abort the runcmd phase).
 
@@ -1422,6 +1475,18 @@ Yuruna hosts dashboard. INLINED (like squid.json) so it deploys from the local u
 ### Yuruna hosts dashboard panel autofit
 
 Panel heights are fixed in dashboard JSON, and one fixed height per row does not scale across pool sizes. `yuruna-fit-pool-dashboard.py` reads the host count the collector is reporting (Prometheus + Loki on loopback), recomputes each panel's height from the dashboard grid geometry (a panel of `h` units is `38h - 8` px tall, less the chrome, the table header row, and -- on the timeline -- the x-axis and legend), re-stacks the panels below it, and rewrites `/var/lib/grafana/dashboards/pool.json` atomically. Only the three per-host panels move: the summary tiles across the top -- including "Lab token" (panel id 18), which folds in the collector's own health -- are a fixed 4 units tall and the stack starts below them. Heights round UP: a panel a few px too tall shows blank space, one a few px too short shows a scrollbar, and only the scrollbar is a defect. The `gridPos.h` values inlined above are only the pre-collector default. A collector that is down reports no hosts, indistinguishable from an empty pool, so a zero count leaves the file untouched rather than collapsing every panel to its header. Row counts track the dashboard's DEFAULT 24h window; a wider range picked in the time picker can still surface an older host and scroll.
+
+### Dashboard brand identity
+
+`/etc/yuruna/brand.env` carries the name and version the dashboards are branded with: the framework repository this VM was built from (`Yuruna`, `Yurunadev`, ...) and the VERSION of that enlistment. Seeded because the guest cannot work it out for itself -- it is handed built artifacts and never the framework repository -- and frozen for the life of the VM, like every other build-time fact about it. The host resolves both through `Get-YurunaBrandIdentity` (test/modules/Test.FrameworkSource.psm1), which reads `repositories.frameworkUrl` when the config names one and the enlistment's own origin remote otherwise -- the order the status pages resolve it in, so a page and a dashboard cannot name different repositories. Both values are reduced to characters that are safe inside the single-quoted env file; a name that survives nothing falls back to `Yuruna`, and an unreadable VERSION reports empty rather than a guess.
+
+### Grafana dashboard brand tile
+
+`yuruna-brand-dashboards.py` stamps that identity into the top-left of every dashboard in `/var/lib/grafana/dashboards` -- the three inlined here and the community Zot dashboard alike -- as a transparent text panel: the repository name over its version, the same pair the status pages carry in their header. It exists because a proxy outlives the bring-up that built it, and a lab running both repositories otherwise holds two proxies whose dashboards are indistinguishable.
+
+The tile costs no vertical space. Grafana's time-range picker lives in the app's own dashboard toolbar, which dashboard JSON cannot reach, so the tile is a panel in the grid instead -- and since a Yuruna dashboard's first row already fills the 24-unit width, room is made by narrowing that row's panels rather than by adding one. The fit is largest-remainder, so the row still ends exactly at the right edge. Two fallbacks cover a layout that cannot yield: a first row opening with a row header (which spans the full width and is not a panel that can be narrowed) and one whose panels would be squeezed below legibility both get a row of their own instead. Those exist for the community dashboard, whose layout is fetched at build time and is not ours to predict.
+
+Idempotent by construction: a dashboard already carrying the tile has only its text refreshed, never its geometry, so the timer cannot walk the first row further left on each pass. Files are rewritten only when their content changes and always through a same-directory rename, so the dashboard provider never reads a partial file. The tile sits within the first row's own height, which is why it does not disturb [the panel autofit](#yuruna-hosts-dashboard-panel-autofit) -- that re-stacks from below the first row and the two never touch the same panels.
 
 ### Squid dashboard inlined
 
@@ -1567,7 +1632,7 @@ The `install -d` for /var/lib/squid is NOT redundant: on Ubuntu the squid-openss
 
 ### Publish squid CA cert
 
-Publish the CA public cert at http://<cache>/yuruna-squid-ca.crt so guests can fetch and trust it during install. Only the public cert is copied -- ca.key stays in /etc/squid/ssl_cert/. Mode 644 is deliberate: RFC1918 reachability is enforced at the network layer (the host switch/bridge/NAT), so trust distribution works without an extra cachemgr-style `Require ip` dropin.
+Publish the CA public cert at http://<cache>/yuruna-squid-ca.crt so guests can fetch and trust it during install. Only the public cert is copied -- ca.key stays in /etc/squid/ssl_cert/. Mode 644 is deliberate: RFC1918 reachability is enforced at the network layer (the host switch/bridge/NAT), so trust distribution works without an extra cachemgr-style `Require ip` drop-in.
 
 ### Publish pool CA cert
 
@@ -1581,7 +1646,7 @@ Wait up to 60s for squid's listener. apt's postinst usually has it up, but start
 
 ### Route VM apt through local squid
 
-Only NOW route this VM's own apt through local squid -- squid is confirmed listening, so the self-proxy loop is safe. Writing this dropin during write_files (before `packages:` runs) deadlocks apt: it fetches squid itself through 127.0.0.1:3128, which is not listening yet, and the install bombs with Exit 100.
+Only NOW route this VM's own apt through local squid -- squid is confirmed listening, so the self-proxy loop is safe. Writing this drop-in during write_files (before `packages:` runs) deadlocks apt: it fetches squid itself through 127.0.0.1:3128, which is not listening yet, and the install bombs with Exit 100.
 
 ### Prewarm download loop
 
@@ -1593,7 +1658,7 @@ Squid now has the large .debs cached under /var/spool/squid. Clear /var/cache/ap
 
 ### Remove prewarm apt proxy dropin
 
-Remove the apt proxy dropin so future apt inside this VM doesn't loop through its own squid. Guests still reach squid at 3128 over network.
+Remove the apt proxy drop-in so future apt inside this VM doesn't loop through its own squid. Guests still reach squid at 3128 over network.
 
 ### Flip squid into offline mode
 
@@ -1661,6 +1726,10 @@ Enable the timer that keeps the Yuruna hosts dashboard's per-host panels sized t
 
 Install the community Zot dashboard (Grafana ID 20501) alongside the hand-crafted Yuruna caching-proxy service dashboard. The write_files rewriter (see "Grafana dashboard rewriter" above) pins it to yuruna-prometheus with a stable uid and a friendly title, so re-runs are idempotent. The dashboard provisioner under /etc/grafana/provisioning/dashboards/yuruna.yaml picks the file up on its next 30s tick. The `else` branch keeps cycling: a transient grafana.com outage degrades to "missing extra dashboard" rather than failing the whole runcmd phase.
 
+### Enable grafana dashboard brand tile
+
+Enable the timer that keeps [the brand tile](#grafana-dashboard-brand-tile) on every dashboard, then stamp them once here. Last of the dashboard steps, so the community Zot dashboard is already on disk and gets branded in the same pass as the three inlined ones. The explicit `start` is what brands them now -- enabling the timer only schedules the next tick, and a proxy whose dashboards are anonymous through the first minutes of its life is exactly the window an operator watches it in. The timer (2min after boot, every 15min after) is the backstop for a dashboard that lands later; it rewrites nothing when there is nothing to change. The `|| echo` degrades a failed stamp to unbranded dashboards rather than failing the runcmd phase, and it is a block scalar because the message carries a colon-space, which a plain YAML scalar would read as a mapping.
+
 ### Enable NAS replication timer conditionally
 
 networkStorage pool (ypool-nas) service replication: enable the timer only when the seed was built with replication configured (REPLICATE=true). Read it with an exact-line grep, NOT by sourcing -- a malformed value would abort the whole runcmd phase, since the `.`-parse error fires before any `|| true`. The block scalar dodges the colon-space YAML trap; grep dodges the source-time abort.
@@ -1671,7 +1740,7 @@ Verify promtail picked up BOTH supplementary groups. The drop-in writes "Supplem
 
 ### First-boot security upgrade
 
-unattended-upgrades + the daily apt timers keep pulling fixes from here on; this run flushes the backlog between the cloud image's build date and boot day. Routed through 127.0.0.1:3128 (squid is up by now and the prewarm-proxy dropin already enabled this VM's apt-via-self loop) so the upgrade hits cache for anything other guests have pulled before. `|| true` so a transient archive.ubuntu.com hiccup cannot fail the whole cycle -- the daily apt-daily-upgrade.timer retries within 24 h.
+unattended-upgrades + the daily apt timers keep pulling fixes from here on; this run flushes the backlog between the cloud image's build date and boot day. Routed through 127.0.0.1:3128 (squid is up by now and the prewarm-proxy drop-in already enabled this VM's apt-via-self loop) so the upgrade hits cache for anything other guests have pulled before. `|| true` so a transient archive.ubuntu.com hiccup cannot fail the whole cycle -- the daily apt-daily-upgrade.timer retries within 24 h.
 
 ### Confirm apt daily timers armed
 
@@ -1981,6 +2050,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.11
+Last review: 2026.08.14
 
 Back to [Yuruna](../README.md)

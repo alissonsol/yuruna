@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42c4d5e6-f7a8-4b9c-8d01-2e3f4a5b6c7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,11 +27,13 @@
     populate warnings, snapshot, mutate the snapshot, and assert the live state
     is unchanged -- they fail against a live-reference return.
 
-    The throw-based Assert-* helpers are defined at script scope and referenced
-    from It blocks, so this runs under Pester 4.10.1 (Pester 5's scope split
-    hides top-level helpers from It blocks).
+    The throw-based Assert-* helpers live in the file's BeforeAll, which is the
+    scope Pester 5 shares with the It blocks; defining them at script scope
+    instead makes every It fail on a missing command rather than on an
+    assertion.
 #>
 
+BeforeAll {
 $here       = Split-Path -Parent $PSCommandPath
 $modulePath = Join-Path $here 'Test.Output.psm1'
 
@@ -39,6 +41,8 @@ function Assert-True  { param($Condition, [string]$Because='') if (-not $Conditi
 function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
 
 Import-Module $modulePath -Force -DisableNameChecking -ErrorAction SilentlyContinue
+
+}
 
 Describe 'Get-OutputState returns a copy-safe WarningsBySection' {
     # Leave the ambient counters zeroed so the suite does not perturb a live

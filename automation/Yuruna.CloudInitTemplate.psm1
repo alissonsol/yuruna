@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42c9d0e1-b3a4-4f56-9b67-78c2e3f4d5a6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -168,7 +168,8 @@ function Get-YurunaGuestScriptBase64 {
     .SYNOPSIS
         Read the guest-side shell scripts every cloud-init seed bakes in via
         base64 -- yuruna-retry.sh, yuruna-versions.sh, fetch-and-execute.sh,
-        and yuruna-network.sh -- and return them as a hashtable keyed by purpose.
+        yuruna-network.sh, and yuruna-host-locate.sh -- and return them as a
+        hashtable keyed by purpose.
     .DESCRIPTION
         Centralizes the `[Convert]::ToBase64String([File]::ReadAllBytes(...))`
         read otherwise duplicated in every per-guest New-VM.ps1 that
@@ -178,7 +179,9 @@ function Get-YurunaGuestScriptBase64 {
         Absolute path to the repository root. The scripts live under
         $RepoRoot/automation/.
     .OUTPUTS
-        [hashtable] @{ RetryLib = '<base64>'; VersionsLib = '<base64>'; FetchAndExecute = '<base64>'; NetworkLib = '<base64>' }
+        [hashtable] @{ RetryLib = '<base64>'; VersionsLib = '<base64>'; FetchAndExecute = '<base64>'; NetworkLib = '<base64>'; HostLocate = '<base64>' }
+        The Windows peer is NOT here: no cloud-init seed installs it, and the
+        Windows bootstrap builder (Yuruna.GuestSeed) reads it directly.
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -188,7 +191,12 @@ function Get-YurunaGuestScriptBase64 {
     $versionsPath  = Join-Path $automationDir 'yuruna-versions.sh'
     $faePath       = Join-Path $automationDir 'fetch-and-execute.sh'
     $networkPath   = Join-Path $automationDir 'yuruna-network.sh'
-    foreach ($p in @($retryPath, $versionsPath, $faePath, $networkPath)) {
+    # Seeded, never fetched -- which is the whole reason it needs no digest of
+    # its own the way the retry lib does. This script decides WHERE the guest
+    # fetches code from, so it must arrive over the same trusted channel as
+    # the seed itself rather than over the network it is meant to repair.
+    $locatePath    = Join-Path $automationDir 'yuruna-host-locate.sh'
+    foreach ($p in @($retryPath, $versionsPath, $faePath, $networkPath, $locatePath)) {
         if (-not (Test-Path -LiteralPath $p)) {
             throw "Get-YurunaGuestScriptBase64: required guest script missing: $p"
         }
@@ -198,6 +206,7 @@ function Get-YurunaGuestScriptBase64 {
         VersionsLib     = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($versionsPath))
         FetchAndExecute = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($faePath))
         NetworkLib      = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($networkPath))
+        HostLocate      = [Convert]::ToBase64String([System.IO.File]::ReadAllBytes($locatePath))
     }
 }
 
@@ -334,6 +343,36 @@ function New-CloudInitUserData {
     }
     if (-not $fullReplacement.ContainsKey('YURUNA_NETWORK_BASE64_PLACEHOLDER')) {
         $fullReplacement['YURUNA_NETWORK_BASE64_PLACEHOLDER'] = $b64.NetworkLib
+    }
+    if (-not $fullReplacement.ContainsKey('YURUNA_HOST_LOCATE_BASE64_PLACEHOLDER')) {
+        $fullReplacement['YURUNA_HOST_LOCATE_BASE64_PLACEHOLDER'] = $b64.HostLocate
+    }
+    # --- REGION: https://yuruna.link/network#defining-yuruna-host-locate-lib
+    # The two identities that let a guest repair a host address that has gone
+    # stale. Defaulted here rather than per-caller for the same reason the
+    # script bodies are: every seed wants the identical answer, and a
+    # per-caller copy is a per-caller chance to seed a guest that cannot find
+    # its way home. A caller with a better answer still wins -- the
+    # service-VM seeds pass a hostId they already resolved.
+    #
+    # Both are read from the ambient environment rather than resolved through
+    # the harness modules that own them, keeping this leaf dependency-free
+    # (the same soft, call-time convention Get-PortMapStatePath documents).
+    # Empty is a supported outcome, not a failure: a lab with no pool
+    # directory seeds empty values and its guests behave exactly as they did
+    # before this indirection existed.
+    if (-not $fullReplacement.ContainsKey('YURUNA_HOST_ID_PLACEHOLDER')) {
+        $hostUuid = ''
+        if ($env:YURUNA_RUNTIME_DIR) {
+            $uuidPath = Join-Path $env:YURUNA_RUNTIME_DIR 'host.uuid'
+            if (Test-Path -LiteralPath $uuidPath -PathType Leaf) {
+                $hostUuid = ([string](Get-Content -LiteralPath $uuidPath -Raw -ErrorAction SilentlyContinue)).Trim()
+            }
+        }
+        $fullReplacement['YURUNA_HOST_ID_PLACEHOLDER'] = $hostUuid
+    }
+    if (-not $fullReplacement.ContainsKey('YURUNA_CACHING_PROXY_SERVICE_IP_PLACEHOLDER')) {
+        $fullReplacement['YURUNA_CACHING_PROXY_SERVICE_IP_PLACEHOLDER'] = "$($env:YURUNA_CACHING_PROXY_SERVICE_IP)".Trim()
     }
     # The guest's GitHub coordinates: which repository this host is serving, the
     # commit it is at, and the token that opens it when it is private. Resolved

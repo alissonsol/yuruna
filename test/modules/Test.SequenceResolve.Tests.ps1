@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42b9e1c4-7a3d-4f52-8e16-9c4d2a7b3e58
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,6 +31,7 @@
     hides top-level functions from It blocks. Run with Pester 4.10.1.
 #>
 
+BeforeAll {
 $here       = Split-Path -Parent $PSCommandPath
 $modulePath = Join-Path $here 'Test.SequenceResolve.psm1'
 Import-Module $modulePath -Force -DisableNameChecking -ErrorAction SilentlyContinue
@@ -54,7 +55,7 @@ function Assert-Throw {
 # fresh scope, so $script: writes land in a script scope the It bodies never see
 # and the value would arrive as $null -- silently skipping every yaml case and
 # handing New-SnippetTestDir a null root.
-$yamlAvailable = [bool](Get-Module -ListAvailable -Name powershell-yaml)
+$script:yamlAvailable = [bool](Get-Module -ListAvailable -Name powershell-yaml)
 $tmpRoot = Join-Path ([System.IO.Path]::GetTempPath()) 'yuruna-snippet-tests'
 
 function New-SnippetTestDir {
@@ -79,10 +80,12 @@ function Write-TextFile {
     Set-Content -LiteralPath $Path -Value $Content -Encoding utf8
 }
 
+}
+
 Describe 'Test.SequenceResolve step-snippet expansion' {
 
     It 'splices a top-level snippet reference into its steps' {
-        if (-not $yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
+        if (-not $script:yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
         $root = New-SnippetTestDir
         Write-TextFile (Join-Path $root '_snippets.yml') @"
 prime:
@@ -107,7 +110,7 @@ steps:
     }
 
     It 'splices a snippet referenced inside retry.steps' {
-        if (-not $yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
+        if (-not $script:yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
         $root = New-SnippetTestDir
         Write-TextFile (Join-Path $root '_snippets.yml') @"
 prime:
@@ -134,7 +137,7 @@ steps:
     }
 
     It 'expands a snippet that references another snippet' {
-        if (-not $yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
+        if (-not $script:yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
         $root = New-SnippetTestDir
         Write-TextFile (Join-Path $root '_snippets.yml') @"
 outer:
@@ -158,7 +161,7 @@ steps:
     }
 
     It 'throws on an unknown snippet name' {
-        if (-not $yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
+        if (-not $script:yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
         $root = New-SnippetTestDir
         Write-TextFile (Join-Path $root '_snippets.yml') @"
 known:
@@ -175,7 +178,7 @@ steps:
     }
 
     It 'throws on a snippet reference cycle' {
-        if (-not $yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
+        if (-not $script:yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
         $root = New-SnippetTestDir
         Write-TextFile (Join-Path $root '_snippets.yml') @"
 a:
@@ -193,7 +196,7 @@ steps:
     }
 
     It 'returns a snippet-free sequence with its steps unchanged' {
-        if (-not $yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
+        if (-not $script:yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
         $root = New-SnippetTestDir
         $seqPath = Join-Path $root 'seq.yml'
         Write-TextFile $seqPath @"
@@ -211,7 +214,7 @@ steps:
     }
 
     It 'lets a project snippet override a framework snippet of the same name' {
-        if (-not $yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
+        if (-not $script:yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
         $root = New-SnippetTestDir
         # Flat framework library + sequence under test/sequences/.
         Write-TextFile (Join-Path $root 'test/sequences/_snippets.yml') @"
@@ -237,7 +240,7 @@ steps:
     }
 
     It 'resolves the flat framework snippet lib from a flat project sequence' {
-        if (-not $yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
+        if (-not $script:yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
         $root = New-SnippetTestDir
         Write-TextFile (Join-Path $root 'test/sequences/_snippets.yml') @"
 firstLoginPrime:
@@ -256,7 +259,7 @@ steps:
     }
 
     It 'throws when two project libraries define the same snippet name' {
-        if (-not $yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
+        if (-not $script:yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
         $root = New-SnippetTestDir
         Write-TextFile (Join-Path $root 'project/a/test/_snippets.yml') @"
 dup:
@@ -308,7 +311,7 @@ Describe 'Resolve-SequencePath literal-path probing (Test-Path -LiteralPath)' {
 Describe 'ConvertTo-NormalizedSequence (F2 resource/component/workload bridge)' {
 
     It 'aliases resource -> baseline and concatenates component ++ workload into steps' {
-        if (-not $yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
+        if (-not $script:yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
         $root = New-SnippetTestDir
         $seqPath = Join-Path $root 'seq.yml'
         Write-TextFile $seqPath @"
@@ -334,7 +337,7 @@ workload:
     }
 
     It 'expands a snippet referenced inside the component list' {
-        if (-not $yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
+        if (-not $script:yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
         $root = New-SnippetTestDir
         Write-TextFile (Join-Path $root '_snippets.yml') @"
 prime:
@@ -364,7 +367,7 @@ workload:
     }
 
     It 'defaults a missing keystrokeMechanism to gui' {
-        if (-not $yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
+        if (-not $script:yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
         $root = New-SnippetTestDir
         $seqPath = Join-Path $root 'seq.yml'
         Write-TextFile $seqPath @"
@@ -380,7 +383,7 @@ workload:
     }
 
     It 'rejects the legacy baseline: key with a migration error' {
-        if (-not $yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
+        if (-not $script:yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
         $root = New-SnippetTestDir
         $seqPath = Join-Path $root 'seq.yml'
         Write-TextFile $seqPath @"
@@ -395,7 +398,7 @@ steps:
     }
 
     It 'rejects top-level steps: on a guest (resource) sequence' {
-        if (-not $yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
+        if (-not $script:yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
         $root = New-SnippetTestDir
         $seqPath = Join-Path $root 'seq.yml'
         Write-TextFile $seqPath @"
@@ -411,7 +414,7 @@ steps:
     }
 
     It 'leaves an orchestration (steps, no resource) sequence untouched' {
-        if (-not $yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
+        if (-not $script:yamlAvailable) { Set-ItResult -Skipped -Because 'powershell-yaml not installed'; return }
         $root = New-SnippetTestDir
         $seqPath = Join-Path $root 'seq.yml'
         Write-TextFile $seqPath @"
@@ -458,5 +461,35 @@ Describe 'Resolve-SequencePath flat (post-flatten) tier' {
         Assert-Equal -Expected (Join-Path $seqDir 'dual.yml') -Actual $resolvedGui -Because 'plain name -> dual.yml'
         $resolvedSsh = Resolve-SequencePath -SequencesDir $seqDir -Name 'dual.ssh' -RepoRoot $root
         Assert-Equal -Expected (Join-Path $seqDir 'dual.ssh.yml') -Actual $resolvedSsh -Because 'explicit .ssh name -> dual.ssh.yml'
+    }
+}
+
+Describe 'Get-StepLeadAction (what a step actually leads with)' {
+    # Nesting is detected structurally, by a `steps` key, so a wrapper verb added
+    # later is read correctly without this function learning its name.
+    It 'returns a plain step own action' {
+        Assert-Equal -Expected 'loadDiskSnapshot' -Actual (Get-StepLeadAction -Step @{ action = 'loadDiskSnapshot' })
+    }
+    It 'reads through a wrapper to its first inner step' {
+        $step = @{ action = 'retry'; steps = @(@{ action = 'loadDiskSnapshot' }, @{ action = 'sshWaitReady' }) }
+        Assert-Equal -Expected 'loadDiskSnapshot' -Actual (Get-StepLeadAction -Step $step)
+    }
+    It 'reads through nested wrappers' {
+        $step = @{ action = 'retry'; steps = @(@{ action = 'retry'; steps = @(@{ action = 'loadDiskSnapshot' }) }) }
+        Assert-Equal -Expected 'loadDiskSnapshot' -Actual (Get-StepLeadAction -Step $step)
+    }
+    It 'reports a wrapper that wraps nothing by its own name' {
+        # The retry handler fails an empty block itself, so `retry` is what runs.
+        Assert-Equal -Expected 'retry' -Actual (Get-StepLeadAction -Step @{ action = 'retry' })
+        Assert-Equal -Expected 'retry' -Actual (Get-StepLeadAction -Step @{ action = 'retry'; steps = @() })
+    }
+    It 'coerces a missing action to an empty string, matching nothing' {
+        Assert-Equal -Expected '' -Actual (Get-StepLeadAction -Step @{ description = 'no action here' })
+        Assert-Equal -Expected '' -Actual (Get-StepLeadAction -Step $null)
+    }
+    It 'reads an OrderedDictionary step, the shape the YAML loader produces' {
+        $inner = [ordered]@{ action = 'loadDiskSnapshot'; id = 'probe' }
+        $step  = [ordered]@{ action = 'retry'; steps = @($inner) }
+        Assert-Equal -Expected 'loadDiskSnapshot' -Actual (Get-StepLeadAction -Step $step)
     }
 }

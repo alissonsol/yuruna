@@ -274,6 +274,50 @@ footer.app a { color: var(--chrome-muted); }
 }
 /* === end page chrome ====================================================== */
 
+/* The page barrier (Y.block in common.js). Covers the viewport -- header, menu
+   and footer bar included -- because "no action is available" has to be true of
+   the whole page, not just the part with the table in it.
+   Above every other layer here: the fixed footer bar (3), sticky furniture (1),
+   the menu panel (15) and the unlock overlay (20). A menu left open, or a
+   prompt mid-answer, must not float over a destructive operation in flight.
+   Transparent until .shown: it blocks from the moment it exists, and only
+   starts LOOKING blocked once the work has outlasted the grace period. */
+.blocking {
+  position: fixed; top: 0; right: 0; bottom: 0; left: 0;
+  z-index: 25;
+  display: flex; align-items: center; justify-content: center;
+  background: transparent;
+}
+.blocking.shown { background: rgba(17, 24, 39, .45); }
+.blocking-box {
+  display: flex; align-items: center;
+  padding: .9rem 1.2rem; border-radius: 10px;
+  background: var(--bg-elevated); color: var(--fg-primary);
+  border: 1px solid var(--border);
+  box-shadow: 0 10px 28px rgba(0,0,0,.35);
+  /* Hidden rather than absent, so the panel's size is settled before it is
+     seen and it cannot appear to grow into place. */
+  visibility: hidden;
+}
+.blocking.shown .blocking-box { visibility: visible; }
+.blocking-text { margin-left: .6rem; font-size: .95rem; }
+/* A ring with one coloured quarter: it is the rotation that reads as motion, so
+   the ring has to be visibly incomplete. flex-shrink keeps it circular when the
+   message beside it competes for the row. */
+.spinner {
+  width: 1.5rem; height: 1.5rem; flex-shrink: 0;
+  border: 3px solid var(--border); border-top-color: var(--link);
+  border-radius: 50%;
+  animation: yuruna-spin .9s linear infinite;
+}
+@keyframes yuruna-spin { to { transform: rotate(360deg); } }
+/* Spinning is what this element says, so a reader who asked for no motion still
+   needs it to say something: it pulses in place instead of going still. */
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation: yuruna-throb 1.6s ease-in-out infinite; }
+}
+@keyframes yuruna-throb { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+
 main {
   max-width: 1100px; margin: 0 auto;
   padding: 1.25rem;
@@ -355,6 +399,27 @@ table.stashes th.pick input, table.stashes td.pick input { width: 1.15rem; heigh
 table.stashes tr:hover td.pick, table.stashes tr:hover td.row-actions { cursor: default; }
 .pick-all { display: inline-flex; align-items: center; cursor: pointer; }
 .pick-all input { margin-right: 0.35rem; }
+/* Sortable column headers. The button is stripped back to the header's own
+   type so the row still reads as a header rather than a strip of controls --
+   the affordance is the caret and the hover, not a raised button.
+   The caret is drawn from the cell's aria-sort, which is the same attribute a
+   screen reader announces: one source for the state, so the two renderings of
+   it cannot drift. The inactive columns keep a dimmed both-ways arrow, so which
+   headers can be sorted is visible before anything is clicked. */
+table.stashes th button.sort {
+  appearance: none; -webkit-appearance: none;
+  background: none; border: 0; padding: 0; margin: 0;
+  font: inherit; color: inherit; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 0.3rem;
+}
+table.stashes th button.sort::after { content: '\2195'; font-size: 0.8em; opacity: 0.35; }
+table.stashes th button.sort:hover { color: var(--fg-primary); }
+table.stashes th button.sort:hover::after { opacity: 0.7; }
+table.stashes th button.sort:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; border-radius: 3px; }
+table.stashes th[aria-sort="ascending"] button.sort,
+table.stashes th[aria-sort="descending"] button.sort { color: var(--fg-primary); }
+table.stashes th[aria-sort="ascending"] button.sort::after { content: '\25B2'; opacity: 1; }
+table.stashes th[aria-sort="descending"] button.sort::after { content: '\25BC'; opacity: 1; }
 
 .badge { display: inline-block; padding: 0.05rem 0.45rem; border-radius: 999px; font-size: 0.72rem; font-weight: 600; font-family: var(--mono); }
 .badge.complete { background: var(--pass-bg); color: var(--pass-fg); }
@@ -390,6 +455,14 @@ form.create textarea { min-height: 16rem; font-family: var(--mono); font-size: 0
 .tabs > * + * { margin-left: 0.5rem; }
 .tab { padding: 0.4rem 0.8rem; border: 1px solid var(--border-input); border-radius: 6px; cursor: pointer; background: var(--bg-elevated); }
 .tab.active { background: var(--primary-bg); color: var(--primary-fg); border-color: var(--primary-hover-bg); }
+
+/* The lab-token prompt. Framed rather than inline: it is the one part of these
+   pages that asks the operator for something, and it appears above content that
+   renders whether or not it is answered. */
+.login { border: 1px solid var(--border); border-radius: 6px; padding: 0.8rem; margin-bottom: 1rem; background: var(--bg-elevated); }
+.login .row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.login p { margin: 0.6rem 0 0; font-size: 0.85rem; }
+.login input { min-height: var(--touch-min); padding: 0.5rem 0.6rem; border-radius: 6px; border: 1px solid var(--border-input); background: var(--bg-elevated); color: var(--fg-primary); }
 
 .notice { padding: 0.6rem 0.8rem; border-radius: 6px; margin-bottom: 1rem; font-size: 0.9rem; }
 .notice.info { background: var(--running-bg); color: var(--running-fg); }

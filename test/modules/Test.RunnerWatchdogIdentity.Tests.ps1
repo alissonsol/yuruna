@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42e5f6a7-b8c9-4d02-9345-6e7f8a9b0c1d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,6 +37,7 @@
     The throw-free Should assertions run under Pester 4.10.1.
 #>
 
+BeforeAll {
 $here    = Split-Path -Parent $PSCommandPath
 $modPath = Join-Path $here 'Test.RunnerWatchdog.psm1'
 Import-Module $modPath -Force
@@ -44,7 +45,7 @@ Import-Module $modPath -Force
 # Unqualified and above the first Describe: an It block resolves a plain file-scope
 # name through its parent scope chain, but a $script:-qualified one binds to the test
 # framework's own script scope and reads back $null once the run phase starts.
-$IdentitySb = [scriptblock]::Create((Get-WatchdogInnerIdentityScript))
+$script:IdentitySb = [scriptblock]::Create((Get-WatchdogInnerIdentityScript))
 
 # --- REGION: AST helpers (file scope; referenced from It blocks)
 function Get-ModuleAst {
@@ -102,22 +103,32 @@ function Test-StopProcessGatedBy {
     return $true
 }
 
+}
+
 Describe 'Get-WatchdogInnerIdentityScript predicate distinguishes a reused PID' {
     It 'is true for a live process whose recorded StartTime matches' {
         $start = (Get-Process -Id $PID).StartTime.ToUniversalTime().ToString('o')
-        (& $IdentitySb $PID $start) | Should -Be $true
+        (& $script:IdentitySb $PID $start) | Should -Be $true
     }
     It 'is false for the SAME live PID with a different StartTime (a reused PID)' {
-        (& $IdentitySb $PID '2000-01-01T00:00:00.0000000Z') | Should -Be $false
+        (& $script:IdentitySb $PID '2000-01-01T00:00:00.0000000Z') | Should -Be $false
     }
     It 'is false for an exited PID' {
-        $proc = Start-Process -FilePath ([System.Environment]::ProcessPath) `
-            -ArgumentList '-NoProfile', '-Command', 'exit' -PassThru -WindowStyle Hidden
+        # -WindowStyle is a Windows-only Start-Process parameter: any other
+        # edition throws NotSupportedException on it, and the child there has
+        # no window to hide anyway.
+        $spawn = @{
+            FilePath     = [System.Environment]::ProcessPath
+            ArgumentList = @('-NoProfile', '-Command', 'exit')
+            PassThru     = $true
+        }
+        if ($IsWindows) { $spawn.WindowStyle = 'Hidden' }
+        $proc = Start-Process @spawn
         $proc.WaitForExit()
-        (& $IdentitySb $proc.Id '2026-01-01T00:00:00.0000000Z') | Should -Be $false
+        (& $script:IdentitySb $proc.Id '2026-01-01T00:00:00.0000000Z') | Should -Be $false
     }
     It 'is false when no arm-time start was recorded (identity unprovable)' {
-        (& $IdentitySb $PID '') | Should -Be $false
+        (& $script:IdentitySb $PID '') | Should -Be $false
     }
 }
 

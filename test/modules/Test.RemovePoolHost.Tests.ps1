@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42b8d1f3-6a4c-4e29-9b57-0d3e2f6a8c15
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,8 +32,9 @@
     5+); runs the script as a child so its `exit` codes are observable.
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
-$rph  = Join-Path (Split-Path -Parent $here) 'Remove-PoolHost.ps1'
+$script:rph  = Join-Path (Split-Path -Parent $here) 'pool/Remove-PoolHost.ps1'
 
 function Assert-True  { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
 function Assert-Equal { param($Expected, $Actual, [string]$Because = '') if ($Expected -ne $Actual) { throw "Expected '$Expected', got '$Actual'. $Because" } }
@@ -60,11 +61,13 @@ function New-RphFixture {
     return [pscustomobject]@{ Tmp = $tmp; Id = $id; InfoFile = $infoFile; CycleDir = $cycleDir; CfgPath = $cfgPath }
 }
 
+}
+
 Describe 'Remove-PoolHost' {
     It 'deletes a stale identity record and its replicated cycle folder' {
         $f = New-RphFixture
         try {
-            & pwsh -NoProfile -File $rph -HostId $f.Id -ConfigPath $f.CfgPath *> $null
+            & pwsh -NoProfile -File $script:rph -HostId $f.Id -ConfigPath $f.CfgPath *> $null
             Assert-Equal -Expected 0 -Actual $LASTEXITCODE -Because 'stale removal exits 0'
             Assert-True (-not (Test-Path -LiteralPath $f.InfoFile)) 'the identity record is deleted'
             Assert-True (-not (Test-Path -LiteralPath $f.CycleDir)) 'the replicated cycle folder is deleted'
@@ -78,7 +81,7 @@ Describe 'Remove-PoolHost' {
             # so this is literally what an operator copies off the panel.
             $dashed = $f.Id -replace '^(.{8})(.{4})(.{4})(.{4})(.{12})$', '$1-$2-$3-$4-$5'
             Assert-True ($dashed -ne $f.Id) 'the fixture id really is reformatted'
-            & pwsh -NoProfile -File $rph -HostId $dashed -ConfigPath $f.CfgPath *> $null
+            & pwsh -NoProfile -File $script:rph -HostId $dashed -ConfigPath $f.CfgPath *> $null
             Assert-Equal -Expected 0 -Actual $LASTEXITCODE -Because 'a dashed hostId is accepted'
             Assert-True (-not (Test-Path -LiteralPath $f.InfoFile)) 'it resolves to the same identity record'
             Assert-True (-not (Test-Path -LiteralPath $f.CycleDir)) 'and the same cycle folder'
@@ -88,7 +91,7 @@ Describe 'Remove-PoolHost' {
     It 'rejects a malformed hostId with a non-zero exit' {
         $f = New-RphFixture
         try {
-            & pwsh -NoProfile -File $rph -HostId 'not-a-uuid' -ConfigPath $f.CfgPath *> $null
+            & pwsh -NoProfile -File $script:rph -HostId 'not-a-uuid' -ConfigPath $f.CfgPath *> $null
             Assert-True ($LASTEXITCODE -ne 0) 'a bad hostId fails'
             Assert-True (Test-Path -LiteralPath $f.InfoFile) 'nothing is deleted on a bad id'
         } finally { Remove-Item -Recurse -Force -LiteralPath $f.Tmp -ErrorAction SilentlyContinue }
@@ -97,10 +100,10 @@ Describe 'Remove-PoolHost' {
     It 'refuses a recently-seen record without -Force, then deletes it with -Force' {
         $f = New-RphFixture -LastSeenUtc ([datetime]::UtcNow.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"))
         try {
-            & pwsh -NoProfile -File $rph -HostId $f.Id -ConfigPath $f.CfgPath *> $null
+            & pwsh -NoProfile -File $script:rph -HostId $f.Id -ConfigPath $f.CfgPath *> $null
             Assert-True ($LASTEXITCODE -ne 0) 'a record seen < 24h ago is refused without -Force'
             Assert-True (Test-Path -LiteralPath $f.InfoFile) 'the record survives the refusal'
-            & pwsh -NoProfile -File $rph -HostId $f.Id -ConfigPath $f.CfgPath -Force *> $null
+            & pwsh -NoProfile -File $script:rph -HostId $f.Id -ConfigPath $f.CfgPath -Force *> $null
             Assert-Equal -Expected 0 -Actual $LASTEXITCODE -Because '-Force overrides the recency guard'
             Assert-True (-not (Test-Path -LiteralPath $f.InfoFile)) 'the record is deleted with -Force'
         } finally { Remove-Item -Recurse -Force -LiteralPath $f.Tmp -ErrorAction SilentlyContinue }
@@ -111,7 +114,7 @@ Describe 'Remove-PoolHost' {
         try {
             Remove-Item -Recurse -Force -LiteralPath (Split-Path -Parent $f.InfoFile) -ErrorAction SilentlyContinue
             Remove-Item -Recurse -Force -LiteralPath $f.CycleDir -ErrorAction SilentlyContinue
-            & pwsh -NoProfile -File $rph -HostId $f.Id -ConfigPath $f.CfgPath *> $null
+            & pwsh -NoProfile -File $script:rph -HostId $f.Id -ConfigPath $f.CfgPath *> $null
             Assert-Equal -Expected 0 -Actual $LASTEXITCODE -Because 'a no-op removal still succeeds'
         } finally { Remove-Item -Recurse -Force -LiteralPath $f.Tmp -ErrorAction SilentlyContinue }
     }

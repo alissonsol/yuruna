@@ -4,9 +4,16 @@
 // content is ALWAYS placed via textContent / safe DOM APIs, never innerHTML (§7.4).
 
 // Backs Y.hostInfo below: one in-flight/settled promise for the life of the
-// page, so the three consumers of /api/hostinfo (header, footer, and a page
-// deciding whether delete is on offer) cost one request between them.
+// page, so the header and the footer cost one request between them.
 let hostInfoPromise = null;
+
+// Guards the one-time submit wiring in Y.initUnlock below.
+let unlockWired = false;
+
+// How long a blocked page waits before it LOOKS blocked (Y.block). Matches the
+// grace the other Yuruna service UIs give their wait indicator, so a fast
+// operation reads as instant on every page rather than as a flicker on one.
+const BLOCK_GRACE_MS = 250;
 
 const Y = {
   // el builds an element with attributes + text/children, escaping by
@@ -106,15 +113,23 @@ const Y = {
   // guessed path -- the caller must not destroy a stash it could not address.
   stashApiURL(view) { const tail = pathTail(view); return tail === null ? null : '/api/stashes/' + view.hostId + tail; },
 
+  // The same stash as the bulk-delete API's field form. Null for a malformed
+  // permalink, for the same reason stashApiURL is: a stash that cannot be
+  // addressed exactly must not be named in a request that destroys things.
+  stashKey(view) {
+    const tail = pathTail(view);
+    if (tail === null) return null;
+    const parts = tail.split('/').filter(Boolean); // [y, m, d, id]
+    if (parts.length !== 4) return null;
+    return { hostId: view.hostId, year: parts[0], month: parts[1], day: parts[2], id: parts[3] };
+  },
+
   shortHost(h) { return h ? h.slice(0, 8) : '?'; },
 
   // hostInfo reads /api/hostinfo once and hands every later caller the same
-  // answer: these are facts about the daemon and about this browser's route to
-  // it, and neither changes under a loaded page. Never rejects -- a failed read
-  // resolves to {} so a caller reads a missing field rather than wrapping the
-  // call in a catch of its own. Note what {} means for canDelete: a daemon that
-  // could not be asked leaves the delete controls off, which is the safe way to
-  // be wrong -- the page offers no control it cannot vouch for.
+  // answer: these are facts about the daemon, and they do not change under a
+  // loaded page. Never rejects -- a failed read resolves to {} so a caller reads
+  // a missing field rather than wrapping the call in a catch of its own.
   hostInfo() {
     if (!hostInfoPromise) {
       hostInfoPromise = Y.api('/api/hostinfo')
@@ -132,6 +147,59 @@ const Y = {
     const n = Y.el('div', { class: 'notice ' + kind, text });
     parent.prepend(n);
     return n;
+  },
+
+  // Y.block raises a barrier over the whole page and returns the function that
+  // takes it down.
+  //
+  //   const done = Y.block('Deleting…');
+  //   try { ...work... } finally { done(); }
+  //
+  // It exists for destructive work, where the page on screen is about to stop
+  // being true: a row whose bytes are already gone still offers Download, and
+  // the operator has no way to know the difference. Refusing every input for
+  // the duration is the only honest state -- the alternative is a page that
+  // takes an action and then explains it could not have worked.
+  //
+  // done() MUST run on the failure path too. A request that never lands would
+  // otherwise leave the page permanently unusable, which is a worse fault than
+  // the confusion the barrier prevents.
+  //
+  // The barrier swallows input from the moment it is raised; only its
+  // APPEARANCE waits out a grace period, so a delete that answers in 80 ms does
+  // not flash a scrim over the table. The two halves are deliberately not
+  // synchronized: looking live while refusing clicks merely feels unresponsive,
+  // whereas looking blocked while still accepting them is the exact bug this is
+  // here to fix.
+  block(message) {
+    if (typeof document === 'undefined' || !document.body) return function () { };
+    const box = Y.el('div', { class: 'blocking-box' },
+      Y.el('span', { class: 'spinner', 'aria-hidden': 'true' }),
+      // aria-live, so a screen reader announces the wait it cannot see. The
+      // text is the element's whole content, so polite is enough -- there is
+      // nothing here to interrupt.
+      Y.el('span', { class: 'blocking-text', role: 'status', 'aria-live': 'polite', text: message || 'Working…' }));
+    const overlay = Y.el('div', { class: 'blocking', 'aria-busy': 'true' }, box);
+    document.body.append(overlay);
+
+    // A scrim stops the pointer, not the keyboard: a Tab from wherever focus
+    // sat lands on a link underneath it, and the barrier would be a picture of
+    // a blocked page rather than a blocked one. Focus is parked and Tab
+    // swallowed for the duration, then given back to whatever held it.
+    const previousFocus = document.activeElement;
+    if (previousFocus && previousFocus.blur) previousFocus.blur();
+    const trap = (e) => { if (e.key === 'Tab') e.preventDefault(); };
+    document.addEventListener('keydown', trap, true);
+
+    let timer = setTimeout(() => { timer = null; overlay.className = 'blocking shown'; }, BLOCK_GRACE_MS);
+    return function () {
+      if (timer) { clearTimeout(timer); timer = null; }
+      document.removeEventListener('keydown', trap, true);
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+      // Only if it is still there to focus: the work that just finished may
+      // well have removed the row this button belonged to.
+      if (previousFocus && previousFocus.focus && previousFocus.parentNode) previousFocus.focus();
+    };
   },
 
   // initFooter wires the shared bottom footer bar (server IPs, last-loaded
@@ -255,6 +323,98 @@ const Y = {
     });
   },
 };
+
+// Y.proofUnlock is the one attempt to spend a control proof carried in from the
+// Yuruna hosts dashboard, started at load so the gate is already open by the
+// time a page reads it. Arriving through the dashboard's Extension hosts link is
+// then enough to delete -- the operator is not sent back to copy the rotating
+// code off a tile.
+//
+// Resolves false on anything short of a granted session (no fragment, expired
+// proof, aggregator unreachable), which leaves the lab-token prompt as the way
+// in. It is a shortcut, never the only door.
+Y.proofUnlock = (async function () {
+  const proof = takeControlProof();
+  if (!proof) return false;
+  try {
+    await Y.api('/api/unlock-proof', { method: 'POST', body: JSON.stringify({ proof }), headers: { 'Content-Type': 'application/json' } });
+    return true;
+  } catch (e) {
+    return false;
+  }
+})();
+
+// Y.session reports what this browser may do. The proof is awaited rather than
+// raced: reading the gate first would render the lab-token prompt for a device
+// that was about to be unlocked anyway, and the prompt would then be answered by
+// an operator who never needed to see it. A failed read reports a locked,
+// unconfigured gate -- a page must offer no control it cannot vouch for.
+Y.session = async function () {
+  await Y.proofUnlock;
+  try {
+    const s = await Y.api('/api/session');
+    return { authed: !!s.authed, labToken: !!s.labToken, configured: !!s.configured };
+  } catch (e) {
+    return { authed: false, labToken: false, configured: false };
+  }
+};
+
+// Y.initUnlock wires the shared lab-token prompt: it shows the form only when
+// the gate is on and this device is not through it, names the case where no gate
+// is configured at all, and re-runs the page's own render after a successful
+// unlock so the controls appear without a reload. Returns the session it read,
+// so a caller gets the answer and the wiring from one call.
+Y.initUnlock = async function (onUnlocked) {
+  const sess = await Y.session();
+  const login = document.getElementById('login');
+  const unconfigured = document.getElementById('gate-unconfigured');
+  if (login) login.hidden = !(sess.labToken && !sess.authed);
+  if (unconfigured) unconfigured.hidden = sess.configured;
+  // The form is wired once for the page's life: initUnlock is called again after
+  // every unlock and every reload, and a second listener on the same form would
+  // submit the code twice.
+  const form = document.getElementById('login-form');
+  if (form && !unlockWired) {
+    unlockWired = true;
+    form.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      const field = document.getElementById('lab-token');
+      const err = document.getElementById('login-error');
+      if (err) err.textContent = '';
+      try {
+        // Normalised here as well as at the daemon, so a code read off the tile
+        // in capitals is not a round trip that comes back "incorrect".
+        await Y.api('/api/login', {
+          method: 'POST',
+          body: JSON.stringify({ labToken: field.value.trim().toLowerCase() }),
+          headers: { 'Content-Type': 'application/json' },
+        });
+        field.value = '';
+        if (typeof onUnlocked === 'function') await onUnlocked();
+      } catch (e) {
+        if (err) err.textContent = e.message;
+      }
+    });
+  }
+  return sess;
+};
+
+// takeControlProof reads the #yctl=<proof> fragment the aggregator's /go/stash
+// redirect leaves behind and strips it from the address bar, so a proof is spent
+// once and does not survive in history or in a copied URL. A fragment never
+// reaches a server, which is why the handoff uses one.
+function takeControlProof() {
+  const m = /(?:^|[#&])yctl=([^&]+)/.exec((typeof location !== 'undefined' && location.hash) || '');
+  if (!m) return '';
+  try {
+    if (typeof history !== 'undefined' && history.replaceState) {
+      history.replaceState(null, document.title, location.pathname + location.search);
+    }
+  } catch (e) {
+    // No history API: the proof still works, it just stays in the address bar.
+  }
+  return decodeURIComponent(m[1]);
+}
 
 // The header and its menu are on every page of this service, and not every page
 // has a script that would wire them, so they are wired here instead of being

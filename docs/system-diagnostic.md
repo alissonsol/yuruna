@@ -102,15 +102,15 @@ unreachable one does.
 
 The OCI counterpart of the package-mirror probe above, and for the same reason:
 image pulls leave through a different door than apt does, and a cache can be
-perfectly healthy on one while unusable on the other.
+healthy on one while unusable on the other.
 
-What makes this worth its own probe is that the obvious check is blind here.
+This earns its own probe because the obvious check is blind here.
 `GET /v2/` is answered out of the registry's own process and comes back in
 single-digit milliseconds no matter how badly the pull-through behind it is
 stalled; a MANIFEST request is what re-runs the upstream sync, so it is the only
 request shaped like the pull it stands in for. A tag, not a digest — digests are
-immutable and answered locally, which is exactly why they stay fast through an
-outage. The `Accept:` header is spelled out because a registry answers a manifest
+immutable and answered locally, so they stay fast through an outage. The
+`Accept:` header is spelled out because a registry answers a manifest
 request that states no preference with whatever it considers the default, which
 for a multi-arch tag is not the index a pull resolves.
 
@@ -133,7 +133,7 @@ runs several times per cycle per machine, so measuring directly every time would
 make the diagnostic a meaningful consumer of the very resource whose exhaustion
 it exists to detect. The cache probes itself on a cadence that budgets for it and
 publishes the result; reading that costs nothing. The reading's timestamp is
-printed alongside it, because a reading minutes old is still evidence but is not
+printed alongside, because a reading minutes old is still evidence but not
 a live one. See the [zot manifest canary
 exporter](vmconfig.md#zot-manifest-canary-exporter) for the publishing side.
 
@@ -255,6 +255,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.11
+Last review: 2026.08.14
 
 Back to [Yuruna](../README.md)

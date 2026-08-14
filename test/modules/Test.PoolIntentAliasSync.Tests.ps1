@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42d9f5a7-c3e4-4b02-8f56-8a7b9c0d1e23
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,6 +35,7 @@
     Run: pwsh -NoProfile -File test/modules/Test.PoolIntentAliasSync.Tests.ps1
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 
 function Assert-True  { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
@@ -43,6 +44,8 @@ function Assert-Equal { param($Expected, $Actual, [string]$Because = '') if ($Ex
 
 Import-Module (Join-Path $here 'Test.Ssh.psm1')          -Global -Force -DisableNameChecking
 Import-Module (Join-Path $here 'Test.CachingProxyService.psm1')         -Force -DisableNameChecking
+
+}
 
 Describe 'Sync-PoolIntentAliasOnProxy guards' {
     BeforeEach { $env:YURUNA_CACHING_PROXY_SERVICE_IP = '' }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42d6f5e4-b3a2-4c91-8076-2e3f4a5b6c92
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -617,6 +617,32 @@ function Register-BuiltinRecoveryHandler {
                 'Confirm the prior cycle freed host CPU / memory (no orphaned VM holding resources)',
                 'Check the host hypervisor service + free disk for the VM store',
                 'Retry the cycle; if it reproduces deterministically, treat as operator_intervention_required'
+            )
+        }
+    }
+
+    Register-RecoveryHandler -FailureClass 'payload_unavailable' -Handler {
+        param([hashtable]$c)
+        return @{
+            Recommendation = 'retry_with_backoff'
+            Rationale      = "payload_unavailable on $($c.Context.vmName): the guest ran the fetch wrapper and no source served the script, so nothing executed -- there is no script here to debug, and no guest state to distrust. The usual cause is a host that renumbered under DHCP while this guest still held the old address; the guest re-asks the pool directory and normally recovers within seconds."
+            Actions        = @(
+                'Retry after a short backoff -- the host is usually reachable again by the next attempt',
+                'If it persists, check that this host publishes its address to the pool directory and that the guest can reach that directory',
+                'Where the log also shows the GitHub fallback returning 404: that leg cannot serve a private repository without a token, so the host is the only working source and its reachability is the whole problem'
+            )
+        }
+    }
+
+    Register-RecoveryHandler -FailureClass 'ip_not_discovered' -Handler {
+        param([hashtable]$c)
+        return @{
+            Recommendation = 'retry_with_backoff'
+            Rationale      = "ip_not_discovered on $($c.Context.vmName): no host-side probe could name an address for the guest, so the step never reached it. Address discovery rests on caches that age out and daemons that publish late, so the same call usually answers seconds later. Distinct from network_timeout, where an address WAS found and the path to it failed, and from host_network_degraded, which does not clear on its own."
+            Actions        = @(
+                'Retry after a short backoff -- the address usually appears with no operator action',
+                'If it persists, confirm the guest booted and its NIC is attached to the expected network',
+                'Check the host-side lease / neighbour source the driver reads for a stale or missing entry'
             )
         }
     }

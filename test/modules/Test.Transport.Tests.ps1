@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42c1a7e9-5b62-4d38-9a04-7e2f1c6b8d90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,10 +23,11 @@
     multi-read handshake, independent of the per-read socket ReceiveTimeout.
 .DESCRIPTION
     Read-VncBuffer is pure over a System.IO.Stream, so a MemoryStream drives it
-    with no socket. Throw-based assertions; run under Pester 4.10.1 (the top-level
-    Assert-* helpers are not visible in It blocks under Pester 5's scope split).
+    with no socket. Throw-based assertions, with the Assert-* helpers in the
+    file's BeforeAll so they are visible to the It blocks under Pester 5.
 #>
 
+BeforeAll {
 $here       = Split-Path -Parent $PSCommandPath
 $modulePath = Join-Path $here 'Test.Transport.psm1'
 Import-Module $modulePath -Force -DisableNameChecking -ErrorAction SilentlyContinue
@@ -42,6 +43,68 @@ function Assert-Throw {
         }
     }
     if (-not $threw) { throw "Expected a throw. $Because" }
+}
+
+
+function Get-TransportAst {
+    $errs = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($modulePath, [ref]$null, [ref]$errs)
+    if ($errs) { throw "Parse errors in $($modulePath): $($errs[0].Message)" }
+    return $ast
+}
+function Get-TransportFunctionText {
+    param([string]$Name)
+    $fn = @((Get-TransportAst).FindAll({ param($n)
+        $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $Name
+    }, $true))
+    if ($fn.Count -eq 0) { throw "Function '$Name' not found in Test.Transport.psm1" }
+    return $fn[0].Extent.Text
+}
+
+# --- Held-key release on an interrupted VNC send -----------------------------
+# Shadows the module-internal transport primitives inside Test.Transport's own
+# session state, so the press/release stream is observable with no socket. This
+# has to sit in the same scope as the Import-Module above: the shadowing runs
+# against the imported module object, which no other scope can resolve.
+$script:TransportModule = Get-Module Test.Transport
+& $script:TransportModule {
+    function script:Connect-VNC {
+        # The unused parameters are the point: the code under test binds these
+        # by name, so the stub has to accept the same signature as the real
+        # primitive. It hands back a sentinel instead of opening a socket.
+        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+            Justification = 'Shadow stub; the signature must match the real Connect-VNC for the caller to bind, and there is nothing to connect to.')]
+        param($VMName, $Port)
+        [pscustomobject]@{ Fake = $true }
+    }
+    function script:Disconnect-VNC { $script:disconnected = $true }
+    function script:Send-VncKeyEvent {
+        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+            Justification = 'Shadow stub; $Client is the connection handle the real primitive writes to, and this one records the press/release stream instead.')]
+        param($Client, $KeySym, $Down)
+        $script:n++
+        if ($script:failAt -gt 0 -and $script:n -eq $script:failAt) {
+            throw [System.IO.IOException]::new('injected mid-send failure')
+        }
+        [void]$script:rec.Add([pscustomobject]@{ Sym = [int]$KeySym; Down = [bool]$Down })
+    }
+}
+function Reset-KeyRecording {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Clears three in-memory recording variables inside the test module scope; nothing outside this file is touched and -WhatIf on a fixture reset is meaningless.')]
+    param([int]$FailAt = 0)
+    & $script:TransportModule { param($f)
+        $script:rec = [System.Collections.ArrayList]::new()
+        $script:n = 0; $script:failAt = $f; $script:disconnected = $false } $FailAt
+}
+# Any keysym with more presses than releases is a key still down in the guest,
+# which the guest kernel auto-repeats at the console default until the VM dies.
+function Get-HeldKeySym {
+    $rec = & $script:TransportModule { , $script:rec.ToArray() }
+    $tally = @{}
+    foreach ($e in $rec) { $tally[$e.Sym] = ($tally[$e.Sym] ?? 0) + ($e.Down ? 1 : -1) }
+    return @($tally.GetEnumerator() | Where-Object { $_.Value -ne 0 } | ForEach-Object { $_.Key })
+}
 }
 
 Describe 'Read-VncBuffer wall-clock deadline' {
@@ -78,20 +141,6 @@ Describe 'Read-VncBuffer wall-clock deadline' {
 # A flattened Ctrl-U types a bare 'u' into the guest instead of killing the
 # line, which looks like success at every layer.
 
-function Get-TransportAst {
-    $errs = $null
-    $ast = [System.Management.Automation.Language.Parser]::ParseFile($modulePath, [ref]$null, [ref]$errs)
-    if ($errs) { throw "Parse errors in $($modulePath): $($errs[0].Message)" }
-    return $ast
-}
-function Get-TransportFunctionText {
-    param([string]$Name)
-    $fn = @((Get-TransportAst).FindAll({ param($n)
-        $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $Name
-    }, $true))
-    if ($fn.Count -eq 0) { throw "Function '$Name' not found in Test.Transport.psm1" }
-    return $fn[0].Extent.Text
-}
 
 Describe 'Control-chord support across the Send-Key backends' {
 
@@ -153,49 +202,6 @@ Describe 'Control-chord support across the Send-Key backends' {
     }
 }
 
-# --- Held-key release on an interrupted VNC send -----------------------------
-# Shadows the module-internal transport primitives inside Test.Transport's own
-# session state, so the press/release stream is observable with no socket. Kept
-# after the Describes above, none of which touch these three functions.
-$script:TransportModule = Get-Module Test.Transport
-& $script:TransportModule {
-    function script:Connect-VNC {
-        # The unused parameters are the point: the code under test binds these
-        # by name, so the stub has to accept the same signature as the real
-        # primitive. It hands back a sentinel instead of opening a socket.
-        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
-            Justification = 'Shadow stub; the signature must match the real Connect-VNC for the caller to bind, and there is nothing to connect to.')]
-        param($VMName, $Port)
-        [pscustomobject]@{ Fake = $true }
-    }
-    function script:Disconnect-VNC { $script:disconnected = $true }
-    function script:Send-VncKeyEvent {
-        [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
-            Justification = 'Shadow stub; $Client is the connection handle the real primitive writes to, and this one records the press/release stream instead.')]
-        param($Client, $KeySym, $Down)
-        $script:n++
-        if ($script:failAt -gt 0 -and $script:n -eq $script:failAt) {
-            throw [System.IO.IOException]::new('injected mid-send failure')
-        }
-        [void]$script:rec.Add([pscustomobject]@{ Sym = [int]$KeySym; Down = [bool]$Down })
-    }
-}
-function Reset-KeyRecording {
-    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
-        Justification = 'Clears three in-memory recording variables inside the test module scope; nothing outside this file is touched and -WhatIf on a fixture reset is meaningless.')]
-    param([int]$FailAt = 0)
-    & $script:TransportModule { param($f)
-        $script:rec = [System.Collections.ArrayList]::new()
-        $script:n = 0; $script:failAt = $f; $script:disconnected = $false } $FailAt
-}
-# Any keysym with more presses than releases is a key still down in the guest,
-# which the guest kernel auto-repeats at the console default until the VM dies.
-function Get-HeldKeySym {
-    $rec = & $script:TransportModule { , $script:rec.ToArray() }
-    $tally = @{}
-    foreach ($e in $rec) { $tally[$e.Sym] = ($tally[$e.Sym] ?? 0) + ($e.Down ? 1 : -1) }
-    return @($tally.GetEnumerator() | Where-Object { $_.Value -ne 0 } | ForEach-Object { $_.Key })
-}
 
 Describe 'VNC sends never leave a key held in the guest' {
 

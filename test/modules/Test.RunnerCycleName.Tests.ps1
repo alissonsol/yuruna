@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42f6b7c8-9d0a-4b1c-8e2d-3f4a5b6c7d8e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,6 +31,7 @@
     so this runs under Pester 4.10.1.
 #>
 
+BeforeAll {
 $here       = Split-Path -Parent $PSCommandPath
 $repoRoot   = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
 $modulePath = Join-Path $repoRoot 'test/modules/Test.RunnerInnerLoop.psm1'
@@ -71,6 +72,8 @@ function Get-CommandCallCount {
 }
 
 $rootAst = Get-ModuleAst -Path $modulePath
+
+}
 
 Describe 'runner-cycle-name -- rename-stable cycle base name is derived by one helper' {
     It 'defines a Get-StableCycleBaseName helper' {

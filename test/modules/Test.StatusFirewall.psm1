@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42d7e8f9-a0b1-4c23-8d45-6e7f80912a34
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -193,7 +193,11 @@ function Set-YurunaStatusFirewallRule {
             # ufw needs root even to READ status. Root -> no prefix; otherwise sudo,
             # and 'sudo -n' in self-heal so an unprivileged runner fails fast (no prompt).
             $uid = "$(& id -u 2>$null)".Trim()
-            $prefix = if ($uid -eq '0') { @() } elseif ($NonInteractive) { @('sudo', '-n') } else { @('sudo') }
+            # @(...) around the if is load-bearing: a bare if-expression yielding a
+            # ONE-element array unrolls to a scalar string, and 'sudo' + @('ufw','status')
+            # then string-concatenates into the single bogus command 'sudoufw status'
+            # instead of extending the argument list.
+            $prefix = @(if ($uid -eq '0') { @() } elseif ($NonInteractive) { @('sudo', '-n') } else { @('sudo') })
             $st = Invoke-YurunaFirewallNative -CommandLine ($prefix + @($ufwExe, 'status'))
             if ($st.ExitCode -ne 0) {
                 # Unprivileged self-heal can't even read ufw -> INDETERMINATE (not

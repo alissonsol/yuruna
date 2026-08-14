@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42d5e8a2-b1c4-4f09-a6d3-7e8f0a1b2c3d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -73,6 +73,27 @@ function Initialize-SequenceFailureStateStore {
     # fault with a different owner, so the class is corrected from this signal
     # rather than from the registry default.
     $Store['StepGuestAddressUnresolved'] = $null
+    # Set by the ssh verbs when the session died mid-command instead of the
+    # guest reporting a status. The verb registry classifies those verbs by
+    # their COMMON failure -- a guest command that exited non-zero -- and a
+    # dropped transport is not that: nothing is known about the command, which
+    # may have completed, and the fault is on the path rather than in the
+    # script. The class is corrected from this signal so the record names the
+    # right fault and reaches the recovery that suits it.
+    $Store['StepGuestTransportLost'] = $null
+    # Set by the ssh verbs when a DETACHED run could not be accounted for: the
+    # supervisor was reached but the payload it was watching left no exit
+    # status. Distinct from a dropped transport, which says only that the host
+    # stopped watching -- here the work itself is gone, so re-attaching cannot
+    # recover it and the honest report is that the step's outcome is unknown.
+    $Store['StepGuestRunLost'] = $null
+    # Set by the ssh verbs when the guest ran the fetch wrapper but no source
+    # served the script. The verb registry classifies these verbs by their COMMON
+    # failure -- a guest command that exited non-zero -- and this is the opposite:
+    # no command ran at all. The wrapper says so in its own output; without this
+    # signal that statement is discarded and an operator is sent to debug a script
+    # that never executed.
+    $Store['StepGuestPayloadUnavailable'] = $null
 }
 
 $script:SeqFailReg = New-YurunaRegistry -Name 'SequenceFailureState'
@@ -179,8 +200,48 @@ function New-SequenceFailureRecord {
         # failure pattern is evidence the guest DID run and announced its own
         # failure, which outranks an address signal left over from the attempt.
         elseif ($fail.StepGuestAddressUnresolved) {
+            # Discovery lateness, not a dead path: the address source publishes late
+            # or its cache aged out, and the same lookup usually answers seconds
+            # later. Retrying is what clears it, and the step never reached the guest
+            # so replaying it puts nothing in doubt -- the same reasoning that keeps
+            # this class on the warm-resume allow-list and routes it to
+            # retry_with_backoff in remediation.
             $failureClass = 'ip_not_discovered'
-            [string[]]$suggested = @('pause_and_inspect')
+            [string[]]$suggested = @('retry_with_backoff')
+        }
+        # The session dropped while the command was running, so the registry's
+        # script_error is describing a script whose outcome nobody observed.
+        # network_timeout is both the honest name and the one an in-place warm
+        # resume acts on -- re-running the sequence from its last-good step on
+        # the same live guest is exactly the right answer to a path that broke
+        # under it, and is unreachable while the record says script_error.
+        # Ordered after the address check on purpose: an unresolved address is
+        # the more specific fault, and the two cannot both be true anyway --
+        # the ssh driver returns before dialing when it has no address.
+        elseif ($fail.StepGuestTransportLost) {
+            $failureClass = 'network_timeout'
+            [string[]]$suggested = @('reconnect','retry_with_backoff')
+        }
+        # Ordered after the transport check: a dropped link is the recoverable
+        # case and the common one, and a run is only judged lost after a
+        # supervisor was actually reached and could not account for it. Not
+        # network_timeout -- reconnecting is precisely what will not help -- and
+        # not script_error either, because no script reported anything.
+        elseif ($fail.StepGuestRunLost) {
+            $failureClass = 'instrumentation_failure'
+            [string[]]$suggested = @('restart_from_snapshot','pause_and_inspect')
+        }
+        # Ordered last of the guest-side corrections, and that ordering is what
+        # makes it safe: this signal is read out of output the guest sent, so
+        # reaching it means the session held and the wrapper spoke. The three
+        # above describe the ways that does NOT happen -- no address, a dropped
+        # link, a run nobody could account for -- and each is the more specific
+        # fault where both could look true. What is left is a guest that ran the
+        # wrapper and was served nothing, so no script executed and the registry's
+        # script_error names a thing that does not exist.
+        elseif ($fail.StepGuestPayloadUnavailable) {
+            $failureClass = 'payload_unavailable'
+            [string[]]$suggested = @('retry_with_backoff')
         }
         $label = $fail.LastFailureLabel
         $desc  = $fail.LastFailureDescription

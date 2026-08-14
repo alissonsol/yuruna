@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42c1d8e4-6b7a-4c39-9f52-0a1b2c3d4e5f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,6 +36,7 @@
     runs under the OS-bundled Pester 3.4 and under Pester 5+.
 #>
 
+BeforeAll {
 $here       = Split-Path -Parent $PSCommandPath
 $modulePath = Join-Path $here 'Test.Recovery.psm1'
 Import-Module $modulePath -Force -DisableNameChecking
@@ -67,6 +68,8 @@ function New-CrashedCycleFixture {
         [System.IO.File]::WriteAllText((Join-Path $folder '.incomplete'), $payload)
     }
     return @{ LogDir = $logDir; Folder = $folder }
+}
+
 }
 
 Describe 'Boot recovery detects a crashed cycle through its hidden marker' {

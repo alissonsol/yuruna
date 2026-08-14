@@ -17,21 +17,17 @@ import (
 // footer needs no page-specific data shape — and it is intentionally cheap so
 // the footer's periodic poll stays trivial.
 //
-// canDelete/clientIp answer, for THIS caller, the source gate the delete
-// handler applies (deleteauth.go). Without them a page can only offer a Delete
-// button and let the operator discover the refusal by pressing it — the daemon
-// knows the answer while it is rendering the list, so it says so. Telling a
-// caller its own source address discloses nothing it could not learn by other
-// means; the set that WOULD be allowed stays in the daemon's log.
-func (s *Server) handleHostInfo(w http.ResponseWriter, r *http.Request) {
-	src := clientIP(r)
+// Whether the caller may delete is NOT here: that is a question about a
+// credential this browser holds, not about the host, and it changes the moment
+// a session is unlocked while these facts do not change at all. /api/session
+// answers it, which is also what keeps the footer's poll from re-deciding the
+// page's controls.
+func (s *Server) handleHostInfo(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":          true,
 		"localHostId": s.localHostID,
 		"version":     s.version,
 		"serverIps":   serverIPLines(),
-		"clientIp":    src,
-		"canDelete":   s.deleteAllowed(src),
 	})
 }
 

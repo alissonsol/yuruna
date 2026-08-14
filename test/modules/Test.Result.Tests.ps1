@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42c1a9b8-7d6e-4f52-90a3-1b2c3d4e5f61
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,6 +28,7 @@
     'unknown'. Throw-based assertions. Runs under Pester 4.10.1.
 #>
 
+BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
 $autoDir  = Join-Path $repoRoot 'automation'
@@ -41,7 +42,9 @@ function Assert-True  { param($Condition, [string]$Because = '') if (-not $Condi
 
 # The automation-domain failureClass vocabulary (the ValidateSet in
 # New-YurunaResultManifest). 'ok' is the non-failure member.
-$automationFailureClasses = @('config_error', 'cluster_unreachable', 'chart_invalid', 'tool_failed', 'unknown')
+$script:automationFailureClasses = @('config_error', 'cluster_unreachable', 'chart_invalid', 'tool_failed', 'unknown')
+
+}
 
 Describe 'ConvertTo-CanonicalFailureClass -- automation-to-canonical failure mapping' {
     It "maps 'ok' through unchanged (a success is not a routable failure)" {
@@ -50,7 +53,7 @@ Describe 'ConvertTo-CanonicalFailureClass -- automation-to-canonical failure map
 
     It 'maps every automation failure class to a canonical enum member' {
         $canonical = Get-FailureClassEnum
-        foreach ($c in $automationFailureClasses) {
+        foreach ($c in $script:automationFailureClasses) {
             $mapped = ConvertTo-CanonicalFailureClass $c
             Assert-True ($canonical -contains $mapped) "'$c' -> '$mapped' must be a canonical value"
         }
@@ -58,7 +61,7 @@ Describe 'ConvertTo-CanonicalFailureClass -- automation-to-canonical failure map
 
     It 'maps every automation failure class to a value the dispatcher has a handler for' {
         $registered = Get-RegisteredFailureClass
-        foreach ($c in $automationFailureClasses) {
+        foreach ($c in $script:automationFailureClasses) {
             $mapped = ConvertTo-CanonicalFailureClass $c
             Assert-True ($registered -contains $mapped) "'$c' -> '$mapped' must have a registered remediation handler"
         }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42e3f4a5-b6c7-4d89-9e01-3f4a5b6c7d8e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,6 +24,7 @@
     integration-verified against a real bare repo.
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.PoolSync.psm1') -Force -DisableNameChecking -ErrorAction SilentlyContinue
 try { Import-Module powershell-yaml -Force -ErrorAction Stop } catch { Write-Warning 'powershell-yaml unavailable.' }
@@ -35,10 +36,12 @@ function Assert-Null  { param($Actual, [string]$Because = '') if ($null -ne $Act
 # Pure value fixtures belong at file scope, above the first Describe: a Describe body
 # is executed during the discovery pass and everything it declares is torn down before
 # the first It runs, so a doc built inside one reaches the assertion as $null.
-$MemberIntent = [ordered]@{ schemaVersion = 1; pools = @(
+$script:MemberIntent = [ordered]@{ schemaVersion = 1; pools = @(
     [ordered]@{ poolId = 'lab';  members = @('42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', '42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'); desiredState = 'paused' },
     [ordered]@{ poolId = 'prod'; members = @('42cccccccccccccccccccccccccccccc'); desiredState = 'run' }
 ) }
+
+}
 
 Describe 'Get-YurunaPoolConfig (feature on/off)' {
     It 'is off when there is no pool block' {
@@ -70,14 +73,14 @@ Describe 'Get-YurunaPoolConfig (feature on/off)' {
 
 Describe 'Resolve-YurunaPoolForHost (member -> pool)' {
     It 'finds the pool whose members contain the hostId' {
-        Assert-Equal -Expected 'lab'  -Actual (Resolve-YurunaPoolForHost -Intent $MemberIntent -HostId '42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb').poolId -Because 'member of lab'
-        Assert-Equal -Expected 'prod' -Actual (Resolve-YurunaPoolForHost -Intent $MemberIntent -HostId '42cccccccccccccccccccccccccccccc').poolId -Because 'member of prod'
+        Assert-Equal -Expected 'lab'  -Actual (Resolve-YurunaPoolForHost -Intent $script:MemberIntent -HostId '42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb').poolId -Because 'member of lab'
+        Assert-Equal -Expected 'prod' -Actual (Resolve-YurunaPoolForHost -Intent $script:MemberIntent -HostId '42cccccccccccccccccccccccccccccc').poolId -Because 'member of prod'
     }
     It 'returns null for a non-member' {
-        Assert-Null (Resolve-YurunaPoolForHost -Intent $MemberIntent -HostId '42ffffffffffffffffffffffffffffff') 'non-member'
+        Assert-Null (Resolve-YurunaPoolForHost -Intent $script:MemberIntent -HostId '42ffffffffffffffffffffffffffffff') 'non-member'
     }
     It 'returns null for empty hostId, null intent, or no pools key' {
-        Assert-Null (Resolve-YurunaPoolForHost -Intent $MemberIntent -HostId '') 'empty hostId'
+        Assert-Null (Resolve-YurunaPoolForHost -Intent $script:MemberIntent -HostId '') 'empty hostId'
         Assert-Null (Resolve-YurunaPoolForHost -Intent $null -HostId '42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa') 'null intent'
         Assert-Null (Resolve-YurunaPoolForHost -Intent ([ordered]@{ schemaVersion = 1 }) -HostId '42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa') 'no pools key'
     }

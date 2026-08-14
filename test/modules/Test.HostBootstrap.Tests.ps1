@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 426cdd12-5b35-491f-813f-b70187a4d8bd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,6 +34,7 @@
     and Pester 5+. Run: Invoke-Pester -Path test/modules/Test.HostBootstrap.Tests.ps1
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.HostBootstrap.psm1') -Force -DisableNameChecking
 
@@ -45,7 +46,7 @@ function Assert-True  { param($Condition, [string]$Because='') if (-not $Conditi
 # (discovery, then run), so a tree built here would be created and deleted
 # during discovery and every It would then import a driver that no longer
 # exists. $PID is stable across the two passes.
-$bootRoot = Join-Path ([System.IO.Path]::GetTempPath()) "yuruna-hostbootstrap-tests-$PID"
+$script:bootRoot = Join-Path ([System.IO.Path]::GetTempPath()) "yuruna-hostbootstrap-tests-$PID"
 
 # Builds <Root>/host/<short-host>/modules/Yuruna.Host.psm1 -- the layout
 # Initialize-YurunaHost searches -- spelled out literally rather than through
@@ -101,15 +102,17 @@ function Get-ThrownMessage {
     return ''
 }
 
+}
+
 Describe 'Initialize-YurunaHost' {
 
     BeforeAll {
-        New-Item -ItemType Directory -Path $bootRoot -Force | Out-Null
+        New-Item -ItemType Directory -Path $script:bootRoot -Force | Out-Null
     }
 
     AfterAll {
         Remove-Module -Name 'Yuruna.Host' -Force -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath $bootRoot -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $script:bootRoot -Recurse -Force -ErrorAction SilentlyContinue
     }
 
     Context 'driver resolution and import' {
@@ -120,7 +123,7 @@ Describe 'Initialize-YurunaHost' {
             @{ hostType = 'host.macos.utm';       shortHost = 'macos.utm' }
         ) {
             param($hostType, $shortHost)
-            $repoRoot = Join-Path $bootRoot ("repo-" + ($shortHost -replace '\.', '-'))
+            $repoRoot = Join-Path $script:bootRoot ("repo-" + ($shortHost -replace '\.', '-'))
             $expected = New-HostDriverStub -Root $repoRoot -HostType $hostType -Marker "driver-$shortHost"
 
             $returned = Initialize-YurunaHost -RepoRoot $repoRoot -HostType $hostType
@@ -136,7 +139,7 @@ Describe 'Initialize-YurunaHost' {
             $currentHost = Get-HostType
             Assert-True ([bool]$currentHost) 'Get-HostType must identify this platform, or the default is meaningless'
 
-            $repoRoot = Join-Path $bootRoot 'repo-default-hosttype'
+            $repoRoot = Join-Path $script:bootRoot 'repo-default-hosttype'
             $expected = New-HostDriverStub -Root $repoRoot -HostType $currentHost -Marker 'driver-from-default'
 
             $returned = Initialize-YurunaHost -RepoRoot $repoRoot
@@ -146,7 +149,7 @@ Describe 'Initialize-YurunaHost' {
         }
 
         It 'reloads the driver when the file has changed' {
-            $repoRoot = Join-Path $bootRoot 'repo-reload'
+            $repoRoot = Join-Path $script:bootRoot 'repo-reload'
             $null = New-HostDriverStub -Root $repoRoot -HostType 'host.windows.hyper-v' -Marker 'driver-v1'
             $null = Initialize-YurunaHost -RepoRoot $repoRoot -HostType 'host.windows.hyper-v'
             Assert-Equal -Expected 'driver-v1' -Actual (Get-YurunaHostStubMarker)
@@ -161,7 +164,7 @@ Describe 'Initialize-YurunaHost' {
     Context 'missing driver' {
 
         It 'throws, naming the host type and the path it searched, when the driver is absent' {
-            $repoRoot = Join-Path $bootRoot 'repo-no-driver'
+            $repoRoot = Join-Path $script:bootRoot 'repo-no-driver'
             New-Item -ItemType Directory -Path $repoRoot -Force | Out-Null
 
             $message = Get-ThrownMessage { Initialize-YurunaHost -RepoRoot $repoRoot -HostType 'host.ubuntu.kvm' }
@@ -173,7 +176,7 @@ Describe 'Initialize-YurunaHost' {
         }
 
         It 'throws for a host type the repo has no folder for' {
-            $repoRoot = Join-Path $bootRoot 'repo-unknown-host'
+            $repoRoot = Join-Path $script:bootRoot 'repo-unknown-host'
             New-Item -ItemType Directory -Path $repoRoot -Force | Out-Null
 
             $message = Get-ThrownMessage { Initialize-YurunaHost -RepoRoot $repoRoot -HostType 'host.freebsd.bhyve' }
@@ -209,7 +212,7 @@ Describe 'Initialize-YurunaHost' {
     Context 'Test.VMUtility co-import' {
 
         BeforeAll {
-            $vmUtilRepo = Join-Path $bootRoot 'repo-vmutility'
+            $vmUtilRepo = Join-Path $script:bootRoot 'repo-vmutility'
             $null = New-HostDriverStub -Root $vmUtilRepo -HostType 'host.windows.hyper-v' -Marker 'driver-with-vmutility'
             $null = New-VMUtilityStub  -Root $vmUtilRepo -Marker 'vmutility-stub'
             Remove-Module -Name 'Test.VMUtility' -Force -ErrorAction SilentlyContinue

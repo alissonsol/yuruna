@@ -37,7 +37,7 @@ which have to be created on the device itself. See
   reference see [test-config.md](test-config.md) and the stash guide.
 - **Replication is a cold archive.** It is a one-way **copy** of
   immutable, finished cycle folders — not a live data directory — and the pool
-  dashboard reads each host's own HTTP status server, not the NAS. So the
+  dashboard reads each host's own HTTP status service, not the NAS. So the
   replicated `<hostId>/` roots stay a durable, browsable backup, not a hot
   path. **The share as a whole is not cold**, though: the
   pool services keep their own live subtrees beside the archive — the
@@ -46,7 +46,7 @@ which have to be created on the device itself. See
   serves to hosts over HTTP (see [On-share layout](#on-share-layout)). Sizing and
   retention are therefore a live concern, not just an archival one.
 - **Per-host namespacing.** Each host writes under `<poolStorageLocalPath>/<hostId>/…`, keyed
-  on the stable opaque `hostId` (`runtime/host.uuid`), so many hosts share one
+  on the stable opaque `hostId` (`runtime/host.uuid`), so many hosts use one
   share without collision.
 - **Opt-in + off by default.** `networkReplicate: false` (the default), or any of the
   paths left empty, is a complete no-op: no mount, no copy, no background work.
@@ -129,6 +129,7 @@ map a non-empty `vaultKey` and `Set-Password` it.
       <upstreamFilename>.<sha256[:12]>            # generation artifact
       <upstreamFilename>.<sha256[:12]>.meta.json  # its metadata sidecar
       .staging/                             # agent-private temp area (PID-suffixed)
+      manual/<arch>.<variant>/              # drop a hand-downloaded artifact here
   download-agent-service/
     audit.jsonl                             # one line per UI/API mutation
     status.json                             # last-write / heartbeat snapshot
@@ -143,7 +144,12 @@ written last and is the only thing whose replacement changes what is served. The
 current generation plus one previous is retained per
 `(hostType, imageKey, arch, variant)`. The state directory sits *beside*
 `images/` rather than inside it so the images tree stays artifacts-only, and pool
-walkers skip dot-prefixed entries (`.agent-lease.json`, `.staging/`). Sizing:
+walkers skip dot-prefixed entries (`.agent-lease.json`, `.staging/`). The
+`manual/` folders are the one place on this share meant to be written by hand:
+an artifact the agent cannot fetch itself (Windows 11, when Microsoft refuses
+the resolve) is copied in there and adopted into the pool on the next scan --
+see [download-agent.md](download-agent.md#when-the-resolver-is-refused-the-drop-folder).
+Sizing:
 these are full guest ISOs and cloud images, so budget for the families the lab's
 host types use — the UI's totals row reports the current draw. See
 [pool-admin.md](pool-admin.md#download-agent-service).
@@ -154,7 +160,7 @@ of re-keying — see [Host identity & reimage reclaim](#host-identity--reimage-r
 A host that declines the reclaim (or whose hardware no longer matches) re-keys with
 a new `runtime/host.uuid`, so its later cycles land under a new `<hostId>/` root and
 old archives are never overwritten. Orphaned roots from retired hosts accrete on the
-share; pruning them is a manual housekeeping task (no automatic cleanup).
+share; pruning them is a manual housekeeping task.
 
 ## The local ledger
 
@@ -270,8 +276,8 @@ directly as `Set-PoolStorageSudoers`.
 
 Beyond the host-side cycle replication above, the caching-proxy-service VM archives its own
 **observability data** to the same share so a reimaged proxy can be restored. It is
-**guest-side**: the proxy's cloud-init seed carries the config + a credential, mounts
-the share over cifs, and an hourly `ypool-nas-replicate.timer` rsyncs the data dirs to
+**guest-side**: the proxy's cloud-init seed carries the config + a credential,
+CIFS-mounts the share, and an hourly `ypool-nas-replicate.timer` rsyncs the data dirs to
 `<poolStorageNetworkPath>/<hostId>/services/caching-proxy-service/<svc>/`.
 
 - **Replicated:** `loki` + `prometheus` via `rsync -a` (crash-consistent, additive);
@@ -291,8 +297,8 @@ the share over cifs, and an hourly `ypool-nas-replicate.timer` rsyncs the data d
   (no host login, no other service). Empty `poolStorageNetworkUser` ⇒ service replication stays off.
 - **Enablement** is baked at VM-create time: the seed gets `YPOOL_NAS_REPLICATE=true`
   whenever poolStorage is **configured** (`poolStorageNetworkPath` + `poolStorageNetworkUser` set) — the
-  password need not exist at bake time. Until the vault entry is set, the Config
-  Service answers `503` for `/v1/nas/pool`, the credential file stays empty, the mount
+  password need not exist at bake time. Until the vault entry is set, the config
+  service answers `503` for `/v1/nas/pool`, the credential file stays empty, the mount
   fails (`nofail`), and replication no-ops — self-healing on the next hourly run once you
   `Set-Password`. Activating the dynamic fetch requires a baked **client certificate**
   (minted by the host Config CA at VM-create); without it the proxy can't fetch and the
@@ -454,6 +460,18 @@ Common findings:
   `poolStorageNetworkUser` password per [test-config.md](test-config.md#setting-the-smb-passwords-in-the-vault).
 - **`error='mount failed'` on Linux** — usually missing passwordless sudo for
   `mount` (see the precondition above).
+- **Linux: a message blames the `networkUser` password, but the password is
+  correct** — read the mount's own line first. If it ends in a sudo refusal
+  (`sudo: a password is required` on the C sudo, `sudo: interactive
+  authentication is required` on sudo-rs, which is Ubuntu's default sudo from
+  25.10 on), then `mount` never ran, the NAS was never contacted, and the
+  credential cannot be the cause: fix the drop-in, not the password. Confirm in
+  one command — `sudo -n -l /usr/bin/mount` exits 0 when the `NOPASSWD` rule is
+  in effect. Check it *while the failure is happening*: sudo-rs writes **no**
+  log entry for a refused `sudo -n`, so nothing on the host records the moment
+  afterwards. If the rule answers but the mount was still refused, look for
+  another `/etc/sudoers.d` file sorting **after** the poolStorage drop-in — the
+  last matching rule wins, so a later one re-requiring a password overrides it.
 - **The cycle won't start, gate FAILs on `poolStorageLocalPath / per-host folder
   pre-flight FAILED`** — `networkReplicate: true` and the active pre-flight could not
   mount the share or could not create `<poolStorageLocalPath>/<hostId>` on it. The FAIL line
@@ -477,7 +495,7 @@ Common findings:
   probe; the manual fix is for accounts it did not create.
 - **In a guest: `cifs_mount failed w/return code = -111`** — not a credential
   problem. `-111` is a refused TCP connection, so the guest *did* get an address
-  and dialled it: classically the share's server name resolving to something
+  and dialed it: classically the share's server name resolving to something
   host-local (`127.0.0.1` from a local-lab hosts alias), which inside a VM is the
   guest's own loopback. A rejected credential is `mount error(13)` instead, and an
   unresolvable name fails in `mount.cifs` before the kernel is involved. Check
@@ -500,8 +518,8 @@ or storage.
 ## Pool harness — membership, intent, and test-set execution
 
 The **pool-control service plane** — creating pools, adding hosts, assigning already-developed
-test sequences, and operating the fleet — is documented for operators in
-**[pool-admin.md](pool-admin.md)**, a step-by-step guide. Read that to *use* pools; this
+test sequences, and operating the fleet — is documented step by step in
+**[pool-admin.md](pool-admin.md)**; read that to *use* pools. This
 page covers only the NAS replication of pool observability data described above.
 
 In brief: the operator authors slow-changing **intent** (pool membership +
@@ -521,6 +539,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.11
+Last review: 2026.08.14
 
 Back to [Yuruna](../README.md)

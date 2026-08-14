@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Version: 2026.08.11
+# Version: 2026.08.14
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -228,6 +228,7 @@ DOWNLOAD_AGENT_HOST_ID=$HOST_ID
 DOWNLOAD_AGENT_PRESENCE_INTERVAL=$PRESENCE_INTERVAL
 DOWNLOAD_AGENT_AUTH_TOKEN_FILE=$AUTH_TOKEN_FILE
 DOWNLOAD_AGENT_POOL_DIR=$POOL_DIR
+DOWNLOAD_AGENT_POOL_NETWORK_PATH=$POOL_NAS_UNC
 DOWNLOAD_AGENT_STATE_DIR=$STATE_DIR
 DOWNLOAD_AGENT_SCAN_INTERVAL=$SCAN_INTERVAL
 DOWNLOAD_AGENT_FRESHNESS=$FRESHNESS
@@ -256,7 +257,7 @@ Wants=network-online.target
 Type=simple
 User=$SERVICE_USER
 EnvironmentFile=/etc/yuruna/download-agent-service.env
-ExecStart=/usr/local/bin/download-agent-service --http-addr=\${DOWNLOAD_AGENT_HTTP_ADDR} --aggregator-url=\${DOWNLOAD_AGENT_AGGREGATOR_URL} --host-id=\${DOWNLOAD_AGENT_HOST_ID} --presence-interval=\${DOWNLOAD_AGENT_PRESENCE_INTERVAL} --auth-token-file=\${DOWNLOAD_AGENT_AUTH_TOKEN_FILE} --pool-dir=\${DOWNLOAD_AGENT_POOL_DIR} --state-dir=\${DOWNLOAD_AGENT_STATE_DIR} --scan-interval=\${DOWNLOAD_AGENT_SCAN_INTERVAL} --freshness=\${DOWNLOAD_AGENT_FRESHNESS} --prefetch-lead=\${DOWNLOAD_AGENT_PREFETCH_LEAD} --auto-seed=\${DOWNLOAD_AGENT_AUTO_SEED} --proxy-http=\${DOWNLOAD_AGENT_PROXY_HTTP} --proxy-https=\${DOWNLOAD_AGENT_PROXY_HTTPS} --proxy-ca=\${DOWNLOAD_AGENT_PROXY_CA}
+ExecStart=/usr/local/bin/download-agent-service --http-addr=\${DOWNLOAD_AGENT_HTTP_ADDR} --aggregator-url=\${DOWNLOAD_AGENT_AGGREGATOR_URL} --host-id=\${DOWNLOAD_AGENT_HOST_ID} --presence-interval=\${DOWNLOAD_AGENT_PRESENCE_INTERVAL} --auth-token-file=\${DOWNLOAD_AGENT_AUTH_TOKEN_FILE} --pool-dir=\${DOWNLOAD_AGENT_POOL_DIR} --pool-network-path=\${DOWNLOAD_AGENT_POOL_NETWORK_PATH} --state-dir=\${DOWNLOAD_AGENT_STATE_DIR} --scan-interval=\${DOWNLOAD_AGENT_SCAN_INTERVAL} --freshness=\${DOWNLOAD_AGENT_FRESHNESS} --prefetch-lead=\${DOWNLOAD_AGENT_PREFETCH_LEAD} --auto-seed=\${DOWNLOAD_AGENT_AUTO_SEED} --proxy-http=\${DOWNLOAD_AGENT_PROXY_HTTP} --proxy-https=\${DOWNLOAD_AGENT_PROXY_HTTPS} --proxy-ca=\${DOWNLOAD_AGENT_PROXY_CA}
 Restart=on-failure
 RestartSec=5
 AmbientCapabilities=CAP_NET_BIND_SERVICE

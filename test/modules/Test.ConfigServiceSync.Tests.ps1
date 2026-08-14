@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42f6a2c8-1d3e-4b90-8a7f-2e3d4c5b6a7e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,6 +26,7 @@
     Pester 5+. Run: Invoke-Pester -Path test/modules/Test.ConfigServiceSync.Tests.ps1
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.Prelude.psm1')        -Force -DisableNameChecking -ErrorAction SilentlyContinue
 Import-Module (Join-Path $here 'Test.ConfigServiceSync.psm1') -Force -DisableNameChecking
@@ -39,7 +40,7 @@ function Assert-True  { param($Condition, [string]$Because='') if (-not $Conditi
 # so a fixture declared in there reaches the assertions as $null (or, for a
 # function, as "command not found") -- and the test then quietly exercises the
 # empty path instead of the one it names.
-$unixRef = [ordered]@{
+$script:unixRef = [ordered]@{
     poolStorageLocalPath   = '/mnt/ypool-nas'
     poolStorageNetworkPath = '//ypool-nas/work/yuruna.pool'
     poolStorageNetworkUser = 'yuruna-pool'
@@ -63,6 +64,8 @@ function New-ReferenceDoc {
     }
 }
 
+}
+
 Describe 'Get-ConfigSyncLocalPathDefault' {
     It 'uses the y:/z: drive-letter convention on Windows' {
         Assert-Equal -Expected 'y:' -Actual (Get-ConfigSyncLocalPathDefault -HostType 'host.windows.hyper-v' -Tier pool  -ServerName 'ypool-nas')
@@ -79,7 +82,7 @@ Describe 'Get-ConfigSyncLocalPathDefault' {
 
 Describe 'Convert-ConfigSyncNetworkStorage' {
     It 'converts a unix-style reference for a Windows host: UNC slashes + drive-letter defaults' {
-        $r = Convert-ConfigSyncNetworkStorage -Reference $unixRef -Local $null -HostType 'host.windows.hyper-v'
+        $r = Convert-ConfigSyncNetworkStorage -Reference $script:unixRef -Local $null -HostType 'host.windows.hyper-v'
         Assert-Equal -Expected '\\ypool-nas\work\yuruna.pool'   -Actual $r.NetworkStorage['poolStorageNetworkPath']
         Assert-Equal -Expected '\\ystash-nas\work\yuruna.stash' -Actual $r.NetworkStorage['stashStorageNetworkPath']
         Assert-Equal -Expected 'y:' -Actual $r.NetworkStorage['poolStorageLocalPath']
@@ -99,7 +102,7 @@ Describe 'Convert-ConfigSyncNetworkStorage' {
     }
     It 'keeps a populated local mount path instead of the derived default' {
         $local = [ordered]@{ poolStorageLocalPath = 'x:'; poolStorageNetworkPath = '\\old\share'; poolStorageNetworkUser = 'old' }
-        $r = Convert-ConfigSyncNetworkStorage -Reference $unixRef -Local $local -HostType 'host.windows.hyper-v'
+        $r = Convert-ConfigSyncNetworkStorage -Reference $script:unixRef -Local $local -HostType 'host.windows.hyper-v'
         Assert-Equal -Expected 'x:' -Actual $r.NetworkStorage['poolStorageLocalPath'] -Because 'a working local mount point survives the sync'
         Assert-Equal -Expected 'z:' -Actual $r.NetworkStorage['stashStorageLocalPath'] -Because 'a tier with no local value still gets the default'
     }

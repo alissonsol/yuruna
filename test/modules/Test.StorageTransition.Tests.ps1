@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 429bbdcc-9f46-47af-ab9b-b756158fc1f7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,6 +41,7 @@
          (or Invoke-Pester -Path test/modules/Test.StorageTransition.Tests.ps1)
 #>
 
+BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
 
@@ -67,17 +68,17 @@ if (-not (Get-Command -Name 'Describe' -ErrorAction SilentlyContinue)) {
 # ('work/yuruna.pool'); a machine serving its own storage publishes the share
 # itself. Both are reached under the same alias, and on this host that alias
 # resolved to loopback while the sessions were still going to the NAS.
-$NasNetworkPath   = '//ypool-nas/work/yuruna.pool'
-$LocalNetworkPath = '//ypool-nas/yuruna.pool'
+$script:NasNetworkPath   = '//ypool-nas/work/yuruna.pool'
+$script:LocalNetworkPath = '//ypool-nas/yuruna.pool'
 $MountPoint       = '/Users/ytest/Shares/ypool-nas'
 
-$NasMountLine   = "//yuruna-pool@ypool-nas/work/yuruna.pool on $MountPoint (smbfs, nodev, nosuid, mounted by ytest)"
-$LocalMountLine = "//yuruna-pool@ypool-nas/yuruna.pool on $MountPoint (smbfs, nodev, nosuid, mounted by ytest)"
+$script:NasMountLine   = "//yuruna-pool@ypool-nas/work/yuruna.pool on $MountPoint (smbfs, nodev, nosuid, mounted by ytest)"
+$script:LocalMountLine = "//yuruna-pool@ypool-nas/yuruna.pool on $MountPoint (smbfs, nodev, nosuid, mounted by ytest)"
 $DiskMountLine  = '/dev/disk3s1s1 on / (apfs, sealed, local, read-only, journaled)'
 
 # A machine with no lab mounts at all: the first-time host, where every check
 # below has to come back "nothing to do" rather than "cannot tell".
-$FirstRunMountLines = @(
+$script:FirstRunMountLines = @(
     $DiskMountLine,
     'devfs on /dev (devfs, local, nobrowse)',
     'map auto_home on /System/Volumes/Data/home (autofs, automounted, nobrowse)'
@@ -86,30 +87,30 @@ $FirstRunMountLines = @(
 # Socket-table output in each platform's spelling. The macOS set deliberately
 # carries BOTH sides of a loopback SMB conversation plus the LAN session, which
 # is what a machine that serves its own shares AND still mounts a NAS looks like.
-$MacNetstatLines = @(
+$script:MacNetstatLines = @(
     'Active Internet connections (including servers)',
     'Proto Recv-Q Send-Q  Local Address          Foreign Address        (state)',
     "tcp4       0      0  192.168.7.207.52341    192.168.7.25.445       ESTABLISHED",
     'tcp4       0      0  *.445                  *.*                    LISTEN'
 )
-$MacLoopbackNetstatLines = @(
+$script:MacLoopbackNetstatLines = @(
     'tcp4       0      0  127.0.0.1.51000        127.0.0.1.445          ESTABLISHED',
     'tcp4       0      0  127.0.0.1.445          127.0.0.1.51000        ESTABLISHED'
 )
-$SsLines = @(
+$script:SsLines = @(
     'State  Recv-Q Send-Q Local Address:Port  Peer Address:Port',
     'ESTAB  0      0      192.168.7.207:44444 192.168.7.25:445'
 )
-$MultichannelLines = @(
+$script:MultichannelLines = @(
     '       id         client IF             server IF   state                     server ip                 port   speed',
     '        1         en0                   1           [Connected]               192.168.7.25              445    1.0 Gb'
 )
-$ProcMountsLines = @(
+$script:ProcMountsLines = @(
     'sysfs /sys sysfs rw,nosuid,nodev,noexec,relatime 0 0',
     "//ypool-nas/yuruna.pool /mnt/ypool-nas cifs rw,relatime,vers=3.1.1,addr=192.168.7.25,file_mode=0755 0 0"
 )
 
-$ThisMachine = @('127.0.0.1', '::1', '192.168.7.207')
+$script:ThisMachine = @('127.0.0.1', '::1', '192.168.7.207')
 
 # --- how install/setup.ps1 wires the steps --------------------------------
 # Read from the source rather than re-stated here: the property under test is
@@ -154,8 +155,10 @@ function Get-SetupStepCall {
 }
 
 $SetupSteps    = @(Get-SetupStepCall -Path (Join-Path $repoRoot 'install/setup.ps1'))
-$StorageStep   = @($SetupSteps | Where-Object { $_.Name -like 'Stand up local pool and stash shares*' })
-$TakeoverStep  = @($SetupSteps | Where-Object { $_.Name -like 'Stop using storage served by another machine*' })
+$script:StorageStep   = @($SetupSteps | Where-Object { $_.Name -like 'Stand up local pool and stash shares*' })
+$script:TakeoverStep  = @($SetupSteps | Where-Object { $_.Name -like 'Stop using storage served by another machine*' })
+
+}
 
 Describe 'already done means this machine serves the share' {
     It 'refuses a NAS mount masquerading behind a loopback alias' {
@@ -184,9 +187,9 @@ Describe 'already done means this machine serves the share' {
     }
 
     It 'reads no share name out of a path shape this machine never publishes' {
-        Assert-Equal -Expected '' -Actual (Get-LocalLabStorageShareName -NetworkPath $NasNetworkPath) `
+        Assert-Equal -Expected '' -Actual (Get-LocalLabStorageShareName -NetworkPath $script:NasNetworkPath) `
             'a directory inside a share is the NAS layout; reading its first segment would name someone else''s share'
-        Assert-Equal -Expected 'yuruna.pool' -Actual (Get-LocalLabStorageShareName -NetworkPath $LocalNetworkPath) 'local layout'
+        Assert-Equal -Expected 'yuruna.pool' -Actual (Get-LocalLabStorageShareName -NetworkPath $script:LocalNetworkPath) 'local layout'
         Assert-Equal -Expected 'yuruna.pool' -Actual (Get-LocalLabStorageShareName -NetworkPath '//yuruna-pool@ypool-nas/yuruna.pool') 'the account belongs to the server field'
         Assert-Equal -Expected 'yuruna.pool' -Actual (Get-LocalLabStorageShareName -NetworkPath '\\ypool-nas\yuruna.pool') 'windows spelling'
         Assert-Equal -Expected '' -Actual (Get-LocalLabStorageShareName -NetworkPath '') 'nothing configured'
@@ -218,21 +221,21 @@ Describe 'already done means this machine serves the share' {
     It 'publishes nothing for a NAS-shaped path, without asking the OS' {
         # Refused on shape alone, so this holds on every platform and never
         # depends on what the running host happens to share.
-        Assert-Equal -Expected '' -Actual (Get-LocalLabStorageServedPath -NetworkPath $NasNetworkPath -Platform 'macos') 'macos'
-        Assert-Equal -Expected '' -Actual (Get-LocalLabStorageServedPath -NetworkPath $NasNetworkPath -Platform 'linux') 'linux'
+        Assert-Equal -Expected '' -Actual (Get-LocalLabStorageServedPath -NetworkPath $script:NasNetworkPath -Platform 'macos') 'macos'
+        Assert-Equal -Expected '' -Actual (Get-LocalLabStorageServedPath -NetworkPath $script:NasNetworkPath -Platform 'linux') 'linux'
         Assert-Equal -Expected '' -Actual (Get-LocalLabStorageServedPath -NetworkPath '\\srv\work\yuruna.pool' -Platform 'windows') 'windows'
     }
 }
 
 Describe 'who is actually serving a mount' {
     It 'calls a session to another machine remote' {
-        $verdict = Get-PoolStorageMountOwnership -PeerAddress '192.168.7.25' -LocalAddress $ThisMachine
+        $verdict = Get-PoolStorageMountOwnership -PeerAddress '192.168.7.25' -LocalAddress $script:ThisMachine
         Assert-Equal -Expected 'remote' -Actual $verdict.Verdict 'the peer is not one of this machine''s addresses'
         Assert-True ($verdict.Reason -match '192\.168\.7\.25') 'the reason has to name the server being left'
     }
 
     It 'calls a session to one of this machine''s own addresses local' {
-        Assert-Equal -Expected 'local' -Actual (Get-PoolStorageMountOwnership -PeerAddress '192.168.7.207' -LocalAddress $ThisMachine).Verdict `
+        Assert-Equal -Expected 'local' -Actual (Get-PoolStorageMountOwnership -PeerAddress '192.168.7.207' -LocalAddress $script:ThisMachine).Verdict `
             'a machine can publish on its LAN address as well as loopback'
     }
 
@@ -242,13 +245,13 @@ Describe 'who is actually serving a mount' {
     }
 
     It 'concludes remote when the peer is unreadable and this machine publishes no such share' {
-        $verdict = Get-PoolStorageMountOwnership -PeerAddress '' -LocalAddress $ThisMachine -HostServesShare 'no'
+        $verdict = Get-PoolStorageMountOwnership -PeerAddress '' -LocalAddress $script:ThisMachine -HostServesShare 'no'
         Assert-Equal -Expected 'remote' -Actual $verdict.Verdict `
             'a machine that serves no such share cannot be the machine answering for it'
     }
 
     It 'refuses to conclude when the peer is unreadable and this machine does publish the share' {
-        $verdict = Get-PoolStorageMountOwnership -PeerAddress '' -LocalAddress $ThisMachine -HostServesShare 'yes'
+        $verdict = Get-PoolStorageMountOwnership -PeerAddress '' -LocalAddress $script:ThisMachine -HostServesShare 'yes'
         Assert-Equal -Expected 'unknown' -Actual $verdict.Verdict `
             'its own copy and another machine''s copy are indistinguishable from here, and a guess would unmount live storage'
     }
@@ -270,14 +273,14 @@ Describe 'reading the peer out of what each platform prints' {
     }
 
     It 'takes the server ip from a multichannel row, not the interface columns' {
-        Assert-Equal -Expected '192.168.7.25' -Actual (Get-PoolStorageMultichannelPeer -Line $MultichannelLines) 'macOS session table'
-        Assert-Equal -Expected '' -Actual (Get-PoolStorageMultichannelPeer -Line @($MultichannelLines[0])) 'the header names the column, it is not a row'
+        Assert-Equal -Expected '192.168.7.25' -Actual (Get-PoolStorageMultichannelPeer -Line $script:MultichannelLines) 'macOS session table'
+        Assert-Equal -Expected '' -Actual (Get-PoolStorageMultichannelPeer -Line @($script:MultichannelLines[0])) 'the header names the column, it is not a row'
         Assert-Equal -Expected '' -Actual (Get-PoolStorageMultichannelPeer -Line @()) 'no output means no answer'
     }
 
     It 'takes the foreign endpoint of an established SMB session' {
-        Assert-Equal -Expected '192.168.7.25' -Actual (@(Get-PoolStorageEstablishedPeer -Line $MacNetstatLines) -join ',') 'macOS netstat'
-        Assert-Equal -Expected '192.168.7.25' -Actual (@(Get-PoolStorageEstablishedPeer -Line $SsLines) -join ',') 'ss spelling'
+        Assert-Equal -Expected '192.168.7.25' -Actual (@(Get-PoolStorageEstablishedPeer -Line $script:MacNetstatLines) -join ',') 'macOS netstat'
+        Assert-Equal -Expected '192.168.7.25' -Actual (@(Get-PoolStorageEstablishedPeer -Line $script:SsLines) -join ',') 'ss spelling'
     }
 
     It 'does not report this machine as its own peer when it SERVES a session' {
@@ -285,7 +288,7 @@ Describe 'reading the peer out of what each platform prints' {
         # LOCAL endpoint and an ephemeral foreign one. Counted as a peer it would
         # make a self-serving host look like it holds two different sessions, and
         # two sessions are not attributable to a mount.
-        Assert-Equal -Expected '127.0.0.1' -Actual (@(Get-PoolStorageEstablishedPeer -Line $MacLoopbackNetstatLines) -join ',') `
+        Assert-Equal -Expected '127.0.0.1' -Actual (@(Get-PoolStorageEstablishedPeer -Line $script:MacLoopbackNetstatLines) -join ',') `
             'only the client side of the loopback conversation is a peer'
     }
 
@@ -295,8 +298,8 @@ Describe 'reading the peer out of what each platform prints' {
     }
 
     It 'reads the address the Linux kernel recorded for a cifs mount' {
-        Assert-Equal -Expected '192.168.7.25' -Actual (Get-PoolStorageCifsPeer -Line $ProcMountsLines -MountPoint '/mnt/ypool-nas') 'addr= is the address the mount dialled'
-        Assert-Equal -Expected '' -Actual (Get-PoolStorageCifsPeer -Line $ProcMountsLines -MountPoint '/mnt/other') 'a different mount point is not our mount'
+        Assert-Equal -Expected '192.168.7.25' -Actual (Get-PoolStorageCifsPeer -Line $script:ProcMountsLines -MountPoint '/mnt/ypool-nas') 'addr= is the address the mount dialled'
+        Assert-Equal -Expected '' -Actual (Get-PoolStorageCifsPeer -Line $script:ProcMountsLines -MountPoint '/mnt/other') 'a different mount point is not our mount'
     }
 }
 
@@ -305,14 +308,14 @@ Describe 'the mounts a storage tier is carried by' {
         # The masquerade: everything about this mount matches the config, and the
         # server answering it is somewhere else entirely. Leaving it out of the
         # list is what made the machine read as "nothing to do".
-        $found = @(Find-PoolStorageTierMount -MountLines @($DiskMountLine, $LocalMountLine) -LocalPath $MountPoint -NetworkPath $LocalNetworkPath)
+        $found = @(Find-PoolStorageTierMount -MountLines @($DiskMountLine, $script:LocalMountLine) -LocalPath $MountPoint -NetworkPath $script:LocalNetworkPath)
         Assert-Equal -Expected 1 -Actual $found.Count 'our own share at our own point is still a mount we are carried by'
         Assert-Equal -Expected 'current' -Actual $found[0].Reason 'reason'
         Assert-Equal -Expected 'ypool-nas' -Actual $found[0].HostName 'the server name the session was dialled under'
     }
 
     It 'includes a foreign share standing on our mount point' {
-        $found = @(Find-PoolStorageTierMount -MountLines @($NasMountLine) -LocalPath $MountPoint -NetworkPath $LocalNetworkPath)
+        $found = @(Find-PoolStorageTierMount -MountLines @($script:NasMountLine) -LocalPath $MountPoint -NetworkPath $script:LocalNetworkPath)
         Assert-Equal -Expected 1 -Actual $found.Count 'something else is standing where we mount'
         Assert-Equal -Expected 'mount-point' -Actual $found[0].Reason 'reason'
     }
@@ -321,23 +324,23 @@ Describe 'the mounts a storage tier is carried by' {
         # An SMB client keeps ONE session per server name, so a mount elsewhere
         # under 'ypool-nas' decides where OUR next mount of that name goes.
         $elsewhere = "//yuruna-stash@ypool-nas/other on /Users/ytest/Shares/other (smbfs)"
-        $found = @(Find-PoolStorageTierMount -MountLines @($elsewhere) -LocalPath $MountPoint -NetworkPath $LocalNetworkPath)
+        $found = @(Find-PoolStorageTierMount -MountLines @($elsewhere) -LocalPath $MountPoint -NetworkPath $script:LocalNetworkPath)
         Assert-Equal -Expected 1 -Actual $found.Count 'the session, not the mount point, is what this one is about'
         Assert-Equal -Expected 'server-session' -Actual $found[0].Reason 'reason'
     }
 
     It 'ignores mounts that have nothing to do with this tier' {
         $other = '//other-nas/media on /Users/ytest/Shares/media (smbfs)'
-        Assert-Equal -Expected 0 -Actual @(Find-PoolStorageTierMount -MountLines @($DiskMountLine, $other) -LocalPath $MountPoint -NetworkPath $LocalNetworkPath).Count `
+        Assert-Equal -Expected 0 -Actual @(Find-PoolStorageTierMount -MountLines @($DiskMountLine, $other) -LocalPath $MountPoint -NetworkPath $script:LocalNetworkPath).Count `
             'another server''s share at another point is not ours'
     }
 
     It 'needs no takeover on a host that mounts nothing' {
         # Every first-time host. The takeover step is a no-op here, not a failure
         # and not a question.
-        Assert-Equal -Expected 0 -Actual @(Find-PoolStorageTierMount -MountLines $FirstRunMountLines -LocalPath $MountPoint -NetworkPath $LocalNetworkPath).Count `
+        Assert-Equal -Expected 0 -Actual @(Find-PoolStorageTierMount -MountLines $script:FirstRunMountLines -LocalPath $MountPoint -NetworkPath $script:LocalNetworkPath).Count `
             'no lab mounts means nothing to release'
-        Assert-Equal -Expected 0 -Actual @(Find-PoolStorageTierMount -MountLines @() -LocalPath $MountPoint -NetworkPath $LocalNetworkPath).Count `
+        Assert-Equal -Expected 0 -Actual @(Find-PoolStorageTierMount -MountLines @() -LocalPath $MountPoint -NetworkPath $script:LocalNetworkPath).Count `
             'an unreadable mount table is not a takeover either'
     }
 
@@ -345,35 +348,35 @@ Describe 'the mounts a storage tier is carried by' {
         # The mount path unmounts everything this returns before mounting, so the
         # already-correct mount has to stay out of it or every converged re-run
         # would churn a healthy mount.
-        $superseded = @(Find-PoolStorageSupersededMount -MountLines @($LocalMountLine) -LocalPath $MountPoint -NetworkPath $LocalNetworkPath)
+        $superseded = @(Find-PoolStorageSupersededMount -MountLines @($script:LocalMountLine) -LocalPath $MountPoint -NetworkPath $script:LocalNetworkPath)
         Assert-Equal -Expected 0 -Actual $superseded.Count 'nothing to supersede when the mount is already what we want'
-        $replaced = @(Find-PoolStorageSupersededMount -MountLines @($NasMountLine) -LocalPath $MountPoint -NetworkPath $LocalNetworkPath)
+        $replaced = @(Find-PoolStorageSupersededMount -MountLines @($script:NasMountLine) -LocalPath $MountPoint -NetworkPath $script:LocalNetworkPath)
         Assert-Equal -Expected 1 -Actual $replaced.Count 'a different share on our point still has to go'
     }
 }
 
 Describe 'the storage steps as install/setup.ps1 wires them' {
     It 'has exactly one local-storage step and one takeover step' {
-        Assert-Equal -Expected 1 -Actual $StorageStep.Count 'the local-storage step'
-        Assert-Equal -Expected 1 -Actual $TakeoverStep.Count 'the takeover step'
+        Assert-Equal -Expected 1 -Actual $script:StorageStep.Count 'the local-storage step'
+        Assert-Equal -Expected 1 -Actual $script:TakeoverStep.Count 'the takeover step'
     }
 
     It 'settles the takeover before local storage is stood up' {
         # Order is the property: the new shares mount at the points the old ones
         # hold, and an SMB client reuses one session per server name -- so storage
         # stood up first would be mounted through the server being left.
-        Assert-True ($TakeoverStep[0].Line -lt $StorageStep[0].Line) `
+        Assert-True ($script:TakeoverStep[0].Line -lt $script:StorageStep[0].Line) `
             'the takeover step has to run before New-LocalLabStorage'
     }
 
     It 'makes local storage depend on the takeover through the step graph' {
-        Assert-Equal -Expected 'storage-owner' -Actual $TakeoverStep[0].Provides 'the takeover establishes the fact'
-        Assert-Equal -Expected 'storage-owner' -Actual $StorageStep[0].Requires 'and the storage step declares it'
-        Assert-Equal -Expected 'storage' -Actual $StorageStep[0].Provides 'everything downstream still keys on storage'
+        Assert-Equal -Expected 'storage-owner' -Actual $script:TakeoverStep[0].Provides 'the takeover establishes the fact'
+        Assert-Equal -Expected 'storage-owner' -Actual $script:StorageStep[0].Requires 'and the storage step declares it'
+        Assert-Equal -Expected 'storage' -Actual $script:StorageStep[0].Provides 'everything downstream still keys on storage'
     }
 
     It 'decides already-done from what this machine publishes' {
-        $predicate = $StorageStep[0].AlreadyDone
+        $predicate = $script:StorageStep[0].AlreadyDone
         Assert-True ($predicate -match 'Test-LocalLabStorageTierStoodUp') `
             'the step must apply the same rule these tests do, not a second copy of it'
         Assert-True ($predicate -match 'Get-LocalLabStorageServedPath') `

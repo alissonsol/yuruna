@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42e6b2d9-4a17-4c83-9f25-3b8c1d6e0a47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,6 +26,7 @@
     the only side effect). Throw-based assertions (Pester 3.4 / 5+).
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.Status.psm1') -Force -DisableNameChecking -Global -ErrorAction SilentlyContinue
 
@@ -110,7 +111,9 @@ function Test-AllCallsGuardedByGetCommand {
     return $true
 }
 
-$rootAst = Get-StatusModuleAst -Path $statusModulePath
+$script:rootAst = Get-StatusModuleAst -Path $statusModulePath
+
+}
 
 Describe 'status.json lastFailure surface' {
     It 'Initialize seeds lastFailure null; Set-LastFailureSummary records the cause' {
@@ -163,11 +166,11 @@ Describe 'status.json lastFailure surface' {
 Describe 'Test.Status guards its Send-CycleEventSafely emits' {
 
     It 'emits both cycle-event records (status_doc_corrupt and status_doc_write_failed)' {
-        Assert-Equal -Expected 2 -Actual (Get-CommandCallCount -Ast $rootAst -CommandName 'Send-CycleEventSafely') -Because `
+        Assert-Equal -Expected 2 -Actual (Get-CommandCallCount -Ast $script:rootAst -CommandName 'Send-CycleEventSafely') -Because `
             'the read-path corrupt-doc event and the write-path write-failed event are both present'
     }
     It 'gates every Send-CycleEventSafely emit behind a Get-Command existence check' {
-        Assert-True (Test-AllCallsGuardedByGetCommand -Ast $rootAst -CommandName 'Send-CycleEventSafely') `
+        Assert-True (Test-AllCallsGuardedByGetCommand -Ast $script:rootAst -CommandName 'Send-CycleEventSafely') `
             'the module does not import the logger; an absent Send-CycleEventSafely must fall back to Write-Warning, not throw'
     }
 }

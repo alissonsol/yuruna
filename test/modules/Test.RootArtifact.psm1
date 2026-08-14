@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42e7c3b1-9d64-4a52-8f0e-7c1b3a9d6e50
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -97,6 +97,13 @@ function Test-RootArtifactSudoAnswered {
         Reading the second as the first would report a clean machine on any host
         whose sudo credential is not cached, which is the opposite of the error
         this sweep exists to avoid. Only stderr separates them.
+
+        The refusal wording depends on which sudo is installed: the C sudo says
+        "a password is required" / "a terminal is required" / "no tty present",
+        while sudo-rs -- Ubuntu's default sudo from 25.10 on -- says "interactive
+        authentication is required". Both belong here: knowing only one spelling
+        does not fail loudly on a host that upgraded, it silently starts calling
+        refusals answers again.
     #>
     [CmdletBinding()]
     [OutputType([bool])]
@@ -106,7 +113,7 @@ function Test-RootArtifactSudoAnswered {
     )
     if ($ExitCode -eq 124 -or $ExitCode -eq -1) { return $false }
     if ([string]::IsNullOrWhiteSpace($StdErr)) { return $true }
-    return -not ($StdErr -match '(?i)(a password is required|a terminal is required|no tty present|may not run|not allowed to execute|no askpass)')
+    return -not ($StdErr -match '(?i)(a password is required|a terminal is required|no tty present|interactive authentication is required|may not run|is not in the sudoers file|not allowed to execute|no askpass)')
 }
 
 function New-RootArtifactRecord {

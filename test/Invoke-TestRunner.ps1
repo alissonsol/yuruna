@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456707
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -313,7 +313,7 @@ if ($script:ForwardEnvSnapshot.Count -gt 0) {
 Write-Output "============================================="
 
 # Why a missing powershell-yaml is a hard stop rather than a warning:
-# docs/test-runner.md#powershell-yaml-must-be-installed
+# docs/runner-outer-loop.md#powershell-yaml-must-be-installed
 if (-not (Get-Module -ListAvailable -Name powershell-yaml -ErrorAction SilentlyContinue)) {
     # exit is a bounded, non-interactive stop; the outer loop must never block
     # on a prompt.
@@ -345,7 +345,7 @@ if ($elevationHostType -and (Get-Command Assert-RunnerElevation -ErrorAction Sil
 
 # === Pre-cycle config gate ==================================================
 # What it validates, why -SkipSend is mandatory here, and the -NoConfigGate
-# bypass: docs/test-runner.md#pre-cycle-config-gate
+# bypass: docs/runner-outer-loop.md#pre-cycle-config-gate
 $gate = Invoke-ConfigGate -TestRoot $TestRoot -ConfigPath $ConfigPath -Skip:$NoConfigGate -CallerName 'outer startup'
 if (-not $gate.passed) {
     Write-OuterLog "[outer startup] Test-Config.ps1 exited $($gate.exitCode) -- refusing to start the cycle loop."

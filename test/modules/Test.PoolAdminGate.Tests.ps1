@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42d0e1f2-a3b4-4c56-9890-bd1e2f3a4b52
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,10 +29,11 @@
     The throw-free Should assertions run under Pester 4.10.1.
 #>
 
+BeforeAll {
 $here          = Split-Path -Parent $PSCommandPath
 $adminPath     = Join-Path $here 'Test.PoolAdmin.psm1'
 $syncPath      = Join-Path $here 'Test.PoolSync.psm1'
-$poolIntentPs1 = Join-Path (Split-Path -Parent $here) 'pool/Test-PoolIntent.ps1'
+$script:poolIntentPs1 = Join-Path (Split-Path -Parent $here) 'pool/Test-PoolIntent.ps1'
 Import-Module $syncPath  -Force   # exports Invoke-PoolSyncGit (mocked below)
 Import-Module $adminPath -Force
 
@@ -82,17 +83,19 @@ function Test-AnyExtentMatch {
     @($Nodes | Where-Object { $_.Extent.Text -match $p }).Count -gt 0
 }
 
+}
+
 Describe 'Test-YurunaPoolIntentFile enforces required vs optional intent files' {
     It 'FAILS a required file that is absent (pools.yml must not read as success)' {
-        $missing = Join-Path $env:TEMP ('nope-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.yml')
+        $missing = Join-Path ([System.IO.Path]::GetTempPath()) ('nope-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.yml')
         Test-YurunaPoolIntentFile -Path $missing -SchemaName 'pools.schema.yml' -Label 'pools.yml' -Required -WarningAction SilentlyContinue | Should -Be $false
     }
     It 'SKIPs (passes) an optional file that is absent' {
-        $missing = Join-Path $env:TEMP ('nope-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.yml')
+        $missing = Join-Path ([System.IO.Path]::GetTempPath()) ('nope-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.yml')
         Test-YurunaPoolIntentFile -Path $missing -SchemaName 'guests.compatibility.schema.yml' -Label 'guests.compatibility.yml' | Should -Be $true
     }
     It 'PASSes a present, schema-valid file' {
-        $tmp = Join-Path $env:TEMP ('yes-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.yml')
+        $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('yes-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.yml')
         Set-Content -LiteralPath $tmp -Value 'schemaVersion: 1'
         try {
             Mock -ModuleName Test.PoolAdmin ConvertFrom-Yaml { @{ schemaVersion = 1 } }
@@ -101,7 +104,7 @@ Describe 'Test-YurunaPoolIntentFile enforces required vs optional intent files' 
         } finally { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
     }
     It 'FAILs a present file that is schema-invalid' {
-        $tmp = Join-Path $env:TEMP ('bad-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.yml')
+        $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('bad-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.yml')
         Set-Content -LiteralPath $tmp -Value 'schemaVersion: 1'
         try {
             Mock -ModuleName Test.PoolAdmin ConvertFrom-Yaml { @{ schemaVersion = 1 } }
@@ -110,7 +113,7 @@ Describe 'Test-YurunaPoolIntentFile enforces required vs optional intent files' 
         } finally { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }
     }
     It 'FAILs a present file that will not parse as YAML' {
-        $tmp = Join-Path $env:TEMP ('unparse-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.yml')
+        $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('unparse-' + [guid]::NewGuid().ToString('N').Substring(0, 8) + '.yml')
         Set-Content -LiteralPath $tmp -Value ': not yaml'
         try {
             Mock -ModuleName Test.PoolAdmin ConvertFrom-Yaml { throw 'bad yaml' }
@@ -164,10 +167,10 @@ Describe 'Invoke-PoolAdminGitWithRetry survives a transient failure within a bou
 
 Describe 'CI gate marks pools.yml required and admin git ops route through retry (AST)' {
     It 'Test-PoolIntent.ps1 defines no local intent-file validator (delegates to the module)' {
-        (Get-FunctionDefCount -Ast (Get-FileAst $poolIntentPs1) -Name 'Test-OneIntentFile') | Should -Be 0
+        (Get-FunctionDefCount -Ast (Get-FileAst $script:poolIntentPs1) -Name 'Test-OneIntentFile') | Should -Be 0
     }
     It 'Test-PoolIntent.ps1 marks exactly the pools.yml check -Required' {
-        $calls = Get-CommandInvocation -Ast (Get-FileAst $poolIntentPs1) -Name 'Test-YurunaPoolIntentFile'
+        $calls = Get-CommandInvocation -Ast (Get-FileAst $script:poolIntentPs1) -Name 'Test-YurunaPoolIntentFile'
         $calls.Count | Should -BeGreaterOrEqual 2
         $required = @($calls | Where-Object { Test-CallHasSwitch -Call $_ -SwitchName 'Required' })
         $required.Count | Should -Be 1

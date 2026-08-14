@@ -20,7 +20,10 @@ func TestFrozenDefaults(t *testing.T) {
 	if DefaultHTTPAddress != "0.0.0.0:80" {
 		t.Errorf("DefaultHTTPAddress = %q", DefaultHTTPAddress)
 	}
-	if DefaultPresenceInterval != 15*time.Minute {
+	// Shorter than the aggregator's extension health grace on purpose: the
+	// beacon is what reports a renumbered service's new address, so a cadence
+	// slower than the grace leaves the area unresolvable in between.
+	if DefaultPresenceInterval != 2*time.Minute {
 		t.Errorf("DefaultPresenceInterval = %s", DefaultPresenceInterval)
 	}
 	if DefaultScanInterval != 15*time.Minute {

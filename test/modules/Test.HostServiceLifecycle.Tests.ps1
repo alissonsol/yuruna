@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42b6c7d8-e9f0-4a12-8b34-5c6d7e8f9a01
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,18 +46,18 @@
         discarding it) and TCP-probes the status port via BeginConnect, warning
         when the host will not be reachable by the pool-aggregator service.
 
-    The throw-based Assert-* helpers live at script scope and are referenced from
-    It blocks, so this runs under Pester 4.10.1 (Pester 5's scope split hides
-    top-level helpers from It blocks).
+    The throw-based Assert-* helpers live in the file's BeforeAll, which is the
+    scope Pester 5 shares with the It blocks; defining them at script scope
+    instead makes every It fail on a missing command rather than on an
+    assertion.
 #>
 
+BeforeAll {
 $here    = Split-Path -Parent $PSCommandPath
 $testDir = Split-Path -Parent $here   # .../test
 
-$stopHostConfig  = Join-Path $testDir 'service/Stop-ConfigService.ps1'
-$stopStatus      = Join-Path $testDir 'service/Stop-StatusService.ps1'
-$startHostConfig = Join-Path $testDir 'service/Start-ConfigService.ps1'
-$startStash      = Join-Path $testDir 'service/Start-StashServiceVM.ps1'
+$script:startHostConfig = Join-Path $testDir 'service/Start-ConfigService.ps1'
+$script:startStash      = Join-Path $testDir 'service/Start-StashServiceVM.ps1'
 
 function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
 
@@ -163,18 +163,28 @@ function Get-AssignedValueText {
     $out
 }
 
+}
+
+# Case lists for the Describes below. Both are read while the file is being
+# DISCOVERED, which happens before any BeforeAll body runs, so they resolve their
+# own paths here at file scope rather than reading the run-phase variables: a
+# list built inside BeforeAll is still empty when the Describe that consumes it
+# is enumerated, and that Describe then emits no tests at all and passes
+# vacuously, while a path read from BeforeAll arrives as $null.
+$discoveryTestDir = Split-Path -Parent (Split-Path -Parent $PSCommandPath)   # .../test
+
 # Every service VM bring-up and teardown in test/service/, discovered rather than
 # listed so a service added later is held to the same invariant without a second
-# edit. An empty result would make this Describe vacuously pass, so the count is
-# asserted below -- a folder rename must fail loudly, not silently stop checking.
+# edit. An empty result would make its Describe vacuously pass, so the count is
+# asserted here -- a folder rename must fail loudly, not silently stop checking.
 $serviceVmScriptCases = @(
-    Get-ChildItem -LiteralPath (Join-Path $testDir 'service') -Filter '*ServiceVM.ps1' -File -ErrorAction SilentlyContinue |
+    Get-ChildItem -LiteralPath (Join-Path $discoveryTestDir 'service') -Filter '*ServiceVM.ps1' -File -ErrorAction SilentlyContinue |
         Where-Object { $_.Name -like 'Start-*' -or $_.Name -like 'Stop-*' } |
         Sort-Object Name |
         ForEach-Object { @{ Name = $_.Name; Path = $_.FullName } }
 )
 if ($serviceVmScriptCases.Count -lt 8) {
-    throw "Expected at least 8 Start-/Stop-*ServiceVM.ps1 scripts under $(Join-Path $testDir 'service'), found $($serviceVmScriptCases.Count). The discovery glob is pointed at the wrong folder."
+    throw "Expected at least 8 Start-/Stop-*ServiceVM.ps1 scripts under $(Join-Path $discoveryTestDir 'service'), found $($serviceVmScriptCases.Count). The discovery glob is pointed at the wrong folder."
 }
 
 Describe 'service VM scripts leave ErrorActionPreference at the inherited value' {
@@ -206,8 +216,8 @@ Describe 'service VM scripts leave ErrorActionPreference at the inherited value'
 # any It executes, so a `$case.Path` read inside the body would arrive as $null and
 # assert against an empty path.
 $stopScriptCases = @(
-    @{ Name = 'Stop-ConfigService.ps1'; Path = $stopHostConfig },
-    @{ Name = 'Stop-StatusService.ps1';     Path = $stopStatus }
+    @{ Name = 'Stop-ConfigService.ps1'; Path = (Join-Path $discoveryTestDir 'service/Stop-ConfigService.ps1') },
+    @{ Name = 'Stop-StatusService.ps1'; Path = (Join-Path $discoveryTestDir 'service/Stop-StatusService.ps1') }
 )
 
 Describe 'Stop-* scripts parse the PID defensively before process control' {
@@ -229,7 +239,7 @@ Describe 'Stop-* scripts parse the PID defensively before process control' {
 
 Describe 'Start-ConfigService.ps1 verifies the Linux child survived launch' {
     It 'gates on [int]::TryParse of the echoed PID and probes Get-Process -Id $bgPidInt' {
-        $ast = Get-ScriptAst $startHostConfig
+        $ast = Get-ScriptAst $script:startHostConfig
         Assert-True ((Get-InvokedMember -Ast $ast) -contains 'TryParse') '[int]::TryParse validates the echoed child PID'
         Assert-True ((Get-IfConditionMember -Ast $ast) -contains 'TryParse') 'the [int]::TryParse result gates the survival branch'
         $probes = @(Get-CommandCall -Ast $ast -Name 'Get-Process' |
@@ -240,7 +250,7 @@ Describe 'Start-ConfigService.ps1 verifies the Linux child survived launch' {
 
 Describe 'Start-StashServiceVM.ps1 surfaces status-service unreachability' {
     It 'captures the start decision, TCP-probes the status port, and warns on unreachable' {
-        $ast = Get-ScriptAst $startStash
+        $ast = Get-ScriptAst $script:startStash
         Assert-True (Test-AssignsFromCommand -Ast $ast -Command 'Start-YurunaStatusServiceIfEnabled') 'the start decision is captured in an assignment (not discarded)'
         Assert-True ((Get-InvokedMember -Ast $ast) -contains 'BeginConnect') 'the status port is TCP-probed via BeginConnect'
         # The warning must tie an unreachable status port to the degraded Extension-hosts

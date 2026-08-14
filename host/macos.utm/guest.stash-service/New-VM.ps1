@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e681
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -249,12 +249,15 @@ if ($NetworkMode -eq 'Shared') {
     Write-Output "Bridge interface: $BridgeInterface (stash-service VM will request DHCP on this LAN)"
 }
 
-# 4 GB RAM, 4 vCPU. Sized for the SCP receive + SQLite metadata writer
+# 2 GB RAM, 4 vCPU. Sized for the SCP receive + SQLite metadata writer
 # + in-VM UI, none of which holds a large resident working set: the transfers
-# stream to disk rather than buffering whole artifacts. One baseline across all
-# three extension VMs. UTM's MemorySize is a fixed allocation with no balloon,
-# so the whole amount stays committed on the host -- the extension VMs share one
-# machine with the cache VM on a standalone host.
+# stream to disk rather than buffering whole artifacts. What sets the floor is
+# the first-boot `go build`, not steady state: the pure-Go SQLite driver is the
+# largest compile in the graph, and a cold build of it peaks near 1.1 GB with no
+# swap in the guest. One baseline across all three extension VMs. UTM's
+# MemorySize is a fixed allocation with no balloon, so the whole amount stays
+# committed on the host -- the extension VMs share one machine with the cache VM
+# on a standalone host.
 # --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
 $hostCores = [int](& /usr/sbin/sysctl -n hw.physicalcpu)
 if ($hostCores -lt 4) {
@@ -274,7 +277,7 @@ $PlistContent = (Get-Content -Raw $TemplatePath) `
     -replace '__SEED_IMAGE_NAME__',    'seed.iso' `
     -replace '__VNC_DISPLAY__',        "$VncDisplay" `
     -replace '__CPU_COUNT__',          "$vmCores" `
-    -replace '__MEMORY_SIZE__',        '4096'
+    -replace '__MEMORY_SIZE__',        '2048'
 
 # Bridged mode needs the physical NIC name; Shared NAT carries no
 # BridgedInterface key (matches the sibling Shared templates), so drop the

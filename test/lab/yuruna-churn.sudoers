@@ -1,0 +1,23 @@
+# Sudoers rule for test/lab/Invoke-HostAddressChurn.ps1.
+#
+# Install (as root), then verify:
+#   sudo install -m 0440 -o root -g root test/lab/yuruna-churn.sudoers /etc/sudoers.d/yuruna-churn
+#   sudo visudo -cf /etc/sudoers.d/yuruna-churn
+#
+# Why this exists at all: the churn injector forces the host's bridge to take a
+# fresh DHCP lease so a cycle can be tested against a known number of address
+# changes rather than against whatever the site router happened to do. That is a
+# privileged operation, and the test runner is deliberately not root -- so this
+# grants the one command it needs and nothing else.
+#
+# Why the commands are spelled out rather than given as `nmcli *`: a wildcard
+# would also permit `nmcli connection modify`, `nmcli connection delete` and
+# `nmcli device disconnect`, any of which can take this host off the network
+# permanently rather than for the second a renewal costs. The two entries below
+# are the version probe the injector uses to check its own privilege, and the
+# activation itself, on one named connection.
+#
+# Replace ytest with the account the runner runs as, and yuruna-br0 if this
+# host's bridge is named differently.
+ytest ALL=(root) NOPASSWD: /usr/bin/nmcli --version
+ytest ALL=(root) NOPASSWD: /usr/bin/nmcli connection up yuruna-br0

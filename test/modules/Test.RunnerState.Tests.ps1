@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42e060d7-36ff-4d1a-8a46-0ee20e443f51
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,6 +35,7 @@
     Run: pwsh -NoProfile -File test/modules/Test.RunnerState.Tests.ps1
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.RunnerState.psm1') -Force -DisableNameChecking
 
@@ -87,7 +88,7 @@ function Initialize-TestCycleStartUtc {
 
 # The adjacency map as the module documents it, restated as data so that
 # widening it without saying so breaks these tests.
-$ValidTransitionCase = @(
+$script:ValidTransitionCase = @(
     @{ From = 'idle'; To = 'cycle-start' }
     @{ From = 'idle'; To = 'fault' }
     @{ From = 'cycle-start'; To = 'in-cycle' }
@@ -104,7 +105,7 @@ $ValidTransitionCase = @(
     @{ From = 'paused'; To = 'cycle-start' }
 )
 
-$InvalidTransitionCase = @(
+$script:InvalidTransitionCase = @(
     @{ From = 'idle'; To = 'in-cycle' }       # cannot skip cycle-start
     @{ From = 'idle'; To = 'cycle-end' }
     @{ From = 'idle'; To = 'paused' }
@@ -118,13 +119,15 @@ $InvalidTransitionCase = @(
 
 # Payloads Get-RunnerState must reject: none of them is a usable state object,
 # and the caller decides what absent state means.
-$UnreadableStateCase = @(
+$script:UnreadableStateCase = @(
     @{ Name = 'truncated json'; Content = 'not json {{{' }
     @{ Name = 'whitespace only'; Content = '   ' }
     @{ Name = 'empty file'; Content = '' }
     @{ Name = 'json scalar'; Content = '"just-a-string"' }
     @{ Name = 'json array'; Content = '[1,2]' }
 )
+
+}
 
 Describe 'Get-RunnerStateName' {
     It 'returns the canonical enum in declaration order' {
@@ -164,7 +167,7 @@ Describe 'Get-RunnerState' {
     It 'returns null when no state file exists' {
         Assert-True ($null -eq (Get-RunnerState)) 'a missing state file is "fresh boot", not an error'
     }
-    It 'returns null rather than throwing on an unreadable state file' -TestCases $UnreadableStateCase {
+    It 'returns null rather than throwing on an unreadable state file' -TestCases $script:UnreadableStateCase {
         param($Name, $Content)
         Set-Content -LiteralPath (Get-RunnerStatePath) -Value $Content -Encoding utf8NoBOM
         Assert-True ($null -eq (Get-RunnerState)) "$Name must read back as null"
@@ -181,11 +184,11 @@ Describe 'Get-RunnerState' {
 }
 
 Describe 'Test-RunnerStateTransition' {
-    It 'accepts every transition the lifecycle documents' -TestCases $ValidTransitionCase {
+    It 'accepts every transition the lifecycle documents' -TestCases $script:ValidTransitionCase {
         param($From, $To)
         Assert-Equal -Expected $true -Actual (Test-RunnerStateTransition -From $From -To $To) -Because "$From -> $To is documented as valid"
     }
-    It 'rejects a transition that is not in the adjacency map' -TestCases $InvalidTransitionCase {
+    It 'rejects a transition that is not in the adjacency map' -TestCases $script:InvalidTransitionCase {
         param($From, $To)
         Assert-Equal -Expected $false -Actual (Test-RunnerStateTransition -From $From -To $To) -Because "$From -> $To must not be accepted"
     }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42d7b5c1-8293-44a5-9fb6-2b3c4d5e6f70
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,6 +30,7 @@
     validation (snapshot-chain workload).
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.SequenceEngine.psm1') -Force -DisableNameChecking -ErrorAction SilentlyContinue
 
@@ -47,12 +48,14 @@ function New-StepList {
 
 # The Export-ModuleMember statement text the export guard matches against, read at
 # FILE scope: a Describe body is executed during discovery and its variables are
-# discarded before any It runs, so an in-Describe $exportStmt would reach the
+# discarded before any It runs, so an in-Describe $script:exportStmt would reach the
 # guard as $null.
-$exportStmt = [regex]::Match((Get-Content -Raw (Join-Path $here 'Test.SequenceEngine.psm1')), '(?s)Export-ModuleMember.*').Value
+$script:exportStmt = [regex]::Match((Get-Content -Raw (Join-Path $here 'Test.SequenceEngine.psm1')), '(?s)Export-ModuleMember.*').Value
 
 # @() at each call mirrors how Invoke-Sequence consumes the result -- PowerShell
 # unwraps a one-element return, so callers wrap to keep array semantics.
+}
+
 Describe 'Select-SequenceStepWindow' {
     It 'returns all steps for a whole-sequence window (default)' {
         $s = New-StepList -Count 6
@@ -151,8 +154,8 @@ Describe 'Module export surface' {
     # ExportedFunctions either way. Guarding the SOURCE list is what actually
     # catches a regression that re-adds the misleading re-export.
     It 'does not list Get-PollDelay in Export-ModuleMember (it is owned by Test.Backoff, resolved via the -Global import)' {
-        Assert-True ($exportStmt.Length -gt 0) 'located the Export-ModuleMember statement'
-        Assert-True ($exportStmt -notmatch '\bGet-PollDelay\b') 'Get-PollDelay belongs to Test.Backoff; callers resolve it via the global import, not an Invoke-Sequence re-export'
+        Assert-True ($script:exportStmt.Length -gt 0) 'located the Export-ModuleMember statement'
+        Assert-True ($script:exportStmt -notmatch '\bGet-PollDelay\b') 'Get-PollDelay belongs to Test.Backoff; callers resolve it via the global import, not an Invoke-Sequence re-export'
     }
     It 'still exports the core dispatch surface and pure helpers' {
         $exported = (Get-Module Test.SequenceEngine).ExportedFunctions.Keys

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42f1c7d5-6b28-4a19-8c40-7d2e5a9b1c63
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,6 +29,7 @@
     Run: Invoke-Pester -Path test/modules/Test.LeaseDiscovery.Tests.ps1
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path -Path (Split-Path -Parent $here) -ChildPath '..' -AdditionalChildPath 'automation', 'Yuruna.Common.psm1') -Force -DisableNameChecking
 
@@ -51,7 +52,7 @@ function Assert-Equal {
 # The live host's interface table at the time of the failure being guarded
 # against: en0 on the LAN, bridge100 as the vmnet gateway every UTM guest is
 # attached to, and lo0. Netmasks are hex, as macOS prints them.
-$IfconfigFixture = @'
+$script:IfconfigFixture = @'
 lo0: flags=8049<UP,LOOPBACK,RUNNING,MULTICAST> mtu 16384
 	inet 127.0.0.1 netmask 0xff000000
 en0: flags=8863<UP,BROADCAST,SMART,RUNNING,SIMPLEX,MULTICAST> mtu 1500
@@ -65,7 +66,7 @@ bridge100: flags=8863<UP,BROADCAST,SMART,RUNNING,SIMPLEX,MULTICAST> mtu 1500
 # under the pinned hostname on the subnet bridge100 actually serves. The two
 # live blocks are both on-link and same-named, so the subnet guard alone cannot
 # choose between them -- the lease= expiry still has to.
-$LeaseFixture = @'
+$script:LeaseFixture = @'
 {
 	name=test-amazon-linux-2023-01
 	ip_address=192.168.65.42
@@ -96,9 +97,11 @@ $LeaseFixture = @'
 }
 '@
 
+}
+
 Describe 'Get-HostIpv4Subnet' {
     It 'parses hex netmasks and skips loopback' {
-        $subnets = Get-HostIpv4Subnet -IfconfigText $IfconfigFixture
+        $subnets = Get-HostIpv4Subnet -IfconfigText $script:IfconfigFixture
         Assert-Equal -Expected 2 -Actual $subnets.Count -Because 'lo0 must be excluded; en0 and bridge100 must both appear.'
         Assert-True (($subnets | Where-Object { $_.Address -eq '192.168.64.1' }) -ne $null) 'bridge100 must be enumerated -- it is the vmnet subnet every UTM guest lives on.'
         foreach ($s in $subnets) { Assert-Equal -Expected 24 -Actual $s.PrefixLength -Because 'A hex mask parsed as a dotted quad would yield prefix 0.' }
@@ -112,7 +115,7 @@ Describe 'Get-HostIpv4Subnet' {
 
 Describe 'Get-Ipv4OnLinkVerdict' {
     It 'accepts an address on a live subnet and rejects one that is not' {
-        $subnets = Get-HostIpv4Subnet -IfconfigText $IfconfigFixture
+        $subnets = Get-HostIpv4Subnet -IfconfigText $script:IfconfigFixture
         Assert-Equal 'onlink'  (Get-Ipv4OnLinkVerdict -IpAddress '192.168.64.2'  -Subnet $subnets)
         Assert-Equal 'offlink' (Get-Ipv4OnLinkVerdict -IpAddress '192.168.65.42' -Subnet $subnets)
     }
@@ -124,7 +127,7 @@ Describe 'Get-Ipv4OnLinkVerdict' {
     }
 
     It 'answers unknown for an unparseable address' {
-        $subnets = Get-HostIpv4Subnet -IfconfigText $IfconfigFixture
+        $subnets = Get-HostIpv4Subnet -IfconfigText $script:IfconfigFixture
         Assert-Equal 'unknown' (Get-Ipv4OnLinkVerdict -IpAddress 'not-an-ip' -Subnet $subnets)
     }
 
@@ -168,9 +171,9 @@ Describe 'Get-Ipv4OnLinkVerdict' {
 
 Describe 'Select-DhcpLeaseIpAddress' {
     It 'prefers the pinned hostname over stale VM-name blocks' {
-        $subnets = Get-HostIpv4Subnet -IfconfigText $IfconfigFixture
+        $subnets = Get-HostIpv4Subnet -IfconfigText $script:IfconfigFixture
         $verdict = { param($ip) Get-Ipv4OnLinkVerdict -IpAddress $ip -Subnet $subnets }.GetNewClosure()
-        $picked = Select-DhcpLeaseIpAddress -LeaseText $LeaseFixture `
+        $picked = Select-DhcpLeaseIpAddress -LeaseText $script:LeaseFixture `
             -Name @('ch01host1', 'test-amazon-linux-2023-01') -OnLinkVerdict $verdict
         Assert-Equal -Expected '192.168.64.2' -Actual $picked -Because 'The most recently renewed on-link block under the pinned hostname must win.'
     }
@@ -197,7 +200,7 @@ Describe 'Select-DhcpLeaseIpAddress' {
 	lease=0x6a5e7261
 }
 '@
-        $subnets = Get-HostIpv4Subnet -IfconfigText $IfconfigFixture
+        $subnets = Get-HostIpv4Subnet -IfconfigText $script:IfconfigFixture
         $verdict = { param($ip) Get-Ipv4OnLinkVerdict -IpAddress $ip -Subnet $subnets }.GetNewClosure()
         Assert-Equal -Expected '192.168.64.2' -Actual (Select-DhcpLeaseIpAddress -LeaseText $bothOnLink `
             -Name @('ch01host1', 'test-amazon-linux-2023-01') -OnLinkVerdict $verdict) `
@@ -212,9 +215,9 @@ Describe 'Select-DhcpLeaseIpAddress' {
         # match is a stale predecessor on a subnet the host no longer serves.
         # Returning $null lets the caller keep polling instead of burning an
         # SSH connect-timeout budget per attempt against a dead address.
-        $subnets = Get-HostIpv4Subnet -IfconfigText $IfconfigFixture
+        $subnets = Get-HostIpv4Subnet -IfconfigText $script:IfconfigFixture
         $verdict = { param($ip) Get-Ipv4OnLinkVerdict -IpAddress $ip -Subnet $subnets }.GetNewClosure()
-        $picked = Select-DhcpLeaseIpAddress -LeaseText $LeaseFixture `
+        $picked = Select-DhcpLeaseIpAddress -LeaseText $script:LeaseFixture `
             -Name @('test-amazon-linux-2023-01') -OnLinkVerdict $verdict
         Assert-Equal $null $picked
     }
@@ -224,7 +227,7 @@ Describe 'Select-DhcpLeaseIpAddress' {
         # a working discovery into a hard failure, so the pre-guard behavior
         # (highest lease= under the matched name) has to survive intact.
         $verdict = { param($ip) Get-Ipv4OnLinkVerdict -IpAddress $ip -Subnet @() }.GetNewClosure()
-        $picked = Select-DhcpLeaseIpAddress -LeaseText $LeaseFixture `
+        $picked = Select-DhcpLeaseIpAddress -LeaseText $script:LeaseFixture `
             -Name @('test-amazon-linux-2023-01') -OnLinkVerdict $verdict
         Assert-Equal '192.168.65.42' $picked
     }
@@ -252,7 +255,7 @@ Describe 'Select-DhcpLeaseIpAddress' {
         # An empty subnet table is the real "could not enumerate" path, so
         # this exercises the production verdict rather than a stub of it.
         $verdict = { param($ip) Get-Ipv4OnLinkVerdict -IpAddress $ip -Subnet @() }
-        Assert-Equal $null (Select-DhcpLeaseIpAddress -LeaseText $LeaseFixture -Name @('absent-vm') -OnLinkVerdict $verdict)
+        Assert-Equal $null (Select-DhcpLeaseIpAddress -LeaseText $script:LeaseFixture -Name @('absent-vm') -OnLinkVerdict $verdict)
         Assert-Equal $null (Select-DhcpLeaseIpAddress -LeaseText '' -Name @('ch01host1') -OnLinkVerdict $verdict)
     }
 }

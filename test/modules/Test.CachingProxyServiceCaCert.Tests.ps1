@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42a4c5d6-e7f8-4a90-8b12-3c4d5e6f7081
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,10 +33,11 @@
     from It blocks, so this runs under Pester 4.10.1.
 #>
 
+BeforeAll {
 $here    = Split-Path -Parent $PSCommandPath
 $testDir = Split-Path -Parent $here
 $repoRoot = Split-Path -Parent $testDir
-$module  = Join-Path $here 'Test.CachingProxyService.psm1'
+$script:module  = Join-Path $here 'Test.CachingProxyService.psm1'
 
 function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
 function Assert-False { param($Condition, [string]$Because = '') if ($Condition) { throw "Expected false. $Because" } }
@@ -68,7 +69,9 @@ foreach ($updateScript in $updateScripts) {
     $updateScriptBody[$updateScript] = Get-Content -Raw -LiteralPath $updateScript
 }
 $statusServicePath = Join-Path $repoRoot 'test/Start-StatusService.ps1'
-$statusServiceBody = Get-Content -Raw -LiteralPath $statusServicePath
+$script:statusServiceBody = Get-Content -Raw -LiteralPath $statusServicePath
+
+}
 
 Describe 'Test.CachingProxyService CA-source helpers' {
     BeforeEach {
@@ -76,7 +79,7 @@ Describe 'Test.CachingProxyService CA-source helpers' {
         New-Item -ItemType Directory -Path $script:sandbox -Force | Out-Null
         $env:YURUNA_RUNTIME_DIR = $script:sandbox
         $env:YURUNA_CACHING_PROXY_SERVICE_IP = ''
-        Import-Module $module -Force -DisableNameChecking
+        Import-Module $script:module -Force -DisableNameChecking
         Import-Module powershell-yaml -Force -ErrorAction SilentlyContinue
     }
 
@@ -176,15 +179,15 @@ Describe 'Guest CA self-heal shape (ubuntu update scripts)' {
 
 Describe '/ca.crt status-service endpoint shape' {
     It 'defines the /ca.crt route' {
-        Assert-True ($statusServiceBody -match "path -eq 'ca\.crt'") 'route present'
+        Assert-True ($script:statusServiceBody -match "path -eq 'ca\.crt'") 'route present'
     }
     It 'resolves the CA via the live-read-first resolver' {
-        Assert-True ($statusServiceBody -match 'Resolve-CachingProxyServiceCaCertPem') 'uses the shared resolver'
+        Assert-True ($script:statusServiceBody -match 'Resolve-CachingProxyServiceCaCertPem') 'uses the shared resolver'
     }
     It 'guards HEAD so no body is written (HTTP.sys RST trap)' {
-        Assert-True ($statusServiceBody -match "ca\.crt[\s\S]*?HttpMethod -ne 'HEAD'[\s\S]*?OutputStream\.Write") 'HEAD body guard'
+        Assert-True ($script:statusServiceBody -match "ca\.crt[\s\S]*?HttpMethod -ne 'HEAD'[\s\S]*?OutputStream\.Write") 'HEAD body guard'
     }
     It '404s when no CA is resolvable' {
-        Assert-True ($statusServiceBody -match "ca\.crt[\s\S]*?StatusCode = 404") 'diagnosed degrade, not a silent pass'
+        Assert-True ($script:statusServiceBody -match "ca\.crt[\s\S]*?StatusCode = 404") 'diagnosed degrade, not a silent pass'
     }
 }

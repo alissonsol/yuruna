@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42c3a9e8-5b2d-4f17-8a04-1c6d3e5f7a92
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,6 +25,7 @@
     built-in recovery handlers so the routing decision is exercised end to end.
 #>
 
+BeforeAll {
 $here       = Split-Path -Parent $PSCommandPath
 $modulePath = Join-Path $here 'Test.Remediation.psm1'
 Import-Module (Join-Path $here 'Test.FailureTaxonomy.psm1') -Force -DisableNameChecking -Global -ErrorAction SilentlyContinue
@@ -33,6 +34,8 @@ if (Get-Command Register-BuiltinRecoveryHandler -ErrorAction SilentlyContinue) {
 
 function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
 function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
+
+}
 
 Describe 'Invoke-Remediation inner-cause routing' {
     It 'routes past retry_exhausted to the inner failureClass when an inner handler exists' {

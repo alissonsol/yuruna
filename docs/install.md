@@ -59,8 +59,7 @@ closing report prints all five:
 - **Blocked** — the step could not run because something it needs failed.
   Kept separate from Skipped so a cascade never reads as a decision — a
   step blocked by an earlier failure is a different fact about the
-  machine from a step the operator declined, and filing them together
-  hides which one happened.
+  machine from a step the operator declined.
 - **Warned** — the middle the other four have no room for: the step did
   its work and something it cannot fix itself is still unmet (a TCC
   grant needs the terminal quit; a Mac with no lid never surfaces every
@@ -73,7 +72,7 @@ allowed to assume. Each fact is THREE-valued on purpose: `ok`, plus the
 two ways a fact can be absent — `declined` (nobody asked for it) and
 `failed` (attempted, did not work). A boolean collapses those two, and
 the collapse prints "a prerequisite failed" over a run where the
-operator simply chose not to have the thing.
+operator chose not to have the thing.
 
 ### Two-repo split
 
@@ -91,7 +90,7 @@ would stall waiting for GitHub credentials this run doesn't have.
 
 ### Release pinning + signed integrity
 
-`VERSION` (bare CalVer, e.g. `2026.08.11`) is the source of truth for releases.
+`VERSION` (bare CalVer, e.g. `2026.08.14`) is the source of truth for releases.
 At release time `tools/Update-YurunaReleasePins.ps1` regenerates
 `install/install.sha256`, signs it (`install/install.sha256.sig`, RSA-4096),
 runs the ASCII/no-BOM gate as a hard precondition, and bumps the one tag still
@@ -270,7 +269,7 @@ fallback `utmctl status` parse that treats every uncertain status as
 "preserve". The probe is the signal that survives a non-graphical launch
 (SSH, no Apple Events). `utmctl status` alone is not enough: over SSH it
 answers `utmctl could not reach UTM`, and reading that as "not running"
-quits UTM and lets the orphan-bundle sweep delete the cache.
+quits UTM and lets the orphaned-bundle sweep delete the cache.
 
 If the cache is running OR its state is uncertain, the macOS installer
 skips the UTM cask upgrade so a quit-UTM window does not let the
@@ -907,11 +906,10 @@ manual `virsh net-start`.
 
 Up to the preflight section the installer APPLIED configuration. The
 preflight VERIFIES the host actually reached the state
-`Invoke-TestRunner.ps1` needs. Every check is a hard requirement; the
-script collects all failures so the operator sees the full punch list
-at once instead of fix-and-rerun N times. A partial install is worse
-than no install — subsequent runs see "looks configured" and skip
-steps that would have re-applied them.
+`Invoke-TestRunner.ps1` needs. The script collects all failures so the
+operator sees the full punch list at once instead of fix-and-rerun N
+times. A partial install is worse than no install — subsequent runs
+see "looks configured" and skip steps that would have re-applied them.
 
 The checks cover: `kvm-ok`, `/dev/kvm` character device, group
 membership in `/etc/group` (the parent shell's stale group set is the
@@ -956,6 +954,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.11
+Last review: 2026.08.14
 
 Back to [Yuruna](../README.md)

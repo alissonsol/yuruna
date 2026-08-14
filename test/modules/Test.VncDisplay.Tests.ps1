@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42c1f70a-8d35-4e63-9a27-5b48c1e07d92
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,10 +31,17 @@
     Run: Invoke-Pester -Path test/modules/Test.VncDisplay.Tests.ps1
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 $VncRepoRoot = Split-Path -Parent (Split-Path -Parent $here)
 $VncIsMac = $IsMacOS -and (Test-Path '/usr/libexec/PlistBuddy')
 if ($VncIsMac) {
+    # macos.utm, ubuntu.kvm and windows.hyper-v each publish a module named
+    # 'Yuruna.Host'. The suite shares one runspace, so a driver left resident by
+    # another file makes `Get-Module Yuruna.Host` return an array -- which binds
+    # to nothing and leaves Pester's -ModuleName ambiguous. Keep this file's
+    # driver the only one loaded.
+    Get-Module -Name 'Yuruna.Host' -All | Remove-Module -Force -ErrorAction SilentlyContinue
     Import-Module (Join-Path $VncRepoRoot 'host/macos.utm/modules/Yuruna.Host.psm1') -Force -DisableNameChecking -Global -WarningAction SilentlyContinue
 }
 
@@ -78,6 +85,8 @@ function New-VncFixture {
 </plist>
 "@ | Set-Content -LiteralPath $plist -Encoding utf8
     return $bundle
+}
+
 }
 
 Describe 'VNC display allocation (host.macos.utm)' {
@@ -302,13 +311,23 @@ Describe 'A failed VM start is never reported as success' {
         $text = Get-Content -Raw (Join-Path $VncRepoRoot 'test/modules/Test.SequenceHandler.psm1')
         $i = $text.IndexOf("Register-SequenceAction -Name 'loadDiskSnapshot'")
         Assert-True ($i -ge 0) 'the loadDiskSnapshot handler is registered'
-        $body = $text.Substring($i, [Math]::Min(6000, $text.Length - $i))
+        # Registrations are sequential, so the next one bounds this handler. A
+        # fixed-size window instead silently stops covering the tail as the
+        # handler grows, and the assertions below then pass over nothing.
+        $next = $text.IndexOf('Register-SequenceAction -Name', $i + 1)
+        if ($next -lt 0) { $next = $text.Length }
+        $body = $text.Substring($i, $next - $i)
         Assert-True ($body -notmatch '\$startRes -is \[hashtable\] -and') 'the short-circuiting shape guard is gone'
         Assert-True ($body -match 'Select-Object -Last 1') 'the status record is extracted from the return'
         Assert-True ($body -match 'no status record') 'a missing record fails the step'
     }
 }
 
-if (Test-Path -LiteralPath $VncTestHome) {
-    Remove-Item -LiteralPath $VncTestHome -Recurse -Force -ErrorAction SilentlyContinue
+AfterAll {
+    # File-scope code runs during the discovery pass, before any It has built a
+    # fixture, and cannot see variables the BeforeAll assigns. Cleanup belongs
+    # here or it deletes nothing and throws on a null path.
+    if ($VncTestHome -and (Test-Path -LiteralPath $VncTestHome)) {
+        Remove-Item -LiteralPath $VncTestHome -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }

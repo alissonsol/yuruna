@@ -47,7 +47,6 @@ func main() {
 	listLimit := flag.Int("list-default-limit", config.DefaultListLimit, "default page size for the recent-stash list")
 	aggregatorURL := flag.String("aggregator-url", "", "pool-aggregator-service base URL for hostId→stash-UI resolution and the presence beacon (§4.7); empty disables both (best-effort)")
 	hostID := flag.String("host-id", "", "owning HOST's hostId (the pool-table identity) the presence beacon announces under (§4.7); empty disables the beacon")
-	hostIP := flag.String("host-ip", "", "the deploying host's IP address: the one non-VM source permitted to DELETE stashes. Reads and writes stay open to any host. Comma-separated list accepted; empty = only this VM may delete")
 	presenceInterval := flag.Duration("presence-interval", config.DefaultPresenceInterval, "presence re-announce period to the pool-aggregator-service (§4.7); 0 disables the beacon")
 	flag.Parse()
 
@@ -134,13 +133,12 @@ func main() {
 			PoolRefresh:    time.Duration(*poolRefreshSecs) * time.Second,
 			DefaultLimit:   *listLimit,
 			Version:        version,
-			HostIP:         *hostIP,
 		})
 		log.Printf("stash-service UI on %s (pool window %dd, refresh %ds, aggregator=%q)", *httpAddr, *poolWindowDays, *poolRefreshSecs, *aggregatorURL)
-		if *hostIP != "" {
-			log.Printf("stash-service delete authz: VM-local + host IP(s) %q may DELETE; reads/writes stay open", *hostIP)
+		if *aggregatorURL != "" {
+			log.Printf("stash-service delete authz: a lab-token session or a dashboard control proof, checked by %s; reads/writes stay open", *aggregatorURL)
 		} else {
-			log.Printf("stash-service delete authz: VM-local only may DELETE (no --host-ip); reads/writes stay open")
+			log.Printf("stash-service delete authz: DELETE IS DISABLED -- without --aggregator-url no lab token or control proof can be checked; reads/writes stay open")
 		}
 		listeners++
 		go func() { errCh <- ui.ListenAndServe(ctx) }()

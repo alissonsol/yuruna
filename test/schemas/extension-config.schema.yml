@@ -89,7 +89,11 @@ properties:
         description: >
           How often the service re-announces itself to the pool
           aggregator, in Go duration form. Must stay well inside the
-          aggregator's announce TTL.
+          aggregator's announce TTL, and SHORTER than the aggregator's
+          extension health grace: an announce is also how a renumbered
+          service reports its new address, so a cadence slower than the
+          grace leaves the area unresolvable between the refusal of the
+          old address and the next announce.
       writeGate:
         type: string
         enum: [lab-token, none]

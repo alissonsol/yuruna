@@ -26,8 +26,8 @@ Include: affected files or scripts, host/guest platform
 ([macOS UTM](host/macos.utm/README.md),
 [Windows Hyper-V](host/windows.hyper-v/README.md),
 [Ubuntu KVM/libvirt](host/ubuntu.kvm/README.md)),
-reproduction steps, and any logs from
-`automation/Get-SystemDiagnostic.ps1` if relevant. Expect an initial
+reproduction steps, and relevant logs from
+`automation/Get-SystemDiagnostic.ps1`. Expect an initial
 acknowledgement within a few working days.
 
 ## Scope
@@ -63,7 +63,7 @@ following as your responsibility, not the project's:
 - **Credentials** — files matching `*.config.yml`,
   `transports.yml` (notification), and the per-cycle authentication
   vault under `test/status/extension/authentication/`
-  hold secrets and are git-ignored. Never commit them.
+  hold secrets and are gitignored. Never commit them.
 - **Network exposure** — Kubernetes deployments, the status service,
   and the caching-proxy service bind to the host. Restrict ingress before
   running outside a trusted LAN.
@@ -92,6 +92,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.11
+Last review: 2026.08.14
 
 Back to [Yuruna](README.md)

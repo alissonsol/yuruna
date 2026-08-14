@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42dd3adb-5661-4d45-87ae-9a393fc5404f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,27 +33,30 @@
     Runs under Pester 4.10.1.
 #>
 
+BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
-$autoDir  = Join-Path $repoRoot 'automation'
+$script:autoDir  = Join-Path $repoRoot 'automation'
 
 function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
+
+}
 
 Describe 'entrypoint-bugfixes' {
     It 'Bug 1: the bool-tail entrypoints exit 1 on failure (Invoke-Clear, Test-Configuration, Test-Requirement)' {
         foreach ($e in 'Invoke-Clear','Test-Configuration','Test-Requirement') {
-            $src = Get-Content -LiteralPath (Join-Path $autoDir "$e.ps1") -Raw
+            $src = Get-Content -LiteralPath (Join-Path $script:autoDir "$e.ps1") -Raw
             Assert-True ($src -match '(?s)if \(-Not \$result\) \{[^}]*\bexit 1\b') `
                 "$e failure branch must exit 1 so bash set -e sees the failure"
         }
     }
     It 'Bug 2: Test-Configuration.ps1 resolves roots via Resolve-YurunaRootSet' {
-        $src = Get-Content -LiteralPath (Join-Path $autoDir 'Test-Configuration.ps1') -Raw
+        $src = Get-Content -LiteralPath (Join-Path $script:autoDir 'Test-Configuration.ps1') -Raw
         Assert-True ($src -match 'Resolve-YurunaRootSet -ScriptRoot \$PSScriptRoot') `
             'Test-Configuration must delegate root resolution to the shared resolver'
     }
     It 'Bug 2: Test-Configuration.ps1 no longer uses the wildcard-expanding -Path guard' {
-        $src = Get-Content -LiteralPath (Join-Path $autoDir 'Test-Configuration.ps1') -Raw
+        $src = Get-Content -LiteralPath (Join-Path $script:autoDir 'Test-Configuration.ps1') -Raw
         Assert-True (-not ($src -match 'Resolve-Path -Path \$project_root')) `
             'the -Path (wildcard-expanding) project-root resolve must be gone'
         Assert-True (-not ($src -match 'IsNullOrEmpty\(\$resolved_root\)')) `
@@ -61,7 +64,7 @@ Describe 'entrypoint-bugfixes' {
     }
     It 'every entrypoint scopes the module eviction to Yuruna.* (no all-module Get-Module | Remove-Module)' {
         foreach ($e in 'yuruna','Set-Component','Set-Resource','Set-Workload','Invoke-Clear','Test-Configuration','Test-Requirement') {
-            $src = Get-Content -LiteralPath (Join-Path $autoDir "$e.ps1") -Raw
+            $src = Get-Content -LiteralPath (Join-Path $script:autoDir "$e.ps1") -Raw
             if ($src -match 'Get-Module.*\| Remove-Module') {
                 Assert-True (-not ($src -match 'Get-Module \| Remove-Module')) "$e must not evict ALL modules"
                 Assert-True ($src -match 'Get-Module Yuruna\.\* \| Remove-Module') "$e must scope the eviction to Yuruna.*"

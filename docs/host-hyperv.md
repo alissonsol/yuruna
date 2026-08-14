@@ -32,9 +32,9 @@ is rendering it.
 Set `YURUNA_VIRTUAL_DISPLAY` to a truthy value (`true`/`1`/`yes`/`on`,
 case-insensitive) to have the runner attach a *virtual* display that stays
 present whether or not a physical monitor is connected, so DWM keeps
-painting. Unset or false is a no-op: no virtual display is attached and the
-host's monitor topology, resolution, and scaling are untouched — capture then
-depends on a real monitor or a manual fallback below. When enabled it runs
+painting. Unset or false is a no-op: the host's monitor topology, resolution, and
+scaling are untouched — capture then depends on a real monitor or a
+manual fallback below. When enabled it runs
 **even when a real monitor is attached**, because gating on "currently
 headless" loses a race: a run often starts with a monitor present and then a
 **KVM switch** (or an unplugged monitor / closed lid) drops the physical
@@ -64,7 +64,7 @@ opt-in for that shell only) takes effect immediately.
 The attach is a **per-cycle** step, not an enable-time one, because the
 physical monitor can come and go between cycles. The inner runner re-runs
 `Initialize-HostDisplay` (→ `Install-YurunaVirtualDisplay`) at the start
-of every cycle (idempotent — an already-active monitor short-circuits),
+of every cycle (idempotent),
 and `Remove-TestVMFiles.ps1` tears it down via `Remove-HostDisplay`
 (→ `Remove-YurunaVirtualDisplay`, a `deviceinstaller64 enableidd 0`) when
 a machine stops running tests, so a stale/duplicate monitor left by a
@@ -79,9 +79,9 @@ already-active virtual display short-circuits the step, so it never stacks
 extra monitors, and success is confirmed against the *usbmmidd* monitor
 (not a generic monitor count, which a still-attached physical display
 would satisfy). The activation may not survive a host reboot; the
-next cycle then re-activates the monitor (the per-cycle
-`Initialize-HostDisplay` step) without re-downloading or re-staging the
-driver. Install/activation/teardown transcripts land in
+next cycle's `Initialize-HostDisplay` re-activates the monitor without
+re-downloading or re-staging the driver.
+Install/activation/teardown transcripts land in
 `test/status/log/VirtualDisplay/usbmmidd.log`.
 
 **Manual fallbacks** (for hosts where auto-provisioning can't run — host
@@ -179,7 +179,7 @@ remediation, and diagnostics: [Hyper-V base-image ACL bloat](vmconfig.md#hyper-v
 
 ## Display text scale must be 100% for OCR
 
-OCR on VM screenshots (Tesseract, Get-HyperVWindowScreenshot) degrades when
+OCR on VM screenshots (Tesseract, `Get-HyperVWindowScreenshot`) degrades when
 the host display scales above 100%. `vmconnect` renders the guest
 framebuffer through the DPI-scaled compositor; the upscaled bitmap
 defeats Tesseract segmentation and `waitForText` silently times out on
@@ -256,6 +256,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.11
+Last review: 2026.08.14
 
 Back to [Yuruna](../README.md)

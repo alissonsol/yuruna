@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42b7d914-3c60-4a18-9f52-6d0e8b47c913
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,6 +50,7 @@
     Run: pwsh -NoProfile -File test/modules/Test.StatusCycleArchive.Tests.ps1
 #>
 
+BeforeAll {
 $here      = Split-Path -Parent $PSCommandPath
 $repoRoot  = Split-Path -Parent (Split-Path -Parent $here)
 $svcPath   = Join-Path $repoRoot 'test/Start-StatusService.ps1'
@@ -66,22 +67,22 @@ function Assert-NoFinding {
 # discovery and its variables are gone before any It runs.
 $SvcSource  = Get-Content -Raw -LiteralPath $svcPath
 $ShareJs    = Get-Content -Raw -LiteralPath (Join-Path $statusDir 'yuruna.common.js')
-$SharePage  = Get-Content -Raw -LiteralPath (Join-Path $statusDir 'share-cycle.html')
+$script:SharePage  = Get-Content -Raw -LiteralPath (Join-Path $statusDir 'share-cycle.html')
 
 # The share page's own slice of the script every status page shares. Format
 # checks read this rather than the whole file: other routes serve tarballs of
 # their own (the committed-content archives), and one of those named in some
 # unrelated handler is not this page asking for the wrong thing.
-$ShareRegion = [regex]::Match($ShareJs, '(?s)// --- REGION: share-cycle\.html.*?(?=// Page dispatch keyed)').Value
+$script:ShareRegion = [regex]::Match($ShareJs, '(?s)// --- REGION: share-cycle\.html.*?(?=// Page dispatch keyed)').Value
 
 # The literal the route matches the URL leaf against. In the generator it lives
 # in a here-string, so the end-anchor is written as a backtick-escaped `$;
 # strip that escape to recover the regex the running service uses.
 $ArchiveMatch = [regex]::Match($SvcSource, "\`$leaf\s+-notmatch\s+'(\^[^']+)'")
-$ArchiveRegex = if ($ArchiveMatch.Success) { $ArchiveMatch.Groups[1].Value -replace '`\$', '$' } else { $null }
+$script:ArchiveRegex = if ($ArchiveMatch.Success) { $ArchiveMatch.Groups[1].Value -replace '`\$', '$' } else { $null }
 
 # A real folder name, as Format-CycleFolderBaseName builds it.
-$GoodLeaf = '000724.2026-08-05.01-47-56.42e5e36df63d4edf8b664e6cf6fce463'
+$script:GoodLeaf = '000724.2026-08-05.01-47-56.42e5e36df63d4edf8b664e6cf6fce463'
 
 # The packing the route does, written here the same way: entries rooted at the
 # cycle folder, files opened with ReadWrite sharing because a running cycle is
@@ -121,24 +122,26 @@ function Get-TestArchiveEntry {
     try { @($zip.Entries | ForEach-Object { $_.FullName.TrimEnd('/') }) } finally { $zip.Dispose() }
 }
 
+}
+
 Describe 'the cycle archive route grammar' {
 
     It 'is still present on the archive route' {
-        Assert-True ($null -ne $ArchiveRegex) `
+        Assert-True ($null -ne $script:ArchiveRegex) `
             'no leaf grammar found on the archive route: without it the URL names an arbitrary tar target'
         Assert-True ($SvcSource -match "\`$path\s+-like\s+'archive/\*'") `
             'the archive route dispatch is gone'
     }
 
     It 'accepts a cycle results folder, complete or still running' {
-        foreach ($leaf in @("$GoodLeaf.zip", "$GoodLeaf.incomplete.zip")) {
-            Assert-True ($leaf -match $ArchiveRegex) "'$leaf' must be accepted: it is a real cycle folder archive name"
+        foreach ($leaf in @("$script:GoodLeaf.zip", "$script:GoodLeaf.incomplete.zip")) {
+            Assert-True ($leaf -match $script:ArchiveRegex) "'$leaf' must be accepted: it is a real cycle folder archive name"
         }
     }
 
     It 'captures the host id and the UTC start the archive is named from' {
-        Assert-True ("$GoodLeaf.zip" -match $ArchiveRegex) 'the good leaf must match to capture from'
-        Assert-Equal -Expected $GoodLeaf -Actual $Matches[1] -Because 'group 1 is the folder handed to tar'
+        Assert-True ("$script:GoodLeaf.zip" -match $script:ArchiveRegex) 'the good leaf must match to capture from'
+        Assert-Equal -Expected $script:GoodLeaf -Actual $Matches[1] -Because 'group 1 is the folder handed to tar'
         Assert-Equal -Expected '2026-08-05' -Actual $Matches[2] -Because 'group 2 is the UTC date'
         Assert-Equal -Expected '01-47-56' -Actual $Matches[3] -Because 'group 3 is the UTC time'
         Assert-Equal -Expected '42e5e36df63d4edf8b664e6cf6fce463' -Actual $Matches[4] -Because 'group 4 is the host id'
@@ -152,25 +155,25 @@ Describe 'the cycle archive route grammar' {
     It 'refuses anything that is not exactly one cycle folder archive' {
         foreach ($leaf in @(
                 '../../../etc/passwd.zip',
-                "..%2f$GoodLeaf.zip",
-                "sub/$GoodLeaf.zip",
-                "$GoodLeaf/../other.zip",
-                "/$GoodLeaf.zip",
-                "$GoodLeaf.zip.ps1",
-                "$GoodLeaf.tar.gz",
-                "$GoodLeaf",
+                "..%2f$script:GoodLeaf.zip",
+                "sub/$script:GoodLeaf.zip",
+                "$script:GoodLeaf/../other.zip",
+                "/$script:GoodLeaf.zip",
+                "$script:GoodLeaf.zip.ps1",
+                "$script:GoodLeaf.tar.gz",
+                "$script:GoodLeaf",
                 '000724.2026-08-05.01-47-56.nothex.zip',
                 '724.2026-08-05.01-47-56.42e5e36df63d4edf8b664e6cf6fce463.zip',
                 '.zip',
                 '')) {
-            Assert-Equal -Expected $false -Actual ($leaf -match $ArchiveRegex) `
+            Assert-Equal -Expected $false -Actual ($leaf -match $script:ArchiveRegex) `
                 -Because "'$leaf' must NOT be accepted: the leaf grammar is the only thing bounding what tar is aimed at"
         }
     }
 
     It 'is anchored at both ends, so no separator can ride along' {
-        Assert-True ($ArchiveRegex.StartsWith('^')) 'the grammar must be anchored at the start'
-        Assert-True ($ArchiveRegex.EndsWith('$')) 'the grammar must be anchored at the end'
+        Assert-True ($script:ArchiveRegex.StartsWith('^')) 'the grammar must be anchored at the start'
+        Assert-True ($script:ArchiveRegex.EndsWith('$')) 'the grammar must be anchored at the end'
     }
 
     It 'runs before the static-file dispatch, so archive/ cannot fall through to it' {
@@ -190,25 +193,25 @@ Describe 'the cycle archive route grammar' {
 
         $work = Join-Path ([System.IO.Path]::GetTempPath()) ([guid]::NewGuid().ToString('N'))
         try {
-            $src = Join-Path $work $GoodLeaf
+            $src = Join-Path $work $script:GoodLeaf
             $guest = Join-Path $src 'test-guest.ubuntu.server.24-01'
             $null = New-Item -ItemType Directory -Path $guest -Force
             Set-Content -LiteralPath (Join-Path $src 'manifest.json') -Value '{"ok":true}' -Encoding utf8
             Set-Content -LiteralPath (Join-Path $guest 'transcript.txt') -Value 'guest log' -Encoding utf8
 
             $out = Join-Path $work 'out.zip'
-            Compress-TestCycleFolder -SourceRoot $src -CycleFolder $GoodLeaf -Destination $out
+            Compress-TestCycleFolder -SourceRoot $src -CycleFolder $script:GoodLeaf -Destination $out
             Assert-True (Test-Path -LiteralPath $out) 'the packer produced no archive'
 
             # Rooting every entry at the cycle folder is what keeps the host's
             # whole log path out of the archive, and the guest subfolder has to
             # be in there or "recursively" is not what happened.
             $entries = @(Get-TestArchiveEntry -Path $out)
-            Assert-True ($entries -contains "$GoodLeaf/manifest.json") 'the cycle file is missing from the archive'
-            Assert-True ($entries -contains "$GoodLeaf/test-guest.ubuntu.server.24-01/transcript.txt") `
+            Assert-True ($entries -contains "$script:GoodLeaf/manifest.json") 'the cycle file is missing from the archive'
+            Assert-True ($entries -contains "$script:GoodLeaf/test-guest.ubuntu.server.24-01/transcript.txt") `
                 'the guest subfolder is missing: the archive must be recursive'
             foreach ($e in $entries) {
-                Assert-True ($e -eq $GoodLeaf -or $e.StartsWith("$GoodLeaf/")) `
+                Assert-True ($e -eq $script:GoodLeaf -or $e.StartsWith("$script:GoodLeaf/")) `
                     "archive entry '$e' escapes the cycle folder: every entry must be rooted at it"
             }
         } finally {
@@ -223,7 +226,7 @@ Describe 'the cycle archive route grammar' {
         # operator most wanted to send.
         $work = Join-Path ([System.IO.Path]::GetTempPath()) ([guid]::NewGuid().ToString('N'))
         try {
-            $src = Join-Path $work "$GoodLeaf.incomplete"
+            $src = Join-Path $work "$script:GoodLeaf.incomplete"
             $null = New-Item -ItemType Directory -Path $src -Force
             $live = Join-Path $src 'transcript.html'
             $writer = [System.IO.File]::Open($live, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::ReadWrite)
@@ -233,9 +236,9 @@ Describe 'the cycle archive route grammar' {
                 $writer.Flush()
 
                 $out = Join-Path $work 'out.zip'
-                Compress-TestCycleFolder -SourceRoot $src -CycleFolder "$GoodLeaf.incomplete" -Destination $out
+                Compress-TestCycleFolder -SourceRoot $src -CycleFolder "$script:GoodLeaf.incomplete" -Destination $out
                 $entries = @(Get-TestArchiveEntry -Path $out)
-                Assert-True ($entries -contains "$GoodLeaf.incomplete/transcript.html") `
+                Assert-True ($entries -contains "$script:GoodLeaf.incomplete/transcript.html") `
                     'the open transcript was skipped: the packer must read with ReadWrite sharing'
             } finally { $writer.Dispose() }
         } finally {
@@ -268,7 +271,7 @@ Describe 'the cycle archive route grammar' {
     It 'leaves a snapshot or backup out of the archive it builds' {
         $work = Join-Path ([System.IO.Path]::GetTempPath()) ([guid]::NewGuid().ToString('N'))
         try {
-            $src = Join-Path $work $GoodLeaf
+            $src = Join-Path $work $script:GoodLeaf
             $nested = Join-Path $src 'test-guest.ubuntu.server.24-01'
             $null = New-Item -ItemType Directory -Path $nested -Force
             Set-Content -LiteralPath (Join-Path $src 'manifest.json') -Value '{"ok":true}' -Encoding utf8
@@ -282,11 +285,11 @@ Describe 'the cycle archive route grammar' {
             Set-Content -LiteralPath (Join-Path $nested 'guest.vault.bak') -Value 'secret' -Encoding utf8
 
             $out = Join-Path $work 'out.zip'
-            Compress-TestCycleFolder -SourceRoot $src -CycleFolder $GoodLeaf -Destination $out `
+            Compress-TestCycleFolder -SourceRoot $src -CycleFolder $script:GoodLeaf -Destination $out `
                 -Exclude @('*.snapshot.json', '*.snapshot.*.json', '*.backup', '*.bak', '*.tmp')
 
             $entries = @(Get-TestArchiveEntry -Path $out)
-            Assert-True ($entries -contains "$GoodLeaf/manifest.json") 'the cycle artifact must still be packed'
+            Assert-True ($entries -contains "$script:GoodLeaf/manifest.json") 'the cycle artifact must still be packed'
             $findings = @()
             foreach ($e in $entries) {
                 if ($e -match '\.(snapshot\.json|backup|bak|tmp)$' -or $e -match '\.snapshot\..*\.json$') {
@@ -322,15 +325,15 @@ Describe 'the share page and the host agree on one grammar' {
         # that offers a download the service will 404.
         $findings = @()
         foreach ($folder in @(
-                $GoodLeaf,
-                "$GoodLeaf.incomplete",
+                $script:GoodLeaf,
+                "$script:GoodLeaf.incomplete",
                 '000001.2026-01-01.00-00-00.42ffffffffffffffffffffffffffffff')) {
             if (-not ($folder -match $jsRegex)) { $findings += "the share page rejects '$folder' but the host accepts it" }
-            if (-not ("$folder.zip" -match $ArchiveRegex)) { $findings += "the host rejects '$folder' but the share page accepts it" }
+            if (-not ("$folder.zip" -match $script:ArchiveRegex)) { $findings += "the host rejects '$folder' but the share page accepts it" }
         }
-        foreach ($folder in @('../etc', "sub/$GoodLeaf", '000724.2026-08-05.01-47-56.nothex', '')) {
+        foreach ($folder in @('../etc', "sub/$script:GoodLeaf", '000724.2026-08-05.01-47-56.nothex', '')) {
             if ($folder -match $jsRegex) { $findings += "the share page accepts '$folder', which the host refuses" }
-            if ("$folder.zip" -match $ArchiveRegex) { $findings += "the host accepts '$folder', which the share page refuses" }
+            if ("$folder.zip" -match $script:ArchiveRegex) { $findings += "the host accepts '$folder', which the share page refuses" }
         }
         Assert-NoFinding $findings 'one folder grammar, written at both ends'
     }
@@ -341,7 +344,7 @@ Describe 'the share page and the host agree on one grammar' {
             'the page dispatch does not reach bootShareCycle'
         $findings = @()
         foreach ($id in @('share-cycle', 'share-host', 'share-cycle-number', 'share-started', 'share-filename', 'share-go', 'share-status')) {
-            if ($SharePage -notmatch "id=`"$id`"") { $findings += "share-cycle.html has no #$id" }
+            if ($script:SharePage -notmatch "id=`"$id`"") { $findings += "share-cycle.html has no #$id" }
             if ($ShareJs -notmatch "'$id'") { $findings += "yuruna.common.js never touches #$id" }
         }
         Assert-NoFinding $findings 'the page and its handler have to name the same elements'
@@ -363,12 +366,12 @@ Describe 'the share page and the host agree on one grammar' {
         # The archive is downloaded by a browser and then attached to a message.
         # A .zip is a type both ends already understand; a gzipped tarball reads
         # as an opaque blob to download reputation checks and mail scanners.
-        Assert-True ($ShareRegion.Length -gt 0) 'the share-cycle region is gone from yuruna.common.js'
+        Assert-True ($script:ShareRegion.Length -gt 0) 'the share-cycle region is gone from yuruna.common.js'
         $findings = @()
-        if ($ShareRegion -notmatch "info\.stamp \+ '\.zip'") { $findings += 'the attachment name is not a .zip' }
-        if ($ShareRegion -notmatch "encodeURIComponent\(info\.folder\) \+ '\.zip'") { $findings += 'the page asks the host for something other than a .zip' }
-        if ($ShareRegion -match 'tar\.gz') { $findings += 'the share page still names a tar.gz somewhere' }
-        if ($ShareRegion -notmatch "type: 'application/zip'") { $findings += 'the shared File is not typed as a zip' }
+        if ($script:ShareRegion -notmatch "info\.stamp \+ '\.zip'") { $findings += 'the attachment name is not a .zip' }
+        if ($script:ShareRegion -notmatch "encodeURIComponent\(info\.folder\) \+ '\.zip'") { $findings += 'the page asks the host for something other than a .zip' }
+        if ($script:ShareRegion -match 'tar\.gz') { $findings += 'the share page still names a tar.gz somewhere' }
+        if ($script:ShareRegion -notmatch "type: 'application/zip'") { $findings += 'the shared File is not typed as a zip' }
         Assert-NoFinding $findings 'one archive format, named the same by the page, the file and the share sheet'
     }
 
@@ -376,7 +379,7 @@ Describe 'the share page and the host agree on one grammar' {
         # On the download path the message is incomplete until the operator
         # attaches the file themselves, so the sentence that says so has to
         # carry weight on the page.
-        Assert-True ($SharePage -match '<strong>[^<]*attach\s+the\s+downloaded\s+file\s+before\s+sending\.\s*</strong>') `
+        Assert-True ($script:SharePage -match '<strong>[^<]*attach\s+the\s+downloaded\s+file\s+before\s+sending\.\s*</strong>') `
             'the attach instruction is no longer emphasised on the share page'
     }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42b6e05d-3c74-4a19-9f28-1d7ac6e5b840
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,6 +38,7 @@
     comment mentioning -TurnOff cannot satisfy or break them.
 #>
 
+BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
 $hostFile = Join-Path $repoRoot 'host' -AdditionalChildPath 'windows.hyper-v', 'modules', 'Yuruna.Host.psm1'
@@ -64,6 +65,8 @@ function Get-CommandNameList {
     return @($FunctionAst.FindAll({
         param($n) $n -is [System.Management.Automation.Language.CommandAst]
     }, $true) | ForEach-Object { $_.GetCommandName() } | Where-Object { $_ })
+}
+
 }
 
 Describe 'hyper-v-graceful-stop' {

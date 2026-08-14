@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42d3f1a8-6b25-4c79-9e0a-3f5b7d9c1e46
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,12 +26,14 @@
     format or the non-fatal-append handling had to be made in six places. These
     AST guards assert the block is centralized in Add-YurunaLogLine, that each
     proxy delegates to it, that the raw AppendAllText call now appears exactly
-    once, and that the helper stays private. AST/source-only -- no module import,
-    no log file, no host I/O. The throw-based Assert-True helper is defined at
-    script scope so this runs under Pester 4.10.1 (Pester 5 hides top-level
-    helpers from It blocks).
+    once, and that the helper stays private. The first Describe is AST/source-only
+    -- it parses the module without importing it. The second Describe imports the
+    module and drives the proxies against a temp transcript file, pinning the
+    severity tagging, the HTML encoding, and the unconditional warning mirror as
+    observable behavior rather than as source shape.
 #>
 
+BeforeAll {
 $here       = Split-Path -Parent $PSCommandPath
 $repoRoot   = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
 $modulePath = Join-Path $repoRoot 'automation/Yuruna.Log.psm1'
@@ -87,15 +89,16 @@ function Get-MethodCallCount {
 }
 
 $rootAst = Get-ModuleAst -Path $modulePath
-$proxies = @('Write-Output', 'Write-Error', 'Write-Warning', 'Write-Debug', 'Write-Verbose', 'Write-Information')
+$script:proxies = @('Write-Output', 'Write-Error', 'Write-Warning', 'Write-Debug', 'Write-Verbose', 'Write-Information')
 
 # A temp file stands in for the per-cycle transcript; these seed/restore the
 # Yuruna.Log cross-module global handle, so PSAvoidGlobalVars is suppressed on
 # the confined helpers rather than the It blocks.
 #
-# They are declared above every Describe because file-level code only runs as
-# far as the first Describe on the run pass -- a helper defined after one is
-# never redefined for the run and is unresolvable from an It body.
+# They live in the top-level BeforeAll rather than at file scope: file-scope
+# code runs on the discovery pass, which is over before any It body executes,
+# so a helper defined there is not reliably resolvable from one. BeforeAll runs
+# on the run pass and its definitions reach every Describe below it.
 function New-TranscriptFixture {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
         Justification = 'Test must seed the Yuruna.Log transcript-handle global the proxies read.')]
@@ -122,13 +125,15 @@ function Restore-TranscriptFixture {
     if ($Fixture.File) { Remove-Item -LiteralPath $Fixture.File -Force -ErrorAction SilentlyContinue }
 }
 
+}
+
 Describe 'yuruna-log-tee -- the append-to-transcript block is centralized in one helper' {
     It 'defines a single private Add-YurunaLogLine tee helper' {
         Assert-True ([bool](Get-FunctionAst -RootAst $rootAst -FunctionName 'Add-YurunaLogLine')) `
             'the six copied tee blocks must collapse into one shared helper'
     }
     It 'each Write-* proxy delegates its append to Add-YurunaLogLine' {
-        foreach ($p in $proxies) {
+        foreach ($p in $script:proxies) {
             $f = Get-FunctionAst -RootAst $rootAst -FunctionName $p
             Assert-True (Test-AstCallsCommand -Ast $f -CommandName 'Add-YurunaLogLine') `
                 "$p must tee via Add-YurunaLogLine, not an inline AppendAllText"
@@ -143,7 +148,7 @@ Describe 'yuruna-log-tee -- the append-to-transcript block is centralized in one
             'Write-Verbose'    = '$Message'
             'Write-Information' = '"$MessageData"'
         }
-        foreach ($p in $proxies) {
+        foreach ($p in $script:proxies) {
             $f = Get-FunctionAst -RootAst $rootAst -FunctionName $p
             $call = $f.FindAll({
                 param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Add-YurunaLogLine'
@@ -164,14 +169,29 @@ Describe 'yuruna-log-tee -- the append-to-transcript block is centralized in one
         Assert-True (@($exportCalls).Count -ge 1) 'Export-ModuleMember must be present'
         $exportText = ($exportCalls | ForEach-Object { $_.Extent.Text }) -join "`n"
         Assert-True ($exportText -notmatch 'Add-YurunaLogLine') 'Add-YurunaLogLine must not be exported (it is a private helper)'
-        foreach ($p in $proxies) {
+        foreach ($p in $script:proxies) {
             Assert-True ($exportText -match [regex]::Escape($p)) "$p must remain exported"
         }
     }
 }
 
 Describe 'yuruna-log-tee -- severity tags and unconditional warning mirroring' {
-    Import-Module $modulePath -Global -Force -DisableNameChecking -ErrorAction SilentlyContinue
+    # The import is a run-phase side effect, so it belongs in BeforeAll: a
+    # Describe body is executed during discovery, where BeforeAll-assigned
+    # values such as $modulePath do not exist yet. Importing there would bind
+    # -Name to $null, abort the body, and silently emit zero It blocks -- the
+    # Describe would then pass while asserting nothing.
+    # -Global is required: the It bodies run in Pester's scope, so the Write-*
+    # overrides must replace the built-ins session-wide to be reached at all.
+    BeforeAll {
+        Import-Module $modulePath -Global -Force -DisableNameChecking -ErrorAction SilentlyContinue
+    }
+
+    AfterAll {
+        # The session-wide overrides outlive this file otherwise; unloading
+        # restores the real Write-* cmdlets for whatever runs next.
+        Remove-Module -Name 'Yuruna.Log' -Force -ErrorAction SilentlyContinue
+    }
 
     It 'tags each transcript record with a log-<severity> CSS class' {
         $fx = New-TranscriptFixture

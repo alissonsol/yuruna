@@ -43,6 +43,7 @@
     from It blocks, so this runs under Pester 4.10.1.
 #>
 
+BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
 $testDir  = Split-Path -Parent $here
 $repoRoot = Split-Path -Parent $testDir
@@ -102,6 +103,8 @@ $script:skipRepo = -not (Test-GitWorkTree -Root $repoRoot)
 $projectClone = Join-Path $repoRoot 'project'
 $script:skipProjectClone = (-not (Test-Path -LiteralPath (Join-Path $projectClone '.git'))) -or
     (-not (Test-GitWorkTree -Root $projectClone))
+
+}
 
 Describe 'Tracked *.sh files are recorded executable in the git index' {
     It 'has no *.sh index entry at mode 100644' -Skip:$script:skipRepo {

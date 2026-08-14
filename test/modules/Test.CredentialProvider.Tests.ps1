@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 423fe01d-7d08-4606-94aa-0649157daa40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,6 +38,7 @@
     Run: pwsh -NoProfile -File test/modules/Test.CredentialProvider.Tests.ps1
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.CredentialProvider.psm1') -Force -DisableNameChecking
 
@@ -46,7 +47,7 @@ function Assert-True  { param($Condition, [string]$Because='') if (-not $Conditi
 
 # Fixtures at FILE scope: a Describe body runs during discovery and its
 # variables/functions are discarded before any It executes.
-$builtInType = @('azurecr','ecr','gar','dockerhub','docker-generic')
+$script:builtInType = @('azurecr','ecr','gar','dockerhub','docker-generic')
 
 function Restore-CredentialRegistry {
     <#
@@ -82,6 +83,8 @@ function Restore-CredentialEnv {
     foreach ($name in $Snapshot.Keys) {
         [Environment]::SetEnvironmentVariable($name, $Snapshot[$name])
     }
+}
+
 }
 
 Describe 'Get-CredentialProvider pattern dispatch' {
@@ -190,7 +193,7 @@ Describe 'LoginCommand: the batch-pipeline surface' {
 Describe 'Get-CredentialProviderMatrix' {
     It 'snapshots every provider as type -> pattern, in registration order' {
         $m = Get-CredentialProviderMatrix
-        Assert-Equal -Expected ($builtInType -join ',') -Actual (@($m.Keys) -join ',') `
+        Assert-Equal -Expected ($script:builtInType -join ',') -Actual (@($m.Keys) -join ',') `
             -Because 'first-match-wins means the catch-all has to stay last'
         Assert-Equal -Expected '.+' -Actual $m['docker-generic']
         Assert-True  ($m['azurecr'] -is [string]) 'the matrix carries the Pattern string'
@@ -263,7 +266,7 @@ Describe 'Repair-Credential' {
     It 'keeps a re-registered Type in its original first-match-wins position' {
         Register-CredentialProvider -Type 'azurecr' -Pattern '\.azurecr\.io(/|$)' -Authenticator { param($t, $a) $null = $t, $a; $true }
         $m = Get-CredentialProviderMatrix
-        Assert-Equal -Expected ($builtInType -join ',') -Actual (@($m.Keys) -join ',') `
+        Assert-Equal -Expected ($script:builtInType -join ',') -Actual (@($m.Keys) -join ',') `
             -Because 'replacing a provider must not push it behind the catch-all'
     }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42bf9cc9-1b2b-499b-90cc-a4c2c9b939aa
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,16 +42,17 @@
     Run: pwsh -NoProfile -File test/modules/Test.SnapshotManifest.Tests.ps1
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.SnapshotManifest.psm1') -Force -DisableNameChecking
 
 function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
 function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
 
-# Fixtures and helpers at FILE scope, above the first Describe: a Describe body
-# runs during discovery and its variables/functions never reach an It. The temp
-# directory itself is a side effect, so it is created in BeforeAll instead --
-# a file-scope temp dir is built and torn down during discovery, and the It then
+# Fixtures and helpers live in BeforeAll, not at file scope: file scope and
+# Describe bodies both run during discovery, and nothing they define reaches an
+# It. The temp directory has the same constraint from the other direction -- a
+# file-scope temp dir is built and torn down during discovery, and the It then
 # probes a path that no longer exists.
 
 function Set-YurunaProvenanceGlobal {
@@ -91,7 +92,6 @@ function Write-RawManifest {
     return $path
 }
 
-BeforeAll {
     $runtimeRoot = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-snapman-" + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $runtimeRoot -Force | Out-Null
     $savedRuntimeDir = $env:YURUNA_RUNTIME_DIR

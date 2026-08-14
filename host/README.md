@@ -121,7 +121,7 @@ VM size varies by guest and hypervisor; all disks are dynamic/thin
 (qcow2 sparse or Dynamic VHDX). Most guests get **12 GB RAM, 4 vCPU**;
 the exceptions are macOS 26 (defaults to 8 GB RAM, configurable via
 `-MemoryMb`), the stash-service, pool-control-service and
-download-agent-service guests (**4 GB RAM** each), and the KVM guests,
+download-agent-service guests (**2 GB RAM** each), and the KVM guests,
 which are sized down to the minimum that carries the workload (8 GB,
 or 4 GB for Amazon Linux 2023). Disk sizes:
 Ubuntu Server 24/26 are **64 GB** on every host; Windows 11 is
@@ -157,6 +157,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.11
+Last review: 2026.08.14
 
 Back to [Yuruna](../README.md)

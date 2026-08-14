@@ -16,7 +16,7 @@ service:
   startScript: Start-DownloadAgentServiceVM.ps1
   stopScript: Stop-DownloadAgentServiceVM.ps1
   markerBaseUrlKey: downloadAgentServiceBaseUrl
-  beaconInterval: 15m
+  beaconInterval: 2m
   # Deleting a generation or forcing a re-download changes what every host in
   # the pool receives.
   writeGate: lab-token

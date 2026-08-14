@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42c0d1e2-f3a4-4b67-c890-1d2e3f4a5b68
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -175,8 +175,35 @@ if (-not (Test-Path $AnswerFileTemplate)) {
     exit 1
 }
 
+# --- REGION: https://yuruna.link/network#defining-yuruna-host-locate-lib
+# Coordinates for the first-logon bootstrap, resolved for the network this VM
+# is actually getting. Under Shared (VZ NAT) the host answers at a gateway
+# address no DHCP lease can move, so the seeded address stays true on its own;
+# under Bridged the guest takes a LAN lease alongside the host and the host's
+# address can change underneath it -- which is the case the resolver and the
+# identity coordinates beside it exist for.
+$_utmRepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
+Import-Module (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.Host.psm1') -Force
+Import-Module (Join-Path $_utmRepoRoot 'automation/Yuruna.GitHubSource.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $_utmRepoRoot 'automation/Yuruna.GuestSeed.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $_utmRepoRoot 'test/modules/Test.Config.psm1') -Global -Force
+$YurunaHostIp = Get-GuestReachableHostIp -NetworkMode $NetworkMode
+if (-not $YurunaHostIp) { $YurunaHostIp = '' }
+$YurunaHostPort = '8080'
+$_utmTestConfig = Join-Path $_utmRepoRoot 'test/test.config.yml'
+if (Test-Path -LiteralPath $_utmTestConfig) {
+    try {
+        $_utmTc = Read-TestConfig -Path $_utmTestConfig
+        if ($_utmTc -and $_utmTc.statusService -and $_utmTc.statusService.port) { $YurunaHostPort = "$($_utmTc.statusService.port)" }
+    } catch { Write-Verbose "test.config.yml read: $($_.Exception.Message)" }
+}
+$_utmBootstrapB64 = New-WindowsGuestBootstrap -RepoRoot $_utmRepoRoot `
+    -StatusServiceIp $YurunaHostIp -StatusServicePort $YurunaHostPort `
+    -GhToken (Get-YurunaGitHubSource -RepoRoot $_utmRepoRoot).Token
+
 $AnswerFile = (Get-Content -Raw $AnswerFileTemplate) `
-    -replace 'COMPUTERNAME_PLACEHOLDER', $VMName
+    -replace 'COMPUTERNAME_PLACEHOLDER', $VMName `
+    -replace 'GUEST_BOOTSTRAP_B64_PLACEHOLDER', $_utmBootstrapB64
 Set-Content -Path "$SeedDir/autounattend.xml" -Value $AnswerFile -NoNewline
 
 $SeedIso = "$DataDir/seed.iso"

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42b593af-6071-4283-9d94-0f1a2b3c4d5e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,12 +20,13 @@
 .SYNOPSIS
     Pester coverage for Test.ConfigSync.psm1 (test.config.yml <-> template
     reconciliation), including Update-TestConfigFromTemplate's merge, deprecated-
-    key drop, keystroke-mechanism normalization, and structure-departure backup.
+    key drop, stale-key removal, and structure-departure backup.
 .DESCRIPTION
     Throw-based assertions so the file runs under the OS-bundled Pester 3.4 and
     Pester 5+. Run: Invoke-Pester -Path test/modules/Test.ConfigSync.Tests.ps1
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.Prelude.psm1')   -Force -DisableNameChecking -ErrorAction SilentlyContinue
 Import-Module (Join-Path $here 'Test.ConfigSync.psm1') -Force -DisableNameChecking
@@ -39,7 +40,7 @@ function Assert-True  { param($Condition, [string]$Because='') if (-not $Conditi
 # any It runs, and inside an It the $script: scope belongs to the test runner rather than
 # to this file -- either way the fixture would reach the assertion as $null, and an empty
 # template silently exercises the empty-config path instead of the one under test.
-$MinimalTemplate = @"
+$script:MinimalTemplate = @"
 vmStart:
   startTimeoutSeconds: 120
   bootDelaySeconds: 15
@@ -56,7 +57,7 @@ repositories:
 
 # The shape-guard template needs its own name: the Sync-/Update- Describes bind a $tmpl of
 # their own (a template FILE path) inside their It blocks.
-$ShapeTemplate = [ordered]@{ a = 1; node = [ordered]@{ x = 1 } }
+$script:ShapeTemplate = [ordered]@{ a = 1; node = [ordered]@{ x = 1 } }
 
 function New-TempDir {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
@@ -65,6 +66,8 @@ function New-TempDir {
     $d = Join-Path ([System.IO.Path]::GetTempPath()) ("yrn-cfgsync-" + [guid]::NewGuid().ToString('N'))
     $null = New-Item -ItemType Directory -Path $d
     return $d
+}
+
 }
 
 Describe 'ConvertTo-MergedHashtable' {
@@ -210,15 +213,15 @@ Describe 'Copy-HashtableWithoutSecretNode' {
 
 Describe 'Test-ConfigMatchesTemplateShape' {
     It 'true when nested node shape matches' {
-        Assert-True (Test-ConfigMatchesTemplateShape -Template $ShapeTemplate -Current ([ordered]@{ a = 5; node = [ordered]@{ x = 9 } })) 'same shape'
+        Assert-True (Test-ConfigMatchesTemplateShape -Template $script:ShapeTemplate -Current ([ordered]@{ a = 5; node = [ordered]@{ x = 9 } })) 'same shape'
     }
     It 'false when a required nested node is missing or flattened' {
-        Assert-True (-not (Test-ConfigMatchesTemplateShape -Template $ShapeTemplate -Current ([ordered]@{ a = 5 }))) 'missing node'
-        Assert-True (-not (Test-ConfigMatchesTemplateShape -Template $ShapeTemplate -Current ([ordered]@{ a = 5; node = 'flat' }))) 'flattened node'
+        Assert-True (-not (Test-ConfigMatchesTemplateShape -Template $script:ShapeTemplate -Current ([ordered]@{ a = 5 }))) 'missing node'
+        Assert-True (-not (Test-ConfigMatchesTemplateShape -Template $script:ShapeTemplate -Current ([ordered]@{ a = 5; node = 'flat' }))) 'flattened node'
     }
     It 'false on an unexpected top-level key, but secrets is exempt' {
-        Assert-True (-not (Test-ConfigMatchesTemplateShape -Template $ShapeTemplate -Current ([ordered]@{ a = 5; node = [ordered]@{ x = 9 }; extra = 1 }))) 'extra key rejected'
-        Assert-True (Test-ConfigMatchesTemplateShape -Template $ShapeTemplate -Current ([ordered]@{ a = 5; node = [ordered]@{ x = 9 }; secrets = @{} })) 'secrets exempt'
+        Assert-True (-not (Test-ConfigMatchesTemplateShape -Template $script:ShapeTemplate -Current ([ordered]@{ a = 5; node = [ordered]@{ x = 9 }; extra = 1 }))) 'extra key rejected'
+        Assert-True (Test-ConfigMatchesTemplateShape -Template $script:ShapeTemplate -Current ([ordered]@{ a = 5; node = [ordered]@{ x = 9 }; secrets = @{} })) 'secrets exempt'
     }
 }
 
@@ -238,7 +241,7 @@ Describe 'Update-TestConfigFromTemplate' {
     It 'bootstraps a missing config by copying the template' {
         $d = New-TempDir
         try {
-            $tmpl = Join-Path $d 'template.yml'; Set-Content $tmpl $MinimalTemplate
+            $tmpl = Join-Path $d 'template.yml'; Set-Content $tmpl $script:MinimalTemplate
             $cfg  = Join-Path $d 'test.config.yml'
             $r = Update-TestConfigFromTemplate -ConfigPath $cfg -TemplatePath $tmpl
             Assert-True (Test-Path $cfg) 'config created from template'
@@ -249,7 +252,7 @@ Describe 'Update-TestConfigFromTemplate' {
     It 'overlays new template keys onto an existing config and rewrites on diff' {
         $d = New-TempDir
         try {
-            $tmpl = Join-Path $d 'template.yml'; Set-Content $tmpl $MinimalTemplate
+            $tmpl = Join-Path $d 'template.yml'; Set-Content $tmpl $script:MinimalTemplate
             $cfg  = Join-Path $d 'test.config.yml'
             # Config matches the nested SHAPE but is missing vmImage.refreshSeconds and
             # carries an operator override for startTimeoutSeconds.
@@ -264,31 +267,37 @@ Describe 'Update-TestConfigFromTemplate' {
     It 'drops the deprecated hostSshServer top-level key' {
         $d = New-TempDir
         try {
-            $tmpl = Join-Path $d 'template.yml'; Set-Content $tmpl $MinimalTemplate
+            $tmpl = Join-Path $d 'template.yml'; Set-Content $tmpl $script:MinimalTemplate
             $cfg  = Join-Path $d 'test.config.yml'
             Set-Content $cfg "hostSshServer: legacy`nvmStart:`n  startTimeoutSeconds: 120`n  bootDelaySeconds: 15`nvmImage:`n  refreshSeconds: 24`nvmCommunication:`n  keystrokeMechanism: GUI`ntestCycle:`n  stopOnFailure: false`n  cycleDelaySeconds: 30`nrepositories:`n  frameworkUrl: https://example/framework`n"
             $r = Update-TestConfigFromTemplate -ConfigPath $cfg -TemplatePath $tmpl
             Assert-True (-not $r.Contains('hostSshServer')) 'deprecated key dropped'
         } finally { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
     }
-    It 'normalizes a lowercase keystrokeMechanism and resets an invalid one' {
+    It 'merges out a stale keystrokeMechanism the template no longer declares' {
         $d = New-TempDir
         try {
-            $tmpl = Join-Path $d 'template.yml'; Set-Content $tmpl $MinimalTemplate
-            $cfgLower = Join-Path $d 'lower.yml'
-            Set-Content $cfgLower ($MinimalTemplate -replace 'keystrokeMechanism: GUI', 'keystrokeMechanism: ssh')
-            $rLower = Update-TestConfigFromTemplate -ConfigPath $cfgLower -TemplatePath $tmpl
-            Assert-Equal -Expected 'SSH' -Actual $rLower.vmCommunication.keystrokeMechanism -Because 'lowercase normalized to upper'
-            $cfgBad = Join-Path $d 'bad.yml'
-            Set-Content $cfgBad ($MinimalTemplate -replace 'keystrokeMechanism: GUI', 'keystrokeMechanism: hypervisor')
-            $rBad = Update-TestConfigFromTemplate -ConfigPath $cfgBad -TemplatePath $tmpl
-            Assert-Equal -Expected 'GUI' -Actual $rBad.vmCommunication.keystrokeMechanism -Because 'invalid reset to template default'
+            # keystrokeMechanism is a per-sequence attribute (sequence.schema.yml
+            # requires it on every guest sequence), so the machine-global config
+            # carries no copy of it and nothing validates one. An operator file that
+            # still holds the key -- whatever its value, including the retired
+            # 'hypervisor' -- is a current-only leaf under a node the template does
+            # define, so the overlay must drop it without disturbing its siblings.
+            $tmplText = $script:MinimalTemplate -replace 'keystrokeMechanism: GUI', 'pollSeconds: 5'
+            $tmpl = Join-Path $d 'template.yml'; Set-Content $tmpl $tmplText
+            $cfg  = Join-Path $d 'stale.yml'
+            Set-Content $cfg ($tmplText -replace 'pollSeconds: 5', "pollSeconds: 9`n  keystrokeMechanism: hypervisor")
+            $r = Update-TestConfigFromTemplate -ConfigPath $cfg -TemplatePath $tmpl
+            Assert-True (-not $r.vmCommunication.Contains('keystrokeMechanism')) 'stale key dropped by the template overlay'
+            Assert-Equal -Expected 9 -Actual $r.vmCommunication.pollSeconds -Because 'sibling operator value under the same node preserved'
+            $onDisk = Get-Content -Raw $cfg | ConvertFrom-Yaml -Ordered
+            Assert-True (-not $onDisk.vmCommunication.Contains('keystrokeMechanism')) 'rewrite persisted the drop'
         } finally { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
     }
     It 'backs up and exits non-zero when the on-disk config departs from the nested shape' {
         $d = New-TempDir
         try {
-            $tmpl = Join-Path $d 'template.yml'; Set-Content $tmpl $MinimalTemplate
+            $tmpl = Join-Path $d 'template.yml'; Set-Content $tmpl $script:MinimalTemplate
             $cfg  = Join-Path $d 'test.config.yml'
             Set-Content $cfg "vmBootDelaySeconds: 15`nframeworkRepoUrl: https://legacy`n"   # flat (pre-nesting) layout
             # Runs in a child pwsh because the structure-departure path calls exit
@@ -305,7 +314,7 @@ Describe 'Update-TestConfigFromTemplate' {
         try {
             # Template = minimal + a new 'pool' node the existing file predates.
             $tmpl = Join-Path $d 'template.yml'
-            Set-Content $tmpl ($MinimalTemplate + "`npool:`n  enabled: false`n  intentGitUrl: ''`n")
+            Set-Content $tmpl ($script:MinimalTemplate + "`npool:`n  enabled: false`n  intentGitUrl: ''`n")
             $cfg = Join-Path $d 'test.config.yml'
             # Shape-valid for the OLD schema (no 'pool'), with operator overrides.
             Set-Content $cfg "vmStart:`n  startTimeoutSeconds: 300`n  bootDelaySeconds: 15`nvmImage:`n  refreshSeconds: 24`nvmCommunication:`n  keystrokeMechanism: GUI`ntestCycle:`n  stopOnFailure: false`n  cycleDelaySeconds: 30`nrepositories:`n  frameworkUrl: https://operator/fork`n"
@@ -323,7 +332,7 @@ Describe 'Update-TestConfigFromTemplate' {
     It 'carries matching values forward into the new file even when it must stop for an unmappable field' {
         $d = New-TempDir
         try {
-            $tmpl = Join-Path $d 'template.yml'; Set-Content $tmpl $MinimalTemplate
+            $tmpl = Join-Path $d 'template.yml'; Set-Content $tmpl $script:MinimalTemplate
             $cfg  = Join-Path $d 'test.config.yml'
             # Shape-valid nested fields (carryable) + an orphan top-level key with a value (unmappable).
             Set-Content $cfg "vmStart:`n  startTimeoutSeconds: 300`n  bootDelaySeconds: 15`nvmImage:`n  refreshSeconds: 24`nvmCommunication:`n  keystrokeMechanism: GUI`ntestCycle:`n  stopOnFailure: false`n  cycleDelaySeconds: 30`nrepositories:`n  frameworkUrl: https://example/framework`nlegacyOrphan: keepme`n"

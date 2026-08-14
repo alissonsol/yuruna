@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42b6c7d8-e9a0-4b12-8c34-5d6e7f8a9b03
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,11 +31,14 @@
     global anchor and removes it afterward. Pester 4.10.1.
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 $mod  = Join-Path $here 'Test.Registry.psm1'
 Import-Module $mod -Force
 
 function Get-TestAnchorName { 'Test_' + [System.Guid]::NewGuid().ToString('N') }
+
+}
 
 Describe 'New-YurunaRegistry reports the live store comparer' {
     It 'a fresh OrdinalIgnoreCase registry reports OrdinalIgnoreCase and is case-insensitive' {

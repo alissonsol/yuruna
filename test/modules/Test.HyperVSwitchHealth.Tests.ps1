@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42646cc9-f27d-42cf-9882-9c56c352de85
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -48,15 +48,22 @@
     helpers keep the file runnable under Pester 4.10.1 and 5+.
 #>
 
+BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
 $hostFile = Join-Path $repoRoot 'host' -AdditionalChildPath 'windows.hyper-v', 'modules', 'Yuruna.Host.psm1'
-$contractFile = Join-Path $repoRoot 'host' -AdditionalChildPath 'Yuruna.Host.Contract.psm1'
+$script:contractFile = Join-Path $repoRoot 'host' -AdditionalChildPath 'Yuruna.Host.Contract.psm1'
 
 function Assert-Equal { param($Expected, $Actual, [string]$Because = '') if ("$Expected" -ne "$Actual") { throw "Expected [$Expected] got [$Actual]. $Because" } }
 function Assert-True  { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
 function Assert-NotEqual { param($Expected, $Actual, [string]$Because = '') if ("$Expected" -eq "$Actual") { throw "Expected anything but [$Expected]. $Because" } }
 
+# macos.utm, ubuntu.kvm and windows.hyper-v each publish a module named
+# 'Yuruna.Host'. The suite shares one runspace, so a driver left resident by
+# another file makes `Get-Module Yuruna.Host` return an array -- which binds to
+# nothing and leaves Pester's -ModuleName ambiguous. Keep this file's driver the
+# only one loaded.
+Get-Module -Name 'Yuruna.Host' -All | Remove-Module -Force -ErrorAction SilentlyContinue
 Import-Module $hostFile -Force -DisableNameChecking -ErrorAction SilentlyContinue
 
 # Parse once so the call-shape guards read the real AST rather than text
@@ -65,7 +72,7 @@ $ast = [System.Management.Automation.Language.Parser]::ParseFile($hostFile, [ref
 
 # The closed vocabulary every consumer switches on. 'healthy' and 'unknown'
 # are the usable pair; the rest are degraded.
-$UplinkVerdict = @('healthy', 'unknown', 'not-external', 'uplink-missing', 'uplink-down',
+$script:UplinkVerdict = @('healthy', 'unknown', 'not-external', 'uplink-missing', 'uplink-down',
     'management-os-detached', 'management-os-unaddressed')
 
 function Get-FunctionAst {
@@ -230,6 +237,8 @@ function Get-BareNicSet {
         Nic = (Get-AdapterRecord -Alias 'Ethernet' -Description 'Intel(R) Ethernet Connection I219-LM' -Status 'Up' -Mac '00-11-22-33-44-55' -Index 12)
         Ip  = (Get-HostIpRecord -Address '192.168.7.69' -Alias 'Ethernet' -Index 12)
     }
+}
+
 }
 
 Describe 'hyper-v-uplink-classifier: verdict ladder' {
@@ -503,9 +512,9 @@ Describe 'hyper-v-uplink-classifier: vocabulary and cross-function agreement' {
                     }, $true) | Select-Object -First 1
                 if ($literal) { $literal.Value } else { "<non-literal: $($_.Extent.Text)>" }
             } | Sort-Object -Unique)
-        $stray = @($emitted | Where-Object { $_ -notin $UplinkVerdict })
+        $stray = @($emitted | Where-Object { $_ -notin $script:UplinkVerdict })
         Assert-Equal -Expected 0 -Actual $stray.Count "these are outside the closed vocabulary every consumer switches on: $($stray -join ', ')"
-        $missing = @($UplinkVerdict | Where-Object { $_ -notin $emitted })
+        $missing = @($script:UplinkVerdict | Where-Object { $_ -notin $emitted })
         Assert-Equal -Expected 0 -Actual $missing.Count "the ladder no longer emits: $($missing -join ', ')"
     }
 
@@ -575,16 +584,20 @@ Describe 'hyper-v-uplink-classifier: the reuse branches consult it and can decli
             'declining must not fall through to a create: Hyper-V allows one External switch per NIC, so a blind create tears the original down and disconnects every VM on it'
     }
 
-    It 'declining answers $null only when a Default Switch exists to fall back to' {
+    It 'declining answers $null unconditionally' {
         $fn = Get-FunctionAst -Name 'Resolve-DegradedExternalSwitchFallback'
         Assert-True ($null -ne $fn) 'the decline path must exist'
-        # $null is the only "no bridge" signal the guest scripts understand and
-        # each substitutes the literal 'Default Switch' for it. Windows Server
-        # SKUs ship none, so declining there would turn a degraded-but-booting
-        # cycle into a New-VM failure for every guest.
-        Assert-True ($fn.Extent.Text -match "Get-VMSwitch -Name 'Default Switch'") 'the fallback switch must be confirmed to exist'
+        # $null is the only "no bridge" signal the guest scripts understand.
+        # Each substitutes the literal 'Default Switch' for it, confirms that
+        # switch resolves, and on a host that ships none (Windows Server SKUs,
+        # or a client SKU where it was deleted) picks any vSwitch the host does
+        # have, non-External first. Handing the rejected name back instead
+        # would skip that picker and attach the guest to the carrier-less
+        # bridge the classifier just failed, so the decline stays absolute --
+        # the presence of a Default Switch only chooses the warning wording.
         Assert-True ($fn.Extent.Text -match 'return \$null') 'a degraded switch must be declinable'
-        Assert-True ($fn.Extent.Text -match 'return \$SwitchName') 'with no Default Switch the degraded name is handed back anyway -- a bridge with no carrier still boots a VM'
+        Assert-True ($fn.Extent.Text -notmatch 'return \$SwitchName') 'the rejected switch name is never handed back'
+        Assert-True ($fn.Extent.Text -match "Get-VMSwitch -Name 'Default Switch'") 'the consequence the operator is told depends on whether that switch exists'
         Assert-True ($fn.Extent.Text -match '\$script:DegradedSwitchLatch') `
             'the branches run several times per cycle plus once per read-only probe, so the diagnosis is latched rather than repeated'
     }
@@ -636,7 +649,7 @@ Describe 'hyper-v-uplink-classifier: it stays driver-private' {
     It 'is not added to the cross-driver contract' {
         # Adding a verb to the contract is a widening event across all three
         # drivers, and switch-object health has a KVM analog but no macOS one.
-        $src = Get-Content -Raw -LiteralPath $contractFile
+        $src = Get-Content -Raw -LiteralPath $script:contractFile
         Assert-True ($src -notmatch 'Test-YurunaExternalSwitchUplink') 'the contract must stay platform-neutral'
     }
 
@@ -695,9 +708,9 @@ Describe 'hyper-v-uplink-classifier: the state a real host presented' {
     }
 
     It 'has a Default Switch to decline to' {
-        # The companion record from the same host. Without it the reuse branches
-        # must keep returning the degraded name, because New-VM throws on a
-        # switch name that resolves to nothing.
+        # The companion record from the same host: the switch the guest scripts
+        # substitute for the declined bridge. New-VM throws on a name that
+        # resolves to nothing, so its own classification matters too.
         $captured = Get-CapturedHostState
         $verdict = Invoke-UplinkVerdict -SwitchName 'Default Switch' `
             -SwitchRecord $captured.DefaultSwitch -AdapterRecord @($captured.Nic) -HostIpRecord @($captured.Ip)

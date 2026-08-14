@@ -2,7 +2,7 @@
 
 Bring-up runbook for a Yuruna lab: several machines sharing one
 caching-proxy service, NAS-backed pool and stash storage, and a
-pool-control service, grouped into pools and assigned test sets.
+pool-control service, grouped into pools and assigned test-sets.
 
 [Section A: Quickstart](#section-a-quickstart) is the complete command
 sequence — shared services first, then machine by machine.
@@ -160,7 +160,7 @@ pwsh test/service/Start-StashServiceVM.ps1
 **Guided path** — `install/setup.ps1` starts it once storage is
 configured; otherwise it lists the stash service as skipped.
 
-### A.5 Start the pool control service
+### A.5 Start the pool-control service
 
 Elevated on Windows, unelevated on macOS
 ([B.5](#b5-start-the-pool-control-service)):
@@ -235,7 +235,7 @@ lookup and quietly serve this host's cycles
 Once `Invoke-TestProject`
 is green, open the pool-control service UI at
 `http://<pool-control-service-vm-ip>/`, add the host to a pool, assign
-a test set, then:
+a test-set, then:
 
 ```
 pwsh test/Invoke-TestRunner.ps1
@@ -430,14 +430,14 @@ Ethernet — including a USB Ethernet adapter, which vmnet bridges
 fine — switches it back to bridged on the next rebuild; the script
 warns when the VM's mode no longer matches the host's uplink.
 
-### B.5 Start the pool control service
+### B.5 Start the pool-control service
 
 ```
 pwsh test/service/Start-PoolControlServiceVM.ps1
 ```
 
 Brings up the `yuruna-pool-control-service` VM — operator UI + API for
-pool intent: create pools, add hosts, assign test sets. Elevated on
+pool intent: create pools, add hosts, assign test-sets. Elevated on
 Windows, unelevated on macOS. On a Wi-Fi macOS host it is built on UTM
 Shared NAT ([B.4](#b4-start-the-stash-service)) and forwarded — peers
 open `http://<host-lan-ip>:8081/` (the per-service forwards never
@@ -483,7 +483,7 @@ On the machine that will run cycles first (any of them):
    cycle with no loop around it is the cheapest place to debug.
 4. **Continuous cycles** — `pwsh test/Invoke-TestRunner.ps1`; it
    auto-starts the status dashboard at `http://<host>:8080/`
-   ([test-runner.md](test-runner.md)).
+   ([runner-outer-loop.md](runner-outer-loop.md)).
 
 ### B.7 Each additional machine
 
@@ -561,7 +561,7 @@ On the machine that will run cycles first (any of them):
 5. **Join a pool and take assignments** — open the pool-control service UI at
    `http://<pool-control-service-vm-ip>/` (linked as "Pool-control service" in the
    Grafana "Yuruna hosts" dashboard's Extension hosts table), add
-   this host to a pool, and assign a test set. CLI equivalent:
+   this host to a pool, and assign a test-set. CLI equivalent:
    `test/pool/Add-HostToPool.ps1` + `test/pool/Set-PoolTestSet.ps1`
    ([pool-admin.md](pool-admin.md)). Then start
    `pwsh test/Invoke-TestRunner.ps1`.
@@ -732,6 +732,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.11
+Last review: 2026.08.14
 
 Back to [Yuruna](../README.md)

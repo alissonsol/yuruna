@@ -1,7 +1,6 @@
 # Yuruna Architecture
 
-Cross-cutting concepts referenced by every README. Other docs link here
-rather than repeat.
+Cross-cutting concepts every other doc links to rather than repeats.
 
 ## Three capabilities
 
@@ -221,6 +220,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.11
+Last review: 2026.08.14
 
 Back to [Yuruna](../README.md)

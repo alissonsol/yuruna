@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456760
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,11 +23,19 @@
     https://yuruna.link/stash-guide for the stash user guide.
 
 .PARAMETER VMName   Name for the stash-service VM. Default: yuruna-stash-service.
+
+.PARAMETER AllowMirrorSource
+    Build the daemon from the public github mirror instead of this enlistment.
+    Without it, a bring-up whose guest could not fetch this host's framework --
+    or one whose daemon turns out to have been built from another snapshot --
+    is refused rather than deploying code older than the operator is working in.
+    Legitimate off-LAN, where the mirror is the only source there is.
 #>
 
 param(
     [Parameter(Position = 0)]
-    [string]$VMName = "yuruna-stash-service"
+    [string]$VMName = "yuruna-stash-service",
+    [switch]$AllowMirrorSource
 )
 
 $global:InformationPreference = "Continue"
@@ -132,13 +140,26 @@ See docs/test-config.md (networkStorage credentials).
 if (Connect-YurunaPoolStorage -Config $stashCfg -Confirm:$false) {
     Write-Output "stash storage pre-flight OK (networkUser='$($stashCfg.NetworkUser)'; credential authenticates)."
 } else {
+    # Report the reason the mount RECORDED, and prescribe from it. A mount that
+    # sudo refused never reaches the NAS, so naming the credential there sends
+    # the operator to reset a password that was never wrong -- and to rebuild the
+    # VM for it -- while the actual fault stays in place.
+    $why = Get-PoolStorageLastMountError
+    if (-not $why) { $why = 'the attempt recorded no reason (check that the NAS is reachable and the share name is right).' }
+    $remedy = if (Test-PoolStorageSudoRefusal -StdErr $why) {
+        "sudo refused the mount, so the stash credential is NOT implicated. Fix passwordless
+sudo for mount on this host (see docs/pool-storage.md) or run Sync-HostConfiguration, then
+re-run. No rebuild is needed once the mount works."
+    } else {
+        "If the password is stale, update it and rebuild:
+    Set-Password -Username '$($stashCfg.NetworkUser)' -NewPassword '<the real NAS password>'"
+    }
     Write-Warning @"
-stash networkUser '$($stashCfg.NetworkUser)' has a stored credential, but it did NOT
-authenticate to the stash share '$($stashCfg.NetworkPath)' just now (wrong/stale password,
-or the NAS is unreachable). Bringing the VM up anyway: the daemon will START and BUFFER
-uploads locally, but they will NOT persist to the stash share until this is fixed. If the
-password is stale, update it and rebuild:
-    Set-Password -Username '$($stashCfg.NetworkUser)' -NewPassword '<the real NAS password>'
+stash share '$($stashCfg.NetworkPath)' did NOT mount just now as networkUser
+'$($stashCfg.NetworkUser)': $why
+Bringing the VM up anyway: the daemon will START and BUFFER uploads locally, but they will
+NOT persist to the stash share until this is fixed.
+$remedy
 "@
 }
 
@@ -170,6 +191,22 @@ try {
         $statusDecision = @($statusResult | Where-Object { $_ -is [System.Collections.IDictionary] }) | Select-Object -Last 1
     }
 } catch { Write-Verbose "status service ensure: $($_.Exception.Message)" }
+
+# --- REGION: framework source -- refuse to build from a snapshot older than this enlistment
+# The guest compiles the daemon from whatever framework it fetched and stamps
+# that tree's VERSION into the binary, permanently. A guest that cannot reach
+# the server started just above falls back to the public mirror and produces a
+# working service built from published code, weeks behind, that then reports
+# itself as current for the life of the VM. Stopping here costs the operator a
+# message; not stopping costs a half-hour build and a service nobody has reason
+# to re-examine. Captured for the post-boot check too, which is the half that
+# can actually prove what got deployed.
+Import-Module (Join-Path $ModulesDir 'Test.FrameworkSource.psm1') -Global -Force
+$frameworkExpected = Get-FrameworkSourceSnapshot -RepoRoot $RepoRoot
+if (-not (Assert-GuestFrameworkSource -RepoRoot $RepoRoot -StatusDecision $statusDecision `
+            -ServiceLabel 'stash-service' -AllowMirrorSource:$AllowMirrorSource)) {
+    exit $ExitFailure
+}
 
 # --- REGION: delegate to the per-host New-VM (build + start the VM)
 # Each New-VM already runs Get-Image auto-fetch when the base image is missing,
@@ -578,6 +615,32 @@ if ($stashVerdict.Outcome -eq 'StillBuilding') {
     Write-Output ""
     Write-Output "Stop with: test/service/Stop-StashServiceVM.ps1"
     exit $ExitOk
+}
+
+# --- REGION: what actually got deployed
+# The daemon is serving, so the remaining question is which framework it was
+# built from -- and this is the only place it can be answered from evidence
+# rather than prediction. The pre-flight above could pass and the guest still
+# fall back: the host address is baked at seed time and the guest reaches for
+# it minutes into first boot, so a host that renumbered in between sends the
+# fetch to the mirror with everything on this side looking correct.
+#
+# The marker is NOT retracted on a mismatch. A stale build is still a running
+# stash service, and withdrawing the row would replace an accurate advertisement
+# with a false one; what is wrong here is the bring-up's claim to have deployed
+# this enlistment, so that is what fails.
+if (-not (Assert-ServiceVmFrameworkSource -Address ([string]$stashVmIp) -Port 80 `
+            -GuestKey 'guest.stash-service' -User 'stash-admin' `
+            -Expected $frameworkExpected -ServiceLabel 'stash-service' `
+            -AllowMirrorSource:$AllowMirrorSource)) {
+    Write-Output ""
+    Write-Output "== stash-service start: FAILED (deployed an obsolete framework snapshot) =="
+    Write-Output "  VM:       $VMName"
+    Write-Output "  Host:     $HostType"
+    Write-Output ""
+    Write-Output "The VM is up and the daemon is serving -- it is running the WRONG BUILD, not nothing."
+    Write-Output "Stop with: test/service/Stop-StashServiceVM.ps1"
+    exit $ExitFailure
 }
 
 Write-Output "== stash-service start: complete =="

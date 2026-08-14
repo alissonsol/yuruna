@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42b90938-32c4-4c5c-91d0-c52eb3049b5d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,22 +31,25 @@
     only. Runs under Pester 4.10.1 (script-scoped throw helper).
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
-$src  = Get-Content (Join-Path $here 'Test.SequencePlanner.psm1') -Raw
+$script:src  = Get-Content (Join-Path $here 'Test.SequencePlanner.psm1') -Raw
 
 function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
 
+}
+
 Describe 'sequenceplanner-cascade -- the variable-merge rules are shared by one helper' {
     It 'defines a Merge-SequenceVariableCascade helper' {
-        Assert-True ($src -match '(?m)^function Merge-SequenceVariableCascade\b') `
+        Assert-True ($script:src -match '(?m)^function Merge-SequenceVariableCascade\b') `
             'the duplicated cascade-merge loop must collapse into one helper'
     }
     It 'the whitespace-only-skip rule appears exactly once (only in the helper)' {
-        $n = ([regex]::Matches($src, [regex]::Escape('-not $vv.Trim()'))).Count
+        $n = ([regex]::Matches($script:src, [regex]::Escape('-not $vv.Trim()'))).Count
         Assert-True ($n -eq 1) "expected one whitespace-skip after dedup, found $n"
     }
     It 'both planners delegate to Merge-SequenceVariableCascade' {
-        $n = ([regex]::Matches($src, [regex]::Escape('Merge-SequenceVariableCascade -Target $effectiveVars -Variables $sSeq.variables'))).Count
+        $n = ([regex]::Matches($script:src, [regex]::Escape('Merge-SequenceVariableCascade -Target $effectiveVars -Variables $sSeq.variables'))).Count
         Assert-True ($n -eq 2) "expected both planners to delegate, found $n"
     }
 }

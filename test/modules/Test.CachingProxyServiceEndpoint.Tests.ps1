@@ -42,6 +42,7 @@
     Run: pwsh -NoProfile -File test/modules/Test.CachingProxyServiceEndpoint.Tests.ps1
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 $vmUtilityModule    = Join-Path $here 'Test.VMUtility.psm1'
 $cachingProxyModule = Join-Path $here 'Test.CachingProxyService.psm1'
@@ -69,8 +70,8 @@ function Get-SourceProbeIndex {
     return -1
 }
 
-$configTag = 'vmStart.cachingProxyIp'
-$envTag    = '$env:YURUNA_CACHING_PROXY_SERVICE_IP'
+$script:configTag = 'vmStart.cachingProxyIp'
+$script:envTag    = '$env:YURUNA_CACHING_PROXY_SERVICE_IP'
 
 # Fresh -Force import ONCE per suite run (guards against a stale module a
 # prior suite loaded into this process) -- NOT per-It in BeforeEach. A
@@ -83,6 +84,8 @@ $envTag    = '$env:YURUNA_CACHING_PROXY_SERVICE_IP'
 # mock's reachability rule fails.
 Import-Module $vmUtilityModule -Global -Force -DisableNameChecking
 Import-Module $cachingProxyModule -Force -DisableNameChecking
+
+}
 
 Describe 'Resolve-CachingProxyServiceEndpoint source precedence' {
     BeforeEach {
@@ -100,16 +103,16 @@ Describe 'Resolve-CachingProxyServiceEndpoint source precedence' {
             $r = Resolve-CachingProxyServiceEndpoint -EnvIp '192.0.2.20' -ConfigIp '192.0.2.10'
             Assert-Equal -Expected '192.0.2.10' -Actual $r.EffectiveIp -Because 'reachable config candidate wins'
             Assert-True $r.Probed 'a candidate was probed'
-            Assert-True ((Get-SourceProbeIndex -Lines $r.Lines -SourceTag $configTag) -ge 0) 'config candidate probed'
-            Assert-Equal -Expected (-1) -Actual (Get-SourceProbeIndex -Lines $r.Lines -SourceTag $envTag) -Because 'env candidate must not be probed when the config candidate wins'
+            Assert-True ((Get-SourceProbeIndex -Lines $r.Lines -SourceTag $script:configTag) -ge 0) 'config candidate probed'
+            Assert-Equal -Expected (-1) -Actual (Get-SourceProbeIndex -Lines $r.Lines -SourceTag $script:envTag) -Because 'env candidate must not be probed when the config candidate wins'
         }
         It 'probes config before env when both are dead' {
             Mock Invoke-CachingProxyServiceProbe -ModuleName Test.CachingProxyService {
                 @{ Success = $false; HttpProxyReachable = $false; PassCount = 0; WarnCount = 1; FailCount = 3; HttpPort = 3128; HttpsPort = 3129; Lines = @("  [mock] probed $CacheIp") }
             }
             $r = Resolve-CachingProxyServiceEndpoint -EnvIp '192.0.2.20' -ConfigIp '192.0.2.10'
-            $configIdx = Get-SourceProbeIndex -Lines $r.Lines -SourceTag $configTag
-            $envIdx    = Get-SourceProbeIndex -Lines $r.Lines -SourceTag $envTag
+            $configIdx = Get-SourceProbeIndex -Lines $r.Lines -SourceTag $script:configTag
+            $envIdx    = Get-SourceProbeIndex -Lines $r.Lines -SourceTag $script:envTag
             Assert-True ($configIdx -ge 0) 'config candidate probed'
             Assert-True ($envIdx -ge 0) 'env candidate probed after config failure'
             Assert-True ($configIdx -lt $envIdx) 'config candidate must be probed before the env candidate'
@@ -123,8 +126,8 @@ Describe 'Resolve-CachingProxyServiceEndpoint source precedence' {
             }
             $r = Resolve-CachingProxyServiceEndpoint -EnvIp '192.0.2.20' -ConfigIp '192.0.2.10'
             Assert-Equal -Expected '192.0.2.20' -Actual $r.EffectiveIp -Because 'env candidate wins only after the config candidate failed'
-            $configIdx = Get-SourceProbeIndex -Lines $r.Lines -SourceTag $configTag
-            $envIdx    = Get-SourceProbeIndex -Lines $r.Lines -SourceTag $envTag
+            $configIdx = Get-SourceProbeIndex -Lines $r.Lines -SourceTag $script:configTag
+            $envIdx    = Get-SourceProbeIndex -Lines $r.Lines -SourceTag $script:envTag
             Assert-True ($configIdx -ge 0 -and $envIdx -gt $configIdx) 'config probed first, env probed second'
         }
         It 'falls back to the env IP when the config value is not an IP address' {
@@ -138,7 +141,7 @@ Describe 'Resolve-CachingProxyServiceEndpoint source precedence' {
                 if ($line -like "*'not-an-ip'*not a valid IPv4 or IPv6 address*") { $rejected = $true }
             }
             Assert-True $rejected 'invalid config candidate reported as rejected'
-            Assert-Equal -Expected (-1) -Actual (Get-SourceProbeIndex -Lines $r.Lines -SourceTag $configTag) -Because 'format-invalid candidate must be rejected before any probe'
+            Assert-Equal -Expected (-1) -Actual (Get-SourceProbeIndex -Lines $r.Lines -SourceTag $script:configTag) -Because 'format-invalid candidate must be rejected before any probe'
         }
     }
 
@@ -164,13 +167,22 @@ Describe 'Resolve-CachingProxyServiceEndpoint source precedence' {
 # target through the SAME resolver -- and therefore the same source order --
 # as the runner, not through a private env-var-first reimplementation. The
 # script builds a VM probe and exits, so it is parsed rather than invoked.
-Describe 'Test-CachingProxyService.ps1 resolves through the shared runner-order resolver' {
-    $testCpPath = Join-Path (Split-Path -Parent $here) 'Test-CachingProxyService.ps1'
+#
+# The parsed script's path is derived here at file scope, which is evaluated
+# while the file is DISCOVERED -- before any BeforeAll body runs, and the
+# assignment survives into the run phase for the It bodies below. A path taken
+# from a BeforeAll variable arrives as $null during discovery, so a Describe
+# body that builds one aborts and emits none of its Its, leaving the Describe
+# to pass while asserting nothing. Deriving it from $PSCommandPath keeps this
+# a pure path derivation: no temp state and no side effect are created at a
+# point where nothing would tear them down.
+$script:discoveryTestCpPath = Join-Path (Split-Path -Parent (Split-Path -Parent $PSCommandPath)) 'Test-CachingProxyService.ps1'
 
+Describe 'Test-CachingProxyService.ps1 resolves through the shared runner-order resolver' {
     It 'calls Resolve-CachingProxyServiceEndpoint with both -ConfigIp and -EnvIp' {
         $errs = $null
-        $ast = [System.Management.Automation.Language.Parser]::ParseFile($testCpPath, [ref]$null, [ref]$errs)
-        Assert-True (-not $errs) "no parse errors in $testCpPath"
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($discoveryTestCpPath, [ref]$null, [ref]$errs)
+        Assert-True (-not $errs) "no parse errors in $discoveryTestCpPath"
         $calls = @($ast.FindAll({ param($n)
             $n -is [System.Management.Automation.Language.CommandAst] -and
             $n.GetCommandName() -eq 'Resolve-CachingProxyServiceEndpoint'
@@ -183,7 +195,7 @@ Describe 'Test-CachingProxyService.ps1 resolves through the shared runner-order 
         Assert-True ($paramNames -contains 'EnvIp') 'the env source (YURUNA_CACHING_PROXY_SERVICE_IP) is offered to the resolver'
     }
     It 'reads vmStart.cachingProxyIp from test.config.yml and keeps the local-discovery fallback' {
-        $ast = [System.Management.Automation.Language.Parser]::ParseFile($testCpPath, [ref]$null, [ref]$null)
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($discoveryTestCpPath, [ref]$null, [ref]$null)
         $readsConfig = @($ast.FindAll({ param($n)
             $n -is [System.Management.Automation.Language.CommandAst] -and
             $n.GetCommandName() -eq 'Read-TestConfig'
@@ -201,7 +213,7 @@ Describe 'Test-CachingProxyService.ps1 resolves through the shared runner-order 
         Assert-True ($localDiscovery.Count -ge 1) 'local discovery remains the final fallback'
     }
     It 'never publishes into $env:YURUNA_CACHING_PROXY_SERVICE_IP (read-only diagnostic)' {
-        $ast = [System.Management.Automation.Language.Parser]::ParseFile($testCpPath, [ref]$null, [ref]$null)
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($discoveryTestCpPath, [ref]$null, [ref]$null)
         $envWrites = @($ast.FindAll({ param($n)
             $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and
             $n.Left.Extent.Text -match '(?i)^\$env:YURUNA_CACHING_PROXY_SERVICE_IP$'

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42c7d1e8-6b02-4f3a-9c51-8e2a4d7b1f60
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,6 +41,7 @@
     satisfy nor break them.
 #>
 
+BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
 $hostFile = Join-Path $repoRoot 'host' -AdditionalChildPath 'windows.hyper-v', 'modules', 'Yuruna.Host.psm1'
@@ -50,7 +51,7 @@ function Assert-True { param($Condition, [string]$Because = '') if (-not $Condit
 # Parse once; each test reads the function bodies out of the AST so that
 # comments and strings can never be mistaken for calls.
 $ast     = [System.Management.Automation.Language.Parser]::ParseFile($hostFile, [ref]$null, [ref]$null)
-$srcText = Get-Content -Raw $hostFile
+$script:srcText = Get-Content -Raw $hostFile
 
 function Get-FunctionAst {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
@@ -60,6 +61,8 @@ function Get-FunctionAst {
         param($n)
         $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $Name
     }, $true) | Select-Object -First 1
+}
+
 }
 
 Describe 'hyper-v-wifi-nat-divert' {
@@ -124,7 +127,7 @@ Describe 'hyper-v-wifi-nat-divert' {
     }
 
     It 'Test-WindowsUplinkNotBridgeable is exported' {
-        Assert-True ($srcText -match 'Export-ModuleMember[\s\S]*Test-WindowsUplinkNotBridgeable') `
+        Assert-True ($script:srcText -match 'Export-ModuleMember[\s\S]*Test-WindowsUplinkNotBridgeable') `
             'the detector must be exported for callers and tests'
     }
 }

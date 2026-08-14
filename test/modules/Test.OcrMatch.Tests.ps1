@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 422b807c-2e2b-4e23-822e-cc26747b834d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,6 +33,7 @@
     Run: pwsh -NoProfile -File test/modules/Test.OcrMatch.Tests.ps1
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.OcrMatch.psm1') -Force -DisableNameChecking
 
@@ -48,7 +49,7 @@ function Assert-True { param($Condition, [string]$Because = '') if (-not $Condit
 # Each confusion group collapses to the lowercased FIRST character of the
 # group. Test-OCRMatch pushes both the pattern and the OCR text through this
 # map, so a group member standing in for another is invisible to the matcher.
-$ConfusionCase = @(
+$script:ConfusionCase = @(
     @{ Raw = 'w'; Canonical = 'w' }, @{ Raw = 'u'; Canonical = 'w' }, @{ Raw = 'V'; Canonical = 'w' }
     @{ Raw = 'm'; Canonical = 'm' }, @{ Raw = 'N'; Canonical = 'm' }
     @{ Raw = 'o'; Canonical = 'o' }, @{ Raw = 'O'; Canonical = 'o' }, @{ Raw = '0'; Canonical = 'o' }, @{ Raw = '@'; Canonical = 'o' }
@@ -65,12 +66,12 @@ $ConfusionCase = @(
 # back. The suites below drive Get-OcrCombineMode and Get-EnabledOcrProvider
 # through these two variables, and a leaked value would follow the process into
 # any other suite sharing the run.
-$SavedOcrCombine = $env:YURUNA_OCR_COMBINE
-$SavedOcrEngines = $env:YURUNA_OCR_ENGINES
+$script:SavedOcrCombine = $env:YURUNA_OCR_COMBINE
+$script:SavedOcrEngines = $env:YURUNA_OCR_ENGINES
 
 # Characters normalization removes entirely. The em/en/figure dashes are given
 # by code point so this file stays pure ASCII on disk.
-$StrippedCase = @(
+$script:StrippedCase = @(
     @{ Name = 'space';        Char = ' ' }
     @{ Name = 'hyphen';       Char = '-' }
     @{ Name = 'em dash';      Char = [string][char]0x2014 }
@@ -84,15 +85,17 @@ $StrippedCase = @(
     @{ Name = 'backtick';     Char = '`' }
 )
 
+}
+
 Describe 'Get-OCRNormalized' {
     It 'lowercases and drops spaces' {
         Assert-Equal -Expected 'lmstall' -Actual (Get-OCRNormalized 'I n s t a l l')
     }
-    It 'collapses each OCR confusion group onto one canonical character' -TestCases $ConfusionCase {
+    It 'collapses each OCR confusion group onto one canonical character' -TestCases $script:ConfusionCase {
         param($Raw, $Canonical)
         Assert-Equal -Expected $Canonical -Actual (Get-OCRNormalized $Raw) -Because "'$Raw' must canonicalize to '$Canonical'"
     }
-    It 'strips the characters OCR mangles on terminal fonts' -TestCases $StrippedCase {
+    It 'strips the characters OCR mangles on terminal fonts' -TestCases $script:StrippedCase {
         param($Name, $Char)
         Assert-Equal -Expected 'xy' -Actual (Get-OCRNormalized "x$($Char)y") -Because "$Name must be stripped, not substituted"
     }
@@ -176,8 +179,8 @@ Describe 'Test-OCRMatch' {
 
 Describe 'Get-OcrCombineMode' {
     AfterAll {
-        if ($null -eq $SavedOcrCombine) { Remove-Item Env:\YURUNA_OCR_COMBINE -ErrorAction SilentlyContinue }
-        else { $env:YURUNA_OCR_COMBINE = $SavedOcrCombine }
+        if ($null -eq $script:SavedOcrCombine) { Remove-Item Env:\YURUNA_OCR_COMBINE -ErrorAction SilentlyContinue }
+        else { $env:YURUNA_OCR_COMBINE = $script:SavedOcrCombine }
     }
     It 'defaults to Or when the environment variable is unset or empty' {
         Remove-Item Env:\YURUNA_OCR_COMBINE -ErrorAction SilentlyContinue
@@ -231,10 +234,10 @@ Describe 'Test-CombinedOcrMatch' {
         Clear-EnabledOcrProviderCache
     }
     AfterAll {
-        if ($null -eq $SavedOcrEngines) { Remove-Item Env:\YURUNA_OCR_ENGINES -ErrorAction SilentlyContinue }
-        else { $env:YURUNA_OCR_ENGINES = $SavedOcrEngines }
-        if ($null -eq $SavedOcrCombine) { Remove-Item Env:\YURUNA_OCR_COMBINE -ErrorAction SilentlyContinue }
-        else { $env:YURUNA_OCR_COMBINE = $SavedOcrCombine }
+        if ($null -eq $script:SavedOcrEngines) { Remove-Item Env:\YURUNA_OCR_ENGINES -ErrorAction SilentlyContinue }
+        else { $env:YURUNA_OCR_ENGINES = $script:SavedOcrEngines }
+        if ($null -eq $script:SavedOcrCombine) { Remove-Item Env:\YURUNA_OCR_COMBINE -ErrorAction SilentlyContinue }
+        else { $env:YURUNA_OCR_COMBINE = $script:SavedOcrCombine }
         Remove-Item Env:\YURUNA_TEST_OCR_A, Env:\YURUNA_TEST_OCR_B, Env:\YURUNA_TEST_OCR_CALLS -ErrorAction SilentlyContinue
         Clear-EnabledOcrProviderCache
     }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42a3c4d5-f6a7-4c89-0123-d4e5f6a7b8c3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -257,10 +257,12 @@ if ($NetworkMode -eq 'Shared') {
     Write-Output "Bridge interface: $BridgeInterface (pool-control-service VM will request DHCP on this LAN)"
 }
 
-# 4 GB RAM, 4 vCPU. Sized for the Go daemon + the pwsh pool-admin CLIs it
+# 2 GB RAM, 4 vCPU. Sized for the Go daemon + the pwsh pool-admin CLIs it
 # shells out to + the in-VM UI: the CLIs are short-lived and the daemon serves
 # registry reads rather than bulk data, so the resident set stays well under
-# this. Matches the stash-service and download-agent-service VMs. UTM's
+# this. The peak is the first-boot `go build` -- a stdlib-only graph that
+# compiles in about 0.4 GB with no swap in the guest -- not steady state.
+# Matches the stash-service and download-agent-service VMs. UTM's
 # MemorySize is a fixed allocation with no balloon, so the whole amount stays
 # committed on the host.
 # --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
@@ -282,7 +284,7 @@ $PlistContent = (Get-Content -Raw $TemplatePath) `
     -replace '__SEED_IMAGE_NAME__',    'seed.iso' `
     -replace '__VNC_DISPLAY__',        "$VncDisplay" `
     -replace '__CPU_COUNT__',          "$vmCores" `
-    -replace '__MEMORY_SIZE__',        '4096'
+    -replace '__MEMORY_SIZE__',        '2048'
 
 # Bridged mode needs the physical NIC name; Shared NAT carries no
 # BridgedInterface key (matches the sibling Shared templates), so drop the

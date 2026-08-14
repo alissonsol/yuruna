@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42a3b4c5-d6e7-4f89-8a01-2b3c4d5e6f70
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -53,13 +53,17 @@
         notations to canonical colon form and rejects multicast / all-zero /
         mixed-separator / wrong-length values with $null.
 
-    The throw-based Assert-* helpers live at script scope and are referenced from
-    It blocks, so this runs under Pester 4.10.1.
+    The throw-based Assert-* helpers and the AST readers live in the file's
+    BeforeAll, which is the scope Pester 5 shares with the It blocks; defining
+    them at script scope instead makes every It fail on a missing command rather
+    than on an assertion, because script scope belongs to the discovery pass only.
 #>
 
+BeforeAll {
 $here    = Split-Path -Parent $PSCommandPath
 $testDir = Split-Path -Parent $here
-$startCp = Join-Path $testDir 'service/Start-CachingProxyServiceVM.ps1'
+$script:startCp  = Join-Path $testDir 'service/Start-CachingProxyServiceVM.ps1'
+$script:repoRoot = Split-Path -Parent $testDir
 
 function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
 
@@ -117,40 +121,6 @@ function Get-LastExitShadowCount {
     }, $true)).Count
 }
 
-Describe 'Start-CachingProxyServiceVM.ps1 bounds the UTM waits by wall-clock' {
-    It 'loops the register + start waits on a UtcNow deadline, not an $i iteration counter' {
-        $ast = Get-Ast $startCp
-        $utcWhiles = @(Get-WhileConditionText -Ast $ast | Where-Object { $_ -match 'UtcNow' })
-        Assert-True ($utcWhiles.Count -ge 2) "the register + start waits both gate on [DateTime]::UtcNow; found $($utcWhiles.Count)"
-        # Scoped to a timeout literal (-lt 30 / -lt 15) so this catches a reverted
-        # iteration-counted TIME wait specifically, without false-failing a
-        # legitimate fixed-count for loop (e.g. `for ($i -lt 3)`) or the retained
-        # `$attempt -le 3` retry.
-        $timeWaitFor = @(Get-ForConditionText -Ast $ast | Where-Object { $_ -match '-lt\s+(30|15)\b' })
-        Assert-True ($timeWaitFor.Count -eq 0) "no UTM time wait is left as an iteration-counted for loop (a -lt 30/15 bound); found: $($timeWaitFor -join ' | ')"
-    }
-}
-
-Describe 'Start-CachingProxyServiceVM.ps1 gates child scripts on a reset $LASTEXITCODE' {
-    It 'resets $global:LASTEXITCODE to $null before the child call and tests it null-safely' {
-        $ast = Get-Ast $startCp
-        Assert-True ((Get-LastExitResetCount -Ast $ast) -ge 2) 'both & $GetImageScript / & $NewVMScript are preceded by $global:LASTEXITCODE = $null'
-        $nullSafe = @(Get-IfConditionText -Ast $ast | Where-Object { $_ -match '\$null -ne \$LASTEXITCODE' })
-        Assert-True ($nullSafe.Count -ge 2) "both child-script gates use a null-safe `$null -ne `$LASTEXITCODE test; found $($nullSafe.Count)"
-    }
-    It 'has no bare $LASTEXITCODE assignment (script-scope shadow of the engine global)' {
-        $ast = Get-Ast $startCp
-        Assert-True ((Get-LastExitShadowCount -Ast $ast) -eq 0) 'a bare $LASTEXITCODE assignment shadows the engine global; qualify with $global:'
-    }
-}
-
-$repoRoot = Split-Path -Parent $testDir
-$newVmScripts = @(
-    (Join-Path $repoRoot 'host/windows.hyper-v/guest.caching-proxy-service/New-VM.ps1'),
-    (Join-Path $repoRoot 'host/ubuntu.kvm/guest.caching-proxy-service/New-VM.ps1'),
-    (Join-Path $repoRoot 'host/macos.utm/guest.caching-proxy-service/New-VM.ps1')
-)
-
 # Named parameters declared by a script's param() block.
 function Get-ScriptParameterName {
     param($Ast)
@@ -183,39 +153,84 @@ function Get-HookCapture {
     }
 }
 
-Describe 'Every platform New-VM.ps1 accepts -MacAddress (cross-host param contract)' {
-    It 'declares a MacAddress parameter on Hyper-V, KVM, and UTM' {
-        foreach ($script in $newVmScripts) {
-            $names = Get-ScriptParameterName -Ast (Get-Ast $script)
-            Assert-True ($names -contains 'MacAddress') "$script declares -MacAddress; found: $($names -join ', ')"
-            Assert-True ($names -contains 'VMName') "$script declares -VMName; found: $($names -join ', ')"
-        }
+}
+
+Describe 'Start-CachingProxyServiceVM.ps1 bounds the UTM waits by wall-clock' {
+    It 'loops the register + start waits on a UtcNow deadline, not an $i iteration counter' {
+        $ast = Get-Ast $script:startCp
+        $utcWhiles = @(Get-WhileConditionText -Ast $ast | Where-Object { $_ -match 'UtcNow' })
+        Assert-True ($utcWhiles.Count -ge 2) "the register + start waits both gate on [DateTime]::UtcNow; found $($utcWhiles.Count)"
+        # Scoped to a timeout literal (-lt 30 / -lt 15) so this catches a reverted
+        # iteration-counted TIME wait specifically, without false-failing a
+        # legitimate fixed-count for loop (e.g. `for ($i -lt 3)`) or the retained
+        # `$attempt -le 3` retry.
+        $timeWaitFor = @(Get-ForConditionText -Ast $ast | Where-Object { $_ -match '-lt\s+(30|15)\b' })
+        Assert-True ($timeWaitFor.Count -eq 0) "no UTM time wait is left as an iteration-counted for loop (a -lt 30/15 bound); found: $($timeWaitFor -join ' | ')"
     }
-    It 'binds the harness call shape against each platform''s real param block (live splat)' {
-        # Extract each script's ACTUAL param block into a stub that echoes what
+}
+
+Describe 'Start-CachingProxyServiceVM.ps1 gates child scripts on a reset $LASTEXITCODE' {
+    It 'resets $global:LASTEXITCODE to $null before the child call and tests it null-safely' {
+        $ast = Get-Ast $script:startCp
+        Assert-True ((Get-LastExitResetCount -Ast $ast) -ge 2) 'both & $GetImageScript / & $NewVMScript are preceded by $global:LASTEXITCODE = $null'
+        $nullSafe = @(Get-IfConditionText -Ast $ast | Where-Object { $_ -match '\$null -ne \$LASTEXITCODE' })
+        Assert-True ($nullSafe.Count -ge 2) "both child-script gates use a null-safe `$null -ne `$LASTEXITCODE test; found $($nullSafe.Count)"
+    }
+    It 'has no bare $LASTEXITCODE assignment (script-scope shadow of the engine global)' {
+        $ast = Get-Ast $script:startCp
+        Assert-True ((Get-LastExitShadowCount -Ast $ast) -eq 0) 'a bare $LASTEXITCODE assignment shadows the engine global; qualify with $global:'
+    }
+}
+
+# The per-platform case list is built at FILE SCOPE, and reaches the It bodies as
+# -TestCases, because file scope is the only part of this file that Pester's
+# discovery pass executes -- and discovery is where the Its below are collected.
+# A path derived inside BeforeAll is still $null here, so Split-Path would fail
+# the whole container and no Describe declared past this point would be collected
+# at all. Feeding the list to a `foreach` inside an It is just as wrong in the
+# other direction: file-scope values are gone by the time the It runs, and
+# `foreach` over $null iterates zero times, so the test asserts nothing and
+# reports green. One It per case cannot degrade that way -- a lost case is a
+# missing test, which the count guard below turns into a hard failure.
+$discoveryRepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
+$newVmScriptCases = @(
+    @{ Platform = 'windows.hyper-v'; Path = (Join-Path $discoveryRepoRoot 'host/windows.hyper-v/guest.caching-proxy-service/New-VM.ps1') }
+    @{ Platform = 'ubuntu.kvm';      Path = (Join-Path $discoveryRepoRoot 'host/ubuntu.kvm/guest.caching-proxy-service/New-VM.ps1') }
+    @{ Platform = 'macos.utm';       Path = (Join-Path $discoveryRepoRoot 'host/macos.utm/guest.caching-proxy-service/New-VM.ps1') }
+)
+if ($newVmScriptCases.Count -ne 3) {
+    throw "Expected the caching-proxy New-VM.ps1 case list to cover 3 platforms, found $($newVmScriptCases.Count)."
+}
+
+Describe 'Every platform New-VM.ps1 accepts -MacAddress (cross-host param contract)' {
+    It '<Platform> New-VM.ps1 declares -MacAddress and -VMName' -TestCases $newVmScriptCases {
+        $names = Get-ScriptParameterName -Ast (Get-Ast $Path)
+        Assert-True ($names -contains 'MacAddress') "$Path declares -MacAddress; found: $($names -join ', ')"
+        Assert-True ($names -contains 'VMName') "$Path declares -VMName; found: $($names -join ', ')"
+    }
+    It '<Platform> New-VM.ps1 binds the harness call shape against its real param block (live splat)' -TestCases $newVmScriptCases {
+        # Extract the script's ACTUAL param block into a stub that echoes what
         # bound, then invoke it exactly the way Start-CachingProxyServiceVM.ps1 does.
-        # This exercises real parameter binding for all three platforms on any
-        # dev host -- no hypervisor needed -- and fails if a platform's param
-        # block drifts away from the harness's call shape.
-        foreach ($script in $newVmScripts) {
-            $ast = Get-Ast $script
-            Assert-True ($null -ne $ast.ParamBlock) "$script has a param() block"
-            $stubPath = Join-Path $TestDrive ((Split-Path -Leaf (Split-Path -Parent $script)) + '.' + (Split-Path -Leaf $script) + '.stub.ps1')
-            Set-Content -LiteralPath $stubPath -Value ($ast.ParamBlock.Extent.Text + "`nWrite-Output `"BOUND:`$VMName|`$MacAddress`"")
-            # Mirror of the Step 3 call shape in Start-CachingProxyServiceVM.ps1.
-            $newVmParams = @{ VMName = 'stub-vm' }
-            $newVmParams.MacAddress = '02:42:42:42:42:42'
-            $out = & $stubPath @newVmParams
-            $invokeOk = $?
-            Assert-True $invokeOk "& stub for $script binds without error"
-            Assert-True (@($out) -contains 'BOUND:stub-vm|02:42:42:42:42:42') "stub for $script bound both values; got: $out"
-        }
+        # This exercises real parameter binding for every platform on any dev host
+        # -- no hypervisor needed -- and fails if a platform's param block drifts
+        # away from the harness's call shape.
+        $ast = Get-Ast $Path
+        Assert-True ($null -ne $ast.ParamBlock) "$Path has a param() block"
+        $stubPath = Join-Path $TestDrive ($Platform + '.New-VM.stub.ps1')
+        Set-Content -LiteralPath $stubPath -Value ($ast.ParamBlock.Extent.Text + "`nWrite-Output `"BOUND:`$VMName|`$MacAddress`"")
+        # Mirror of the Step 3 call shape in Start-CachingProxyServiceVM.ps1.
+        $newVmParams = @{ VMName = 'stub-vm' }
+        $newVmParams.MacAddress = '02:42:42:42:42:42'
+        $out = & $stubPath @newVmParams
+        $invokeOk = $?
+        Assert-True $invokeOk "& stub for $Path binds without error"
+        Assert-True (@($out) -contains 'BOUND:stub-vm|02:42:42:42:42:42') "stub for $Path bound both values; got: $out"
     }
 }
 
 Describe 'Start-CachingProxyServiceVM.ps1 forwards -MacAddress by name and fails fast when a child never runs' {
     It 'splats the New-VM call from a hashtable, with no literal ''-MacAddress'' argument string' {
-        $ast = Get-Ast $startCp
+        $ast = Get-Ast $script:startCp
         # The broken shape is an array element '-MacAddress': array splatting
         # binds it positionally, never as a parameter name.
         $dashLiterals = @($ast.FindAll({ param($n)
@@ -240,7 +255,7 @@ Describe 'Start-CachingProxyServiceVM.ps1 forwards -MacAddress by name and fails
         Assert-True ($htAssigned.Count -ge 1) "splatted variable `$$splatName is assigned a hashtable (by-name binding)"
     }
     It 'captures $? on the statement immediately after each child call and gates on it' {
-        $ast = Get-Ast $startCp
+        $ast = Get-Ast $script:startCp
         $hooks = @(Get-HookCapture -Ast $ast)
         $childHooks = @($hooks | Where-Object { $_.Previous -match '^&\s+\$(GetImageScript|NewVMScript)\b' })
         Assert-True ($childHooks.Count -ge 2) "both & `$GetImageScript / & `$NewVMScript are immediately followed by a `$? capture; found $($childHooks.Count) (any statement in between overwrites `$?)"
@@ -250,7 +265,12 @@ Describe 'Start-CachingProxyServiceVM.ps1 forwards -MacAddress by name and fails
 }
 
 Describe 'ConvertTo-YurunaMacAddress normalizes and validates (Yuruna.Common)' {
-    Import-Module (Join-Path $repoRoot 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking
+    # In BeforeAll, not the Describe body: the body is executed during discovery,
+    # where importing a module is a side effect performed long before -- and
+    # independently of -- the It blocks that need the commands.
+    BeforeAll {
+        Import-Module (Join-Path $script:repoRoot 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking
+    }
 
     It 'normalizes dash, bare-hex, and colon notations to canonical colon form' {
         Assert-True ((ConvertTo-YurunaMacAddress '02-11-22-33-44-55') -eq '02:11:22:33:44:55') 'dash notation'

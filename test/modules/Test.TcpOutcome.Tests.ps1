@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42c4e820-1b7d-4f36-a95e-70d2c8b41a95
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,6 +44,7 @@
     Run: pwsh -NoProfile -File test/modules/Test.TcpOutcome.Tests.ps1
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 $TcpRepoRoot = Split-Path -Parent (Split-Path -Parent $here)
 
@@ -76,6 +77,8 @@ function Get-ClosedLoopbackPort {
     $port = $l.LocalEndpoint.Port
     $l.Stop()
     return $port
+}
+
 }
 
 Describe 'A refused connection is not an unreachable one' {

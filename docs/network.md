@@ -466,6 +466,55 @@ Severity policy:
   interface or DHCP problem).
 - Cache VM not registered / not started -> WARNING, proceed direct.
 
+## Guest-to-guest addressing on KVM
+
+### Defining the guest-to-guest rail
+
+A second, stable address per guest on libvirt's NAT network, for guests that
+have to reach **each other**.
+
+The problem it solves is narrow and worth stating precisely. Guests are bridged
+onto the site LAN so remote clients can reach them, which means their addresses
+come from a DHCP server this lab does not control — and on a host with a short
+lease, a guest that another guest is talking to can move mid-scenario. The
+workload's answer today is for each guest to publish its address to the host and
+for its peers to read that file back, which works only as often as the
+publishing does.
+
+libvirt's NAT network is the one piece of addressing this host owns outright:
+`virbr0` holds a static gateway no lease can move, and a reservation keyed on
+MAC pins both an address and a *name* that its dnsmasq answers for. So a guest
+given a second NIC there has a coordinate for its peers that does not depend on
+the site router, while its bridged NIC keeps carrying everything else.
+
+What this deliberately does **not** do: move host-to-guest traffic. The harness
+keeps reaching guests over the churning LAN, because surviving that is the
+property this lab exists to prove, and routing around it would retire the test.
+
+KVM-only by construction. The same workload runs on macOS/UTM and Hyper-V hosts
+that have no libvirt network at all, so every consumer must treat a rail address
+as an optimisation that may be absent, never as a dependency.
+
+### Why the rail is not wired up
+
+Nothing calls `host/ubuntu.kvm/modules/Yuruna.GuestRail.psm1`. It is kept for
+the derivation and its tests, and wiring it back in as it stands would break VM
+creation on the second guest of every cycle — which it did, twice, before being
+disconnected.
+
+The defect is in `Get-GuestRailAddress` and not in the plumbing around it: it
+keys on the VM name, and guests here are *created* under a shared transient name
+(`test-guest.ubuntu.server.24-01`) and renamed later by `saveDiskSnapshot`. So
+every guest in a cycle derives the same MAC, the first one keeps it through the
+rename, and libvirt refuses to define the second. The same assumption made the
+reservation useless even when it succeeded: it was filed under the transient
+name, while the peers that would resolve it ask for the final one.
+
+A working version must key on an identity that survives a rename and is unique
+per guest — the domain UUID, or a MAC allocated at creation and registered under
+the final name once `saveDiskSnapshot` assigns it. Until then this stays
+disconnected.
+
 ## Cache-VM seed host binding
 
 The caching-proxy-service `New-VM.ps1` scripts on all three drivers
@@ -870,7 +919,911 @@ identity/ownership pins so it behaves the same on every host:
   machine-id-derived DUID, so even with the cloned MAC a server keying
   leases on client-id would renumber the host.
 
-# Local Subnet Connectivity
+## Host address stability, and what happens without it
+
+A host that renumbers under DHCP strands every guest it provisioned. Guests
+are seeded with the host's status-service address at `New-VM` time, and
+nothing in the guest image can notice that the address has moved: the
+status service is simply unreachable, and the GitHub fallback cannot stand
+in for it when the framework repository is private.
+
+Two independent things address this. Pin the address where the lab allows
+it; the discovery path below is the safety net for the labs that do not.
+
+### Pinning the host address
+
+The bridge takes its MAC from the uplink NIC, so a reservation keyed on that
+MAC is the durable fix — the same recipe the cache VM uses
+([Pinning the cache VM's IP](caching.md#pinning-the-cache-vms-ip-stable-mac--dhcp-reservation)),
+applied to the host instead:
+
+```bash
+cat /sys/class/net/yuruna-br0/address     # the MAC to reserve
+```
+
+Create a one-time reservation for it on the LAN router. Where the router is
+not yours to program, give the bridge a static address instead. On a
+NetworkManager-managed bridge (Ubuntu Desktop, and any host whose netplan
+was rendered to NM keyfiles):
+
+```bash
+nmcli con mod yuruna-br0 ipv4.method manual \
+    ipv4.addresses 192.168.7.10/24 ipv4.gateway 192.168.7.1 ipv4.dns "8.8.8.8,8.8.4.4"
+nmcli con up yuruna-br0
+```
+
+The netplan identity pins described above (`macaddress:`,
+`dhcp-identifier: mac`) already do the equivalent where the netplan/networkd
+path owns the bridge. They do **not** apply to an NM-managed bridge, which
+is why that case needs the `nmcli` form.
+
+### When the address moves anyway
+
+Identity is the constant, not the address. Each guest is seeded with two
+coordinates DHCP cannot invalidate — the host's `hostId`, and the
+caching-proxy machine's address, which is pinned by MAC reservation — and
+the seeded status-service address is treated as a **hint**.
+
+When that hint stops answering, `yuruna-host-locate` asks the pool
+aggregator on the caching-proxy machine where the `hostId` lives now, probes
+the answer from the guest's own vantage point, and rewrites
+`/etc/yuruna/host.env`, the `yuruna-host` alias in `/etc/hosts`, and
+`wgetrc`'s `no_proxy`. Consumers keep reading `YURUNA_STATUS_SERVICE_IP` and
+never learn it moved. It runs at the top of every `fetch-and-execute` and on
+a one-minute timer, so a step that runs for many minutes is covered too.
+
+The directory it asks is kept current from the host side by a beacon that
+announces on address change, on status-service start, and on a periodic
+beat. Without that push, the aggregator learns a host's address only by
+tailing the squid access log — which lags exactly when it matters, since a
+host appears there only when it or its guests pull through the proxy.
+
+Two properties are worth knowing:
+
+- **A guest on a NAT network is already immune.** libvirt's `default`, the
+  Hyper-V Default Switch and UTM's Shared mode all put the host at a gateway
+  address no lease can move. The resolver is inert there by design.
+- **A lab with no caching-proxy machine has no directory.** Those guests keep
+  the seeded hint and behave exactly as they did before this mechanism
+  existed, so pinning the host address is the whole answer there.
+
+### Surviving a move that lands mid-step
+
+Repairing coordinates keeps a guest able to *find* the host. It does not help
+the work that was already in flight when the address moved, and on a host whose
+lease turns over every half hour that is most of a cycle's long steps.
+
+Three things cover that, and they are independent.
+
+**The failure is named correctly.** `ssh` reports its own faults as exit 255 and
+passes anything else through as the remote command's status. A dropped transport
+and a script that genuinely exited 255 are therefore identical in exit status,
+and the harness used to attribute both to the guest script — sending an operator
+to read a script that had often run perfectly. The stderr text separates them
+(an authentication refusal and a rejected host key are 255 too, and are *not*
+transport losses), and a dropped transport is reported as `network_timeout`,
+which is the class warm resume acts on.
+
+**The work outlives the session.** A detached step runs its payload under a
+supervisor on the guest; the output accumulates in a file, and a reconnect
+attaches and resumes the stream from the last complete line rather than
+re-running the command. This is what makes a step recoverable when its payload
+is *not* safe to run twice — one that seeds records and then asserts counts over
+them, where a second pass fails on its own assertion and names that instead of
+the transport. See
+[Surviving a dropped session](test-sequences.md#surviving-a-dropped-session).
+
+**Discovery answers from what is current.** A guest that renumbers leaves its old
+address in the host's neighbour table under the same MAC, aged to `STALE` but
+still present, so the table routinely holds two addresses for one guest.
+Candidates are ranked by how recently the kernel confirmed them; the guest agent,
+which reports what the guest holds now over a channel carrying no IP, is asked
+before the caches; and the address SSH last authenticated to is used as a last
+resort before dialing a bare VM name. The neighbour sweep also falls back to the
+last prefix the host held, so it still works during the seconds between leases —
+which is exactly when it is needed.
+
+### Knowing whether any of it was exercised
+
+A cycle that passes on a renumbering host is only evidence that the harness
+survives instability if instability happened while it ran. Each address change
+is timestamped into `runtime/hostaddress.changes.ndjson`, and the number falling
+inside a cycle is recorded on its `cycle_end` event as
+`hostAddressChangesDuringCycle`; each re-attach is a `guest_run_reattach` event.
+Pairing the two shows which steps were in flight when each change landed.
+
+Where the lease is too long to produce changes on demand,
+`test/lab/Invoke-HostAddressChurn.ps1` forces renewals on an interval so the
+test does not depend on the router's mood. It needs permission to activate the
+connection — `test/lab/yuruna-churn.sudoers` grants exactly that — and refuses
+to start without it, rather than running all cycle and injecting nothing.
+
+### Diagnosing it
+
+From inside a guest, `automation/Test-YurunaHost.ps1` reports whether
+`host.env`, the `yuruna-host` alias and the live service agree. A stale
+name-to-address mapping is called out explicitly.
+
+From the host, `runtime/ipaddresses.txt` is refreshed by the beacon on every
+change; if it disagrees with `ip -4 addr`, the beacon is not running and the
+pool's view of this host is as old as the file.
+
+## Host coordinate resolution
+
+### Defining yuruna host locate lib
+
+A guest is seeded with the host's status-service address at `New-VM` time
+and nothing refreshes it, so a host that renumbers under DHCP strands
+every guest it provisioned: the status service is unreachable at the baked
+address, and every consumer of `YURUNA_STATUS_SERVICE_IP` — the framework's
+fetch path and the project's own scripts alike — builds URLs at a host that
+is no longer there. Short non-sticky leases make that the normal case in a
+lab whose DHCP server is the site router.
+
+[automation/yuruna-host-locate.sh](../automation/yuruna-host-locate.sh)
+(and its Windows peer `yuruna-host-locate.ps1`) is an indirection the
+consumers never see. Identity is the constant on both ends: the host is
+named by its `hostId`, persistent across reboots, reimages and address
+changes, and the directory that resolves it lives on the caching-proxy
+machine, whose address is pinned by MAC reservation and is therefore the
+one coordinate a guest can be born knowing. Both are seeded as **facts**;
+the status-service address is seeded as a **hint**.
+
+Nothing here throws. A guest that cannot resolve ends up exactly where it
+would have been — the caller degrades on a return code, and
+`fetch-and-execute.sh` deliberately falls through to its existing
+unreachable diagnostic rather than short-circuiting, so one place still
+explains a dead host. The resolve path is bounded rather than instant:
+when the baked coordinate is dead the directory is re-asked a few times
+over some seconds, because a guest that starts looking at the moment the
+host renumbers is racing the same change the directory is still learning.
+That wait is paid only by a caller whose other option is to fail.
+
+**Seeding the two identities.** `New-CloudInitUserData` defaults
+`YURUNA_HOST_ID_PLACEHOLDER` and
+`YURUNA_CACHING_PROXY_SERVICE_IP_PLACEHOLDER` centrally, for the same
+reason it defaults the base64 script bodies: every seed wants the identical
+answer, and a per-caller copy is a per-caller chance to seed a guest that
+cannot find its way home. A caller with a better answer still wins — the
+service-VM seeds pass a `hostId` they already resolved. Both are read from
+the ambient environment rather than through the harness modules that own
+them, keeping the leaf dependency-free, and empty is a supported outcome:
+a lab with no pool directory seeds empty values and its guests behave as
+they did before the indirection existed.
+
+**Why Windows needs it most.** The seed ISO carrying
+`windows-guest-bootstrap.ps1` is burned *before* Windows Setup runs, and
+Setup takes longer than a short lease — so the address written into it can
+already name a host that has moved by the time the guest first reads it.
+An address cannot be the contract when the medium carrying it outlives its
+validity. The generated bootstrap therefore does the coordinate work
+unconditionally and gates only the git-credential work, runs the resolver
+once at first logon before anything reads the coordinates, and registers a
+SYSTEM scheduled task (`AtStartup` plus a one-minute repetition) to keep
+them true. The resolver itself is seeded, never fetched: it decides *where*
+the guest fetches from, so it must arrive over the same trusted channel as
+the answer file rather than over the network it exists to repair.
+
+On UTM the split is visible per network mode: under Shared (VZ NAT) the
+host answers at a gateway address no lease can move and the seeded address
+stays true on its own; under Bridged the guest takes a LAN lease alongside
+the host, which is the case the resolver exists for.
+
+### Defining host locate file targets
+
+`YURUNA_HOST_ENV_FILE`, `YURUNA_HOSTS_FILE` and `YURUNA_WGETRC_FILE` name
+the three files that carry the host's address into the guest's runtime.
+They are overridable only so a test can drive the persistence against a
+fixture tree; unset, they are the real paths and behavior is identical.
+
+**The wall-clock caps are backstops, not budgets.** Every request this file
+makes is a LAN round trip that completes in milliseconds when the peer is
+up, so the timeouts exist for an unreachable peer, not for the normal path.
+`YURUNA_LOCATE_PROBE_TIMEOUT` is the tightest because it is paid on *every*
+call including the happy path, where it is pure overhead;
+`YURUNA_LOCATE_QUERY_TIMEOUT` is paid only when the host has actually
+moved, and a second of latency there is cheaper than a failed cycle.
+
+**The retry knobs size a race, not a flaky link.** The directory learns the
+host's new address from the host itself, so a guest that starts resolving
+at the instant of a renumber can be told the address that just died — both
+ends are racing the same change. `YURUNA_LOCATE_RETRY_ATTEMPTS` and
+`YURUNA_LOCATE_RETRY_DELAY` space a few re-asks over roughly ten seconds to
+cover that gap, against a cycle that otherwise ends; they are overridable so
+a test can exercise the loop without paying the wall clock.
+
+`YURUNA_LOCATE_DIRECTORY_PORT` is fixed rather than derived from the seed:
+the port is a property of the pool-aggregator-service unit, not of this
+guest's provisioning, so a guest seeded before a port change still asks the
+right place. `YURUNA_LOCATE_MAX_BYTES` bounds a directory read because the
+pool view grows with the member count and this parse runs during bootstrap
+on a guest with no tooling installed — a bounded read keeps a pathological
+(or hostile) body from becoming this guest's problem.
+
+### Defining host locate http
+
+`__yhl_http_get` is one bounded, proxy-free GET to stdout, non-zero when the
+peer did not answer. `--no-proxy` / `--noproxy '*'` are load-bearing: the
+caching proxy and the host are both on the LAN and both already sit in the
+guest's `no_proxy` list, but a project script that exported its own
+`http_proxy` would otherwise route this through squid and cache an address
+lookup. An address lookup is the one answer in this framework that must
+never be served from a cache — the whole point is that it changes, which is
+also why the aggregator sets `Cache-Control: no-store` on the answer.
+
+wget is tried first because it is what the rest of the fetch path uses;
+curl second because Amazon Linux ships curl and not always wget. Neither
+being present returns non-zero rather than reporting an error: it is a
+resolvable state, and the caller degrades. The response is truncated at
+`YURUNA_LOCATE_MAX_BYTES` through `head -c`, and the return code is taken
+from `PIPESTATUS[0]` so the fetcher's own status is reported rather than
+`head`'s, which succeeds whatever the transfer did.
+
+`__yhl_livecheck` layers the single question that decides everything else
+in this file — does a status service answer at this base URL — onto that
+primitive, discarding the body and keeping only the verdict.
+
+### Defining host locate plausible
+
+A directory answer is a claim from another machine about where a third
+machine lives, so `__yhl_plausible` refuses an address that is wrong on its
+face before a probe is spent on it. The two forms that matter are loopback
+and link-local: both would resolve *locally* and appear to work while
+pointing at nothing — loopback at this guest itself, link-local at whatever
+answers first on the segment. A probe cannot tell those apart from a real
+host, so the rejection has to happen before the probe, not after it.
+
+The check also requires an `http://` or `https://` scheme and a non-empty
+host part, and rejects `0.0.0.0` and the multicast range `224.` – `239.`,
+which name no single machine at all. The host part is peeled with parameter
+expansion rather than a parser because this runs during bootstrap with no
+tooling installed.
+
+The Windows peer applies the same rule set through `System.Uri`, so the two
+implementations accept and reject the same answers — a guest that adopts an
+address its sibling would have refused is a divergence that could only be
+diagnosed on one platform.
+
+### Defining host locate directory read
+
+`__yhl_query_directory` asks the pool aggregator where this `hostId` is now.
+It deliberately does **not** use `/go/host`, which answers the same question
+in one 302: that route mints a short-lived control proof into the redirect
+fragment, and a guest holding a control proof for its own host is exactly
+the capability the status service's control-route authentication exists to
+deny. The read routes used here mint nothing.
+
+Two routes are tried in order. `/api/v1/host-address?hostId=` answers one
+host in a body small enough to parse with certainty, and 404s for a host the
+pool does not know — so the guest can tell "the pool has never heard of this
+host" from "the pool says it is nowhere", and only the first is worth
+falling back for. `/api/v1/pool-status` predates it and is the compatibility
+leg: a guest carrying this file still resolves against an aggregator that
+has never heard of the narrow route, which is what lets the two sides ship
+independently.
+
+**Parsing without jq.** Nothing is installed yet at bootstrap, so the
+fallback leg splits the payload on `{` and treats each fragment as one flat
+object. That split is what keeps a host's own `hostId` distinct from the
+`hostId` carried inside that host's nested `status` object — a nested object
+ends its parent's fragment. Both keys must land on the *same* fragment for
+the match to mean anything, so the `hostId` is required and the `baseUrl` is
+taken from that line alone. The aggregator holds up its end by keeping
+`hostId` and `baseUrl` adjacent and ahead of anything nested in `hostView`;
+reordering those fields silently breaks this parser.
+
+If the shape ever changes in a way this cannot read, the function finds
+nothing and the caller degrades to the seeded hint. A wrong address is the
+one outcome that must not be possible here, so silence is the safe failure.
+
+### Defining host locate persist
+
+The resolved address is written into three files, each write independent and
+best-effort. Best-effort is the point, not a shortcut: a guest with a
+read-only `/etc`, or one whose sudo is gone, has still resolved the address
+correctly in memory, and the export the caller receives is what unblocks the
+step it is running right now. Failing the resolve because a file could not
+be written would trade a working step for a tidy filesystem.
+
+`__yhl_install_file` moves a staged temp file over its destination directly
+first — the elevation is not always needed, and a process that can already
+write the file should not shell out to ask — then falls back to `sudo -n`.
+The `-n` is what makes this safe: the resolver runs unattended, on the
+bootstrap path behind a console the host is watching and on a timer with no
+console at all. A prompting `sudo` there would not fail, it would **hang**,
+holding the step open until the watchdog kills the cycle. Refusing to ask is
+the only safe form of asking here.
+
+- `host.env` is rewritten in place, substituting only the two coordinate
+  lines, so the file keeps whatever else it carries — repo, ref, `hostId`,
+  cache address.
+- `/etc/hosts` removal is **line**-based, matching `Set-HostAlias` on the
+  host side: a line mapping `yuruna-host` is dropped whole, including any
+  aliases that shared it, so the two implementations cannot disagree about
+  what "replace the mapping" means.
+- `wgetrc`'s `no_proxy` is belt-and-braces for the one file that names an
+  address. The environment's `no_proxy` already covers the RFC1918 ranges,
+  but a single stale literal here sends a plain `wget` at the host through
+  squid, which then caches a status-service response.
+
+### Defining host locate entrypoint
+
+`yuruna_host_locate` exports `YURUNA_STATUS_SERVICE_IP` / `_PORT` and
+returns 0 when they are known-good; it returns 1 when they could not be
+established, which the caller must treat as "behave as though this file did
+not exist".
+
+**Probe-first ordering is what keeps this affordable.** On the
+overwhelmingly common path the baked coordinate is still correct, the
+directory is never consulted, nothing is written, and the whole call costs
+one LAN round trip — which is why it is safe in front of every
+`fetch-and-execute` and on a one-minute timer. Its variables are `local`
+because `fetch-and-execute.sh` *sources* this file, and anything left
+unscoped would land in the caller's shell.
+
+Both coordinates of the indirection are required before the directory is
+asked. A guest imaged before this file existed carries neither, and a lab
+with no caching-proxy machine has no directory — in both cases the honest
+answer is that this guest cannot re-resolve, and the caller's existing
+unreachable path is the right one.
+
+**Every candidate is confirmed from the guest's own vantage point.** The
+directory reports where *it* reached the host; this guest may sit on a
+different segment, and an address that does not serve this guest is not an
+improvement on the stale one it would replace. The same check is what makes
+re-asking worthwhile — a stale answer fails it too, so the loop keeps asking
+until the directory has caught up with the renumber. A base URL that carries
+no port defaults to 80, and the move is announced on stderr naming the old
+coordinate, the new one and the directory that supplied it, so a log makes
+the repair visible.
+
+**Sourcing versus executing.** Sourcing defines the function and does
+nothing else, which is what `fetch-and-execute.sh` needs; the
+`BASH_SOURCE`/`$0` guard runs it when the file is executed, which is the
+refresh unit's entry point. That unit is ordered `Before=network-online.target`
+and after whichever wait-online service the image ships, so anything in the
+guest that waits on the network-online barrier never reads a stale address —
+and it achieves that without naming a single consumer, which is the whole
+point of the indirection. `Type=oneshot` because no state carries between
+ticks and a oneshot cannot wedge, with `TimeoutStartSec=30` as the backstop
+for the day one of the internal bounds is not honored. Windows guests get
+the same cadence from a SYSTEM scheduled task instead.
+
+## The yuruna-run supervisor
+
+### Defining yuruna run supervisor
+
+[automation/yuruna-run.sh](../automation/yuruna-run.sh) is the guest-side
+start-or-attach supervisor behind a detached step. An SSH session dies when
+either endpoint's address moves under it, and the command it was running
+dies with it — all the host sees is `ssh`'s own exit 255, which says nothing
+about whether the payload succeeded, failed, or is still going. The obvious
+repair, re-running on reconnect, is available only to a payload that is safe
+to run twice, and the payloads that most need recovering are not: a script
+that seeds records and then asserts counts over them fails its own assertion
+on the second pass, and names that instead of the transport that caused the
+re-run.
+
+This turns the reconnect into an **attach**. The payload runs detached, its
+output accumulates in `out.log`, and every invocation — the first and each
+reconnect after it — streams that file from a caller-supplied line offset
+and reports the payload's real exit status once one exists. Invocations are
+idempotent on the token: start if it is not running, attach if it is.
+
+stdout carries payload bytes **only**. Every diagnostic goes to stderr,
+because the host counts stdout lines to know where to resume, and a
+supervisor line on stdout would both corrupt that count and land in the
+transcript the OCR and checkpoint scanners read.
+
+### Why the run directory is scoped to the boot id
+
+The run directory is `${TMPDIR:-/tmp}/yuruna-run/<token>.<boot>`, keyed on
+the first eight characters of `/proc/sys/kernel/random/boot_id` and not on
+the token alone. Guests here are restored from disk snapshots ten times a
+cycle, and a snapshot taken while a run was in flight carries that run's
+directory — `pid`, `out.log` and all — back onto a machine where the process
+it names does not exist, and where that pid may since belong to something
+unrelated.
+
+Without the boot component, the next attach on that token would find a
+directory already claimed, holding a pid it cannot trust: dead, and the
+attach declares the run vanished; reused by an unrelated process, and it
+streams a file that will never grow again until the step's budget is spent.
+Either way the payload never runs. Scoping on the boot makes the restored
+corpse simply invisible — the token/boot pair has no directory, so the
+caller wins the claim and starts a clean run. `noboot` is the fallback when
+the file is unreadable, which degrades to token-only scoping rather than
+failing.
+
+### Why `mkdir` is the claim
+
+Which caller starts the payload is decided by whether its `mkdir` of the run
+directory succeeds. That one call is the whole concurrency story: it either
+creates the directory or fails, atomically, with no window in which two
+callers both believe they are the starter. A test-then-create — stat the
+directory, create it when absent — has exactly that window, and two
+supervisors running the same payload against the same `out.log` is precisely
+the double execution this script exists to stop.
+
+Losing the `mkdir` is not an error, it is the ordinary attach path: a
+reconnect after a dropped session always loses it, logs
+`YURUNA_RUN_ATTACH`, and goes straight to streaming from the caller's line
+offset. The only genuine failure is losing the race and then finding no
+directory there at all, which means the base path is not writable rather
+than that someone else claimed it; that is reported as exit 74 instead of
+being treated as a reason to start a second copy.
+
+### Why a run directory is never removed
+
+Nothing in this script removes a run directory. It is created once and from
+then on only gains files, which makes the `mkdir` claim monotonic: no later
+invocation can win a token that has already been claimed, whatever it
+concludes about the state of the run.
+
+The temptation is to clean up on a terminal verdict — a missing `--cmd-b64`,
+a command that is not valid base64, a run judged dead because its pid is
+gone. Every one of those hands the token back, and the next attach then
+starts a **second copy** of a payload that may still be running. For a
+script that seeds records and then asserts counts over them, that is the
+same double execution the whole mechanism exists to prevent, arrived at from
+the other direction: the verdict was about this invocation's ability to
+proceed, never proof that no payload is alive.
+
+So a terminal verdict is recorded as a status instead. `yr_terminate` writes
+it to `status.tmp` and renames it into place, so no reader ever sees a
+half-written status, and every later attach reads that value, reports it,
+and runs nothing. Reclaiming the space is left to the boot-scoped directory
+going away with `/tmp`.
+
+### Why the claim is confirmed before it is used
+
+`mkdir` is decided by exactly one caller on any POSIX filesystem, and the
+tiebreak that follows it is the belt to that brace. Every winner appends its
+pid to `claim` and settles briefly; only the process whose pid is the first
+line of that file goes on to start the payload. A second winner logs
+`YURUNA_RUN_CLAIM_YIELD` and falls through to the attach path, so even a
+directory creation that somehow admitted two winners still yields one
+runner.
+
+The cost is one append and a fifth of a second, on the start path only, paid
+once per step. What it buys is the guarantee everything else rests on — a
+payload that seeds records and asserts counts over them must run once or not
+at all — and "the filesystem promised" is a thin thing to rest that on when
+the check is this cheap. It also makes the property testable rather than
+assumed: on a filesystem whose `mkdir` is not atomic, the claim alone would
+admit two starters, and the tiebreak is what keeps a double winner from
+becoming a double run.
+
+### Why the payload gets its own process group
+
+Inside the detached runner, `set -m` puts the payload in a process group of
+its own, with `$!` as the group id, which is recorded in `payload_pgid`. Two
+things depend on that.
+
+The budget watchdog signals the whole **group** — `SIGTERM` to `-PGID`, then
+`SIGKILL` thirty seconds later — so a payload that backgrounds `helm`,
+`kubectl` or a build does not leave those running into the next step.
+`timeout(1)`, and any kill aimed at the payload's pid alone, reach only the
+direct child. `--cancel` uses the same recorded group id for the same
+reason. And the runner sits **outside** that group, so the signal does not
+take down the one process whose job is to record the exit status; a budget
+kill therefore comes back as a status the host can attribute to the budget,
+not as the vanished-run report the supervisor emits when no status is ever
+written.
+
+Session detachment is a separate concern: `setsid` (or `nohup` where
+util-linux is absent) keeps the SSH hangup from reaching the runner. Neither
+path changes how the payload is bounded or reaped — that comes from `set -m`
+in the runner either way.
+
+### Why the replay counts only complete lines
+
+Replay is by complete lines only, on both ends. `wc -l` counts newlines, so
+`yr_drain` emits whole lines and advances its cursor by exactly those, and
+the host banks stdout only up to its last newline and advances its resume
+offset by the same count. A half-written trailing line is neither emitted
+nor counted; the next attach re-sends it whole.
+
+Emitting it would put the two ends permanently out of step. The host would
+count the fragment as delivered and ask to resume past it, and the rest of
+that line would be lost from the transcript the failure-pattern matcher and
+the retry-marker parser read — dropping exactly the markers those consumers
+exist to match on, and splitting them mid-token so no later pass recovers
+them.
+
+The rule has one exception, at the end. Once `status` exists nothing more
+can be appended, so a final byte that is not a newline is a complete line
+the payload merely failed to terminate; the supervisor appends the newline
+itself before the last drain, so that line is delivered rather than held
+back forever by the complete-lines rule.
+
+## Driving a guest over SSH across an address change
+
+### Why a proven address is remembered
+
+Every rung of address discovery is a *report* about the guest — the guest
+agent's, the lease database's, the kernel neighbour table's — and each rung
+can decline. A proven address is different in kind: `ssh` completed a key
+exchange with the guest there, so it was true rather than reported. That is
+why the memo is the last word in discovery and not the first. It does not
+prove the address is current, and it is consulted only after every rung has
+declined, where the alternative is dialing the bare VM name and failing
+inside `getaddrinfo` — a resolver error that names nothing about the real
+fault, and one no guest-side change can fix. A renumbering host is exactly
+where the other rungs go quiet, because the neighbour sweep needs a host
+prefix the host is in the middle of changing.
+
+Three properties keep the memo honest. It is banked on any exit other than
+255, not only on success: an exit from the far end proves the session was
+established, and banking only on success would forget the address precisely
+on the runs that go on to need it. It is age-bounded (30 minutes by
+default) because VM names are reused every cycle, so an entry with no expiry
+would offer an address from a guest generation ago. And it is cleared
+outright on a snapshot restore, where the identity-to-address binding is
+known to be broken rather than merely suspected.
+
+The table is anchored in the global scope for the same reason as the guest
+SSH user overrides: the harness re-imports this module with `-Force`
+mid-cycle, and a memo wiped at that moment is empty exactly when a renumber
+is in progress.
+
+### Why a detached step is bounded by a deadline
+
+Detached mode changes what an attempt costs, so it cannot reuse the
+non-detached retry accounting. A re-run may have the full `timeoutSeconds`
+because it starts the work over. An attach may not: the payload has been
+running on the guest the whole time the session was gone, and the step's
+budget has been draining with it. Giving each attach a fresh full budget
+would let a step declared at 1800 s occupy an hour and a half across three
+reconnects, and the cycle's own schedule has no defence against that.
+
+So the deadline is computed once when the call starts, and every attach is
+bounded by what is left of it rather than by a per-attempt figure. The
+inverse bound is deliberately absent: the number of reconnects is limited
+only by the deadline, because on a host renumbering every ten minutes a
+fixed small retry count is the thing that runs out first, and it would
+abandon work that was still healthy. Each attach keeps a 30 s floor so a
+reconnect is never started with no time to say anything.
+
+When the deadline passes while reconnecting, the step reports the timeout
+with everything already streamed, and says the guest may still be running
+the payload — the host stopped watching, which is not the same as the work
+having stopped.
+
+### Why the supervisor status outranks `ssh`
+
+The supervisor's contract gives the harness two separate channels: payload
+bytes on stdout, the supervisor's own markers on stderr. The harness relies
+on that split in both directions. Only *complete* lines of stdout are
+banked, and the resume offset advances by exactly those, so a partial
+trailing line is dropped and re-sent by the next attach — which is what
+keeps the two ends from drifting apart on where the transcript resumes.
+
+The `YURUNA_RUN_EXIT` line on stderr is the authority on how the payload
+ended. `ssh`'s exit code describes only the session, and the two disagree
+in exactly the case that matters: a payload that genuinely exits 255 is
+indistinguishable from a dropped transport by exit code alone. When the
+marker is present the question is settled and no reconnect is owed,
+whatever `ssh` reported — reconnecting there would attach to a run that had
+already finished and re-decide a verdict the guest had already given.
+
+One reserved status is carried through rather than treated as a payload
+failure: a run that disappeared before recording an exit status is reported
+as lost, with a preface saying the output is everything it produced. That
+is a different fault with a different owner than a script that ran and
+failed.
+
+### Why a started run with no exit is a lost session
+
+When the exit marker is absent, its absence is itself the evidence. The
+supervisor announces itself before it streams anything, so a start or
+attach line with no exit line means the session ended while the run was
+still live. That is a lost transport by construction, independent of what
+the `ssh` client did or did not say about it.
+
+That inference is worth more than the client's wording, and it is available
+only on the detached path. The call sites run with `LogLevel=ERROR`, so
+the client's own explanation is frequently absent altogether; classifying on
+the text alone reported a step whose payload was merely mid-wait as the
+guest script failing, and attempted no reconnect. A non-detached session
+has no such witness and must still fall back to matching the client's
+wording, which is why the two paths classify differently.
+
+The classification reads the supervisor's stream alone, never the combined
+output. Payload bytes arrive on stdout by the supervisor's contract, so
+merging them in buries a one-line client message under kilobytes of
+provisioning output — and the rule that treats a silent 255 as a transport
+loss can then never fire at all, because the output is never empty.
+
+### Why detached is the default for fetched scripts
+
+`sshFetchAndExecute` carries long provisioning payloads, and the common
+shape of those payloads is a script that seeds records and then asserts
+counts over them. Such a payload cannot be re-run against the state it has
+already changed: a second pass fails on its own assertion and names that
+instead of the transport that forced the retry, sending an operator to read
+a script that was healthy. Detaching makes the payload outlive the session,
+so an address change costs a re-attach instead of the step, and
+repeat-safety stops being a precondition for surviving one. That is why the
+default here is the opposite of `sshExec`'s, which runs whatever the YAML
+names and therefore cannot assume anything about repeating it.
+
+The run token is derived from the step's coordinates — sequence file, step
+number, VM — rather than generated per call, and that is load-bearing
+twice. A reconnect inside the step attaches to the same run instead of
+starting a second copy of the payload; and a warm resume that re-enters the
+step on a guest that is still up attaches to work already in flight rather
+than restarting it.
+
+`transportRetries` is ignored while detached, since attaching needs no
+judgement about whether the payload is safe to repeat. `detach: false`
+opts a step out.
+
+## Finding a guest's address on KVM
+
+### Why neighbour entries are ranked, not taken in order
+
+The host's neighbour table is not a map from MAC to address — it is a
+map from address to MAC, and nothing evicts the old row when a guest
+renumbers. The entry the guest has left ages to `STALE` and sits there
+alongside the new one, so `ip -4 neigh show` routinely holds two
+addresses for one guest MAC. Taking the first matching line returns
+whichever the table's order happens to yield, and half the time that is
+the address the guest no longer answers on — a lookup that succeeds
+loudly and connects to nothing.
+
+`Get-KvmNeighborIp` collects every row carrying the wanted MAC and
+orders them by how recently the kernel confirmed the entry:
+`REACHABLE` first (verified within the last few seconds), then
+statically configured `PERMANENT`/`NOARP`, then the in-flight
+`DELAY`/`PROBE` states, then `STALE`, which asserts only that the
+mapping was true at some point. `FAILED` and `INCOMPLETE` are dropped
+entirely: the kernel is publishing no link-layer address for them, so
+they carry nothing to return.
+
+A tie can only be stale-versus-stale, since the kernel keeps at most one
+`REACHABLE` entry per address. Two stale rows carry no information to
+choose between, so the tie is broken by asking — one bounded `ping -c 1
+-W 1` per tied candidate, first reply wins, falling back to the
+highest-ranked row when none answers.
+
+Reading the table directly is also why this rung exists next to `virsh
+domifaddr --source arp`. libvirt matches the same table but sees an
+entry only while a link-layer address is published for it, so a guest
+that is up and serving traffic vanishes from that source for as long as
+its entry sits in `FAILED` or `INCOMPLETE`.
+
+### Why the sweep remembers the last known prefix
+
+Both `--source arp` and the neighbour rung are passive reads of a cache
+that decays, and nothing in a normal cycle makes a guest talk to this
+host often enough to keep its entry alive. `Update-GuestNeighborCache`
+is the active half: one bounded ICMP sweep of the host's own subnet,
+whose replies are irrelevant — the point is the ARP exchange each probe
+forces, which is what lands in the table the next read consults.
+
+The subnet to sweep comes from the host's own default-route IPv4, and a
+host between leases has none for a few seconds; `Get-HostIpv4Prefix`
+answers with nothing. Treating that as a reason to skip the sweep gets
+the timing exactly backwards: a host that just renumbered is precisely
+when the guest's neighbour entry has gone stale and a lookup is about to
+fail. The subnet does not move when the address within it does, so
+`$script:LastKnownHostPrefix` carries the last prefix this host held
+forward and the sweep runs against it, turning "no prefix, no sweep, no
+address" into a sweep that answers. Only a host that has never been seen
+with an address declines.
+
+The prefix is read rather than assumed for the same reason it is
+width-checked: the sweep is defensible on a `/24` and nothing wider. At
+`/16` it is 65k probes across the operator's LAN, which is a scan, not a
+lookup. Two cheaper guards sit ahead of it — a per-VM cooldown, so a
+polling caller cannot turn its poll interval into a sweep interval, and
+a running-state check, so a stopped or absent domain never pays.
+
+### Why the guest agent is asked first
+
+`Get-VMIp` runs an ordered ladder — agent, lease, arp, neighbour table,
+neighbour table after an active refresh — and the first rung to produce
+an address ends it. That first-answer-wins shape is what makes the order
+load-bearing: a rung that answers *wrongly* ends the ladder just as
+surely as one that answers correctly, so the rung most likely to be
+confidently wrong must not go first.
+
+The lease database and the ARP/neighbour table are both records of what
+was true earlier. On a guest that has just moved they do not fall silent
+— they still hold the address it left, which is the worse failure,
+because it produces a plausible target that refuses connections instead
+of a `$null` the caller can narrate. The agent asks the guest what
+addresses it holds right now, over a virtio-serial channel that carries
+no IP and therefore cannot itself be broken by the renumbering this
+ladder exists to survive.
+
+It is a preference, not an authority. The channel needs a
+`qemu-guest-agent` that has finished starting, so it is absent for the
+whole boot window after every snapshot restore — which is when a cycle
+does most of its address lookups. The cache rungs stay beneath it
+unchanged for that window. Which rungs can answer at all is a property
+of the host, not of this code: `lease` needs libvirt to be the DHCP
+server, so it is silent for a guest on a bridge-forward network with no
+`<dhcp>` element. Where both agent and lease are silent, the arp and
+neighbour rungs are the whole of discovery.
+
+## Proving the lab survives address churn
+
+### Why churn is injected rather than waited for
+
+A canary host proves nothing on a quiet network. If the harness simply
+waits for the site router to renumber it, the evidence becomes a matter
+of luck — the lease is what it is, the changes fall where they fall, and
+a green cycle may only mean the run happened to sit inside a calm half
+hour. `test/lab/Invoke-HostAddressChurn.ps1` drives the renewal instead,
+so "this cycle passed through N address changes" describes the harness
+rather than the router's mood. The 780-second default puts three or more
+renewals inside a typical ~50-minute cycle without landing on the cycle's
+own boot windows.
+
+What it can force is a fresh lease negotiation, not a fresh address: the
+DHCP server still decides. A server that hands back the same address
+yields an honest "no change" line, and that outcome is reported rather
+than retried — hammering until the address finally moves would
+misrepresent how much churn the cycle actually met, and surviving a
+renewal that keeps the address is a legitimate case too. Only real
+changes reach the beacon's `runtime/hostaddress.changes.ndjson`, which is
+what a cycle's count is read from; the injector's own
+`hostaddress.churn.log` records intent, not evidence.
+
+Each tick uses `nmcli connection up` rather than a down/up pair. Both
+produce a DISCOVER, but taking the connection down first drops the bridge
+out from under every running guest — a harsher event than the renumber
+this is meant to model, and one that would test something other than
+address instability.
+
+### Why the privilege check runs before the first sleep
+
+The injector's loop sleeps first and renews second, so with the default
+unbounded `-Count` the first real attempt is thirteen minutes away. A
+sidecar that starts cleanly and only then discovers it cannot activate
+the connection would fail silently for the whole cycle, and that cycle
+would still be filed as evidence of surviving churn that was never
+injected. Refusing to start is the strictly better failure, so the
+readability probe (`nmcli -t connection show`, which also catches a wrong
+bridge name) and the privilege probe both run before the loop is entered.
+
+Activating a connection is privileged and the test runner is deliberately
+not root, so the probe is `sudo -n nmcli --version`. The `-n` matters:
+without it a missing rule blocks on a password prompt that nobody is
+present to answer, turning a hard failure into a hang. The error names
+the exact `install` command for `test/lab/yuruna-churn.sudoers` and says
+plainly that a pass without the rule is not evidence.
+
+That sudoers file grants the two spelled-out commands — the version probe
+and `nmcli connection up` on one named connection — instead of `nmcli *`,
+which would also permit `connection modify`, `connection delete` and
+`device disconnect`, any of which can take the host off the network
+permanently rather than for the second a renewal costs. Because the probe
+precedes the `ShouldProcess` gate, `-WhatIf` confirms the privilege is in
+place without touching the network.
+
+### Why a cycle records the churn it met
+
+A verdict alone cannot be read as a claim about instability. `Stop-LogFile`
+therefore counts the address changes falling between the cycle's start and
+its close and carries the number on the `cycle_end` event as
+`hostAddressChangesDuringCycle`. A pass with three changes inside it is
+evidence the harness survives renumbering; a pass with none says only that
+the network was quiet. Without the number both are the same word in the
+same place.
+
+Because zero is a *meaningful* answer, an unmeasurable cycle records `-1`
+instead. A failure to count must not be able to imitate the reading that
+says "this run proves nothing about churn" — reporting an unmeasured cycle
+as zero is worse than reporting nothing, since it reads as evidence. The
+same rule holds one level down: `Get-HostAddressChangeCount` returns `-1`
+when `hostaddress.changes.ndjson` is absent, and skips unparseable rows
+rather than throwing, since this feeds a report and no single malformed
+line is worth failing a cycle over.
+
+The beacon module is imported rather than probed for. A `Get-Command`
+guard alone is always false for a module nothing else in this session
+state loads, which is exactly how every cycle came to record 0; the beacon
+imports nothing itself, so there is no import cycle to fear. The count is
+announced out loud on a pass — that is the case where a low number quietly
+weakens the claim, while a failing cycle already has a louder problem.
+
+## Guest-side fetch and session behavior
+
+### Why sshd notices a client that left
+
+The long-lived service VMs — `pool-control-service`, `stash-service`,
+`download-agent-service`, `caching-proxy-service` — install
+`/etc/ssh/sshd_config.d/60-yuruna-keepalive.conf` from their seeds.
+Upstream leaves `ClientAliveInterval` at `0`, so sshd never asks whether
+the client is still there: a session broken by either endpoint
+renumbering is noticed only when the kernel's TCP timeout finally
+expires, minutes later. Until then the command the host was running
+keeps running, unwatched, holding whatever it held — a dpkg lock, a
+mount, a port. That lingering command, not the lost session, is what the
+bound exists to prevent: the host reconnects and re-runs, and two copies
+racing the same locks turn a recoverable blip into a new failure.
+
+These VMs outlive the host that drives them, and that host moves on
+every DHCP renewal. `15s x 4` mirrors the `ServerAliveInterval` /
+`ServerAliveCountMax` pair `Invoke-GuestSsh` passes, so both ends give up
+on the same schedule, and the reconnect wait in `Test.Ssh.psm1` is sized
+off that bound with margin — the re-run then starts against a guest that
+has already reaped the previous copy. A guest from an image predating
+this drop-in reaps on the kernel timeout instead, far outside any wait
+worth spending, which is the case for disabling transport retries
+altogether. `TCPKeepAlive yes` stays on as the second, kernel-level path
+to the same verdict.
+
+### Why host coordinates are re-read per use
+
+`/etc/yuruna/host.env` is a moving target. `yuruna-host-locate.timer`
+rewrites it every 60 seconds, so the host's current address is always on
+disk — but a script that sources it once at the top holds whatever the
+address was when it started, and these scripts run for minutes on a host
+whose DHCP lease moves under them. Re-sourcing immediately before each
+use costs nothing and is the difference between following the host and
+being stranded by it. The Ubuntu guest-update script wraps that read in
+`yuruna_host_env`; the amisad guest scripts wrap the same shape in
+`amisad_host_fetch`.
+
+A failed fetch additionally earns one forced run of
+`yuruna-host-locate.sh` rather than waiting for the timer to come round.
+The file can be up to a full refresh interval behind the very move that
+broke the fetch, so a retry that skips the refresh does nothing but
+re-dial the address that already failed. Both callers spend exactly one
+such attempt — the framework-tarball fetch runs its livecheck twice and
+relocates in between — so a host that is genuinely gone still falls
+through to the git-clone path instead of looping on a resolver that has
+no better answer.
+
+### Why the single-VM fallback is gated
+
+The amisad fulfillment scenario resolves the edge VM's address — the KVM
+`192.168.122.0/24` neighbour entry first, then the handoff file the host
+status service publishes — and deploys `slice-runtime` there. When no
+address resolves, the branch that follows can run the whole scenario
+against this one VM instead, then assert the full Target Verification
+Point over it and print `PASSED`. That is precisely the problem: a cycle
+in which the edge was merely unreachable reports the same result as one
+in which the distributed topology actually worked. On a host whose
+address moves, an unreachable edge is a routine event rather than a rare
+one, so the degraded shape would be entered often and silently.
+
+The branch therefore refuses — exit 4, with the reason on stderr —
+unless `AMISAD_ALLOW_SINGLE_VM=1` is set. The fallback is kept because
+it is genuinely useful for working on the scenario without a second VM,
+but entering it has to be a deliberate choice. Refusing rather than
+degrading is what keeps a green cycle meaning that the thing the
+scenario exists to test was the thing that ran.
+
+### Why git never prompts here
+
+These guests are driven by OCR of a console. There is no terminal for
+git to ask a question on, so a credential prompt is not a failure but a
+hang: the step burns its entire timeout before anyone learns the clone
+could not authenticate. `GIT_TERMINAL_PROMPT=0` turns that into an
+immediate, readable error, and the `git-askpass.sh` shim is what lets a
+private clone succeed at all — git does not read `GH_TOKEN`, which is a
+`gh(1)` convention rather than a git one. See
+[Defining the two-source scheme for framework and project URLs](definition.md#defining-the-two-source-scheme-for-framework-and-project-urls).
+
+The seeds write both variables unconditionally, and separately from the
+token block, because the two have opposite conditions. A token being
+present is what makes a private clone succeed; a token being *absent* is
+what makes git prompt. Gating the prompt suppression on the token would
+install it in exactly the case that does not need it and omit it from
+the case that does.
+
+The guest update scripts then export the same two variables again before
+cloning, as belt to the seed's braces. They run under `sudo` and through
+non-login shells, either of which drops what `/etc/profile.d` exported,
+and a guest built from an older seed has no such export to drop in the
+first place.
+
+## Local Subnet Connectivity
 
 During `setup.ps1` execution, service VMs (such as the caching-proxy or stash service) must reach the host across the local subnet (typically a `/24`). If host-level firewall rules or network isolation block that traffic, the `setup.ps1` preflight fails.
 
@@ -1029,6 +1982,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.11
+Last review: 2026.08.14
 
 Back to [Yuruna](../README.md)

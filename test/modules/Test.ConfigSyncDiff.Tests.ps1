@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42c9d0e1-2f3a-4b4c-8d5e-6f7a8b9c0d1e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,6 +30,7 @@
     Runs under Pester 4.10.1 (script-scoped throw helper).
 #>
 
+BeforeAll {
 $here       = Split-Path -Parent $PSCommandPath
 $repoRoot   = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
 $modulePath = Join-Path $repoRoot 'test/modules/Test.ConfigSync.psm1'
@@ -69,23 +70,25 @@ function Test-AstCallsCommand {
 }
 
 $rootAst = Get-ModuleAst -Path $modulePath
-$helper  = 'Test-ConfigDiffersOutsideSecretNode'
+$script:helper  = 'Test-ConfigDiffersOutsideSecretNode'
+
+}
 
 Describe 'configsync-diff -- the outside-secrets write-gate predicate is shared' {
     It 'defines a Test-ConfigDiffersOutsideSecretNode helper' {
         $found = $rootAst.FindAll({
-            param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $helper
+            param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $script:helper
         }, $true)
         Assert-True (@($found).Count -eq 1) 'the duplicated secrets-stripped-YAML diff must collapse into one helper'
     }
     It 'both reconciliation entry points delegate to the shared predicate' {
         $upd  = Get-FunctionAst -RootAst $rootAst -FunctionName 'Update-TestConfigFromTemplate'
         $sync = Get-FunctionAst -RootAst $rootAst -FunctionName 'Sync-TestConfigToTemplate'
-        Assert-True (Test-AstCallsCommand -Ast $upd -CommandName $helper) 'Update-TestConfigFromTemplate must use the shared write-gate predicate'
-        Assert-True (Test-AstCallsCommand -Ast $sync -CommandName $helper) 'Sync-TestConfigToTemplate must use the shared write-gate predicate'
+        Assert-True (Test-AstCallsCommand -Ast $upd -CommandName $script:helper) 'Update-TestConfigFromTemplate must use the shared write-gate predicate'
+        Assert-True (Test-AstCallsCommand -Ast $sync -CommandName $script:helper) 'Sync-TestConfigToTemplate must use the shared write-gate predicate'
     }
     It 'the helper strips secrets and serializes to YAML' {
-        $h = Get-FunctionAst -RootAst $rootAst -FunctionName $helper
+        $h = Get-FunctionAst -RootAst $rootAst -FunctionName $script:helper
         Assert-True (Test-AstCallsCommand -Ast $h -CommandName 'Copy-HashtableWithoutSecretNode') 'the helper must strip the secrets node'
         Assert-True (Test-AstCallsCommand -Ast $h -CommandName 'ConvertTo-Yaml') 'the helper must serialize to YAML for the comparison'
     }
@@ -95,6 +98,6 @@ Describe 'configsync-diff -- the outside-secrets write-gate predicate is shared'
         }, $true)
         Assert-True (@($exportCalls).Count -ge 1) 'Export-ModuleMember must be present'
         $exportText = ($exportCalls | ForEach-Object { $_.Extent.Text }) -join "`n"
-        Assert-True ($exportText -notmatch [regex]::Escape($helper)) 'the write-gate predicate must not be exported (private helper)'
+        Assert-True ($exportText -notmatch [regex]::Escape($script:helper)) 'the write-gate predicate must not be exported (private helper)'
     }
 }

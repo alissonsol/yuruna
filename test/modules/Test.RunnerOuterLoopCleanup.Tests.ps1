@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42c5d6e7-f809-4a12-9b34-5c6d7e8f9012
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,6 +38,7 @@
     The throw-free Should assertions run under Pester 4.10.1.
 #>
 
+BeforeAll {
 $here    = Split-Path -Parent $PSCommandPath
 $modPath = Join-Path $here 'Test.RunnerOuterLoop.psm1'
 Import-Module $modPath -Force
@@ -115,6 +116,8 @@ function Test-LazyInitPrecedesAdd {
         $n.Member.Extent.Text -eq 'Add' -and $n.Expression.Extent.Text -eq '$State.LeakedNotifierJobs'
     }, $true))
     ($init.Count -ge 1) -and ($add.Count -ge 1) -and ($init[0].Extent.StartOffset -lt $add[0].Extent.StartOffset)
+}
+
 }
 
 Describe 'Outer loop stops the watchdog from a finally' {

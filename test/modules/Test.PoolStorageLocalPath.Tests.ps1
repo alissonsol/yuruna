@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42b1c2d3-e4f5-4061-8a72-3b4c5d6e7f80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,12 +29,15 @@
     once, and the helper stays private. Source-text only. Runs under Pester 4.10.1.
 #>
 
+BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
 $src      = Get-Content (Join-Path $here 'Test.PoolStorage.psm1') -Raw
-$tildeRx  = '^~(?=[\\/]|$)'
-$exportLn = ($src -split "`n" | Where-Object { $_ -match 'Export-ModuleMember' }) -join "`n"
+$script:tildeRx  = '^~(?=[\\/]|$)'
+$script:exportLn = ($src -split "`n" | Where-Object { $_ -match 'Export-ModuleMember' }) -join "`n"
 
 function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
+
+}
 
 Describe 'poolstorage-localpath -- the ~-expansion is shared by one helper' {
     It 'defines an Expand-YurunaLocalPath helper' {
@@ -46,11 +49,11 @@ Describe 'poolstorage-localpath -- the ~-expansion is shared by one helper' {
         Assert-True ($n -eq 2) "expected both readers to call Expand-YurunaLocalPath, found $n"
     }
     It 'the leading-~ expansion regex now appears exactly once (inside the helper)' {
-        $n = ([regex]::Matches($src, [regex]::Escape($tildeRx))).Count
+        $n = ([regex]::Matches($src, [regex]::Escape($script:tildeRx))).Count
         Assert-True ($n -eq 1) "expected exactly one ~-expansion regex after dedup, found $n"
     }
     It 'Expand-YurunaLocalPath stays private (not in the Export-ModuleMember allowlist)' {
-        Assert-True ($exportLn -match 'Export-ModuleMember') 'Export-ModuleMember must be present'
-        Assert-True ($exportLn -notmatch 'Expand-YurunaLocalPath') 'the ~-expansion helper must not be exported'
+        Assert-True ($script:exportLn -match 'Export-ModuleMember') 'Export-ModuleMember must be present'
+        Assert-True ($script:exportLn -notmatch 'Expand-YurunaLocalPath') 'the ~-expansion helper must not be exported'
     }
 }

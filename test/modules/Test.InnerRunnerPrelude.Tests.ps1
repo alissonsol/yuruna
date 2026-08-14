@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42f6a7b8-c9d0-4e13-9456-7f8a9b0c1d2e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,6 +40,7 @@
     The throw-free Should assertions run under Pester 4.10.1.
 #>
 
+BeforeAll {
 $here    = Split-Path -Parent $PSCommandPath
 $script = Join-Path $here 'Invoke-TestRunnerInnerLoop.ps1'
 
@@ -95,6 +96,8 @@ function Test-IfBodyInvoke {
             $x -is [System.Management.Automation.Language.CommandAst] -and $x.GetCommandName() -eq $wc
         }, $true)).Count -ge 1
     }).Count -ge 1
+}
+
 }
 
 Describe 'Inner runner checks the inner.pid write result' {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 422d9f13-4b78-4c50-9e31-8d0a5c2f7b91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,6 +30,7 @@
     Run with:  Invoke-Pester -Path test/modules/Test.CachingProxyServiceLock.Tests.ps1
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.CachingProxyServiceLock.psm1') -Force -DisableNameChecking
 
@@ -102,6 +103,8 @@ function Write-ForeignLockFixture {
     if ($AcquiredAtUtc) { $rec.acquiredAtUtc = $AcquiredAtUtc }
     $rec | ConvertTo-Json -Compress | Set-Content -Path "$pidPath.start" -NoNewline
     return $proc.Id
+}
+
 }
 
 Describe 'Get-CachingProxyServiceAdoptDecision (strict adopt)' {
@@ -287,7 +290,7 @@ Describe 'Clear-CachingProxyServiceLock (the operator reset behind Stop-CachingP
 # not a text regex, so a comment describing the guard cannot satisfy it.
 Describe 'Start-CachingProxyServiceVM.ps1 releases the lock on every exit path' {
     It 'wraps the critical section in a try whose finally calls Exit-CachingProxyServiceLock' {
-        $startCp = Join-Path (Split-Path -Parent $here) 'Start-CachingProxyServiceVM.ps1'
+        $startCp = Join-Path (Split-Path -Parent $here) 'service/Start-CachingProxyServiceVM.ps1'
         Assert-True (Test-Path -LiteralPath $startCp) "script exists: $startCp"
         $errs = $null
         $ast = [System.Management.Automation.Language.Parser]::ParseFile($startCp, [ref]$null, [ref]$errs)
@@ -335,8 +338,12 @@ Describe 'Start-CachingProxyServiceVM.ps1 releases the lock on every exit path' 
 
 Describe 'Get-CachingProxyServiceLockPath' {
     It 'roots the lock under the supplied runtime dir' {
-        $p = Get-CachingProxyServiceLockPath -RuntimeDir 'C:\some\runtime'
+        # Join-Path resolves the drive qualifier of its first argument, so a
+        # drive-rooted literal only works on Windows. The dir never has to exist.
+        $runtimeDir = Join-Path ([System.IO.Path]::GetTempPath()) 'yrn-cplk-pathcheck'
+        $p = Get-CachingProxyServiceLockPath -RuntimeDir $runtimeDir
         Assert-True ($p.PidPath -like '*caching-proxy-service.lock') 'pid path name'
+        Assert-Equal -Expected (Join-Path $runtimeDir 'caching-proxy-service.lock') -Actual $p.PidPath -Because 'the lock sits directly under the supplied runtime dir'
         Assert-Equal -Expected ($p.PidPath + '.start') -Actual $p.StartPath -Because 'start sidecar sits beside the pid file'
     }
 }

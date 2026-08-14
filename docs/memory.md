@@ -479,7 +479,7 @@ status service binds the same prefix and would fail identically — but
 only one of them has a holder that can be stopped. It returns a
 structured result and never exits or throws, so the caller
 (Start-StatusService) decides how to refuse, and that refusal aborts
-the cycle instead of running blind with no status server.
+the cycle instead of running blind with no status service.
 
 `Get-ProcessOwnerName` and `Get-PortHolderServiceInfo` are the
 best-effort identity helpers those classifications report with.
@@ -519,6 +519,39 @@ cold re-provision.
 The module is a leaf: the runner resolves `Send-CycleEventSafely` at
 call time (`Get-Command`-guarded); this module only builds the event
 record.
+
+Source:
+[`test/modules/Test.WarmResume.psm1`](../test/modules/Test.WarmResume.psm1).
+
+### Why warm resume rewinds to a snapshot?
+
+A checkpoint names the step that FAILED, and its class says why that step
+stopped — not how much of its work landed first. An install that unpacked
+before its network call died, or a seed script that wrote some rows, leaves
+the guest changed; restarting there replays the step onto its own residue,
+which is a different run from the one the sequence describes. `loadDiskSnapshot`
+is the one action that makes guest state known again, so it is the only honest
+place to restart. The contract itself — event fields, the no-boundary
+degradation, step numbering — is in
+[failure-schema.md](failure-schema.md#rewind-to-a-restore-boundary); what
+follows is why `Get-WarmResumeRewindStep` and its input are shaped this way.
+
+The scan reads each step's *lead* action, not the name the step carries. A
+sequence that nests its restore inside a `retry` block has no `loadDiskSnapshot`
+at top level, so reading the wrapper's own name would leave the rewind with no
+boundary to find — and "no boundary" degrades to resuming in place, onto
+exactly the residue the boundary exists to discard. Rewinding to the wrapper is
+sound because entering it runs that restore first.
+
+The step list comes from the engine's own loader rather than a private parse,
+so `steps` is the same flat list `Invoke-Sequence` walks and the indexes are the
+ones `-StartStep` counts against. Normalizing that result again would re-reject
+it: the loader's output carries a synthesized `baseline` key the normalizer
+treats as the legacy shape. Any failure to read yields an empty list, which the
+rewind treats as "no boundary known" and leaves the checkpoint alone. A
+checkpoint past the end — a sequence edited since the failure — is clamped to
+the step count so it still gets a boundary from the steps that do exist rather
+than no answer at all.
 
 Source:
 [`test/modules/Test.WarmResume.psm1`](../test/modules/Test.WarmResume.psm1).
@@ -988,7 +1021,7 @@ Source:
 
 SUMMARY sits OUTSIDE `Invoke-DiagnosticSection` deliberately: if it
 threw (which it shouldn't — it just iterates `$script:Problems`),
-there is no later section to fall through to, and the safety-net
+there is no later section to fall through to, and the safety net
 would swallow the most important section to surface.
 
 Source:
@@ -1460,6 +1493,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.11
+Last review: 2026.08.14
 
 Back to [Yuruna](../README.md)

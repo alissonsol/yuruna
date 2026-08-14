@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42f2c5e4-b9a0-4367-cd15-4e6f9b3c2d51
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -214,6 +214,87 @@ function Resolve-TestSequencePlan {
     }
 }
 
+function Get-FirstExecutedStepAction {
+    <#
+    .SYNOPSIS
+        The action that ACTUALLY executes first for this run (pure).
+    .DESCRIPTION
+        The chain is a flat concatenation across ChainEntries -- a prerequisite
+        chain can occupy ChainEntries[0], and -StartStep can begin the run partway
+        in -- so the first executed step is not necessarily ChainEntries[0].steps[0].
+        Resolve it by the global 1-based StartStep index.
+
+        A wrapper step runs an inner list of its own, so the action that reaches
+        the guest first is the wrapper's first inner step -- resolved by
+        Get-StepLeadAction (Test.SequenceResolve.psm1). Reading through the
+        wrapper is what lets a caller see a `loadDiskSnapshot` that a sequence
+        nests inside a `retry` block: the restore behaves identically either way
+        (it tolerates a stopped VM and starts one on return), so a caller
+        deciding whether to pre-start the VM must read through the wrapper or it
+        will boot a VM the restore immediately has to stop again.
+    .OUTPUTS
+        [string] the action name; $null when StartStep is past the end of the
+        chain.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param($ChainEntries, [int]$StartStep = 1)
+    $idx = 0
+    foreach ($entry in $ChainEntries) {
+        foreach ($step in @($entry.sequence.steps)) {
+            $idx++
+            if ($idx -eq $StartStep) { return Get-StepLeadAction -Step $step }
+        }
+    }
+    return $null
+}
+
+function Save-ChainFailureArtifact {
+    <#
+    .SYNOPSIS
+        Gather a failed chain's post-mortem into the cycle's per-guest folder.
+    .DESCRIPTION
+        A failing step leaves a frozen-moment screenshot, which says what was on
+        the screen and nothing about the guest. The evidence an operator actually
+        reads -- system diagnostics, and the last fetch-and-execute log holding
+        the failing script's own output -- is gathered by
+        Copy-FailureArtifactsToStatusLog, which the runner's inner loop calls from
+        its own failure paths. A chain run under the orchestrator or straight from
+        Invoke-TestSequence reaches none of those paths, so it calls this and a
+        failed sequence stops being a screenshot with no story behind it.
+
+        Soft by contract, like the capture it wraps: an unreachable guest, an
+        unloadable module or a cycle with no transcript degrade to a verbose line.
+        The outcome is already decided; collecting evidence must not change it.
+        Test.RunnerInnerLoop is imported lazily, so a passing run never pays for
+        a module it will not use.
+    #>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
+        Justification = '$global:__YurunaLogFile is the cross-module transcript handle Start-LogFile (Test.Log) publishes; the capture appends its artifact link to that transcript and returns early when it is empty.')]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [string]$GuestKey = '',
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [string]$ModulesDir = $PSScriptRoot
+    )
+    try {
+        if (-not (Get-Command Copy-FailureArtifactsToStatusLog -ErrorAction SilentlyContinue)) {
+            Import-Module (Join-Path $ModulesDir 'Test.RunnerInnerLoop.psm1') -Force -Global -ErrorAction Stop
+        }
+        # The capture reports each artifact on the SUCCESS stream. Callers here
+        # return a hashtable the caller captures, and a bare call would join those
+        # strings to it (feedback_powershell_writeoutput_pipeline_pollution), so
+        # the lines are re-emitted as information: the transcript still shows
+        # them, and no return value can absorb them.
+        Copy-FailureArtifactsToStatusLog -VMName $VMName -GuestKey $GuestKey `
+            -RepoRoot $RepoRoot -ModulesDir $ModulesDir -LogFile ([string]$global:__YurunaLogFile) |
+            ForEach-Object { Write-Information ([string]$_) -InformationAction Continue }
+    } catch {
+        Write-Verbose "Save-ChainFailureArtifact: capture skipped -- $($_.Exception.Message)"
+    }
+}
+
 function Invoke-TestSequenceChain {
     <#
     .SYNOPSIS
@@ -344,4 +425,4 @@ function Invoke-TestSequenceChain {
     return @{ ok = $true; finishedVmName = $VMName }
 }
 
-Export-ModuleMember -Function Resolve-TestSequencePlan, Invoke-TestSequenceChain
+Export-ModuleMember -Function Resolve-TestSequencePlan, Get-FirstExecutedStepAction, Save-ChainFailureArtifact, Invoke-TestSequenceChain

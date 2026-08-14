@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 4267af85-3ccc-4ef7-a368-55560cfd0f65
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,6 +20,7 @@
 # its end and exits 0 -- so a harness that shells this out records a PASS for a
 # suite that executed no assertion at all. A test that cannot run must say so in
 # its exit code; silence that reads as success is worse than no test.
+BeforeAll {
 if (-not (Get-Command -Name Describe -ErrorAction SilentlyContinue)) {
     Write-Error ("Pester is not available, so this suite cannot run. Install it with " +
                  "'Install-Module Pester -Scope CurrentUser', then re-run with " +
@@ -182,6 +183,8 @@ Set-LogLevelPreference -Level Debug
 Set-LogLevelPreference -Level Information
 Set-Content -LiteralPath $ResultPath -Value ([string]$global:ProgressPreference) -Encoding utf8
 '@
+
+}
 
 Describe 'Start-YurunaChildTranscript -- one writer per process across forced re-imports' {
 

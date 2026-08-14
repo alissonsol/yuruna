@@ -38,6 +38,7 @@ func main() {
 	presenceInterval := flag.Duration("presence-interval", config.DefaultPresenceInterval, "beacon re-announce cadence")
 	authTokenFile := flag.String("auth-token-file", config.DefaultAuthTokenFile, "file holding the lab auth token accepted as a bearer on the gated routes (empty or missing disables bearer auth)")
 	poolDir := flag.String("pool-dir", config.DefaultPoolDir, "pool share mount point; the Download pool lives under <pool-dir>/images")
+	poolNetworkPath := flag.String("pool-network-path", "", "the pool share as the rest of the lab reaches it, e.g. //nas/share/yuruna.pool; used only to name pool folders to an operator (empty names the local mount instead)")
 	stateDir := flag.String("state-dir", "", "directory (under the pool share) for audit.jsonl + status.json; empty disables persistence")
 	scanInterval := flag.Duration("scan-interval", config.DefaultScanInterval, "background pool scan cadence")
 	freshness := flag.Duration("freshness", config.DefaultFreshness, "how long an image stays fresh after its last origin verification")
@@ -63,19 +64,20 @@ func main() {
 	defer stop()
 
 	agent, err := imagestore.NewAgent(ctx, imagestore.Options{
-		PoolDir:       *poolDir,
-		ScanInterval:  *scanInterval,
-		Freshness:     *freshness,
-		PrefetchLead:  *prefetchLead,
-		AutoSeed:      *autoSeed,
-		AggregatorURL: *aggregatorURL,
-		HostID:        *hostID,
-		VMName:        "yuruna-" + config.PresenceArea,
-		AgentVersion:  version,
-		ProxyHTTP:     *proxyHTTP,
-		ProxyHTTPS:    *proxyHTTPS,
-		ProxyCA:       *proxyCA,
-		Fido:          imagestore.FidoConfig{Script: *fidoScript},
+		PoolDir:         *poolDir,
+		PoolNetworkPath: *poolNetworkPath,
+		ScanInterval:    *scanInterval,
+		Freshness:       *freshness,
+		PrefetchLead:    *prefetchLead,
+		AutoSeed:        *autoSeed,
+		AggregatorURL:   *aggregatorURL,
+		HostID:          *hostID,
+		VMName:          "yuruna-" + config.PresenceArea,
+		AgentVersion:    version,
+		ProxyHTTP:       *proxyHTTP,
+		ProxyHTTPS:      *proxyHTTPS,
+		ProxyCA:         *proxyCA,
+		Fido:            imagestore.FidoConfig{Script: *fidoScript},
 		Audit: func(e imagestore.AuditEvent) {
 			store.Record(time.Now(), state.AuditEntry{
 				AtUTC: e.AtUTC, Action: e.Action,

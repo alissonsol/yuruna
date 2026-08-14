@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42a4829e-5f60-4172-8c83-9e0f1a2b3c4d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,11 +26,14 @@
     assertions for OS-bundled Pester 3.4 / Pester 5+ compatibility.
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.RunnerHeartbeat.psm1') -Force -DisableNameChecking
 
 function Assert-True { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
 function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
+
+}
 
 Describe 'Start/Stop-RunnerHeartbeat' {
     It 'seeds the file, advances it while running, then freezes on Stop' {

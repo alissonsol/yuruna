@@ -104,16 +104,16 @@ nonsense.
 
 `--psm 6` (single uniform block of text) is the only page-segmentation
 mode that reads a terminal screenshot end-to-end. Terminal captures ARE
-uniform blocks -- monospace, equal-size lines, top-aligned -- and PSM 6
+uniform blocks — monospace, equal-size lines, top-aligned — and PSM 6
 walks the whole image as one block, so a sparse top-of-image text region
 with empty space below still gets read in full.
 
 Every neighboring mode drops text the harness depends on:
 
 - **`--psm 4`** (single column of variable sizes): on screens with two
-  visually-distinct content regions -- e.g. a tiny login prompt at the
+  visually-distinct content regions — e.g. a tiny login prompt at the
   top plus a cloud-init dump rendered as a virtual second column at the
-  bottom on retried boots -- PSM 4 picks ONE region as "the column" and
+  bottom on retried boots — PSM 4 picks ONE region as "the column" and
   silently drops the text in the other. The visible symptom is a
   `<hostname> login:` line missing from the OCR output even though the
   screenshot shows it.
@@ -150,6 +150,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.11
+Last review: 2026.08.14
 
 Back to [Yuruna](../README.md)

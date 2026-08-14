@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42c7a1b9-3d4e-4f80-9a21-5b6c7d8e9f01
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,8 @@
 
 # Orchestration-sequence execution for Invoke-TestSequence.ps1: runs every
 # `InvokeTestSequence` inner sequence IN-PROCESS under ONE status.json
-# cycle, one dashboard row per inner sequence. See docs/test-runner.md.
+# cycle, one dashboard row per inner sequence. See
+# docs/runner-outer-loop.md#what-a-testrunneryml-entry-can-be.
 #
 # Known duplication: Invoke-OrchestratorGuestRun below mirrors the per-guest
 # prep + chain-run Invoke-TestSequence.ps1 performs inline for a standalone run
@@ -227,12 +228,9 @@ function Invoke-OrchestratorGuestRun {
 
     # --- Ensure the VM is running, unless the first step is loadDiskSnapshot
     #     (its handler tolerates a stopped VM and starts it after the restore).
-    $firstAction = ''
-    if ($chainEntries.Count -gt 0) {
-        $firstEntry = $chainEntries[0]
-        $firstSteps = @($firstEntry.sequence.steps)
-        if ($firstSteps.Count -gt 0) { $firstAction = [string]$firstSteps[0].action }
-    }
+    #     Read through a wrapper such as `retry` to the inner step that actually
+    #     runs first, so a nested restore is recognized as one.
+    $firstAction = [string](Get-FirstExecutedStepAction -ChainEntries $chainEntries -StartStep 1)
     if ($firstAction -eq 'loadDiskSnapshot') {
         Write-OrchestratorLine "VM '$vmName': skipping pre-sequence start -- first step is loadDiskSnapshot."
     } elseif ((Get-VMState -VMName $vmName) -eq 'running') {
@@ -256,6 +254,9 @@ function Invoke-OrchestratorGuestRun {
         -HostType $HostType -GuestKey $guestKey -VMName $vmName `
         -SequenceName $Name -ShowSensitive:$ShowSensitive
     if (-not $result.ok) {
+        # Evidence first: the guest is still up and holding the state that failed.
+        $failedVm = if ($result.finishedVmName) { [string]$result.finishedVmName } else { $vmName }
+        Save-ChainFailureArtifact -VMName $failedVm -GuestKey $guestKey -RepoRoot $RepoRoot
         return @{ ok = $false; vmName = $result.finishedVmName; guestKey = $guestKey; reason = "chain '$Name' failed" }
     }
     return @{ ok = $true; vmName = $result.finishedVmName; guestKey = $guestKey; reason = '' }

@@ -6,13 +6,14 @@
 // (§2.1), sharing the ID allocator, storage pipeline, and local index. It
 // presents a POOL-WIDE view (§3): this host's live local index merged with
 // every other host's on-share sidecars. Writes (create) go through the shared
-// ingest pipeline; delete is local-host-only and enforced server-side (§8).
+// ingest pipeline; delete carries the lab-token gate (gate.go) and reaches any
+// host's stash, because the stash share is mounted with write access to all of
+// them.
 package httpsrv
 
 import (
 	"context"
 	"errors"
-	"net"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -23,6 +24,7 @@ import (
 	"stash-service/internal/meta"
 	"stash-service/internal/sshsrv"
 	"stash-service/internal/store"
+	"stash-service/internal/yex/labgate"
 	// Aliased: this package already calls the ARTIFACT index "pool", and the two
 	// meanings must not read as one.
 	poolapi "stash-service/internal/yex/pool"
@@ -41,11 +43,12 @@ type Server struct {
 	pool        *PoolIndex
 	// poolClient reads the pool-aggregator service, which is how a stash on
 	// another host becomes a link a browser can follow.
-	poolClient    *poolapi.Client
-	defaultLimit  int
-	version       string
-	listener      *http.Server
-	deleteHostIPs []net.IP // host IPs permitted to DELETE; nil = VM-only
+	poolClient   *poolapi.Client
+	defaultLimit int
+	version      string
+	listener     *http.Server
+	// gate authorizes DELETE (gate.go). Everything else is open on the LAN.
+	gate *labgate.Gate
 }
 
 // Options carries the VM-side configurable knobs.
@@ -57,11 +60,6 @@ type Options struct {
 	PoolRefresh    time.Duration
 	DefaultLimit   int
 	Version        string
-	// HostIP is the deploying host's IP address (the --host-ip launch flag):
-	// the one non-VM source permitted to DELETE stashes. Reads and
-	// writes stay open to any host. A comma-separated list is accepted; empty
-	// means only the VM itself may delete.
-	HostIP string
 }
 
 // New builds the UI server. stashRoot and localHostID are derived from the
@@ -89,10 +87,17 @@ func New(sshServer *sshsrv.Server, opts Options) *Server {
 			Timeout:  4 * time.Second,
 			CacheTTL: hostResolutionTTL,
 		}),
-		defaultLimit:  defaultLimit,
-		version:       opts.Version,
-		deleteHostIPs: parseHostIPs(opts.HostIP),
+		defaultLimit: defaultLimit,
+		version:      opts.Version,
 	}
+	// No BearerToken: this VM is never given the lab auth token, so the
+	// aggregator is the only judge of a lab token or a control proof, and the
+	// gate reports itself unconfigured when there is no aggregator to ask.
+	s.gate = labgate.New(labgate.Options{
+		AggregatorURL: opts.AggregatorURL,
+		CookieName:    sessionCookie,
+		Audit:         s.auditUnlock,
+	})
 	s.listener = &http.Server{
 		Addr:    opts.Addr,
 		Handler: s.routes(),
@@ -113,11 +118,11 @@ func (s *Server) store() *store.Store       { return s.ssh.Store }
 func (s *Server) buffer() *store.Store      { return s.ssh.Buffer }
 func (s *Server) detector() detect.Detector { return s.ssh.Detector }
 
-// ListenAndServe runs the HTTP server until ctx is canceled, and kicks off
-// the pool-index background refresher (§3.2). Returns nil on graceful
+// ListenAndServe runs the HTTP server until ctx is canceled, and kicks off the
+// background share scans (§3.2, reconcile.go). Returns nil on graceful
 // shutdown.
 func (s *Server) ListenAndServe(ctx context.Context) error {
-	go s.pool.RunRefresher(ctx)
+	go s.runShareScans(ctx)
 	go func() {
 		<-ctx.Done()
 		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

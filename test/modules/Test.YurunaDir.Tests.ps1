@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42a1c8e7-5b34-4d29-9f06-1e7d3a2b4c58
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,6 +27,7 @@
     no cross-module channel is touched) and restores it after.
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.YurunaDir.psm1') -Force -DisableNameChecking -ErrorAction SilentlyContinue
 
@@ -56,6 +57,8 @@ function Remove-RuntimeFixture {
     param([Parameter(Mandatory)][hashtable]$Fixture)
     $env:YURUNA_RUNTIME_DIR = $Fixture.Prev
     Remove-Item -LiteralPath $Fixture.Tmp -Recurse -Force -ErrorAction SilentlyContinue
+}
+
 }
 
 Describe 'Get-YurunaHostId' {

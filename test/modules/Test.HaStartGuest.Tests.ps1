@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42a1b2c3-d4e5-4f67-8901-9c0d1e2f3a58
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,6 +31,7 @@
     Invoke-SequenceByName inline. Pester 4.10.1.
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 
 function Get-FileAst {
@@ -48,9 +49,11 @@ function Get-CallCount {
 # Unqualified file-scope variables: inside an It block a $script: reference resolves to the
 # test runner's own script scope, not this file's, so a $script:-qualified AST reaches the
 # structural guards as $null.
-$engineAst = Get-FileAst (Join-Path $here 'Test.SequenceEngine.psm1')
-$osAst     = Get-FileAst (Join-Path $here 'Test.Start-GuestOS.psm1')
-$wlAst     = Get-FileAst (Join-Path $here 'Test.Start-GuestWorkload.psm1')
+$script:engineAst = Get-FileAst (Join-Path $here 'Test.SequenceEngine.psm1')
+$script:osAst     = Get-FileAst (Join-Path $here 'Test.Start-GuestOS.psm1')
+$script:wlAst     = Get-FileAst (Join-Path $here 'Test.Start-GuestWorkload.psm1')
+
+}
 
 Describe 'ha-startguest: the dispatcher loop is shared, not duplicated' {
     BeforeAll {
@@ -94,7 +97,7 @@ Describe 'ha-startguest: the dispatcher loop is shared, not duplicated' {
         It 'Start-GuestOS uses the "Start" label' {
             foreach ($m in 'Test.SequenceEngine', 'Test.Start-GuestOS') {
                 Mock Invoke-SequenceByName    -ModuleName $m { $false }
-                Mock Initialize-YurunaLogDir  -ModuleName $m { Join-Path $env:TEMP ('nolog-' + [guid]::NewGuid().ToString('N')) }
+                Mock Initialize-YurunaLogDir  -ModuleName $m { Join-Path ([System.IO.Path]::GetTempPath()) ('nolog-' + [guid]::NewGuid().ToString('N')) }
             }
             $r = Start-GuestOS -HostType h -GuestKey g -VMName vm -RepoRoot r -SequencesDir s -SequenceNames @('seqX')
             $r.success      | Should -BeFalse
@@ -103,7 +106,7 @@ Describe 'ha-startguest: the dispatcher loop is shared, not duplicated' {
         It 'Start-GuestWorkload uses the "Workload" label' {
             foreach ($m in 'Test.SequenceEngine', 'Test.Start-GuestWorkload') {
                 Mock Invoke-SequenceByName    -ModuleName $m { $false }
-                Mock Initialize-YurunaLogDir  -ModuleName $m { Join-Path $env:TEMP ('nolog-' + [guid]::NewGuid().ToString('N')) }
+                Mock Initialize-YurunaLogDir  -ModuleName $m { Join-Path ([System.IO.Path]::GetTempPath()) ('nolog-' + [guid]::NewGuid().ToString('N')) }
             }
             $r = Start-GuestWorkload -HostType h -GuestKey g -VMName vm -RepoRoot r -SequencesDir s -SequenceNames @('seqY')
             $r.success      | Should -BeFalse
@@ -113,7 +116,7 @@ Describe 'ha-startguest: the dispatcher loop is shared, not duplicated' {
 
     Context 'a sidecar written during the sequence promotes the message to the step location' {
         It 'formats "Step [n/total] action - description" from a fresh last_failure.json' {
-            $script:halog = Join-Path $env:TEMP ('halog-' + [guid]::NewGuid().ToString('N'))
+            $script:halog = Join-Path ([System.IO.Path]::GetTempPath()) ('halog-' + [guid]::NewGuid().ToString('N'))
             New-Item -ItemType Directory -Path $script:halog -Force | Out-Null
             $payload = [ordered]@{
                 stepNumber = 3; totalSteps = 7
@@ -136,7 +139,7 @@ Describe 'ha-startguest: the dispatcher loop is shared, not duplicated' {
             }
         }
         It 'keeps the generic message when the sidecar predates the sequence (mtime gate)' {
-            $script:hastale = Join-Path $env:TEMP ('hastale-' + [guid]::NewGuid().ToString('N'))
+            $script:hastale = Join-Path ([System.IO.Path]::GetTempPath()) ('hastale-' + [guid]::NewGuid().ToString('N'))
             New-Item -ItemType Directory -Path $script:hastale -Force | Out-Null
             $stale = Join-Path $script:hastale 'last_failure.json'
             $payload = [ordered]@{ stepNumber = 9; totalSteps = 9; action = 'Reboot'; description = 'stale run' } | ConvertTo-Json
@@ -187,7 +190,7 @@ Describe 'ha-startguest: the dispatcher loop is shared, not duplicated' {
 
     Context 'structure: one definition, both delegate (AST)' {
         It 'Invoke-Sequence defines Invoke-GuestSequenceList exactly once' {
-            @($engineAst.FindAll({ param($n)
+            @($script:engineAst.FindAll({ param($n)
                 $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq 'Invoke-GuestSequenceList'
             }, $true)).Count | Should -Be 1
         }
@@ -195,7 +198,7 @@ Describe 'ha-startguest: the dispatcher loop is shared, not duplicated' {
             @{ File = 'Start-GuestOS' }, @{ File = 'Start-GuestWorkload' }
         ) {
             param($File)
-            $ast = if ($File -eq 'Start-GuestOS') { $osAst } else { $wlAst }
+            $ast = if ($File -eq 'Start-GuestOS') { $script:osAst } else { $script:wlAst }
             (Get-CallCount -Ast $ast -Name 'Invoke-GuestSequenceList') | Should -BeGreaterOrEqual 1
             (Get-CallCount -Ast $ast -Name 'Invoke-SequenceByName')    | Should -Be 0
         }

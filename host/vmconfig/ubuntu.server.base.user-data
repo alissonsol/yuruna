@@ -38,6 +38,23 @@ APT_PROXY_BLOCK_PLACEHOLDER
   interactive-sections: []
 # === YURUNA_OVERLAY_EARLY_COMMANDS ===
   late-commands:
+    # Make sshd notice a client that stopped answering, and reap the session.
+    # Upstream leaves ClientAliveInterval at 0, so a connection broken under an
+    # established session -- either endpoint renumbering onto a new address is
+    # the ordinary way that happens -- is detected only when TCP finally gives
+    # up, minutes later. Until then the command the harness was running keeps
+    # running, unwatched, holding apt/dpkg locks and its own network
+    # connections, so a host that reconnects and re-runs the step collides with
+    # its own orphan. 15s x 4 mirrors the client-side keepalive bound in
+    # Test.Ssh.psm1 Invoke-GuestSsh, so both ends give up on the same schedule.
+    - |
+      mkdir -p /target/etc/ssh/sshd_config.d
+      cat > /target/etc/ssh/sshd_config.d/60-yuruna-keepalive.conf << 'EOF'
+      ClientAliveInterval 15
+      ClientAliveCountMax 4
+      TCPKeepAlive yes
+      EOF
+      chmod 0644 /target/etc/ssh/sshd_config.d/60-yuruna-keepalive.conf
     # --- REGION: https://yuruna.link/vmconfig#apt-cache-persist-proxy
     - |
       if [ -n "CACHING_PROXY_URL_PLACEHOLDER" ]; then
@@ -163,6 +180,16 @@ APT_PROXY_BLOCK_PLACEHOLDER
       EOF
     # --- REGION: https://yuruna.link/vmconfig#yuruna-host-coordinates
     # Baked host+repo coordinates a hand-run fetch-and-execute falls back to; the runner's per-step E_FB_REPO/E_FB_REF override these.
+    #
+    # The last two keys are a different kind of coordinate: an ADDRESS goes
+    # stale the moment the host renumbers, so they carry the two identities
+    # that do not. YURUNA_HOST_ID names the host independently of where it
+    # currently answers, and the caching-proxy address is pinned by MAC
+    # reservation, which makes it the one address a guest can be born
+    # knowing. Together they let yuruna-host-locate repair the address above
+    # instead of the guest being stranded by it. Either one empty (no pool
+    # directory in this lab) simply leaves the baked address as the only
+    # answer, which is where every guest was before.
     - mkdir -p /target/etc/yuruna
     - |
       cat > /target/etc/yuruna/host.env << 'EOF'
@@ -172,6 +199,8 @@ APT_PROXY_BLOCK_PLACEHOLDER
       YURUNA_GITHUB_REF=YURUNA_GITHUB_REF_PLACEHOLDER
       YURUNA_FRAMEWORK_URL=YURUNA_FRAMEWORK_URL_PLACEHOLDER
       YURUNA_PROJECT_URL=YURUNA_PROJECT_URL_PLACEHOLDER
+      YURUNA_HOST_ID=YURUNA_HOST_ID_PLACEHOLDER
+      YURUNA_CACHING_PROXY_SERVICE_IP=YURUNA_CACHING_PROXY_SERVICE_IP_PLACEHOLDER
       EOF
     - |
       grep -q yuruna-host /target/etc/hosts || \
@@ -195,6 +224,61 @@ APT_PROXY_BLOCK_PLACEHOLDER
     - |
       printf '%s' "YURUNA_NETWORK_BASE64_PLACEHOLDER" | base64 -d > /target/usr/local/lib/yuruna/yuruna-network.sh
       chmod 0755 /target/usr/local/lib/yuruna/yuruna-network.sh
+    - |
+      printf '%s' "YURUNA_HOST_LOCATE_BASE64_PLACEHOLDER" | base64 -d > /target/usr/local/lib/yuruna/yuruna-host-locate.sh
+      chmod 0755 /target/usr/local/lib/yuruna/yuruna-host-locate.sh
+    # --- REGION: https://yuruna.link/vmconfig#host-address-refresh-timer
+    # fetch-and-execute repairs the address at the top of each step, which
+    # leaves one window open: a step that runs for many minutes can watch the
+    # host renumber underneath it and has no way back. The timer closes that
+    # window for everything in the guest -- the project's own scripts, the
+    # perf checkpoints, the log uploads -- none of which pass through the
+    # fetch path and all of which read the same host.env.
+    #
+    # Cheap enough to run this often because the resolver probes before it
+    # asks: when the address is still good the minute's work is one LAN round
+    # trip and no writes at all. Deliberately not a long-running daemon --
+    # there is no state to hold between ticks, and a oneshot cannot wedge.
+    - |
+      cat > /target/etc/systemd/system/yuruna-host-locate.service << 'EOF'
+      [Unit]
+      Description=Refresh Yuruna host coordinates if the host has changed address
+      # Ordered INTO the network-online barrier rather than after it. Anything
+      # in this guest that needs the host waits on that target, so finishing
+      # before it is what guarantees those consumers never read a stale
+      # address -- and it does so without this unit naming any of them, which
+      # is the whole point of the indirection.
+      #
+      # After the wait-online services (whichever the image ships; ordering
+      # against an absent unit is a no-op) so this runs with an address in
+      # hand rather than before DHCP has answered.
+      After=network.target NetworkManager-wait-online.service systemd-networkd-wait-online.service
+      Before=network-online.target
+
+      [Service]
+      Type=oneshot
+      # A resolver that cannot finish must not hold the boot open. Every call
+      # inside is already wall-clock bounded; this is the backstop for the day
+      # one of them is not.
+      TimeoutStartSec=30
+      ExecStart=/usr/local/lib/yuruna/yuruna-host-locate.sh
+
+      [Install]
+      WantedBy=network-online.target
+      EOF
+      cat > /target/etc/systemd/system/yuruna-host-locate.timer << 'EOF'
+      [Unit]
+      Description=Periodic Yuruna host coordinate refresh
+
+      [Timer]
+      OnBootSec=30s
+      OnUnitActiveSec=60s
+      AccuracySec=5s
+
+      [Install]
+      WantedBy=timers.target
+      EOF
+      curtin in-target --target=/target -- systemctl enable yuruna-host-locate.service yuruna-host-locate.timer || true
     # --- REGION: https://yuruna.link/definition#defining-the-two-source-scheme-for-framework-and-project-urls
     # git does NOT read GH_TOKEN (a gh(1) convention); without this GIT_ASKPASS shim a private
     # clone hangs on a username prompt -- "Private repositories" in the REGION topic above.
@@ -207,6 +291,24 @@ APT_PROXY_BLOCK_PLACEHOLDER
       esac
       EOF
       chmod 0755 /target/usr/local/lib/yuruna/git-askpass.sh
+    # --- REGION: https://yuruna.link/network#why-git-never-prompts-here
+    # Never let git ask a question. There is no terminal to answer it: these
+    # guests are driven by OCR of a console, so a credential prompt is not a
+    # failure but a HANG, and the step's whole timeout is spent before anyone
+    # learns the clone could not authenticate.
+    #
+    # Written unconditionally, and separately from the token below, because the
+    # two have opposite conditions. A token being present is what makes a
+    # private clone succeed; a token being ABSENT is what makes it prompt. Gating
+    # the prompt-suppression on the token installed it in exactly the case that
+    # did not need it and omitted it in the case that did.
+    - |
+      cat > /target/etc/profile.d/yuruna-git-noprompt.sh << 'EOF'
+      export GIT_TERMINAL_PROMPT=0
+      export GIT_ASKPASS=/usr/local/lib/yuruna/git-askpass.sh
+      EOF
+      chmod 0644 /target/etc/profile.d/yuruna-git-noprompt.sh
+      printf 'GIT_TERMINAL_PROMPT=0\nGIT_ASKPASS=/usr/local/lib/yuruna/git-askpass.sh\n' >> /target/etc/environment
     # Token for private framework/project URLs, delivered on the seed ISO (never the OCR'd console, never HTTP); written to /etc/profile.d (login shells) and ~/.bashrc (the runner's interactive shell), skipped when unset.
     - |
       if [ -n 'GH_TOKEN_PLACEHOLDER' ]; then

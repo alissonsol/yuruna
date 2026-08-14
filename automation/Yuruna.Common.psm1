@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 4288bcbc-ede3-4dda-bb77-b9782c7615ad
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -219,6 +219,39 @@ function Get-SudoPwshArgumentList {
     return [string[]]@($sudoOption + @((Get-PwshApplicationPath), '-NoProfile', '-File', $ScriptPath) + $ScriptArgument)
 }
 
+function Test-YurunaSudoRefusal {
+<#
+.SYNOPSIS
+    $true when sudo's output is sudo REFUSING to run the command, rather than the
+    command running and failing. Pure (classifies text).
+.DESCRIPTION
+    The exit code cannot separate the two -- sudo exits 1 for "wrong password",
+    "no tty" and "not permitted" alike, and so do plenty of ordinary commands --
+    so only the text distinguishes an elevation problem from a work problem, and
+    the two need opposite responses: one needs an /etc/sudoers.d rule and hands on
+    the host, the other needs the command looked at.
+
+    The wording depends on WHICH sudo is installed, and both spellings must be
+    recognized on every host because the same code runs on all of them:
+      * sudo (C)    "a password is required", "a terminal is required",
+                    "no tty present", "may not run", "is not in the sudoers file"
+      * sudo-rs     "interactive authentication is required"
+    Ubuntu ships sudo-rs as the default sudo from 25.10 on. A matcher that knows
+    only the C wording does not fail loudly as hosts upgrade -- it quietly stops
+    recognizing refusals, and every caller then reports something else as the
+    cause.
+.PARAMETER Output
+    Combined stdout+stderr from the sudo invocation; empty and $null are accepted.
+.OUTPUTS
+    [bool] $true when sudo refused.
+#>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter()][AllowEmptyString()][AllowNull()][string]$Output)
+    if ([string]::IsNullOrWhiteSpace($Output)) { return $false }
+    return [bool]("$Output" -match '(?i)(a password is required|a terminal is required|no tty present|interactive authentication is required|may not run|is not in the sudoers file|not allowed to execute|no askpass)')
+}
+
 function Invoke-YurunaSudo {
 <#
 .SYNOPSIS
@@ -286,11 +319,7 @@ function Invoke-YurunaSudo {
     $rc  = $LASTEXITCODE
     $out = (@($raw) | ForEach-Object { "$_" }) -join "`n"
 
-    # sudo's own refusal signatures. Matched on text because the exit code is 1
-    # for "wrong password", "no tty", and "not permitted" alike -- and also for
-    # plenty of ordinary command failures we must NOT misreport as an elevation
-    # problem.
-    $blocked = ($rc -ne 0) -and ($out -match 'a password is required|a terminal is required|no tty present|may not run|is not in the sudoers file')
+    $blocked = ($rc -ne 0) -and (Test-YurunaSudoRefusal -Output $out)
     $result = @{ ExitCode = $rc; Output = $out; Blocked = $blocked }
     if (-not $blocked) { return $result }
 
@@ -2050,4 +2079,4 @@ function Select-NameByPrefix {
     return $matched.ToArray()
 }
 
-Export-ModuleMember -Function New-YurunaTimestampedBackup, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Get-PwshApplicationPath, Get-SudoPwshArgumentList, Invoke-YurunaSudo, Test-YurunaCanPrompt, Assert-YurunaPromptable, Get-CachingProxyServicePort, Get-CachingProxyMemoryProfile, Test-Ipv4Address, Test-Ipv6Address, Format-IpUrlHost, Test-IpAddress, Select-YurunaRoutableAddress, ConvertTo-Sha512CryptHash, ConvertTo-YurunaMacAddress, ConvertTo-Ipv4UInt32, Get-HostIpv4Subnet, Get-Ipv4OnLinkVerdict, Get-PoolFacingIpv4Segment, Get-Ipv4PoolSegmentVerdict, Test-TcpConnectOutcome, Get-TcpOutcomeExplanation, Select-DhcpLeaseIpAddress, Select-StaleDhcpLeaseBlock, Remove-DhcpLeaseBlockText, Get-UtmGuestSeedHostname, ConvertTo-MemoryStartupBytes, Get-GuestBuilderMemoryMb, Get-ServiceVmMemoryMb, Select-SetupServiceVmKey, Get-ServiceVmMemoryVerdict, Get-HostPhysicalMemoryMb, Select-NameByPrefix, Get-YurunaServiceVmName
+Export-ModuleMember -Function New-YurunaTimestampedBackup, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Get-PwshApplicationPath, Get-SudoPwshArgumentList, Invoke-YurunaSudo, Test-YurunaSudoRefusal, Test-YurunaCanPrompt, Assert-YurunaPromptable, Get-CachingProxyServicePort, Get-CachingProxyMemoryProfile, Test-Ipv4Address, Test-Ipv6Address, Format-IpUrlHost, Test-IpAddress, Select-YurunaRoutableAddress, ConvertTo-Sha512CryptHash, ConvertTo-YurunaMacAddress, ConvertTo-Ipv4UInt32, Get-HostIpv4Subnet, Get-Ipv4OnLinkVerdict, Get-PoolFacingIpv4Segment, Get-Ipv4PoolSegmentVerdict, Test-TcpConnectOutcome, Get-TcpOutcomeExplanation, Select-DhcpLeaseIpAddress, Select-StaleDhcpLeaseBlock, Remove-DhcpLeaseBlockText, Get-UtmGuestSeedHostname, ConvertTo-MemoryStartupBytes, Get-GuestBuilderMemoryMb, Get-ServiceVmMemoryMb, Select-SetupServiceVmKey, Get-ServiceVmMemoryVerdict, Get-HostPhysicalMemoryMb, Select-NameByPrefix, Get-YurunaServiceVmName

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 421a7f92-3c68-4b05-9e27-8a0f5d2c6b13
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,6 +34,8 @@
     Justification = 'The NDJSON sink is resolved from the global command table at call time, so the collector stub and its assertions must straddle the global scope.')]
 param()
 
+BeforeAll {
+
 $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = Split-Path -Parent (Split-Path -Parent $here)
 
@@ -50,6 +52,8 @@ if (-not $fnAst) { throw 'Publish-GuestRetryMarker not found in Test.SequenceHan
 
 function Assert-Equal { param($Actual, $Expected, [string]$Because = '') if ("$Actual" -ne "$Expected") { throw "Expected '$Expected', got '$Actual'. $Because" } }
 function Assert-True  { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
+
+}
 
 Describe 'Yuruna.Retry structured telemetry' {
     It 'emits retry_attempt then retry_exhausted (schema-valid) for a failing scriptblock' {

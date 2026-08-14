@@ -504,6 +504,8 @@ unless `allowFailure=true`.
 | `timeoutSeconds` | number | Default `vmCommunication.timeoutSeconds`. |
 | `allowFailure` | boolean | If true, non-zero exit logs a warning instead of failing. |
 | `sensitive` | boolean | Masks command in logs. |
+| `detach` | boolean | Default **false** here. See [Surviving a dropped session](#surviving-a-dropped-session). Off by default for this verb because it runs whatever the YAML names, and a detached run stages that command to a file on the guest — which the deploy sequence's password piping must not do. |
+| `transportRetries` | number | Default `0`. Reconnects to spend when the session dies mid-command. Only consulted when the step is not detached. Raise it only for a command that is safe to run twice. |
 
 ### sshFetchAndExecute
 
@@ -515,6 +517,34 @@ the command handles its own auth.
 |---|---|---|
 | `command` | string | |
 | `timeoutSeconds` | number | Default `vmCommunication.timeoutSeconds`. |
+| `detach` | boolean | Default **true** here. See [Surviving a dropped session](#surviving-a-dropped-session). Set `false` to run in a plain session instead. |
+| `transportRetries` | number | Default `0`, and ignored while `detach` is true — a detached step re-attaches rather than re-running, which needs no judgement about whether the payload is safe to repeat. |
+
+### Surviving a dropped session
+
+An SSH session dies when either endpoint's address moves under it, which on a
+host with a short DHCP lease is an ordinary event rather than a fault. Two
+things follow from that, and they are separate.
+
+The harness can tell a dropped transport from a command that failed. `ssh`
+reports its own faults as exit 255 and passes anything else through as the
+remote command's status, so 255 alone proves nothing — an authentication
+refusal and a rejected host key are 255 too. When the stderr says the transport
+died, the step is reported as `network_timeout` rather than `script_error`,
+which is both the honest description and the class warm resume acts on.
+
+A detached step's work outlives its session. The payload runs under a supervisor
+on the guest, its output accumulates in a file, and a reconnect **attaches** and
+resumes the stream from the last complete line it already received. It does not
+re-run the command. That distinction is the reason `detach` defaults to true for
+`sshFetchAndExecute`: a script that seeds records and then asserts counts over
+them cannot be re-run against the state it already changed, so before this it
+could not be recovered at all. The payload's real exit status is read back from
+the guest, so a command that genuinely exits 255 is no longer indistinguishable
+from a session that died.
+
+Each re-attach is recorded as a `guest_run_reattach` event, and the number of
+host address changes that fell inside a cycle is recorded on its `cycle_end`.
 
 ### sshWaitReady
 
@@ -669,7 +699,7 @@ A bare `return` (no value) is coerced to `$false`. Always be explicit.
 | `Description`        | `[string]`                                                                                                                                                                                                                                                                                     | Free-form note. Surfaces in the capability matrix.                                                                                                          |
 | `Aliases`            | `[string[]]`                                                                                                                                                                                                                                                                                   | Alternate YAML names that resolve to the same entry (legacy renames).                                                                                       |
 | `Handler`            | `[scriptblock]` `param([hashtable]$c)` → `[bool]`                                                                                                                                                                                                                                              | The body that runs when the verb dispatches.                                                                                                                |
-| `FailureClass`       | `ValidateSet`: `ocr_timeout`, `network_timeout`, `credential_expired`, `host_io_blocked`, `pattern_matched_failure`, `retry_exhausted`, `snapshot_restore_failed`, `script_error`, `wait_timeout`, `extension_error`, `instrumentation_failure`, `provisioning_failure`, `bootstrap_sync`, `plan_invalid`, `elevation_required`, `project_access_denied`, `host_network_degraded`, `unknown`                                       | Machine-readable failure category for downstream routing (no regex-on-label needed).                                                                        |
+| `FailureClass`       | `ValidateSet`: `ocr_timeout`, `network_timeout`, `credential_expired`, `host_io_blocked`, `pattern_matched_failure`, `retry_exhausted`, `snapshot_restore_failed`, `script_error`, `wait_timeout`, `extension_error`, `instrumentation_failure`, `provisioning_failure`, `bootstrap_sync`, `plan_invalid`, `elevation_required`, `project_access_denied`, `host_network_degraded`, `ip_not_discovered`, `payload_unavailable`, `unknown`                                       | Machine-readable failure category for downstream routing (no regex-on-label needed).                                                                        |
 | `Severity`           | `ValidateSet`: `hard`, `soft`, `unknown`                                                                                                                                                                                                                                                       | `soft` = retry is plausible; `hard` = retry won't help (e.g. snapshot restore failed); `unknown` = no claim either way.                                     |
 | `SuggestedRecoveries`| `[string[]]` — free-form, ordered                                                                                                                                                                                                                                                              | Hints for an autonomous remediation loop. Common values: `retry_immediately`, `wait_and_retry`, `restore_snapshot`, `notify_operator`. A token outside the remediation dispatcher's vocabulary warns at registration. |
 
@@ -907,6 +937,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.11
+Last review: 2026.08.14
 
 Back to [Yuruna](../README.md)

@@ -57,6 +57,12 @@ if (-not (Get-Command -Name Describe -ErrorAction SilentlyContinue)) {
 
 BeforeAll {
     $script:DriverPath = Join-Path -Path $PSScriptRoot -ChildPath '..' -AdditionalChildPath '..', 'host', 'ubuntu.kvm', 'modules', 'Yuruna.Host.psm1'
+    # macos.utm, ubuntu.kvm and windows.hyper-v each publish a module named
+    # 'Yuruna.Host'. The suite shares one runspace, so a driver left resident by
+    # another file makes `Get-Module Yuruna.Host` return an array -- which binds
+    # to nothing and leaves Pester's -ModuleName ambiguous. Keep this file's
+    # driver the only one loaded.
+    Get-Module -Name 'Yuruna.Host' -All | Remove-Module -Force -ErrorAction SilentlyContinue
     Import-Module $script:DriverPath -Force -DisableNameChecking -Global
     $script:Driver = Get-Module Yuruna.Host
 
@@ -162,6 +168,64 @@ Describe 'Get-KvmNeighborIp' {
     It 'returns nothing when the MAC is unknown or absent' {
         (& $script:Driver { Get-KvmNeighborIp -Mac '52:54:00:99:99:99' -NeighborLine $args[0] } $script:Neigh) | Should -BeNullOrEmpty
         (& $script:Driver { Get-KvmNeighborIp -Mac '' -NeighborLine $args[0] } $script:Neigh) | Should -BeNullOrEmpty
+    }
+}
+
+Describe 'Get-KvmNeighborIp ranks the entries a renumbered guest leaves behind' {
+
+    # A guest that moves does not take its old neighbour entry with it: the
+    # kernel ages that row to STALE under the SAME MAC and keeps it. So the
+    # table routinely holds two addresses for one guest, only one of which is
+    # current, and returning whichever appeared first meant returning the
+    # abandoned one about as often as the live one. These pin the preference
+    # order rather than the iteration order.
+    BeforeAll {
+        $script:Mac  = '52:54:00:37:67:89'
+        $script:Moved = @(
+            "192.168.7.165 dev yuruna-br0 lladdr $script:Mac STALE",
+            "192.168.7.240 dev yuruna-br0 lladdr $script:Mac REACHABLE"
+        )
+    }
+
+    It 'prefers the REACHABLE row over the STALE one the guest left behind' {
+        $ip = & $script:Driver { Get-KvmNeighborIp -Mac $args[0] -NeighborLine $args[1] } $script:Mac $script:Moved
+        $ip | Should -Be '192.168.7.240'
+    }
+
+    It 'prefers it regardless of the order the kernel happens to list them in' {
+        $reversed = @($script:Moved[1], $script:Moved[0])
+        $ip = & $script:Driver { Get-KvmNeighborIp -Mac $args[0] -NeighborLine $args[1] } $script:Mac $reversed
+        $ip | Should -Be '192.168.7.240'
+    }
+
+    It 'prefers DELAY and PROBE over STALE, both being mid-confirmation' {
+        foreach ($state in 'DELAY', 'PROBE') {
+            $lines = @("192.168.7.8 dev yuruna-br0 lladdr $script:Mac STALE",
+                       "192.168.7.9 dev yuruna-br0 lladdr $script:Mac $state")
+            $ip = & $script:Driver { Get-KvmNeighborIp -Mac $args[0] -NeighborLine $args[1] } $script:Mac $lines
+            $ip | Should -Be '192.168.7.9' -Because "$state outranks STALE"
+        }
+    }
+
+    It 'prefers a statically configured entry over a stale probed one' {
+        $lines = @("192.168.7.6 dev yuruna-br0 lladdr $script:Mac STALE",
+                   "192.168.7.7 dev yuruna-br0 lladdr $script:Mac PERMANENT")
+        $ip = & $script:Driver { Get-KvmNeighborIp -Mac $args[0] -NeighborLine $args[1] } $script:Mac $lines
+        $ip | Should -Be '192.168.7.7'
+    }
+
+    It 'still answers when STALE is all there is, which is the common case' {
+        $lines = @("192.168.7.3 dev yuruna-br0 lladdr $script:Mac STALE")
+        $ip = & $script:Driver { Get-KvmNeighborIp -Mac $args[0] -NeighborLine $args[1] } $script:Mac $lines
+        $ip | Should -Be '192.168.7.3'
+    }
+
+    It 'picks the reachable row out of several stale ones' {
+        $lines = @("192.168.7.10 dev yuruna-br0 lladdr $script:Mac STALE",
+                   "192.168.7.20 dev yuruna-br0 lladdr $script:Mac STALE",
+                   "192.168.7.50 dev yuruna-br0 lladdr $script:Mac REACHABLE")
+        $ip = & $script:Driver { Get-KvmNeighborIp -Mac $args[0] -NeighborLine $args[1] } $script:Mac $lines
+        $ip | Should -Be '192.168.7.50'
     }
 }
 

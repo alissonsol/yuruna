@@ -34,6 +34,22 @@ packages:
   - iputils-ping
   # === YURUNA_OVERLAY_HOST_AGENT_PKG ===
 write_files:
+  # --- REGION: https://yuruna.link/network#why-sshd-notices-a-client-that-left
+  # Make sshd notice a client that stopped answering, and reap what it was
+  # running. Upstream leaves ClientAliveInterval at 0, so a session broken by
+  # either endpoint renumbering is detected only when TCP finally gives up,
+  # minutes later -- and until then the command the host was running keeps
+  # running, unwatched, holding whatever locks it held. These VMs are long-lived
+  # and the host that drives them is not: it moves on every DHCP renewal. 15s x 4
+  # mirrors the client-side bound in Test.Ssh.psm1 Invoke-GuestSsh, so both ends
+  # give up on the same schedule.
+  - path: /etc/ssh/sshd_config.d/60-yuruna-keepalive.conf
+    permissions: '0644'
+    owner: root:root
+    content: |
+      ClientAliveInterval 15
+      ClientAliveCountMax 4
+      TCPKeepAlive yes
   # ystash-nas coordinates for the share backing the stash (§6.1). Values single-quoted (the
   # host bake refuses a value carrying a single quote); read by the bring-up script
   # via sed-extraction, never sourced.
@@ -62,6 +78,8 @@ write_files:
     content: |
       YURUNA_STATUS_SERVICE_IP=YURUNA_STATUS_SERVICE_IP_PLACEHOLDER
       YURUNA_STATUS_SERVICE_PORT=YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER
+      YURUNA_HOST_ID=YURUNA_HOST_ID_PLACEHOLDER
+      YURUNA_CACHING_PROXY_SERVICE_IP=YURUNA_CACHING_PROXY_SERVICE_IP_PLACEHOLDER
   # Pool-aggregator service base URL the stash daemon announces to (and resolves remote
   # hosts through). Single-quoted like ystash-nas.env; empty (no caching-proxy service
   # known at bake time) leaves the daemon's aggregator-dependent features off.
@@ -114,23 +132,64 @@ write_files:
       # 2) Fetch the framework from the host status service (resolution as in
       #    automation/fetch-and-execute.sh; coordinates sed-read, NOT sourced), falling
       #    back to a github clone when the host is unreachable so a bring-up works off-LAN.
+      #
+      #    The two sources are NOT equivalent. The host serves the enlistment the
+      #    operator is working in; the mirror is a published snapshot that lags it by
+      #    however long since the last release push. Whichever wins is compiled into
+      #    the daemon minutes later and stamped into its version, where it stays for
+      #    the life of this VM -- so a silent fall back to the mirror deploys older
+      #    code that then reports itself as current forever.
       set +e
       HF=/etc/yuruna/host.env
       YR_HOST=$(sed -nE 's/^YURUNA_STATUS_SERVICE_IP=(.*)$/\1/p' "$HF" 2>/dev/null | head -n1)
       YR_PORT=$(sed -nE 's/^YURUNA_STATUS_SERVICE_PORT=(.*)$/\1/p' "$HF" 2>/dev/null | head -n1)
       DEST=/home/stash-admin/yuruna
+      MIRROR_URL=https://github.com/alissonsol/yuruna
       mkdir -p "$DEST"
       OK=0
-      if [ -n "$YR_HOST" ] && [ -n "$YR_PORT" ] && wget -q --no-proxy --tries=1 --timeout=5 -O /dev/null "http://$YR_HOST:$YR_PORT/livecheck"; then
-        if wget --no-proxy -qO- "http://$YR_HOST:$YR_PORT/yuruna-archive.tar.gz" | tar -xz -C "$DEST"; then
-          OK=1; echo "yuruna stash: framework extracted from host http://$YR_HOST:$YR_PORT"
+      SRC=mirror
+      SRC_URL="$MIRROR_URL"
+      # Retried rather than decided on one answer. The host coordinates are baked at
+      # seed time and corrected in-guest by yuruna-host-locate, so at this point in a
+      # first boot "unreachable" is routinely a host that has renumbered and not been
+      # re-read yet -- and the cost of believing it is the wrong codebase, permanently.
+      # Bounded so an off-LAN bring-up, where nothing will ever answer, still finishes.
+      ATTEMPT=1
+      while [ "$ATTEMPT" -le 6 ]; do
+        if [ -n "$YR_HOST" ] && [ -n "$YR_PORT" ] && wget -q --no-proxy --tries=1 --timeout=5 -O /dev/null "http://$YR_HOST:$YR_PORT/livecheck"; then
+          # -s "$DEST/VERSION" is the extraction's success condition, not tar's exit
+          # status: the archive arrives through a pipe, so a transfer cut partway
+          # leaves tar reporting success over a truncated tree.
+          if wget --no-proxy -qO- "http://$YR_HOST:$YR_PORT/yuruna-archive.tar.gz" | tar -xz -C "$DEST" && [ -s "$DEST/VERSION" ]; then
+            OK=1; SRC=host; SRC_URL="http://$YR_HOST:$YR_PORT"
+            echo "yuruna stash: framework extracted from host $SRC_URL"
+            break
+          fi
         fi
-      fi
+        if [ "$ATTEMPT" -lt 6 ]; then sleep 10; fi
+        # Re-read the coordinates every attempt: waiting is only worth anything if
+        # the address the resolver has since corrected is the one the retry uses.
+        YR_HOST=$(sed -nE 's/^YURUNA_STATUS_SERVICE_IP=(.*)$/\1/p' "$HF" 2>/dev/null | head -n1)
+        YR_PORT=$(sed -nE 's/^YURUNA_STATUS_SERVICE_PORT=(.*)$/\1/p' "$HF" 2>/dev/null | head -n1)
+        ATTEMPT=$((ATTEMPT + 1))
+      done
       if [ "$OK" -eq 0 ]; then
-        echo "yuruna stash: host status service unreachable; cloning the public github mirror." >&2
+        echo "yuruna stash: host status service did not serve the framework after 6 attempts; cloning the public mirror instead -- this daemon will run PUBLISHED code, which is older than the host's enlistment." >&2
         rm -rf "$DEST"
-        git clone --depth 1 https://github.com/alissonsol/yuruna "$DEST" && OK=1
+        git clone --depth 1 "$MIRROR_URL" "$DEST" && OK=1
       fi
+      # Record which source won. Without this the answer survives only in this log,
+      # and the bring-up script on the host is left inferring it from a version
+      # number that cannot distinguish "older mirror" from "older host enlistment".
+      # World-readable on purpose: it is read back as the unprivileged seed account.
+      mkdir -p /etc/yuruna
+      {
+        echo "source=$SRC"
+        echo "url=$SRC_URL"
+        echo "version=$(head -n1 "$DEST/VERSION" 2>/dev/null | tr -d '[:space:]')"
+        echo "fetchedAt=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      } > /etc/yuruna/framework-source
+      chmod 0644 /etc/yuruna/framework-source
       chown -R stash-admin:stash-admin "$DEST" 2>/dev/null || true
       [ "$OK" -eq 1 ] || echo "yuruna stash: could not obtain the framework source; run the bring-up manually." >&2
 
@@ -179,7 +238,66 @@ write_files:
 
       [Install]
       WantedBy=multi-user.target
+  # --- REGION: https://yuruna.link/vmconfig#host-address-refresh-timer
+  # This VM outlives the host's address. It is provisioned once and then runs
+  # for weeks, so a host that renumbers under DHCP strands it far more surely
+  # than it strands a test guest that is rebuilt every cycle. The resolver
+  # keeps host.env and the yuruna-host alias true; the timer is what makes
+  # that happen without anyone typing into this VM.
+  #
+  # Affordable at this cadence because the resolver probes before it asks:
+  # while the address is still good the minute's work is one LAN round trip
+  # and no writes. A oneshot rather than a daemon -- no state carries between
+  # ticks, and a oneshot cannot wedge.
+  - path: /usr/local/lib/yuruna/yuruna-host-locate.sh
+    encoding: base64
+    content: YURUNA_HOST_LOCATE_BASE64_PLACEHOLDER
+    permissions: '0755'
+  - path: /etc/systemd/system/yuruna-host-locate.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Refresh Yuruna host coordinates if the host has changed address
+      # Ordered INTO the network-online barrier rather than after it. Anything
+      # in this guest that needs the host waits on that target, so finishing
+      # before it is what guarantees those consumers never read a stale
+      # address -- and it does so without this unit naming any of them, which
+      # is the whole point of the indirection.
+      #
+      # After the wait-online services (whichever the image ships; ordering
+      # against an absent unit is a no-op) so this runs with an address in
+      # hand rather than before DHCP has answered.
+      After=network.target NetworkManager-wait-online.service systemd-networkd-wait-online.service
+      Before=network-online.target
+
+      [Service]
+      Type=oneshot
+      # A resolver that cannot finish must not hold the boot open. Every call
+      # inside is already wall-clock bounded; this is the backstop for the day
+      # one of them is not.
+      TimeoutStartSec=30
+      ExecStart=/usr/local/lib/yuruna/yuruna-host-locate.sh
+
+      [Install]
+      WantedBy=network-online.target
+  - path: /etc/systemd/system/yuruna-host-locate.timer
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Periodic Yuruna host coordinate refresh
+
+      [Timer]
+      OnBootSec=30s
+      OnUnitActiveSec=60s
+      AccuracySec=5s
+
+      [Install]
+      WantedBy=timers.target
 runcmd:
+  # sshd is already up by the time write_files lands, so the drop-in above needs
+  # a reload to take effect on this boot rather than only on the next one.
+  - systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true
+  - systemctl enable --now yuruna-host-locate.service yuruna-host-locate.timer || true
   # --- REGION: https://yuruna.link/vmconfig#host-agent-runs-first
   # 0) Host-side guest agent FIRST, so host discovery never waits on the steps below.
   # === YURUNA_OVERLAY_RUNCMD_HOST_AGENT ===

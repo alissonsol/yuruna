@@ -273,6 +273,21 @@
                     <CommandLine>powershell.exe -NoProfile -Command "New-NetFirewallRule -Name sshd -DisplayName 'OpenSSH Server' -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22"</CommandLine>
                     <Description>[KVM-only] Allow inbound :22</Description>
                 </SynchronousCommand>
+                <!-- Establishes this guest's Yuruna coordinates and its GitHub
+                     credentials. Writes host.env, installs the host-address
+                     resolver plus the schedule that keeps it running, and puts
+                     repositories.ghToken into the user's PowerShell profile with git
+                     pointed at it so a private frameworkUrl/projectUrl clones
+                     unattended. Passed as -EncodedCommand because the bootstrap is a
+                     multi-line script full of quotes, '$' and redirection: inline, every
+                     shell metacharacter would have to be XML-escaped onto one line, where
+                     a single bad escape yields a first-logon script that fails silently
+                     on an unwatched VM. New-VM.ps1 base64s it into this slot. -->
+                <SynchronousCommand wcm:action="add">
+                    <Order>8</Order>
+                    <CommandLine>powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand GUEST_BOOTSTRAP_B64_PLACEHOLDER</CommandLine>
+                    <Description>Establish Yuruna host coordinates and git credentials</Description>
+                </SynchronousCommand>
             </FirstLogonCommands>
         </component>
     </settings>

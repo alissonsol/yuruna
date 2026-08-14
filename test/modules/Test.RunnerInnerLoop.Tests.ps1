@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42e2607c-3d4e-4f50-8a61-7c8d9e0f1a2b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,6 +46,8 @@
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
     Justification = 'The global scope IS the cross-module contract under test: the runner resolves -Global-imported collaborators and its own __YurunaCycleFolder there, and the stub/assertion pair straddles an InModuleScope boundary that $script: cannot span.')]
 param()
+
+BeforeAll {
 
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.Prelude.psm1')        -Force -DisableNameChecking -ErrorAction SilentlyContinue
@@ -266,6 +268,8 @@ function Invoke-NewVmFailureIteration {
     }
 }
 # --- END REGION -------------------------------------------------------------------
+
+}
 
 Describe 'Get-RunnerReloadableConfig' {
     It 'applies defaults when the parsed config is null' {
@@ -531,7 +535,10 @@ Describe 'Cycle VM naming strategy (one naming prefix vs many sweep prefixes)' {
             }
             if ($strategy.Prefix -ne 'test-') { throw "naming prefix wrong: $($strategy.Prefix)" }
             $sweep = @($strategy.SweepPrefixes)
-            if ($sweep.Count -ne 3) { throw "expected 3 sweep prefixes, got $($sweep.Count): $($sweep -join ',')" }
+            # Two, not three: the sweep set always carries the naming prefix and
+            # de-duplicates, so the 'test-' repeated in cleanupVmNamePrefixes
+            # collapses into the one contributed by testVmNamePrefix.
+            if ($sweep.Count -ne 2) { throw "expected 2 sweep prefixes, got $($sweep.Count): $($sweep -join ',')" }
             if ($sweep -notcontains 'amisad-') { throw 'the project prefix must stay in the sweep set' }
         }
     }
@@ -750,10 +757,14 @@ Describe 'Invoke-RunnerBootstrapFailureGate (shared bootstrap-failure gating)' {
             Remove-Variable __gateNotifyCount -Scope Global -ErrorAction SilentlyContinue
         }
     }
-    It 'both bootstrap sites use the shared helper; the inline gating blocks are gone' {
+    It 'every pre-cycle failure site uses the shared helper; the inline gating blocks are gone' {
         $src = Get-Content -LiteralPath (Join-Path $here 'Test.RunnerInnerLoop.psm1') -Raw
         $callCount = ([regex]::Matches($src, 'Invoke-RunnerBootstrapFailureGate\s+-GatingState')).Count
-        Assert-True ($callCount -eq 2) "expected 2 Invoke-RunnerBootstrapFailureGate call sites, found $callCount"
+        # One per pre-cycle stage that can end the cycle before its first guest:
+        # HostCondition, GitPull, ProjectAccess, ProjectClone. A deliberate
+        # golden -- bump it when a stage is added or removed, so a site that
+        # quietly re-inlines its own gating shows up here.
+        Assert-True ($callCount -eq 4) "expected 4 Invoke-RunnerBootstrapFailureGate call sites, found $callCount"
         Assert-True (-not ($src -match "-SubjectSuffix\s+'GitPull'")) 'inline GitPull notification block must be gone (helper uses -SubjectSuffix $Stage)'
         Assert-True (-not ($src -match "-SubjectSuffix\s+'ProjectClone'")) 'inline ProjectClone notification block must be gone'
     }
@@ -766,9 +777,9 @@ Describe 'Inner-cycle control-flow shape (guest dispatch + single-pass invariant
     # early exit or a step-failure arm. The helper signals the caller through
     # $IterState.Control instead of a break/continue that would (wrongly) return from
     # the whole cycle; these assertions pin that discipline.
-    It 'runs the cycle body once via do{...}while($false): 12 unlabeled breaks, 0 continues' {
+    It 'runs the cycle body once via do{...}while($false): 13 unlabeled breaks, 0 continues' {
         $f = Get-InnerCycleControlFlow -Psm1Path (Join-Path $here 'Test.RunnerInnerLoop.psm1')
-        Assert-True ($f.DoWhileBreaks -eq 12) "do/while must have 12 break arms, found $($f.DoWhileBreaks)"
+        Assert-True ($f.DoWhileBreaks -eq 13) "do/while must have 13 break arms, found $($f.DoWhileBreaks)"
         Assert-True ($f.DoWhileContinues -eq 0) "do/while must have 0 continue arms (a continue would re-run the single-pass body), found $($f.DoWhileContinues)"
         Assert-True ($f.LabeledFlow -eq 0) "inner cycle must have 0 labeled break/continue, found $($f.LabeledFlow)"
     }
@@ -872,5 +883,45 @@ Describe 'Invoke-GuestProvisionIteration failure dispatch (runtime -- the paths 
         Assert-True ($o.Iter.OverallPassed -eq $false) 'OverallPassed must carry back false'
         Assert-True ($o.Iter.FailedStep -eq 'New-VM') "FailedStep must be New-VM, got $($o.Iter.FailedStep)"
         Assert-True ($o.Rm -eq 2) "stopOnFailure=false must tear down (pre-cleanup + post-fail); Remove-GuestVMQuietly calls=$($o.Rm)"
+    }
+}
+
+Describe 'Warm-resume restart point (call-site wiring)' {
+
+    # The pure rewind is covered in Test.WarmResume; what cannot be asserted
+    # there is that the runner actually USES it. Reverting the call site to the
+    # raw checkpoint leaves every warm-resume unit test green while quietly
+    # restoring the behavior the rewind exists to prevent -- replaying a failed
+    # step onto the residue it left -- so the wiring is pinned against the source.
+    It 'restarts the workload at the rewound step, not the recorded checkpoint' {
+        $src = Get-Content -LiteralPath (Join-Path $here 'Test.RunnerInnerLoop.psm1') -Raw
+        Assert-True ($src -match 'Get-WarmResumeRewindStep') `
+            'the call site must consult the rewind before restarting'
+        Assert-True ($src -match '-ResumeFromSequence \$wrDec\.ResumeSequence -ResumeFromStep \$wrStep') `
+            'Start-GuestWorkload must restart at the rewound step'
+        Assert-True (-not ($src -match '-ResumeFromSequence \$wrDec\.ResumeSequence -ResumeFromStep \(\[int\]\$wrCp\.ResumeFromStep\)')) `
+            'restarting straight from the checkpoint is the behavior the rewind replaces'
+    }
+
+    It 'strips a .yml suffix before resolving, since the resolver appends its own' {
+        # A workload-list entry may carry the extension, and Get-WarmResumeDecision
+        # returns that entry verbatim. Resolve-SequencePath builds <name>.yml, so a
+        # suffixed name looks for <name>.yml.yml and resolves to nothing -- which is
+        # indistinguishable from a sequence that has no restore point, so the rewind
+        # would be dropped in silence rather than reported.
+        $src = Get-Content -LiteralPath (Join-Path $here 'Test.RunnerInnerLoop.psm1') -Raw
+        # Exact substrings, not a regex: the line being pinned is itself full of
+        # regex punctuation, and escaping it twice is how a guard ends up matching
+        # nothing and passing for the wrong reason.
+        Assert-True ($src.Contains('$wrSeqName = [string]$wrDec.ResumeSequence -replace')) `
+            'the resume sequence name must have its extension stripped before resolution'
+        Assert-True ($src.Contains('-Name $wrSeqName')) `
+            'the resolver must receive the stripped name, not the raw list entry'
+    }
+
+    It 'records the original checkpoint on the event so a replay is queryable' {
+        $src = Get-Content -LiteralPath (Join-Path $here 'Test.RunnerInnerLoop.psm1') -Raw
+        Assert-True ($src -match '-CheckpointStep \(\[int\]\$wrCp\.ResumeFromStep\)') `
+            'the event must carry the pre-rewind checkpoint, or replayed work is invisible in telemetry'
     }
 }

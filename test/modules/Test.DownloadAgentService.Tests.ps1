@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42311df0-0dfd-4fd8-ad78-0a91997848c5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,6 +36,7 @@
     Run: pwsh -File test/modules/Test.DownloadAgentService.Tests.ps1
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 
 # The throwaway runtime dir is named from $PID, and the name is held in an
@@ -400,6 +401,8 @@ function Get-FakeCatalogEntry {
         downloadedAt     = '2026-08-03T14:11:07Z'
         lastVerifiedAt   = '2026-08-03T14:11:07Z'
     }
+}
+
 }
 
 Describe 'Test.DownloadAgentService marker' {
@@ -1081,5 +1084,38 @@ Describe 'Download-agent pins agree across languages' {
         Assert-True (($tags | Where-Object { $_ }).Count -eq $sites.Count) "every site names a pinned Fido tag; got: $($tags -join ',')"
         Assert-Equal 1 (@($tags   | Sort-Object -Unique).Count) -Because "the agent must vendor the same Fido release the hosts run; got: $($tags -join ', ')"
         Assert-Equal 1 (@($hashes | Sort-Object -Unique).Count) -Because "a hash that differs from the pinned release would refuse to install, silently disabling the Windows family"
+    }
+
+    It 'sends an operator to the same Windows page, and the same choices on it, from the host scripts and the pool page' {
+        # When Fido is refused, both surfaces fall back to "fetch it yourself":
+        # the host script prints the steps, the pool page shows them beside the
+        # row. Two versions of those steps means an operator following the pool
+        # page can put an edition in the pool that the host scripts would never
+        # have downloaded -- and the pool serves it to every host.
+        # Both files: the page and the choices live in manual.go, and the
+        # language is the resolver's own constant over in fido.go -- which is
+        # the point, the hand-download path asks for the language the automated
+        # one does.
+        $go = @('manual.go', 'fido.go' | ForEach-Object {
+            Get-Content -Raw -LiteralPath (Join-Path $AgentRepoRoot "test/extension/download-agent-service/server/internal/imagestore/$_")
+        }) -join "`n"
+        $expectations = @(
+            @{ Script = 'host/windows.hyper-v/guest.windows.11/Get-Image.ps1'; Arch = 'x64' },
+            @{ Script = 'host/ubuntu.kvm/guest.windows.11/Get-Image.ps1';      Arch = 'x64' },
+            @{ Script = 'host/macos.utm/guest.windows.11/Get-Image.ps1';       Arch = 'ARM64' }
+        )
+        foreach ($e in $expectations) {
+            $text = Get-Content -Raw -LiteralPath (Join-Path $AgentRepoRoot $e.Script)
+            $page = ([regex]::Match($text, "https://www\.microsoft\.com/[^\s'`"]*software-download/windows11[^\s'`"]*")).Value
+            Assert-True ([bool]$page) "$($e.Script) still names a manual download page"
+            Assert-True ($go.Contains($page)) `
+                -Because "the agent sends operators to $page for $($e.Arch) too, or the two surfaces disagree about where the media comes from"
+
+            foreach ($choice in @("Windows 11 (multi-edition ISO for $($e.Arch) devices)", 'English')) {
+                Assert-True ($text.Contains($choice)) "$($e.Script) still tells the operator to select '$choice'"
+                Assert-True ($go.Contains($choice)) `
+                    -Because "the pool page must name the same choice ('$choice') as $($e.Script), or the pool fills with an edition no host asked for"
+            }
+        }
     }
 }

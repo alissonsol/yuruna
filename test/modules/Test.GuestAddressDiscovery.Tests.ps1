@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42e7c1a9-5d38-4b64-9a17-6c0f2b8d3e75
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -49,6 +49,7 @@
          (or Invoke-Pester -Path test/modules/Test.GuestAddressDiscovery.Tests.ps1)
 #>
 
+BeforeAll {
 $here            = Split-Path -Parent $PSCommandPath
 $DiscoveryRoot   = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
 $DiscoveryModule = Join-Path $DiscoveryRoot 'host/macos.utm/modules/Yuruna.Host.psm1'
@@ -62,9 +63,13 @@ function Assert-Equal {
 
 # Pester is not installed on every host that runs this repo's scripts, and the
 # assertions here are plain throws, so the harness the file needs is three
-# functions. Defined only when the real ones are absent; every fixture is
-# computed at file scope, so the immediate-run shim and Pester's
-# discovery-then-run split observe the same state.
+# functions. Defined only when the real ones are absent.
+#
+# Every fixture below lives in this BeforeAll rather than at file scope. Pester
+# executes file scope during the DISCOVERY pass only, in a session state it does
+# not carry into the run pass: a function or a variable defined out there is
+# already gone by the time the first It executes. BeforeAll is the scope the It
+# blocks share, so it is the only place the substitution helpers can live.
 if (-not (Get-Command -Name 'Describe' -ErrorAction SilentlyContinue)) {
     function Describe { param([string]$Name, [scriptblock]$Fixture) Write-Output "Describe: $Name"; & $Fixture }
     function Context  { param([string]$Name, [scriptblock]$Fixture) Write-Output "  Context: $Name"; & $Fixture }
@@ -84,17 +89,17 @@ if (-not (Get-Module Yuruna.Host)) {
 
 # utmctl exits 0 and complains on stderr when the guest has no agent, so this
 # is what a healthy, serving, bridged guest looks like to rung 1.
-$UtmctlAgentAbsent = @(
+$script:UtmctlAgentAbsent = @(
     'Error from event: The operation couldn''t be completed. (OSStatus error -2700.)'
     'The QEMU guest agent is not running or not installed on the guest.'
 )
-$UtmctlAnswered = @('192.168.7.51', 'fe80::1')
+$script:UtmctlAnswered = @('192.168.7.51', 'fe80::1')
 
 # The lease file the shared-NAT DHCP server keeps. It has no block for the
 # bridged guest -- it cannot have one -- but it does carry a same-named block
 # from when that name was last built on Shared NAT, which is exactly the
 # answer a name lookup would hand back if it were allowed to run.
-$LeaseWithStaleSharedBlock = @'
+$script:LeaseWithStaleSharedBlock = @'
 {
 	name=yuruna-stash-service
 	ip_address=192.168.64.11
@@ -112,21 +117,21 @@ $LeaseWithStaleSharedBlock = @'
 # `arp -an` as macOS prints it: lowercase, leading zero of each octet
 # stripped. The guest is at .51; the decoy is the SAME MAC cached on another
 # interface's subnet, which a prefix-blind match would return instead.
-$ArpWithGuest = @(
+$script:ArpWithGuest = @(
     '? (192.168.7.1) at d8:b3:70:3c:c1:bf on en0 ifscope [ethernet]'
     '? (192.168.7.13) at a4:bb:6d:5b:85:6f on en0 ifscope [ethernet]'
     '? (192.168.7.51) at e6:1:bc:6d:21:cd on en0 ifscope [ethernet]'
     '? (192.168.7.226) at 56:18:74:ac:6:32 on en0 ifscope [ethernet]'
 )
-$ArpDecoyOnly = @(
+$script:ArpDecoyOnly = @(
     '? (10.211.55.3) at e6:1:bc:6d:21:cd on bridge100 ifscope [ethernet]'
     '? (192.168.7.13) at a4:bb:6d:5b:85:6f on en0 ifscope [ethernet]'
 )
 
-$GuestMac    = 'E6:01:BC:6D:21:CD'
-$GuestName   = 'yuruna-stash-service'
-$LanPrefix   = '192.168.7.'
-$LanHostIp   = '192.168.7.101'
+$script:GuestMac    = 'E6:01:BC:6D:21:CD'
+$script:GuestName   = 'yuruna-stash-service'
+$script:LanPrefix   = '192.168.7.'
+$script:LanHostIp   = '192.168.7.101'
 
 function New-BundleNetwork {
     <#
@@ -405,11 +410,13 @@ function Set-DiscoveryModulePath {
 }
 Set-DiscoveryModulePath -Path $DiscoveryModule
 
+}
+
 Describe 'The rungs run cheapest-first and stop at the first answer' {
 
     It 'takes the guest agent answer and asks nothing else' {
         Set-DiscoveryRungSubstitute -AgentAnswer '192.168.64.5' -LeaseAnswer '192.168.64.9' -ArpAnswer '192.168.7.51'
-        Assert-Equal -Expected '192.168.64.5' -Actual (Get-VMIp -VMName $GuestName) -Because 'the cheapest rung answered'
+        Assert-Equal -Expected '192.168.64.5' -Actual (Get-VMIp -VMName $script:GuestName) -Because 'the cheapest rung answered'
         Assert-Equal -Expected 'agent' -Actual ((Get-DiscoveryRungCall) -join ',') -Because 'no rung below it was consulted'
     }
 
@@ -417,19 +424,19 @@ Describe 'The rungs run cheapest-first and stop at the first answer' {
         # The ARP rung is the only one that can cost seconds. A Shared-NAT
         # guest, which the lease file answers for, must never reach it.
         Set-DiscoveryRungSubstitute -LeaseAnswer '192.168.64.9' -ArpAnswer '192.168.7.51'
-        Assert-Equal -Expected '192.168.64.9' -Actual (Get-VMIp -VMName $GuestName)
+        Assert-Equal -Expected '192.168.64.9' -Actual (Get-VMIp -VMName $script:GuestName)
         Assert-Equal -Expected 'agent,lease' -Actual ((Get-DiscoveryRungCall) -join ',') -Because 'the expensive rung stays unreached'
     }
 
     It 'reaches the ARP rung only when both cheap rungs decline' {
         Set-DiscoveryRungSubstitute -ArpAnswer '192.168.7.51'
-        Assert-Equal -Expected '192.168.7.51' -Actual (Get-VMIp -VMName $GuestName) -Because 'the bridged guest is found'
+        Assert-Equal -Expected '192.168.7.51' -Actual (Get-VMIp -VMName $script:GuestName) -Because 'the bridged guest is found'
         Assert-Equal -Expected 'agent,lease,arp' -Actual ((Get-DiscoveryRungCall) -join ',') -Because 'in that order, every time'
     }
 
     It 'resolves nothing, and says every rung was tried, when all three decline' {
         Set-DiscoveryRungSubstitute
-        $emitted = @(Get-VMIp -VMName $GuestName -Verbose 4>&1)
+        $emitted = @(Get-VMIp -VMName $script:GuestName -Verbose 4>&1)
         $verbose = @($emitted | Where-Object { $_ -is [System.Management.Automation.VerboseRecord] } | ForEach-Object { "$_" })
         $ip = @($emitted | Where-Object { $_ -isnot [System.Management.Automation.VerboseRecord] }) | Select-Object -First 1
         Assert-Null $ip 'nothing was discovered'
@@ -441,7 +448,7 @@ Describe 'The rungs run cheapest-first and stop at the first answer' {
         # Both lower rungs need the bundle; each reading it on its own would
         # shell out to plutil twice per call, in a per-cycle path.
         Set-DiscoveryRungSubstitute
-        $null = Get-VMIp -VMName $GuestName
+        $null = Get-VMIp -VMName $script:GuestName
         Assert-Equal -Expected 1 -Actual (Get-DiscoveryBundleReadCount) -Because 'one plist read serves the chain'
     }
 
@@ -449,12 +456,12 @@ Describe 'The rungs run cheapest-first and stop at the first answer' {
         # A chain that runs its rungs in order but hands one of them the
         # wrong name, or a bundle it did not read, resolves someone else.
         Set-DiscoveryRungSubstitute
-        $null = Get-VMIp -VMName $GuestName
+        $null = Get-VMIp -VMName $script:GuestName
         foreach ($ask in (Get-DiscoveryRungAsk)) {
-            Assert-Equal -Expected $GuestName -Actual $ask.VMName -Because "rung '$($ask.Rung)' was asked about the wrong VM"
+            Assert-Equal -Expected $script:GuestName -Actual $ask.VMName -Because "rung '$($ask.Rung)' was asked about the wrong VM"
         }
         $arpAsk = @(Get-DiscoveryRungAsk | Where-Object { $_.Rung -eq 'arp' })[0]
-        Assert-True ("$($arpAsk.Detail)".StartsWith($GuestName)) 'the ARP rung got the bundle the chain read'
+        Assert-True ("$($arpAsk.Detail)".StartsWith($script:GuestName)) 'the ARP rung got the bundle the chain read'
     }
 }
 
@@ -464,7 +471,7 @@ Describe 'A bridged guest the cheap rungs cannot see' {
         # The exit code cannot be the test for "an address came back"; only
         # the parse can.
         Reset-DiscoveryModule
-        $ip = Invoke-InModule -Body { param($n, $lines) Get-UtmAgentReportedIp -VMName $n -UtmctlLine $lines } -ArgumentList @($GuestName, $UtmctlAgentAbsent)
+        $ip = Invoke-InModule -Body { param($n, $lines) Get-UtmAgentReportedIp -VMName $n -UtmctlLine $lines } -ArgumentList @($script:GuestName, $script:UtmctlAgentAbsent)
         Assert-Null $ip 'an agent complaint is not an address'
     }
 
@@ -474,20 +481,20 @@ Describe 'A bridged guest the cheap rungs cannot see' {
         # guest's real LAN address behind a dead one for the rest of the run.
         Reset-DiscoveryModule
         $ip = Invoke-InModule -Body { param($n, $b, $t) Get-UtmSharedLeaseIp -VMName $n -BundleNetwork $b -LeaseText $t -OnLinkVerdict { 'onlink' } } `
-            -ArgumentList @($GuestName, (New-BundleNetwork -Mode 'Bridged'), $LeaseWithStaleSharedBlock)
+            -ArgumentList @($script:GuestName, (New-BundleNetwork -Mode 'Bridged'), $script:LeaseWithStaleSharedBlock)
         Assert-Null $ip 'a bridged guest never leases from the shared-NAT server'
         # Same name, same file, mode flipped: the block IS there and IS
         # selectable, so it is the Bridged verdict -- nothing else -- that
         # keeps it from being handed out.
         $wouldHave = Invoke-InModule -Body { param($n, $b, $t) Get-UtmSharedLeaseIp -VMName $n -BundleNetwork $b -LeaseText $t -OnLinkVerdict { 'onlink' } } `
-            -ArgumentList @($GuestName, (New-BundleNetwork -Mode 'Shared'), $LeaseWithStaleSharedBlock)
+            -ArgumentList @($script:GuestName, (New-BundleNetwork -Mode 'Shared'), $script:LeaseWithStaleSharedBlock)
         Assert-Equal -Expected '192.168.64.11' -Actual $wouldHave -Because 'the dead address a mode-blind lookup would return'
     }
 
     It 'resolves at rung 3: the bundle MAC is in the host ARP table' {
         Set-SweepSubstitute
         $ip = Invoke-InModule -Body { param($n, $b, $p, $h, $a) Get-UtmBridgedGuestIp -VMName $n -BundleNetwork $b -SubnetPrefix $p -HostIp $h -ArpLine $a } `
-            -ArgumentList @($GuestName, (New-BundleNetwork), $LanPrefix, $LanHostIp, $ArpWithGuest)
+            -ArgumentList @($script:GuestName, (New-BundleNetwork), $script:LanPrefix, $script:LanHostIp, $script:ArpWithGuest)
         Assert-Equal -Expected '192.168.7.51' -Actual $ip -Because 'the guest was serving the whole time; only discovery was missing'
         Assert-Equal -Expected 0 -Actual (Get-DiscoverySweepCall).Count -Because 'an entry already in the table costs no sweep'
     }
@@ -499,9 +506,9 @@ Describe 'A bridged guest the cheap rungs cannot see' {
         # two answers come from different uplinks if the route changes between
         # the reads.
         Set-SweepSubstitute
-        Set-HostAddressSubstitute -Answer $LanHostIp
+        Set-HostAddressSubstitute -Answer $script:LanHostIp
         $ip = Invoke-InModule -Body { param($n, $b, $a) Get-UtmBridgedGuestIp -VMName $n -BundleNetwork $b -ArpLine $a } `
-            -ArgumentList @($GuestName, (New-BundleNetwork), $ArpWithGuest)
+            -ArgumentList @($script:GuestName, (New-BundleNetwork), $script:ArpWithGuest)
         Assert-Equal -Expected '192.168.7.51' -Actual $ip -Because 'the derived prefix is the one the guest is on'
         Assert-Equal -Expected 1 -Actual (Get-DiscoveryHostIpCallCount) -Because 'asked once, used for both'
     }
@@ -512,12 +519,12 @@ Describe 'A bridged guest the cheap rungs cannot see' {
         # would block those callers for minutes.
         Set-SweepSubstitute -SweepAnswer '192.168.7.51'
         $ip = Invoke-InModule -Body { param($n, $b, $p, $h, $a) Get-UtmBridgedGuestIp -VMName $n -BundleNetwork $b -SubnetPrefix $p -HostIp $h -ArpLine $a } `
-            -ArgumentList @($GuestName, (New-BundleNetwork), $LanPrefix, $LanHostIp, @())
+            -ArgumentList @($script:GuestName, (New-BundleNetwork), $script:LanPrefix, $script:LanHostIp, @())
         Assert-Equal -Expected '192.168.7.51' -Actual $ip
         $calls = Get-DiscoverySweepCall
         Assert-Equal -Expected 1 -Actual $calls.Count -Because 'exactly one escalation'
         Assert-Equal -Expected 1 -Actual $calls[0].MaxAttempt -Because 'and it is bounded to a single attempt'
-        Assert-Equal -Expected $LanPrefix -Actual $calls[0].SubnetPrefix -Because "the host's own LAN is where a bridged guest is"
+        Assert-Equal -Expected $script:LanPrefix -Actual $calls[0].SubnetPrefix -Because "the host's own LAN is where a bridged guest is"
     }
 }
 
@@ -529,7 +536,7 @@ Describe 'The ARP rung refuses what it cannot prove, and skips what it cannot he
         # match wins, returned again on every poll.
         Set-SweepSubstitute
         $ip = Invoke-InModule -Body { param($n, $b, $p, $h, $a) Get-UtmBridgedGuestIp -VMName $n -BundleNetwork $b -SubnetPrefix $p -HostIp $h -ArpLine $a } `
-            -ArgumentList @($GuestName, (New-BundleNetwork), $LanPrefix, $LanHostIp, $ArpDecoyOnly)
+            -ArgumentList @($script:GuestName, (New-BundleNetwork), $script:LanPrefix, $script:LanHostIp, $script:ArpDecoyOnly)
         Assert-Null $ip 'an entry outside the swept subnet is not this guest'
     }
 
@@ -538,7 +545,7 @@ Describe 'The ARP rung refuses what it cannot prove, and skips what it cannot he
         # not match it -- and the lease file already answered for it.
         Set-SweepSubstitute -SweepAnswer '192.168.7.51'
         $ip = Invoke-InModule -Body { param($n, $b, $p, $h, $a) Get-UtmBridgedGuestIp -VMName $n -BundleNetwork $b -SubnetPrefix $p -HostIp $h -ArpLine $a } `
-            -ArgumentList @($GuestName, (New-BundleNetwork -Mode 'Shared'), $LanPrefix, $LanHostIp, $ArpWithGuest)
+            -ArgumentList @($script:GuestName, (New-BundleNetwork -Mode 'Shared'), $script:LanPrefix, $script:LanHostIp, $script:ArpWithGuest)
         Assert-Null $ip 'a NAT guest is not looked for on the LAN'
         Assert-Equal -Expected 0 -Actual (Get-DiscoverySweepCall).Count -Because 'and costs nothing to skip'
     }
@@ -547,14 +554,14 @@ Describe 'The ARP rung refuses what it cannot prove, and skips what it cannot he
         # An unreadable mode is not evidence the guest is on NAT.
         Set-SweepSubstitute
         $ip = Invoke-InModule -Body { param($n, $b, $p, $h, $a) Get-UtmBridgedGuestIp -VMName $n -BundleNetwork $b -SubnetPrefix $p -HostIp $h -ArpLine $a } `
-            -ArgumentList @($GuestName, (New-BundleNetwork -Mode ''), $LanPrefix, $LanHostIp, $ArpWithGuest)
+            -ArgumentList @($script:GuestName, (New-BundleNetwork -Mode ''), $script:LanPrefix, $script:LanHostIp, $script:ArpWithGuest)
         Assert-Equal -Expected '192.168.7.51' -Actual $ip
     }
 
     It 'declines when the bundle carries no MAC' {
         Set-SweepSubstitute -SweepAnswer '192.168.7.51'
         $ip = Invoke-InModule -Body { param($n, $b, $p, $h, $a) Get-UtmBridgedGuestIp -VMName $n -BundleNetwork $b -SubnetPrefix $p -HostIp $h -ArpLine $a } `
-            -ArgumentList @($GuestName, (New-BundleNetwork -MacAddress ''), $LanPrefix, $LanHostIp, $ArpWithGuest)
+            -ArgumentList @($script:GuestName, (New-BundleNetwork -MacAddress ''), $script:LanPrefix, $script:LanHostIp, $script:ArpWithGuest)
         Assert-Null $ip 'there is no identity to match on'
         Assert-Equal -Expected 0 -Actual (Get-DiscoverySweepCall).Count -Because 'and nothing to sweep for'
     }
@@ -563,7 +570,7 @@ Describe 'The ARP rung refuses what it cannot prove, and skips what it cannot he
         # No default-route IPv4 means no subnet a bridged guest could be on.
         Set-SweepSubstitute -SweepAnswer '192.168.7.51'
         $ip = Invoke-InModule -Body { param($n, $b, $p, $h, $a) Get-UtmBridgedGuestIp -VMName $n -BundleNetwork $b -SubnetPrefix $p -HostIp $h -ArpLine $a } `
-            -ArgumentList @($GuestName, (New-BundleNetwork), '', '', $ArpWithGuest)
+            -ArgumentList @($script:GuestName, (New-BundleNetwork), '', '', $script:ArpWithGuest)
         Assert-Null $ip 'nothing to look at'
         Assert-Equal -Expected 0 -Actual (Get-DiscoverySweepCall).Count -Because 'and nowhere to sweep'
     }
@@ -571,7 +578,7 @@ Describe 'The ARP rung refuses what it cannot prove, and skips what it cannot he
     It 'declines when there is no bundle on this host' {
         Set-SweepSubstitute -SweepAnswer '192.168.7.51'
         $ip = Invoke-InModule -Body { param($n, $p, $h, $a) Get-UtmBridgedGuestIp -VMName $n -BundleNetwork $null -SubnetPrefix $p -HostIp $h -ArpLine $a } `
-            -ArgumentList @('no-such-vm', $LanPrefix, $LanHostIp, $ArpWithGuest)
+            -ArgumentList @('no-such-vm', $script:LanPrefix, $script:LanHostIp, $script:ArpWithGuest)
         Assert-Null $ip 'a VM this host never built has no MAC to match'
     }
 }
@@ -584,7 +591,7 @@ Describe 'The sweep is escalation, and what it costs a repeat caller is bounded'
         # powered off answers ICMP, so the sweep could only come back empty.
         Set-SweepSubstitute -SweepAnswer '192.168.7.51' -VMState 'stopped'
         $ip = Invoke-InModule -Body { param($n, $b, $p, $h, $a) Get-UtmBridgedGuestIp -VMName $n -BundleNetwork $b -SubnetPrefix $p -HostIp $h -ArpLine $a } `
-            -ArgumentList @($GuestName, (New-BundleNetwork), $LanPrefix, $LanHostIp, @())
+            -ArgumentList @($script:GuestName, (New-BundleNetwork), $script:LanPrefix, $script:LanHostIp, @())
         Assert-Null $ip 'a stopped guest has no address to find'
         Assert-Equal -Expected 0 -Actual (Get-DiscoverySweepCall).Count -Because 'one state query answers what a /24 of ICMP would take seconds to'
     }
@@ -595,7 +602,7 @@ Describe 'The sweep is escalation, and what it costs a repeat caller is bounded'
         # that does not need one.
         Set-SweepSubstitute
         $ip = Invoke-InModule -Body { param($n, $b, $p, $h, $a) Get-UtmBridgedGuestIp -VMName $n -BundleNetwork $b -SubnetPrefix $p -HostIp $h -ArpLine $a } `
-            -ArgumentList @($GuestName, (New-BundleNetwork), $LanPrefix, $LanHostIp, $ArpWithGuest)
+            -ArgumentList @($script:GuestName, (New-BundleNetwork), $script:LanPrefix, $script:LanHostIp, $script:ArpWithGuest)
         Assert-Equal -Expected '192.168.7.51' -Actual $ip
         Assert-Equal -Expected 0 -Actual (Get-DiscoveryVmStateCallCount) -Because 'nothing is escalated, so nothing is asked'
     }
@@ -606,7 +613,7 @@ Describe 'The sweep is escalation, and what it costs a repeat caller is bounded'
         # of those polls into a full /24 of ICMP for the whole budget.
         Set-SweepSubstitute
         $body = { param($n, $b, $p, $h, $a) Get-UtmBridgedGuestIp -VMName $n -BundleNetwork $b -SubnetPrefix $p -HostIp $h -ArpLine $a }
-        $callArgs = @($GuestName, (New-BundleNetwork), $LanPrefix, $LanHostIp, @())
+        $callArgs = @($script:GuestName, (New-BundleNetwork), $script:LanPrefix, $script:LanHostIp, @())
         foreach ($i in 1..5) { Assert-Null (Invoke-InModule -Body $body -ArgumentList $callArgs) "call $i found nothing" }
         Assert-Equal -Expected 1 -Actual (Get-DiscoverySweepCall).Count -Because 'five polls, one sweep'
     }
@@ -618,8 +625,8 @@ Describe 'The sweep is escalation, and what it costs a repeat caller is bounded'
         # would trade one stall for a shorter one.
         Set-SweepSubstitute
         $body = { param($n, $b, $p, $h, $a) Get-UtmBridgedGuestIp -VMName $n -BundleNetwork $b -SubnetPrefix $p -HostIp $h -ArpLine $a }
-        Assert-Null (Invoke-InModule -Body $body -ArgumentList @($GuestName, (New-BundleNetwork), $LanPrefix, $LanHostIp, @())) 'nothing yet'
-        $ip = Invoke-InModule -Body $body -ArgumentList @($GuestName, (New-BundleNetwork), $LanPrefix, $LanHostIp, $ArpWithGuest)
+        Assert-Null (Invoke-InModule -Body $body -ArgumentList @($script:GuestName, (New-BundleNetwork), $script:LanPrefix, $script:LanHostIp, @())) 'nothing yet'
+        $ip = Invoke-InModule -Body $body -ArgumentList @($script:GuestName, (New-BundleNetwork), $script:LanPrefix, $script:LanHostIp, $script:ArpWithGuest)
         Assert-Equal -Expected '192.168.7.51' -Actual $ip -Because 'the guest appeared, and the cooldown did not hide it'
         Assert-Equal -Expected 1 -Actual (Get-DiscoverySweepCall).Count -Because 'and it cost no second sweep'
     }
@@ -630,9 +637,9 @@ Describe 'The sweep is escalation, and what it costs a repeat caller is bounded'
         Set-SweepSubstitute
         $body = { param($n, $b, $p, $h, $a) Get-UtmBridgedGuestIp -VMName $n -BundleNetwork $b -SubnetPrefix $p -HostIp $h -ArpLine $a }
         $bundle = New-BundleNetwork
-        Assert-Null  (Invoke-InModule -Body $body -ArgumentList @($GuestName, $bundle, $LanPrefix, $LanHostIp, @()))            'miss: memo recorded'
-        Assert-Equal -Expected '192.168.7.51' -Actual (Invoke-InModule -Body $body -ArgumentList @($GuestName, $bundle, $LanPrefix, $LanHostIp, $ArpWithGuest)) -Because 'hit: memo retired'
-        Assert-Null  (Invoke-InModule -Body $body -ArgumentList @($GuestName, $bundle, $LanPrefix, $LanHostIp, @()))            'gone again'
+        Assert-Null  (Invoke-InModule -Body $body -ArgumentList @($script:GuestName, $bundle, $script:LanPrefix, $script:LanHostIp, @()))            'miss: memo recorded'
+        Assert-Equal -Expected '192.168.7.51' -Actual (Invoke-InModule -Body $body -ArgumentList @($script:GuestName, $bundle, $script:LanPrefix, $script:LanHostIp, $script:ArpWithGuest)) -Because 'hit: memo retired'
+        Assert-Null  (Invoke-InModule -Body $body -ArgumentList @($script:GuestName, $bundle, $script:LanPrefix, $script:LanHostIp, @()))            'gone again'
         Assert-Equal -Expected 2 -Actual (Get-DiscoverySweepCall).Count -Because 'the second disappearance is escalated on its own merits'
     }
 
@@ -640,8 +647,8 @@ Describe 'The sweep is escalation, and what it costs a repeat caller is bounded'
         # One service that is down must not stop another from being looked for.
         Set-SweepSubstitute
         $body = { param($n, $b, $p, $h, $a) Get-UtmBridgedGuestIp -VMName $n -BundleNetwork $b -SubnetPrefix $p -HostIp $h -ArpLine $a }
-        Assert-Null (Invoke-InModule -Body $body -ArgumentList @('yuruna-stash-service',        (New-BundleNetwork -VMName 'yuruna-stash-service'),        $LanPrefix, $LanHostIp, @()))
-        Assert-Null (Invoke-InModule -Body $body -ArgumentList @('yuruna-pool-control-service', (New-BundleNetwork -VMName 'yuruna-pool-control-service'), $LanPrefix, $LanHostIp, @()))
+        Assert-Null (Invoke-InModule -Body $body -ArgumentList @('yuruna-stash-service',        (New-BundleNetwork -VMName 'yuruna-stash-service'),        $script:LanPrefix, $script:LanHostIp, @()))
+        Assert-Null (Invoke-InModule -Body $body -ArgumentList @('yuruna-pool-control-service', (New-BundleNetwork -VMName 'yuruna-pool-control-service'), $script:LanPrefix, $script:LanHostIp, @()))
         Assert-Equal -Expected 2 -Actual (Get-DiscoverySweepCall).Count -Because 'each VM gets its own escalation'
     }
 }
@@ -654,7 +661,7 @@ Describe 'A Shared-NAT guest is answered by the lease file, and only by it' {
         # depends on the vmnet bridge existing on the machine running this,
         # and that is not what the case is about.
         $ip = Invoke-InModule -Body { param($n, $b, $t) Get-UtmSharedLeaseIp -VMName $n -BundleNetwork $b -LeaseText $t -OnLinkVerdict { 'onlink' } } `
-            -ArgumentList @('test-ubuntu-desktop01', (New-BundleNetwork -Mode 'Shared' -VMName 'test-ubuntu-desktop01'), $LeaseWithStaleSharedBlock)
+            -ArgumentList @('test-ubuntu-desktop01', (New-BundleNetwork -Mode 'Shared' -VMName 'test-ubuntu-desktop01'), $script:LeaseWithStaleSharedBlock)
         Assert-Equal -Expected '192.168.64.77' -Actual $ip -Because 'the lease file is authoritative for a Shared-NAT guest'
     }
 
@@ -663,7 +670,7 @@ Describe 'A Shared-NAT guest is answered by the lease file, and only by it' {
         # predecessor's lease on a retired subnet from being handed out.
         Reset-DiscoveryModule
         $ip = Invoke-InModule -Body { param($n, $b, $t) Get-UtmSharedLeaseIp -VMName $n -BundleNetwork $b -LeaseText $t -OnLinkVerdict { 'offlink' } } `
-            -ArgumentList @('test-ubuntu-desktop01', (New-BundleNetwork -Mode 'Shared' -VMName 'test-ubuntu-desktop01'), $LeaseWithStaleSharedBlock)
+            -ArgumentList @('test-ubuntu-desktop01', (New-BundleNetwork -Mode 'Shared' -VMName 'test-ubuntu-desktop01'), $script:LeaseWithStaleSharedBlock)
         Assert-Null $ip 'an unreachable lease is not an answer'
     }
 
@@ -682,7 +689,7 @@ Describe 'The MAC needle matches the form macOS prints' {
 
     It 'strips leading zeros and lowercases, as `arp -an` does' {
         Reset-DiscoveryModule
-        Assert-Equal -Expected 'e6:1:bc:6d:21:cd' -Actual (Invoke-InModule -Body { param($m) ConvertTo-ArpMacNeedle -MacAddress $m } -ArgumentList @($GuestMac))
+        Assert-Equal -Expected 'e6:1:bc:6d:21:cd' -Actual (Invoke-InModule -Body { param($m) ConvertTo-ArpMacNeedle -MacAddress $m } -ArgumentList @($script:GuestMac))
     }
 
     It 'answers nothing for input that is not six hex octets' {
@@ -694,9 +701,9 @@ Describe 'The MAC needle matches the form macOS prints' {
 
     It 'matches an entry the bundle MAC produced, in either written form' {
         Reset-DiscoveryModule
-        $needle = Invoke-InModule -Body { param($m) ConvertTo-ArpMacNeedle -MacAddress $m } -ArgumentList @($GuestMac)
+        $needle = Invoke-InModule -Body { param($m) ConvertTo-ArpMacNeedle -MacAddress $m } -ArgumentList @($script:GuestMac)
         $ip = Invoke-InModule -Body { param($a, $n, $p) Select-ArpIpByMac -ArpLine $a -MacNeedle $n -SubnetPrefix $p } `
-            -ArgumentList @($ArpWithGuest, $needle, $LanPrefix)
+            -ArgumentList @($script:ArpWithGuest, $needle, $script:LanPrefix)
         Assert-Equal -Expected '192.168.7.51' -Actual $ip
     }
 
@@ -706,14 +713,14 @@ Describe 'The MAC needle matches the form macOS prints' {
         # 192.168.70.x.
         $lines = @('? (192.168.70.51) at e6:1:bc:6d:21:cd on en0 ifscope [ethernet]')
         $ip = Invoke-InModule -Body { param($a, $n, $p) Select-ArpIpByMac -ArpLine $a -MacNeedle $n -SubnetPrefix $p } `
-            -ArgumentList @($lines, 'e6:1:bc:6d:21:cd', $LanPrefix)
+            -ArgumentList @($lines, 'e6:1:bc:6d:21:cd', $script:LanPrefix)
         Assert-Null $ip 'a neighbouring subnet is not this LAN'
     }
 
     It 'returns nothing for an empty table' {
         Reset-DiscoveryModule
         $ip = Invoke-InModule -Body { param($n, $p) Select-ArpIpByMac -ArpLine @() -MacNeedle $n -SubnetPrefix $p } `
-            -ArgumentList @('e6:1:bc:6d:21:cd', $LanPrefix)
+            -ArgumentList @('e6:1:bc:6d:21:cd', $script:LanPrefix)
         Assert-Null $ip
     }
 }
@@ -723,21 +730,27 @@ Describe 'Rung 1 reads what utmctl reports when it does answer' {
     It 'takes the routable address and skips loopback and link-local' {
         Reset-DiscoveryModule
         $ip = Invoke-InModule -Body { param($n, $lines) Get-UtmAgentReportedIp -VMName $n -UtmctlLine $lines } `
-            -ArgumentList @($GuestName, (@('127.0.0.1', '169.254.3.4') + $UtmctlAnswered))
+            -ArgumentList @($script:GuestName, (@('127.0.0.1', '169.254.3.4') + $script:UtmctlAnswered))
         Assert-Equal -Expected '192.168.7.51' -Actual $ip
     }
 
     It 'takes a routable IPv6 when that is all there is' {
         Reset-DiscoveryModule
         $ip = Invoke-InModule -Body { param($n, $lines) Get-UtmAgentReportedIp -VMName $n -UtmctlLine $lines } `
-            -ArgumentList @($GuestName, @('fe80::1', '2001:db8::42'))
+            -ArgumentList @($script:GuestName, @('fe80::1', '2001:db8::42'))
         Assert-Equal -Expected '2001:db8::42' -Actual $ip -Because 'a v6-only guest is not invisible'
     }
 }
 
-# Leaves the module as the rest of the session expects to find it: the
-# substitutes above are written into its own scope and would otherwise
-# outlive this file. Under Pester this runs during discovery, so the
-# substitutions each case installs are undone by the re-import the next one
-# performs.
-Import-Module $DiscoveryModule -Force -DisableNameChecking -Global -ErrorAction SilentlyContinue
+# Leaves the module as the rest of the session expects to find it. The
+# substitutes the cases install are written into the module's own session state
+# and the module is imported -Global, so they outlive this file: every later file
+# sharing the runspace would call a stand-in instead of the real rung, and pass
+# or fail against it.
+#
+# This has to be AfterAll, not file scope. File-scope statements run in the
+# discovery pass, which completes before the first case -- and therefore before
+# the first substitute -- exists, so a restore placed there undoes nothing.
+AfterAll {
+    Reset-DiscoveryModule
+}

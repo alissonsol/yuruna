@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42b03f81-d5c7-4c8e-bea6-7a081b3285e2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,6 +35,7 @@
     and Pester 5+. Run: Invoke-Pester -Path test/modules/Test.HostContract.Tests.ps1
 #>
 
+BeforeAll {
 $here         = Split-Path -Parent $PSCommandPath
 $contractPath = Join-Path $here 'Test.HostContract.psm1'
 Import-Module $contractPath -Force -DisableNameChecking
@@ -44,7 +45,7 @@ function Assert-True  { param($Condition, [string]$Because='') if (-not $Conditi
 
 # The four siblings the facade promises to pull in.
 $siblingModule = @('Test.HostDetection', 'Test.HostCondition', 'Test.HostGit', 'Test.HostBootstrap')
-$siblingCase   = @($siblingModule | ForEach-Object { @{ name = $_ } })
+$script:siblingCase   = @($siblingModule | ForEach-Object { @{ name = $_ } })
 
 # The facade's Export-ModuleMember list, read straight out of its source: it is
 # the written-down contract, and the tests below hold the code to it. Parsing
@@ -60,13 +61,15 @@ if ($exportMatch.Success) {
             Where-Object   { $_ }
     )
 }
-$exportCase = @($declaredExport | ForEach-Object { @{ name = $_ } })
+$script:exportCase = @($declaredExport | ForEach-Object { @{ name = $_ } })
+
+}
 
 Describe 'Test.HostContract facade' {
 
     Context 'sibling fan-out' {
 
-        It 'loads every Test.Host* sibling from a single import' -TestCases $siblingCase {
+        It 'loads every Test.Host* sibling from a single import' -TestCases $script:siblingCase {
             param($name)
             Assert-True ([bool](Get-Module -Name $name)) "importing the facade must load '$name'"
         }
@@ -83,14 +86,14 @@ Describe 'Test.HostContract facade' {
             Assert-True ($declaredExport -contains 'Initialize-YurunaHost') 'the parse must find the bootstrap entry point'
         }
 
-        It 'resolves every function the facade declares' -TestCases $exportCase {
+        It 'resolves every function the facade declares' -TestCases $script:exportCase {
             param($name)
             $cmd = Get-Command -Name $name -ErrorAction SilentlyContinue
             Assert-True ([bool]$cmd) "the facade declares '$name' but nothing in the session provides it"
             Assert-Equal -Expected 'Function' -Actual "$($cmd.CommandType)" -Because 'the contract is a set of functions, not aliases or external binaries'
         }
 
-        It 'sources every declared function from a Test.Host* sibling' -TestCases $exportCase {
+        It 'sources every declared function from a Test.Host* sibling' -TestCases $script:exportCase {
             param($name)
             $cmd = Get-Command -Name $name -ErrorAction SilentlyContinue
             Assert-True ([bool]$cmd) "the facade declares '$name' but nothing in the session provides it"

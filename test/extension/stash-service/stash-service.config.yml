@@ -12,8 +12,8 @@ service:
   startScript: Start-StashServiceVM.ps1
   stopScript: Stop-StashServiceVM.ps1
   markerBaseUrlKey: stashBaseUrl
-  beaconInterval: 15m
-  # DELETE is restricted to the VM itself and the deploying host, which is a
-  # narrower rule than the lab token, not a looser one -- and a stash holds
-  # artifacts, not host or pool configuration.
-  writeGate: none
+  beaconInterval: 2m
+  # DELETE is the one destructive verb here, and it reaches every host's stash
+  # on the share, so it carries the same gate as any other destructive route in
+  # the lab. Reads and creates stay open.
+  writeGate: lab-token

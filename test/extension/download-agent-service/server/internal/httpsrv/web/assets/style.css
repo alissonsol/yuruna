@@ -265,6 +265,12 @@ code { font-family: var(--mono); font-size: .85rem; word-break: break-all; }
 .progress { display: block; width: 9rem; height: .4rem; margin-top: .25rem; background: var(--track); border-radius: 999px; overflow: hidden; }
 .progress > span { display: block; height: 100%; background: var(--accent); }
 .err-line { color: var(--err); font-size: .8rem; word-break: break-word; }
+/* Guidance that stands in for an error the operator cannot act on. Warn, not
+   error: the row is not broken beyond repair, there is a way to fill it by
+   hand. The links inherit the colour so the sentence reads as one instruction
+   rather than as three interface elements. */
+.hint { color: var(--warn); font-size: .8rem; word-break: break-word; }
+.hint a { color: inherit; }
 .actions button { margin: 0 .25rem .25rem 0; }
 
 @media (max-width: 700px) {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456783
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -279,32 +279,51 @@ function Get-PerfHostUuid {
     if (-not (Test-Path -LiteralPath $root)) {
         New-Item -ItemType Directory -Path $root -Force -ErrorAction SilentlyContinue | Out-Null
     }
-    # Atomic first-write: two processes hitting first-use at once would each
-    # generate a DIFFERENT UUID and clobber the file, so each returns its own id
-    # and the machine ends up with two identities. Instead write a per-process temp
-    # file and rename it into place -- the two-arg Move throws if the destination
-    # already exists, so exactly one racer wins and every loser adopts the winner's
-    # value. Result: one UUID per machine even under concurrent first use.
-    $tmpFile = "$uuidFile.$PID.tmp"
+    # Atomic first-write, shared with Get-YurunaHostId on this same host.uuid: two
+    # processes hitting first-use at once would each generate a DIFFERENT UUID, so a
+    # plain overwrite leaves the machine with two identities. The create itself is
+    # the lock -- FileMode.CreateNew is O_CREAT|O_EXCL on POSIX and CREATE_NEW on
+    # Windows, so exactly one caller can bring the path into existence and everyone
+    # else adopts what that caller wrote. A temp-then-rename cannot hold this line on
+    # POSIX: [System.IO.File]::Move tests for the destination and then renames, so
+    # racers that pass the test together all rename successfully, the last one lands
+    # on disk, and every earlier one walks away with a UUID that was never persisted.
+    $claim = $null
     try {
-        [System.IO.File]::WriteAllText($tmpFile, $uuid)
-        [System.IO.File]::Move($tmpFile, $uuidFile)
-        return $uuid
+        $claim = [System.IO.File]::Open($uuidFile, [System.IO.FileMode]::CreateNew,
+            [System.IO.FileAccess]::Write, [System.IO.FileShare]::Read)
     } catch {
-        Remove-Item -LiteralPath $tmpFile -Force -ErrorAction SilentlyContinue
-        try {
-            $winner = ([System.IO.File]::ReadAllText($uuidFile)).Trim()
-            if ($winner) { return $winner }
-        } catch {
-            Write-Verbose "Get-PerfHostUuid: post-race read failed: $($_.Exception.Message)"
-        }
-        # Last resort: the rename failed for a NON-race reason (the destination
-        # never materialized) and the re-read also failed, so return our own id.
-        # Two processes on this degraded path can diverge, but that is bounded to a
-        # genuine IO fault (matching this module's never-crash contract) and beats
-        # returning $null to callers that must have an id.
-        return $uuid
+        Write-Verbose "Get-PerfHostUuid: did not win the host.uuid claim: $($_.Exception.Message)"
     }
+    if ($claim) {
+        try {
+            $bytes = [System.Text.UTF8Encoding]::new($false).GetBytes($uuid)
+            $claim.Write($bytes, 0, $bytes.Length)
+            $claim.Flush()
+            return $uuid
+        } catch {
+            Write-Verbose "Get-PerfHostUuid: host.uuid could not be written: $($_.Exception.Message)"
+        } finally { $claim.Dispose() }
+    } else {
+        # The winner owns the path from the instant it is created, so a loser reading
+        # straight away can catch it before the UUID is flushed. Give that write a
+        # bounded window to land instead of treating one empty read as a lost cause.
+        foreach ($attempt in 1..5) {
+            try {
+                $winner = ([System.IO.File]::ReadAllText($uuidFile)).Trim()
+                if ($winner) { return $winner }
+            } catch {
+                Write-Verbose "Get-PerfHostUuid: post-race read failed: $($_.Exception.Message)"
+            }
+            Start-Sleep -Milliseconds 20
+        }
+    }
+    # Last resort: the claim failed for a NON-race reason (the path never
+    # materialized) and the re-read also failed, so return our own id. Two processes
+    # on this degraded path can diverge, but that is bounded to a genuine IO fault
+    # (matching this module's never-crash contract) and beats returning $null to
+    # callers that must have an id.
+    return $uuid
 }
 
 function Get-PerfContentHash {

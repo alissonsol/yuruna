@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 422b4f6a-1c3e-4a57-8b90-6e2d4c1a7f38
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,6 +38,8 @@
     Justification = 'The global scope is the resolution contract under test: Register-GuestQuarantineOutcome finds Send-CycleEventSafely in the global table, so the collector stub and its assertion must straddle that scope.')]
 param()
 
+BeforeAll {
+
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.Prelude.psm1')          -Force -DisableNameChecking -ErrorAction SilentlyContinue
 Import-Module (Join-Path $here 'Test.EventSchema.psm1')      -Force -DisableNameChecking
@@ -60,6 +62,8 @@ function New-QTempDir {
     $p = Join-Path ([System.IO.Path]::GetTempPath()) ("yrn-quar-" + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $p -Force | Out-Null
     return $p
+}
+
 }
 
 Describe 'Add-GuestQuarantineFailure (same-class streak + trip)' {

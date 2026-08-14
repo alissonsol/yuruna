@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42f3caf7-8560-4882-9123-5ffeec757e6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,6 +38,12 @@
 .PARAMETER VMName
     Name of the download-agent-service VM. Default:
     yuruna-download-agent-service.
+.PARAMETER AllowMirrorSource
+    Build the daemon from the public github mirror instead of this enlistment.
+    Without it, a bring-up whose guest could not fetch this host's framework --
+    or one whose daemon turns out to have been built from another snapshot -- is
+    refused rather than deploying code older than the operator is working in.
+    Legitimate off-LAN, where the mirror is the only source there is.
 .EXAMPLE
     pwsh test/service/Start-DownloadAgentServiceVM.ps1
     # Builds + starts the VM, waits for :80, and publishes the marker.
@@ -50,7 +56,8 @@
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [Parameter(Position = 0)]
-    [string]$VMName = 'yuruna-download-agent-service'
+    [string]$VMName = 'yuruna-download-agent-service',
+    [switch]$AllowMirrorSource
 )
 
 $InformationPreference = 'Continue'
@@ -176,13 +183,27 @@ See docs/test-config.md (networkStorage credentials).
 if (Connect-YurunaPoolStorage -Config $poolCfg -Confirm:$false) {
     Write-Information "pool storage pre-flight OK (networkUser='$($poolCfg.NetworkUser)'; credential authenticates)." -InformationAction Continue
 } else {
+    # Report the reason the mount RECORDED, and prescribe from it. A mount that
+    # sudo refused never reaches the NAS, so naming the credential there sends
+    # the operator to reset a password that was never wrong -- and to rebuild the
+    # VM for it -- while the actual fault stays in place.
+    $why = Get-PoolStorageLastMountError
+    if (-not $why) { $why = 'the attempt recorded no reason (check that the NAS is reachable and the share name is right).' }
+    $remedy = if (Test-PoolStorageSudoRefusal -StdErr $why) {
+        "sudo refused the mount, so the pool credential is NOT implicated. Fix passwordless
+sudo for mount on this host (see docs/pool-storage.md) or run Sync-HostConfiguration, then
+re-run. No rebuild is needed once the mount works."
+    } else {
+        "If the password is stale, update it and rebuild:
+    Set-Password -Username '$($poolCfg.NetworkUser)' -NewPassword '<the real NAS password>'"
+    }
     Write-Warning @"
-pool networkUser '$($poolCfg.NetworkUser)' has a stored credential, but it did NOT
-authenticate to the pool share '$($poolCfg.NetworkPath)' just now (wrong/stale password,
-or the NAS is unreachable). Bringing the VM up anyway: the daemon will START but serve an
-EMPTY pool -- every ensure answers 'pool-unavailable' and hosts fall back to downloading
-for themselves -- until this is fixed. If the password is stale, update it and rebuild:
-    Set-Password -Username '$($poolCfg.NetworkUser)' -NewPassword '<the real NAS password>'
+pool share '$($poolCfg.NetworkPath)' did NOT mount just now as networkUser
+'$($poolCfg.NetworkUser)': $why
+Bringing the VM up anyway: the daemon will START but serve an EMPTY pool -- every ensure
+answers 'pool-unavailable' and hosts fall back to downloading for themselves -- until this
+is fixed.
+$remedy
 "@
 }
 
@@ -201,12 +222,34 @@ if (-not (Test-Path -LiteralPath $newVm)) {
 # public github clone when that server is down -- so it must be up BEFORE New-VM
 # bakes and boots the guest, not after (a server started later is one the guest
 # never saw). Best-effort; honors statusService.enabled + port.
+# The {ShouldStart; Port} record is kept rather than discarded: the
+# framework-source gate below has to probe the port this decision resolved, and
+# re-deriving it would be a second reading of the same config free to disagree
+# with the one that actually started the server.
+$statusDecision = $null
 try {
     $statusScript = Join-Path $repoRoot 'test/Start-StatusService.ps1'
     if ($tc -and (Test-Path -LiteralPath $statusScript)) {
-        [void](Start-YurunaStatusServiceIfEnabled -Config $tc -StartScript $statusScript)
+        $statusResult = Start-YurunaStatusServiceIfEnabled -Config $tc -StartScript $statusScript
+        $statusDecision = @($statusResult | Where-Object { $_ -is [System.Collections.IDictionary] }) | Select-Object -Last 1
     }
 } catch { Write-Verbose "status service ensure: $($_.Exception.Message)" }
+
+# --- REGION: framework source -- refuse to build from a snapshot older than this enlistment
+# The guest compiles the daemon from whatever framework it fetched and stamps
+# that tree's VERSION into the binary, permanently. A guest that cannot reach the
+# server ensured just above falls back to the public mirror and produces a working
+# service built from published code, weeks behind, that then reports itself as
+# current for the life of the VM. Stopping here costs the operator a message; not
+# stopping costs a half-hour build and a service nobody has reason to re-examine.
+# Captured for the post-boot check too, which is the half that can actually prove
+# what got deployed.
+Import-Module (Join-Path $ModulesDir 'Test.FrameworkSource.psm1') -Global -Force
+$frameworkExpected = Get-FrameworkSourceSnapshot -RepoRoot $repoRoot
+if (-not (Assert-GuestFrameworkSource -RepoRoot $repoRoot -StatusDecision $statusDecision `
+            -ServiceLabel 'download-agent-service' -AllowMirrorSource:$AllowMirrorSource)) {
+    exit $ExitFailure
+}
 
 # --- REGION: delegate to the per-host New-VM (build + start the VM)
 # Each New-VM runs Get-Image auto-fetch when the base image is missing, tears
@@ -591,6 +634,30 @@ if ($stillBuilding) {
 }
 
 if ($daemonReady) {
+    # --- REGION: what actually got deployed
+    # The daemon is serving, so the remaining question is which framework it was
+    # built from -- and this is the only place it can be answered from evidence
+    # rather than prediction. The pre-flight above could pass and the guest still
+    # fall back: the host address is baked at seed time and the guest reaches for
+    # it minutes into first boot, so a host that renumbered in between sends the
+    # fetch to the mirror with everything on this side looking correct.
+    #
+    # The marker is NOT retracted on a mismatch. A stale build is still a running
+    # download-agent service, and withdrawing the row would replace an accurate
+    # advertisement with a false one; what is wrong here is the bring-up's claim
+    # to have deployed this enlistment, so that is what fails.
+    if (-not (Assert-ServiceVmFrameworkSource -Address ([string]$vmIp) -Port 80 `
+                -GuestKey 'guest.download-agent-service' -User 'download-agent-service-admin' `
+                -Expected $frameworkExpected -ServiceLabel 'download-agent-service' `
+                -AllowMirrorSource:$AllowMirrorSource)) {
+        Write-Information "" -InformationAction Continue
+        Write-Information "== download-agent-service start: FAILED (deployed an obsolete framework snapshot) ==" -InformationAction Continue
+        Write-Information "  VM:   $VMName ($HostType)" -InformationAction Continue
+        Write-Information "  The VM is up and the daemon is serving -- it is running the WRONG BUILD, not nothing." -InformationAction Continue
+        Write-Information "  Stop: test/service/Stop-DownloadAgentServiceVM.ps1" -InformationAction Continue
+        exit $ExitFailure
+    }
+
     Write-Information "" -InformationAction Continue
     if ($listeningButUnreachable) {
         Write-Information "== download-agent-service is RUNNING (daemon serving on :80 in-guest; not reachable from this host) ==" -InformationAction Continue

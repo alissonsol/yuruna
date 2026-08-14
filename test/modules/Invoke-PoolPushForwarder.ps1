@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 424f2c91-6d3b-4e75-9012-3c7a1e5b8d6f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -97,17 +97,25 @@ if ([string]::IsNullOrWhiteSpace($CycleFolder)) {
 }
 
 # --- REGION: single-instance lock (atomic CreateNew; reclaim a stale lock once)
-function Get-PushProcStartUtc { param([int]$ProcId) try { return ((Get-Process -Id $ProcId -ErrorAction Stop).StartTime.ToUniversalTime().ToString('o')) } catch { return $null } }
+# Identity is recorded as TICKS, not an ISO-8601 string, and that is
+# load-bearing. ConvertFrom-Json silently materializes an ISO-8601 field as a
+# [DateTime], and interpolating one of those renders it in the CURRENT CULTURE
+# ("08/11/2026 19:07:24") -- so a comparison against the live 'o'-format value
+# can never match, every start judges the lock stale, reclaims it, and the
+# single-instance guarantee silently evaporates. A number round-trips exactly
+# and no parser reinterprets it. (Same trap the status service documents around
+# ConvertTo-IsoUtcString.)
+function Get-PushProcStartUtc { param([int]$ProcId) try { return ((Get-Process -Id $ProcId -ErrorAction Stop).StartTime.ToUniversalTime().Ticks) } catch { return $null } }
 function Test-PushLockHeldLive {
     param([string]$Path)
     try { $j = (Get-Content -Raw -LiteralPath $Path -ErrorAction Stop) | ConvertFrom-Json -ErrorAction Stop } catch { return $false }
     if (-not $j.pid) { return $false }
     $liveStart = Get-PushProcStartUtc -ProcId ([int]$j.pid)
     if (-not $liveStart) { return $false }
-    # No recorded startUtc -> the PID's identity can't be verified, so a reused PID could
+    # No recorded start time -> the PID's identity can't be verified, so a reused PID could
     # masquerade as the holder; treat as stale (reclaimable) rather than held.
-    if (-not $j.startUtc) { return $false }
-    if ($liveStart -ne [string]$j.startUtc) { return $false }
+    if (-not $j.startTicks) { return $false }
+    if ([long]$liveStart -ne [long]$j.startTicks) { return $false }
     return $true
 }
 function Add-PushLockFile {
@@ -120,7 +128,7 @@ function Add-PushLockFile {
 }
 
 $lockPath = Join-Path $runtimeDir 'poolpush.forwarder.lock'
-$lockBody = (@{ pid = $PID; startUtc = (Get-PushProcStartUtc -ProcId $PID) } | ConvertTo-Json -Compress)
+$lockBody = (@{ pid = $PID; startTicks = (Get-PushProcStartUtc -ProcId $PID) } | ConvertTo-Json -Compress)
 $haveLock = Add-PushLockFile -Path $lockPath -Body $lockBody
 if (-not $haveLock) {
     if (Test-PushLockHeldLive -Path $lockPath) { Write-Verbose "pool push: another live forwarder holds the lock; exiting."; return }

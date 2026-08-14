@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e680
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -258,16 +258,19 @@ Write-Output "  and log in with the credentials above to inspect cloud-init stat
 Write-Output ""
 
 # --- REGION: Create and configure Hyper-V VM
-# 4 GB RAM, 4 vCPU. Sized for the SCP receive + SQLite metadata writer
+# 2 GB RAM, 4 vCPU. Sized for the SCP receive + SQLite metadata writer
 # + in-VM UI, none of which holds a large resident working set: the transfers
-# stream to disk rather than buffering whole artifacts. One baseline across all
-# three extension VMs. Memory here is pinned (no dynamic balloon), so every GB
-# is committed on the host for the life of the VM -- the extension VMs share
-# one machine with the cache VM on a standalone host, and their pinned total is
-# what constrains how many test guests can still start.
+# stream to disk rather than buffering whole artifacts. What sets the floor is
+# the first-boot `go build`, not steady state: the pure-Go SQLite driver is the
+# largest compile in the graph, and a cold build of it peaks near 1.1 GB with no
+# swap in the guest. One baseline across all three extension VMs. Memory here is
+# pinned (no dynamic balloon), so every GB is committed on the host for the life
+# of the VM -- the extension VMs share one machine with the cache VM on a
+# standalone host, and their pinned total is what constrains how many test guests
+# can still start.
 Write-Output "Creating new VM '$VMName' on switch '$switchName'..."
-Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 4GB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
-Set-VM -Name $VMName -MemoryStartupBytes 4GB -MemoryMinimumBytes 4GB -MemoryMaximumBytes 4GB -AutomaticCheckpointsEnabled $false | Out-Null
+Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 2GB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
+Set-VM -Name $VMName -MemoryStartupBytes 2GB -MemoryMinimumBytes 2GB -MemoryMaximumBytes 2GB -AutomaticCheckpointsEnabled $false | Out-Null
 Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
 Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
 Add-VMDvdDrive -VMName $VMName -Path $SeedIso | Out-Null

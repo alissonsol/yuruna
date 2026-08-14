@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 4292cccb-faec-453f-afcd-02b6a9bee927
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,20 +18,30 @@
 
 <#
 .SYNOPSIS
-    Guards Resolve-GitRepositoryWebUrl (Test.HostGit.psm1): every valid clone
-    source -- https, ssh://, scp-like, or a local clone path -- resolves to the
-    browser-routable https URL the status page and pool dashboard need for
-    their <repoUrl>/commit/<sha> deep-links, and non-resolvable inputs return
-    $null instead of a broken link base.
+    Guards the two link answers in Test.HostGit.psm1:
+    Resolve-GitRepositoryWebUrl -- every valid clone source (https, ssh://,
+    scp-like, or a local clone path) resolves to the browser-routable https URL
+    the status page and pool dashboard need for their <repoUrl>/commit/<sha>
+    deep-links, and non-resolvable inputs return $null instead of a broken link
+    base -- and Resolve-GitRemoteLink, the one remote value as somewhere a
+    browser can be pointed.
 .DESCRIPTION
     The gitCommits[].repoUrl field is only linkable when it is http(s); a host
     whose repositories.projectUrl is a local clone path (or an ssh remote)
     otherwise renders its project commit as plain text on both the host status
     page and the pool dashboard's Commit column. Behavioral tests cover the
     string rewrites plus the local-path origin walk (real temp git repos) and
-    the origin-cycle hop cap. Runs under Pester 4.10.1.
+    the origin-cycle hop cap.
+
+    The two answers differ where it matters and both are pinned here: a deep-link
+    base must reach the WEB remote, so a local path is followed through its
+    origin chain, while the Hosts page's repository link must stay on the
+    location the host actually reported -- a machine running from a local mirror
+    must not read as one running from the public repository. Runs under
+    Pester 4.10.1.
 #>
 
+BeforeAll {
 $here       = Split-Path -Parent $PSCommandPath
 $repoRoot   = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
 $modulePath = Join-Path $repoRoot 'test/modules/Test.HostGit.psm1'
@@ -64,6 +74,8 @@ foreach ($r in @($webRepo, $midRepo, $loopRepo)) {
 & git -C $webRepo  remote add origin 'https://github.com/example/project-under-test.git' 2>$null
 & git -C $midRepo  remote add origin $webRepo 2>$null
 & git -C $loopRepo remote add origin $loopRepo 2>$null
+
+}
 
 Describe 'Resolve-GitRepositoryWebUrl -- direct URL forms' {
     It 'passes a plain https URL through unchanged' {
@@ -98,6 +110,47 @@ Describe 'Resolve-GitRepositoryWebUrl -- direct URL forms' {
         # a repo), never rewrite to https://C/...
         $r = Resolve-GitRepositoryWebUrl -Url 'Q:/definitely/not/a/repo'
         Assert-Null $r 'drive-letter path must not match the scp-like form'
+    }
+}
+
+Describe 'Resolve-GitRemoteLink -- a remote as somewhere a browser can be pointed' {
+    It 'normalizes the web forms exactly as the deep-link base does' {
+        Assert-Equal 'https://github.com/acme/project' (Resolve-GitRemoteLink -Url 'https://github.com/acme/project.git/').Url
+        Assert-Equal 'https://github.com/acme/project' (Resolve-GitRemoteLink -Url 'git@github.com:acme/project.git').Url
+        Assert-Equal 'https://github.com/acme/project' (Resolve-GitRemoteLink -Url 'ssh://git@github.com:22/acme/project.git').Url
+        Assert-Equal 'web' (Resolve-GitRemoteLink -Url 'https://github.com/acme/project').Kind
+    }
+    It 'strips a credential written into the remote (the value reaches an open page)' {
+        Assert-Equal 'https://github.com/acme/project' `
+            (Resolve-GitRemoteLink -Url 'https://x-access-token:ghp_secret@github.com/acme/project.git').Url
+    }
+    It 'keeps a local copy local instead of resolving it to what it was cloned from' {
+        # The distinction this helper exists for: the answer names the location
+        # it was GIVEN, so a host on a local mirror does not read as a host on
+        # the public repository.
+        Assert-Equal 'file:///home/operator/git/yuruna' (Resolve-GitRemoteLink -Url '/home/operator/git/yuruna').Url
+        Assert-Equal 'file'                             (Resolve-GitRemoteLink -Url '/home/operator/git/yuruna').Kind
+    }
+    It 'addresses a drive path and a UNC share the way a file url does' {
+        Assert-Equal 'file:///C:/git/yuruna'   (Resolve-GitRemoteLink -Url 'C:\git\yuruna').Url
+        Assert-Equal 'file://build01/git/repo' (Resolve-GitRemoteLink -Url '\\build01\git\repo').Url
+    }
+    It 'escapes what would otherwise cut a path short' {
+        Assert-Equal 'file:///C:/Program%20Files/git/yuruna' (Resolve-GitRemoteLink -Url 'C:\Program Files\git\yuruna').Url
+    }
+    It 'keeps a bare clone''s .git, which is its directory name rather than a suffix' {
+        Assert-Equal 'file:///srv/git/yuruna.git' (Resolve-GitRemoteLink -Url '/srv/git/yuruna.git').Url
+    }
+    It 'passes another scheme through untouched and says so' {
+        $r = Resolve-GitRemoteLink -Url 'git://example.com/acme/project.git'
+        Assert-Equal 'git://example.com/acme/project.git' $r.Url
+        Assert-Equal 'other' $r.Kind
+    }
+    It 'answers nothing for nothing, and for a path with no root to address' {
+        Assert-Equal '' (Resolve-GitRemoteLink -Url '').Url
+        Assert-Equal '' (Resolve-GitRemoteLink -Url '   ').Kind
+        # A relative origin means nothing away from the repository holding it.
+        Assert-Equal '' (Resolve-GitRemoteLink -Url '../sibling.git').Url
     }
 }
 

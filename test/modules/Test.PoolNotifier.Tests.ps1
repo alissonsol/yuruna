@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 422d8f14-9a73-4e52-8c61-2d9b3a7e1f04
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,6 +24,7 @@
     Send-Notification delivery are integration-verified separately.
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.PoolNotifier.psm1') -Force -DisableNameChecking -ErrorAction SilentlyContinue
 try { Import-Module powershell-yaml -Force -ErrorAction Stop } catch { Write-Warning 'powershell-yaml unavailable.' }
@@ -61,39 +62,41 @@ yuruna_pool_degraded{pool="wild"} 1
 yuruna_pool_healthy_fraction{pool="wild"} 0
 yuruna_pool_host_status{pool="lab",hostId="42aa"} 3
 '@
-$GaugePools = ConvertFrom-PrometheusPoolGauge -MetricsText $GaugeText
+$script:GaugePools = ConvertFrom-PrometheusPoolGauge -MetricsText $GaugeText
 
 $SpoolGauge = @{ pool = 'lab'; alertActive = $true; healthyFraction = 0.25; healthyThreshold = 0.5; membersHealthy = 1; membersTotal = 4 }
-$SpoolMessage = New-PoolAlertSpoolMessage -Pool 'lab' -GaugePool $SpoolGauge -UnixSeconds 1700000000 -NowUtc '2026-01-01T00:00:00Z'
+$script:SpoolMessage = New-PoolAlertSpoolMessage -Pool 'lab' -GaugePool $SpoolGauge -UnixSeconds 1700000000 -NowUtc '2026-01-01T00:00:00Z'
+
+}
 
 Describe 'ConvertFrom-PrometheusPoolGauge (parse the gating gauges)' {
     It 'parses an authored, firing pool' {
-        Assert-True  $GaugePools['lab'].alertActive 'lab alertActive'
-        Assert-True  $GaugePools['lab'].degraded 'lab degraded'
-        Assert-Equal -Expected 0.25 -Actual $GaugePools['lab'].healthyFraction -Because 'lab fraction'
-        Assert-Equal -Expected 0.5  -Actual $GaugePools['lab'].healthyThreshold -Because 'lab threshold'
-        Assert-Equal -Expected 1 -Actual $GaugePools['lab'].membersHealthy -Because 'lab healthy'
-        Assert-Equal -Expected 4 -Actual $GaugePools['lab'].membersTotal -Because 'lab total'
+        Assert-True  $script:GaugePools['lab'].alertActive 'lab alertActive'
+        Assert-True  $script:GaugePools['lab'].degraded 'lab degraded'
+        Assert-Equal -Expected 0.25 -Actual $script:GaugePools['lab'].healthyFraction -Because 'lab fraction'
+        Assert-Equal -Expected 0.5  -Actual $script:GaugePools['lab'].healthyThreshold -Because 'lab threshold'
+        Assert-Equal -Expected 1 -Actual $script:GaugePools['lab'].membersHealthy -Because 'lab healthy'
+        Assert-Equal -Expected 4 -Actual $script:GaugePools['lab'].membersTotal -Because 'lab total'
     }
     It 'treats a pool with no alert_active series as not alerting (un-authored)' {
-        Assert-True  $GaugePools['wild'].degraded 'wild degraded gauge present'
-        Assert-False $GaugePools['wild'].alertActive 'wild never alerts (no alert_active line)'
+        Assert-True  $script:GaugePools['wild'].degraded 'wild degraded gauge present'
+        Assert-False $script:GaugePools['wild'].alertActive 'wild never alerts (no alert_active line)'
     }
     It 'ignores unrelated/labeled series and an empty body' {
-        Assert-True (-not $GaugePools.ContainsKey('')) 'no empty pool key from host_status'
+        Assert-True (-not $script:GaugePools.ContainsKey('')) 'no empty pool key from host_status'
         Assert-Equal -Expected 0 -Actual (ConvertFrom-PrometheusPoolGauge -MetricsText '').Count -Because 'empty -> no pools'
     }
 }
 
 Describe 'New-PoolAlertSpoolMessage (message shape)' {
     It 'builds a stable id + the pool.alert event code + structured fields' {
-        Assert-Equal -Expected 'pool-lab-1700000000' -Actual $SpoolMessage['id'] -Because 'id'
-        Assert-Equal -Expected 'pool.alert' -Actual $SpoolMessage['eventCode'] -Because 'eventCode'
-        Assert-Equal -Expected 'pool_alert_fired' -Actual $SpoolMessage['event'] -Because 'event'
-        Assert-Equal -Expected 1 -Actual $SpoolMessage['membersHealthy'] -Because 'membersHealthy'
-        Assert-Equal -Expected 4 -Actual $SpoolMessage['membersTotal'] -Because 'membersTotal'
-        Assert-Equal -Expected 0 -Actual $SpoolMessage['attempts'] -Because 'attempts starts at 0'
-        Assert-True ($SpoolMessage['subject'] -like "*DEGRADED*1/4*") 'subject carries the fraction'
+        Assert-Equal -Expected 'pool-lab-1700000000' -Actual $script:SpoolMessage['id'] -Because 'id'
+        Assert-Equal -Expected 'pool.alert' -Actual $script:SpoolMessage['eventCode'] -Because 'eventCode'
+        Assert-Equal -Expected 'pool_alert_fired' -Actual $script:SpoolMessage['event'] -Because 'event'
+        Assert-Equal -Expected 1 -Actual $script:SpoolMessage['membersHealthy'] -Because 'membersHealthy'
+        Assert-Equal -Expected 4 -Actual $script:SpoolMessage['membersTotal'] -Because 'membersTotal'
+        Assert-Equal -Expected 0 -Actual $script:SpoolMessage['attempts'] -Because 'attempts starts at 0'
+        Assert-True ($script:SpoolMessage['subject'] -like "*DEGRADED*1/4*") 'subject carries the fraction'
     }
 }
 

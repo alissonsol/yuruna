@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42e6c9b2-7d18-4a53-8f01-2b4c6e9d0a37
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,18 +29,22 @@
     the passed http/https ports) and assert no caller re-inlines the literal
     @(80, 3000, 9302, ...) set that the function replaced.
 
-    The throw-based Assert-* helpers are defined at script scope and referenced
-    from It blocks, so this runs under Pester 4.10.1 (Pester 5's scope split
-    hides top-level helpers from It blocks).
+    The throw-based Assert-* helpers live in the file's BeforeAll, which is the
+    scope Pester 5 shares with the It blocks; defining them at script scope
+    instead makes every It fail on a missing command rather than on an
+    assertion.
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
-$repo = Split-Path -Parent (Split-Path -Parent $here)
+$script:repo = Split-Path -Parent (Split-Path -Parent $here)
 
 function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
 function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
 
 Import-Module (Join-Path $here 'Test.VMUtility.psm1') -Force -DisableNameChecking -ErrorAction SilentlyContinue
+
+}
 
 Describe 'caching-proxy-service exposed-port set is single-sourced' {
 
@@ -60,7 +64,7 @@ Describe 'caching-proxy-service exposed-port set is single-sourced' {
 
     It 'no caller re-inlines the fixed @(80, 3000, 9302, ...) port set' {
         foreach ($rel in @('test/Start-StatusService.ps1', 'test/modules/Invoke-TestRunnerInnerLoop.ps1', 'test/service/Start-CachingProxyServiceVM.ps1')) {
-            $t = Get-Content -Raw -LiteralPath (Join-Path $repo $rel)
+            $t = Get-Content -Raw -LiteralPath (Join-Path $script:repo $rel)
             Assert-True (-not ($t -match '@\(80,\s*3000,\s*9302,')) "the inline exposed-port set reappeared in $rel -- route it through Get-CachingProxyServiceExposedPort"
         }
     }

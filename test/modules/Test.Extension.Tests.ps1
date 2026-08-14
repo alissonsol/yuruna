@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 426deb9b-03d2-46c7-b22f-02548f71a328
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,6 +42,7 @@
     Run: pwsh -NoProfile -File test/modules/Test.Extension.Tests.ps1
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module powershell-yaml -Force -ErrorAction Stop
 Import-Module (Join-Path $here 'Test.Extension.psm1') -Force -DisableNameChecking
@@ -125,7 +126,6 @@ function New-ExtensionArea {
     return $dir
 }
 
-BeforeAll {
     $realExtensionDir = Get-ExtensionDirInUse
     if (-not $realExtensionDir) {
         throw 'Test.Extension exposes no $script:ExtensionDir to redirect; the loader cannot be pointed at a synthetic tree.'

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42d110f4-a5b7-43bd-88dd-122b508a6eb4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,6 +35,7 @@
     Run: pwsh -NoProfile -File test/modules/Test.KeyCodeRegistry.Tests.ps1
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.KeyCodeRegistry.psm1') -Force -DisableNameChecking
 
@@ -43,23 +44,23 @@ function Assert-True  { param($Condition, [string]$Because='') if (-not $Conditi
 
 # Fixtures live at FILE scope, above the first Describe: a Describe body runs
 # during discovery and its variables are thrown away before any It executes.
-$allKinds     = @('UTM-Named','UTM-Char','UTM-Chord','PS2-Named','PS2-Char','PS2-Chord',
+$script:allKinds     = @('UTM-Named','UTM-Char','UTM-Chord','PS2-Named','PS2-Char','PS2-Chord',
                   'X11-Named','X11-Char','X11-Chord','KVM-Named','KVM-Char','KVM-Chord')
-$charKinds    = @('UTM-Char','PS2-Char','X11-Char','KVM-Char')
-$namedKinds   = @('UTM-Named','PS2-Named','X11-Named','KVM-Named')
-$chordKinds   = @('UTM-Chord','PS2-Chord','X11-Chord','KVM-Chord')
-$codeCharKind = @('UTM-Char','PS2-Char','X11-Char')   # entries are [code, needsShift]
+$script:charKinds    = @('UTM-Char','PS2-Char','X11-Char','KVM-Char')
+$script:namedKinds   = @('UTM-Named','PS2-Named','X11-Named','KVM-Named')
+$script:chordKinds   = @('UTM-Chord','PS2-Chord','X11-Chord','KVM-Chord')
+$script:codeCharKind = @('UTM-Char','PS2-Char','X11-Char')   # entries are [code, needsShift]
 
 # Chords every backend has to understand. Ctrl-U (VKILL) and Ctrl-C (VINTR)
 # are the tty controls the console diagnostics path uses to keep the guest's
 # line buffer clean; a chord missing from one map is a host where that
 # cleanup silently does nothing.
-$universalChordName = @('CtrlU','CtrlC')
+$script:universalChordName = @('CtrlU','CtrlC')
 
 # Key names every transport has to understand: the harness sequences use them
 # on all four backends, so a name missing from one map is a step that types
 # nothing on that host.
-$universalKeyName = @('Enter','Tab','Space','Escape','Up','Down','Left','Right')
+$script:universalKeyName = @('Enter','Tab','Space','Escape','Up','Down','Left','Right')
 
 function Get-CoveredChar {
     <#
@@ -72,11 +73,13 @@ function Get-CoveredChar {
     return ((@([string[]]$map.Keys) | Sort-Object -CaseSensitive) -join '')
 }
 
+}
+
 Describe 'Get-KeyCodeMapKind / Get-KeyCodeMap' {
     It 'enumerates every registered transport map' {
         $kinds = @(Get-KeyCodeMapKind)
         Assert-Equal -Expected 12 -Actual $kinds.Count
-        foreach ($k in $allKinds) {
+        foreach ($k in $script:allKinds) {
             Assert-True ($kinds -contains $k) "Get-KeyCodeMapKind must advertise '$k'"
         }
     }
@@ -95,8 +98,8 @@ Describe 'Get-KeyCodeMapKind / Get-KeyCodeMap' {
         # Test.Transport caches $script:PS2ScanCodes = Get-KeyCodeMap -Kind 'PS2-Named'
         # at import and reads that alias for the rest of the process. A copying
         # accessor would silently detach those aliases from the registry.
-        Assert-Equal -Expected 12 -Actual @($allKinds).Count
-        foreach ($k in $allKinds) {
+        Assert-Equal -Expected 12 -Actual @($script:allKinds).Count
+        foreach ($k in $script:allKinds) {
             $a = Get-KeyCodeMap -Kind $k
             $b = Get-KeyCodeMap -Kind $k
             Assert-True ([object]::ReferenceEquals($a, $b)) "'$k' must be returned by reference"
@@ -261,11 +264,11 @@ Describe 'Cross-transport coverage' {
     It 'defines the key names every backend has to understand' {
         # Guard the guard: a $null fixture would make the loops below iterate
         # zero times and the test would pass while asserting nothing.
-        Assert-Equal -Expected 4 -Actual @($namedKinds).Count
-        Assert-Equal -Expected 8 -Actual @($universalKeyName).Count
-        foreach ($kind in $namedKinds) {
+        Assert-Equal -Expected 4 -Actual @($script:namedKinds).Count
+        Assert-Equal -Expected 8 -Actual @($script:universalKeyName).Count
+        foreach ($kind in $script:namedKinds) {
             $map = Get-KeyCodeMap -Kind $kind
-            foreach ($name in $universalKeyName) {
+            foreach ($name in $script:universalKeyName) {
                 Assert-True ($map.ContainsKey($name)) "'$kind' has no entry for the '$name' key"
             }
         }
@@ -279,11 +282,11 @@ Describe 'Cross-transport coverage' {
     It 'defines the control chords every backend has to understand' {
         # Guard the guard: a $null fixture would make the loops below iterate
         # zero times and the test would pass while asserting nothing.
-        Assert-Equal -Expected 4 -Actual @($chordKinds).Count
-        Assert-Equal -Expected 2 -Actual @($universalChordName).Count
-        foreach ($kind in $chordKinds) {
+        Assert-Equal -Expected 4 -Actual @($script:chordKinds).Count
+        Assert-Equal -Expected 2 -Actual @($script:universalChordName).Count
+        foreach ($kind in $script:chordKinds) {
             $map = Get-KeyCodeMap -Kind $kind
-            foreach ($name in $universalChordName) {
+            foreach ($name in $script:universalChordName) {
                 Assert-True ($map.ContainsKey($name)) "'$kind' has no entry for the '$name' chord"
             }
         }
@@ -293,9 +296,9 @@ Describe 'Cross-transport coverage' {
         # code. A chord parked there would be read as a truthy object and
         # sent as one nonsense keycode, so the two families must stay
         # disjoint.
-        foreach ($kind in $namedKinds) {
+        foreach ($kind in $script:namedKinds) {
             $map = Get-KeyCodeMap -Kind $kind
-            foreach ($name in $universalChordName) {
+            foreach ($name in $script:universalChordName) {
                 Assert-True (-not $map.ContainsKey($name)) `
                     "'$kind' must not carry the chord '$name' -- named entries are scalars"
             }
@@ -333,7 +336,7 @@ Describe 'Cross-transport coverage' {
         Assert-Equal -Expected 0x1D   -Actual (Get-KeyCodeMap -Kind 'PS2-Chord')['CtrlU'][0] -Because 'PS/2 Set 1 LCtrl make'
         Assert-Equal -Expected 0xFFE3 -Actual (Get-KeyCodeMap -Kind 'X11-Chord')['CtrlU'][0] -Because 'XK_Control_L'
         Assert-Equal -Expected 59     -Actual (Get-KeyCodeMap -Kind 'UTM-Chord')['CtrlU'][0] -Because 'kVK_Control'
-        foreach ($name in $universalChordName) {
+        foreach ($name in $script:universalChordName) {
             Assert-Equal -Expected 'KEY_LEFTCTRL' -Actual (Get-KeyCodeMap -Kind 'KVM-Chord')[$name][0]
         }
     }
@@ -342,7 +345,7 @@ Describe 'Cross-transport coverage' {
         # is one bit away and would upshift the base key instead of
         # controlling it -- Ctrl-U would type 'U'.
         $map = Get-KeyCodeMap -Kind 'UTM-Chord'
-        foreach ($name in $universalChordName) {
+        foreach ($name in $script:universalChordName) {
             Assert-Equal -Expected 3 -Actual @($map[$name]).Count -Because "UTM chord '$name' is [mod, base, flag]"
             Assert-Equal -Expected 0x00040000 -Actual $map[$name][2] -Because "UTM chord '$name' must set kCGEventFlagMaskControl"
         }
@@ -362,7 +365,7 @@ Describe 'Cross-transport coverage' {
     It 'never hands back a $null code for a character it claims to cover' {
         # Send-TextKvm / Send-TextHyperV test the lookup result for truthiness;
         # a present-but-null entry would be dropped with a confusing warning.
-        foreach ($kind in $charKinds) {
+        foreach ($kind in $script:charKinds) {
             $map = Get-KeyCodeMap -Kind $kind
             foreach ($key in @([string[]]$map.Keys)) {
                 Assert-True ($null -ne $map[$key]) "'$kind' has a null entry for '$key'"
@@ -370,7 +373,7 @@ Describe 'Cross-transport coverage' {
             }
         }
         # Guard the guard: the loops above must actually have visited something.
-        Assert-Equal -Expected 4 -Actual @($charKinds).Count
-        Assert-Equal -Expected 3 -Actual @($codeCharKind).Count
+        Assert-Equal -Expected 4 -Actual @($script:charKinds).Count
+        Assert-Equal -Expected 3 -Actual @($script:codeCharKind).Count
     }
 }

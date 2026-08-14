@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42f4e5f6-a7b8-4c9d-0123-4e5f6a7b8c9d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -428,6 +428,14 @@ try {
     Write-Warning "Host Config CA: could not mint a client cert ($($_.Exception.Message)); the cache VM falls back to its baked NAS credential (dynamic rotation disabled for this VM)."
 }
 
+# --- REGION: dashboard brand identity
+# The Grafana dashboards this VM serves name the enlistment that built it --
+# the same pair the host's status pages carry in their header. Resolved here
+# because the guest is handed built artifacts and never the framework
+# repository, so it has no way to answer this for itself.
+Import-Module (Join-Path $repoRoot 'test/modules/Test.FrameworkSource.psm1') -Force
+$brand = Get-YurunaBrandIdentity -RepoRoot $repoRoot -Config $tc
+
 # Render user-data from the shared base + KVM overlay (host/vmconfig/
 # caching-proxy-service.*). New-CloudInitUserData resolves the SSH-key and
 # password placeholders with literal .Replace(), so regex-special chars
@@ -454,6 +462,8 @@ $userData = New-CloudInitUserData `
         YURUNA_CONFIG_SERVICE_CLIENT_CERT_BASE64_PLACEHOLDER = $configClientCertB64
         YURUNA_CONFIG_SERVICE_CLIENT_KEY_BASE64_PLACEHOLDER  = $configClientKeyB64
         YURUNA_CONFIG_SERVICE_CA_CERT_BASE64_PLACEHOLDER     = $configCaCertB64
+        YURUNA_BRAND_NAME_PLACEHOLDER    = $brand.Name
+        YURUNA_BRAND_VERSION_PLACEHOLDER = $brand.Version
     } `
     -AllowedUnresolved 'AGGREGATOR_BASE_PLACEHOLDER' `
     -Confirm:$false

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42c6a4b0-7182-4394-8ea5-1a2b3c4d5e6f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,6 +27,7 @@
     so the gate is verified without launching a real server.
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.Prelude.psm1') -Force -DisableNameChecking
 
@@ -36,7 +37,9 @@ function Assert-True  { param($Condition, [string]$Because='') if (-not $Conditi
 # File scope, above the first Describe: a Describe body is evaluated during the discovery
 # pass and everything it declares is torn down before the first It runs, so a path
 # declared inside one reaches the assertion as $null.
-$EntryPointDir = Split-Path -Parent $here   # test/ (this test lives in test/modules)
+$script:EntryPointDir = Split-Path -Parent $here   # test/ (this test lives in test/modules)
+
+}
 
 Describe 'Resolve-StatusServiceStart' {
     It 'starts on enabled config and resolves the configured port' {
@@ -211,7 +214,7 @@ Describe 'entry-point Ctrl+C handlers delegate to the shared helper' {
         @{ Entry = 'Invoke-TestSequence.ps1' }
     ) {
         param($Entry)
-        $path = Join-Path $EntryPointDir $Entry
+        $path = Join-Path $script:EntryPointDir $Entry
         Assert-True (Test-Path -LiteralPath $path) "entry point exists: $Entry"
         $src = Get-Content -Raw -LiteralPath $path
         Assert-True ($src -match 'Register-EntryPointCancelHandler') "$Entry must call Register-EntryPointCancelHandler"

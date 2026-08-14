@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.11
+# Version: 2026.08.14
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -50,6 +50,30 @@ Acquire::http::Timeout "30";
 Acquire::https::Timeout "30";
 Acquire::Languages "none";
 EOF
+
+# --- REGION: https://yuruna.link/network#why-host-coordinates-are-re-read-per-use
+# Read the host's coordinates immediately before each use, never once at the
+# top. yuruna-host-locate.timer refreshes /etc/yuruna/host.env every 60s, so the
+# current address is always on disk -- but a script that sources it once holds
+# whatever the address was when it started, and this one runs for minutes on a
+# host whose DHCP lease moves under it. Sourcing per use costs nothing and is
+# the difference between following the host and being stranded by it.
+yuruna_host_env() {
+    [ -r /etc/yuruna/host.env ] || return 1
+    # shellcheck disable=SC1091
+    . /etc/yuruna/host.env
+    [ -n "${YURUNA_STATUS_SERVICE_IP:-}" ] && [ -n "${YURUNA_STATUS_SERVICE_PORT:-}" ]
+}
+
+# Force the resolver rather than waiting for its timer. Worth one call when a
+# fetch has already failed: the address on disk can be up to a refresh interval
+# behind, and that interval is most of the gap between the host moving and this
+# script noticing.
+yuruna_host_relocate() {
+    [ -x /usr/local/lib/yuruna/yuruna-host-locate.sh ] || return 1
+    /usr/local/lib/yuruna/yuruna-host-locate.sh >/dev/null 2>&1 || true
+    yuruna_host_env
+}
 
 # --- REGION: https://yuruna.link/network#caching-proxy-service-ca-cert-rc60-gate
 # CA self-heal: an untrusted SSL-bump (empty CA baked at seed time) would rc=60
@@ -219,12 +243,18 @@ if [ -r /etc/yuruna/host.env ]; then
   # shellcheck disable=SC1091
   . /etc/yuruna/host.env
 fi
-if [ -n "${YURUNA_STATUS_SERVICE_IP:-}" ] && [ -n "${YURUNA_STATUS_SERVICE_PORT:-}" ] && [ ! -d "$REAL_HOME/yuruna" ]; then
+if yuruna_host_env && [ ! -d "$REAL_HOME/yuruna" ]; then
   LIVECHECK_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/livecheck"
   TARBALL_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/yuruna-archive.tar.gz"
   if wget --no-proxy --timeout=2 -qO /dev/null "$LIVECHECK_URL" 2>/dev/null; then
     mkdir -p "$REAL_HOME/yuruna"
-    if wget --no-proxy -qO- "$TARBALL_URL" | tar -xz -C "$REAL_HOME/yuruna"; then
+    # Bounded, unlike the livecheck it follows. The probe proves the host was
+    # answering a moment ago; it says nothing about where the host will be
+    # partway through a multi-megabyte transfer, and wget's defaults would sit
+    # on a stalled one for 900s x 20 tries -- long past the step's own patience,
+    # so the failure arrives as an unexplained timeout instead of a fetch that
+    # said what went wrong.
+    if wget --no-proxy --timeout=30 --tries=2 -qO- "$TARBALL_URL" | tar -xz -C "$REAL_HOME/yuruna"; then
       sudo chown -R "$REAL_USER:$REAL_USER" "$REAL_HOME/yuruna" 2>/dev/null || true
       echo -e "\e[1;32m---- Yuruna framework available at $REAL_HOME/yuruna (early extract). ----\e[0m"
     else
@@ -324,22 +354,45 @@ fi
 : "${FRAMEWORK_URL:=${YURUNA_FRAMEWORK_URL:-}}"
 : "${PROJECT_URL:=${YURUNA_PROJECT_URL:-}}"
 
+# --- REGION: https://yuruna.link/network#why-git-never-prompts-here
+# Belt to the seed's braces. These guests are driven by OCR of a console, so a
+# git credential prompt is a HANG rather than an error: the step spends its whole
+# timeout before anyone learns the clone could not authenticate. Set here as well
+# as in the image because this script runs under sudo and through non-login
+# shells, either of which drops an ambient export -- and because a guest built
+# from an older seed has no such export to drop.
+export GIT_TERMINAL_PROMPT=0
+if [ -x /usr/local/lib/yuruna/git-askpass.sh ]; then
+    export GIT_ASKPASS=/usr/local/lib/yuruna/git-askpass.sh
+fi
+
 if [ ! -d "$REAL_HOME/yuruna" ]; then
   HOST_OK=false
-  if [ -n "${YURUNA_STATUS_SERVICE_IP:-}" ] && [ -n "${YURUNA_STATUS_SERVICE_PORT:-}" ]; then
+  # Two passes, and the second is the point: a host that renumbered between the
+  # coordinates on disk and this moment fails the first pass at the livecheck,
+  # and re-locating turns that into a retry against the address it moved to
+  # rather than a fall-through to a git clone of the public mirror.
+  for host_attempt in 1 2; do
+    if [ "$host_attempt" -eq 2 ]; then
+      yuruna_host_relocate || break
+      echo "yuruna: host coordinates refreshed; retrying the tarball fetch."
+    else
+      yuruna_host_env || break
+    fi
     LIVECHECK_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/livecheck"
     TARBALL_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/yuruna-archive.tar.gz"
     if wget --no-proxy --timeout=2 -qO /dev/null "$LIVECHECK_URL" 2>/dev/null; then
       echo "yuruna: fetching committed tarball from $TARBALL_URL"
       mkdir -p "$REAL_HOME/yuruna"
-      if wget --no-proxy -qO- "$TARBALL_URL" | tar -xz -C "$REAL_HOME/yuruna"; then
+      if wget --no-proxy --timeout=30 --tries=2 -qO- "$TARBALL_URL" | tar -xz -C "$REAL_HOME/yuruna"; then
         HOST_OK=true
+        break
       else
         echo "yuruna: tarball fetch/extract failed - falling back to git clone"
         rm -rf "$REAL_HOME/yuruna"
       fi
     fi
-  fi
+  done
   if [ "$HOST_OK" = "false" ]; then
     if [ -z "$FRAMEWORK_URL" ]; then
       echo "yuruna: repositories.frameworkUrl missing from test.config.yml - cannot clone framework" >&2
@@ -364,23 +417,43 @@ fi
 
 if [ ! -d "$REAL_HOME/yuruna/project" ]; then
   PROJECT_HOST_OK=false
-  if [ -n "${YURUNA_STATUS_SERVICE_IP:-}" ] && [ -n "${YURUNA_STATUS_SERVICE_PORT:-}" ]; then
+  # The same two passes the framework fetch above uses, and for a stronger
+  # reason. Testing that host.env is READABLE and non-empty does not test that
+  # the address in it still answers -- a guest stranded by a renewal has a
+  # perfectly well-formed file naming a host that has moved -- so the liveness
+  # probe is what distinguishes "stale" from "fine", and only a failed probe is
+  # worth re-locating for. Getting this wrong here is not a slow retry: the
+  # fall-through clones a repo that may be private, which on a console-driven
+  # guest is an interactive prompt and the step's entire timeout.
+  for project_attempt in 1 2; do
+    if [ "$project_attempt" -eq 2 ]; then
+      yuruna_host_relocate || break
+      echo "yuruna: host coordinates refreshed; retrying the project tarball fetch."
+    else
+      yuruna_host_env || break
+    fi
+    PROJECT_LIVECHECK_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/livecheck"
     PROJECT_TARBALL_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/yuruna-project-archive.tar.gz"
+    if ! wget --no-proxy --timeout=2 -qO /dev/null "$PROJECT_LIVECHECK_URL" 2>/dev/null; then
+      echo "yuruna: host status service did not answer at ${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}"
+      continue
+    fi
     # On 404 ("project repo not present on host") wget exits non-zero
     # and writes nothing (-q); pipefail propagates that to the if-test
     # so the git-clone fallback runs. The trailing ls -A guards against
     # the rare case of a successful but empty tarball.
     echo "yuruna: trying project tarball at $PROJECT_TARBALL_URL"
     mkdir -p "$REAL_HOME/yuruna/project"
-    if wget --no-proxy --timeout=5 -qO- "$PROJECT_TARBALL_URL" \
+    if wget --no-proxy --timeout=30 --tries=2 -qO- "$PROJECT_TARBALL_URL" \
          | tar -xz -C "$REAL_HOME/yuruna/project" 2>/dev/null \
          && [ -n "$(ls -A "$REAL_HOME/yuruna/project" 2>/dev/null)" ]; then
       PROJECT_HOST_OK=true
+      break
     else
       echo "yuruna: project tarball not served (or empty) - falling back to git clone"
       rm -rf "$REAL_HOME/yuruna/project"
     fi
-  fi
+  done
   if [ "$PROJECT_HOST_OK" = "false" ] && [ -n "$PROJECT_URL" ]; then
     for attempt in 1 2 3; do
       git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone "$PROJECT_URL" "$REAL_HOME/yuruna/project" && break

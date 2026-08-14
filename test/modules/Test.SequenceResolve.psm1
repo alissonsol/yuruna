@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42c7d3a9-5e1b-4f80-9a2c-6d8e3f1b0a47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -353,6 +353,43 @@ function Copy-YamlNode {
     return $Node
 }
 
+function Get-StepLeadAction {
+    <#
+    .SYNOPSIS
+        The action a step actually leads with, reading through nested step lists.
+    .DESCRIPTION
+        A wrapper step (`retry`) does not act itself -- it runs an inner `steps`
+        list -- so the action that reaches the guest first is that list's first
+        step, recursively. Nesting is detected structurally, by the presence of a
+        `steps` key, for the same reason snippet expansion walks it that way: a
+        literal verb-name list silently drifts as verbs are added.
+
+        Callers reason about what a step will do before running it -- whether the
+        VM still needs starting, whether a step is a restore boundary a resume can
+        rewind to -- and a wrapper's own name answers neither question. Rewinding
+        or dispatching to a wrapper is sound precisely because entering it runs
+        that first inner step.
+    .OUTPUTS
+        [string] the leading action name; the step's own action when it wraps
+        nothing (an empty `steps` list is what the retry handler itself fails on,
+        so `retry` is the honest answer there); $null past the nesting bound.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param($Step)
+    $current = $Step
+    # Bounded rather than "until a leaf": sequences are data, and a nesting depth
+    # no author would write is a malformed file, not a run.
+    for ($depth = 0; $depth -lt 8; $depth++) {
+        # A missing 'steps' key yields @($null) -- one element that is not a step
+        # -- so drop nulls before asking whether an inner list exists.
+        $inner = @(@($current.steps) | Where-Object { $null -ne $_ })
+        if ($inner.Count -lt 1) { return [string]$current.action }
+        $current = $inner[0]
+    }
+    return $null
+}
+
 function Test-StepHasSnippet {
     # True when $Steps (or any nested retry.steps) contains a `{snippet: ...}`
     # element. Lets Read-SequenceFile skip the clone-and-expand path entirely for
@@ -568,4 +605,4 @@ function Format-SequenceSearchList {
     return ($Item | ForEach-Object { "    $_" }) -join "`n"
 }
 
-Export-ModuleMember -Function Read-SequenceFile, ConvertTo-NormalizedSequence, Get-ProjectFlatTestSearchDir, Find-ProjectFlatSequenceFile, Get-FlatSequenceCandidate, Resolve-SequencePath, Get-SequenceSearchPath, Expand-SequenceSnippet, Get-SnippetMap, Format-SequenceSearchList
+Export-ModuleMember -Function Read-SequenceFile, ConvertTo-NormalizedSequence, Get-StepLeadAction, Get-ProjectFlatTestSearchDir, Find-ProjectFlatSequenceFile, Get-FlatSequenceCandidate, Resolve-SequencePath, Get-SequenceSearchPath, Expand-SequenceSnippet, Get-SnippetMap, Format-SequenceSearchList

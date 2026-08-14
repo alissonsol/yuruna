@@ -60,8 +60,6 @@ up a test machine.
   banner naming what the harness can actually do on the current host (OCR
   engines, host I/O, and more), and the gate that refuses a cycle needing a
   backend this host has not wired.
-- **[test-runner.md](test-runner.md)** — the daily-driver loop that pulls the
-  repo, re-reads config, refreshes images, and runs cycles forever.
 - **[test-sequences.md](test-sequences.md)** — authoritative reference for every
   action available in a sequence file, the [handler
   contract](test-sequences.md#handler-contract) for the verb registry that
@@ -70,9 +68,13 @@ up a test machine.
   `test/test.config.yml`, which is bootstrapped from a template and stays local.
 - **[test-perf.md](test-perf.md)** — the append-only structured log of every step
   execution, for cross-host and cross-cycle performance analytics.
-- **[runner-outer-loop.md](runner-outer-loop.md)** — the eternal cycle loop that
-  makes the runner resilient, the five things it does every pass, the
-  [heartbeat protocol and out-of-process
+- **[runner-outer-loop.md](runner-outer-loop.md)** — the daily-driver runner,
+  end to end. What to do [once per machine](runner-outer-loop.md#prepare-the-host)
+  before leaving it unattended — test account, host settings, the first
+  interactive run — and the two
+  [startup gates](runner-outer-loop.md#startup-gates) that refuse a degraded
+  loop. Then the eternal cycle loop that makes the runner resilient, the five
+  things it does every pass, the [heartbeat protocol and out-of-process
   watchdog](runner-outer-loop.md#watchdog-and-heartbeat-protocol) that lets it
   survive guest, network, and host-OS failures, and the runner's six-state
   lifecycle machine.
@@ -228,6 +230,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.11
+Last review: 2026.08.14
 
 Back to [Yuruna](../README.md)

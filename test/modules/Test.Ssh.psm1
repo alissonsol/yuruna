@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 422c9a3d-41bb-4e8c-9b64-5f7a1d0c9a12
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -45,6 +45,12 @@ Import-Module (Join-Path $PSScriptRoot 'Test.VMUtility.psm1') -Force -DisableNam
 $script:SshKeyDir  = Join-Path -Path (Split-Path -Parent $PSScriptRoot) -ChildPath 'status' -AdditionalChildPath 'ssh'
 $script:SshKeyPath = Join-Path $script:SshKeyDir "yuruna_ed25519"
 $script:SshPubPath = "$script:SshKeyPath.pub"
+# How long a transport-loss reconnect waits for the guest's sshd to give up on
+# the dead session and SIGHUP what it was running. Sized off the ClientAlive
+# bound the guest seed installs (15s x 4), with margin for the guest to act on
+# it, so the re-run starts against a guest that is no longer running the
+# previous copy.
+$script:TransportReapSeconds = 75
 # Set to $script:SshKeyPath after the first successful Initialize-YurunaSshKey.
 # Get-YurunaSshPrivateKeyPath short-circuits the full re-init (ssh-keygen
 # probe + icacls) when the cached path still resolves to an on-disk file.
@@ -57,6 +63,91 @@ if (-not (Get-Variable -Name 'YurunaGuestSshUserOverrides' -Scope Global -ErrorA
     Set-Variable -Name 'YurunaGuestSshUserOverrides' -Scope Global -Value @{}
 }
 $script:GuestSshUserOverrides = Get-Variable -Name 'YurunaGuestSshUserOverrides' -Scope Global -ValueOnly
+
+# --- REGION: https://yuruna.link/network#why-a-proven-address-is-remembered
+# Addresses that ssh has actually authenticated to, per VM. Global-anchored for
+# the same reason as the user overrides: the harness -Force re-imports this
+# module mid-cycle, and a memo wiped at that moment is a memo that is empty
+# exactly when a renumber is in progress.
+#
+# This is the last word in address discovery, not the first. Every other source
+# is a report about the guest -- the agent's, the lease database's, the kernel
+# neighbour table's -- and each can decline. A proven address is different in
+# kind: ssh completed a key exchange with the guest there. That does not make it
+# current (the guest may have moved since), which is why it is consulted only
+# when every discovery rung has declined, where today the harness dials the bare
+# VM name and fails inside getaddrinfo.
+if (-not (Get-Variable -Name 'YurunaProvenGuestAddress' -Scope Global -ErrorAction SilentlyContinue)) {
+    Set-Variable -Name 'YurunaProvenGuestAddress' -Scope Global -Value @{}
+}
+$script:ProvenGuestAddress = Get-Variable -Name 'YurunaProvenGuestAddress' -Scope Global -ValueOnly
+
+function Set-ProvenGuestAddress {
+<#
+.SYNOPSIS
+Record that ssh authenticated to this guest at this address.
+.PARAMETER VMName
+Guest the address belongs to.
+.PARAMETER Address
+The address the successful handshake used.
+#>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([void])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$Address
+    )
+    if (-not (Test-IpAddress $Address)) { return }
+    if (-not $PSCmdlet.ShouldProcess($VMName, "remember proven address $Address")) { return }
+    $script:ProvenGuestAddress[$VMName] = @{ Address = $Address; AtUtc = (Get-Date).ToUniversalTime() }
+}
+
+function Get-ProvenGuestAddress {
+<#
+.SYNOPSIS
+The last address ssh authenticated to for this guest, if it is recent enough.
+.DESCRIPTION
+Age-bounded on purpose. A memo with no expiry would keep offering an address
+from a guest generation ago -- the VM names here are reused every cycle -- and
+the whole value of the entry is that it was true recently.
+.PARAMETER VMName
+Guest to look up.
+.PARAMETER MaxAgeSeconds
+How old an entry may be and still be offered.
+.OUTPUTS
+System.String, or empty when nothing recent enough is remembered.
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [int]$MaxAgeSeconds = 1800
+    )
+    $entry = $script:ProvenGuestAddress[$VMName]
+    if (-not $entry) { return '' }
+    if (((Get-Date).ToUniversalTime() - $entry.AtUtc).TotalSeconds -gt $MaxAgeSeconds) { return '' }
+    return [string]$entry.Address
+}
+
+function Clear-ProvenGuestAddress {
+<#
+.SYNOPSIS
+Forget the proven address for a guest, or for every guest.
+.DESCRIPTION
+Called where the guest's identity-to-address binding is known to have been
+broken rather than merely suspected -- a snapshot restore, which boots the guest
+again and sends it back for a fresh lease. Suspicion is handled by the age bound
+and by the connect failing; this is for the cases that are certain.
+.PARAMETER VMName
+Guest to forget. Omit to forget all.
+#>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([void])]
+    param([string]$VMName = '')
+    if (-not $PSCmdlet.ShouldProcess(($VMName ? $VMName : 'all guests'), 'forget proven address')) { return }
+    if ($VMName) { $script:ProvenGuestAddress.Remove($VMName) | Out-Null }
+    else { $script:ProvenGuestAddress.Clear() }
+}
 
 function Initialize-YurunaSshKey {
 <#
@@ -580,6 +671,11 @@ System.Boolean. $true if SSH became ready, $false on timeout.
             $resultText = ($stdoutText + $stderrText)
             if ($exit -eq 0 -and $resultText -match "yuruna-ssh-ready") {
                 Write-Debug "SSH ready after $attempts attempt(s): $user@$target"
+                # Bank the address the handshake actually used. Every amisad
+                # sequence follows sshWaitReady immediately with a step that has
+                # to resolve the same guest again, and this is the one moment in
+                # that pair where the answer is known rather than reported.
+                Set-ProvenGuestAddress -VMName $VMName -Address $target
                 return $true
             }
             $lastError = $resultText.Trim()
@@ -701,6 +797,210 @@ System.Boolean. $true if SSH became ready, $false on timeout.
     return $false
 }
 
+function Test-SshTransportLoss {
+<#
+.SYNOPSIS
+$true when an ssh failure is the transport dying rather than the remote command
+exiting non-zero.
+.DESCRIPTION
+ssh reports its OWN faults as exit 255 and passes anything else through as the
+remote command's status, so 255 is the necessary condition. It is not the
+sufficient one: authentication refusal, a rejected host key and an unresolvable
+name are all 255 too, and none of them is worth reconnecting for. The stderr
+text is what separates them, so both halves are required here.
+
+The distinction decides a classification, not just a retry. A dropped transport
+says nothing about whether the remote command succeeded, failed, or is still
+running -- the harness simply stopped watching. Reporting that as the guest
+script's failure sends an operator to read a script that may have been perfectly
+healthy.
+
+Losing the transport mid-command is what a host or guest DHCP renewal onto a
+different address looks like from here, which is why the patterns below cover
+the whole family: the keepalive giving up, the peer resetting, and the route
+disappearing under an established session.
+.PARAMETER ExitCode
+The process exit status of the ssh client.
+.PARAMETER Output
+Combined stdout+stderr of the ssh invocation.
+.OUTPUTS
+System.Boolean
+#>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [int]$ExitCode,
+        [AllowNull()][AllowEmptyString()][string]$Output
+    )
+    if ($ExitCode -ne 255) { return $false }
+    if ([string]::IsNullOrWhiteSpace($Output)) {
+        # 255 with nothing on stderr is the shape of a session torn down after
+        # the banner: an auth or host-key refusal always says which it was.
+        return $true
+    }
+    # Matched case-insensitively against the OpenSSH client's own wording.
+    $transportPattern = @(
+        'Timeout, server .* not responding'
+        'Connection to .* closed by remote host'
+        'Connection closed by remote host'
+        'Connection reset by peer'
+        'Connection timed out'
+        'Broken pipe'
+        'client_loop: send disconnect'
+        'packet_write_wait'
+        'kex_exchange_identification'
+        'No route to host'
+        'Network is unreachable'
+        'Host is down'
+        'Software caused connection abort'
+    )
+    foreach ($pattern in $transportPattern) {
+        if ($Output -match $pattern) { return $true }
+    }
+    return $false
+}
+
+function Get-GuestRunToken {
+<#
+.SYNOPSIS
+Derive the stable run identity for a detached step.
+.DESCRIPTION
+Deterministic, not random, and that is the whole point: the token is what makes
+a reconnect an ATTACH. Two invocations of the same step against the same guest
+must agree on it or the second one starts a second copy of the payload -- so it
+is derived from the coordinates that identify the step (sequence file, step
+number, VM) rather than generated per call.
+
+The readable prefix is for the operator reading /tmp on a guest; the hash suffix
+is what actually distinguishes two steps whose prefixes collide after the
+character class is enforced.
+.OUTPUTS
+System.String, matching ^[A-Za-z0-9._-]+$.
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$SequencePath,
+        [Parameter(Mandatory)][int]$StepNumber,
+        [AllowEmptyString()][string]$VMName = ''
+    )
+    $identity = "$SequencePath|$StepNumber|$VMName"
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $hashHex = [System.BitConverter]::ToString($sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($identity))).Replace('-', '').Substring(0, 12)
+    } finally {
+        $sha.Dispose()
+    }
+    $leaf = if ($SequencePath) { [System.IO.Path]::GetFileNameWithoutExtension($SequencePath) } else { 'seq' }
+    $leaf = ($leaf -replace '[^A-Za-z0-9._-]', '-')
+    if ($leaf.Length -gt 48) { $leaf = $leaf.Substring($leaf.Length - 48) }
+    # A leading dot would make the run directory hidden on the guest, which is
+    # the opposite of what an operator wants from a directory they are meant to
+    # go and read when a step is stuck.
+    $leaf = $leaf.TrimStart('.', '-')
+    if (-not $leaf) { $leaf = 'seq' }
+    return "$leaf.s$StepNumber.$hashHex"
+}
+
+function Get-GuestRunWrapperCommand {
+<#
+.SYNOPSIS
+Wrap a guest command so it runs under the detached start-or-attach supervisor
+(automation/yuruna-run.sh) instead of directly in the ssh session.
+.DESCRIPTION
+The supervisor is staged INLINE, base64 in the command line, rather than being
+fetched or expected in the image. The guests this runs against are restored from
+disk snapshots several times a cycle, so anything that must already be on disk is
+only as current as the oldest snapshot; a supervisor carried in the command is
+always the one that matches this harness.
+
+The payload command is base64'd WHOLE, leading `VAR=value` assignments included.
+Those prefixes carry the fetch-and-execute integrity envelope, so re-quoting them
+would either break the digest check or silently change what it covers -- and
+encoding the whole line makes every quoting hazard in the original command
+disappear at the same time.
+.PARAMETER Token
+Run identity. Stable across reconnects for the same step; that is what makes a
+reconnect an attach rather than a second run.
+.PARAMETER FromLine
+Number of complete output lines the caller already holds. The supervisor replays
+from the next one.
+.PARAMETER BudgetSeconds
+Guest-side backstop after which the supervisor kills the payload's process group.
+The host's own timeout governs the step; this only stops an abandoned run living
+on a guest forever.
+.PARAMETER Command
+The original command line, verbatim.
+.OUTPUTS
+System.String. A single shell command line to hand to ssh.
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$Token,
+        [int]$FromLine = 0,
+        [int]$BudgetSeconds = 3600,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Command
+    )
+    if ($Token -notmatch '^[A-Za-z0-9._-]+$') {
+        throw "Get-GuestRunWrapperCommand: Token '$Token' must match ^[A-Za-z0-9._-]+$ -- it is interpolated into a shell command line."
+    }
+    if (-not $script:RunSupervisorPath) {
+        # test/modules -> test -> repo root -> automation/
+        $script:RunSupervisorPath = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'automation' -AdditionalChildPath 'yuruna-run.sh'
+    }
+    if (-not (Test-Path -LiteralPath $script:RunSupervisorPath -PathType Leaf)) {
+        throw "Get-GuestRunWrapperCommand: the run supervisor is missing at '$script:RunSupervisorPath'."
+    }
+    if (-not $script:RunSupervisorB64) {
+        $supervisorBytes = [System.IO.File]::ReadAllBytes($script:RunSupervisorPath)
+        $script:RunSupervisorB64 = [System.Convert]::ToBase64String($supervisorBytes)
+    }
+    $commandB64 = [System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes($Command))
+    # base64 alphabet only, so single-quoting the two payloads is airtight.
+    # `bash -s --` takes the script on stdin and the arguments after it, which
+    # keeps the supervisor off the guest's filesystem entirely.
+    return ("printf '%s' '{0}' | base64 -d | bash -s -- --token '{1}' --from-line {2} --budget {3} --cmd-b64 '{4}'" -f
+        $script:RunSupervisorB64, $Token, $FromLine, $BudgetSeconds, $commandB64)
+}
+
+function Test-DetachedRunInterrupted {
+<#
+.SYNOPSIS
+$true when a detached step's session ended while its run was still going.
+.DESCRIPTION
+The supervisor announces itself before it streams anything and reports an exit
+line when the payload finishes. A start or attach line with no exit line
+therefore means one thing: the session ended while the run was live. That is a
+lost transport by construction, whatever the ssh client did or did not say --
+and it is the reliable signal, because with LogLevel=ERROR the client's own
+explanation is frequently absent.
+
+Classified on the supervisor's stream alone. Payload bytes arrive on stdout by
+the supervisor's contract, so folding them in buries a one-line client message
+under kilobytes of provisioning output, and the rule that catches a silent 255
+can then never fire at all. Reading the wrong stream here is not a near miss: it
+reports a step whose payload was merely mid-wait as the guest script failing,
+and no reconnect is attempted.
+.PARAMETER ExitCode
+The ssh client's exit status.
+.PARAMETER StdErr
+The ssh invocation's stderr -- the supervisor's own stream, not the payload's.
+.OUTPUTS
+System.Boolean
+#>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [int]$ExitCode,
+        [AllowNull()][AllowEmptyString()][string]$StdErr
+    )
+    if ($ExitCode -eq 0) { return $false }
+    if ([regex]::IsMatch([string]$StdErr, 'YURUNA_RUN_EXIT')) { return $false }
+    if ([regex]::IsMatch([string]$StdErr, 'YURUNA_RUN_(START|ATTACH)')) { return $true }
+    return (Test-SshTransportLoss -ExitCode $ExitCode -Output $StdErr)
+}
+
 function Invoke-GuestSsh {
 <#
 .SYNOPSIS
@@ -731,12 +1031,25 @@ How long to keep re-resolving when the first lookup produced no address. Host
 address discovery rests on caches that age out and daemons that publish late,
 so a lookup that misses now commonly answers a second or two later. 0 disables
 the wait, which is what a caller already inside its own poll loop wants.
+.PARAMETER TransportRetryCount
+Extra attempts to spend when the SSH transport dies mid-command (see
+Test-SshTransportLoss). The address is resolved again before each one, because
+the reason the session died is frequently that one of the two endpoints now
+answers somewhere else. 0, the default, re-runs nothing.
+
+Only a caller whose command is safe to run twice may raise this. A dropped
+transport leaves the remote command's fate unknown -- it may have completed,
+and on a guest that outlives the session it may still be running -- so a retry
+is sound exactly when re-running the command is.
 .OUTPUTS
 System.Collections.Hashtable with keys: success (bool), exitCode (int),
-output (string), addressResolved (bool). addressResolved is $false when every
-probe declined and the bare VM name was dialed as the last route left; the
-caller needs it to tell "the guest command failed" from "the guest was never
-reached", which look identical in exit status alone.
+output (string), addressResolved (bool), transportLost (bool).
+addressResolved is $false when every probe declined and the bare VM name was
+dialed as the last route left; the caller needs it to tell "the guest command
+failed" from "the guest was never reached", which look identical in exit status
+alone. transportLost is $true when the final attempt ended with the session
+dropping rather than the remote command reporting a status -- a different fault,
+with a different owner, that is likewise invisible in the exit status.
 #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -746,7 +1059,9 @@ reached", which look identical in exit status alone.
         [string]$Command,
         [int]$TimeoutSeconds = 900,
         [string]$User,
-        [int]$AddressWaitSeconds = 20
+        [int]$AddressWaitSeconds = 20,
+        [ValidateRange(0, 10)][int]$TransportRetryCount = 0,
+        [string]$DetachToken = ''
     )
     # Not $user: PowerShell variable names are case-insensitive, so that would
     # be the same storage as the $User parameter and read as a self-assignment.
@@ -773,6 +1088,19 @@ reached", which look identical in exit status alone.
             $addressResolved = $true
         }
     }
+    # Every rung declined. Before falling back to the bare name, try the address
+    # ssh last authenticated to for this guest: a renumbering host is exactly
+    # where discovery goes quiet -- the neighbour sweep needs a host prefix the
+    # host is in the middle of changing -- and on this path the alternative is a
+    # getaddrinfo failure that names nothing about the real fault.
+    if (-not $addressResolved) {
+        $proven = Get-ProvenGuestAddress -VMName $VMName
+        if ($proven) {
+            Write-Warning "Invoke-GuestSsh: no host-side probe discovered an address for '$VMName'; trying $proven, where ssh last authenticated to it."
+            $address         = $proven
+            $addressResolved = $true
+        }
+    }
     # Still unresolved: dial the name anyway rather than failing here. On a host
     # whose guests share an L2 segment the name can still be answered by a
     # broadcast responder that this process cannot query directly, so the attempt
@@ -781,79 +1109,284 @@ reached", which look identical in exit status alone.
     if (-not $addressResolved) {
         Write-Warning "Invoke-GuestSsh: no host-side probe discovered an address for '$VMName'; dialing the bare name as the last route left."
     }
-    $target  = "$loginUser@$address"
-    Write-Debug "Invoke-GuestSsh: target=$target command=$Command timeout=${TimeoutSeconds}s"
-
-    # Run ssh via an in-process .NET Process with a hard WaitForExit cap so TimeoutSeconds
-    # bounds TOTAL runtime, not just TCP setup (ssh's ConnectTimeout only guards the
-    # handshake). On timeout the child ssh is killed directly with Process.Kill($true) (whole
-    # process tree): a Start-ThreadJob Stop-Job cannot terminate the native ssh child, so those
-    # processes leaked and accumulated across a run, and a half-dead session kept consuming the
-    # target. This mirrors the bounded-probe technique in Wait-SshReady.
     $cmd = [string]$Command
-    $psi = [System.Diagnostics.ProcessStartInfo]::new()
-    $psi.FileName               = 'ssh'
-    $psi.RedirectStandardOutput = $true
-    $psi.RedirectStandardError  = $true
-    $psi.UseShellExecute        = $false
-    $psi.CreateNoWindow         = $true
-    foreach ($sshArg in @(
-            '-i', $keyPath,
-            '-o', 'BatchMode=yes') +
-            (Get-YurunaSshHostKeyOption) +
-            @('-o', 'ConnectTimeout=10',
-            '-o', 'ServerAliveInterval=30',
-            '-o', 'LogLevel=ERROR',
-            $target, $cmd)) {
-        $psi.ArgumentList.Add($sshArg)
-    }
+    # --- REGION: https://yuruna.link/network#why-a-detached-step-is-bounded-by-a-deadline
+    # Detached mode changes what an attempt costs. A re-run gets the full
+    # TimeoutSeconds because it starts the work over; an attach does not, because
+    # the work has been running the whole time and the step's budget has been
+    # draining with it. Giving each attach a fresh full budget would let a step
+    # declared at 1800s occupy an hour and a half across three reconnects. So the
+    # deadline is computed once here and every attach is bounded by what is left
+    # of it, while the number of reconnects is bounded only by that deadline --
+    # at a change every ten minutes, a fixed small retry count is the thing that
+    # would run out first.
+    $detached      = -not [string]::IsNullOrWhiteSpace($DetachToken)
+    $deadlineUtc   = (Get-Date).ToUniversalTime().AddSeconds($TimeoutSeconds)
+    $maxAttempt    = if ($detached) { [int]::MaxValue } else { 1 + [Math]::Max(0, $TransportRetryCount) }
+    $transportLost = $false
+    $runLost       = $false
+    $fromLine      = 0
+    $accumulated   = [System.Text.StringBuilder]::new()
+    for ($attempt = 1; $attempt -le $maxAttempt; $attempt++) {
+        if ($attempt -gt 1) {
+            if ($detached) {
+                # No reap wait on the attach path. The orphaned command is the
+                # entire point -- it is still running and still producing the
+                # output this attach is going to collect -- so waiting for the
+                # guest to kill it would destroy the work and spend 75s doing it.
+                Write-Warning "Invoke-GuestSsh: SSH transport to '$VMName' dropped; re-attaching to detached run '$DetachToken' from line $fromLine (attempt $attempt)."
+                # A re-attach is the mechanism doing its job, and it is otherwise
+                # invisible: the supervisor keeps its own chatter on stderr so the
+                # transcript stays byte-clean for the pattern matchers, which
+                # means a cycle that survived three renumbers reads exactly like
+                # one that met none. Recorded as an event so the survival is
+                # countable next to the address changes that caused it.
+                if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
+                    Send-CycleEventSafely -EventRecord @{
+                        timestamp   = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                        event       = 'guest_run_reattach'
+                        stack       = 'ssh'
+                        vmName      = [string]$VMName
+                        detachToken = [string]$DetachToken
+                        attempt     = [int]$attempt
+                        fromLine    = [int]$fromLine
+                        address     = [string]$address
+                    }
+                }
+            } else {
+                # Let the guest reap what the dead session left behind before
+                # dialing again. sshd only tears the old session down when its own
+                # keepalive gives up, and until it does, the command from the
+                # previous attempt is still running -- re-running now would put two
+                # copies against the same apt/dpkg locks and turn a recoverable
+                # blip into a new failure. The wait matches the guest-side
+                # ClientAlive bound seeded in host/vmconfig/ubuntu.server.base.user-data,
+                # plus margin. A guest from an image predating that seed reaps on
+                # the kernel's TCP timeout instead, far outside any wait worth
+                # spending here, which is the case -TransportRetryCount 0 exists for.
+                Write-Warning "Invoke-GuestSsh: SSH transport to '$VMName' dropped; waiting ${script:TransportReapSeconds}s for the guest to reap the dead session, then reconnecting (attempt $attempt/$maxAttempt)."
+                Start-Sleep -Seconds $script:TransportReapSeconds
+            }
+            # Resolve again rather than reusing $address: an endpoint that
+            # renumbered is the common reason the previous session died, and
+            # redialing the old address would reproduce the same failure.
+            $reResolved = Get-GuestAddress -VMName $VMName
+            if ($reResolved -and -not ($reResolved -eq $VMName -and -not (Test-IpAddress $reResolved))) {
+                if ($reResolved -ne $address) {
+                    Write-Warning "Invoke-GuestSsh: '$VMName' answers at $reResolved now (was $address); reconnecting there."
+                }
+                $address         = $reResolved
+                $addressResolved = $true
+            }
+        }
+        $remainingSeconds = [int][Math]::Ceiling(($deadlineUtc - (Get-Date).ToUniversalTime()).TotalSeconds)
+        if ($detached -and $attempt -gt 1 -and $remainingSeconds -le 0) {
+            Write-Warning "Invoke-GuestSsh: detached run '$DetachToken' on '$VMName' ran past its ${TimeoutSeconds}s budget while reconnecting."
+            return @{
+                success         = $false
+                exitCode        = -1
+                output          = "$($accumulated.ToString())`nTimed out after ${TimeoutSeconds}s (detached run '$DetachToken'; the guest may still be running it)".TrimStart()
+                addressResolved = $addressResolved
+                transportLost   = $true
+                runLost         = $false
+                detachToken     = $DetachToken
+                linesConsumed   = $fromLine
+            }
+        }
+        if ($detached) {
+            $cmd = Get-GuestRunWrapperCommand -Token $DetachToken -FromLine $fromLine `
+                       -BudgetSeconds $TimeoutSeconds -Command $Command
+        }
+        $attemptTimeout = if ($detached) { [Math]::Max(30, $remainingSeconds) } else { $TimeoutSeconds }
+        $target = "$loginUser@$address"
+        Write-Debug "Invoke-GuestSsh: target=$target command=$Command timeout=${attemptTimeout}s attempt=$attempt detached=$detached fromLine=$fromLine"
 
-    $proc = $null
-    try {
-        $proc = [System.Diagnostics.Process]::Start($psi)
-    } catch {
-        Write-Warning "Invoke-GuestSsh: Process.Start('ssh') threw: $($_.Exception.Message)"
-        return @{ success = $false; exitCode = -1; output = "Process.Start('ssh') failed: $($_.Exception.Message)"; addressResolved = $addressResolved }
-    }
-    # Read both streams asynchronously to avoid the classic full-pipe deadlock; read .Result
-    # only after WaitForExit confirms the streams are closed.
-    $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
-    $stderrTask = $proc.StandardError.ReadToEndAsync()
-    $completed  = $proc.WaitForExit($TimeoutSeconds * 1000)
-    if (-not $completed) {
-        Write-Warning "Invoke-GuestSsh timed out after ${TimeoutSeconds}s: $target"
-        try { $proc.Kill($true) } catch { Write-Verbose "Invoke-GuestSsh Process.Kill failed: $($_.Exception.Message)" }
+        # Run ssh via an in-process .NET Process with a hard WaitForExit cap so TimeoutSeconds
+        # bounds TOTAL runtime, not just TCP setup (ssh's ConnectTimeout only guards the
+        # handshake). On timeout the child ssh is killed directly with Process.Kill($true) (whole
+        # process tree): a Start-ThreadJob Stop-Job cannot terminate the native ssh child, so those
+        # processes leaked and accumulated across a run, and a half-dead session kept consuming the
+        # target. This mirrors the bounded-probe technique in Wait-SshReady.
+        $psi = [System.Diagnostics.ProcessStartInfo]::new()
+        $psi.FileName               = 'ssh'
+        $psi.RedirectStandardOutput = $true
+        $psi.RedirectStandardError  = $true
+        $psi.UseShellExecute        = $false
+        $psi.CreateNoWindow         = $true
+        # ServerAliveInterval/CountMax are the only thing that ends a session
+        # whose peer stopped answering: without application-level keepalives a
+        # half-open connection holds the step until its own timeout, which on a
+        # long provisioning step is most of an hour of a green-looking runner.
+        # The 15s x 4 bound gives a full minute of silence before giving up, far
+        # longer than any hiccup this is not meant to react to, and sshd answers
+        # a keepalive regardless of what the remote command is doing -- so a
+        # busy guest is never mistaken for an absent one. TCPKeepAlive stays on
+        # as the second, kernel-level path to the same verdict.
+        foreach ($sshArg in @(
+                '-i', $keyPath,
+                '-o', 'BatchMode=yes') +
+                (Get-YurunaSshHostKeyOption) +
+                @('-o', 'ConnectTimeout=10',
+                '-o', 'ServerAliveInterval=15',
+                '-o', 'ServerAliveCountMax=4',
+                '-o', 'TCPKeepAlive=yes',
+                '-o', 'LogLevel=ERROR',
+                $target, $cmd)) {
+            $psi.ArgumentList.Add($sshArg)
+        }
+
+        $proc = $null
+        try {
+            $proc = [System.Diagnostics.Process]::Start($psi)
+        } catch {
+            Write-Warning "Invoke-GuestSsh: Process.Start('ssh') threw: $($_.Exception.Message)"
+            return @{ success = $false; exitCode = -1; output = "Process.Start('ssh') failed: $($_.Exception.Message)"; addressResolved = $addressResolved; transportLost = $false }
+        }
+        # Read both streams asynchronously to avoid the classic full-pipe deadlock; read .Result
+        # only after WaitForExit confirms the streams are closed.
+        $stdoutTask = $proc.StandardOutput.ReadToEndAsync()
+        $stderrTask = $proc.StandardError.ReadToEndAsync()
+        $completed  = $proc.WaitForExit($attemptTimeout * 1000)
+        if (-not $completed) {
+            Write-Warning "Invoke-GuestSsh timed out after ${attemptTimeout}s: $target"
+            try { $proc.Kill($true) } catch { Write-Verbose "Invoke-GuestSsh Process.Kill failed: $($_.Exception.Message)" }
+            $proc.Dispose()
+            return @{
+                success         = $false
+                exitCode        = -1
+                output          = "Timed out after ${TimeoutSeconds}s"
+                addressResolved = $addressResolved
+                transportLost   = $false
+            }
+        }
+        $stdoutText = $stdoutTask.Result
+        $stderrText = $stderrTask.Result
+        $exit       = [int]$proc.ExitCode
         $proc.Dispose()
-        return @{
-            success         = $false
-            exitCode        = -1
-            output          = "Timed out after ${TimeoutSeconds}s"
-            addressResolved = $addressResolved
+        $output = ("$stdoutText$stderrText").TrimEnd()
+        # A failure with no address behind it gets its own exit code and says so in
+        # the first line. ssh reports every one of these as 255, the same code it
+        # uses for auth and host-key faults, so the code alone sends a reader toward
+        # the guest. -1 is already the timeout above, hence -2.
+        if (-not $addressResolved -and $exit -ne 0) {
+            $preface = "No host-side probe discovered an address for '$VMName'; the bare VM name was dialed and could not be resolved. This is a host address-discovery failure, not a guest error -- the command never ran."
+            return @{
+                success         = $false
+                exitCode        = -2
+                output          = if ($output) { "$preface`n$output" } else { $preface }
+                addressResolved = $false
+                transportLost   = $false
+                runLost         = $false
+                detachToken     = $DetachToken
+                linesConsumed   = $fromLine
+            }
+        }
+        # Any exit other than 255 came from the far end, which means the session
+        # was established and this address is proven -- whether the command then
+        # succeeded or failed is a separate question and not this one. Banking
+        # only on success would forget the address precisely on the runs that go
+        # on to need it.
+        if ($addressResolved -and $exit -ne 255) { Set-ProvenGuestAddress -VMName $VMName -Address $address }
+        if (-not $detached) {
+            $transportLost = (Test-SshTransportLoss -ExitCode $exit -Output $output)
+            if ($exit -eq 0 -or -not $transportLost) {
+                return @{
+                    success         = ($exit -eq 0)
+                    exitCode        = $exit
+                    output          = $output
+                    addressResolved = $addressResolved
+                    transportLost   = $false
+                    runLost         = $false
+                    detachToken     = ''
+                    linesConsumed   = 0
+                }
+            }
+            continue
+        }
+
+        # --- REGION: https://yuruna.link/network#why-the-supervisor-status-outranks-ssh
+        # Detached accounting. The supervisor keeps stdout to payload bytes and
+        # puts its own markers on stderr, so the two can be told apart here: only
+        # COMPLETE lines of stdout are banked, and the resume offset advances by
+        # exactly those. A partial trailing line is dropped and re-sent by the
+        # next attach, which is what keeps the two ends from drifting.
+        $chunk = [string]$stdoutText
+        if ($chunk) {
+            $lastNewline = $chunk.LastIndexOf("`n")
+            if ($lastNewline -ge 0) {
+                $completeLines = $chunk.Substring(0, $lastNewline + 1)
+                [void]$accumulated.Append($completeLines)
+                $fromLine += ([regex]::Matches($completeLines, "`n")).Count
+            }
+        }
+        # The supervisor's own exit line is the authority on how the PAYLOAD
+        # ended. ssh's exit code describes the session, and the two disagree in
+        # exactly the case that matters: a payload that genuinely exits 255 is
+        # indistinguishable from a dropped transport by exit code alone. When
+        # this marker is present, the question is settled and no reconnect is
+        # owed, whatever ssh reported.
+        $runExitMatch = [regex]::Match([string]$stderrText, 'YURUNA_RUN_EXIT rc=(\d+) lines=(\d+)')
+        if ($runExitMatch.Success) {
+            $payloadRc = [int]$runExitMatch.Groups[1].Value
+            $runLost   = ($payloadRc -eq 250)
+            $finalText = $accumulated.ToString().TrimEnd()
+            if ($runLost) {
+                $finalText = ("The detached run '$DetachToken' on '$VMName' disappeared before it recorded an exit status; the output below is everything it produced.`n$finalText").TrimEnd()
+            }
+            return @{
+                success         = (-not $runLost -and $payloadRc -eq 0)
+                exitCode        = $payloadRc
+                output          = $finalText
+                addressResolved = $addressResolved
+                transportLost   = $false
+                runLost         = $runLost
+                detachToken     = $DetachToken
+                linesConsumed   = [int]$runExitMatch.Groups[2].Value
+            }
+        }
+        # --- REGION: https://yuruna.link/network#why-a-started-run-with-no-exit-is-a-lost-session
+        # No exit marker. The supervisor announces itself before it streams
+        # anything, so a start or attach line with no exit line means the session
+        # ended while the run was still live -- which is a lost transport by
+        # construction, whatever ssh did or did not say about it. That inference
+        # is available only here, and it is worth more than the wording: with
+        # LogLevel=ERROR the client's own explanation is frequently absent, and
+        # relying on it meant a step whose payload was mid-wait was reported as
+        # the guest script failing.
+        #
+        # Only the supervisor's own stream is classified when the marker is
+        # missing too. Payload bytes arrive on stdout by the supervisor's
+        # contract, so merging them in buries a one-line ssh message under
+        # kilobytes of provisioning output -- and the empty-output rule that
+        # catches a silent 255 can then never fire at all.
+        $transportLost = Test-DetachedRunInterrupted -ExitCode $exit -StdErr $stderrText
+        if (-not $transportLost) {
+            return @{
+                success         = $false
+                exitCode        = $exit
+                output          = ("$($accumulated.ToString())`n$stderrText").Trim()
+                addressResolved = $addressResolved
+                transportLost   = $false
+                runLost         = $false
+                detachToken     = $DetachToken
+                linesConsumed   = $fromLine
+            }
         }
     }
-    $stdoutText = $stdoutTask.Result
-    $stderrText = $stderrTask.Result
-    $exit       = [int]$proc.ExitCode
-    $proc.Dispose()
-    $output = ("$stdoutText$stderrText").TrimEnd()
-    # A failure with no address behind it gets its own exit code and says so in
-    # the first line. ssh reports every one of these as 255, the same code it
-    # uses for auth and host-key faults, so the code alone sends a reader toward
-    # the guest. -1 is already the timeout above, hence -2.
-    if (-not $addressResolved -and $exit -ne 0) {
-        $preface = "No host-side probe discovered an address for '$VMName'; the bare VM name was dialed and could not be resolved. This is a host address-discovery failure, not a guest error -- the command never ran."
-        return @{
-            success         = $false
-            exitCode        = -2
-            output          = if ($output) { "$preface`n$output" } else { $preface }
-            addressResolved = $false
-        }
-    }
+    # Non-detached only: every attempt ended with the session dropping. Say so in
+    # the body as well as the flag -- the output ends wherever the pipe broke,
+    # which reads like a guest that stopped mid-task rather than a host that
+    # stopped watching one.
+    $lostPreface = "The SSH transport to '$VMName' dropped $maxAttempt time(s) while the command was running; the guest never reported a status, so the output below stops where the connection broke and says nothing about whether the command succeeded."
     return @{
-        success         = ($exit -eq 0)
+        success         = $false
         exitCode        = $exit
-        output          = $output
+        output          = if ($output) { "$lostPreface`n$output" } else { $lostPreface }
         addressResolved = $addressResolved
+        transportLost   = $true
+        runLost         = $false
+        detachToken     = ''
+        linesConsumed   = 0
     }
 }
 
@@ -1555,4 +2088,5 @@ final observation, in words) and Reachability.
     }
 }
 
-Export-ModuleMember -Function Initialize-YurunaSshKey, Get-YurunaSshPublicKey, Get-YurunaSshPrivateKeyPath, Get-YurunaSshHostKeyOption, Wait-SshReady, Get-SshReadinessFailureCause, Invoke-GuestSsh, Get-GuestSshUser, Set-GuestSshUserOverride, Clear-GuestSshUserOverride, Get-GuestAddress, Wait-GuestIp, Get-ServiceVmObservedState, Get-ServiceVmReadinessVerdict, Format-GuestSshDiagnosticHint, Resolve-GuestDiagnosticAddress, Confirm-ServiceVmAtRecoveredAddress, Wait-YurunaServiceVmDaemon
+Export-ModuleMember -Function Initialize-YurunaSshKey, Get-YurunaSshPublicKey, Get-YurunaSshPrivateKeyPath, Get-YurunaSshHostKeyOption, Wait-SshReady, Get-SshReadinessFailureCause, Test-SshTransportLoss, Test-DetachedRunInterrupted, Get-GuestRunToken, Get-GuestRunWrapperCommand, Invoke-GuestSsh,
+    Set-ProvenGuestAddress, Get-ProvenGuestAddress, Clear-ProvenGuestAddress, Get-GuestSshUser, Set-GuestSshUserOverride, Clear-GuestSshUserOverride, Get-GuestAddress, Wait-GuestIp, Get-ServiceVmObservedState, Get-ServiceVmReadinessVerdict, Format-GuestSshDiagnosticHint, Resolve-GuestDiagnosticAddress, Confirm-ServiceVmAtRecoveredAddress, Wait-YurunaServiceVmDaemon

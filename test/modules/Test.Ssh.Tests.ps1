@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42d3b9c1-7e4a-4f86-9b21-5c0d8a6f1e23
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,11 +28,14 @@
     module state is involved.
 #>
 
+BeforeAll {
 $here       = Split-Path -Parent $PSCommandPath
 $modulePath = Join-Path $here 'Test.Ssh.psm1'
 Import-Module $modulePath -Force -DisableNameChecking -ErrorAction SilentlyContinue
 
 function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
+
+}
 
 Describe 'Get-SshReadinessFailureCause' {
 
@@ -84,5 +87,169 @@ Describe 'Get-SshReadinessFailureCause' {
 
     It 'falls back to handshake_failed for an unrecognized error on a reachable host' {
         Assert-Equal 'handshake_failed' (Get-SshReadinessFailureCause -IpDiscovered $true -LastError 'kex_exchange_identification: read: some novel error')
+    }
+}
+
+Describe 'Test-SshTransportLoss' {
+
+    # ssh reports its OWN faults as 255 and passes anything else through as the
+    # remote command's status. So 255 is necessary and nowhere near sufficient:
+    # an auth refusal, a rejected host key and an unresolvable name are all 255,
+    # and none of them is a dropped transport. Getting this wrong in either
+    # direction is expensive -- calling a guest failure a transport loss hides a
+    # real bug behind a retry, and calling a transport loss a guest failure sends
+    # an operator to read a script that never ran.
+
+    It 'recognises the keepalive giving up on a peer that stopped answering' {
+        Test-SshTransportLoss -ExitCode 255 -Output 'Timeout, server amisad-build-admin@192.168.7.165 not responding.' | Should -BeTrue
+    }
+
+    It 'recognises the session dying mid-command' {
+        foreach ($text in 'client_loop: send disconnect: Broken pipe',
+                          'Connection to 192.168.7.165 closed by remote host.',
+                          'Connection reset by peer',
+                          'packet_write_wait: Connection to 192.168.7.9 port 22: Broken pipe') {
+            Test-SshTransportLoss -ExitCode 255 -Output $text | Should -BeTrue -Because "transport wording: $text"
+        }
+    }
+
+    It 'recognises the route disappearing under an established session' {
+        foreach ($text in 'ssh: connect to host 192.168.7.165 port 22: No route to host',
+                          'ssh: connect to host 192.168.7.165 port 22: Network is unreachable') {
+            Test-SshTransportLoss -ExitCode 255 -Output $text | Should -BeTrue -Because "route wording: $text"
+        }
+    }
+
+    It 'treats a silent 255 as transport loss, since a refusal always says which it was' {
+        Test-SshTransportLoss -ExitCode 255 -Output '' | Should -BeTrue
+    }
+
+    It 'does NOT claim transport loss for an authentication or host-key refusal' {
+        Test-SshTransportLoss -ExitCode 255 -Output 'Permission denied (publickey).' | Should -BeFalse
+        Test-SshTransportLoss -ExitCode 255 -Output 'Host key verification failed.' | Should -BeFalse
+        Test-SshTransportLoss -ExitCode 255 -Output 'ssh: Could not resolve hostname amisad-build: Name or service not known' | Should -BeFalse
+    }
+
+    It 'never claims transport loss for a status the guest actually reported' {
+        # The whole point of the discriminator: these came from the far end.
+        Test-SshTransportLoss -ExitCode 1 -Output 'tool not on PATH after install: cargo' | Should -BeFalse
+        Test-SshTransportLoss -ExitCode 3 -Output 'STASH UNREACHABLE at http://192.168.7.95' | Should -BeFalse
+        Test-SshTransportLoss -ExitCode 0 -Output 'AmisAd build tools installed' | Should -BeFalse
+    }
+}
+
+Describe 'Get-GuestRunToken' {
+
+    # The token is what makes a reconnect an ATTACH rather than a second run, so
+    # two invocations of the same step against the same guest must agree on it.
+    # Determinism is the property under test; the readable prefix is incidental.
+
+    It 'is stable for the same sequence, step and guest' {
+        $a = Get-GuestRunToken -SequencePath '/x/workload.guest.ubuntu.server.24.amisad-core.s003.silence.yml' -StepNumber 3 -VMName 'amisad-core'
+        $b = Get-GuestRunToken -SequencePath '/x/workload.guest.ubuntu.server.24.amisad-core.s003.silence.yml' -StepNumber 3 -VMName 'amisad-core'
+        $a | Should -Be $b
+    }
+
+    It 'separates different steps, guests and sequences' {
+        $base = Get-GuestRunToken -SequencePath '/x/seq.yml' -StepNumber 3 -VMName 'amisad-core'
+        (Get-GuestRunToken -SequencePath '/x/seq.yml'   -StepNumber 4 -VMName 'amisad-core')  | Should -Not -Be $base
+        (Get-GuestRunToken -SequencePath '/x/seq.yml'   -StepNumber 3 -VMName 'amisad-edge-a')| Should -Not -Be $base
+        (Get-GuestRunToken -SequencePath '/x/other.yml' -StepNumber 3 -VMName 'amisad-core')  | Should -Not -Be $base
+    }
+
+    It 'only ever emits characters the guest-side supervisor accepts' {
+        # The supervisor rejects anything outside this class because the token is
+        # interpolated into a shell command line and used as a directory name.
+        $t = Get-GuestRunToken -SequencePath '/x/a b/weird name (1).yml' -StepNumber 12 -VMName 'vm/../etc'
+        $t | Should -Match '^[A-Za-z0-9._-]+$'
+    }
+
+    It 'does not start with a dot, which would hide the run directory on the guest' {
+        $t = Get-GuestRunToken -SequencePath '/x/.hidden.yml' -StepNumber 1 -VMName 'vm'
+        $t | Should -Not -Match '^\.'
+    }
+}
+
+Describe 'The proven-address memo' {
+
+    # The last word in address discovery, and unlike every other source it is
+    # evidence rather than a report: ssh completed a key exchange there. That
+    # does not make it current, which is why it is age-bounded and dropped
+    # outright when a snapshot restore sends the guest back for a fresh lease.
+
+    AfterEach { Clear-ProvenGuestAddress }
+
+    It 'is empty until something has actually been proven' {
+        Clear-ProvenGuestAddress
+        Get-ProvenGuestAddress -VMName 'amisad-core' | Should -BeNullOrEmpty
+    }
+
+    It 'returns the address a handshake used, per guest' {
+        Set-ProvenGuestAddress -VMName 'amisad-core' -Address '192.168.7.140'
+        Get-ProvenGuestAddress -VMName 'amisad-core'   | Should -Be '192.168.7.140'
+        Get-ProvenGuestAddress -VMName 'amisad-edge-a' | Should -BeNullOrEmpty
+    }
+
+    It 'refuses to remember something that is not an address' {
+        Set-ProvenGuestAddress -VMName 'amisad-core' -Address '192.168.7.140'
+        Set-ProvenGuestAddress -VMName 'amisad-core' -Address 'amisad-core'
+        Get-ProvenGuestAddress -VMName 'amisad-core' | Should -Be '192.168.7.140'
+    }
+
+    It 'goes quiet once the entry is older than the caller will accept' {
+        Set-ProvenGuestAddress -VMName 'amisad-core' -Address '192.168.7.140'
+        Get-ProvenGuestAddress -VMName 'amisad-core' -MaxAgeSeconds 0 | Should -BeNullOrEmpty
+    }
+
+    It 'is dropped for one guest without disturbing the others' {
+        Set-ProvenGuestAddress -VMName 'amisad-core'   -Address '192.168.7.140'
+        Set-ProvenGuestAddress -VMName 'amisad-edge-a' -Address '192.168.7.210'
+        Clear-ProvenGuestAddress -VMName 'amisad-core'
+        Get-ProvenGuestAddress -VMName 'amisad-core'   | Should -BeNullOrEmpty
+        Get-ProvenGuestAddress -VMName 'amisad-edge-a' | Should -Be '192.168.7.210'
+    }
+}
+
+Describe 'Test-DetachedRunInterrupted' {
+
+    # A detached step that dies mid-run and a detached step whose payload
+    # genuinely failed look identical in exit status. Getting this wrong in the
+    # quiet direction is what turns a recoverable blip into a lost cycle: no
+    # reconnect is attempted and the guest script is blamed for a session that
+    # ended under it.
+
+    It 'treats a started run with no exit line as an interrupted session' {
+        # The signature seen in practice: the client says nothing useful, and
+        # the only evidence is that the supervisor announced a run it never
+        # finished reporting.
+        Test-DetachedRunInterrupted -ExitCode 255 -StdErr "YURUNA_RUN_START token=seq.s3.abc boot=1a3d6677`nTERM environment variable not set." |
+            Should -BeTrue
+    }
+
+    It 'treats an interrupted re-attach the same way' {
+        Test-DetachedRunInterrupted -ExitCode 255 -StdErr 'YURUNA_RUN_ATTACH token=seq.s3.abc boot=1a3d6677 from=42' |
+            Should -BeTrue
+    }
+
+    It 'does NOT call it interrupted once the run reported its exit' {
+        # The payload's own status is known here, so the session ending
+        # afterwards is not a reason to go back for more.
+        Test-DetachedRunInterrupted -ExitCode 4 -StdErr "YURUNA_RUN_START token=t`nYURUNA_RUN_EXIT rc=4 lines=118" |
+            Should -BeFalse
+    }
+
+    It 'does NOT call a bootstrap failure interrupted, so it is reported rather than retried' {
+        # No supervisor ever ran: no bash, no base64, a refused key. Retrying
+        # would loop against something that cannot succeed.
+        Test-DetachedRunInterrupted -ExitCode 255 -StdErr 'bash: command not found' | Should -BeFalse
+        Test-DetachedRunInterrupted -ExitCode 255 -StdErr 'Permission denied (publickey).' | Should -BeFalse
+    }
+
+    It 'still recognises a transport loss the client did explain' {
+        Test-DetachedRunInterrupted -ExitCode 255 -StdErr 'client_loop: send disconnect: Broken pipe' | Should -BeTrue
+    }
+
+    It 'is never interrupted on success' {
+        Test-DetachedRunInterrupted -ExitCode 0 -StdErr 'YURUNA_RUN_START token=t' | Should -BeFalse
     }
 }

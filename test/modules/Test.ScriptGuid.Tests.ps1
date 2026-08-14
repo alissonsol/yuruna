@@ -36,6 +36,7 @@
     Run: Invoke-Pester -Path test/modules/Test.ScriptGuid.Tests.ps1
 #>
 
+BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
 
@@ -74,31 +75,33 @@ function Get-TrackedPowerShellFile {
 }
 
 $psFiles = Get-TrackedPowerShellFile -RepoRoot $repoRoot
-$records = @($psFiles | ForEach-Object {
+$script:records = @($psFiles | ForEach-Object {
         [pscustomobject]@{ Rel = $_; Guid = (Get-ScriptGuid -Path (Join-Path $repoRoot $_)) }
     })
+
+}
 
 Describe 'script identity -- PSScriptInfo GUIDs' {
 
     It 'finds PowerShell files to check' {
-        Assert-True ($records.Count -gt 0) 'git ls-files returned no .ps1/.psm1/.psd1 -- the guard would pass vacuously'
+        Assert-True ($script:records.Count -gt 0) 'git ls-files returned no .ps1/.psm1/.psd1 -- the guard would pass vacuously'
     }
 
     It 'every PowerShell file declares a GUID' {
-        $missing = @($records | Where-Object { -not $_.Guid } | ForEach-Object { $_.Rel })
+        $missing = @($script:records | Where-Object { -not $_.Guid } | ForEach-Object { $_.Rel })
         Assert-Equal -Expected 0 -Actual $missing.Count `
             -Because "these files carry no PSScriptInfo GUID: $($missing -join ', ')"
     }
 
     It 'every GUID starts with 42' {
-        $bad = @($records | Where-Object { $_.Guid -and $_.Guid -notmatch '^42' } |
+        $bad = @($script:records | Where-Object { $_.Guid -and $_.Guid -notmatch '^42' } |
                 ForEach-Object { "$($_.Rel) [$($_.Guid)]" })
         Assert-Equal -Expected 0 -Actual $bad.Count `
             -Because "these GUIDs are not 42-prefixed (mint one per docs/test-perf.md): $($bad -join '; ')"
     }
 
     It 'no two files share a GUID' {
-        $dupes = @($records | Where-Object { $_.Guid } | Group-Object { $_.Guid.ToLower() } |
+        $dupes = @($script:records | Where-Object { $_.Guid } | Group-Object { $_.Guid.ToLower() } |
                 Where-Object { $_.Count -gt 1 } |
                 ForEach-Object { "$($_.Name) <- $(($_.Group | ForEach-Object { $_.Rel }) -join ' + ')" })
         Assert-Equal -Expected 0 -Actual $dupes.Count `
@@ -106,7 +109,7 @@ Describe 'script identity -- PSScriptInfo GUIDs' {
     }
 
     It 'every GUID is well-formed' {
-        $malformed = @($records | Where-Object { $_.Guid } | Where-Object {
+        $malformed = @($script:records | Where-Object { $_.Guid } | Where-Object {
                 $parsed = [guid]::Empty
                 -not [guid]::TryParse($_.Guid, [ref]$parsed)
             } | ForEach-Object { "$($_.Rel) [$($_.Guid)]" })

@@ -141,7 +141,7 @@ can both do this.
   Azure Resource Groups created; deleting a resource group deletes all
   associated resources. There is a global resource for registry and clusters,
   and each Kubernetes cluster has a corresponding AKS node resource group
-  (see [AKS faq](https://learn.microsoft.com/en-us/azure/aks/faq)) named with
+  (see [AKS FAQ](https://learn.microsoft.com/en-us/azure/aks/faq)) named with
   the suffix `_nodes`.
 - **GCP** — from the [GCP Console](https://console.cloud.google.com/), delete any
   resources previously created.
@@ -222,6 +222,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.11
+Last review: 2026.08.14
 
 Back to [Yuruna](../README.md)

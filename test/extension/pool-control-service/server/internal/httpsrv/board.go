@@ -372,12 +372,19 @@ type boardHost struct {
 	// dashboard's two-way collapse: `mismatch` (wrong token) and `skew` (clock)
 	// need different fixes and must not be shown as the same thing.
 	Control string `json:"control"`
-	Access  string `json:"access"`
-	Pool    string `json:"pool"`
+	// Access is the pool's question -- can this member read the project its
+	// POOL assigned (ok/denied/unreachable) -- from the host's registration
+	// record. The page's repository columns come from each host's own live
+	// answer instead (/api/hosts/facts); this is carried alongside because
+	// denied is an operator's problem and no other column would name it.
+	Access string `json:"access"`
+	Pool   string `json:"pool"`
 	// Discovered marks a host this daemon found by scanning the network rather
 	// than one the aggregator reported. Such a host is monitored, not enrolled:
-	// it belongs to no pool, and its hardware/control columns are blank because
-	// those come from reads the pool does for its members.
+	// it belongs to no pool, and its control and access columns are blank
+	// because both are the pool's reading of a member. What the host says about
+	// itself still fills in -- hardware and its repositories, read from the
+	// address it answered on.
 	Discovered bool `json:"discovered,omitempty"`
 	// Address is where a discovered host answered, and the only identity it has
 	// when its registration record could not be read.

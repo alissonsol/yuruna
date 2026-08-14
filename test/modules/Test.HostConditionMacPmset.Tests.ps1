@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42d7f083-96ba-4c21-8e5d-3a49c7f1e605
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,6 +40,7 @@
     Run: pwsh -NoProfile -File test/modules/Test.HostConditionMacPmset.Tests.ps1
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 $macModulePath = Join-Path $here 'Test.HostCondition.Mac.psm1'
 $macModule = Import-Module $macModulePath -Force -PassThru -DisableNameChecking
@@ -77,9 +78,11 @@ function Get-CompliantGuardBlock {
 
 # A laptop that has never had disablesleep written: macOS does not print the
 # key at all. This is the host the guard exists for.
-$freshLaptop  = Get-CompliantGuardBlock -Header 'Battery Power:' -Omit @('disablesleep')
+$script:freshLaptop  = Get-CompliantGuardBlock -Header 'Battery Power:' -Omit @('disablesleep')
 # Fully compliant, both power blocks.
-$compliant    = (Get-CompliantGuardBlock -Header 'Battery Power:') + (Get-CompliantGuardBlock -Header 'AC Power:')
+$script:compliant    = (Get-CompliantGuardBlock -Header 'Battery Power:') + (Get-CompliantGuardBlock -Header 'AC Power:')
+
+}
 
 Describe 'Get-MacPmsetGuardList' {
     It 'gives every guard a key and a wanted value' {
@@ -108,15 +111,15 @@ Describe 'Get-MacPmsetGuardPending' {
     It 'writes disablesleep on a host that does not list it' {
         # The regression this rule exists for: reading "not listed" as "already
         # 1" left the write undone on exactly the hosts that needed it.
-        Assert-Equal -Expected 'disablesleep' -Actual ((Get-PendingKey -PmsetCustom $freshLaptop) -join ',')
+        Assert-Equal -Expected 'disablesleep' -Actual ((Get-PendingKey -PmsetCustom $script:freshLaptop) -join ',')
     }
     It 'writes disablesleep on a host that drifted back to 0' {
-        $drifted = @(' disablesleep         0') + $freshLaptop
+        $drifted = @(' disablesleep         0') + $script:freshLaptop
         Assert-True ((Get-PendingKey -PmsetCustom $drifted) -contains 'disablesleep') `
             'a listed-but-wrong value is drift and must be re-applied'
     }
     It 'asks for nothing on a fully compliant host' {
-        Assert-Equal -Expected '' -Actual ((Get-PendingKey -PmsetCustom $compliant) -join ',') `
+        Assert-Equal -Expected '' -Actual ((Get-PendingKey -PmsetCustom $script:compliant) -join ',') `
             'a compliant host must not be charged a sudo prompt'
     }
     It 'leaves a key this macOS release no longer surfaces alone' {
@@ -127,7 +130,7 @@ Describe 'Get-MacPmsetGuardPending' {
         Assert-Equal -Expected '' -Actual ((Get-PendingKey -PmsetCustom $renamed) -join ',')
     }
     It 'catches a single guard re-enabled underneath us' {
-        $mdm = @($compliant -replace '^(\s*powernap\s+)0$', '${1}1')
+        $mdm = @($script:compliant -replace '^(\s*powernap\s+)0$', '${1}1')
         Assert-Equal -Expected 'powernap' -Actual ((Get-PendingKey -PmsetCustom $mdm) -join ',')
     }
     It 'catches a value that is wrong in only one power block' {
@@ -146,7 +149,7 @@ Describe 'Get-MacPmsetGuardPending' {
     }
     It 'evaluates a caller-supplied guard set' {
         $custom = @(@{ Key = 'hibernatemode'; Want = 25 })
-        $pending = & $macModule { param($p, $g) Get-MacPmsetGuardPending -PmsetCustom $p -Guard $g } $compliant $custom
+        $pending = & $macModule { param($p, $g) Get-MacPmsetGuardPending -PmsetCustom $p -Guard $g } $script:compliant $custom
         Assert-Equal -Expected 'hibernatemode' -Actual ((@($pending) | ForEach-Object { $_.Key }) -join ',')
     }
 }

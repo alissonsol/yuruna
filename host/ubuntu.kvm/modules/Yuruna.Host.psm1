@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e8f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -49,6 +49,10 @@ $script:PortMapDir     = Join-Path $HOME 'yuruna/portmap'
 # Last neighbour-cache sweep per VM. Module-scoped so a polling caller cannot
 # turn its poll interval into a sweep interval; see Update-GuestNeighborCache.
 $script:NeighborSweepMemo = @{}
+# The last IPv4 prefix this host held. Kept so the neighbour sweep still has a
+# subnet to work with during the seconds between leases, when the live lookup
+# has nothing to report.
+$script:LastKnownHostPrefix = $null
 
 <#
 .SYNOPSIS
@@ -1020,6 +1024,18 @@ function Get-KvmNeighborIp {
     # because the kernel has no address for them; PERMANENT/NOARP are included
     # because a statically configured entry is as good as a probed one.
     $usableState = @('REACHABLE', 'STALE', 'DELAY', 'PROBE', 'PERMANENT', 'NOARP')
+    # --- REGION: https://yuruna.link/network#why-neighbour-entries-are-ranked-not-taken-in-order
+    # A guest that renumbers leaves its OLD address in this table under the same
+    # MAC, and the kernel does not remove it -- it ages to STALE and sits there.
+    # Taking the first matching line therefore returns whichever entry the hash
+    # order happens to yield, which is as likely to be the address the guest has
+    # already left as the one it holds now. Every candidate is collected and
+    # ranked instead: a REACHABLE entry was confirmed by the kernel within the
+    # last few seconds, while STALE means only that it was true at some point.
+    # Ties are broken by a single bounded ping, because two stale entries carry
+    # no information to choose between and asking is cheap.
+    $rank = @{ 'REACHABLE' = 0; 'PERMANENT' = 1; 'NOARP' = 1; 'DELAY' = 2; 'PROBE' = 2; 'STALE' = 3; '' = 4 }
+    $candidate = [System.Collections.Generic.List[object]]::new()
     foreach ($line in @($NeighborLine)) {
         if ($line -notmatch '^\s*(\d+\.\d+\.\d+\.\d+)\s') { continue }
         $ip = $Matches[1]
@@ -1028,9 +1044,21 @@ function Get-KvmNeighborIp {
         if ($Matches[1].ToLowerInvariant() -ne $wantMac) { continue }
         $state = if ($line -match '\b(INCOMPLETE|REACHABLE|STALE|DELAY|PROBE|FAILED|PERMANENT|NOARP)\b') { $Matches[1] } else { '' }
         if ($state -and $usableState -notcontains $state) { continue }
-        return [string]$ip
+        $candidate.Add([pscustomobject]@{ Ip = [string]$ip; State = $state; Rank = $rank[$state] })
     }
-    return $null
+    if ($candidate.Count -eq 0) { return $null }
+    $ordered = @($candidate | Sort-Object -Property Rank)
+    if ($ordered.Count -eq 1 -or $ordered[0].Rank -lt $ordered[1].Rank) {
+        return [string]$ordered[0].Ip
+    }
+    # Two or more entries share the best rank -- necessarily a stale-vs-stale
+    # tie, since the kernel keeps at most one REACHABLE entry per address. Ask
+    # which one answers rather than guessing.
+    foreach ($tied in @($ordered | Where-Object { $_.Rank -eq $ordered[0].Rank })) {
+        & ping -c 1 -W 1 -n $tied.Ip *> $null
+        if ($LASTEXITCODE -eq 0) { return [string]$tied.Ip }
+    }
+    return [string]$ordered[0].Ip
 }
 
 <#
@@ -1071,9 +1099,24 @@ function Update-GuestNeighborCache {
         Write-Verbose "Update-GuestNeighborCache: '$VMName' is '$state', not running; no sweep."
         return $false
     }
+    # --- REGION: https://yuruna.link/network#why-the-sweep-remembers-the-last-known-prefix
+    # A host between leases has no default-route IPv4 for a few seconds, and
+    # Get-HostIpv4Prefix answers with nothing. That window is not a reason to
+    # skip the sweep -- it is the window the sweep exists for, because a host
+    # that just renumbered is exactly when the guest's neighbour entry is stale
+    # and a lookup is about to fail. The subnet does not move when the address
+    # within it does, so the last prefix this host held is still the right place
+    # to look, and remembering it turns "no sweep, no address" into a sweep that
+    # answers.
     $prefix = Get-HostIpv4Prefix
+    if ($prefix) {
+        $script:LastKnownHostPrefix = $prefix
+    } elseif ($script:LastKnownHostPrefix) {
+        $prefix = $script:LastKnownHostPrefix
+        Write-Verbose "Update-GuestNeighborCache: this host has no default-route IPv4 right now; sweeping the last prefix it held ($($prefix.Prefix).0/$($prefix.Length))."
+    }
     if (-not $prefix) {
-        Write-Verbose 'Update-GuestNeighborCache: this host has no default-route IPv4; no sweep.'
+        Write-Verbose 'Update-GuestNeighborCache: this host has no default-route IPv4 and none was seen earlier; no sweep.'
         return $false
     }
     if ($prefix.Length -lt 24) {
@@ -1158,9 +1201,23 @@ function Get-VMIp {
             }
             Select-VirshDomifaddrIp -Line $lines -Mac $s.Mac -HostPrefix $s.HostPrefix
         }
+        # --- REGION: https://yuruna.link/network#why-the-guest-agent-is-asked-first
+        # Agent first, then the caches. The agent asks the guest what addresses
+        # it holds RIGHT NOW, over a virtio-serial channel that carries no IP and
+        # so cannot itself be broken by the renumbering this exists to survive.
+        # The lease database and the ARP/neighbour table are both records of what
+        # was true earlier, and on a guest that has just moved they are confidently
+        # wrong rather than merely empty -- which is worse, because a wrong answer
+        # ends the ladder just as surely as a right one.
+        #
+        # It is a preference and not an authority: the channel needs a
+        # qemu-guest-agent that has finished starting, so it is absent for the
+        # whole boot window after each snapshot restore, which is exactly when a
+        # cycle does most of its address lookups. The cache rungs stay beneath it
+        # for that window, unchanged.
         $rungs = @(
-            @{ Name = 'virsh lease'; Probe = { param($vm, $s) & $s.VirshProbe $vm $s 'lease' } }
             @{ Name = 'virsh agent'; Probe = { param($vm, $s) & $s.VirshProbe $vm $s 'agent' } }
+            @{ Name = 'virsh lease'; Probe = { param($vm, $s) & $s.VirshProbe $vm $s 'lease' } }
             @{ Name = 'virsh arp';   Probe = { param($vm, $s) & $s.VirshProbe $vm $s 'arp' } }
             @{ Name = 'host neighbour table'; Probe = { param($vm, $s) $null = $vm; Get-KvmNeighborIp -Mac $s.Mac } }
             # Last, and the only rung that costs anything: warm the cache, then

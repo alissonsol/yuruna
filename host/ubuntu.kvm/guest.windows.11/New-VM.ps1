@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e99
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -117,8 +117,37 @@ if (-not (Test-Path -LiteralPath $autoTemplate)) {
     Write-Error "Template missing: $autoTemplate"
     exit 1
 }
+# --- REGION: https://yuruna.link/network#defining-yuruna-host-locate-lib
+# Coordinates for the first-logon bootstrap. This guest is attached to
+# libvirt's `default` NAT network (see --network below), so the address it
+# reaches the host at is that network's gateway -- a host-owned constant that
+# no DHCP lease can move. A KVM Windows guest is therefore already immune to
+# the host renumbering that strands bridged guests, and the resolver seeded
+# alongside is inert here by design: it probes, finds the gateway answering,
+# and returns without consulting anything. It earns its place the day this
+# guest is moved onto a bridged network.
+$_kvmRepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
+Import-Module (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.Host.psm1') -Force
+Import-Module (Join-Path $_kvmRepoRoot 'automation/Yuruna.GitHubSource.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $_kvmRepoRoot 'automation/Yuruna.GuestSeed.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $_kvmRepoRoot 'test/modules/Test.Config.psm1') -Global -Force
+$YurunaHostIp = Get-GuestReachableHostIp
+if (-not $YurunaHostIp) { $YurunaHostIp = '' }
+$YurunaHostPort = '8080'
+$_kvmTestConfig = Join-Path $_kvmRepoRoot 'test/test.config.yml'
+if (Test-Path -LiteralPath $_kvmTestConfig) {
+    try {
+        $_kvmTc = Read-TestConfig -Path $_kvmTestConfig
+        if ($_kvmTc -and $_kvmTc.statusService -and $_kvmTc.statusService.port) { $YurunaHostPort = "$($_kvmTc.statusService.port)" }
+    } catch { Write-Verbose "test.config.yml read: $($_.Exception.Message)" }
+}
+$_kvmBootstrapB64 = New-WindowsGuestBootstrap -RepoRoot $_kvmRepoRoot `
+    -StatusServiceIp $YurunaHostIp -StatusServicePort $YurunaHostPort `
+    -GhToken (Get-YurunaGitHubSource -RepoRoot $_kvmRepoRoot).Token
+
 $autoXml = (Get-Content -Raw -LiteralPath $autoTemplate).
-    Replace('COMPUTERNAME_PLACEHOLDER', $VMName)
+    Replace('COMPUTERNAME_PLACEHOLDER', $VMName).
+    Replace('GUEST_BOOTSTRAP_B64_PLACEHOLDER', $_kvmBootstrapB64)
 $autoSrc = Join-Path $vmDir 'autounattend.src'
 New-Item -ItemType Directory -Force -Path $autoSrc | Out-Null
 Set-Content -LiteralPath (Join-Path $autoSrc 'autounattend.xml') -Value $autoXml -Encoding utf8BOM -NoNewline

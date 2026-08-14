@@ -48,6 +48,40 @@
       </select>
       <button class="btn" id="refresh" title="Rescan the stash share for other hosts' stashes">Refresh</button>
     </div>
+    <!-- Lab token prompt. Hidden unless /api/session reports a gate this device
+         has not been through; browsing and creating never need it. The field is
+         plain text, not a password: the code is on a dashboard tile and on the
+         aggregator's open /metrics, and hiding it while typing only makes it
+         harder to copy correctly. -->
+    <section id="login" class="login" hidden>
+      <form id="login-form" class="row">
+        <input id="lab-token" type="text" maxlength="6" size="8"
+               autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"
+               placeholder="Lab token" aria-label="Six-character lab token from the dashboard">
+        <button type="submit" class="btn primary">Unlock actions</button>
+        <span id="login-error" class="muted"></span>
+      </form>
+      <p class="muted">
+        The 6-character code on the Yuruna hosts dashboard's <em>Lab token</em>
+        tile; upper or lower case both work. Opening this page from that
+        dashboard unlocks it without the code. Needed only to delete.
+      </p>
+      <!-- The refusal an operator cannot act on without being told what it
+           means: the dashboard checks the code, so a code that "could not be
+           checked" is a statement about the dashboard, not about the code. Said
+           here rather than left to the moment of failure, because the note above
+           the table tells them to type a code that cannot work in that state. -->
+      <p class="muted">
+        If unlocking answers that the code <em>could not be checked</em>, the
+        code is not the problem — the pool aggregator that checks it is
+        unreachable, and you cannot unlock until it is back.
+      </p>
+    </section>
+    <p id="gate-unconfigured" class="muted" hidden>
+      No pool aggregator is configured, so no Lab token can be checked and
+      nothing here can be deleted. Set <code>--aggregator-url</code> on the
+      daemon to enable it.
+    </p>
     <div id="msg"></div>
     <!-- Kept apart from #msg, which every load clears and every failure
          replaces: this note states a standing condition of the page, not the
@@ -59,11 +93,25 @@
     </div>
     <div class="table-wrap">
     <table class="stashes">
+      <!-- Sortable headers. Each is a real <button>: sorting is a control, so it
+           has to be reachable by keyboard and announced as one, which a click
+           handler on a <th> would not be. aria-sort on the cell is both what a
+           screen reader reads and what draws the caret in CSS, so the script
+           sets one attribute per column and never touches a glyph. Created
+           starts descending here to match the order the daemon serves before
+           any column has been clicked. -->
       <thead>
         <tr>
           <th class="pick"><label class="pick-all"><input type="checkbox" id="pick-all" disabled><span>All</span></label></th>
-          <th></th><th>ID</th><th>Name</th><th>Host</th><th>User</th>
-          <th class="num">Size</th><th>Created</th><th>Status</th><th></th>
+          <th id="th-type" aria-sort="none"><button type="button" class="sort" id="sort-type">Type</button></th>
+          <th id="th-id" aria-sort="none"><button type="button" class="sort" id="sort-id">ID</button></th>
+          <th id="th-name" aria-sort="none"><button type="button" class="sort" id="sort-name">Name</button></th>
+          <th id="th-host" aria-sort="none"><button type="button" class="sort" id="sort-host">Host</button></th>
+          <th id="th-user" aria-sort="none"><button type="button" class="sort" id="sort-user">User</button></th>
+          <th id="th-size" class="num" aria-sort="none"><button type="button" class="sort" id="sort-size">Size</button></th>
+          <th id="th-created" aria-sort="descending"><button type="button" class="sort" id="sort-created">Created</button></th>
+          <th id="th-status" aria-sort="none"><button type="button" class="sort" id="sort-status">Status</button></th>
+          <th></th>
         </tr>
       </thead>
       <tbody id="rows"></tbody>

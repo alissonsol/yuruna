@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42d4f1a7-6c83-4b29-9e05-2a7b8c1d3e60
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,6 +26,7 @@
     Throw-based assertions (OS-bundled Pester 3.4 / Pester 5+).
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.FailureTaxonomy.psm1') -Force -DisableNameChecking -Global -ErrorAction SilentlyContinue
 Import-Module (Join-Path $here 'Test.EventSchema.psm1')     -Force -DisableNameChecking -Global -ErrorAction SilentlyContinue
@@ -34,6 +35,8 @@ Import-Module (Join-Path $here 'Test.SequenceAction.psm1')  -Force -DisableNameC
 function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
 function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
 function Assert-False { param($Condition, [string]$Because='') if ($Condition) { throw "Expected false. $Because" } }
+
+}
 
 Describe 'Test.FailureTaxonomy canonical arrays' {
     It 'returns the FailureClass values (includes the infra classes) and Severity values' {

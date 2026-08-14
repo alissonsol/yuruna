@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42d5e6f7-a8b9-4c01-9d23-ef4a5b6c7d82
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,6 +32,7 @@
     Pester 4.10.1.
 #>
 
+BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
 $autoDir  = Join-Path $repoRoot 'automation'
@@ -79,30 +80,32 @@ function Get-EvictionGetModule {
 # scope is still on the chain when an It executes. The per-entrypoint AST is keyed by file
 # name and the key is handed to each It as test-case data, since the discovery-time loop
 # variable is likewise gone by then.
-$helperAst     = Get-FileAst (Join-Path $autoDir 'Yuruna.LogLevel.psm1')
+$script:helperAst     = Get-FileAst (Join-Path $autoDir 'Yuruna.LogLevel.psm1')
 $entrypointAst = @{}
 foreach ($entrypoint in $entrypoints) {
     $entrypointAst[$entrypoint] = Get-FileAst (Join-Path $autoDir $entrypoint)
 }
 
+}
+
 Describe 'Deployment entrypoints delegate hardened path resolution and scope module eviction' {
     Context 'Resolve-YurunaRootSet helper (automation/Yuruna.LogLevel.psm1)' {
         It 'resolves the project root with -LiteralPath (not -Path)' {
-            $c = Get-ResolvePathTargeting -Ast $helperAst -TargetVar 'ProjectRoot'
+            $c = Get-ResolvePathTargeting -Ast $script:helperAst -TargetVar 'ProjectRoot'
             $c | Should -Not -BeNullOrEmpty
             $c.Extent.Text | Should -Match '-LiteralPath'
             $c.Extent.Text | Should -Not -Match '-Path\s+\$ProjectRoot'
         }
         It 'resolves the config root with -LiteralPath (not -Path)' {
-            $c = Get-ResolvePathTargeting -Ast $helperAst -TargetVar 'configRelative'
+            $c = Get-ResolvePathTargeting -Ast $script:helperAst -TargetVar 'configRelative'
             $c | Should -Not -BeNullOrEmpty
             $c.Extent.Text | Should -Match '-LiteralPath'
         }
         It 'validates the project resolution resolves to exactly one path' {
-            (Test-HasCountNeOne -Ast $helperAst -ResolvedVar 'resolvedRoot') | Should -BeTrue
+            (Test-HasCountNeOne -Ast $script:helperAst -ResolvedVar 'resolvedRoot') | Should -BeTrue
         }
         It 'validates the config resolution resolves to exactly one path' {
-            (Test-HasCountNeOne -Ast $helperAst -ResolvedVar 'configRoot') | Should -BeTrue
+            (Test-HasCountNeOne -Ast $script:helperAst -ResolvedVar 'configRoot') | Should -BeTrue
         }
     }
 

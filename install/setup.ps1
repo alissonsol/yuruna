@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 426d4f21-8a35-49be-b7e0-3d18f52a9c6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1706,7 +1706,7 @@ function Test-NetworkSubnetConnectivity {
     [CmdletBinding()]
     [OutputType([bool])]
     param(
-        [string]$DocumentationUrl = 'https://yuruna.link/docs/network#local-Subnet-Connectivity'
+        [string]$DocumentationUrl = 'https://yuruna.link/network#local-subnet-connectivity'
     )
 
     Write-SetupDetail 'Checking machine network subnet connectivity...'
@@ -1714,7 +1714,12 @@ function Test-NetworkSubnetConnectivity {
 
     if ($IsLinux) {
         if (Get-Command ufw -ErrorAction SilentlyContinue) {
-            $ufwStatus = & sudo ufw status 2>$null
+            # `ufw status` needs root, and sudo reads its password from /dev/tty
+            # rather than stdin -- a bare call here waits forever inside a child
+            # whose console the parent has taken over. -n turns a cold timestamp
+            # into a non-zero exit, and the guard below then skips the check the
+            # same way a host without ufw does.
+            $ufwStatus = & sudo -n ufw status 2>$null
             if ($LASTEXITCODE -eq 0 -and $ufwStatus -match 'Status:\s*active') {
                 # Look for outbound DENY/REJECT rules targeting /24 subnets
                 $denyRules = @($ufwStatus | Where-Object { $_ -match '\bDENY OUT\b|\bREJECT OUT\b' })

@@ -10,7 +10,6 @@
 package httpsrv
 
 import (
-	"context"
 	"log"
 	"os"
 	"path/filepath"
@@ -62,21 +61,11 @@ func NewPoolIndex(stashRoot, localHostID string, windowDays int, refresh time.Du
 	return &PoolIndex{stashRoot: stashRoot, localHostID: localHostID, windowDays: windowDays, refreshInterval: refresh}
 }
 
-// RunRefresher does an initial scan then refreshes on every tick until ctx
-// is canceled. Run it in its own goroutine.
-func (p *PoolIndex) RunRefresher(ctx context.Context) {
-	p.Refresh()
-	t := time.NewTicker(p.refreshInterval)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-			p.Refresh()
-		}
-	}
-}
+// RefreshInterval is the cadence the caller drives Refresh on. Exported so the
+// server can run the rescan and the index reconcile off one ticker
+// (reconcile.go): both read the same mount, and probing it twice a period to
+// learn the same thing twice buys nothing.
+func (p *PoolIndex) RefreshInterval() time.Duration { return p.refreshInterval }
 
 // windowCutoffUTC is midnight UTC windowDays ago — the oldest day the cache
 // holds.
@@ -437,7 +426,115 @@ func (p *PoolIndex) toBeforeWindow(to time.Time) bool {
 	return !to.IsZero() && to.Before(p.windowCutoffUTC())
 }
 
-// sortViewsDesc orders views newest-first (the list/recent ordering, §4.1).
-func sortViewsDesc(v []StashView) {
-	sort.SliceStable(v, func(i, j int) bool { return v[i].CreatedAt.After(v[j].CreatedAt) })
+// The columns the list can be ordered by, named as the UI's `sort` query value.
+// Sorting happens HERE, over the merged local+remote set, and not in the
+// browser: the list is paged, so a browser could only order the rows it has
+// been given, and "smallest first" over one page of a larger corpus is an
+// answer to a question nobody asked.
+const (
+	sortCreated = "created"
+	sortID      = "id"
+	sortName    = "name"
+	sortHost    = "host"
+	sortUser    = "user"
+	sortSize    = "size"
+	sortStatus  = "status"
+	sortType    = "type"
+)
+
+// sortColumn normalizes a requested column, falling back to the newest-first
+// default for anything unrecognized. A stale bookmark or a hand-typed parameter
+// renders a list rather than an error -- ordering is a view preference, and
+// there is no wrong answer worth a 400.
+func sortColumn(col string) string {
+	switch col {
+	case sortID, sortName, sortHost, sortUser, sortSize, sortStatus, sortType:
+		return col
+	default:
+		return sortCreated
+	}
+}
+
+// sortViews orders views by one column. Ascending when asc; the default view
+// (newest first) is sortCreated descending (§4.1).
+//
+// Every ordering is TOTAL, not merely sorted: ties break on created-then-id, in
+// a fixed direction, so two stashes of the same size (or the same status, which
+// most of them share) hold one order across requests. Paging is offset-based
+// over a freshly sorted set each time, so an order that could shuffle equal
+// rows between two requests would let "Load more" skip a stash or serve one
+// twice -- the tiebreak is what makes the window mean anything.
+func sortViews(v []StashView, col string, asc bool) {
+	cmp := viewComparator(col)
+	sort.SliceStable(v, func(i, j int) bool {
+		if c := cmp(&v[i], &v[j]); c != 0 {
+			if asc {
+				return c < 0
+			}
+			return c > 0
+		}
+		return tiebreakViews(&v[i], &v[j]) < 0
+	})
+}
+
+// viewComparator returns the three-way comparison for one column.
+func viewComparator(col string) func(a, b *StashView) int {
+	switch col {
+	case sortID:
+		return func(a, b *StashView) int { return cmpText(a.ID, b.ID) }
+	case sortName:
+		return func(a, b *StashView) int { return cmpText(a.OriginalFilename, b.OriginalFilename) }
+	case sortHost:
+		return func(a, b *StashView) int { return cmpText(a.HostID, b.HostID) }
+	case sortUser:
+		return func(a, b *StashView) int { return cmpText(a.Username, b.Username) }
+	case sortSize:
+		return func(a, b *StashView) int { return cmpInt64(a.SizeBytes, b.SizeBytes) }
+	case sortStatus:
+		return func(a, b *StashView) int { return cmpText(a.Status, b.Status) }
+	case sortType:
+		// The cell shows an icon, so ordering by the class behind it is what
+		// makes same-looking rows gather -- which is the whole point of sorting
+		// a column whose values cannot be read as words.
+		return func(a, b *StashView) int { return cmpText(a.ContentClass, b.ContentClass) }
+	default:
+		return func(a, b *StashView) int { return cmpTime(a.CreatedAt, b.CreatedAt) }
+	}
+}
+
+// tiebreakViews is the fixed order equal rows fall back to: newest first, then
+// id. Never reversed with the column -- reversing the tiebreak too would make a
+// direction flip reshuffle rows the operator did not sort on.
+func tiebreakViews(a, b *StashView) int {
+	if c := cmpTime(a.CreatedAt, b.CreatedAt); c != 0 {
+		return -c // newest first
+	}
+	return cmpText(a.ID, b.ID)
+}
+
+// cmpText compares case-insensitively, so a capitalized filename sorts where a
+// reader expects rather than ahead of every lowercase one. Equal-ignoring-case
+// values fall through to the tiebreak, keeping the order total.
+func cmpText(a, b string) int {
+	return strings.Compare(strings.ToLower(a), strings.ToLower(b))
+}
+
+func cmpInt64(a, b int64) int {
+	switch {
+	case a < b:
+		return -1
+	case a > b:
+		return 1
+	}
+	return 0
+}
+
+func cmpTime(a, b time.Time) int {
+	switch {
+	case a.Before(b):
+		return -1
+	case a.After(b):
+		return 1
+	}
+	return 0
 }

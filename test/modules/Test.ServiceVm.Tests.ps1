@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42f1c60d-4b28-4d97-a3e5-90b6d2417fac
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,13 +29,27 @@
     a standalone host legitimately runs no stash service.
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
-$TestRoot = Split-Path -Parent $here
+$script:TestRoot = Split-Path -Parent $here
+# The no-host-driver cases below assert what a caller sees when the driver
+# failed to load, so "no driver resident" is a precondition this file has to
+# establish rather than inherit. The suite shares one runspace and a host
+# driver stays loaded once any file imports one, which would otherwise let the
+# sweep find a contract and answer something other than no-host-driver.
+Get-Module -Name 'Yuruna.Host' -All | Remove-Module -Force -ErrorAction SilentlyContinue
+# A roster row names its start script, not a path to it: the service lifecycle
+# scripts all live in test/service/, so the folder is the consumer's to supply
+# (Invoke-PoolWorkerServiceTeardown composes the matching stop path the same
+# way). Resolving it here keeps that convention asserted rather than assumed.
+$script:ServiceDir = Join-Path $script:TestRoot 'service'
 Import-Module (Join-Path $here 'Test.ServiceVm.psm1') -Force -DisableNameChecking
 
 function Assert-Equal { param($Expected, $Actual, [string]$Because = '') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
 function Assert-True  { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
 function Assert-False { param($Condition, [string]$Because = '') if ($Condition) { throw "Expected false. $Because" } }
+
+}
 
 Describe 'Get-YurunaServiceVmRoster' {
     It 'lists the four service VMs' {
@@ -49,7 +63,7 @@ Describe 'Get-YurunaServiceVmRoster' {
         # The roster is only useful if its StartScript is the real escalation
         # path; a typo here would surface as advice pointing at nothing.
         foreach ($svc in @(Get-YurunaServiceVmRoster)) {
-            Assert-True (Test-Path -LiteralPath (Join-Path $TestRoot $svc.StartScript)) "$($svc.StartScript) exists"
+            Assert-True (Test-Path -LiteralPath (Join-Path $script:ServiceDir $svc.StartScript)) "$($svc.StartScript) exists"
         }
     }
     It 'agrees with each start script''s own default VM name' {
@@ -57,7 +71,7 @@ Describe 'Get-YurunaServiceVmRoster' {
         # ever drift, the sweep starts a VM nobody else is looking for -- so the
         # agreement is asserted rather than assumed.
         foreach ($svc in @(Get-YurunaServiceVmRoster)) {
-            $body = Get-Content -Raw -LiteralPath (Join-Path $TestRoot $svc.StartScript)
+            $body = Get-Content -Raw -LiteralPath (Join-Path $script:ServiceDir $svc.StartScript)
             Assert-True ($body -match [regex]::Escape($svc.VMName)) "$($svc.StartScript) references '$($svc.VMName)'"
         }
     }

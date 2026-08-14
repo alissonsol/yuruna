@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42d90c17-58b4-4a3e-b6f1-9c2e70a4d835
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,6 +37,7 @@
     Run: pwsh -NoProfile -File test/modules/Test.DashboardAlias.Tests.ps1
 #>
 
+BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = Split-Path -Parent (Split-Path -Parent $here)
 $setupPs1 = Join-Path $repoRoot 'install/setup.ps1'
@@ -50,7 +51,7 @@ function Assert-NoFinding {
 
 # File scope, above the first Describe: a Describe body is evaluated during
 # discovery and its variables are gone before any It runs.
-$SetupSource = Get-Content -Raw -LiteralPath $setupPs1
+$script:SetupSource = Get-Content -Raw -LiteralPath $setupPs1
 $parseErrors = $null
 $setupAst = [System.Management.Automation.Language.Parser]::ParseFile($setupPs1, [ref]$null, [ref]$parseErrors)
 if ($parseErrors) { throw "Parse errors in ${setupPs1}: $($parseErrors[0].Message)" }
@@ -71,6 +72,8 @@ function Get-HintLine {
     return @($out | ForEach-Object { [string]$_ })
 }
 function Write-SetupMessage { param([Parameter(Position = 0)][AllowEmptyString()][string]$Message = '') Write-Information $Message }
+
+}
 
 Describe 'the dashboard alias is only offered once it resolves' {
 
@@ -151,11 +154,11 @@ Describe 'the dashboard URL setup prints' {
 Describe 'setup.ps1 publishes the alias where the proxy address is settled' {
 
     It 'names the alias once, and uses that one name everywhere' {
-        Assert-True ($SetupSource -match "\`$Script:DashboardAliasName\s*=\s*'yuruna-dash'") `
+        Assert-True ($script:SetupSource -match "\`$Script:DashboardAliasName\s*=\s*'yuruna-dash'") `
             'the alias name must be defined once at script scope'
         # Anything that hard-codes the string again can drift from the published
         # name, and the failure is a URL that resolves nowhere.
-        $literals = [regex]::Matches($SetupSource, "'yuruna-dash'").Count
+        $literals = [regex]::Matches($script:SetupSource, "'yuruna-dash'").Count
         Assert-Equal -Expected 1 -Actual $literals `
             -Because 'the name belongs in one place; every other use reads $Script:DashboardAliasName'
     }
@@ -163,15 +166,15 @@ Describe 'setup.ps1 publishes the alias where the proxy address is settled' {
     It 'writes it only on a standalone run' {
         # A lab beacon's proxy is shared, and the other machines reach it through
         # vmStart.cachingProxyIp rather than a name each would have to publish.
-        Assert-True ($SetupSource -match '(?s)if \(-not \$isLab\) \{\s*\r?\n\s*\[void\]\(Invoke-SetupStep -Name "Point the \$Script:DashboardAliasName alias') `
+        Assert-True ($script:SetupSource -match '(?s)if \(-not \$isLab\) \{\s*\r?\n\s*\[void\]\(Invoke-SetupStep -Name "Point the \$Script:DashboardAliasName alias') `
             'the alias step must be gated on a standalone run'
     }
 
     It 'writes it from the same proxy address the config key is set from' {
         # One freshly-read proxy state behind both, so the hosts entry and
         # vmStart.cachingProxyIp cannot come to disagree about where the proxy is.
-        $configAt = $SetupSource.IndexOf('cachingProxyIp: $proxyIp')
-        $aliasAt  = $SetupSource.IndexOf('Set-YurunaHostAlias -RepoRoot $RepoRoot -Name @($Script:DashboardAliasName) -IPAddress $proxyIp')
+        $configAt = $script:SetupSource.IndexOf('cachingProxyIp: $proxyIp')
+        $aliasAt  = $script:SetupSource.IndexOf('Set-YurunaHostAlias -RepoRoot $RepoRoot -Name @($Script:DashboardAliasName) -IPAddress $proxyIp')
         Assert-True ($configAt -gt 0) 'the cachingProxyIp write must still exist'
         Assert-True ($aliasAt -gt 0) 'the alias must be written from $proxyIp'
         Assert-True ($aliasAt -gt $configAt) `
@@ -181,7 +184,7 @@ Describe 'setup.ps1 publishes the alias where the proxy address is settled' {
     It 'reuses the shared elevated alias writer rather than editing the hosts file itself' {
         # The hosts file is root-owned on macOS and Linux and needs elevation on
         # Windows; a second copy of that dance is a second thing to get wrong.
-        Assert-True ($SetupSource -match 'Set-YurunaHostAlias') 'the alias must go through the shared writer'
+        Assert-True ($script:SetupSource -match 'Set-YurunaHostAlias') 'the alias must go through the shared writer'
         $module = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'test/modules/Test.LocalLabStorage.psm1')
         Assert-True ($module -match 'function Set-YurunaHostAlias') 'Set-YurunaHostAlias must exist in the module'
         Assert-True ($module -match 'Set-YurunaHostAlias,') 'Set-YurunaHostAlias must be exported'

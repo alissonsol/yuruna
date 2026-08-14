@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456709
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -792,19 +792,8 @@ if (Test-Path $VaultPath) {
 }
 
 # -- Section 9b: Authentication users mapping (users.yml) --------------------
-#
-# users.yml maps logical (sequence-level) usernames onto corporate
-# identities (AD/Entra/...) plus the vault keys that hold the
-# corresponding passwords. Bootstrap-from-template runs on first cycle,
-# so a fresh checkout has a runtime file pre-seeded with the four
-# bundled logical users + the three service-VM administrators, all with
-# empty corporate fields (local-only behavior).
-#
-# Strict-mode (default) blocks the cycle when an active sequence
-# references a logical username that's missing from users.yml, when
-# corporate fields are half-populated (sam set without domain etc.),
-# or when a populated vaultKey doesn't exist in vault.yml. The dev
-# path therefore exercises the production AD-join path every cycle.
+# users.yml model + strict-mode rules:
+# docs/test-config.md#usersyml--authentication-users-mapping
 
 Write-Section "Authentication users mapping (users.yml)"
 

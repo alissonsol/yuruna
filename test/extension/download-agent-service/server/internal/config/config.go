@@ -22,8 +22,12 @@ const (
 	// DefaultHTTPAddress is the UI/API listen address (empty disables the server).
 	DefaultHTTPAddress = "0.0.0.0:80"
 
-	// DefaultPresenceInterval is the re-announce cadence for the beacon.
-	DefaultPresenceInterval = 15 * time.Minute
+	// DefaultPresenceInterval is the re-announce cadence for the beacon. Kept
+	// shorter than the aggregator's extension health grace: re-announcing is
+	// how a renumbered service tells the pool its new address, so a cadence
+	// slower than the grace leaves the area unresolvable between the moment the
+	// old address is refused and the next announce.
+	DefaultPresenceInterval = 2 * time.Minute
 
 	// MaxRequestBytes caps mutating request bodies.
 	MaxRequestBytes = 1 << 20
@@ -54,6 +58,13 @@ const (
 	// StagingDirName is the agent-private temp area inside each image
 	// directory. Dot-prefixed so pool walkers skip it.
 	StagingDirName = ".staging"
+
+	// ManualDirName is the drop folder inside each image directory, holding one
+	// subfolder per arch/variant, where an operator copies an artifact the agent
+	// could not fetch itself. It is the one directory in the pool a human is
+	// meant to find and write into, which is why it is NOT dot-prefixed: it has
+	// to be visible when the share is opened in a file manager.
+	ManualDirName = "manual"
 
 	// LeaseFileName is the single-writer lease, at the images root.
 	LeaseFileName = ".agent-lease.json"

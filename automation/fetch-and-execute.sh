@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.11
+# Version: 2026.08.14
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 
@@ -71,6 +71,36 @@ resolve_fetch_source() {
         FETCH_SOURCE='github'
         return
     fi
+    # --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-host-address-mobility
+    # The coordinates in host.env were written when this VM was provisioned.
+    # A host that renumbers under DHCP -- the norm wherever the site router
+    # is the DHCP server and hands out short, non-sticky leases -- leaves
+    # every guest it provisioned aimed at an address nobody answers, and the
+    # GitHub leg below cannot stand in for the host when the framework
+    # repository is private.
+    #
+    # yuruna-host-locate probes the coordinate this guest already holds and
+    # consults the pool directory only once that has gone dead, so the
+    # common path costs a single LAN round trip -- which is what makes it
+    # affordable in front of every fetch. It is seeded by cloud-init and
+    # never fetched over the network, so unlike the retry lib it needs no
+    # digest of its own; where it is absent (a guest imaged before it
+    # existed) resolution below proceeds exactly as it always did.
+    #
+    # A success here is the same evidence the probe below would gather --
+    # locate has just made that call -- so it is taken directly rather than
+    # spending a second round trip to re-learn it. A failure deliberately
+    # falls through instead of short-circuiting, so the unreachable
+    # diagnostic stays the single place that explains a dead host.
+    if [ -r /usr/local/lib/yuruna/yuruna-host-locate.sh ]; then
+        # shellcheck disable=SC1091
+        . /usr/local/lib/yuruna/yuruna-host-locate.sh
+        if yuruna_host_locate; then
+            FETCH_SOURCE='host'
+            HOST_BASE="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/yuruna-repo/"
+            return
+        fi
+    fi
     if [ -n "${YURUNA_STATUS_SERVICE_IP:-}" ] && [ -n "${YURUNA_STATUS_SERVICE_PORT:-}" ]; then
         # --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-host-environment-variables
         if wget -q --no-proxy --timeout=2 -O /dev/null \
@@ -92,6 +122,17 @@ resolve_fetch_source() {
         >&2 echo "!!            lease renewed across a reboot, or Wi-Fi roamed to another"
         >&2 echo "!!            subnet), or the status service is down, or the host firewall"
         >&2 echo "!!            changed."
+        # Name what the directory was asked and what came back. A renumbered
+        # host is the first cause a reader reaches for, and it is the one
+        # cause the lookup above already tried to repair -- saying so turns
+        # "the host moved" from the leading hypothesis into a ruled-out one,
+        # and points at whichever coordinate of the indirection is missing.
+        if [ -r /usr/local/lib/yuruna/yuruna-host-locate.sh ]; then
+            >&2 echo "!!   lookup:  asked the pool directory at ${YURUNA_CACHING_PROXY_SERVICE_IP:-(no caching proxy seeded)}:9400"
+            >&2 echo "!!            for hostId ${YURUNA_HOST_ID:-(none seeded)} -- no address this guest can"
+            >&2 echo "!!            reach came back, so a renumbered host is already ruled out"
+            >&2 echo "!!            unless the directory itself is stale or unreachable."
+        fi
         if [ -n "$GH_REPO" ] && [ -n "$GH_REF" ]; then
             >&2 echo "!!   action:  falling back to GitHub -- ${GH_REPO} at ${GH_REF}"
         fi
@@ -306,6 +347,17 @@ if [ "$FETCH_SOURCE" = 'github' ] && [ -z "${GH_TOKEN:-}" ]; then
     echo "!!   route:  raw.githubusercontent.com -- public repositories only"
     echo "!!   effect: if that repository is private this leg can only 404, so"
     echo "!!           there is no working alternative to the host right now."
+    # Whether the credential can read the project is a question about the HOST,
+    # answerable there and not from inside this guest -- so name where the
+    # answer lives rather than guess at it here. The pool route is listed first
+    # for a pooled host because it reports the probe the pool already ran; the
+    # local script is the answer for a host running on its own.
+    echo "!!   check:  is this host's git credential able to read the project?"
+    echo "!!           in a pool: Pool Control -> Hosts, the 'Project'"
+    echo "!!           column for this host. DENIED means the credential cannot"
+    echo "!!           read the project its pool assigned, and no retry fixes"
+    echo "!!           that; unreachable means network rather than permission."
+    echo "!!           standalone: run 'pwsh test/Test-Config.ps1' on the host."
     echo ""
 fi
 
@@ -360,6 +412,16 @@ if [ "$wget_rc" -ne 0 ] || [ "$byte_count" -eq 0 ]; then
                     echo "!!   auth:       GH_TOKEN present (Contents API)"
                 else
                     echo "!!   auth:       no GH_TOKEN -- a private repository will 404 here"
+                    # Only reachable once GitHub actually answered, so the
+                    # credential really is the open question. Whether it can
+                    # read the project is a fact about the host, so point at
+                    # where that fact is already recorded rather than asking a
+                    # guest to infer it.
+                    echo "!!   access:     in a pool, Pool Control -> Hosts shows this host's"
+                    echo "!!               'Project' column. DENIED means its credential"
+                    echo "!!               cannot read the assigned project and no retry"
+                    echo "!!               fixes that; unreachable means network instead."
+                    echo "!!               Standalone: run 'pwsh test/Test-Config.ps1'."
                 fi
                 echo "!!   check:      is that commit pushed to the remote? a commit that"
                 echo "!!               exists only on the host cannot be fetched from GitHub."

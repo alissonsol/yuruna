@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42e8f9a0-b1c2-4d34-9e56-7a8b9c0d1e2f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,6 +41,7 @@
     It blocks, so this runs under Pester 4.10.1.
 #>
 
+BeforeAll {
 $here       = Split-Path -Parent $PSCommandPath
 $testDir    = Split-Path -Parent $here   # .../test
 $modulePath = Join-Path $testDir 'extension/notification/default.psm1'
@@ -82,6 +83,8 @@ function Get-NotificationConfigShape {
         TransportsIsDict = ($isDict -and $r.Contains('transports') -and $r['transports'] -is [System.Collections.IDictionary])
         SubKeys          = if ($isDict -and $r.Contains('subscribers') -and ($r['subscribers'] -is [System.Collections.IDictionary])) { @($r['subscribers'].Keys) } else { @() }
     }
+}
+
 }
 
 Describe 'Read-NotificationConfig normalizes every transports.yml shape' {

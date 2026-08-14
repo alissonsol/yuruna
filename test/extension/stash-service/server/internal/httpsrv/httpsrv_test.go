@@ -10,7 +10,9 @@ import (
 	"mime/multipart"
 	"net"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,6 +24,7 @@ import (
 	"stash-service/internal/meta"
 	"stash-service/internal/sshsrv"
 	"stash-service/internal/store"
+	"stash-service/internal/yex/labgate"
 )
 
 const testHostID = "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 32 hex, hostId-shaped
@@ -31,6 +34,17 @@ func newTestUI(t *testing.T) (*httptest.Server, *Server, string) {
 }
 
 func newTestUIHost(t *testing.T, hostID string) (*httptest.Server, *Server, string) {
+	t.Helper()
+	// Every test UI is wired to a fake aggregator that accepts any well-shaped
+	// lab token, because that is the only way through the delete gate: this
+	// service holds no token of its own, by design.
+	return newTestUIWith(t, hostID, fakeAggregator(t))
+}
+
+// newTestUIWith builds the UI against a given aggregator URL. Empty is the
+// shape of a daemon launched without --aggregator-url, which can check no
+// credential at all -- the gate must then refuse rather than open.
+func newTestUIWith(t *testing.T, hostID, aggregatorURL string) (*httptest.Server, *Server, string) {
 	t.Helper()
 	tmp := t.TempDir()
 	stashRoot := filepath.Join(tmp, "stash")
@@ -54,10 +68,60 @@ func newTestUIHost(t *testing.T, hostID string) (*httptest.Server, *Server, stri
 		t.Fatalf("sshsrv.New: %v", err)
 	}
 	ssh.ShareOnline = func() bool { return true } // force the share path in tests
-	ui := New(ssh, Options{Addr: "127.0.0.1:0", PoolWindowDays: 30})
+	ui := New(ssh, Options{Addr: "127.0.0.1:0", PoolWindowDays: 30, AggregatorURL: aggregatorURL})
 	ts := httptest.NewServer(ui.routes())
 	t.Cleanup(ts.Close)
 	return ts, ui, stashRoot
+}
+
+// fakeAggregator stands in for the pool aggregator's lab-token exchange,
+// answering 200 (valid) to any code the gate forwards. It is the credential
+// authority, not the gate: what these tests exercise is what the stash daemon
+// does with a verdict, not how the aggregator reaches one.
+func fakeAggregator(t *testing.T) string {
+	t.Helper()
+	agg := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	t.Cleanup(agg.Close)
+	return agg.URL
+}
+
+// unlocked returns a client holding a delete session for ts, obtained the way a
+// browser does: POST the lab token, keep the cookie. Tests that delete use it;
+// a plain http.DefaultClient is the locked browser.
+func unlocked(t *testing.T, ts *httptest.Server) *http.Client {
+	t.Helper()
+	jar, err := cookiejar.New(nil)
+	if err != nil {
+		t.Fatalf("cookiejar: %v", err)
+	}
+	c := &http.Client{Jar: jar}
+	resp, err := c.Post(ts.URL+"/api/login", "application/json", strings.NewReader(`{"labToken":"abc123"}`))
+	if err != nil {
+		t.Fatalf("login: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("login = %d, want 200: %s", resp.StatusCode, body)
+	}
+	return c
+}
+
+// deleteStash issues one DELETE through c and returns the response.
+func deleteStash(t *testing.T, c *http.Client, url string) *http.Response {
+	t.Helper()
+	req, err := http.NewRequest(http.MethodDelete, url, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp, err := c.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return resp
 }
 
 func tail(permalink string) string { return strings.TrimPrefix(permalink, "/s/") }
@@ -138,12 +202,8 @@ func TestCreateListGetRawDeleteText(t *testing.T) {
 		t.Fatalf("download disposition = %q", cd)
 	}
 
-	// Delete local (§8) → then 404.
-	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/stashes/"+tail(created.Permalink), nil)
-	dresp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
+	// Delete local (§8), through an unlocked session → then 404.
+	dresp := deleteStash(t, unlocked(t, ts), ts.URL+"/api/stashes/"+tail(created.Permalink))
 	dresp.Body.Close()
 	if dresp.StatusCode != http.StatusOK {
 		t.Fatalf("delete status = %d", dresp.StatusCode)
@@ -183,143 +243,253 @@ func TestLocalNonHexHostIDResolves(t *testing.T) {
 	}
 }
 
-func TestDeleteRemoteForbidden(t *testing.T) {
+// The delete gate. A locked browser is refused (401) and the stash survives;
+// the same request through an unlocked session succeeds. Reads and creates are
+// never gated, which is the whole point of gating only this one verb.
+func TestDeleteRequiresSession(t *testing.T) {
 	ts, _, _ := newTestUI(t)
-	remote := "42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-	req, _ := http.NewRequest(http.MethodDelete, ts.URL+"/api/stashes/"+remote+"/2026/06/16/abcd", nil)
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var body struct {
-		OK          bool   `json:"ok"`
-		OwnerHostID string `json:"ownerHostId"`
-	}
-	decode(t, resp, &body)
-	if resp.StatusCode != http.StatusForbidden {
-		t.Fatalf("status = %d, want 403", resp.StatusCode)
-	}
-	if body.OK || body.OwnerHostID != remote {
-		t.Fatalf("forbidden body = %+v", body)
-	}
-}
+	permalink := postText(t, ts.URL, "keepme")
 
-// Delete authorization: reads and writes stay open to any host, but
-// DELETE is allowed only from the VM itself (loopback / a local interface IP)
-// or a configured host IP. Documentation ranges (RFC 5737 TEST-NET-2/3) are
-// used for the "foreign" addresses so they can never match a real interface on
-// the machine running the test.
-func TestDeleteAuthzUnit(t *testing.T) {
-	_, ui, _ := newTestUI(t)
-	ui.deleteHostIPs = parseHostIPs("198.51.100.10, 198.51.100.11")
-	cases := []struct {
-		ip   string
-		want bool
-	}{
-		{"127.0.0.1", true},      // the VM itself (localhost UI/CLI)
-		{"::1", true},            // IPv6 loopback
-		{"::1%lo", true},         // the same, zoned as an IPv6 source arrives
-		{"198.51.100.10", true},  // configured host IP
-		{"198.51.100.11", true},  // second configured host IP
-		{"203.0.113.50", false},  // an arbitrary LAN peer
-		{"198.51.100.99", false}, // host subnet but not a configured host
-		{"", false},              // no address
-		{"not-an-ip", false},     // unparseable → fail closed
+	locked := deleteStash(t, http.DefaultClient, ts.URL+"/api/stashes/"+tail(permalink))
+	locked.Body.Close()
+	if locked.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("locked delete = %d, want 401", locked.StatusCode)
 	}
-	for _, c := range cases {
-		if got := ui.deleteAllowed(c.ip); got != c.want {
-			t.Fatalf("deleteAllowed(%q) = %v, want %v", c.ip, got, c.want)
-		}
-	}
-
-	// An IPv6 source arrives with the zone it came in on attached
-	// (fe80::1%eth0). The gate must compare the address and ignore the zone,
-	// or every browse that resolves to a link-local address is refused.
-	const zoned = "fe80::1%eth0"
-	ui.deleteHostIPs = parseHostIPs("fe80::1")
-	if !ui.deleteAllowed(zoned) {
-		t.Fatalf("deleteAllowed(%q) = false, want true: the zone must not defeat the match", zoned)
-	}
-}
-
-func TestParseHostIPs(t *testing.T) {
-	got := parseHostIPs(" 10.0.0.1, 10.0.0.2 ;bogus\t10.0.0.3\n")
-	if len(got) != 3 {
-		t.Fatalf("parseHostIPs: got %d IPs, want 3 (%v)", len(got), got)
-	}
-	if len(parseHostIPs("")) != 0 || len(parseHostIPs("  , ; ")) != 0 {
-		t.Fatal("parseHostIPs of blank/garbage should be empty")
-	}
-}
-
-// A DELETE from a foreign LAN IP is refused (403) and leaves the stash intact;
-// the same stash deletes cleanly once that IP is a configured host IP.
-func TestDeleteForbiddenFromForeignIP(t *testing.T) {
-	ts, ui, _ := newTestUI(t)
-	resp, err := http.Post(ts.URL+"/api/stashes", "application/x-www-form-urlencoded",
-		strings.NewReader("title=n.txt&text=keepme"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var created struct {
-		Permalink string `json:"permalink"`
-	}
-	decode(t, resp, &created)
-
-	const foreign = "203.0.113.7" // TEST-NET-3, never a real interface
-	req := httptest.NewRequest(http.MethodDelete, "/api/stashes/"+tail(created.Permalink), nil)
-	req.RemoteAddr = foreign + ":44444"
-	rec := httptest.NewRecorder()
-	ui.routes().ServeHTTP(rec, req)
-	if rec.Code != http.StatusForbidden {
-		t.Fatalf("foreign-IP delete = %d, want 403", rec.Code)
-	}
-	// The gate runs before the ownership branch, so the refusal must not leak
-	// the owning host id.
-	if strings.Contains(rec.Body.String(), "ownerHostId") {
-		t.Fatalf("foreign-IP refusal leaked ownership: %s", rec.Body.String())
-	}
-	// It must name the address the daemon saw, though: a caller cannot observe
-	// which of its own addresses arrived here, so a refusal that withholds it
-	// cannot be acted on.
-	if !strings.Contains(rec.Body.String(), foreign) {
-		t.Fatalf("refusal does not name the source address it saw: %s", rec.Body.String())
-	}
-	// And the hostinfo endpoint must refuse the same caller in advance, so the
-	// page can withhold the control instead of offering a doomed button.
-	infoReq := httptest.NewRequest(http.MethodGet, "/api/hostinfo", nil)
-	infoReq.RemoteAddr = foreign + ":44446"
-	infoRec := httptest.NewRecorder()
-	ui.routes().ServeHTTP(infoRec, infoReq)
-	var info struct {
-		ClientIP  string `json:"clientIp"`
-		CanDelete bool   `json:"canDelete"`
-	}
-	if err := json.Unmarshal(infoRec.Body.Bytes(), &info); err != nil {
-		t.Fatalf("hostinfo decode: %v", err)
-	}
-	if info.CanDelete || info.ClientIP != foreign {
-		t.Fatalf("hostinfo for a foreign caller = %+v, want canDelete=false and its own address", info)
-	}
-	g, _ := http.Get(ts.URL + "/api/stashes/" + tail(created.Permalink))
+	g, _ := http.Get(ts.URL + "/api/stashes/" + tail(permalink))
 	g.Body.Close()
 	if g.StatusCode != http.StatusOK {
 		t.Fatalf("stash gone after a refused delete: get = %d, want 200", g.StatusCode)
 	}
 
-	// Now permit that IP as the host IP; the delete succeeds and the stash 404s.
-	ui.deleteHostIPs = parseHostIPs(foreign)
-	req2 := httptest.NewRequest(http.MethodDelete, "/api/stashes/"+tail(created.Permalink), nil)
-	req2.RemoteAddr = foreign + ":44445"
-	rec2 := httptest.NewRecorder()
-	ui.routes().ServeHTTP(rec2, req2)
-	if rec2.Code != http.StatusOK {
-		t.Fatalf("host-IP delete = %d, want 200 (body %s)", rec2.Code, rec2.Body.String())
+	// A locked browser can still read and create: gating those would make a
+	// credential a prerequisite for a guest pushing a diagnostic.
+	if p2 := postText(t, ts.URL, "still open"); p2 == "" {
+		t.Fatal("create was refused without a session")
 	}
-	g2, _ := http.Get(ts.URL + "/api/stashes/" + tail(created.Permalink))
+
+	ok := deleteStash(t, unlocked(t, ts), ts.URL+"/api/stashes/"+tail(permalink))
+	ok.Body.Close()
+	if ok.StatusCode != http.StatusOK {
+		t.Fatalf("unlocked delete = %d, want 200", ok.StatusCode)
+	}
+	g2, _ := http.Get(ts.URL + "/api/stashes/" + tail(permalink))
 	g2.Body.Close()
 	if g2.StatusCode != http.StatusNotFound {
 		t.Fatalf("post-delete get = %d, want 404", g2.StatusCode)
+	}
+}
+
+// With no aggregator configured there is no way to check any credential, so the
+// daemon refuses rather than running the delete ungated -- and it says WHICH of
+// the two refusals this is, because "nothing is configured here" and "your code
+// was wrong" call for opposite actions from an operator.
+func TestDeleteUnconfiguredGate(t *testing.T) {
+	ts, _, _ := newTestUIWith(t, testHostID, "")
+	permalink := postText(t, ts.URL, "keepme")
+
+	resp := deleteStash(t, http.DefaultClient, ts.URL+"/api/stashes/"+tail(permalink))
+	var body struct {
+		OK     bool   `json:"ok"`
+		Reason string `json:"reason"`
+	}
+	decode(t, resp, &body)
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("ungated delete = %d, want 503", resp.StatusCode)
+	}
+	if body.OK || body.Reason != labgate.ReasonUnconfigured {
+		t.Fatalf("body = %+v, want ok:false + reason:%s", body, labgate.ReasonUnconfigured)
+	}
+	g, _ := http.Get(ts.URL + "/api/stashes/" + tail(permalink))
+	g.Body.Close()
+	if g.StatusCode != http.StatusOK {
+		t.Fatalf("stash gone after an unconfigured refusal: get = %d, want 200", g.StatusCode)
+	}
+}
+
+// /api/session is what the UI reads to decide whether to render a Delete
+// control at all, so it has to track the gate: locked before the login, authed
+// after it, on the same browser.
+func TestSessionReportsTheGate(t *testing.T) {
+	ts, _, _ := newTestUI(t)
+	type session struct {
+		OK         bool `json:"ok"`
+		LabToken   bool `json:"labToken"`
+		Authed     bool `json:"authed"`
+		Configured bool `json:"configured"`
+	}
+	var before session
+	getJSON(t, ts.URL+"/api/session", &before)
+	if !before.OK || !before.LabToken || !before.Configured || before.Authed {
+		t.Fatalf("session before unlock = %+v, want a configured lab-token gate this browser is not through", before)
+	}
+
+	c := unlocked(t, ts)
+	resp, err := c.Get(ts.URL + "/api/session")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var after session
+	decode(t, resp, &after)
+	if !after.Authed {
+		t.Fatalf("session after unlock = %+v, want authed", after)
+	}
+}
+
+// A stash another host received is deleted on the share -- artifact AND sidecar
+// -- and drops out of this daemon's pool view at once rather than lingering
+// until the next rescan. Reclaiming that disk must not need the owning VM.
+func TestDeleteRemoteOnShare(t *testing.T) {
+	ts, ui, stashRoot := newTestUI(t)
+	remote := "42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+	now := time.Now().UTC()
+	y, mo, d := now.Date()
+	dir := filepath.Join(stashRoot, remote, config.FilesDirName,
+		pad4(y), pad2(int(mo)), pad2(d))
+	if err := writeRemoteStash(dir, "rr01", "peer.txt", "peer bytes"); err != nil {
+		t.Fatalf("seed remote: %v", err)
+	}
+	artifact := filepath.Join(dir, "rr01.txt")
+	sidecar := filepath.Join(dir, "rr01"+config.SidecarExtension)
+	ui.pool.Refresh()
+
+	var list struct {
+		Total int `json:"total"`
+	}
+	getJSON(t, ts.URL+"/api/stashes?limit=50", &list)
+	if list.Total != 1 {
+		t.Fatalf("pool list before delete = %d rows, want the peer's 1", list.Total)
+	}
+
+	url := ts.URL + "/api/stashes/" + remote + "/" + pad4(y) + "/" + pad2(int(mo)) + "/" + pad2(d) + "/rr01"
+	resp := deleteStash(t, unlocked(t, ts), url)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("cross-host delete = %d, want 200", resp.StatusCode)
+	}
+	if _, err := os.Stat(artifact); !os.IsNotExist(err) {
+		t.Fatalf("the peer's artifact survived the delete (stat err = %v)", err)
+	}
+	if _, err := os.Stat(sidecar); !os.IsNotExist(err) {
+		t.Fatalf("the peer's sidecar survived the delete (stat err = %v)", err)
+	}
+	// Evicted from the cache, not merely absent from the next rescan: the
+	// browser that just deleted it must not be shown it again.
+	getJSON(t, ts.URL+"/api/stashes?limit=50", &list)
+	if list.Total != 0 {
+		t.Fatalf("pool list after delete = %d rows, want 0", list.Total)
+	}
+}
+
+// An id no host holds is a 404, not a silent success -- on the local index and
+// on the share alike.
+func TestDeleteMissingIs404(t *testing.T) {
+	ts, _, _ := newTestUI(t)
+	c := unlocked(t, ts)
+	for _, url := range []string{
+		ts.URL + "/api/stashes/" + testHostID + "/2026/06/16/abcd",
+		ts.URL + "/api/stashes/42bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb/2026/06/16/abcd",
+	} {
+		resp := deleteStash(t, c, url)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusNotFound {
+			t.Fatalf("delete of a missing stash at %s = %d, want 404", url, resp.StatusCode)
+		}
+	}
+}
+
+// The bulk route: one request, one verdict per stash. A refusal in the middle
+// must not hide the deletes that worked, and must not abort the rest.
+func TestDeleteBatchPartialFailure(t *testing.T) {
+	ts, _, _ := newTestUI(t)
+	first := postText(t, ts.URL, "one")
+	second := postText(t, ts.URL, "two")
+
+	body := `{"stashes":[` +
+		batchItem(t, first) + `,` +
+		`{"hostId":"` + testHostID + `","year":"2026","month":"06","day":"16","id":"zzzz"},` +
+		batchItem(t, second) + `]}`
+	resp, err := unlocked(t, ts).Post(ts.URL+"/api/stashes/delete", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out struct {
+		OK        bool `json:"ok"`
+		Requested int  `json:"requested"`
+		Deleted   int  `json:"deleted"`
+		Failed    int  `json:"failed"`
+		Results   []struct {
+			ID    string `json:"id"`
+			OK    bool   `json:"ok"`
+			Error string `json:"error"`
+		} `json:"results"`
+	}
+	decode(t, resp, &out)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("bulk delete = %d, want 200 even with a failure inside", resp.StatusCode)
+	}
+	if out.Requested != 3 || out.Deleted != 2 || out.Failed != 1 {
+		t.Fatalf("bulk counts = %+v, want 3 requested / 2 deleted / 1 failed", out)
+	}
+	if len(out.Results) != 3 || !out.Results[0].OK || out.Results[1].OK || !out.Results[2].OK {
+		t.Fatalf("per-stash verdicts = %+v, want ok/failed/ok in request order", out.Results)
+	}
+	if out.Results[1].Error == "" {
+		t.Fatal("the failed stash carries no reason")
+	}
+	// Both real stashes are gone: the middle refusal did not abort the run.
+	for _, p := range []string{first, second} {
+		g, _ := http.Get(ts.URL + "/api/stashes/" + tail(p))
+		g.Body.Close()
+		if g.StatusCode != http.StatusNotFound {
+			t.Fatalf("stash %s survived the bulk delete: get = %d", p, g.StatusCode)
+		}
+	}
+}
+
+// The bulk route is behind the same gate as the single one, and validates its
+// body through the same path key rules -- a laxer parser for stashes named in a
+// body is how a traversal gets in.
+func TestDeleteBatchGuards(t *testing.T) {
+	ts, _, _ := newTestUI(t)
+	locked, err := http.Post(ts.URL+"/api/stashes/delete", "application/json",
+		strings.NewReader(`{"stashes":[{"hostId":"`+testHostID+`","year":"2026","month":"06","day":"16","id":"abcd"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	locked.Body.Close()
+	if locked.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("locked bulk delete = %d, want 401", locked.StatusCode)
+	}
+
+	c := unlocked(t, ts)
+	for name, body := range map[string]string{
+		"empty":    `{"stashes":[]}`,
+		"not json": `nonsense`,
+		"too many": `{"stashes":[` + strings.Repeat(`{"hostId":"h","year":"2026","month":"06","day":"16","id":"abcd"},`, maxBatchDelete) + `{"hostId":"h","year":"2026","month":"06","day":"16","id":"abcd"}]}`,
+	} {
+		resp, perr := c.Post(ts.URL+"/api/stashes/delete", "application/json", strings.NewReader(body))
+		if perr != nil {
+			t.Fatal(perr)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("bulk delete with a %s body = %d, want 400", name, resp.StatusCode)
+		}
+	}
+
+	// A traversal in the hostId is refused per stash, not acted on.
+	resp, err := c.Post(ts.URL+"/api/stashes/delete", "application/json",
+		strings.NewReader(`{"stashes":[{"hostId":"../../etc","year":"2026","month":"06","day":"16","id":"abcd"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out struct {
+		Deleted int `json:"deleted"`
+		Failed  int `json:"failed"`
+	}
+	decode(t, resp, &out)
+	if out.Deleted != 0 || out.Failed != 1 {
+		t.Fatalf("traversal in a bulk body = %+v, want it refused", out)
 	}
 }
 
@@ -570,6 +740,36 @@ func writeRemoteStash(dayDir, id, name, body string) error {
 	return meta.WriteSidecar(rec)
 }
 
+// postText creates a text stash and returns its permalink.
+func postText(t *testing.T, base, body string) string {
+	t.Helper()
+	resp, err := http.Post(base+"/api/stashes", "application/x-www-form-urlencoded",
+		strings.NewReader("title=n.txt&text="+url.QueryEscape(body)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var created struct {
+		OK        bool   `json:"ok"`
+		Permalink string `json:"permalink"`
+	}
+	decode(t, resp, &created)
+	if !created.OK {
+		t.Fatalf("postText %q failed", body)
+	}
+	return created.Permalink
+}
+
+// batchItem renders a permalink as one entry of a bulk-delete body.
+func batchItem(t *testing.T, permalink string) string {
+	t.Helper()
+	parts := strings.Split(strings.TrimPrefix(permalink, "/s/"), "/") // host/y/m/d/id
+	if len(parts) != 5 {
+		t.Fatalf("permalink %q is not host/y/m/d/id", permalink)
+	}
+	return `{"hostId":"` + parts[0] + `","year":"` + parts[1] + `","month":"` + parts[2] +
+		`","day":"` + parts[3] + `","id":"` + parts[4] + `"}`
+}
+
 func postFile(t *testing.T, base, name, body string) string {
 	t.Helper()
 	var buf bytes.Buffer
@@ -595,27 +795,18 @@ func postFile(t *testing.T, base, name, body string) string {
 // TestHostInfo covers the footer's host-facts endpoint: ok=true, the local
 // hostId, and a serverIps STRING (newline-separated lines, possibly empty in a
 // sandboxed CI with no non-loopback interface — the contract is the shape, not
-// a specific address). Also the caller-facing pair the UI needs to decide
-// whether to offer a Delete control at all: this test's requests come from
-// loopback, which is exactly the case the delete gate permits.
+// a specific address). What this browser may DO is deliberately not here; that
+// is /api/session's answer, and it changes under a page these facts do not.
 func TestHostInfo(t *testing.T) {
 	ts, _, _ := newTestUI(t)
 	var info struct {
 		OK          bool   `json:"ok"`
 		LocalHostID string `json:"localHostId"`
 		ServerIps   string `json:"serverIps"`
-		ClientIP    string `json:"clientIp"`
-		CanDelete   bool   `json:"canDelete"`
 	}
 	getJSON(t, ts.URL+"/api/hostinfo", &info)
 	if !info.OK || info.LocalHostID != testHostID {
 		t.Fatalf("hostinfo: %+v", info)
-	}
-	if net.ParseIP(info.ClientIP) == nil {
-		t.Fatalf("hostinfo clientIp = %q, want the caller's source address", info.ClientIP)
-	}
-	if !info.CanDelete {
-		t.Fatalf("hostinfo canDelete = false for a loopback caller, which the delete gate permits")
 	}
 	// Every reported line must be a comma-list of parseable IPs (no stray
 	// whitespace, no link-local/loopback leaking through).

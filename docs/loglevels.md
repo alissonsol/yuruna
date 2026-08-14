@@ -50,8 +50,8 @@ the runner and restart without `-logLevel` to release the override.
 
 ## Propagation across pwsh boundaries
 
-Child pwsh processes (the outer → inner spawn, sequence engine sub-
-processes, `Invoke-TestSequence` standalone) inherit `$env:YURUNA_LOG_LEVEL`
+Child pwsh processes (the outer → inner spawn, sequence engine
+sub-processes, `Invoke-TestSequence` standalone) inherit `$env:YURUNA_LOG_LEVEL`
 but NOT PowerShell preference variables. The env var IS the propagation
 channel. The cascade module exports `Use-LogLevelFromEnv`; every child
 script that should honor the parent's level calls it at the top:
@@ -135,6 +135,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.11
+Last review: 2026.08.14
 
 Back to [Yuruna](../README.md)

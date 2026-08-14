@@ -70,7 +70,7 @@ Two possible causes:
 2. **UTM's VM window has `NSWindowSharingNone`** (some UTM + Apple
    Virtualization builds). Reachable via the Accessibility API but
    omits `kCGWindowName` from CGWindowList regardless of Screen
-   Recording. The harness auto-falls-back to AppleScript bounds —
+   Recording. The harness automatically falls back to AppleScript bounds —
    debug output shows `CG window query: not_found` then
    `Window bounds query (fallback): <x>,<y>,<w>,<h>`.
 
@@ -187,9 +187,9 @@ utmctl list
 utmctl stop <unrelated-vm-name>
 ```
 
-A persisted snapshot-renamed VM (e.g. `k8s.text-to-sql`) is safe AS
-LONG AS IT IS STOPPED. Only **running** UTM VMs occupy a vmnet-shared
-session and trigger the split.
+A persisted snapshot-renamed VM (e.g. `k8s.text-to-sql`) is safe while
+stopped — only **running** UTM VMs occupy a vmnet-shared session and
+trigger the split.
 
 ## `pmset` guards keep UTM visible across multi-hour runs
 
@@ -267,8 +267,8 @@ Two things quit UTM, and each has its own guard:
    rename path captures the running service VMs first and calls
    `Resume-YurunaServiceVM` after the relaunch on every path out; the
    installer refuses to quit while any service VM is running
-   (`is_service_vm_running`, which also preserves when `utmctl` cannot
-   be reached — Apple Events are denied over SSH, and reading that as
+   (`is_service_vm_running`, which also reports running when `utmctl`
+   cannot be reached — Apple Events are denied over SSH, and reading that as
    "nothing is running" would quit on exactly the unattended hosts that
    can least afford it).
 
@@ -359,6 +359,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.11
+Last review: 2026.08.14
 
 Back to [Yuruna](../README.md)

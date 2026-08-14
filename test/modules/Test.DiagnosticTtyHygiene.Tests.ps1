@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42d1e2f3-a4b5-4c67-89ab-cd0e1f2a3b52
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,6 +38,7 @@
     Run: pwsh -NoProfile -File test/modules/Test.DiagnosticTtyHygiene.Tests.ps1
 #>
 
+BeforeAll {
 $here    = Split-Path -Parent $PSCommandPath
 $modPath = Join-Path $here 'Test.Diagnostic.psm1'
 Import-Module $modPath -Force
@@ -53,7 +54,7 @@ function Assert-True  { param($Condition, [string]$Because='') if (-not $Conditi
 $TtyTestRoot = Join-Path ([System.IO.Path]::GetTempPath()) "yrn-ttyhygiene-$PID"
 Remove-Item -LiteralPath $TtyTestRoot -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path (Join-Path $TtyTestRoot 'cyclebase/vm1') | Out-Null
-$TtyFolder = Join-Path $TtyTestRoot 'cyclebase/vm1'
+$script:TtyFolder = Join-Path $TtyTestRoot 'cyclebase/vm1'
 
 # All mutable stub state hangs off ONE object held in an unqualified
 # file-scope variable. Both parts matter: an It block gets a fresh scope, so
@@ -174,6 +175,8 @@ function Invoke-TtyHelper {
     } $Name
 }
 
+}
+
 Describe 'Clear-GuestTtyLine' {
     It 'sends exactly one Ctrl-U' {
         Invoke-TtyHelper -Name 'Clear-GuestTtyLine'
@@ -246,7 +249,7 @@ Describe 'Reset-GuestTtyPrompt' {
 
 Describe 'Console rung tty bracket' {
     It 'clears the line buffer before typing the one-liner' {
-        $r = Invoke-ConsoleRung -FolderPath $TtyFolder -FileName 'never.arrives.txt'
+        $r = Invoke-ConsoleRung -FolderPath $script:TtyFolder -FileName 'never.arrives.txt'
         Assert-Equal -Expected $false -Actual $r.success -Because 'no file lands, so the rung fails'
         $log = @($TtyStub.Log)
         Assert-Equal -Expected 'key:CtrlU' -Actual $log[0] `
@@ -254,7 +257,7 @@ Describe 'Console rung tty bracket' {
         Assert-Equal -Expected 'text' -Actual $log[1]
     }
     It 'restores the prompt after an upload timeout' {
-        $r = Invoke-ConsoleRung -FolderPath $TtyFolder -FileName 'never.arrives.txt'
+        $r = Invoke-ConsoleRung -FolderPath $script:TtyFolder -FileName 'never.arrives.txt'
         Assert-Equal -Expected $false -Actual $r.success
         Assert-Equal -Expected 'key:CtrlU,text,key:Enter,key:CtrlC,key:Enter' `
             -Actual ($TtyStub.Log -join ',') `
@@ -266,7 +269,7 @@ Describe 'Console rung tty bracket' {
         # to be cleared.
         $TtyStub.ThrowOnText = $true
         try {
-            $r = Invoke-ConsoleRung -FolderPath $TtyFolder -FileName 'never.arrives.txt'
+            $r = Invoke-ConsoleRung -FolderPath $script:TtyFolder -FileName 'never.arrives.txt'
             Assert-Equal -Expected $false -Actual $r.success
             Assert-Equal -Expected 'key:CtrlU,text,key:CtrlC,key:Enter' `
                 -Actual ($TtyStub.Log -join ',')
@@ -278,9 +281,9 @@ Describe 'Console rung tty bracket' {
         # On success the guest ran the command and returned to its own
         # prompt; a Ctrl-C there could kill whatever the next step started.
         $fileName = 'landed.system.diagnostic.ok.txt'
-        $TtyStub.UploadPath = Join-Path $TtyFolder $fileName
+        $TtyStub.UploadPath = Join-Path $script:TtyFolder $fileName
         try {
-            $r = Invoke-ConsoleRung -FolderPath $TtyFolder -FileName $fileName -TimeoutSeconds 5
+            $r = Invoke-ConsoleRung -FolderPath $script:TtyFolder -FileName $fileName -TimeoutSeconds 5
             Assert-Equal -Expected $true -Actual $r.success
             Assert-Equal -Expected 'key:CtrlU,text,key:Enter' -Actual ($TtyStub.Log -join ',') `
                 -Because 'no Ctrl-C on the success path'
@@ -297,10 +300,10 @@ Describe 'Console rung echo-corruption recovery' {
         # press Enter to submit -- one Ctrl-U + text pair more than the clean
         # path, with a single submitting Enter.
         $fileName = 'landed.system.diagnostic.ok.txt'
-        $TtyStub.UploadPath = Join-Path $TtyFolder $fileName
+        $TtyStub.UploadPath = Join-Path $script:TtyFolder $fileName
         try {
             $r = Invoke-EchoVerdictQueue -Verdicts @('corrupt', 'intact') `
-                -FolderPath $TtyFolder -FileName $fileName -TimeoutSeconds 5
+                -FolderPath $script:TtyFolder -FileName $fileName -TimeoutSeconds 5
             Assert-Equal -Expected $true -Actual $r.success -Because 'a recovered line must be submitted'
             Assert-Equal -Expected 'key:CtrlU,text,key:CtrlU,text,key:Enter' -Actual ($TtyStub.Log -join ',') `
                 -Because 'Ctrl-U precedes the retype, and the recovered line is submitted with one Enter'
@@ -320,7 +323,7 @@ Describe 'Console rung echo-corruption recovery' {
         $TtyStub.FalseOnText = $true
         try {
             $r = Invoke-EchoVerdictQueue -Verdicts @('corrupt') `
-                -FolderPath $TtyFolder -FileName 'never.arrives.txt'
+                -FolderPath $script:TtyFolder -FileName 'never.arrives.txt'
             Assert-Equal -Expected $false -Actual $r.success
             $joined = $TtyStub.Log -join ','
             Assert-Equal -Expected 'key:CtrlU,text,key:CtrlU,text,key:CtrlC,key:Enter' -Actual $joined `
@@ -338,7 +341,7 @@ Describe 'Console rung echo-corruption recovery' {
         # It returns failure, and the finally restores the prompt (Ctrl-C then
         # Enter) so the next sequence step does not land on the dirty line.
         $r = Invoke-EchoVerdictQueue -Verdicts @('corrupt', 'corrupt') `
-            -FolderPath $TtyFolder -FileName 'never.arrives.txt'
+            -FolderPath $script:TtyFolder -FileName 'never.arrives.txt'
         Assert-Equal -Expected $false -Actual $r.success
         $joined = $TtyStub.Log -join ','
         Assert-Equal -Expected 'key:CtrlU,text,key:CtrlU,text,key:CtrlC,key:Enter' -Actual $joined `

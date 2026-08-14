@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42a2c3d4-e5f6-4b78-9012-c3d4e5f6a7b2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -283,10 +283,12 @@ if ($LASTEXITCODE -eq 0) {
     }
 }
 
-# 4 GB RAM, 4 vCPU. Sized for the Go daemon + the pwsh pool-admin CLIs it
+# 2 GB RAM, 4 vCPU. Sized for the Go daemon + the pwsh pool-admin CLIs it
 # shells out to + the in-VM UI: the CLIs are short-lived and the daemon serves
 # registry reads rather than bulk data, so the resident set stays well under
-# this. Matches the stash-service and download-agent-service VMs. The domain has
+# this. The peak is the first-boot `go build` -- a stdlib-only graph that
+# compiles in about 0.4 GB with no swap in the guest -- not steady state.
+# Matches the stash-service and download-agent-service VMs. The domain has
 # no balloon target below this, so the whole amount stays committed on the host.
 # --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
 $hostCores = [int](& nproc --all)
@@ -299,7 +301,7 @@ $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
 $installArgs = @(
     '--connect',    $virshUri,
     '--name',       $VMName,
-    '--memory',     '4096',
+    '--memory',     '2048',
     '--vcpus',      "$vmCores",
     '--cpu',        'host-passthrough',
     '--os-variant', $osVariant,

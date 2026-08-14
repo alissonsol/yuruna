@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42b4c5d6-e7f8-4a90-9b12-3c4d5e6f7081
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,6 +38,7 @@
     Mock and the throw-free Should assertions run under Pester 4.10.1.
 #>
 
+BeforeAll {
 $here    = Split-Path -Parent $PSCommandPath
 $modPath = Join-Path $here 'Test.RunnerInnerLoop.psm1'
 Import-Module $modPath -Force
@@ -74,6 +75,8 @@ function Test-CapturesNonNullResult {
         }, $true)
         $invokesName -and ($_.Left.Extent.Text -ne '$null')
     }).Count -ge 1
+}
+
 }
 
 Describe 'Inner loop resyncs config through the single Sync-RunnerStepConfig hook' {

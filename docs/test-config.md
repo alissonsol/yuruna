@@ -389,12 +389,28 @@ it must parse as an IPv4/IPv6 address **and** answer on TCP `:3128`,
 so a dead IP is rejected before it is persisted. Full cache-source
 story: [caching.md](caching.md#external-cache-override).
 
+## users.yml — authentication users mapping
+
+`users.yml` (runtime copy: `test/status/extension/authentication/users.yml`)
+maps logical (sequence-level) usernames onto corporate identities (AD/Entra/...)
+plus the vault keys holding the corresponding passwords. Bootstrap-from-template
+runs on first cycle, so a fresh checkout gets a runtime file pre-seeded with the
+four bundled logical users and the three service-VM administrators, all with
+empty corporate fields (local-only behavior).
+
+Strict mode (the default) blocks the cycle when an active sequence references a
+logical username missing from `users.yml`, when corporate fields are
+half-populated (`sam` set without `domain`, etc.), or when a populated
+`vaultKey` does not exist in `vault.yml` — so the dev path exercises the
+production AD-join path every cycle. `test/Test-Config.ps1` validates the
+mapping and reports each violation.
+
 ---
 
 LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.11
+Last review: 2026.08.14
 
 Back to [Yuruna](../README.md)

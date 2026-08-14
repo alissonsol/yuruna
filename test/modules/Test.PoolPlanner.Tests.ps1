@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42e6f7a8-b9c0-4d12-9345-6e7f8a9b0c1d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,6 +24,7 @@
     (incl. Resolve-CyclePlan parity) against a minimal sequence fixture.
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.HostDetection.psm1')   -Force -DisableNameChecking -ErrorAction SilentlyContinue
 try { Import-Module powershell-yaml -Force -ErrorAction Stop } catch { Write-Warning 'powershell-yaml unavailable.' }
@@ -59,7 +60,7 @@ $Compat = [ordered]@{ schemaVersion = 1; rules = @(
     [ordered]@{ guestKey = 'guest.ubuntu.server.24'; hypervisors = @('hyper-v', 'kvm', 'utm') }
 ) }
 
-$RunnableCandidates = @('guest.windows.11', 'guest.ubuntu.server.24', 'guest.amazon.linux.2023')
+$script:RunnableCandidates = @('guest.windows.11', 'guest.ubuntu.server.24', 'guest.amazon.linux.2023')
 
 # --- REGION: Sequence-fixture integration: Resolve-TestSetCyclePlan + parity + Resolve-PoolCyclePlan
 function New-PlannerFixture {
@@ -134,6 +135,8 @@ workload: []
     return @{ Root = $root; SequencesDir = $seqDir; RunnerYml = (Join-Path $projTest 'test.runner.yml') }
 }
 
+}
+
 Describe 'Get-PoolHostHypervisor + Get-CompatibleHypervisorList' {
     It 'derives the hypervisor token from the host type' {
         Assert-Equal -Expected 'hyper-v' -Actual (Get-PoolHostHypervisor -HostType 'host.windows.hyper-v') -Because 'hyper-v'
@@ -163,7 +166,7 @@ Describe 'Select-RunnableGuestList (folder AND capability AND compat, stable ord
     It 'keeps only guests passing all three gates, in candidate order' {
         $folder = @{ 'guest.windows.11'=$true; 'guest.ubuntu.server.24'=$true; 'guest.amazon.linux.2023'=$false }
         $cap    = @{ 'guest.windows.11'=$true; 'guest.ubuntu.server.24'=$true; 'guest.amazon.linux.2023'=$true }
-        $r = Select-RunnableGuestList -CandidateGuests $RunnableCandidates -FolderPresent $folder -CapabilitySupported $cap -Compatibility $Compat -HostType 'host.ubuntu.kvm'
+        $r = Select-RunnableGuestList -CandidateGuests $script:RunnableCandidates -FolderPresent $folder -CapabilitySupported $cap -Compatibility $Compat -HostType 'host.ubuntu.kvm'
         Assert-Equal -Expected 1 -Actual $r.Count -Because 'only ubuntu (win11 incompatible on kvm, amazon no folder)'
         Assert-Equal -Expected 'guest.ubuntu.server.24' -Actual $r[0] -Because 'ubuntu kept'
     }

@@ -182,10 +182,13 @@ func hostSortKey(h boardHost) string {
 // host the aggregator already reported (matched by id, then by base URL) so a
 // machine that is both discovered and registered renders once.
 //
-// Facts, control state and access stay blank: those come from a host's own
-// status service through reads the pool does for its members, and a discovered
-// host has not been made a member of anything. Blank is the honest answer, and
-// the page already renders one for every other host it cannot reach.
+// Control state and access stay blank: both are the POOL's reading of a member
+// -- whether the host holds this lab's token, and how its last probe of the
+// project its pool assigned went -- and a discovered host has not been made a
+// member of anything. Blank is the honest answer, and the page already renders
+// one for every other host it cannot reach. Hardware is not in that class: it
+// is the host's own answer about itself, served on the address the sweep
+// reached it at, so /api/hosts/facts asks a discovered host directly.
 func discoveredRows(hosts []discovery.Host, seen map[string]bool, seenBase map[string]bool) []boardHost {
 	rows := make([]boardHost, 0, len(hosts))
 	for _, h := range hosts {

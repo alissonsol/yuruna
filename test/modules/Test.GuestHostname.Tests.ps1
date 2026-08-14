@@ -39,35 +39,64 @@
     Throw-based assertions so the file runs under Pester 3.4 and Pester 5+.
 #>
 
+BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = Split-Path -Parent (Split-Path -Parent $here)
 
 function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
 
-# Guest scripts in scope: those that actually template a hostname.
-$guestScript = @(
+# Guest scripts in scope: those that actually template a hostname. The Its that
+# iterate them are fed by the file-scope case list below; this run-phase copy
+# exists only so the fixture-sanity It can assert the glob still matches.
+$script:guestScript = @(
     Get-ChildItem -Path (Join-Path $repoRoot 'host') -Filter 'New-VM.ps1' -Recurse -File |
         Where-Object { (Get-Content -Raw -LiteralPath $_.FullName) -match 'HOSTNAME_PLACEHOLDER' }
 )
-$guestCase = @($guestScript | ForEach-Object { @{ name = (Split-Path -Leaf $_.Directory.FullName); path = $_.FullName } })
 
-# Read at script scope, not inside Describe: under Pester 5 a Describe body runs
-# in the discovery pass only, so a variable set there is gone by the time an It
-# body executes.
-$provisionSrc = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'host/modules/Yuruna.HostProvision.psm1')
-$engineSrc    = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'test/modules/Test.SequenceEngine.psm1')
+# Source text the It bodies assert against. $script: keeps it reachable from the
+# It scopes, which run after this block has returned.
+$script:provisionSrc = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'host/modules/Yuruna.HostProvision.psm1')
+$script:engineSrc    = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'test/modules/Test.SequenceEngine.psm1')
+
+}
+
+# Case lists for the Describes below. Pester enumerates a Describe -- and with it
+# every -TestCases expression -- during discovery, which happens before any
+# BeforeAll body runs, so these resolve their own repo root here at file scope. A
+# list built inside BeforeAll is still $null at enumeration time, and the Describe
+# consuming it then emits no tests at all and passes while asserting nothing.
+$discoveryRepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
+
+$guestCase = @(
+    Get-ChildItem -Path (Join-Path $discoveryRepoRoot 'host') -Filter 'New-VM.ps1' -Recurse -File |
+        Where-Object { (Get-Content -Raw -LiteralPath $_.FullName) -match 'HOSTNAME_PLACEHOLDER' } |
+        ForEach-Object { @{ name = (Split-Path -Leaf $_.Directory.FullName); path = $_.FullName } }
+)
+
+# Meta-data templates that carry a hostname placeholder.
+$metaCase = @(
+    Get-ChildItem -Path (Join-Path $discoveryRepoRoot 'host/vmconfig') -Filter '*.meta-data' -File |
+        Where-Object { (Get-Content -Raw -LiteralPath $_.FullName) -match 'HOSTNAME_PLACEHOLDER' } |
+        ForEach-Object { @{ name = $_.Name; path = $_.FullName } }
+)
 
 # Every sequence the framework ships. Project sequences live in a separate
 # repo that need not be cloned here, so they are scanned only when present.
 $seqFile = @(
-    Get-ChildItem -Path (Join-Path $repoRoot 'test/sequences') -Filter '*.yml' -Recurse -File
-    $projDir = Join-Path $repoRoot 'project'
+    Get-ChildItem -Path (Join-Path $discoveryRepoRoot 'test/sequences') -Filter '*.yml' -Recurse -File
+    $projDir = Join-Path $discoveryRepoRoot 'project'
     if (Test-Path -LiteralPath $projDir) {
         Get-ChildItem -Path $projDir -Filter '*.yml' -Recurse -File |
             Where-Object { $_.FullName -match '[\\/]test[\\/](gui|ssh)[\\/]' }
     }
 )
 $seqCase = @($seqFile | ForEach-Object { @{ name = $_.Name; path = $_.FullName } })
+
+# A glob that stops matching would silently retire its whole Describe, so an
+# empty list fails the file outright instead of going quiet.
+if ($guestCase.Count -lt 3) { throw "Expected several hostname-templating New-VM.ps1 scripts under $(Join-Path $discoveryRepoRoot 'host'), found $($guestCase.Count). The discovery glob is pointed at the wrong folder." }
+if ($metaCase.Count  -lt 1) { throw "Expected at least one *.meta-data template with HOSTNAME_PLACEHOLDER under $(Join-Path $discoveryRepoRoot 'host/vmconfig'), found none." }
+if ($seqCase.Count   -lt 1) { throw "Expected at least one sequence .yml under $(Join-Path $discoveryRepoRoot 'test/sequences'), found none." }
 
 Describe 'guest-hostname -- variables.hostname reaches cloud-init local-hostname' {
     It 'finds the templating guest scripts at all (fixture sanity)' {
@@ -103,12 +132,6 @@ Describe 'guest-hostname -- instance identity stays pinned to the VM name' {
     # cloud-init re-runs per-instance modules when instance-id changes, and two
     # VMs may legitimately share a pinned hostname. Keying instance-id off the
     # hostname would collide them.
-    $metaData = @(
-        Get-ChildItem -Path (Join-Path $repoRoot 'host/vmconfig') -Filter '*.meta-data' -File |
-            Where-Object { (Get-Content -Raw -LiteralPath $_.FullName) -match 'HOSTNAME_PLACEHOLDER' }
-    )
-    $metaCase = @($metaData | ForEach-Object { @{ name = $_.Name; path = $_.FullName } })
-
     It 'templates instance-id separately from local-hostname: <name>' -TestCases $metaCase {
         param($name, $path)
         $src = Get-Content -Raw -LiteralPath $path
@@ -121,11 +144,11 @@ Describe 'guest-hostname -- instance identity stays pinned to the VM name' {
 
 Describe 'guest-hostname -- the dispatcher forwards under the declare-or-drop rule' {
     It 'introspects the target script for a -Hostname parameter' {
-        Assert-True ($provisionSrc -match [regex]::Escape("ContainsKey('Hostname')")) `
+        Assert-True ($script:provisionSrc -match [regex]::Escape("ContainsKey('Hostname')")) `
             'Invoke-PerGuestNewVm must probe for -Hostname before forwarding'
     }
     It 'appends -Hostname to the child argument list' {
-        Assert-True ($provisionSrc -match [regex]::Escape("@('-Hostname', `$Hostname)")) `
+        Assert-True ($script:provisionSrc -match [regex]::Escape("@('-Hostname', `$Hostname)")) `
             'a probed-and-present -Hostname must actually reach the child script'
     }
 }
@@ -138,7 +161,7 @@ Describe 'guest-hostname -- ${hostname} resolves in every sequence, pinned or no
     # hostname at all. Seeding ${hostname} as a built-in that falls back to the
     # VM name is what makes the prompt match correct in both cases.
     It 'seeds ${hostname} as a built-in defaulting to the VM name' {
-        Assert-True ($engineSrc -match [regex]::Escape('"hostname" = $VMName')) `
+        Assert-True ($script:engineSrc -match [regex]::Escape('"hostname" = $VMName')) `
             'Invoke-Sequence must seed a ${hostname} built-in, or an unpinned sequence matching on ${hostname} sees an unresolved literal'
     }
 

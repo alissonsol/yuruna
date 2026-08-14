@@ -101,6 +101,22 @@ packages:
   - jq
   # === YURUNA_OVERLAY_HOST_AGENT_PKG ===
 write_files:
+  # --- REGION: https://yuruna.link/network#why-sshd-notices-a-client-that-left
+  # Make sshd notice a client that stopped answering, and reap what it was
+  # running. Upstream leaves ClientAliveInterval at 0, so a session broken by
+  # either endpoint renumbering is detected only when TCP finally gives up,
+  # minutes later -- and until then the command the host was running keeps
+  # running, unwatched, holding whatever locks it held. These VMs are long-lived
+  # and the host that drives them is not: it moves on every DHCP renewal. 15s x 4
+  # mirrors the client-side bound in Test.Ssh.psm1 Invoke-GuestSsh, so both ends
+  # give up on the same schedule.
+  - path: /etc/ssh/sshd_config.d/60-yuruna-keepalive.conf
+    permissions: '0644'
+    owner: root:root
+    content: |
+      ClientAliveInterval 15
+      ClientAliveCountMax 4
+      TCPKeepAlive yes
   # === YURUNA_OVERLAY_NIC_OFFLOAD ===
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#apt-retries-on-transient-errors
   - path: /etc/apt/apt.conf.d/80-yuruna-retries
@@ -1341,6 +1357,65 @@ write_files:
     content: |
       YURUNA_STATUS_SERVICE_IP=YURUNA_STATUS_SERVICE_IP_PLACEHOLDER
       YURUNA_STATUS_SERVICE_PORT=YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER
+      YURUNA_HOST_ID=YURUNA_HOST_ID_PLACEHOLDER
+      YURUNA_CACHING_PROXY_SERVICE_IP=127.0.0.1
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#host-address-refresh-timer
+  # This VM resolves its host through the pool directory like every other
+  # guest -- the difference is that the directory is running on THIS machine,
+  # so the address it asks is loopback. That is not the loopback case the
+  # resolver refuses: the refusal applies to an ANSWER (a host advertising
+  # 127.0.0.1 is advertising the reader's own box), never to the directory
+  # being consulted. Hard-coded rather than seeded because it is a fact about
+  # where the aggregator runs, not about where this lab put its cache.
+  #
+  # Worth having despite this VM being the best-connected in the lab: it is
+  # the longest-lived thing the framework builds, so it accumulates more host
+  # renumbers than anything else, and it fetches framework sources from the
+  # host on every bring-up.
+  - path: /usr/local/lib/yuruna/yuruna-host-locate.sh
+    encoding: base64
+    content: YURUNA_HOST_LOCATE_BASE64_PLACEHOLDER
+    permissions: '0755'
+  - path: /etc/systemd/system/yuruna-host-locate.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Refresh Yuruna host coordinates if the host has changed address
+      # Ordered INTO the network-online barrier rather than after it. Anything
+      # in this guest that needs the host waits on that target, so finishing
+      # before it is what guarantees those consumers never read a stale
+      # address -- and it does so without this unit naming any of them, which
+      # is the whole point of the indirection.
+      #
+      # After the wait-online services (whichever the image ships; ordering
+      # against an absent unit is a no-op) so this runs with an address in
+      # hand rather than before DHCP has answered.
+      After=network.target NetworkManager-wait-online.service systemd-networkd-wait-online.service
+      Before=network-online.target
+
+      [Service]
+      Type=oneshot
+      # A resolver that cannot finish must not hold the boot open. Every call
+      # inside is already wall-clock bounded; this is the backstop for the day
+      # one of them is not.
+      TimeoutStartSec=30
+      ExecStart=/usr/local/lib/yuruna/yuruna-host-locate.sh
+
+      [Install]
+      WantedBy=network-online.target
+  - path: /etc/systemd/system/yuruna-host-locate.timer
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Periodic Yuruna host coordinate refresh
+
+      [Timer]
+      OnBootSec=30s
+      OnUnitActiveSec=60s
+      AccuracySec=5s
+
+      [Install]
+      WantedBy=timers.target
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#config-service-client-materials-and-nas-credential-fetch
   - path: /etc/yuruna/host-config/config.env
     permissions: '0644'
@@ -2147,6 +2222,290 @@ write_files:
       OnUnitActiveSec=5min
       AccuracySec=30s
       Unit=yuruna-fit-pool-dashboard.service
+      [Install]
+      WantedBy=timers.target
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#dashboard-brand-identity
+  # Which enlistment built this cache. Nothing else on the VM records it: the
+  # guest is handed built artifacts, never the framework repository, so the
+  # answer has to be seeded or it is unavailable for the life of the VM.
+  - path: /etc/yuruna/brand.env
+    permissions: '0644'
+    owner: root:root
+    content: |
+      YURUNA_BRAND_NAME='YURUNA_BRAND_NAME_PLACEHOLDER'
+      YURUNA_BRAND_VERSION='YURUNA_BRAND_VERSION_PLACEHOLDER'
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#grafana-dashboard-brand-tile
+  - path: /usr/local/bin/yuruna-brand-dashboards.py
+    permissions: '0755'
+    owner: root:root
+    content: |
+      #!/usr/bin/env python3
+      """Stamp the framework's name and version into the top-left of every
+      provisioned Grafana dashboard.
+
+      Grafana's time-range picker lives in the app's own dashboard toolbar,
+      which dashboard JSON has no way to reach, so the tile is a panel in the
+      grid instead. It costs no vertical space: the first row of a Yuruna
+      dashboard already fills the 24-unit width, so its panels are narrowed to
+      free the four units the tile occupies, and the row's height is unchanged.
+
+      Every dashboard in the directory is branded, including the community one
+      fetched from grafana.com, whose layout is not ours to predict -- hence the
+      width fit and its two fallbacks rather than a hard-coded geometry.
+
+      Idempotent by construction: a dashboard that already carries the tile has
+      only the tile's text refreshed, never its geometry, so repeated runs
+      cannot walk the first row further left on each pass.
+
+      Files are rewritten only when their content actually changes, and always
+      through a same-directory rename, so Grafana's file provider (which
+      re-reads the directory every 30s) never observes a partial dashboard.
+      """
+
+      import argparse
+      import glob
+      import json
+      import os
+      import sys
+      import tempfile
+
+      DASHBOARD_DIR = os.environ.get(
+          "YURUNA_DASHBOARD_DIR", "/var/lib/grafana/dashboards"
+      )
+      BRAND_ENV = os.environ.get("YURUNA_BRAND_ENV", "/etc/yuruna/brand.env")
+
+      # Marks the panel as ours no matter what id a community dashboard already
+      # uses, and renders to nothing: markdown passes an HTML comment through and
+      # Grafana's sanitizer drops it.
+      SENTINEL = "<!-- yuruna-brand -->"
+      BRAND_PANEL_ID = 900001
+
+      GRID_W = 24    # Grafana's fixed dashboard grid width
+      BRAND_W = 4
+      BRAND_H = 4
+      MIN_W = 2      # narrower than this and a stat tile shows an ellipsis, not a number
+
+
+      def read_brand():
+          """Name and version from the seeded env file; ('', '') if unreadable."""
+          name = version = ""
+          try:
+              with open(BRAND_ENV, "r", encoding="utf-8") as fh:
+                  for line in fh:
+                      line = line.strip()
+                      if not line or line.startswith("#") or "=" not in line:
+                          continue
+                      key, _, value = line.partition("=")
+                      value = value.strip().strip("'\"")
+                      if key.strip() == "YURUNA_BRAND_NAME":
+                          name = value
+                      elif key.strip() == "YURUNA_BRAND_VERSION":
+                          version = value
+          except OSError:
+              return "", ""
+          return name, version
+
+
+      def brand_content(name, version):
+          lines = [SENTINEL, "#### " + name]
+          if version:
+              # Backticks give the code style the status pages' header-version
+              # uses: monospace and muted, subordinate to the name above it.
+              lines.append("`v" + version + "`")
+          return "\n\n".join(lines)
+
+
+      def brand_panel(content):
+          return {
+              "id": BRAND_PANEL_ID,
+              "type": "text",
+              # No title and no panel background: the tile reads as a label in
+              # the corner of the dashboard rather than as one more stat card.
+              "title": "",
+              "transparent": True,
+              "gridPos": {"h": BRAND_H, "w": BRAND_W, "x": 0, "y": 0},
+              "options": {"mode": "markdown", "content": content},
+          }
+
+
+      def find_brand(panels):
+          for panel in panels:
+              if not isinstance(panel, dict) or panel.get("type") != "text":
+                  continue
+              content = (panel.get("options") or {}).get("content")
+              if isinstance(content, str) and SENTINEL in content:
+                  return panel
+          return None
+
+
+      def fit_widths(widths, available):
+          """Shrink widths to total `available`, or None if that squeezes a panel
+          below MIN_W. Largest-remainder, so the units lost land on the panels
+          with the least claim to them and the row still totals exactly."""
+          total = sum(widths)
+          if total <= 0:
+              return None
+          if total <= available:
+              return list(widths)
+          scaled = [(w * available) // total for w in widths]
+          remainders = [(w * available) % total for w in widths]
+          spare = available - sum(scaled)
+          for index in sorted(range(len(widths)), key=lambda i: -remainders[i])[:spare]:
+              scaled[index] += 1
+          if any(w < MIN_W for w in scaled):
+              return None
+          return scaled
+
+
+      def insert_brand(dashboard, panel):
+          """Place the tile at the top-left, preferring the layout that costs no
+          vertical space."""
+          panels = dashboard.get("panels")
+          if not isinstance(panels, list):
+              return False
+
+          top = [p for p in panels
+                 if isinstance(p, dict) and isinstance(p.get("gridPos"), dict)
+                 and p["gridPos"].get("y") == 0]
+
+          if not top:
+              # Nothing in the first row to make room in: the tile just takes it.
+              panels.insert(0, panel)
+              return True
+
+          # A row header spans the full width and is not a panel that can be
+          # narrowed, so a dashboard opening with one takes the pushed-down path.
+          fitted = None
+          if all(p.get("type") != "row" for p in top):
+              top.sort(key=lambda p: p["gridPos"].get("x", 0))
+              fitted = fit_widths([int(p["gridPos"].get("w", 0)) for p in top],
+                                  GRID_W - BRAND_W)
+
+          if fitted is not None:
+              x = BRAND_W
+              for p, width in zip(top, fitted):
+                  p["gridPos"]["w"] = width
+                  p["gridPos"]["x"] = x
+                  x += width
+              panels.insert(0, panel)
+              return True
+
+          # Last resort: give the tile a row of its own. Costs vertical space,
+          # which is why it is reached only when the first row cannot yield any.
+          for p in panels:
+              grid = p.get("gridPos")
+              if isinstance(grid, dict):
+                  grid["y"] = int(grid.get("y", 0)) + BRAND_H
+          panels.insert(0, panel)
+          return True
+
+
+      def brand_file(path, content):
+          """Returns True when the file was rewritten."""
+          try:
+              with open(path, "r", encoding="utf-8") as fh:
+                  dashboard = json.load(fh)
+          except (OSError, ValueError) as err:
+              print("yuruna-brand-dashboards: cannot read %s: %s" % (path, err),
+                    file=sys.stderr)
+              return False
+          if not isinstance(dashboard, dict):
+              return False
+
+          existing = find_brand(dashboard.get("panels") or [])
+          if existing is not None:
+              if existing.get("options", {}).get("content") == content:
+                  return False
+              existing.setdefault("options", {})["content"] = content
+          elif not insert_brand(dashboard, brand_panel(content)):
+              return False
+
+          directory = os.path.dirname(os.path.abspath(path))
+          tmp = None
+          try:
+              fd, tmp = tempfile.mkstemp(dir=directory, prefix=".brand.json.")
+              with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                  json.dump(dashboard, fh, indent=2)
+                  fh.write("\n")
+              os.chmod(tmp, 0o644)
+              os.replace(tmp, path)  # atomic: Grafana never reads a partial file
+              tmp = None
+          except OSError as err:
+              print("yuruna-brand-dashboards: cannot write %s: %s" % (path, err),
+                    file=sys.stderr)
+              return False
+          finally:
+              if tmp and os.path.exists(tmp):
+                  os.unlink(tmp)
+          return True
+
+
+      def main():
+          parser = argparse.ArgumentParser(description=__doc__)
+          parser.add_argument(
+              "--file",
+              help="brand this one dashboard instead of the provisioned directory",
+          )
+          args = parser.parse_args()
+
+          name, version = read_brand()
+          if not name:
+              # Better an unbranded dashboard than one claiming an empty identity.
+              print("yuruna-brand-dashboards: no brand name in %s; nothing stamped"
+                    % BRAND_ENV, file=sys.stderr)
+              return 0
+          content = brand_content(name, version)
+
+          targets = [args.file] if args.file else sorted(
+              glob.glob(os.path.join(DASHBOARD_DIR, "*.json")))
+          branded = sum(1 for path in targets if brand_file(path, content))
+          if branded:
+              print("yuruna-brand-dashboards: %s %s stamped into %d dashboard(s)"
+                    % (name, "v" + version if version else "(no version)", branded))
+          return 0
+
+
+      if __name__ == "__main__":
+          sys.exit(main())
+  - path: /etc/systemd/system/yuruna-brand-dashboards.service
+    permissions: '0644'
+    owner: root:root
+    content: |
+      [Unit]
+      Description=Stamp the framework name and version into every Grafana dashboard
+      Documentation=https://yuruna.link/vmconfig/caching-proxy-service
+      After=grafana-server.service
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/yuruna-brand-dashboards.py
+      # Reads a seeded env file and rewrites the provisioned dashboards in
+      # place, so the dashboard directory is the only writable path -- and it
+      # talks to nothing, which is what PrivateNetwork records.
+      ProtectSystem=strict
+      ReadWritePaths=/var/lib/grafana/dashboards
+      ProtectHome=true
+      PrivateTmp=true
+      PrivateDevices=true
+      PrivateNetwork=true
+      NoNewPrivileges=true
+      ProtectKernelTunables=true
+      ProtectKernelModules=true
+      ProtectControlGroups=true
+      LockPersonality=true
+      RestrictRealtime=true
+      SystemCallArchitectures=native
+  - path: /etc/systemd/system/yuruna-brand-dashboards.timer
+    permissions: '0644'
+    owner: root:root
+    content: |
+      [Unit]
+      Description=Re-stamp the brand tile as dashboards are provisioned or replaced
+      [Timer]
+      OnBootSec=2min
+      OnUnitActiveSec=15min
+      AccuracySec=30s
+      Unit=yuruna-brand-dashboards.service
       [Install]
       WantedBy=timers.target
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#squid-dashboard-inlined
@@ -2993,7 +3352,14 @@ write_files:
       [Install]
       WantedBy=timers.target
 runcmd:
+  # sshd is already up by the time write_files lands, so the drop-in above needs
+  # a reload to take effect on this boot rather than only on the next one.
+  - systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true
   # === YURUNA_OVERLAY_RUNCMD_NET ===
+  # Enabled early: the timer's first tick is what makes this VM's host
+  # coordinates true, and the bring-up below fetches framework sources from
+  # exactly those coordinates.
+  - systemctl enable --now yuruna-host-locate.service yuruna-host-locate.timer || true
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#stop-squid-before-ca-bootstrap
   - systemctl stop squid || true
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#ssl-bump-capable-squid-binary
@@ -3353,6 +3719,18 @@ runcmd:
     else
         echo "== YURUNA: failed to fetch Grafana dashboard 20501 from grafana.com -- the 'Zot (official)' dashboard will be missing until the next boot retries =="
     fi
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#enable-grafana-dashboard-brand-tile
+  # Last of the dashboard steps, so the community Zot dashboard is already on
+  # disk and gets branded in the same pass as the three inlined ones. The
+  # explicit start is what brands them NOW: enabling the timer only schedules
+  # the next tick, and a proxy whose dashboards are anonymous for the first
+  # minutes of its life is exactly the window an operator watches it in.
+  - systemctl enable --now yuruna-brand-dashboards.timer
+  # Block scalar, not a plain one: the message carries a ": ", which YAML reads
+  # as a mapping key in a plain scalar and would turn this command into a dict.
+  - |
+    systemctl start yuruna-brand-dashboards.service \
+      || echo "== YURUNA: dashboard brand tile not stamped -- the timer retries within 15 minutes =="
   # --- REGION: https://yuruna.link/caching#loki--promtail-boot-order-traps
   - id zot >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin zot
   - install -d -o promtail -m 0755 /var/lib/promtail

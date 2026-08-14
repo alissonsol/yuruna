@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42759f4b-9143-4909-b379-0ff23a9fc154
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,6 +35,7 @@
     Run: pwsh -NoProfile -File test/modules/Test.Notify.Tests.ps1
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module powershell-yaml -Force -ErrorAction SilentlyContinue
 Import-Module (Join-Path $here 'Test.Notify.psm1') -Force -DisableNameChecking
@@ -109,18 +110,20 @@ function Get-ActiveNotifyExtension {
 # An event code no transports.yml subscribes to. The extension resolves it,
 # finds no subscribers, and returns -- so the dispatch path is exercised end to
 # end without any transport being contacted, on this host or an operator's.
-$UnsubscribedEventCode = 'test.selfcheck.unit'
+$script:UnsubscribedEventCode = 'test.selfcheck.unit'
 
-$SavedPublicUrl = $env:YURUNA_STATUS_PUBLIC_URL
+$script:SavedPublicUrl = $env:YURUNA_STATUS_PUBLIC_URL
 
 $TempRoot = [System.IO.Path]::GetTempPath()
 $PayloadDir = Join-Path $TempRoot ('yuruna-notify-payload-' + [guid]::NewGuid().ToString('N'))
-$PayloadFailureFile = Join-Path $PayloadDir 'last_failure.json'
+$script:PayloadFailureFile = Join-Path $PayloadDir 'last_failure.json'
 $LedgerDir = Join-Path $TempRoot ('yuruna-notify-ledger-' + [guid]::NewGuid().ToString('N'))
-$LedgerMissingDir = Join-Path $LedgerDir 'no-such-subfolder'
-$DispatchDir = Join-Path $TempRoot ('yuruna-notify-dispatch-' + [guid]::NewGuid().ToString('N'))
-$EnvelopeDir = Join-Path $TempRoot ('yuruna-notify-envelope-' + [guid]::NewGuid().ToString('N'))
-$ResolveDir = Join-Path $TempRoot ('yuruna-notify-resolve-' + [guid]::NewGuid().ToString('N'))
+$script:LedgerMissingDir = Join-Path $LedgerDir 'no-such-subfolder'
+$script:DispatchDir = Join-Path $TempRoot ('yuruna-notify-dispatch-' + [guid]::NewGuid().ToString('N'))
+$script:EnvelopeDir = Join-Path $TempRoot ('yuruna-notify-envelope-' + [guid]::NewGuid().ToString('N'))
+$script:ResolveDir = Join-Path $TempRoot ('yuruna-notify-resolve-' + [guid]::NewGuid().ToString('N'))
+
+}
 
 Describe 'Format-FailureMessage' {
     It 'builds a plain-text body from the scalar fields' {
@@ -184,11 +187,11 @@ Describe 'Get-FailureEventData' {
     }
     AfterAll {
         Initialize-TestCycleFolder -Path ''
-        if ($null -eq $SavedPublicUrl) { Remove-Item Env:\YURUNA_STATUS_PUBLIC_URL -ErrorAction SilentlyContinue }
-        else { $env:YURUNA_STATUS_PUBLIC_URL = $SavedPublicUrl }
+        if ($null -eq $script:SavedPublicUrl) { Remove-Item Env:\YURUNA_STATUS_PUBLIC_URL -ErrorAction SilentlyContinue }
+        else { $env:YURUNA_STATUS_PUBLIC_URL = $script:SavedPublicUrl }
         Remove-Item -LiteralPath $PayloadDir -Recurse -Force -ErrorAction SilentlyContinue
     }
-    BeforeEach { Remove-Item -LiteralPath $PayloadFailureFile -Force -ErrorAction SilentlyContinue }
+    BeforeEach { Remove-Item -LiteralPath $script:PayloadFailureFile -Force -ErrorAction SilentlyContinue }
 
     It 'builds a minimal schema-v2 payload for a bootstrap failure with no cycle folder' {
         # GitPull / ProjectClone fire before Start-LogFile, so there is no
@@ -221,7 +224,7 @@ Describe 'Get-FailureEventData' {
             suggestedRecoveries = @('restart guest')
             guestKey            = 'guest-from-file'
             hostType            = 'host-from-file'
-        } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $PayloadFailureFile -Encoding utf8NoBOM
+        } | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $script:PayloadFailureFile -Encoding utf8NoBOM
 
         $p = Get-FailureEventData -CycleFolder $PayloadDir -Hostname 'BOX' -CycleStartUtc 'cycle-000042' -GitCommit 'g1' -ProjectCommit 'p1'
         Assert-Equal -Expected 'ssh_timeout' -Actual $p['failureClass'] -Because 'the classified failure, not a synthesized one'
@@ -233,7 +236,7 @@ Describe 'Get-FailureEventData' {
     }
     It 'keeps the file values for identity fields the caller left empty' {
         @{ actionVerb = 'sshWaitReady'; action = 'ssh connect'; guestKey = 'guest-from-file'; hostType = 'host-from-file' } |
-            ConvertTo-Json | Set-Content -LiteralPath $PayloadFailureFile -Encoding utf8NoBOM
+            ConvertTo-Json | Set-Content -LiteralPath $script:PayloadFailureFile -Encoding utf8NoBOM
 
         $p = Get-FailureEventData -CycleFolder $PayloadDir -Hostname 'BOX'
         Assert-Equal -Expected 'guest-from-file' -Actual $p['guestKey']
@@ -243,7 +246,7 @@ Describe 'Get-FailureEventData' {
     }
     It 'lets the caller override the identity fields the file recorded' {
         @{ guestKey = 'guest-from-file'; hostType = 'host-from-file'; actionVerb = 'sshWaitReady' } |
-            ConvertTo-Json | Set-Content -LiteralPath $PayloadFailureFile -Encoding utf8NoBOM
+            ConvertTo-Json | Set-Content -LiteralPath $script:PayloadFailureFile -Encoding utf8NoBOM
 
         $p = Get-FailureEventData -CycleFolder $PayloadDir -HostType 'host.macos.utm' -GuestKey 'ubuntu-26' -StepName 'waitForText'
         Assert-Equal -Expected 'host.macos.utm' -Actual $p['hostType']
@@ -251,7 +254,7 @@ Describe 'Get-FailureEventData' {
         Assert-Equal -Expected 'waitForText' -Actual $p['stepName']
     }
     It 'falls back to a synthesized payload when last_failure.json will not parse' {
-        Set-Content -LiteralPath $PayloadFailureFile -Value 'not json {{' -Encoding utf8NoBOM
+        Set-Content -LiteralPath $script:PayloadFailureFile -Value 'not json {{' -Encoding utf8NoBOM
         $p = Get-FailureEventData -CycleFolder $PayloadDir -Hostname 'BOX' -StepName 'st' -ErrorMessage 'em' -DefaultFailureClass 'vm_start_failure'
         Assert-Equal -Expected 'vm_start_failure' -Actual $p['failureClass'] -Because 'a corrupt failure file must not lose the notification'
         Assert-Equal -Expected 'em' -Actual $p['description']
@@ -331,7 +334,7 @@ Describe 'Write-NotificationDelivery' {
     It 'never throws back into the dispatch loop when the ledger cannot be written' {
         # Best-effort telemetry: a failed ledger write must not abort the send
         # (or the remaining extensions) that it is only recording.
-        Write-NotificationDelivery -ExtensionName 'default' -EventCode 'e' -Status 'ok' -CycleFolder $LedgerMissingDir
+        Write-NotificationDelivery -ExtensionName 'default' -EventCode 'e' -Status 'ok' -CycleFolder $script:LedgerMissingDir
         Assert-True $true 'an unwritable ledger path is swallowed'
     }
     It 'rejects a status outside the ok / fail set' {
@@ -343,41 +346,41 @@ Describe 'Write-NotificationDelivery' {
 
 Describe 'Send-Notification' {
     BeforeAll {
-        $null = New-Item -ItemType Directory -Path $DispatchDir -Force
-        Initialize-TestCycleFolder -Path $DispatchDir
+        $null = New-Item -ItemType Directory -Path $script:DispatchDir -Force
+        Initialize-TestCycleFolder -Path $script:DispatchDir
     }
     AfterAll {
         Initialize-TestCycleFolder -Path ''
         Get-Job -Name 'Send-Notification-*' -ErrorAction SilentlyContinue | Remove-Job -Force -ErrorAction SilentlyContinue
-        Remove-Item -LiteralPath $DispatchDir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $script:DispatchDir -Recurse -Force -ErrorAction SilentlyContinue
     }
-    BeforeEach { Remove-Item -LiteralPath (Join-Path $DispatchDir 'notification.delivery.json') -Force -ErrorAction SilentlyContinue }
+    BeforeEach { Remove-Item -LiteralPath (Join-Path $script:DispatchDir 'notification.delivery.json') -Force -ErrorAction SilentlyContinue }
 
     # The dispatcher carries a name of its own, distinct from the Send-Notification
     # contract verb every extension exports. Extensions load -Global, so sharing
     # that verb would let the first-loaded transport shadow the dispatcher for every
     # unqualified caller -- see the resolution suite at the bottom of this file.
     It 'dispatches synchronously and records the delivery in the ledger' {
-        Send-YurunaNotification -EventCode $UnsubscribedEventCode -EventMessage 'subject' -EventNote 'body' -Synchronous
+        Send-YurunaNotification -EventCode $script:UnsubscribedEventCode -EventMessage 'subject' -EventNote 'body' -Synchronous
 
-        $records = Get-DeliveryRecord -CycleFolder $DispatchDir
+        $records = Get-DeliveryRecord -CycleFolder $script:DispatchDir
         Assert-Equal -Expected 1 -Actual $records.Count -Because 'a send with no ledger record is indistinguishable from a send that never happened'
         Assert-Equal -Expected (Get-ActiveNotifyExtension) -Actual $records[0].extension
         Assert-Equal -Expected 'ok' -Actual $records[0].status
         Assert-Equal -Expected 'sync' -Actual $records[0].mode
-        Assert-Equal -Expected $UnsubscribedEventCode -Actual $records[0].eventCode
+        Assert-Equal -Expected $script:UnsubscribedEventCode -Actual $records[0].eventCode
     }
     It 'dispatches asynchronously by default and records the delivery from the thread job' {
         # The failure path must not block on a multi-second transport roundtrip,
         # but the outcome still has to land in the ledger.
-        Send-YurunaNotification -EventCode $UnsubscribedEventCode -EventMessage 'subject' -EventNote 'body'
+        Send-YurunaNotification -EventCode $script:UnsubscribedEventCode -EventMessage 'subject' -EventNote 'body'
 
         $job = Get-Job -Name "Send-Notification-$(Get-ActiveNotifyExtension)" -ErrorAction SilentlyContinue | Select-Object -First 1
         Assert-True ($null -ne $job) 'the async path hands the send to a thread job'
         $null = Wait-Job -Job $job -Timeout 60
         Remove-Job -Job $job -Force -ErrorAction SilentlyContinue
 
-        $records = Get-DeliveryRecord -CycleFolder $DispatchDir
+        $records = Get-DeliveryRecord -CycleFolder $script:DispatchDir
         Assert-Equal -Expected 1 -Actual $records.Count
         Assert-Equal -Expected 'async' -Actual $records[0].mode
         Assert-Equal -Expected 'ok' -Actual $records[0].status
@@ -386,13 +389,13 @@ Describe 'Send-Notification' {
 
 Describe 'Send-CycleFailureNotification' {
     BeforeAll {
-        $null = New-Item -ItemType Directory -Path $EnvelopeDir -Force
-        Initialize-TestCycleFolder -Path $EnvelopeDir
+        $null = New-Item -ItemType Directory -Path $script:EnvelopeDir -Force
+        Initialize-TestCycleFolder -Path $script:EnvelopeDir
     }
     AfterAll {
         Initialize-TestCycleFolder -Path ''
         Initialize-NotifyCapture -Value $null
-        Remove-Item -LiteralPath $EnvelopeDir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $script:EnvelopeDir -Recurse -Force -ErrorAction SilentlyContinue
     }
     BeforeEach { Initialize-NotifyCapture -Value $null }
 
@@ -457,17 +460,17 @@ Describe 'Send-CycleFailureNotification' {
 
 Describe 'dispatcher command resolution' {
     BeforeAll {
-        $null = New-Item -ItemType Directory -Path $ResolveDir -Force
-        Initialize-TestCycleFolder -Path $ResolveDir
+        $null = New-Item -ItemType Directory -Path $script:ResolveDir -Force
+        Initialize-TestCycleFolder -Path $script:ResolveDir
         # Load the extension, exactly as the first cycle-failure of a process
         # would. Everything below asserts what is true AFTER that has happened,
         # because that is when the shadowing hazard exists at all.
-        Send-YurunaNotification -EventCode $UnsubscribedEventCode -EventMessage 'warm-up' -EventNote 'warm-up' -Synchronous
-        Remove-Item -LiteralPath (Join-Path $ResolveDir 'notification.delivery.json') -Force -ErrorAction SilentlyContinue
+        Send-YurunaNotification -EventCode $script:UnsubscribedEventCode -EventMessage 'warm-up' -EventNote 'warm-up' -Synchronous
+        Remove-Item -LiteralPath (Join-Path $script:ResolveDir 'notification.delivery.json') -Force -ErrorAction SilentlyContinue
     }
     AfterAll {
         Initialize-TestCycleFolder -Path ''
-        Remove-Item -LiteralPath $ResolveDir -Recurse -Force -ErrorAction SilentlyContinue
+        Remove-Item -LiteralPath $script:ResolveDir -Recurse -Force -ErrorAction SilentlyContinue
     }
 
     # Extensions are imported -Global and every one of them exports the contract
@@ -497,12 +500,12 @@ Describe 'dispatcher command resolution' {
         # this guards is the second send onwards, not the first.
         $err = $null
         try {
-            Send-YurunaNotification -EventCode $UnsubscribedEventCode -EventMessage 'subject' -EventNote 'body' -Synchronous
+            Send-YurunaNotification -EventCode $script:UnsubscribedEventCode -EventMessage 'subject' -EventNote 'body' -Synchronous
         } catch {
             $err = $_.Exception.Message
         }
         Assert-True ($null -eq $err) "a second dispatch in the same process must not throw: $err"
-        Assert-Equal -Expected 1 -Actual (Get-DeliveryRecord -CycleFolder $ResolveDir).Count `
+        Assert-Equal -Expected 1 -Actual (Get-DeliveryRecord -CycleFolder $script:ResolveDir).Count `
             -Because 'a dispatch that leaves no ledger record is an alert nobody can confirm was sent'
     }
 

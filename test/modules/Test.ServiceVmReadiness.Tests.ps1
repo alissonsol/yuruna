@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42d7c1e9-8b04-4a3f-9c62-7e15b0d4a933
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -49,6 +49,7 @@
          (or Invoke-Pester -Path test/modules/Test.ServiceVmReadiness.Tests.ps1)
 #>
 
+BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
 
@@ -71,8 +72,8 @@ if (-not (Get-Command -Name 'Describe' -ErrorAction SilentlyContinue)) {
 }
 
 $StashScriptPath = Join-Path $repoRoot 'test/service/Start-StashServiceVM.ps1'
-$StashSource     = Get-Content -Raw -LiteralPath $StashScriptPath
-$SetupSource     = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'install/setup.ps1')
+$script:StashSource     = Get-Content -Raw -LiteralPath $StashScriptPath
+$script:SetupSource     = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'install/setup.ps1')
 
 # Stands in for the per-host VM driver. Restore-YurunaServiceVM resolves these by
 # NAME at call time, so a definition in the global scope is what it finds -- the
@@ -105,23 +106,23 @@ function Uninstall-FakeVMDriver {
 # The two records a real wait returns at each end of the verdict: one that ran
 # its whole budget against a guest that answered nothing, and one where the
 # guest itself confirmed the build is still going.
-$TimedOutEndpoint = [pscustomobject]@{
+$script:TimedOutEndpoint = [pscustomobject]@{
     Ready = $false; Address = ''; WaitedSeconds = 2700; Unreachable = $false
     ListeningInGuest = $false; StillBuilding = $false; CloudInitStatus = ''
     LastProgress = ''; ExtendedSeconds = 0; AddressChanges = 0
     ObservedState = 'no guest address discovered yet, so nothing has been probed'
 }
-$BuildingEndpoint = [pscustomobject]@{
+$script:BuildingEndpoint = [pscustomobject]@{
     Ready = $false; Address = '10.0.0.5'; WaitedSeconds = 5400; Unreachable = $false
     ListeningInGuest = $false; StillBuilding = $true; CloudInitStatus = 'running'
     LastProgress = 'Setting up golang-1.26-go'; ExtendedSeconds = 2700; AddressChanges = 0
 }
-$UnreachableEndpoint = [pscustomobject]@{
+$script:UnreachableEndpoint = [pscustomobject]@{
     Ready = $false; Address = '10.0.0.5'; WaitedSeconds = 300; Unreachable = $true
     ListeningInGuest = $true; StillBuilding = $false; CloudInitStatus = 'done'
     LastProgress = ''; ExtendedSeconds = 0; AddressChanges = 0
 }
-$ReadyEndpoint = [pscustomobject]@{
+$script:ReadyEndpoint = [pscustomobject]@{
     Ready = $true; Address = '10.0.0.5'; WaitedSeconds = 420; Unreachable = $false
     ListeningInGuest = $false; StillBuilding = $false; CloudInitStatus = 'done'
     LastProgress = ''; ExtendedSeconds = 0; AddressChanges = 0
@@ -153,16 +154,18 @@ function Invoke-SilentGuestWait {
         ForEach-Object { [string]$_.MessageData })
     return [pscustomobject]@{ Record = $record; Lines = ($lines -join "`n") }
 }
-$SilentGuest = Invoke-SilentGuestWait
+$script:SilentGuest = Invoke-SilentGuestWait
 # The same silent guest, reached the way a macOS Shared-NAT host reaches it: the
 # caller seeds the address the hypervisor gave, and the per-poll lookup answers
 # nothing (Get-GuestAddress falling back to the VM name is exactly this).
-$SeededGuest = Invoke-SilentGuestWait -SeedAddress '10.44.7.9' -ResolveAddress { '' }
+$script:SeededGuest = Invoke-SilentGuestWait -SeedAddress '10.44.7.9' -ResolveAddress { '' }
+
+}
 
 Describe 'A readiness timeout is a failure, not a pass' {
 
     It 'fails when the budget ran out with the daemon unbound and the guest silent' {
-        $verdict = Get-ServiceVmReadinessVerdict -Endpoint $TimedOutEndpoint
+        $verdict = Get-ServiceVmReadinessVerdict -Endpoint $script:TimedOutEndpoint
         Assert-Equal -Expected 'NotServing' -Actual $verdict.Outcome
         Assert-True $verdict.IsFailure 'a run that records PASS here reports a service that does not exist.'
     }
@@ -178,19 +181,19 @@ Describe 'A readiness timeout is a failure, not a pass' {
     It 'does NOT fail when the guest confirmed the daemon is bound' {
         # The service is running and reaches the pool through its own announce;
         # only this host's direct path is missing.
-        $verdict = Get-ServiceVmReadinessVerdict -Endpoint $UnreachableEndpoint
+        $verdict = Get-ServiceVmReadinessVerdict -Endpoint $script:UnreachableEndpoint
         Assert-Equal -Expected 'Unreachable' -Actual $verdict.Outcome
         Assert-True (-not $verdict.IsFailure) 'a local networking gap is not a failed bring-up.'
     }
 
     It 'does NOT fail while the guest reports cloud-init is still running' {
-        $verdict = Get-ServiceVmReadinessVerdict -Endpoint $BuildingEndpoint
+        $verdict = Get-ServiceVmReadinessVerdict -Endpoint $script:BuildingEndpoint
         Assert-Equal -Expected 'StillBuilding' -Actual $verdict.Outcome
         Assert-True (-not $verdict.IsFailure) 'the build finishes on its own; "not yet" is not "broken".'
     }
 
     It 'passes when the daemon answered' {
-        $verdict = Get-ServiceVmReadinessVerdict -Endpoint $ReadyEndpoint
+        $verdict = Get-ServiceVmReadinessVerdict -Endpoint $script:ReadyEndpoint
         Assert-Equal -Expected 'Ready' -Actual $verdict.Outcome
         Assert-True (-not $verdict.IsFailure)
     }
@@ -204,46 +207,46 @@ Describe 'A readiness timeout is a failure, not a pass' {
 Describe 'Start-StashServiceVM reports the verdict it reached' {
 
     It 'exits with the failure code on the readiness-failure path' {
-        $failBanner = $StashSource.IndexOf('== stash-service start: FAILED')
+        $failBanner = $script:StashSource.IndexOf('== stash-service start: FAILED')
         Assert-True ($failBanner -ge 0) 'the failing path must announce itself as failed.'
-        $exitFail = $StashSource.IndexOf('exit $ExitFailure', $failBanner)
+        $exitFail = $script:StashSource.IndexOf('exit $ExitFailure', $failBanner)
         Assert-True ($exitFail -gt $failBanner) 'the failing path must end in a failure exit.'
     }
 
     It 'prints no "complete" banner on any path that did not complete' {
-        $complete = $StashSource.IndexOf('== stash-service start: complete ==')
+        $complete = $script:StashSource.IndexOf('== stash-service start: complete ==')
         Assert-True ($complete -ge 0) 'a successful bring-up still says so.'
-        Assert-Equal -Expected 1 -Actual ([regex]::Matches($StashSource, [regex]::Escape('== stash-service start: complete ==')).Count) `
+        Assert-Equal -Expected 1 -Actual ([regex]::Matches($script:StashSource, [regex]::Escape('== stash-service start: complete ==')).Count) `
             'one banner, on one path -- a second copy is how a failing path grows one.'
 
-        $failBanner = $StashSource.IndexOf('== stash-service start: FAILED')
-        $exitOnFail = $StashSource.IndexOf('exit $ExitFailure', $failBanner)
+        $failBanner = $script:StashSource.IndexOf('== stash-service start: FAILED')
+        $exitOnFail = $script:StashSource.IndexOf('exit $ExitFailure', $failBanner)
         Assert-True ($exitOnFail -lt $complete) 'the failing path must leave before the banner it must not print.'
 
-        $buildBanner = $StashSource.IndexOf('== stash-service start: STILL BUILDING')
+        $buildBanner = $script:StashSource.IndexOf('== stash-service start: STILL BUILDING')
         Assert-True ($buildBanner -ge 0) 'a guest that is still compiling gets its own banner, not "complete".'
-        $exitOnBuilding = $StashSource.IndexOf('exit $ExitOk', $buildBanner)
+        $exitOnBuilding = $script:StashSource.IndexOf('exit $ExitOk', $buildBanner)
         Assert-True ($exitOnBuilding -gt $buildBanner -and $exitOnBuilding -lt $complete) `
             'still-building is a success whose service is not up; it must not claim completion.'
     }
 
     It 'never hardcodes a zero exit' {
-        $bare = [regex]::Matches($StashSource, '(?m)^\s*exit\s+0\s*$').Count
+        $bare = [regex]::Matches($script:StashSource, '(?m)^\s*exit\s+0\s*$').Count
         Assert-Equal -Expected 0 -Actual $bare 'the outcome-to-code mapping is centralized so it can be changed in one place.'
     }
 
     It 'hands its ssh guidance through the formatter rather than interpolating an address' {
         # The shape that produced `ssh stash-admin@ '...'`: an address dropped
         # straight into the message, with nothing checking it exists.
-        Assert-True ($StashSource -notmatch "ssh stash-admin@\`$") `
+        Assert-True ($script:StashSource -notmatch "ssh stash-admin@\`$") `
             'an address interpolated without a check is how an unrunnable command reaches the operator.'
-        Assert-True ($StashSource -match 'Format-GuestSshDiagnosticHint') 'the formatter is what refuses to print a hole.'
+        Assert-True ($script:StashSource -match 'Format-GuestSshDiagnosticHint') 'the formatter is what refuses to print a hole.'
     }
 
     It 'captures the guest console before failing' {
         # A frame showing a failed cifs mount answers instantly what a host-side
         # probe can only report as silence.
-        Assert-True ($StashSource -match 'Get-VMScreenshot') 'on a readiness timeout the console is the remaining evidence.'
+        Assert-True ($script:StashSource -match 'Get-VMScreenshot') 'on a readiness timeout the console is the remaining evidence.'
     }
 }
 
@@ -278,9 +281,9 @@ Describe 'The progress line states what was observed, never what was assumed' {
         # progress line that asserts it is compiling: the operator reads the
         # claim, believes the build is progressing, and waits out the whole
         # budget on it.
-        Assert-True ($SilentGuest.Lines -match 'waiting for the stash-service daemon') 'the line must still show the wait is alive.'
-        Assert-True ($SilentGuest.Lines -notmatch '(?i)building') 'nothing observed the guest building, so nothing may say it is.'
-        Assert-True ($SilentGuest.Lines -match 'not accepting :22') 'what WAS observed is that the guest answers nothing.'
+        Assert-True ($script:SilentGuest.Lines -match 'waiting for the stash-service daemon') 'the line must still show the wait is alive.'
+        Assert-True ($script:SilentGuest.Lines -notmatch '(?i)building') 'nothing observed the guest building, so nothing may say it is.'
+        Assert-True ($script:SilentGuest.Lines -match 'not accepting :22') 'what WAS observed is that the guest answers nothing.'
     }
 
     It 'keeps naming the address it is actually probing when discovery goes quiet' {
@@ -289,17 +292,17 @@ Describe 'The progress line states what was observed, never what was assumed' {
         # so a line reading "nothing has been probed" is the same unmeasured
         # claim as a fixed label, merely inverted -- and a line that forgets and
         # re-learns the address changes text every poll, which floods the log.
-        Assert-True ($SeededGuest.Lines -notmatch 'no guest address') 'a probe IS running, against an address this host holds.'
-        Assert-True ($SeededGuest.Lines -match '10\.44\.7\.9') 'name the address the probe is aimed at.'
-        Assert-True ($SeededGuest.Lines -match 'not accepting :22') 'the seeded address is probed, so reachability is measurable.'
-        Assert-Equal -Expected '10.44.7.9' -Actual $SeededGuest.Record.Address 'the seed is what the wait carried out.'
-        Assert-Equal -Expected 'unreachable' -Actual $SeededGuest.Record.Reachability `
+        Assert-True ($script:SeededGuest.Lines -notmatch 'no guest address') 'a probe IS running, against an address this host holds.'
+        Assert-True ($script:SeededGuest.Lines -match '10\.44\.7\.9') 'name the address the probe is aimed at.'
+        Assert-True ($script:SeededGuest.Lines -match 'not accepting :22') 'the seeded address is probed, so reachability is measurable.'
+        Assert-Equal -Expected '10.44.7.9' -Actual $script:SeededGuest.Record.Address 'the seed is what the wait carried out.'
+        Assert-Equal -Expected 'unreachable' -Actual $script:SeededGuest.Record.Reachability `
             'reachability is the only thing separating "guest up, daemon not ready" from "guest answering nothing".'
     }
 
     It 'carries the final observation out with the verdict' {
-        Assert-True ($SilentGuest.Record.ObservedState -match 'not accepting') 'the failure message quotes the last thing measured.'
-        $verdict = Get-ServiceVmReadinessVerdict -Endpoint $SilentGuest.Record
+        Assert-True ($script:SilentGuest.Record.ObservedState -match 'not accepting') 'the failure message quotes the last thing measured.'
+        $verdict = Get-ServiceVmReadinessVerdict -Endpoint $script:SilentGuest.Record
         Assert-True $verdict.IsFailure 'a guest that answered nothing for the whole budget is a failed bring-up.'
     }
 }
@@ -336,8 +339,8 @@ Describe 'Diagnostics an operator can actually run' {
         # back empty throws away the only thing that found it -- and leaves the
         # operator with the console frame as the sole evidence when a full
         # in-guest capture was available.
-        Assert-True ($StashSource -match 'Invoke-GuestSsh -VMName \$stashSshTarget') 'the capture goes to the address that was found.'
-        Assert-True ($StashSource -match '\$stashSshTarget\s*=\s*if \(\$stashDiagIp\)') 'the VM name is the fallback, not the first choice.'
+        Assert-True ($script:StashSource -match 'Invoke-GuestSsh -VMName \$stashSshTarget') 'the capture goes to the address that was found.'
+        Assert-True ($script:StashSource -match '\$stashSshTarget\s*=\s*if \(\$stashDiagIp\)') 'the VM name is the fallback, not the first choice.'
     }
 
     It 'reuses the host driver for bundle-MAC discovery instead of a second copy' {
@@ -416,12 +419,12 @@ Describe 'A service that is merely powered on is not a service' {
     It 'makes install/setup.ps1 probe before it reuses a service' {
         # Read from the source: a copy of the rule here would go on passing after
         # the reuse decision stopped applying it.
-        Assert-True ($SetupSource -match 'Restore-YurunaServiceVM -Key @\(\$RosterKey\) -ProbeRunning') `
+        Assert-True ($script:SetupSource -match 'Restore-YurunaServiceVM -Key @\(\$RosterKey\) -ProbeRunning') `
             'the reuse check has to ask for the probe; without it the record says healthy on state alone.'
-        $running = $SetupSource.IndexOf("'running'  {")
+        $running = $script:SetupSource.IndexOf("'running'  {")
         Assert-True ($running -ge 0) 'the reuse verdict still branches on the running outcome.'
-        $adopt = $SetupSource.IndexOf('Adopt = $true', $running)
-        $gate  = $SetupSource.IndexOf('if ($r.Healthy)', $running)
+        $adopt = $script:SetupSource.IndexOf('Adopt = $true', $running)
+        $gate  = $script:SetupSource.IndexOf('if ($r.Healthy)', $running)
         Assert-True ($gate -ge 0 -and $gate -lt $adopt) 'adoption of a running VM must sit behind the health verdict.'
     }
 }

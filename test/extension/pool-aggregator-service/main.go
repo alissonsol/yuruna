@@ -98,10 +98,23 @@ const (
 	//
 	// A confirmed target that goes quiet is kept for extensionHealthGrace -- a
 	// service restart, a lost packet or a DHCP renewal must not empty the panel
-	// -- and is then dropped: the announce entry is deleted (a service that
-	// stopped answering has gone away as far as the pool can tell, the same
-	// conclusion its goodbye carries) and a registration-sourced address stops
-	// being published.
+	// -- and is then refused for resolution: the address stops being published,
+	// whichever source named it.
+	//
+	// The entry itself SURVIVES the refusal, suppressed rather than removed. A
+	// service whose address died is nearly always a service that renumbered, and
+	// it re-announces from the new address within a beacon period; deleting the
+	// entry in the meantime leaves the area with no record at all, so an
+	// operator asking why a cycle cannot find the stash sees "this pool has no
+	// stash" instead of "the stash is advertised at X and X does not answer".
+	// Suppressed, it answers nothing and links nowhere, while
+	// yuruna_pool_extension_unreachable and the services list keep naming the
+	// refused address for as long as the announce TTL carries it.
+	//
+	// This is why a beacon period must stay SHORTER than this grace: recovery
+	// that is slower than refusal opens a window in which the pool has neither
+	// the old address nor the new one. See the presence-interval constant each
+	// extension service defines.
 	//
 	// Code-only knobs by design: where a lab's services answer is not an
 	// operator preference, and a per-pool override would let one host's
@@ -428,13 +441,19 @@ func announceKey(hostID, area string) string { return hostID + "|" + area }
 // Confirmed separates "never reached" from "reached, then lost", which are
 // opposite situations: a never-confirmed address is refused outright (this is
 // what keeps a host-private address out of the pool), while a confirmed one is
-// carried through extensionHealthGrace of failures before it is dropped.
+// carried through extensionHealthGrace of failures before it is refused.
 type extHealthView struct {
 	Target          string
 	Confirmed       bool  // /healthz answered for this exact target at least once
 	LastOkUnixMs    int64 // last successful probe (0 = never)
 	FirstFailUnixMs int64 // start of the current failure streak (0 = not failing)
 	LastError       string
+	// refusedLogged keeps the crossing of extensionHealthGrace to ONE log line.
+	// The verdict is re-derived every poll, so without it a service that stays
+	// down writes the same line every -interval for as long as the announce TTL
+	// holds the entry. Reset with the rest of the verdict when the address
+	// changes, so a later failure of a later address is reported again.
+	refusedLogged bool
 }
 
 // poolStatusEntry is one host in the /api/v1/pool-status snapshot: the
@@ -1222,7 +1241,7 @@ func fetchCurrentAction(client *http.Client, base string) (bool, error) {
 // served by the status service at /yuruna-repo/VERSION -- the SAME source the
 // host's own status pages read for their header (their getHostInfo() fetches
 // yuruna-repo/VERSION via JS, so the version is not embedded in the HTML). A tiny
-// plain-text file (one CalVer line, e.g. "2026.08.11"), so it is lighter than any
+// plain-text file (one CalVer line, e.g. "2026.08.14"), so it is lighter than any
 // status HTML page and fetchable server-side without a JS engine. Returns
 // ("", err) on any failure; the caller keeps the prior version on a transient
 // miss (the version is stable across polls). The value is capped + first-line
@@ -2908,6 +2927,7 @@ func (s *poolState) applyExtensionProbeLocked(key, target string, probeErr error
 	}
 	if probeErr == nil {
 		h.Confirmed, h.LastOkUnixMs, h.FirstFailUnixMs, h.LastError = true, now.UnixMilli(), 0, ""
+		h.refusedLogged = false
 		return
 	}
 	if h.FirstFailUnixMs == 0 {
@@ -2940,15 +2960,18 @@ func (s *poolState) confirmExtensionTarget(client *http.Client, key, target stri
 }
 
 // refreshExtensionHealth re-confirms every advertised extension address and
-// drops the ones that have stayed silent past extensionHealthGrace. Runs once
+// refuses the ones that have stayed silent past extensionHealthGrace. Runs once
 // per poll: the address list is snapshotted under the lock, the probes run
 // unlocked and concurrently (a black-holed address costs probeTimeout each), and
 // the verdicts are applied under the lock again.
 //
-// Only the ANNOUNCE side can be deleted here. A registration-sourced address is
-// re-asserted by its owning host on every poll, so deleting it would achieve
-// nothing; it is suppressed instead (see extensionCandidatesLocked) until that
-// host retracts it -- which Stop-StashServiceVM does by clearing the marker.
+// Neither source is removed here. Suppression (see extensionCandidatesLocked)
+// is what stops an unreachable address being handed out, and it applies to both:
+// a registration-sourced address is re-asserted by its owning host on every poll
+// so removing it would achieve nothing, and an announce-sourced one belongs to a
+// service that is most likely still up at an address it has yet to re-announce.
+// Removal is left to the announce TTL, a goodbye, or the owning host retracting
+// its marker -- which Stop-StashServiceVM does.
 func (s *poolState) refreshExtensionHealth(client *http.Client, now time.Time) {
 	if client == nil {
 		return
@@ -2997,10 +3020,12 @@ func (s *poolState) refreshExtensionHealth(client *http.Client, now time.Time) {
 		if h.FirstFailUnixMs == 0 || now.UnixMilli()-h.FirstFailUnixMs <= extensionHealthGrace.Milliseconds() {
 			continue
 		}
-		if av := s.announce[key]; av != nil && av.Target == h.Target {
-			log.Printf("extension %s: dropping the self-announced address %s -- unanswered for %s (%s)", key, h.Target, extensionHealthGrace, h.LastError)
-			delete(s.announce, key)
+		if h.refusedLogged {
+			continue
 		}
+		h.refusedLogged = true
+		log.Printf("extension %s: refusing %s for resolution -- unanswered for %s (%s); the entry stays suppressed until the service re-announces or the announce TTL reaps it",
+			key, h.Target, extensionHealthGrace, h.LastError)
 	}
 }
 
@@ -4801,6 +4826,188 @@ func (s *poolState) handleIngest(w http.ResponseWriter, r *http.Request) {
 // hosts row survives the owning host's status service being down. Open by
 // design but contained (self-identity binding; goodbyes also match an
 // address-less rehydrated entry). See docs/extensions-api.md (POST /announce).
+// pushHostAnnounce records a host self-announce in Loki so a collector restart
+// restores the host's address immediately instead of waiting for it to show up
+// in the squid log again. Separate src label from the extension announce: the
+// two feed different views and the rehydrate paths must not read each other's
+// lines.
+func pushHostAnnounce(client *http.Client, lokiURL, pool, hostID, baseURL string, now time.Time) error {
+	if lokiURL == "" || hostID == "" {
+		return nil
+	}
+	line, _ := json.Marshal(map[string]any{"hostId": hostID, "baseUrl": baseURL})
+	return pushLokiStream(client, lokiURL, "host-announce",
+		map[string]string{"pool": pool, "hostId": hostID, "src": "host-announce"}, line, now)
+}
+
+// handleHostAnnounce is the host-presence write surface: a host POSTs its own
+// hostId whenever its address changes, on service start, and on a periodic
+// beacon, so the pool view follows it across a DHCP renumber.
+//
+// It exists because squid-log discovery is PULL-only and therefore lags exactly
+// when it matters: a host enters the log only when it or its guests pull through
+// the proxy, so between cycles the view ages out and the recorded address is the
+// one the host has just left. Guests resolving through this view then get an
+// answer that is confidently wrong.
+//
+// Distinct from /announce, which is area-scoped extension presence. This one
+// moves a host's address inside the host view that pool-status, /go/* and the
+// guest resolver all read.
+//
+// Containment mirrors /announce, with one gate deliberately stronger:
+//
+//  1. Self-identity bound -- the address comes from the connection, never the
+//     body, so an announcer can only ever advertise itself.
+//  2. Confirmed, not believed. /announce probes /healthz; this probes
+//     /runtime/status.json and requires the hostId THERE to equal the claimed
+//     one. An announce is a claim to be checked, and here the claim is an
+//     identity, so identity is what gets checked. Nothing else can move a host
+//     row: a machine that cannot serve that host's status.json cannot rename
+//     itself into that host's place.
+//  3. Bounded -- same body cap and hostId charset as /announce.
+//  4. No bearer, for the reason /announce has none: requiring the shared lab
+//     token would kill the beacon in exactly the labs that need it. The route
+//     is telemetry-only; it relocates an existing identity and confers no
+//     control-plane capability.
+func (s *poolState) handleHostAnnounce(w http.ResponseWriter, r *http.Request) {
+	if s.announceTtl <= 0 {
+		http.Error(w, "announce disabled", http.StatusServiceUnavailable)
+		return
+	}
+	if r.Method != http.MethodPost {
+		w.Header().Set("Allow", http.MethodPost)
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	srcIP := requestSourceIP(r)
+	if srcIP == "" {
+		http.Error(w, "no source address", http.StatusForbidden)
+		return
+	}
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxAnnounceBody))
+	if err != nil {
+		http.Error(w, "payload too large or unreadable", http.StatusRequestEntityTooLarge)
+		return
+	}
+	var a struct {
+		HostId     string `json:"hostId"`
+		StatusPort int    `json:"statusPort"`
+	}
+	if err := json.Unmarshal(body, &a); err != nil {
+		http.Error(w, "malformed announce", http.StatusBadRequest)
+		return
+	}
+	if !announceHostIDRE.MatchString(a.HostId) {
+		http.Error(w, "invalid hostId", http.StatusBadRequest)
+		return
+	}
+	if a.StatusPort <= 0 || a.StatusPort > 65535 {
+		http.Error(w, "invalid statusPort", http.StatusBadRequest)
+		return
+	}
+	baseURL := fmt.Sprintf("http://%s:%d", srcIP, a.StatusPort)
+	if problem := extensionTargetProblem(baseURL); problem != "" {
+		http.Error(w, problem, http.StatusBadRequest)
+		return
+	}
+
+	// The confirm. Reuses the poll's own fetch so an announced host is admitted
+	// on exactly the evidence a discovered one is, and refuses the announce
+	// when the identity does not match what that address actually serves.
+	st, err := fetchStatus(s.httpClient, baseURL)
+	if err != nil {
+		http.Error(w, "announced address did not serve status.json", http.StatusBadRequest)
+		return
+	}
+	if st == nil || !strings.EqualFold(st.HostId, a.HostId) {
+		http.Error(w, "announced address serves a different hostId", http.StatusBadRequest)
+		return
+	}
+
+	now := time.Now().UTC()
+	s.mu.Lock()
+	poolLabel := s.poolFor(a.HostId)
+	if hv := s.hosts[a.HostId]; hv != nil {
+		hv.CurrentIP = srcIP
+		hv.BaseURL = baseURL
+		hv.LastSeenUnixMs = now.UnixMilli()
+		hv.LastError = ""
+	} else {
+		s.seedHostStubLocked(a.HostId, baseURL, now)
+	}
+	s.mu.Unlock()
+
+	// 2xx means recorded, not merely received -- the same contract /announce
+	// keeps, and for the same reason: a beacon retries only until its first
+	// success, so a 2xx for a line that never reached Loki costs the pool a
+	// whole beacon period of a host it cannot resolve.
+	if err := pushHostAnnounce(s.httpClient, s.lokiURL, poolLabel, a.HostId, baseURL, now); err != nil {
+		http.Error(w, "announce accepted but not recorded", http.StatusServiceUnavailable)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"ok":        true,
+		"hostId":    a.HostId,
+		"currentIp": srcIP,
+		"baseUrl":   baseURL,
+	})
+}
+
+// handleHostAddress answers "where is this hostId now" for one host.
+//
+// The guest resolver's route. It exists as a narrow alternative to pool-status
+// because a guest parses this during bootstrap, before anything is installed --
+// no jq, no JSON library, just sed over the body -- and a single flat object is
+// something a line-oriented parser can read with certainty where a whole pool
+// view is not.
+//
+// Deliberately NOT /go/host, which answers the same question for a browser: that
+// route mints a short-lived control proof into its redirect, and a guest holding
+// a control proof for its own host is the capability the status service's
+// control-route authentication exists to deny. This route mints nothing and
+// redirects nowhere.
+//
+// 404 rather than an empty 200 for an unknown host: the guest must be able to
+// tell "the pool does not know this host" from "the pool says it is nowhere",
+// and only the first is worth falling back to the older pool-status route for.
+func (s *poolState) handleHostAddress(w http.ResponseWriter, r *http.Request) {
+	hostID := strings.TrimSpace(r.URL.Query().Get("hostId"))
+	if !announceHostIDRE.MatchString(hostID) {
+		http.Error(w, "invalid hostId", http.StatusBadRequest)
+		return
+	}
+	s.mu.Lock()
+	hv := s.hosts[hostID]
+	var out struct {
+		HostId    string `json:"hostId"`
+		BaseURL   string `json:"baseUrl"`
+		CurrentIP string `json:"currentIp"`
+		Reachable bool   `json:"reachable"`
+	}
+	found := hv != nil && hv.BaseURL != ""
+	if found {
+		// Field order is not cosmetic: hostId and baseUrl stay adjacent and
+		// ahead of anything nested, because the guest resolver's fallback leg
+		// splits pool-status on '{' and requires both keys on one fragment.
+		// Reordering hostView's first fields silently breaks that parser.
+		out.HostId = hv.HostId
+		out.BaseURL = hv.BaseURL
+		out.CurrentIP = hv.CurrentIP
+		out.Reachable = hv.Reachable
+	}
+	s.mu.Unlock()
+	if !found {
+		http.Error(w, "host not known to the pool", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	// An address lookup is the one answer in this framework that must never be
+	// served from a cache: the whole point is that it changes.
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(out)
+}
+
 func (s *poolState) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 	if s.announceTtl <= 0 {
 		http.Error(w, "announce disabled", http.StatusServiceUnavailable)
@@ -5074,6 +5281,15 @@ func main() {
 	// design with self-identity binding -- see handleAnnounce; self-gates on
 	// -announce-ttl (503 when 0).
 	mux.HandleFunc("/announce", state.handleAnnounce)
+	// /api/v1/host-announce: host-presence beacon target. Same open,
+	// self-identity-bound posture as /announce, but the confirm is an identity
+	// check against the announced address's own status.json -- see
+	// handleHostAnnounce; self-gates on -announce-ttl (503 when 0).
+	mux.HandleFunc("/api/v1/host-announce", state.handleHostAnnounce)
+	// /api/v1/host-address: one host's current base URL, for the guest-side
+	// resolver. Read-only and proof-free, unlike /go/host -- see
+	// handleHostAddress.
+	mux.HandleFunc("/api/v1/host-address", state.handleHostAddress)
 	// /api/v1/lab-token: exchanges the dashboard-displayed 6-char lab
 	// connection token for the shared lab-auth-token (the Set-LabToken.ps1
 	// enrollment call). Open with knowledge-of-the-code as the credential,

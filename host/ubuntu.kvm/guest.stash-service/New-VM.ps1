@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42f4e5f6-a7b8-4c9d-0123-4e5f6a7b8c81
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -312,12 +312,14 @@ if ($LASTEXITCODE -eq 0) {
     }
 }
 
-# 4 GB RAM, 4 vCPU. Sized for the SCP receive + SQLite metadata writer
+# 2 GB RAM, 4 vCPU. Sized for the SCP receive + SQLite metadata writer
 # + in-VM UI, none of which holds a large resident working set: the transfers
-# stream to disk rather than buffering whole artifacts. One baseline across all
-# three extension VMs. The domain has no balloon target below this, so the whole
-# amount stays committed on the host -- the extension VMs share one machine with
-# the cache VM on a standalone host.
+# stream to disk rather than buffering whole artifacts. What sets the floor is
+# the first-boot `go build`, not steady state: the pure-Go SQLite driver is the
+# largest compile in the graph, and a cold build of it peaks near 1.1 GB with no
+# swap in the guest. One baseline across all three extension VMs. The domain has
+# no balloon target below this, so the whole amount stays committed on the host
+# -- the extension VMs share one machine with the cache VM on a standalone host.
 # --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
 $hostCores = [int](& nproc --all)
 if ($hostCores -lt 4) {
@@ -329,7 +331,7 @@ $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
 $installArgs = @(
     '--connect',    $virshUri,
     '--name',       $VMName,
-    '--memory',     '4096',
+    '--memory',     '2048',
     '--vcpus',      "$vmCores",
     '--cpu',        'host-passthrough',
     '--os-variant', $osVariant,

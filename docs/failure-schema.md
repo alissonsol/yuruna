@@ -202,6 +202,34 @@ to disable. Each attempt emits a `warm_resume` event: `event` = `warm_resume`,
 `failureClass` / `vmName` / `hostType` when known — so a run that only passed
 because it resumed stays queryable, never a silent pass.
 
+### Rewind to a restore boundary
+
+`repro.resumeFromStep` names the step that **failed**, and a transient class says
+why that step stopped, not how much of its work landed first — an install that
+unpacked before its network call died leaves the guest changed. Restarting there
+would replay the step onto its own residue, which is not the run the sequence
+describes. `loadDiskSnapshot` is the one action that makes guest state known
+again, so the resume point is pulled back to the nearest one **at or before** the
+checkpoint, and every replayed step then runs against the state it was written
+for. The cost is redoing the steps in between — the same trade warm resume
+already makes against a full cold rebuild.
+
+A sequence with no `loadDiskSnapshot` at or before the checkpoint has nothing to
+restore to, so the checkpoint is used unchanged rather than refusing to resume:
+declining would turn a recoverable transient back into the lost cycle warm resume
+exists to prevent. A checkpoint already sitting on the boundary is not a rewind.
+
+When a rewind happens the event carries `checkpointStep` (the step that failed)
+and `rewoundSteps` (how many were replayed) alongside `resumeFromStep` (where the
+run actually restarted); all three are absent when nothing was rewound, so a
+replay is never inferred from step numbers that merely disagree. The console line
+says the same thing in words, naming the count of replayed steps — a resumed pass
+that redid work is loud in both places.
+
+Step numbers are positions in the sequence's flat step list — `component:` then
+`workload:`, after snippet expansion — which is the same list `-StartStep` counts
+against.
+
 Soundness rests on the runner running each workload sequence as a **single
 file** (`Invoke-SequenceByName` → `Invoke-Sequence`), so `resumeFromStep`
 (file-local) maps directly onto `Invoke-Sequence -StartStep` (file-local). This is
@@ -375,6 +403,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.11
+Last review: 2026.08.14
 
 Back to [Yuruna](../README.md)

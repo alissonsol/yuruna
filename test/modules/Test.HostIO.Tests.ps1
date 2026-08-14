@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 422f3b8c-4e95-4a72-9b16-7f8e3c0d5a29
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,11 +35,13 @@
     Test-HostIOActionAvailable call) -- both fail if the dispatch path
     regresses to the double-lookup shape.
 
-    The throw-based Assert-* helpers are defined at script scope and referenced
-    from It blocks, so this runs under Pester 4.10.1 (Pester 5's scope split
-    hides top-level helpers from It blocks).
+    The throw-based Assert-* helpers live in the file's BeforeAll, which is the
+    scope Pester 5 shares with the It blocks; defining them at script scope
+    instead makes every It fail on a missing command rather than on an
+    assertion.
 #>
 
+BeforeAll {
 $here       = Split-Path -Parent $PSCommandPath
 $modulePath = Join-Path $here 'Test.HostIO.psm1'
 
@@ -100,9 +102,11 @@ function Test-AstCallsCommand {
 
 # The parsed dispatch function the AST guards below inspect. It is resolved at
 # FILE scope because a Describe body is executed during discovery and its
-# variables are discarded before any It runs -- an in-Describe $invokeAst would
+# variables are discarded before any It runs -- an in-Describe $script:invokeAst would
 # arrive at the guards as $null.
-$invokeAst = Get-FunctionAst -Path $modulePath -FunctionName 'Invoke-HostIOAction'
+$script:invokeAst = Get-FunctionAst -Path $modulePath -FunctionName 'Invoke-HostIOAction'
+
+}
 
 Describe 'Invoke-HostIOAction dispatch contract (behavioral)' {
     # Drop the namespaced test provider on the way out so the suite leaves the
@@ -140,11 +144,11 @@ Describe 'Invoke-HostIOAction dispatch contract (behavioral)' {
 
 Describe 'Invoke-HostIOAction does a single hot-path registry lookup' {
     It 'performs exactly one registry Get (no redundant re-lookup on the send path)' {
-        Assert-Equal -Expected 1 -Actual (Get-MemberAccessCount -FuncAst $invokeAst -BaseVar 'HostIORegistry' -Member 'Get') -Because `
+        Assert-Equal -Expected 1 -Actual (Get-MemberAccessCount -FuncAst $script:invokeAst -BaseVar 'HostIORegistry' -Member 'Get') -Because `
             'the availability decision and the invoke both derive from one $hostMap reference'
     }
     It 'does not call Test-HostIOActionAvailable from the dispatch path' {
-        Assert-True (-not (Test-AstCallsCommand -Ast $invokeAst -CommandName 'Test-HostIOActionAvailable')) `
+        Assert-True (-not (Test-AstCallsCommand -Ast $script:invokeAst -CommandName 'Test-HostIOActionAvailable')) `
             'the duplicate availability check (its own registry Get) is inlined as a local Contains branch'
     }
 }

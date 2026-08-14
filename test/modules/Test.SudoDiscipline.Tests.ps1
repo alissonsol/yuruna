@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42c1a7d4-3b28-4e60-9f15-6d0c83b7ae21
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,7 +30,7 @@
     it. `sudo -n` turns that into an exit code in the same millisecond.
 
     WHAT COUNTS AS COMPLIANT. Either the invocation carries -n, or it is one of
-    the sites listed in $KnownInteractiveSudo below: a place that legitimately
+    the sites listed in $script:KnownInteractiveSudo below: a place that legitimately
     asks a person for a password because a person is provably there. Those are
     listed individually, with the reason, rather than matched by a pattern --
     a pattern is how the next one gets in.
@@ -47,6 +47,7 @@
          (or Invoke-Pester -Path test/modules/Test.SudoDiscipline.Tests.ps1)
 #>
 
+BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
 
@@ -97,12 +98,12 @@ $ScopedFile = @(
 # Functions whose whole contract is "install a sudoers drop-in, prompting the
 # operator once". They are safe only while every caller in the scoped graph
 # binds the switch that turns the prompt off, which the last test below pins.
-$SudoersInstaller = @('Set-PoolStorageSudoers')
+$script:SudoersInstaller = @('Set-PoolStorageSudoers')
 
 # --- the inventory of sudo calls that may prompt --------------------------
 # File is repo-relative; Function is the enclosing function ('' for file scope);
 # Max is how many prompting sudo calls that body may contain.
-$KnownInteractiveSudo = @(
+$script:KnownInteractiveSudo = @(
     @{
         File = 'test/modules/Test.HostCondition.Mac.psm1'; Function = 'Initialize-SudoCache'; Max = 1
         Reason = @'
@@ -311,22 +312,24 @@ foreach ($rel in $ScopedFile) {
     }
 }
 
+}
+
 Describe 'sudo discipline in the setup child graph' {
     It 'runs every unattended sudo call with -n' {
         $unknown = @()
         foreach ($p in $Prompting) {
-            $allowed = @($KnownInteractiveSudo | Where-Object { $_.File -eq $p.File -and $_.Function -eq $p.Function })
+            $allowed = @($script:KnownInteractiveSudo | Where-Object { $_.File -eq $p.File -and $_.Function -eq $p.Function })
             if ($allowed.Count -eq 0) { $unknown += "$($p.File):$($p.Line) [$(if ($p.Function) { $p.Function } else { '<file scope>' })] $($p.Text)" }
         }
         Assert-Equal -Expected '' -Actual ($unknown -join "`n") @'
-A sudo call with no -n and no entry in $KnownInteractiveSudo. sudo reads its
+A sudo call with no -n and no entry in $script:KnownInteractiveSudo. sudo reads its
 password from /dev/tty, so under a captured child this prompts where nobody can
 see or answer it. Add -n, or add an entry stating who is present to answer.
 '@
     }
 
     It 'holds each sanctioned site to its declared count' {
-        foreach ($entry in $KnownInteractiveSudo) {
+        foreach ($entry in $script:KnownInteractiveSudo) {
             $actual = @($Prompting | Where-Object { $_.File -eq $entry.File -and $_.Function -eq $entry.Function }).Count
             Assert-True ($actual -le $entry.Max) `
                 "$($entry.File) [$(if ($entry.Function) { $entry.Function } else { '<file scope>' })] has $actual prompting sudo call(s), declared max $($entry.Max). A new one needs its own reason."
@@ -334,7 +337,7 @@ see or answer it. Add -n, or add an entry stating who is present to answer.
     }
 
     It 'gives every sanctioned site a written reason' {
-        foreach ($entry in $KnownInteractiveSudo) {
+        foreach ($entry in $script:KnownInteractiveSudo) {
             Assert-True ($entry.Reason -and $entry.Reason.Trim().Length -gt 40) `
                 "$($entry.File) [$($entry.Function)] needs a reason someone can evaluate, not a placeholder."
         }
@@ -343,7 +346,7 @@ see or answer it. Add -n, or add an entry stating who is present to answer.
     It 'keeps every allowlist entry pointing at real code' {
         # An entry that no longer matches anything is a rule nobody is obeying:
         # it makes the list look considered while protecting nothing.
-        foreach ($entry in $KnownInteractiveSudo) {
+        foreach ($entry in $script:KnownInteractiveSudo) {
             $actual = @($Prompting | Where-Object { $_.File -eq $entry.File -and $_.Function -eq $entry.Function }).Count
             Assert-True ($actual -gt 0) `
                 "$($entry.File) [$($entry.Function)] no longer contains a prompting sudo call; remove the entry."
@@ -407,7 +410,7 @@ Describe 'the shared sudo wrappers stay the chokepoint' {
             $ast = [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$null)
             $calls = @($ast.FindAll({ param($n)
                 $n -is [System.Management.Automation.Language.CommandAst] -and
-                $n.GetCommandName() -in $SudoersInstaller }, $true))
+                $n.GetCommandName() -in $script:SudoersInstaller }, $true))
             foreach ($call in $calls) {
                 # The definition itself is not a call, and a call from inside the
                 # module that defines it has already made the decision.
@@ -475,5 +478,46 @@ uses, so a captured child gets the manual commands instead of a hidden prompt.
                     "${rel}:${line} puts the defaults verb before the host selector: defaults $text"
             }
         }
+    }
+}
+
+Describe 'sudo refusal matchers recognize every sudo in the fleet' {
+    It 'pairs the C-sudo refusal wording with the sudo-rs wording' {
+        # A refusal has to be told apart from an ordinary command failure on TEXT:
+        # sudo exits 1 for "I will not run this unprompted" and the commands it
+        # runs exit 1 for their own reasons. That text is implementation-specific.
+        # The C sudo says "a password is required" / "no tty present"; sudo-rs --
+        # the default sudo on Ubuntu from 25.10 on -- says "interactive
+        # authentication is required".
+        #
+        # A matcher that knows only one of them does not fail loudly on a host
+        # running the other. It quietly reclassifies every refusal as a command
+        # result, and the caller then reports its fallback cause -- a stale NAS
+        # password, an absent directory -- for as long as that host lives. So the
+        # two spellings have to travel together, in whatever expression tests for
+        # one of them.
+        #
+        # The phrases are held in variables so this scan does not flag its own
+        # source: the literals below never share a line with a match operator.
+        $classic = @('a password is required', 'no tty present', 'is not in the sudoers file')
+        $modern  = 'interactive authentication is required'
+        $stale = @()
+        foreach ($file in (Get-ChildItem -LiteralPath $repoRoot -Recurse -File -Include '*.ps1', '*.psm1' -ErrorAction SilentlyContinue)) {
+            $number = 0
+            foreach ($line in [System.IO.File]::ReadAllLines($file.FullName)) {
+                $number++
+                if ($line -notmatch '-(not)?match') { continue }
+                if (-not (@($classic | Where-Object { $line -like "*$_*" }).Count)) { continue }
+                if ($line -like "*$modern*") { continue }
+                $rel = ($file.FullName.Substring($repoRoot.Length).TrimStart('/', '\')) -replace '\\', '/'
+                $stale += "${rel}:${number}"
+            }
+        }
+        Assert-Equal -Expected '' -Actual ($stale -join "`n") @'
+A sudo-refusal matcher that recognizes the C sudo's wording but not sudo-rs's.
+Add the sudo-rs phrase to the same expression: on a host running sudo-rs this
+match never fires, so refusals are reported as whatever the caller guesses
+instead.
+'@
     }
 }

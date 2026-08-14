@@ -44,6 +44,7 @@
     Run: Invoke-Pester -Path test/modules/Test.InstallCheckoutProbe.Tests.ps1
 #>
 
+BeforeAll {
 $here      = Split-Path -Parent $PSCommandPath
 $repoRoot  = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
 $installer = Join-Path $repoRoot 'install/windows.hyper-v.ps1'
@@ -127,6 +128,32 @@ function New-CheckoutFixture {
     return $dir
 }
 
+# Pinning a directory against rename is platform-specific. On Windows an open
+# handle taken with FileShare.None anywhere inside the tree does it -- exactly
+# what an editor or a shell sitting in the checkout holds. POSIX has no
+# mandatory locking: a directory renames fine with its files held open, and the
+# rename is refused only when the PARENT directory denies write, so that is what
+# blocks it there. Either way [System.IO.Directory]::Move raises an access
+# denial, which is the single condition the probe has to survive intact. The
+# returned handle exposes Dispose() on both platforms so callers release it the
+# same way.
+function Lock-CheckoutAgainstRename {
+    [CmdletBinding()]
+    [OutputType([object])]
+    param([Parameter(Mandatory)][string]$Dir)
+    if ($IsWindows) {
+        return [System.IO.File]::Open((Join-Path $Dir '.git/objects/pack.idx'), 'Open', 'ReadWrite', 'None')
+    }
+    $parent = Split-Path -Parent $Dir
+    $token  = [pscustomobject]@{ Parent = $parent; Mode = [System.IO.File]::GetUnixFileMode($parent) }
+    Add-Member -InputObject $token -MemberType ScriptMethod -Name Dispose -Value {
+        [System.IO.File]::SetUnixFileMode($this.Parent, $this.Mode)
+    }
+    [System.IO.File]::SetUnixFileMode($parent,
+        $token.Mode -band -bnot [System.IO.UnixFileMode]::UserWrite)
+    return $token
+}
+
 function Get-RelativeFileList {
     [CmdletBinding()]
     [OutputType([string[]])]
@@ -134,6 +161,8 @@ function Get-RelativeFileList {
     $prefix = $Dir.TrimEnd('\').Length
     return [string[]]@(Get-ChildItem -LiteralPath $Dir -Recurse -Force -File |
         ForEach-Object { $_.FullName.Substring($prefix).TrimStart('\') } | Sort-Object)
+}
+
 }
 
 Describe 'install checkout probe -- the probe never damages the checkout' {
@@ -161,10 +190,7 @@ Describe 'install checkout probe -- the probe never damages the checkout' {
         $dir    = New-CheckoutFixture -Name 'held'
         $probe  = "$dir.locktest"
         $before = Get-RelativeFileList -Dir $dir
-        # FileShare.None on a file inside the tree is what an editor or a
-        # running process holding the checkout looks like: the directory can no
-        # longer be renamed.
-        $held = [System.IO.File]::Open((Join-Path $dir '.git/objects/pack.idx'), 'Open', 'ReadWrite', 'None')
+        $held = Lock-CheckoutAgainstRename -Dir $dir
         try {
             $threw = $false
             try { $null = Move-YurunaDirectory -From $dir -To $probe } catch { $threw = $true }
@@ -198,7 +224,7 @@ Describe 'install checkout probe -- the probe never damages the checkout' {
     It 'warns and continues when something else holds the checkout open' {
         $dir    = New-CheckoutFixture -Name 'blocked'
         $before = Get-RelativeFileList -Dir $dir
-        $held = [System.IO.File]::Open((Join-Path $dir '.git/objects/pack.idx'), 'Open', 'ReadWrite', 'None')
+        $held = Lock-CheckoutAgainstRename -Dir $dir
         try {
             Assert-YurunaCheckoutMovable -Dir $dir   # must not throw
             Assert-True  (Test-SaidMatch -Pattern 'cannot be renamed') 'the operator must be told the checkout is held open'

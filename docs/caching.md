@@ -318,7 +318,7 @@ sudo yuruna-no-upstream status
 `on` writes `/etc/squid/conf.d/yuruna-no-upstream.conf`
 (`miss_access deny all`), validates it with `squid -k parse` **before**
 letting it take effect — a squid that FATALs on a drop-in does not fall
-back to the previous config, it fails to start and takes the lab's proxy
+back to the previous config; it fails to start and takes the lab's proxy
 with it — then reloads.
 
 A refused fetch returns **503 with `Retry-After: 3600`**, not 403. The
@@ -514,6 +514,22 @@ aggregate HTTP + HTTPS (CONNECT + ssl-bump), hence "HTTP(S)".
 boynux/squid-exporter mixes unit suffixes: Total uses `_kbytes_total`,
 Cached uses `_bytes_total` (both are kbytes). Verify with
 `curl -s http://127.0.0.1:9301/metrics | grep hit_kbytes_out`.
+
+Every dashboard on this VM carries a read-only brand tile in its top-left
+corner: the framework repository the VM was built from (`Yuruna`,
+`Yurunadev`, …) over that enlistment's VERSION — the same pair the host's
+status pages show in their header, resolved by the same rule so the two
+cannot name different repositories. A lab running both repositories
+otherwise holds two proxies whose dashboards are indistinguishable, and a
+proxy long outlives the bring-up that built it. The tile is a panel, not
+toolbar chrome — Grafana's toolbar is not reachable from dashboard JSON —
+and it takes its four grid units out of the first row rather than adding
+one, so it costs no vertical space. `yuruna-brand-dashboards.py` stamps it,
+covering the community Zot dashboard and any dashboard dropped into
+`/var/lib/grafana/dashboards` later; `systemctl start
+yuruna-brand-dashboards.service` re-stamps on demand. A missing tile means
+the VM was built without a resolvable repository name — the dashboards are
+otherwise unaffected.
 
 Edit dashboards with `admin`/`admin` (unrotated; VM is on private
 switch). Datasource UIDs: `yuruna-prometheus`, `yuruna-loki`. Grafana
@@ -1617,7 +1633,7 @@ start and stop.
 
 The "detected" word printed at startup is an ANSI OSC 8 hyperlink to
 the Grafana dashboard so modern terminals (Windows Terminal, VS Code)
-can ctrl-click into the caching-proxy-service view. Terminals without OSC 8
+can ctrl-click into the caching-proxy service view. Terminals without OSC 8
 drop the escapes silently.
 
 ### Updating the pool dashboard without a rebuild
@@ -1661,6 +1677,15 @@ that is down), the script says so and the panels stay at the file's defaults
 until the timer next fires. Because the fitter's geometry is deliberately not
 compared, a proxy whose panels are correctly sized still reports "already
 current" instead of being rewritten into a re-fit on every run.
+
+**The brand tile.** The canonical file carries no tile — it is stamped on the
+proxy, from an identity only the proxy holds — so the push stamps the candidate
+too, with the proxy's own `yuruna-brand-dashboards.py` and its own
+`/etc/yuruna/brand.env`, before anything is compared. Doing it in that order is
+what keeps an up-to-date proxy reading as unchanged instead of being rewritten
+every run, and it means the pushed file arrives already branded rather than
+going without until the brander's timer next fires. A proxy with no brander
+(an older build) says `BRAND-SKIPPED:` and serves the dashboard unbranded.
 
 A **VM rebuild remains the fallback**, and the only option when the guest is not
 reachable over SSH, when Grafana itself is missing, or when the change is
@@ -1943,6 +1968,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.11
+Last review: 2026.08.14
 
 Back to [Yuruna](../README.md)

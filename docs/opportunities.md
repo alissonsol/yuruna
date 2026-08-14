@@ -52,7 +52,7 @@ validation, or small changes against real recurring pain.
 
 - **Live-validate the pool MVP end-to-end.** 🚧 The read-only pool view
   (pull-collector, Grafana dashboard, Loki/Prometheus wiring) is built and
-  static-verified but has never run against live hosts. Bring up the host
+  statically verified but has never run against live hosts. Bring up the host
   status service, boot the caching-proxy-service VM, run a cycle or two so hosts
   pull through the squid proxy, then confirm `:9400/healthz`, that
   `/api/v1/pool-status` lists discovered hosts, the Prometheus target is
@@ -70,11 +70,10 @@ validation, or small changes against real recurring pain.
 - **Windows startup + minimal-workload test sequence.** Give Windows guests
   the same end-to-end startup-plus-workload exercise other platforms have,
   closing a test-matrix gap.
-- **Validate config for duplicate resource / context names.** Detect
-  repeated resource and context names at preflight, before they cause
-  ambiguous or overwriting behavior mid-cycle. Fits the existing
-  config-validation gate; low effort.
-- **Fix the wrong time zone in Ubuntu guests.** Set the correct time zone
+- **Validate config for duplicate resource / context names.** Catch them
+  at preflight, before they cause ambiguous or overwriting behavior
+  mid-cycle. Fits the existing config-validation gate; low effort.
+- **Fix the wrong time zone in Ubuntu guests.** Set it correctly
   during provisioning so timestamps and time-sensitive logic are accurate.
 - **Document starting a new project from the template.** Lowers the
   onboarding barrier; low effort.
@@ -113,13 +112,13 @@ Solid value, moderate effort — the bulk of the everyday backlog.
   copy-pasted; the "single PowerShell script for a repeated block" doc note
   is the interim workaround.
 - **Validate the session before cloud-based scripts execute.** Check the
-  session/credentials context up front so failures surface early instead of
+  session/credentials context up front so failures surface early, not
   mid-run against the wrong or unauthenticated environment.
 
 **Pool harness**
 - **Persistent volume for pool telemetry.** Retention tiering is done, but
   `/var/lib/{loki,prometheus}` sit on the caching-proxy-service VM root, so a
-  rebuild wipes all pool history — move it onto a persistent volume.
+  rebuild wipes all pool history — move them onto a persistent volume.
 - **Wire the parsed-but-stubbed cycle strategies and provisioning modes.**
   Only `cycleStrategy: all` + `provisioning.betweenSets: none` are
   runtime-active; `round-robin`/`single` and snapshot-revert/reprovision
@@ -266,6 +265,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.11
+Last review: 2026.08.14
 
 Back to [Yuruna](../README.md)

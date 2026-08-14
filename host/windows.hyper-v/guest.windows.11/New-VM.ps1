@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42d9e0f1-a2b3-4c45-d678-9e0f1a2b3c46
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -146,61 +146,6 @@ if (-not (Test-Path $AnswerFileTemplate)) {
     exit 1
 }
 
-# First-logon bootstrap for the guest's GitHub credentials. git does NOT read
-# GH_TOKEN -- that name is a gh(1) convention -- so the token alone leaves a
-# private-repo `git clone` prompting for a username, which hangs an unattended
-# guest. GIT_ASKPASS is what makes clone/fetch/pull authenticate with no change
-# at any call site; the .cmd shim exists only because GIT_ASKPASS must name an
-# executable, not a PowerShell function.
-#
-# The whole script is base64'd into the answer file's -EncodedCommand slot rather
-# than XML-escaped inline: see the comment on that SynchronousCommand.
-$ghSource = Get-YurunaGitHubSource -RepoRoot $repoRoot
-# The profile lines are built inside a SINGLE-quoted here-string so '$env:...'
-# survives as literal text into the profile. A double-quoted "-Value" would
-# expand $env:GH_TOKEN while the bootstrap is running -- it is empty then -- and
-# silently write ' = <token>' into the profile: a broken line, on a VM nobody is
-# watching. The token and path are filled in by .Replace afterwards instead.
-#
-# Machine-scope env vars are set alongside the profile because a profile only
-# reaches the interactive shell of the edition that owns it: pwsh 7 reads a
-# different $PROFILE than powershell.exe, and a non-interactive SSH command reads
-# neither. Machine scope covers every shell the guest scripts might actually use.
-$ghBootstrap = @"
-`$ErrorActionPreference = 'Stop'
-`$token = '$($ghSource.Token)'
-if (-not `$token) { return }
-`$dir = 'C:\ProgramData\yuruna'
-New-Item -ItemType Directory -Force -Path `$dir | Out-Null
-`$askpass = Join-Path `$dir 'git-askpass.cmd'
-Set-Content -Path `$askpass -Encoding Ascii -Value @'
-@echo off
-echo %* | find /i "Username" >nul
-if errorlevel 1 (echo %GH_TOKEN%) else (echo x-access-token)
-'@
-[Environment]::SetEnvironmentVariable('GH_TOKEN', `$token, 'Machine')
-[Environment]::SetEnvironmentVariable('GIT_ASKPASS', `$askpass, 'Machine')
-[Environment]::SetEnvironmentVariable('GIT_TERMINAL_PROMPT', '0', 'Machine')
-New-Item -ItemType Directory -Force -Path (Split-Path -Parent `$PROFILE) | Out-Null
-`$profileText = @'
-`$env:GH_TOKEN = '__TOKEN__'
-`$env:GIT_ASKPASS = '__ASKPASS__'
-`$env:GIT_TERMINAL_PROMPT = '0'
-'@
-Add-Content -Path `$PROFILE -Value (`$profileText.Replace('__TOKEN__', `$token).Replace('__ASKPASS__', `$askpass))
-"@
-$ghBootstrapB64 = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($ghBootstrap))
-
-$AnswerFile = (Get-Content -Raw $AnswerFileTemplate) `
-    -replace 'COMPUTERNAME_PLACEHOLDER', $VMName `
-    -replace 'GH_BOOTSTRAP_B64_PLACEHOLDER', $ghBootstrapB64
-Set-Content -Path "$SeedDir/autounattend.xml" -Value $AnswerFile -NoNewline
-
-$SeedIso = Join-Path $vmDir "seed.iso"
-Write-Verbose "Generating seed.iso with autounattend configuration..."
-# OEMDRV volume label causes Windows Setup to automatically pick up autounattend.xml
-CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId "OEMDRV"
-
 # Pick a vSwitch -- prefer Yuruna-External (LAN-bridged) so the install
 # VM gets a real LAN IP via DHCP. Default Switch fallback for hosts
 # that can't create an External vSwitch. Same pattern as guest.caching-proxy-service.
@@ -228,6 +173,62 @@ if (-not $switchName) {
     Write-Information "External vSwitch unavailable -- the VM is attached to '$switchName' (NAT + DHCP). It gets no LAN-bridged address: the host answers only at that switch's gateway address, and anything on the LAN reaches the guest only through a host port-forwarder."
 }
 
+# --- REGION: https://yuruna.link/network#defining-yuruna-host-locate-lib
+# This guest's Yuruna coordinates, split by whether DHCP can invalidate them.
+#
+# The seed ISO is burned BEFORE Windows Setup runs, and Setup takes longer than
+# a short DHCP lease. So an address written here can already name a host that
+# has moved by the time the guest first reads it -- not as an edge case but as
+# the ordinary outcome on a lab whose router hands out 30-minute leases. An
+# address cannot be the contract when the medium carrying it outlives its
+# validity.
+#
+# What survives is identity. The hostId is permanent across reboots, reimages
+# and renumbering, and the caching-proxy address is pinned by MAC reservation,
+# so those two are seeded as facts. The status-service address is seeded as a
+# HINT: correct in the common case, cheap to check, and repaired by the
+# resolver against the pool directory when it is not. That split is what makes
+# this work under DHCP rather than merely usually.
+$YurunaHostIp = Get-GuestReachableHostIp -SwitchName $switchName
+if (-not $YurunaHostIp) { $YurunaHostIp = '' }
+Import-Module (Join-Path $repoRoot 'test/modules/Test.Config.psm1') -Global -Force
+$YurunaHostPort = '8080'
+$YurunaTestConfig = Join-Path $repoRoot 'test/test.config.yml'
+if (Test-Path -LiteralPath $YurunaTestConfig) {
+    try {
+        $tc = Read-TestConfig -Path $YurunaTestConfig
+        if ($tc -and $tc.statusService -and $tc.statusService.port) { $YurunaHostPort = "$($tc.statusService.port)" }
+    } catch { Write-Verbose "test.config.yml read: $($_.Exception.Message)" }
+}
+$YurunaHostId = ''
+if ($env:YURUNA_RUNTIME_DIR) {
+    $uuidPath = Join-Path $env:YURUNA_RUNTIME_DIR 'host.uuid'
+    if (Test-Path -LiteralPath $uuidPath -PathType Leaf) {
+        $YurunaHostId = ([string](Get-Content -LiteralPath $uuidPath -Raw -ErrorAction SilentlyContinue)).Trim()
+    }
+}
+$YurunaCacheIp = "$($env:YURUNA_CACHING_PROXY_SERVICE_IP)".Trim()
+
+# The first-logon bootstrap: coordinates, resolver, refresh schedule, then git
+# credentials. Shared with the UTM and KVM Windows guests -- the script it
+# builds is byte-identical given the same inputs, and only the resolution of
+# those inputs above is per-platform.
+Import-Module (Join-Path $repoRoot 'automation/Yuruna.GuestSeed.psm1') -Force -DisableNameChecking
+$ghSource = Get-YurunaGitHubSource -RepoRoot $repoRoot
+$guestBootstrapB64 = New-WindowsGuestBootstrap -RepoRoot $repoRoot `
+    -StatusServiceIp $YurunaHostIp -StatusServicePort $YurunaHostPort `
+    -HostId $YurunaHostId -CachingProxyIp $YurunaCacheIp -GhToken $ghSource.Token
+
+$AnswerFile = (Get-Content -Raw $AnswerFileTemplate) `
+    -replace 'COMPUTERNAME_PLACEHOLDER', $VMName `
+    -replace 'GUEST_BOOTSTRAP_B64_PLACEHOLDER', $guestBootstrapB64
+Set-Content -Path "$SeedDir/autounattend.xml" -Value $AnswerFile -NoNewline
+
+$SeedIso = Join-Path $vmDir "seed.iso"
+Write-Verbose "Generating seed.iso with autounattend configuration..."
+# OEMDRV volume label causes Windows Setup to automatically pick up autounattend.xml
+CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId "OEMDRV"
+
 Write-Verbose "Creating new VM '$VMName' on switch '$switchName'..."
 Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 12288MB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
 Set-VM -Name $VMName -MemoryStartupBytes 12288MB -MemoryMinimumBytes 12288MB -MemoryMaximumBytes 12288MB -AutomaticCheckpointsEnabled $false | Out-Null
@@ -244,7 +245,7 @@ Enable-VMTPM -VMName $VMName
 # Hyper-V appends this VM's ACE on attach. Without it the file's DACL grows
 # unbounded across runs (Hyper-V never revokes on Remove-VM) and eventually
 # hits the ~64 KB ACL limit, failing the attach with 0x8007053C ("does not
-# have permission to open attachment"). See https://yuruna.link/vmconfig#hyper-v-iso-ace-bloat.
+# have permission to open attachment"). See https://yuruna.link/vmconfig#hyper-v-iso-ace-bloat
 $prunedAce = Remove-OrphanedVMFileAccess -Path $baseImageFile
 if ($prunedAce -gt 0) { Write-Verbose "Pruned $prunedAce stale per-VM ACE(s) from base image before attach." }
 Add-VMDvdDrive -VMName $VMName -Path $baseImageFile | Out-Null

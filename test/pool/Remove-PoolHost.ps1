@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42a7c3e5-1f2b-4d6e-8a90-3c5b7d9e1f04
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -216,7 +216,7 @@ if ([string]::IsNullOrWhiteSpace($t.IntentGitUrl)) {
 # --- REGION: Evict from the live dashboard view (aggregator forget-host, best-effort)
 # The "Yuruna hosts" panel is the pool-aggregator-service's in-memory view (Prometheus
 # yuruna_pool_host_info), NOT the NAS records above -- a host it discovered by
-# POLLING status servers lingers there for the aggregator's host TTL (-host-ttl, default 24h) after last contact, so the
+# POLLING status services lingers there for the aggregator's host TTL (-host-ttl, default 24h) after last contact, so the
 # deletions so far do not clear it. When a lab-auth-token + caching-proxy-service are
 # configured, ask the aggregator to forget the host NOW. Opt-in + best-effort: a
 # missing token, unknown proxy, or unreachable aggregator is a silent skip (pull +

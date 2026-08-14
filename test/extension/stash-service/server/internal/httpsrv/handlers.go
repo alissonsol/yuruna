@@ -37,14 +37,21 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("GET /api/hostinfo", s.handleHostInfo)
 	mux.HandleFunc("GET /api/stashes/{hostId}/{year}/{month}/{day}/{id}", s.handleGetMeta)
 	mux.HandleFunc("GET /api/stashes/{hostId}/{year}/{month}/{day}/{id}/archive", s.handleArchive)
-	mux.HandleFunc("DELETE /api/stashes/{hostId}/{year}/{month}/{day}/{id}", s.handleDelete)
 	mux.HandleFunc("GET /raw/{hostId}/{year}/{month}/{day}/{id}", s.handleRaw)
 	mux.HandleFunc("GET /download/{hostId}/{year}/{month}/{day}/{id}", s.handleDownload)
+	// The gate (gate.go). Its own three routes stay open -- they are how a
+	// credential is presented, so gating them would leave the prompt with no way
+	// to be answered -- and every delete route sits behind it.
+	mux.HandleFunc("GET /api/session", s.handleSession)
+	mux.HandleFunc("POST /api/login", s.handleLogin)
+	mux.HandleFunc("POST /api/unlock-proof", s.handleUnlockProof)
+	mux.HandleFunc("DELETE /api/stashes/{hostId}/{year}/{month}/{day}/{id}", s.gate.Require(s.handleDelete))
+	mux.HandleFunc("POST /api/stashes/delete", s.gate.Require(s.handleDeleteBatch))
 	// Local short-alias routes (§4.4): the hostId wildcard is omitted and
 	// defaults to this host in parsePathKey, so /s/<y>/<m>/<d>/<id> works.
 	mux.HandleFunc("GET /api/stashes/{year}/{month}/{day}/{id}", s.handleGetMeta)
 	mux.HandleFunc("GET /api/stashes/{year}/{month}/{day}/{id}/archive", s.handleArchive)
-	mux.HandleFunc("DELETE /api/stashes/{year}/{month}/{day}/{id}", s.handleDelete)
+	mux.HandleFunc("DELETE /api/stashes/{year}/{month}/{day}/{id}", s.gate.Require(s.handleDelete))
 	mux.HandleFunc("GET /raw/{year}/{month}/{day}/{id}", s.handleRaw)
 	mux.HandleFunc("GET /download/{year}/{month}/{day}/{id}", s.handleDownload)
 	// Static pages + assets (§2.3).
@@ -128,17 +135,19 @@ type pathKey struct {
 }
 
 func (s *Server) parsePathKey(r *http.Request) (pathKey, bool) {
-	hostID := r.PathValue("hostId")
+	return s.newPathKey(r.PathValue("hostId"), r.PathValue("year"), r.PathValue("month"), r.PathValue("day"), r.PathValue("id"))
+}
+
+// newPathKey is the validator itself, split out so a stash named in a REQUEST
+// BODY (the bulk delete) passes exactly the checks one named in the URL does.
+// A second, laxer parser for the batch route is how a traversal gets in.
+func (s *Server) newPathKey(hostID, yS, mS, dS, id string) (pathKey, bool) {
 	// The short-alias routes (/s/<y>/<m>/<d>/<id>, §4.4) omit the hostId
 	// wildcard; default it to this host, so the alias resolves to a local
 	// stash exactly like the canonical full permalink.
 	if hostID == "" {
 		hostID = s.localHostID
 	}
-	yS := r.PathValue("year")
-	mS := r.PathValue("month")
-	dS := r.PathValue("day")
-	id := r.PathValue("id")
 	// hostID only needs to be a safe single path segment (no traversal): the
 	// local-vs-remote branch in resolve keys on == localHostID, and a bogus
 	// remote hostId simply 404s. Requiring a hostId SHAPE here would wrongly
@@ -320,7 +329,10 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	sortViewsDesc(views)
+	// Sort the whole merged set, THEN page it: the window an offset names is
+	// only meaningful once the order it indexes into is settled.
+	col, asc := parseSort(r)
+	sortViews(views, col, asc)
 	total := len(views)
 	views = page(views, offset, limit)
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -329,6 +341,8 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 		"total":       total,
 		"limit":       limit,
 		"offset":      offset,
+		"sort":        col,
+		"dir":         dirName(asc),
 		"localHostId": s.localHostID,
 		"poolPartial": poolPartial,
 		"version":     s.version,
@@ -566,49 +580,77 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid stash path")
 		return
 	}
-	// Reads and writes are open to any host, but DELETE is the one
-	// destructive verb, so it is restricted to the VM itself (loopback / a
-	// local interface IP) or the deploying host IP (--host-ip). Checked before
-	// the ownership branch so an unauthorized peer gets a generic refusal that
-	// does not disclose the stash's owning host.
-	//
-	// The refusal names the address the daemon saw. A caller cannot observe
-	// which of its own addresses reached the daemon, and that one fact is what
-	// separates "wrong machine" from "the host IP baked into this VM is stale
-	// or belongs to another interface" -- without it the message is unactionable.
-	// The log line carries the other half, the set that would have been allowed.
-	if src := clientIP(r); !s.deleteAllowed(src) {
-		log.Printf("delete refused: request from %s; permitted: %s", sourceLabel(src), s.allowedDeleteSources())
-		writeJSON(w, http.StatusForbidden, map[string]any{
-			"ok":       false,
-			"error":    "delete is permitted only from this VM or its host; this request reached the daemon from " + sourceLabel(src),
-			"clientIp": src,
-		})
+	if err := s.deleteStash(k); err != nil {
+		status, msg := deleteStatus(err)
+		writeErr(w, status, msg)
 		return
 	}
-	// §8.3: local-host-only. A foreign hostId is refused server-side with a
-	// 403 naming the owning host — the ownership boundary is a real contract
-	// (and the seam for future per-host auth), not just a disabled button.
-	if k.hostID != s.localHostID {
-		writeJSON(w, http.StatusForbidden, map[string]any{
-			"ok":          false,
-			"error":       "this stash is owned by host " + k.hostID + "; delete it from that host's own stash UI",
-			"ownerHostId": k.hostID,
-		})
-		return
-	}
-	if err := s.ssh.DeleteLocal(k.id); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeErr(w, http.StatusNotFound, "stash not found")
-			return
-		}
-		writeErr(w, http.StatusInternalServerError, "delete: "+err.Error())
-		return
-	}
-	// Note: no pool-cache eviction here — the local host is never in the pool
-	// cache (scan skips it), so local rows come straight from the live index.
-	// A remote delete (done on its owning host) drops out on the next rescan.
+	log.Printf("delete: host=%s id=%s from %s", k.hostID, k.id, clientIP(r))
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// handleDeleteBatch deletes a whole selection in one request. A page's worth of
+// per-stash DELETEs would work, but this keeps the operator's action and the
+// daemon's record of it one-to-one: one authorization, one audit line, one
+// answer describing what happened to every id.
+//
+// Partial failure is data, not an HTTP status: the response is 200 with a
+// per-stash verdict, so one refusal in a selection of fifty cannot hide the
+// forty-nine that worked.
+func (s *Server) handleDeleteBatch(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Stashes []struct {
+			HostID string `json:"hostId"`
+			Year   string `json:"year"`
+			Month  string `json:"month"`
+			Day    string `json:"day"`
+			ID     string `json:"id"`
+		} `json:"stashes"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, config.MaxRequestBytes)).Decode(&body); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if len(body.Stashes) == 0 {
+		writeErr(w, http.StatusBadRequest, "no stashes given")
+		return
+	}
+	if len(body.Stashes) > maxBatchDelete {
+		writeErr(w, http.StatusBadRequest, "too many stashes in one request")
+		return
+	}
+
+	type result struct {
+		ID     string `json:"id"`
+		HostID string `json:"hostId"`
+		OK     bool   `json:"ok"`
+		Error  string `json:"error,omitempty"`
+	}
+	results := make([]result, 0, len(body.Stashes))
+	deleted := 0
+	for _, want := range body.Stashes {
+		k, ok := s.newPathKey(want.HostID, want.Year, want.Month, want.Day, want.ID)
+		if !ok {
+			results = append(results, result{ID: want.ID, HostID: want.HostID, Error: "invalid stash path"})
+			continue
+		}
+		if err := s.deleteStash(k); err != nil {
+			_, msg := deleteStatus(err)
+			results = append(results, result{ID: k.id, HostID: k.hostID, Error: msg})
+			continue
+		}
+		deleted++
+		results = append(results, result{ID: k.id, HostID: k.hostID, OK: true})
+	}
+	failed := len(results) - deleted
+	log.Printf("delete (bulk): %d requested, %d deleted, %d failed, from %s", len(body.Stashes), deleted, failed, clientIP(r))
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok":        true,
+		"requested": len(body.Stashes),
+		"deleted":   deleted,
+		"failed":    failed,
+		"results":   results,
+	})
 }
 
 func (s *Server) handleRefresh(w http.ResponseWriter, _ *http.Request) {
@@ -709,6 +751,27 @@ func parseListFilter(r *http.Request) listFilter {
 	f.From = parseTimeBound(q.Get("from"), false)
 	f.To = parseTimeBound(q.Get("to"), true)
 	return f
+}
+
+// parseSort reads the ?sort= column and ?dir= direction. Unset or unrecognized
+// yields the list's long-standing default, newest first.
+//
+// Only "asc" turns the order around; every other value (including a missing
+// one) is descending. That asymmetry is deliberate -- the default view is a
+// descending one, so an unreadable direction should land on it rather than on
+// the inverse of what the page showed a moment ago.
+func parseSort(r *http.Request) (string, bool) {
+	q := r.URL.Query()
+	return sortColumn(q.Get("sort")), strings.EqualFold(q.Get("dir"), "asc")
+}
+
+// dirName renders the direction for the JSON response, so a client can show
+// which way it is actually being served rather than which way it asked for.
+func dirName(asc bool) string {
+	if asc {
+		return "asc"
+	}
+	return "desc"
 }
 
 // parseTimeBound parses a from/to filter value. A full RFC3339 timestamp is

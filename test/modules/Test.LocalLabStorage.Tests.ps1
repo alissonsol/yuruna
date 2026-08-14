@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42e0a5c9-71b4-4d38-a6f2-90c3d5e81b47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,6 +25,7 @@
     mount) are integration-verified, since they mutate the host.
 #>
 
+BeforeAll {
 $here       = Split-Path -Parent $PSCommandPath
 $modulePath = Join-Path $here 'Test.LocalLabStorage.psm1'
 Import-Module $modulePath -Force -DisableNameChecking -ErrorAction SilentlyContinue
@@ -40,6 +41,8 @@ function Get-TestTier {
     param([string]$Platform = 'linux', [string]$Root = '/srv/yuruna', [string]$DriveLetter = 'y:')
     New-LocalLabStorageTier -Kind 'pool' -Root $Root -Account 'yuruna-pool' -Server 'ypool-nas' `
         -FolderName 'yuruna.pool' -ShareName 'yuruna.pool' -Platform $Platform -DriveLetter $DriveLetter
+}
+
 }
 
 Describe 'Select-LocalLabStorageDataDrive' {

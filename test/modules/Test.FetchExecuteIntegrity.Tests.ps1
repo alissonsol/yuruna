@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 424f932a-5ed9-4dec-8a02-8f7c8aa9234b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,10 +39,11 @@
     under bash; it is skipped (passes) where bash is unavailable.
 #>
 
+BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = Split-Path -Parent (Split-Path -Parent $here)
 $modPath  = Join-Path $here 'Test.SequenceHandler.psm1'
-$faePath  = Join-Path $repoRoot 'automation/fetch-and-execute.sh'
+$script:faePath  = Join-Path $repoRoot 'automation/fetch-and-execute.sh'
 
 function Assert-True  { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
 function Assert-Equal { param($Actual, $Expected, [string]$Because = '') if ("$Actual" -ne "$Expected") { throw "Expected '$Expected', got '$Actual'. $Because" } }
@@ -81,21 +82,23 @@ if (-not $fnAst) { throw 'Get-FetchExecuteEnvPrefix not found in Test.SequenceHa
 # discards its variables before the It blocks run, so a $sample defined in there
 # arrives empty at assert time -- and every assertion built on it silently checks
 # the empty-path branch instead of the digest. File-scope variables survive into
-# the run phase, which is why $repoRoot and $faePath above already work.
+# the run phase, which is why $repoRoot and $script:faePath above already work.
 $sample     = 'guest/ubuntu.server.26/ubuntu.server.26.update.sh'
 $sampleFull = Join-Path $repoRoot $sample
-$sampleHash = (Get-FileHash -LiteralPath $sampleFull -Algorithm SHA256).Hash.ToLower()
+$script:sampleHash = (Get-FileHash -LiteralPath $sampleFull -Algorithm SHA256).Hash.ToLower()
+
+}
 
 Describe 'Get-FetchExecuteEnvPrefix (host-side digest injection)' {
     It 'prepends the require flag + an E_SHA equal to Get-FileHash, plus the retry digest' {
         $p = Get-FetchExecuteEnvPrefix -CommandLine "/usr/local/lib/yuruna/fetch-and-execute.sh $sample" -RepoRoot $repoRoot
         Assert-True ($p -match 'EXEC_REQUIRE_SHA256=1 ')       'require flag present'
-        Assert-True ($p -match "E_SHA=$sampleHash ")           'digest equals Get-FileHash'
+        Assert-True ($p -match "E_SHA=$script:sampleHash ")           'digest equals Get-FileHash'
         Assert-True ($p -match 'E_RETRY_SHA=[0-9a-f]{64} ')    'retry-lib digest present'
     }
     It 'strips a ?query before hashing' {
         $p = Get-FetchExecuteEnvPrefix -CommandLine "fetch-and-execute.sh $sample`?nocache=9" -RepoRoot $repoRoot
-        Assert-True ($p -match "E_SHA=$sampleHash ") 'query stripped, digest still correct'
+        Assert-True ($p -match "E_SHA=$script:sampleHash ") 'query stripped, digest still correct'
     }
 
     # The value-carrying names were shortened to buy console keystrokes, but
@@ -257,7 +260,7 @@ Describe 'verify_sha256 (guest-side gate)' {
     It 'returns 0 match / 1 mismatch / 0 empty-unenforced / 1 empty-enforced' {
         $bash = Get-Command bash -ErrorAction SilentlyContinue
         if (-not $bash) { Assert-True $true 'bash unavailable -- skipping shell check'; return }
-        $fae   = Get-Content -Raw -LiteralPath $faePath
+        $fae   = Get-Content -Raw -LiteralPath $script:faePath
         $vf    = [regex]::Match($fae, '(?ms)^verify_sha256\(\)\s*\{.*?^\}')
         Assert-True $vf.Success 'verify_sha256 found in fetch-and-execute.sh'
         $driver = @'
@@ -297,7 +300,7 @@ Describe 'envelope name compatibility (guest side)' {
         # would supply its own YURUNA_GITHUB_* and mask the third level. That
         # file is a guest artifact; a machine that has one is not a test host.
         if (Test-Path -LiteralPath '/etc/yuruna/host.env') { Assert-True $true 'guest-shaped machine -- skipping'; return }
-        $fae = Get-Content -Raw -LiteralPath $faePath
+        $fae = Get-Content -Raw -LiteralPath $script:faePath
         $fn  = [regex]::Match($fae, '(?ms)^resolve_fetch_source\(\)\s*\{.*?^\}')
         Assert-True $fn.Success 'resolve_fetch_source found in fetch-and-execute.sh'
         $driver = @'
@@ -318,8 +321,36 @@ resolve_fetch_source; printf '%s:%s\n' "$GH_REPO" "$GH_REF"
     # The two digests are read at file scope, not inside an extractable
     # function, so these are asserted against the source.
     It 'reads both digest spellings, short name first' {
-        $fae = Get-Content -Raw -LiteralPath $faePath
+        $fae = Get-Content -Raw -LiteralPath $script:faePath
         Assert-True ($fae -match '\$\{E_SHA:-\$\{EXEC_SHA256:-\}\}')             'payload digest accepts both spellings'
         Assert-True ($fae -match '\$\{E_RETRY_SHA:-\$\{EXEC_RETRY_SHA256:-\}\}') 'retry-lib digest accepts both spellings'
+    }
+}
+
+Describe 'guidance when the GitHub fallback cannot work' {
+
+    # A guest cannot tell whether its host's git credential may read the project,
+    # so when the fallback is the only route left and that route can only 404, the
+    # banners name where the answer already lives instead of guessing. Printed at
+    # file scope rather than from an extractable function, so asserted against the
+    # source the way the digest reads above are.
+    It 'sends the reader to the pool column and to the standalone check' {
+        $fae = Get-Content -Raw -LiteralPath $script:faePath
+        Assert-True ($fae -match "'Project'")        'the pool column carrying the verdict is named'
+        Assert-True ($fae -match 'DENIED')           'the verdict no retry can fix is named'
+        Assert-True ($fae -match 'Test-Config\.ps1') 'the standalone host check is named'
+    }
+
+    # Guidance that names a page is only as good as the page. Tying the two
+    # together here means renaming the column breaks this test rather than
+    # quietly leaving every stranded guest pointed at something that is gone.
+    It 'names a column that Pool Control actually renders, and a script that exists' {
+        $repo = Split-Path -Parent (Split-Path -Parent $script:faePath)
+        $hostsPage = Join-Path $repo 'test/extension/pool-control-service/server/internal/httpsrv/web/hosts.html'
+        Assert-True (Test-Path -LiteralPath $hostsPage) "pool control hosts page present at $hostsPage"
+        Assert-True ((Get-Content -Raw -LiteralPath $hostsPage) -match '>Project</button>') `
+            'the hosts page still renders the Project column the guest banner names'
+        Assert-True (Test-Path -LiteralPath (Join-Path $repo 'test/Test-Config.ps1')) `
+            'the standalone check the banner names still exists'
     }
 }

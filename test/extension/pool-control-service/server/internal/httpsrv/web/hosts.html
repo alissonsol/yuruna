@@ -45,6 +45,10 @@
       <code>mismatch</code> holds a different token; <code>skew</code> is a clock problem;
       <code>none</code> never enrolled. Only <code>ready</code> hosts are auto-enrolled.
       Choosing a pool <em>moves</em> the host &mdash; a host belongs to at most one.
+      <strong>Framework</strong> and <strong>Project</strong> name the two
+      repositories each host runs on, as the host itself reports them, and each
+      links to where that repository lives:
+      <code>No access</code> means it was configured with one it cannot read.
       Any column header sorts the table. <strong>Hostname</strong> is the name the
       host's own status page shows, and appears only once this browser is unlocked:
       the pool's view of a host is hostname-free, and this page renders unattended too.
@@ -65,7 +69,8 @@
           <th data-sort="storageTotal"><button type="button" class="sort">Total Storage</button></th>
           <th data-sort="storageFree"><button type="button" class="sort">Free Storage</button></th>
           <th data-sort="control"><button type="button" class="sort">Control</button></th>
-          <th data-sort="access"><button type="button" class="sort">Project access</button></th>
+          <th data-sort="frameworkAccess"><button type="button" class="sort">Framework</button></th>
+          <th data-sort="projectAccess"><button type="button" class="sort">Project</button></th>
           <th data-sort="pool"><button type="button" class="sort">Pool</button></th>
         </tr>
       </thead>

@@ -85,18 +85,24 @@ type AuditFunc func(AuditEvent)
 
 // Options configures an Agent.
 type Options struct {
-	PoolDir       string
-	ScanInterval  time.Duration
-	Freshness     time.Duration
-	PrefetchLead  time.Duration
-	AutoSeed      bool
-	AggregatorURL string
-	HostID        string
-	VMName        string
-	AgentVersion  string
-	ProxyHTTP     string
-	ProxyHTTPS    string
-	ProxyCA       string
+	PoolDir string
+	// PoolNetworkPath is the share as the rest of the lab reaches it
+	// (//server/share/...), used only to name pool folders to an operator. The
+	// agent's own paths are always the local mount: an operator standing in
+	// front of a browser needs the address their file manager understands, not
+	// the guest's mount point.
+	PoolNetworkPath string
+	ScanInterval    time.Duration
+	Freshness       time.Duration
+	PrefetchLead    time.Duration
+	AutoSeed        bool
+	AggregatorURL   string
+	HostID          string
+	VMName          string
+	AgentVersion    string
+	ProxyHTTP       string
+	ProxyHTTPS      string
+	ProxyCA         string
 	// Fido locates the interpreter and the vendored script the best-effort
 	// Windows 11 family needs. Its zero value searches the standard install
 	// locations, so an agent VM that never installed them simply reports the
@@ -136,14 +142,19 @@ type CatalogEntry struct {
 	// one until an operator installs the tooling.
 	BestEffort        bool   `json:"bestEffort,omitempty"`
 	UnavailableReason string `json:"unavailableReason,omitempty"`
-	UpstreamFilename  string `json:"upstreamFilename,omitempty"`
-	Generation        string `json:"generation,omitempty"`
-	FileURL           string `json:"fileUrl,omitempty"`
-	SourceURL         string `json:"sourceUrl,omitempty"`
-	SHA256            string `json:"sha256,omitempty"`
-	ChecksumVerdict   string `json:"checksumVerdict,omitempty"`
-	ByteCount         int64  `json:"byteCount,omitempty"`
-	LastModified      string `json:"lastModified,omitempty"`
+	// ManualFallback is the way to this artifact that does not go through the
+	// agent at all, carried on a row whose resolver cannot produce one. A
+	// resolver failure the operator cannot act on is the same dead end as no row
+	// at all, and for this family there is something they can do about it.
+	ManualFallback   *ManualFallback `json:"manualFallback,omitempty"`
+	UpstreamFilename string          `json:"upstreamFilename,omitempty"`
+	Generation       string          `json:"generation,omitempty"`
+	FileURL          string          `json:"fileUrl,omitempty"`
+	SourceURL        string          `json:"sourceUrl,omitempty"`
+	SHA256           string          `json:"sha256,omitempty"`
+	ChecksumVerdict  string          `json:"checksumVerdict,omitempty"`
+	ByteCount        int64           `json:"byteCount,omitempty"`
+	LastModified     string          `json:"lastModified,omitempty"`
 	// ResolvedVariant names the preference the bytes actually came from, which
 	// differs from Variant whenever preference-with-fallback fired.
 	ResolvedVariant string `json:"resolvedVariant,omitempty"`
@@ -329,6 +340,11 @@ func NewAgent(base context.Context, opts Options) (*Agent, error) {
 	a.resolver = NewResolver(a.direct)
 	fido := opts.Fido
 	fido.Observe = a.noteFidoAttempt
+	// One gate for the whole agent: it is what makes the family's resolve
+	// shared between the rows instead of one Microsoft session per row.
+	if fido.Gate == nil {
+		fido.Gate = NewFidoGate(opts.Now)
+	}
 	a.resolver.Fido = fido
 	a.lease = NewLeaseManager(config.LeaseFileFor(opts.PoolDir), opts.HostID, opts.VMName,
 		time.Duration(config.LeaseExpiryFactor)*opts.ScanInterval)
@@ -484,6 +500,12 @@ func (a *Agent) ScanOnce(ctx context.Context) {
 
 	due := 0
 	if !readOnly && a.store.Available() {
+		a.mu.Lock()
+		known := append([]string(nil), a.knownHostTypes...)
+		a.mu.Unlock()
+		if adopting := a.manualPass(known); adopting > 0 {
+			a.logf("scan started %d adoption(s) from a manual drop folder", adopting)
+		}
 		entries, err := a.store.List()
 		if err != nil {
 			a.logf("pool walk failed: %v", err)
@@ -634,6 +656,16 @@ func (a *Agent) refreshNow(ctx context.Context, id ImageID, p *Progress) error {
 	}
 	if !Supported(id) {
 		return fmt.Errorf("%s: %s", ReasonUnsupported, id.ImageKey)
+	}
+
+	// Ahead of the resolver: a file in the drop folder is an operator saying
+	// "the automated path cannot get this, here are the bytes", so resolving
+	// first would spend a Microsoft session to arrive at the refusal that sent
+	// them there.
+	if adopted, err := a.adoptManual(ctx, id, p); err != nil {
+		return err
+	} else if adopted {
+		return nil
 	}
 
 	p.SetPhase(PhaseResolving)
@@ -1023,6 +1055,15 @@ func (a *Agent) decorate(e Entry, now time.Time) CatalogEntry {
 		ce.Phase = snap.Phase
 		ce.BytesDone = snap.Done
 		ce.BytesTotal = snap.Total
+	}
+
+	// The hand-download path rides on the row that needs it, and only while it
+	// needs it. Needing it means the resolver cannot run here AND the row has
+	// nothing to show for it: no work under way, and either no artifact at all
+	// or a refresh that just failed. A row quietly serving what it already
+	// holds is not a row to send anyone to a browser over.
+	if ce.UnavailableReason != "" && !ce.RefreshInFlight && (e.Pointer == nil || lastErr != "") {
+		ce.ManualFallback = a.manualFallback(e.ID)
 	}
 
 	switch {

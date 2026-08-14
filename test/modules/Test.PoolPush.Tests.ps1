@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 421a7e34-5b82-4d60-8f13-2a6c9e0b4d75
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,11 +24,14 @@
     itself is integration-verified against a live aggregator.
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.PoolPush.psm1') -Force -DisableNameChecking -ErrorAction SilentlyContinue
 
 function Assert-Equal { param($Expected, $Actual, [string]$Because = '') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
 function Assert-True  { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
+
+}
 
 Describe 'Get-PoolPushBatch (NDJSON batching, assignment-consumed)' {
     It 'splits into capped batches and drops blank lines' {

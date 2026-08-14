@@ -38,10 +38,11 @@
     Run: Invoke-Pester -Path test/modules/Test.PoolExtensionLookup.Tests.ps1
 #>
 
+BeforeAll {
 $here          = Split-Path -Parent $PSCommandPath
 $testRoot      = Split-Path -Parent $here
 $aggregatorPsm = Join-Path $testRoot 'extension' -AdditionalChildPath 'pool-aggregator-service', 'default.psm1'
-$stashPsm      = Join-Path $testRoot 'extension' -AdditionalChildPath 'stash-service', 'default.psm1'
+$script:stashPsm      = Join-Path $testRoot 'extension' -AdditionalChildPath 'stash-service', 'default.psm1'
 
 function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
 
@@ -98,6 +99,8 @@ function Get-HttpResponderJob {
             } finally { $client.Close() }
         } finally { $Listener.Stop() }
     } -ArgumentList $Listener, $StatusCode, $Body
+}
+
 }
 
 Describe 'pool-extension-lookup' {
@@ -237,7 +240,7 @@ Describe 'extension-host address list' {
 Describe 'pool-extension-lookup wiring' {
 
     It 'resolves the stash through the pool when the nearer sources are empty' {
-        $fn = Get-FunctionAst -Path $stashPsm -Name 'Resolve-Host'
+        $fn = Get-FunctionAst -Path $script:stashPsm -Name 'Resolve-Host'
         Assert-True ($null -ne $fn) 'the stash resolver must exist'
         $calls = @($fn.FindAll({
             param($n)
@@ -263,8 +266,39 @@ Describe 'pool-extension-lookup wiring' {
             'the discovery lookup must come after the published address, not replace it'
     }
 
+    It 're-probes the published address instead of trusting it for the whole cycle' {
+        # The pre-flight proves the address once; a cycle then runs for tens of
+        # minutes. On a lab whose service addresses come from DHCP the stash can
+        # renumber inside that window, and a published address returned unprobed
+        # sends a guest at an address nothing is listening on -- tens of minutes
+        # into a chain, with the pool already holding the current one.
+        $fn = Get-FunctionAst -Path $script:stashPsm -Name 'Resolve-Host'
+        Assert-True ($null -ne $fn) 'the stash resolver must exist'
+        $commands = @($fn.FindAll({
+            param($n) $n -is [System.Management.Automation.Language.CommandAst]
+        }, $true))
+        $published = @($commands | Where-Object { $_.GetCommandName() -eq 'Get-PublishedStashServiceHost' })
+        $probe     = @($commands | Where-Object { $_.GetCommandName() -eq 'Test-StashServiceHost' })
+        $discover  = @($commands | Where-Object { $_.GetCommandName() -eq 'Get-DiscoveredStashServiceHost' })
+        $republish = @($commands | Where-Object { $_.GetCommandName() -eq 'Publish-StashServiceHost' })
+
+        Assert-True ($published.Count -ge 1) 'the resolver must still read the published address'
+        Assert-True ($probe.Count -ge 1) 'the published address must be probed before it is handed out'
+        Assert-True ($discover.Count -ge 1) 'the resolver must still consult the pool'
+        Assert-True ($probe[0].Extent.StartLineNumber -gt $published[0].Extent.StartLineNumber) `
+            'the probe must run on the address that was read back, so it must follow the read'
+        Assert-True ($discover[0].Extent.StartLineNumber -gt $probe[0].Extent.StartLineNumber) `
+            'a published address that no longer answers must fall through to the pool'
+        # Republishing keeps the rest of the cycle on the address that answered:
+        # without it every later expansion re-probes the same dead address and
+        # re-runs the same discovery.
+        Assert-True ($republish.Count -ge 1) 'the resolver must republish the address it fell through to'
+        Assert-True ($republish[0].Extent.StartLineNumber -gt $discover[0].Extent.StartLineNumber) `
+            'the republish must record the discovered address, not the rejected one'
+    }
+
     It 'never lets a missing pool reach the caller as an error' {
-        $fn = Get-FunctionAst -Path $stashPsm -Name 'Get-DiscoveredStashServiceHost'
+        $fn = Get-FunctionAst -Path $script:stashPsm -Name 'Get-DiscoveredStashServiceHost'
         Assert-True ($null -ne $fn) 'the wrapper must exist'
         $throws = @($fn.FindAll({
             param($n) $n -is [System.Management.Automation.Language.ThrowStatementAst]

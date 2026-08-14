@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42e9c31b-7a06-4d52-8f14-6b27d90ae4c3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -43,6 +43,7 @@
     Run: pwsh -NoProfile -File test/modules/Test.UtmServiceVmSuspend.Tests.ps1
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 $SuspendRepoRoot = Split-Path -Parent (Split-Path -Parent $here)
 
@@ -61,11 +62,13 @@ function Get-FunctionBody {
     return $fn[0].Extent.Text
 }
 
-$SuspendHostModule  = Join-Path $SuspendRepoRoot 'host/macos.utm/modules/Yuruna.Host.psm1'
-$SuspendMacCondition = Join-Path $SuspendRepoRoot 'test/modules/Test.HostCondition.Mac.psm1'
-$SuspendStateModule = Join-Path $SuspendRepoRoot 'test/modules/Test.HostAutomationState.psm1'
-$SuspendDisableScript = Join-Path $SuspendRepoRoot 'host/macos.utm/Disable-TestAutomation.ps1'
-$SuspendInstaller   = Join-Path $SuspendRepoRoot 'install/macos.utm.sh'
+$script:SuspendHostModule  = Join-Path $SuspendRepoRoot 'host/macos.utm/modules/Yuruna.Host.psm1'
+$script:SuspendMacCondition = Join-Path $SuspendRepoRoot 'test/modules/Test.HostCondition.Mac.psm1'
+$script:SuspendStateModule = Join-Path $SuspendRepoRoot 'test/modules/Test.HostAutomationState.psm1'
+$script:SuspendDisableScript = Join-Path $SuspendRepoRoot 'host/macos.utm/Disable-TestAutomation.ps1'
+$script:SuspendInstaller   = Join-Path $SuspendRepoRoot 'install/macos.utm.sh'
+
+}
 
 Describe 'Rename-VM does not leave the service VMs suspended' {
 
@@ -74,7 +77,7 @@ Describe 'Rename-VM does not leave the service VMs suspended' {
         # quit reads an empty set, the resume loop then has nothing to do,
         # and the services stay suspended with no warning at all -- the
         # failure looks exactly like the bug being fixed.
-        $body = Get-FunctionBody -Path $SuspendHostModule -Name 'Rename-VM'
+        $body = Get-FunctionBody -Path $script:SuspendHostModule -Name 'Rename-VM'
         $captureAt = $body.IndexOf('Get-RunningVmName')
         $quitAt    = $body.IndexOf('to quit')
         Assert-True ($captureAt -ge 0) 'the running set is captured'
@@ -85,7 +88,7 @@ Describe 'Rename-VM does not leave the service VMs suspended' {
     It 'narrows the capture to the service VMs' {
         # Resuming everything that happened to be running would restart test
         # guests the cycle is in the middle of tearing down.
-        $body = Get-FunctionBody -Path $SuspendHostModule -Name 'Rename-VM'
+        $body = Get-FunctionBody -Path $script:SuspendHostModule -Name 'Rename-VM'
         Assert-True ($body -match 'Get-YurunaServiceVmName') 'the canonical service-VM list is the filter'
     }
 
@@ -93,7 +96,7 @@ Describe 'Rename-VM does not leave the service VMs suspended' {
         # The early returns are the ones that matter: a rename that fails
         # half way still quit UTM, so bailing out without a resume leaves
         # the host worse off than not having tried.
-        $body = Get-FunctionBody -Path $SuspendHostModule -Name 'Rename-VM'
+        $body = Get-FunctionBody -Path $script:SuspendHostModule -Name 'Rename-VM'
         $relaunches = ([regex]::Matches($body, 'open -a UTM')).Count
         $resumes    = ([regex]::Matches($body, 'Resume-YurunaServiceVM')).Count
         Assert-True ($relaunches -gt 0) 'the function relaunches UTM'
@@ -104,7 +107,7 @@ Describe 'Rename-VM does not leave the service VMs suspended' {
         # Reporting the rename failure is not worth trading for several
         # suspended services, so the resume cannot sit behind the success
         # return.
-        $body = Get-FunctionBody -Path $SuspendHostModule -Name 'Rename-VM'
+        $body = Get-FunctionBody -Path $script:SuspendHostModule -Name 'Rename-VM'
         $lastResumeAt = $body.LastIndexOf('Resume-YurunaServiceVM')
         $warnAt = $body.IndexOf('UTM relaunch did not surface')
         Assert-True ($lastResumeAt -ge 0 -and $warnAt -ge 0) 'both the resume and the timeout warning exist'
@@ -115,7 +118,7 @@ Describe 'Rename-VM does not leave the service VMs suspended' {
         # UTM ingests its library asynchronously after launch. utmctl answers
         # "not found" until that finishes and the start is silently dropped,
         # which reads as a resume that worked.
-        $body = Get-FunctionBody -Path $SuspendHostModule -Name 'Resume-YurunaServiceVM'
+        $body = Get-FunctionBody -Path $script:SuspendHostModule -Name 'Resume-YurunaServiceVM'
         $registerAt = $body.IndexOf("-eq 'absent'")
         $startAt    = $body.IndexOf('utmctl start')
         Assert-True ($registerAt -ge 0 -and $startAt -ge 0) 'both the registration wait and the start exist'
@@ -125,7 +128,7 @@ Describe 'Rename-VM does not leave the service VMs suspended' {
 
     It 'Resume-YurunaServiceVM reports a service that did not come back' {
         # A silent failure here is the whole outage again, one layer down.
-        $body = Get-FunctionBody -Path $SuspendHostModule -Name 'Resume-YurunaServiceVM'
+        $body = Get-FunctionBody -Path $script:SuspendHostModule -Name 'Resume-YurunaServiceVM'
         Assert-True ($body -match 'Write-Warning') 'a service that will not resume is surfaced'
         Assert-True ($body -match 'utmctl start') 'the warning carries the manual recovery command'
     }
@@ -134,7 +137,7 @@ Describe 'Rename-VM does not leave the service VMs suspended' {
 Describe 'UTM is configured to outlive its last window' {
 
     It 'the apply path writes KeepRunningAfterLastWindowClosed' {
-        $text = Get-Content -Raw -LiteralPath $SuspendMacCondition
+        $text = Get-Content -Raw -LiteralPath $script:SuspendMacCondition
         Assert-True ($text -match "KeepRunningAfterLastWindowClosed'\)\s*-WriteType\s*'-bool'\s*-WriteValue\s*'YES'") `
             'Set-MacHostConditionSet turns the knob on'
     }
@@ -142,7 +145,7 @@ Describe 'UTM is configured to outlive its last window' {
     It 'the precheck fails a host where it is off' {
         # Without the gate the setting silently drifts back -- a UTM
         # reinstall or a fresh account starts from the default.
-        $text = Get-Content -Raw -LiteralPath $SuspendMacCondition
+        $text = Get-Content -Raw -LiteralPath $script:SuspendMacCondition
         $assertBody = [regex]::Match($text, '(?ms)^function Assert-HostConditionSet\b.*?\n\}').Value
         if (-not $assertBody) { $assertBody = $text }
         Assert-True ($assertBody -match 'KeepRunningAfterLastWindowClosed') 'the assert path checks the knob'
@@ -151,8 +154,8 @@ Describe 'UTM is configured to outlive its last window' {
     It 'the knob is captured and restored, not just applied' {
         # A knob written by Enable- with no capture entry is a permanent
         # change to the operator's Mac: Disable- has nothing to put back.
-        $stateText   = Get-Content -Raw -LiteralPath $SuspendStateModule
-        $disableText = Get-Content -Raw -LiteralPath $SuspendDisableScript
+        $stateText   = Get-Content -Raw -LiteralPath $script:SuspendStateModule
+        $disableText = Get-Content -Raw -LiteralPath $script:SuspendDisableScript
         Assert-True ($stateText -match 'KeepRunningAfterLastWindowClosed') 'the pre-automation value is captured'
         Assert-True ($disableText -match 'KeepRunningAfterLastWindowClosed') 'and restored on the way out'
     }
@@ -163,7 +166,7 @@ Describe 'The installer will not quit UTM out from under a service VM' {
     It 'checks every service VM, not only the caching proxy' {
         # The proxy was the only one guarded, so a host running just the
         # stash service had UTM quit under it and the stash suspended.
-        $text = Get-Content -Raw -LiteralPath $SuspendInstaller
+        $text = Get-Content -Raw -LiteralPath $script:SuspendInstaller
         $gate = [regex]::Match($text, '(?ms)^is_service_vm_running\(\).*?\n\}').Value
         Assert-True ($gate.Length -gt 0) 'the gate function exists'
         foreach ($vm in @('yuruna-caching-proxy-service', 'yuruna-stash-service', 'yuruna-pool-control-service', 'yuruna-download-agent-service')) {
@@ -176,7 +179,7 @@ Describe 'The installer will not quit UTM out from under a service VM' {
         # Apple Events are denied over SSH. Reading that as "nothing is
         # running" is how the quit happens on exactly the unattended hosts
         # that can least afford it.
-        $text = Get-Content -Raw -LiteralPath $SuspendInstaller
+        $text = Get-Content -Raw -LiteralPath $script:SuspendInstaller
         $gate = [regex]::Match($text, '(?ms)^is_service_vm_running\(\).*?\n\}').Value
         Assert-True ($gate -match 'preserving out of caution') 'an uncertain answer preserves'
     }
@@ -184,7 +187,7 @@ Describe 'The installer will not quit UTM out from under a service VM' {
     It 'gates both the quit and the cask upgrade on the same flag' {
         # Upgrading the UTM cask requires the app to be down, so the two
         # decisions have to agree or brew kills what the gate protected.
-        $text = Get-Content -Raw -LiteralPath $SuspendInstaller
+        $text = Get-Content -Raw -LiteralPath $script:SuspendInstaller
         Assert-True ($text -match 'PRESERVE_SERVICE_VM -eq 0[\s\S]{0,80}quit_mac_app "UTM"') 'the quit is gated'
         Assert-True ($text -match 'PRESERVE_SERVICE_VM:-0\} -eq 1') 'and so is the cask upgrade'
     }

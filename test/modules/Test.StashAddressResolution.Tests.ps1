@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42b6a17d-3c48-4e90-9f2b-5d81c4e73a06
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -45,6 +45,7 @@
     Run: pwsh -NoProfile -File test/modules/Test.StashAddressResolution.Tests.ps1
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 $StashRepoRoot = Split-Path -Parent (Split-Path -Parent $here)
 
@@ -78,7 +79,7 @@ function Get-MarkerUrl {
 
 # Two same-named blocks a lookup cannot tell apart except by expiry, plus an
 # unrelated name that must survive every case untouched.
-$StaleLeaseText = @'
+$script:StaleLeaseText = @'
 {
 	name=yuruna-stash-service
 	ip_address=192.168.64.11
@@ -188,6 +189,8 @@ function Get-StashDiscoveryCallCount {
     return [int]$global:StashIpCalls
 }
 
+}
+
 Describe 'An address is confirmed before it is advertised' {
 
     It 'polls past a dead predecessor and publishes the live guest' {
@@ -281,7 +284,7 @@ Describe 'Only an address the rest of the lab can reach is advertised' {
 Describe 'Superseded lease blocks are selected, and only those' {
 
     It 'keeps the largest expiry of a name and selects the rest' {
-        $stale = @(Select-StaleDhcpLeaseBlock -LeaseText $StaleLeaseText -InUseVerdict { 'unknown' })
+        $stale = @(Select-StaleDhcpLeaseBlock -LeaseText $script:StaleLeaseText -InUseVerdict { 'unknown' })
         Assert-Equal -Expected 1 -Actual $stale.Count -Because 'only the superseded block is selected'
         Assert-Equal -Expected '192.168.64.11' -Actual $stale[0].IpAddress -Because 'the older expiry is the superseded one'
     }
@@ -289,39 +292,39 @@ Describe 'Superseded lease blocks are selected, and only those' {
     It 'agrees with the resolver about which block is live' {
         # A pruner that removed the block the resolver would have picked would
         # be worse than the duplication it set out to fix.
-        $live = Select-DhcpLeaseIpAddress -LeaseText $StaleLeaseText -Name @('yuruna-stash-service') -OnLinkVerdict { 'unknown' }
-        $stale = @(Select-StaleDhcpLeaseBlock -LeaseText $StaleLeaseText -InUseVerdict { 'unknown' })
+        $live = Select-DhcpLeaseIpAddress -LeaseText $script:StaleLeaseText -Name @('yuruna-stash-service') -OnLinkVerdict { 'unknown' }
+        $stale = @(Select-StaleDhcpLeaseBlock -LeaseText $script:StaleLeaseText -InUseVerdict { 'unknown' })
         Assert-True ($stale.IpAddress -notcontains $live) "the resolver's answer ($live) is never selected for removal"
     }
 
     It 'leaves a name that carries only one block alone' {
         # Right or wrong, a singleton is the only answer a lookup can give for
         # that name; removing it loses history and changes no resolution.
-        $stale = @(Select-StaleDhcpLeaseBlock -LeaseText $StaleLeaseText -InUseVerdict { 'unknown' })
+        $stale = @(Select-StaleDhcpLeaseBlock -LeaseText $script:StaleLeaseText -InUseVerdict { 'unknown' })
         Assert-True ($stale.Name -notcontains 'lonely-guest') 'the single-block name is untouched'
     }
 
     It 'lets a responding address veto its own removal' {
         # An observation outranks an expiry heuristic: something is using it.
-        $stale = @(Select-StaleDhcpLeaseBlock -LeaseText $StaleLeaseText -InUseVerdict { 'inuse' })
+        $stale = @(Select-StaleDhcpLeaseBlock -LeaseText $script:StaleLeaseText -InUseVerdict { 'inuse' })
         Assert-Equal -Expected 0 -Actual $stale.Count -Because 'nothing that answers is removed'
     }
 
     It 'does not treat an unrunnable probe as a veto' {
         # 'unknown' means the probe could not be run. Reading that as in-use
         # would select nothing at all on a host where probing is unavailable.
-        $stale = @(Select-StaleDhcpLeaseBlock -LeaseText $StaleLeaseText -InUseVerdict { 'unknown' })
+        $stale = @(Select-StaleDhcpLeaseBlock -LeaseText $script:StaleLeaseText -InUseVerdict { 'unknown' })
         Assert-Equal -Expected 1 -Actual $stale.Count -Because 'an unknown verdict still allows selection'
     }
 
     It 'keeps both blocks of a tie' {
-        $tied = $StaleLeaseText -replace '0x6a6c58b9', '0x6a6c5940'
+        $tied = $script:StaleLeaseText -replace '0x6a6c58b9', '0x6a6c5940'
         $stale = @(Select-StaleDhcpLeaseBlock -LeaseText $tied -InUseVerdict { 'unknown' })
         Assert-Equal -Expected 0 -Actual $stale.Count -Because 'two blocks with one expiry cannot be told apart'
     }
 
     It 'honours a name scope' {
-        $stale = @(Select-StaleDhcpLeaseBlock -LeaseText $StaleLeaseText -Name @('lonely-guest') -InUseVerdict { 'unknown' })
+        $stale = @(Select-StaleDhcpLeaseBlock -LeaseText $script:StaleLeaseText -Name @('lonely-guest') -InUseVerdict { 'unknown' })
         Assert-Equal -Expected 0 -Actual $stale.Count -Because 'a scoped run considers only the names given'
     }
 
@@ -334,8 +337,8 @@ Describe 'Superseded lease blocks are selected, and only those' {
 Describe 'Removal cuts whole blocks and nothing else' {
 
     It 'removes the selected block and leaves the others byte-identical' {
-        $stale = @(Select-StaleDhcpLeaseBlock -LeaseText $StaleLeaseText -InUseVerdict { 'unknown' })
-        $after = Remove-DhcpLeaseBlockText -LeaseText $StaleLeaseText -Block $stale
+        $stale = @(Select-StaleDhcpLeaseBlock -LeaseText $script:StaleLeaseText -InUseVerdict { 'unknown' })
+        $after = Remove-DhcpLeaseBlockText -LeaseText $script:StaleLeaseText -Block $stale
         Assert-True ($after -notmatch '192\.168\.64\.11') 'the superseded block is gone'
         Assert-True ($after -match '192\.168\.64\.5')  'the live block survives'
         Assert-True ($after -match '192\.168\.64\.77') 'the unrelated name survives'
@@ -343,8 +346,8 @@ Describe 'Removal cuts whole blocks and nothing else' {
     }
 
     It 'still resolves the live guest afterwards' {
-        $stale = @(Select-StaleDhcpLeaseBlock -LeaseText $StaleLeaseText -InUseVerdict { 'unknown' })
-        $after = Remove-DhcpLeaseBlockText -LeaseText $StaleLeaseText -Block $stale
+        $stale = @(Select-StaleDhcpLeaseBlock -LeaseText $script:StaleLeaseText -InUseVerdict { 'unknown' })
+        $after = Remove-DhcpLeaseBlockText -LeaseText $script:StaleLeaseText -Block $stale
         $live = Select-DhcpLeaseIpAddress -LeaseText $after -Name @('yuruna-stash-service') -OnLinkVerdict { 'unknown' }
         Assert-Equal -Expected '192.168.64.5' -Actual $live -Because 'pruning does not disturb resolution'
     }
@@ -352,14 +355,14 @@ Describe 'Removal cuts whole blocks and nothing else' {
     It 'leaves no run of blank lines behind' {
         # The block's trailing newline goes with it, so a file pruned many
         # times does not accumulate whitespace the DHCP server never wrote.
-        $stale = @(Select-StaleDhcpLeaseBlock -LeaseText $StaleLeaseText -InUseVerdict { 'unknown' })
-        $after = Remove-DhcpLeaseBlockText -LeaseText $StaleLeaseText -Block $stale
+        $stale = @(Select-StaleDhcpLeaseBlock -LeaseText $script:StaleLeaseText -InUseVerdict { 'unknown' })
+        $after = Remove-DhcpLeaseBlockText -LeaseText $script:StaleLeaseText -Block $stale
         Assert-True ($after -notmatch "`n`n`n") 'no blank-line run appears'
     }
 
     It 'is idempotent' {
-        $stale = @(Select-StaleDhcpLeaseBlock -LeaseText $StaleLeaseText -InUseVerdict { 'unknown' })
-        $after = Remove-DhcpLeaseBlockText -LeaseText $StaleLeaseText -Block $stale
+        $stale = @(Select-StaleDhcpLeaseBlock -LeaseText $script:StaleLeaseText -InUseVerdict { 'unknown' })
+        $after = Remove-DhcpLeaseBlockText -LeaseText $script:StaleLeaseText -Block $stale
         Assert-Equal -Expected 0 -Actual @(Select-StaleDhcpLeaseBlock -LeaseText $after -InUseVerdict { 'unknown' }).Count -Because 'a second pass finds nothing'
         Assert-Equal -Expected $after -Actual (Remove-DhcpLeaseBlockText -LeaseText $after -Block $stale) -Because 'removing an absent block changes nothing'
     }
@@ -368,11 +371,11 @@ Describe 'Removal cuts whole blocks and nothing else' {
         # The DHCP server rewrites this file whenever a lease moves; a block
         # that vanished under us is already gone, not an error.
         $ghost = [pscustomobject]@{ Text = "{`n`tname=ghost`n`tip_address=192.168.64.200`n`tlease=0x1`n}" }
-        Assert-Equal -Expected $StaleLeaseText -Actual (Remove-DhcpLeaseBlockText -LeaseText $StaleLeaseText -Block @($ghost))
+        Assert-Equal -Expected $script:StaleLeaseText -Actual (Remove-DhcpLeaseBlockText -LeaseText $script:StaleLeaseText -Block @($ghost))
     }
 
     It 'accepts an empty removal set' {
-        Assert-Equal -Expected $StaleLeaseText -Actual (Remove-DhcpLeaseBlockText -LeaseText $StaleLeaseText -Block @())
+        Assert-Equal -Expected $script:StaleLeaseText -Actual (Remove-DhcpLeaseBlockText -LeaseText $script:StaleLeaseText -Block @())
     }
 }
 

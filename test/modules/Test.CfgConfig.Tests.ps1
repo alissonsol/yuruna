@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42f3a4b5-c6d7-4e89-9a0b-cd2e3f4a5b64
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,9 +29,10 @@
     The throw-free Should assertions run under Pester 4.10.1.
 #>
 
+BeforeAll {
 $here         = Split-Path -Parent $PSCommandPath
 $configMod    = Join-Path $here 'Test.Config.psm1'
-$validatorMod = Join-Path $here 'Test.ConfigValidator.psm1'
+$script:validatorMod = Join-Path $here 'Test.ConfigValidator.psm1'
 Import-Module $configMod -Force
 if (-not (Get-Command ConvertFrom-Yaml -ErrorAction SilentlyContinue)) {
     Import-Module powershell-yaml -ErrorAction SilentlyContinue
@@ -62,6 +63,8 @@ function Get-BoundComparisonCount {
         $n.Left.Extent.Text -like '*TestConfigCacheOrder*Count*' -and
         $n.Right.Extent.Text -like '*TestConfigCacheMax*'
     }, $true)).Count
+}
+
 }
 
 Describe 'Read-TestConfig cache is case-sensitive (Ordinal) and FIFO-bounded' {
@@ -136,10 +139,17 @@ Describe 'Get-TestConfigSnapshotPath is one slot per source, per-user in shared 
             Should -Not -Be (Get-TestConfigSnapshotPath -SourcePath 'C:\y\vault.yml')
     }
     It 'uses the runtime dir when YURUNA_RUNTIME_DIR is set' {
+        # The runtime dir reaches Join-Path as a real path, so it has to be one this
+        # platform can resolve: a 'C:\...' literal makes Join-Path look for a drive
+        # named C, which exists only on Windows. The SourcePath above is merely
+        # hashed, never resolved, so its shape does not matter the same way.
+        # Get-TestConfigSnapshotPath does not create the runtime dir, so nothing here
+        # touches the filesystem and there is nothing to clean up.
         $saved = $env:YURUNA_RUNTIME_DIR
+        $rtDir = Join-Path ([System.IO.Path]::GetTempPath()) 'yuruna-rt-xyz'
         try {
-            $env:YURUNA_RUNTIME_DIR = 'C:\rt-xyz'
-            (Split-Path -Parent (Get-TestConfigSnapshotPath -SourcePath 'C:\x\test.config.yml')) | Should -Be 'C:\rt-xyz'
+            $env:YURUNA_RUNTIME_DIR = $rtDir
+            (Split-Path -Parent (Get-TestConfigSnapshotPath -SourcePath 'C:\x\test.config.yml')) | Should -Be $rtDir
         } finally { $env:YURUNA_RUNTIME_DIR = $saved }
     }
     It 'namespaces under the exact per-user temp subdirectory when no runtime dir is set' {
@@ -163,16 +173,16 @@ Describe 'Get-TestConfigSnapshotPath is one slot per source, per-user in shared 
 Describe 'Test-AgainstSchema parses through the hardened Read-TestConfig' {
     It 'resolves Read-TestConfig when only Test.ConfigValidator is imported (self-loads Test.Config)' {
         Get-Module Test.Config, Test.ConfigValidator, Test.Output, Test.HostGit | Remove-Module -Force -ErrorAction SilentlyContinue
-        Import-Module $validatorMod -Force
+        Import-Module $script:validatorMod -Force
         (Get-Command Read-TestConfig -ErrorAction SilentlyContinue) | Should -Not -BeNullOrEmpty
     }
     It 'invokes Read-TestConfig from the validator module (no separate parse path)' {
-        (Get-CommandInvokeCount -Ast (Get-FileAst $validatorMod) -Name 'Read-TestConfig') | Should -BeGreaterOrEqual 1
+        (Get-CommandInvokeCount -Ast (Get-FileAst $script:validatorMod) -Name 'Read-TestConfig') | Should -BeGreaterOrEqual 1
     }
 }
 
 Describe 'Test-AgainstSchema keeps its fail-soft contract through the reader swap' {
-    BeforeAll { Import-Module $validatorMod -Force }
+    BeforeAll { Import-Module $script:validatorMod -Force }
     It 'returns without throwing when the YAML file is missing' {
         { Test-AgainstSchema -Label 'x' -YamlPath 'C:\does\not\exist-cfgc.yml' -SchemaPath 'C:\does\not\exist-schema.yml' } |
             Should -Not -Throw

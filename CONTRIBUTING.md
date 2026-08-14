@@ -43,8 +43,8 @@ one accepted by `raw.githubusercontent.com` for private repo reads.
 
 Likely the best path for command-line use and environments like Linux.
 
-- Go to GitHub -> Settings -> Developer Settings -> Personal Access Tokens -> Tokens (classic).
-- Generate a token with repo, workflow, and read:org scopes
+- Go to GitHub → Settings → Developer Settings → Personal Access Tokens → Tokens (classic).
+- Generate a token with repo, workflow, and read:org scopes.
 - Linux environment
   - Edit `~/.bashrc` to add this line:
     ```
@@ -69,7 +69,7 @@ Likely the best path for command-line use and environments like Linux.
        git% gh repo clone https://github.com/alissonsol/yurunadev-project yuruna-project
      ```
 
-  - Configure local Git variables for later commits and pushes
+  - Configure local Git variables for later commits and pushes.
     ```
     git config --global user.name "Your Name"
     git config --global user.email "Your@email.address"
@@ -84,7 +84,7 @@ Likely the best path for command-line use and environments like Linux.
   - Other scripts for convenience.
     - `test/lab/Enable-TestAutomation.ps1`: Change host settings to avoid screen savers and other disruptions for long test cycles.
     - `test/lab/Sync-HostConfiguration.ps1`: Copy host configuration (`test.config.yml`) parameters from another host.
-    - `test/Test-CachingProxyService.ps1`: Test the connectivity to the caching-proxy service.
+    - `test/Test-CachingProxyService.ps1`: Test connectivity to the caching-proxy service.
     - `test/Test-Config.ps1`: Test if the host configuration has valid values.
 
 ## Workflow
@@ -215,7 +215,7 @@ the empty `ghToken: ""` in the template is.
 
 ### 4. **Project work**
 
-  - As long as your local `frameworkUrl` points to the "`yurunadev`" repository, it is business as usual with git, with the bonus of **all committed changes** being served to your guests via the "status service interceptor".
+  - As long as your local `frameworkUrl` points to the "`yurunadev`" repository, it is business as usual with Git, with the bonus of **all committed changes** being served to your guests via the "status service interceptor".
 
 ### 5. **Running Tests**
 
@@ -261,7 +261,7 @@ the empty `ghToken: ""` in the template is.
     - For a remote cache: set `vmStart.cachingProxyIp` in `test/test.config.yml` (probed first), or `$env:YURUNA_CACHING_PROXY_SERVICE_IP = 'x.y.z.a'` when the config key is empty
     - Test: `test/Test-CachingProxyService.ps1`
   - Single test loop: `test/Invoke-TestProject.ps1`
-  - For unattended tests, see the [Test Runner](docs/test-runner.md) documentation.
+  - For unattended tests, see the [Test Runner](docs/runner-outer-loop.md) documentation.
 
 ### 7. **Debug a specific step**
   - `Invoke-TestSequence.ps1` re-runs a
@@ -319,7 +319,7 @@ workarounds collected during development live in [Yuruna Workarounds](docs/worka
 
 **Interceptor**
 
-  The interceptor lets you test local commits without pushing them. If you used the "fetch and execute" pattern, the status service "intercepts" your requests and serves the local commits affecting the framework. Even for the development repository, you don't want to push untested changes. More details in the "[Fetch-and-execution contract](https://yuruna.link/definition#fetch-and-execution-contract)" definition.
+  The interceptor lets you test local commits without pushing them. If you used the "fetch-and-execute" pattern, the status service "intercepts" your requests and serves the local commits affecting the framework. Even for the development repository, you don't want to push untested changes. More details in the "[Fetch-and-execution contract](https://yuruna.link/definition#fetch-and-execution-contract)" definition.
 
 **Testing workload scripts** (self-contained):
 
@@ -361,6 +361,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.11
+Last review: 2026.08.14
 
 Back to [Yuruna](README.md)

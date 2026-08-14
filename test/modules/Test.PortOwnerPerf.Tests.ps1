@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42a7b8c9-d0e1-4f23-9567-8a9b0c1d2e3f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,6 +27,7 @@
     throw-free Should assertions run under Pester 4.10.1.
 #>
 
+BeforeAll {
 $here          = Split-Path -Parent $PSCommandPath
 $portOwnerPath = Join-Path $here 'Test.PortOwner.psm1'
 $perfPath      = Join-Path $here 'Test.Perf.psm1'
@@ -34,9 +35,7 @@ Import-Module $portOwnerPath -Force
 Import-Module $perfPath -Force
 
 # Count of static-method invocations matching [<TypePattern>]::<Member>(...) with
-# exactly $ArgCount arguments (-1 = any). AST nodes only. The arg count matters:
-# [IO.File]::Move(src,dest) fails if dest exists (the atomic guard), whereas the
-# 3-arg Move(src,dest,$true) silently overwrites and reintroduces the race.
+# exactly $ArgCount arguments (-1 = any). AST nodes only.
 function Get-StaticInvokeCount {
     param([string]$Path, [string]$TypePattern, [string]$Member, [int]$ArgCount = -1)
     $tp = $TypePattern; $m = $Member; $ac = $ArgCount
@@ -48,6 +47,23 @@ function Get-StaticInvokeCount {
         $n.Member.Extent.Text -eq $m -and $n.Expression.Extent.Text -match $tp -and
         ($ac -lt 0 -or (@($n.Arguments).Count -eq $ac))
     }, $true)).Count
+}
+
+# Count [IO.File]::Open(...) calls that pass FileMode::CreateNew -- the claim
+# host.uuid depends on, and the only form that admits exactly one racer.
+function Get-CreateExclusiveOpenCount {
+    param([string]$Path)
+    $errs = $null
+    $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$null, [ref]$errs)
+    if ($errs) { throw "Parse errors in $($Path): $($errs[0].Message)" }
+    @($ast.FindAll({ param($n)
+        $n -is [System.Management.Automation.Language.InvokeMemberExpressionAst] -and
+        $n.Member.Extent.Text -eq 'Open' -and
+        $n.Expression.Extent.Text -match 'System\.IO\.File' -and
+        $n.Extent.Text -match 'FileMode\]::CreateNew'
+    }, $true)).Count
+}
+
 }
 
 Describe 'Resolve-PortOrphan classifies all holders before stopping any' {
@@ -120,7 +136,7 @@ Describe 'Get-PortHolderServiceInfo requires the Yuruna field combination' {
 
 Describe 'Get-PerfHostUuid creates the host id atomically' {
     BeforeEach {
-        $script:root = Join-Path $env:TEMP ('perfuuid-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
+        $script:root = Join-Path ([System.IO.Path]::GetTempPath()) ('perfuuid-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
         New-Item -ItemType Directory -Path $script:root -Force | Out-Null
         $script:savedRuntime = $env:YURUNA_RUNTIME_DIR
         $env:YURUNA_RUNTIME_DIR = $script:root
@@ -154,12 +170,14 @@ Describe 'Get-PerfHostUuid creates the host id atomically' {
         $results.Count               | Should -Be 5
         (@($results | Sort-Object -Unique)).Count | Should -Be 1
     }
-    It 'creates host.uuid via a two-arg [System.IO.File]::Move (fail-if-exists rename), not an overwrite' {
-        # A bare overwrite of the destination lets concurrent first-use racers clobber
-        # each other; a fail-if-exists rename ([System.IO.File]::Move, two-arg) makes
-        # exactly one racer win. Assert it is present AND two-arg -- the 3-arg
-        # Move(src,dest,$true) overload silently overwrites, so an arity-blind guard
-        # would let that race-reintroducing form through.
-        (Get-StaticInvokeCount -Path $perfPath -TypePattern 'System\.IO\.File' -Member 'Move' -ArgCount 2) | Should -BeGreaterOrEqual 1
+    It 'claims host.uuid with a create-exclusive open, never a rename' {
+        # A bare overwrite lets concurrent first-use racers clobber each other, and a
+        # rename is no better on POSIX: [System.IO.File]::Move tests for the
+        # destination and then renames, so racers that pass the test together all
+        # rename successfully, the last one lands on disk, and every earlier one
+        # returns a UUID that was never persisted. Only the create can be the lock --
+        # FileMode.CreateNew is O_CREAT|O_EXCL on POSIX and CREATE_NEW on Windows.
+        (Get-CreateExclusiveOpenCount -Path $perfPath) | Should -BeGreaterOrEqual 1
+        (Get-StaticInvokeCount -Path $perfPath -TypePattern 'System\.IO\.File' -Member 'Move') | Should -Be 0
     }
 }

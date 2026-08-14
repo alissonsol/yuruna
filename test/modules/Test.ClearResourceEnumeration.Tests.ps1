@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42334b95-2008-4677-826c-ab608200e5bf
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,6 +37,7 @@
     needs no provider on PATH. Runs under Pester 4.10.1.
 #>
 
+BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
 $autoDir  = Join-Path $repoRoot 'automation'
@@ -87,6 +88,8 @@ function Get-ClearMessage {
         $global:InformationPreference = $previousInfo
     }
     return @($records | ForEach-Object { [string]$_ })
+}
+
 }
 
 Describe 'clear-resource-enumeration' {

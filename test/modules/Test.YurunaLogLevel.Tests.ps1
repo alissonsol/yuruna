@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42b4d8d1-37cf-4d00-a46b-5ef05b3f5c62
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,18 +31,19 @@
     Pester 4.10.1.
 #>
 
+BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
 $autoDir  = Join-Path $repoRoot 'automation'
-$module   = Join-Path $autoDir 'Yuruna.LogLevel.psm1'
+$script:module   = Join-Path $autoDir 'Yuruna.LogLevel.psm1'
 # The test/host tree carries its own cascade (Set-LogLevelPreference et al.) with
 # extra duties -- ProgressPreference save/restore and $env:YURUNA_LOG_LEVEL
 # publication -- that the automation leaf deliberately omits. The two modules sit
 # in separate directory trees with disjoint consumers, so folding one into the
 # other would couple the trees; the rank table is duplicated on purpose. This
 # parity guard is what keeps the duplication honest.
-$testCascade = Join-Path $here 'Test.LogLevel.psm1'
-$entrypoints = 'yuruna','Set-Component','Set-Resource','Set-Workload','Invoke-Clear',
+$script:testCascade = Join-Path $here 'Test.LogLevel.psm1'
+$script:entrypoints = 'yuruna','Set-Component','Set-Resource','Set-Workload','Invoke-Clear',
                'Test-Configuration','Test-Requirement','Test-Runtime','Get-SystemDiagnostic'
 
 function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
@@ -70,24 +71,26 @@ function Get-LogLevelRankTableFromSource {
     return $map
 }
 
+}
+
 Describe 'yuruna-loglevel -- the logLevel cascade lives once in the Yuruna.LogLevel leaf' {
     It 'Yuruna.LogLevel defines and exports Set-YurunaLogLevel' {
-        $src = Get-Content -LiteralPath $module -Raw
+        $src = Get-Content -LiteralPath $script:module -Raw
         Assert-True ($src -match '(?m)^function Set-YurunaLogLevel\b') 'Set-YurunaLogLevel must be defined'
         Assert-True (($src -split "`n" | Where-Object { $_ -match 'Export-ModuleMember' }) -match 'Set-YurunaLogLevel') 'must be exported'
     }
     It 'the cascade (the $_logRank map + 4 $global preference assigns) exists in exactly one place -- the helper' {
         # The raw $_logRank assignment must appear once (in the helper) and in none of the entrypoints.
-        $inHelper = ([regex]::Matches((Get-Content -LiteralPath $module -Raw), [regex]::Escape('$rank = @{ Error = 1'))).Count
+        $inHelper = ([regex]::Matches((Get-Content -LiteralPath $script:module -Raw), [regex]::Escape('$rank = @{ Error = 1'))).Count
         Assert-True ($inHelper -eq 1) "the helper must hold the one cascade table, found $inHelper"
-        foreach ($e in $entrypoints) {
+        foreach ($e in $script:entrypoints) {
             $src = Get-Content -LiteralPath (Join-Path $autoDir "$e.ps1") -Raw
             $n = ([regex]::Matches($src, [regex]::Escape('$_logRank = @{ Error=1'))).Count
             Assert-True ($n -eq 0) "$e must not inline the cascade table, found $n"
         }
     }
     It 'every entrypoint imports the leaf and delegates to Set-YurunaLogLevel' {
-        foreach ($e in $entrypoints) {
+        foreach ($e in $script:entrypoints) {
             $src = Get-Content -LiteralPath (Join-Path $autoDir "$e.ps1") -Raw
             Assert-True ($src -match "Import-Module[^\n]*Yuruna\.LogLevel\.psm1") "$e must import Yuruna.LogLevel"
             $n = ([regex]::Matches($src, [regex]::Escape('Set-YurunaLogLevel -LogLevel $logLevel'))).Count
@@ -98,8 +101,8 @@ Describe 'yuruna-loglevel -- the logLevel cascade lives once in the Yuruna.LogLe
 
 Describe 'yuruna-loglevel -- the automation leaf and the test/host cascade agree on the rank table' {
     It 'both rank tables map the same level names to the same numeric ranks' {
-        $automationRank = Get-LogLevelRankTableFromSource -Path $module
-        $testRank       = Get-LogLevelRankTableFromSource -Path $testCascade
+        $automationRank = Get-LogLevelRankTableFromSource -Path $script:module
+        $testRank       = Get-LogLevelRankTableFromSource -Path $script:testCascade
         # Same set of keys.
         $automationKeys = @($automationRank.Keys | Sort-Object)
         $testKeys       = @($testRank.Keys | Sort-Object)
@@ -113,7 +116,7 @@ Describe 'yuruna-loglevel -- the automation leaf and the test/host cascade agree
     }
 
     It 'the ranks are the canonical Error<Warning<Information<Verbose<Debug order' {
-        $automationRank = Get-LogLevelRankTableFromSource -Path $module
+        $automationRank = Get-LogLevelRankTableFromSource -Path $script:module
         $expected = [ordered]@{ Error = 1; Warning = 2; Information = 3; Verbose = 4; Debug = 5 }
         foreach ($name in $expected.Keys) {
             Assert-True ($automationRank[$name] -eq $expected[$name]) `

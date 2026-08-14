@@ -26,7 +26,7 @@ Most VMs are **12 GB RAM, 4 vCPU**; disks are dynamic/thin and vary by
 guest (64 GB for the Ubuntu Server guests, up to 512 GB for
 Windows 11 — see [README.md](README.md));
 the stash-service, pool-control-service and download-agent-service
-guests are smaller (4 GB), and caching-proxy-service stays at 12 GB
+guests are smaller (2 GB), and caching-proxy-service stays at 12 GB
 because squid's `cache_mem` is budgeted against it; the KVM guests are
 sized down further. Change for **new VMs**: edit
 `New-VM.ps1` (Hyper-V: replace `12288MB`; UTM: replace
@@ -64,6 +64,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.11
+Last review: 2026.08.14
 
 Back to [Yuruna](../README.md)

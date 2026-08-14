@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 4286c42a-cb68-48ff-84e9-b41d354f419b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -49,11 +49,13 @@
     These are structural guards: they verify the required nodes are present and
     correctly shaped, not that the scripts execute correctly end to end.
 
-    The throw-based Assert-* helpers live at script scope and are referenced from
-    It blocks, so this runs under Pester 4.10.1 (Pester 5's scope split hides
-    top-level helpers from It blocks).
+    The throw-based Assert-* helpers live in the file's BeforeAll, which is the
+    scope Pester 5 shares with the It blocks; defining them at script scope
+    instead makes every It fail on a missing command rather than on an
+    assertion.
 #>
 
+BeforeAll {
 $here    = Split-Path -Parent $PSCommandPath
 $testDir = Split-Path -Parent $here   # .../test
 
@@ -130,13 +132,15 @@ function Get-FirstCallOffset {
     return (@($calls | ForEach-Object { $_.Extent.StartOffset }) | Sort-Object)[0]
 }
 
-$entryPointCases = @(
+$script:entryPointCases = @(
     @{ Name = 'Start-DownloadAgentServiceVM.ps1'; Path = $startAgent },
     @{ Name = 'Stop-DownloadAgentServiceVM.ps1';  Path = $stopAgent }
 )
 
+}
+
 Describe 'Download-agent lifecycle entry points honor the entry-point contract' {
-    foreach ($case in $entryPointCases) {
+    foreach ($case in $script:entryPointCases) {
         # The per-case path reaches the It body through -TestCases rather than the
         # loop variable: a Describe body -- including a foreach that emits Its --
         # runs during discovery, and its variables are discarded before any It

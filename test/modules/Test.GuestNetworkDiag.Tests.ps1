@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42adb0ed-d31c-458d-8804-4c2ba751642e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,10 +47,11 @@
     bash is unavailable.
 #>
 
+BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
-$netLib   = Join-Path $repoRoot 'automation' -AdditionalChildPath 'yuruna-network.sh'
-$faePath  = Join-Path $repoRoot 'automation' -AdditionalChildPath 'fetch-and-execute.sh'
+$script:netLib   = Join-Path $repoRoot 'automation' -AdditionalChildPath 'yuruna-network.sh'
+$script:faePath  = Join-Path $repoRoot 'automation' -AdditionalChildPath 'fetch-and-execute.sh'
 
 function Assert-True  { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
 function Assert-Equal { param($Expected, $Actual, [string]$Because = '') if ("$Expected" -ne "$Actual") { throw "Expected [$Expected] got [$Actual]. $Because" } }
@@ -92,10 +93,12 @@ rm -rf "`$root"
 "@
 }
 
+}
+
 Describe 'guest-network-diag: a link with no carrier is its own verdict' {
 
     It 'reports LINK DOWN and does not claim the carrier-up interfaces are healthy' {
-        $out = Invoke-ShellDriver -FunctionText (Get-ShellFunctionText -Path $netLib -Name 'network_diag') -Driver (Get-DownLinkDriver -Count 2)
+        $out = Invoke-ShellDriver -FunctionText (Get-ShellFunctionText -Path $script:netLib -Name 'network_diag') -Driver (Get-DownLinkDriver -Count 2)
         if ($null -eq $out) { Assert-True $true 'bash unavailable -- skipping shell check'; return }
         Assert-True ($out -match 'LINK DOWN on 2 interface\(s\)') "the down links must be named; output was:`n$out"
         Assert-True ($out -match 'yurunatest0\(operstate=down,carrier=none\)') 'carrier reads back empty on a down interface, so it is reported as none'
@@ -114,7 +117,7 @@ echo 1  > "$root/yurunatest0/carrier"
 YURUNA_NET_SYSFS="$root" network_diag
 rm -rf "$root"
 '@
-        $out = Invoke-ShellDriver -FunctionText (Get-ShellFunctionText -Path $netLib -Name 'network_diag') -Driver $driver
+        $out = Invoke-ShellDriver -FunctionText (Get-ShellFunctionText -Path $script:netLib -Name 'network_diag') -Driver $driver
         if ($null -eq $out) { Assert-True $true 'bash unavailable -- skipping shell check'; return }
         Assert-True ($out -match 'NO IPv4 ADDRESS on carrier-up interface\(s\):\s*yurunatest0') "the lease-pool verdict must survive; output was:`n$out"
         Assert-True ($out -match 'DHCP POOL EXHAUSTION IS A POSSIBILITY') 'the documented wording is what docs/network.md describes'
@@ -128,7 +131,7 @@ root=$(mktemp -d)
 YURUNA_NET_SYSFS="$root" network_diag
 rm -rf "$root"
 '@
-        $out = Invoke-ShellDriver -FunctionText (Get-ShellFunctionText -Path $netLib -Name 'network_diag') -Driver $driver
+        $out = Invoke-ShellDriver -FunctionText (Get-ShellFunctionText -Path $script:netLib -Name 'network_diag') -Driver $driver
         if ($null -eq $out) { Assert-True $true 'bash unavailable -- skipping shell check'; return }
         Assert-True ($out -match 'No non-loopback interface is carrier-up\.') "an empty walk must say so; output was:`n$out"
         Assert-True ($out -notmatch 'All carrier-up interfaces hold an IPv4 address') 'the all-clear must be gated on having examined something'
@@ -143,7 +146,7 @@ Describe 'guest-network-diag: the report stays inside the captured frame' {
         # the headless capture surface freezes a bounded number of trailing
         # lines. Output that grows per interface scrolls the marker away and
         # turns a classified failure into an unclassified timeout.
-        $fn = Get-ShellFunctionText -Path $netLib -Name 'network_diag'
+        $fn = Get-ShellFunctionText -Path $script:netLib -Name 'network_diag'
         $few  = Invoke-ShellDriver -FunctionText $fn -Driver (Get-DownLinkDriver -Count 2  -LineCountOnly)
         if ($null -eq $few) { Assert-True $true 'bash unavailable -- skipping shell check'; return }
         $many = Invoke-ShellDriver -FunctionText $fn -Driver (Get-DownLinkDriver -Count 30 -LineCountOnly)
@@ -153,7 +156,7 @@ Describe 'guest-network-diag: the report stays inside the captured frame' {
     }
 
     It 'names at most three down interfaces but reports the true total' {
-        $out = Invoke-ShellDriver -FunctionText (Get-ShellFunctionText -Path $netLib -Name 'network_diag') -Driver (Get-DownLinkDriver -Count 30)
+        $out = Invoke-ShellDriver -FunctionText (Get-ShellFunctionText -Path $script:netLib -Name 'network_diag') -Driver (Get-DownLinkDriver -Count 30)
         if ($null -eq $out) { Assert-True $true 'bash unavailable -- skipping shell check'; return }
         Assert-True ($out -match 'LINK DOWN on 30 interface\(s\)') "the count must be the real one; output was:`n$out"
         $named = ([regex]::Matches($out, 'yurunatest\d+\(operstate=')).Count
@@ -168,7 +171,7 @@ Describe 'guest-network-diag: OCR-safe wording' {
     # failing run. The words 'fetch' and 'execute' fuzzy-match that line, so
     # either one inside diagnostic output would fail a HEALTHY run in seconds.
     It 'network_diag prints neither of the words that fuzzy-match the command line' {
-        $fn = Get-ShellFunctionText -Path $netLib -Name 'network_diag'
+        $fn = Get-ShellFunctionText -Path $script:netLib -Name 'network_diag'
         $echoed = @([regex]::Matches($fn, '(?m)^\s*echo\s+.*$') | ForEach-Object { $_.Value }) -join "`n"
         Assert-True ($echoed.Length -gt 0) 'the diagnostic must print something'
         Assert-True ($echoed -notmatch '(?i)fetch')   'no "fetch" in diagnostic output'
@@ -176,7 +179,7 @@ Describe 'guest-network-diag: OCR-safe wording' {
     }
 
     It 'the guest-has-no-IPv4 banner prints neither of them either' {
-        $fn = Get-ShellFunctionText -Path $faePath -Name 'resolve_fetch_source'
+        $fn = Get-ShellFunctionText -Path $script:faePath -Name 'resolve_fetch_source'
         $banner = [regex]::Match($fn, '(?ms)GUEST HAS NO IPv4.*?FETCH_SOURCE=')
         Assert-True $banner.Success 'the no-IPv4 banner must exist'
         $printed = @([regex]::Matches($banner.Value, '(?m)^\s*>&2 echo\s+.*$') | ForEach-Object { $_.Value }) -join "`n"
@@ -206,7 +209,7 @@ YURUNA_STATUS_SERVICE_PORT=8080
 resolve_fetch_source 2>&1
 echo "SOURCE=$FETCH_SOURCE"
 '@
-        $out = Invoke-ShellDriver -FunctionText (Get-ShellFunctionText -Path $faePath -Name 'resolve_fetch_source') -Driver $driver
+        $out = Invoke-ShellDriver -FunctionText (Get-ShellFunctionText -Path $script:faePath -Name 'resolve_fetch_source') -Driver $driver
         if ($null -eq $out) { Assert-True $true 'bash unavailable -- skipping shell check'; return }
         Assert-True ($out -match 'GUEST HAS NO IPv4') "the guest-side cause must lead; output was:`n$out"
         Assert-True ($out -notmatch 'HOST UNREACHABLE') 'the host-side theory must be suppressed when the guest holds no address'
@@ -224,7 +227,7 @@ YURUNA_STATUS_SERVICE_PORT=8080
 resolve_fetch_source 2>&1
 echo "SOURCE=$FETCH_SOURCE"
 '@
-        $out = Invoke-ShellDriver -FunctionText (Get-ShellFunctionText -Path $faePath -Name 'resolve_fetch_source') -Driver $driver
+        $out = Invoke-ShellDriver -FunctionText (Get-ShellFunctionText -Path $script:faePath -Name 'resolve_fetch_source') -Driver $driver
         if ($null -eq $out) { Assert-True $true 'bash unavailable -- skipping shell check'; return }
         Assert-True ($out -match 'HOST UNREACHABLE') "an addressed guest that cannot reach the host still gets the host-side banner; output was:`n$out"
         Assert-True ($out -notmatch 'GUEST HAS NO IPv4') 'the no-address banner must not fire for an addressed guest'
@@ -238,7 +241,7 @@ Describe 'guest-network-lib: the sysfs seam is walk-only' {
         # The override exists so a fixture tree can be walked. Letting it reach
         # the `ip` invocations would make the diagnostic report fixture state
         # instead of the machine's own.
-        $fn = Get-ShellFunctionText -Path $netLib -Name 'network_diag'
+        $fn = Get-ShellFunctionText -Path $script:netLib -Name 'network_diag'
         Assert-True ($fn -match '\$\{YURUNA_NET_SYSFS:-/sys/class/net\}') 'unset, behavior must be identical to the real path'
         $ipCalls = @([regex]::Matches($fn, '(?m)^\s*(?:\w+=\$\()?\s*ip\s+-.*$') | ForEach-Object { $_.Value })
         Assert-True ($ipCalls.Count -ge 3) "the live probes must still be there, found $($ipCalls.Count)"
@@ -248,7 +251,7 @@ Describe 'guest-network-lib: the sysfs seam is walk-only' {
     It 'keeps the dual-use dispatcher contract intact' {
         # The networkRelease sequence action invokes this file by path, and its
         # usage/exit-2 branch is what a typo surfaces as.
-        $src = Get-Content -Raw -LiteralPath $netLib
+        $src = Get-Content -Raw -LiteralPath $script:netLib
         Assert-True ($src -match 'diag\)\s+network_diag')       'the diag verb must still dispatch'
         Assert-True ($src -match 'release\)\s+network_release') 'the release verb must still dispatch'
         Assert-True ($src -match 'usage: \$0 \{diag\|release\}') 'the usage line and its exit 2 are the action''s contract'

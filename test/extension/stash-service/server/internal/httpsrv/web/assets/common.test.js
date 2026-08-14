@@ -13,6 +13,12 @@
     - humanSize returns an empty string for a non-finite size instead of 'NaN B';
     - hostInfo shares one /api/hostinfo read between callers, never rejects, and
       does not memoize a failure;
+    - stashKey renders a row as the bulk-delete API's field form, and propagates
+      the same null a malformed permalink produces everywhere else;
+    - a control proof in the URL fragment is spent once, at load, and is taken
+      out of the address bar; a page with no fragment sends nothing;
+    - Y.session reports a locked, unconfigured gate when the daemon cannot be
+      asked, so a page withholds controls it cannot vouch for;
     - the footer countdown parks while a page reports itself paused.
 */
 'use strict';
@@ -50,6 +56,29 @@ vm.runInContext(loaded, sandbox, { filename: 'common.js' });
 const Y = sandbox.__Y;
 assert.ok(Y && typeof Y.api === 'function', 'Y with api should be exposed after load');
 
+// loadWithHash runs common.js in a fresh context whose URL carries hash, so the
+// load-time proof exchange can be observed. It has to be a new context: the
+// exchange is a module-level IIFE that runs once per page.
+function loadWithHash(hash) {
+  const posts = [];
+  const box = {
+    console: console,
+    document: { createElement: sandbox.document.createElement, getElementById: function () { return null; }, title: 't' },
+    location: { origin: 'https://stash.test', href: '', hash: hash, pathname: '/s/h1/2026/07/06/abc', search: '' },
+    history: { replaceState: function () { box.replaced++; } },
+    fetch: function (p, o) { posts.push({ path: p, body: o && o.body }); return Promise.resolve({ ok: true, json: function () { return Promise.resolve({ ok: true }); } }); },
+    AbortController: AbortController,
+    URL: URL,
+    setTimeout: setTimeout,
+    clearTimeout: clearTimeout,
+    replaced: 0,
+  };
+  box.globalThis = box;
+  vm.createContext(box);
+  vm.runInContext(loaded, box, { filename: 'common.js' });
+  return { Y: box.__Y, posts: posts, sandbox: box, get replaced() { return box.replaced; } };
+}
+
 (async function () {
   // (1) humanSize: non-finite sizes fall back to '' (not 'NaN B'); valid sizes unchanged.
   assert.strictEqual(Y.humanSize('abc'), '', "humanSize('abc') -> ''");
@@ -69,6 +98,15 @@ assert.ok(Y && typeof Y.api === 'function', 'Y with api should be exposed after 
   assert.strictEqual(Y.stashApiURL(null), null, 'stashApiURL(null) -> null');
   assert.strictEqual(Y.stashApiURL({ hostId: 'h', permalink: 42 }), null, 'stashApiURL(non-string permalink) -> null');
   assert.strictEqual(Y.stashApiURL({ hostId: 'h1', permalink: '/s/h1/2026/07/06/abc' }), '/api/stashes/h1/2026/07/06/abc', 'stashApiURL(valid) targets the REST endpoint');
+
+  // (2b) stashKey: the same row as the bulk-delete body's field form, and the
+  // same null for a row that cannot be addressed -- a stash named imprecisely
+  // must never reach a request that destroys things.
+  assert.deepStrictEqual(Y.stashKey({ hostId: 'h1', permalink: '/s/h1/2026/07/06/abc' }),
+    { hostId: 'h1', year: '2026', month: '07', day: '06', id: 'abc' }, 'stashKey(valid) is the API field form');
+  assert.strictEqual(Y.stashKey(null), null, 'stashKey(null) -> null');
+  assert.strictEqual(Y.stashKey({ hostId: 'h', permalink: 42 }), null, 'stashKey(non-string permalink) -> null');
+  assert.strictEqual(Y.stashKey({ hostId: 'h', permalink: '/s/h/2026/07' }), null, 'stashKey(short permalink) -> null');
 
   // (3a) api aborts a never-resolving request once the timeout fires.
   fetchImpl = function (p, o) {
@@ -96,12 +134,23 @@ assert.ok(Y && typeof Y.api === 'function', 'Y with api should be exposed after 
   assert.deepStrictEqual(await Y.hostInfo(), {}, 'a failed hostInfo read resolves to {}');
   fetchImpl = function () {
     hostinfoCalls++;
-    return Promise.resolve({ ok: true, json: function () { return Promise.resolve({ ok: true, canDelete: true, clientIp: '10.0.0.9' }); } });
+    return Promise.resolve({ ok: true, json: function () { return Promise.resolve({ ok: true, localHostId: 'h1', version: '9.9' }); } });
   };
   const facts = await Y.hostInfo();
-  assert.strictEqual(facts.canDelete, true, 'hostInfo returns the parsed body');
-  assert.strictEqual((await Y.hostInfo()).clientIp, '10.0.0.9', 'a later caller gets the same answer');
+  assert.strictEqual(facts.localHostId, 'h1', 'hostInfo returns the parsed body');
+  assert.strictEqual((await Y.hostInfo()).version, '9.9', 'a later caller gets the same answer');
   assert.strictEqual(hostinfoCalls, 2, 'the failure was retried; the success is shared');
+
+  // (3d) Y.session never rejects: a daemon that cannot be asked reports a
+  // locked, unconfigured gate, which is what makes a page withhold its delete
+  // controls rather than offer ones it cannot vouch for.
+  fetchImpl = function () { return Promise.reject(new Error('daemon down')); };
+  assert.deepStrictEqual(await Y.session(), { authed: false, labToken: false, configured: false },
+    'an unreachable daemon reads as a locked gate');
+  fetchImpl = function () {
+    return Promise.resolve({ ok: true, json: function () { return Promise.resolve({ ok: true, authed: true, labToken: true, configured: true }); } });
+  };
+  assert.strictEqual((await Y.session()).authed, true, 'an unlocked session is reported as such');
 
   // (4) Source-structure guards (non-tautological -- each fails if its guard is removed from common.js).
   assert.match(source, /function pathTail\(view\)[\s\S]*?typeof view\.permalink !== 'string'/, 'pathTail guards a non-string permalink');
@@ -110,6 +159,22 @@ assert.ok(Y && typeof Y.api === 'function', 'Y with api should be exposed after 
   assert.match(source, /if \(paused && paused\(\)\)[\s\S]*?return;[\s\S]*?countdown = Math\.max/, 'a paused page parks the countdown before it ticks down to a refresh');
   assert.match(source, /async api\(path, opts\)[\s\S]*?new AbortController\(\)/, 'api bounds the fetch with an AbortController');
   assert.match(source, /humanSize\(n\)[\s\S]*?Number\.isFinite\(v\)/, 'humanSize guards non-finite sizes');
+  assert.match(source, /Y\.session = async function[\s\S]*?await Y\.proofUnlock/, 'session spends a carried proof BEFORE reading the gate, so an arriving operator is not prompted for a code they do not need');
+
+  // (5) The control-proof handoff. A page reached from the Yuruna hosts
+  // dashboard carries the proof in the fragment; it is spent once, at load, and
+  // stripped from the address bar so it cannot be re-used out of history or a
+  // copied URL. A page with no fragment must send nothing at all.
+  const spent = loadWithHash('#yctl=1900000000.QUJD');
+  assert.strictEqual(await spent.Y.proofUnlock, true, 'a carried proof unlocks the page');
+  assert.strictEqual(spent.posts.length, 1, 'a carried proof is spent exactly once');
+  assert.strictEqual(spent.posts[0].path, '/api/unlock-proof', 'the proof goes to the unlock route');
+  assert.deepStrictEqual(JSON.parse(spent.posts[0].body), { proof: '1900000000.QUJD' }, 'the proof is sent verbatim');
+  assert.strictEqual(spent.replaced, 1, 'the fragment is stripped from the address bar, so it cannot be re-used from history');
+
+  const clean = loadWithHash('');
+  assert.strictEqual(await clean.Y.proofUnlock, false, 'no fragment, no unlock attempt');
+  assert.deepStrictEqual(clean.posts, [], 'a page with no proof sends nothing');
 
   console.log('PASS: common.js');
 })().catch(function (e) { console.error(e && e.stack || e); process.exit(1); });

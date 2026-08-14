@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42b7adb1-b8f1-48fe-a89b-2b2d8acb1dc6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,12 +41,12 @@
     the root, so a stylesheet that puts its base size on `html` instead of
     `body` renders the same bar a few percent smaller than its siblings.
 
-    The throw-based Assert-* helpers are defined at script scope and referenced
-    from It blocks, and every fixture is read at file scope above the first
-    Describe, so this runs under Pester 4.10.1 as well as 5.x (Pester 5's scope
-    split hides both top-level helpers and Describe-body variables from It).
+    The throw-based Assert-* helpers and every fixture are built in BeforeAll,
+    the only scope an It can read: Pester 5 runs file scope and Describe bodies
+    during discovery, and nothing they define survives into the run phase.
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 $repo = Split-Path -Parent (Split-Path -Parent $here)
 $ext = Join-Path $repo 'test/extension'
@@ -108,10 +108,10 @@ $services = @(
     }
 )
 
-# Read at file scope, above the first Describe: a Describe body is evaluated
-# during the discovery pass and its scope is discarded before any It runs, so a
-# fixture declared inside one reaches the assertions as $null.
-$chromePattern = '(?s)/\* =+\r?\n   PAGE CHROME.*?/\* === end page chrome =+ \*/'
+# Read in BeforeAll, not in a Describe body: a Describe body is evaluated during
+# the discovery pass and its scope is discarded before any It runs, so a fixture
+# declared inside one reaches the assertions as $null.
+$script:chromePattern = '(?s)/\* =+\r?\n   PAGE CHROME.*?/\* === end page chrome =+ \*/'
 $pages = @()
 $stylesheets = @()
 $scripts = @()
@@ -121,9 +121,9 @@ $scripts = @()
 # their brand link is a relative file name, so only the chrome-shaped
 # assertions apply to them.
 $statusDir = Join-Path $repo 'test/status'
-$statusLinks = @('index.html', 'config.html', 'performance.html', 'diagnostics.html')
-$statusGuide = 'https://yuruna.link/operator'
-$statusPages = @(
+$script:statusLinks = @('index.html', 'config.html', 'performance.html', 'diagnostics.html')
+$script:statusGuide = 'https://yuruna.link/operator'
+$script:statusPages = @(
     @{ File = 'index.html'; Current = 'index.html' }
     @{ File = 'config.html'; Current = 'config.html' }
     @{ File = 'performance.html'; Current = 'performance.html' }
@@ -164,11 +164,12 @@ foreach ($svc in $services) {
 }
 
 # Every stylesheet that carries the chrome, including the status pages' own.
-$chromeStylesheets = @($stylesheets) + @([pscustomobject]@{
+$script:chromeStylesheets = @($stylesheets) + @([pscustomobject]@{
         Service = 'Yuruna status pages'
         Path    = (Join-Path $statusDir 'yuruna.common.css')
         Text    = (Get-Content -Raw -LiteralPath (Join-Path $statusDir 'yuruna.common.css'))
     })
+}
 
 Describe 'extension UI chrome: one header, one menu, page-first titles' {
 

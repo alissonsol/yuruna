@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456726
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -105,7 +105,7 @@ function Register-SequenceAction {
             'snapshot_restore_failed','script_error','wait_timeout',
             'extension_error','instrumentation_failure','provisioning_failure',
             'bootstrap_sync','plan_invalid','elevation_required','project_access_denied',
-            'host_network_degraded','ip_not_discovered','unknown')]
+            'host_network_degraded','ip_not_discovered','payload_unavailable','unknown')]
         [string]$FailureClass = 'unknown',
         [ValidateSet('hard','soft','unknown')]
         [string]$Severity = 'unknown',
@@ -162,7 +162,7 @@ if (Get-Command Assert-FailureTaxonomyInSync -ErrorAction SilentlyContinue) {
             'snapshot_restore_failed','script_error','wait_timeout',
             'extension_error','instrumentation_failure','provisioning_failure',
             'bootstrap_sync','plan_invalid','elevation_required','project_access_denied',
-            'host_network_degraded','ip_not_discovered','unknown') `
+            'host_network_degraded','ip_not_discovered','payload_unavailable','unknown') `
         -Severity @('hard','soft','unknown')
 }
 

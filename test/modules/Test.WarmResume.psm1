@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 428a1d5f-7c92-4b40-a6e1-9d2f4c8b0a63
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,7 +26,22 @@
 # (Test.RunnerOuterLoop). A hard/deterministic class (script_error,
 # provisioning_failure, pattern_matched_failure, ...) is never resumed.
 $script:WarmResumeEligibleClass = @(
-    'network_timeout', 'wait_timeout', 'instrumentation_failure', 'host_io_blocked'
+    'network_timeout', 'wait_timeout', 'instrumentation_failure', 'host_io_blocked',
+    # A step that never resolved an address never reached the guest, so nothing
+    # it might have done is in question and replaying it is as sound as replaying
+    # a timeout. It earns a place here because on a host whose address moves
+    # under it, discovery going quiet for a moment is the ordinary case rather
+    # than a broken lab -- and it was the one class the harness produced with no
+    # recovery at all, turning a lookup that would have answered seconds later
+    # into a lost cycle.
+    'ip_not_discovered',
+    # No source served the script, so the payload never ran. That is the same
+    # ground the address class stands on -- nothing the step might have done is
+    # in question, because it did nothing -- and the usual cause, a host that
+    # renumbered while the guest held its old address, is gone by the next
+    # attempt. It reaches here only for the shortage cases: a digest mismatch
+    # never ran either but is a refusal, and the taxonomy keeps it out.
+    'payload_unavailable'
 )
 
 function Get-WarmResumeUtcNow {
@@ -173,6 +188,104 @@ function Get-WarmResumeDecision {
     return @{ ShouldResume = $false; Reason = "sequence-not-in-workload ($SequenceName)"; ResumeSequence = '' }
 }
 
+# --- REGION: https://yuruna.link/memory#why-warm-resume-rewinds-to-a-snapshot
+# A checkpoint names the step that FAILED, and resuming there replays it against
+# a guest that step may already have half-changed: an install that unpacked
+# before its network call died, a seed script that wrote some rows. The step is
+# eligible for resume because its FAILURE was transient, which says nothing
+# about how much of its work landed first. Replaying onto that residue is a
+# different run from the one the sequence describes.
+#
+# loadDiskSnapshot is the one action that makes the guest's state known again,
+# so it is the only honest place to restart: rewind to the most recent one at or
+# before the checkpoint and every step after it runs against the state it was
+# written for. The cost is redoing the steps in between, which is the trade warm
+# resume already makes against a full cold rebuild.
+#
+# No boundary at or before the checkpoint means there is nothing to restore to.
+# The checkpoint is then used as-is -- the same behavior as before any of this
+# existed -- because declining to resume would turn a recoverable transient back
+# into the lost cycle warm resume was built to prevent.
+function Get-WarmResumeRewindStep {
+    <#
+    .SYNOPSIS
+        Pull a resume point back to the loadDiskSnapshot that precedes it (pure).
+    .DESCRIPTION
+        Scans the sequence's 1-based action list backwards from the checkpoint
+        for the nearest loadDiskSnapshot. Returns that step when it lies BEFORE
+        the checkpoint; a checkpoint already sitting on the boundary, or a
+        sequence with no boundary at or before it, is returned unchanged.
+    .OUTPUTS
+        [hashtable] ResumeFromStep [int], Rewound [bool], BoundaryStep [int]
+        (0 when the sequence has no restore point at or before the checkpoint).
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [AllowNull()][string[]]$StepAction,
+        [int]$ResumeFromStep
+    )
+    $out = @{ ResumeFromStep = [int]$ResumeFromStep; Rewound = $false; BoundaryStep = 0 }
+    if ([int]$ResumeFromStep -lt 1) { return $out }
+    $actions = @($StepAction)
+    if ($actions.Count -lt 1) { return $out }
+    # A checkpoint past the end (a sequence edited since the failure) still gets
+    # a boundary from the steps that do exist rather than no answer at all.
+    $upper = [Math]::Min([int]$ResumeFromStep, $actions.Count)
+    for ($i = $upper; $i -ge 1; $i--) {
+        if ([string]$actions[$i - 1] -eq 'loadDiskSnapshot') {
+            $out.BoundaryStep = $i
+            if ($i -lt [int]$ResumeFromStep) {
+                $out.ResumeFromStep = $i
+                $out.Rewound        = $true
+            }
+            return $out
+        }
+    }
+    return $out
+}
+
+function Get-WarmResumeStepAction {
+    <#
+    .SYNOPSIS
+        The ordered action names of a sequence file, 1-based to match the step
+        numbers a checkpoint records.
+    .DESCRIPTION
+        Reads through the engine's own loader, which already normalizes and
+        expands snippets, so `steps` is the same flat list Invoke-Sequence walks
+        and the indexes are the ones -StartStep counts against. Normalizing the
+        result again would re-reject it: the loader's output carries the
+        synthesized `baseline` key that the normalizer treats as the legacy
+        shape. Any failure to read yields an empty list, which the rewind treats
+        as "no boundary known" and leaves the checkpoint alone.
+    .OUTPUTS
+        [string[]] action names in step order; empty when the file cannot be read.
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Path)
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) { return [string[]]@() }
+    if (-not (Get-Command Read-SequenceFile -ErrorAction SilentlyContinue) -or
+        -not (Get-Command Get-StepLeadAction -ErrorAction SilentlyContinue)) {
+        Write-Verbose 'Get-WarmResumeStepAction: sequence loader unavailable; no boundary known.'
+        return [string[]]@()
+    }
+    try {
+        $seq = Read-SequenceFile -Path $Path
+        if ($seq -isnot [System.Collections.IDictionary] -or -not $seq.Contains('steps')) { return [string[]]@() }
+        # Each step reports the action it LEADS with, not the name it carries: a
+        # sequence that nests its restore inside a `retry` block has no
+        # `loadDiskSnapshot` at top level, and reading the wrapper's own name
+        # would leave the rewind with no boundary to find -- resuming in place,
+        # onto the residue the boundary exists to discard. Rewinding to the
+        # wrapper is sound because entering it runs that restore first.
+        return [string[]]@(@($seq['steps']) | ForEach-Object { [string](Get-StepLeadAction -Step $_) })
+    } catch {
+        Write-Verbose "Get-WarmResumeStepAction: could not read $Path ($($_.Exception.Message)); no boundary known."
+        return [string[]]@()
+    }
+}
+
 function New-WarmResumeEvent {
     <#
     .SYNOPSIS
@@ -192,7 +305,12 @@ function New-WarmResumeEvent {
         [int]$ResumeFromStep,
         [AllowNull()][string]$FailureClass,
         [int]$Attempt,
-        [AllowNull()][string]$HostType
+        [AllowNull()][string]$HostType,
+        # The checkpoint before any rewind. Recorded whenever it differs from
+        # the step actually resumed, so a run that replayed work says how much
+        # rather than leaving the gap to be inferred from two step numbers that
+        # no longer agree.
+        [int]$CheckpointStep = 0
     )
     $emit = [ordered]@{
         timestamp      = (Get-WarmResumeUtcNow)
@@ -202,6 +320,10 @@ function New-WarmResumeEvent {
         resumeFromStep = [int]$ResumeFromStep
         attempt        = [int]$Attempt
     }
+    if ([int]$CheckpointStep -gt 0 -and [int]$CheckpointStep -ne [int]$ResumeFromStep) {
+        $emit['checkpointStep'] = [int]$CheckpointStep
+        $emit['rewoundSteps']   = [int]$CheckpointStep - [int]$ResumeFromStep
+    }
     if (-not [string]::IsNullOrWhiteSpace($FailureClass)) { $emit['failureClass'] = [string]$FailureClass }
     if ($VmName)   { $emit['vmName']   = [string]$VmName }
     if ($HostType) { $emit['hostType'] = [string]$HostType }
@@ -210,4 +332,5 @@ function New-WarmResumeEvent {
 
 Export-ModuleMember -Function `
     Get-WarmResumeEligibleClass, Test-WarmResumeEligibleClass, Get-WarmResumeCheckpointFromRecord, `
-    Read-WarmResumeCheckpoint, Get-WarmResumeDecision, New-WarmResumeEvent
+    Read-WarmResumeCheckpoint, Get-WarmResumeDecision, New-WarmResumeEvent, `
+    Get-WarmResumeRewindStep, Get-WarmResumeStepAction

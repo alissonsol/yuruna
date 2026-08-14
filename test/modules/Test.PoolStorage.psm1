@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42c5e8a1-9b3d-4f27-8a6c-1d2e3f4a5b6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -149,6 +149,43 @@ function Get-PoolStorageProcessErrorDetail {
     $one = [System.Text.RegularExpressions.Regex]::Replace($one, '(//[^/:@\s]+):[^@\s]*@', '$1:***@')
     if ($one.Length -gt 400) { $one = $one.Substring(0, 400) + '...' }
     return ": $one"
+}
+
+<#
+.SYNOPSIS
+True when a `sudo -n` child's stderr is sudo REFUSING to run without a password, rather than the command itself failing. Pure (classifies text).
+.DESCRIPTION
+sudo exits 1 for "I will not run this unprompted" and mount.cifs exits 1 for its own failures, so only the text separates them -- and getting it wrong sends the operator to fix the credential when the mount never reached the NAS.
+
+The wording depends on WHICH sudo is installed, and both spellings must be recognized on every host because the same script runs on all of them:
+  * sudo (C)    "sudo: a password is required", "a terminal is required",
+                "no tty present", "may not run"
+  * sudo-rs     "sudo: interactive authentication is required"
+Ubuntu ships sudo-rs as the default sudo from 25.10 on, so a matcher that knows only the C wording silently stops recognizing refusals as those hosts upgrade -- it never fails loudly, it just starts blaming something else.
+.PARAMETER StdErr
+Raw stderr from the sudo child; empty and $null are both accepted.
+.OUTPUTS
+[bool] $true when sudo refused the command.
+#>
+function Test-PoolStorageSudoRefusal {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter()][AllowEmptyString()][AllowNull()][string]$StdErr)
+    if ([string]::IsNullOrWhiteSpace($StdErr)) { return $false }
+    return [bool]("$StdErr" -match '(?i)(a password is required|a terminal is required|no tty present|interactive authentication is required|may not run|is not in the sudoers file|not allowed to execute|no askpass)')
+}
+
+<#
+.SYNOPSIS
+The verbatim reason the last Connect-YurunaPoolStorage attempt failed, or '' when the last attempt succeeded (or none has run in this session).
+.DESCRIPTION
+Connect returns a bare bool because every cycle-path caller only branches on it. That leaves the one line that says WHY on the console as a warning, where a caller composing its own message cannot reach it -- so the caller states a cause instead of reporting one, and a mount that failed on passwordless sudo gets reported as a stale NAS password. This accessor is how a caller reports the actual reason.
+#>
+function Get-PoolStorageLastMountError {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    return "$script:PoolStorageLastMountError".Trim()
 }
 
 <#
@@ -1337,8 +1374,21 @@ function Connect-YurunaPoolStorage {
                     # verbatim stderr is safe to show and is the only thing that
                     # distinguishes the several failures sharing exit 32.
                     $detail = Get-PoolStorageProcessErrorDetail -StdErr $mnt.StdErr
-                    $hint = if ("$($mnt.StdErr)" -match 'a password is required|sudo: a terminal is required|may not run') {
-                        ' (passwordless sudo for mount is required -- see docs/pool-storage.md)'
+                    # A refusal means mount never ran, so the NAS never saw the
+                    # credential -- say so, because the callers that only get a
+                    # bool otherwise report this as a rejected password and send
+                    # the operator to reset one that was always correct.
+                    #
+                    # Whether the NOPASSWD drop-in answers for mount is resolved
+                    # HERE, while the failure is happening: sudo-rs writes no log
+                    # entry for a refused `sudo -n`, so nothing on the host records
+                    # this moment and the question cannot be answered afterwards.
+                    $hint = if (Test-PoolStorageSudoRefusal -StdErr $mnt.StdErr) {
+                        if (Test-PoolStorageSudoReady -Commands @((Get-PoolStorageSudoCommandPath).Mount)) {
+                            ' (sudo refused the mount, so the NAS was never contacted -- yet passwordless sudo for mount answers as configured right now, so look for an /etc/sudoers.d rule sorting AFTER the poolStorage drop-in that re-requires a password)'
+                        } else {
+                            ' (sudo refused the mount, so the NAS was never contacted: passwordless sudo for mount is NOT in effect -- see docs/pool-storage.md)'
+                        }
                     } else { '' }
                     throw "sudo mount -t cifs rc=$($mnt.ExitCode)$hint$detail"
                 }
@@ -2525,6 +2575,7 @@ function Remove-PoolStorageTree {
 Export-ModuleMember -Function `
     Get-PoolStorageUncPath, Test-PoolStorageMountMatch, Get-PoolStorageServerName, `
     Get-PoolStorageComparableMountPoint, Get-PoolStorageProcessErrorDetail, `
+    Test-PoolStorageSudoRefusal, Get-PoolStorageLastMountError, `
     Test-PoolStorageServerIsLocal, `
     ConvertFrom-PoolStorageMountLine, Find-PoolStorageConflictingMount, `
     Get-PoolStorageConflictingMount, Clear-PoolStorageConflictingMount, Dismount-PoolStoragePoint, `

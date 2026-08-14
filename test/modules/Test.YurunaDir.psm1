@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42a3d6f5-c0b1-4478-de26-5f7a0c4d3e62
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -131,29 +131,48 @@ function Get-YurunaHostId {
     $id = '42' + ([Guid]::NewGuid().ToString('N')).Substring(2, 30)
     # Atomic first-write, shared with Get-PerfHostUuid on this same host.uuid: two
     # processes hitting first-use at once would each generate a DIFFERENT id, so a
-    # plain overwrite would leave the host with two identities. Write a per-process
-    # temp then rename with the two-arg [System.IO.File]::Move, which throws if the
-    # destination already exists -- exactly one racer wins and every loser re-reads
-    # and adopts the winner's id. A genuine persist failure is fatal to the caller
-    # (return $null, per the OUTPUTS contract) rather than an unpersisted id the next
-    # call would silently re-generate as a different one.
-    $tmpFile = "$uuidFile.$PID-$([Guid]::NewGuid().ToString('N')).tmp"
+    # plain overwrite would leave the host with two identities. The create itself is
+    # the lock -- FileMode.CreateNew is O_CREAT|O_EXCL on POSIX and CREATE_NEW on
+    # Windows, so exactly one caller can bring the path into existence and everyone
+    # else adopts what that caller wrote. A temp-then-rename cannot hold this line on
+    # POSIX: [System.IO.File]::Move tests for the destination and then renames, so
+    # racers that pass the test together all rename successfully, the last one lands
+    # on disk, and every earlier one walks away with an id that was never persisted.
+    # A genuine persist failure is fatal to the caller (return $null, per the OUTPUTS
+    # contract) rather than an unpersisted id the next call would silently
+    # re-generate as a different one.
+    $claim = $null
     try {
-        [System.IO.File]::WriteAllText($tmpFile, $id, [System.Text.UTF8Encoding]::new($false))
-        [System.IO.File]::Move($tmpFile, $uuidFile)
-        return $id
+        $claim = [System.IO.File]::Open($uuidFile, [System.IO.FileMode]::CreateNew,
+            [System.IO.FileAccess]::Write, [System.IO.FileShare]::Read)
     } catch {
-        if (Test-Path -LiteralPath $tmpFile) { Remove-Item -LiteralPath $tmpFile -Force -ErrorAction SilentlyContinue }
+        Write-Verbose "Get-YurunaHostId: did not win the host.uuid claim: $($_.Exception.Message)"
+    }
+    if ($claim) {
+        try {
+            $bytes = [System.Text.UTF8Encoding]::new($false).GetBytes($id)
+            $claim.Write($bytes, 0, $bytes.Length)
+            $claim.Flush()
+            return $id
+        } catch {
+            Write-Verbose "Get-YurunaHostId: host.uuid could not be written: $($_.Exception.Message)"
+            return $null
+        } finally { $claim.Dispose() }
+    }
+    # The winner owns the path from the instant it is created, so a loser reading
+    # straight away can catch it before the id is flushed. Give that write a bounded
+    # window to land instead of reading one empty file and calling it corrupt.
+    foreach ($attempt in 1..5) {
         try {
             $winner = ([System.IO.File]::ReadAllText($uuidFile)).Trim()
             if ($winner) { return $winner }
         } catch { Write-Verbose "Get-YurunaHostId: winner re-read failed: $($_.Exception.Message)" }
-        # A present-but-empty/corrupt host.uuid also lands here (the create-exclusive
-        # Move fails on the existing path and the re-read is blank): yield $null rather
-        # than overwrite it, so the operator removes the file to deliberately re-key.
-        Write-Verbose "Get-YurunaHostId: host.uuid could not be persisted; returning null."
-        return $null
+        Start-Sleep -Milliseconds 20
     }
+    # A present-but-empty/corrupt host.uuid also lands here: yield $null rather than
+    # overwrite it, so the operator removes the file to deliberately re-key.
+    Write-Verbose "Get-YurunaHostId: host.uuid could not be persisted; returning null."
+    return $null
 }
 
 function Test-PidFileIdentity {

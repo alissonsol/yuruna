@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42b0c62a-e89b-4a4d-88a0-ec973bcf58f3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,26 +32,47 @@
     (script-scoped throw helper).
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
-$src  = Get-Content (Join-Path $here 'Test.PoolStorage.psm1') -Raw
+$script:src  = Get-Content (Join-Path $here 'Test.PoolStorage.psm1') -Raw
 
 function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
 
+# The source text of ONE top-level function, from its 'function' line to the start
+# of the next top-level function or of that function's doc-comment block. Lets a
+# guard assert WHERE a call sits instead of how often it appears module-wide -- a
+# module-wide count turns every new correctly-delegating caller into a failure.
+function Get-PoolStorageFunctionText {
+    param([Parameter(Mandatory)][string]$Name)
+    $m = [regex]::Match($script:src, ('(?ms)^function\s+' + [regex]::Escape($Name) + '\b.*?(?=^<\#|^function\s|\z)'))
+    if (-not $m.Success) { throw "function $Name is not defined in Test.PoolStorage.psm1" }
+    return $m.Value
+}
+
+}
+
 Describe 'poolstorage-mount-parse -- the mount-line parse is not duplicated' {
     It 'Test-PoolStorageMountMatch delegates to ConvertFrom-PoolStorageMountLine' {
-        $n = ([regex]::Matches($src, [regex]::Escape('ConvertFrom-PoolStorageMountLine -MountLine ([string]$line)'))).Count
-        Assert-True ($n -eq 1) "the detector must parse each line via the shared parser, found $n such calls"
+        $body = Get-PoolStorageFunctionText -Name 'Test-PoolStorageMountMatch'
+        $n = ([regex]::Matches($body, [regex]::Escape('ConvertFrom-PoolStorageMountLine -MountLine ([string]$line)'))).Count
+        Assert-True ($n -eq 1) "the detector must parse each line via the shared parser, found $n such calls in its body"
+    }
+    It 'every mount-table enumerator parses through the shared parser' {
+        foreach ($fn in @('Test-PoolStorageMountMatch', 'Find-PoolStorageTierMount', 'Find-PoolStorageConflictingMount')) {
+            $body = Get-PoolStorageFunctionText -Name $fn
+            Assert-True ($body -match [regex]::Escape('ConvertFrom-PoolStorageMountLine -MountLine')) "$fn must parse its lines via the shared parser"
+        }
     }
     It "the Linux ' type ' branch appears exactly once (only in the parser)" {
-        $n = ([regex]::Matches($src, [regex]::Escape(".IndexOf(' type ')"))).Count
+        $n = ([regex]::Matches($script:src, [regex]::Escape(".IndexOf(' type ')"))).Count
         Assert-True ($n -eq 1) "expected one ' type ' split after dedup, found $n"
     }
     It "the macOS ' (' branch appears exactly once (only in the parser)" {
-        $n = ([regex]::Matches($src, [regex]::Escape(".LastIndexOf(' (')"))).Count
+        $n = ([regex]::Matches($script:src, [regex]::Escape(".LastIndexOf(' (')"))).Count
         Assert-True ($n -eq 1) "expected one ' (' split after dedup, found $n"
     }
     It "the ' on ' remote/point split appears exactly once (only in the parser)" {
-        $n = ([regex]::Matches($src, [regex]::Escape(".IndexOf(' on ')"))).Count
+        $n = ([regex]::Matches($script:src, [regex]::Escape(".IndexOf(' on ')"))).Count
         Assert-True ($n -eq 1) "expected one ' on ' split after dedup, found $n"
     }
 }

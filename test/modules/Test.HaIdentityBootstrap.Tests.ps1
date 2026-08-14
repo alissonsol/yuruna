@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42f0a1b2-c3d4-4e56-9f78-9a0b1c2d3e47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,6 +31,7 @@
     [int]/[int64] sysctl cast. Pester 4.10.1.
 #>
 
+BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
 $modPath  = Join-Path $here 'Test.HostIdentity.psm1'
 # The AST is an unqualified file-scope variable: inside an It block a $script: reference
@@ -52,6 +53,8 @@ function Get-CommandCallCount {
     @($Ast.FindAll({ param($n)
         $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq $wm
     }, $true)).Count
+}
+
 }
 
 Describe 'Resolve-GuardedSysctlValue gates a sysctl read on exit code + non-empty output' {

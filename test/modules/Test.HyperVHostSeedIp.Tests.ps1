@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42b1c9e4-7d52-4f8a-9c36-e15a8d40b972
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -43,6 +43,7 @@
     neither satisfy nor break them.
 #>
 
+BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
 $hostFile = Join-Path $repoRoot 'host' -AdditionalChildPath 'windows.hyper-v', 'modules', 'Yuruna.Host.psm1'
@@ -91,6 +92,8 @@ function Get-GuestNewVmScriptPath {
         Justification = 'GuestName IS used -- in the Join-Path -AdditionalChildPath list below.')]
     param([string]$GuestName)
     return (Join-Path $repoRoot 'host' -AdditionalChildPath 'windows.hyper-v', $GuestName, 'New-VM.ps1')
+}
+
 }
 
 Describe 'hyper-v-guest-seed-host-ip' {
@@ -258,8 +261,14 @@ Describe 'hyper-v-guest-new-vm-switch-fallback' {
         }
         Assert-True ($seedBuilder.Count -ge 6) "expected the six network-seeded guests to resolve a host IP, found $($seedBuilder.Count)"
         Assert-True ($fatal.Count -eq 0) "these scripts no longer flatten an absent host IP to an empty string: $($fatal -join ', ')"
-        # guest.windows.11 legitimately needs no host address: its whole
-        # sequence is keystrokes, so it must never gain a network dependency.
-        Assert-True ('guest.windows.11' -notin $seedBuilder) 'guest.windows.11 must not start depending on a reachable host IP'
+        # The Windows guest is seeded the same way, and the flatten check above
+        # covers it: the address is a HINT, so an absent one is a lost shortcut
+        # rather than a failed provision. What makes the hint safe to seed at
+        # all is the resolver the bootstrap carries, which re-finds the host
+        # when the seeded address has moved -- the seed alone would bake in an
+        # address a 30-minute lease can invalidate before Setup finishes.
+        Assert-True ('guest.windows.11' -in $seedBuilder) 'the Windows guest resolves the status-service address like the others'
+        $windowsGuest = Get-Content -Raw -LiteralPath (Get-GuestNewVmScriptPath -GuestName 'guest.windows.11')
+        Assert-True ($windowsGuest -match 'New-WindowsGuestBootstrap') 'and hands it to the bootstrap builder that embeds the resolver'
     }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42e4a5b6-7c81-4d92-a3b4-5c6d7e8f9a0b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,13 +34,14 @@
     runs under Pester 4.10.1.
 #>
 
+BeforeAll {
 $here       = Split-Path -Parent $PSCommandPath
 $repoRoot   = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
 $modulesDir = Join-Path $repoRoot 'test/modules'
-$hashPath   = Join-Path $modulesDir 'Test.Hash.psm1'
+$script:hashPath   = Join-Path $modulesDir 'Test.Hash.psm1'
 $configPath = Join-Path $modulesDir 'Test.Config.psm1'
-$perfPath   = Join-Path $modulesDir 'Test.Perf.psm1'
-$ocrPath    = Join-Path $modulesDir 'Test.OcrEngine.psm1'
+$script:perfPath   = Join-Path $modulesDir 'Test.Perf.psm1'
+$script:ocrPath    = Join-Path $modulesDir 'Test.OcrEngine.psm1'
 
 function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
 
@@ -102,16 +103,18 @@ function Get-BitConverterToStringCount {
 # $rootAst would reach the assertions as $null.
 $rootAst = Get-ModuleAst -Path $configPath
 
+}
+
 Describe 'config-hash -- the SHA-256->hex converter lives once in the Test.Hash leaf' {
     It 'Test.Hash defines ConvertTo-LowerHex with a single raw BitConverter::ToString' {
-        $hashAst = Get-ModuleAst -Path $hashPath
+        $hashAst = Get-ModuleAst -Path $script:hashPath
         Assert-True ([bool](Get-FunctionAst -RootAst $hashAst -FunctionName 'ConvertTo-LowerHex')) `
             'the byte[] -> lowercase-hex idiom must live in the shared Test.Hash helper'
         Assert-True ((Get-BitConverterToStringCount -Ast $hashAst) -eq 1) `
             'the raw BitConverter::ToString must appear exactly once, inside the helper'
     }
     It 'Test.Hash EXPORTS ConvertTo-LowerHex so cross-module callers resolve it' {
-        $hashAst = Get-ModuleAst -Path $hashPath
+        $hashAst = Get-ModuleAst -Path $script:hashPath
         $exportText = ($hashAst.FindAll({
             param($n) $n -is [System.Management.Automation.Language.CommandAst] -and $n.GetCommandName() -eq 'Export-ModuleMember'
         }, $true) | ForEach-Object { $_.Extent.Text }) -join "`n"
@@ -148,16 +151,16 @@ Describe 'config-hash -- Test.Config delegates to the shared converter' {
 
 Describe 'config-hash -- Test.Perf and Test.OcrEngine delegate to the shared converter' {
     It 'Test.Perf imports Test.Hash and its sidecar tag converts via ConvertTo-LowerHex' {
-        $src = Get-Content -LiteralPath $perfPath -Raw
+        $src = Get-Content -LiteralPath $script:perfPath -Raw
         Assert-True ($src -match 'Import-Module[^\n]*Test\.Hash\.psm1') 'Test.Perf must import Test.Hash'
-        $perfAst = Get-ModuleAst -Path $perfPath
+        $perfAst = Get-ModuleAst -Path $script:perfPath
         Assert-True (Test-AstCallsCommand -Ast $perfAst -CommandName 'ConvertTo-LowerHex') 'Test.Perf must use the shared converter'
         Assert-True ((Get-BitConverterToStringCount -Ast $perfAst) -eq 0) 'Test.Perf should not open-code the encode'
     }
     It 'Test.OcrEngine imports Test.Hash and Get-OcrSourceHashKey converts via ConvertTo-LowerHex' {
-        $src = Get-Content -LiteralPath $ocrPath -Raw
+        $src = Get-Content -LiteralPath $script:ocrPath -Raw
         Assert-True ($src -match 'Import-Module[^\n]*Test\.Hash\.psm1') 'Test.OcrEngine must import Test.Hash'
-        $ocrAst = Get-ModuleAst -Path $ocrPath
+        $ocrAst = Get-ModuleAst -Path $script:ocrPath
         $fn = Get-FunctionAst -RootAst $ocrAst -FunctionName 'Get-OcrSourceHashKey'
         Assert-True ($null -ne $fn) 'Get-OcrSourceHashKey must exist'
         Assert-True (Test-AstCallsCommand -Ast $fn -CommandName 'ConvertTo-LowerHex') 'Get-OcrSourceHashKey must convert via the shared helper'

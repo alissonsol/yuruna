@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 423e1a49-2b85-4d60-9f12-6a0d5c8e2b74
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,18 +29,21 @@
     cycle, which sources this lib on every guest.
 #>
 
+BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = Split-Path -Parent (Split-Path -Parent $here)
-$libPath  = Join-Path $repoRoot 'automation/yuruna-retry.sh'
+$script:libPath  = Join-Path $repoRoot 'automation/yuruna-retry.sh'
 
 function Assert-Equal { param($Actual, $Expected, [string]$Because = '') if ("$Actual" -ne "$Expected") { throw "Expected '$Expected', got '$Actual'. $Because" } }
 function Assert-True  { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
+
+}
 
 Describe 'yuruna-retry.sh transient gate + jitter (bash)' {
     It 'classifies 404 permanent / 503 + 429 + network transient, fails fast on permanent, and jitters within [delay/2, delay]' {
         $bash = Get-Command bash -ErrorAction SilentlyContinue
         if (-not $bash) { Assert-True $true 'bash unavailable -- skipping shell check'; return }
-        $lib = Get-Content -Raw -LiteralPath $libPath
+        $lib = Get-Content -Raw -LiteralPath $script:libPath
         $driver = @'
 
 r=""
@@ -80,7 +83,7 @@ echo "$r"
         # every guest that gated on it starts killing apt the unsafe way.
         $bash = Get-Command bash -ErrorAction SilentlyContinue
         if (-not $bash) { Assert-True $true 'bash unavailable -- skipping shell check'; return }
-        $lib = Get-Content -Raw -LiteralPath $libPath
+        $lib = Get-Content -Raw -LiteralPath $script:libPath
         $driver = @'
 
 r=""
@@ -108,7 +111,7 @@ echo "$r"
     It 'classifies wget exit codes (incl. re-probe on exit 8) and emits one YURUNA_RETRY marker per failed attempt' {
         $bash = Get-Command bash -ErrorAction SilentlyContinue
         if (-not $bash) { Assert-True $true 'bash unavailable -- skipping shell check'; return }
-        $lib = Get-Content -Raw -LiteralPath $libPath
+        $lib = Get-Content -Raw -LiteralPath $script:libPath
         $driver = @'
 
 r=""

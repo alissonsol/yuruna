@@ -26,7 +26,7 @@ is discovered by existing; it adds no case to any list in the framework.
 | `stash-service`        | `default`      | Receives `scp`/`sftp`-uploaded artifacts (diagnostic bundles, screenshots) into a stash-storage-backed stash. Ships a Go daemon under [`server/`](../test/extension/stash-service/server/) (legacy SCP **and** SFTP, files on the ystash-nas share + VM-local SQLite index/sidecars) brought up by `Start-StashServiceVM` + cloud-init, plus the PowerShell wrapper `default.psm1`. |
 | `pool-aggregator-service`      | `default`      | Read-only multi-host **pool view** (`Get-PoolAggregatorServiceManifest`) plus the pool half of the service lookup below (`Get-PoolExtensionHost`). Ships a stdlib-only Go daemon that runs on the caching-proxy-service machine (pool services host): it auto-discovers pool members from the squid access log, probes each one's status service, identifies on the stable `hostId`, and pushes cycle-status transitions to Loki. See [`pool-aggregator-service/README.md`](../test/extension/pool-aggregator-service/README.md). |
 | `pool-control-service` | `default`      | The operator board for **pool configuration**: which pools exist, which hosts belong to them, which test set each one runs. Ships a stdlib-only Go daemon on its own `yuruna-pool-control-service` VM that drives the pool-intent git store by shelling out to the pool-admin CLIs, with a web UI whose mutating actions unlock with the dashboard's rotating Lab token. The PowerShell `default.psm1` is the host-side pair — `Get-PoolControlServiceInfo` (status stub) and `Test-PoolControlServiceHost` (the `/healthz` pre-flight). See [pool-admin.md](pool-admin.md#pool-control-service). |
-| `download-agent-service`       | `default`      | Pool-wide **guest-image downloader**: a stdlib-only Go daemon on its own `yuruna-download-agent-service` VM that keeps a Download pool on the pool share fresh and serves the artifacts to hosts over HTTP, with a web UI whose mutating actions unlock with the dashboard's rotating Lab token. The PowerShell `default.psm1` is the host-side pair — `Get-DownloadAgentServiceInfo` (status stub) and `Test-DownloadAgentServiceHost` (the `/healthz` reachability pre-flight). See [download-agent.md](download-agent.md). |
+| `download-agent-service`       | `default`      | Pool-wide **guest-image downloader**: a stdlib-only Go daemon on its own `yuruna-download-agent-service` VM that keeps a Download pool on the pool share fresh and serves the artifacts to hosts over HTTP, with a web UI whose mutating actions unlock with the dashboard's rotating Lab token. The PowerShell `default.psm1` is the host-side pair — `Get-DownloadAgentServiceInfo` (status stub) and `Test-DownloadAgentServiceHost` (the `/healthz` pre-flight). See [download-agent.md](download-agent.md). |
 
 ## Filesystem layout
 
@@ -91,8 +91,7 @@ follow-on noted in [Adding a new area](#adding-a-new-area).
 A service area additionally carries a `service:` block in its
 `<area>.config.yml` — the manifest described
 [below](#1-the-manifest--what-the-area-declares) — and, when it ships a Go
-daemon, a `server/` directory holding that daemon plus the generated SDK
-mirror at `server/internal/yex/`.
+daemon, a `server/` directory holding that daemon.
 
 Per-area state (vault file, transport credentials) lives under
 [`test/status/extension/<area>/`](../test/status/) — git-ignored, never
@@ -143,7 +142,7 @@ service:
   startScript: Start-StashServiceVM.ps1   # a NAME; the harness resolves it under test/service/
   stopScript: Stop-StashServiceVM.ps1
   markerBaseUrlKey: stashBaseUrl      # this area's own marker key, kept for older readers
-  beaconInterval: 15m
+  beaconInterval: 2m                  # must stay under the aggregator's 5-minute health grace
   writeGate: none                     # or lab-token -- see the rule below
 ```
 
@@ -250,7 +249,7 @@ operator who opens a service UI from the dashboard's *Extension hosts* table
 arrives holding one: the aggregator's `/go/stash` redirect mints it and leaves it
 in the URL fragment, and the page spends it on `POST /api/unlock-proof`. That
 saves going back to the dashboard to copy a code off a tile to act on a
-page the dashboard just sent you to. The proof is the weakest of the three
+page it just sent you to. The proof is the weakest of the three
 credentials by design — minted for one visit, valid for minutes, and redeemable
 for nothing but a session on the service it was carried to, whereas the
 6-character code can be exchanged for the `lab-auth-token` itself.
@@ -268,10 +267,16 @@ tables.
 
 - **`lab-token`** — `pool-control-service` (pools, membership, test-set
   assignment), `download-agent-service` (delete a generation, force a
-  re-download), `pool-aggregator-service` (`/ingest`, `/api/v1/forget-host`).
-- **`none`** — `stash-service`. Its one destructive verb, `DELETE`, is
-  restricted to the VM itself and the deploying host, which is a *narrower* rule
-  than the lab token; and a stash holds artifacts, not configuration.
+  re-download), `pool-aggregator-service` (`/ingest`, `/api/v1/forget-host`),
+  `stash-service` (`DELETE` a stash, singly or a page-worth at once).
+- **`none`** — nothing at present.
+
+`stash-service` is the one whose *reads* are the point: browsing and dropping a
+file in stay open, because a guest pushing a diagnostic over `scp` must not need
+a credential. Only `DELETE` is gated, and it is gated pool-wide rather than
+per-host — the stash share is mounted with write access to every host's folder,
+so one unlocked UI can reclaim disk anywhere, including on a host that is
+switched off.
 
 Three properties come with the gate:
 
@@ -399,9 +404,20 @@ Two checks close it, at the two places that can each see one half:
   `host.registration.json`. It only *refuses*, never insists: an
   undeterminable segment permits, and the service stays usable locally;
 - the **aggregator** refuses any address it cannot reach itself, whichever
-  source named it, and drops a confirmed one that stays silent for 5
-  minutes. It sits where the consumers sit, so its probe is the only check
-  that speaks for the pool rather than for one host.
+  source named it, and stops answering with a confirmed one that stays
+  silent for 5 minutes. It sits where the consumers sit, so its probe is the
+  only check that speaks for the pool rather than for one host.
+
+A refused address is **suppressed, not forgotten**: the entry stays, naming
+the address it refused and why, until the announce TTL or a goodbye removes
+it. The usual cause of an address going silent is a service that renumbered,
+and it re-announces from the new address within a beacon period — which is
+why `beaconInterval` must stay under those 5 minutes. Slower, and the pool
+holds neither address for the difference: an area that resolves to nothing,
+while the service is up and reachable the whole time. Keeping the entry also
+keeps the failure legible, as `yuruna_pool_extension_unreachable` and a
+`suppressed` entry in `/api/v1/extension-hosts`'s `services` — "advertised
+at X, which does not answer" rather than a silent absence.
 
 `Test-Config.ps1`'s *Extension services (pool registry)* section reports
 what the pool holds — including a registration it has refused, and one it
@@ -424,10 +440,9 @@ $extName = $names[0]
 When two areas ship a `default.psm1`, both modules register under the
 same PowerShell module name `'default'`. `Get-Module -Name default`
 returns whichever was imported last, so `Get-Command -Module default
-Get-Password` resolves to the most recently loaded module — not
-the one for the area the caller intended. `Resolve-ExtensionMethod`
-matches modules by absolute `.psm1` path instead, so the intended
-exports are always found.
+Get-Password` can resolve to the wrong area's module.
+`Resolve-ExtensionMethod` matches modules by absolute `.psm1` path
+instead, so the intended exports are always found.
 
 ## Adding a new extension to an existing area
 
@@ -450,8 +465,7 @@ ambiguity (`-RequireSingle`).
    [capability matrix](test-harness.md#capability-matrix-and-cycle-plan-gate) by existing —
    `Get-CapabilityExtensionArea` discovers areas by directory, not
    by a hardcoded list.
-3. Document the contract the area's `.psm1` files must export. Each
-   area's contract is implicit, enforced by the calling code; a future
+3. Document the contract the area's `.psm1` files must export. A future
    improvement is to publish JSON schemas alongside
    the configs (the
    [`test/schemas/`](../test/schemas/) folder already hosts

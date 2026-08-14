@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42b7d1e4-9c2a-4f68-8b30-5d1c7e9a0b46
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,6 +35,7 @@
     this runs under Pester 4.10.1 and 5+.
 #>
 
+BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 $repo = Split-Path -Parent (Split-Path -Parent $here)
 $modulePath = Join-Path $repo 'host/ubuntu.kvm/modules/Yuruna.Host.psm1'
@@ -42,6 +43,12 @@ $modulePath = Join-Path $repo 'host/ubuntu.kvm/modules/Yuruna.Host.psm1'
 function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
 function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
 
+# macos.utm, ubuntu.kvm and windows.hyper-v each publish a module named
+# 'Yuruna.Host'. The suite shares one runspace, so a driver left resident by
+# another file makes `Get-Module Yuruna.Host` return an array -- which binds to
+# nothing and leaves Pester's -ModuleName ambiguous. Keep this file's driver the
+# only one loaded.
+Get-Module -Name 'Yuruna.Host' -All | Remove-Module -Force -ErrorAction SilentlyContinue
 Import-Module $modulePath -Force -DisableNameChecking -ErrorAction SilentlyContinue
 
 function Invoke-NicManaged {
@@ -60,6 +67,8 @@ function Invoke-BridgeBlocker {
     param([string]$Iface)
     $mod = Get-Module Yuruna.Host
     & $mod { param($i) Get-YurunaIfaceBridgeBlocker -Iface $i } $Iface
+}
+
 }
 
 Describe 'Ubuntu-KVM bridge backend: NIC-management classification' {

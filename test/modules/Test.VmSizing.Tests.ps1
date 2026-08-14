@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42e5a9c1-3b7d-4f28-9a06-1c2d3e4f5a6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,6 +34,7 @@
     assertions so the file runs under Pester 4.10.1 and Pester 5+.
 #>
 
+BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = Split-Path -Parent (Split-Path -Parent $here)
 
@@ -45,20 +46,22 @@ $guestPaths = @(
     'host/ubuntu.kvm/guest.ubuntu.server.24/New-VM.ps1',
     'host/macos.utm/guest.ubuntu.server.24/New-VM.ps1'
 ) | ForEach-Object { Join-Path $repoRoot $_ }
-$guestCase = @($guestPaths | ForEach-Object { @{ name = (Split-Path -Leaf (Split-Path -Parent (Split-Path -Parent $_))); path = $_ } })
+$script:guestCase = @($guestPaths | ForEach-Object { @{ name = (Split-Path -Leaf (Split-Path -Parent (Split-Path -Parent $_))); path = $_ } })
 
 $hostContract = @(
     'host/windows.hyper-v/modules/Yuruna.Host.psm1',
     'host/ubuntu.kvm/modules/Yuruna.Host.psm1',
     'host/macos.utm/modules/Yuruna.Host.psm1'
 ) | ForEach-Object { Join-Path $repoRoot $_ }
-$hostCase = @($hostContract | ForEach-Object { @{ name = (Split-Path -Leaf (Split-Path -Parent (Split-Path -Parent $_))); path = $_ } })
+$script:hostCase = @($hostContract | ForEach-Object { @{ name = (Split-Path -Leaf (Split-Path -Parent (Split-Path -Parent $_))); path = $_ } })
 
-$provisionSrc = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'host/modules/Yuruna.HostProvision.psm1')
-$plannerSrc   = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'test/modules/Test.SequencePlanner.psm1')
-$runnerSrc    = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'test/modules/Test.SequenceRunner.psm1')
-$innerSrc     = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'test/modules/Test.RunnerInnerLoop.psm1')
-$seqEntrySrc  = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'test/Invoke-TestSequence.ps1')
+$script:provisionSrc = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'host/modules/Yuruna.HostProvision.psm1')
+$script:plannerSrc   = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'test/modules/Test.SequencePlanner.psm1')
+$script:runnerSrc    = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'test/modules/Test.SequenceRunner.psm1')
+$script:innerSrc     = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'test/modules/Test.RunnerInnerLoop.psm1')
+$script:seqEntrySrc  = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'test/Invoke-TestSequence.ps1')
+
+}
 
 Describe 'vm-sizing -- ConvertTo-MemoryStartupBytes normalizes memory sizes' {
     BeforeAll { Import-Module (Join-Path $repoRoot 'automation/Yuruna.Common.psm1') -Force }
@@ -88,25 +91,25 @@ Describe 'vm-sizing -- guest New-VM.ps1 declares and applies the overrides' {
         Assert-True ($guestPaths.Count -eq 3) "expected 3 wired guest scripts, found $($guestPaths.Count)"
         foreach ($p in $guestPaths) { Assert-True (Test-Path -LiteralPath $p) "missing guest script: $p" }
     }
-    It 'declares -MemoryStartupBytes so the dispatcher forwards it: <name>' -TestCases $guestCase {
+    It 'declares -MemoryStartupBytes so the dispatcher forwards it: <name>' -TestCases $script:guestCase {
         param($name, $path)
         $src = Get-Content -Raw -LiteralPath $path
         Assert-True ($src -match '(?m)^\s*\[string\]\$MemoryStartupBytes\s*=\s*''''') `
             "$name has no [string]`$MemoryStartupBytes = '' parameter; Invoke-PerGuestNewVm would drop the cascade to Verbose"
     }
-    It 'declares -Cores so the dispatcher forwards it: <name>' -TestCases $guestCase {
+    It 'declares -Cores so the dispatcher forwards it: <name>' -TestCases $script:guestCase {
         param($name, $path)
         $src = Get-Content -Raw -LiteralPath $path
         Assert-True ($src -match '(?m)^\s*\[string\]\$Cores\s*=\s*''''') `
             "$name has no [string]`$Cores = '' parameter"
     }
-    It 'resolves memory through ConvertTo-MemoryStartupBytes: <name>' -TestCases $guestCase {
+    It 'resolves memory through ConvertTo-MemoryStartupBytes: <name>' -TestCases $script:guestCase {
         param($name, $path)
         $src = Get-Content -Raw -LiteralPath $path
         Assert-True ($src -match 'ConvertTo-MemoryStartupBytes\s+\$MemoryStartupBytes') `
             "$name must normalize `$MemoryStartupBytes via the shared helper"
     }
-    It 'guards the cores override on a non-empty -Cores: <name>' -TestCases $guestCase {
+    It 'guards the cores override on a non-empty -Cores: <name>' -TestCases $script:guestCase {
         param($name, $path)
         $src = Get-Content -Raw -LiteralPath $path
         Assert-True ($src -match [regex]::Escape('if ($Cores) {')) `
@@ -118,21 +121,21 @@ Describe 'vm-sizing -- guest New-VM.ps1 declares and applies the overrides' {
 
 Describe 'vm-sizing -- the dispatcher forwards under the declare-or-drop rule' {
     It 'probes the target script for -MemoryStartupBytes and -Cores' {
-        Assert-True ($provisionSrc -match [regex]::Escape("ContainsKey('MemoryStartupBytes')")) `
+        Assert-True ($script:provisionSrc -match [regex]::Escape("ContainsKey('MemoryStartupBytes')")) `
             'Invoke-PerGuestNewVm must probe for -MemoryStartupBytes before forwarding'
-        Assert-True ($provisionSrc -match [regex]::Escape("ContainsKey('Cores')")) `
+        Assert-True ($script:provisionSrc -match [regex]::Escape("ContainsKey('Cores')")) `
             'Invoke-PerGuestNewVm must probe for -Cores before forwarding'
     }
     It 'appends -MemoryStartupBytes and -Cores to the child argument list' {
-        Assert-True ($provisionSrc -match [regex]::Escape("@('-MemoryStartupBytes', `$MemoryStartupBytes)")) `
+        Assert-True ($script:provisionSrc -match [regex]::Escape("@('-MemoryStartupBytes', `$MemoryStartupBytes)")) `
             'a probed-and-present -MemoryStartupBytes must reach the child script'
-        Assert-True ($provisionSrc -match [regex]::Escape("@('-Cores', `$Cores)")) `
+        Assert-True ($script:provisionSrc -match [regex]::Escape("@('-Cores', `$Cores)")) `
             'a probed-and-present -Cores must reach the child script'
     }
 }
 
 Describe 'vm-sizing -- host-contract New-VM wrappers declare the pass-through params' {
-    It 'declares -MemoryStartupBytes and -Cores: <name>' -TestCases $hostCase {
+    It 'declares -MemoryStartupBytes and -Cores: <name>' -TestCases $script:hostCase {
         param($name, $path)
         $src = Get-Content -Raw -LiteralPath $path
         Assert-True ($src -match '(?m)^\s*\[string\]\$MemoryStartupBytes\b') `
@@ -144,17 +147,17 @@ Describe 'vm-sizing -- host-contract New-VM wrappers declare the pass-through pa
 
 Describe 'vm-sizing -- the planner cascade surfaces the effective fields' {
     It 'Test.SequencePlanner emits effectiveMemoryStartupBytes and effectiveCores' {
-        Assert-True ($plannerSrc -match 'effectiveMemoryStartupBytes') 'planner must extract memoryStartupBytes from the cascade'
-        Assert-True ($plannerSrc -match 'effectiveCores') 'planner must extract cores from the cascade'
+        Assert-True ($script:plannerSrc -match 'effectiveMemoryStartupBytes') 'planner must extract memoryStartupBytes from the cascade'
+        Assert-True ($script:plannerSrc -match 'effectiveCores') 'planner must extract cores from the cascade'
     }
     It 'Test.SequenceRunner returns them from Resolve-TestSequencePlan' {
-        Assert-True ($runnerSrc -match 'effectiveMemoryStartupBytes') 'Resolve-TestSequencePlan must surface memoryStartupBytes'
-        Assert-True ($runnerSrc -match 'effectiveCores') 'Resolve-TestSequencePlan must surface cores'
+        Assert-True ($script:runnerSrc -match 'effectiveMemoryStartupBytes') 'Resolve-TestSequencePlan must surface memoryStartupBytes'
+        Assert-True ($script:runnerSrc -match 'effectiveCores') 'Resolve-TestSequencePlan must surface cores'
     }
     It 'both forward sites add MemoryStartupBytes/Cores to newVmArgs' {
-        Assert-True ($seqEntrySrc -match [regex]::Escape('$newVmArgs.MemoryStartupBytes')) 'Invoke-TestSequence must forward memory'
-        Assert-True ($seqEntrySrc -match [regex]::Escape('$newVmArgs.Cores')) 'Invoke-TestSequence must forward cores'
-        Assert-True ($innerSrc -match [regex]::Escape('$newVmArgs.MemoryStartupBytes')) 'the runner must forward memory'
-        Assert-True ($innerSrc -match [regex]::Escape('$newVmArgs.Cores')) 'the runner must forward cores'
+        Assert-True ($script:seqEntrySrc -match [regex]::Escape('$newVmArgs.MemoryStartupBytes')) 'Invoke-TestSequence must forward memory'
+        Assert-True ($script:seqEntrySrc -match [regex]::Escape('$newVmArgs.Cores')) 'Invoke-TestSequence must forward cores'
+        Assert-True ($script:innerSrc -match [regex]::Escape('$newVmArgs.MemoryStartupBytes')) 'the runner must forward memory'
+        Assert-True ($script:innerSrc -match [regex]::Escape('$newVmArgs.Cores')) 'the runner must forward cores'
     }
 }

@@ -9,9 +9,9 @@ A single static binary with TWO listeners:
   SFTP subsystem (modern scp's default, §4.1).
 - **TCP/80** — the browser **UI + JSON API**
   (docs/stash-guide.md): pool-wide
-  browse/search, create (paste or upload), inline viewing, and
-  local-host-only delete. Same process, so create flows through the same
-  storage pipeline as SCP (a stash is a stash).
+  browse/search, create (paste or upload), inline viewing, and gated
+  delete. Same process, so create flows through the same storage
+  pipeline as SCP (a stash is a stash).
 
 ## Layout
 
@@ -30,6 +30,9 @@ server/
 │   ├── detect/                           # content-type detection: pure-Go heuristic + magika build-tag adapter (ui §6.1)
 │   ├── yex/                              # mirrored extension SDK: beacon (§4.7), labgate, pool
 │   └── httpsrv/                          # UI/API HTTP server, pool-wide index, host resolution, embedded web/ (ui §2–§9)
+│       ├── gate.go                       # the lab-token gate in front of DELETE
+│       ├── delete.go                     # one stash or a selection, on any host in the pool
+│       └── reconcile.go                  # drops index rows whose share files are gone
 └── *_test.go                             # unit tests for the pure-logic bits
 ```
 
@@ -135,34 +138,50 @@ view, delete). The JSON API it consumes:
 | Method | Path | Purpose |
 |---|---|---|
 | GET | `/healthz` | liveness (`ok`) |
-| GET | `/api/stashes` | list/search the pool-wide view (`q`,`id`,`username`,`filename`,`path`,`class`,`status`,`host`,`from`,`to`,`limit`,`offset`) |
+| GET | `/api/stashes` | list/search the pool-wide view (`q`,`id`,`username`,`filename`,`path`,`class`,`status`,`host`,`from`,`to`,`sort`,`dir`,`limit`,`offset`) |
 | GET | `/api/stashes/{hostId}/{y}/{m}/{d}/{id}` | one stash's metadata |
 | GET | `/api/stashes/{…}/{id}/archive` | ZIP entry listing |
 | GET | `/raw/{hostId}/{y}/{m}/{d}/{id}` | bytes, inline (safety headers; active content served as text) |
 | GET | `/download/{…}` | bytes, attachment |
 | POST | `/api/stashes` | create (multipart `files`/`text`/`title`/`author`, urlencoded, or JSON) |
-| DELETE | `/api/stashes/{hostId}/{…}` | delete — **source-IP-restricted** to the VM or the deploying host (`--host-ip`), then **local host only** (foreign hostId → 403) |
+| DELETE | `/api/stashes/{hostId}/{…}` | delete one stash, on any host — **gated** |
+| POST | `/api/stashes/delete` | delete a selection: `{"stashes":[{hostId,year,month,day,id}]}` → per-stash verdicts — **gated** |
+| GET | `/api/session` | which ways through the delete gate exist, and whether this browser is through one |
+| POST | `/api/login` | exchange the dashboard's 6-character Lab token for a session |
+| POST | `/api/unlock-proof` | exchange a dashboard control proof for a session |
 | POST | `/api/refresh` | force a pool-index rescan |
 | GET | `/api/host?host=<id>` | best-effort hostId→stash-UI resolution (pool-aggregator-service) |
-| GET | `/api/hostinfo` | host id, version, this daemon's own IPs, plus `clientIp`/`canDelete` — the source gate's answer for the calling browser |
+| GET | `/api/hostinfo` | host id, version, this daemon's own IPs |
 
 Flags (defaults): `--http-addr` (`0.0.0.0:80`, empty disables the UI),
 `--pool-window-days` (`30`), `--pool-refresh-secs` (`60`),
 `--list-default-limit` (`50`), `--aggregator-url` (empty), `--listen-addr`
 (`0.0.0.0:22`, dev override when the OS sshd holds :22), `--host-id` (empty)
-and `--presence-interval` (`15m`, `0` disables) for the presence beacon
-(§4.7), and `--host-ip` (empty) — the deploying host's IP, the one non-VM
-source allowed to `DELETE` stashes (reads/writes stay open; UI §8.4).
+and `--presence-interval` (`2m`, `0` disables; the bring-up passes `15m`) for the
+presence beacon (§4.7).
 
-Diagnosing a refused delete: the source gate is answered per browser by
-`/api/hostinfo` (`canDelete`, plus the `clientIp` the daemon saw), which is
-how the UI decides whether to render a Delete control at all; a refusal names
-that same address in its 403 and logs it next to the set that would have been
-allowed (`journalctl -u stash-service | grep 'delete refused'`). The launch
-line records the configured set once at startup (`grep 'delete authz'`). The
-address a browser is seen as is `ip route get <vm-ip>` on the browsing
-machine — a multi-homed or re-addressed host is the usual reason a baked
-`--host-ip` stops matching. The bring-up stamps the framework version via
+**Delete authorization.** Reads and creates are open on the LAN; `DELETE` needs
+a session, unlocked either with the dashboard's rotating Lab token or with the
+short-lived control proof the *Extension hosts* link carries in its URL
+fragment. This VM holds no lab auth token, so `--aggregator-url` is what makes
+either possible — without it every delete answers `503`, and the UI says so
+instead of offering a button. A delete reaches **any** host's stash, not only
+this one's: the share is mounted with write access to all of them.
+
+An aggregator that is configured but **unreachable** is a third state, distinct
+from both a good code and a wrong one: `/api/login` answers `503` with reason
+`lab-token-unavailable`, never `401`. Sessions already granted are unaffected —
+the cookie is verified against a key this process holds, so an unlocked browser
+keeps deleting for its 7-day life — but no new unlock can be made until the
+aggregator answers. The signing key is generated per start, so a restart also
+ends every session: restarting while the aggregator is down leaves nobody able
+to unlock.
+
+Diagnosing a refused delete: `/api/session` is what the UI reads to decide
+whether to render the controls, every unlock attempt is logged with its source
+address and outcome — `ok` / `refused` / `unavailable` (`journalctl -u
+stash-service | grep unlock`) — and each delete logs its target and source. The
+launch line records the gate once at startup (`grep 'delete authz'`). The bring-up stamps the framework version via
 `-ldflags "-X main.version=<v>"` (shown in the UI header); ad-hoc dev builds
 show `vdev`.
 
@@ -181,11 +200,20 @@ unreachable aggregator never affects stash operation.
 
 The UI is pool-wide: this host's live index merged with every other host's
 on-share sidecars (bounded to the recent window in memory, with an
-on-demand deep scan for older queries). Delete only touches this host's
-own stashes; a remote stash shows a disabled Delete pointing at its owner
-on its own page, and no delete control at all in the list. The list adds
-a per-row Delete plus a checkbox selection driving **Delete selected**,
-which is N single `DELETE` calls — there is no bulk endpoint (ui §8.5).
+on-demand deep scan for older queries). Delete reaches every host in it:
+a peer's stash is unlinked directly on the share, and that host drops the
+now-orphaned index row on its own next reconcile pass, so reclaiming disk
+never depends on another VM being reachable. The list adds a per-row
+Delete plus a checkbox selection driving **Delete selected**, which is one
+`POST /api/stashes/delete` for the whole selection (ui §8.5).
+
+Column sorting is served, not scripted: a header click re-requests the list
+with `sort`/`dir` rather than reordering the rows the browser holds. The page
+is one window onto a larger merged set, so only the daemon can order the whole
+of it — a browser could only rank the page it was given. Every ordering is
+total (ties break on created-then-id, in a fixed direction), which is what lets
+`offset` name a stable window: without it, two stashes of equal size could swap
+between requests and a "Load more" would skip or repeat one.
 
 ## Tests
 
@@ -212,9 +240,12 @@ Coverage focuses on the spec-driven pure-logic bits:
   until the first success, and the https→http downgrade only on transport
   errors (§4.7); `pool` is the aggregator read behind the remote-stash
   deep-link (§3.4).
-- `internal/httpsrv/` — create→list→get→raw→delete round-trip, remote-host
-  delete 403, pool-wide remote-sidecar aggregation, html-served-as-text,
-  multi-file archive + listing, static pages (ui §3–§9).
+- `internal/httpsrv/` — create→list→get→raw→delete round-trip, the delete
+  gate (locked/unlocked/unconfigured), cross-host delete on the share, bulk
+  delete with partial failure, the reconcile predicate (including the
+  offline-share case that must prune nothing), pool-wide remote-sidecar
+  aggregation, html-served-as-text, multi-file archive + listing, static
+  pages (ui §3–§9).
 
 The front-end has two framework-free unit files run by hand (there is no JS
 runner in the repo — `node internal/httpsrv/web/assets/common.test.js` and
@@ -233,7 +264,7 @@ typically taken by sshd, so a local daemon can't bind it; use
   default is the pure-Go heuristic); ONNX Runtime + model vendoring is a
   VM-image-build concern (ui §6.1, §14).
 - **Cross-day ID reuse vs the global SQLite PRIMARY KEY**:
-  the allocator's uniqueness scope is per-UTC-day (SS§7/§12, IDs may repeat
+  the allocator's uniqueness scope is per-UTC-day (§7/§12, IDs may repeat
   across days), but `uploads.id` is a global `PRIMARY KEY`, so a 4-char ID
   reused on a later day collides with a surviving older-day row and fails
   the upload (clean rejection — SCP exit 1 / UI 500 — no corruption). Rare
@@ -255,6 +286,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.11
+Last review: 2026.08.14
 
 Back to [Yuruna](../../../../README.md)

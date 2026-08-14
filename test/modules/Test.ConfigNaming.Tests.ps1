@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.11
+.VERSION 2026.08.14
 .GUID 42c1d5e8-7a30-4b96-8f21-0d4e6a9b2c58
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,11 +39,13 @@
       * Running the converter twice must not double-convert, and a file carrying BOTH
         forms of a key must stop rather than guess which value the operator meant.
 
-    The throw-based Assert-* helpers are defined at script scope and referenced from
-    It blocks, so this runs under Pester 4.10.1 (Pester 5's scope split hides
-    top-level helpers from It blocks).
+    The throw-based Assert-* helpers live in the file's BeforeAll, which is the
+    scope Pester 5 shares with the It blocks; defining them at script scope
+    instead makes every It fail on a missing command rather than on an
+    assertion.
 #>
 
+BeforeAll {
 $here       = Split-Path -Parent $PSCommandPath
 $repoRoot   = Split-Path -Parent (Split-Path -Parent $here)
 $modulePath = Join-Path $here 'Test.ConfigNaming.psm1'
@@ -109,6 +111,8 @@ function New-TempConfig {
     $p = Join-Path ([System.IO.Path]::GetTempPath()) ("yrn-naming-" + [guid]::NewGuid().ToString('N') + ".yml")
     Set-Content -LiteralPath $p -Value $Content -Encoding utf8NoBOM
     return $p
+}
+
 }
 
 Describe 'Test-RetiredConfigKeyLine (whole-path, case-sensitive)' {

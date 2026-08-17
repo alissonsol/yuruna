@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42b2f3d1-9d3a-419c-82ea-7f68ba80183d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -58,6 +58,8 @@
     established, which the caller must treat as "behave as though this
     script did not exist".
 #>
+
+# --- REGION: https://yuruna.link/network#defining-yuruna-host-locate-lib
 [CmdletBinding()]
 [OutputType([bool])]
 param(
@@ -65,6 +67,7 @@ param(
     [Parameter()][string]$HostsFilePath = "$env:SystemRoot\System32\drivers\etc\hosts"
 )
 
+# --- REGION: https://yuruna.link/network#defining-host-locate-file-targets
 # Wall-clock caps, in seconds. Backstops for an unreachable peer, not
 # normal-path budgets: each is a LAN round trip that completes in
 # milliseconds when the peer is up. The livecheck cap is tightest because it
@@ -74,6 +77,20 @@ $script:QueryTimeoutSec = 3
 $script:DirectoryPort   = 9400
 $script:MaxResponseBytes = 262144
 
+# How hard to press the directory once the baked coordinate is dead. The
+# directory learns the host's new address from the host itself, so a guest
+# that starts resolving at the moment of a renumber can be told the address
+# that just died -- both ends are racing the same change. Spacing a few
+# re-asks over roughly ten seconds covers that gap, against a cycle that
+# otherwise ends. The names and defaults are the shell library's, so one
+# override drives both peers; a value that is not a whole number is ignored
+# rather than raised, because nothing in this file may throw at its caller.
+$script:RetryAttempts = 4
+$script:RetryDelaySec = 3
+if ($env:YURUNA_LOCATE_RETRY_ATTEMPTS -match '^\d+$') { $script:RetryAttempts = [int]$env:YURUNA_LOCATE_RETRY_ATTEMPTS }
+if ($env:YURUNA_LOCATE_RETRY_DELAY -match '^\d+$')    { $script:RetryDelaySec = [int]$env:YURUNA_LOCATE_RETRY_DELAY }
+
+# --- REGION: https://yuruna.link/network#defining-host-locate-http
 function Get-YhlHttpString {
 <#
 .SYNOPSIS
@@ -134,6 +151,7 @@ function Test-YhlLivecheck {
     return ($null -ne $probe)
 }
 
+# --- REGION: https://yuruna.link/network#defining-host-locate-plausible
 function Test-YhlPlausibleBaseUrl {
 <#
 .SYNOPSIS
@@ -162,6 +180,7 @@ function Test-YhlPlausibleBaseUrl {
     return $true
 }
 
+# --- REGION: https://yuruna.link/network#defining-host-locate-directory-read
 function Get-YhlDirectoryAnswer {
 <#
 .SYNOPSIS
@@ -213,6 +232,7 @@ function Get-YhlDirectoryAnswer {
     return $null
 }
 
+# --- REGION: https://yuruna.link/network#defining-host-locate-persist
 function Set-YhlHostsAlias {
 <#
 .SYNOPSIS
@@ -273,6 +293,7 @@ function Set-YhlHostEnvAddress {
     }
 }
 
+# --- REGION: https://yuruna.link/network#defining-host-locate-entrypoint
 function Invoke-YurunaHostLocate {
 <#
 .SYNOPSIS
@@ -320,14 +341,27 @@ function Invoke-YurunaHostLocate {
     $cache  = $coords['YURUNA_CACHING_PROXY_SERVICE_IP']
     if ([string]::IsNullOrWhiteSpace($hostId) -or [string]::IsNullOrWhiteSpace($cache)) { return $false }
 
-    $answer = Get-YhlDirectoryAnswer -CacheAddress $cache -HostId $hostId
-    if (-not (Test-YhlPlausibleBaseUrl -BaseUrl $answer)) { return $false }
-
-    # The directory reports where IT reached the host. This guest may sit on
-    # a different segment, so the answer is confirmed from here before it is
-    # adopted -- an address that does not serve this guest is not an
-    # improvement on the stale one it would replace.
-    if (-not (Test-YhlLivecheck -BaseUrl $answer)) { return $false }
+    # The directory learns a new address from the host, so asking the instant
+    # the host renumbers returns the address that just died -- the guest and
+    # the directory are racing the same change. One shot loses that race and
+    # sends the caller to a fallback that cannot help it. Re-ask a few times
+    # instead, spaced so the directory has time to catch up. This costs
+    # nothing on the common path: the baked coordinate answered its livecheck
+    # above and returned before reaching here, so the only callers that pay
+    # are the ones already out of other options.
+    $answer = $null
+    for ($attempt = 1; $attempt -le $script:RetryAttempts; $attempt++) {
+        if ($attempt -gt 1) { Start-Sleep -Seconds $script:RetryDelaySec }
+        $candidate = Get-YhlDirectoryAnswer -CacheAddress $cache -HostId $hostId
+        if (-not (Test-YhlPlausibleBaseUrl -BaseUrl $candidate)) { continue }
+        # The directory reports where IT reached the host. This guest may sit on
+        # a different segment, so the answer is confirmed from here before it is
+        # adopted -- an address that does not serve this guest is not an
+        # improvement on the stale one it would replace. A stale answer fails
+        # this check too, which is what makes re-asking worthwhile.
+        if (Test-YhlLivecheck -BaseUrl $candidate) { $answer = $candidate; break }
+    }
+    if ([string]::IsNullOrWhiteSpace($answer)) { return $false }
 
     $uri  = [System.Uri]$answer
     $ip   = $uri.Host

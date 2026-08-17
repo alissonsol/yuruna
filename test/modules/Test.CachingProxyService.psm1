@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456821
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,7 +38,7 @@
     never sees a half-written file.
 #>
 
-# === Path ===================================================================
+# --- REGION: Path
 
 <#
 .SYNOPSIS
@@ -66,7 +66,7 @@ function Get-CachingProxyServiceStatePath {
     return (Join-Path -Path $runtimeDir -ChildPath 'yuruna-caching-proxy-service.yml')
 }
 
-# === Read ===================================================================
+# --- REGION: Read
 
 <#
 .SYNOPSIS
@@ -145,7 +145,7 @@ function Read-CachingProxyServiceStateFile {
     }
 }
 
-# === Save ===================================================================
+# --- REGION: Save
 
 <#
 .SYNOPSIS
@@ -228,7 +228,7 @@ function Save-CachingProxyServiceState {
     return $path
 }
 
-# === Probe ==================================================================
+# --- REGION: Probe
 
 function Test-TcpPortReachable {
     <#
@@ -1184,7 +1184,7 @@ fi
     }
 }
 
-# === CA cert ================================================================
+# --- REGION: CA cert
 
 function Test-CachingProxyServiceCaPem {
     <#

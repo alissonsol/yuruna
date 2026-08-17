@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 423e9a21-5b84-4f63-9c12-8e4a1d2f6b90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -56,7 +56,11 @@ function Get-PoolNotifierSpoolRoot {
     .SYNOPSIS
         The pool-wide spool root on the poolStorage NAS (<LocalPath>/notifications). Not
         per-host: one queue the single notifier drains. $null when poolStorage is not
-        configured (no replicate -> Get-YurunaPoolStorageConfig returns null -> no queue).
+        configured (no pool paths -> Get-YurunaPoolStorageConfig returns null -> no
+        queue). Candidacy widens with the paths, not with an archiving mode: any host
+        that can reach the share can hold the queue. Delivery stays gated on the one
+        host whose transports.yml subscribes to pool.alert, so a wider candidate set
+        does not mean more notifications.
     #>
     [CmdletBinding()]
     [OutputType([string])]
@@ -680,7 +684,7 @@ function Write-PoolNotifierSetupNotice {
         if ($ConfigPath -and (Test-Path -LiteralPath $ConfigPath) -and (Get-Command ConvertFrom-Yaml -ErrorAction SilentlyContinue)) {
             try { $cfgDoc = Get-Content -Raw -LiteralPath $ConfigPath | ConvertFrom-Yaml -Ordered } catch { $null = $_ }
         }
-        # Replicate-gated (no -IgnoreReplicate): null unless this host replicates to the NAS,
+        # Storage-gated: null unless this host has pool storage configured,
         # so only a pool-services candidate gets the reminder.
         $psCfg = Get-YurunaPoolStorageConfig -Config $cfgDoc
         if (-not $psCfg) { return $false }

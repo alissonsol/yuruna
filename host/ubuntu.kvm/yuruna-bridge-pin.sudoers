@@ -1,0 +1,37 @@
+# Sudoers rule that lets the pre-cycle health check pin this host's bridge to a
+# stable DHCP identity without an operator present.
+#
+# Install (as root), then verify:
+#   sudo install -m 0440 -o root -g root host/ubuntu.kvm/yuruna-bridge-pin.sudoers /etc/sudoers.d/yuruna-bridge-pin
+#   sudo visudo -cf /etc/sudoers.d/yuruna-bridge-pin
+#
+# Why this exists at all: a bridge built by NetworkManager takes its DHCP client
+# identity from NetworkManager's default, which is derived from /etc/machine-id
+# rather than from the NIC. A server that keys leases on client-id therefore
+# hands the host a NEW address on every renewal, and each address it leaves
+# behind stays allocated until that lease expires -- so the host spends the LAN
+# pool at a rate set by the lease time rather than by how many machines are on
+# it. On a long lease that empties a /24 within days, and what fails is the
+# guests, reporting no IPv4 address on a carrier-up interface. The pin is set
+# when a bridge is built; this rule is what lets an already-built one be
+# repaired without hands on the host.
+#
+# Why it is safe to grant unattended: `nmcli connection modify` writes the
+# stored profile and does NOT reactivate it. The live connection keeps its
+# address, no interface goes down, and no session is dropped; the setting takes
+# effect at the next activation. The neighbouring test/lab/yuruna-churn.sudoers
+# grants `connection up`, which DOES reactivate -- the two are separate grants
+# on purpose, and neither implies the other.
+#
+# Why the whole command line is spelled out rather than given as
+# `nmcli connection modify yuruna-br0 *`: a trailing wildcard would permit any
+# property on that connection, including ipv4.method, ipv4.addresses and
+# connection.autoconnect -- enough to take this host off the network
+# permanently. Matching the exact argument vector grants precisely the three
+# identity properties and nothing else, and it is the same vector
+# Set-HostBridgeDhcpIdentity builds, so a change to either has to be a change
+# to both.
+#
+# Replace ytest with the account the runner runs as, and yuruna-br0 if this
+# host's bridge is named differently -- in the rule AND in the argument list.
+ytest ALL=(root) NOPASSWD: /usr/bin/nmcli connection modify yuruna-br0 ipv4.dhcp-client-id mac ipv4.dhcp-iaid mac ipv4.dhcp-send-release yes

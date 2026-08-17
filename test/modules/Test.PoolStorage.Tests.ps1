@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42d6f9b2-0c4e-4a38-9b7d-2e3f4a5b6c7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,7 +44,7 @@ function Get-TestLedger { param([string[]]$Replicated = @()) $r = [ordered]@{}; 
 # as a CommandNotFoundException in the assertion rather than as a real failure.
 
 # A pscustomobject of the shape Get-YurunaPoolStorageConfig returns.
-function Get-TestPoolConfig { param([string]$LocalPath = '/mnt/ypool-nas') [pscustomobject]@{ Replicate = $true; NetworkPath = '//srv/work'; NetworkUser = 'u'; LocalPath = $LocalPath } }
+function Get-TestPoolConfig { param([string]$LocalPath = '/mnt/ypool-nas') [pscustomobject]@{ MoveLogs = $false; NetworkPath = '//srv/work'; NetworkUser = 'u'; LocalPath = $LocalPath } }
 
 # N cycles, oldest-first (zero-padded so lexical == chronological).
 function Get-NSeq { param([int]$N) 1..$N | ForEach-Object { '{0:D6}.d.t.h' -f $_ } }
@@ -247,44 +247,66 @@ Describe 'Find-PoolStorageConflictingMount (same share, other point -> macOS "Fi
 }
 
 Describe 'Get-YurunaPoolStorageConfig (feature on/off)' {
-    It 'returns null when replicate is false' {
-        $cfg = [ordered]@{ pool = [ordered]@{ networkReplicate = $false }; networkStorage = [ordered]@{ poolStorageNetworkPath = '//srv/work'; poolStorageNetworkUser = 'u'; poolStorageLocalPath = '/mnt/ypool-nas' } }
-        Assert-Null (Get-YurunaPoolStorageConfig -Config $cfg) 'replicate false -> off'
-    }
-    It 'with -IgnoreReplicate returns the object even when replicate is false (pre-validation)' {
-        $cfg = [ordered]@{ pool = [ordered]@{ networkReplicate = $false }; networkStorage = [ordered]@{ poolStorageNetworkPath = '//srv/work'; poolStorageNetworkUser = 'u'; poolStorageLocalPath = '/mnt/ypool-nas' } }
-        $r = Get-YurunaPoolStorageConfig -Config $cfg -IgnoreReplicate
-        Assert-True ($null -ne $r) 'object returned despite replicate false'
-        Assert-Equal -Expected $false -Actual $r.Replicate -Because 'Replicate field reflects the real flag'
+    It 'returns the object whenever the three paths are set -- the paths ARE the opt-in' {
+        $cfg = [ordered]@{ networkStorage = [ordered]@{ poolStorageNetworkPath = '//srv/work'; poolStorageNetworkUser = 'u'; poolStorageLocalPath = '/mnt/ypool-nas' } }
+        $r = Get-YurunaPoolStorageConfig -Config $cfg
+        Assert-True ($null -ne $r) 'paths set -> archiving on'
+        Assert-Equal -Expected $false -Actual $r.MoveLogs -Because 'absent moveLogsToPoolStorage -> copy mode'
         Assert-Equal -Expected '//srv/work' -Actual $r.NetworkPath -Because 'paths normalized'
     }
-    It 'with -IgnoreReplicate still returns null when a path is empty' {
-        $cfg = [ordered]@{ pool = [ordered]@{ networkReplicate = $false }; networkStorage = [ordered]@{ poolStorageNetworkPath = '//srv/work'; poolStorageNetworkUser = 'u'; poolStorageLocalPath = '' } }
-        Assert-Null (Get-YurunaPoolStorageConfig -Config $cfg -IgnoreReplicate) 'incomplete -> still null'
+    It 'IGNORES a leftover pool.networkReplicate, whatever its value' {
+        # The key is retired. Honoring a stale 'false' would leave a host silently
+        # not archiving after an upgrade, with nothing in the config that still
+        # means anything pointing at why.
+        foreach ($legacy in @($true, $false)) {
+            $cfg = [ordered]@{ pool = [ordered]@{ networkReplicate = $legacy }; networkStorage = [ordered]@{ poolStorageNetworkPath = '//srv/work'; poolStorageNetworkUser = 'u'; poolStorageLocalPath = '/mnt/ypool-nas' } }
+            Assert-True ($null -ne (Get-YurunaPoolStorageConfig -Config $cfg)) "legacy networkReplicate=$legacy is ignored"
+        }
+    }
+    It 'reads moveLogsToPoolStorage, tolerating the YAML string forms' {
+        # [bool]'false' is $true in PowerShell, and this flag gates deleting the
+        # only local copy of a cycle's results -- so a quoted 'false' must not
+        # read as ON.
+        $mk = {
+            param($v)
+            $ns = [ordered]@{ poolStorageNetworkPath = '//srv/work'; poolStorageNetworkUser = 'u'; poolStorageLocalPath = '/mnt/ypool-nas' }
+            if ($null -ne $v) { $ns['moveLogsToPoolStorage'] = $v }
+            return [ordered]@{ networkStorage = $ns }
+        }
+        foreach ($on in @($true, 'true', 'True', 'yes', 'on', '1')) {
+            Assert-True (Get-YurunaPoolStorageConfig -Config (& $mk $on)).MoveLogs "'$on' -> move mode"
+        }
+        foreach ($off in @($false, 'false', 'False', 'no', 'off', '0', '', $null)) {
+            Assert-Equal -Expected $false -Actual (Get-YurunaPoolStorageConfig -Config (& $mk $off)).MoveLogs -Because "'$off' -> copy mode"
+        }
+    }
+    It 'returns null when a path is empty even with moveLogsToPoolStorage true' {
+        $cfg = [ordered]@{ networkStorage = [ordered]@{ poolStorageNetworkPath = '//srv/work'; poolStorageNetworkUser = 'u'; poolStorageLocalPath = ''; moveLogsToPoolStorage = $true } }
+        Assert-Null (Get-YurunaPoolStorageConfig -Config $cfg -WarningAction SilentlyContinue) 'incomplete -> still null'
     }
     It 'returns null when the networkStorage section is absent' {
         Assert-Null (Get-YurunaPoolStorageConfig -Config ([ordered]@{ statusService = [ordered]@{ port = 8080 } })) 'no section -> off'
     }
-    It 'returns null when replicate is true but a required path is empty' {
-        $cfg = [ordered]@{ pool = [ordered]@{ networkReplicate = $true }; networkStorage = [ordered]@{ poolStorageNetworkPath = '//srv/work'; poolStorageNetworkUser = 'u'; poolStorageLocalPath = '' } }
+    It 'returns null when a required path is empty' {
+        $cfg = [ordered]@{ networkStorage = [ordered]@{ poolStorageNetworkPath = '//srv/work'; poolStorageNetworkUser = 'u'; poolStorageLocalPath = '' } }
         Assert-Null (Get-YurunaPoolStorageConfig -Config $cfg) 'empty localPath -> off'
     }
     It 'returns the trimmed config object when fully set' {
-        $cfg = [ordered]@{ pool = [ordered]@{ networkReplicate = $true }; networkStorage = [ordered]@{ poolStorageNetworkPath = ' //srv/work '; poolStorageNetworkUser = ' yurunanet '; poolStorageLocalPath = ' /mnt/ypool-nas ' } }
+        $cfg = [ordered]@{ networkStorage = [ordered]@{ poolStorageNetworkPath = ' //srv/work '; poolStorageNetworkUser = ' yurunanet '; poolStorageLocalPath = ' /mnt/ypool-nas '; moveLogsToPoolStorage = $true } }
         $r = Get-YurunaPoolStorageConfig -Config $cfg
         Assert-True ($null -ne $r) 'object returned'
         Assert-Equal -Expected '//srv/work' -Actual $r.NetworkPath -Because 'networkPath trimmed'
         Assert-Equal -Expected 'yurunanet'  -Actual $r.NetworkUser -Because 'networkUser trimmed'
         Assert-Equal -Expected '/mnt/ypool-nas'  -Actual $r.LocalPath   -Because 'localPath trimmed'
-        Assert-True $r.Replicate 'replicate true'
+        Assert-True $r.MoveLogs 'moveLogsToPoolStorage true'
     }
     It 'expands a leading ~ in localPath to $HOME' {
-        $cfg = [ordered]@{ pool = [ordered]@{ networkReplicate = $true }; networkStorage = [ordered]@{ poolStorageNetworkPath = '//srv/work'; poolStorageNetworkUser = 'u'; poolStorageLocalPath = '~/Shares/ypool-nas' } }
+        $cfg = [ordered]@{ networkStorage = [ordered]@{ poolStorageNetworkPath = '//srv/work'; poolStorageNetworkUser = 'u'; poolStorageLocalPath = '~/Shares/ypool-nas' } }
         $r = Get-YurunaPoolStorageConfig -Config $cfg
         Assert-Equal -Expected (Join-Path $HOME 'Shares/ypool-nas') -Actual $r.LocalPath -Because '~ -> $HOME'
     }
     It 'leaves a non-tilde path untouched (a bare ~ in the middle is not expanded)' {
-        $cfg = [ordered]@{ pool = [ordered]@{ networkReplicate = $true }; networkStorage = [ordered]@{ poolStorageNetworkPath = '//srv/work'; poolStorageNetworkUser = 'u'; poolStorageLocalPath = '/mnt/a~b' } }
+        $cfg = [ordered]@{ networkStorage = [ordered]@{ poolStorageNetworkPath = '//srv/work'; poolStorageNetworkUser = 'u'; poolStorageLocalPath = '/mnt/a~b' } }
         $r = Get-YurunaPoolStorageConfig -Config $cfg
         Assert-Equal -Expected '/mnt/a~b' -Actual $r.LocalPath -Because 'mid-path ~ untouched'
     }
@@ -301,13 +323,13 @@ Describe 'Get-YurunaPoolStorageConfig (feature on/off)' {
     }
     It 'ignores a legacy poolStorage node (clean break)' {
         $cfg = [ordered]@{ poolStorage = [ordered]@{ replicate = $true; networkPath = '//srv/work'; networkUser = 'u'; localPath = '/mnt/ypool-nas' } }
-        Assert-Null (Get-YurunaPoolStorageConfig -Config $cfg -IgnoreReplicate) 'legacy poolStorage is not read'
+        Assert-Null (Get-YurunaPoolStorageConfig -Config $cfg) 'legacy poolStorage is not read'
     }
 }
 
 Describe 'Get-YurunaStashStorageConfig (isolated stash storage)' {
     It 'returns the stash record from networkStorage.stash* (independent of the pool)' {
-        $cfg = [ordered]@{ pool = [ordered]@{ networkReplicate = $true }; networkStorage = [ordered]@{
+        $cfg = [ordered]@{ networkStorage = [ordered]@{
             poolStorageNetworkPath = '//srv/work/pool'; poolStorageNetworkUser = 'u-pool'; poolStorageLocalPath = 'y:'
             stashStorageNetworkPath = ' //srv/work/stash '; stashStorageNetworkUser = ' u-stash '; stashStorageLocalPath = ' z: '
         } }
@@ -316,7 +338,7 @@ Describe 'Get-YurunaStashStorageConfig (isolated stash storage)' {
         Assert-Equal -Expected '//srv/work/stash' -Actual $r.NetworkPath -Because 'stashStorageNetworkPath trimmed'
         Assert-Equal -Expected 'u-stash'           -Actual $r.NetworkUser -Because 'stashStorageNetworkUser trimmed'
         Assert-Equal -Expected 'z:'                -Actual $r.LocalPath   -Because 'stashStorageLocalPath trimmed'
-        Assert-Equal -Expected $false              -Actual $r.Replicate   -Because 'stash never replicates'
+        Assert-Equal -Expected $false              -Actual $r.MoveLogs    -Because 'the stash tier has no archiving mode'
     }
     It 'returns null when any stash field is unset' {
         $cfg = [ordered]@{ networkStorage = [ordered]@{ stashStorageNetworkPath = '//srv/work/stash'; stashStorageNetworkUser = 'u-stash'; stashStorageLocalPath = '' } }
@@ -546,28 +568,34 @@ Describe 'Test-PoolStorageVaultDecision (loud-fail gate)' {
     }
 }
 
-Describe 'Get-PoolStorageHostFolderPath (per-host destination root)' {
-    It 'joins localPath and hostId' {
+Describe 'Get-PoolStorageHostFolderPath / Get-PoolStorageCycleRootPath (on-share layout)' {
+    It 'puts the host root under hosts/, beside the info.<hostId>.yml registry records' {
         $cfg = Get-TestPoolConfig
-        Assert-Equal -Expected (Join-Path '/mnt/ypool-nas' '4212abc') -Actual (Get-PoolStorageHostFolderPath -Config $cfg -HostId '4212abc') -Because 'host root = localPath/hostId'
+        Assert-Equal -Expected (Join-Path '/mnt/ypool-nas' (Join-Path 'hosts' '4212abc')) -Actual (Get-PoolStorageHostFolderPath -Config $cfg -HostId '4212abc') -Because 'host root = localPath/hosts/hostId'
     }
-    It 'is the PARENT of the cycle destination Copy-PoolStorageCycle writes (no drift)' {
-        # Copy-PoolStorageCycle writes <localPath>/<HostId>/<CycleName>/; the gate
-        # pre-flight must target exactly that host root, or it would create/verify
-        # the wrong folder and pass while the real copy still fails.
-        $cfg       = Get-TestPoolConfig
-        $hostRoot  = Get-PoolStorageHostFolderPath -Config $cfg -HostId '4212abc'
-        $cycleDest = Join-Path $cfg.LocalPath (Join-Path '4212abc' '000001.d.t.h')
-        Assert-Equal -Expected $hostRoot -Actual (Split-Path -Parent $cycleDest) -Because 'host root is the cycle-dest parent'
+    It 'puts archived cycles under the host root in test-cycles/' {
+        $cfg = Get-TestPoolConfig
+        $expected = Join-Path '/mnt/ypool-nas' (Join-Path 'hosts' (Join-Path '4212abc' 'test-cycles'))
+        Assert-Equal -Expected $expected -Actual (Get-PoolStorageCycleRootPath -Config $cfg -HostId '4212abc') -Because 'cycle root = <hostRoot>/test-cycles'
+    }
+    It 'keeps the cycle root a CHILD of the host root the gate pre-flights (no drift)' {
+        # The gate creates/verifies the host root; the copy writes under the cycle
+        # root. If these ever diverged the gate would pass against a folder the
+        # real copy never touches.
+        $cfg      = Get-TestPoolConfig
+        $hostRoot = Get-PoolStorageHostFolderPath -Config $cfg -HostId '4212abc'
+        $cycleRoot = Get-PoolStorageCycleRootPath -Config $cfg -HostId '4212abc'
+        Assert-Equal -Expected $hostRoot -Actual (Split-Path -Parent $cycleRoot) -Because 'host root is the cycle root parent'
     }
     It 'composes a bare Windows drive-letter localPath without a DriveNotFound throw' -Skip:(-not $IsWindows) {
         # Join-Path resolves the 'y:' qualifier against the PSDrive table and
         # throws DriveNotFoundException when the SMB mapping has not been
         # enumerated in this runspace (this helper runs before the mount); the
-        # per-host root must compose by string so an unmounted drive letter still
-        # yields 'y:\<hostId>' instead of $null.
+        # roots must compose by string so an unmounted drive letter still yields a
+        # usable path instead of $null.
         $cfg = Get-TestPoolConfig -LocalPath 'y:'
-        Assert-Equal -Expected 'y:\4212abc' -Actual (Get-PoolStorageHostFolderPath -Config $cfg -HostId '4212abc') -Because 'bare drive -> y:\hostId'
+        Assert-Equal -Expected 'y:\hosts\4212abc' -Actual (Get-PoolStorageHostFolderPath -Config $cfg -HostId '4212abc') -Because 'bare drive -> y:\hosts\hostId'
+        Assert-Equal -Expected 'y:\hosts\4212abc\test-cycles' -Actual (Get-PoolStorageCycleRootPath -Config $cfg -HostId '4212abc') -Because 'bare drive -> cycle root'
     }
 }
 
@@ -634,30 +662,29 @@ Describe 'Get-PoolStorageDrainOrder (hybrid newest + oldest, recency)' {
 }
 
 Describe 'Get-PoolStorageHealthWarning (loud-fail surfacing logic)' {
-    It 'returns null when replicate is off (even with a failing ledger)' {
-        $led = [ordered]@{ lastConnectOk = $false; pendingCount = 5; lastError = 'x' }
-        Assert-Null (Get-PoolStorageHealthWarning -Ledger $led -Replicate $false) 'replicate off -> silent'
+    It 'returns null for a ledger that is not a dictionary (nothing recorded at all)' {
+        Assert-Null (Get-PoolStorageHealthWarning -Ledger $null) 'no ledger -> silent'
     }
     It 'returns null for a fresh ledger with no recorded attempt' {
-        Assert-Null (Get-PoolStorageHealthWarning -Ledger ([ordered]@{ replicated = [ordered]@{} }) -Replicate $true) 'no attempt yet -> null'
+        Assert-Null (Get-PoolStorageHealthWarning -Ledger ([ordered]@{ replicated = [ordered]@{} })) 'no attempt yet -> null'
     }
     It 'warns when the last drain could not connect' {
         $led = [ordered]@{ lastConnectOk = $false; pendingCount = 12; lastError = 'server unreachable: nas:445' }
-        $w = Get-PoolStorageHealthWarning -Ledger $led -Replicate $true
+        $w = Get-PoolStorageHealthWarning -Ledger $led
         Assert-True ($w -match 'FAILING' -and $w -match '12' -and $w -match 'unreachable') 'connect-fail warning carries count + cause'
     }
     It 'warns when connected but copied 0 with a backlog (write/permission stall)' {
         $led = [ordered]@{ lastConnectOk = $true; lastCopied = 0; pendingCount = 30; lastError = '' }
-        $w = Get-PoolStorageHealthWarning -Ledger $led -Replicate $true
-        Assert-True ($w -match 'copied 0' -and $w -match '30') 'stall warning'
+        $w = Get-PoolStorageHealthWarning -Ledger $led
+        Assert-True ($w -match 'archived 0' -and $w -match '30') 'stall warning'
     }
     It 'is SILENT on a healthy mid-backlog drain (copied > 0)' {
         $led = [ordered]@{ lastConnectOk = $true; lastCopied = 100; pendingCount = 524; lastError = '' }
-        Assert-Null (Get-PoolStorageHealthWarning -Ledger $led -Replicate $true) 'draining normally -> no noise'
+        Assert-Null (Get-PoolStorageHealthWarning -Ledger $led) 'draining normally -> no noise'
     }
     It 'is SILENT when fully caught up (pending 0, copied 0)' {
         $led = [ordered]@{ lastConnectOk = $true; lastCopied = 0; pendingCount = 0; lastError = '' }
-        Assert-Null (Get-PoolStorageHealthWarning -Ledger $led -Replicate $true) 'caught up -> no noise'
+        Assert-Null (Get-PoolStorageHealthWarning -Ledger $led) 'caught up -> no noise'
     }
 }
 

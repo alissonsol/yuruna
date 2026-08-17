@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456761
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,11 +28,11 @@
     share, not on the disposable VM disk. Start rebuilds the disk from the
     base image.
 
-    In-flight uploads are not drained (sec 3.2): a graceful stop runs first
-    so the daemon's flush worker can push NAS-offline buffered uploads to the
-    share, but deleting the disk then discards anything still buffered
-    locally -- the same reimage caveat as sec 8.4. Committed (on-share)
-    artifacts and their sidecars are durable.
+    In-flight uploads are not drained: a graceful stop runs first so the
+    daemon's flush worker can push NAS-offline buffered uploads to the share,
+    but deleting the disk then discards anything still buffered locally --
+    the same caveat as any reimage. Committed (on-share) artifacts and their
+    sidecars are durable. See https://yuruna.link/stash-guide.
 
 .PARAMETER VMName   Name of the stash-service VM. Default: yuruna-stash-service.
 #>
@@ -45,10 +45,9 @@ param(
 $global:InformationPreference = "Continue"
 $global:ProgressPreference    = "SilentlyContinue"
 
-# Honor the caller's logLevel, published as $env:YURUNA_LOG_LEVEL by whatever
-# entry point started this script (install/setup.ps1, a runner cycle). After the
-# two lines above on purpose: an explicit level is the operator's choice and
-# replaces this script's own default. See docs/loglevels.md.
+# --- REGION: https://yuruna.link/loglevels#propagation-across-pwsh-boundaries
+# After the preference assignments above on purpose: an explicit level is the
+# operator's choice and replaces this script's own default.
 Import-Module (Join-Path $PSScriptRoot '../modules/Test.LogLevel.psm1') -Global -Force -DisableNameChecking
 Use-LogLevelFromEnv
 
@@ -69,6 +68,7 @@ if (-not $HostType) { exit 1 }
 Write-Output "Host type: $HostType"
 [void](Initialize-YurunaHost -RepoRoot $RepoRoot -HostType $HostType)
 
+# --- REGION: Clear the service marker (this host stops advertising the area)
 # Clear the Extension hosts advertisement: this host no longer runs a stash service.
 # (Written by Start-StashServiceVM; folded into host.registration.json by
 # Write-HostRegistrationRecord and read by the pool-aggregator-service.) Removed regardless
@@ -82,6 +82,7 @@ try {
     }
 } catch { Write-Verbose "stash-service marker remove: $($_.Exception.Message)" }
 
+# --- REGION: Publish the withdrawal (refresh host.registration.json)
 # Publish the removal NOW: regenerate host.registration.json so the marker's absence
 # (activeExtensions drops 'stash-service') reaches the aggregator on its next poll,
 # without waiting for a test cycle -- the symmetric counterpart to Start-StashServiceVM.
@@ -93,6 +94,7 @@ try {
     }
 } catch { Write-Verbose "registration refresh: $($_.Exception.Message)" }
 
+# --- REGION: Stop the VM
 $state = Get-VMState -VMName $VMName
 if ($state -eq 'absent') {
     Write-Output "  VM '$VMName' not registered with $HostType."
@@ -112,6 +114,7 @@ if ($state -eq 'absent') {
     }
 }
 
+# --- REGION: Remove the VM and every file it owns
 # Remove the VM and every on-disk file it owns. Run unconditionally -- even an
 # 'absent' (unregistered) VM can leave a disk directory behind from a New-VM that
 # crashed mid-build, and this sweeps it. Best-effort: a cleanup hiccup must not
@@ -121,6 +124,7 @@ if ($state -eq 'absent') {
 Write-Output "Removing VM '$VMName' and its on-disk files..."
 Remove-GuestVMQuietly -VMName $VMName -SkipStop -BestEffort
 
+# --- REGION: Final state check
 $finalState = Get-VMState -VMName $VMName
 if ($finalState -eq 'absent') {
     Write-Output "Removed '$VMName' and its VM files."

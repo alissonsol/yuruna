@@ -150,7 +150,7 @@
       Y.el('td', { text: Y.classIcon(v.contentClass), title: v.mimeType || v.contentClass }),
       Y.el('td', { class: 'mono', text: v.id }),
       Y.el('td', { text: v.originalFilename || '(unnamed)' }),
-      Y.el('td', {}, Y.el('span', { class: 'badge ' + (v.local ? 'local' : 'host'), title: v.hostId, text: v.local ? 'this host' : Y.shortHost(v.hostId) })),
+      Y.el('td', {}, Y.el('span', { class: 'badge ' + (v.local ? 'local' : 'host'), title: Y.guid(v.hostId), text: v.local ? 'this host' : Y.shortHost(v.hostId) })),
       Y.el('td', { text: v.username }),
       Y.el('td', { class: 'num', text: Y.humanSize(v.sizeBytes) }),
       Y.el('td', { text: Y.fmtDate(v.createdAt) }),

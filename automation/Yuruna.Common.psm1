@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 4288bcbc-ede3-4dda-bb77-b9782c7615ad
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -838,6 +838,170 @@ function ConvertTo-YurunaMacAddress {
     return (($bare -split '(..)' | Where-Object { $_ }) -join ':')
 }
 
+function Get-YurunaHostMacSeed {
+<#
+.SYNOPSIS
+    The stable per-host string the guest MAC derivation is keyed on.
+.DESCRIPTION
+    Prefers this host's Yuruna id (runtime/host.uuid) -- opaque, stable across
+    reboots, and preserved by the reimage-reclaim flow, so a rebuilt host keeps
+    handing its guests the same MACs and therefore the same DHCP leases.
+
+    Falls back to the machine's hostname when no id exists yet (a host that has
+    never completed a cycle). The fallback is deliberately NOT a random value: a
+    random seed would give every guest a new MAC on every build, which is the
+    behavior this whole mechanism exists to remove.
+.OUTPUTS
+    [string] a non-empty seed.
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter()][AllowEmptyString()][string]$HostId = '')
+
+    if (-not [string]::IsNullOrWhiteSpace($HostId)) { return $HostId.Trim() }
+    foreach ($dir in @($env:YURUNA_RUNTIME_DIR, (Join-Path (Split-Path -Parent $PSScriptRoot) 'test/status/runtime'))) {
+        if ([string]::IsNullOrWhiteSpace($dir)) { continue }
+        $uuidFile = Join-Path $dir 'host.uuid'
+        if (Test-Path -LiteralPath $uuidFile) {
+            try {
+                $uuid = (Get-Content -Raw -LiteralPath $uuidFile -ErrorAction Stop).Trim()
+                if (-not [string]::IsNullOrWhiteSpace($uuid)) { return $uuid }
+            } catch { Write-Verbose "Get-YurunaHostMacSeed: unreadable $uuidFile" }
+        }
+    }
+    try { $name = [System.Net.Dns]::GetHostName() } catch { $name = '' }
+    if (-not [string]::IsNullOrWhiteSpace($name)) {
+        Write-Verbose "Get-YurunaHostMacSeed: no host.uuid yet; keying guest MACs on hostname '$name'."
+        return $name.Trim()
+    }
+    return 'yuruna-unidentified-host'
+}
+
+function Get-YurunaGuestMacAddress {
+<#
+.SYNOPSIS
+    The deterministic MAC for one (Yuruna host, VM name) pair: the same host
+    rebuilding the same guest always gets the same address back.
+.DESCRIPTION
+    WHY THIS EXISTS. Every hypervisor hands a freshly-built VM a random MAC, and
+    a lab's guests are rebuilt constantly -- so each build asks the DHCP server
+    for a NEW lease while the old one is still held by a guest that no longer
+    exists. A pool drains steadily until it has nothing left to hand out, and
+    guests then boot with no IPv4 at all. Deriving the MAC from identity instead
+    of randomness turns unbounded lease churn into a fixed footprint: one address
+    per (host, guest), reclaimed on every rebuild.
+
+    LAYOUT -- 42:HH:HH:VV:VV:VV
+      42     Yuruna's marker. Not decorative and not arbitrary: 0x42 is
+             0100 0010, so the locally-administered bit (0x02) is set and the
+             multicast bit (0x01) is clear -- a valid unicast LAA octet needing
+             no correction. It is also the prefix a Yuruna hostId carries, so an
+             operator reading a DHCP lease table can tell Yuruna's addresses from
+             everything else on the LAN at a glance.
+      HH:HH  SHA-256 of the host seed. Constant for every guest on one host, so
+             leases visibly group by host in that same table.
+      VV:VV:VV
+             SHA-256 of host-seed + VM name -- NOT of the VM name alone. Guest
+             slots are named identically across hosts ('test-guest.ubuntu.server.24-01'
+             exists on every one), so hashing the name by itself would leave the
+             whole address depending on the two host bytes, and two hosts landing
+             on the same pair would then collide on every guest they share. Mixing
+             the host in restores the full 40 bits of separation while keeping the
+             leading pair stable per host.
+.PARAMETER VMName
+    The name to key on. Callers building a guest pass the identity that guest
+    will keep for its whole life -- its cloud-init hostname where the sequence
+    declares one, the VM name otherwise -- NOT necessarily the name the VM
+    carries at the moment of the call. A guest is built in a per-kind slot and
+    promoted out of it, and keying on the transient name would move its address
+    mid-life; see Test-YurunaGuestMacMatchesName for what that costs.
+.PARAMETER HostId
+    Override the host seed. Omitted, it is resolved from runtime/host.uuid.
+.OUTPUTS
+    [string] canonical uppercase MAC, e.g. '42:A3:F1:9C:22:0B'.
+.EXAMPLE
+    Get-YurunaGuestMacAddress -VMName 'test-guest.ubuntu.server.24-01'
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter()][AllowEmptyString()][string]$HostId = ''
+    )
+    $seed = Get-YurunaHostMacSeed -HostId $HostId
+    # Case- and whitespace-insensitive: an operator retyping a VM name with
+    # different casing must not produce a second MAC for the same slot.
+    $seedKey = $seed.Trim().ToLowerInvariant()
+    $vmKey   = "$seedKey|$($VMName.Trim().ToLowerInvariant())"
+
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $hostHash = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($seedKey))
+        $vmHash   = $sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($vmKey))
+    } finally { $sha.Dispose() }
+
+    $octets = @('42') +
+              @($hostHash[0..1] | ForEach-Object { $_.ToString('X2') }) +
+              @($vmHash[0..2]   | ForEach-Object { $_.ToString('X2') })
+    $mac = $octets -join ':'
+    # Round-trip through the validator so this function can never emit something
+    # the platform writers would reject; it also normalizes the casing.
+    $checked = ConvertTo-YurunaMacAddress -MacAddress $mac
+    if (-not $checked) { throw "Get-YurunaGuestMacAddress produced an invalid MAC '$mac' for VM '$VMName'." }
+    return $checked
+}
+
+function Test-YurunaGuestMacMatchesName {
+<#
+.SYNOPSIS
+    Is this NIC still carrying the address that $VMName derives?
+.DESCRIPTION
+    The question a rename has to answer before it touches a NIC. A guest is
+    built in a per-kind slot and promoted out of it, and the address it carries
+    tells you which of the two it belongs to:
+
+      * derived from the name being left behind -- the address belongs to the
+        NAME, not the guest. Leaving it there strands the slot's address on a VM
+        that no longer answers to that name, and the next build of the slot asks
+        for one already in use. It has to move with the rename.
+      * anything else -- the guest was pinned to its own durable identity at
+        build time and has been running on that address ever since. Moving it
+        re-DHCPs a guest whose own state may already record its address (a
+        kubeadm control plane pins one into certificates, etcd URLs and every
+        kubeconfig), which no reboot recovers from.
+
+    Comparison is notation-insensitive: hypervisors report the NIC in whichever
+    of the three forms they prefer (Hyper-V bare hex, libvirt lowercase colons,
+    UTM uppercase colons), and all three must compare equal to the canonical
+    derived value.
+.PARAMETER MacAddress
+    The address the NIC currently carries, in any notation
+    ConvertTo-YurunaMacAddress accepts. Empty or unparseable returns $false --
+    an address that could not be read is not evidence of a match.
+.PARAMETER VMName
+    The name to derive the comparison address from.
+.PARAMETER HostId
+    Override the host seed. Omitted, it is resolved from runtime/host.uuid.
+.OUTPUTS
+    [bool]
+#>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$MacAddress,
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter()][AllowEmptyString()][string]$HostId = ''
+    )
+    if ([string]::IsNullOrWhiteSpace($MacAddress)) { return $false }
+    # Normalize by hand rather than through ConvertTo-YurunaMacAddress: this is
+    # a question, not an assertion, and a NIC carrying something unparseable is
+    # a legitimate "no" that must not print a warning on the way out.
+    $bare = ($MacAddress.Trim() -replace '[:-]', '').ToUpperInvariant()
+    if ($bare -notmatch '^[0-9A-F]{12}$') { return $false }
+    $derived = (Get-YurunaGuestMacAddress -VMName $VMName -HostId $HostId) -replace ':', ''
+    return ($bare -eq $derived)
+}
+
 function ConvertTo-Ipv4UInt32 {
 <#
 .SYNOPSIS
@@ -1585,7 +1749,7 @@ function ConvertTo-MemoryStartupBytes {
     return $bytes
 }
 
-# --- REGION: what the service VMs commit, and what the host has to carry it
+# --- REGION: What the service VMs commit, and what the host has to carry it
 # The service guests are sized in their per-host builders and nowhere else, and
 # every hypervisor here PINS that size: the UTM guests carry no balloon driver,
 # Hyper-V builds them with DynamicMemoryEnabled $false, and virt-install is given
@@ -2079,4 +2243,4 @@ function Select-NameByPrefix {
     return $matched.ToArray()
 }
 
-Export-ModuleMember -Function New-YurunaTimestampedBackup, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Get-PwshApplicationPath, Get-SudoPwshArgumentList, Invoke-YurunaSudo, Test-YurunaSudoRefusal, Test-YurunaCanPrompt, Assert-YurunaPromptable, Get-CachingProxyServicePort, Get-CachingProxyMemoryProfile, Test-Ipv4Address, Test-Ipv6Address, Format-IpUrlHost, Test-IpAddress, Select-YurunaRoutableAddress, ConvertTo-Sha512CryptHash, ConvertTo-YurunaMacAddress, ConvertTo-Ipv4UInt32, Get-HostIpv4Subnet, Get-Ipv4OnLinkVerdict, Get-PoolFacingIpv4Segment, Get-Ipv4PoolSegmentVerdict, Test-TcpConnectOutcome, Get-TcpOutcomeExplanation, Select-DhcpLeaseIpAddress, Select-StaleDhcpLeaseBlock, Remove-DhcpLeaseBlockText, Get-UtmGuestSeedHostname, ConvertTo-MemoryStartupBytes, Get-GuestBuilderMemoryMb, Get-ServiceVmMemoryMb, Select-SetupServiceVmKey, Get-ServiceVmMemoryVerdict, Get-HostPhysicalMemoryMb, Select-NameByPrefix, Get-YurunaServiceVmName
+Export-ModuleMember -Function New-YurunaTimestampedBackup, Get-HostProxyBackupPath, ConvertTo-ProxyHostPort, Get-PortMapStatePath, Test-IsAdministrator, Get-PwshApplicationPath, Get-SudoPwshArgumentList, Invoke-YurunaSudo, Test-YurunaSudoRefusal, Test-YurunaCanPrompt, Assert-YurunaPromptable, Get-CachingProxyServicePort, Get-CachingProxyMemoryProfile, Test-Ipv4Address, Test-Ipv6Address, Format-IpUrlHost, Test-IpAddress, Select-YurunaRoutableAddress, ConvertTo-Sha512CryptHash, ConvertTo-YurunaMacAddress, Get-YurunaHostMacSeed, Get-YurunaGuestMacAddress, Test-YurunaGuestMacMatchesName, ConvertTo-Ipv4UInt32, Get-HostIpv4Subnet, Get-Ipv4OnLinkVerdict, Get-PoolFacingIpv4Segment, Get-Ipv4PoolSegmentVerdict, Test-TcpConnectOutcome, Get-TcpOutcomeExplanation, Select-DhcpLeaseIpAddress, Select-StaleDhcpLeaseBlock, Remove-DhcpLeaseBlockText, Get-UtmGuestSeedHostname, ConvertTo-MemoryStartupBytes, Get-GuestBuilderMemoryMb, Get-ServiceVmMemoryMb, Select-SetupServiceVmKey, Get-ServiceVmMemoryVerdict, Get-HostPhysicalMemoryMb, Select-NameByPrefix, Get-YurunaServiceVmName

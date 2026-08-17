@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42e5f6a7-b8c9-4d01-8234-5f6a7b8c9d0e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -69,26 +69,17 @@ param(
 
 $InformationPreference = 'Continue'
 
-# $ErrorActionPreference is deliberately left at its inherited 'Continue', and
-# must stay that way. A script-scoped 'Stop' is not scoped to the script: an
-# advanced function invoked from here runs under it too, so every helper this
-# bring-up calls would have its NON-terminating errors promoted to terminating
-# ones. Several of the steps below are built on exactly that tolerance -- the
-# pool-storage soft gate warns and proceeds when the share does not answer,
-# because the daemon degrades to no persistence rather than failing, and the UTM
-# port-forward and pool-intent alias steps are reported-never-fatal. Under 'Stop'
-# each of those designed outcomes ends the bring-up instead, and its reason is
-# left on a console that is gone by the time anyone reads the run log. The
-# sibling service bring-ups (stash, caching proxy) run at 'Continue' for the same
-# reason. Where a condition really must stop this script, it says so itself with
-# an explicit Write-Error + exit, as the pre-flight hard gates below do.
+# --- REGION: https://yuruna.link/extensions-api#service-scripts-run-at-erroractionpreference-continue
+# Left at the inherited 'Continue' deliberately, and it must stay that way:
+# 'Stop' is not scoped to this script and would promote every helper's
+# non-terminating error. Hard stops here are explicit Write-Error + exit, as the
+# pre-flight hard gates below do.
 
-# Honor the caller's logLevel, published as $env:YURUNA_LOG_LEVEL by whatever
-# entry point started this script (install/setup.ps1, a runner cycle). After the
-# lines above on purpose: an explicit level is the operator's choice and replaces
-# this script's own default. $InformationPreference is then re-read from the
-# global the cascade writes, because the script-scoped assignment above shadows
-# it for the rest of this file. See docs/loglevels.md.
+# --- REGION: https://yuruna.link/loglevels#propagation-across-pwsh-boundaries
+# After the preference assignments above on purpose: an explicit level is the
+# operator's choice and replaces this script's own default. $InformationPreference
+# is re-read afterwards because the script-scoped assignment above shadows the
+# global the cascade writes.
 Import-Module (Join-Path $PSScriptRoot '../modules/Test.LogLevel.psm1') -Global -Force -DisableNameChecking
 Use-LogLevelFromEnv
 $InformationPreference = $global:InformationPreference
@@ -111,7 +102,7 @@ $runtimeDir = Initialize-YurunaRuntimeDir
 if ([string]::IsNullOrWhiteSpace($runtimeDir)) { Write-Error 'No runtime dir (YURUNA_RUNTIME_DIR).'; exit $ExitFailure }
 
 if (-not $HostSideProof) {
-    # --- REGION: default -- bring the service up on its OWN VM (guest.pool-control-service)
+    # --- REGION: Default -- bring the service up on its OWN VM (guest.pool-control-service)
     # Mirrors Start-StashServiceVM / Start-CachingProxyServiceVM: pool-storage pre-flight, then
     # delegate to the per-host New-VM.ps1 whose cloud-init builds + launches the
     # daemon inside the guest. -HostSideProof (below) is the no-VM fallback.
@@ -145,7 +136,7 @@ if (-not $HostSideProof) {
     Write-Information "Host type: $HostType" -InformationAction Continue
     [void](Initialize-YurunaHost -RepoRoot $repoRoot -HostType $HostType)
 
-    # --- REGION: pool storage pre-flight
+    # --- REGION: Pool storage pre-flight
     # The pool-control-service daemon persists its audit log + status.json under the pool
     # NAS (poolStorageNetworkPath/pool-control-service/). Refuse to bring up a VM that would have
     # nowhere durable to write: fail fast HERE, before the long VM build, when the
@@ -161,7 +152,7 @@ if (-not $HostSideProof) {
     }
     $poolCfg = $null
     if ($tc) {
-        try { $poolCfg = Get-YurunaPoolStorageConfig -Config $tc -IgnoreReplicate } catch { Write-Verbose "pool storage config: $($_.Exception.Message)" }
+        try { $poolCfg = Get-YurunaPoolStorageConfig -Config $tc } catch { Write-Verbose "pool storage config: $($_.Exception.Message)" }
     }
     if (-not $poolCfg) {
         Write-Error @"
@@ -215,7 +206,7 @@ $remedy
 "@
     }
 
-    # --- REGION: resolve the per-host New-VM
+    # --- REGION: Resolve the per-host New-VM
     $hostFolder = Get-HostFolder $HostType
     $guestDir   = Join-Path -Path $repoRoot -ChildPath $hostFolder -AdditionalChildPath 'guest.pool-control-service'
     $newVm      = Join-Path $guestDir 'New-VM.ps1'
@@ -224,16 +215,12 @@ $remedy
         exit $ExitFailure
     }
 
-    # --- REGION: host status service (serves the local repo to the guest) -- BEFORE the build
-    # Mirrors Start-StashServiceVM / Start-CachingProxyServiceVM: the pool-control-service guest's cloud-init
-    # fetches the framework from http://<host>:<port>/yuruna-archive.tar.gz at first boot,
-    # and falls back to a public github clone when that server is down -- so it must be up
-    # BEFORE New-VM bakes and boots the guest, not after (a server started later is one the
-    # guest never saw). Best-effort; honors statusService.enabled + port.
-    # The {ShouldStart; Port} record is kept rather than discarded: the
-    # framework-source gate below has to probe the port this decision resolved,
-    # and re-deriving it would be a second reading of the same config free to
-    # disagree with the one that actually started the server.
+    # --- REGION: Host status service (serves the local repo to the guest) -- BEFORE the build
+    # --- REGION: https://yuruna.link/extensions-api#which-framework-snapshot-a-service-vm-is-built-from
+    # Best-effort; honors statusService.enabled + port. The {ShouldStart; Port}
+    # record is kept rather than discarded: the framework-source gate below
+    # probes the port THIS decision resolved, so it cannot disagree with the
+    # config reading that started the server.
     $statusDecision = $null
     try {
         $statusScript = Join-Path $repoRoot 'test/Start-StatusService.ps1'
@@ -243,15 +230,12 @@ $remedy
         }
     } catch { Write-Verbose "status service ensure: $($_.Exception.Message)" }
 
-    # --- REGION: framework source -- refuse to build from a snapshot older than this enlistment
-    # The guest compiles the daemon from whatever framework it fetched and stamps
-    # that tree's VERSION into the binary, permanently. A guest that cannot reach
-    # the server ensured just above falls back to the public mirror and produces a
-    # working service built from published code, weeks behind, that then reports
-    # itself as current for the life of the VM. Stopping here costs the operator a
-    # message; not stopping costs a half-hour build and a service nobody has reason
-    # to re-examine. Captured for the post-boot check too, which is the half that
-    # can actually prove what got deployed.
+    # --- REGION: Framework source -- refuse to build from a snapshot older than this enlistment
+    # --- REGION: https://yuruna.link/extensions-api#which-framework-snapshot-a-service-vm-is-built-from
+    # Stopping here costs the operator a message; not stopping costs a half-hour
+    # build and a service nobody has reason to re-examine. The snapshot is
+    # captured for the post-boot check too, which is the half that can prove what
+    # got deployed.
     Import-Module (Join-Path $ModulesDir 'Test.FrameworkSource.psm1') -Global -Force
     $frameworkExpected = Get-FrameworkSourceSnapshot -RepoRoot $repoRoot
     if (-not (Assert-GuestFrameworkSource -RepoRoot $repoRoot -StatusDecision $statusDecision `
@@ -259,7 +243,7 @@ $remedy
         exit $ExitFailure
     }
 
-    # --- REGION: delegate to the per-host New-VM (build + start the VM)
+    # --- REGION: Delegate to the per-host New-VM (build + start the VM)
     # Each New-VM runs Get-Image auto-fetch when the base image is missing, tears down any
     # prior VM, creates the new one, and (Hyper-V + KVM) starts it. UTM only builds the
     # bundle -- register + start below.
@@ -291,7 +275,7 @@ $remedy
         }
     }
 
-    # --- REGION: the VM must be RUNNING before the daemon is blamed for anything
+    # --- REGION: The VM must be RUNNING before the daemon is blamed for anything
     # `utmctl start` can exit 0 while UTM silently drops the request, and Hyper-V/KVM
     # start the VM inside New-VM.ps1 without this script ever checking the result.
     # Without this gate the readiness probe below attributes a VM that never booted
@@ -332,7 +316,7 @@ $remedy
         }
     }
 
-    # --- REGION: post-boot readiness probe on :80 + on-failure guest diagnostics
+    # --- REGION: Post-boot readiness probe on :80 + on-failure guest diagnostics
     # New-VM confirmed the VM has an IP, but the daemon still has to build INSIDE
     # the guest (apt golang + pwsh, go build, systemd start), which takes several
     # minutes on first boot -- so an IP alone is NOT "the service is up". Probe :80
@@ -363,6 +347,8 @@ $remedy
     # cloud-init reports it is still working, so this is the floor rather than
     # the whole story. YURUNA_POOL_CONTROL_SERVICE_READY_TIMEOUT_SECONDS
     # overrides (e.g. a short value for a quick re-check on a VM already up).
+    # Same contract as Get-DownloadAgentServiceReadyTimeoutSeconds, kept inline
+    # here; test/service/README.md records the divergence.
     $readyTimeoutSeconds = 2700
     if ($env:YURUNA_POOL_CONTROL_SERVICE_READY_TIMEOUT_SECONDS) {
         $parsed = 0
@@ -470,24 +456,16 @@ $remedy
         }
     }
 
-    # --- REGION: one place decides whether this bring-up succeeded
+    # --- REGION: One place decides whether this bring-up succeeded
     # The script routes on that decision instead of each site judging for
     # itself. A readiness timeout is a FAILURE: a run that records PASS for a
     # daemon that never started sends the operator looking for the fault in
     # whatever breaks next, which is the most expensive place to look for it.
     $verdict = Get-ServiceVmReadinessVerdict -Endpoint $endpoint
 
-    # A wait can spend its entire budget without probing anything at all,
-    # because address discovery is the step that fails first: a guest whose
-    # lease this host cannot see -- a bridged guest on a hypervisor that keeps
-    # no lease file for it, and which carries no guest agent -- is invisible
-    # here while serving every peer normally. The VM bundle's MAC is the
-    # identity that survives that, and matching it costs ICMP sweeps of every
-    # candidate /24 until one answers or their budget runs out: measured at
-    # about two minutes when the cheap lookups have nothing, which is why it is
-    # far too expensive to repeat on a poll. It is spent only here, on a
-    # bring-up that has already failed, where the alternative is reporting a
-    # healthy daemon as a failure.
+    # --- REGION: https://yuruna.link/network#why-a-mac-sweep-is-spent-only-on-a-failed-bring-up
+    # Spent here and nowhere else: the sweep costs about two minutes, and this
+    # is the one place where the alternative is calling a healthy daemon failed.
     $recoveredIp = ''
     if ($verdict.IsFailure) {
         $recoveredIp = Resolve-GuestDiagnosticAddress -VMName $VMName
@@ -639,23 +617,14 @@ To hold this script longer next time:
     }
 
     if ($daemonReady) {
-        # --- REGION: what actually got deployed
-        # The daemon is serving, so the remaining question is which framework it
-        # was built from -- and this is the only place it can be answered from
-        # evidence rather than prediction. The pre-flight above could pass and
-        # the guest still fall back: the host address is baked at seed time and
-        # the guest reaches for it minutes into first boot, so a host that
-        # renumbered in between sends the fetch to the mirror with everything on
-        # this side looking correct.
+        # --- REGION: What actually got deployed
+        # --- REGION: https://yuruna.link/extensions-api#which-framework-snapshot-a-service-vm-is-built-from
+        # The daemon is serving, so this is the first point where the framework
+        # it was built from can be answered from evidence rather than prediction.
         #
         # Ahead of the proxy alias sync below, deliberately. That reconfigures a
         # shared serving path on the caching-proxy service, and a build this
         # script is about to reject should not leave that behind.
-        #
-        # The marker is NOT retracted on a mismatch. A stale build is still a
-        # running pool-control service, and withdrawing the row would replace an
-        # accurate advertisement with a false one; what is wrong here is the
-        # bring-up's claim to have deployed this enlistment, so that is what fails.
         if (-not (Assert-ServiceVmFrameworkSource -Address ([string]$vmIp) -Port 80 `
                     -GuestKey 'guest.pool-control-service' -User 'pool-control-service-admin' `
                     -Expected $frameworkExpected -ServiceLabel 'pool-control-service' `
@@ -705,27 +674,11 @@ To hold this script longer next time:
         exit $ExitOk
     }
 
-    # --- REGION: the daemon never served -- gather the evidence, then FAIL
-    # Reported as a failure, not a warning-plus-zero: the caller records this
-    # script's exit code as the step's outcome, so a zero here puts
-    # "pool-control service: PASS" in a run summary for a VM whose daemon does
-    # not exist. Everything below runs before the exit because a failing
-    # bring-up is the only moment the guest is still up and answerable.
-    #
-    # Collects the in-guest build log + service state over the harness key
-    # (pool-control-service-admin, NOPASSWD sudo) so the operator sees the actual
-    # failure instead of a dead URL. -User pins the account the cloud-init seed
-    # created: it is the only login this VM has, and Get-GuestSshUser would
+    # --- REGION: The daemon never served -- gather the evidence, then FAIL
+    # --- REGION: https://yuruna.link/extensions-api#a-service-that-never-served-fails-loudly
+    # -User pins the account the cloud-init seed created: Get-GuestSshUser would
     # otherwise return a per-cycle cascade override that an earlier run in this
     # same shell session left registered for guest.pool-control-service.
-    # Says what ACTUALLY happened, not what the budget allowed. Four different
-    # failures reach this line -- an address that never answered; that address
-    # plus a second one the last-resort lookup found, which did not answer
-    # either; only the last-resort address, silent as well; and no address at
-    # all -- and quoting the nominal timeout for the last describes a wait that
-    # did not occur. Every address this host actually dialed is named, because
-    # the reader's next move is to check the guest's own address against them,
-    # and one left out of the line is one they cannot rule out.
     $failureDetail = if ($vmIp -and $recoveredIp -and $recoveredIp -ne [string]$vmIp) {
         "is NOT serving on :80 at $vmIp after $readyTimeoutMinutes min, nor at $recoveredIp, the other address this host could find for the guest"
     } elseif ($vmIp) {

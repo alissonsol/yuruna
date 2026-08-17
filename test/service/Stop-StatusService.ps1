@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456741
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,8 +29,9 @@ Import-Module (Join-Path -Path (Split-Path -Parent $PSScriptRoot) -ChildPath "mo
 $null = Initialize-YurunaRuntimeDir
 $PidFile = Join-Path $env:YURUNA_RUNTIME_DIR "server.pid"
 
+# --- REGION: Locate the PID file
 if (-not (Test-Path $PidFile)) {
-    Write-Output "No server PID file found at '$PidFile'. Server may not be running."
+    Write-Output "No server PID file found at '$PidFile'. Service may not be running."
     exit 0
 }
 
@@ -41,6 +42,7 @@ if (-not $pid_value) {
     exit 0
 }
 
+# --- REGION: Parse the recorded PID
 # Parse the PID before touching Get-Process/Stop-Process: -Id coerces its argument
 # to [int] at parameter-binding time, and that ParameterBindingException is NOT
 # suppressed by -ErrorAction SilentlyContinue -- a corrupt/non-numeric PID file
@@ -53,15 +55,16 @@ if (-not [int]::TryParse($pid_value, [ref]$id)) {
     exit 0
 }
 
+# --- REGION: PID-reuse guard, then stop
 $proc = Get-Process -Id $id -ErrorAction SilentlyContinue
 if (-not $proc) {
-    Write-Output "Process $id is not running. Server was already stopped."
+    Write-Output "Process $id is not running. Service was already stopped."
     Remove-Item $PidFile -Force -ErrorAction SilentlyContinue
     exit 0
 }
 # PID-reuse guard: the PID file outlives crashes and reboots and the OS recycles
 # PIDs, so confirm this PID is still the status service before force-killing it.
-# The server wrote the PID file after launching, so a genuine match started
+# The service wrote the PID file after launching, so a genuine match started
 # at/before the file's mtime while a process that reused the PID started later.
 # An unreadable start time cannot confirm identity, so the PID file is treated as
 # stale (removed, no kill) rather than risk killing an unrelated process.

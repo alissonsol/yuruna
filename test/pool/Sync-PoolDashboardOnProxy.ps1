@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42519b0c-19ed-4527-9de3-a35ad1449acb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -94,12 +94,11 @@ param(
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 
-# Honor the caller's logLevel, published as $env:YURUNA_LOG_LEVEL by whatever
-# entry point started this script. After the line above on purpose: an explicit
-# level is the operator's choice and replaces this script's own default.
-# $InformationPreference is then re-read from the global the cascade writes,
-# because the script-scoped assignment above shadows it for the rest of this
-# file. See docs/loglevels.md.
+# --- REGION: https://yuruna.link/loglevels#propagation-across-pwsh-boundaries
+# After the preference assignments above on purpose: an explicit level is the
+# operator's choice and replaces this script's own default. $InformationPreference
+# is re-read afterwards because the script-scoped assignment above shadows the
+# global the cascade writes.
 Import-Module (Join-Path $PSScriptRoot '../modules/Test.LogLevel.psm1') -Global -Force -DisableNameChecking
 Use-LogLevelFromEnv
 $InformationPreference = $global:InformationPreference
@@ -122,7 +121,7 @@ Import-Module (Join-Path $ModulesDir 'Test.Ssh.psm1')    -Global -Force -Disable
 $DashboardPath = Join-Path $repoRoot 'test/extension/pool-aggregator-service/grafana-pool-dashboard.json'
 $GuestPath     = '/var/lib/grafana/dashboards/pool.json'
 
-# --- REGION: read + validate the canonical dashboard
+# --- REGION: Read and validate the canonical dashboard
 if (-not (Test-Path -LiteralPath $DashboardPath)) {
     Write-Error "The canonical dashboard is missing at $DashboardPath. Nothing to push."
     exit $ExitFailure
@@ -159,7 +158,7 @@ try {
 $payload = [Convert]::ToBase64String($buffer.ToArray())
 $buffer.Dispose()
 
-# --- REGION: resolve the proxy
+# --- REGION: Resolve the proxy address
 if ([string]::IsNullOrWhiteSpace($ProxyAddress)) {
     $configIp = ''
     $tcPath = Join-Path $repoRoot 'test/test.config.yml'
@@ -224,7 +223,7 @@ if (-not $PSCmdlet.ShouldProcess("${User}@${ProxyAddress}", "Replace $GuestPath 
     exit $ExitOk
 }
 
-# --- REGION: push
+# --- REGION: Push the dashboard and re-fit its panels
 # Single-quoted here-string: every $ below is a SHELL variable and PowerShell
 # must not touch it. The payload is injected by literal replace.
 $script = @'
@@ -371,5 +370,3 @@ if ($output -notmatch 'FITTED:') {
 }
 Write-Information "Grafana's file provider re-reads the dashboards directory every 30 s, so reload the browser tab after about half a minute." -InformationAction Continue
 exit $ExitOk
-
-# Copyright (c) 2019-2026 by Alisson Sol et al.

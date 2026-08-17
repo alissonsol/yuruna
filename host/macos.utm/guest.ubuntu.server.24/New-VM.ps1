@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42b5c6d7-e8f9-4a01-b234-5c6d7e8f9a02
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -156,6 +156,7 @@ if (-not $Password) { Write-Error "Get-LocalOsPassword returned empty for '$User
 Write-Output "Password came from authentication mechanism: $_authActiveName"
 Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
 
+# --- REGION: Autoinstall password hash
 # SHA-512 ($6$) password hash for the autoinstall HASH_PLACEHOLDER.
 # ConvertTo-Sha512CryptHash centralizes the openssl probe + the `--`
 # end-of-options safety that keeps a leading-dash password
@@ -170,6 +171,7 @@ try {
 }
 
 Write-Verbose "Creating VM '$VMName' using image: $baseImageFile"
+# --- REGION: Base image provenance
 # Provenance side-channel for operators reading the transcript. Emits
 # "Provenance: <url>" when the sidecar is healthy; warns otherwise.
 Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.Provenance.psm1') -Force
@@ -181,8 +183,8 @@ Write-BaseImageProvenance -BaseImagePath $baseImageFile
 # where UTM.app / QEMUHelper.xpc still holds file handles on disk.qcow2
 # immediately after `utmctl delete`).
 Import-Module (Join-Path (Split-Path -Parent $ScriptDir) "modules/Yuruna.Host.psm1") -Force
-$RepoRoot = (Resolve-Path (Join-Path $ScriptDir "..\..\..")).Path
 
+# --- REGION: Remove existing VM
 if (-not (Remove-UtmBundleWithRetry -Path $UtmDir)) {
     Write-Error "Could not remove existing UTM bundle at '$UtmDir' after retries. Aborting."
     exit 1
@@ -193,6 +195,7 @@ $DestIso = "$DataDir/$VMName.iso"
 Copy-Item -Path $baseImageFile -Destination $DestIso
 Write-Verbose "Copied installer ISO as: $VMName.iso"
 
+# --- REGION: Create empty install target
 # Create blank disk for installation (64GB, qcow2 sparse -- grows on
 # demand inside the qcow2 container, so the host doesn't pre-reserve
 # the full nominal size). Uniform cap across hosts: ubuntu.kvm /
@@ -224,12 +227,14 @@ foreach ($p in @($BaseUserData, $OverlayUserData)) {
 }
 Import-Module (Join-Path $RepoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
 
+# --- REGION: Yuruna harness SSH key
 # Load the SSH public key used by the test harness to drive the VM over SSH.
 $TestSshModule = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) "test/modules/Test.Ssh.psm1"
 Import-Module $TestSshModule -Force
 $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
+# --- REGION: Detect the caching-proxy service
 # --- REGION: https://yuruna.link/network#defining-utm-cache-vm-bridged-discovery
 # Detect the caching-proxy-service and inject its proxy URL if available. Severity:
 # URL found -> inject; cache VM started but no :3128 on LAN -> ERROR, exit 1;
@@ -320,14 +325,14 @@ To intentionally skip the cache:
 }
 
 # --- REGION: Build the autoinstall apt block
-# Always emit `geoip: false` + a pinned `primary:` mirror (deterministic
-# election; `primary:` not `sources_list:`, see
-# feedback_macos_utm_apt_block_resolute_curtin_trap.md). The primary URI is
-# the ports mirror because macOS UTM is always aarch64.
 # --- REGION: https://yuruna.link/vmconfig#apt-proxy-block
-# Shared builder (automation/Yuruna.GuestSeed.psm1); UTM pins the aarch64 ports
-# mirror. The apt Acquire tuning it emits is a step-budget bound, so it has to be
-# identical on every host driver -- three copies of the literal drift, and a
+# Always emit `geoip: false` plus a pinned `primary:` mirror -- deterministic
+# election, and `primary:` rather than `sources_list:`. See
+# feedback_macos_utm_apt_block_resolute_curtin_trap.md.
+# Shared builder: automation/Yuruna.GuestSeed.psm1. UTM pins the aarch64
+# ports.ubuntu.com mirror (macOS UTM is always aarch64).
+# The apt Acquire tuning it emits is a step-budget bound, so it has to be
+# identical on every host driver: three copies of the literal drift, and a
 # mirror stall then burns a step budget on whichever host was missed.
 Import-Module (Join-Path $RepoRoot 'automation/Yuruna.GuestSeed.psm1') -Force
 $AptProxyBlock = New-AptProxyBlock -PrimaryUri 'http://ports.ubuntu.com/ubuntu-ports' -CachingProxyServiceUrl $CachingProxyServiceUrl
@@ -357,6 +362,7 @@ if ($CachingProxyServiceUrl -and $cacheVmIp) {
     Write-Warning "  Caching-proxy service '$CachingProxyServiceUrl' is set but no cache IP resolved; guest boots CA-less and will rely on the host status-service CA self-heal."
 }
 
+# --- REGION: Yuruna host coordinates
 # Yuruna host (status service) IP+port baked into the seed for the dev
 # iteration loop. Guest scripts read /etc/yuruna/host.env (written by
 # the user-data late-commands) to resolve a local URL before falling
@@ -406,6 +412,7 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
+# --- REGION: config.plist (QEMU backend)
 # Generate UTM config.plist from template (QEMU backend, with -vnc 127.0.0.1:N AdditionalArgument)
 $TemplatePath = Join-Path $ScriptDir "config.plist.template"
 if (-not (Test-Path $TemplatePath)) {
@@ -417,11 +424,12 @@ $VmUuid = [guid]::NewGuid().ToString().ToUpper()
 $DiskId = [guid]::NewGuid().ToString().ToUpper()
 $IsoId = [guid]::NewGuid().ToString().ToUpper()
 $SeedId = [guid]::NewGuid().ToString().ToUpper()
-$rng = [System.Random]::new()
-$MacBytes = [byte[]]::new(6)
-$rng.NextBytes($MacBytes)
-$MacBytes[0] = ($MacBytes[0] -bor 0x02) -band 0xFE  # locally administered unicast
-$MacAddress = ($MacBytes | ForEach-Object { $_.ToString("X2") }) -join ":"
+# --- REGION: https://yuruna.link/network#defining-deterministic-guest-mac-addresses
+# Keyed on the guest's durable identity, not on the name the VM carries now: a
+# guest is built in a per-kind slot and renamed to its real name when its
+# baseline is snapshotted, and an address that moved with that rename would
+# re-DHCP a guest whose own state already records the one it was built on.
+$MacAddress = Get-YurunaGuestMacAddress -VMName $GuestHostname
 
 # Per-VM VNC display number (Get-VncDisplayForVm hashes the name into
 # 10..89). Get-VncPortForVm in the harness derives the same value from
@@ -450,7 +458,7 @@ if ($Cores) {
     $vmCores = $coresInt
 }
 
-# Cascaded variables.memoryStartupBytes wins; empty keeps the 12 GB default.
+# --- REGION: https://yuruna.link/definition#defining-the-vm-memory-policy
 # The UTM plist __MEMORY_SIZE__ is in MB, so convert from the byte count.
 try { $vmMemoryBytes = ConvertTo-MemoryStartupBytes $MemoryStartupBytes } catch { Write-Error $_.Exception.Message; exit 1 }
 $vmMemoryMb = if ($vmMemoryBytes -gt 0) { [int]($vmMemoryBytes / 1MB) } else { 12288 }

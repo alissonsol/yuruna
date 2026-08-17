@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42f1c8d3-5b6a-4e07-9d24-8c3b71a0f5e6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,10 +20,10 @@
 # A second, stable libvirt-NAT address per guest, for guests that must reach
 # EACH OTHER. KVM-only: every consumer treats a rail address as an optimisation
 # that may be absent, never as a dependency.
-# --- REGION: https://yuruna.link/network#why-the-rail-is-not-wired-up
 # NOTHING CALLS THIS. Get-GuestRailAddress keys on the transient VM name, so
 # wiring it back as it stands breaks VM creation on the second guest of every
-# cycle. It is kept for the derivation and its tests.
+# cycle. It is kept for the derivation and its tests --
+# https://yuruna.link/network#why-the-rail-is-not-wired-up
 
 $script:RailNetwork = 'default'
 # The band reservations are allocated from. Inside libvirt's default DHCP range
@@ -217,6 +217,8 @@ function Unregister-GuestRailAddress {
         }
     }
 }
+
+# --- REGION: Exports
 
 Export-ModuleMember -Function Test-GuestRailAvailable, Get-GuestRailAddress, Get-GuestRailReservation,
     Register-GuestRailAddress, Unregister-GuestRailAddress

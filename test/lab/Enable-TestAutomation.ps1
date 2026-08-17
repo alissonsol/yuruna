@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42018f50-0ed8-4ecb-b393-93cbe248c2e7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -51,13 +51,16 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# --- REGION: Log level from the environment
 # Honor the caller's logLevel, published as $env:YURUNA_LOG_LEVEL by whatever
 # entry point started this script (install/setup.ps1). See docs/loglevels.md.
 Import-Module (Join-Path $PSScriptRoot '../modules/Test.LogLevel.psm1') -Global -Force -DisableNameChecking
 Use-LogLevelFromEnv
 
+# --- REGION: Shared bootstrap
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'automation/Yuruna.HostRedirect.psm1') -Force -DisableNameChecking
 
+# --- REGION: Common-parameter relay
 # The per-host Enable-TestAutomation.ps1 is an advanced script and narrates
 # each decision under -Verbose, so pass the switch on when it was asked for;
 # it binds to this redirector as a common parameter and would otherwise stop
@@ -67,6 +70,7 @@ Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScript
 $extra = @()
 if ($PSBoundParameters.ContainsKey('Verbose') -or $VerbosePreference -eq 'Continue') { $extra += '-Verbose' }
 
+# --- REGION: Delegate to the per-host script
 $forwarded = @(ConvertTo-HostScriptArgument `
     -BoundParameters $PSBoundParameters `
     -RemainingArguments $RemainingArguments `

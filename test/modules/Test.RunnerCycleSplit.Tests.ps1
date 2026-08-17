@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42b9d4e1-7c53-4a08-8bd6-0f92e5a37c14
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -160,23 +160,10 @@ Describe 'Wait-OuterInterruptible' {
 }
 
 Describe 'The inner spawn inherits the console rather than a pipe' {
-    # The cycle process reaches the inner runner through the call operator, and
-    # PowerShell decides the inner's stdout from what happens to the ENCLOSING
-    # function's success stream: let it reach the host and the inner inherits the
-    # console; capture it anywhere up the chain and PowerShell has to create an
-    # anonymous pipe and read it to EOF. EOF -- not the inner's exit -- is then what
-    # releases the cycle. The inner spawns the status service, which inherits a
-    # duplicate of that write end and holds it for its whole unbounded life, so the
-    # cycle never returns: the inner logs "about to exit with code 0" and
-    # "[outer cycle N] outer runner back in control" never follows. One cycle
-    # passes and the runner starts no more. Observed on a live Hyper-V host with
-    # the cycle process blocked 44 minutes past a passing cycle, released within a
-    # second of killing the status service.
-    #
-    # Windows only: the POSIX branch of Start-StatusService.ps1 detaches through
-    # `bash -c "... </dev/null >/dev/null 2>err &"`, whose redirections replace the
-    # descriptors outright, so nothing crosses the exec and no Linux/macOS host in
-    # the pool ever showed this.
+    # --- REGION: https://yuruna.link/runner-outer-loop#why-the-cycle-call-must-not-capture-the-inner-runners-stdout
+    # Regression guard: capturing the enclosing function's success stream makes
+    # EOF -- not the inner's exit -- release the cycle, and the status service
+    # holds the write end for its unbounded life.
     #
     # Defined in BeforeAll, not at file scope: Pester 5 runs an It in a scope that
     # cannot see file-scope functions (five tests above this one already fail that

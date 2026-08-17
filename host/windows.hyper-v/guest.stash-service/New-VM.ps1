@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e680
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,6 +36,10 @@ param(
     [Parameter(Position = 0)]
     [string]$VMName = "yuruna-stash-service"
 )
+
+# Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+$_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
+if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     Write-Output "Invalid VMName '$VMName'. Only alphanumeric characters, dots, hyphens, and underscores are allowed."
@@ -112,12 +116,14 @@ if ($existingVM) {
     Write-Output "VM '$VMName' deleted."
 }
 
-# --- REGION: Copy base image -> per-VM disk
+# --- REGION: Per-VM directory + disk
 $vmDir = Join-Path $downloadDir $VMName
 if (-not (Test-Path -Path $vmDir)) {
     New-Item -ItemType Directory -Path $vmDir -Force | Out-Null
 }
 $vhdxFile = Join-Path $vmDir "$VMName.vhdx"
+
+# --- REGION: Copy base image -> per-VM disk
 Write-Output "Creating VHDX for '$VMName' by copying base image..."
 Copy-Item -Path $baseImageFile -Destination $vhdxFile -Force
 
@@ -129,7 +135,7 @@ if (-not (Expand-ExtensionVmDisk -Path $vhdxFile -SizeBytes 256GB -Format 'vhdx'
     exit 1
 }
 
-# --- REGION: Generate cloud-init seed ISO
+# --- REGION: Stage the cloud-init seed directory
 # meta-data is shared under host/vmconfig/ (byte-identical across all 3 host platforms).
 $hostVmConfigDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'host/vmconfig'
 # 4-digit entropy is weak by design (10k cases) but enough to defeat
@@ -141,24 +147,22 @@ if (Test-Path -LiteralPath $SeedDir) { Remove-Item -LiteralPath $SeedDir -Recurs
 New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 
 Copy-Item -Path (Join-Path $hostVmConfigDir 'stash-service.meta-data') -Destination "$SeedDir/meta-data"
-# network-config, shipped alongside meta-data on the same seed: it pins the
-# guest DHCP client identity to the interface MAC. Without it the guest
-# identifies itself by a machine-id-derived DUID, which cloud-init changes
-# mid-boot, so the DHCP server sees a new client and leases a different address
-# -- and every host-side artifact aimed at the first address (port-forwarder,
-# readiness probe, published URL) is left pointing at one the guest abandoned.
-Copy-Item -Path (Join-Path $hostVmConfigDir 'extension-service.network-config') -Destination "$SeedDir/network-config"
+# --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+Copy-Item -Path (Join-Path $hostVmConfigDir 'guest-dhcp.network-config') -Destination "$SeedDir/network-config"
 
-# --- REGION: Yuruna harness SSH key + vault password
+# --- REGION: Yuruna harness SSH key
+$_repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
+Import-Module (Join-Path $_repoRoot 'test/modules/Test.Ssh.psm1')       -Force -DisableNameChecking
+Import-Module (Join-Path $_repoRoot 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
+$SshAuthorizedKey = Get-YurunaSshPublicKey
+if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty."; exit 1 }
+
+# --- REGION: Vault admin password
 # The password belongs to THIS VM's own administrator. The account name is
 # per-VM-family: a name shared with the caching-proxy-service and
 # pool-control-service VMs would resolve to a single vault entry, and whichever
 # VM was built last would invalidate the others' credential.
-$_repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
-Import-Module (Join-Path $_repoRoot 'test/modules/Test.Ssh.psm1')       -Force -DisableNameChecking
-Import-Module (Join-Path $_repoRoot 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
-$SshAuthorizedKey = Get-YurunaSshPublicKey
-if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty."; exit 1 }
 $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
 $AdminPassword = Get-Password -Username 'stash-admin'
 if (-not $AdminPassword) { Write-Error "Get-Password returned empty for 'stash-admin'."; exit 1 }
@@ -196,6 +200,7 @@ if (-not $switchName) {
     Write-Information "  The stash-service VM won't be reachable from LAN by its own IP, and the NAS may be unreachable."
 }
 
+# --- REGION: https://yuruna.link/network#cache-vm-seed-host-binding
 # Host coordinates (status service, for the in-VM source fetch) + stash storage
 # coordinates (the share the daemon writes to), baked into the seed.
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.PoolStorage.psm1')  -Global -Force
@@ -245,6 +250,7 @@ $UserData = New-CloudInitUserData `
     } -Confirm:$false
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 
+# --- REGION: Generate cloud-init seed ISO
 $SeedIso = Join-Path $vmDir "seed.iso"
 Write-Output "Generating seed.iso with cloud-init configuration..."
 CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId "cidata"
@@ -257,19 +263,17 @@ Write-Output "  If the wait below stalls or fails, open 'vmconnect localhost $VM
 Write-Output "  and log in with the credentials above to inspect cloud-init state."
 Write-Output ""
 
-# --- REGION: Create and configure Hyper-V VM
-# 2 GB RAM, 4 vCPU. Sized for the SCP receive + SQLite metadata writer
-# + in-VM UI, none of which holds a large resident working set: the transfers
-# stream to disk rather than buffering whole artifacts. What sets the floor is
-# the first-boot `go build`, not steady state: the pure-Go SQLite driver is the
-# largest compile in the graph, and a cold build of it peaks near 1.1 GB with no
-# swap in the guest. One baseline across all three extension VMs. Memory here is
-# pinned (no dynamic balloon), so every GB is committed on the host for the life
-# of the VM -- the extension VMs share one machine with the cache VM on a
-# standalone host, and their pinned total is what constrains how many test guests
-# can still start.
+# --- REGION: Create and configure the Hyper-V VM
+# --- REGION: https://yuruna.link/definition#defining-the-vm-memory-policy
 Write-Output "Creating new VM '$VMName' on switch '$switchName'..."
 Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 2GB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
+
+# --- REGION: https://yuruna.link/network#defining-deterministic-guest-mac-addresses
+# Hyper-V takes bare hex, no separators.
+$YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $VMName
+Hyper-V\Set-VMNetworkAdapter -VMName $VMName -StaticMacAddress ($YurunaGuestMac -replace ':','')
+Write-Verbose "Deterministic guest MAC for '$VMName': $YurunaGuestMac"
+
 Set-VM -Name $VMName -MemoryStartupBytes 2GB -MemoryMinimumBytes 2GB -MemoryMaximumBytes 2GB -AutomaticCheckpointsEnabled $false | Out-Null
 Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
 Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null

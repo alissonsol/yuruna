@@ -1,15 +1,15 @@
 #!/bin/bash
-# Version: 2026.08.14
+# Version: 2026.08.16
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
 # Bring up the Yuruna stash service daemon: build the in-repo Go stash-service,
 # bind :22, and register its systemd unit (the cifs share is mounted by the
-# cloud-init bring-up, not here). User guide:
-# --- REGION: https://yuruna.link/stash-guide
+# cloud-init bring-up, not here).
 # With no stash storage configured (e.g. a dev/test guest with no NAS) the
 # daemon falls back to a local share folder -- it still starts, but data is
 # then NOT durable across reimage.
+# --- REGION: https://yuruna.link/stash-guide
 set -euo pipefail
 
 # cloud-init's runcmd runs this as root with a MINIMAL environment where
@@ -54,7 +54,7 @@ else
 fi
 echo "Service user: $SERVICE_USER"
 
-# --- REGION: Resolve the StashFolder from the stash storage env
+# --- REGION: Storage paths
 # Read values WITHOUT sourcing the file: a sourced env file aborts the
 # whole script on a stray quote.
 # Values are single-quoted by the host-side bake; sed-extract them.
@@ -67,6 +67,12 @@ get_env() {
 }
 NETWORK_PATH=$(get_env YSTASH_NAS_NETWORK_PATH)
 HOST_ID=$(get_env YSTASH_NAS_HOST_ID)
+# A guest with no stash storage in its seed still carries this host's identity in
+# /etc/yuruna/host.env (the file the pool services read, refreshed by
+# yuruna-host-locate). Without it the presence beacon has no identity to announce
+# under and the host never appears in the dashboard's Extension hosts row.
+# Unquoted values there, unlike the single-quoted stash env above.
+[ -n "$HOST_ID" ] || HOST_ID="$(sed -n 's/^YURUNA_HOST_ID=//p' /etc/yuruna/host.env 2>/dev/null | head -1 || true)"
 MOUNT=$(get_env YSTASH_NAS_MOUNT)
 MOUNT=${MOUNT:-/mnt/ystash-nas}
 
@@ -74,11 +80,12 @@ METADATA_DIR=/var/lib/stash-service/metadata
 BUFFER_DIR=/var/lib/stash-service/buffer
 LOCAL_FALLBACK=/var/lib/stash-service/share-local
 
+# --- REGION: Service tunables
 # UI/API HTTP listener + pool knobs, operator-overridable via the environment.
 # HTTP_ADDR binds :80 (the unprivileged service user holds
 # CAP_NET_BIND_SERVICE, set below, which covers any port <1024).
 # AGGREGATOR_URL is the pool-aggregator-service base (e.g. https://<proxy>:9400) for
-# the remote-host deep-link (§3.4) and the presence beacon (§4.7). The
+# the remote-host deep-link and the presence beacon. The
 # operator export wins; otherwise the host-baked seed value from
 # /etc/yuruna/pool.env; empty leaves both best-effort/off.
 # '-' (not ':-') so an operator who exports STASH_HTTP_ADDR='' to DISABLE the
@@ -97,11 +104,12 @@ else
   echo "WARNING: no aggregator URL resolved (STASH_AGGREGATOR_URL unset, /etc/yuruna/pool.env carries none)."
   echo "         Browsing and creating still work, but nothing can be DELETED through the UI."
 fi
-# Presence beacon (§4.7): the daemon self-announces to the aggregator on
+# Presence beacon: the daemon self-announces to the aggregator on
 # boot, every PRESENCE_INTERVAL, and at shutdown, so the pool dashboard's
 # Extension hosts row exists without the owning host's status service. The
 # announce runs under the HOST's identity (HOST_ID, extracted above from the
-# stash storage env); no stash storage -> no host identity -> beacon off.
+# stash storage env, or /etc/yuruna/host.env when that carries none); with
+# neither the beacon is off.
 PRESENCE_INTERVAL="${STASH_PRESENCE_INTERVAL:-15m}"
 # STASH_BUILD_TAGS lets the VM image opt into the magika detection backend
 # (`-tags magika`); that build also needs ONNX Runtime + the model assets
@@ -121,7 +129,7 @@ else
   echo "         Data stored here is NOT durable across a VM reimage."
 fi
 
-# --- REGION: Locate the daemon source under the cloned repo
+# --- REGION: Locate the daemon source
 # update.sh / the cloud-init bring-up clones the framework into a home dir.
 # Build from wherever the server/go.mod lives so the binary tracks the
 # framework checkout this cycle deployed.
@@ -141,20 +149,21 @@ locate_server_dir() {
   done
   return 1
 }
-SERVER_SRC=$(locate_server_dir) || {
+SERVER_DIR=$(locate_server_dir) || {
   echo "Could not find test/extension/stash-service/server/go.mod under any /home/*/yuruna." >&2
   echo "Ensure the yuruna framework is cloned on this VM before running this script." >&2
   exit 1
 }
-echo "Daemon source: $SERVER_SRC"
+echo "Daemon source: $SERVER_DIR"
 
 # Framework version (repo root is four levels above server/) — stamped into
 # the binary so the UI header shows it (stash-guide / status pages style).
 # Read before staging; empty/missing falls back to "dev".
-VERSION_STR=$(cat "$SERVER_SRC/../../../../VERSION" 2>/dev/null | head -n1 | tr -d '[:space:]' || true)
+VERSION_STR=$(cat "$SERVER_DIR/../../../../VERSION" 2>/dev/null | head -n1 | tr -d '[:space:]' || true)
 [ -n "$VERSION_STR" ] || VERSION_STR=dev
 echo "Framework version: $VERSION_STR"
 
+# --- REGION: Package dependencies
 echo ""
 echo -e "\e[1;36m==== Go toolchain ====\e[0m"
 if command -v apt_retry >/dev/null 2>&1; then
@@ -171,15 +180,15 @@ go version
 # $HOME/go. go.sum is committed, so DO NOT run `go mod tidy` (it needs the
 # network to recompute the graph); `go build` verifies against go.sum and
 # fetches any missing modules through the caching-proxy service.
-BUILD_DIR=/tmp/stash-build
+BUILD=/tmp/stash-build
 echo ""
-echo -e "\e[1;36m==== Staging source to $BUILD_DIR ====\e[0m"
-sudo rm -rf "$BUILD_DIR"
-sudo cp -r "$SERVER_SRC" "$BUILD_DIR"
-sudo chown -R "$(id -un):$(id -gn)" "$BUILD_DIR"
+echo -e "\e[1;36m==== Staging source to $BUILD ====\e[0m"
+sudo rm -rf "$BUILD"
+sudo cp -r "$SERVER_DIR" "$BUILD"
+sudo chown -R "$(id -un):$(id -gn)" "$BUILD"
 echo ""
 echo -e "\e[1;36m==== stash-service ====\e[0m"
-cd "$BUILD_DIR"
+cd "$BUILD"
 attempts=3
 delay=10
 for try in $(seq 1 "$attempts"); do
@@ -195,41 +204,30 @@ for try in $(seq 1 "$attempts"); do
   delay=$((delay * 2))
 done
 
+# --- REGION: Install the binary
 echo ""
 echo -e "\e[1;36m==== /usr/local/bin/stash-service ====\e[0m"
-sudo install -m 0755 -o root -g root "$BUILD_DIR/stash-service" /usr/local/bin/stash-service
-# Allow the unprivileged service user to bind the privileged ports :22
-# (SCP/SFTP sink) AND :80 (UI/API). Under the systemd unit the LOAD-BEARING
-# grant is AmbientCapabilities=CAP_NET_BIND_SERVICE: with NoNewPrivileges=true
-# the kernel ignores file capabilities at execve, so this setcap does NOT
-# reach the systemd-launched process. The setcap is the fallback for a
-# DIRECT (non-systemd) launch, where no_new_privs is not set.
-sudo setcap 'cap_net_bind_service=+ep' /usr/local/bin/stash-service
+sudo install -m 0755 -o root -g root "$BUILD/stash-service" /usr/local/bin/stash-service
+# Fallback for a DIRECT (non-systemd) launch of this binary, which still has to
+# bind :22 (SCP/SFTP sink) and :80 (UI/API); under the unit's
+# NoNewPrivileges=true the grant that reaches the daemon is AmbientCapabilities,
+# so a failure here is not fatal.
+# --- REGION: https://yuruna.link/memory#why-the-service-daemons-bind-low-ports-with-ambientcapabilities-not-setcap
+sudo setcap 'cap_net_bind_service=+ep' /usr/local/bin/stash-service || true
 
-# §4.2 mandates the custom daemon binds :22, so the OS sshd has to go.
-#
-# MASK, not disable. `disable` only removes the unit's own [Install] symlinks,
-# leaving it startable by anything that pulls it in by name -- and stock Ubuntu's
-# cloud-init-network.service carries `Wants=sshd.service`. A disabled sshd is
-# therefore back on EVERY later boot, takes :22 before the daemon is up, and the
-# daemon dies on `bind: address already in use` without ever reaching its :80
-# listener, so systemd restart-loops a stash service that answers on no port at
-# all -- invisible at VM-build time, where the disable ran after cloud-init had
-# already finished. A masked unit is symlinked to /dev/null and cannot be
-# started by anything.
-#
-# Nothing later needs OpenSSH: the deploy is deliberately the last step of the
-# bring-up, because afterwards :22 speaks the stash SCP/SFTP protocol.
+# --- REGION: Mask the OS sshd to free port 22
+# --- REGION: https://yuruna.link/memory#why-the-stash-guest-masks-the-os-sshd-instead-of-disabling-it
+# The daemon binds :22 itself, so the OS sshd has to go. MASK, not disable: a
+# disabled unit is still pulled in by cloud-init-network.service's
+# `Wants=sshd.service`, and a masked one is symlinked to /dev/null.
 echo ""
 echo -e "\e[1;36m==== Masking OS sshd to free port 22 ====\e[0m"
 sudo systemctl mask --now ssh.service 2>/dev/null || true
 sudo systemctl mask --now ssh.socket  2>/dev/null || true
-# The alias cloud-init actually names. Masking the target unit normally covers
-# it too, but masking the alias as well costs nothing and does not depend on
-# how the distribution wires the alias.
+# The alias cloud-init actually names.
 sudo systemctl mask --now sshd.service 2>/dev/null || true
 
-# --- REGION: VM-local dirs (metadata index + offline buffer), owned by the user
+# --- REGION: Storage dirs
 echo ""
 echo -e "\e[1;36m==== VM-local storage: /var/lib/stash-service ====\e[0m"
 sudo mkdir -p "$METADATA_DIR" "$BUFFER_DIR"
@@ -240,7 +238,7 @@ sudo chown -R "$SERVICE_USER":"$SERVICE_USER" /var/lib/stash-service
 echo "  metadata: $METADATA_DIR"
 echo "  buffer  : $BUFFER_DIR"
 
-# --- REGION: /etc/yuruna/stash.env (consumed by the systemd unit)
+# --- REGION: Environment file
 echo ""
 echo -e "\e[1;36m==== /etc/yuruna/stash.env ====\e[0m"
 sudo mkdir -p /etc/yuruna
@@ -257,7 +255,7 @@ ENV
 
 # --- REGION: systemd unit
 # After= the cifs mount unit so the daemon starts once the share is up;
-# NOT Requires=/Wants= it -- with the offline buffer (§8.4) the daemon is
+# NOT Requires=/Wants= it -- with the offline buffer the daemon is
 # meant to start and buffer even when the share is down, and on a dev
 # guest with no NAS the mnt-ystash\x2dnas.mount unit doesn't exist (After= a
 # missing unit is a harmless no-op).
@@ -283,7 +281,7 @@ StandardError=journal
 # (ambient caps survive NoNewPrivileges, unlike the setcap file capability).
 AmbientCapabilities=CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
-# Mild hardening; the service is trusted-network only (§11), but these
+# Mild hardening; the service is trusted-network only, but these
 # cost nothing. ReadWritePaths keeps the VM-local dirs + the share mount
 # writable under ProtectSystem. The share mount is '-'-prefixed so a
 # missing path is ignored rather than fatal: in the no-stash storage dev
@@ -299,6 +297,7 @@ ReadWritePaths=/var/lib/stash-service -$MOUNT
 WantedBy=multi-user.target
 UNIT
 
+# --- REGION: Start the service and wait for readiness
 echo ""
 echo -e "\e[1;36m==== stash-service.service start and enable ====\e[0m"
 sudo systemctl daemon-reload

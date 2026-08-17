@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42b1e7d3-c9a4-4f82-a571-6c8d3e5f9a01
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -563,6 +563,7 @@ function Save-UbuntuServerImage {
     }
 
     if (-not $agentServed) {
+        # --- REGION: Resolve the published image URL
         $resolved = Resolve-UbuntuServerImage -ReleaseCodename $ReleaseCodename -Arch $Arch -PreferDaily:$PreferDaily
         if (-not $resolved) {
             $url = Get-UbuntuServerImageManifestUrl -ReleaseCodename $ReleaseCodename -Arch $Arch
@@ -581,6 +582,7 @@ function Save-UbuntuServerImage {
 
         New-Item -ItemType Directory -Force -Path $DownloadDir | Out-Null
 
+        # --- REGION: https://yuruna.link/guest-image-setup#skip-if-same-source-guard
         # Same-source guard: prefer the host-shipped Test-DownloadAlreadyCurrent
         # (4-line sentinel; the writer below matches it), fall back to the bundled
         # Test-UbuntuServerImageAlreadyCurrent (3-line) for a bare caller with no
@@ -597,6 +599,7 @@ function Save-UbuntuServerImage {
             return 'skipped'
         }
 
+        # --- REGION: Download the image
         Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
         Write-Information "Downloading $sourceUrl to $downloadFile" -InformationAction Continue
         try {
@@ -610,6 +613,7 @@ function Save-UbuntuServerImage {
         }
         $downloadedSize = (Get-Item -LiteralPath $downloadFile).Length
 
+        # --- REGION: Verify the published checksum
         if (-not (Test-UbuntuServerImageChecksum -ChecksumUrl $checksumUrl -IsoFileName $isoFileName -DownloadFile $downloadFile)) {
             # Hard-fail on a genuine checksum MISMATCH (corruption or tamper,
             # never benign) and on a SHA256SUMS fetch still failing after the
@@ -622,6 +626,7 @@ function Save-UbuntuServerImage {
         }
     }
 
+    # --- REGION: Preserve previous and finalize
     $previousFile = Join-Path $DownloadDir "$BaseImageName.previous.iso"
     Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
     if (Test-Path -LiteralPath $baseImageFile) {
@@ -654,6 +659,8 @@ function Save-UbuntuServerImage {
     Write-Information "Download complete: $baseImageFile" -InformationAction Continue
     return 'downloaded'
 }
+
+# --- REGION: Exports
 
 Export-ModuleMember -Function `
     Get-UbuntuServerImageManifestUrl, `

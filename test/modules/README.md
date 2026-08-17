@@ -94,7 +94,7 @@ tree:
 |---|---|---|---|
 | `Yuruna.Log` | [`automation/Yuruna.Log.psm1`](../../automation/Yuruna.Log.psm1) | **Stream interceptor.** Shadows `Write-Output`, `Write-Error`, `Write-Warning`, `Write-Debug`, `Write-Verbose`, `Write-Information` so every framework call that goes to the operator's console also gets teed into `$global:__YurunaLogFile`. | Doesn't manage filesystem layout; doesn't tally PASS/FAIL. |
 | `Test.Log` | [`Test.Log.psm1`](Test.Log.psm1) | **Cycle-filesystem owner.** Creates `test/status/log/<cycleFolder>/`, manages per-guest subfolders (`Get-CycleGuestDataFolder`, `Get-CycleScreenDir`), appends to `cycle.events.ndjson` (`Write-CycleNdjsonEvent`), writes `manifest.json` at cycle close (`Write-CycleManifest`). | Doesn't wrap any `Write-*` cmdlet; doesn't print to the console directly. |
-| `Test.Output` | [`Test.Output.psm1`](Test.Output.psm1) | **Per-script PASS/FAIL tally.** `Write-Pass` / `Write-Fail` / `Write-Warn` / `Write-Info` / `Write-Section` increment counters in a script-scope state object; `Write-Summary` prints a banner + final pass/fail count; `Exit-WithSummary` exits 0/1 accordingly. Used by `Test-Config.ps1`, `Test-Configuration.ps1`, `Test-Requirement.ps1`. | Doesn't touch the cycle folder; doesn't shadow standard cmdlets. |
+| `Test.Output` | [`Test.Output.psm1`](Test.Output.psm1) | **Per-script PASS/FAIL tally.** `Write-Pass` / `Write-Fail` / `Write-Warn` / `Write-Info` / `Write-Section` increment counters in a script-scope state object; `Write-Summary` prints a banner + final pass/fail count; `Exit-WithSummary` exits 0/1 accordingly. Used by `Test-Config.ps1` and `Test.ConfigValidator.psm1`. | Doesn't touch the cycle folder; doesn't shadow standard cmdlets. |
 
 ### Drift scenarios this section prevents
 
@@ -126,6 +126,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.14
+Last review: 2026.08.16
 
 Back to [Yuruna](../../README.md)

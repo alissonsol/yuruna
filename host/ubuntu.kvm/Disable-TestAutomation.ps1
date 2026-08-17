@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 424c8e37-1b52-4f6d-8c07-e5d29a3b7104
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -57,6 +57,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 
+# --- REGION: Platform guard
 if (-not $IsLinux) {
     Write-Error 'Disable-TestAutomation.ps1 (host/ubuntu.kvm) only runs on Linux.'
     exit 1
@@ -77,13 +78,14 @@ $state = Read-HostAutomationState
 if ($state) {
     Write-Information "Restoring from the capture taken at $($state.capturedUtc)."
 } else {
-    Write-Warning 'No pre-automation capture on this host (it was enabled before the capture shipped, or the file was removed).'
+    Write-Warning 'No pre-automation capture on this host (Enable-TestAutomation did not write one, or the file was removed).'
     Write-Warning 'Only the ufw status-port rule will be removed -- it is provably ours. Group membership, the $HOME ACL, libvirtd/virtlogd and the GNOME keys are left exactly as they are, and reported.'
 }
 
 $restored = [System.Collections.Generic.List[string]]::new()
 $skipped  = [System.Collections.Generic.List[string]]::new()
 
+# --- REGION: Script-local helpers
 # Thin local shim over the shared driver so the three per-host scripts stay
 # readable: -State, -Cmdlet and the two lists are the same on every call.
 function Restore-Knob {
@@ -125,7 +127,7 @@ foreach ($t in @(
     }.GetNewClosure()
 }
 
-# --- REGION: host clock
+# --- REGION: Host clock
 Restore-Knob -Name 'timedatectl/ntp' -Description 'timedatectl NTP' -Apply {
     param($v)
     $onOff = if ("$v" -match '^(yes|active|true)$') { 'true' } else { 'false' }
@@ -148,7 +150,7 @@ foreach ($unit in @('libvirtd', 'virtlogd')) {
     }.GetNewClosure()
 }
 
-# --- REGION: group membership
+# --- REGION: Group membership
 # Removed ONLY when the capture proves this user was not a member before. A user
 # who was already in 'libvirt' before ever meeting Yuruna keeps that membership.
 foreach ($grp in @('libvirt', 'kvm')) {
@@ -217,7 +219,7 @@ if (-not $ufwCmd) {
     }
 }
 
-# --- REGION: services (opt-in)
+# --- REGION: Services (opt-in)
 if ($StopServices) {
     foreach ($svc in @('CachingProxyService', 'StashService', 'PoolControlService', 'DownloadAgentService')) {
         $script = Join-Path $RepoRoot "test/Stop-${svc}VM.ps1"
@@ -229,7 +231,7 @@ if ($StopServices) {
     }
 }
 
-# --- REGION: report
+# --- REGION: Report
 Write-DisableReport -Platform 'ubuntu.kvm' -Restored $restored -Skipped $skipped
 
 Write-Output ''

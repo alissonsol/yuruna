@@ -20,32 +20,13 @@
       GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} nomodeset console=tty0 console=ttyS0,115200"
       GRUBCFG
 # === YURUNA_OVERLAY_HOST_AGENT_PKG ===
-    # Deliberately empty: qemu-guest-agent is installed from the late-command
-    # section below instead. Listing it here puts it in the autoinstall
-    # `packages:` set, where a retrieval failure is FATAL -- curtin reports
-    # `system-install --download-only` exit 100, subiquity aborts, and the guest
-    # never reaches a login prompt, so the whole build is lost over a capability
-    # that is only an optimization. It is also the one entry here that lives in
-    # `universe` rather than `main`, so it is the one that needs the network
-    # mirror instead of the ISO.
+    # --- REGION: https://yuruna.link/vmconfig#universe-packages-go-in-late-commands-not-packages
+    # Deliberately empty: a retrieval failure in `packages:` is FATAL and loses
+    # the whole build over an optimization.
 # === YURUNA_OVERLAY_LATE_HOST_AGENT ===
-    # qemu-guest-agent answers `virsh domifaddr --source agent`. Without it the
-    # host can only learn this guest's address from sources it does not control:
-    # the lease source is empty because guests attach to a bridge-forward network
-    # where libvirt is not the DHCP server, and the arp source is a passive read
-    # of a kernel cache that holds an entry only while the guest happens to be
-    # talking to this host. The agent is the one source that answers on demand.
-    #
-    # Both commands tolerate failure, and that is the whole point. Discovery
-    # degrades to the host neighbour rung and its bounded refresh when the agent
-    # is missing, which works; an aborted late-command phase fails the entire
-    # install, which does not. Installing here also resolves against the TARGET's
-    # sources, which carry universe, rather than whatever the installer
-    # environment has enabled while it is processing `packages:`.
-    #
-    # That difference is not theoretical: the base file installs
-    # iptables-persistent -- also a universe package -- through this same
-    # `curtin in-target ... apt-get install` route, and it succeeds on hosts
-    # where the same package name in `packages:` does not resolve at all.
+    # --- REGION: https://yuruna.link/vmconfig#universe-packages-go-in-late-commands-not-packages
+    # --- REGION: https://yuruna.link/network#why-the-guest-agent-is-asked-first
+    # Both commands tolerate failure by design: discovery degrades to the host
+    # neighbour rung, while an aborted late-command fails the entire install.
     - curtin in-target --target=/target -- env DEBIAN_FRONTEND=noninteractive apt-get install -y qemu-guest-agent || true
     - curtin in-target --target=/target -- systemctl enable qemu-guest-agent.service || true

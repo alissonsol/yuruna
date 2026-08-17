@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42b8d1f3-6a4c-4e29-9b57-0d3e2f6a8c15
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -74,11 +74,11 @@ Describe 'Remove-PoolHost' {
         } finally { Remove-Item -Recurse -Force -LiteralPath $f.Tmp -ErrorAction SilentlyContinue }
     }
 
-    It 'accepts the hostId as the dashboard renders it (GUID-dashed)' {
+    It 'accepts the hostId as it is shown to an operator (GUID-dashed)' {
         $f = New-RphFixture
         try {
-            # Same 8-4-4-4-12 split the pool dashboard's Host ID value mapping applies,
-            # so this is literally what an operator copies off the panel.
+            # The 8-4-4-4-12 split every surface reveals a FULL id with, so this is
+            # literally what an operator copies off a panel or a page.
             $dashed = $f.Id -replace '^(.{8})(.{4})(.{4})(.{4})(.{12})$', '$1-$2-$3-$4-$5'
             Assert-True ($dashed -ne $f.Id) 'the fixture id really is reformatted'
             & pwsh -NoProfile -File $script:rph -HostId $dashed -ConfigPath $f.CfgPath *> $null

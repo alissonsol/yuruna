@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456706
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -90,7 +90,7 @@ function Resolve-LogLevel {
 # inside a cycle run via Resolve-RunnerLogLevel.
 Resolve-LogLevel
 
-# === Resolve paths ===
+# --- REGION: Resolve paths
 # Track/log dirs come from Test.YurunaDir; override with
 # $env:YURUNA_RUNTIME_DIR / $env:YURUNA_LOG_DIR. Defaults: test/status/runtime/
 # and test/status/log/, both served by the status HTTP server.
@@ -148,7 +148,7 @@ $StatusFile = Join-Path $env:YURUNA_RUNTIME_DIR "status.json"
 # ConfigPath was resolved by Initialize-YurunaEntryPoint above.
 $TemplatePath = Join-Path $TestRoot "test.config.yml.template"
 
-# === Single-instance guard ===
+# --- REGION: Single-instance guard
 # Defensive: if another Invoke-TestRunner.ps1 (the outer) is running,
 # stop it and wipe stranded test VMs. The normal call path is the
 # outer spawning THIS inner with YURUNA_RUNNER_RELAUNCH=1 -- in which
@@ -203,7 +203,7 @@ if ($env:YURUNA_RUNNER_RELAUNCH -ne '1') {
     }
 }
 
-# === Inner PID + heartbeat ============================================
+# --- REGION: Inner PID + heartbeat
 # inner.pid lets the outer's watchdog target the inner pwsh by PID even
 # though the outer spawns it via the call-operator (which doesn't return
 # a Process handle). Written unconditionally on every inner start, regard-
@@ -250,7 +250,7 @@ if (-not $innerPidWritten) {
 # diagnostics.
 Start-RunnerHeartbeat -Path $HeartbeatFile
 
-# === Unattended contract ===
+# --- REGION: Unattended contract
 # The outer spawns this inner with the CALL OPERATOR, so the inner inherits the
 # launch terminal. Any prompt it raises therefore blocks the entire host until
 # the watchdog kills it -- and because runner.heartbeat is written by a
@@ -296,7 +296,7 @@ Write-RunnerPhase -Phase 'bootstrap'
 # spawned from this runner inherit the value from the env block and apply the
 # same severity cascade.
 
-# === Import all modules (suppress engine verbose noise during imports) ===
+# --- REGION: Import all modules (suppress engine verbose noise during imports)
 $savedVerbose = $global:VerbosePreference
 $global:VerbosePreference = "SilentlyContinue"
 
@@ -326,7 +326,7 @@ if (Test-Path $yurunaRetryModule) {
 
 $global:VerbosePreference = $savedVerbose
 
-# === Bootstrap status.json from template if missing ===
+# --- REGION: Bootstrap status.json from template if missing
 if (-not (Test-Path $StatusFile)) {
     if (Test-Path $StatusTmpl) {
         Copy-Item -Path $StatusTmpl -Destination $StatusFile
@@ -349,7 +349,7 @@ if (-not (Test-Path $StatusFile)) {
 # cycle, keeping the parse-cache + reloadable-knob rules in one tested place.
 $script:RunnerCfgState = New-RunnerConfigState -CmdLineLogLevel $script:CmdLineLogLevel -CycleDelaySecondsFallback $CycleDelaySeconds
 
-# === Read config (syncs against template first) ===
+# --- REGION: Read config (syncs against template first)
 if (-not (Test-Path $ConfigPath) -and -not (Test-Path $TemplatePath)) {
     Write-Error "Neither config nor template found. Config: $ConfigPath Template: $TemplatePath"; exit $ExitFailure
 }
@@ -360,7 +360,7 @@ $script:Config = $Config
 # cycle run via Resolve-RunnerLogLevel.
 Resolve-LogLevel
 
-# === Phase 0: Bootstrap ===
+# --- REGION: Bootstrap
 $HostType = Get-HostType
 if (-not $HostType) { exit $ExitFailure }
 Write-Output "Host type: $HostType"
@@ -397,7 +397,7 @@ if (Get-Command Update-StashServiceMarkerAddress -ErrorAction SilentlyContinue) 
 
 if (-not (Assert-HostConditionSet -HostType $HostType)) { exit $ExitFailure }
 
-# === UTM concurrent-VM pre-flight ===========================================
+# --- REGION: UTM concurrent-VM pre-flight
 # On some macOS versions vmnet-shared puts each vmnet session on a separate
 # host-side bridge (bridge100, bridge101, ...) that don't route between each
 # other, so a foreign concurrent VM can split the test guests onto a
@@ -942,7 +942,7 @@ $null = Start-YurunaStatusServiceIfEnabled -Config $Config -StartScript $startSc
 # (Step 2.6) on the caching-proxy-service host -- not the test runner. A plain test-runner
 # host that never brings up a caching-proxy service must not start it.
 
-# === Graceful shutdown support ===
+# --- REGION: Graceful shutdown support
 # The CancelKeyPress contract lives in Test.Prelude's
 # Register-/Unregister-EntryPointCancelHandler so the register/poll/tear-down
 # shape stays identical across every entry point. The returned hashtable is the
@@ -954,7 +954,7 @@ $script:ShutdownState = Register-EntryPointCancelHandler -SourceIdentifier Yurun
 $script:ActiveVMName      = $null
 $script:CycleFinalized    = $true    # have Complete-Run/Stop-LogFile been called?
 
-# === Continuous test loop ===
+# --- REGION: Continuous test loop
 # The per-cycle work runs in Invoke-RunnerInnerCycle (Test.RunnerInnerLoop.psm1).
 # The State hashtable threads paths, flags, the shared ShutdownState reference,
 # and the config-reload state in, and carries the cycle outcome + gating
@@ -1007,7 +1007,7 @@ try {
 }
 Write-InnerLog "post-loop cleanup: gating state saved"
 
-# === Heartbeat cleanup ===
+# --- REGION: Heartbeat cleanup
 # Dispose the threadpool timer first so it can't race a final file write
 # against the inner.pid removal that the outer's watchdog reads to know
 # we exited cleanly. Errors are swallowed -- this runs after the cycle
@@ -1054,7 +1054,7 @@ try {
 
 }  # end of: if YURUNA_RUNNER_RELAUNCH -ne '1' (pidfile cleanup)
 
-# === Failure notification (only reached when stopOnFailure breaks the loop) ===
+# --- REGION: Failure notification (only reached when stopOnFailure breaks the loop)
 if (-not $OverallPassed -and $FailedGuest) {
     Write-Output ""
     Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"

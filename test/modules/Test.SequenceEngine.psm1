@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456770
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,7 +50,7 @@ Import-Module (Join-Path $PSScriptRoot 'Test.SequenceVariable.psm1') -Global -Fo
 # resolve the moved functions transitively.
 Import-Module (Join-Path $PSScriptRoot 'Test.SequenceResolve.psm1') -Global -Force
 
-# -- Wire the host driver -----------------------------------------------------
+# --- REGION: Wire the host driver
 # Invoke-Sequence's body and Wait-ForText / Invoke-TapOn call
 # contract functions (Get-VMScreenshot, Restart-VMConsole) that live in
 # Yuruna.Host. When this module loads inside a child pwsh process spawned
@@ -72,7 +72,7 @@ try {
     Write-Warning "Invoke-Sequence: Initialize-YurunaHost failed at module load -- contract calls (Restart-VMConsole, Get-VMScreenshot) will fail. Detail: $($_.Exception.Message)"
 }
 
-# -- Load global defaults from test.config.yml ------------------------------
+# --- REGION: Load global defaults from test.config.yml
 # The config file lives one level up from this module (test/test.config.yml).
 $script:DefaultCharDelayMs      = 10
 $script:DefaultVncPort          = 5900
@@ -98,7 +98,7 @@ $script:DefaultScreenHistorySize = 5
 # lands once. Imported with -Global by Test.Prelude's module sets,
 # so callers in this file resolve the function via the global scope.
 
-# -- Progress wrapper ---------------------------------------------------------
+# --- REGION: Progress wrapper
 # Invoke-Sequence runs inline in the runner's interactive host (the cycle
 # planner dispatches Invoke-SequenceByName directly from Test.Start-GuestOS /
 # Test.Start-GuestWorkload -- no child pwsh in the path), so Write-Progress works
@@ -205,7 +205,7 @@ function Send-Key {
     return (Invoke-HostIODispatch -HostType $HostType -Action 'Send-Key' -Arguments @{ VMName=$VMName; KeyName=$KeyName })
 }
 
-# -- Action: type / typeAndEnter ----------------------------------------------
+# --- REGION: Action: type / typeAndEnter
 
 
 function Send-Text {
@@ -235,7 +235,7 @@ function Send-Text {
 }
 
 
-# -- Action: tapOn -- OCR-located mouse click ---------------------------------
+# --- REGION: Action: tapOn -- OCR-located mouse click
 #
 # Button-focus navigation via Tab keystrokes is brittle: initial focus depends
 # on splash animation state, async-loaded widgets, and installer redesigns,
@@ -554,7 +554,7 @@ function Save-OcrSidecar {
     Set-Content -Path $ocrPath -Value ($Sections -join "`n") -Encoding UTF8 -ErrorAction SilentlyContinue
 }
 
-# -- Action: waitForText ------------------------------------------------------
+# --- REGION: Action: waitForText
 
 function Get-OcrDegradationGrace {
     <#
@@ -643,6 +643,7 @@ function Wait-ForText {
     $script:Fail.WaitForTextMatchedFailurePattern = $null
     $script:Fail.WaitForTextOcrTail        = $null
     $script:Fail.WaitForTextPatternsSought = [string[]]@()
+    $script:Fail.WaitForTextFreshWindowNearMiss = [string[]]@()
     if ($HostType) { Write-Debug "Wait-ForText: -HostType '$HostType' is informational; Yuruna.Host dispatches Get-VMScreenshot internally." }
 
     $patternLabel = $Pattern[0]
@@ -717,6 +718,11 @@ function Wait-ForText {
     $recentFrames   = [System.Collections.Generic.List[string]]::new()
     $lastOcrText = ''
     $lastCapturePath = $null
+    # Kept so the timeout path can ask, per engine, whether the sought text was
+    # read but fell outside the freshMatch window. $lastOcrText alone cannot
+    # answer that: it is every engine's text joined, so line offsets across the
+    # join are meaningless and the window is a per-engine measurement.
+    $lastEngineResults = $null
     # Bounded no-text self-heal: count consecutive polls where OCR finds no
     # text at all (a likely sign the capture feed is stale -- e.g. a dropped
     # VNC handle returning a frozen frame -- rather than the screen being
@@ -815,6 +821,7 @@ function Wait-ForText {
                     Save-OcrSidecar -ScreenshotPath $rawScreenPath -Sections $ocrSections
 
                     if ($result.AnyText) { $lastOcrText = $result.AnyText }
+                    $lastEngineResults = $result.EngineResults
 
                     if ($result.Match) {
                         Write-Debug "      Text detected at end of screen (combine=$combineMode)"
@@ -1005,6 +1012,21 @@ function Wait-ForText {
             $script:Fail.WaitForTextPatternsSought = [string[]]@($Pattern)
         }
 
+        # Before reporting "not found", check whether the engines actually read
+        # it and the freshMatch window is what hid it. Reporting a bare timeout
+        # in that case sends the operator to debug a guest that did its job, and
+        # -- where the caller retries -- replays a step that already ran.
+        if ($FreshMatch -and $lastEngineResults -and (Get-Command Get-OcrFreshWindowNearMiss -ErrorAction SilentlyContinue)) {
+            [string[]]$nearMiss = @(Get-OcrFreshWindowNearMiss -EngineResult $lastEngineResults `
+                -Pattern $Pattern -FreshMatchTailLines $FreshMatchTailLines)
+            if ($nearMiss.Count -gt 0) {
+                $script:Fail.WaitForTextFreshWindowNearMiss = $nearMiss
+                foreach ($line in $nearMiss) {
+                    Write-Warning "      freshMatch near miss: $line"
+                }
+            }
+        }
+
         if ($deadlineGrantedSeconds -gt 0) {
             $waited = [int]([DateTime]::UtcNow - $startUtc).TotalSeconds
             Write-Warning "Text '$patternLabel' not found within ${TimeoutSeconds}s (+${deadlineGrantedSeconds}s degradation grace; waited ~${waited}s)"
@@ -1020,7 +1042,7 @@ function Wait-ForText {
     }
 }
 
-# -- Action: takeScreenshot ---------------------------------------------------
+# --- REGION: Action: takeScreenshot
 
 function Save-DebugScreenshot {
     <#
@@ -1043,7 +1065,7 @@ function Save-DebugScreenshot {
     return $false
 }
 
-# -- Main executor ------------------------------------------------------------
+# --- REGION: Main executor
 
 <#
 .SYNOPSIS
@@ -1632,7 +1654,7 @@ function Invoke-Sequence {
                          -AdditionalChildPath 'captures', 'sequences'
     $sequenceStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
-    # -- Recursive step executor ---------------------------------------------
+    # --- REGION: Recursive step executor
     # Wrapped as a script-block so the `retry` action case (below) can call
     # it on its inner `steps:` array, reusing the full per-step
     # infrastructure: pause checks, currentAction sidecar, progress ticks,
@@ -2059,7 +2081,7 @@ function Invoke-Sequence {
   }
 }
 
-# -- Host I/O provider registrations -----------------------------------------
+# --- REGION: Host I/O provider registrations
 # Registered in per-host singular-noun modules:
 #   Test.HostIO.HyperV.psm1   host.windows.hyper-v
 #   Test.HostIO.Utm.psm1      host.macos.utm
@@ -2072,7 +2094,7 @@ function Invoke-Sequence {
 # Get-HostIOProviderMatrix so the operator sees which actions are
 # wired on the current host before the cycle starts. See docs/host-io.md.
 
-# -- Sequence action metadata registrations ----------------------------------
+# --- REGION: Sequence action metadata registrations
 # Failure-label scriptblock convention: $Context carries Step (parsed YAML
 # step), Vars (variable scope), and ExpandVariable (live reference to
 # Expand-Variable; we pass it in so the registry module does NOT have to

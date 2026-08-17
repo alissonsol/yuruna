@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42d4a3b2-c1f0-4e89-5678-9a0b1c2d3e40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -419,7 +419,7 @@ function Assert-ScreenLock {
         Write-Debug "AutoLogOutDelay check failed: $_"
     }
 
-    # 8. System sleep + disk sleep -> Never. Display-sleep alone (sec 1) isn't
+    # 8. System sleep + disk sleep -> Never. Display sleep alone (the "Display sleep -> Never" region) isn't
     #    enough: a system/disk-sleep wake re-locks the screen on Ventura+
     #    regardless of screensaver settings. Set-MacHostConditionSet disables
     #    both, so the gate must re-verify them.
@@ -708,7 +708,7 @@ function Set-MacHostConditionSet {
     # say why they are advisory.
     $unmet = [System.Collections.Generic.List[string]]::new()
 
-    # -- 0. Elevation is a CAPABILITY, asked of the machine ---------------
+    # --- REGION: Pre-flight: elevation
     # Every privileged block below probes `sudo -n true` immediately before it
     # writes, and every write goes out with -n. The two facts an environment
     # variable could carry -- who started this run, whether somebody typed a
@@ -728,7 +728,7 @@ function Set-MacHostConditionSet {
         'sysadminctl -screenLock off (Sonoma+ unified screen lock)'
     ))
 
-    # -- 1. Display sleep -> Never (requires sudo) -------------------------
+    # --- REGION: Display sleep -> Never (requires sudo)
     # `pmset -g custom` reports the active profile; the writes below cover
     # every power source this machine HAS, so a single read of the current
     # value is enough to decide whether a write is needed.
@@ -762,7 +762,7 @@ function Set-MacHostConditionSet {
         Write-Information "Display sleep is already set to Never."
     }
 
-    # -- 2. Screen saver idle time -> 0 (disabled) -------------------------
+    # --- REGION: Screen saver idle time -> 0 (disabled)
     # MISSING idleTime key is NOT the same as 0: macOS falls back to
     # ~1200s built-in default. Skip write only when the key EXISTS and is
     # exactly "0"; any other case (missing, empty, other number) triggers
@@ -780,8 +780,8 @@ function Set-MacHostConditionSet {
         }
     }
 
-    # -- 3. Screen lock (password after screen saver) -> OFF ---------------
-    # Same "missing key != safe" as sec 2: some macOS versions default
+    # --- REGION: Screen lock (password after screen saver) -> OFF
+    # Same "missing key != safe" as the "Screen saver idle time -> 0" region: some macOS versions default
     # askForPassword to 1. Write 0 unless the key is explicitly "0".
     $askPw = & defaults read com.apple.screensaver askForPassword 2>$null
     $askPwRead = ($LASTEXITCODE -eq 0)
@@ -796,10 +796,11 @@ function Set-MacHostConditionSet {
         }
     }
 
-    # -- 2b. Screen saver idle -- per-host variant (Ventura+) --------------
+    # --- REGION: Screen saver idle -- per-host variant (Ventura+)
     # Modern macOS stores screensaver prefs in the ByHost domain. Without
-    # this, System Settings still shows non-zero idle time after sec 2 and
-    # the saver still kicks in. Same missing-key-is-unsafe logic as sec 2.
+    # this, System Settings still shows non-zero idle time after the
+    # "Screen saver idle time -> 0" region above and
+    # the saver still kicks in. Same missing-key-is-unsafe logic as that region.
     $ssIdleHost = & defaults -currentHost read com.apple.screensaver idleTime 2>$null
     $ssIdleHostRead = ($LASTEXITCODE -eq 0)
     if ($ssIdleHostRead -and "$ssIdleHost".Trim() -eq "0") {
@@ -813,8 +814,8 @@ function Set-MacHostConditionSet {
         }
     }
 
-    # -- 3b. Screen lock password -- per-host variant ---------------------
-    # Same missing-key-is-unsafe logic as sec 3.
+    # --- REGION: Screen lock password -- per-host variant
+    # Same missing-key-is-unsafe logic as the "Screen lock (password after screen saver) -> OFF" region.
     $askPwHost = & defaults -currentHost read com.apple.screensaver askForPassword 2>$null
     $askPwHostRead = ($LASTEXITCODE -eq 0)
     if ($askPwHostRead -and "$askPwHost".Trim() -eq "0") {
@@ -828,7 +829,7 @@ function Set-MacHostConditionSet {
         }
     }
 
-    # -- 3c. "Require password after sleep/screen saver begins" delay -----
+    # --- REGION: "Require password after sleep/screen saver begins" delay
     # Sonoma+ lock-screen pane. A very large delay prevents lock from
     # engaging even if something re-enables askForPassword.
     # ShouldProcess-gated like every other write in this function: these two
@@ -852,7 +853,7 @@ function Set-MacHostConditionSet {
         }
     }
 
-    # -- 3d. System sleep -> Never (requires sudo) -------------------------
+    # --- REGION: System sleep -> Never (requires sudo)
     # Display-sleep alone isn't enough: system sleep -> display locks on
     # wake regardless of screensaver settings.
     $currentSysSleep = "unknown"
@@ -879,6 +880,7 @@ function Set-MacHostConditionSet {
         Write-Information "System sleep is already set to Never."
     }
 
+    # --- REGION: Extended pmset guards
     # Extended pmset guards: Power Nap, standby, autopoweroff, hibernate
     # transitions hide UTM from CG enumeration on long runs. The guard list is
     # shared with Assert-ScreenLock (Get-MacPmsetGuardList) so the gate re-checks
@@ -947,7 +949,7 @@ function Set-MacHostConditionSet {
         }
     }
 
-    # -- 3g. Hot corners -- neutralize screen-saver / sleep / lock triggers --
+    # --- REGION: Hot corners -- neutralize screen-saver / sleep / lock triggers
     # Dock stores hot-corner actions under wvous-{tl,tr,bl,br}-corner.
     # A drifting mouse during an unattended test can land in a corner
     # and trigger screensaver / display-sleep / lock -- making the UTM
@@ -987,7 +989,7 @@ function Set-MacHostConditionSet {
         Write-Information "Hot corners: no dangerous bindings (screen-saver / sleep / lock) detected."
     }
 
-    # -- 3h. UTM.app lifetime: App Nap + last-window-closed ---------------
+    # --- REGION: UTM.app lifetime: App Nap + last-window-closed
     # macOS App Nap throttles background apps that haven't received
     # input. For UTM this can freeze the UI thread, stop updating the
     # window server, and drop the window from CGWindowListCopyWindowInfo
@@ -1030,14 +1032,14 @@ function Set-MacHostConditionSet {
         Write-Information "UTM.app already stays running after its last window closes."
     }
 
-    # -- 3i. Clear any stuck ScreenSaverEngine ----------------------------
+    # --- REGION: Clear any stuck ScreenSaverEngine
     # If a prior aborted run left the saver engaged, the engine process
     # may still be running when this script applies settings. Killing
     # is idempotent and harmless when nothing runs; swallow exit codes
     # so "no such process" isn't reported as failure.
     & killall ScreenSaverEngine 2>$null | Out-Null
 
-    # -- 3j. sysadminctl unified screen lock (Ventura+) -------------------
+    # --- REGION: sysadminctl unified screen lock (Ventura+)
     # `sysadminctl -screenLock` is the modern (macOS 13+) unified control
     # that System Settings > Lock Screen > "Require password after screen
     # saver begins or display is turned off" writes to.
@@ -1105,7 +1107,7 @@ function Set-MacHostConditionSet {
         Write-Information "sysadminctl unified screen lock is already disabled."
     }
 
-    # -- 3k. Auto-logout after inactivity (Security -> Advanced) -----------
+    # --- REGION: Auto-logout after inactivity (Security -> Advanced)
     # `com.apple.autologout.AutoLogOutDelay` (system-level) is the
     # "Log out after N minutes of inactivity" toggle in Lock Screen /
     # Security. macOS kicks the user back to loginwindow after the
@@ -1136,7 +1138,7 @@ function Set-MacHostConditionSet {
         Write-Information "Auto-logout after inactivity is already disabled."
     }
 
-    # -- 3l. Spaces "switch to a Space with open windows" toggle ----------
+    # --- REGION: Spaces "switch to a Space with open windows" toggle
     # When the harness calls `tell application "UTM" to activate` (the
     # AVF-guest keystroke fallback in Send-KeyUTM / Send-TextUTM), macOS
     # by default yanks the operator across Spaces to UTM's window -- which
@@ -1169,7 +1171,7 @@ function Set-MacHostConditionSet {
     Write-Information "      Combined with the AppleSpacesSwitchOnActivation toggle above, this lets"
     Write-Information "      Invoke-TestRunner activate UTM without yanking the operator off VS Code."
 
-    # -- 3m. Managed Configuration Profile detection (MDM override) -------
+    # --- REGION: Managed Configuration Profile detection (MDM override)
     # If MDM-managed, a Configuration Profile can enforce screen lock /
     # password delay / auto-logout at a level that OVERRIDES everything
     # above -- `defaults write` is silently ignored or reverted on next
@@ -1193,7 +1195,7 @@ function Set-MacHostConditionSet {
         Write-Debug "profiles list failed: $_"
     }
 
-    # -- 4. Accessibility -- trigger the system prompt if not granted -------
+    # --- REGION: Accessibility -- trigger the system prompt if not granted
     try {
         $jxa = "ObjC.import('ApplicationServices'); $.AXIsProcessTrusted();"
         $axResult = & osascript -l JavaScript -e $jxa 2>&1
@@ -1220,7 +1222,7 @@ $.AXIsProcessTrustedWithOptions(opts);
         Write-Warning "Could not check Accessibility status. Grant it manually in System Settings."
     }
 
-    # -- 5. Screen Recording -- preflight + first-run prompt ----------------
+    # --- REGION: Screen Recording -- pre-flight + first-run prompt
     # Separate TCC bucket from Accessibility. Needed so
     # CGWindowListCopyWindowInfo returns window titles (the harness matches
     # UTM's per-VM window by title) and so `screencapture -l <windowId>`
@@ -1256,7 +1258,7 @@ if (!granted) { $.CGRequestScreenCaptureAccess(); }
         Write-Warning "Could not check Screen Recording status. Grant it manually in System Settings."
     }
 
-    # -- 6. Host clock -> network time on + stepped -------------------------
+    # --- REGION: Host clock
     # Guests inherit this clock at power-on; see Sync-MacHostClock for what
     # a drifting one does to them. Its two calls already use sudo -n, so a cold
     # timestamp reports rather than prompts.
@@ -1439,11 +1441,9 @@ function Sync-MacHostClock {
     forced sync against the configured server. Returns @{ Succeeded; Message }.
 
     .DESCRIPTION
-    UTM/Virtualization.framework seeds each guest's clock from this host
-    at power-on, so a drifting host hands the same error to every VM it
-    starts and the guest's own NTP client then steps the clock mid-boot
-    -- which is what leaves a Kubernetes guest with pods Running but
-    never Ready and its NodePorts refusing.
+    UTM/Virtualization.framework seeds each guest's clock from this host at
+    power-on. What a drifted clock then does to a guest:
+    https://yuruna.link/test/harness#the-host-clock
 
     `systemsetup -setusingnetworktime on` is the durable half (it survives
     reboots); `sntp -sS` is the immediate half, because turning the daemon
@@ -1501,13 +1501,14 @@ function Assert-MacHostConditionSet {
     param([string]$HostType)
     if ($HostType -ne "host.macos.utm") { return $true }
 
+    # --- REGION: Accessibility, Screen Recording and screen-lock gates
     if (-not (Assert-Accessibility    -HostType $HostType)) { return $false }
     if (-not (Assert-ScreenRecording  -HostType $HostType)) { return $false }
     if (-not (Assert-ScreenLock       -HostType $HostType)) { return $false }
-    # Guests inherit this clock at power-on; see Write-HostClockDriftWarning.
-    # Warn-only and once per cycle: the repair needs a sudo credential this
-    # process cannot ask for, so a drifted host runs and says so rather than
-    # refusing every cycle until an operator notices.
+    # --- REGION: https://yuruna.link/test/harness#the-host-clock
+    # Warn-only and once per cycle: the repair needs a privilege this process
+    # cannot ask for, so a drifted host runs and says so rather than refusing
+    # every cycle until an operator notices.
     Write-HostClockDriftWarning -HostType $HostType
 
     return $true

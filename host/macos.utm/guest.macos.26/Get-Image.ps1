@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42e1f2a3-b4c5-4d67-e890-1f2a3b4c5d68
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -201,7 +201,7 @@ $build      = $fields[1].Trim()
 $version    = $fields[2].Trim()
 Write-Output "Apple published macOS $version (build $build): $sourceUrl"
 
-# --- REGION: Skip-if-same-source guard
+# --- REGION: https://yuruna.link/guest-image-setup#skip-if-same-source-guard
 if (Test-DownloadAlreadyCurrent -SourceUrl $sourceUrl -BaseImageFile $baseImageFile -OriginFile $baseImageOrigin) {
     $msg = "Skipping download: $sourceUrl URL and expected size match the prior run for $baseImageFile. To force a re-download, delete or rename: $baseImageFile"
     Write-Information $msg -InformationAction Continue
@@ -209,7 +209,7 @@ if (Test-DownloadAlreadyCurrent -SourceUrl $sourceUrl -BaseImageFile $baseImageF
     exit 0
 }
 
-# --- REGION: Download the IPSW
+# --- REGION: Retrieve and process the files
 $downloadFile = Join-Path $downloadDir "downloaded.ipsw"
 Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
 Write-Output "Downloading $sourceUrl to $downloadFile (~15-20 GB)..."

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42e2607c-3d4e-4f50-8a61-7c8d9e0f1a2b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -80,17 +80,9 @@ function New-TempConfigFile {
     return $p
 }
 
-# --- REGION: fixtures reachable from It blocks -------------------------------------
-# Every helper an It block calls has to be defined here, at file scope and above the
-# FIRST Describe. Two separate rules force that placement, and each one turns a real
-# assertion into a CommandNotFoundException that reads like a passing-but-empty test:
-#   * a Describe body is executed during the discovery pass, and everything it declares
-#     -- functions included -- is discarded before the first It runs; and
-#   * when this file is invoked directly, the run is bootstrapped from the first Describe
-#     it encounters, so declarations that sit BELOW that point never make it into the
-#     session state the It blocks are bound to.
+# --- REGION: https://yuruna.link/memory#pester-file-scope-fixtures
 
-# --- AST helpers for the control-flow golden below (walk the real .psm1, not a mirror) ---
+# --- REGION: AST helpers for the control-flow golden below (walk the real .psm1, not a mirror)
 function Get-AstNearestLoop {
     # The innermost loop that a break/continue targets: the first loop-statement
     # ancestor. A break/continue inside the guest foreach targets the foreach, NOT
@@ -267,7 +259,6 @@ function Invoke-NewVmFailureIteration {
         Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
-# --- END REGION -------------------------------------------------------------------
 
 }
 

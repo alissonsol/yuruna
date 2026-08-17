@@ -2,7 +2,8 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #vim:syntax=yaml
-# --- REGION: https://yuruna.link/vmconfig and https://yuruna.link/download-agent-service
+# --- REGION: https://yuruna.link/vmconfig
+# --- REGION: https://yuruna.link/download-agent-service
 # Download-agent service VM: fetch the framework, then run the bring-up script that builds +
 # launches the daemon under systemd (binds :80 UI/API on the bridged LAN; the cloud
 # image runs no host firewall). Mirrors pool-control-service.base.user-data; the bring-up
@@ -35,14 +36,6 @@ packages:
   - iputils-ping
 write_files:
   # --- REGION: https://yuruna.link/network#why-sshd-notices-a-client-that-left
-  # Make sshd notice a client that stopped answering, and reap what it was
-  # running. Upstream leaves ClientAliveInterval at 0, so a session broken by
-  # either endpoint renumbering is detected only when TCP finally gives up,
-  # minutes later -- and until then the command the host was running keeps
-  # running, unwatched, holding whatever locks it held. These VMs are long-lived
-  # and the host that drives them is not: it moves on every DHCP renewal. 15s x 4
-  # mirrors the client-side bound in Test.Ssh.psm1 Invoke-GuestSsh, so both ends
-  # give up on the same schedule.
   - path: /etc/ssh/sshd_config.d/60-yuruna-keepalive.conf
     permissions: '0644'
     owner: root:root
@@ -69,7 +62,8 @@ write_files:
     content: |
       username=POOL_NAS_NETWORK_USER_PLACEHOLDER
       password=POOL_NAS_PASSWORD_PLACEHOLDER
-  # Host coordinates: daemon --host-id plus status-service IP/PORT for the framework fetch; empty IP/PORT falls back to the public github mirror.
+  # --- REGION: https://yuruna.link/vmconfig#yuruna-host-coordinates
+  # Empty IP/PORT falls back to the public github mirror for the framework fetch.
   - path: /etc/yuruna/host.env
     permissions: '0644'
     owner: root:root
@@ -101,16 +95,8 @@ write_files:
       token shown on the Yuruna hosts dashboard; the daemon validates it against
       the pool aggregator, so nothing about it is stored on this VM.
   # --- REGION: https://yuruna.link/vmconfig#host-address-refresh-timer
-  # This VM outlives the host's address. It is provisioned once and then runs
-  # for weeks, so a host that renumbers under DHCP strands it far more surely
-  # than it strands a test guest that is rebuilt every cycle. The resolver
-  # keeps host.env and the yuruna-host alias true; the timer is what makes
-  # that happen without anyone typing into this VM.
-  #
-  # Affordable at this cadence because the resolver probes before it asks:
-  # while the address is still good the minute's work is one LAN round trip
-  # and no writes. A oneshot rather than a daemon -- no state carries between
-  # ticks, and a oneshot cannot wedge.
+  # This VM is provisioned once and runs for weeks, so it accumulates host
+  # renumbers a per-cycle test guest never sees.
   - path: /usr/local/lib/yuruna/yuruna-host-locate.sh
     encoding: base64
     content: YURUNA_HOST_LOCATE_BASE64_PLACEHOLDER
@@ -120,23 +106,11 @@ write_files:
     content: |
       [Unit]
       Description=Refresh Yuruna host coordinates if the host has changed address
-      # Ordered INTO the network-online barrier rather than after it. Anything
-      # in this guest that needs the host waits on that target, so finishing
-      # before it is what guarantees those consumers never read a stale
-      # address -- and it does so without this unit naming any of them, which
-      # is the whole point of the indirection.
-      #
-      # After the wait-online services (whichever the image ships; ordering
-      # against an absent unit is a no-op) so this runs with an address in
-      # hand rather than before DHCP has answered.
       After=network.target NetworkManager-wait-online.service systemd-networkd-wait-online.service
       Before=network-online.target
 
       [Service]
       Type=oneshot
-      # A resolver that cannot finish must not hold the boot open. Every call
-      # inside is already wall-clock bounded; this is the backstop for the day
-      # one of them is not.
       TimeoutStartSec=30
       ExecStart=/usr/local/lib/yuruna/yuruna-host-locate.sh
 
@@ -184,16 +158,11 @@ runcmd:
         echo "yuruna download-agent-service: no squid CA at http://$CACHE_IP/; the daemon downloads direct." >&2
       fi
     fi
-  # 2) Fetch the framework from the host status service (resolution as in automation/
-  #    fetch-and-execute.sh; coordinates sed-read, NOT sourced), falling back to a
-  #    github clone when the host is unreachable so a bring-up still works off-LAN.
-  #
-  #    The two sources are NOT equivalent. The host serves the enlistment the operator
-  #    is working in; the mirror is a published snapshot that lags it by however long
-  #    since the last release push. Whichever wins is compiled into the daemon minutes
-  #    later and stamped into its version, where it stays for the life of this VM -- so
-  #    a silent fall back to the mirror deploys older code that then reports itself as
-  #    current forever.
+  # --- REGION: https://yuruna.link/extensions-api#which-framework-snapshot-a-service-vm-is-built-from
+  # 2) Fetch the framework from the host status service (coordinates sed-read from
+  #    host.env, NOT sourced), falling back to a github clone so a bring-up works
+  #    off-LAN. The fallback is not equivalent: the version is stamped at compile
+  #    time and never re-read.
   - |
     set +e
     HF=/etc/yuruna/host.env

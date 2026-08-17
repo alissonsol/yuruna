@@ -1,9 +1,9 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a8d3f2-e5b6-4c71-9a04-2f3d4e5a6b7c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS
+.TAGS yuruna test host macos utm cleanup
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
@@ -16,14 +16,32 @@
 
 #requires -version 7
 
+<#
+.SYNOPSIS
+    Delete .utm bundles under ~/yuruna/guest.nosync that are no longer
+    registered in UTM.
+
+.DESCRIPTION
+    Sibling of host/ubuntu.kvm/Remove-OrphanedVMFiles.ps1 and
+    host/windows.hyper-v/Remove-OrphanedVMFiles.ps1. A bundle is orphaned iff
+    neither its name nor the UUID in its config.plist is known to utmctl. Base
+    images are kept. Refuses to run when utmctl cannot reach UTM, because an
+    empty answer there would classify every registered VM as orphaned.
+
+.PARAMETER Force
+    Skip the YES confirmation. Used by test/Remove-TestVMFiles.ps1.
+
+.PARAMETER Quiet
+    Suppress the per-file cleanup log; warnings and errors still print.
+#>
+
 param(
-        [switch]$Force,
-    # Quiet mode: suppress every Write-CleanupMessage (host paths, per-VM file
-    # listings, base-image keep-list, "Deleted: <file>" trail) so the
-    # automated cycle-start sweep (Remove-TestVMFiles.ps1 -Quiet) emits
-    # nothing from this script. Write-Warning / Write-Error remain
-    # visible because they always represent an actual problem. Direct
-    # invocation (no -Quiet) prints the full log.
+    [switch]$Force,
+    # Suppress every Write-CleanupMessage so the automated cycle-start sweep
+    # (Remove-TestVMFiles.ps1 -Quiet) emits nothing from this script. Warnings
+    # and errors still print: they always mean something the operator needs.
+    # The routing contract is Set-VMCleanupQuiet in
+    # host/modules/Yuruna.VMCleanup.psm1.
     [switch]$Quiet
 )
 
@@ -57,6 +75,7 @@ $nameInfo       = Resolve-BaseImageName -HostScriptDir $ScriptDir
 $hostFolder     = $nameInfo.HostFolder
 $baseImageNames = $nameInfo.BaseImageNames
 
+# --- REGION: Check prerequisites
 if (-not (Get-Command utmctl -ErrorAction SilentlyContinue)) {
     Write-Error "utmctl not found. Ensure UTM is installed and utmctl is in your PATH."
     Write-Error "UTM.app ships utmctl at: /Applications/UTM.app/Contents/MacOS/utmctl"
@@ -70,6 +89,7 @@ if (-not (Test-Path $scanPath)) {
     exit 0
 }
 
+# --- REGION: Enumerate registered VMs
 $utmOutput = & utmctl list 2>&1
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Failed to query UTM VMs. Is UTM running? Output: $utmOutput"

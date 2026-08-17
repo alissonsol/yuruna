@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -63,6 +63,10 @@ function Resolve-HostTag {
     return $script:HostTag
 }
 
+# The supporting test/modules become callable from our function bodies;
+# Export-ModuleMember below decides which of OUR functions become visible
+# to test/ orchestration. Yuruna.Host.psm1's exports shadow any same-name
+# exports the supporting modules also produce.
 # These dependency modules are imported -Global: Yuruna.Host is -Force re-imported
 # mid-cycle, and a bare -Force import here lands in Yuruna.Host's nested scope and
 # EVICTS the global copy other modules call via qualified names (e.g.
@@ -246,6 +250,8 @@ function Invoke-EntitledSwift {
         Remove-Item -LiteralPath $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
+
+# --- REGION: Port-map helpers
 
 <#
 .SYNOPSIS
@@ -577,6 +583,8 @@ function Stop-AllCachingProxyServiceForwarder {
     return ,$stopped
 }
 
+# --- REGION: Caching-proxy service IP discovery
+
 <#
 .SYNOPSIS
     Returns the IP of a reachable caching-proxy-service (probed on :3128), or
@@ -723,7 +731,7 @@ end repeat
     Write-Debug "      UTM dialog watchdog started (pid $($proc.Id))"
 }
 
-# --- REGION: VM lifecycle
+# --- REGION: UTM VM lifecycle primitives
 
 <#
 .SYNOPSIS
@@ -1760,6 +1768,52 @@ function Set-VncDisplayInBundle {
 
 <#
 .SYNOPSIS
+    Write the deterministic MAC for $VMName into that VM bundle's first NIC.
+    Returns $true when the bundle now carries that address.
+.DESCRIPTION
+    See https://yuruna.link/network#defining-deterministic-guest-mac-addresses
+    for the address itself. A bundle is normally written at BUILD time with the
+    identity its guest keeps for life, and then this rewrite is never needed.
+    It exists for the bundle written with the per-kind slot name instead (a
+    guest whose sequence declares no hostname of its own): that address belongs
+    to the slot, and a promoted bundle sitting on it leaves the next guest built
+    under that name asking for one already in use. Rename-VM decides whether it
+    applies -- moving a bundle that is already on its own identity re-DHCPs a
+    guest whose state may record the address it was built on.
+
+    UTM does not refuse the duplicate the way virt-install does: the VMs build
+    and start, and the collision surfaces later as guests on one segment
+    answering for each other's address, which reads as a network fault rather
+    than a naming one. The bundle is also where the guest's DHCP identity ends
+    up, because the seed pins dhcp-identifier to the MAC.
+
+    Only the first NIC is rewritten -- a second interface needs a second
+    DISTINCT address, not this one twice.
+#>
+function Set-GuestMacInBundle {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$VMName)
+    $configPath = "$HOME/yuruna/guest.nosync/$VMName.utm/config.plist"
+    if (-not (Test-Path -LiteralPath $configPath)) { return $false }
+    $mac = Get-YurunaGuestMacAddress -VMName $VMName
+    if (-not $PSCmdlet.ShouldProcess($VMName, "Set NIC MAC to $mac")) { return $false }
+    try {
+        & /usr/libexec/PlistBuddy -c "Set :Network:0:MacAddress $mac" $configPath 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "Set-GuestMacInBundle: PlistBuddy could not set :Network:0:MacAddress in '$configPath'."
+            return $false
+        }
+        $written = (Get-UtmBundleNetwork -VMName $VMName).MacAddress
+        return ($written -and $written -ieq $mac)
+    } catch {
+        Write-Warning "Set-GuestMacInBundle: could not update $configPath`: $($_.Exception.Message)"
+    }
+    return $false
+}
+
+<#
+.SYNOPSIS
     $true when nothing is listening on 127.0.0.1:$Port right now.
 .DESCRIPTION
     A real bind, not a connect probe: QEMU fails to start when it cannot
@@ -2659,6 +2713,20 @@ function Rename-VM {
         & open -a UTM 2>$null | Out-Null
         [void](Resume-YurunaServiceVM -VMName $serviceVmToResume -Confirm:$false)
         return $false
+    }
+
+    # A bundle still holding the address the OLD name derives is holding that
+    # NAME's address rather than the guest's, and the name is being vacated --
+    # so it moves here, in the same window and for the same reason as the
+    # display below: both are per-name values, and this relaunch is the one
+    # moment the file is authoritative again. A bundle on any other address was
+    # pinned at build time to the identity its guest keeps for life; moving that
+    # one re-DHCPs a guest whose own state records the address it has.
+    $bundleMac = [string]((Get-UtmBundleNetwork -VMName $NewName).MacAddress)
+    if (Test-YurunaGuestMacMatchesName -MacAddress $bundleMac -VMName $VMName) {
+        if (-not (Set-GuestMacInBundle -VMName $NewName -Confirm:$false)) {
+            Write-Warning "Rename-VM: could not move the '$VMName' address off '$NewName'; it keeps that name's address and will collide with the next guest built under it. See https://yuruna.link/network#defining-deterministic-guest-mac-addresses"
+        }
     }
 
     # Re-derive the VNC display for the NEW name, here, while UTM is down.
@@ -4292,13 +4360,18 @@ Export-ModuleMember -Function `
     Invoke-MacElevationIfNeeded, Invoke-MacNetworksetup, `
     Set-MacHostProxy, Restore-MacHostProxy, Disable-MacHostProxy, Remove-MacHostProxy, `
     Get-UtmNetworkModeFromBundle, Restore-SudoUserOwnership, `
-    Get-VncDisplayForVm, Get-VncPortForVm, Get-VncDisplayFromBundle, Set-VncDisplayInBundle, Test-VncPortFree, Find-FreeVncDisplay, Get-ClaimedVncDisplay, Get-VncScreenshot, Get-UtmScreenshot, Get-UtmWindowScreenshot
+    Get-VncDisplayForVm, Get-VncPortForVm, Get-VncDisplayFromBundle, Set-VncDisplayInBundle, Test-VncPortFree, Find-FreeVncDisplay, Get-ClaimedVncDisplay, Get-VncScreenshot, Get-UtmScreenshot, Get-UtmWindowScreenshot, `
+    Set-GuestMacInBundle
 
 # Contract-coverage assertion: warns at load time if the export block
-# above drifts away from the canonical Yuruna.Host contract. See
-# host/Yuruna.Host.Contract.psm1 for the verb list and rationale.
+# above drifts away from the canonical Yuruna.Host contract. The module
+# handle travels with the declared list so the check runs against what
+# Export-ModuleMember actually published: the list on its own is a second
+# copy of the contract and would pass even after the export block lost a
+# verb. See host/Yuruna.Host.Contract.psm1 for the verb list and rationale.
 Import-Module (Join-Path -Path $PSScriptRoot -ChildPath '..' -AdditionalChildPath '..', 'Yuruna.Host.Contract.psm1') -Force -DisableNameChecking
-$null = Assert-YurunaHostContractCoverage -HostType 'macos.utm' -ExportedFunction @(
+$null = Assert-YurunaHostContractCoverage -HostType 'macos.utm' `
+    -Module $ExecutionContext.SessionState.Module -ExportedFunction @(
     'New-VM','Start-VM','Stop-VM','Stop-VMForce','Remove-VM','Rename-VM','Get-VMState','Get-VMName',
     'Save-VMDiskSnapshot','Restore-VMDiskSnapshot','Test-VMDiskSnapshot',
     'Test-VMConsoleOpen','Restart-VMConsole',

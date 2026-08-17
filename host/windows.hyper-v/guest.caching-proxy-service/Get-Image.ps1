@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42f0a1b2-c3d4-4e56-f789-0a1b2c3d4e57
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,7 +27,7 @@
     host/modules/Yuruna.Image.psm1). Every extension service on this host
     boots the same cloud image, so one artifact serves all of them instead
     of a byte-identical copy per service -- which on Hyper-V also collapses
-    three qcow2-to-VHDX conversions into one. This per-service entry point
+    the qcow2-to-VHDX conversions into one. This per-service entry point
     stays so the caching proxy can move to a different release, arch or
     post-processing step later without disturbing the others.
 
@@ -35,6 +35,7 @@
     grows its own per-VM copy to the size squid needs.
 #>
 
+# --- REGION: Log level from environment
 # Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
 # Load only when absent, never -Force. Start-CachingProxyServiceVM.ps1 runs this
 # script IN-PROCESS, so a forced re-import from here tears down and rebuilds the
@@ -49,6 +50,7 @@ if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (T
 }
 if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
+# --- REGION: Pre-flight: elevation
 Write-Output "This script requires elevation (Run as Administrator)."
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Output "Please run this script as Administrator."
@@ -56,6 +58,7 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     exit 1
 }
 
+# --- REGION: Import host modules
 # Yuruna.Host.psm1 supplies the cache-injecting Save-CachedHttpUri wrapper and
 # (via its global Yuruna.HostDownload import) the sentinel guard the shared
 # pipeline resolves by name. This guest IS the cache, so on a first-run host
@@ -63,6 +66,7 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yuruna.Host.psm1") -Force
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Yuruna.Image.psm1") -Force
 
+# --- REGION: Resolve and fetch the base image
 try {
     $image = Get-UbuntuExtensionImageInfo -HostType 'windows.hyper-v'
 } catch {

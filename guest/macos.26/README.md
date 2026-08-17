@@ -1,4 +1,9 @@
-# macOS 26 guest
+# macOS 26 Guest - Workloads
+
+See [Guests — ...](../README.md) for the guest workload pattern.
+
+Create the guest VM first:
+[macOS UTM](../../host/macos.utm/guest.macos.26/README.md).
 
 Generic, host-agnostic scripts for a macOS 26 guest. Only
 [host.macos.utm](../../host/macos.utm/guest.macos.26/) ships an
@@ -40,6 +45,12 @@ The supported workflow is:
 workload step that runs *after* an operator-provisioned guest is online;
 it is not invoked by `New-VM.ps1`.
 
+### Available workloads
+
+| `<workload>` | Description |
+|--------------|-------------|
+| `update` | System update (`softwareupdate -i -a`, Command Line Developer Tools) |
+
 The `code`, `k8s`, `n8n`, `openclaw`, and `postgresql` workloads are
 intentionally out of scope for the macOS 26 guest; use the Ubuntu Server
 or Amazon Linux 2023 guests instead.
@@ -50,6 +61,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.14
+Last review: 2026.08.16
 
 Back to [Yuruna](../../README.md)

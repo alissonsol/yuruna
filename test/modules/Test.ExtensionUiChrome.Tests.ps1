@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42b7adb1-b8f1-48fe-a89b-2b2d8acb1dc6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -269,8 +269,11 @@ Describe 'extension UI chrome: one header, one menu, page-first titles' {
             # "the URL appears somewhere on the page" test passed while the guide
             # was ALSO a footer link, so it could not have caught the menu entry
             # going missing.
-            if (-not [regex]::IsMatch($p.Text, "<a class=`"menu-out`" href=`"$([regex]::Escape($p.Guide))`">")) {
-                $findings += "$($p.Id): menu does not link the guide"
+            # target="_blank" keeps the guide off the tab the service is running
+            # in: the pages poll and hold unsaved edits, so navigating away from
+            # them to read documentation loses live state.
+            if (-not [regex]::IsMatch($p.Text, "<a class=`"menu-out`" href=`"$([regex]::Escape($p.Guide))`" target=`"_blank`" rel=`"noopener`">")) {
+                $findings += "$($p.Id): menu does not link the guide in a new tab"
             }
         }
         Assert-NoFinding $findings 'the menu is the only way off a page now that the header nav is gone'
@@ -357,9 +360,10 @@ Describe 'host status pages carry the same chrome as the service UIs' {
                     $findings += "$($p.Id): menu does not link $href"
                 }
             }
-            # In the menu specifically -- see the service-side twin of this test.
-            if (-not [regex]::IsMatch($p.Text, "<a class=`"menu-out`" href=`"$([regex]::Escape($statusGuide))`">")) {
-                $findings += "$($p.Id): menu does not link the guide"
+            # In the menu specifically, and in a new tab -- see the service-side
+            # twin of this test.
+            if (-not [regex]::IsMatch($p.Text, "<a class=`"menu-out`" href=`"$([regex]::Escape($statusGuide))`" target=`"_blank`" rel=`"noopener`">")) {
+                $findings += "$($p.Id): menu does not link the guide in a new tab"
             }
             $footer = [regex]::Match($p.Text, '(?s)<footer[^>]*>.*?</footer>')
             if ($footer.Success -and $footer.Value -match '(?i)>\s*guide\s*<') {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a3b4c5-d6e7-4f89-a012-3b4c5d6e7f90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,6 +40,7 @@ param(
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
 if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
 
+# --- REGION: Configuration
 $downloadDir = "$HOME/yuruna/image/ubuntu.env"
 
 # Yuruna.Host.psm1 supplies Save-CachedHttpUri / Test-DownloadAlreadyCurrent;
@@ -48,6 +49,7 @@ $downloadDir = "$HOME/yuruna/image/ubuntu.env"
 Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) 'modules/Yuruna.Host.psm1') -Force
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.UbuntuImage.psm1') -Force
 
+# --- REGION: Download the base image
 try {
     Save-UbuntuServerImage `
         -ReleaseCodename 'noble' `

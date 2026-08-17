@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456729
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -584,7 +584,7 @@ function Invoke-PortTakeover {
         return $targets
     }
 
-    # --- Phase 1: ordinary privileges.
+    # --- REGION: Phase 1: ordinary privileges
     $visible = @($KnownPid)
     if (-not $visible.Count) { $visible = @(Get-PortListenerPid -Port $Port) }
     $phase1 = @(& $stopHolders $visible '' {
@@ -599,7 +599,8 @@ function Invoke-PortTakeover {
         }
     }
 
-    # --- Phase 2: elevated. Reached when phase 1 saw nothing (a holder hidden
+    # --- REGION: Phase 2: elevated
+    # Reached when phase 1 saw nothing (a holder hidden
     # from this user's lsof) or could not stop what it saw (another user's).
     if ($IsWindows) {
         $result.Detail = 'no elevated takeover on Windows -- run the shell as Administrator, or add a urlacl for this port'

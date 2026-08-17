@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42d7e8f9-a0b1-4c23-d456-7e8f9a0b1c23
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -172,8 +172,9 @@ if (-not $agentServed) {
 # Test-DownloadAlreadyCurrent will compare against on the next run.
 $downloadedSize = (Get-Item -LiteralPath $downloadFile).Length
 
-# Extract the .vhdx file from the zip -- write to a temp path first so the
-# previous image is only replaced after a successful extraction.
+# --- REGION: Extract the image from the archive
+# Write to a temp path first so the previous image is only replaced after a
+# successful extraction.
 $extractedFile = Join-Path $downloadDir "$baseImageName.downloading.vhdx"
 Remove-Item $extractedFile -Force -ErrorAction SilentlyContinue
 Add-Type -AssemblyName System.IO.Compression.FileSystem

@@ -1,9 +1,9 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e98
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS
+.TAGS yuruna test host ubuntu kvm cleanup
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
@@ -39,16 +39,18 @@
 
 .PARAMETER Force
     Skip the YES confirmation. Used by test/Remove-TestVMFiles.ps1.
+
+.PARAMETER Quiet
+    Suppress the per-directory cleanup log; warnings and errors still print.
 #>
 
 param(
-        [switch]$Force,
-    # Quiet mode: suppress every Write-CleanupMessage (host paths, per-VM file
-    # listings, base-image keep-list, "Deleted: <file>" trail) so the
-    # automated cycle-start sweep (Remove-TestVMFiles.ps1 -Quiet) emits
-    # nothing from this script. Write-Warning / Write-Error remain
-    # visible because they always represent an actual problem. Direct
-    # invocation (no -Quiet) prints the full log.
+    [switch]$Force,
+    # Suppress every Write-CleanupMessage so the automated cycle-start sweep
+    # (Remove-TestVMFiles.ps1 -Quiet) emits nothing from this script. Warnings
+    # and errors still print: they always mean something the operator needs.
+    # The routing contract is Set-VMCleanupQuiet in
+    # host/modules/Yuruna.VMCleanup.psm1.
     [switch]$Quiet
 )
 
@@ -88,12 +90,14 @@ Write-CleanupMessage ""
 Write-CleanupMessage "================================================================"
 Write-CleanupMessage ""
 
+# --- REGION: Scan for VM directories
 $vmRoot = Join-Path $HOME 'yuruna/vms'
 if (-not (Test-Path -LiteralPath $vmRoot)) {
     Write-CleanupMessage "No VM directory at '$vmRoot'. Nothing to scan."
     exit 0
 }
 
+# --- REGION: Check prerequisites
 if (-not (Get-Command virsh -ErrorAction SilentlyContinue)) {
     Write-Error "virsh not found. Install libvirt-clients (apt-get install libvirt-clients)."
     exit 1
@@ -101,7 +105,7 @@ if (-not (Get-Command virsh -ErrorAction SilentlyContinue)) {
 
 $virshUri = 'qemu:///system'
 
-# --- REGION: Enumerate registered libvirt domains
+# --- REGION: Enumerate registered VMs
 $virshOutput = & virsh --connect $virshUri list --all --name 2>&1
 if ($LASTEXITCODE -ne 0) {
     Write-Error "virsh list failed (is libvirtd running?). Output: $virshOutput"
@@ -136,7 +140,7 @@ if ($registered.Count -gt 0) {
     }
 }
 
-# --- REGION: Identify orphaned per-VM directories
+# --- REGION: Identify orphaned VM directories
 $orphanedItems = [System.Collections.Generic.List[hashtable]]::new()
 $dirs = @(Get-ChildItem -LiteralPath $vmRoot -Directory -ErrorAction SilentlyContinue)
 foreach ($d in $dirs) {
@@ -147,7 +151,7 @@ foreach ($d in $dirs) {
     $orphanedItems.Add(@{ Name = $d.Name; Path = $d.FullName; Size = $size })
 }
 
-# --- REGION: Delete orphaned directories
+# --- REGION: Delete orphaned VM directories
 if ($orphanedItems.Count -eq 0) {
     Write-CleanupMessage "No orphaned VM directories found. Nothing to clean up."
     exit 0

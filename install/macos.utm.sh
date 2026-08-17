@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.14
+# Version: 2026.08.16
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Yuruna macOS UTM bootstrap installer.
@@ -11,20 +11,11 @@ set -euo pipefail
 YURUNA_REPO_PUBLIC="https://github.com/alissonsol/yuruna.git"
 YURUNA_REPO_PRIVATE="https://github.com/alissonsol/yurunadev.git"
 YURUNA_REPO="${YURUNA_REPO:-$YURUNA_REPO_PUBLIC}"
-# Track whether the operator pinned a ref explicitly. The development repo
-# (yurunadev) is only tagged at the weekly release, so its pinned-CalVer default
-# would never resolve mid-week; when targeting it we fall back to latest 'main'
-# unless the operator asked for a specific ref.
+# --- REGION: https://yuruna.link/install/explained#development-repo-tracks-latest-main
 YURUNA_BRANCH_EXPLICIT=0
 [[ -n "${YURUNA_BRANCH:-}" ]] && YURUNA_BRANCH_EXPLICIT=1
 YURUNA_BRANCH="${YURUNA_BRANCH:-main}"
-# Pin opt-in: PIN_VERSION=1 (env -- used by the remote one-liners) or the
-# --pin-version flag (local runs). The default 'main' is a tracking branch the
-# runner fast-forwards every cycle (auto-update). When pinning, the host is
-# frozen at the CURRENT release AFTER the clone -- the repo's own VERSION file
-# (single source of truth, top of the repository) is read and that tag checked
-# out as a detached HEAD, so nothing is hard-coded here and a release never
-# needs to re-pin the installer. An explicit YURUNA_BRANCH=<ref> wins.
+# --- REGION: https://yuruna.link/install/explained#release-pinning--signed-integrity
 PIN_VERSION="${PIN_VERSION:-0}"
 for _yuruna_arg in "$@"; do
   [[ "$_yuruna_arg" == "--pin-version" ]] && PIN_VERSION=1
@@ -281,14 +272,14 @@ if [[ $BREW_SKIP_UPDATE -eq 0 ]]; then
   fi
 fi
 
-# --- REGION: Stop running Yuruna processes
+# --- REGION: Quit a macOS app gracefully
 quit_mac_app() {
   local app="$1" procPattern="${2:-$1}"
   if pgrep -x "$procPattern" >/dev/null 2>&1 || pgrep -f "/$app.app/" >/dev/null 2>&1; then
     log "  quitting $app (in-flight upgrade)"
     osascript -e "tell application \"$app\" to quit" >/dev/null 2>&1 || true
     for _ in 1 2 3 4 5; do
-      pgrep -x "$procPattern" >/dev/null 2>&1 || ! pgrep -f "/$app.app/" >/dev/null 2>&1 || break
+      pgrep -x "$procPattern" >/dev/null 2>&1 || pgrep -f "/$app.app/" >/dev/null 2>&1 || break
       sleep 1
     done
     if pgrep -x "$procPattern" >/dev/null 2>&1 || pgrep -f "/$app.app/" >/dev/null 2>&1; then
@@ -420,7 +411,8 @@ stop_yuruna_processes() {
   warn "  some Yuruna service PIDs did not exit; re-run the installer if the repo update reports the checkout is busy."
 }
 
-# --- REGION: Preserve the service VMs if any is running
+# --- REGION: Preserve running service VMs
+# --- REGION: https://yuruna.link/install/explained#preserve-the-yuruna-caching-proxy-service-vm
 # Quitting UTM is never confined to the VM the installer cares about: UTM
 # saves the state of EVERY running VM on its way out, and they come back
 # suspended rather than started. That makes any running service VM -- the
@@ -746,12 +738,7 @@ if [[ -d "$YURUNA_DIR/.git" ]]; then
 fi
 
 # --- REGION: Pin to the current release (opt-in)
-# PIN_VERSION / --pin-version: now that 'main' is cloned/updated, read the
-# repo's own VERSION file (single source of truth -- top of the repository) and
-# detach HEAD at that release tag so the host freezes there and the per-cycle
-# `git pull` is a no-op. An explicit YURUNA_BRANCH already chose a ref, so skip.
-# If VERSION runs ahead of the published tag, warn and leave the host on 'main'
-# rather than fail the install.
+# --- REGION: https://yuruna.link/install/explained#release-pinning--signed-integrity
 if [[ "$PIN_VERSION" != "0" && "$YURUNA_BRANCH_EXPLICIT" -eq 0 && -d "$YURUNA_DIR/.git" ]]; then
   if [[ -f "$YURUNA_DIR/VERSION" ]]; then
     pin_tag="$(tr -d '[:space:]' < "$YURUNA_DIR/VERSION")"

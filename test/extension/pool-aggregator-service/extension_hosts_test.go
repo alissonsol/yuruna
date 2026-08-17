@@ -80,9 +80,9 @@ func TestExtensionMetricFromActiveExtensions(t *testing.T) {
 	// labels); the dashboard hides all three and deep-links Extension -> goPath,
 	// which routes through the aggregator so the redirect can hand the service UI
 	// a control proof. baseUrl is exported but NOT linked: an extension host that
-	// runs no cycles has no status page, so a Host ID link would land on
-	// /go/host's "host not known to the pool".
-	want := "yuruna_pool_host_extension{pool=\"default\",hostId=\"" + hid + "\",area=\"stash-service\",baseUrl=\"http://10.0.0.1:8080\",target=\"http://10.0.0.5\",goPath=\"/go/stash?host=" + hid + "&area=stash-service\"} 1"
+	// runs no cycles has no status page, so a Host ID hop to /go/host would land
+	// on "host not known to the pool" -- that cell's menu opens the extension UI.
+	want := "yuruna_pool_host_extension{pool=\"default\",hostId=\"" + hid + "\",hostIdDashed=\"" + dashedHostID(hid) + "\",area=\"stash-service\",baseUrl=\"http://10.0.0.1:8080\",target=\"http://10.0.0.5\",goPath=\"/go/stash?host=" + hid + "&area=stash-service\"} 1"
 	if !strings.Contains(body, want) {
 		t.Errorf("/metrics missing the extension row.\nwant: %s", want)
 	}

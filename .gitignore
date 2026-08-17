@@ -453,3 +453,4 @@ project-poc.tar.gz
 out.txt
 **/yuruna-archive.tar.gz
 test/extension/pool-aggregator/pool-aggregator.exe
+test/extension/caching-proxy-parser-service/caching-proxy-parser-service

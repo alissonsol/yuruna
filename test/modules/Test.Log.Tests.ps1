@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42e9c5b7-2d18-4a3f-bc60-7f1e9a8d2c40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,7 +54,7 @@ function New-ArchiveFixture {
         Justification = 'Test fixture: temp dir + seed files + saves globals; no production state.')]
     [OutputType([hashtable])]
     param([string]$RootFailureJson)
-    $saved = @{ Cycle = $global:__YurunaCycleFolder; LogFile = $global:__YurunaLogFile; LogDir = $env:YURUNA_LOG_DIR }
+    $saved = @{ Cycle = $global:__YurunaCycleFolder; LogFile = $global:__YurunaLogFile; LogDir = $env:YURUNA_LOG_DIR; RunId = $global:__YurunaRunId }
     $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('yrn-archive-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $tmp -Force | Out-Null
     $env:YURUNA_LOG_DIR = $tmp
@@ -65,7 +65,11 @@ function New-ArchiveFixture {
     New-Item -ItemType Directory -Path $cycle -Force | Out-Null
     $global:__YurunaCycleFolder = $cycle
     $global:__YurunaLogFile = $null
-    return @{ Tmp = $tmp; Saved = $saved; Final = ($cycle -replace '\.incomplete$', '') }
+    # The remediation archive matches on this, so a fixture without one cannot
+    # tell "produced by this cycle" from "left by an earlier one".
+    $runId = [guid]::NewGuid().ToString()
+    $global:__YurunaRunId = $runId
+    return @{ Tmp = $tmp; Saved = $saved; Final = ($cycle -replace '\.incomplete$', ''); RunId = $runId }
 }
 
 function Restore-ArchiveFixture {
@@ -76,6 +80,7 @@ function Restore-ArchiveFixture {
     param([Parameter(Mandatory)][hashtable]$Fixture)
     $global:__YurunaCycleFolder = $Fixture.Saved.Cycle
     $global:__YurunaLogFile     = $Fixture.Saved.LogFile
+    $global:__YurunaRunId       = $Fixture.Saved.RunId
     $env:YURUNA_LOG_DIR         = $Fixture.Saved.LogDir
     if ($Fixture.Tmp) { Remove-Item -LiteralPath $Fixture.Tmp -Recurse -Force -ErrorAction SilentlyContinue }
 }
@@ -143,7 +148,7 @@ Describe 'Stop-LogFile last_failure.json archiving' {
         try {
             [System.IO.File]::WriteAllText(
                 (Join-Path $fx.Tmp 'last_remediation.json'),
-                '{"schemaVersion":1,"failureClass":"ocr_timeout","recommendation":"restart_from_snapshot","autoApply":false}',
+                ('{"schemaVersion":1,"runId":"' + $fx.RunId + '","failureClass":"ocr_timeout","recommendation":"restart_from_snapshot","autoApply":false}'),
                 [System.Text.UTF8Encoding]::new($false))
             Stop-LogFile -Outcome 'fail' -Reason 'remediation-archive-test' -Confirm:$false
             Assert-True (Test-Path (Join-Path $fx.Final 'last_remediation.json')) 'last_remediation.json archived into the cycle folder'
@@ -151,6 +156,35 @@ Describe 'Stop-LogFile last_failure.json archiving' {
             $entry = @($man.artifacts | Where-Object { $_.path -eq 'last_remediation.json' })
             Assert-Equal -Expected 1 -Actual $entry.Count -Because 'manifest lists last_remediation.json exactly once'
             Assert-Equal -Expected 'remediation' -Actual $entry[0].kind -Because 'manifest classifies it as kind=remediation'
+        } finally { Restore-ArchiveFixture -Fixture $fx }
+    }
+
+    # The log root outlives the cycle, and the dispatcher does not run for every
+    # failure -- one that stops before classification leaves the root file
+    # untouched. Archiving on presence then gives this cycle the PREVIOUS
+    # cycle's recommendation, which reads as a diagnosis of a failure it never
+    # saw. A non-pass outcome is not evidence of ownership; the run stamp is.
+    It 'does NOT archive a last_remediation.json left by an earlier run, even on a non-pass outcome' {
+        $fx = New-ArchiveFixture -RootFailureJson '{"schemaVersion":2,"failureClass":"unknown"}'
+        try {
+            [System.IO.File]::WriteAllText(
+                (Join-Path $fx.Tmp 'last_remediation.json'),
+                '{"schemaVersion":1,"runId":"11111111-2222-3333-4444-555555555555","failureClass":"unknown","recommendation":"pause_and_inspect","autoApply":false}',
+                [System.Text.UTF8Encoding]::new($false))
+            Stop-LogFile -Outcome 'fail' -Reason 'inherited-remediation-test' -Confirm:$false
+            Assert-True (-not (Test-Path (Join-Path $fx.Final 'last_remediation.json'))) 'a remediation stamped with another run must not be archived'
+        } finally { Restore-ArchiveFixture -Fixture $fx }
+    }
+
+    It 'does NOT archive an unstamped last_remediation.json (predates the run stamp)' {
+        $fx = New-ArchiveFixture -RootFailureJson '{"schemaVersion":2,"failureClass":"unknown"}'
+        try {
+            [System.IO.File]::WriteAllText(
+                (Join-Path $fx.Tmp 'last_remediation.json'),
+                '{"schemaVersion":1,"failureClass":"unknown","recommendation":"pause_and_inspect","autoApply":false}',
+                [System.Text.UTF8Encoding]::new($false))
+            Stop-LogFile -Outcome 'fail' -Reason 'unstamped-remediation-test' -Confirm:$false
+            Assert-True (-not (Test-Path (Join-Path $fx.Final 'last_remediation.json'))) 'an unstamped remediation cannot be shown to belong to this cycle'
         } finally { Restore-ArchiveFixture -Fixture $fx }
     }
 

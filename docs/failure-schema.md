@@ -132,9 +132,13 @@ loop can route on them like any other failure. They carry `reason` =
 recovery: `provisioning_failure` (New-VM/Start-VM — `retry_with_backoff`),
 `network_timeout` (GetImage, and a git failure whose DNS/TCP probe failed
 — `retry_with_backoff`), `bootstrap_sync` (ProjectClone, or a non-network
-git divergence — `operator_intervention_required`), and `plan_invalid`
+git divergence — `operator_intervention_required`), `plan_invalid`
 (Resolve-CyclePlan / capability gate / folder-check —
-`operator_intervention_required`). The runner never clobbers a richer
+`operator_intervention_required`), and `pool_storage_full`
+(PoolStorageSpaceCheck / PoolStorageMove — `operator_intervention_required`;
+written by the OUTER loop rather than the sequence engine, since a share that
+cannot hold the results is discovered either before the cycle spawns or after it
+finishes). The runner never clobbers a richer
 engine-written record and the write is fully guarded so telemetry cannot
 fail the cycle.
 
@@ -190,8 +194,9 @@ skip is loud, never a silent pass. The emit is best-effort
 Warm-resume checkpointing (`Test.WarmResume.psm1`) turns a late-step transient
 into an in-place retry instead of redoing the whole install. When a workload
 sequence fails with a **transient** class (`network_timeout`, `wait_timeout`,
-`instrumentation_failure`, `host_io_blocked` — the outer-loop remediation
-allow-list), the runner re-runs the *failed* sequence from `repro.resumeFromStep`
+`instrumentation_failure`, `host_io_blocked`, `ip_not_discovered`,
+`payload_unavailable` — `Get-WarmResumeEligibleClass`), the runner re-runs the
+*failed* sequence from `repro.resumeFromStep`
 on the **same still-alive VM** (the teardown fires only on the final result),
 up to `testCycle.warmResume.maxAttempts` (default 2), then continues any
 remaining workload sequences. On exhaustion or an ineligible class it falls
@@ -290,6 +295,62 @@ autonomous self-heal. Without it, an operator (or a future autonomous
 loop) would have to grep the free-text error message and guess; the
 dispatcher instead reads the failure record, routes on `failureClass`,
 and returns what the caller should do.
+
+### Why each infra failure class exists
+
+A token earns its own class only where the retry policy, or the person who can
+fix it, differs from every class already in the enum. The infra classes are
+where that line is easiest to get wrong — they all look like "the environment
+broke" from a distance — so each one's reason is recorded here.
+
+- **`elevation_required`** — the host asked for a sudo password with no operator
+  present. Its own class because it is the one failure that is provably
+  unfixable from anywhere but the console: retrying it, on this cycle or any
+  later one, can only reproduce it, so remediation routes it straight to
+  `operator_intervention_required` rather than burning the backoff.
+- **`project_access_denied`** — a pool assigned this host a `projectUrl` its
+  credential cannot read. Distinct from `bootstrap_sync` (this host's own
+  project failing to clone) because the fix belongs to a different person — the
+  pool admin who made the assignment, not the host owner — and distinct from
+  `network_timeout` because no retry can ever succeed.
+- **`host_network_degraded`** — the HOST's own guest-network path is broken, so
+  every network-touching guest on it fails identically for a reason no
+  guest-level retry can influence. It needs its own class because a
+  virtual-switch object outlives its uplink binding across a host reboot: the
+  switch is still there, nothing it carries forwards, and each guest reports
+  only its own symptom (`network_timeout` / `provisioning_failure`). It is
+  deliberately absent from the transient fast-retry allow-lists — retrying
+  against a bridge with no carrier can only spend the cycle budget — so it
+  routes to the operator the way `elevation_required` does.
+- **`ip_not_discovered`** — no host-side probe could name an address for the
+  guest, so the step never reached it. Distinct from `network_timeout`, which
+  means a real address was found and the path to it failed, and from
+  `host_network_degraded`, which is unrecoverable. This is the recoverable
+  lateness class: hypervisor address discovery rests on caches that age out and
+  daemons that publish late, so the same call usually answers seconds later. It
+  therefore belongs in the transient fast-retry allow-lists, and must never be
+  reported as `script_error` — the guest script never ran, and sending a reader
+  to debug it wastes the cycle.
+- **`payload_unavailable`** — the guest was reached and ran the fetch wrapper,
+  but no source served the script, so the payload never executed. Distinct from
+  `ip_not_discovered`, where the HOST could not name the guest: here the guest
+  is up and talking, and it is the host that it cannot reach. Distinct from
+  `script_error` for the reason that matters most — nothing ran, so there is no
+  script to debug and no guest state to distrust, which is what makes replaying
+  the step sound. The usual cause is a host that renumbered under DHCP while the
+  guest still held its old address; the guest re-asks the pool directory and
+  normally recovers, so this belongs in the transient fast-retry allow-lists. It
+  stays ONE class rather than splitting on which leg failed: whether the payload
+  arrives next time depends on the host becoming reachable again, not on the
+  GitHub fallback, so a terminal 404 from that fallback does not make the
+  failure permanent. Where the fallback IS the dead end — a private repository
+  with no token — the recovery text names it.
+- **`pool_storage_full`** — the pool share has no room for this cycle's results.
+  Like `elevation_required`, retrying is provably useless: the runner has
+  nothing of its own to delete, and nothing about the next cycle makes the share
+  emptier, so it routes straight to `operator_intervention_required` instead of
+  burning the backoff. Deliberately absent from auto-remediation's transient
+  list for the same reason — an early retry would only re-fill the same wall.
 
 ### Public surface
 
@@ -403,6 +464,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.14
+Last review: 2026.08.16
 
 Back to [Yuruna](../README.md)

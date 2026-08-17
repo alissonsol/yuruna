@@ -89,11 +89,11 @@ The library exports five functions:
 1. Runs up to **5 attempts** (override via `YURUNA_RETRY_MAX_ATTEMPTS`).
 2. Sleeps with **exponential backoff + equal jitter**: a random point
    in `[delay/2, delay]` rather than exactly `delay` (base 10 s, 20 s,
-   40 s, 80 s, 160 s; override via `YURUNA_RETRY_DELAY_SECONDS`), so parallel
+   40 s, 80 s; override via `YURUNA_RETRY_DELAY_SECONDS`), so parallel
    guests that failed in lock-step — a shared caching-proxy-service blip, a
    mirror 429 burst — don't all wake at the same instant and re-form
    the thundering herd that caused the failure. The jitter
-   never exceeds the base delay, so the ~5-min worst-case total is
+   never exceeds the base delay, so the ~2.5-min worst-case total is
    unchanged.
 3. Streams the wrapped command's stdout/stderr normally so the log
    shows what the wrapped tool is doing.
@@ -128,7 +128,7 @@ first (sub-30 s for transient 5xx + ECONNREFUSED). Combined budget:
 a one-shot provisioning script under `set -euo pipefail`. curl's inner
 `--retry` does not retry 4xx, and the transient gate (item 6) fails
 fast on them, so a deterministic 404 costs one attempt, not the full
-~5-min ladder.
+~2.5-min ladder.
 
 **Call signature.** Generic — the wrapper takes the full command,
 including the caller's `sudo` and any options:
@@ -219,6 +219,50 @@ unwrapped invocation; the mirror-stall exposure is instead bounded at
 the transfer layer (curl/wget/git low-speed aborts, apt's own
 `Acquire::http::Timeout`, and the caching-proxy service's `read_timeout`).
 
+### Bounding apt-get update without bounding dpkg
+
+`apt-get update` is the one package-manager call the guest update scripts DO
+bound, and the reason is the same one that keeps every other call unbounded: it
+fetches indexes and runs no dpkg transaction. A wall-clock kill there costs a
+re-fetch rather than a half-applied package state, so the retry ladder can
+absorb it and the teardown-hang trap class that rules out wrapping the
+transactional calls cannot apply.
+
+**The drop-in.** `/etc/apt/apt.conf.d/99yuruna-acquire` bounds how long apt will
+sit on a single index fetch. apt's own `Acquire::http::Timeout` covers a silent
+socket, not a mirror that answers and then trickles, so a degraded origin can
+hold `apt-get update` open for as long as the step allows — which is how one
+stalled `InRelease` consumed an entire 30-minute step budget with the guest at
+0% CPU and nothing in the log after the last `Get:` line. The drop-in makes apt
+give up and hand the failure to the retry ladder while the step still has time
+to report it.
+
+It is written on every cycle rather than relied on from the autoinstall seed,
+because the guest update script must not depend on the installer having applied
+the seed's apt block. The `99-` prefix sorts after curtin's own drop-ins, and
+none of these keys overlap the proxy drop-in curtin writes.
+
+**The stall bound.** 300s is roughly five times a healthy full update against a
+cold cache; a mirror that has not finished by then is degraded, and every
+further second is taken from the steps after this one. The bound is requested
+only when the sourced retry lib advertises the safe wrapper (`timeout
+--foreground`, hoisted inside `sudo`); against an older baked lib the expansion
+is empty and the call falls back to unbounded rather than to a wrapper with the
+background-pgrp tty-stop trap in it.
+
+**The outer cap.** The retry ladder is capped at 2 attempts for this one call
+because it is not the only retry in play: `Acquire::Retries "2"` already
+re-fetches each index inside a single run, so the default 5 outer attempts would
+mean up to fifteen tries per index. Cost is what rules that out rather than the
+redundancy — 5 bounded attempts plus the doubling backoff is ~1575-1650s of an
+1800s step, leaving nothing for `dist-upgrade` and the clones that follow, so a
+persistent stall would still fail the step after spending the whole budget. Two
+attempts cost ~610s and leave most of it, and a stall that outlasts both is an
+outage the next cycle should retry rather than something to keep hammering here.
+
+Both settings are handed back to their defaults immediately afterwards, because
+everything below that point runs real dpkg transactions.
+
 ---
 
 ## Guest dependency version pins
@@ -269,6 +313,148 @@ newer stable release upstream, edit the matching number here.
 ---
 
 ## Guest network diagnostics and DHCP lease release
+
+### Defining deterministic guest MAC addresses
+
+Every hypervisor hands a freshly-built VM a **random** MAC, and a Yuruna lab
+rebuilds its guests constantly. On a bridged network that is a slow leak: each
+build asks the DHCP server for a *new* lease while the old one is still held by a
+guest that no longer exists. A pool serving one `/24` drains over hours until it
+has nothing left, and guests then boot with **no IPv4 at all** — `wget` fails,
+the guest script exits non-zero, and cycles fail on unrelated hosts and
+hypervisors at once, with no shared cause visible from any single one of them.
+
+The fix is to stop asking for new leases. `Get-YurunaGuestMacAddress`
+([automation/Yuruna.Common.psm1](../automation/Yuruna.Common.psm1)) derives a MAC
+from **identity instead of randomness**, so the same host rebuilding the same
+guest slot presents the same address and the server hands back the lease it
+already holds. Every `New-VM.ps1` on all three host types pins its NIC to it.
+
+```
+42 : HH:HH : VV:VV:VV
+│    │       └─ SHA-256(host seed + "|" + VM name)
+│    └───────── SHA-256(host seed)
+└────────────── Yuruna's marker
+```
+
+* **`42`** is not decorative. `0x42` is `0100 0010`: the locally-administered bit
+  (`0x02`) is set and the multicast bit (`0x01`) is clear, so it is a valid
+  unicast LAA octet needing no correction — and it is the same `42` a Yuruna
+  `hostId` carries, so an operator reading a DHCP lease table can tell Yuruna's
+  addresses from everything else on the LAN at a glance.
+* **The host pair is constant for every guest on one host**, so leases visibly
+  group by machine in that same table.
+* **The VM bytes hash the host in as well**, not the name alone. Guest slots are
+  named identically on every host — `test-guest.ubuntu.server.24-01` exists
+  everywhere — so hashing the name by itself would leave the whole address resting
+  on the two host bytes, and two hosts landing on the same pair would then collide
+  on every guest they share. Mixing the host in restores the full 40 bits.
+
+The host seed is `runtime/host.uuid`, which survives reboots and the reimage
+reclaim, so a rebuilt host keeps its guests' addresses. A host that has never
+completed a cycle falls back to its hostname — deliberately something stable, never
+a random value, which would reintroduce exactly the churn this removes.
+
+**The name to key on is the guest's, not the VM's.** No guest keeps the name it was
+built with: every one is built as the per-kind slot
+(`test-guest.ubuntu.server.24-01`) and promoted to its real name when its baseline is
+snapshotted — sometimes twice, through an intermediate tier. The address must not
+move at either step, so it is derived at build time from the identity the guest keeps
+for its whole life: its cloud-init hostname, which the sequence declares and every
+`New-VM.ps1` that accepts `-Hostname` passes to `Get-YurunaGuestMacAddress` in place
+of the VM name. Promotion is then a pure metadata change and the NIC is never touched.
+
+Keying on the VM name instead is not a cosmetic mismatch. The guest is on the
+network while it is built, and what it builds records the address it had: a
+`kubeadm` control plane writes it into the apiserver's advertise address, etcd's
+listen and peer URLs, the certificate SANs and every kubeconfig. Re-key the NIC after
+that and the guest reboots onto a different lease, with a control plane that answers
+at an address no longer assigned anywhere on the segment — `no route to host`, from a
+cluster whose snapshot is deterministic, so every retry reproduces it exactly.
+
+**A rename still releases the name it vacates.** A guest whose sequence declares no
+hostname is pinned to the slot, and *that* address must not stay behind: it belongs
+to a name the VM no longer answers to, so the next build of the slot asks for one
+already in use. `virt-install` refuses that build outright (`in use by another
+virtual machine`); UTM and Hyper-V accept it and put two live NICs with one address
+on one segment, which surfaces later as guests answering for each other and reads as
+a network fault rather than a naming one. So `Rename-VM` asks
+`Test-YurunaGuestMacMatchesName` whether the NIC is still on the outgoing name's
+address before it rewrites anything — libvirt in the same `define` that relocates the
+disks, UTM while the app is quit (alongside the VNC display, which is frozen at build
+time for the same reason), Hyper-V with `Set-VMNetworkAdapter` on the new name. An
+address that is not the outgoing name's belongs to the guest, and is left alone.
+
+The pool footprint this settles at is one address per *guest identity* a host has
+built, not one per slot: two guests built one after another in the same slot now hold
+two leases rather than passing one between them. That is the point — an address the
+next guest can take is an address the previous guest cannot be found at — and it is
+still bounded and still reclaimed, because the identities are declared in the
+sequences and a rebuild of one presents the same address again.
+
+### Defining guest DHCP client identity
+
+A stable MAC is only half of it. systemd-networkd identifies itself to the DHCP
+server with a DUID derived from `/etc/machine-id`, and NetworkManager with an
+RFC 4361 client-id from the same source — and cloud-init *writes* machine-id on
+first boot and restarts networking. The guest therefore re-requests under an
+identity it did not have moments earlier, the server sees a new client, and leases
+it a **second** address. Every build drew twice from the pool.
+
+Every Linux guest Yuruna builds now pins its client identity to its MAC, by the
+route its installer allows:
+
+| Guest | How |
+|---|---|
+| Extension services, caching proxy | `dhcp-identifier: mac` in [guest-dhcp.network-config](../host/vmconfig/guest-dhcp.network-config), shipped on the cidata seed |
+| `ubuntu.server.24` / `.26` | an autoinstall late-command patches the installed netplan in place — the installer owns netplan, and a second document matching the same interface is a conflict it reports at boot |
+| `amazon.linux.2023` | a `runcmd` sets `ipv4.dhcp-client-id mac` on each NetworkManager profile |
+
+The subiquity guests are patched rather than given an autoinstall `network:` key
+on purpose: that key governs networking **during** the install too, where a wrong
+match strands the installer with no route. Not a risk worth taking for one line.
+
+### Defining lease release on teardown
+
+**The guest returns its own lease.** `yuruna-dhcp-release.service`, installed by
+the `ubuntu.server` and `amazon.linux.2023` seeds, calls `network_release`
+(below) on the way down. Four lines carry it, and each fails silently if it is
+wrong — the unit stays enabled, the shutdown stays clean, and the address simply
+never comes back:
+
+| Line | Why |
+|---|---|
+| `ExecStop=` (not `ExecStart=`) | the release belongs at stop; on start it drops the lease the harness is about to SSH to |
+| `RemainAfterExit=yes` | a `Type=oneshot` goes inactive when `ExecStart` returns, and systemd runs no `ExecStop` for an inactive unit |
+| `After=network.target` | shutdown reverses start order, so this is the only reason the stop happens while there is still a network to release onto |
+| `TimeoutStopSec=15` | a guest wedged inside the unit is still a wedged guest, and must not stall the sweep |
+
+Doing it from inside removes the three things a host-side release needs and
+cannot always have: a login user, an address that still resolves, and a guest
+that is still running. The guests that hold leases longest have none of them at
+the only moment they could be asked — they are **stopped while running and
+deleted while off**, so a host-side release has no point in their lifecycle at
+which to happen.
+
+`network_release` elevates through `_yuruna_net_sudo`, which is a no-op when
+already root: the unit runs as root at a point where the authentication stack
+`sudo` consults is being torn down, and a bare `sudo` there can fail on a
+machine where it works perfectly from a login shell.
+
+**The SSH path remains, for the kills the guest never sees.** Teardown is a hard
+power-off on the paths that discard the disk, and a guest that is wedged or
+already gone runs no shutdown unit. `Invoke-GuestDhcpRelease`
+([Test.VMUtility.psm1](../test/modules/Test.VMUtility.psm1)) asks over SSH
+immediately before the kill, calling the same `network_release` by path rather
+than reimplementing it, so there stays one answer to "how does a guest give a
+lease back". It is strictly best-effort and tightly bounded: one short attempt,
+no address wait, no retry, every failure swallowed.
+
+Neither path is what keeps the pool from draining — see
+[What an unpinned host costs the whole lab](#what-an-unpinned-host-costs-the-whole-lab)
+for the bound that does. Release shortens how long an abandoned address stays
+abandoned; it cannot reduce how many are abandoned, because it can always miss.
+
 
 ### Defining yuruna network lib
 
@@ -930,6 +1116,36 @@ in for it when the framework repository is private.
 Two independent things address this. Pin the address where the lab allows
 it; the discovery path below is the safety net for the labs that do not.
 
+### What an unpinned host costs the whole lab
+
+A host that renumbers does not only strand its own guests. Every address it
+leaves behind stays allocated on the DHCP server until that lease expires, so
+an unpinned host spends the pool at a rate set by **the lease time, not by how
+many machines are on the LAN**. One host renewing every 30 minutes takes about
+48 addresses a day. Three of them will empty a `/24` in under two days on a
+week-long lease — while the same fault on a 20-minute lease recycles fast
+enough to look healthy.
+
+That asymmetry is why the check reads the *shape* of the changes rather than
+their rate. A host renumbering on reboots and link events produces changes at
+irregular intervals; a host whose DHCP identity is not being honored produces
+them at one interval, repeated, because that interval **is** the renewal timer.
+`Get-HostAddressChurnVerdict` ([Test.HostAddressBeacon.psm1](../test/modules/Test.HostAddressBeacon.psm1))
+reports `renewal-churn` for the second shape at any period, so the verdict is
+the same on a 20-minute lease and a week-long one.
+
+When the pool does run out, the guests are what fail, and they fail in a way
+that points away from the cause: `wget exit 4`, no IPv4 address on a
+carrier-up interface, and a network diagnostic that can only list possibilities.
+Nothing in that output names the host that consumed the addresses.
+
+The pin and the observation are checked as a **pair**, by
+`Get-HostAddressStabilityReport`, surfaced in `pwsh test/Test-Config.ps1`. A pin
+the DHCP server ignores looks like a working pin from the configuration and
+like no pin at all from the address log; only the pair separates "nobody pinned
+it" (fix it here) from "it is pinned and the server does not care" (no pin will
+help — reserve or go static).
+
 ### Pinning the host address
 
 The bridge takes its MAC from the uplink NIC, so a reservation keyed on that
@@ -953,9 +1169,32 @@ nmcli con up yuruna-br0
 ```
 
 The netplan identity pins described above (`macaddress:`,
-`dhcp-identifier: mac`) already do the equivalent where the netplan/networkd
-path owns the bridge. They do **not** apply to an NM-managed bridge, which
-is why that case needs the `nmcli` form.
+`dhcp-identifier: mac`) do the equivalent where the netplan/networkd path owns
+the bridge. `New-YurunaBridgeViaNmcli` sets the same identity in the nmcli
+spelling — `ipv4.dhcp-client-id mac`, `ipv4.dhcp-iaid mac` — alongside
+`ipv4.dhcp-send-release yes`, which hands the address back when the profile
+goes down instead of parking it until expiry.
+
+Cloning the MAC is not enough on its own, on either path. It fixes the layer-2
+identity while the DHCP client still identifies itself with a
+machine-id-derived DUID, so a server keying leases on client-id renumbers the
+host anyway — the failure the `dhcp-identifier` line exists to prevent.
+
+Both pins apply at profile creation, and nobody rebuilds a working bridge — so
+a host built before they existed would keep renumbering forever while the
+remedy sat in this document. `pwsh test/Test-Config.ps1` therefore **applies**
+it rather than printing it, through `Set-HostBridgeDhcpIdentity`. That check is
+the runner's pre-cycle gate, so it runs on every host at every runner start.
+
+Running it unattended is safe for one narrow reason: `nmcli connection modify`
+writes the stored profile and does **not** reactivate it. The live connection
+keeps its address, no interface goes down, and no remote session is dropped;
+the setting takes effect at the next activation. An `nmcli connection up` would
+be a different thing entirely, and a test asserts it is absent.
+
+A netplan-managed bridge is reported, never changed: fixing that one means
+rewriting `/etc/netplan` and running `netplan apply`, which re-plumbs the
+host's IP stack — an operator action with eyes on the console.
 
 ### When the address moves anyway
 
@@ -1648,6 +1887,27 @@ server, so it is silent for a guest on a bridge-forward network with no
 `<dhcp>` element. Where both agent and lease are silent, the arp and
 neighbour rungs are the whole of discovery.
 
+### Why a MAC sweep is spent only on a failed bring-up
+
+Address discovery is the step that fails first, and it can fail without the
+caller ever probing the service it came for: a guest whose lease this host
+cannot see — a bridged guest on a hypervisor that keeps no lease file for it,
+carrying no guest agent — is invisible to every rung above while serving its
+peers normally. A wait can then spend its entire budget on nothing.
+
+The VM bundle's MAC is the identity that survives that. Matching it costs ICMP
+sweeps of every candidate `/24` until one answers or their budgets run out,
+measured at about two minutes when the cheap lookups have nothing to offer.
+That is far too expensive to repeat on a poll, so it is not part of the ordinary
+ladder at all.
+
+It is spent in exactly one place: on a bring-up that has already failed, where
+the alternative is reporting a healthy daemon as a failed one, and where two
+minutes is cheap against the run that is otherwise about to be called a failure.
+An address it recovers is also worth naming in the failure line, since a reader
+comparing the guest's own address against the ones this host dialed cannot rule
+out a candidate that was never printed.
+
 ## Proving the lab survives address churn
 
 ### Why churn is injected rather than waited for
@@ -1973,7 +2233,7 @@ sudo /usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate
 ## Related Links & Further Reading
 
 * [Ubuntu UFW Firewall Documentation](https://help.ubuntu.com/community/UFW)
-* [Microsoft Defender Firewall with Advanced Security](https://www.google.com/search?q=https://learn.microsoft.com/en-us/windows/security/operating-system-hardware-security/network-security/windows-firewall/)
+* [Microsoft Defender Firewall with Advanced Security](https://learn.microsoft.com/en-us/windows/security/operating-system-hardware-security/network-security/windows-firewall/)
 * [macOS PF Firewall Guide](https://support.apple.com/guide/mac-help/mh34041/mac)
 
 ---
@@ -1982,6 +2242,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.14
+Last review: 2026.08.16
 
 Back to [Yuruna](../README.md)

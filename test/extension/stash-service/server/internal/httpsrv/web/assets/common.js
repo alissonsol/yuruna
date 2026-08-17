@@ -126,6 +126,19 @@ const Y = {
 
   shortHost(h) { return h ? h.slice(0, 8) : '?'; },
 
+  // How a FULL opaque host id is spelled wherever one is shown: 8-4-4-4-12, the
+  // same form the Yuruna hosts dashboard reveals. 32 undifferentiated hex
+  // characters are not checkable against another screen by eye, and a lab holds
+  // a dozen that share the '42' prefix. Purely a rendering -- the stash paths
+  // and every /api/stashes/<hostId> URL are built from view.hostId itself, which
+  // stays the undashed key the service is addressed on. A value that is not 32
+  // hex passes through untouched.
+  guid(h) {
+    const s = String(h || '');
+    if (!/^[0-9a-fA-F]{32}$/.test(s)) return s;
+    return [s.slice(0, 8), s.slice(8, 12), s.slice(12, 16), s.slice(16, 20), s.slice(20)].join('-');
+  },
+
   // hostInfo reads /api/hostinfo once and hands every later caller the same
   // answer: these are facts about the daemon, and they do not change under a
   // loaded page. Never rejects -- a failed read resolves to {} so a caller reads

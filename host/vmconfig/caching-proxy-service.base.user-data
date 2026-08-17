@@ -102,14 +102,6 @@ packages:
   # === YURUNA_OVERLAY_HOST_AGENT_PKG ===
 write_files:
   # --- REGION: https://yuruna.link/network#why-sshd-notices-a-client-that-left
-  # Make sshd notice a client that stopped answering, and reap what it was
-  # running. Upstream leaves ClientAliveInterval at 0, so a session broken by
-  # either endpoint renumbering is detected only when TCP finally gives up,
-  # minutes later -- and until then the command the host was running keeps
-  # running, unwatched, holding whatever locks it held. These VMs are long-lived
-  # and the host that drives them is not: it moves on every DHCP renewal. 15s x 4
-  # mirrors the client-side bound in Test.Ssh.psm1 Invoke-GuestSsh, so both ends
-  # give up on the same schedule.
   - path: /etc/ssh/sshd_config.d/60-yuruna-keepalive.conf
     permissions: '0644'
     owner: root:root
@@ -155,30 +147,11 @@ write_files:
     permissions: '0644'
     owner: root:root
     content: |
-      # :80 bare is the address an operator types from memory; unconfigured it
-      # answers with Ubuntu's stock apache2 placeholder, which says nothing
-      # about this VM. Send it to the pool dashboard Grafana already serves.
-      #
-      # ONLY the document root is redirected. Every other published path on
-      # :80 has a consumer that needs its actual content: the two CA certs
-      # (guest provisioning fetches yuruna-squid-ca.crt), squid-meta and
-      # zot-meta (Prometheus scrapes both by explicit metrics_path against
-      # localhost:80), cache-health, the *-status breadcrumbs, and
-      # /pool-intent.git.
-      #
-      # In <Directory> rather than at server level because mod_rewrite rules
-      # are NOT inherited into <VirtualHost> blocks, and Ubuntu serves :80
-      # from the stock 000-default.conf vhost -- a server-level RewriteRule
-      # here would parse cleanly and then silently never fire. Directory
-      # sections merge into the vhost normally, and this path is the vhost's
-      # own DocumentRoot. In this context the match is relative to the
-      # directory, so the empty string is the request for '/'.
-      #
-      # %{SERVER_NAME}, never a literal address: this VM takes its IP from
-      # DHCP. Under the default UseCanonicalName Off it resolves to the host
-      # the client actually used with the port stripped, so the redirect stays
-      # on the same box whether it was reached by IP, by name, or through a
-      # port-forward from the hypervisor host.
+      # --- REGION: https://yuruna.link/caching#the-bare-80-redirect-and-what-must-not-be-redirected
+      # <Directory>, not server level: mod_rewrite rules are NOT inherited into
+      # <VirtualHost>, and Ubuntu serves :80 from the stock 000-default vhost --
+      # a server-level rule parses cleanly and then never fires. In this context
+      # the match is relative to the directory, so the empty string is '/'.
       <Directory /var/www/html>
           RewriteEngine On
           RewriteRule ^(index\.html)?$ http://%{SERVER_NAME}:3000/d/yuruna-pool/yuruna-hosts [R=302,L]
@@ -320,7 +293,7 @@ write_files:
       cache deny yuruna_registry_token_path
 
       # --- REGION: OpenTofu / Terraform provider + binary caching
-      # See https://yuruna.link/caching#opentofu-provider--binary-caching
+      # --- REGION: https://yuruna.link/caching#opentofu-provider--binary-caching
       refresh_pattern -i \.zip$                                            525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
       refresh_pattern -i ^https?://registry\.opentofu\.org/                525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
       refresh_pattern -i ^https?://releases\.opentofu\.org/                525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
@@ -735,7 +708,8 @@ write_files:
       # with the other temps so the trap covers it: it holds an access token, and
       # a run that dies partway must not leave that token in /tmp.
       TMP_NETRC=$(mktemp)
-      trap 'rm -f "$TMP" "$TMP_TXT" "$TMP_UP" "$TMP_UP_TXT" "$TMP_NETRC"' EXIT
+      TMP_PW=$(mktemp)
+      trap 'rm -f "$TMP" "$TMP_TXT" "$TMP_UP" "$TMP_UP_TXT" "$TMP_NETRC" "$TMP_PW"' EXIT
 
       ZOT='http://127.0.0.1:5000'
       # Addressed by TAG, not digest: only a tag re-runs the on-demand upstream
@@ -914,6 +888,67 @@ write_files:
       [ -n "$ZOT_FREE" ]   || ZOT_FREE=0
       [ -n "$SQUID_FREE" ] || SQUID_FREE=0
 
+      # --- REGION: Warm-set residency
+      # The canary above walks a tag a scheduled poll keeps resident, so it
+      # measures the upstream leg and stays fast while an image the lab does NOT
+      # hold is still being copied. Residency is the reading that shows that
+      # case, and it can only be observed by the job that requests the images a
+      # guest actually pulls -- measuring it here would spend a full cold sync
+      # per probe, every ten minutes.
+      PW_META=/var/lib/yuruna/prewarm-meta.env
+      PW_ROWS=/var/lib/yuruna/prewarm-rows.tsv
+      PW_PROGRESS=/var/lib/yuruna/prewarm-progress
+      YURUNA_PREWARM_LAST_RUN=""
+      YURUNA_PREWARM_K8S_MINOR=""
+      YURUNA_PREWARM_K8S_PATCH=""
+      YURUNA_PREWARM_FLANNEL_TAG=""
+      YURUNA_PREWARM_RESOLVE_SRC=""
+      YURUNA_PREWARM_K8S_RESOLVED=1
+      YURUNA_PREWARM_CNI_RESOLVED=1
+      YURUNA_PREWARM_WATERMARK=0
+      YURUNA_PREWARM_WATERMARK_REF=""
+      # Machine-written by zot-prewarm.sh alone; no operator free text reaches it.
+      [ -r "$PW_META" ] && . "$PW_META" 2>/dev/null
+      PW_HAVE=0
+      K8S_TOTAL=0; K8S_HELD=0; CNI_TOTAL=0; CNI_HELD=0
+      PW_SLOW_SEC=""; PW_SLOW_REF=""
+      if [ -r "$PW_ROWS" ]; then
+          PW_HAVE=1
+          # A row reaching "cold" completed its fetch: the content moved and is
+          # now held. Only timeout/failed rows are images a guest would still
+          # have to wait for.
+          K8S_TOTAL=$(awk -F'\t' '$1=="k8s"{n++} END{print n+0}' "$PW_ROWS")
+          K8S_HELD=$(awk  -F'\t' '$1=="k8s" && ($5=="resident"||$5=="cold"){n++} END{print n+0}' "$PW_ROWS")
+          CNI_TOTAL=$(awk -F'\t' '$1=="cni"{n++} END{print n+0}' "$PW_ROWS")
+          CNI_HELD=$(awk  -F'\t' '$1=="cni" && ($5=="resident"||$5=="cold"){n++} END{print n+0}' "$PW_ROWS")
+          PW_SLOW=$(awk -F'\t' 'BEGIN{m=-1}
+              ($5=="resident"||$5=="cold") && ($4+0)>m { m=$4+0; r=$2 }
+              END{ if (m>=0) printf "%.3f\t%s", m, r }' "$PW_ROWS")
+          PW_SLOW_SEC=$(printf '%s' "$PW_SLOW" | cut -f1)
+          PW_SLOW_REF=$(printf '%s' "$PW_SLOW" | cut -f2)
+          : > "$TMP_PW"
+          awk -F'\t' '{ printf "yuruna_prewarm_manifest_seconds{set=\"%s\",image=\"%s\",state=\"%s\"} %s\n", $1, $2, $5, $4 }' \
+              "$PW_ROWS" >> "$TMP_PW"
+      fi
+      PW_MISSING=$(( (K8S_TOTAL - K8S_HELD) + (CNI_TOTAL - CNI_HELD) ))
+      # A run in flight is worth naming: an operator looking at residency while
+      # the cache is mid-sync would otherwise read a complete set as proof that
+      # a guest failing right now met a warm cache.
+      PW_INFLIGHT_REF=""
+      PW_INFLIGHT_SEC=0
+      if [ -r "$PW_PROGRESS" ]; then
+          PW_INFLIGHT_REF=$(cut -f2 "$PW_PROGRESS" 2>/dev/null)
+          PW_INFLIGHT_T0=$(cut -f1 "$PW_PROGRESS" 2>/dev/null)
+          case "$PW_INFLIGHT_T0" in
+              ''|*[!0-9]*) PW_INFLIGHT_REF="" ;;
+              *) PW_INFLIGHT_SEC=$(( $(date +%s) - PW_INFLIGHT_T0 )) ;;
+          esac
+      fi
+      PW_LAST_EPOCH=0
+      if [ -n "$YURUNA_PREWARM_LAST_RUN" ]; then
+          PW_LAST_EPOCH=$(date -u -d "$YURUNA_PREWARM_LAST_RUN" +%s 2>/dev/null || echo 0)
+      fi
+
       cat > "$TMP" <<EOF_METRICS
       # HELP yuruna_zot_v2_up 1 if zot answers GET /v2/ within 10s (liveness only -- says nothing about the manifest path)
       # TYPE yuruna_zot_v2_up gauge
@@ -957,7 +992,31 @@ write_files:
       # HELP yuruna_squid_cache_free_bytes Free space on the filesystem holding the squid cache_dir
       # TYPE yuruna_squid_cache_free_bytes gauge
       yuruna_squid_cache_free_bytes $SQUID_FREE
+      # HELP yuruna_prewarm_state_available 1 if a warm run has recorded residency for the image sets a guest pulls; 0 means the counts below are absent, not zero
+      # TYPE yuruna_prewarm_state_available gauge
+      yuruna_prewarm_state_available $PW_HAVE
+      # HELP yuruna_prewarm_images_total Images in a set a guest pulls, resolved from the guest's own sources (kubeadm's own list, flannel's applied manifest)
+      # TYPE yuruna_prewarm_images_total gauge
+      yuruna_prewarm_images_total{set="k8s"} $K8S_TOTAL
+      yuruna_prewarm_images_total{set="cni"} $CNI_TOTAL
+      # HELP yuruna_prewarm_images_resident Images of that set the cache holds; every shortfall is an upstream copy a guest waits out inside its own step budget
+      # TYPE yuruna_prewarm_images_resident gauge
+      yuruna_prewarm_images_resident{set="k8s"} $K8S_HELD
+      yuruna_prewarm_images_resident{set="cni"} $CNI_HELD
+      # HELP yuruna_prewarm_cold_sync_watermark_seconds Slowest fetch that moved content at the currently resolved versions -- what a guest pays per image when the set is not held
+      # TYPE yuruna_prewarm_cold_sync_watermark_seconds gauge
+      yuruna_prewarm_cold_sync_watermark_seconds $YURUNA_PREWARM_WATERMARK
+      # HELP yuruna_prewarm_last_run_timestamp_seconds Unix time the last warm run finished; a stale value means the residency counts describe an older state of the cache
+      # TYPE yuruna_prewarm_last_run_timestamp_seconds gauge
+      yuruna_prewarm_last_run_timestamp_seconds $PW_LAST_EPOCH
+      # HELP yuruna_prewarm_inflight_seconds Seconds the warm run has been on its current image; 0 when no run is in flight
+      # TYPE yuruna_prewarm_inflight_seconds gauge
+      yuruna_prewarm_inflight_seconds $PW_INFLIGHT_SEC
+      # HELP yuruna_prewarm_manifest_seconds Elapsed time of the warm request per image, on the same path a pull walks
+      # TYPE yuruna_prewarm_manifest_seconds gauge
       EOF_METRICS2
+
+      cat "$TMP_PW" >> "$TMP"
 
       install -m 0644 "$TMP" /var/www/html/zot-meta
 
@@ -978,13 +1037,66 @@ write_files:
           # The verdict the line above cannot give: it reports the answer the
           # probe waited out under a cap set far wider than any client's, so a
           # reader sees "HTTP 200" for a manifest no pull can survive.
+          # Named for what it measures. A scheduled poll keeps this tag's content
+          # resident, so its revalidation settles as a fast no-op and the reading
+          # reports the UPSTREAM LEG only. It cannot show a cold image arriving,
+          # and a line that reads "OK for a real pull" while a guest is stalled
+          # on an image the cache does not hold sends the operator to the guest.
           if [ "$MANIFEST_UNDER_PATIENCE" = 1 ]; then
-              echo "zot manifest for a real pull : OK -- answered inside the ${CLIENT_PATIENCE}s a pull waits for response headers"
+              echo "zot resident-tag revalidation: OK -- answered inside the ${CLIENT_PATIENCE}s a pull waits for response headers"
           else
-              echo "zot manifest for a real pull : FAILING -- a pull gives up after ${CLIENT_PATIENCE}s, whatever the cache answers later"
+              echo "zot resident-tag revalidation: FAILING -- a pull gives up after ${CLIENT_PATIENCE}s, whatever the cache answers later"
           fi
           echo "  A cache that answers /v2/ instantly can still take minutes here."
           echo "  Pulls fail around the ${CLIENT_PATIENCE}s mark: dockerd stops waiting for response headers."
+          echo "  Scope: this tag is held locally, so the line above times the upstream leg."
+          echo "  What a COLD image costs is the warm-set section below."
+          echo
+          # The cold path, measured on the images the lab actually pulls.
+          if [ "$PW_HAVE" = 1 ] && [ "$K8S_TOTAL" = 0 ] && [ "$CNI_TOTAL" = 0 ]; then
+              # A run that resolved no set at all is a different state from a run
+              # that found every image held, and "0 of 0" reads as the latter.
+              echo "Warm sets                    : the last run resolved no image set."
+              echo "  Version lookup failed and there was no earlier set to fall back on, so"
+              echo "  nothing is being kept warm and a guest pulling now meets a cold cache."
+          elif [ "$PW_HAVE" = 1 ]; then
+              echo "Warm sets, last warmed ${YURUNA_PREWARM_LAST_RUN:-never} (versions resolved via ${YURUNA_PREWARM_RESOLVE_SRC:-unknown}):"
+              echo "  Kubernetes image set (${YURUNA_PREWARM_K8S_PATCH:-unresolved}, pinned minor ${YURUNA_PREWARM_K8S_MINOR:-unknown}):"
+              if [ "$K8S_TOTAL" -gt 0 ] && [ "$K8S_HELD" -lt "$K8S_TOTAL" ]; then
+                  echo "    resident                 : ${K8S_HELD} of ${K8S_TOTAL}   <-- a kubeadm init pays $((K8S_TOTAL - K8S_HELD)) cold sync(s)"
+              else
+                  echo "    resident                 : ${K8S_HELD} of ${K8S_TOTAL}"
+              fi
+              echo "  CNI image set (flannel ${YURUNA_PREWARM_FLANNEL_TAG:-unresolved}):"
+              if [ "$CNI_TOTAL" -gt 0 ] && [ "$CNI_HELD" -lt "$CNI_TOTAL" ]; then
+                  echo "    resident                 : ${CNI_HELD} of ${CNI_TOTAL}   <-- the CNI rollout pays $((CNI_TOTAL - CNI_HELD)) cold sync(s)"
+              else
+                  echo "    resident                 : ${CNI_HELD} of ${CNI_TOTAL}"
+              fi
+              if [ -n "$PW_SLOW_SEC" ]; then
+                  echo "  slowest in last warm       : ${PW_SLOW_SEC}s (${PW_SLOW_REF})"
+              fi
+              # Carried across runs at these versions: once a set is warm every
+              # later reading is sub-second, and the number worth keeping is what
+              # the cache charged when it was NOT.
+              if [ "${YURUNA_PREWARM_WATERMARK:-0}" != "0" ]; then
+                  echo "  cold-sync watermark        : ${YURUNA_PREWARM_WATERMARK}s (${YURUNA_PREWARM_WATERMARK_REF})"
+              fi
+              if [ -n "$PW_INFLIGHT_REF" ]; then
+                  echo "  warm run in flight         : ${PW_INFLIGHT_REF} (fetching ${PW_INFLIGHT_SEC}s) -- counts above predate it"
+              fi
+              if [ "${YURUNA_PREWARM_K8S_RESOLVED:-1}" = "0" ] || [ "${YURUNA_PREWARM_CNI_RESOLVED:-1}" = "0" ]; then
+                  echo "  NOTE: the last run could not re-resolve one or both sets and reused the previous list."
+              fi
+              if [ "$PW_MISSING" -gt 0 ]; then
+                  echo "  A guest step budgeted at 1800s will not finish while a set is short: each"
+                  echo "  missing image is copied from upstream while the guest waits on its manifest."
+              fi
+          else
+              echo "Warm sets                    : no warm run has recorded residency yet."
+              echo "  Until zot-prewarm has run, nothing here reports how long a COLD image takes"
+              echo "  to arrive, and the revalidation line above cannot show it."
+          fi
           echo
           # Mode first, because the count is unreadable without it: the same number
           # means "the lab's own allowance" (authenticated) or "shared by every
@@ -1036,6 +1148,303 @@ write_files:
       OnUnitActiveSec=10min
       AccuracySec=30s
       Unit=zot-meta-exporter.service
+      [Install]
+      WantedBy=timers.target
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#zot-prewarm
+  - path: /usr/local/bin/zot-prewarm.sh
+    permissions: '0755'
+    owner: root:root
+    content: |
+      #!/bin/bash
+      # Yuruna zot prewarm: keeps the image sets a Kubernetes guest pulls
+      # resident in this cache, and times every fetch so the health page can
+      # report the path a real pull walks.
+      #
+      # zot resolves a TAG by re-running the on-demand upstream sync before any
+      # local-storage check, and when the content is not already held that sync
+      # copies the whole multi-arch index before the manifest request is
+      # answered. A guest meeting that cold pays minutes per image inside a step
+      # budget sized for a warm cache. Warming on a timer moves the cost off the
+      # critical path.
+      #
+      # Timing it HERE is also the only reading that can show the cold path. A
+      # tag a scheduled poll keeps resident answers from local storage in
+      # milliseconds however badly a cold sync is behaving, so a canary pinned to
+      # such a tag reports green by construction -- it measures the upstream leg
+      # and nothing about how long an image the lab does not hold takes to
+      # arrive.
+      set +e
+      umask 022
+
+      STATE_DIR=/var/lib/yuruna
+      SET_FILE="$STATE_DIR/prewarm-set.tsv"
+      ROWS_FILE="$STATE_DIR/prewarm-rows.tsv"
+      META_FILE="$STATE_DIR/prewarm-meta.env"
+      LOCK_FILE="$STATE_DIR/prewarm.lock"
+      ZOT='http://127.0.0.1:5000'
+
+      # Per-image ceiling. Wide on purpose: it exists to stop a wedged upstream
+      # pinning this unit forever, not to express what is acceptable. A cold
+      # multi-arch control-plane image legitimately takes minutes, and cutting it
+      # short would abandon a sync the next run then has to start over.
+      PREWARM_MAX=900
+      # Above this, the request moved content rather than revalidating a tag the
+      # cache already held: local storage answers in milliseconds, so a reading
+      # in whole seconds already means the upstream leg ran.
+      COLD_FLOOR=5
+      # Spelled out for the same reason the exporter spells it out: a manifest
+      # request stating no preference gets the registry's default, which for a
+      # multi-arch tag is not the index a real pull resolves.
+      ACCEPT='application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json'
+
+      install -d -m 0755 "$STATE_DIR" 2>/dev/null
+
+      # Serialize. Two overlapping runs would race on the state files and double
+      # the upstream work for no benefit; a long cold run overlapping the next
+      # timer tick is the normal case, not an exceptional one.
+      exec 9>"$LOCK_FILE"
+      if ! flock -n 9; then
+          echo "zot-prewarm: another run holds the lock; skipping this tick"
+          exit 0
+      fi
+
+      # --- REGION: Resolve what to keep warm
+      # Every input below is read from the same source the guest reads, so the
+      # warm set cannot drift from the set a guest pulls. Naming versions in this
+      # file instead would create a second pin that goes stale silently, and the
+      # staleness would only surface as a cold cache during a provisioning run.
+      #
+      # All resolution fetches go direct. Routing them through this VM's own
+      # ssl-bump listener would make a source fetch depend on the proxy it is
+      # meant to keep stocked.
+      YR_BASE="https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/"
+      YR_SRC="github"
+      # Safe to source: host.env is host-baked IP/PORT only, never operator free text.
+      if [ -r /etc/yuruna/host.env ]; then
+          . /etc/yuruna/host.env
+          YR_H="${YURUNA_STATUS_SERVICE_IP:-}"
+          YR_P="${YURUNA_STATUS_SERVICE_PORT:-}"
+          if [ -n "$YR_H" ] && [ -n "$YR_P" ] && \
+             curl -fsS --noproxy '*' -m 5 -o /dev/null "http://${YR_H}:${YR_P}/livecheck" 2>/dev/null; then
+              YR_BASE="http://${YR_H}:${YR_P}/yuruna-repo/"
+              YR_SRC="local host status service"
+          fi
+      fi
+
+      # Parsed with a line regex rather than sourced: the versions file is a
+      # contract of plain `export KEY=value` lines precisely so a consumer never
+      # has to execute it to read one value out.
+      K8S_MINOR=""
+      VERSIONS_TXT=$(curl -fsSL --noproxy '*' -m 20 "${YR_BASE}automation/yuruna-versions.sh" 2>/dev/null)
+      if [ -n "$VERSIONS_TXT" ]; then
+          K8S_MINOR=$(printf '%s\n' "$VERSIONS_TXT" \
+              | sed -n 's/^export YURUNA_K8S_MINOR=\([0-9][0-9.]*\).*$/\1/p' | head -n1)
+      fi
+
+      K8S_PATCH=""
+      if [ -n "$K8S_MINOR" ]; then
+          K8S_PATCH=$(curl -fsSL --noproxy '*' -m 20 \
+              "https://dl.k8s.io/release/stable-${K8S_MINOR}.txt" 2>/dev/null | tr -d '\r\n')
+      fi
+
+      # kubeadm's image set cannot be derived from the Kubernetes version:
+      # coredns, pause and etcd carry tags of their own, baked into the binary
+      # and moved on their own schedule. Running the same binary the guest runs
+      # is the only way to get the list right -- a tag glob would silently miss
+      # three of the seven images, and those three would then be the ones
+      # arriving cold.
+      DEB_ARCH=$(dpkg --print-architecture 2>/dev/null || echo amd64)
+      K8S_REFS=""
+      if [ -n "$K8S_PATCH" ]; then
+          KUBEADM_BIN="$STATE_DIR/kubeadm-${K8S_PATCH}-${DEB_ARCH}"
+          if [ ! -x "$KUBEADM_BIN" ]; then
+              if curl -fsSL --noproxy '*' -m 600 -o "${KUBEADM_BIN}.part" \
+                      "https://dl.k8s.io/release/${K8S_PATCH}/bin/linux/${DEB_ARCH}/kubeadm" 2>/dev/null; then
+                  chmod 0755 "${KUBEADM_BIN}.part" && mv -f "${KUBEADM_BIN}.part" "$KUBEADM_BIN"
+              else
+                  rm -f "${KUBEADM_BIN}.part"
+              fi
+          fi
+          if [ -x "$KUBEADM_BIN" ]; then
+              # Filtered to lines that look like a registry reference so a future
+              # kubeadm printing a banner or a deprecation note cannot inject a
+              # bogus entry into the warm set.
+              K8S_REFS=$("$KUBEADM_BIN" config images list --kubernetes-version "$K8S_PATCH" 2>/dev/null \
+                  | grep -E '^[a-z0-9][a-z0-9.-]*\.[a-z]+/[a-z0-9][^[:space:]]*:[^[:space:]]+$')
+          fi
+          # One binary per version is the point of the cache; keeping every
+          # version ever pinned is not.
+          find "$STATE_DIR" -maxdepth 1 -name 'kubeadm-*' ! -name "kubeadm-${K8S_PATCH}-${DEB_ARCH}" -delete 2>/dev/null
+      fi
+
+      # Flannel tracks latest rather than a pin, so its tag is resolved exactly
+      # the way the guest resolves it -- follow the release redirect, then read
+      # the image names out of the manifest the guest applies. Same two hops,
+      # same answer, no third place to keep in step.
+      FLANNEL_TAG=$(curl -fsSI --noproxy '*' -m 20 \
+          "https://github.com/flannel-io/flannel/releases/latest" 2>/dev/null \
+          | tr -d '\r' | awk 'tolower($1)=="location:"{n=split($2,a,"/"); print a[n]}')
+      CNI_REFS=""
+      if [ -n "$FLANNEL_TAG" ]; then
+          CNI_REFS=$(curl -fsSL --noproxy '*' -m 30 \
+              "https://raw.githubusercontent.com/flannel-io/flannel/${FLANNEL_TAG}/Documentation/kube-flannel.yml" 2>/dev/null \
+              | awk '$1=="image:"{print $2}' | sort -u)
+      fi
+
+      # A resolution outage must degrade to warming the PREVIOUS set, never to
+      # warming nothing: the images a guest needs did not change because github
+      # was briefly unreachable, and an empty set would quietly stop protecting
+      # the very run about to pull them. Carried per set, so one upstream being
+      # down does not discard the other's resolution.
+      # The flag records whether THIS run resolved the set, not whether it ended
+      # up with a list: a run that resolved nothing and had nothing to fall back
+      # on must not report itself as current.
+      K8S_RESOLVED=1
+      [ -z "$K8S_REFS" ] && K8S_RESOLVED=0
+      if [ "$K8S_RESOLVED" = 0 ] && [ -r "$SET_FILE" ]; then
+          K8S_REFS=$(awk -F'\t' '$1=="k8s"{print $2}' "$SET_FILE")
+      fi
+      CNI_RESOLVED=1
+      [ -z "$CNI_REFS" ] && CNI_RESOLVED=0
+      if [ "$CNI_RESOLVED" = 0 ] && [ -r "$SET_FILE" ]; then
+          CNI_REFS=$(awk -F'\t' '$1=="cni"{print $2}' "$SET_FILE")
+      fi
+
+      SET_TMP=$(mktemp)
+      ROWS_TMP=$(mktemp)
+      META_TMP=$(mktemp)
+      PROGRESS_FILE="$STATE_DIR/prewarm-progress"
+      # The progress marker is removed on ANY exit, including a kill mid-sync: a
+      # marker outliving its run would report a fetch still in flight forever,
+      # and "the cache is busy, wait" is the one line here an operator acts on
+      # by NOT re-running.
+      trap 'rm -f "$SET_TMP" "$ROWS_TMP" "$META_TMP" "$PROGRESS_FILE"' EXIT
+      for r in $K8S_REFS; do printf 'k8s\t%s\n' "$r" >> "$SET_TMP"; done
+      for r in $CNI_REFS; do printf 'cni\t%s\n' "$r" >> "$SET_TMP"; done
+      [ -s "$SET_TMP" ] && install -m 0644 "$SET_TMP" "$SET_FILE"
+
+      # --- REGION: Warm the set and time it
+      warm_one() {
+          W_SET=$1
+          W_REF=$2
+          W_UPSTREAM=${W_REF%%/*}
+          W_REST=${W_REF#*/}
+          W_TAG=${W_REST##*:}
+          W_REPO=${W_REST%:*}
+          # ns= names the upstream this repository belongs to. It is the same
+          # parameter containerd's hosts.toml form sends on every pull, and it is
+          # how zot picks which registry entry to sync from. Without it zot walks
+          # its list in file order, where Docker Hub is the `**` catch-all -- so
+          # warming a registry.k8s.io image would spend one of the metered Docker
+          # Hub lookups the whole lab shares, on an image Hub never served.
+          printf '%s\t%s\n' "$(date +%s)" "$W_REF" > "$PROGRESS_FILE"
+          W_T0=$(date +%s.%N)
+          W_CODE=$(curl -s -o /dev/null --noproxy '*' -m "$PREWARM_MAX" \
+                        -H "Accept: ${ACCEPT}" -w '%{http_code}' \
+                        "${ZOT}/v2/${W_REPO}/manifests/${W_TAG}?ns=${W_UPSTREAM}" 2>/dev/null)
+          W_T1=$(date +%s.%N)
+          W_SEC=$(awk -v a="$W_T0" -v b="$W_T1" 'BEGIN{printf "%.3f", b-a}')
+          if [ "$W_CODE" = "200" ]; then
+              # Compared in awk because the elapsed time is fractional and the
+              # shell's test builtin errors outright on a non-integer operand.
+              if awk -v s="$W_SEC" -v f="$COLD_FLOOR" 'BEGIN{exit !(s<f)}'; then
+                  W_STATE=resident
+              else
+                  W_STATE=cold
+              fi
+          elif [ "$W_CODE" = "000" ] || [ -z "$W_CODE" ]; then
+              W_STATE=timeout
+          else
+              W_STATE=failed
+          fi
+          printf '%s\t%s\t%s\t%s\t%s\n' "$W_SET" "$W_REF" "${W_CODE:-000}" "$W_SEC" "$W_STATE" >> "$ROWS_TMP"
+      }
+
+      for r in $K8S_REFS; do warm_one k8s "$r"; done
+      for r in $CNI_REFS; do warm_one cni "$r"; done
+      rm -f "$PROGRESS_FILE"
+      install -m 0644 "$ROWS_TMP" "$ROWS_FILE"
+
+      # The watermark answers what a resident/total count cannot: how long a
+      # guest waits when the set is NOT held. Kept per resolved version and
+      # reset when that version moves, because how long an older image set took
+      # to arrive says nothing about the current one.
+      PREV_WATERMARK=0
+      PREV_WATERMARK_REF=""
+      YURUNA_PREWARM_WATERMARK=""
+      YURUNA_PREWARM_WATERMARK_REF=""
+      YURUNA_PREWARM_K8S_PATCH=""
+      YURUNA_PREWARM_FLANNEL_TAG=""
+      # Machine-written by this script alone, so sourcing carries no operator
+      # free text into the shell.
+      [ -r "$META_FILE" ] && . "$META_FILE" 2>/dev/null
+      if [ "${YURUNA_PREWARM_K8S_PATCH:-}" = "$K8S_PATCH" ] && \
+         [ "${YURUNA_PREWARM_FLANNEL_TAG:-}" = "$FLANNEL_TAG" ]; then
+          PREV_WATERMARK=${YURUNA_PREWARM_WATERMARK:-0}
+          PREV_WATERMARK_REF=${YURUNA_PREWARM_WATERMARK_REF:-}
+      fi
+      WATERMARK_ROW=$(awk -F'\t' -v prev="$PREV_WATERMARK" -v prevref="$PREV_WATERMARK_REF" '
+          BEGIN { m = prev + 0; ref = prevref }
+          $5 == "cold" && ($4 + 0) > m { m = $4 + 0; ref = $2 }
+          END { printf "%.0f\t%s", m, ref }' "$ROWS_FILE")
+      WATERMARK=$(printf '%s' "$WATERMARK_ROW" | cut -f1)
+      WATERMARK_REF=$(printf '%s' "$WATERMARK_ROW" | cut -f2)
+
+      {
+          echo "YURUNA_PREWARM_LAST_RUN=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "YURUNA_PREWARM_K8S_MINOR=${K8S_MINOR}"
+          echo "YURUNA_PREWARM_K8S_PATCH=${K8S_PATCH}"
+          echo "YURUNA_PREWARM_FLANNEL_TAG=${FLANNEL_TAG}"
+          echo "YURUNA_PREWARM_RESOLVE_SRC=${YR_SRC}"
+          echo "YURUNA_PREWARM_K8S_RESOLVED=${K8S_RESOLVED}"
+          echo "YURUNA_PREWARM_CNI_RESOLVED=${CNI_RESOLVED}"
+          echo "YURUNA_PREWARM_WATERMARK=${WATERMARK}"
+          echo "YURUNA_PREWARM_WATERMARK_REF=${WATERMARK_REF}"
+      } > "$META_TMP"
+      install -m 0644 "$META_TMP" "$META_FILE"
+
+      # Refresh the published page immediately rather than waiting out the
+      # exporter's next tick: the reading this run just produced is the one an
+      # operator asks for after a provisioning failure, and a ten-minute gap is
+      # long enough for them to read the previous state and conclude the cache
+      # was fine.
+      [ -x /usr/local/bin/zot-meta-exporter.sh ] && /usr/local/bin/zot-meta-exporter.sh
+      exit 0
+  - path: /etc/systemd/system/zot-prewarm.service
+    permissions: '0644'
+    owner: root:root
+    content: |
+      [Unit]
+      Description=Yuruna zot prewarm (keep the guest image sets resident, and time the cold path)
+      After=network-online.target zot.service apache2.service
+      Wants=network-online.target
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/bin/zot-prewarm.sh
+      # A cold multi-arch set legitimately runs into the tens of minutes, and
+      # systemd's default start timeout would kill it mid-sync -- leaving the
+      # cache with partial content and the next run repeating the same work.
+      TimeoutStartSec=3h
+  - path: /etc/systemd/system/zot-prewarm.timer
+    permissions: '0644'
+    owner: root:root
+    content: |
+      [Unit]
+      Description=Warm the guest image sets in zot every 6 hours
+      [Timer]
+      # 6h matches the scheduled sync entries in zot's own config: both exist to
+      # keep content resident, and running them on different cadences would only
+      # make the health page disagree with the registry about how current it is.
+      # OnBootSec is short because a cache that just rebooted holds nothing a
+      # guest starting now can use, and the first cycle after a rebuild is
+      # exactly when a cold set costs a run.
+      OnBootSec=3min
+      OnUnitActiveSec=6h
+      AccuracySec=1min
+      # A host powered off across the interval must warm on the next boot rather
+      # than wait out a full period it already slept through.
+      Persistent=true
+      Unit=zot-prewarm.service
       [Install]
       WantedBy=timers.target
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#squid-exporter-unit
@@ -1359,7 +1768,7 @@ write_files:
       YURUNA_STATUS_SERVICE_PORT=YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER
       YURUNA_HOST_ID=YURUNA_HOST_ID_PLACEHOLDER
       YURUNA_CACHING_PROXY_SERVICE_IP=127.0.0.1
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#host-address-refresh-timer
+  # --- REGION: https://yuruna.link/vmconfig#host-address-refresh-timer
   # This VM resolves its host through the pool directory like every other
   # guest -- the difference is that the directory is running on THIS machine,
   # so the address it asks is loopback. That is not the loopback case the
@@ -1367,11 +1776,6 @@ write_files:
   # 127.0.0.1 is advertising the reader's own box), never to the directory
   # being consulted. Hard-coded rather than seeded because it is a fact about
   # where the aggregator runs, not about where this lab put its cache.
-  #
-  # Worth having despite this VM being the best-connected in the lab: it is
-  # the longest-lived thing the framework builds, so it accumulates more host
-  # renumbers than anything else, and it fetches framework sources from the
-  # host on every bring-up.
   - path: /usr/local/lib/yuruna/yuruna-host-locate.sh
     encoding: base64
     content: YURUNA_HOST_LOCATE_BASE64_PLACEHOLDER
@@ -1381,23 +1785,11 @@ write_files:
     content: |
       [Unit]
       Description=Refresh Yuruna host coordinates if the host has changed address
-      # Ordered INTO the network-online barrier rather than after it. Anything
-      # in this guest that needs the host waits on that target, so finishing
-      # before it is what guarantees those consumers never read a stale
-      # address -- and it does so without this unit naming any of them, which
-      # is the whole point of the indirection.
-      #
-      # After the wait-online services (whichever the image ships; ordering
-      # against an absent unit is a no-op) so this runs with an address in
-      # hand rather than before DHCP has answered.
       After=network.target NetworkManager-wait-online.service systemd-networkd-wait-online.service
       Before=network-online.target
 
       [Service]
       Type=oneshot
-      # A resolver that cannot finish must not hold the boot open. Every call
-      # inside is already wall-clock bounded; this is the backstop for the day
-      # one of them is not.
       TimeoutStartSec=30
       ExecStart=/usr/local/lib/yuruna/yuruna-host-locate.sh
 
@@ -1653,7 +2045,7 @@ write_files:
             "id": 17,
             "type": "table",
             "title": "Extension hosts",
-            "description": "Hosts running an extension function, learned from each host's registration record (activeExtensions) -- the same opaque Host ID namespace as the Pool hosts table, so a host that both runs cycles and hosts a stash service shows the same Host ID in both. No ystash-nas mount or config service: a host self-reports the service it runs and the aggregator already polls its registration. Driven by yuruna_pool_host_extension. Host ID is plain text here, deliberately: a host can run an extension service without running cycles, and such a host has no status page for the /go/host redirect to resolve -- it would answer 'host not known to the pool'. Open a host from the Pool hosts table instead: its rows are exactly the hosts that have a status page, and that Host ID link carries the short-lived control token. Extension names the function (e.g. Stash service) and links to that service's UI via the aggregator's /go/stash redirect, which resolves the host-advertised address server-side and hands the browser the same short-lived control token the Pool hosts link carries -- so a service UI opened from here arrives with its actions already unlocked, and only falls back to asking for the Lab token when the proxy mints no token at all. Panel height tracks the extension-host count (yuruna-fit-pool-dashboard.timer) -- gridPos.h below is only the pre-collector default.",
+            "description": "Hosts running an extension function, learned from each host's registration record (activeExtensions) -- the same opaque Host ID namespace as the Pool hosts table, so a host that both runs cycles and hosts a stash service shows the same Host ID in both. No ystash-nas mount or config service: a host self-reports the service it runs and the aggregator already polls its registration. Driven by yuruna_pool_host_extension. Host ID shows the first 8 characters, which is what tells a dozen near-identical 42-prefixed ids apart at a glance; clicking the cell opens a menu whose FIRST entry is that host's full id, GUID-formatted (8-4-4-4-12) so it is checkable by eye and copyable into a command -- it names the host and navigates nowhere. The menu's other entry is the same extension link the Extension column carries, because /go/host cannot serve this table: a host can run an extension service without running cycles, and such a host has no status page for that redirect to resolve -- it would answer 'host not known to the pool'. Open a host from the Pool hosts table instead: its rows are exactly the hosts that have a status page, and that Host ID link carries the short-lived control token. Extension names the function (e.g. Stash service) and links to that service's UI via the aggregator's /go/stash redirect, which resolves the host-advertised address server-side and hands the browser the same short-lived control token the Pool hosts link carries -- so a service UI opened from here arrives with its actions already unlocked, and only falls back to asking for the Lab token when the proxy mints no token at all. Panel height tracks the extension-host count (yuruna-fit-pool-dashboard.timer) -- gridPos.h below is only the pre-collector default.",
             "gridPos": { "h": 4, "w": 24, "x": 0, "y": 22 },
             "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
             "targets": [
@@ -1665,7 +2057,7 @@ write_files:
                 "options": {
                   "excludeByName": { "Time": true, "pool": true, "__name__": true, "job": true, "instance": true, "Value": true, "Value #A": true },
                   "renameByName": { "hostId": "Host ID", "area": "Extension" },
-                  "indexByName": { "hostId": 0, "area": 1 }
+                  "indexByName": { "hostId": 0, "area": 1, "hostIdDashed": 2 }
                 }
               }
             ],
@@ -1675,9 +2067,13 @@ write_files:
                 {
                   "matcher": { "id": "byName", "options": "Host ID" },
                   "properties": [
-                    { "id": "custom.width", "value": 330 },
-                    { "id": "custom.align", "value": "right" },
-                    { "id": "mappings", "value": [ { "type": "regex", "options": { "pattern": "^(.{8})(.{4})(.{4})(.{4})(.{12})$", "result": { "text": "$1-$2-$3-$4-$5" } } } ] }
+                    { "id": "custom.width", "value": 110 },
+                    { "id": "custom.align", "value": "left" },
+                    { "id": "mappings", "value": [ { "type": "regex", "options": { "pattern": "^(.{8}).*$", "result": { "text": "$1" } } } ] },
+                    { "id": "links", "value": [
+                      { "title": "${__data.fields.hostIdDashed}", "url": "#" },
+                      { "title": "Open extension service UI", "url": "${aggregator}${__data.fields.goPath}", "targetBlank": true }
+                    ] }
                   ]
                 },
                 {
@@ -1690,7 +2086,8 @@ write_files:
                 },
                 { "matcher": { "id": "byName", "options": "baseUrl" }, "properties": [ { "id": "custom.hidden", "value": true } ] },
                 { "matcher": { "id": "byName", "options": "target" }, "properties": [ { "id": "custom.hidden", "value": true } ] },
-                { "matcher": { "id": "byName", "options": "goPath" }, "properties": [ { "id": "custom.hidden", "value": true } ] }
+                { "matcher": { "id": "byName", "options": "goPath" }, "properties": [ { "id": "custom.hidden", "value": true } ] },
+                { "matcher": { "id": "byName", "options": "hostIdDashed" }, "properties": [ { "id": "custom.hidden", "value": true } ] }
               ]
             },
             "options": { "showHeader": true, "cellHeight": "sm", "footer": { "show": false }, "sortBy": [ { "displayName": "Host ID", "desc": false } ] }
@@ -1699,7 +2096,7 @@ write_files:
             "id": 6,
             "type": "table",
             "title": "Pool hosts",
-            "description": "One row per discovered host, identified by its opaque Host ID (the stable per-host UUID, shown GUID-formatted) -- no hostname is disclosed, so this summary stays safe to expose unauthenticated. Status folds in reachability, whether anything is still driving the host, and its pause state -- the same ladder the host's own status banner shows. 'runner stopped' means the host answers but its test runner is verifiably gone, so the cycle result below it is a record of what ran, not of what is running; it outranks every other reading for exactly that reason. 'paused' is a host that has actually stopped, while 'pausing (after cycle/step)' is one an operator has armed to stop but that is still executing -- reported as such rather than as a plain 'running' that would hide the pending stop. Pass/Fail count terminal cycles within the dashboard's selected time range (top-right) -- e.g. Last 3h shows only cycles finished in the last 3h -- counted from the Loki transition log (exact; reaches back to Loki retention), with a per-host zero baseline so they always show (0 included). Control is the host link AND says up front whether following it will let you drive the host: 'remote' = this host holds the same lab-auth-token the proxy mints proofs from, so its Pause/Continue buttons will work; 'onsite' = they will 403 and the host can only be driven from its own console (amber when the cause is a mismatched token or a skewed clock rather than no token at all); 'unknown' = the host has not answered /control/control-status, which an older framework build does not serve. The link itself works in every state -- it opens the host's status page read-only -- and routes through the aggregator's /go/host redirect, which resolves the host's CURRENT IP server-side and hands the browser the short-lived control token. Host ID is deliberately plain text: exactly one cell per row grants control, and it is the one that says so. Last cycle links to the cycle folder. Artifacts are served from the generating host and are never copied into this dashboard; the one way they travel is an operator using Share cycle results on the timeline below, which packs one cycle folder for that operator to mail on. Panel height tracks the host count (yuruna-fit-pool-dashboard.timer) so the table never scrolls -- gridPos.h below is only the pre-collector default.",
+            "description": "One row per discovered host, identified by its opaque Host ID (the stable per-host UUID, shown as its first 8 characters) -- no hostname is disclosed, so this summary stays safe to expose unauthenticated. Status folds in reachability, whether anything is still driving the host, and its pause state -- the same ladder the host's own status banner shows. 'runner stopped' means the host answers but its test runner is verifiably gone, so the cycle result below it is a record of what ran, not of what is running; it outranks every other reading for exactly that reason. 'paused' is a host that has actually stopped, while 'pausing (after cycle/step)' is one an operator has armed to stop but that is still executing -- reported as such rather than as a plain 'running' that would hide the pending stop. Pass/Fail count terminal cycles within the dashboard's selected time range (top-right) -- e.g. Last 3h shows only cycles finished in the last 3h -- counted from the Loki transition log (exact; reaches back to Loki retention), with a per-host zero baseline so they always show (0 included). Control is the host link AND says up front whether following it will let you drive the host: 'remote' = this host holds the same lab-auth-token the proxy mints proofs from, so its Pause/Continue buttons will work; 'onsite' = they will 403 and the host can only be driven from its own console (amber when the cause is a mismatched token or a skewed clock rather than no token at all); 'unknown' = the host has not answered /control/control-status, which an older framework build does not serve. The link itself works in every state -- it opens the host's status page read-only -- and routes through the aggregator's /go/host redirect, which resolves the host's CURRENT IP server-side and hands the browser the short-lived control token. Host ID opens a menu whose FIRST entry is that host's full id, GUID-formatted (8-4-4-4-12) so it is checkable against another screen and copyable into a pool-admin command, which accepts that form as pasted -- the entry names the host and navigates nowhere. Its second entry is the same host link; Control remains the cell that says up front whether following it will let you drive the host. Last cycle links to the cycle folder. Artifacts are served from the generating host and are never copied into this dashboard; the one way they travel is an operator using Share cycle results on the timeline below, which packs one cycle folder for that operator to mail on. Panel height tracks the host count (yuruna-fit-pool-dashboard.timer) so the table never scrolls -- gridPos.h below is only the pre-collector default.",
             "gridPos": { "h": 9, "w": 24, "x": 0, "y": 13 },
             "datasource": { "type": "datasource", "uid": "-- Mixed --" },
             "targets": [
@@ -1742,7 +2139,8 @@ write_files:
                     "baseUrl": 11,
                     "cycleFolderUrl": 12,
                     "commitUrl": 13,
-                    "projectCommitUrl": 14
+                    "projectCommitUrl": 14,
+                    "hostIdDashed": 15
                   }
                 }
               }
@@ -1776,9 +2174,13 @@ write_files:
                 {
                   "matcher": { "id": "byName", "options": "Host ID" },
                   "properties": [
-                    { "id": "custom.width", "value": 330 },
-                    { "id": "custom.align", "value": "right" },
-                    { "id": "mappings", "value": [ { "type": "regex", "options": { "pattern": "^(.{8})(.{4})(.{4})(.{4})(.{12})$", "result": { "text": "$1-$2-$3-$4-$5" } } } ] }
+                    { "id": "custom.width", "value": 110 },
+                    { "id": "custom.align", "value": "left" },
+                    { "id": "mappings", "value": [ { "type": "regex", "options": { "pattern": "^(.{8}).*$", "result": { "text": "$1" } } } ] },
+                    { "id": "links", "value": [
+                      { "title": "${__data.fields.hostIdDashed}", "url": "#" },
+                      { "title": "Open host status page", "url": "${aggregator}/go/host?host=${__data.fields.hostIdDashed}&pool=${pool}", "targetBlank": true }
+                    ] }
                   ]
                 },
                 {
@@ -1793,7 +2195,7 @@ write_files:
                       "skew": { "text": "onsite", "color": "#ca8a04", "index": 3 },
                       "unknown": { "text": "unknown", "color": "#6b7280", "index": 4 }
                     } } ] },
-                    { "id": "links", "value": [ { "title": "Open host status page", "url": "${aggregator}/go/host?host=${__data.fields[\"Host ID\"]}&pool=${pool}", "targetBlank": true } ] }
+                    { "id": "links", "value": [ { "title": "Open host status page", "url": "${aggregator}/go/host?host=${__data.fields.hostIdDashed}&pool=${pool}", "targetBlank": true } ] }
                   ]
                 },
                 {
@@ -1848,6 +2250,10 @@ write_files:
                 {
                   "matcher": { "id": "byName", "options": "projectCommitUrl" },
                   "properties": [ { "id": "custom.hidden", "value": true } ]
+                },
+                {
+                  "matcher": { "id": "byName", "options": "hostIdDashed" },
+                  "properties": [ { "id": "custom.hidden", "value": true } ]
                 }
               ]
             },
@@ -1857,20 +2263,24 @@ write_files:
             "id": 7,
             "type": "state-timeline",
             "title": "Cycle outcome over time (host × UTC time)",
-            "description": "Each row is a host (by Host ID); color is the cycle status the pool-aggregator-service observed at that time. Times are UTC (dashboard timezone), so a block lines up with the UTC log times below. Click a block for that host's cycle results: the link resolves the host's CURRENT IP server-side (it survives a host IP change) and the cycle covering that time. Share cycle results resolves the same cycle and lands on the host's own share page, which packs the whole results folder into one <short host id>.<UTC start>.tar.gz and hands it to your mail client -- the archive is built on the host and is not uploaded anywhere by that page. Selects the hostname-free series (hostname=\"\") so a host shows ONE row -- a legacy hostname-bearing series, retained until it ages out, would otherwise add a duplicate row for the same Host ID. Panel height tracks the host count (yuruna-fit-pool-dashboard.timer) so rows keep a legible height instead of being squeezed -- gridPos.h below is only the pre-collector default.",
+            "description": "Each row is a host, labelled with the first 8 characters of its Host ID; color is the cycle status the pool-aggregator-service observed at that time. Times are UTC (dashboard timezone), so a block lines up with the UTC log times below. Click a block: the menu's FIRST entry is that host's full id, GUID-formatted (8-4-4-4-12) so it is checkable by eye and copyable into a command -- it names the host and navigates nowhere. The rest are the row's actions. Open cycle results gives that host's cycle results: the link resolves the host's CURRENT IP server-side (it survives a host IP change) and the cycle covering that time. Cycle results that a host has archived to the pool share are served from the share by the collector, so these links keep resolving after a host has moved its logs off local disk -- or has been switched off entirely. Share cycle results resolves the same cycle and lands on the host's own share page, which packs the whole results folder into one <short host id>.<UTC start>.tar.gz and hands it to your mail client -- the archive is built on the host and is not uploaded anywhere by that page. Selects the hostname-free series (hostname=\"\") so a host shows ONE row -- a legacy hostname-bearing series, retained until it ages out, would otherwise add a duplicate row for the same Host ID. Panel height tracks the host count (yuruna-fit-pool-dashboard.timer) so rows keep a legible height instead of being squeezed -- gridPos.h below is only the pre-collector default.",
             "gridPos": { "h": 9, "w": 24, "x": 0, "y": 4 },
             "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
             "targets": [
               { "refId": "A", "expr": "yuruna_pool_host_status{pool=~\"$pool\", hostname=\"\"}", "legendFormat": "{{hostId}}", "range": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
             ],
             "transformations": [
-              { "id": "renameByRegex", "options": { "regex": ".*?([0-9a-fA-F]{8})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{4})([0-9a-fA-F]{12}).*", "renamePattern": "$1-$2-$3-$4-$5" } }
+              { "id": "renameByRegex", "options": { "regex": ".*?([0-9a-fA-F]{8})[0-9a-fA-F]{24}.*", "renamePattern": "$1" } }
             ],
             "options": { "mergeValues": true, "showValue": "never", "alignValue": "left", "rowHeight": 0.9, "tooltip": { "mode": "single" }, "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true } },
             "fieldConfig": {
               "defaults": {
                 "color": { "mode": "thresholds" },
                 "links": [
+                  {
+                    "title": "${__field.labels.hostIdDashed}",
+                    "url": "#"
+                  },
                   {
                     "title": "Open cycle results for this host at this time",
                     "url": "${aggregator}/go/cycle?host=${__field.labels.hostId}&t=${__value.time}&pool=${pool}",
@@ -3005,26 +3415,8 @@ write_files:
         ]
       }
   # --- REGION: https://yuruna.link/caching#registry-routing-glob-syntax-and-retry-budgets
-  # The ORDER of registries[] is the routing table: zot syncs from the first entry
-  # whose prefix glob claims the repo, so Docker Hub must stay last as the "**"
-  # catch-all or it answers -- on the one metered budget -- for images it never
-  # hosted. Keep each upstream scoped to the namespaces it really serves.
-  # The match is first-wins and there is NO fallthrough: when the entry that
-  # claims a glob cannot serve a repo, zot reports it missing rather than trying
-  # the next entry, so anything placed ahead of the catch-all owns its glob
-  # outright. That is the whole cost of the "library/**" -> mirror.gcr.io entry,
-  # and it buys the lab's largest metered consumer. Docker Hub's anonymous
-  # allowance is per egress IP and shared by every guest, and a tag-addressed
-  # request re-runs the on-demand sync EVERY time rather than resolving from
-  # cache -- so a handful of guests looping on one official image outruns the
-  # hourly allowance on its own, and the resulting 429 reaches the guest as a
-  # bare 404 (see the pull-budget alert rule). mirror.gcr.io is a pull-through
-  # of Docker Hub over identical "library/..." paths, so the repo name needs no
-  # rewriting and official images stop competing for a budget that should be
-  # reserved for images only Hub actually serves.
-  # "credentialsFile" is optional, and an EMPTY credential is worse than none:
-  # Hub answers 401 on calls the anonymous path would have served, so a boot that
-  # finds no account removes both this key and the file it points at.
+  # ORDER IS THE ROUTING TABLE and the match is first-wins with NO fallthrough:
+  # anything ahead of the Docker Hub "**" catch-all owns its glob outright.
   - path: /etc/zot/config.json
     permissions: '0644'
     owner: root:root
@@ -3298,7 +3690,12 @@ write_files:
       mountpoint -q "$MOUNT" 2>/dev/null && MOUNTED=1
       RC_LOKI=skip; RC_PROM=skip; RC_GRAF=skip
       if [ "$MOUNTED" = "1" ]; then
-        DEST="$MOUNT/$YPOOL_NAS_HOST_ID/services/caching-proxy-service"
+        # hosts/<hostId>/ is the unified per-host root on the share: the host
+        # archives its cycle results under test-cycles/ beside this services/
+        # subtree. A share written before that unification keeps a bare
+        # <hostId>/services/ root -- frozen, never read; restoring from one is a
+        # documented manual path (docs/pool-storage.md).
+        DEST="$MOUNT/hosts/$YPOOL_NAS_HOST_ID/services/caching-proxy-service"
         for svc in loki prometheus; do
           [ -d "/var/lib/$svc" ] || continue
           mkdir -p "$DEST/$svc" 2>/dev/null || continue
@@ -3410,7 +3807,8 @@ runcmd:
     [ -f /etc/squid/ssl_cert/ca.pem ] && echo "yuruna: squid ssl-bump CA present"
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#pool-aggregator-service-tls-leaf
   - |
-    # Subshell keeps errexit local: https://yuruna.link/vmconfig/caching-proxy-service#runcmd-errexit-leaks-across-items
+    # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#runcmd-errexit-leaks-across-items
+    # Subshell keeps errexit local.
     (
     set -e
     CA_DIR=/etc/squid/ssl_cert
@@ -3465,8 +3863,8 @@ runcmd:
     # tls-cert/ssl_db paths it validates already exist.
     /usr/sbin/squid -k parse || echo "== YURUNA: squid config parse FAILED (see above) =="
   - systemctl enable squid
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#runcmd-errexit-leaks-across-items
   # `|| true` is load-bearing: the bind-wait below is what reports a failed start.
-  # https://yuruna.link/vmconfig/caching-proxy-service#runcmd-errexit-leaks-across-items
   - systemctl start squid || true
   # === YURUNA_OVERLAY_RUNCMD_HOST_AGENT ===
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#squidclient-and-apache2
@@ -3585,9 +3983,8 @@ runcmd:
     else
       echo "== YURUNA: /etc/yuruna/host.env absent -- no host coordinates in the seed; falling back to github for source fetch =="
     fi
-    # caching-proxy-parser-service: in-memory tail-and-serve for the dashboard's
-    # "Recent 100 requests" view; replaces the loki+promtail pipeline.
-    # Source under test/extension/caching-proxy-parser-service/ in the yuruna repo.
+    # caching-proxy-parser-service: in-memory tail-and-serve on :9302, independent of
+    # the Loki-backed Recent-100 panel. Source: test/extension/caching-proxy-parser-service/.
     mkdir -p /opt/caching-proxy-parser-service
     cd /opt/caching-proxy-parser-service
     CPP_OK=1
@@ -3904,6 +4301,12 @@ runcmd:
     # health page and the zot_meta scrape carry a real reading from first boot
     # instead of a gap until the timer's first tick.
     /usr/local/bin/zot-meta-exporter.sh || true
+    # Warming is armed, not run inline: the first pass over a cold registry
+    # takes tens of minutes, and holding cloud-init open for it would delay the
+    # ready banner (and any host waiting on it) behind work that is useful
+    # whenever it lands. The timer's OnBootSec picks it up a few minutes from
+    # here, which still puts it ahead of the first guest.
+    systemctl enable --now zot-prewarm.timer || true
     ) || echo "== YURUNA: zot install/activation FAILED -- :5000 pull-through unavailable =="
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#service-readiness-summary
   - |
@@ -3914,9 +4317,11 @@ runcmd:
     done
     # The canary's first reading, echoed where the boot log already answers
     # "did this VM come up right". A registry that serves /v2/ but not manifests
-    # passes every other line of this summary.
+    # passes every other line of this summary. Residency is carried too: a
+    # freshly built cache holds none of the images a guest pulls, and that is a
+    # property of the boot worth stating rather than discovering mid-provision.
     if [ -r /var/www/html/cache-health ]; then
-      grep -E '^zot (/v2/|manifest) ' /var/www/html/cache-health | sed 's/^/  /'
+      grep -E '^zot (/v2/|manifest|resident-tag)|^  resident ' /var/www/html/cache-health | sed 's/^/  /'
     fi
     for hp in 3128 3129 80 3000 9090 3100 5000; do
       if ss -ltn 2>/dev/null | grep -q ":$hp "; then st=listening; else st="NOT LISTENING"; fi

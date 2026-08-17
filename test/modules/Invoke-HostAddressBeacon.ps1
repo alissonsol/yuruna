@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42f3a6d8-4c17-4b90-8e25-71d0c9a3f4be
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -84,25 +84,13 @@ if ([string]::IsNullOrWhiteSpace($RuntimeDir) -or -not (Test-Path -LiteralPath $
     return
 }
 
-# The lock is taken BEFORE the module imports below, and the ordering is
-# the point: those imports pull in the host driver and take seconds, and
-# two beacons spawned seconds apart would otherwise both clear the check
-# before either had written the file. Claim the slot first, then do the
-# expensive work.
-# Single-instance via an OS-HELD exclusive handle, not a PID file that is
-# parsed. The handle is opened FileShare::None and kept open for the whole run:
-# a second beacon simply cannot open it, and the kernel releases it when this
-# process dies -- including on SIGKILL, where no cleanup code would have run.
-#
-# The parsed-PID-file scheme this replaces failed twice over, and both failures
-# were silent. ConvertFrom-Json materializes an ISO-8601 field as a [DateTime],
-# so interpolating it rendered a culture-formatted string that could never
-# equal the live 'o'-format value and every start judged the lock stale. And
-# CreateNew-then-write is not atomic: a beacon racing the winner reads a
-# zero-byte file, fails to parse it, concludes stale, and reclaims. Three
-# beacons ran concurrently in production before this was found.
-#
-# Contents are diagnostics only -- nothing reads them to make a decision.
+# --- REGION: Single-instance lock (OS-held exclusive handle)
+# --- REGION: https://yuruna.link/test/harness#single-instance-locks
+# An OS-HELD exclusive handle, not a parsed PID file: opened FileShare::None and
+# kept open for the whole run, so the kernel releases it even on SIGKILL. Taken
+# BEFORE the module imports below, which pull in the host driver and take
+# seconds -- long enough for two beacons spawned seconds apart to both clear a
+# later check. File contents are diagnostics only.
 $lockPath = Join-Path $RuntimeDir 'hostaddress.beacon.lock'
 $script:LockStream = $null
 try {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42c7d3a9-5e1b-4f80-9a2c-6d8e3f1b0a47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -321,7 +321,7 @@ function Get-SequenceSearchPath {
     return $paths.ToArray()
 }
 
-# -- Step-snippet library -----------------------------------------------------
+# --- REGION: Step-snippet library
 # A snippet is a named, reusable list of steps spliced into a sequence wherever
 # a `{ snippet: <name> }` step appears (including inside retry.steps), so common
 # preambles like the cold-agetty login prime live in one place instead of being

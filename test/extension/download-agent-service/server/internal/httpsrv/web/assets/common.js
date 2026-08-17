@@ -109,6 +109,15 @@
   };
   Y.shortHost = function (h) { return h ? String(h).slice(0, 8) : '?'; };
 
+  // Y.numCell is the counter column a table opens with. It numbers the row
+  // where it SITS, not the thing in it: the column reads 1..N down the page
+  // whatever the table is sorted by, so "how many images are in the pool" and
+  // "the fourth one down" are answerable without counting. A non-positive n
+  // renders blank, which is what the totals row in tfoot passes.
+  Y.numCell = function (n) {
+    return Y.el('td', { class: 'rownum', text: n > 0 ? String(n) : '' });
+  };
+
   // initChrome wires the shared page chrome: the header's version + host id and
   // the bottom footer bar (server IPs, last-loaded time, refresh countdown).
   // Page-agnostic — every fact comes from /api/hostinfo, so a page adds the

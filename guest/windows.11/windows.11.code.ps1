@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42f0a1b2-c3d4-4e56-f789-0a1b2c3d4e12
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -92,7 +92,7 @@ Write-Output "<<< GitHub CLI installation complete."
 # --- REGION: Refresh PATH
 $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
 
-# --- REGION: Show installed versions
+# --- REGION: Installation summary
 Write-Output ""
 Write-Output "== Installation Summary =="
 try { java --version 2>&1 | Select-Object -First 1 } catch { Write-Output "Java: restart terminal to verify" }

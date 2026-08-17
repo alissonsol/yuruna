@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42c4b1e7-5a8d-4f23-9b1c-7e3f8a2d4c61
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -115,20 +115,36 @@ function Assert-YurunaHostContractCoverage {
         Yuruna.Host contract.
     .DESCRIPTION
         Each per-host Yuruna.Host.psm1 calls this once at module load,
-        passing the same list it hands to Export-ModuleMember. Missing
-        names are reported in a single Write-Warning naming every gap
-        so the operator sees the full delta in one line. Returns $true
-        when coverage is complete, $false otherwise -- callers can fail
-        loudly or continue based on policy.
+        declaring the contract verbs it means to export and handing over
+        its own module (-Module $ExecutionContext.SessionState.Module).
+        The declaration alone is a second copy of the contract and can
+        only validate the contract against itself; the module's export
+        table is what callers actually see, so a verb that is declared
+        here but never reached Export-ModuleMember counts as missing.
+        Missing names are reported in a single Write-Warning naming
+        every gap so the operator sees the full delta in one line.
+        Returns $true when coverage is complete, $false otherwise --
+        callers can fail loudly or continue based on policy.
     #>
     [CmdletBinding()]
     [OutputType([bool])]
     param(
         [Parameter(Mandatory)][string]$HostType,
-        [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$ExportedFunction
+        [Parameter(Mandatory)][AllowEmptyCollection()][string[]]$ExportedFunction,
+        [System.Management.Automation.PSModuleInfo]$Module
     )
     $exported = [System.Collections.Generic.HashSet[string]]::new(
         [string[]]$ExportedFunction, [System.StringComparer]::OrdinalIgnoreCase)
+    if ($Module) {
+        # Export-ModuleMember has already published the driver's surface by
+        # the time the driver calls this at the bottom of its module body,
+        # so ExportedFunctions is populated and authoritative here. Keeping
+        # only the names it agrees with is what makes the guard catch a verb
+        # dropped from the export block instead of reporting a clean pass.
+        $actual = [System.Collections.Generic.HashSet[string]]::new(
+            [string[]]@($Module.ExportedFunctions.Keys), [System.StringComparer]::OrdinalIgnoreCase)
+        $exported.IntersectWith($actual)
+    }
     $missing = New-Object System.Collections.Generic.List[string]
     foreach ($name in $script:YurunaHostContract) {
         if (-not $exported.Contains($name)) { [void]$missing.Add($name) }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456708
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -406,6 +406,19 @@ try { $topLevelDoc = Read-SequenceFile -Path $SequencePath } catch {
     exit $ExitFailure
 }
 if (Test-IsOrchestrationSequence -Sequence $topLevelDoc) {
+    # Same vmnet-bridge hazard the guest path guards against further down: a
+    # foreign running VM can push this run's guests onto a second host-side
+    # bridge that does not route to the host's vmnet gateway, breaking the
+    # cloud-init host-proxy URL baked into seed.iso. This path returns before
+    # ever reaching that guard, and Test.Orchestrator has none of its own, so
+    # the pre-flight has to run here too. Stop first, refuse second, so a
+    # leftover guest is stopped rather than left to strand the host.
+    # No -ExceptVmName: an orchestration run creates a VM per inner sequence
+    # instead of targeting one named guest, so there is nothing to exempt.
+    [void](Stop-ConcurrentVM)
+    if ($HostType -eq 'host.macos.utm') {
+        if (-not (Assert-NoConcurrentUtmVm)) { exit $ExitFailure }
+    }
     $orchRc = Invoke-OrchestrationSequence `
         -Sequence $topLevelDoc -SequencePath $SequencePath `
         -RepoRoot $RepoRoot -SequencesDir $SequencesDir -TestRoot $TestRoot `
@@ -517,6 +530,7 @@ $requiredSnapshotId = $plan.requiredSnapshotId
 # a different VM than the one the operator named on the command line.
 if ($plan.warmPath -and -not $PSBoundParameters.ContainsKey('VMName')) { $VMName = $requiredSnapshotId }
 
+# --- REGION: SSH-user override
 # Same cascade registration as Invoke-TestRunnerInnerLoop: Test.Ssh's
 # Get-GuestSshUser is the lookup point for Save-GuestDiagnostic +
 # host-driver SSH-mode Send-Text / fetchAndExecute SSH. Standalone
@@ -725,7 +739,7 @@ $stopLabel = $StopStep -ne 0 ? ", stopping after step $effectiveStop" : ""
 $nestedNodeId = $null
 $StatusFile   = Join-Path $env:YURUNA_RUNTIME_DIR 'status.json'
 if ($isNested) {
-    # --- NESTED: attach a node to the owner's ONE cycle; never reset/own it.
+    # --- REGION: NESTED: attach a node to the owner's ONE cycle; never reset/own it
     # Ownership lives in the outermost process; here we only author our own
     # node in `nested` and write our transcript under the owner's cycle folder.
     if ($cycleCtx.statusPath)      { $StatusFile = [string]$cycleCtx.statusPath }
@@ -747,7 +761,7 @@ if ($isNested) {
         -ParentId $nestedNodeId
     Write-Output "Log file: $LogFile"
 } else {
-    # --- OWNER: register + own the cycle (classic standalone path).
+    # --- REGION: OWNER: register + own the cycle (classic standalone path)
     Reset-StatusDocumentForCycleStart -StatusFilePath $StatusFile -Confirm:$false
 
     $frameworkUrl = if ($Config.repositories -is [System.Collections.IDictionary] -and $Config.repositories.frameworkUrl) {

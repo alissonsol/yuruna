@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456720
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -681,7 +681,7 @@ if ($OutFile) {
 
 try {
 
-    # ===== 1. HOST =====================================================
+    # --- REGION: 1. Host
     Invoke-DiagnosticSection "HOST" {
     Write-Output ("Hostname     : {0}" -f [System.Net.Dns]::GetHostName())
     Write-Output ("Username     : {0}" -f [Environment]::UserName)
@@ -856,7 +856,7 @@ try {
     }
     }
 
-    # ===== 2. CPU ======================================================
+    # --- REGION: 2. CPU
     Invoke-DiagnosticSection "CPU" {
     if ($IsWindows) {
         $cpus = Get-CimInstance Win32_Processor -ErrorAction SilentlyContinue
@@ -901,7 +901,7 @@ try {
     }
     }
 
-    # ===== 3. MEMORY ===================================================
+    # --- REGION: 3. Memory
     Invoke-DiagnosticSection "MEMORY" {
     if ($IsWindows) {
         $os = Get-CimInstance Win32_OperatingSystem -ErrorAction SilentlyContinue
@@ -944,7 +944,7 @@ try {
     }
     }
 
-    # ===== 4. DISK =====================================================
+    # --- REGION: 4. Disk
     Invoke-DiagnosticSection "DISK" {
     if ($IsWindows) {
         $disks = Get-CimInstance Win32_LogicalDisk -Filter "DriveType=3" -ErrorAction SilentlyContinue
@@ -980,7 +980,7 @@ try {
     }
     }
 
-    # ===== 5. GPU ======================================================
+    # --- REGION: 5. GPU
     Invoke-DiagnosticSection "GPU" {
     if (Test-CommandAvailable 'nvidia-smi') {
         Write-Sub "nvidia-smi"
@@ -1015,7 +1015,7 @@ try {
     }
     }
 
-    # ===== 6. NETWORK ==================================================
+    # --- REGION: 6. Network
     Invoke-DiagnosticSection "NETWORK" {
     if ($IsWindows) {
         Write-Sub "Get-NetIPAddress (IPv4)"
@@ -1534,7 +1534,20 @@ try {
                 # record into a capture whose whole value is being readable.
                 $healthResp = Invoke-WebRequest -Uri $healthUrl -UseBasicParsing -NoProxy `
                     -SkipHttpErrorCheck -TimeoutSec 5 -ErrorAction Stop
-                if ([int]$healthResp.StatusCode -eq 200) { $healthText = [string]$healthResp.Content }
+                if ([int]$healthResp.StatusCode -eq 200) {
+                    # Content comes back as a byte[] whenever the response carries
+                    # no text/* content type, which is what a web server returns
+                    # for an extensionless file. Casting that array to string
+                    # yields its decimal byte values space-joined -- a page of
+                    # numbers where the reading should be, and every match below
+                    # silently fails against it, so the problems summary goes
+                    # quiet exactly when the cache has something to report.
+                    $healthText = if ($healthResp.Content -is [byte[]]) {
+                        [System.Text.Encoding]::UTF8.GetString($healthResp.Content)
+                    } else {
+                        [string]$healthResp.Content
+                    }
+                }
             } catch { $null = $_ }
 
             if ($healthText) {
@@ -1552,6 +1565,27 @@ try {
                     if ($reportedCode -ne '200' -or $reportedSec -ge ($registrySlowMs / 1000)) {
                         Add-Problem ("REGISTRY: the cache reports its own manifest probe answering HTTP {0} in {1}s. A container runtime abandons a pull whose response headers have not arrived in roughly 30s, so a cache in this state fails pulls while passing every liveness check." -f `
                             $reportedCode, $reportedSec)
+                    }
+                }
+                # Residency is the only reading here that can show a COLD cache.
+                # The manifest timings above walk a tag the cache keeps resident,
+                # so they stay fast while an image a guest is about to pull is
+                # still being copied from upstream -- the state in which a
+                # provisioning run spends its whole step budget and then reports
+                # a bare timeout. Scanned line by line because the page carries
+                # one of these per image set.
+                $residencySet = $null
+                foreach ($line in ($healthText -split "`r?`n")) {
+                    if ($line -match '^\s*(?<name>\S.*?)\s+image set\s*\((?<ver>[^)]*)\)\s*:\s*$') {
+                        $residencySet = @{ Name = $Matches['name']; Version = $Matches['ver'] }
+                    } elseif ($residencySet -and $line -match '^\s*resident\s*:\s*(\d+)\s+of\s+(\d+)') {
+                        $held  = [int]$Matches[1]
+                        $total = [int]$Matches[2]
+                        if ($total -gt 0 -and $held -lt $total) {
+                            Add-Problem ("REGISTRY: the cache holds {0} of {1} images in the {2} set ({3}) a guest pulls. Each missing image is copied from upstream while the guest waits on its manifest request, which costs minutes apiece and outlasts a provisioning step's budget -- while every liveness and manifest reading above stays green." -f `
+                                $held, $total, $residencySet.Name, $residencySet.Version)
+                        }
+                        $residencySet = $null
                     }
                 }
                 if ($healthText -match 'Docker Hub budget[^:]*:\s*(\d+)\s+of\s+(\d+)\s+left') {
@@ -1644,7 +1678,7 @@ try {
     }
     }
 
-    # ===== 7. TOP PROCESSES ============================================
+    # --- REGION: 7. Top processes
     Invoke-DiagnosticSection "TOP PROCESSES" {
     Write-Sub "Top 10 by CPU"
     Get-Process -ErrorAction SilentlyContinue |
@@ -1661,7 +1695,7 @@ try {
         Format-Table -AutoSize | Out-String | ForEach-Object { Write-Output $_ }
     }
 
-    # ===== 8. RECENT EVENTS ============================================
+    # --- REGION: 8. Recent events
     Invoke-DiagnosticSection "RECENT SYSTEM EVENTS (errors / warnings)" {
     if ($IsWindows) {
         Write-Sub "Get-WinEvent System -- Errors in last 1h"
@@ -1761,7 +1795,7 @@ try {
     }
     }
 
-    # ===== 9. DOCKER ===================================================
+    # --- REGION: 9. Docker
     Invoke-DiagnosticSection "DOCKER" {
     if ($SkipDocker) {
         Write-Output "(skipped via -SkipDocker)"
@@ -1902,7 +1936,7 @@ try {
     }
     }
 
-    # ===== 10. KUBERNETES ==============================================
+    # --- REGION: 10. Kubernetes
     Invoke-DiagnosticSection "KUBERNETES" {
     if ($SkipKube) {
         Write-Output "(skipped via -SkipKube)"
@@ -2045,7 +2079,7 @@ try {
     }
     }
 
-    # ===== 11. HOST DETAIL =============================================
+    # --- REGION: 11. Host detail
     # --- REGION: https://yuruna.link/system-diagnostic#11-host-detail--runner-process-tree
     Invoke-DiagnosticSection "HOST DETAIL" {
 
@@ -2500,7 +2534,7 @@ try {
         }
     }
 
-    # ===== 11b. INSTALL & EARLY-BOOT TIMELINE (Linux) ==================
+    # --- REGION: 11b. Install and early-boot timeline (Linux)
     # --- REGION: https://yuruna.link/system-diagnostic#11b-install--early-boot-timeline-linux
     if ($IsLinux) {
         Invoke-DiagnosticSection "INSTALL & EARLY-BOOT TIMELINE (Linux)" {
@@ -2675,7 +2709,7 @@ try {
         }
     }
 
-    # ===== 11c. GUEST PROVISIONING (Linux) =============================
+    # --- REGION: 11c. Guest provisioning (Linux)
     # --- REGION: https://yuruna.link/definition#defining-get-systemdiagnostic (section 11c)
     if ($IsLinux) {
         Invoke-DiagnosticSection "GUEST PROVISIONING (Linux)" {
@@ -2753,7 +2787,7 @@ try {
         }
     }
 
-    # ===== 12. YURUNA PROJECT ==========================================
+    # --- REGION: 12. Yuruna project
     Invoke-DiagnosticSection "YURUNA PROJECT" {
         if ($SkipProjectGaps) {
             Write-Output "(skipped via -SkipProjectGaps)"
@@ -3015,7 +3049,7 @@ try {
         }
     }
 
-    # ===== 13. GAP HEURISTICS ==========================================
+    # --- REGION: 13. Gap heuristics
     # --- REGION: https://yuruna.link/system-diagnostic#13-gap-heuristics
     Invoke-DiagnosticSection "GAP HEURISTICS" {
         if ($SkipProjectGaps) {
@@ -3168,7 +3202,7 @@ try {
         }
     }
 
-    # ===== 14. SUMMARY =================================================
+    # --- REGION: 14. Summary
     Write-Section "PROBLEMS DETECTED"
     if ($script:Problems.Count -eq 0) {
         Write-Output "(none)"

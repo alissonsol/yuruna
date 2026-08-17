@@ -10,8 +10,8 @@ description: >
   names here are the same enum as in sequence.schema.yml's step.action.
 
 type: object
-additionalProperties: false
 required: [actions]
+additionalProperties: false
 
 properties:
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42646cc9-f27d-42cf-9882-9c56c352de85
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -97,7 +97,7 @@ function Get-CallLine {
     return @($calls | ForEach-Object { $_.Extent.StartLineNumber } | Sort-Object)
 }
 
-# --- record seam ------------------------------------------------------------
+# --- REGION: Record seam
 # Shapes match what the live branch reads: Get-VMSwitch for the switch,
 # Get-NetAdapter concatenated with Get-VMNetworkAdapter -ManagementOS for the
 # adapters, Get-NetIPAddress for the addresses.

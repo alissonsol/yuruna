@@ -24,7 +24,7 @@ then loops:
 
 1. `git pull` the framework repo.
 2. Wipe last cycle's `inner.pid` / `runner.stepHeartbeat` /
-   `last_failure.json` / `break-active.json`.
+   `runner.phase` / `last_failure.json` / `break-active.json`.
 3. Arm the [watchdog](#watchdog-and-heartbeat-protocol).
 4. Spawn the inner runner via the call operator.
 5. On `exitCode == 0`, loop immediately. On non-zero, pause until
@@ -315,7 +315,7 @@ the loop body.
 
 ## Pre-spawn cleanup ordering
 
-Four files are wiped before the watchdog is armed, each for its own reason.
+Five files are wiped before the watchdog is armed, each for its own reason.
 
 | File | Why it is wiped pre-spawn |
 |---|---|
@@ -323,14 +323,53 @@ Four files are wiped before the watchdog is armed, each for its own reason.
 | `runner.stepHeartbeat` | The symmetric trap: the watchdog would see an hours-old mtime and kill the new inner before it started its first step. |
 | `last_failure.json` | `Invoke-Sequence` removes it at the start of each sequence, but between the previous cycle's failure and the new cycle's first sequence there is a multi-second window where a dashboard or status-service reader sees stale cycle-N failure context attached to cycle N+1. Pre-spawn deletion closes that window. |
 | `runner.phase` | It selects the watchdog's TIGHT preamble bound, so a copy left behind by a killed inner would apply that bound to the next cycle's sequence steps and kill healthy long ones. The new inner re-creates it within its first second; until then its absence means the loose bound, which is the safe direction. |
+| `break-active.json` | Written by the `break` sequence action when a cooperative breakpoint parks the cycle, and removed on resume. Restarting only `Invoke-TestRunner.ps1` while a break is parked leaves the file behind, and the first new-cycle step's Gate #1 then hangs the cycle waiting on a breakpoint nobody set. Status-service startup sweeps it too, but the runner can start without the status service, so both startup paths clean it. |
 
-Order matters: `Remove-Item` first, then a "force-fresh"
+The **pool-storage space check** runs immediately after this wipe, and the ordering
+is load-bearing. On a host archiving in move mode it refuses to spawn a cycle whose
+results the share has no room for, recording a `pool_storage_full`
+`last_failure.json` of its own — and the failure pause classifies from exactly that
+file. Placed *before* the wipe, the previous cycle's record would still be there;
+if its class happened to be a transient one, auto-remediation would cut the storage
+pause short and the runner would spend the day re-discovering that nobody has
+deleted anything yet. The check returns the `storage-full` outcome, which is
+deliberately absent from the short-hold list so it takes the full pause.
+
+Order matters elsewhere too: `Remove-Item` first, then a "force-fresh"
 `WriteAllText` on `runner.stepHeartbeat`. If `Remove-Item` fails on
 the heartbeat (locked file, AV mid-scan, anything), the watchdog
 about to arm would read the stale mtime and kill the new inner
 within one poll. The unconditional `WriteAllText` defends against
 that — the new inner overwrites it again immediately at startup, so
 the force-touch is harmless when the wipe succeeded.
+
+## Why the cycle call must not capture the inner runner's stdout
+
+The cycle process reaches the inner runner through the call operator, and
+PowerShell decides the inner's stdout from what happens to the ENCLOSING
+function's success stream: let it reach the host and the inner inherits the
+console; capture it anywhere up the chain — assign the call's result, pipe it,
+wrap the caller in `$(...)` — and PowerShell has to create an anonymous pipe
+and read it to EOF.
+
+EOF, not the inner's exit, is then what releases the cycle. The inner spawns the
+status service, which inherits a duplicate of that write end and holds it for
+its whole unbounded life, so the cycle never returns: the inner logs that it is
+about to exit with code 0, and the outer's "back in control" line never follows.
+One cycle passes and the runner starts no more — the worst shape an unattended
+runner can fail in, because nothing reports an error. Observed on a live Hyper-V
+host with the cycle process blocked 44 minutes past a passing cycle, released
+within a second of killing the status service.
+
+This is a Windows-only exposure. The POSIX branch of `Start-StatusService.ps1`
+detaches through `bash -c "... </dev/null >/dev/null 2>err &"`, whose
+redirections replace the descriptors outright, so nothing crosses the exec and
+no Linux or macOS host in the pool can reach the condition.
+
+A regression test rebuilds the cycle → inner → status-service topology in a
+temporary directory and asserts that the cycle process returns once the inner
+exits, so a future refactor that captures the stream fails a suite instead of a
+lab.
 
 ## Watchdog and heartbeat protocol
 
@@ -547,6 +586,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.14
+Last review: 2026.08.16
 
 Back to [Yuruna](../README.md)

@@ -235,6 +235,7 @@ $defs:
             delaySeconds:           { type: number,  minimum: 0 }
             timeoutSeconds:         { type: integer, minimum: 0 }
             pollSeconds:            { type: number,  minimum: 0 }
+            freshMatchTailLines:    { type: integer, minimum: 0 }
 
       - if: { properties: { action: { const: pressKey } } }
         then:

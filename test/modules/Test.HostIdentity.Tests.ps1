@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a1c2d3-e4f5-4061-9273-8495a6b7c8d9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -243,6 +243,17 @@ Describe 'Set-ReclaimedHostUuid (uuid shape gate)' {
             $u = '42abcdef0123456789abcdef01234567'
             Assert-True (Set-ReclaimedHostUuid -UuidFile $f -Uuid $u -Confirm:$false) 'good shape accepted'
             Assert-Equal -Expected $u -Actual ([System.IO.File]::ReadAllText($f)).Trim() -Because 'uuid persisted verbatim'
+        } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+    It 'accepts the GUID-dashed spelling an operator pastes and stores the bare key' {
+        # The candidate list, the dashboard and the pool-control UI all show a full
+        # id 8-4-4-4-12, so that is the form one arrives in. host.uuid must still
+        # hold the 32 hex the pool joins its telemetry on.
+        $root = New-TempDir
+        try {
+            $f = Join-Path $root 'host.uuid'
+            Assert-True (Set-ReclaimedHostUuid -UuidFile $f -Uuid '42ABCDEF-0123-4567-89AB-CDEF01234567' -Confirm:$false) 'dashed shape accepted'
+            Assert-Equal -Expected '42abcdef0123456789abcdef01234567' -Actual ([System.IO.File]::ReadAllText($f)).Trim() -Because 'stored undashed and lowercased'
         } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
     }
 }

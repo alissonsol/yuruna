@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 4203b4c5-d6e7-4f89-a012-3b4c5d6e7f95
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -52,11 +52,13 @@ param(
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
 if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
 
+# --- REGION: Environment checks
 if (-not $IsLinux) {
     Write-Error "host/ubuntu.kvm/guest.ubuntu.server.26/Get-Image.ps1 only runs on Linux."
     exit 1
 }
 
+# --- REGION: Configuration
 $arch = (& uname -m).Trim()
 switch ($arch) {
     'x86_64'  { $cloudArch = 'amd64' }
@@ -66,13 +68,13 @@ switch ($arch) {
 
 $downloadDir = "$HOME/yuruna/image/ubuntu.env"
 
-# The KVM host driver ships Save-CachedHttpUri + Test-DownloadAlreadyCurrent;
-# Save-UbuntuServerImage feature-detects them and routes the ISO download
-# through the squid cache (with the shared 4-line same-source guard) when a
-# cache is reachable, else downloads direct.
+# Yuruna.Host.psm1 supplies Save-CachedHttpUri / Test-DownloadAlreadyCurrent;
+# Yuruna.UbuntuImage.psm1 will pick those up via Get-Command when present so
+# downloads route through the squid cache transparently.
 Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) 'modules/Yuruna.Host.psm1') -Force
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.UbuntuImage.psm1') -Force
 
+# --- REGION: Download the base image
 try {
     Save-UbuntuServerImage `
         -ReleaseCodename 'resolute' `

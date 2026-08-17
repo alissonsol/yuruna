@@ -25,6 +25,7 @@ served as JSON + a self-contained HTML page.
 | `go.mod` | Standard-library-only module file. |
 | `caching-proxy-parser-service.service` | systemd unit. Runs as `proxy`, read-only `/var/log/squid`, fully sandboxed. |
 | `caching-proxy-parser-service.config.yml` | Extension config (single provider). |
+| `caching-proxy-parser-service.contract.yml` | Extension area contract — the schema the harness validates the config against. |
 | `default.psm1` | Harness-side metadata helper. |
 
 ## How it gets onto the caching-proxy-service VM
@@ -104,6 +105,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.14
+Last review: 2026.08.16
 
 Back to [Yuruna](../../../README.md)

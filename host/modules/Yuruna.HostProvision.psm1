@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42b8e6a4-3d17-4c92-8f05-6a1b9d2e7c40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -614,5 +614,7 @@ function Get-HostOwnIpVerdict {
     if ($enumerationIncomplete) { return 'unknown' }
     return 'nonlocal'
 }
+
+# --- REGION: Exports
 
 Export-ModuleMember -Function Invoke-PerGuestNewVm, Write-GetImageLine, Invoke-WaitVmIp, Invoke-ResolveVmIp, Invoke-GetImage, Invoke-CachingProxyServiceAvailableProbe, Test-HostOwnIpAddress, Get-HostOwnIpVerdict

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42f0a1b2-c3d4-4e56-f789-0a1b2c3d4e10
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -90,7 +90,7 @@ if (-not $yamlOk) {
 }
 Write-Output "<<< PowerShell module: powershell-yaml installation complete."
 
-# --- REGION: Early yuruna framework extraction (host-side diagnostic prereq)
+# --- REGION: Early yuruna framework extraction
 # --- REGION: https://yuruna.link/memory#why-ubuntu-guest-update-scripts-pre-extract-the-yuruna-tarball
 # Tarball-only here; the git-clone fallback lives in the Materialize section below.
 Write-Output ""
@@ -192,7 +192,7 @@ if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
 git --version
 Write-Output "<<< Git ready."
 
-# --- REGION: Materialize the yuruna framework and project repos
+# --- REGION: Resolve framework and project URLs
 # --- REGION: https://yuruna.link/definition#defining-the-two-source-scheme-for-framework-and-project-urls
 # The $yurunaRoot existence guards make this a no-op when the early
 # extract already succeeded.
@@ -209,6 +209,24 @@ if ($env:YURUNA_STATUS_SERVICE_IP -and $env:YURUNA_STATUS_SERVICE_PORT) {
     }
 }
 
+# --- REGION: Keep git non-interactive
+# --- REGION: https://yuruna.link/network#why-git-never-prompts-here
+# Belt to the seed's braces. This guest is driven by OCR of a console, so a git
+# credential prompt is a HANG rather than an error: the clone ladders below
+# never fire because the process never exits, and the step spends its whole
+# timeout before anyone learns the clone could not authenticate. Windows is the
+# worst platform to get this wrong on -- Git Credential Manager answers a
+# missing credential with a GUI dialog the OCR cannot read at all, and
+# GIT_TERMINAL_PROMPT does not suppress that half. Set here as well as in the
+# image because a guest built from an older seed carries no such value.
+$env:GIT_TERMINAL_PROMPT = '0'
+$env:GCM_INTERACTIVE = 'never'
+$gitAskpassShim = 'C:\ProgramData\yuruna\git-askpass.cmd'
+if (Test-Path -LiteralPath $gitAskpassShim -PathType Leaf) {
+    $env:GIT_ASKPASS = $gitAskpassShim
+}
+
+# --- REGION: Materialize the yuruna framework and project repos
 if (-not (Test-Path -LiteralPath $yurunaRoot -PathType Container)) {
     $hostOk = $false
     if ($env:YURUNA_STATUS_SERVICE_IP -and $env:YURUNA_STATUS_SERVICE_PORT) {

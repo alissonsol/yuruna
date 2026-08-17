@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42b7d914-3c60-4a18-9f52-6d0e8b47c913
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -343,7 +343,8 @@ Describe 'the share page and the host agree on one grammar' {
         Assert-True ($ShareJs -match "getElementById\('share-cycle'\)\)\s*\{\s*\r?\n\s*bootShareCycle") `
             'the page dispatch does not reach bootShareCycle'
         $findings = @()
-        foreach ($id in @('share-cycle', 'share-host', 'share-cycle-number', 'share-started', 'share-filename', 'share-go', 'share-status')) {
+        foreach ($id in @('share-cycle', 'share-host', 'share-cycle-number', 'share-started', 'share-filename', 'share-go', 'share-status',
+                          'share-steps', 'share-download', 'share-draft')) {
             if ($script:SharePage -notmatch "id=`"$id`"") { $findings += "share-cycle.html has no #$id" }
             if ($ShareJs -notmatch "'$id'") { $findings += "yuruna.common.js never touches #$id" }
         }
@@ -379,7 +380,15 @@ Describe 'the share page and the host agree on one grammar' {
         # On the download path the message is incomplete until the operator
         # attaches the file themselves, so the sentence that says so has to
         # carry weight on the page.
-        Assert-True ($script:SharePage -match '<strong>[^<]*attach\s+the\s+downloaded\s+file\s+before\s+sending\.\s*</strong>') `
+        #
+        # What is pinned is the instruction inside an emphasis element, not the
+        # sentence that carries it. Copy on this page gets reworded, and a test
+        # that fails on a synonym teaches its reader to edit the expectation
+        # rather than look at the page -- which costs the assertion the only
+        # thing it was for. The tempered dot keeps the match inside ONE <strong>,
+        # so emphasis somewhere else on the page plus the words somewhere else
+        # again cannot satisfy it between them.
+        Assert-True ($script:SharePage -match '(?s)<strong>(?:(?!</?strong>).)*attach\s+the\s+downloaded\s+file(?:(?!</?strong>).)*</strong>') `
             'the attach instruction is no longer emphasised on the share page'
     }
 
@@ -387,10 +396,70 @@ Describe 'the share page and the host agree on one grammar' {
         # navigator.share is secure-context gated and the status service speaks
         # plain HTTP over the LAN, so the fallback is the path a lab host
         # actually takes -- it is the feature, not a corner case.
-        Assert-True ($ShareJs -match 'function downloadThenDraft') 'the download fallback is gone'
+        Assert-True ($ShareJs -match 'function offerDownloadAndDraft') 'the download fallback is gone'
         Assert-True ($ShareJs -match 'navigator\.canShare') `
             'the share path must test canShare({files}), not merely navigator.share'
         Assert-True ($ShareJs -match "err\.name === 'AbortError'") `
             'a share the operator cancelled must not fall through to a download they did not ask for'
+    }
+
+    It 'leaves the draft to a click of its own rather than navigating to it' {
+        # A mailto: navigation fired next to the download cancels it outright on
+        # an engine that loads downloads in the frame and only promotes them to
+        # a download once the response headers arrive -- and this route packs
+        # the whole folder before writing its first header, so the gap is
+        # seconds wide. The mail client opens, the file never lands.
+        $findings = @()
+        # The draft is an href set on a link the page reveals; nothing may click
+        # it, assign location to it, or open a window on it.
+        if ($script:ShareRegion -notmatch "draft\.href = mailto") { $findings += 'the draft link no longer carries the mailto: URL' }
+        foreach ($drive in @('draft\.click\(\)', 'window\.open\(\s*mailto', 'location(\.href)?\s*=\s*mailto')) {
+            if ($script:ShareRegion -match $drive) {
+                $findings += "the share page drives the draft itself ($drive): it must be the operator's own click"
+            }
+        }
+        # And the two links have to be revealed together, so the operator is
+        # never offered a draft for an archive that was never packed.
+        if ($script:ShareRegion -notmatch 'shareCycleSteps\(true\)') { $findings += 'nothing ever reveals the download/draft links' }
+        if ($script:ShareRegion -notmatch 'shareCycleSteps\(false\)') { $findings += 'the links are never re-hidden when a fresh pack starts' }
+        Assert-NoFinding $findings 'the draft must be a second gesture, never a navigation racing the download'
+    }
+
+    It 'never clicks a download once the user activation is spent' {
+        # A synthetic <a download> click with no activation behind it is refused
+        # without a word, so the share path's catch -- which is reached only
+        # after a fetch and a share sheet -- must offer the link instead of
+        # triggering it, or the page claims a download nobody will find.
+        Assert-True ($script:ShareRegion -match 'function offerDownloadAndDraft\(lead, startNow\)') `
+            'offerDownloadAndDraft no longer takes the flag that says whether an activation is live'
+        Assert-True ($script:ShareRegion -match 'if \(startNow\) \{ dl\.click\(\); \}') `
+            'the download click must be gated on a live user activation'
+        Assert-True ($script:ShareRegion -match "(?s)catch\(function\(err\).*?offerDownloadAndDraft\((?:[^;]*?), false\)") `
+            'the share path must fall back with startNow=false: its activation is spent by the time it lands there'
+        Assert-True ($script:ShareRegion -match "NotAllowedError") `
+            'a share sheet refused for want of an activation must be named, not reported as a browser that cannot attach files'
+    }
+
+    It 'asks the host whether the folder is there before starting a download it cannot watch' {
+        # The page hands the archive over as a plain link, so it never sees the
+        # response: a rotated-out cycle would be saved as an error page under a
+        # .zip name while the status line claimed success. A HEAD answers that
+        # question first -- and the route answers it without packing, or the
+        # probe would cost as much as the download it precedes.
+        Assert-True ($script:ShareRegion -match "method: 'HEAD'") `
+            'the fallback no longer probes the archive route before offering the download'
+        Assert-True ($script:ShareRegion -match 'if \(!r\.ok\)') 'the probe result is not checked'
+        Assert-True ($script:ShareRegion -match "HTTP ' \+ r\.status") `
+            'a refused probe must name the status, so "gone" is distinguishable from "the pack broke"'
+
+        # Single-quoted: in the generator these variables are backtick-escaped, so
+        # the source text really contains a backtick before each $.
+        Assert-True ($SvcSource -match '(?s)if \(`\$req\.HttpMethod -eq ''HEAD''\) \{.*?Content-Disposition.*?\}') `
+            'the archive route no longer short-circuits HEAD: a probe would pack the whole cycle folder'
+        # The short-circuit has to sit above the packer, or it is not one.
+        $headAt = $SvcSource.IndexOf('if (`$req.HttpMethod -eq ''HEAD'') {')
+        $packAt = $SvcSource.IndexOf('ZipFile]::Open(`$tmpArchive')
+        Assert-True ($headAt -gt 0 -and $packAt -gt 0) 'both the HEAD short-circuit and the packer must exist to compare'
+        Assert-True ($headAt -lt $packAt) 'the HEAD short-circuit must run before the pack, not after it'
     }
 }

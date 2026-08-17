@@ -1,9 +1,9 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42e8a1b2-c3d4-4e5f-9012-cd0123456822
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS
+.TAGS yuruna test host ubuntu kvm pool config
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
@@ -100,6 +100,7 @@ $ErrorActionPreference = 'Stop'
 # operator sees none of it.
 $InformationPreference = 'Continue'
 
+# --- REGION: Platform guard
 if (-not $IsLinux) {
     throw "This is the Ubuntu KVM variant; run host/<type>/Sync-HostConfiguration.ps1 for this platform instead."
 }
@@ -142,7 +143,7 @@ Sync-HostConfiguration -ReferenceHost $ReferenceHost -StatusPort $StatusPort -Re
     -SharedToken $SharedToken -NonInteractive:$NonInteractive -SkipValidation:$SkipValidation -NoPool:$NoPool `
     -AllowStaleReference:$AllowStaleReference -RequireReferenceCredential:$RequireReferenceCredential
 
-# --- REGION: guest address-discovery readiness
+# --- REGION: Guest address-discovery readiness
 # Which of this driver's discovery rungs can answer AT ALL is decided by host
 # configuration, not by the harness: the lease rung needs libvirt to be the DHCP
 # server for the guest network, and the agent rung needs qemu-guest-agent inside

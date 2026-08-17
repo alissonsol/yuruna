@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456707
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -72,7 +72,7 @@ param(
     [string]$logLevel
 )
 
-# === Tunable backoff constants ==============================================
+# --- REGION: Tunable backoff constants
 # Hardcoded at top-of-file by design -- NOT in test.config.yml -- so an
 # operator can grep + adjust without a config-schema migration. Tune with
 # care: the cap is meant to keep a wedged host from burning git/network
@@ -101,7 +101,7 @@ $script:ForwardEnvNames = @(
     'YURUNA_STATUS_PUBLIC_URL'  # off-host dashboard URL for failure-notification deep links
 )
 
-# === Resolve paths ==========================================================
+# --- REGION: Resolve paths
 # Canonical path bundle from Test.Prelude. Same call shape used by
 # Invoke-TestProject, Invoke-TestSequence, and Invoke-TestRunnerInnerLoop -- adding a
 # new entry point uses the same one-liner.
@@ -158,7 +158,7 @@ if ((Get-HostType) -eq 'host.ubuntu.kvm') {
 # failure-pause break-out triggers read repositories.projectUrl and
 # watch the file's mtime without each call site re-deriving the path.
 
-# === Bootstrap runtime dir + log dir ========================================
+# --- REGION: Bootstrap runtime + log dirs
 # Initialize-YurunaRuntimeDir / Initialize-YurunaLogDir publish the canonical
 # locations as $env:YURUNA_RUNTIME_DIR / $env:YURUNA_LOG_DIR. The inner pwsh
 # inherits these via Start-Process WITHOUT -UseNewEnvironment so the inner
@@ -216,7 +216,7 @@ foreach ($n in $script:ForwardEnvNames) {
 # (no script-scope read); Write-OuterLog reads YURUNA_RUNTIME_DIR
 # from env at call time (resolved by Initialize-YurunaRuntimeDir above).
 
-# === Single-instance guard ==================================================
+# --- REGION: Single-instance guard
 # Outer owns the runner.pid file across the whole resilient lifetime. Inner
 # detects YURUNA_RUNNER_RELAUNCH=1 and skips its own guard / pidfile write.
 # Shared implementation in Test.SingleInstance.psm1 (imported above by
@@ -255,7 +255,7 @@ if (-not $pidWritten) {
     exit (Get-EntryPointExitCode -Outcome Failure)
 }
 
-# === Ctrl+C handler =========================================================
+# --- REGION: Ctrl+C handler
 # Shared registration lives in Test.Prelude (Register-EntryPointCancelHandler): a
 # Register-ObjectEvent CancelKeyPress subscription that flips the returned hashtable's
 # 'Requested' flag on the pipeline thread (a raw .NET delegate would fire on a
@@ -264,7 +264,7 @@ if (-not $pidWritten) {
 # $script:ShutdownState['Requested'] at their next iteration -- so pass -ExitAfterLabel 'cycle'.
 $script:ShutdownState = Register-EntryPointCancelHandler -ExitAfterLabel 'cycle'
 
-# === Build inner argument list ==============================================
+# --- REGION: Build inner argument list
 # Canonical builder: Test.InnerSpawn\New-InnerRunnerArgList. Why -Command,
 # -NoProfile, and single-quote escaping live in the helper, not here:
 # see test/modules/Test.InnerSpawn.psm1.
@@ -276,7 +276,7 @@ $pwshExe = Get-PwshExePath
 $script:OuterOnlyParams = @('NoConfigGate')
 $argList = New-InnerRunnerArgList -ScriptPath $InnerScript -Parameters $PSBoundParameters -ExcludeParameter $script:OuterOnlyParams
 
-# === Helpers ================================================================
+# --- REGION: Helpers
 # git / config / watchdog / Sync-ForwardEnv / Write-OuterLog helpers all
 # live in two sibling modules so the entry point stays thin and the
 # heartbeat-watchdog + cycle dispatcher are unit-testable independent of
@@ -284,7 +284,7 @@ $argList = New-InnerRunnerArgList -ScriptPath $InnerScript -Parameters $PSBoundP
 # modules/Test.RunnerOuterLoop.psm1; both were loaded with -Global -Force by
 # Initialize-YurunaEntryPointModuleSet -For Outer above.
 
-# === Banner =================================================================
+# --- REGION: Banner
 # First line written to runtime/outer.log on every outer startup. If this line
 # is missing from outer.log after the runner has clearly been running (e.g.
 # the inner emitted output to the console), Write-OuterLog itself is broken
@@ -323,7 +323,7 @@ if (-not (Get-Module -ListAvailable -Name powershell-yaml -ErrorAction SilentlyC
     exit (Get-EntryPointExitCode -Outcome Failure)
 }
 
-# === Elevation gate =========================================================
+# --- REGION: Pre-flight: elevation
 # Resolve elevation ONCE, here, while an operator is still at the console --
 # the only moment a password can be answered. Every cycle after this runs in a
 # fresh pwsh with a cold sudo timestamp, and the inner inherits this terminal,
@@ -343,7 +343,7 @@ if ($elevationHostType -and (Get-Command Assert-RunnerElevation -ErrorAction Sil
     }
 }
 
-# === Pre-cycle config gate ==================================================
+# --- REGION: Pre-cycle config gate
 # What it validates, why -SkipSend is mandatory here, and the -NoConfigGate
 # bypass: docs/runner-outer-loop.md#pre-cycle-config-gate
 $gate = Invoke-ConfigGate -TestRoot $TestRoot -ConfigPath $ConfigPath -Skip:$NoConfigGate -CallerName 'outer startup'
@@ -352,7 +352,7 @@ if (-not $gate.passed) {
     exit (Get-EntryPointExitCode -Outcome Failure)
 }
 
-# === Eternal loop ===========================================================
+# --- REGION: Eternal loop
 # Cycle body lives in Test.RunnerOuterLoop.psm1 so it can be unit-tested
 # without spawning a real inner pwsh. The State hashtable threads
 # everything the loop needs (paths, tunables, ShutdownState reference,
@@ -386,7 +386,7 @@ Invoke-RunnerOuterLoop -State @{
     WatchdogPollSeconds       = $script:WatchdogPollSeconds
 }
 
-# === Graceful shutdown ======================================================
+# --- REGION: Graceful shutdown
 Write-Output ""
 Write-Output "Shutdown requested. Releasing pidfile and exiting."
 Unregister-EntryPointCancelHandler

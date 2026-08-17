@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42d15e27-b2c3-4d4e-9f50-6b7c8d9e0f1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -70,7 +70,7 @@ function Write-InnerLog {
     }
 }
 
-# === Cycle-start guard: warn on working-tree drift vs HEAD =================
+# --- REGION: Cycle-start guard: warn on working-tree drift vs HEAD
 # /yuruna-archive.tar.gz and /yuruna-project-archive.tar.gz are built via
 # `git archive HEAD`, so guests only ever see COMMITTED content. If the host
 # process is running working-tree code that references new file paths not yet
@@ -130,7 +130,7 @@ function Write-UncommittedChangesWarning {
     }
 }
 
-# === Helper: pre-step caching-proxy-service reachability check ===
+# --- REGION: Helper: pre-step caching-proxy-service reachability check
 # Background: a real-world failure mode is the host's Wi-Fi roaming to a
 # different SSID/subnet mid-cycle. The caching-proxy-service VM is on the host's
 # Default Switch (Hyper-V) / VZ shared-NAT (UTM) and remains routable from
@@ -197,7 +197,7 @@ function Assert-CachingProxyServiceStillReachable {
     $script:CachingProxyServiceLastReachable = $reachable
 }
 
-# === Per-cycle config reload =============================================
+# --- REGION: Per-cycle config reload
 # Resolve the reloadable per-cycle knobs (with their defaults) from a parsed
 # test.config.yml. The cycle-start initializer and the mid-cycle reload share
 # one rule-set here so they cannot drift. A 0 / absent value falls through to
@@ -414,7 +414,7 @@ function Sync-RunnerStepConfig {
     $null = Resolve-RunnerLogLevel -State $State
 }
 
-# === Failure-artifact capture for remote inspection ===
+# --- REGION: Failure-artifact capture for remote inspection
 function Copy-FailureArtifactsToStatusLog {
 <#
 .SYNOPSIS
@@ -1039,6 +1039,13 @@ function Remove-CycleStartOrphanVM {
     # cleanup is best-effort, the cycle's pass/fail drives the exit code.
     Write-Output ""
     Write-Output "--- Cycle-start VM sweep (Prefix: '$($Prefix -join "', '")') ---"
+    # Zero the release tally here rather than at the teardown that reports it:
+    # the count belongs to the cycle that asked, and the runner process outlives
+    # the cycle, so a tally left standing would report the previous cycle's work
+    # as this one's.
+    if (Get-Command Reset-GuestDhcpReleaseTally -ErrorAction SilentlyContinue) {
+        Reset-GuestDhcpReleaseTally -Confirm:$false
+    }
     # -Quiet suppresses the per-VM Stopping/Removed chatter + the Remove-
     # OrphanedVMFiles dump. Only a single line --
     #   "Running orphaned VM file cleanup: <path>"
@@ -1083,6 +1090,24 @@ function Remove-CycleTeardownOrphanVM {
     Write-Output "============================================="
     Write-Output "  CYCLE $CycleCount complete -- entering teardown"
     Write-Output "============================================="
+
+    # One line, every cycle, whatever the number. A release that silently never
+    # happens is indistinguishable in the log from one that worked, which is how
+    # a teardown path missing its guest key ran for as long as it did -- so the
+    # count is stated even when it is perfect, because a reader who only ever
+    # sees this line when something is wrong learns nothing from its absence.
+    if (Get-Command Get-GuestDhcpReleaseTally -ErrorAction SilentlyContinue) {
+        $releaseTally = Get-GuestDhcpReleaseTally
+        if ($releaseTally.attempted -gt 0) {
+            $note = if ($releaseTally.succeeded -lt $releaseTally.attempted) {
+                ' The rest keep their address until the lease expires; a guest already unreachable at teardown is the ordinary reason.'
+            } else { '' }
+            Write-Output ("  DHCP leases released before teardown: " +
+                "$($releaseTally.succeeded)/$($releaseTally.attempted) guests asked.$note")
+        } else {
+            Write-Output "  DHCP leases released before teardown: no guest was asked this cycle."
+        }
+    }
 
     try {
         & (Join-Path $TestRoot "Remove-TestVMFiles.ps1") -Prefix $Prefix -Quiet
@@ -1842,7 +1867,7 @@ function Invoke-RunnerInnerCycle {
     $StopOnFailure        = $cfg.StopOnFailure
     $GetImageRefreshSeconds = $cfg.GetImageRefreshSeconds
     $CycleDelaySeconds           = $cfg.CycleDelaySeconds
-# === Continuous test loop ===
+# --- REGION: Continuous test loop
 # Load the cycle counter + gating counters (persisted across the single-cycle
 # respawn via status.json + runner.gating.json) and reassign each local by name.
 # The crash counter drives the escalating auto-retry backoff and the hard
@@ -2018,8 +2043,9 @@ do {
     }
     $GitCommit = Get-CurrentGitCommit -RepoRoot $RepoRoot
 
-    # --- REGION: Pooled repos override. When this host is in a pool with an
-    # assigned testSet (runtime/pool.manifest.json, written by the outer loop's
+    # --- REGION: Pooled repos override
+    # When this host is in a pool with an assigned testSet
+    # (runtime/pool.manifest.json, written by the outer loop's
     # Sync-YurunaPoolIntent), the pool's framework/project repo PAIR overrides this
     # host's repositories.frameworkUrl / repositories.projectUrl for THIS cycle, so
     # the project refresh + framework clone below use the pool's repos. GH_TOKEN is
@@ -2045,7 +2071,7 @@ do {
         }
     }
 
-    # --- REGION: Assigned-project access probe ----------------------------
+    # --- REGION: Assigned-project access probe
     # A pool can hand this host a projectUrl its credential cannot read. Without
     # this probe that surfaces only when the clone below fails, mid-cycle, as a
     # generic bootstrap error -- and the person who MADE the assignment is not
@@ -2265,7 +2291,7 @@ do {
         # PlannerFatal, so the catch's banner aborts the cycle.
         $poolManifest = if (Get-Command Read-YurunaPoolManifest -ErrorAction SilentlyContinue) { Read-YurunaPoolManifest } else { $null }
         $script:PoolCycle = ($poolManifest -is [System.Collections.IDictionary]) -and ($poolManifest['testSet'] -is [System.Collections.IDictionary])
-        # --- REGION: pool test-set subset -------------------------------------
+        # --- REGION: Pool test-set subset
         # This branch edits the runner's central plan resolution, so it stays
         # inert unless a pool explicitly opts in. The two-phase schema rollout
         # that governs when a store may emit testSet.sequences[] is recorded in
@@ -2715,7 +2741,7 @@ do {
         if ($guestIterState.Control -eq 'continue') { continue }
     }
 
-    # === Finalise cycle ===
+    # --- REGION: Finalise cycle
     if ($isOrchestrationCycle) {
         # Delegate the whole cycle to the orchestration runner: it owns Reset/
         # Initialize/Start-Log, walks the InvokeTestSequence steps (one dashboard
@@ -3182,7 +3208,7 @@ function Invoke-GuestProvisionIteration {
         Set-GuestFailureArtifact -GuestKey $GuestKey -RelativeUrl "log/$cycleBaseName/$VMName/"
     }
 
-    # --- REGION: Cleanup stale per-VM failure artifacts from prior cycles
+    # --- REGION: Clean up stale per-VM failure artifacts from prior cycles
     # failure_screenshot_<VM>.png and failure_ocr_<VM>.txt still live
     # at the YURUNA_LOG_DIR root (shared across cycles, keyed only by
     # VM name) so without this drop, a later cycle that fails before
@@ -3231,7 +3257,7 @@ function Invoke-GuestProvisionIteration {
         }
     }
 
-    # --- REGION: Cleanup previous VM
+    # --- REGION: Clean up the previous VM
     Remove-GuestVMQuietly -VMName $VMName -SkipStop
 
     # --- REGION: New-VM
@@ -3339,7 +3365,7 @@ function Invoke-GuestProvisionIteration {
         # Mirrors the Start-GuestOS/Start-GuestWorkload failure branches;
         # Stop-VM and Remove-VM are both safe no-ops on an absent VM.
         Write-Output "  Cleaning up VM '$VMName' after failure..."
-        Remove-GuestVMQuietly -VMName $VMName
+        Remove-GuestVMQuietly -VMName $VMName -GuestKey $GuestKey
         $IterState.Control = 'continue'; return
     }
 
@@ -3388,7 +3414,7 @@ function Invoke-GuestProvisionIteration {
         # 0x800705AA (insufficient system resources). Mirrors the
         # Start-GuestOS/Start-GuestWorkload failure branches.
         Write-Output "  Cleaning up VM '$VMName' after failure..."
-        Remove-GuestVMQuietly -VMName $VMName
+        Remove-GuestVMQuietly -VMName $VMName -GuestKey $GuestKey
         $IterState.Control = 'continue'; return
     }
 
@@ -3435,7 +3461,7 @@ function Invoke-GuestProvisionIteration {
             $IterState.Control = 'break'; return
         }
         Write-Output "  Cleaning up VM '$VMName' after failure..."
-        Remove-GuestVMQuietly -VMName $VMName
+        Remove-GuestVMQuietly -VMName $VMName -GuestKey $GuestKey
         $IterState.Control = 'continue'; return
     }
 
@@ -3460,7 +3486,7 @@ function Invoke-GuestProvisionIteration {
             $IterState.Control = 'break'; return
         }
         Write-Output "  Cleaning up VM '$VMName' after failure..."
-        Remove-GuestVMQuietly -VMName $VMName
+        Remove-GuestVMQuietly -VMName $VMName -GuestKey $GuestKey
         $IterState.Control = 'continue'; return
     }
     Write-Output "  $GuestKey New-VM.Resource: PASS"
@@ -3490,7 +3516,7 @@ function Invoke-GuestProvisionIteration {
                 $IterState.Control = 'break'; return
             }
             Write-Output "  Cleaning up VM '$VMName' after failure..."
-            Remove-GuestVMQuietly -VMName $VMName
+            Remove-GuestVMQuietly -VMName $VMName -GuestKey $GuestKey
             $IterState.Control = 'continue'; return
         }
     }
@@ -3528,15 +3554,16 @@ function Invoke-GuestProvisionIteration {
                 if (-not $wrDec.ShouldResume) {
                     $wrDone = $true
                 } else {
-                    $wrAttempt++
                     # The checkpoint names the step that FAILED, and its work may
                     # be half-applied to the guest -- transient says why it
                     # stopped, not how far it got. Restart from the restore point
                     # that precedes it so the replayed steps run against the state
                     # they were written for; with no such boundary the checkpoint
                     # stands and behavior is unchanged.
-                    $wrStep    = [int]$wrCp.ResumeFromStep
-                    $wrRewound = $false
+                    $wrStep     = [int]$wrCp.ResumeFromStep
+                    $wrRewound  = $false
+                    $wrBoundary = 0
+                    [string[]]$wrActions = @()
                     if (Get-Command Get-WarmResumeRewindStep -ErrorAction SilentlyContinue) {
                         # ResumeSequence is the workload-list entry verbatim, which is
                         # allowed to carry a .yml suffix. The resolver appends its own,
@@ -3548,28 +3575,49 @@ function Invoke-GuestProvisionIteration {
                         $wrSeqPath = if (Get-Command Resolve-SequencePath -ErrorAction SilentlyContinue) {
                             try { Resolve-SequencePath -SequencesDir $SequencesDir -Name $wrSeqName -HostType $HostType -RepoRoot $RepoRoot } catch { '' }
                         } else { '' }
-                        $wrRw = Get-WarmResumeRewindStep -StepAction (Get-WarmResumeStepAction -Path ([string]$wrSeqPath)) `
+                        [string[]]$wrActions = @(Get-WarmResumeStepAction -Path ([string]$wrSeqPath))
+                        $wrRw = Get-WarmResumeRewindStep -StepAction $wrActions `
                             -ResumeFromStep ([int]$wrCp.ResumeFromStep)
-                        $wrStep    = [int]$wrRw.ResumeFromStep
-                        $wrRewound = [bool]$wrRw.Rewound
+                        $wrStep     = [int]$wrRw.ResumeFromStep
+                        $wrRewound  = [bool]$wrRw.Rewound
+                        $wrBoundary = [int]$wrRw.BoundaryStep
                     }
-                    if ($wrRewound) {
-                        Write-Output "  WARM-RESUME ($wrAttempt/$($cfg.WarmResumeMaxAttempts)): '$($wrDec.ResumeSequence)' failed transiently ($($wrCp.FailureClass)) at step $($wrCp.ResumeFromStep); step $($wrCp.ResumeFromStep) may be half-applied, so resuming from the loadDiskSnapshot at step $wrStep on VM '$VMName' and REPLAYING $([int]$wrCp.ResumeFromStep - $wrStep) step(s) against restored state."
-                    } else {
-                        Write-Output "  WARM-RESUME ($wrAttempt/$($cfg.WarmResumeMaxAttempts)): '$($wrDec.ResumeSequence)' failed transiently ($($wrCp.FailureClass)); resuming at step $wrStep on VM '$VMName' instead of redoing it from the top."
-                    }
-                    if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
-                        $wrEv = New-WarmResumeEvent -GuestKey $GuestKey -VmName $VMName -SequenceName $wrDec.ResumeSequence `
-                            -ResumeFromStep $wrStep -FailureClass $wrCp.FailureClass -Attempt $wrAttempt -HostType $HostType `
-                            -CheckpointStep ([int]$wrCp.ResumeFromStep)
-                        Send-CycleEventSafely -EventRecord ([hashtable]$wrEv)
-                    }
-                    $r = Start-GuestWorkload -HostType $HostType -GuestKey $GuestKey -VMName $VMName -RepoRoot $RepoRoot `
-                        -SequencesDir $SequencesDir -SequenceNames $workSeqs -EffectiveVariables $cascadeVarsMap `
-                        -ResumeFromSequence $wrDec.ResumeSequence -ResumeFromStep $wrStep
-                    if ($r.success) {
-                        Write-Output "  WARM-RESUME: '$($wrDec.ResumeSequence)' recovered after $wrAttempt attempt(s)."
+                    # No restore point anywhere at or before the checkpoint, and
+                    # the step to replay hands work to the guest: there is
+                    # nothing to discard what the failed attempt already applied,
+                    # so the replay would run onto its own residue and report a
+                    # state conflict in place of the transient that stopped the
+                    # run. Decline, leaving $r -- and the real failure with it --
+                    # exactly as the original attempt left it.
+                    $wrReplayUnsafe = ($wrBoundary -le 0) -and
+                        (Get-Command Test-WarmResumeReplayIsSafe -ErrorAction SilentlyContinue) -and
+                        -not (Test-WarmResumeReplayIsSafe -StepAction $wrActions -ResumeFromStep ([int]$wrCp.ResumeFromStep))
+                    if ($wrReplayUnsafe) {
+                        Write-Warning ("  WARM-RESUME declined: '$($wrDec.ResumeSequence)' failed at step $($wrCp.ResumeFromStep), " +
+                            "which runs guest work, and the sequence has no loadDiskSnapshot at or before it to restore from. " +
+                            "Replaying would land on the state the failed attempt already created and report THAT instead of " +
+                            "$($wrCp.FailureClass). Add a loadDiskSnapshot before the workload steps to make this recoverable.")
                         $wrDone = $true
+                    } else {
+                        $wrAttempt++
+                        if ($wrRewound) {
+                            Write-Output "  WARM-RESUME ($wrAttempt/$($cfg.WarmResumeMaxAttempts)): '$($wrDec.ResumeSequence)' failed transiently ($($wrCp.FailureClass)) at step $($wrCp.ResumeFromStep); step $($wrCp.ResumeFromStep) may be half-applied, so resuming from the loadDiskSnapshot at step $wrStep on VM '$VMName' and REPLAYING $([int]$wrCp.ResumeFromStep - $wrStep) step(s) against restored state."
+                        } else {
+                            Write-Output "  WARM-RESUME ($wrAttempt/$($cfg.WarmResumeMaxAttempts)): '$($wrDec.ResumeSequence)' failed transiently ($($wrCp.FailureClass)); resuming at step $wrStep on VM '$VMName' instead of redoing it from the top."
+                        }
+                        if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
+                            $wrEv = New-WarmResumeEvent -GuestKey $GuestKey -VmName $VMName -SequenceName $wrDec.ResumeSequence `
+                                -ResumeFromStep $wrStep -FailureClass $wrCp.FailureClass -Attempt $wrAttempt -HostType $HostType `
+                                -CheckpointStep ([int]$wrCp.ResumeFromStep)
+                            Send-CycleEventSafely -EventRecord ([hashtable]$wrEv)
+                        }
+                        $r = Start-GuestWorkload -HostType $HostType -GuestKey $GuestKey -VMName $VMName -RepoRoot $RepoRoot `
+                            -SequencesDir $SequencesDir -SequenceNames $workSeqs -EffectiveVariables $cascadeVarsMap `
+                            -ResumeFromSequence $wrDec.ResumeSequence -ResumeFromStep $wrStep
+                        if ($r.success) {
+                            Write-Output "  WARM-RESUME: '$($wrDec.ResumeSequence)' recovered after $wrAttempt attempt(s)."
+                            $wrDone = $true
+                        }
                     }
                 }
             }
@@ -3609,7 +3657,7 @@ function Invoke-GuestProvisionIteration {
                 $IterState.Control = 'break'; return
             }
             Write-Output "  Cleaning up VM '$VMName' after failure..."
-            Remove-GuestVMQuietly -VMName $VMName
+            Remove-GuestVMQuietly -VMName $VMName -GuestKey $GuestKey
             $IterState.Control = 'continue'; return
         }
     }
@@ -3627,6 +3675,13 @@ function Invoke-GuestProvisionIteration {
     if (Test-Path $screensDir) {
         Remove-Item -Path $screensDir -Recurse -Force -ErrorAction SilentlyContinue
     }
+    # Ask for the lease back while there is still a guest to ask. This is the
+    # path a guest that PASSED takes, and it was the one teardown that never
+    # requested a release -- so a clean cycle, the common case and the one that
+    # recycles the most addresses, returned none of them. The guest's own
+    # shutdown unit cannot stand in for it here: the stop below is a force-stop,
+    # which no shutdown unit sees.
+    $null = Invoke-GuestDhcpRelease -VMName $VMName -GuestKey $GuestKey
     Write-Verbose "  Stopping VM '$VMName'..."
     $savedProgress = $global:ProgressPreference
     $global:ProgressPreference = 'SilentlyContinue'
@@ -3666,4 +3721,5 @@ Export-ModuleMember -Function `
     Write-UncommittedChangesWarning, Assert-CachingProxyServiceStillReachable, `
     Get-RunnerReloadableConfig, New-RunnerConfigState, Sync-RunnerCycleConfig, `
     Sync-RunnerStepConfig, `
-    Resolve-RunnerLogLevel, Copy-FailureArtifactsToStatusLog, Invoke-RunnerInnerCycle
+    Resolve-RunnerLogLevel, Copy-FailureArtifactsToStatusLog, Invoke-RunnerInnerCycle, `
+    Write-CycleInfraFailure

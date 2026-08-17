@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42c5d6e7-f8a9-4b01-9234-5e6f7a8b9c0d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -98,6 +98,7 @@ function Set-LinuxHostConditionSet {
         Write-Verbose "Set-LinuxHostConditionSet: no runtime mutations required beyond the clock (host/ubuntu.kvm/Enable-TestAutomation.ps1 owns install-time setup)."
     }
 
+    # --- REGION: Host clock
     # Host clock -> under NTP discipline. Guests inherit it at power-on;
     # see Sync-LinuxHostClock for what a drifting one does to them. This is
     # the mutation that has to happen on every host, and it happens here
@@ -118,11 +119,9 @@ function Sync-LinuxHostClock {
         Put the host clock back under NTP discipline via timedatectl.
         Returns @{ Succeeded; Message }.
     .DESCRIPTION
-        libvirt seeds each guest's clock from this host at power-on, so a
-        drifting host hands the same error to every VM it starts and the
-        guest's own NTP client then steps the clock mid-boot -- which is
-        what leaves a Kubernetes guest with pods Running but never Ready
-        and its NodePorts refusing.
+        libvirt seeds each guest's clock from this host at power-on. What a
+        drifted clock then does to a guest:
+        https://yuruna.link/test/harness#the-host-clock
 
         `timedatectl set-ntp true` is the durable half. Restarting the
         active sync daemon afterwards is the immediate half: enabling NTP
@@ -199,10 +198,10 @@ function Assert-LinuxHostConditionSet {
     [OutputType([bool])]
     param([string]$HostType)
     if ($HostType -ne 'host.ubuntu.kvm') { return $true }
-    # Guests inherit this clock at power-on; see Write-HostClockDriftWarning.
-    # Warn-only and once per cycle: the repair needs a sudo credential this
-    # process cannot ask for, so a drifted host runs and says so rather than
-    # refusing every cycle until an operator notices.
+    # --- REGION: https://yuruna.link/test/harness#the-host-clock
+    # Warn-only and once per cycle: the repair needs a privilege this process
+    # cannot ask for, so a drifted host runs and says so rather than refusing
+    # every cycle until an operator notices.
     Write-HostClockDriftWarning -HostType $HostType
     # The runner calls Initialize-YurunaHost before invoking this
     # function; that imports host/ubuntu.kvm/modules/Yuruna.Host.psm1
@@ -210,7 +209,7 @@ function Assert-LinuxHostConditionSet {
     if (Get-Command Assert-Virtualization -ErrorAction SilentlyContinue) {
         if (Assert-Virtualization) { return $true }
     }
-    # Diagnose: which of the three preconditions failed?
+    # --- REGION: Diagnose which precondition failed
     if (-not (Test-Path -LiteralPath '/dev/kvm')) {
         Write-Error "/dev/kvm character device missing -- kvm.ko not loaded. Try: 'sudo modprobe kvm_intel' (Intel) or 'sudo modprobe kvm_amd' (AMD)."
         return $false

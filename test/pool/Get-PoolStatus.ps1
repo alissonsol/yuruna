@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42c6d7e8-f9a0-4b12-8c34-6d7e8f9a0123
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,16 +47,21 @@ $ModulesDir  = $paths.ModulesDir
 Initialize-YurunaEntryPointModuleSet -For PoolAdmin -ModulesDir $ModulesDir
 $ExitOk      = Get-EntryPointExitCode -Outcome Ok
 $ExitFailure = Get-EntryPointExitCode -Outcome Failure
+# The failure paths below pass -ErrorAction Continue: under the strict
+# preference above, a bare Write-Error would itself terminate and skip
+# the clean exit-code path.
 Import-Module powershell-yaml -ErrorAction Stop
 
+# --- REGION: Open the intent store
 $t = Resolve-YurunaPoolAdminTarget -IntentGitUrl $IntentGitUrl -IntentDir $IntentDir
 if ([string]::IsNullOrWhiteSpace($t.IntentGitUrl)) {
-    Write-Error 'No intent store URL. Pass -IntentGitUrl or set pool.intentGitUrl in test.config.yml.'
+    Write-Error 'No intent store URL. Pass -IntentGitUrl or set pool.intentGitUrl in test.config.yml.' -ErrorAction Continue
     exit $ExitFailure
 }
 $open = Open-YurunaPoolIntent -IntentGitUrl $t.IntentGitUrl -IntentDir $t.IntentDir -Confirm:$false
-if (-not $open.Ok) { Write-Error "Could not open the intent store ($($t.IntentGitUrl)): $($open.Error)"; exit $ExitFailure }
+if (-not $open.Ok) { Write-Error "Could not open the intent store ($($t.IntentGitUrl)): $($open.Error)" -ErrorAction Continue; exit $ExitFailure }
 
+# --- REGION: Report
 $doc   = Read-YurunaPoolsDoc -IntentDir $t.IntentDir
 $pools = @($doc['pools'] | Where-Object { $_ -is [System.Collections.IDictionary] })
 if ($PoolId) { $pools = @($pools | Where-Object { [string]$_['poolId'] -eq $PoolId }) }

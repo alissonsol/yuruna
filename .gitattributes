@@ -28,6 +28,7 @@
 *.user-data     text eol=lf
 *.meta-data     text eol=lf
 *.network-config text eol=lf
+*.sudoers       text eol=lf
 user-data       text eol=lf
 meta-data       text eol=lf
 Dockerfile      text eol=lf

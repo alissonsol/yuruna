@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42c2a1aa-2e97-414a-9393-0d097d2e2a2c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,23 +18,19 @@
 .SYNOPSIS
     Yuruna Windows + Hyper-V bootstrap installer.
 .DESCRIPTION
-    See https://yuruna.link/install/explained for the operator-facing
-    rationale. This file MUST stay 7-bit ASCII, no BOM -- PowerShell
-    5.1's `irm | iex` parses byte-for-byte and any non-ASCII char or
-    UTF-8 BOM aborts at line 1 before the param block is reached.
-    See repo memory feedback_bootstrap_installer_no_bom.md for the
-    trap class.
+    This file MUST stay 7-bit ASCII, no BOM -- PowerShell 5.1's
+    `irm | iex` parses byte-for-byte and any non-ASCII char or UTF-8
+    BOM aborts at line 1 before the param block is reached. See repo
+    memory feedback_bootstrap_installer_no_bom.md for the trap class.
 #>
 
+# --- REGION: https://yuruna.link/install/explained
 [CmdletBinding()]
 param(
     [string]$YurunaDir    = (Join-Path $HOME 'git/yuruna'),
     [string]$YurunaRepo   = 'https://github.com/alissonsol/yuruna.git',
     [string]$YurunaBranch = 'main',
-    # Freeze the checkout at the current release instead of tracking 'main':
-    # after cloning, the repo's own VERSION file is read and that release tag is
-    # checked out as a detached HEAD, so the per-cycle `git pull` is a no-op and
-    # the host never auto-updates. An explicit -YurunaBranch wins over this.
+    # --- REGION: https://yuruna.link/install/explained#release-pinning--signed-integrity
     [switch]$PinVersion,
     [switch]$SkipPreflight,
     # On-disk transcript for this run. Generated once at first launch and
@@ -57,10 +53,7 @@ $PSNativeCommandUseErrorActionPreference = $false
 $script:YurunaRepoPublic  = 'https://github.com/alissonsol/yuruna.git'
 $script:YurunaRepoPrivate = 'https://github.com/alissonsol/yurunadev.git'
 
-# Did the operator pin a ref explicitly? The development repo (yurunadev) is
-# only tagged at the weekly release, so its pinned-CalVer default would never
-# resolve mid-week; when targeting it we fall back to latest 'main' unless the
-# operator asked for a specific ref.
+# --- REGION: https://yuruna.link/install/explained#development-repo-tracks-latest-main
 $script:YurunaBranchExplicit = $PSBoundParameters.ContainsKey('YurunaBranch')
 
 function Write-Step { param([string]$m) Write-Output "==> $m" }
@@ -138,7 +131,7 @@ if (-not ($IsWindows -or $env:OS -eq 'Windows_NT')) {
     Write-Die 'This installer only supports Windows.'
 }
 
-# --- REGION: Preflight: Hyper-V-capable Windows edition (HARD requirement)
+# --- REGION: Preflight: Hyper-V-capable Windows edition (HARD gate)
 # Distinct from the "tested baseline" warnings below: those (low RAM, fewer
 # cores, an untested-but-Hyper-V-capable Windows version) are soft and the
 # operator may continue past them. A Windows Home / S mode edition is not
@@ -800,7 +793,8 @@ function Assert-YurunaCheckoutMovable {
     Write-Die "Verified '$Dir' is movable but could not restore it from the probe name '$probe': $restoreError. Rename '$probe' back to '$Dir' manually, then re-run."
 }
 
-# --- REGION: yuruna-caching-proxy-service detection
+# --- REGION: Preserve running service VMs
+# --- REGION: https://yuruna.link/install/explained#preserve-the-yuruna-caching-proxy-service-vm
 function Test-CachingProxyServiceRunning {
     [CmdletBinding()]
     [OutputType([bool])]
@@ -950,7 +944,6 @@ reached here only because preflight was skipped or the edition was unrecognized.
     }
 }
 
-# --- REGION: Preserve test/status runtime state
 $gitCmd = Get-Command git -ErrorAction SilentlyContinue
 $gitExe = if ($gitCmd) { $gitCmd.Source } else { $null }
 if (-not $gitExe) { Write-Die 'git not found after install -- open a new terminal and re-run.' }
@@ -958,6 +951,7 @@ if (-not $gitExe) { Write-Die 'git not found after install -- open a new termina
 $parent = Split-Path -Parent $YurunaDir
 if (-not (Test-Path $parent)) { New-Item -ItemType Directory -Path $parent -Force | Out-Null }
 
+# --- REGION: Preserve test/status runtime state
 $YurunaStatusBackup = $null
 $TestStatusSubdirs  = @('runtime', 'perf', 'log', 'extension', 'captures', 'ssh')
 function Backup-YurunaStatus {
@@ -1201,11 +1195,7 @@ if (Test-Path (Join-Path $YurunaDir '.git')) {
 }
 
 # --- REGION: Pin to the current release (opt-in)
-# -PinVersion: now that 'main' is cloned/updated, read the repo's own VERSION
-# file (single source of truth -- top of the repository) and detach HEAD at that
-# release tag so the host freezes there and the per-cycle `git pull` is a no-op.
-# An explicit -YurunaBranch already chose a ref, so skip. If VERSION runs ahead
-# of the published tag, warn and leave the host on 'main' rather than fail.
+# --- REGION: https://yuruna.link/install/explained#release-pinning--signed-integrity
 if ($PinVersion -and -not $script:YurunaBranchExplicit -and (Test-Path (Join-Path $YurunaDir '.git'))) {
     $versionFile = Join-Path $YurunaDir 'VERSION'
     if (Test-Path -LiteralPath $versionFile) {
@@ -1263,6 +1253,8 @@ $script:InstallSucceeded = $true
 } catch {
     $script:InstallError = $_
 } finally {
+    # --- REGION: Done summary
+    # --- REGION: https://yuruna.link/install/explained#trycatchfinally-with-summary-banner
     Write-Output ''
     Write-Output '================================================================'
     if ($script:InstallSucceeded) {
@@ -1327,6 +1319,8 @@ $script:InstallSucceeded = $true
         }
     }
     else {
+        # --- REGION: Handoff window
+        # --- REGION: https://yuruna.link/install/explained#handoff-window-with-encodedcommand
         Write-Step 'Finishing up -- opening handoff windows'
 
         $hypervOpened = $false

@@ -1,9 +1,9 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456754
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS
+.TAGS yuruna test host macos utm enable-test-automation
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
@@ -110,7 +110,7 @@ Initialize-HostSetupModule -RepoRoot $RepoRoot -BoundParameters $PSBoundParamete
     'systemsetup -setusingnetworktime + sntp -sS (host clock discipline)'
 )
 
-# --- REGION: pre-automation capture
+# --- REGION: Pre-automation capture
 # BEFORE anything is changed: record what these knobs were, so
 # Disable-TestAutomation can put them back. Written once and never overwritten
 # -- a second Enable must not capture Enable's own values as the operator's.
@@ -118,6 +118,7 @@ Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostAutomationState.psm1')
 $capturePath = Save-HostAutomationState -Platform 'macos.utm' -WhatIf:$WhatIfPreference
 if ($capturePath) { Write-Information "Captured prior host settings to $capturePath (Disable-TestAutomation restores from it)." }
 
+# --- REGION: Host condition set
 # -SkipPoolStorage is ours, not Set-MacHostConditionSet's; splatting it through
 # would fail parameter binding.
 $conditionArgs = @{}
@@ -143,7 +144,7 @@ if ($SkipPoolStorage) {
     Invoke-PoolStorageSetupAndReclaim -RepoRoot $RepoRoot
 }
 
-# --- REGION: outcome
+# --- REGION: Outcome
 # The exit code is the only failure channel across the child-process boundary:
 # everything this script says about a setting it could not apply goes to a
 # captured log the orchestrator does not read, so an explicit exit is the one

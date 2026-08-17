@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42d9e0f1-a2b3-4c45-d678-9e0f1a2b3c46
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -192,6 +192,7 @@ if (-not $switchName) {
 $YurunaHostIp = Get-GuestReachableHostIp -SwitchName $switchName
 if (-not $YurunaHostIp) { $YurunaHostIp = '' }
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Config.psm1') -Global -Force
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
 $YurunaHostPort = '8080'
 $YurunaTestConfig = Join-Path $repoRoot 'test/test.config.yml'
 if (Test-Path -LiteralPath $YurunaTestConfig) {
@@ -231,6 +232,15 @@ CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId "OEMDRV"
 
 Write-Verbose "Creating new VM '$VMName' on switch '$switchName'..."
 Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 12288MB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
+
+# Deterministic per (host, VM name): a rebuilt guest presents the SAME MAC, so the
+# DHCP server returns the SAME lease instead of consuming a new one. Random MACs
+# make every rebuild a fresh lease request, which drains a shared pool until guests
+# boot with no IPv4 at all. Hyper-V takes bare hex, no separators.
+$YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $VMName
+Hyper-V\Set-VMNetworkAdapter -VMName $VMName -StaticMacAddress ($YurunaGuestMac -replace ':','')
+Write-Verbose "Deterministic guest MAC for '$VMName': $YurunaGuestMac"
+
 Set-VM -Name $VMName -MemoryStartupBytes 12288MB -MemoryMinimumBytes 12288MB -MemoryMaximumBytes 12288MB -AutomaticCheckpointsEnabled $false | Out-Null
 Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
 

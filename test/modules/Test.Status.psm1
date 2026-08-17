@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456702
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -870,7 +870,7 @@ function Get-GuestProvenance {
     }
 }
 
-# === Nested-cycle support =================================================
+# --- REGION: Nested-cycle support
 # An Invoke-TestSequence run either OWNS status.json (standalone, or the outermost
 # orchestration) or runs NESTED inside another run's process tree -- a
 # host-action step that re-enters Invoke-TestSequence.ps1 in a child pwsh (e.g.

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Version: 2026.08.14
+# Version: 2026.08.16
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -14,6 +14,7 @@
 # pool-storage replication uses; it holds BOTH the download pool
 # (<mount>/images) and the daemon's audit log + status.json
 # (<mount>/download-agent-service/).
+# --- REGION: https://yuruna.link/download-agent-service
 set -euo pipefail
 
 # cloud-init's runcmd runs this as root with a MINIMAL environment where
@@ -44,6 +45,7 @@ if [ -r /usr/local/lib/yuruna/yuruna-retry.sh ]; then
   export YURUNA_APT_STALL_TIMEOUT_SECONDS=0
 fi
 
+# --- REGION: Service user
 # The daemon runs unprivileged. Prefer the cloud-init-created
 # 'download-agent-service-admin' account; fall back to whoever invoked the script
 # (e.g. an interactive test login). The NAS mount's uid/gid must match this user
@@ -54,6 +56,8 @@ else
   SERVICE_USER="${SERVICE_USER:-$(id -un)}"
 fi
 echo "Service user: $SERVICE_USER"
+
+# --- REGION: Service tunables
 HTTP_ADDR="${DOWNLOAD_AGENT_HTTP_ADDR:-0.0.0.0:80}"
 PRESENCE_INTERVAL="${DOWNLOAD_AGENT_PRESENCE_INTERVAL:-15m}"
 # The lab-auth token opens the bearer path on the mutating routes for
@@ -84,6 +88,7 @@ FRESHNESS="${FRESHNESS:-24h}"
 PREFETCH_LEAD="${PREFETCH_LEAD:-2h}"
 AUTO_SEED="${AUTO_SEED:-true}"
 
+# --- REGION: Storage paths
 # Pool NAS mount (CIFS) -> download pool + state dir. NAS host/share/cred come
 # from pool.env, matching Test.PoolStorage's networkStorage.poolStorageNetworkPath
 # contract.
@@ -95,7 +100,9 @@ POOL_DIR="$MOUNT"
 STATE_DIR="$MOUNT/download-agent-service"
 echo "Pool NAS user: ${POOL_NAS_USER:-(none configured)}"
 
-echo "== download-agent-service bring-up: installing deps =="
+# --- REGION: Package dependencies
+echo ""
+echo -e "\e[1;36m==== Package dependencies ====\e[0m"
 # libcap2-bin supplies setcap for the DIRECT (non-systemd) launch path; under
 # systemd the load-bearing grant is AmbientCapabilities (see the unit below).
 if command -v apt_retry >/dev/null 2>&1; then
@@ -107,6 +114,7 @@ else
 fi
 go version
 
+# --- REGION: Locate the daemon source
 # Locate the framework checkout (the download-agent-service source).
 # Enumerate candidate enlistments directly rather than piping `find` into
 # `head`: under pipefail the reader closing the pipe leaves the producer with
@@ -135,7 +143,9 @@ REPO_DIR="$(locate_repo_dir)" || {
 SERVER_DIR="$REPO_DIR/test/extension/download-agent-service/server"
 VERSION_STR="$(cat "$REPO_DIR/VERSION" 2>/dev/null || echo dev)"
 
-echo "== building download-agent-service ($VERSION_STR) from $SERVER_DIR =="
+# --- REGION: Build
+echo ""
+echo -e "\e[1;36m==== Building download-agent-service ($VERSION_STR) from $SERVER_DIR ====\e[0m"
 BUILD=/tmp/download-agent-service-build
 rm -rf "$BUILD"; cp -r "$SERVER_DIR" "$BUILD"
 # go.sum is committed, so DO NOT run `go mod tidy` (it needs the network to
@@ -156,27 +166,26 @@ for try in $(seq 1 "$attempts"); do
   sleep "$delay"
   delay=$((delay * 2))
 done
+
+# --- REGION: Install the binary
 sudo install -m 0755 -o root -g root "$BUILD/download-agent-service" /usr/local/bin/download-agent-service
-# Fallback for a DIRECT (non-systemd) launch only: with NoNewPrivileges=true
-# the kernel ignores file capabilities at execve, so this does not reach the
-# systemd-launched process -- AmbientCapabilities in the unit does.
+# Fallback for a DIRECT (non-systemd) launch only: under the unit's
+# NoNewPrivileges=true the grant that reaches the daemon is AmbientCapabilities,
+# so a failure here is not fatal.
+# --- REGION: https://yuruna.link/memory#why-the-service-daemons-bind-low-ports-with-ambientcapabilities-not-setcap
 sudo setcap 'cap_net_bind_service=+ep' /usr/local/bin/download-agent-service || true
 
+# --- REGION: Storage dirs
 # Mount the pool NAS: it is both the download pool and the state dir. Best-effort
 # -- the daemon serves /healthz and reports poolAvailable:false when it is absent.
 if [[ -n "$POOL_NAS_UNC" ]]; then
   sudo mkdir -p "$MOUNT"
-  # NO iocharset=utf8: nls_utf8 is absent on the minimal cloud kernel and the
-  # mount fails with error(79); the pool's names are ASCII. Open modes
-  # (0777/0666) match the parent share -- the server maps the cifs mount mode
-  # onto the created object's ACL, so a restrictive dir_mode would lock every
-  # folder the VM creates to the single creator and the hosts could not read
-  # the images back. nofail/_netdev keep a NAS outage from wedging boot.
+  # Every part is load-bearing: the open modes plus noperm are an ownership
+  # MAPPING that must match the parent share, not a hardening choice, and
+  # iocharset=utf8 is absent because nls_utf8 fails the mount with error(79).
+  # --- REGION: https://yuruna.link/pool-storage#guest-side-pool-nas-cifs-mount-options
   MOUNT_OPTS="credentials=/etc/yuruna/pool-nas.cifs.cred,vers=3.0,uid=$(id -u "$SERVICE_USER"),gid=$(id -g "$SERVICE_USER"),file_mode=0666,dir_mode=0777,noperm,nofail,_netdev"
-  # ip= lets cifs connect when the guest cannot resolve the share's server name
-  # -- a bare NetBIOS name, or a host-side alias that only the host resolves.
-  # Baked by Get-YurunaPoolSeedValue, which never emits an address a guest
-  # cannot dial. Same option, same reason, as the stash guest's mount.
+  # ip= carries the mount past a server name the guest has no way to resolve.
   [ -n "$POOL_NAS_IP" ] && MOUNT_OPTS="$MOUNT_OPTS,ip=$POOL_NAS_IP"
   # Persist via fstab so the pool survives a VM reboot and systemd exposes a
   # .mount unit the daemon can order After=.
@@ -188,15 +197,22 @@ if [[ -n "$POOL_NAS_UNC" ]]; then
     sudo timeout 60 mount "$MOUNT" || echo "download-agent-service: NAS mount failed; the pool is unavailable and every ensure answers 503" >&2
   fi
 fi
-sudo mkdir -p "$STATE_DIR" 2>/dev/null || true
-# Only chown the LOCAL fallback: on a mode-mapped cifs mount the uid/gid mount
-# options already place ownership, and a chown there can re-impose an
-# owner-only ACL that locks the hosts out of the pool.
-if ! mountpoint -q "$MOUNT" 2>/dev/null; then
-  sudo chown -R "$SERVICE_USER":"$SERVICE_USER" "$STATE_DIR" 2>/dev/null || true
+# Never materialize the state dir on the local disk underneath an unmounted NAS
+# mountpoint: the NAS mounting later would shadow it, silently stranding the
+# status.json and audit log written in the meantime. An empty state dir is how
+# the daemon is told to run without persistence, so hand it that instead -- the
+# daemon creates the dir itself on start, and would otherwise recreate exactly
+# the local one this skips.
+if mountpoint -q "$MOUNT" 2>/dev/null; then
+  # No chown on the mounted share: the uid/gid mount options have already placed
+  # ownership and a chown can lock the hosts out.
+  sudo mkdir -p "$STATE_DIR" 2>/dev/null || true
+else
+  echo "download-agent-service: $MOUNT is not mounted; state persistence is off (a state dir created here would be shadowed by a later mount)." >&2
+  STATE_DIR=''
 fi
 
-# --- REGION: caching-proxy routing for byte downloads
+# --- REGION: Caching-proxy routing for byte downloads
 # Bytes go through squid when a cache is reachable; freshness probes always go
 # direct (a proxied HEAD returns the prewarm-era headers squid pins for
 # .iso/.zip and would certify staleness as freshness forever). 3128 is the plain
@@ -219,7 +235,9 @@ if [[ -n "$CACHE_PROXY_IP" ]]; then
   fi
 fi
 
-echo "== env + systemd unit =="
+# --- REGION: Environment file
+echo ""
+echo -e "\e[1;36m==== /etc/yuruna/download-agent-service.env ====\e[0m"
 sudo mkdir -p /etc/yuruna
 sudo tee /etc/yuruna/download-agent-service.env >/dev/null <<EOF
 DOWNLOAD_AGENT_HTTP_ADDR=$HTTP_ADDR
@@ -243,6 +261,9 @@ EOF
 # root before dropping to User=, so the daemon still sees it.
 sudo chmod 0600 /etc/yuruna/download-agent-service.env
 
+# --- REGION: systemd unit
+echo ""
+echo -e "\e[1;36m==== /etc/systemd/system/download-agent-service.service ====\e[0m"
 sudo tee /etc/systemd/system/download-agent-service.service >/dev/null <<EOF
 [Unit]
 Description=Yuruna Download-agent service
@@ -267,6 +288,7 @@ NoNewPrivileges=true
 WantedBy=multi-user.target
 EOF
 
+# --- REGION: Start the service and wait for readiness
 sudo systemctl daemon-reload
 sudo systemctl enable --now download-agent-service.service
 
@@ -281,7 +303,7 @@ done
 
 if sudo systemctl is-active --quiet download-agent-service.service; then
   ss -ltnp '( sport = :80 )' 2>/dev/null | sed -n '1,4p' || true
-  echo "FETCHED AND EXECUTED: download-agent-service.service active on $HTTP_ADDR (pool=$POOL_DIR state=$STATE_DIR)"
+  echo "FETCHED AND EXECUTED: download-agent-service.service active on $HTTP_ADDR (pool=$POOL_DIR state=${STATE_DIR:-off})"
 else
   echo "download-agent-service.service failed to start:" >&2
   sudo journalctl -u download-agent-service.service --no-pager -n 40 >&2 || true

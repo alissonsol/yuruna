@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.14
+# Version: 2026.08.16
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -7,6 +7,7 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 export NONINTERACTIVE=1
 
+# --- REGION: Detect architecture
 ARCH=$(uname -m)
 echo "Detected architecture: $ARCH"
 case "$ARCH" in
@@ -23,6 +24,7 @@ case "$ARCH" in
     ;;
 esac
 
+# --- REGION: Load the yuruna retry lib
 # --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
 . /usr/local/lib/yuruna/yuruna-retry.sh
 # Default every apt call that runs a dpkg transaction to unbounded: killing one
@@ -32,18 +34,10 @@ esac
 # fetches indexes and runs no transaction, so that trap cannot apply to it.
 export YURUNA_APT_STALL_TIMEOUT_SECONDS=0
 
-# Bound how long apt will sit on a single index fetch. apt's own
-# Acquire::http::Timeout covers a silent socket, not a mirror that answers and
-# then trickles, so a degraded origin can hold `apt-get update` open for as
-# long as the step allows -- which is how one stalled InRelease consumed an
-# entire 30-minute step budget with the guest at 0% CPU and nothing in the log
-# after the last Get: line. These values make apt give up and hand the failure
-# to the retry ladder while the step still has time to report it.
-#
-# Written here rather than relied on from the autoinstall seed: this runs on
-# every cycle and does not depend on the installer having applied the seed's
-# apt block. 99- sorts after curtin's own drop-ins, and none of these keys
-# overlap the proxy one it writes.
+# --- REGION: Bound package index fetches
+# --- REGION: https://yuruna.link/network#bounding-apt-get-update-without-bounding-dpkg
+# Written per cycle rather than trusted from the autoinstall seed: 99- sorts
+# after curtin's own drop-ins and none of these keys overlap its proxy one.
 sudo tee /etc/apt/apt.conf.d/99yuruna-acquire >/dev/null <<'EOF'
 Acquire::Retries "2";
 Acquire::http::Timeout "30";
@@ -51,6 +45,7 @@ Acquire::https::Timeout "30";
 Acquire::Languages "none";
 EOF
 
+# --- REGION: Re-read host coordinates per use
 # --- REGION: https://yuruna.link/network#why-host-coordinates-are-re-read-per-use
 # Read the host's coordinates immediately before each use, never once at the
 # top. yuruna-host-locate.timer refreshes /etc/yuruna/host.env every 60s, so the
@@ -75,6 +70,7 @@ yuruna_host_relocate() {
     yuruna_host_env
 }
 
+# --- REGION: Recover the caching-proxy CA
 # --- REGION: https://yuruna.link/network#caching-proxy-service-ca-cert-rc60-gate
 # CA self-heal: an untrusted SSL-bump (empty CA baked at seed time) would rc=60
 # the first HTTPS below; re-fetch the CA from the host status service. Non-fatal.
@@ -112,9 +108,10 @@ yuruna_ca_selfheal() {
 }
 yuruna_ca_selfheal
 
+# --- REGION: Ensure PowerShell is installed
 # --- REGION: https://yuruna.link/memory#why-ubuntu-guest-update-scripts-install-powershell-first
 echo ""
-echo -e "\e[1;36m==== PowerShell ====\e[0m"
+echo -e "\e[1;36m==== Ensure PowerShell is installed ====\e[0m"
 if ! command -v pwsh >/dev/null 2>&1; then
   case "$ARCH" in
     x86_64)  PS_ARCH="x64" ;;
@@ -177,11 +174,12 @@ if ! command -v pwsh >/dev/null 2>&1; then
 fi
 pwsh --version
 
+# --- REGION: Install powershell-yaml module
 # --- REGION: https://yuruna.link/memory#why-ubuntu--al2023-guest-update-scripts-wrap-install-module-powershell-yaml-with-pwsh_retry
 PWSH_YAML_LOG=/var/log/yuruna/pwsh-yaml-install.log
 sudo install -d -m 0755 -o "$USER" -g "$USER" /var/log/yuruna
 echo ""
-echo -e "\e[1;36m==== powershell-yaml ====\e[0m"
+echo -e "\e[1;36m==== Install powershell-yaml module ====\e[0m"
 
 sudo pwsh -NoProfile -Command - <<'PSEOF' >> "$PWSH_YAML_LOG" 2>&1
 "===== {0} pre-flight (static) =====" -f ([DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"))
@@ -234,9 +232,10 @@ if (-not (Get-Module -ListAvailable -Name powershell-yaml)) {
 "OK"
 PSEOF
 
+# --- REGION: Early yuruna framework extraction
 # --- REGION: https://yuruna.link/memory#why-ubuntu-guest-update-scripts-pre-extract-the-yuruna-tarball
 echo ""
-echo -e "\e[1;36m==== yuruna framework tarball ====\e[0m"
+echo -e "\e[1;36m==== Early yuruna framework extraction ====\e[0m"
 REAL_USER="${SUDO_USER:-$USER}"
 REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
 if [ -r /etc/yuruna/host.env ]; then
@@ -266,9 +265,11 @@ if yuruna_host_env && [ ! -d "$REAL_HOME/yuruna" ]; then
   fi
 fi
 
+# --- REGION: Disable services that may suspend the machine
 echo "TESTHACK: Disabling services that may suspend the machine."
 sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target
 
+# --- REGION: Disable update notifier popups
 echo "TESTHACK: Disabling update notifier popups that steal focus from the Terminal during tests."
 sudo sed -i 's/^Prompt=.*/Prompt=never/' /etc/update-manager/release-upgrades 2>/dev/null || true
 sudo tee /etc/apt/apt.conf.d/10periodic >/dev/null <<'EOF'
@@ -278,26 +279,14 @@ APT::Periodic::AutocleanInterval "0";
 APT::Periodic::Unattended-Upgrade "0";
 EOF
 
+# --- REGION: Update system packages
+# --- REGION: https://yuruna.link/network#bounding-apt-get-update-without-bounding-dpkg
 echo ""
-echo -e "\e[1;36m==== system packages update ====\e[0m"
-# Index fetches only -- no dpkg transaction here, so a wall-clock kill costs a
-# re-fetch rather than a half-applied package state, and the retry ladder can
-# absorb it. 300s is ~5x a healthy full update against a cold cache; a mirror
-# that has not finished by then is degraded, and every further second is taken
-# from the steps after this one. The bound is requested only when the sourced
-# retry lib advertises the safe wrapper (timeout --foreground, hoisted inside
-# sudo); against an older baked lib the expansion is empty and apt_retry falls
-# back to unbounded, exactly as before.
-#
-# The outer ladder is capped for this call because it is not the only retry in
-# play: Acquire::Retries above already re-fetches each index 3 times inside a
-# single run, so the default 5 outer attempts would mean 15 tries per index.
-# The cost is what rules it out rather than the redundancy -- 5 bounded
-# attempts plus the doubling backoff is ~1575-1650s of an 1800s step, leaving
-# nothing for dist-upgrade and the clones that follow, so a persistent stall
-# would still fail the step after spending the whole budget. Two attempts cost
-# ~610s and leave most of it, and a stall that outlasts both is an outage the
-# next cycle should retry rather than something to keep hammering here.
+echo -e "\e[1;36m==== Update system packages ====\e[0m"
+# Index fetches only, so a wall-clock kill costs a re-fetch rather than a
+# half-applied package state. The 300s bound and the 2-attempt cap are derived
+# against the step budget in the linked section; the empty expansion against an
+# older baked retry lib is a deliberate fall-back to unbounded.
 export YURUNA_APT_STALL_TIMEOUT_SECONDS="${YURUNA_RETRY_LIB_SAFE_STALL:+300}"
 export YURUNA_RETRY_MAX_ATTEMPTS=2
 apt_retry sudo apt-get update;
@@ -325,15 +314,17 @@ fi
 REAL_USER="${SUDO_USER:-$USER}"
 REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
 
+# --- REGION: Ensure Git is installed
 echo ""
-echo -e "\e[1;36m==== Git ====\e[0m"
+echo -e "\e[1;36m==== Ensure Git is installed ====\e[0m"
 if ! command -v git >/dev/null 2>&1; then
   apt_retry sudo apt-get install -y git
 fi
 git --version
 
+# --- REGION: Resolve framework and project URLs
 # --- REGION: https://yuruna.link/definition#defining-the-two-source-scheme-for-framework-and-project-urls
-echo -e "\e[1;32m==== yuruna framework and project repos ====\e[0m"
+echo -e "\e[1;32m==== Resolve framework and project URLs ====\e[0m"
 FRAMEWORK_URL=""
 PROJECT_URL=""
 if [ -r /etc/yuruna/host.env ]; then
@@ -354,6 +345,7 @@ fi
 : "${FRAMEWORK_URL:=${YURUNA_FRAMEWORK_URL:-}}"
 : "${PROJECT_URL:=${YURUNA_PROJECT_URL:-}}"
 
+# --- REGION: Keep git non-interactive
 # --- REGION: https://yuruna.link/network#why-git-never-prompts-here
 # Belt to the seed's braces. These guests are driven by OCR of a console, so a
 # git credential prompt is a HANG rather than an error: the step spends its whole
@@ -366,6 +358,7 @@ if [ -x /usr/local/lib/yuruna/git-askpass.sh ]; then
     export GIT_ASKPASS=/usr/local/lib/yuruna/git-askpass.sh
 fi
 
+# --- REGION: Materialize the yuruna framework and project repos
 if [ ! -d "$REAL_HOME/yuruna" ]; then
   HOST_OK=false
   # Two passes, and the second is the point: a host that renumbered between the
@@ -471,11 +464,12 @@ fi
 # Tarball extraction and any sudo'd cleanup may have left root-owned files.
 sudo chown -R "$REAL_USER:$REAL_USER" "$REAL_HOME/yuruna" 2>/dev/null || true
 
+# --- REGION: Wait for network convergence
 # --- REGION: https://yuruna.link/network#guest-update-network-convergence-before-handoff
 # apt transactions can bounce the DHCP lease at the transaction tail;
 # settle the link (max 30 s, never fatal) before the first host->guest SSH.
 echo ""
-echo -e "\e[1;36m==== Network convergence ====\e[0m"
+echo -e "\e[1;36m==== Wait for network convergence ====\e[0m"
 if systemctl is-active --quiet NetworkManager && command -v nm-online >/dev/null 2>&1; then
   nm-online -q -t 30 || echo "WARNING: nm-online did not report 'online' within 30s; continuing."
 elif systemctl is-active --quiet systemd-networkd; then

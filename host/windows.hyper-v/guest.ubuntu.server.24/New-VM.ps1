@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42d9e0f1-a2b3-4c45-d678-9e0f1a2b3c47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -70,6 +70,15 @@ if ($Hostname -and $Hostname -notmatch '^[a-zA-Z0-9.-]+$') {
 $GuestHostname = if ($Hostname) { $Hostname } else { $VMName }
 
 $ProgressPreference = 'SilentlyContinue'
+# Abort at the first failed cmdlet: this script runs as a child pwsh -File
+# process whose non-zero exit is the caller's only failure signal. Without
+# Stop, a non-terminating error from the disk/VM-config sequence (New-VHD,
+# Set-VM*, Add-VMDvdDrive) prints red and the script marches on, failing
+# confusingly at a later step against a half-configured VM. Module
+# functions keep their own error handling (preference variables do not
+# cross the module boundary), so this hardens exactly the direct cmdlet
+# calls in this file.
+$ErrorActionPreference = 'Stop'
 
 # Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
@@ -79,6 +88,7 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $commonModulePath = Join-Path -Path (Split-Path -Parent $ScriptDir) -ChildPath "modules/Yuruna.Host.psm1"
 Import-Module -Name $commonModulePath -Force
 
+# --- REGION: Environment checks
 Write-Verbose "This script requires elevation (Run as Administrator)."
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Output "Please run this script as Administrator."
@@ -137,6 +147,7 @@ if (-not $Password) { Write-Error "Get-LocalOsPassword returned empty for '$User
 Write-Output "Password came from authentication mechanism: $_authActiveName"
 Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
 
+# --- REGION: Autoinstall password hash
 # SHA-512 ($6$) password hash for the autoinstall HASH_PLACEHOLDER.
 # ConvertTo-Sha512CryptHash centralizes the openssl probe + the `--`
 # end-of-options safety that keeps a leading-dash password
@@ -151,6 +162,7 @@ try {
 }
 
 Write-Verbose "Creating VM '$VMName' using image: $baseImageFile"
+# --- REGION: Base image provenance
 # Provenance side-channel for the transcript. Emits "Provenance: <url>"
 # when the sidecar is healthy; warns otherwise.
 Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.Provenance.psm1') -Force
@@ -190,12 +202,17 @@ $vhdxFile = Join-Path $vmDir "$VMName.vhdx"
 if (Test-Path -Path $vhdxFile) {
     Remove-Item -Path $vhdxFile -Force
 }
+# --- REGION: Create empty install target
 # 64 GB dynamic VHDX is enough headroom for the k8s + dotnet build
 # workload yet stays a uniform cap across hosts: ubuntu.kvm /
 # windows.hyper-v / macos.utm. Paired with sizing-policy: all in
 # host/vmconfig/ubuntu.server.base.user-data so the root LV consumes the whole PV.
 Write-Verbose "Creating 64GB dynamically expanding VHDX..."
 New-VHD -Path $vhdxFile -SizeBytes 64GB -Dynamic | Out-Null
+if (-not (Test-Path -LiteralPath $vhdxFile)) {
+    Write-Error "New-VHD reported success but '$vhdxFile' does not exist; aborting before VM creation."
+    exit 1
+}
 
 # Autoinstall seed ISO. 4-digit entropy is weak by design (10k cases)
 # but enough to defeat the deterministic-path symlink trap: an attacker
@@ -218,12 +235,14 @@ foreach ($p in @($BaseUserData, $OverlayUserData)) {
 }
 Import-Module (Join-Path $RepoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
 
+# --- REGION: Yuruna harness SSH key
 # SSH public key used by the test harness.
 $TestSshModule = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) "test/modules/Test.Ssh.psm1"
 Import-Module $TestSshModule -Force
 $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
+# --- REGION: Detect the caching-proxy service
 # Detect the caching-proxy-service VM and inject its proxy URL if available.
 # Severity policy:
 #   * No cache VM         -> WARNING, proceed (direct CDN)
@@ -294,18 +313,19 @@ To intentionally skip the cache:
 }
 
 # --- REGION: Build the autoinstall apt block
-# Always emit `geoip: false` + a pinned
-# `primary:` mirror (deterministic election; `primary:` not `sources_list:`,
-# see feedback_macos_utm_apt_block_resolute_curtin_trap.md).
 # --- REGION: https://yuruna.link/vmconfig#apt-proxy-block
-#
-# Shared builder (automation/Yuruna.GuestSeed.psm1). Hyper-V pins the amd64
-# archive mirror. The apt Acquire tuning it emits is a step-budget bound, so it
-# has to be identical on every host driver -- three copies of the literal drift,
-# and a mirror stall then burns a step budget on whichever host was missed.
+# Always emit `geoip: false` plus a pinned `primary:` mirror -- deterministic
+# election, and `primary:` rather than `sources_list:`. See
+# feedback_macos_utm_apt_block_resolute_curtin_trap.md.
+# Shared builder: automation/Yuruna.GuestSeed.psm1. Hyper-V pins the amd64
+# archive.ubuntu.com mirror.
+# The apt Acquire tuning it emits is a step-budget bound, so it has to be
+# identical on every host driver: three copies of the literal drift, and a
+# mirror stall then burns a step budget on whichever host was missed.
 Import-Module (Join-Path $RepoRoot 'automation/Yuruna.GuestSeed.psm1') -Force
 $AptProxyBlock = New-AptProxyBlock -PrimaryUri 'http://archive.ubuntu.com/ubuntu' -CachingProxyServiceUrl $CachingProxyServiceUrl
 
+# --- REGION: Pick a vSwitch
 # Pick a vSwitch FIRST -- prefer Yuruna-External (LAN-bridged) so the
 # install VM gets a real LAN IP via DHCP and can reach the squid cache
 # directly. Default Switch fallback works for hosts that can't create
@@ -337,6 +357,7 @@ if (-not $switchName) {
     Write-Information "External vSwitch unavailable -- the VM is attached to '$switchName' (NAT + DHCP). It gets no LAN-bridged address: the host answers only at that switch's gateway address, and anything on the LAN reaches the guest only through a host port-forwarder."
 }
 
+# --- REGION: Yuruna host coordinates
 # Yuruna host (status service) IP+port baked into the seed for the dev
 # iteration loop. Guest scripts read /etc/yuruna/host.env (written by
 # the user-data late-commands) to resolve a local URL before falling
@@ -400,24 +421,39 @@ $SeedIso = Join-Path $vmDir "seed.iso"
 Write-Verbose "Generating seed.iso with autoinstall configuration..."
 CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId "cidata"
 
-# Resolve VM memory: cascaded variables.memoryStartupBytes wins; empty falls
-# back to the 12 GB default. Static (min=max=startup, dynamic disabled) so a
-# hung swap/paging never distorts a cycle -- see docs/vmconfig.md#disable-swap.
+# --- REGION: https://yuruna.link/definition#defining-the-vm-memory-policy
+# Static (min=max=startup, dynamic disabled) so a hung swap/paging never
+# distorts a cycle -- see docs/vmconfig.md#disable-swap.
 try { $vmMemoryBytes = ConvertTo-MemoryStartupBytes $MemoryStartupBytes } catch { Write-Error $_.Exception.Message; exit 1 }
 if ($vmMemoryBytes -le 0) { $vmMemoryBytes = 12288MB }
 Write-Verbose "VM memory: $([math]::Round($vmMemoryBytes / 1GB, 2)) GB ($vmMemoryBytes bytes)."
 
+# --- REGION: Create and configure the Hyper-V VM
 Write-Verbose "Creating new VM '$VMName' on switch '$switchName'..."
 Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes $vmMemoryBytes -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
+
+# --- REGION: https://yuruna.link/network#defining-deterministic-guest-mac-addresses
+# Hyper-V takes bare hex, no separators.
+# Keyed on the guest's durable identity, not on the name the VM carries now: a
+# guest is built in a per-kind slot and renamed to its real name when its
+# baseline is snapshotted, and an address that moved with that rename would
+# re-DHCP a guest whose own state already records the one it was built on.
+$YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $GuestHostname
+Hyper-V\Set-VMNetworkAdapter -VMName $VMName -StaticMacAddress ($YurunaGuestMac -replace ':','')
+Write-Verbose "Deterministic guest MAC for '$GuestHostname': $YurunaGuestMac"
+
+if (-not (Hyper-V\Get-VM -Name $VMName -ErrorAction SilentlyContinue)) {
+    Write-Error "Hyper-V\New-VM completed but '$VMName' is not registered; aborting before configuration."
+    exit 1
+}
 Set-VM -Name $VMName -MemoryStartupBytes $vmMemoryBytes -MemoryMinimumBytes $vmMemoryBytes -MemoryMaximumBytes $vmMemoryBytes -AutomaticCheckpointsEnabled $false | Out-Null
 Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
 Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
 
+# --- REGION: https://yuruna.link/vmconfig#hyper-v-iso-ace-bloat
 # Prune stale per-VM ACEs accumulated on this SHARED base image before
-# Hyper-V appends this VM's ACE on attach. Without it the file's DACL grows
-# unbounded across runs (Hyper-V never revokes on Remove-VM) and eventually
-# hits the ~64 KB ACL limit, failing the attach with 0x8007053C ("does not
-# have permission to open attachment"). See https://yuruna.link/vmconfig#hyper-v-iso-ace-bloat
+# Hyper-V appends this VM's ACE on attach; the DACL otherwise grows unbounded
+# across runs and the attach fails with 0x8007053C.
 $prunedAce = Remove-OrphanedVMFileAccess -Path $baseImageFile
 if ($prunedAce -gt 0) { Write-Verbose "Pruned $prunedAce stale per-VM ACE(s) from base image before attach." }
 Add-VMDvdDrive -VMName $VMName -Path $baseImageFile | Out-Null

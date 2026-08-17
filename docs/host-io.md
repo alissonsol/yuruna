@@ -72,6 +72,40 @@ so a chord cannot live there. On macOS a chord takes the CGEvent path
 even when AppleScript would serve a plain key — `key code` cannot hold
 a modifier down across the base key.
 
+## Hyper-V PS/2 scancode behavior
+
+The Hyper-V backends drive the guest through `Msvm_Keyboard`'s `TypeScancodes`,
+and two properties of the emulated PS/2 controller shape how `Send-TextHyperV`
+uses it.
+
+**Every send starts with a modifier-release prefix.** The controller keeps a
+flat "is key down" state per scan code, and the only thing that flips a key back
+to up is the matching break code. If a prior keyboard event left a modifier
+held — a dropped LShift break from a cancelled `Send-Text`, a make/break race
+during a VM reboot, an operator clicking the vmconnect window with Shift held,
+an IDE stealing focus mid-send — every character sent afterwards inherits that
+modifier and lands shifted. The recognisable symptom is the test user arriving
+at the login prompt as `YAUSER!` instead of `yauser1`, normally first seen on a
+failure screenshot through OCR. Break codes for LShift, RShift, LCtrl, RCtrl,
+LAlt, RAlt, LMeta and RMeta are therefore issued as a one-shot burst before any
+character typing, which forces every modifier to the released state. A break for
+a key that is not pressed is a no-op on PS/2, so the prefix is idempotent and
+harmless in the normal case; the right-side modifiers are E0-prefixed and need
+that escape byte before each release. A prefix that fails is a warning, not an
+abort — the character writes may still succeed, and the warning puts the
+divergence in the cycle log.
+
+**The whole payload goes in one CIM call.** One call per character plus a sleep
+after each costs roughly N × (5-15 ms of CIM plus the 20 ms default delay) — a
+16-character password spends 400-560 ms of wall clock on typing alone.
+`TypeScancodes` queues the entire byte payload internally and feeds the guest's
+PS/2 buffer at its own fast pace, so batching cuts the cost to about a single
+call. Shifted characters keep the standard per-character sequence (LShift make,
+char make, char break, LShift break), concatenated into the batch. Batching also
+changes what `CharDelayMs` means: it becomes a wall-clock settle budget applied
+AFTER the batch, so an explicit non-zero value asks the guest to drain before
+the next action while the default is minimal pacing.
+
 ## The registry API
 
 ```
@@ -189,6 +223,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.14
+Last review: 2026.08.16
 
 Back to [Yuruna](../README.md)

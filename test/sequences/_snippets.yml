@@ -15,8 +15,8 @@ firstLoginPrime:
 
   - action: pressKey
     name: Enter
-    description: "Enter"
+    description: "Push agetty to redraw a fresh login"
 
   - action: waitForSeconds
     seconds: 2
-    description: "Pause: agetty redraw"
+    description: "Let agetty redraw"

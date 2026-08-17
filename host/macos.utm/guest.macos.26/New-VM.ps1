@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42f2a3b4-c5d6-4e78-f901-2a3b4c5d6e79
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -158,7 +158,7 @@ if (-not (Get-Command swift -ErrorAction SilentlyContinue)) {
 Write-Verbose "All host prerequisites met."
 Write-Output ""
 
-# --- REGION: Seek the base IPSW
+# --- REGION: Seek the base image
 # Auto-run Get-Image.ps1 once if the base IPSW is missing; recheck and
 # only error out when it's still missing afterward.
 $baseImageName = "host.macos.utm.guest.macos.26"
@@ -187,7 +187,7 @@ $RepoRoot = (Resolve-Path (Join-Path $ScriptDir "..\..\..")).Path
 Import-Module (Join-Path $RepoRoot 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
-# --- REGION: Build the UTM bundle skeleton
+# --- REGION: Create copies and files for VM
 Import-Module (Join-Path (Split-Path -Parent $ScriptDir) "modules/Yuruna.Host.psm1") -Force
 Import-Module (Join-Path $RepoRoot "automation/Yuruna.Common.psm1") -Force -DisableNameChecking
 
@@ -210,7 +210,7 @@ $swiftSrc = @"
 import Foundation
 import Virtualization
 
-guard CommandLine.arguments.count >= 6 else {
+guard CommandLine.arguments.count >= 7 else {
     FileHandle.standardError.write(Data("Error: usage: <ipsw-path> <disk-path> <aux-path> <cpu-count> <memory-mb> <disk-size-gb>\n".utf8))
     exit(1)
 }
@@ -420,11 +420,9 @@ if (-not (Test-Path $TemplatePath)) {
 
 $VmUuid = [guid]::NewGuid().ToString().ToUpper()
 $DiskId = [guid]::NewGuid().ToString().ToUpper()
-$rng = [System.Random]::new()
-$MacBytes = [byte[]]::new(6)
-$rng.NextBytes($MacBytes)
-$MacBytes[0] = ($MacBytes[0] -bor 0x02) -band 0xFE  # locally administered unicast
-$MacAddress = ($MacBytes | ForEach-Object { $_.ToString("X2") }) -join ":"
+# Deterministic per (host, VM name): a rebuilt guest presents the SAME MAC,
+# so the DHCP server returns the SAME lease instead of consuming a new one.
+$MacAddress = Get-YurunaGuestMacAddress -VMName $VMName
 
 $PlistContent = (Get-Content -Raw $TemplatePath) `
     -replace '__VM_NAME__',             $VMName `

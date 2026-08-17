@@ -12,8 +12,8 @@ description: >
   work unchanged.
 
 type: object
-additionalProperties: false
 required: [users]
+additionalProperties: false
 
 properties:
   strict:

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345672a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -84,25 +84,10 @@ function Test-GuestPayloadUnavailable {
     return $false
 }
 
-# Console-typed length above which a fetchAndExecute step is flagged.
-#
-# fetchAndExecute does not pipe its command anywhere -- it TYPES it into the
-# guest console, one key event per character, and the whole line has to land
-# intact. Long lines have been observed to corrupt mid-send on host.macos.utm
-# (RFB -> QEMU -> guest): characters silently dropped, and then a key left
-# held down that the guest kernel auto-repeats at the console default of
-# ~30 chars/sec, filling the screen until the VM is rebuilt. A 557-character
-# send has been lost repeatedly, degrading around character ~416, while the
-# 370- and 410-character sends in the same sequence were unaffected.
-#
-# 400 sits just under the longest length observed to survive. This is a
-# WARNING, not a cap: the fix for a long step is to move the work into the
-# fetched script, where it costs no keystrokes -- not to raise this number.
-#
-# AUTHORS: the budget is NOT the yml `text:` on its own. Get-FetchExecuteEnvPrefix
-# prepends ~225 characters of integrity envelope (two SHA-256 digests plus the
-# fallback repo and commit), so a 276-character `text:` is really a ~500-character
-# send. Keeping `text:` near 120 characters leaves comfortable headroom.
+# --- REGION: https://yuruna.link/test/sequences#the-fetchandexecute-typing-length-budget
+# Console-typed length above which a fetchAndExecute step is flagged. A WARNING,
+# not a cap: the fix for a long step is to move the work into the fetched
+# script, never to raise this number.
 $script:FetchExecuteTypedCharWarn = 400
 
 function Get-NonzeroScriptExitSentinel {
@@ -1048,10 +1033,28 @@ Register-SequenceAction -Name 'fetchAndExecute' -HostIORequirement @('Send-Text'
             # normal script output. A step can still override via failPattern.
             $failPatterns = @($script:NonzeroScriptExitSentinel)
         }
-        Write-Debug "      fetchAndExecute: waiting for '$waitPattern' (timeout: ${timeout}s, freshMatch); failurePatterns=$($failPatterns -join ', ')"
+        # The window is the ONLY thing keeping a marker printed by an EARLIER
+        # fetchAndExecute from satisfying this one: freshMatch here is a tail
+        # restriction and nothing else -- it does not first require the pattern
+        # to clear -- and sequences reuse one generic completion marker for
+        # every step. So the window cannot simply be opened up: past the point
+        # where the previous step's marker is still inside it, a step that never
+        # ran reports success, which is worse than the failure widening it
+        # would prevent.
+        #
+        # It cannot stay at the waitForText default either. Anything the guest
+        # emits after the marker -- a console repaint, a completion listing, a
+        # late daemon line -- pushes it out and fails a run that SUCCEEDED, and
+        # the replay that follows re-runs work that already landed. A modest
+        # default absorbs an extra repaint; a sequence that clears the screen
+        # before this step has nothing stale to confuse and can safely raise
+        # freshMatchTailLines as far as its own output needs. The near-miss
+        # report at the wait's timeout names that knob and the value to use.
+        $tailLines = $c.Step.freshMatchTailLines ? [int]$c.Step.freshMatchTailLines : 24
+        Write-Debug "      fetchAndExecute: waiting for '$waitPattern' (timeout: ${timeout}s, freshMatch, tail ${tailLines} lines); failurePatterns=$($failPatterns -join ', ')"
         return [bool](Wait-ForText -HostType $c.HostType -VMName $c.VMName -Pattern @($waitPattern) `
             -TimeoutSeconds $timeout -PollSeconds $poll -FreshMatch $true `
-            -FreshMatchTailLines 12 -FailurePattern $failPatterns)
+            -FreshMatchTailLines $tailLines -FailurePattern $failPatterns)
     }
 
 Register-SequenceAction -Name 'sshWaitReady' -HostIORequirement @() -OcrRequired $false `
@@ -1098,6 +1101,7 @@ Register-SequenceAction -Name 'sshWaitReady' -HostIORequirement @() -OcrRequired
         $script:Fail.WaitForTextMatchedFailurePattern = $null
         $script:Fail.WaitForTextOcrTail        = $null
         $script:Fail.WaitForTextPatternsSought = [string[]]@()
+        $script:Fail.WaitForTextFreshWindowNearMiss = [string[]]@()
 
         # Test.OcrEngine + Test.YurunaDir + Test.Log live alongside this
         # module; Import-Module -Force is cheap once warm. -Global on all

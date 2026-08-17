@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 422a71b9-84cf-4d16-a903-1b7e6c05d284
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -63,6 +63,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 
+# --- REGION: Platform guard
 if (-not $IsMacOS) {
     Write-Error 'Disable-TestAutomation.ps1 (host/macos.utm) only runs on macOS.'
     exit 1
@@ -77,13 +78,14 @@ if (-not (Assert-SafeToDisable)) { exit 1 }
 
 $state = Read-HostAutomationState
 if (-not $state) {
-    Write-Warning 'No pre-automation capture on this host (it was enabled before the capture shipped, or the file was removed).'
+    Write-Warning 'No pre-automation capture on this host (Enable-TestAutomation did not write one, or the file was removed).'
     Write-Warning 'Nothing will be changed: every macOS knob Enable touches is a pre-existing setting, so with no record of its prior value there is nothing safe to restore.'
 }
 
 $restored = [System.Collections.Generic.List[string]]::new()
 $skipped  = [System.Collections.Generic.List[string]]::new()
 
+# --- REGION: Script-local helpers
 # The cmdlet -WhatIf was actually BOUND to, kept for the shared restore driver.
 #
 # Only a bound -WhatIf survives the trip into a module. A cmdlet that was never
@@ -131,7 +133,7 @@ foreach ($key in @('displaysleep', 'sleep', 'disksleep')) {
     }
 }
 
-# --- REGION: extended pmset guards
+# --- REGION: Extended pmset guards
 # Read from Get-MacPmsetGuardList so this cannot drift from the set Enable
 # applies: a guard added there is restored here without an edit.
 foreach ($guard in (Get-MacPmsetGuardList)) {
@@ -155,7 +157,7 @@ foreach ($guard in (Get-MacPmsetGuardList)) {
     }.GetNewClosure() -Absent $absentBlock
 }
 
-# --- REGION: screen saver / screen lock, both domains
+# --- REGION: Screen saver / screen lock, both domains
 foreach ($spec in @(
     @{ Key = 'screensaver/user/idleTime'                  ; Args = @('com.apple.screensaver', 'idleTime')                       ; Type = '-int'; Desc = 'Screen saver idle time [user]' }
     @{ Key = 'screensaver/user/askForPassword'            ; Args = @('com.apple.screensaver', 'askForPassword')                 ; Type = '-int'; Desc = 'Screen lock password [user]' }
@@ -196,7 +198,7 @@ foreach ($spec in @(
     }.GetNewClosure()
 }
 
-# --- REGION: hot corners
+# --- REGION: Hot corners
 $cornerChanged = $false
 foreach ($corner in @('tl', 'tr', 'bl', 'br')) {
     foreach ($part in @('corner', 'modifier')) {
@@ -225,7 +227,7 @@ if ($cornerChanged -and $PSCmdlet.ShouldProcess('Dock', 'Restart so the restored
     & killall Dock 2>$null
 }
 
-# --- REGION: unified screen lock, auto-logout, network time
+# --- REGION: Unified screen lock and auto-logout
 Restore-Knob -Name 'sysadminctl/screenLock' -Description 'sysadminctl unified screen lock' -Apply {
     param($v)
     # The captured string is sysadminctl's own status line, e.g.
@@ -255,6 +257,7 @@ Restore-Knob -Name 'autologout' -Description 'Auto-logout delay' -Apply {
     if ($r.ExitCode -ne 0) { Write-Verbose "auto-logout delete: $($r.Output)" }
 }
 
+# --- REGION: Host clock
 Restore-Knob -Name 'networktime' -Description 'Network time' -Apply {
     param($v)
     $onOff = if ("$v" -match 'On') { 'on' } else { 'off' }
@@ -262,7 +265,7 @@ Restore-Knob -Name 'networktime' -Description 'Network time' -Apply {
     if ($r.ExitCode -ne 0) { throw "systemsetup -setusingnetworktime $onOff failed: $($r.Output)" }
 }
 
-# --- REGION: services (opt-in)
+# --- REGION: Services (opt-in)
 if ($StopServices) {
     foreach ($svc in @('CachingProxyService', 'StashService', 'PoolControlService', 'DownloadAgentService')) {
         $script = Join-Path $RepoRoot "test/Stop-${svc}VM.ps1"
@@ -274,7 +277,7 @@ if ($StopServices) {
     }
 }
 
-# --- REGION: report
+# --- REGION: Report
 Write-DisableReport -Platform 'macos.utm' -Restored $restored -Skipped $skipped
 
 Write-Output ''

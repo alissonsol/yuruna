@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42f0a1b2-c3d4-4e56-9788-9a0b1c2d3e4f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -668,6 +668,22 @@ function Test-HostIdentityInteractive {
     return $true
 }
 
+# The GUID-dashed spelling of a host uuid, for the lines below that put a FULL
+# one in front of an operator: they are read against a dashboard panel or another
+# host's console, and 32 undifferentiated hex characters are not checkable by eye.
+# Test.YurunaDir owns the renderer (it mints the id); the call is guarded because
+# this module's pure helpers are importable on their own, and a console line must
+# degrade to the stored spelling rather than fail.
+function Format-HostIdentityUuid {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter()][AllowNull()][string]$Uuid)
+    if (Get-Command Format-YurunaHostId -ErrorAction SilentlyContinue) {
+        return [string](Format-YurunaHostId -HostId $Uuid)
+    }
+    return [string]$Uuid
+}
+
 # Operator-facing console line. Writes straight to the host UI (not the cmdlet
 # Write-Host, which the lint gate disallows, and not Write-Output, which would
 # pollute the function's return value); only reached on the interactive path.
@@ -688,17 +704,20 @@ function Read-HostIdentityConfirm {
 }
 
 # Set-PoolStorageConfigValue round-trips test.config.yml (gitignored, per-host)
-# and writes the four POOL keys under the networkStorage node (preserving the
-# rest of the document, including any stash* keys). Returns $true on success.
+# and writes the POOL keys under the networkStorage node (preserving the rest of
+# the document, including any stash* keys). Returns $true on success.
+#
+# The three paths are the opt-in to archiving, so writing them turns archiving on;
+# -MoveLogs additionally selects move mode (copy, verify, delete the local folder).
 function Set-PoolStorageConfigValue {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param(
         [Parameter(Mandatory)][string]$ConfigPath,
-        [Parameter(Mandatory)][bool]$Replicate,
         [Parameter(Mandatory)][string]$NetworkPath,
         [Parameter(Mandatory)][string]$NetworkUser,
-        [Parameter(Mandatory)][string]$LocalPath
+        [Parameter(Mandatory)][string]$LocalPath,
+        [switch]$MoveLogs
     )
     if (-not $PSCmdlet.ShouldProcess($ConfigPath, 'Write networkStorage (pool) config')) { return $false }
     if (-not (Get-Command ConvertFrom-Yaml -ErrorAction SilentlyContinue) -or -not (Get-Command ConvertTo-Yaml -ErrorAction SilentlyContinue)) {
@@ -712,14 +731,14 @@ function Set-PoolStorageConfigValue {
         }
         if (-not ($doc -is [System.Collections.IDictionary])) { $doc = [ordered]@{} }
         if (-not ($doc['networkStorage'] -is [System.Collections.IDictionary])) { $doc['networkStorage'] = [ordered]@{} }
-        # networkReplicate is a pool behavior -> write it under the `pool` node;
-        # networkStorage carries only the path/credential keys.
-        if (-not ($doc['pool'] -is [System.Collections.IDictionary])) { $doc['pool'] = [ordered]@{} }
-        $doc['pool']['networkReplicate'] = $Replicate
         $ps = $doc['networkStorage']
         $ps['poolStorageNetworkPath']  = $NetworkPath
         $ps['poolStorageNetworkUser']  = $NetworkUser
         $ps['poolStorageLocalPath']    = $LocalPath
+        $ps['moveLogsToPoolStorage']   = [bool]$MoveLogs
+        # A leftover deprecated kill switch is dropped as the document is rewritten,
+        # so a host configured here does not keep tripping the config-gate advisory.
+        if ($doc['pool'] -is [System.Collections.IDictionary]) { $doc['pool'].Remove('networkReplicate') }
         $yaml = ConvertTo-Yaml $doc
         $wrote = $false
         if (Get-Command Write-YurunaStateFile -ErrorAction SilentlyContinue) {
@@ -800,7 +819,7 @@ function Invoke-PoolStorageSetupAndReclaim {
 
     # Current values (defaults for the prompts), read raw so a stale config cache
     # never hides an edit the operator just made by hand.
-    $curPath = ''; $curUser = ''; $curLocal = ''
+    $curPath = ''; $curUser = ''; $curLocal = ''; $curMove = $false
     if ((Test-Path -LiteralPath $cfgPath) -and (Get-Command ConvertFrom-Yaml -ErrorAction SilentlyContinue)) {
         try {
             $cur = Get-Content -Raw -LiteralPath $cfgPath | ConvertFrom-Yaml -Ordered
@@ -808,12 +827,15 @@ function Invoke-PoolStorageSetupAndReclaim {
                 $curPath  = [string]$cur['networkStorage']['poolStorageNetworkPath']
                 $curUser  = [string]$cur['networkStorage']['poolStorageNetworkUser']
                 $curLocal = [string]$cur['networkStorage']['poolStorageLocalPath']
+                if (Get-Command ConvertTo-PoolStorageBool -ErrorAction SilentlyContinue) {
+                    $curMove = ConvertTo-PoolStorageBool -Value $cur['networkStorage']['moveLogsToPoolStorage']
+                }
             }
         } catch { $null = $_ }
     }
 
     Write-HostIdentityLine ''
-    Write-HostIdentityLine 'networkStorage pool (optional NAS replication + pool host-identity):'
+    Write-HostIdentityLine 'networkStorage pool (optional NAS archiving + pool host-identity):'
     if (-not $runtimeResolved) {
         Write-HostIdentityLine "  NOTE: the runtime directory could not be resolved here, so this host's pool identity cannot be determined. You may still configure NAS replication; reclaim/mint is skipped until the runtime dir is available."
     } elseif ($uuidExists) {
@@ -834,6 +856,12 @@ function Invoke-PoolStorageSetupAndReclaim {
     if ([string]::IsNullOrWhiteSpace($networkUser)) { $networkUser = $curUser }
     $localPath = Read-Host "  localPath (local mount point, e.g. /mnt/ypool-nas or 'y:')$(if ($curLocal){" [$curLocal]"})"
     if ([string]::IsNullOrWhiteSpace($localPath)) { $localPath = $curLocal }
+
+    # Archiving is on either way once the paths are set; this only picks the mode.
+    # Stated plainly because move mode makes the NAS the ONLY copy of a cycle's
+    # results, which is a durability decision, not a preference.
+    Write-HostIdentityLine "  Finished cycle results are archived to the share. Move mode ALSO deletes each cycle's local folder once the copy is verified, so the NAS holds the only copy and this host's disk stops accumulating results."
+    $moveLogs = Read-HostIdentityConfirm -Prompt '  Move logs to pool storage (delete the local folder after archiving)?' -DefaultYes:$curMove
 
     if ([string]::IsNullOrWhiteSpace($networkPath) -or [string]::IsNullOrWhiteSpace($networkUser) -or [string]::IsNullOrWhiteSpace($localPath)) {
         Write-Warning "poolStorage setup: networkPath, networkUser, and localPath are all required. Nothing written."
@@ -863,15 +891,16 @@ function Invoke-PoolStorageSetupAndReclaim {
         }
     }
 
-    if (-not (Set-PoolStorageConfigValue -ConfigPath $cfgPath -Replicate $true -NetworkPath $networkPath -NetworkUser $networkUser -LocalPath $localPath -Confirm:$false)) {
+    if (-not (Set-PoolStorageConfigValue -ConfigPath $cfgPath -NetworkPath $networkPath -NetworkUser $networkUser -LocalPath $localPath -MoveLogs:$moveLogs -Confirm:$false)) {
         return
     }
-    Write-HostIdentityLine "  Wrote poolStorage config (replicate: true) to $cfgPath"
+    $modeWord = if ($moveLogs) { 'move -- finished cycles are deleted locally once archived' } else { 'copy -- local folders are kept' }
+    Write-HostIdentityLine "  Wrote poolStorage config ($modeWord) to $cfgPath"
 
     if (Get-Command Set-Password -ErrorAction SilentlyContinue) {
         $vaultKey = Get-HostIdentityVaultKey -User $networkUser
         try { Set-Password -Username $vaultKey -NewPassword $plain; Write-HostIdentityLine "  Stored the SMB credential in the vault under '$vaultKey'." }
-        catch { Write-Warning "poolStorage setup: Set-Password failed ($($_.Exception.Message)). Set it manually before enabling replication." }
+        catch { Write-Warning "poolStorage setup: Set-Password failed ($($_.Exception.Message)). Set it manually before the first cycle archives." }
     } else {
         Write-Warning "poolStorage setup: authentication extension not loaded; could not store the SMB password. Set it manually."
     }
@@ -881,7 +910,7 @@ function Invoke-PoolStorageSetupAndReclaim {
     # the first cycle.
     $cfg = $null
     if (Get-Command Get-YurunaPoolStorageConfig -ErrorAction SilentlyContinue) {
-        try { $cfg = Get-YurunaPoolStorageConfig -Config (Get-Content -Raw -LiteralPath $cfgPath | ConvertFrom-Yaml -Ordered) -IgnoreReplicate } catch { Write-Verbose "config reload: $($_.Exception.Message)" }
+        try { $cfg = Get-YurunaPoolStorageConfig -Config (Get-Content -Raw -LiteralPath $cfgPath | ConvertFrom-Yaml -Ordered) } catch { Write-Verbose "config reload: $($_.Exception.Message)" }
     }
     if (-not $cfg) { Write-Warning "poolStorage setup: could not reload the new config; skipping mount + reclaim."; return }
 
@@ -922,7 +951,7 @@ function Invoke-PoolStorageSetupAndReclaim {
     if ($uuidExists) {
         $myUuid = ''
         try { $myUuid = ([System.IO.File]::ReadAllText($uuidFile)).Trim() } catch { $null = $_ }
-        Write-HostIdentityLine "  This host keeps its existing pool identity: $myUuid"
+        Write-HostIdentityLine "  This host keeps its existing pool identity: $(Format-HostIdentityUuid -Uuid $myUuid)"
         return
     }
 
@@ -940,12 +969,16 @@ function Invoke-PoolStorageSetupAndReclaim {
         'ambiguous' {
             Write-HostIdentityLine "  Multiple prior identities match this hardware -- not reclaiming automatically:"
             foreach ($c in $decision.candidates) {
-                Write-HostIdentityLine ("    - {0}  (host '{1}', last seen {2}, score {3}, matched: {4})" -f $c.uuid, $c.hostname, $c.lastSeenUtc, $c.score, ($c.matchedFields -join ','))
+                Write-HostIdentityLine ("    - {0}  (host '{1}', last seen {2}, score {3}, matched: {4})" -f (Format-HostIdentityUuid -Uuid $c.uuid), $c.hostname, $c.lastSeenUtc, $c.score, ($c.matchedFields -join ','))
             }
             if (Read-HostIdentityConfirm -Prompt '  Reclaim one of these by typing its uuid? (No = mint a new uuid)' -DefaultYes:$false) {
                 $picked = (Read-Host '  uuid to reclaim').Trim()
-                $match = $decision.candidates | Where-Object { $_.uuid -eq $picked } | Select-Object -First 1
-                if ($match) { Set-ReclaimedHostUuid -UuidFile $uuidFile -Uuid $picked }
+                # Matched against BOTH spellings, because the list above shows the
+                # dashed one and that is what an operator pastes back. What gets
+                # written is the CANDIDATE's own value, never the typed string: the
+                # id in the record is the one the pool history is keyed on.
+                $match = $decision.candidates | Where-Object { ($_.uuid -ieq $picked) -or ((Format-HostIdentityUuid -Uuid $_.uuid) -ieq $picked) } | Select-Object -First 1
+                if ($match) { Set-ReclaimedHostUuid -UuidFile $uuidFile -Uuid $match.uuid }
                 else { Write-Warning "  '$picked' is not one of the listed candidates; minting a new uuid instead." }
             } else {
                 Write-HostIdentityLine "  A new host.uuid will be minted on the first cycle."
@@ -954,7 +987,7 @@ function Invoke-PoolStorageSetupAndReclaim {
         'suggest' {
             $c = $decision.candidate
             Write-HostIdentityLine ("  A prior host identity matches this hardware:")
-            Write-HostIdentityLine ("    uuid {0}  (host '{1}', last seen {2}, score {3}, matched: {4})" -f $c.uuid, $c.hostname, $c.lastSeenUtc, $c.score, ($c.matchedFields -join ','))
+            Write-HostIdentityLine ("    uuid {0}  (host '{1}', last seen {2}, score {3}, matched: {4})" -f (Format-HostIdentityUuid -Uuid $c.uuid), $c.hostname, $c.lastSeenUtc, $c.score, ($c.matchedFields -join ','))
             if (Read-HostIdentityConfirm -Prompt '  Reclaim this identity for this host?' -DefaultYes:$false) {
                 Set-ReclaimedHostUuid -UuidFile $uuidFile -Uuid $c.uuid
             } else {
@@ -967,6 +1000,10 @@ function Invoke-PoolStorageSetupAndReclaim {
 <#
 .SYNOPSIS
 Writes the chosen uuid to runtime/host.uuid so the next Get-YurunaHostId adopts it, validating the 42-prefixed 32-hex shape so a typo can't poison the pool join key.
+.DESCRIPTION
+A GUID-dashed id is accepted and stored undashed: every surface that shows an
+operator a full id spells it 8-4-4-4-12, so that is the form a pasted one arrives
+in, while host.uuid must hold the bare 32 hex the pool joins telemetry on.
 #>
 function Set-ReclaimedHostUuid {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
@@ -977,9 +1014,10 @@ function Set-ReclaimedHostUuid {
         [Parameter(Mandatory)][string]$UuidFile,
         [Parameter(Mandatory)][string]$Uuid
     )
-    $u = $Uuid.Trim()
+    $typed = $Uuid.Trim()
+    $u = $typed.Trim('{', '}').Replace('-', '').ToLowerInvariant()
     if ($u -notmatch '^42[0-9a-fA-F]{30}$') {
-        Write-Warning "  '$u' is not a valid host uuid (expected '42' + 30 hex). Not reclaiming."
+        Write-Warning "  '$typed' is not a valid host uuid (expected '42' + 30 hex, with or without the GUID dashes it is shown with). Not reclaiming."
         return $false
     }
     if (-not $PSCmdlet.ShouldProcess($UuidFile, "Reclaim host uuid $u")) { return $false }
@@ -988,7 +1026,7 @@ function Set-ReclaimedHostUuid {
         if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Force -Path $dir | Out-Null }
         [System.IO.File]::WriteAllText($UuidFile, $u, [System.Text.UTF8Encoding]::new($false))
         if ($global:__YurunaHostId) { $global:__YurunaHostId = $u }
-        Write-HostIdentityLine "  Reclaimed pool identity: $u (written to runtime/host.uuid)."
+        Write-HostIdentityLine "  Reclaimed pool identity: $(Format-HostIdentityUuid -Uuid $u) (written to runtime/host.uuid)."
         return $true
     } catch {
         Write-Warning "  Could not write runtime/host.uuid ($($_.Exception.Message)). Not reclaimed."

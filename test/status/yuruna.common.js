@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.08.14
+  Version: 2026.08.16
 
   Shared helpers for the Yuruna status pages. Mounted on window.Yuruna.
   --- REGION: https://yuruna.link/definition#defining-the-status-page-browser-baseline
@@ -10,7 +10,7 @@
 (function() {
   'use strict';
 
-  var VERSION = '2026.08.14';
+  var VERSION = '2026.08.16';
 
   // --- REGION: https://yuruna.link/control-proof
   // A Grafana deep-link routes through the caching-proxy service's /go/host, which appends a
@@ -2776,11 +2776,21 @@
   // browser. navigator.share can carry the file itself, so where it is offered
   // the operator gets a message with the archive already attached. It is
   // secure-context gated and the status service speaks plain HTTP over the LAN,
-  // so on a lab host it is normally absent -- then the archive downloads and a
-  // mailto: draft opens with the subject and body filled in, for the operator to
-  // attach it. mailto: cannot carry an attachment (RFC 6068 section 5); no
-  // amount of parameter juggling changes that, which is why the fallback asks
+  // so on a lab host it is normally absent -- then the archive downloads and the
+  // operator opens the draft from a link this page reveals, subject and body
+  // already filled in. mailto: cannot carry an attachment (RFC 6068 section 5);
+  // no amount of parameter juggling changes that, which is why the fallback asks
   // for one manual step rather than pretending.
+  //
+  // That draft is a link the operator clicks, never a navigation fired
+  // alongside the download. WebKit runs an <a download> click as an ordinary
+  // frame load and only turns it into a download once the response headers
+  // arrive, and the archive route packs the whole folder before it writes its
+  // first header -- so a mailto: navigation in the same frame falls inside that
+  // window and cancels the still-provisional load: the mail client opens and no
+  // file is ever saved. Engines with an out-of-frame download manager are
+  // immune, so one hand-over is a race that a browser either loses silently or
+  // wins by construction. Two gestures have no such window.
   var SHARE_CYCLE_RE = /^(\d{6})\.(\d{4}-\d{2}-\d{2})\.(\d{2}-\d{2}-\d{2})\.([0-9a-fA-F]{32})(\.incomplete)?$/;
 
   // parseCycleFolder pulls the facts out of a results folder name. The name is
@@ -2810,6 +2820,14 @@
     if (!el) { return; }
     el.className = isError ? 'error' : '';
     el.textContent = text;
+  }
+
+  // The download and draft links stay hidden until the host has answered for
+  // the folder. A draft link offered before that is an invitation to send a
+  // message promising a file nothing ever packed.
+  function shareCycleSteps(show) {
+    var el = document.getElementById('share-steps');
+    if (el) { el.hidden = !show; }
   }
 
   // Reported only after the archive exists, so the operator learns the size of
@@ -2857,36 +2875,63 @@
       shareCycleStatus('This cycle is still running. The archive will hold what has been written so far.');
     }
 
-    // Download + draft. No Blob and no fetch: the archive is served with a
-    // Content-Disposition attachment header, so pointing a link at it downloads
-    // it under the right name without the whole tree passing through JS memory.
-    function downloadThenDraft() {
-      var dl = document.createElement('a');
-      dl.href = archiveUrl;
-      dl.download = archiveName;
-      document.body.appendChild(dl);
-      dl.click();
-      document.body.removeChild(dl);
-      // The draft opens after the download is under way, and from the same user
-      // gesture, so a popup blocker treats it as the operator's own action.
-      var mail = document.createElement('a');
-      mail.href = mailto;
-      document.body.appendChild(mail);
-      mail.click();
-      document.body.removeChild(mail);
-      shareCycleStatus('Downloaded ' + archiveName + ' and opened a draft. Attach the downloaded file before sending.');
+    // Download + draft, as the two links the operator sees. No Blob: the archive
+    // is served with a Content-Disposition attachment header, so pointing a link
+    // at it downloads it under the right name without the whole tree passing
+    // through JS memory.
+    //
+    // startNow says whether a user activation is still live. The button clicks
+    // the download link on the operator's behalf where one is -- but a synthetic
+    // download click with no activation behind it is refused without a word,
+    // which would leave the page claiming a download nobody will ever find. So
+    // where the activation is spent, the same link is offered and left to the
+    // operator instead of being clicked at.
+    var dl = document.getElementById('share-download');
+    var draft = document.getElementById('share-draft');
+    dl.href = archiveUrl;
+    dl.download = archiveName;
+    dl.textContent = 'Download ' + archiveName;
+    draft.href = mailto;
+
+    function offerDownloadAndDraft(lead, startNow) {
+      shareCycleSteps(true);
+      if (startNow) { dl.click(); }
+      shareCycleStatus(lead + (startNow
+        ? 'Downloading ' + archiveName + '. The host packs the whole folder before the first byte arrives, so give it a moment'
+        : 'Download ' + archiveName + ' with the first link') +
+        ', then open the draft and attach the file before sending.');
       btn.disabled = false;
     }
 
     btn.addEventListener('click', function() {
       btn.disabled = true;
+      shareCycleSteps(false);
       shareCycleStatus('Packing ' + info.folder + '…');
 
       // canShare({files}) is the only honest test: the API can exist while
       // refusing files, and it is absent altogether outside a secure context.
       var canShareFiles = !!(window.navigator && navigator.canShare && navigator.share && window.File);
       if (!canShareFiles) {
-        downloadThenDraft();
+        // A HEAD asks the archive route "is there a folder to pack?" without
+        // packing it, so the failure this page would otherwise never see -- a
+        // cycle rotated out of the log history since the timeline was drawn --
+        // is named instead of being handed over as an error page saved under a
+        // .zip name. It answers in microseconds, well inside the activation
+        // window the click opened, so the download still starts on its own.
+        fetch(archiveUrl, { method: 'HEAD', headers: { 'X-Yuruna': '1' } }).then(function(r) {
+          if (!r.ok) {
+            shareCycleStatus('This host will not pack ' + info.folder + ' (HTTP ' + r.status +
+              '). The cycle may have rotated out of the retained log history.', true);
+            btn.disabled = false;
+            return;
+          }
+          offerDownloadAndDraft('', true);
+        }).catch(function() {
+          // The probe itself failed -- an unreachable host, or a browser that
+          // would not issue it. The archive route can still answer for itself,
+          // so offer the link rather than refusing on a probe's behalf.
+          offerDownloadAndDraft('Could not check the cycle folder first. ', true);
+        });
         return;
       }
 
@@ -2902,14 +2947,21 @@
         });
       }).catch(function(err) {
         // A share the operator dismissed is not a failure to route around: the
-        // answer was "no". Anything else -- no file support, a refused type, a
-        // failed pack -- falls back to the download, which always works.
+        // answer was "no".
         if (err && err.name === 'AbortError') {
           shareCycleStatus('Sharing cancelled.');
           btn.disabled = false;
           return;
         }
-        downloadThenDraft();
+        // Anything else -- no file support, a refused type, a failed pack --
+        // falls back to the links. NotAllowedError is worth naming on its own:
+        // navigator.share needs a live user activation and the pack above
+        // outlasts one on any real cycle, so the sheet is refused for a reason
+        // that has nothing to do with the archive. Either way the activation is
+        // spent by now, which is why nothing here is clicked for the operator.
+        offerDownloadAndDraft(err && err.name === 'NotAllowedError'
+          ? 'The share sheet expired while the host packed the folder. '
+          : 'This browser could not attach the file to a message itself. ', false);
       });
     });
 

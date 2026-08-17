@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456810
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -140,7 +140,7 @@ function Write-VaultUnlocked {
     Move-Item -Path $tmp -Destination $script:VaultPath -Force
 }
 
-# === users.yml -- logical -> corporate-identity mapping ====================
+# --- REGION: users.yml -- logical -> corporate-identity mapping
 
 <#
 .SYNOPSIS

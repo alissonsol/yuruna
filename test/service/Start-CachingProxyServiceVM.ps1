@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456742
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -60,10 +60,9 @@ param(
 $global:InformationPreference = "Continue"
 $global:ProgressPreference    = "SilentlyContinue"
 
-# Honor the caller's logLevel, published as $env:YURUNA_LOG_LEVEL by whatever
-# entry point started this script (install/setup.ps1, a runner cycle). After the
-# two lines above on purpose: an explicit level is the operator's choice and
-# replaces this script's own default. See docs/loglevels.md.
+# --- REGION: https://yuruna.link/loglevels#propagation-across-pwsh-boundaries
+# After the preference assignments above on purpose: an explicit level is the
+# operator's choice and replaces this script's own default.
 Import-Module (Join-Path $PSScriptRoot '../modules/Test.LogLevel.psm1') -Global -Force -DisableNameChecking
 Use-LogLevelFromEnv
 
@@ -235,7 +234,7 @@ foreach ($p in @($GetImageScript, $NewVMScript)) {
     if (-not (Test-Path $p)) { Write-Error "Missing required script: $p"; exit 1 }
 }
 
-# --- REGION: Step 0: plan + preflight
+# --- REGION: Step 0: plan + pre-flight
 # Past this point Start-CachingProxyServiceVM runs UNATTENDED -- it must not stop
 # for an interactive prompt. Everything that needs operator awareness is
 # surfaced and resolved HERE, at the start:
@@ -252,7 +251,7 @@ $preflightErrors = @()
 $plannedBridge   = $null   # set on Linux to the Get-YurunaExternalNetworkPlan result
 
 if ($IsLinux) {
-    # --- REGION: Hard requirements: without these the cache VM cannot boot.
+    # --- REGION: Hard requirements -- without these the cache VM cannot boot
     if (-not (Test-Path -LiteralPath '/dev/kvm')) {
         $preflightErrors += "/dev/kvm is missing -- KVM acceleration unavailable (kvm.ko not loaded, or VT-x/AMD-V disabled in firmware). The cache VM cannot boot."
     }
@@ -261,8 +260,8 @@ if ($IsLinux) {
         $preflightErrors += "libvirtd is not active (state: '$libvirtdActive'). Start it with: sudo systemctl enable --now libvirtd"
     }
 
-    # -- Bridge plan: decide NOW whether Step 1.5 will perturb host
-    #    networking, and tell the operator before anything is touched. ---
+    # --- REGION: Bridge plan -- does the bridge step perturb host networking?
+    # Decided NOW and told to the operator before anything is touched.
     Import-Module (Join-Path $RepoRoot 'host/ubuntu.kvm/modules/Yuruna.Host.psm1') -Force -DisableNameChecking
     if ($env:YURUNA_EXTERNAL_BRIDGE_SKIP -eq '1') {
         Write-Output "  Network plan: bridge step SKIPPED (YURUNA_EXTERNAL_BRIDGE_SKIP=1)."
@@ -327,7 +326,7 @@ if ($IsLinux -and $plannedBridge -and $plannedBridge.WillChangeHostNetworking) {
 
 Write-Output "  Preflight OK -- proceeding unattended (no further prompts)."
 
-# --- REGION: serialize the destructive VM lifecycle + host port-map writes
+# --- REGION: Serialize the destructive VM lifecycle + host port-map writes
 # Two concurrent bring-ups (or a bring-up racing the runner's per-cycle
 # Add-PortMap) must not interleave Remove-VM/New-VM/Add-PortMap. Acquire the
 # drain-style PID+StartTime lock now: a dead holder is reclaimed, a live one
@@ -354,7 +353,7 @@ if (-not $cpLock.Acquired) {
 # Same shape as the runner's portmap hold in modules/Invoke-TestRunnerInnerLoop.ps1.
 try {
 
-# --- REGION: adopt-if-healthy fast path (skip the ~15-min rebuild)
+# --- REGION: Adopt-if-healthy fast path (skip the ~15-min rebuild)
 # Load the host contract so Get-VMState / Test-CacheVMOnExternalNetwork /
 # Add-PortMap resolve for the probe + exposure re-assert. The Test.CachingProxyService
 # re-import afterward is mandatory, not redundant:
@@ -826,6 +825,7 @@ if ($IsMacOS) {
     # and expose it to the LAN with host port-forwarders. On Ethernet the
     # VM is bridged (LAN-direct) and discovered by ARP (the else-branch).
     if (Test-MacUplinkNotBridgeable) {
+        # --- REGION: Step 5: macOS Shared NAT -- discover the cache VM and expose it to the LAN
         Write-Output ""
         Write-Output "== Step 5: discover Shared-NAT cache VM + expose to LAN (Wi-Fi host) =="
         $httpPort  = Get-CachingProxyServicePort -Scheme http
@@ -933,6 +933,7 @@ if ($IsMacOS) {
     # we find", which would lock onto a peer host's cache that DHCP'd first.
     # Same helper the Shared-NAT branch uses, so both paths share one
     # tested implementation.
+    # --- REGION: Step 5: macOS bridged -- wait for the cache VM to DHCP and squid to listen
     Write-Output ""
     Write-Output "== Step 5: wait for our cache VM (by bundle MAC) to DHCP on ${lanPrefix}0/24 and squid to listen on :${httpPort} (up to 15 min) =="
     Write-Output "  (first boot = cloud-init installs squid + apache2,"
@@ -953,7 +954,7 @@ if ($IsMacOS) {
         Write-Warning "  ip -4 addr show           # verify the VM got a DHCP lease on the LAN"
     }
 
-    # --- REGION: Step 6: tear down legacy host-side forwarders
+    # --- REGION: Step 6: macOS bridged -- tear down legacy host-side forwarders
     # With bridged networking the cache VM is reachable directly at its
     # LAN IP -- no host:port forwarder layer needed. Any leftover pwsh
     # forwarders from a prior shared-NAT cycle would now bind ports that
@@ -985,6 +986,7 @@ if ($IsMacOS) {
     # and no host-side discovery loop like Hyper-V -- by the time we
     # reach here the cache is up and reachable, we just need to re-query
     # the IP for the summary and persist it for downstream consumers.
+    # --- REGION: Linux -- re-query the cache VM IP for persistence + summary
     Write-Output ""
     Write-Output "== Step 4: re-query cache VM IP for persistence + summary =="
     Import-Module (Join-Path $RepoRoot 'host/ubuntu.kvm/modules/Yuruna.Host.psm1') -Force -DisableNameChecking
@@ -1059,6 +1061,7 @@ if ($IsMacOS) {
         }
     }
 } elseif ($IsWindows) {
+    # --- REGION: Windows -- discover the cache VM and expose its ports to the LAN
     # Use the same KVP+ARP+:3128-probe discovery the guest consumers
     # (guest.ubuntu.server.24/New-VM.ps1) use, so the summary line
     # below matches what a subsequent guest install will actually see.

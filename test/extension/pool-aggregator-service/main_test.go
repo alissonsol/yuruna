@@ -605,7 +605,7 @@ func TestGitCommitsTolerantDecode(t *testing.T) {
 // two deep-links resolve.
 func TestHostInfoCommitLabels(t *testing.T) {
 	s := newPoolState("default", 8080)
-	hv := &hostView{HostId: "4253419c", BaseURL: "http://192.168.7.13:8080", Reachable: true, Version: "2026.08.14", PoolId: "lab", PoolGuid: "42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071"}
+	hv := &hostView{HostId: "4253419c", BaseURL: "http://192.168.7.13:8080", Reachable: true, Version: "2026.08.16", PoolId: "lab", PoolGuid: "42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071"}
 	hv.Status = &hostStatus{HostId: "4253419c", Host: "host.windows.hyper-v", CycleStartUtc: "c1", OverallStatus: "pass"}
 	hv.Status.GitCommits = append(hv.Status.GitCommits,
 		struct {
@@ -626,6 +626,56 @@ func TestHostInfoCommitLabels(t *testing.T) {
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("host_info missing %q\n%s", want, body)
+		}
+	}
+}
+
+// TestDashedHostIDRendering pins the two spellings of one id against each other:
+// a 32-hex id renders 8-4-4-4-12 and folds back unchanged, while anything else --
+// an announce's opaque identifier, an already-dashed value, a short fixture -- is
+// passed through rather than mangled into a shape no store contains.
+func TestDashedHostIDRendering(t *testing.T) {
+	const plain = "426d17ef0b88426b922180dad1a9e921"
+	const dashed = "426d17ef-0b88-426b-9221-80dad1a9e921"
+	if got := dashedHostID(plain); got != dashed {
+		t.Fatalf("dashedHostID(%q) = %q, want %q", plain, got, dashed)
+	}
+	if got := normalizeHostID(dashedHostID(plain)); got != plain {
+		t.Fatalf("dashed id must fold back to the key the pool is on: got %q, want %q", got, plain)
+	}
+	for _, opaque := range []string{"", dashed, "4253419c", "stash-vm-01", "42" + strings.Repeat("z", 30)} {
+		if got := dashedHostID(opaque); got != opaque {
+			t.Fatalf("dashedHostID(%q) = %q, want it untouched", opaque, got)
+		}
+	}
+}
+
+// TestHostIDDashedLabels asserts the rendered id rides beside the key on every
+// metric a dashboard panel shows a Host ID from. The panels display the first 8
+// characters and reveal the full id from this label; a Grafana data link
+// interpolates a field's DISPLAYED value, so the shortened cell cannot produce it.
+func TestHostIDDashedLabels(t *testing.T) {
+	const hid = "426d17ef0b88426b922180dad1a9e921"
+	const dashed = "426d17ef-0b88-426b-9221-80dad1a9e921"
+	s := newPoolState("default", 8080)
+	hv := &hostView{HostId: hid, BaseURL: "http://192.168.7.13:8080", Reachable: true}
+	hv.Status = &hostStatus{HostId: hid, Host: "host.ubuntu.kvm", OverallStatus: "pass"}
+	s.hosts[hid] = hv
+
+	w := httptest.NewRecorder()
+	s.handleMetrics(w, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	body := w.Body.String()
+	pair := `hostId="` + hid + `",hostIdDashed="` + dashed + `"`
+	for _, metric := range []string{"yuruna_pool_host_info{", "yuruna_pool_host_status{"} {
+		found := false
+		for _, line := range strings.Split(body, "\n") {
+			if strings.HasPrefix(line, metric) && strings.Contains(line, pair) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("%s missing the rendered id beside the key (%s).\ngot:\n%s", metric, pair, body)
 		}
 	}
 }
@@ -1193,8 +1243,8 @@ func TestHandleGoHost(t *testing.T) {
 			t.Fatalf("(c) root: code=%d loc=%q", w.Code, w.Header().Get("Location"))
 		}
 	}
-	// (d) GUID-formatted id resolves to the same host: the dashboard tables render
-	// hostIds dashed, and a data link built from the rendered cell carries that form.
+	// (d) GUID-formatted id resolves to the same host: the dashboard's host links are
+	// built from hostIdDashed, and an operator pastes an id in the form they were shown.
 	{
 		s := newPoolState("default", 8080)
 		s.hosts[hid] = &hostView{HostId: hid, BaseURL: "http://10.0.0.5:8080"}

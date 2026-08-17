@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42c7a1b4-6e28-4d35-9f70-2a41c6b8e903
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -71,6 +71,7 @@ param(
     [string]$logLevel
 )
 
+# --- REGION: Resolve paths
 # Lives under test/modules/ alongside Invoke-TestRunnerInnerLoop.ps1: the outer
 # runner is the only legitimate caller, so it stays out of test/'s operator-facing
 # layer. $PSScriptRoot is therefore test/modules/, one level below $TestRoot.
@@ -88,10 +89,12 @@ if (-not (Test-Path -LiteralPath $InnerScript)) {
     exit 1
 }
 
+# --- REGION: Re-import modules (fresh per cycle)
 # -Force on every import is the point of this process: the modules are re-read from
 # disk each cycle, so a fix lands without restarting the runner.
 Initialize-YurunaEntryPointModuleSet -For Outer -ModulesDir $ModulesDir
 
+# --- REGION: Bootstrap runtime + log dirs
 # The runtime/log dirs are already published by the caller; re-resolving is
 # idempotent and keeps this script runnable on its own for diagnosis.
 $null = Initialize-YurunaRuntimeDir
@@ -109,6 +112,7 @@ $pwshExe = Get-PwshExePath
 $argList = New-InnerRunnerArgList -ScriptPath $InnerScript -Parameters $PSBoundParameters `
     -ExcludeParameter @('Cycle')
 
+# --- REGION: Ctrl+C handler
 # This process is not the one the operator's Ctrl+C reaches; the caller owns
 # shutdown and kills this whole tree when it is requested. A local, never-set
 # handle keeps the shared cycle code working unchanged.
@@ -122,6 +126,7 @@ foreach ($n in @('YURUNA_CACHING_PROXY_SERVICE_IP','YURUNA_RUNTIME_DIR','YURUNA_
     if ($null -ne $v -and $v -ne '') { $forwardEnvSnapshot[$n] = $v }
 }
 
+# --- REGION: Run one cycle
 # Called BARE, and never captured: `$result = Invoke-RunnerOuterCycle ...` reads
 # the cycle off the success stream, and that one assignment is enough to make
 # PowerShell give the inner pwsh an anonymous pipe for stdout instead of letting it
@@ -157,6 +162,7 @@ $result = Get-LastOuterCycleResult
 $outcome  = if ($result -and $result.Outcome) { [string]$result.Outcome } else { 'completed' }
 $exitCode = if ($result -and $null -ne $result.ExitCode) { [int]$result.ExitCode } else { 0 }
 
+# --- REGION: Write the cycle result
 # Written before exiting so the caller can distinguish "the inner failed" from
 # "the cycle never got that far".
 $outcomeFile = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.cycle.outcome.json'

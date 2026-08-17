@@ -21,8 +21,8 @@ description: >
   to it without breaking every existing validation.
 
 type: object
-additionalProperties: false
 required: [schemaVersion, lab, users]
+additionalProperties: false
 
 properties:
   schemaVersion:

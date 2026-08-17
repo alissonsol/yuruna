@@ -26,9 +26,15 @@ guestSequence:
 - guest.ubuntu.server.26
 logLevel: Information
 networkStorage:
+  # Populating all three pool paths IS the opt-in to archiving finished cycle
+  # results to the share; moveLogsToPoolStorage then selects the mode.
   poolStorageLocalPath: ""
   poolStorageNetworkPath: ""
   poolStorageNetworkUser: ""
+  # Move finished cycle results to the pool share instead of copying them: each
+  # cycle is copied, verified, and only then deleted locally, so the share holds
+  # the only copy. false = copy and keep the local folder.
+  moveLogsToPoolStorage: false
   stashStorageLocalPath: ""
   stashStorageNetworkPath: ""
   stashStorageNetworkUser: ""
@@ -39,7 +45,6 @@ pool:
   enabled: false
   intentGitUrl: ""
   localClonePath: ""
-  networkReplicate: false
   pullTimeoutSeconds: 30
 repositories:
   frameworkUrl: https://github.com/alissonsol/yuruna

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42e5f6a7-b8c9-4d02-9345-6e7f8a9b0c1d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,7 +47,7 @@ Import-Module $modPath -Force
 # framework's own script scope and reads back $null once the run phase starts.
 $script:IdentitySb = [scriptblock]::Create((Get-WatchdogInnerIdentityScript))
 
-# --- REGION: AST helpers (file scope; referenced from It blocks)
+# --- REGION: https://yuruna.link/memory#pester-file-scope-fixtures
 function Get-ModuleAst {
     $errs = $null
     $ast = [System.Management.Automation.Language.Parser]::ParseFile($modPath, [ref]$null, [ref]$errs)

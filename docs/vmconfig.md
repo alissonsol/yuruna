@@ -62,21 +62,28 @@ handing the result to `genisoimage` (KVM), `hdiutil makehybrid`
 | `CA_CERT_BASE64_PLACEHOLDER` | macos.utm only — host-fetched CA, base64-embedded | Empty when CA fetch failed; HTTPS apt then bypasses the cache. |
 | `YURUNA_STATUS_SERVICE_IP_PLACEHOLDER` | Best-effort host IP discovery | Becomes `/etc/yuruna/host.env` and the `yuruna-host` `/etc/hosts` entry. |
 | `YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER` | `test/test.config.yml:statusService.port` (default 8080) | Same. |
-| `YURUNA_RETRY_LIB_BASE64_PLACEHOLDER` / `YURUNA_VERSIONS_BASE64_PLACEHOLDER` / `YURUNA_FAE_BASE64_PLACEHOLDER` / `YURUNA_NETWORK_BASE64_PLACEHOLDER` | Auto-populated from `Get-YurunaGuestScriptBase64` | The four `automation/*.sh` guest helpers, embedded as base64 `write_files` entries. |
+| `YURUNA_RETRY_LIB_BASE64_PLACEHOLDER` / `YURUNA_VERSIONS_BASE64_PLACEHOLDER` / `YURUNA_FAE_BASE64_PLACEHOLDER` / `YURUNA_NETWORK_BASE64_PLACEHOLDER` / `YURUNA_HOST_LOCATE_BASE64_PLACEHOLDER` | Auto-populated from `Get-YurunaGuestScriptBase64` | The five `automation/*.sh` guest helpers, embedded as base64 `write_files` entries. |
+| `YURUNA_HOST_ID_PLACEHOLDER` | Auto-populated from `$env:YURUNA_RUNTIME_DIR/host.uuid` | The host identity a guest quotes when it has to find its way back to a host whose address moved. Empty when the lab has no pool directory, which is a supported outcome. A caller that already resolved the id (the service-VM seeds) passes it and wins. |
+| `YURUNA_CACHING_PROXY_SERVICE_IP_PLACEHOLDER` | Auto-populated from `$env:YURUNA_CACHING_PROXY_SERVICE_IP` | Same locate path; empty when the variable is unset. |
+| `YURUNA_GITHUB_REPO_PLACEHOLDER` / `YURUNA_GITHUB_REF_PLACEHOLDER` / `GH_TOKEN_PLACEHOLDER` / `YURUNA_FRAMEWORK_URL_PLACEHOLDER` / `YURUNA_PROJECT_URL_PLACEHOLDER` | Auto-populated from `Get-YurunaGitHubSource` against `-RepoRoot` | Repo slug + HEAD commit of the checkout this host is serving, the token that opens it when private, and the framework/project clone URLs a guest cut off from the host still needs. Empty fields mean "no GitHub fallback is possible"; templates that do not carry these tokens never consume them. |
+
+Rows marked *Auto-populated* are filled in by `New-CloudInitUserData` itself,
+so a `New-VM.ps1` spells them out in `-Replacement` only to override the
+value the module would have resolved.
 
 ### Three-stage rendering
 
 | Stage | Function | Inputs | Output |
 |---|---|---|---|
 | 1. **Merge** | `Merge-CloudInitUserData` | shared base + per-host overlay (one of `hyperv` / `kvm` / `utm`) | Resolved template with anchors substituted, still carrying `*_PLACEHOLDER` tokens |
-| 2. **Base64-encode** | `Get-YurunaGuestScriptBase64` | `<RepoRoot>/automation/{yuruna-retry.sh,yuruna-versions.sh,fetch-and-execute.sh,yuruna-network.sh}` | `@{ RetryLib = '<base64>'; VersionsLib = '<base64>'; FetchAndExecute = '<base64>'; NetworkLib = '<base64>' }` |
+| 2. **Base64-encode** | `Get-YurunaGuestScriptBase64` | `<RepoRoot>/automation/{yuruna-retry.sh,yuruna-versions.sh,fetch-and-execute.sh,yuruna-network.sh,yuruna-host-locate.sh}` | `@{ RetryLib = '<base64>'; VersionsLib = '<base64>'; FetchAndExecute = '<base64>'; NetworkLib = '<base64>'; HostLocate = '<base64>' }` |
 | 3. **Resolve** | `Resolve-CloudInitPlaceholder` | Merged template + replacement hashtable | Final user-data string |
 
 `New-CloudInitUserData` is the wrapper every per-guest `New-VM.ps1`
-calls — it chains the three stages, auto-populates the
-`YURUNA_*_BASE64_PLACEHOLDER` entries from the guest scripts, and
-optionally writes the result to `-OutputPath` (see "Output encoding"
-below).
+calls — it chains the three stages, auto-populates the guest-script
+base64 entries plus the host-identity and GitHub-source entries listed
+above, and optionally writes the result to `-OutputPath` (see "Output
+encoding" below).
 
 ### Placeholder safety net
 
@@ -102,7 +109,7 @@ mid-autoinstall with a confusing diagnostic.
 | `host/vmconfig/amazon.linux.2023.hyperv.overlay.yml` | Per-host AL2023 overlay (Hyper-V). |
 | `host/vmconfig/amazon.linux.2023.kvm.overlay.yml` | Per-host AL2023 overlay (KVM): `consoleblank=0` runcmd. |
 | `host/vmconfig/amazon.linux.2023.utm.overlay.yml` | Per-host AL2023 overlay (UTM). |
-| `automation/yuruna-retry.sh`, `automation/yuruna-versions.sh`, `automation/fetch-and-execute.sh`, `automation/yuruna-network.sh` | Guest-side helper scripts baked into the seed as base64 `write_files` entries. `yuruna-versions.sh` holds the pinned dependency versions and is sourced by `yuruna-retry.sh`. |
+| `automation/yuruna-retry.sh`, `automation/yuruna-versions.sh`, `automation/fetch-and-execute.sh`, `automation/yuruna-network.sh`, `automation/yuruna-host-locate.sh` | Guest-side helper scripts baked into the seed as base64 `write_files` entries. `yuruna-versions.sh` holds the pinned dependency versions and is sourced by `yuruna-retry.sh`. `yuruna-host-locate.sh` decides where the guest fetches code from, so it is seeded rather than fetched. |
 
 ### Overlay anchor contract
 
@@ -938,7 +945,7 @@ write_files:
 (or, in Ubuntu autoinstall `late-commands:`, the same body written via
 `printf '%s' "PLACEHOLDER" | base64 -d > /target/usr/local/lib/yuruna/...`.)
 
-All four `automation/*.sh` helpers land in the canonical
+All five `automation/*.sh` helpers land in the canonical
 `/usr/local/lib/yuruna/` directory on every supported guest:
 
 - `yuruna-retry.sh` — sourced by every guest provisioning script for
@@ -951,6 +958,9 @@ All four `automation/*.sh` helpers land in the canonical
   `/usr/local/lib/yuruna/fetch-and-execute.sh <relative/path/script.sh>`.
 - `yuruna-network.sh` — guest network diagnostics and DHCP lease
   release.
+- `yuruna-host-locate.sh` — re-resolves the host's status-service
+  address. Seeded rather than fetched because it is what decides where
+  the guest fetches code from.
 
 They are read at seed-build time by the host-side `New-VM.ps1`,
 base64-encoded, and embedded as cloud-init `write_files:` content —
@@ -1047,6 +1057,34 @@ test sequence's first `login:` capture proceeds on the first boot.
 cloud-init's per-instance lifecycle keeps this from re-firing on later
 boots even if the sentinel file were recreated: `cc_power_state_change`
 is marked done for the instance after its first successful run.
+
+### Universe packages go in late-commands, not `packages:`
+
+A package that lives in `universe` rather than `main` is installed from the
+autoinstall `late-commands` section, through
+`curtin in-target --target=/target -- apt-get install`, and never by adding its
+name to the `packages:` list. The overlay slot for such a package is left
+deliberately empty with a comment saying so, which is why an empty anchor there
+is not an oversight.
+
+**A `packages:` retrieval failure is fatal.** curtin reports
+`system-install --download-only` exit 100, subiquity aborts, and the guest never
+reaches a login prompt — the whole build is lost over a package that is usually
+an optimization (`qemu-guest-agent` improves address discovery; the guest still
+provisions without it). A late-command that fails is tolerated with `|| true`,
+so the build completes and the capability degrades instead.
+
+**The two routes do not even resolve the same sources.** `packages:` is
+processed by the installer environment, with whatever it has enabled at that
+moment; `curtin in-target` resolves against the TARGET system's sources, which
+carry `universe`. That difference is not theoretical: `iptables-persistent` is
+also a universe package and installs through the in-target route on hosts where
+the same name in `packages:` does not resolve at all.
+
+The corollary for the enabling step: a late-command that only enables a unit
+(`systemctl enable qemu-guest-agent.service`) tolerates failure for the same
+reason, because an aborted late-command phase fails the entire install while a
+missing optional agent only sends discovery down to its next rung.
 
 ---
 
@@ -1413,6 +1451,24 @@ The under-patience verdict is computed in `awk`, not the shell's `test` builtin:
 Only a successful read is persisted. Caching a failure would republish it for the rest of the hour, turning one transient auth or egress blip into an hour of a page reporting a budget it never actually failed to read -- and an unread budget already renders as zero, which is the same shape as exhaustion.
 
 **Authenticated vs anonymous budget.** Hub meters an authenticated sync against the account and an anonymous one against the egress IP; the two allowances differ in both size and in who else is spending them, so a remaining count means nothing until the mode is stated alongside it. A token minted with the account reports the budget zot's pulls actually spend, and the lookup is strictly best-effort -- a rotated or revoked credential must cost the reading its precision, not its existence, so any failure falls through to the anonymous request and the page says which budget it ended up reporting. The credential is passed through a 0600 netrc file rather than on the command line: argv is readable by every account on this VM through `/proc`, and the whole point of the credential's mode is that the token is not. Fields are extracted with `sed` rather than `jq` because this probe has to keep reporting on a boot where package installation is incomplete, and one field out of a flat object does not justify the dependency.
+
+### zot prewarm
+
+`zot-prewarm.sh`, driven by `zot-prewarm.timer`, keeps the image sets a Kubernetes guest pulls resident in this cache and times every fetch, so the health page can report the path a real pull walks. Operator-facing detail — the resolved sets, the published reading, and the cold-sync watermark — is in [caching.md](caching.md#warm-sets-and-the-cold-sync-reading); what follows is why the unit is shaped this way.
+
+**Why warm at all.** zot resolves a TAG by re-running the on-demand upstream sync BEFORE any local-storage check, and when the content is not already held that sync copies the whole multi-arch index before the manifest request is answered. A guest meeting that cold pays minutes per image inside a step budget sized for a warm cache. Warming on a timer moves the cost off the path a guest is waiting on; it does not remove it.
+
+**Why the timing lives here.** This is the only reading that can show the cold path. A tag that a scheduled poll keeps resident answers from local storage in milliseconds however badly a cold sync is behaving, so a canary pinned to such a tag reports green by construction — it measures the upstream leg and nothing about how long an image the lab does not hold takes to arrive. The prewarm run is fetching content that is genuinely absent, so its own elapsed time is the honest number.
+
+**`PREWARM_MAX` (900s) is a ceiling, not an expectation.** It exists to stop a wedged upstream pinning the unit forever, not to express what is acceptable: a cold multi-arch control-plane image legitimately takes minutes, and cutting it short would abandon a sync the next run then has to start over.
+
+**`COLD_FLOOR` (5s) separates a revalidation from a transfer.** Local storage answers in milliseconds, so a reading in whole seconds already means the upstream leg ran and the request moved content rather than confirming a tag the cache held.
+
+**`Accept:` is spelled out** for the same reason the canary exporter spells it out: a manifest request stating no preference gets the registry's default, which for a multi-arch tag is not the index a real pull resolves.
+
+**Runs are serialized with `flock`.** Two overlapping runs would race on the state files under `/var/lib/yuruna` and double the upstream work for no benefit — and a long cold run overlapping the next timer tick is the normal case here, not an exceptional one. A tick that finds the lock held skips rather than queues.
+
+**The warm set is resolved, never pinned in the seed.** Every input is read from the same source the guest reads, so the warm set cannot drift from the set a guest pulls; naming versions in this file would create a second pin that goes stale silently, and the staleness would surface only as a cold cache during a provisioning run. Those resolution fetches go direct: routing them through this VM's own ssl-bump listener would make a source fetch depend on the proxy it is meant to keep stocked.
 
 ### Squid exporter unit
 
@@ -2050,6 +2106,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.14
+Last review: 2026.08.16
 
 Back to [Yuruna](../README.md)

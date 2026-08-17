@@ -30,13 +30,15 @@
         <a href="/test-sets" aria-current="page">Test sets</a>
         <a href="/scan">Scan</a>
         <a href="/diagnostics">Diagnostics</a>
-        <a class="menu-out" href="https://yuruna.link/pool-control">Guide</a>
+        <a class="menu-out" href="https://yuruna.link/pool-control" target="_blank" rel="noopener">Guide</a>
       </nav>
     </div>
   </header>
   <main>
     <h1>Test sets</h1>
-    <p class="muted">A test set is a framework + project repo pair. GH_TOKEN is <strong>not</strong> stored here &mdash; it stays host-local on each host's test.config.yml / vault.</p>
+    <p class="muted">A test set is a framework + project repo pair. GH_TOKEN is <strong>not</strong> stored here &mdash; it stays host-local on each host's test.config.yml / vault.
+      Any column header sorts the table; clicking the sorted one reverses it. The leading
+      number counts the rows as they are shown, so it stays 1&hellip;n whatever the order.</p>
     <div id="notice" class="notice"></div>
     <div class="row">
       <input id="ts-name" placeholder="name" size="16">
@@ -45,7 +47,15 @@
       <button id="save" class="primary">Save test set</button>
     </div>
     <table>
-      <thead><tr><th>Name</th><th>Framework URL</th><th>Project URL</th><th>Actions</th></tr></thead>
+      <thead>
+        <tr>
+          <th class="rownum" aria-label="Row number">#</th>
+          <th data-sort="name" aria-sort="ascending"><button type="button" class="sort">Name</button></th>
+          <th data-sort="frameworkUrl"><button type="button" class="sort">Framework URL</button></th>
+          <th data-sort="projectUrl"><button type="button" class="sort">Project URL</button></th>
+          <th>Actions</th>
+        </tr>
+      </thead>
       <tbody id="ts-rows"></tbody>
     </table>
   </main>

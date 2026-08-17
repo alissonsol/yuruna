@@ -1,9 +1,10 @@
 #!/bin/bash
-# Version: 2026.08.14
+# Version: 2026.08.16
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
 
+# --- REGION: Detect architecture
 ARCH=$(uname -m)
 echo "Detected architecture: $ARCH"
 case "$ARCH" in
@@ -22,10 +23,8 @@ esac
 
 # --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
 . /usr/local/lib/yuruna/yuruna-retry.sh
-# Baked retry libs may bound dnf attempts on wall-clock -- the wrapped-apt
-# teardown-hang trap class (the package manager blocks at end-of-transaction
-# under a timeout(1) parent). Force unbounded until no image predates the
-# lib's unbounded default.
+# --- REGION: https://yuruna.link/network#why-apt-and-dnf-attempts-run-unbounded-by-default
+# Re-asserted here because a baked retry lib may still carry a wall-clock bound.
 export YURUNA_DNF_STALL_TIMEOUT_SECONDS=0
 
 echo ""
@@ -72,7 +71,7 @@ echo -e "\e[1;36m==== VS Code ====\e[0m"
 # Fetch the Microsoft signing key, fingerprint-pin it BEFORE trusting it, then
 # rpm --import the VERIFIED local copy and point the repo gpgkey at that local
 # file, so gpgcheck=1 never re-fetches an unverified URL. Fail closed on a
-# mismatch. Mirrors the ubuntu code.sh apt path.
+# mismatch.
 # arg1 = key file; remaining args = ALLOWED primary fingerprints, FIRST also required.
 _yuruna_verify_key_fpr() {
     local keyfile="$1"; shift
@@ -101,6 +100,7 @@ rm -f /tmp/microsoft.asc
 sudo sh -c 'echo -e "[code]\nname=Visual Studio Code\nbaseurl=https://packages.microsoft.com/yumrepos/vscode\nenabled=1\ngpgcheck=1\ngpgkey=file:///etc/pki/rpm-gpg/microsoft.asc" > /etc/yum.repos.d/vscode.repo'
 dnf_retry sudo dnf -y install code
 
+# --- REGION: Installation summary
 echo ""
 echo "== Installation Summary =="
 # A benign non-zero from a version probe must never fail provisioning (the script runs under

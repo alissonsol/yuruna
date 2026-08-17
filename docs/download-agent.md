@@ -293,7 +293,11 @@ time; auto-seed status and the last seed outcome.
 
 ### Sorting the table
 
-Every column header except Actions is a button: click to sort,
+The table opens with a counter column that numbers the rows *as shown*: it reads
+1&hellip;n down the page whatever the sort, which is how many entries the pool
+holds. It is furniture, not data, so it does not sort.
+
+Every other column header except Actions is a button: click to sort,
 click again to reverse. The arrow says which column is active and which way it
 runs. The choice is remembered in the browser and survives a reload.
 
@@ -542,6 +546,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.14
+Last review: 2026.08.16
 
 Back to [Yuruna](../README.md)

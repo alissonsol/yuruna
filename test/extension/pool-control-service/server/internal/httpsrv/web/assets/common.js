@@ -248,6 +248,22 @@
   };
   Y.shortHost = function (h) { return h ? String(h).slice(0, 8) : '?'; };
 
+  // Y.guid is how a FULL opaque id is spelled wherever one is shown: 8-4-4-4-12,
+  // the same form the Yuruna hosts dashboard reveals and every pool-admin command
+  // accepts as pasted. 32 undifferentiated hex characters are not checkable
+  // against another screen by eye, and a lab holds a dozen that share the '42'
+  // prefix. The stores are keyed on the undashed form, so this is a rendering:
+  // nothing that goes back to a server may be built from it.
+  //
+  // A value that is not 32 hex is passed through -- a pool GUID already carries
+  // its dashes, and an id the daemon reported in some other shape is not this
+  // function's to reinterpret.
+  Y.guid = function (id) {
+    const h = String(id || '');
+    if (!/^[0-9a-fA-F]{32}$/.test(h)) return h;
+    return [h.slice(0, 8), h.slice(8, 12), h.slice(12, 16), h.slice(16, 20), h.slice(20)].join('-');
+  };
+
   // hostInfo memoizes the one /api/hostinfo read every page needs. The chrome
   // takes the version and host id from it; the tables take the aggregator URL
   // they build /go/host links from. Memoized because those facts do not change
@@ -273,7 +289,8 @@
   // With no aggregator to redirect through, the id renders as unlinked text: a
   // link that cannot resolve reads as a broken page, while a bare id still
   // identifies the host. The full id is always on the title, because 8
-  // characters identify but do not copy.
+  // characters identify but do not copy -- and it is spelled the way Y.guid
+  // spells one, while the href carries the undashed key the pool is on.
   //
   // goBaseUrl comes from /api/hostinfo already reduced to the plain-http form a
   // browser must follow -- see goBaseURL in hostinfo.go for why an https hop
@@ -282,9 +299,9 @@
     const full = String(hostId || '');
     if (!full) return Y.el('span', { class: 'muted', text: '—' });
     const base = httpBase(goBaseUrl);
-    if (!base) return Y.el('span', { class: 'mono', text: Y.shortHost(full), title: full });
+    if (!base) return Y.el('span', { class: 'mono', text: Y.shortHost(full), title: Y.guid(full) });
     const url = base + '/go/host?host=' + encodeURIComponent(full) + '&pool=' + encodeURIComponent(poolId || '');
-    return Y.el('a', { class: 'mono', href: url, target: '_blank', rel: 'noopener', title: full }, Y.shortHost(full));
+    return Y.el('a', { class: 'mono', href: url, target: '_blank', rel: 'noopener', title: Y.guid(full) }, Y.shortHost(full));
   };
 
   // httpBase gates what may become an href: an absolute http origin, trailing
@@ -303,16 +320,17 @@
     }
   }
 
-  // Y.idCell renders an opaque id (a pool GUID) as its first 8 characters --
-  // the same prefix the header's "Host:" shows, and enough to tell two apart at
-  // a glance -- expanding to the full value on click, because quoting one into
-  // a command needs all of it.
+  // Y.idCell renders an opaque id (a pool GUID, a host id) as its first 8
+  // characters -- the same prefix the header's "Host:" shows, and enough to tell
+  // two apart at a glance -- expanding on click to the full id as Y.guid spells
+  // it, because quoting one into a command needs all of it and a hyphenated id
+  // is the form those commands take.
   //
   // A <button>, not a click handler on a <span>: it is an interactive control,
   // so keyboard activation and the screen-reader announcement have to come with
   // it rather than be reimplemented.
   Y.idCell = function (id) {
-    const full = String(id || '');
+    const full = Y.guid(id);
     if (!full) return Y.el('span', { class: 'muted', text: '—' });
     const short = Y.shortHost(full);
     const btn = Y.el('button', { type: 'button', class: 'id-toggle mono', text: short, title: 'Show the full id' });
@@ -322,6 +340,120 @@
       btn.title = expanded ? 'Show the full id' : 'Show only the first 8 characters';
     });
     return btn;
+  };
+
+  // Y.numCell is the counter column every table opens with. It numbers the row
+  // where it SITS, not the thing in it: the column reads 1..N down the page
+  // whatever the table is sorted by, so "how many hosts are there" and "the
+  // fourth one down" are answerable without counting.
+  Y.numCell = function (n) {
+    return Y.el('td', { class: 'rownum', text: n > 0 ? String(n) : '' });
+  };
+
+  // Y.sortTable orders a table by its column headers, over rows the page has
+  // already built. A header opts in by carrying data-sort="<key>" around a
+  // <button class="sort">; the page hands over { tr, values } per row, and
+  // values[key] is what that column sorts on. A header without data-sort is a
+  // column no order would mean anything for -- the counter, a cell that is only
+  // an action button -- and stays inert.
+  //
+  // It reorders the EXISTING row nodes rather than asking the page to build
+  // them again. A row on these pages can hold a hostId someone is halfway
+  // through typing or a test set picked but not yet assigned, and rebuilding
+  // would take that away as the price of reading the table another way.
+  //
+  // Returns { set, refresh }: set(rows) replaces what the table holds,
+  // refresh() re-sorts the same rows after their values changed underneath
+  // (a column fed by a slower endpoint than the one the rows came from).
+  Y.sortTable = function (tbody, opts) {
+    opts = opts || {};
+    const table = tbody && tbody.closest ? tbody.closest('table') : null;
+    let key = opts.key || '';
+    let asc = opts.asc !== false;
+    let rows = [];
+
+    function headers() {
+      return table ? table.querySelectorAll('th[data-sort]') : [];
+    }
+
+    // Strings compare lowercased -- a display name's capitalisation is not an
+    // order anyone means to ask for -- and a missing value becomes '', which
+    // the comparison ranks last. Numbers pass through: 0 members is a value.
+    function cmpValue(v) {
+      if (typeof v === 'string') return v.toLowerCase();
+      return (v === null || v === undefined) ? '' : v;
+    }
+
+    function compare(a, b) {
+      const av = cmpValue(a.values ? a.values[key] : '');
+      const bv = cmpValue(b.values ? b.values[key] : '');
+      let cmp = 0;
+      if (av !== bv) {
+        // A row with no value ranks last ascending: sorting on a column is a
+        // way of reading the rows that HAVE one, and every one of these tables
+        // has blanks -- a pool with no test set, a host that never answered.
+        if (av === '') cmp = 1;
+        else if (bv === '') cmp = -1;
+        else cmp = av < bv ? -1 : 1;
+      }
+      return asc ? cmp : -cmp;
+    }
+
+    // Sorted from the order the page built the rows in, not from the order they
+    // are in now, so ties land the same way every time: the sort is stable, and
+    // that build order is the server's.
+    //
+    // Rows already standing in the right order are left where they are.
+    // Re-appending a node moves it, and moving one that holds the focus takes
+    // the caret out of whatever is being typed into it -- which is what a
+    // repaint for a column fed by a slow endpoint would otherwise do, seconds
+    // after the operator started typing.
+    function paint() {
+      const ordered = key ? rows.slice().sort(compare) : rows.slice();
+      let placed = tbody.children.length === ordered.length;
+      for (let i = 0; placed && i < ordered.length; i++) {
+        placed = tbody.children[i] === ordered[i].tr;
+      }
+      if (!placed) tbody.textContent = '';
+      let n = 0;
+      for (const r of ordered) {
+        n++;
+        let cell = r.tr.firstElementChild;
+        if (!cell || !cell.classList.contains('rownum')) {
+          cell = Y.numCell(n);
+          r.tr.insertBefore(cell, r.tr.firstChild);
+        }
+        cell.textContent = String(n);
+        if (!placed) tbody.appendChild(r.tr);
+      }
+    }
+
+    // aria-sort on the header cell is what a screen reader announces and what
+    // draws the arrow, so the two cannot disagree.
+    function mark() {
+      for (const th of headers()) {
+        if (th.getAttribute('data-sort') === key) th.setAttribute('aria-sort', asc ? 'ascending' : 'descending');
+        else th.removeAttribute('aria-sort');
+      }
+    }
+
+    for (const th of headers()) {
+      const btn = th.querySelector('button.sort');
+      if (!btn) continue;
+      btn.addEventListener('click', function () {
+        const k = th.getAttribute('data-sort');
+        if (k === key) asc = !asc;
+        else { key = k; asc = true; }
+        mark();
+        paint();
+      });
+    }
+    mark();
+
+    return {
+      set: function (list) { rows = (list || []).slice(); paint(); },
+      refresh: paint
+    };
   };
 
   // initChrome wires the shared page chrome: the header's version + host id and

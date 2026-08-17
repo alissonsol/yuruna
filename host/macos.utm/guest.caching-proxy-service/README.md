@@ -12,15 +12,15 @@ Scripts and config in this folder:
   (arm64, qcow2, resized to 512 GB sparse).
 - [New-VM.ps1](New-VM.ps1) — assembles the UTM bundle and seeds via
   cloud-init.
+- [config.plist.template](config.plist.template) — UTM VM template
+  (QEMU backend with `-vnc`, 12 GB RAM / core-count-policy vCPUs
+  (min 4); dedicated cache box
+  budgeted around squid's 7 GB `cache_mem` — 58 % of RAM).
 - [host/vmconfig/caching-proxy-service.base.user-data](../../vmconfig/caching-proxy-service.base.user-data) — shared
   cloud-init base (+ per-host overlay): squid, Prometheus + Grafana + squid-exporter,
   snapshot-cache tuning, `offline_mode` flip after prewarm.
 - [host/vmconfig/caching-proxy-service.meta-data](../../vmconfig/caching-proxy-service.meta-data) — shared
   cloud-init instance metadata.
-- [config.plist.template](config.plist.template) — UTM VM template
-  (QEMU backend with `-vnc`, 12 GB RAM / core-count-policy vCPUs
-  (min 4); dedicated cache box
-  budgeted around squid's 7 GB `cache_mem` — 58 % of RAM).
 
 ---
 
@@ -28,6 +28,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.14
+Last review: 2026.08.16
 
 Back to [Yuruna](../../../README.md)

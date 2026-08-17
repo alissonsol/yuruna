@@ -31,7 +31,7 @@ stateDiagram-v2
     idle --> cycle_start : cycle N starting
     idle --> fault : map only
     cycle_start --> in_cycle : inner spawning
-    cycle_start --> fault : boot-recovery synthetic
+    cycle_start --> fault : pool storage full
     cycle_start --> paused : desiredState paused
     in_cycle --> cycle_end : inner exited 0
     in_cycle --> fault : inner exited non-zero
@@ -44,23 +44,27 @@ stateDiagram-v2
 
 Six boxes, no aggregation: the diagram is exactly
 `$script:StateEnum = @('idle', 'cycle-start', 'in-cycle', 'cycle-end', 'fault', 'paused')`
-and all twelve edges of `$script:ValidTransition`.
+and all twelve edges of `$script:ValidTransition`. The table below has thirteen
+rows for those twelve edges: `cycle-start → fault` is the one edge with two
+independent writers, a real pre-spawn refusal and a synthetic boot-recovery
+record, and the diagram labels it with the one an operator actually hits.
 
 | From | To | Trigger and literal `-Reason` | Code location |
 |---|---|---|---|
-| `[*]` | `idle` | Outer startup writes a fresh state file; no reason, direct write | `Test.RunnerState.psm1` `Initialize-RunnerState` (the `$fresh` write) |
-| `idle` | `cycle-start` | First statement of the cycle, **before** the git pull — `"cycle $cycle starting"` | `Test.RunnerOuterLoop.psm1:773` |
+| `[*]` | `idle` | Outer startup writes a fresh state file; no reason, direct write | `Test.RunnerState.psm1:232`, written at `:258` |
+| `idle` | `cycle-start` | First statement of the cycle, **before** the git pull — `"cycle $cycle starting"` | `Test.RunnerOuterLoop.psm1:1142` |
 | `idle` | `fault` | **In the adjacency map only.** The module's doc comment attributes it to boot recovery, but that path is guarded on `$prior['current'] -ne 'idle'`, so nothing ever emits it | `Test.RunnerState.psm1:86-93` (map), `:208` (the guard) |
-| `cycle-start` | `in-cycle` | After `Start-Watchdog` is armed, immediately before the call operator — `"inner spawning"` | `Test.RunnerOuterLoop.psm1:961` |
-| `cycle-start` | `fault` | Synthetic only: a prior runner crashed while `current` was `cycle-start` — `reason = 'boot_recovery_detected_stale_state'`, `synthetic = $true` | `Test.RunnerState.psm1:222` |
-| `cycle-start` | `paused` | `Sync-YurunaPoolIntent` returned `desiredState = paused` — `"pool desiredState=paused (cycle $cycle)"` | `Test.RunnerOuterLoop.psm1:833` |
-| `in-cycle` | `cycle-end` | Inner exited zero — `"inner exited 0"` | `Test.RunnerOuterLoop.psm1:1521` |
-| `in-cycle` | `fault` | Inner exited non-zero, including every watchdog kill — `"inner exited $exitCode"` | `Test.RunnerOuterLoop.psm1:1535` |
-| `cycle-end` | `idle` | Emitted immediately after the `cycle-end` write — `"cycle complete"` | `Test.RunnerOuterLoop.psm1:1522` |
-| `fault` | `paused` | Start of the failure-pause loop — `"failure-pause begin"` | `Test.RunnerOuterLoop.psm1:1599` |
+| `cycle-start` | `in-cycle` | After `Start-Watchdog` is armed, immediately before the call operator — `"inner spawning"` | `Test.RunnerOuterLoop.psm1:1354` |
+| `cycle-start` | `fault` | The pre-spawn storage refusal: `Test-OuterPoolStorageSpaceReady` projected that this cycle's archive would not fit — `'pool storage full'`. Guarded on `Get-Command Set-RunnerState`, so an in-process fallback without the module still returns the outcome | `Test.RunnerOuterLoop.psm1:1267` |
+| `cycle-start` | `fault` | Also synthetic: a prior runner crashed while `current` was `cycle-start` — `reason = 'boot_recovery_detected_stale_state'`, `synthetic = $true` | `Test.RunnerState.psm1:222` |
+| `cycle-start` | `paused` | `Sync-YurunaPoolIntent` returned `desiredState = paused` — `"pool desiredState=paused (cycle $cycle)"` | `Test.RunnerOuterLoop.psm1:1202` |
+| `in-cycle` | `cycle-end` | Inner exited zero — `"inner exited 0"` | `Test.RunnerOuterLoop.psm1:1977` |
+| `in-cycle` | `fault` | Inner exited non-zero, including every watchdog kill — `"inner exited $exitCode"` | `Test.RunnerOuterLoop.psm1:1991` |
+| `cycle-end` | `idle` | Emitted immediately after the `cycle-end` write — `"cycle complete"` | `Test.RunnerOuterLoop.psm1:1978` |
+| `fault` | `paused` | Start of the failure-pause loop — `"failure-pause begin"` | `Test.RunnerOuterLoop.psm1:2055` |
 | `fault` | `idle` | Synthetic only: the recovery half of the boot-recovery pair — `reason = 'boot_recovery_resolved'` | `Test.RunnerState.psm1:253` |
-| `paused` | `idle` | The failure-pause `finally`, on **every** exit path — `"failure-pause ended"` | `Test.RunnerOuterLoop.psm1:1724` |
-| `paused` | `cycle-start` | Next loop iteration after the pool hold re-enters the cycle — `"cycle $cycle starting"` | `Test.RunnerOuterLoop.psm1:773` |
+| `paused` | `idle` | The failure-pause `finally`, on **every** exit path — `"failure-pause ended"` | `Test.RunnerOuterLoop.psm1:2180` |
+| `paused` | `cycle-start` | Next loop iteration after the pool hold re-enters the cycle — `"cycle $cycle starting"` | `Test.RunnerOuterLoop.psm1:1142` |
 
 `runner.state.json` is written atomically on every transition
 (`Write-YurunaStateFileJson`) and each one also emits a
@@ -69,11 +73,12 @@ in-file transition log is capped at `$script:HistoryDepth = 20`; that trailing
 slice is a "what just happened" cache for `/control/runner-status`, and the
 NDJSON stream is the canonical history.
 
-**Two processes write this machine.** `cycle-start`, the pool-hold `paused` and
-`in-cycle` are written by the per-cycle child (`Invoke-TestCycleRunner.ps1` →
-`Invoke-RunnerOuterCycle`, lines 725–1257); `cycle-end`, `idle`, `fault` and the
+**Two processes write this machine.** `cycle-start`, the pool-hold `paused`, the
+storage-refusal `fault` and `in-cycle` are written by the per-cycle child
+(`Invoke-TestCycleRunner.ps1` → `Invoke-RunnerOuterCycle`, lines 1091–1706);
+`cycle-end`, `idle`, the inner-exit `fault` and the
 failure-pause `paused`/`idle` pair are written by the long-lived parent's
-`Invoke-RunnerOuterLoop` (line 1420 onward). Because the run id is per-process,
+`Invoke-RunnerOuterLoop` (line 1870 onward). Because the run id is per-process,
 `runner.state.json`'s `runId` and `writerPid` alternate between two PIDs within a
 single run — the cycle runner deliberately skips `Initialize-RunnerState` so this
 never trips the stale-runId crash synthesis.
@@ -87,7 +92,7 @@ the duration of the hold.
 
 ### Cycle outcomes that leave the machine hanging
 
-`Invoke-OuterCycleDispatch` returns one of seven outcomes, and only two of them
+`Invoke-OuterCycleDispatch` returns one of eight outcomes, and only three of them
 reach a terminal transition. Four `continue` after a bounded hold, leaving
 `current` where the child left it, and `drain` breaks the loop outright — so the
 *next* cycle's `cycle-start` write is a pair the adjacency map does not list, and
@@ -95,19 +100,30 @@ reach a terminal transition. Four `continue` after a bounded hold, leaving
 
 | Outcome | State left behind | Next transition attempted | On the map? | Code location |
 |---|---|---|---|---|
-| `completed` | `in-cycle` | `cycle-end` or `fault` | yes | `Test.RunnerOuterLoop.psm1:1255` |
-| `pull-error` | `cycle-start` | `cycle-start` | **no** — warns | `:787` |
-| `drain` | `cycle-start` | none; loop breaks, shutdown requested | — | `:825` |
-| `paused` | `paused` | `cycle-start` | yes | `:840` |
-| `spawn-failed` | `in-cycle` when the call operator threw inside the child; unchanged when `Start-Process` itself failed | `cycle-start` | **no** in the first case | `:1016`, `:1371` |
-| `cycle-aborted` | `cycle-start` or `in-cycle` | `cycle-start` | **no** — warns | `:1415` |
-| `shutdown` | whatever it was | `cycle-end` then `idle` | depends | `:1379` |
+| `completed` | `in-cycle` | `cycle-end` or `fault` | yes | `Test.RunnerOuterLoop.psm1:1705` |
+| `pull-error` | `cycle-start` | `cycle-start` | **no** — warns | `:1156` |
+| `drain` | `cycle-start` | none; loop breaks, shutdown requested | — | `:1194` |
+| `paused` | `paused` | `cycle-start` | yes | `:1209` |
+| `storage-full` | `fault` | `paused` — the full failure pause | yes | `:1271` |
+| `spawn-failed` | `in-cycle` when the call operator threw inside the child; unchanged when `Start-Process` itself failed | `cycle-start` | **no** in the first case | `:1409`, `:1821` |
+| `cycle-aborted` | `cycle-start` or `in-cycle` | `cycle-start` | **no** — warns | `:1865` |
+| `shutdown` | whatever it was | `cycle-end` then `idle` | depends | `:1829` |
 
-`cycle-aborted` is the child dying in under `$script:CycleAbortSeconds = 30` with
-no `runner.cycle.outcome.json`: the cycle never ran, so it is reported as its own
-thing rather than folded into a test verdict. `shutdown` is the one surprise —
-it carries `ExitCode = 0`, so the zero-exit branch still writes
+`cycle-aborted` is the child dying in under `$script:CycleAbortSeconds = 30`
+(`:705`) with no `runner.cycle.outcome.json`: the cycle never ran, so it is
+reported as its own thing rather than folded into a test verdict. `shutdown` is
+the one surprise — it carries `ExitCode = 0`, so the zero-exit branch still writes
 `cycle-end → idle` on the way out even though the child tree was killed.
+
+`storage-full` is the only outcome that both writes a state **and** carries
+`ExitCode = 1`, so it routes through two processes: the child sets `fault` before
+returning, and the parent's non-zero branch then enters the failure pause. It is
+deliberately excluded from the short-hold list the other four transient outcomes
+share (`:1941-1956`) — a full share does not clear in thirty seconds, and holding
+for the full pause is the point. The pre-spawn check runs *after* the
+`last_failure.json` wipe so the pause classifies on `pool_storage_full` rather
+than on the previous cycle's record, which a host with auto-remediation on would
+have used to cut the pause short and re-enter the same wall minutes later.
 
 **The validator has two rejection cases, not one.** A target state outside the
 canonical enum is refused outright — one warning
@@ -135,9 +151,9 @@ the machine above — it is the mechanism that forces `in-cycle → fault`.
 | Bound | `runtime/runner.phase` PRESENT → `$preambleSeconds` (default 600); ABSENT → `$thresholdSeconds` (default 2700). Re-read every poll, never cached | `:132`, `:239` |
 | Kill | `$age > $effectiveThreshold` and identity re-verified → kill the whole tree: `taskkill /PID N /T /F` plus a `Stop-Process` backstop on Windows; on POSIX a ppid map from `/bin/ps -eo pid=,ppid=`, BFS, then `Stop-Process` **leaves-first** | `:254-298` |
 | Disarm | `$sameInnerConfirmedGone` — identity gone across 3 spaced probes, negative-only, a single positive short-circuits. Checked each poll and again instead of a kill | `:206` (predicate), `:220`, `:300` |
-| Attribute | Outer sees non-zero exit **and** `runner.stepHeartbeat` older than `stepTimeoutSeconds` → warns "watchdog likely killed the inner" | `Test.RunnerOuterLoop.psm1:1206` |
-| Attribute | Synthesizes `last_failure.json` only when the inner left none: `reason='watchdog_kill'`, `failureClass='wait_timeout'`, `classificationSource='synthetic'`, `synthesizedBy='outer-watchdog'` | `:1218-1250` |
-| Restart | `in-cycle → fault`, then `fault → paused`; the next cycle re-spawns | `:1535`, `:1599` |
+| Attribute | Outer sees non-zero exit **and** `runner.stepHeartbeat` older than `stepTimeoutSeconds` → warns "watchdog likely killed the inner" | `Test.RunnerOuterLoop.psm1:1647` |
+| Attribute | Synthesizes `last_failure.json` only when the inner left none: `reason='watchdog_kill'`, `failureClass='wait_timeout'`, `classificationSource='synthetic'`, `synthesizedBy='outer-watchdog'` | `:1655-1690` |
+| Restart | `in-cycle → fault`, then `fault → paused`; the next cycle re-spawns | `:1991`, `:2055` |
 
 The six preamble labels, in order, are `'bootstrap'`, `'host-detect'`,
 `'host-network'`, `'service-vm-restore'`, `'caching-proxy-gate'`,
@@ -156,11 +172,11 @@ Any of five conditions ends it early; all of them land on the same
 
 | # | Trigger | Probe | Code location |
 |---|---|---|---|
-| 1 | Framework commit | `Test-OuterNewCommitsAvailable` — bounded `git fetch` + `rev-parse @{u}` **plus** `rev-list --count HEAD..@{u} > 0` | `Test.RunnerOuterLoop.psm1:1629` |
-| 2 | Project commit | `Get-OuterRemoteSha` differs from the baseline, both non-null | `:1642` |
-| 3 | Local config edit | `Get-OuterConfigMtime` differs from the baseline | `:1654` |
-| 4 | Status-UI request | `runtime/control.cycle-restart` exists; **consumed here** | `:1669` |
-| 5 | Gated auto-remediation | `testCycle.autoRemediation.enabled` (default **off**) and `$remediationAutoSkips < MaxAttempts` and `Get-OuterLastFailureClass` in `wait_timeout`, `instrumentation_failure`, `network_timeout`, `host_io_blocked` | `:1695` |
+| 1 | Framework commit | `Test-OuterNewCommitsAvailable` — bounded `git fetch` + `rev-parse @{u}` **plus** `rev-list --count HEAD..@{u} > 0` | `Test.RunnerOuterLoop.psm1:2084` |
+| 2 | Project commit | `Get-OuterRemoteSha` differs from the baseline, both non-null | `:2096` |
+| 3 | Local config edit | `Get-OuterConfigMtime` differs from the baseline | `:2108` |
+| 4 | Status-UI request | `runtime/control.cycle-restart` exists; **consumed here** | `:2123` |
+| 5 | Gated auto-remediation | `testCycle.autoRemediation.enabled` (default **off**) and `$remediationAutoSkips < MaxAttempts` and `Get-OuterLastFailureClass` in `wait_timeout`, `instrumentation_failure`, `network_timeout`, `host_io_blocked` | `:2146-2163` |
 
 `$remediationAutoSkips` is the one piece of cross-cycle state the outer holds
 that the per-cycle child cannot; it resets to zero on a passing cycle.
@@ -196,7 +212,7 @@ stateDiagram-v2
 Seven boxes. The six step names are the literal contents of
 `$BaseSteps = @("New-VM", "Start-VM", "Start-GuestOS", "New-VM.Resource")` plus
 the two conditional appends in `Get-CycleStepNameList`
-(`Test.RunnerInnerLoop.psm1:765-785`): `"Screenshots"` when any guest has a
+(`Test.RunnerInnerLoop.psm1:765-779`): `"Screenshots"` when any guest has a
 screenshot schedule, `"Start-GuestWorkload"` when the plan has any workload
 sequence. The seventh box is the shared failure capture — `diagnose` keeps its
 node id but displays the literal entry point `Copy-FailureArtifactsToStatusLog`,
@@ -204,15 +220,15 @@ which in turn drives `Save-GuestDiagnostic` (`Test.Diagnostic.psm1:1193`).
 
 | From | To | Trigger | Code location |
 |---|---|---|---|
-| `[*]` | `New-VM` | Shutdown not requested and the guest is not in `$FailedGuests`; quarantine is gated one level up | `Test.RunnerInnerLoop.psm1:3147-3159`, gate at `:2645` |
-| `New-VM` | `Start-VM` | `$r.success` from `New-VM @newVmArgs` | `:3320` |
-| `Start-VM` | `Start-GuestOS` | `$r.success` from `Start-VM`, then `Update-GuestNeighborCache` and `Wait-VMIp -TimeoutSeconds 30` | `:3353` |
-| `Start-GuestOS` | `New-VM.Resource` | `$r.success` or `$r.skipped` from the `start.guest.*` sequences | `:3422-3424` |
-| `New-VM.Resource` | `Screenshots` | `Wait-VMRunning` passed **and** `$hasScreenshots` | `:3467`, `:3471` |
-| `Screenshots` | `Start-GuestWorkload` | `Invoke-ScreenshotTest` passed or skipped **and** `$hasExtensions` | `:3478-3480`, `:3500` |
-| `Start-GuestWorkload` | `[*]` | Pass: `Set-GuestStatus pass`, drop `screens_<VM>/`, `Stop-VM -Force`, `Remove-VM` | `:3618-3639` |
-| `Start-GuestWorkload` | `[*]` | Cleanup fail: still `running` after one retry → `FailedStep = "Cleanup"`, `Write-CycleInfraFailure -Stage 'Cleanup' -FailureClass 'provisioning_failure'`, `Control='break'` | `:3652-3659` |
-| any step | `Copy-FailureArtifacts` | `Set-StepStatus fail` + `Set-GuestStatus fail` + the four `$IterState` fields, then `Copy-FailureArtifactsToStatusLog` | `:3327`, `:3379`, `:3429`, `:3453`, `:3484`, `:3587` |
+| `[*]` | `New-VM` | Shutdown not requested and the guest is not in `$FailedGuests`; quarantine is gated one level up | `Test.RunnerInnerLoop.psm1:3147-3159`, gate at `:2641-2651` |
+| `New-VM` | `Start-VM` | `$r.success` from `New-VM @newVmArgs` | `:3321` |
+| `Start-VM` | `Start-GuestOS` | `$r.success` from `Start-VM`, then `Update-GuestNeighborCache` and `Wait-VMIp -TimeoutSeconds 30` | `:3354` |
+| `Start-GuestOS` | `New-VM.Resource` | `$r.success` or `$r.skipped` from the `start.guest.*` sequences | `:3423-3425` |
+| `New-VM.Resource` | `Screenshots` | `Wait-VMRunning` passed **and** `$hasScreenshots` | `:3468`, `:3471` |
+| `Screenshots` | `Start-GuestWorkload` | `Invoke-ScreenshotTest` passed or skipped **and** `$hasExtensions` | `:3479-3481`, `:3500` |
+| `Start-GuestWorkload` | `[*]` | Pass: `Set-GuestStatus pass`, drop `screens_<VM>/`, `Stop-VM -Force`, `Remove-VM` | `:3605`, `:3641-3661` |
+| `Start-GuestWorkload` | `[*]` | Cleanup fail: still `running` after one retry → `FailedStep = "Cleanup"`, `Write-CycleInfraFailure -Stage 'Cleanup' -FailureClass 'provisioning_failure'`, `Control='break'` | `:3678-3679` |
+| any step | `Copy-FailureArtifacts` | `Set-StepStatus fail` + `Set-GuestStatus fail` + the four `$IterState` fields, then `Copy-FailureArtifactsToStatusLog` | `:3328`, `:3380`, `:3430`, `:3454`, `:3485`, `:3610` |
 | `Copy-FailureArtifacts` | `[*]` | `$StopOnFailure` → `Control='break'`; otherwise `Remove-GuestVMQuietly` then `Control='continue'` | same six branches |
 
 **The conditional steps are plan-derived, not per-guest.** `$hasScreenshots` and
@@ -234,7 +250,7 @@ no guest diagnostics. `Cleanup` is a `FailedStep` value only — it is not in
 tears the VM down to release its Startup RAM reservation. On `Start-GuestOS`,
 `New-VM.Resource`, `Screenshots` and `Start-GuestWorkload` the `break` branch
 prints `"VM '<name>' left running for investigation."`
-(`:3434`, `:3459`, `:3489`, `:3608`). Only the four infra steps
+(`:3435`, `:3460`, `:3490`, `:3631`). Only the four infra steps
 (`New-VM`, `Start-VM`, `New-VM.Resource`, `Cleanup`) write a
 `Write-CycleInfraFailure` record; the two sequence-driven steps already have an
 engine record.
@@ -245,8 +261,8 @@ definition step even though the dashboard HTML collapses the `New-VM` /
 `Start-VM` / `New-VM.Resource` triplet into a single tile.
 
 **Config is re-read at every step boundary.** `Sync-RunnerStepConfig -State $cfg`
-runs after each of the six steps (`:3317`, `:3350`, `:3419`, `:3447`, `:3475`,
-`:3577`), so an operator edit to `StopOnFailure`, `VmStartTimeoutSeconds` or
+runs after each of the six steps (`:3318`, `:3351`, `:3420`, `:3448`, `:3476`,
+`:3600`), so an operator edit to `StopOnFailure`, `VmStartTimeoutSeconds` or
 `VmBootDelaySeconds` takes effect mid-guest.
 
 **The heartbeat is not per step.** Only the two sequence-engine steps
@@ -260,7 +276,7 @@ budget the watchdog above reads.
 
 **One guest at a time.** On a host with `[Environment]::ProcessorCount -le 4` and
 more than one VM in the map, the iteration force-stops every *other* cycle VM
-still running before provisioning this one (`:3217`) — scoped to `$VMNames`, so
+still running before provisioning this one (`:3218`) — scoped to `$VMNames`, so
 infra VMs like the caching proxy are never touched.
 
 ## Warm resume — the nested retry inside `Start-GuestWorkload`
@@ -279,6 +295,7 @@ stateDiagram-v2
     decision --> rewind : ShouldResume true
     decision --> exhausted : refusal reason
     rewind --> resume_run : emit warm_resume event
+    rewind --> exhausted : replay unsafe
     resume_run --> recovered : resume succeeded
     resume_run --> checkpoint : next attempt
     resume_run --> exhausted : max attempts reached
@@ -286,9 +303,13 @@ stateDiagram-v2
     exhausted --> [*] : teardown and reprovision
 ```
 
-Six boxes. The five refusal reasons are aggregated into the single `exhausted`
-state; they are enumerated in the table below rather than drawn, because each
-is a distinct string on one return path, not a distinct place the loop can sit.
+Six boxes. The five `Get-WarmResumeDecision` refusal reasons are aggregated into
+the single `exhausted` state; they are enumerated in the table below rather than
+drawn, because each is a distinct string on one return path, not a distinct place
+the loop can sit. The **sixth** way out is drawn, because it is a different
+origin: a decision that says resume, followed by a rewind that finds no restore
+point in front of a step whose replay is not provably safe, declines rather than
+replaying.
 
 This machine runs only on a **failed, non-skipped** `Start-GuestWorkload`, and
 only when `$cfg.WarmResumeEnabled` — a config gate, so the whole diagram is a
@@ -298,16 +319,17 @@ escape the enclosing guest `foreach`.
 
 | From | To | Trigger | Code location |
 |---|---|---|---|
-| `[*]` | `Read-WarmResumeCheckpoint` | `-not $r.success -and -not $r.skipped` and `$cfg.WarmResumeEnabled`; entered after `Write-CycleHostNetworkReclassification` re-files a host fault | `Test.RunnerInnerLoop.psm1:3509`, `:3517` |
+| `[*]` | `Read-WarmResumeCheckpoint` | `-not $r.success -and -not $r.skipped` and `$cfg.WarmResumeEnabled`; entered after `Write-CycleHostNetworkReclassification` re-files a host fault | `Test.RunnerInnerLoop.psm1:3509`, `:3518-3519` |
 | `Read-WarmResumeCheckpoint` | `Get-WarmResumeDecision` | Reads `last_failure.json`, refusing a record older than the workload phase start; yields `FailureClass`, `SequenceName`, `ResumeFromStep` from `repro.resumeFromStep` | `Test.WarmResume.psm1` `Read-WarmResumeCheckpoint`; call at `:3526` |
 | `Get-WarmResumeDecision` | `Get-WarmResumeRewindStep` | `ShouldResume = $true`, `Reason = 'resume'` — the class is in `$script:WarmResumeEligibleClass` and the sequence is in the workload list | `Test.WarmResume.psm1:185` |
 | `Get-WarmResumeDecision` | `attempts exhausted` | `ShouldResume = $false` with `Reason` one of `'disabled'`, `"class-not-eligible ($FailureClass)"`, `'no-resume-step'`, `'no-sequence-name'`, `"sequence-not-in-workload ($SequenceName)"` → `$wrDone = $true` | `Test.WarmResume.psm1:170-188`; `$wrDone` at `:3530` |
-| `Get-WarmResumeRewindStep` | `Start-GuestWorkload resume` | Scans **backwards** for the nearest `loadDiskSnapshot` at or before the checkpoint; no boundary leaves the checkpoint unchanged. Emits `New-WarmResumeEvent` as NDJSON `warm_resume` | `Test.WarmResume.psm1` `Get-WarmResumeRewindStep`; call at `:3541`, event at `:3561` |
-| `Start-GuestWorkload resume` | `recovered` | `$r.success` → `$wrDone = $true`, prints `"WARM-RESUME: '<seq>' recovered after N attempt(s)."` | `:3569-3572` |
-| `Start-GuestWorkload resume` | `Read-WarmResumeCheckpoint` | Still failing and `$wrAttempt -lt $cfg.WarmResumeMaxAttempts` — the loop re-reads the checkpoint each iteration | `:3524` (loop head) |
-| `Start-GuestWorkload resume` | `attempts exhausted` | `$wrAttempt -ge $cfg.WarmResumeMaxAttempts` → loop exits with `$r.success` still false | `:3524` |
-| `recovered` | `[*]` | `Set-StepStatus -Status "pass"`; the guest continues to teardown | `:3582` |
-| `attempts exhausted` | `[*]` | Falls through to the normal `Start-GuestWorkload` failure branch: teardown plus a cold re-provision next cycle | `:3585-3587` |
+| `Get-WarmResumeRewindStep` | `Start-GuestWorkload resume` | Scans **backwards** for the nearest `loadDiskSnapshot` at or before the checkpoint; no boundary leaves the checkpoint unchanged. Emits `New-WarmResumeEvent` as NDJSON `warm_resume` | `Test.WarmResume.psm1` `Get-WarmResumeRewindStep`; guard at `:3542`, call at `:3554`, event at `:3584` |
+| `Get-WarmResumeRewindStep` | `attempts exhausted` | **Replay would be unsound.** The rewind found no `loadDiskSnapshot` at or before the checkpoint (`$wrBoundary -le 0`) *and* `Test-WarmResumeReplayIsSafe` says the failed step runs guest work — so a replay would land on the state the failed attempt already created and report *that* instead of the transient class. The predicate also answers false when the action list is empty or the step index is out of range, so an unresolvable sequence declines too. Declines with `$wrDone = $true`, leaving `$r` exactly as the original attempt left it | `Test.WarmResume.psm1:342`; branch at `:3567-3575` |
+| `Start-GuestWorkload resume` | `recovered` | `$r.success` → `$wrDone = $true`, prints `"WARM-RESUME: '<seq>' recovered after N attempt(s)."` | `:3593-3594` |
+| `Start-GuestWorkload resume` | `Read-WarmResumeCheckpoint` | Still failing and `$wrAttempt -lt $cfg.WarmResumeMaxAttempts` — the loop re-reads the checkpoint each iteration | `:3525` (loop head) |
+| `Start-GuestWorkload resume` | `attempts exhausted` | `$wrAttempt -ge $cfg.WarmResumeMaxAttempts` → loop exits with `$r.success` still false | `:3525` |
+| `recovered` | `[*]` | `Set-StepStatus -Status "pass"`; the guest continues to teardown | `:3605` |
+| `attempts exhausted` | `[*]` | Falls through to the normal `Start-GuestWorkload` failure branch: teardown plus a cold re-provision next cycle | `:3610` |
 
 The eligible set is the literal
 `$script:WarmResumeEligibleClass = @('network_timeout', 'wait_timeout', 'instrumentation_failure', 'host_io_blocked', 'ip_not_discovered', 'payload_unavailable')`
@@ -335,7 +357,7 @@ are skipped ("Skipping (passed before warm-resume point)"), the target starts at
   message-prefixed exception that escapes retry blocks to
   `Invoke-RunnerInnerCycle`'s catch, which routes it as a *normal* abort:
   no crash counter increment, no banner, `$script:CycleRestartHandled = $true`
-  (`:2864-2892`). It ends the cycle rather than changing the machine's shape.
+  (`:2865-2891`). It ends the cycle rather than changing the machine's shape.
 - **The notification gating latch** (`Armed → Fired → Armed`, persisted in
   `runtime/runner.gating.json`) and the host-network total-loss streak
   (`$HostNetworkTotalLossCycles = 3`, `runtime/runner.hostNetwork.json`). Both are
@@ -354,4 +376,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.14
+Last review: 2026.08.16

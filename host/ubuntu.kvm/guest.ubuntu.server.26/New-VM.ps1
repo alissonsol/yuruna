@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 4214c5d6-e7f8-4a91-b234-5c6d7e8f9a03
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -61,8 +61,19 @@ param(
     # cloud-init local-hostname for the guest. Empty means "follow the VM
     # name", which keeps host-side lookups that assume hostname == VM name
     # working for every caller that does not ask for a specific hostname.
-    [string]$Hostname = ''
+    [string]$Hostname = '',
+    # Planner-cascaded VM memory (variables.memoryStartupBytes). Raw byte count
+    # or a KB/MB/GB suffix (e.g. 34359738368, 32768MB, 32GB); converted to the
+    # MB virt-install wants. Empty keeps the 8 GB default below.
+    [string]$MemoryStartupBytes = '',
+    # Planner-cascaded vCPU count (variables.cores). Overrules the default
+    # calculation below. Empty keeps the default. Clamped to the host cores.
+    [string]$Cores = ''
 )
+
+# Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+$_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
+if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     Write-Error "Invalid VMName '$VMName'. Only alphanumerics, dots, hyphens, underscores."
@@ -74,6 +85,8 @@ if ($Hostname -and $Hostname -notmatch '^[a-zA-Z0-9.-]+$') {
     exit 1
 }
 $GuestHostname = if ($Hostname) { $Hostname } else { $VMName }
+
+# --- REGION: Environment checks
 if (-not $IsLinux) {
     Write-Error "host/ubuntu.kvm/guest.ubuntu.server.26/New-VM.ps1 only runs on Linux."
     exit 1
@@ -82,7 +95,7 @@ if (-not $IsLinux) {
 $ErrorActionPreference = 'Stop'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-# --- REGION: libvirt-qemu search ACL on $HOME (self-heal)
+# --- REGION: libvirt-qemu search ACL on $HOME
 # Ubuntu 24.04 cloud images create /home/<user> at mode 0750, which blocks
 # the libvirt-qemu user (uid 64055, gid kvm) that runs guest qemu processes
 # from traversing $HOME to reach the qcow2 below it. virt-install then
@@ -98,7 +111,7 @@ if (Get-Command -Name 'setfacl' -ErrorAction SilentlyContinue) {
     }
 }
 
-# --- REGION: Inputs
+# --- REGION: Host architecture and mirror
 $arch = (& uname -m).Trim()
 switch ($arch) {
     'x86_64'  { $virtArch = 'x86_64';  $primaryUri = 'http://archive.ubuntu.com/ubuntu' }
@@ -137,7 +150,7 @@ $diskImg = Join-Path $vmDir "$VMName.qcow2"
 $seedImg = Join-Path $vmDir 'seed.iso'
 New-Item -ItemType Directory -Force -Path $vmDir | Out-Null
 
-# --- REGION: SSH key (single harness key; matches macOS/Hyper-V variants)
+# --- REGION: Yuruna harness SSH key
 # The harness uses one ed25519 key pair at test/status/ssh/yuruna_ed25519,
 # owned by Test.Ssh\Get-YurunaSshPublicKey. Test.Diagnostic's post-
 # failure SSH path (Invoke-GuestSsh) authenticates with that SAME key,
@@ -151,7 +164,7 @@ Import-Module $TestSshModule -Force -DisableNameChecking
 $sshPub = Get-YurunaSshPublicKey
 if (-not $sshPub) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
-# --- REGION: Password hash for cloud-init identity
+# --- REGION: Autoinstall password hash
 # Resolve the autoinstall password from the per-cycle authentication
 # vault (test/extension/authentication/default.psm1). Get-Password
 # auto-generates and stores on first call; later calls within the same
@@ -182,7 +195,7 @@ try {
     exit 1
 }
 
-# --- REGION: Yuruna host coordinates + guest network (topology-aware)
+# --- REGION: Yuruna host coordinates
 # The guest must attach to the SAME libvirt network as the caching-proxy-service
 # (Get-ExternalNetwork: bridged 'yuruna-external' when defined, else the
 # NAT 'default') and reach the host status service at an address routable
@@ -208,20 +221,21 @@ if (Test-Path -LiteralPath $cfg) {
 
 # --- REGION: Build the autoinstall apt block
 # --- REGION: https://yuruna.link/vmconfig#apt-proxy-block
-# Shared builder (automation/Yuruna.GuestSeed.psm1); $primaryUri is the arch-
-# resolved mirror knob.
+# Always emit `geoip: false` plus a pinned `primary:` mirror -- deterministic
+# election, and `primary:` rather than `sources_list:`. See
+# feedback_macos_utm_apt_block_resolute_curtin_trap.md.
+# Shared builder: automation/Yuruna.GuestSeed.psm1. $primaryUri is the
+# arch-resolved mirror knob.
+# The apt Acquire tuning it emits is a step-budget bound, so it has to be
+# identical on every host driver: three copies of the literal drift, and a
+# mirror stall then burns a step budget on whichever host was missed.
 Import-Module (Join-Path $repoRoot 'automation/Yuruna.GuestSeed.psm1') -Force
 $AptProxyBlock = New-AptProxyBlock -PrimaryUri $primaryUri -CachingProxyServiceUrl $CachingProxyServiceUrl
 
 # --- REGION: Fetch caching-proxy-service CA cert (base64-embedded in seed)
 # --- REGION: https://yuruna.link/network#caching-proxy-service-ca-cert-rc60-gate
-# An empty $CaCertBase64 is NOT a harmless no-op: the seed still routes the
-# guest's HTTPS through the bump (:3129) and locks direct :443 egress, so a
-# CA-less guest fails every HTTPS with curl rc=60. Get-CachingProxyServiceCaCertBase64
-# retries the live fetch and falls back to the last-good persisted CA for this
-# cache host; if it still comes up empty the guest boots CA-less and recovers
-# at update time via the host status-service CA self-heal. See
-# feedback_sslbump_rc60_untrusted_chain_and_ca_gate_trap and
+# An empty $CaCertBase64 is NOT a harmless no-op (curl rc=60 SSL-bump gate).
+# See feedback_sslbump_rc60_untrusted_chain_and_ca_gate_trap and
 # project_sslbump_ca_gating_durable_fix.
 $CaCertBase64 = ""
 if ($CachingProxyServiceUrl) {
@@ -240,7 +254,6 @@ if ($CachingProxyServiceUrl) {
 # byte-identical across the three host platforms; ubuntu.server.24 and .26
 # share one file). Anchor contract: automation/Yuruna.CloudInitTemplate.psm1.
 $metaDataTemplate = Join-Path $repoRoot 'host/vmconfig/ubuntu.server.meta-data'
-$repoRoot         = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))
 $hostVmConfigDir  = Join-Path $repoRoot 'host/vmconfig'
 $baseUserData     = Join-Path $hostVmConfigDir 'ubuntu.server.base.user-data'
 $overlayUserData  = Join-Path $hostVmConfigDir 'ubuntu.server.kvm.overlay.yml'
@@ -300,7 +313,7 @@ if (Test-Path -LiteralPath $diskImg) { Remove-Item -Force -LiteralPath $diskImg 
 & qemu-img create -f qcow2 $diskImg 64G | Out-Null
 if ($LASTEXITCODE -ne 0) { Write-Error "qemu-img create failed"; exit 1 }
 
-# --- REGION: Define + start the VM via virt-install
+# --- REGION: Remove existing VM
 $virshUri = 'qemu:///system'
 # Capture stdout+stderr + exit code for each call so an operator
 # running with -Verbose sees the per-call outcome. The post-condition
@@ -327,8 +340,7 @@ if ($stillDefined) {
     throw "virsh destroy + undefine left '$VMName' defined; aborting before re-creation.`ndominfo:`n$dominfo"
 }
 
-# --- REGION: https://yuruna.link/memory#why-we-patch-virt-installs-phase-1-xml-on-kvm
-
+# --- REGION: Define + start the VM via virt-install
 # --- REGION: https://yuruna.link/memory#why-osinfo-db-variant-detection-parses-canonical-token-first
 $osVariant = 'linux2022'
 $osList = & virt-install --osinfo list 2>$null
@@ -361,26 +373,45 @@ if ($hostCores -lt 4) {
 # installer's vCPUs for seconds at a time and its console appears
 # frozen until the step timeout gives up.
 $vmCores = [math]::Min($hostCores - 1, [math]::Max(2, [math]::Floor($hostCores / 2)))
+# Cascaded variables.cores overrules the default; clamp to the host cores so an
+# over-ask can't fail virt-install.
+if ($Cores) {
+    $coresInt = 0
+    if (-not [int]::TryParse($Cores, [ref]$coresInt) -or $coresInt -lt 1) {
+        Write-Error "Invalid -Cores '$Cores': expected a positive integer."
+        exit 1
+    }
+    if ($coresInt -gt $hostCores) {
+        Write-Warning "Requested -Cores $coresInt exceeds host cores ($hostCores); clamping to $hostCores."
+        $coresInt = $hostCores
+    }
+    $vmCores = $coresInt
+}
+
+# --- REGION: https://yuruna.link/definition#defining-the-vm-memory-policy
+# virt-install --memory is in MB, so convert from the canonical byte count.
+try { $vmMemoryBytes = ConvertTo-MemoryStartupBytes $MemoryStartupBytes } catch { Write-Error $_.Exception.Message; exit 1 }
+$vmMemoryMb = if ($vmMemoryBytes -gt 0) { [int]($vmMemoryBytes / 1MB) } else { 8192 }
+
+# --- REGION: https://yuruna.link/network#defining-deterministic-guest-mac-addresses
+# Keyed on the guest's durable identity, not on the name the VM carries now: a
+# guest is built in a per-kind slot and renamed to its real name when its
+# baseline is snapshotted, and an address that moved with that rename would
+# re-DHCP a guest whose own state already records the one it was built on.
+$YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $GuestHostname
+Write-Verbose "Deterministic guest MAC for '$GuestHostname': $YurunaGuestMac"
 
 $installArgs = @(
     '--connect', $virshUri,
     '--name',    $VMName,
-    # 8 GB: the ubuntu.server.26 guest runs a single-node kubeadm cluster
-    # (control plane + containerd + pulled images ~3-4 GB) plus a dotnet-sdk
-    # build/run workload; 4 GB was too tight for that combination. Kept at the
-    # minimum that carries the workload rather than matching the 12 GB the
-    # Hyper-V / UTM guests use, because every extra GB per VM subtracts from how
-    # many guests this KVM host can run concurrently in a busy pool. The KVM
-    # provisioning cycle exercises the real k8s + dotnet workload, so it is the
-    # empirical check that this floor holds.
-    '--memory',  '8192',
+    '--memory',  "$vmMemoryMb",
     '--vcpus',   "$vmCores",
     '--cpu',     'host-passthrough',
     '--os-variant', $osVariant,
     '--disk',    "path=$diskImg,format=qcow2,bus=virtio",
     '--cdrom',   $baseImageFile,
     '--disk',    "path=$seedImg,device=cdrom,readonly=on",
-    '--network', "network=$networkName,model=virtio",
+    '--network', "network=$networkName,model=virtio,mac=$YurunaGuestMac",
     # Pinned rather than left to the default. virt-install adds this channel on
     # its own for this argument shape today, so the line changes nothing now --
     # but qemu-guest-agent in the seed is useless without it, and a future
@@ -410,6 +441,7 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
+# --- REGION: https://yuruna.link/memory#why-we-patch-virt-installs-phase-1-xml-on-kvm
 # Force on_reboot=restart so subiquity's post-install reboot doesn't kill
 # the domain. Sanity-check the substitution actually fired -- if a future
 # virt-install version stops emitting the destroy literal we want a noisy
@@ -447,6 +479,13 @@ try {
     Remove-Item -LiteralPath $xmlFile.FullName -Force -ErrorAction SilentlyContinue
 }
 
+# --- REGION: Cleanup temporary folders
+# seed.src holds the rendered user-data with the autoinstall password hash
+# and the harness SSH public key; the guest reads them from seed.iso, so the
+# plaintext source directory has no reason to survive the run.
+Remove-Item -LiteralPath $seedDir -Recurse -Force -ErrorAction SilentlyContinue
+
+# --- REGION: Guidance
 Write-Verbose "VM '$VMName' created. Subiquity will autoinstall (~5-10 min)."
 Write-Verbose "Default credentials - username: $Username, password: <vault-managed> (must be changed on first login). Vault: test/status/extension/authentication/vault.yml (set YURUNA_GUEST_PASSWORD to bypass vault for ad-hoc dev runs)"
 Write-Verbose "Console:  virt-viewer --connect $virshUri $VMName"

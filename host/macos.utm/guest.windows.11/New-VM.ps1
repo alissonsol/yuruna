@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42c0d1e2-f3a4-4b67-c890-1d2e3f4a5b68
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -187,6 +187,7 @@ Import-Module (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.Host.ps
 Import-Module (Join-Path $_utmRepoRoot 'automation/Yuruna.GitHubSource.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $_utmRepoRoot 'automation/Yuruna.GuestSeed.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $_utmRepoRoot 'test/modules/Test.Config.psm1') -Global -Force
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
 $YurunaHostIp = Get-GuestReachableHostIp -NetworkMode $NetworkMode
 if (-not $YurunaHostIp) { $YurunaHostIp = '' }
 $YurunaHostPort = '8080'
@@ -215,7 +216,7 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# Generate UTM config.plist from template (QEMU backend)
+# --- REGION: config.plist (QEMU backend)
 $TemplatePath = Join-Path $ScriptDir "config.plist.template"
 if (-not (Test-Path $TemplatePath)) {
     Write-Error "Template not found at '$TemplatePath'."
@@ -226,11 +227,9 @@ $VmUuid = [guid]::NewGuid().ToString().ToUpper()
 $DiskId = [guid]::NewGuid().ToString().ToUpper()
 $IsoId = [guid]::NewGuid().ToString().ToUpper()
 $SeedId = [guid]::NewGuid().ToString().ToUpper()
-$rng = [System.Random]::new()
-$MacBytes = [byte[]]::new(6)
-$rng.NextBytes($MacBytes)
-$MacBytes[0] = ($MacBytes[0] -bor 0x02) -band 0xFE  # locally administered unicast
-$MacAddress = ($MacBytes | ForEach-Object { $_.ToString("X2") }) -join ":"
+# Deterministic per (host, VM name): a rebuilt guest presents the SAME MAC,
+# so the DHCP server returns the SAME lease instead of consuming a new one.
+$MacAddress = Get-YurunaGuestMacAddress -VMName $VMName
 
 # --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
 $hostCores = [int](& /usr/sbin/sysctl -n hw.physicalcpu)
@@ -265,10 +264,17 @@ Write-Verbose "config.plist validated OK."
 
 # Patch network mode to Bridged if requested
 if ($NetworkMode -eq "Bridged") {
+    # Each plutil call needs its own exit-code test: a failed -replace leaves
+    # Mode at Shared, and only the -insert result would be seen otherwise, so
+    # the VM would come up on the wrong network while the script reports success.
     & plutil -replace "Network.0.Mode" -string "Bridged" "$UtmDir/config.plist"
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "Failed to set Network Mode to Bridged in config.plist."
+        exit 1
+    }
     & plutil -insert "Network.0.BridgedInterface" -string $BridgeInterface "$UtmDir/config.plist"
     if ($LASTEXITCODE -ne 0) {
-        Write-Error "Failed to patch config.plist for Bridged networking."
+        Write-Error "Failed to set BridgedInterface in config.plist."
         exit 1
     }
     Write-Verbose "Network patched to Bridged (interface: $BridgeInterface)."

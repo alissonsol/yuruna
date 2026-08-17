@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a7c3e5-1f2b-4d6e-8a90-3c5b7d9e1f04
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,8 +42,8 @@
     which only edits ONE named pool's membership and never touches storage.
 .PARAMETER HostId
     Stable hostId to purge -- the record's hostUuid / runtime/host.uuid:
-    '42' + 30 hex. The GUID-dashed rendering shown in the dashboard's Host ID
-    column is accepted too, so a value copied off the panel works as typed.
+    '42' + 30 hex. The GUID-dashed spelling every panel and UI reveals a full id
+    in is accepted too, so a value copied off one works as pasted.
 .PARAMETER Force
     Override the safety refusals (own uuid / recently-seen record).
 .PARAMETER ConfigPath
@@ -90,28 +90,40 @@ foreach ($m in @('Test.PoolPush.psm1', 'Test.CachingProxyService.psm1', 'Test.Ex
 }
 $ExitOk      = Get-EntryPointExitCode -Outcome Ok
 $ExitFailure = Get-EntryPointExitCode -Outcome Failure
+# The failure paths below pass -ErrorAction Continue: under the strict
+# preference above, a bare Write-Error would itself terminate and skip
+# the clean exit-code path.
 Import-Module powershell-yaml -ErrorAction Stop
 
 $canonicalHostId = ConvertTo-YurunaHostId -Value $HostId
 if (-not $canonicalHostId) {
-    Write-Error "HostId '$HostId' is invalid (expected the host's uuid: '42' + 30 hex, with or without the dashboard's GUID dashes)."
+    Write-Error "HostId '$HostId' is invalid (expected the host's uuid: '42' + 30 hex, with or without the dashboard's GUID dashes)." -ErrorAction Continue
     exit $ExitFailure
 }
 $HostId = $canonicalHostId
+# The spelling every line below shows the operator, which is the one the
+# dashboard and the pool-control UI reveal a full id in; $HostId itself stays
+# the canonical key the store is read and written with.
+$shownHostId = Format-YurunaHostId -HostId $HostId
 
 # --- REGION: Resolve the pool storage path from test.config.yml
 $cfg = $null
 if (Test-Path -LiteralPath $ConfigPath) { $cfg = Read-TestConfig -Path $ConfigPath }
-# -IgnoreReplicate: a GC tool must locate the records even on a host that has
-# pool.networkReplicate off (it still needs the poolStorageLocalPath to reach the share).
-$storage = if ($cfg) { Get-YurunaPoolStorageConfig -Config $cfg -IgnoreReplicate } else { $null }
+# A GC tool only needs the poolStorageLocalPath to reach the share; whether this
+# host archives in copy or move mode is irrelevant to deleting another host's records.
+$storage = if ($cfg) { Get-YurunaPoolStorageConfig -Config $cfg } else { $null }
 if (-not $storage -or [string]::IsNullOrWhiteSpace($storage.LocalPath)) {
-    Write-Error "No pool storage in $ConfigPath -- networkStorage.poolStorageNetworkPath / poolStorageNetworkUser / poolStorageLocalPath must all be set to locate the host's NAS records."
+    Write-Error "No pool storage in $ConfigPath -- networkStorage.poolStorageNetworkPath / poolStorageNetworkUser / poolStorageLocalPath must all be set to locate the host's NAS records." -ErrorAction Continue
     exit $ExitFailure
 }
 $localPath  = $storage.LocalPath
 $infoPath   = Join-Path $localPath (Join-Path 'hosts' "info.$HostId.yml")
-$hostFolder = Join-Path $localPath $HostId
+# The host's archive root under the current layout, plus the frozen pre-unification
+# root a long-lived share may still carry. Both are deleted: this GC is the only
+# sanctioned deleter of the legacy roots, and in move mode the current root holds
+# the ONLY copy of this host's cycle results.
+$hostFolder = Get-PoolStorageHostFolderPath -Config $storage -HostId $HostId
+$legacyRoot = Join-Path $localPath $HostId
 
 if (-not (Test-Path -LiteralPath $localPath)) {
     Write-Warning "Pool storage path '$localPath' is not accessible (NAS not mounted here?). Run this on a host with the pool share mounted, or its records cannot be removed."
@@ -123,14 +135,14 @@ $ownUuidFile = Join-Path $runtimeDir 'host.uuid'
 if (Test-Path -LiteralPath $ownUuidFile) {
     $ownUuid = (Get-Content -Raw -LiteralPath $ownUuidFile).Trim()
     if ($ownUuid -and ($ownUuid -ieq $HostId) -and -not $Force) {
-        Write-Error "$HostId is THIS host's own uuid (runtime/host.uuid) -- refusing to self-remove. Pass -Force to override."
+        Write-Error "$shownHostId is THIS host's own uuid (runtime/host.uuid) -- refusing to self-remove. Pass -Force to override." -ErrorAction Continue
         exit $ExitFailure
     }
 }
 if ((Test-Path -LiteralPath $infoPath) -and -not $Force) {
     # Compute the recency verdict INSIDE the try (the parse can throw) but raise
-    # the refusal OUTSIDE it -- otherwise the terminating Write-Error is caught by
-    # this same catch and silently swallowed, defeating the guard.
+    # the refusal OUTSIDE it -- the catch is scoped to the parse alone, so an
+    # unreadable record degrades to "not recent" instead of masking the guard.
     $recentInfo = ''
     try {
         $rec      = Get-Content -Raw -LiteralPath $infoPath | ConvertFrom-Yaml
@@ -142,7 +154,7 @@ if ((Test-Path -LiteralPath $infoPath) -and -not $Force) {
         }
     } catch { Write-Verbose "Could not parse lastSeenUtc from ${infoPath}: $($_.Exception.Message)" }
     if ($recentInfo) {
-        Write-Error "Host $HostId was $recentInfo -- it may still be active. Refusing without -Force."
+        Write-Error "Host $shownHostId was $recentInfo -- it may still be active. Refusing without -Force." -ErrorAction Continue
         exit $ExitFailure
     }
 }
@@ -167,7 +179,7 @@ if (Test-Path -LiteralPath $hostFolder) {
     # is already empty. A leftover tree must not abort the run either -- the
     # membership strip and the dashboard eviction below are what actually stop the
     # host reappearing, and they are worth doing even when the NAS is being slow.
-    if ($PSCmdlet.ShouldProcess($hostFolder, 'Delete replicated cycle folder')) {
+    if ($PSCmdlet.ShouldProcess($hostFolder, 'Delete archived cycle folder')) {
         if (Remove-PoolStorageTree -Path $hostFolder -Confirm:$false) {
             [void]$removed.Add("cycle data       $hostFolder")
         } else {
@@ -175,7 +187,18 @@ if (Test-Path -LiteralPath $hostFolder) {
         }
     }
 } else {
-    Write-Verbose "No replicated cycle folder at $hostFolder (already gone)."
+    Write-Verbose "No archived cycle folder at $hostFolder (already gone)."
+}
+if (Test-Path -LiteralPath $legacyRoot) {
+    if ($PSCmdlet.ShouldProcess($legacyRoot, 'Delete legacy (pre-unification) cycle folder')) {
+        if (Remove-PoolStorageTree -Path $legacyRoot -Confirm:$false) {
+            [void]$removed.Add("legacy data      $legacyRoot")
+        } else {
+            $storageIncomplete = $true
+        }
+    }
+} else {
+    Write-Verbose "No legacy cycle folder at $legacyRoot (already gone)."
 }
 
 # --- REGION: Strip membership from every pool (needs the writable intent store)
@@ -198,14 +221,14 @@ if ([string]::IsNullOrWhiteSpace($t.IntentGitUrl)) {
             }
         }
         if ($changedPools.Count -eq 0) {
-            Write-Information "membership: $HostId is not a member of any pool (no change)." -InformationAction Continue
+            Write-Information "membership: $shownHostId is not a member of any pool (no change)." -InformationAction Continue
         } elseif ($PSCmdlet.ShouldProcess("pools.yml [$($changedPools -join ', ')]", "Remove $HostId from members[]")) {
             $save = Save-YurunaPoolDoc -IntentDir $t.IntentDir -RelPath 'pools.yml' -Doc $doc -SchemaName 'pools.schema.yml' -Confirm:$false
-            if (-not $save.Ok) { Write-Error "pools.yml validation/write failed: $($save.Error)"; exit $ExitFailure }
+            if (-not $save.Ok) { Write-Error "pools.yml validation/write failed: $($save.Error)" -ErrorAction Continue; exit $ExitFailure }
             $pub = Publish-YurunaPoolIntent -IntentDir $t.IntentDir -Message "pool: purge host $HostId from members[]" -Confirm:$false
-            if (-not $pub.Ok) { Write-Error "Commit failed: $($pub.Error)"; exit $ExitFailure }
+            if (-not $pub.Ok) { Write-Error "Commit failed: $($pub.Error)" -ErrorAction Continue; exit $ExitFailure }
             if (-not $pub.Pushed) {
-                Write-Error "Committed locally but NOT pushed -- the membership change is not durable and a later admin command will discard it: $($pub.Error)"
+                Write-Error "Committed locally but NOT pushed -- the membership change is not durable and a later admin command will discard it: $($pub.Error)" -ErrorAction Continue
                 exit $ExitFailure
             }
             [void]$removed.Add("pool membership  [$($changedPools -join ', ')]")
@@ -253,7 +276,7 @@ try {
         } elseif (Get-Command Invoke-PoolForgetHost -ErrorAction SilentlyContinue) {
             $f = Invoke-PoolForgetHost -ProxyIp $proxyIp -HostId $HostId -Token $token -RuntimeDir $runtimeDir
             if ($f.ok) { [void]$removed.Add("dashboard view   pool-aggregator-service forgot $HostId") }
-            else { Write-Warning "forget-host: aggregator did not evict $HostId ($($f.reason)). The panel clears on its own after the aggregator host TTL (-host-ttl, default 24h)." }
+            else { Write-Warning "forget-host: aggregator did not evict $shownHostId ($($f.reason)). The panel clears on its own after the aggregator host TTL (-host-ttl, default 24h)." }
         }
     }
 } catch {
@@ -262,15 +285,15 @@ try {
 
 # --- REGION: Summary
 if ($removed.Count -eq 0) {
-    Write-Information "Host ${HostId}: nothing to remove (no NAS records found, not a pool member)." -InformationAction Continue
+    Write-Information "Host ${shownHostId}: nothing to remove (no NAS records found, not a pool member)." -InformationAction Continue
 } else {
-    Write-Information "Purged host ${HostId}:" -InformationAction Continue
+    Write-Information "Purged host ${shownHostId}:" -InformationAction Continue
     foreach ($r in $removed) { Write-Information "  - $r" -InformationAction Continue }
 }
 # Membership and the dashboard eviction already ran; only the NAS delete is unfinished,
 # and re-running is a safe no-op for everything that did succeed.
 if ($storageIncomplete) {
-    Write-Error "Host ${HostId}: NAS records under $localPath were not fully deleted (see the warning above). Re-run this command; it resumes where it stopped."
+    Write-Error "Host ${shownHostId}: NAS records under $localPath were not fully deleted (see the warning above). Re-run this command; it resumes where it stopped." -ErrorAction Continue
     exit $ExitFailure
 }
 exit $ExitOk

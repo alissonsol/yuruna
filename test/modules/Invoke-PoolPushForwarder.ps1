@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 424f2c91-6d3b-4e75-9012-3c7a1e5b8d6f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,6 +30,7 @@ param([string]$HostId = '', [string]$CycleFolder = '')
 $ErrorActionPreference = 'Continue'
 $here = Split-Path -Parent $PSCommandPath
 
+# --- REGION: Fresh-process module imports
 foreach ($m in @('Test.PoolPush.psm1', 'Test.CachingProxyService.psm1', 'Test.YurunaDir.psm1', 'Test.Log.psm1', 'Test.Extension.psm1')) {
     $p = Join-Path $here $m
     if (Test-Path -LiteralPath $p) { Import-Module $p -Global -ErrorAction SilentlyContinue }
@@ -38,6 +39,7 @@ if (Get-Command Import-Extension -ErrorAction SilentlyContinue) {
     try { $null = Import-Extension -Area 'authentication' -RequireSingle } catch { $null = $_ }
 }
 
+# --- REGION: Runtime + log dir gate
 $runtimeDir = $env:YURUNA_RUNTIME_DIR
 $logDir     = $env:YURUNA_LOG_DIR
 if ([string]::IsNullOrWhiteSpace($runtimeDir) -or [string]::IsNullOrWhiteSpace($logDir)) {
@@ -70,7 +72,7 @@ if ([string]::IsNullOrWhiteSpace($token)) {
     return
 }
 
-# --- REGION: caching-proxy-service (aggregator) address
+# --- REGION: Caching-proxy-service (aggregator) address
 $proxyIp = ''
 if (Get-Command Read-CachingProxyServiceState -ErrorAction SilentlyContinue) {
     try { $st = Read-CachingProxyServiceState; if ($st -and $st.ipAddress) { $proxyIp = [string]$st.ipAddress } } catch { $null = $_ }
@@ -81,7 +83,7 @@ if ([string]::IsNullOrWhiteSpace($proxyIp)) {
     return
 }
 
-# --- REGION: resolve the cycle folder to push (explicit, else the newest with an events file)
+# --- REGION: Resolve the cycle folder to push (explicit, else the newest with an events file)
 if ([string]::IsNullOrWhiteSpace($CycleFolder) -or -not (Test-Path -LiteralPath (Join-Path $CycleFolder 'cycle.events.ndjson'))) {
     $CycleFolder = ''
     try {
@@ -96,15 +98,11 @@ if ([string]::IsNullOrWhiteSpace($CycleFolder)) {
     return
 }
 
-# --- REGION: single-instance lock (atomic CreateNew; reclaim a stale lock once)
-# Identity is recorded as TICKS, not an ISO-8601 string, and that is
-# load-bearing. ConvertFrom-Json silently materializes an ISO-8601 field as a
-# [DateTime], and interpolating one of those renders it in the CURRENT CULTURE
-# ("08/11/2026 19:07:24") -- so a comparison against the live 'o'-format value
-# can never match, every start judges the lock stale, reclaims it, and the
-# single-instance guarantee silently evaporates. A number round-trips exactly
-# and no parser reinterprets it. (Same trap the status service documents around
-# ConvertTo-IsoUtcString.)
+# --- REGION: Single-instance lock (atomic CreateNew; reclaim a stale lock once)
+# --- REGION: https://yuruna.link/test/harness#single-instance-locks
+# Ticks, not a formatted timestamp: a JSON ISO-8601 field round-trips as a
+# [datetime] whose string form is locale-formatted, so every live lock would
+# read as stale.
 function Get-PushProcStartUtc { param([int]$ProcId) try { return ((Get-Process -Id $ProcId -ErrorAction Stop).StartTime.ToUniversalTime().Ticks) } catch { return $null } }
 function Test-PushLockHeldLive {
     param([string]$Path)
@@ -137,10 +135,12 @@ if (-not $haveLock) {
     if (-not $haveLock) { Write-Verbose "pool push: lost the stale-lock reclaim race; exiting."; return }
 }
 
+# --- REGION: Host identity
 if ([string]::IsNullOrWhiteSpace($HostId) -and (Get-Command Get-YurunaHostId -ErrorAction SilentlyContinue)) {
     try { $HostId = [string](Get-YurunaHostId) } catch { $null = $_ }
 }
 
+# --- REGION: Run the worker
 try {
     if (Get-Command Invoke-PoolEventPush -ErrorAction SilentlyContinue) {
         $summary = Invoke-PoolEventPush -CycleFolder $CycleFolder -ProxyIp $proxyIp -Token $token -RuntimeDir $runtimeDir

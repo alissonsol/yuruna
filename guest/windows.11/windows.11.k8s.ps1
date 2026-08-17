@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42f0a1b2-c3d4-4e56-f789-0a1b2c3d4e11
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,7 +36,7 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 
 Write-Output "== Installing Kubernetes requirements for Windows 11 =="
 
-# --- REGION: Install Basic Tools (Git, OpenSSH)
+# --- REGION: Install basic tools
 Write-Output ""
 Write-Output ">>> Installing Basic Tools (Git, OpenSSH)..."
 winget install --id Git.Git --accept-source-agreements --accept-package-agreements --silent
@@ -82,7 +82,7 @@ if (-not $yamlOk) {
 }
 Write-Output "<<< PowerShell module: powershell-yaml installation complete."
 
-# --- REGION: Cloud CLIs
+# --- REGION: Install cloud CLIs
 
 Write-Output ""
 Write-Output ">>> Installing Azure CLI..."
@@ -99,7 +99,7 @@ Write-Output ">>> Installing Google Cloud SDK..."
 winget install --id Google.CloudSDK --accept-source-agreements --accept-package-agreements --silent
 Write-Output "<<< Google Cloud SDK installation complete."
 
-# --- REGION: Docker Desktop
+# --- REGION: Install Docker
 Write-Output ""
 Write-Output ">>> Installing Docker Desktop..."
 winget install --id Docker.DockerDesktop --accept-source-agreements --accept-package-agreements --silent
@@ -109,25 +109,25 @@ Write-Output ""
 Write-Output "NOTE: Docker Desktop requires a restart to complete setup."
 Write-Output "After restart, enable Kubernetes in Docker Desktop Settings > Kubernetes > Enable Kubernetes."
 
-# --- REGION: Kubernetes CLI (kubectl)
+# --- REGION: Install kubectl
 Write-Output ""
 Write-Output ">>> Installing kubectl..."
 winget install --id Kubernetes.kubectl --accept-source-agreements --accept-package-agreements --silent
 Write-Output "<<< kubectl installation complete."
 
-# --- REGION: Helm
+# --- REGION: Install Helm
 Write-Output ""
 Write-Output ">>> Installing Helm..."
 winget install --id Helm.Helm --accept-source-agreements --accept-package-agreements --silent
 Write-Output "<<< Helm installation complete."
 
-# --- REGION: OpenTofu
+# --- REGION: Install OpenTofu
 Write-Output ""
 Write-Output ">>> Installing OpenTofu..."
 winget install --id OpenTofu.Tofu --accept-source-agreements --accept-package-agreements --silent
 Write-Output "<<< OpenTofu installation complete."
 
-# --- REGION: Graphviz
+# --- REGION: Install Graphviz
 Write-Output ""
 Write-Output ">>> Installing Graphviz..."
 winget install --id Graphviz.Graphviz --accept-source-agreements --accept-package-agreements --silent
@@ -139,14 +139,16 @@ Write-Output ">>> Installing GitHub CLI..."
 winget install --id GitHub.cli --accept-source-agreements --accept-package-agreements --silent
 Write-Output "<<< GitHub CLI installation complete."
 
-# --- REGION: mkcert and HTTPS Development Certificate
+# --- REGION: Install mkcert
 # mkcert is installed last because its root CA installation may require user interaction.
 Write-Output ""
 Write-Output ">>> Installing mkcert..."
 winget install --id FiloSottile.mkcert --accept-source-agreements --accept-package-agreements --silent
-# Refresh PATH so the newly installed mkcert is discoverable
+# --- REGION: Refresh PATH
+# mkcert was just installed and must be discoverable for the certificate work below.
 $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
 
+# --- REGION: Create the HTTPS development certificate
 # Generate the HTTPS development certificate first. This auto-creates the mkcert root CA
 # (rootCA.pem) on first run without triggering any dialog -- only 'mkcert -install' does that.
 Write-Output ""
@@ -191,9 +193,11 @@ if (Test-Path $rootCert) {
 }
 Write-Output "<<< mkcert installation complete."
 
+# --- REGION: Refresh PATH
+# Second refresh: winget put the remaining tools on the machine PATH after the first one.
 $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
 
-# --- REGION: Show installed versions
+# --- REGION: Installation summary
 Write-Output ""
 Write-Output "== Installation Summary =="
 try { git --version } catch { Write-Output "Git: restart terminal to verify" }
@@ -207,6 +211,7 @@ try { az --version 2>$null | Select-Object -First 1 } catch { Write-Output "Azur
 try { aws --version 2>$null } catch { Write-Output "AWS CLI: restart terminal to verify" }
 try { gcloud --version 2>$null | Select-Object -First 1 } catch { Write-Output "Google Cloud SDK: restart terminal to verify" }
 
+# --- REGION: Optional steps
 Write-Output ""
 Write-Output "== Optional Steps =="
 Write-Output "1. Restart the computer to complete Docker Desktop setup"

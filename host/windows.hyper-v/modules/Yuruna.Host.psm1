@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -88,7 +88,8 @@ Import-Module (Join-Path $script:RepoRoot 'host\modules\Yuruna.DownloadAgent.psm
 Import-Module (Join-Path $script:RepoRoot 'host\modules\Yuruna.HostProvision.psm1') -Force -DisableNameChecking -Global
 # --- REGION: Hyper-V host helpers
 
-# --- REGION: Define Oscdimg Path (adjust '10' for your ADK version if necessary)
+# ADK Deployment Tools path. The '10' is the ADK major version, not the Windows
+# version -- adjust it if a different ADK is installed.
 $OscdimgPath = "C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\amd64\Oscdimg\Oscdimg.exe"
 
 <#
@@ -147,7 +148,7 @@ function CreateIso {
     Write-Verbose "ISO created successfully at: $OutputFile"
 }
 
-# --- REGION: caching-proxy-service IP discovery (shared by producer + consumers)
+# --- REGION: Caching-proxy service IP discovery
 # Single source of truth for KVP+ARP discovery shared by guest.caching-proxy-service/
 # New-VM.ps1, ubuntu.server.24/New-VM.ps1, and test/service/Start-CachingProxyServiceVM.ps1.
 # Guards against the regression class where a KVP-only summary reports
@@ -2210,7 +2211,7 @@ function Restart-HyperVConnect {
 }
 
 # --- REGION: Host proxy helpers
-# --- REGION: https://yuruna.link/definition#defining-the-windows-host-proxy-registry-keys
+# Registry keys and marker semantics: https://yuruna.link/definition#defining-the-windows-host-proxy-registry-keys
 
 $script:WinInetRegPath    = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
 $script:WinInetMarkerName = 'YurunaProxyManaged'
@@ -3415,6 +3416,31 @@ function Rename-VM {
         Write-Warning "Rename-VM: Hyper-V Rename-VM failed: $($_.Exception.Message)"
         return $false
     }
+    # --- REGION: https://yuruna.link/network#defining-deterministic-guest-mac-addresses
+    # A NIC still holding the address the OLD name derives is holding that
+    # NAME's address rather than the guest's, and the name is being vacated --
+    # leave it there and every guest promoted out of that slot ends up on one
+    # address on one switch. Any other address was pinned at build time to the
+    # identity this guest keeps for life: moving it re-DHCPs a guest whose own
+    # state already records the address it has, which no reboot recovers from.
+    # Only the first adapter is considered: a second interface needs a second
+    # DISTINCT address, and -VMName would write this one to both. Hyper-V takes
+    # bare hex, no separators.
+    $renameAdapter = $null
+    try {
+        $renameAdapter = Hyper-V\Get-VMNetworkAdapter -VMName $NewName -ErrorAction Stop | Select-Object -First 1
+    } catch {
+        Write-Warning "Rename-VM: renamed to '$NewName' but its NIC could not be read: $($_.Exception.Message). The address is left as it is."
+    }
+    if ($renameAdapter -and (Test-YurunaGuestMacMatchesName -MacAddress ([string]$renameAdapter.MacAddress) -VMName $VMName)) {
+        try {
+            $renameAdapter | Hyper-V\Set-VMNetworkAdapter `
+                -StaticMacAddress ((Get-YurunaGuestMacAddress -VMName $NewName) -replace ':', '') -ErrorAction Stop
+        } catch {
+            Write-Warning "Rename-VM: renamed to '$NewName' but moving the '$VMName' address off it failed: $($_.Exception.Message). It keeps that name's address and will collide with the next guest built under it."
+            return $false
+        }
+    }
     # Relocate storage so the on-disk dir-name matches the new VM-name.
     # Without this, Remove-OrphanedVMFiles' "dir name with no matching
     # VM" sweep would later wipe the persisted snapshot's files.
@@ -4438,10 +4464,14 @@ Export-ModuleMember -Function `
     Remove-OrphanedVMFileAccess
 
 # Contract-coverage assertion: warns at load time if the export block
-# above drifts away from the canonical Yuruna.Host contract. See
-# host/Yuruna.Host.Contract.psm1 for the verb list and rationale.
+# above drifts away from the canonical Yuruna.Host contract. The module
+# handle travels with the declared list so the check runs against what
+# Export-ModuleMember actually published: the list on its own is a second
+# copy of the contract and would pass even after the export block lost a
+# verb. See host/Yuruna.Host.Contract.psm1 for the verb list and rationale.
 Import-Module (Join-Path -Path $PSScriptRoot -ChildPath '..' -AdditionalChildPath '..', 'Yuruna.Host.Contract.psm1') -Force -DisableNameChecking
-$null = Assert-YurunaHostContractCoverage -HostType 'windows.hyper-v' -ExportedFunction @(
+$null = Assert-YurunaHostContractCoverage -HostType 'windows.hyper-v' `
+    -Module $ExecutionContext.SessionState.Module -ExportedFunction @(
     'New-VM','Start-VM','Stop-VM','Stop-VMForce','Remove-VM','Rename-VM','Get-VMState','Get-VMName',
     'Save-VMDiskSnapshot','Restore-VMDiskSnapshot','Test-VMDiskSnapshot',
     'Test-VMConsoleOpen','Restart-VMConsole',

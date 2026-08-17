@@ -1,9 +1,9 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42e8a1b2-c3d4-4e5f-9012-cd0123456823
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS
+.TAGS yuruna test host macos utm pool config
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
@@ -100,6 +100,7 @@ $ErrorActionPreference = 'Stop'
 # operator sees none of it.
 $InformationPreference = 'Continue'
 
+# --- REGION: Platform guard
 if (-not $IsMacOS) {
     throw "This is the macOS UTM variant; run host/<type>/Sync-HostConfiguration.ps1 for this platform instead."
 }

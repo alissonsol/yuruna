@@ -363,8 +363,9 @@ run becomes `instrumentation_failure`, else a missing payload becomes
 `payload_unavailable`. The resulting `classificationSource` is one of `crash`,
 `pattern-match`, `verb-registry`, `unresolved-verb`.
 
-`Test.FailureTaxonomy.psm1` is the single source of truth for the 20 classes and
-the three severities; `Test.EventSchema.psm1` validates every emitted event
+`Test.FailureTaxonomy.psm1` is the single source of truth for the 21 classes and
+the three severities (`hard`, `soft`, `unknown`); `Test.EventSchema.psm1`
+validates every emitted event
 against it but **never rejects** — a violation emits a synthetic
 `schema_violation` event naming the bad fields plus the original record, so a bug
 in the emitter costs visibility rather than data.
@@ -385,6 +386,18 @@ timeout, then synthesizes `last_failure.json` itself with `reason=watchdog_kill`
 `synthesizedBy=outer-watchdog` — only if the inner left none. That synthetic
 class is exactly what lets the streak-capped auto-remediation break the failure
 pause early instead of waiting the full human pause.
+
+**A third entry needs no cycle at all.** `Test-OuterPoolStorageSpaceReady` runs
+*before* the spawn, and when the projected archive will not fit it writes the
+record itself — `Write-PoolStorageSpaceFailureRecord` with
+`failureClass = pool_storage_full`, then `Send-PoolStorageSpaceNotification` —
+and returns the `storage-full` outcome without ever starting an inner. The class
+is deliberately **absent** from the auto-remediation allow-list the watchdog
+class sits in: a full share does not clear on a retry, so this one holds the
+full human pause on purpose. The ordering matters as much as the class — the
+check sits after the `last_failure.json` wipe, because reading a stale transient
+record from the previous cycle is exactly what would cut the pause short and walk
+the runner back into the same wall minutes later.
 
 ## E. Agent-first image acquisition
 
@@ -508,7 +521,7 @@ machine, drawn as one participant so the two shares stay visible.
 their own SMB account, their own credential and their own mount point; the stash
 never touches the pool share. Both are optional and both are off by default —
 empty paths are a complete no-op. Only the pool tier has a replicate flag
-(`pool.networkReplicate`); the stash daemon writes files directly, so
+(the three `networkStorage.poolStorage*` paths); the stash daemon writes files directly, so
 `Get-YurunaStashStorageConfig` reports `Replicate = $false` always while keeping
 the same shape so the generic mount helpers work unchanged.
 
@@ -520,8 +533,8 @@ On-share layout, derived from `Test.PoolStorage.psm1`, `Test.HostIdentity.psm1`,
 ```
 <pool share>/
   hosts/info.<hostId>.yml            host registry: uuid + hardware fingerprint
-  <hostId>/<cycle>/                  one finished cycle, .yuruna-complete last
-  <hostId>/services/caching-proxy-service/{loki,prometheus,grafana}/
+  hosts/<hostId>/test-cycles/<cycle>/  one finished cycle, .yuruna-complete last
+  hosts/<hostId>/services/caching-proxy-service/{loki,prometheus,grafana}/
   images/                            the Download pool
     .agent-lease.json                single-writer lease, at the images root
     <hostType>/<imageKey>/current.<arch>.<variant>.json  servable pointer
@@ -540,8 +553,16 @@ On-share layout, derived from `Test.PoolStorage.psm1`, `Test.HostIdentity.psm1`,
 **Five writers, five different disciplines** — and none of them is a lock in the
 usual sense:
 
-- **The drain** writes only into its own `<hostId>/` namespace, so there is no
-  cross-host contention at all. Its single-instance guard is a local
+- **The drain** writes only into its own `hosts/<hostId>/` namespace, so there is
+  no cross-host contention at all. One directory carries both shapes on purpose:
+  `hosts/` holds the `info.<hostId>.yml` registry *files* and the per-host
+  *directories* side by side, and they cannot collide because the reclaim scanner
+  enumerates with `-Filter 'info.*.yml' -File`. The aggregator points
+  `-pool-archive-root` at that same `hosts/` directory, which is what lets it
+  serve archived cycles it never wrote. Shares written before this unification
+  keep a bare `<share>/<hostId>/` root: those are **frozen** — never read, never
+  migrated — and `Remove-PoolHost.ps1` is their only sanctioned deleter.
+  Its single-instance guard is a local
   `runtime/poolstorage.drain.lock` claimed with `CreateNew` and recording PID
   **plus process StartTime**, so PID reuse cannot make a stale lock look live.
   Per-cycle atomicity is the `.yuruna-complete` sentinel written last, and the
@@ -597,4 +618,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.14
+Last review: 2026.08.16

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e96
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -136,6 +136,7 @@ if (-not $agentServed) {
     }
     $downloadUrl = $sourceUrl + $qcow2Link
 
+    # --- REGION: https://yuruna.link/guest-image-setup#skip-if-same-source-guard
     if (Test-DownloadAlreadyCurrent -SourceUrl $downloadUrl -BaseImageFile $baseImageFile -OriginFile $baseImageOrigin) {
         $skipLines = @(Get-Content -LiteralPath $baseImageOrigin -ErrorAction SilentlyContinue)
         $msg = @(
@@ -185,13 +186,15 @@ if (Test-Path -LiteralPath $baseImageFile) {
 }
 Move-Item -Path $downloadFile -Destination $baseImageFile
 
-# On the agent path the Last-Modified comes from the agent's record of the
-# origin response, so the origin the agent path exists to spare is not
-# re-probed here.
+# --- REGION: https://yuruna.link/guest-image-setup#skip-if-same-source-guard
+# Only Write-ImageSentinel emits the 4-line shape the reader matches. On the
+# agent path the Last-Modified comes from the agent's record of the origin
+# response, so the origin the agent path exists to spare is not re-probed here.
 if ($agentServed) {
     Write-ImageSentinel -SourceUrl $downloadUrl -OriginFile $baseImageOrigin -SizeBytes $downloadedSize -LastModified $agentLastModified -Confirm:$false
 } else {
     Write-ImageSentinel -SourceUrl $downloadUrl -OriginFile $baseImageOrigin -SizeBytes $downloadedSize -Confirm:$false
 }
-Write-Output "Recorded 4-line sentinel (filename, URL, byte count, Last-Modified) to: $baseImageOrigin"
+Write-Output "Recorded source filename, URL, byte count, and Last-Modified to: $baseImageOrigin"
+
 Write-Output "Download complete: $baseImageFile"

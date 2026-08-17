@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 429c3e7a-2d84-4f16-9c05-7a1e3b6d0f42
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -369,5 +369,53 @@ workload:
     It 'returns nothing readable for a missing or blank path, without throwing' {
         Assert-Equal -Expected 0 -Actual (@(Get-WarmResumeStepAction -Path (Join-Path $script:seqDir 'no-such.yml'))).Count
         Assert-Equal -Expected 0 -Actual (@(Get-WarmResumeStepAction -Path '')).Count
+    }
+}
+
+Describe 'Test-WarmResumeReplayIsSafe' {
+
+    # Get-WarmResumeRewindStep pulls a resume back to the loadDiskSnapshot
+    # before it so the replay meets the state its steps expect. With no such
+    # boundary the resume proceeds in place, onto the residue the boundary
+    # exists to discard -- harmless for a step that only waits or types, but
+    # for one that ran guest work the replay fails on its own leftovers and
+    # reports THAT instead of the transient that stopped the run.
+    BeforeAll {
+        $script:WithoutBoundary = @('retry', 'waitForText', 'fetchAndExecute', 'inputTextAndEnter', 'saveSystemDiagnostic')
+    }
+
+    It 'calls replaying a guest-work step unsafe when nothing can discard its residue' {
+        Assert-Equal -Expected $false -Actual (Test-WarmResumeReplayIsSafe -StepAction $script:WithoutBoundary -ResumeFromStep 3)
+    }
+
+    It 'calls replaying a read-only step safe' {
+        Assert-Equal -Expected $true -Actual (Test-WarmResumeReplayIsSafe -StepAction $script:WithoutBoundary -ResumeFromStep 2)
+        Assert-Equal -Expected $true -Actual (Test-WarmResumeReplayIsSafe -StepAction $script:WithoutBoundary -ResumeFromStep 4)
+    }
+
+    It 'treats the ssh guest-work verbs the same as the console one' {
+        $actions = @('sshWaitReady', 'sshFetchAndExecute', 'sshExec')
+        Assert-Equal -Expected $true  -Actual (Test-WarmResumeReplayIsSafe -StepAction $actions -ResumeFromStep 1)
+        Assert-Equal -Expected $false -Actual (Test-WarmResumeReplayIsSafe -StepAction $actions -ResumeFromStep 2)
+        Assert-Equal -Expected $false -Actual (Test-WarmResumeReplayIsSafe -StepAction $actions -ResumeFromStep 3)
+    }
+
+    It 'treats an unreadable sequence as unsafe rather than assuming it is fine' {
+        Assert-Equal -Expected $false -Actual (Test-WarmResumeReplayIsSafe -StepAction @() -ResumeFromStep 1)
+        Assert-Equal -Expected $false -Actual (Test-WarmResumeReplayIsSafe -StepAction $null -ResumeFromStep 1)
+    }
+
+    It 'treats an out-of-range checkpoint as unsafe' {
+        Assert-Equal -Expected $false -Actual (Test-WarmResumeReplayIsSafe -StepAction $script:WithoutBoundary -ResumeFromStep 99)
+        Assert-Equal -Expected $false -Actual (Test-WarmResumeReplayIsSafe -StepAction $script:WithoutBoundary -ResumeFromStep 0)
+    }
+
+    It 'pairs with the rewind: a boundary makes the same checkpoint recoverable' {
+        $withBoundary = @('retry', 'loadDiskSnapshot', 'fetchAndExecute', 'inputTextAndEnter')
+        $rw = Get-WarmResumeRewindStep -StepAction $withBoundary -ResumeFromStep 3
+        Assert-Equal -Expected 2 -Actual $rw.BoundaryStep -Because 'the restore point is found'
+        Assert-Equal -Expected $true -Actual $rw.Rewound
+        # The guard keys off BoundaryStep, so the unsafe verdict no longer gates.
+        Assert-Equal -Expected $false -Actual (Test-WarmResumeReplayIsSafe -StepAction $withBoundary -ResumeFromStep 3)
     }
 }

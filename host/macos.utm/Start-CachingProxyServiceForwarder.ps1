@@ -1,9 +1,9 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42c0ffee-a0de-4e1f-a2b3-c4d5e6f7aa02
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS
+.TAGS yuruna host macos utm caching-proxy forwarder
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
@@ -26,8 +26,8 @@
     address. It is NOT needed for same-Mac UTM guests -- on macOS 26 every
     vmnet-shared VM joins one bridge (192.168.64.1) and guests route to a
     sibling VM directly, so a test guest reaches the cache at its
-    192.168.64.x IP without any host-side hop. (An older belief that
-    shared-NAT isolates guest-to-guest traffic did not reproduce there.)
+    192.168.64.x IP without any host-side hop -- shared-NAT does not
+    isolate guest-to-guest traffic there, despite the name.
     Also used on Windows when source-IP preservation matters -- e.g. for
     squid:3128/3129 with PROXY protocol, where netsh portproxy would lose
     the real client IP at the NAT hop.

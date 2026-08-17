@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 422b807c-2e2b-4e23-822e-cc26747b834d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -338,5 +338,53 @@ Describe 'Test-CombinedOcrMatch' {
         Assert-Equal -Expected $false -Actual $r.Match
         Assert-Equal -Expected 0 -Actual @($r.EngineResults.Keys).Count
         Assert-Equal -Expected '' -Actual $r.AnyText
+    }
+}
+
+Describe 'Get-OcrFreshWindowNearMiss' {
+
+    # The freshMatch window is what stops an earlier step's marker satisfying
+    # this one, so it cannot simply be widened -- but when it hides text the
+    # engines DID read, the wait reports a plain timeout and an operator
+    # comparing that against the captured frame sees the sought text sitting
+    # right there. These assert the two cases stay distinguishable.
+    It 'reports a pattern the engine read above the window, with the distance' {
+        $lines = @('deployment.apps/website condition met', 'FETCHED AND EXECUTED:', 'project/example/website/x.sh')
+        $lines += (1..20 | ForEach-Object { "trailing repaint line $_" })
+        $er = [ordered]@{ winrt = @{ Text = ($lines -join "`n"); Matched = $false; MatchedPattern = $null } }
+        $hits = @(Get-OcrFreshWindowNearMiss -EngineResult $er -Pattern @('FETCHED AND EXECUTED:') -FreshMatchTailLines 12)
+        Assert-Equal -Expected 1 -Actual $hits.Count -Because 'the marker was read but sat above the window'
+        Assert-True ($hits[0] -match 'winrt')
+        # 23 lines total, window starts at index 11, marker at index 1 -> 10 above.
+        Assert-True ($hits[0] -match '10 line\(s\) above') -Because "distance should be reported; got: $($hits[0])"
+    }
+
+    It 'reports nothing when the pattern was never on screen' {
+        $er = [ordered]@{ winrt = @{ Text = ((1..40 | ForEach-Object { "unrelated line $_" }) -join "`n"); Matched = $false } }
+        $hits = @(Get-OcrFreshWindowNearMiss -EngineResult $er -Pattern @('FETCHED AND EXECUTED:') -FreshMatchTailLines 12)
+        Assert-Equal -Expected 0 -Actual $hits.Count -Because 'a genuine timeout must not be reported as a near miss'
+    }
+
+    It 'reports nothing when the window already covered the whole frame' {
+        $er = [ordered]@{ winrt = @{ Text = "FETCHED AND EXECUTED:`nsecond line"; Matched = $false } }
+        $hits = @(Get-OcrFreshWindowNearMiss -EngineResult $er -Pattern @('FETCHED AND EXECUTED:') -FreshMatchTailLines 12)
+        Assert-Equal -Expected 0 -Actual $hits.Count -Because 'the window cannot have hidden text it fully covered'
+    }
+
+    It 'reports nothing when no window was in force' {
+        $er = [ordered]@{ winrt = @{ Text = (@('FETCHED AND EXECUTED:') + (1..30 | ForEach-Object { "noise $_" })) -join "`n"; Matched = $false } }
+        $hits = @(Get-OcrFreshWindowNearMiss -EngineResult $er -Pattern @('FETCHED AND EXECUTED:') -FreshMatchTailLines 0)
+        Assert-Equal -Expected 0 -Actual $hits.Count -Because 'with no window there is no window to blame'
+    }
+
+    It 'skips an engine that matched' {
+        $er = [ordered]@{ winrt = @{ Text = (@('FETCHED AND EXECUTED:') + (1..30 | ForEach-Object { "noise $_" })) -join "`n"; Matched = $true } }
+        $hits = @(Get-OcrFreshWindowNearMiss -EngineResult $er -Pattern @('FETCHED AND EXECUTED:') -FreshMatchTailLines 12)
+        Assert-Equal -Expected 0 -Actual $hits.Count
+    }
+
+    It 'tolerates a null engine map' {
+        $hits = @(Get-OcrFreshWindowNearMiss -EngineResult $null -Pattern @('x') -FreshMatchTailLines 12)
+        Assert-Equal -Expected 0 -Actual $hits.Count
     }
 }

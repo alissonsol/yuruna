@@ -552,7 +552,7 @@ repository, then does what `New-Lab` deliberately leaves alone:
   password the share never had).
 - **The mount and the config** — both shares mounted, the six
   `networkStorage.*` keys written; `-EnableReplication` also sets
-  `pool.networkReplicate`.
+  `networkStorage.moveLogsToPoolStorage`.
 
 The shares are local but consumed **as if remote**: each tier gets a
 hosts-file alias (`ypool-nas`, `ystash-nas`) resolving to loopback,
@@ -595,7 +595,9 @@ vault
 ([Setting the SMB passwords in the vault](test-config.md#setting-the-smb-passwords-in-the-vault)).
 The lab vault holds the generated values for copying between machines;
 the host vault is what the harness reads. Set
-`pool.networkReplicate: true` to archive cycles to the share.
+the three `networkStorage.poolStorage*` paths to archive cycles to the share (add
+`moveLogsToPoolStorage: true` to have each cycle's local folder deleted once its
+copy is verified).
 
 ### B.8 Start the caching-proxy service + dashboards
 
@@ -644,6 +646,45 @@ inner process, repeats; on failure it pauses until new commits land or
 a timeout passes ([runner-outer-loop.md](runner-outer-loop.md)). It auto-starts the
 status dashboard at `http://<host>:8080/` — no separate
 `Start-StatusService.ps1` step.
+
+---
+
+## Bringing service VMs back after a host reboot
+
+A host reboot damages nothing: it leaves every service VM registered with
+the hypervisor and powered off. Nothing then turns them back on, and the
+two consequences are not alike —
+
+- the **caching-proxy service** merely degrades: guests download direct,
+  slowly;
+- the **stash service** is fatal to a cycle: the warm-up resolves it,
+  finds nothing, and every workload stage is skipped.
+
+So a rebooted host can keep burning cycles that can never pass, looking
+healthy the whole time, until an operator notices.
+
+**The runner covers this by itself.** Every cycle start runs a sweep that
+starts any service VM that is registered but not running, and reports what
+it did. The sweep is cheap on a healthy host — one state query per
+service — which is why it runs at every cycle rather than only at boot: it
+also catches a service that died or was stopped mid-session. A service
+that is *absent* is not a failure and never triggers anything. A
+standalone host legitimately runs no stash service, so absent means "not
+this host's job"; only a registered-but-stopped VM is something this host
+owns and failed to start. The sweep's health wait is deliberately
+non-authoritative — a freshly resumed guest can take a while to re-open
+its listener, and the real gates run afterwards and own the verdict.
+
+**Start what is built; do not rebuild.** A rebuild costs ~15 minutes and
+throws away a warm squid cache; a start costs seconds and preserves it.
+Rebuilding is the escalation for a VM that will not come up, never the
+first response to one that is merely off.
+
+On a host with no cycle running to do it for you — a workstation used
+interactively, or a machine just rebooted before a manual run — bring them
+up with the ordinary scripts from [A.6](#a6-start-the-caching-proxy-service)
+and [A.7](#a7-start-the-stash-service), which adopt a healthy VM rather
+than rebuilding it.
 
 ---
 
@@ -745,6 +786,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.14
+Last review: 2026.08.16
 
 Back to [Yuruna](../README.md)

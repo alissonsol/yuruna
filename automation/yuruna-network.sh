@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.14
+# Version: 2026.08.16
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -110,6 +110,15 @@ network_diag() {
     echo ""
 }
 
+# Elevate only when there is something to elevate from. The release also runs
+# from a systemd shutdown unit, which is already root at a point where the
+# authentication stack it would consult is being torn down: sudo there can fail
+# on a machine where it works perfectly from a login shell, and the release is
+# the last chance the address has to go back before the guest disappears.
+_yuruna_net_sudo() {
+    if [ "$(id -u)" = "0" ]; then "$@"; else sudo "$@"; fi
+}
+
 # --- REGION: https://yuruna.link/network#defining-network-release
 # Release DHCP leases (and any other transient network resources) so the
 # address returns to the pool immediately instead of lingering until lease
@@ -130,7 +139,7 @@ network_release() {
             case "$ifc" in
                 veth*|docker*|br-*|virbr*|cni*|flannel*|kube*|tap*|tun*) continue ;;
             esac
-            if sudo networkctl down "$ifc" >/dev/null 2>&1; then
+            if _yuruna_net_sudo networkctl down "$ifc" >/dev/null 2>&1; then
                 echo "   networkctl down $ifc"
                 released=1
             fi
@@ -138,11 +147,11 @@ network_release() {
     fi
     # Classic dhclient stacks: explicit release of all held leases.
     if command -v dhclient >/dev/null 2>&1; then
-        if sudo dhclient -r >/dev/null 2>&1; then echo "   dhclient -r"; released=1; fi
+        if _yuruna_net_sudo dhclient -r >/dev/null 2>&1; then echo "   dhclient -r"; released=1; fi
     fi
     # dhcpcd stacks.
     if command -v dhcpcd >/dev/null 2>&1; then
-        if sudo dhcpcd -k >/dev/null 2>&1; then echo "   dhcpcd -k"; released=1; fi
+        if _yuruna_net_sudo dhcpcd -k >/dev/null 2>&1; then echo "   dhcpcd -k"; released=1; fi
     fi
 
     if [ "$released" = "1" ]; then

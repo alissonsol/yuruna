@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42e1f2a3-b4c5-4d67-8901-aabbccddee01
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -231,7 +231,7 @@ $pubPem = Join-Path $installDir 'keys/yuruna-release-signing.pub.pem'
 if ($LASTEXITCODE -ne 0) { throw "Self-verify FAILED: $sigFile does not verify against $pubPem." }
 Write-Information "Signed + self-verified: $sigFile" -InformationAction Continue
 
-# --- REGION: Publish: commit, tag, push, validate (all opt-in).
+# --- REGION: Publish: commit, tag, push, validate (all opt-in)
 # Slip-proofing for the release tag. The tag name is ALWAYS the bare CalVer
 # read+validated from VERSION, never typed by hand -- guards against the
 # v-prefixed-tag regression class (a 'v' tag while every installer pins the

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42795a67-cd5f-42ad-bd44-8d466ffec8fb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -127,8 +127,16 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# --- REGION: Log level from the environment
+# Honor the caller's logLevel, published as $env:YURUNA_LOG_LEVEL by whatever
+# entry point started this script (install/setup.ps1). See docs/loglevels.md.
+Import-Module (Join-Path $PSScriptRoot '../modules/Test.LogLevel.psm1') -Global -Force -DisableNameChecking
+Use-LogLevelFromEnv
+
+# --- REGION: Shared bootstrap
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'automation/Yuruna.HostRedirect.psm1') -Force -DisableNameChecking
 
+# --- REGION: Elevation gate
 # Elevation before anything happens. Invoke-YurunaHostScript makes the same
 # check, but only at line-of-delegation -- by then this redirector has already
 # rewritten the vault's lab-auth-token and bounced the status service (a wait of
@@ -145,6 +153,7 @@ if ($hostTarget.RequiresElevation -and $IsWindows -and -not (Test-IsAdministrato
            "Re-run the same command from an elevated PowerShell (Start-Process pwsh -Verb RunAs).")
 }
 
+# --- REGION: Common-parameter relay
 # The per-host Sync-HostConfiguration.ps1 is an advanced script and narrates
 # each decision (kept local path, added alias, stored credential) under
 # -Verbose, so pass the switch on when it was asked for; it binds to this
@@ -153,10 +162,14 @@ if ($hostTarget.RequiresElevation -and $IsWindows -and -not (Test-IsAdministrato
 # ConvertTo-HostScriptArgument deliberately drops the optional common
 # parameters, so a bound -WhatIf would otherwise stop at this shell while the
 # per-host script -- which supports it -- ran for real.
+# A level of Verbose or Debug asks for the same narration by another name, and
+# the switch is what the child binds -- the env var alone would only reach the
+# per-host script's own preferences, not its -Verbose-gated output.
 $extra = @()
-if ($PSBoundParameters.ContainsKey('Verbose')) { $extra += '-Verbose' }
+if ($PSBoundParameters.ContainsKey('Verbose') -or $VerbosePreference -eq 'Continue') { $extra += '-Verbose' }
 if ($PSBoundParameters.ContainsKey('WhatIf'))  { $extra += '-WhatIf' }
 
+# --- REGION: Shared lab-auth-token
 # -PersistSharedToken is host-neutral: storing the shared lab-auth-token in
 # this host's vault is the identical vault operation on every platform (unlike
 # the config conversion the per-host script owns), so it runs here in the
@@ -187,6 +200,7 @@ if ($persistToken) {
     }
 }
 
+# --- REGION: Delegate to the per-host script
 $forwarded = @(ConvertTo-HostScriptArgument `
     -BoundParameters $PSBoundParameters `
     -RemainingArguments $RemainingArguments `

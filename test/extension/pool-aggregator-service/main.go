@@ -615,6 +615,11 @@ type poolState struct {
 	// a slow Loki read never blocks the poll loop or /api/v1/pool-status.
 	statsMu    sync.Mutex
 	statsCache map[string]*poolStatsCacheEntry // range token -> memoized answer
+	// archiveRoot is the pool share's hosts/ directory as this machine sees it
+	// (the proxy CIFS-mounts the share). Empty disables the /archive/ route and
+	// every archive-aware resolution, which is what a proxy with no pool storage
+	// has. Set once in main before the server starts; not mutated under mu.
+	archiveRoot string
 }
 
 // poolStatsCacheEntry is one memoized /api/v1/pool-stats answer.
@@ -1241,7 +1246,7 @@ func fetchCurrentAction(client *http.Client, base string) (bool, error) {
 // served by the status service at /yuruna-repo/VERSION -- the SAME source the
 // host's own status pages read for their header (their getHostInfo() fetches
 // yuruna-repo/VERSION via JS, so the version is not embedded in the HTML). A tiny
-// plain-text file (one CalVer line, e.g. "2026.08.14"), so it is lighter than any
+// plain-text file (one CalVer line, e.g. "2026.08.16"), so it is lighter than any
 // status HTML page and fetchable server-side without a JS engine. Returns
 // ("", err) on any failure; the caller keeps the prior version on a transient
 // miss (the version is stable across polls). The value is capped + first-line
@@ -4012,11 +4017,19 @@ func (s *poolState) pruneLabFailsLocked(cut time.Time) {
 	}
 }
 
-// dashedHostIDRE matches the GUID-formatted rendering of a 32-hex hostId
-// (8-4-4-4-12). The dashboard tables display hostIds in that form, and a data
-// link built from the rendered cell value carries it verbatim; the pool keys
-// hosts on the undashed form everywhere else.
-var dashedHostIDRE = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+// dashedHostIDRE / plainHostIDRE are the two spellings of one hostId: the
+// GUID-formatted rendering (8-4-4-4-12) every operator-facing surface shows a
+// FULL id in, and the undashed 32-hex form the pool keys hosts on everywhere
+// else. dashedHostID renders one, normalizeHostID folds the other back, and a
+// link built from a rendered value therefore resolves either way.
+//
+// plainHostIDRE deliberately does NOT reuse hostIDRe, which spells the same shape:
+// that one is the /archive/ route's authorization gate, and tightening a gate must
+// not silently change how an id is printed.
+var (
+	dashedHostIDRE = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+	plainHostIDRE  = regexp.MustCompile(`^[0-9a-fA-F]{32}$`)
+)
 
 // normalizeHostID folds the GUID-formatted spelling of a hostId back to the
 // undashed form the pool is keyed on, so the /go/* deep-links resolve whichever
@@ -4027,6 +4040,27 @@ func normalizeHostID(hostID string) string {
 		return strings.ReplaceAll(hostID, "-", "")
 	}
 	return hostID
+}
+
+// dashedHostID renders a hostId 8-4-4-4-12, the spelling a full id is shown in
+// wherever an operator has to check one against another screen or paste it into
+// a command -- 32 undifferentiated hex characters are not checkable by eye.
+//
+// It rides as a SEPARATE label beside hostId rather than replacing it: hostId is
+// the join key the dashboard's Loki frames and every /go/* link are keyed on, and
+// re-spelling it would fork those series and break the join. That makes this the
+// same kind of precomputed display value the goPath, commitUrl and cycleFolderUrl
+// labels already are -- a Grafana data link interpolates a field's DISPLAYED
+// value, so a panel that shows the short id cannot recover the full one from the
+// cell it is showing.
+//
+// An id that is not 32 hex passes through untouched: an announce may carry any
+// opaque 8-64 character identifier, and hostIds are opaque by contract.
+func dashedHostID(hostID string) string {
+	if !plainHostIDRE.MatchString(hostID) {
+		return hostID
+	}
+	return hostID[0:8] + "-" + hostID[8:12] + "-" + hostID[12:16] + "-" + hostID[16:20] + "-" + hostID[20:32]
 }
 
 // handleGoHost bridges a dashboard click -> the host's OWN status-page root, resolving
@@ -4160,12 +4194,25 @@ func (s *poolState) resolveClickedCycle(w http.ResponseWriter, r *http.Request) 
 	case curFolder != "" && (clickT.IsZero() || (!curStart.IsZero() && !clickT.Before(curStart))):
 		folder = curFolder // current cycle (in-memory, no fetch)
 	case !clickT.IsZero():
-		// Resolve the cycle active at the clicked time from the host's /log/ listing:
-		// the folder name encodes its start time + hostId, so this works for ANY
-		// retained cycle (old + new) and supplies the cycle-number prefix that can't be
-		// reconstructed from the transition line. Loki's cycleFolderUrl is the fallback
-		// when the listing can't be fetched.
-		folder = s.resolveFolderByListing(base, hostID, clickT)
+		// Resolve the cycle active at the clicked time. Sources in order of cost and
+		// of how much they survive:
+		//
+		//  1. the ARCHIVE on the pool share -- local disk on this machine, no network
+		//     hop, and it still answers for a host that is switched off or reimaged,
+		//     which is the whole reason the durable tier exists. On a move-mode host
+		//     it is also the only place the folder still is.
+		//  2. the host's own /log/ listing -- authoritative for a cycle that has not
+		//     been archived yet (the one still running, or a copy-mode backlog).
+		//  3. Loki's recorded cycleFolderUrl -- the last resort when neither the share
+		//     nor the host can be read.
+		//
+		// The folder name encodes its start time + hostId, so 1 and 2 both work for
+		// ANY retained cycle and supply the cycle-number prefix that cannot be
+		// reconstructed from a transition line.
+		folder = s.resolveFolderByArchive(hostID, clickT)
+		if folder == "" {
+			folder = s.resolveFolderByListing(base, hostID, clickT)
+		}
 		if folder == "" {
 			if fu, _, found := s.lookupCycleAt(pool, hostID, clickT); found {
 				folder = fu
@@ -4175,21 +4222,151 @@ func (s *poolState) resolveClickedCycle(w http.ResponseWriter, r *http.Request) 
 	return base, folder, true
 }
 
-// handleGoCycle bridges a dashboard timeline click -> the host's own cycle-results
-// folder. Degrades gracefully: missing/zero time -> current cycle; folder
-// unresolved -> the host's status root (still the right host at its current IP);
-// host unknown -> 404.
+// hostIDRe and archiveCycleRe validate an /archive/ request BEFORE any filesystem
+// call. The shape check IS the authorization here, exactly as it is for the host's
+// own /archive/<cycle>.zip route: nothing that is not a 32-hex host id followed by
+// the literal "test-cycles" and a well-formed cycle leaf reaches the disk.
+//
+// The cycle grammar is deliberately stricter than the host-side ones: on-share
+// leaves are ALWAYS the stable stripped identity, because the archiver keys its
+// map, destination and ledger on Get-PoolStorageCycleIdentity. A ".incomplete" or
+// ".aborted.<UTC>" suffix in a URL therefore cannot name anything that exists here
+// -- it can only be a probe, and rejecting it costs nothing.
+var (
+	hostIDRe       = regexp.MustCompile(`^[0-9a-fA-F]{32}$`)
+	archiveCycleRe = regexp.MustCompile(`^\d{6}\.\d{4}-\d{2}-\d{2}\.\d{2}-\d{2}-\d{2}\.[0-9a-fA-F]{32}$`)
+)
+
+// archiveCommitted reports whether an archived cycle folder carries the
+// .yuruna-complete sentinel. A destination exists sentinel-less for the whole
+// duration of its copy (up to ten minutes for a large cycle) and after a failed
+// verification until its cleanup lands, and a reader cannot tell a half-copied tree
+// from a finished one by looking at it. Every resolution path checks this, so a
+// dashboard click can never land inside a copy that is still running.
+func (s *poolState) archiveCommitted(hostID, cycle string) bool {
+	if s.archiveRoot == "" || !hostIDRe.MatchString(hostID) || !archiveCycleRe.MatchString(cycle) {
+		return false
+	}
+	root, err := os.OpenRoot(s.archiveRoot)
+	if err != nil {
+		return false
+	}
+	defer root.Close()
+	st, err := root.Stat(path.Join(hostID, "test-cycles", cycle, ".yuruna-complete"))
+	return err == nil && !st.IsDir()
+}
+
+// resolveFolderByArchive returns the archived cycle folder covering time t for a
+// host, as "<cycle>/" -- or "" when the archive cannot answer. The folder name
+// carries the cycle's UTC start, so the same "latest start at or before t" rule the
+// host-listing resolver uses applies unchanged; this one reads local disk on the
+// proxy instead of fetching over HTTP from a host that may be switched off, which
+// is the entire point of a durable tier.
+func (s *poolState) resolveFolderByArchive(hostID string, t time.Time) string {
+	if s.archiveRoot == "" || !hostIDRe.MatchString(hostID) || t.IsZero() {
+		return ""
+	}
+	root, err := os.OpenRoot(s.archiveRoot)
+	if err != nil {
+		return ""
+	}
+	defer root.Close()
+	dir, err := root.Open(path.Join(hostID, "test-cycles"))
+	if err != nil {
+		return ""
+	}
+	defer dir.Close()
+	names, err := dir.Readdirnames(-1)
+	if err != nil {
+		return ""
+	}
+	best := ""
+	var bestStart time.Time
+	for _, name := range names {
+		if !archiveCycleRe.MatchString(name) {
+			continue
+		}
+		start, ok := cycleStartFromFolder(name)
+		if !ok || start.After(t) {
+			continue
+		}
+		if best == "" || start.After(bestStart) {
+			best, bestStart = name, start
+		}
+	}
+	if best == "" || !s.archiveCommitted(hostID, best) {
+		return ""
+	}
+	return best + "/"
+}
+
+// handleArchive serves archived cycle results straight off the pool share:
+// GET /archive/<hostId>/test-cycles/<cycle>/... . Read-only, GET/HEAD only, and
+// contained by os.Root so no "..", symlink or case trick can escape the archive
+// root -- the kernel enforces it rather than a string comparison.
+//
+// The root is re-opened PER REQUEST rather than once at startup. The proxy's NAS
+// mount arrives asynchronously after boot (the config-service fetch owns it, and the
+// unit orders on nothing that waits for it), so a root captured at startup would
+// pin the route to whatever the mount looked like before it existed -- 404 forever
+// until someone restarted the service.
+func (s *poolState) handleArchive(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		w.Header().Set("Allow", "GET, HEAD")
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	rel := strings.TrimPrefix(r.URL.Path, "/archive/")
+	segs := strings.Split(strings.Trim(rel, "/"), "/")
+	if len(segs) < 2 || !hostIDRe.MatchString(segs[0]) || segs[1] != "test-cycles" {
+		http.NotFound(w, r)
+		return
+	}
+	if len(segs) >= 3 && segs[2] != "" && !archiveCycleRe.MatchString(segs[2]) {
+		http.NotFound(w, r)
+		return
+	}
+	root, err := os.OpenRoot(s.archiveRoot)
+	if err != nil {
+		// The mount is away (or was never there). Say so plainly rather than
+		// serving a 500 that reads like a bug in the service.
+		http.Error(w, "the pool share is not mounted on this machine", http.StatusNotFound)
+		return
+	}
+	defer root.Close()
+	w.Header().Set("Cache-Control", "no-store")
+	// FileServerFS, not ServeContent: this route has to answer folder URLs with a
+	// listing (that is what a dashboard click lands on) as well as files with Range
+	// support for large screenshots and transcripts. ServeContent does the second
+	// and none of the first.
+	http.StripPrefix("/archive/", http.FileServerFS(root.FS())).ServeHTTP(w, r)
+}
+
+// handleGoCycle bridges a dashboard timeline click -> that cycle's results.
+// Archive-first: once a cycle is committed on the share, the redirect goes to this
+// service's own /archive/ copy, which answers from local disk and keeps working when
+// the host is switched off or reimaged -- the durable tier's whole promise. Only a
+// cycle that is not (yet) archived sends the operator to the host. Degrades
+// gracefully: missing/zero time -> current cycle; folder unresolved -> the host's
+// status root (still the right host at its current IP); host unknown -> 404.
 func (s *poolState) handleGoCycle(w http.ResponseWriter, r *http.Request) {
 	base, folder, ok := s.resolveClickedCycle(w, r)
 	if !ok {
 		return
 	}
 
+	w.Header().Set("Cache-Control", "no-store")
+	if leaf := strings.Trim(folder, "/"); leaf != "" {
+		leaf = path.Base(leaf)
+		if hostID := strings.TrimSpace(r.URL.Query().Get("host")); s.archiveCommitted(hostID, leaf) {
+			http.Redirect(w, r, "/archive/"+hostID+"/test-cycles/"+leaf+"/", http.StatusFound)
+			return
+		}
+	}
 	target := strings.TrimRight(base, "/")
 	if folder != "" {
 		target += "/" + strings.TrimLeft(folder, "/")
 	}
-	w.Header().Set("Cache-Control", "no-store")
 	http.Redirect(w, r, target, http.StatusFound)
 }
 
@@ -4267,6 +4444,23 @@ func (s *poolState) resolveFolderByListing(baseURL, hostID string, t time.Time) 
 // the latest at/before t -- the cycle active at the clicked moment. When t predates
 // every retained folder it returns the earliest, so the link still lands on a real
 // cycle. Pure + table-testable; "" when nothing matches.
+// cycleStartFromFolder parses the UTC start encoded in a cycle folder leaf
+// ("NNNNNN.YYYY-MM-DD.HH-MM-SS.<hostId>"). One parser for both resolvers, so the
+// archive and the host listing can never disagree about which cycle covers a click.
+func cycleStartFromFolder(name string) (time.Time, bool) {
+	m := cycleStartRe.FindStringSubmatch(name)
+	if m == nil {
+		return time.Time{}, false
+	}
+	st, err := time.Parse("2006-01-02 15-04-05", m[1]+" "+m[2])
+	if err != nil {
+		return time.Time{}, false
+	}
+	return st.UTC(), true
+}
+
+var cycleStartRe = regexp.MustCompile(`^\d{6}\.(\d{4}-\d{2}-\d{2})\.(\d{2}-\d{2}-\d{2})\.`)
+
 func pickFolderFromListing(body, hostID string, t time.Time) string {
 	re := regexp.MustCompile(`\d{6}\.(\d{4}-\d{2}-\d{2})\.(\d{2}-\d{2}-\d{2})\.` + regexp.QuoteMeta(hostID) + `(?:\.incomplete)?/`)
 	best, earliest := "", ""
@@ -4326,6 +4520,18 @@ func (s *poolState) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# HELP yuruna_pool_collector_up pool-aggregator service is serving.\n# TYPE yuruna_pool_collector_up gauge\nyuruna_pool_collector_up 1\n")
 	fmt.Fprintf(&b, "# HELP yuruna_pool_hosts_total Pool hosts discovered (within hostTtl).\n# TYPE yuruna_pool_hosts_total gauge\nyuruna_pool_hosts_total %d\n", total)
+	// Archive availability, exported only when an archive root is configured. This is
+	// how "the dashboard's cycle links stopped working" becomes visible without a
+	// human noticing dead links: the CIFS mount is nofail, so when it goes away every
+	// archived cycle silently stops resolving and nothing else says so.
+	if s.archiveRoot != "" {
+		available := 0
+		if root, err := os.OpenRoot(s.archiveRoot); err == nil {
+			root.Close()
+			available = 1
+		}
+		fmt.Fprintf(&b, "# HELP yuruna_pool_archive_available The pool share's archive root is readable on the collector (0 = the NAS mount is away; archived cycle links fall back to the hosts).\n# TYPE yuruna_pool_archive_available gauge\nyuruna_pool_archive_available %d\n", available)
+	}
 	fmt.Fprintf(&b, "# HELP yuruna_pool_hosts_reachable Pool hosts answering status.json on the last poll.\n# TYPE yuruna_pool_hosts_reachable gauge\nyuruna_pool_hosts_reachable %d\n", reachable)
 	if !s.last.IsZero() {
 		fmt.Fprintf(&b, "# HELP yuruna_pool_last_poll_timestamp_seconds Unix time of the last completed poll.\n# TYPE yuruna_pool_last_poll_timestamp_seconds gauge\nyuruna_pool_last_poll_timestamp_seconds %d\n", s.last.Unix())
@@ -4361,8 +4567,11 @@ func (s *poolState) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 		// control is the STATE NAME only (ready/none/mismatch/skew/unknown): the token
 		// tag it was derived from is compared inside this process and never exported,
 		// because /metrics is unauthenticated by design.
-		fmt.Fprintf(&b, "yuruna_pool_host_info{pool=%q,poolGuid=%q,hostId=%q,hostType=%q,version=%q,commit=%q,commitUrl=%q,projectCommitUrl=%q,baseUrl=%q,cycleStartUtc=%q,cycleFolderUrl=%q,status=%q,control=%q} 1\n",
-			s.poolFor(h), hv.PoolGuid, h, hostType, hv.Version, commitDisplay, commitURLVal, projectCommitURL, hv.BaseURL, cycleStartUtc, cfu, hv.statusLabel(), hv.controlLabel())
+		// hostIdDashed is the same id rendered 8-4-4-4-12: the table shows the short
+		// id and reveals the full one from this label, which it cannot derive from the
+		// shortened cell it displays.
+		fmt.Fprintf(&b, "yuruna_pool_host_info{pool=%q,poolGuid=%q,hostId=%q,hostIdDashed=%q,hostType=%q,version=%q,commit=%q,commitUrl=%q,projectCommitUrl=%q,baseUrl=%q,cycleStartUtc=%q,cycleFolderUrl=%q,status=%q,control=%q} 1\n",
+			s.poolFor(h), hv.PoolGuid, h, dashedHostID(h), hostType, hv.Version, commitDisplay, commitURLVal, projectCommitURL, hv.BaseURL, cycleStartUtc, cfu, hv.statusLabel(), hv.controlLabel())
 	}
 	// host_status: the numeric twin of host_info's status, keyed on hostId so it
 	// forms one continuous series per host -- the input the state-timeline panel
@@ -4375,7 +4584,7 @@ func (s *poolState) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 		if hv == nil {
 			continue
 		}
-		fmt.Fprintf(&b, "yuruna_pool_host_status{pool=%q,hostId=%q} %d\n", s.poolFor(h), h, hv.statusCode())
+		fmt.Fprintf(&b, "yuruna_pool_host_status{pool=%q,hostId=%q,hostIdDashed=%q} %d\n", s.poolFor(h), h, dashedHostID(h), hv.statusCode())
 	}
 	// host_last_seen: unix seconds of last successful probe; the table shows age
 	// as `time() - this`. Keeps climbing for an unreachable-but-not-yet-evicted
@@ -4441,10 +4650,11 @@ func (s *poolState) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	// still resolves baseUrl from the view when the host is at least known (a
 	// stub or an unreachable entry); "" otherwise -- a host can run an extension
 	// service WITHOUT running cycles, and such a host has no status page at all,
-	// so /go/host would answer "host not known to the pool". That is why the
-	// dashboard leaves this table's Host ID cell as plain text and the Pool
-	// hosts table (whose rows all have a status page) is where a host is
-	// opened, with the control token. baseUrl stays exported as the answer to
+	// so /go/host would answer "host not known to the pool". That is why this
+	// table's Host ID cell never offers that hop -- its menu names the row's id
+	// and opens the extension UI -- and the Pool hosts table (whose rows all have
+	// a status page) is where a host is opened, with the control token. baseUrl
+	// stays exported as the answer to
 	// "does this extension host have a status page".
 	extRows := []extRow{}
 	cands := s.extensionCandidatesLocked(time.Now())
@@ -4498,7 +4708,7 @@ func (s *poolState) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 			// put the label where the area slug belongs. Precomputing it here is the
 			// same answer the hidden baseUrl and target columns already are.
 			goPath := "/go/stash?host=" + url.QueryEscape(e.host) + "&area=" + url.QueryEscape(e.area)
-			fmt.Fprintf(&b, "yuruna_pool_host_extension{pool=%q,hostId=%q,area=%q,baseUrl=%q,target=%q,goPath=%q} 1\n", s.poolFor(e.host), e.host, e.area, e.baseURL, e.target, goPath)
+			fmt.Fprintf(&b, "yuruna_pool_host_extension{pool=%q,hostId=%q,hostIdDashed=%q,area=%q,baseUrl=%q,target=%q,goPath=%q} 1\n", s.poolFor(e.host), e.host, dashedHostID(e.host), e.area, e.baseURL, e.target, goPath)
 		}
 		b.WriteString("# HELP yuruna_pool_host_extension_last_seen_seconds Unix time this extension host was last confirmed (host probe or service announce).\n# TYPE yuruna_pool_host_extension_last_seen_seconds gauge\n")
 		for _, e := range extRows {
@@ -5149,6 +5359,7 @@ func main() {
 	crossWin := flag.Duration("cross-host-window", defaultCrossWin, "window for cross-host (pool-wide) incident correlation")
 	announceTtl := flag.Duration("announce-ttl", defaultAnnounceTtl, "reap a self-announced extension (POST /announce) not refreshed within this window; 0 disables the announce route")
 	hostTtl := flag.Duration("host-ttl", defaultHostTtl, "drop a host from the pool view this long after last contact; its per-cycle dedup state is kept an hour longer so a re-appearing host cannot double-count, and dashboard deep links resolve over at least 24h regardless. Cumulative pass/fail counters are not expired by this -- use POST /api/v1/forget-host")
+	poolArchiveRoot := flag.String("pool-archive-root", "", "the pool share's hosts/ directory on this machine (e.g. /mnt/ypool-nas/hosts); serves archived cycle results at /archive/<hostId>/test-cycles/... and lets /go/cycle resolve them. Empty disables both -- the route is not registered at all")
 	tlsCert := flag.String("tls-cert", "", "TLS certificate file (PEM); when both -tls-cert and -tls-key name readable files the listener is HTTPS, else plain HTTP")
 	tlsKey := flag.String("tls-key", "", "TLS private-key file (PEM); see -tls-cert")
 	authTokenFile := flag.String("auth-token-file", "", "file holding the shared bearer token that gates POST /ingest; empty/absent/empty-file -> /ingest disabled (never an unauthenticated write route)")
@@ -5184,6 +5395,14 @@ func main() {
 		} else {
 			log.Printf("auth-token-file %q unreadable (%v); /ingest disabled", *authTokenFile, rerr)
 		}
+	}
+	// Archive root: the pool share's hosts/ directory as this machine sees it. Only
+	// the path is captured here; the directory itself is opened per request, because
+	// the CIFS mount arrives asynchronously after boot and may also go away and come
+	// back without this process noticing.
+	state.archiveRoot = strings.TrimSpace(*poolArchiveRoot)
+	if state.archiveRoot != "" {
+		log.Printf("archive route enabled at /archive/ from %q", state.archiveRoot)
 	}
 	// Lab connection token rotation: seeded before the server starts so the
 	// first /metrics scrape already carries a redeemable code. Requires the
@@ -5249,6 +5468,14 @@ func main() {
 	// because membership lives in the intent store this service never reads --
 	// the control service does the join. Read-only and open, like pool-status.
 	mux.HandleFunc("/api/v1/pool-stats", state.handlePoolStats)
+	// /archive/: archived cycle results served straight off the pool share. Registered
+	// only when a root is configured -- a proxy with no pool storage has nothing to
+	// serve, and an unregistered route is a cleaner 404 than a handler that always
+	// fails. Whether the mount is actually THERE is a per-request question (it comes
+	// up asynchronously after boot), answered inside the handler.
+	if state.archiveRoot != "" {
+		mux.HandleFunc("/archive/", state.handleArchive)
+	}
 	// /go/cycle: dashboard timeline click -> 302 to the host's cycle-results folder,
 	// resolving the host's CURRENT IP live (so the link survives an IP change). Open
 	// (no auth): it only redirects to a host's already-open status service.

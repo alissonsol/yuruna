@@ -33,16 +33,6 @@
     unknown: 'Not answered yet, or the proxy holds no token of its own.'
   };
 
-  // The GUID-dashed presentation the dashboard uses for the opaque id. The
-  // table shows the short id, but a confirm prompt is where an operator commits
-  // to moving a machine: it names the host in full, and dashes are what makes
-  // 32 hex characters checkable against another screen.
-  function guid(hostId) {
-    const h = String(hostId);
-    if (h.length !== 32) return h;
-    return [h.slice(0, 8), h.slice(8, 12), h.slice(12, 16), h.slice(16, 20), h.slice(20)].join('-');
-  }
-
   // The two repository columns are the host's own account of what it runs on,
   // read from the clone it holds (or, when it holds none, from a probe of the
   // url it was configured with). So they answer for EVERY host, pooled or not,
@@ -243,7 +233,7 @@
   function hostCell(h) {
     if (!h.discovered) return Y.hostLink(h.hostId, h.pool, goBaseUrl);
     const box = Y.el('span', { class: 'discovered-host' });
-    if (h.hostId) box.appendChild(Y.el('span', { class: 'mono', text: Y.shortHost(h.hostId), title: h.hostId }));
+    if (h.hostId) box.appendChild(Y.el('span', { class: 'mono', text: Y.shortHost(h.hostId), title: Y.guid(h.hostId) }));
     const seen = h.lastSeen ? ', last seen ' + new Date(h.lastSeen).toLocaleString() : '';
     if (h.baseUrl) {
       box.appendChild(Y.el('a', {
@@ -257,7 +247,7 @@
     return box;
   }
 
-  function rowEl(h) {
+  function rowEl(h, n) {
     const sel = Y.el('select', { 'aria-label': 'Pool for host ' + (h.hostId || h.address) });
     sel.appendChild(Y.el('option', { value: '', text: '(none)' }));
     for (const p of pools) {
@@ -271,7 +261,7 @@
       // (none) also records an exclusion, or the sweep would undo this within a
       // minute and the UI would look broken. Say so, rather than surprise them.
       const extra = to ? '' : '\n\nIt will also be excluded from auto-enrolment, so the sweep will not add it back.';
-      if (!confirm('Move host ' + guid(h.hostId) + ' to ' + label + '?' + extra)) {
+      if (!confirm('Move host ' + Y.guid(h.hostId) + ' to ' + label + '?' + extra)) {
         sel.value = h.pool || '';
         return;
       }
@@ -297,6 +287,7 @@
     const f = facts[factKey(h)];
     const factErr = f && !f.ok ? (f.error || '') : '';
     return Y.el('tr', {}, [
+      Y.numCell(n),
       Y.el('td', {}, [hostCell(h)]),
       Y.el('td', {}, [hostnameCell(h.hostname)]),
       Y.el('td', { class: 'host-type' }, [typeCell(h.type)]),
@@ -314,7 +305,10 @@
   function render() {
     const body = document.getElementById('host-rows');
     body.textContent = '';
-    for (const h of sorted(hosts)) body.appendChild(rowEl(h));
+    // The counter numbers the position on screen, not the host in it, so it
+    // runs 1..n down the page whichever column the table is sorted by.
+    let n = 0;
+    for (const h of sorted(hosts)) body.appendChild(rowEl(h, ++n));
     const unlock = document.getElementById('show-hostnames');
     if (unlock) unlock.hidden = hostnamesVisible;
   }

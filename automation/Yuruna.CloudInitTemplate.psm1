@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42c9d0e1-b3a4-4f56-9b67-78c2e3f4d5a6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -285,10 +285,19 @@ function New-CloudInitUserData {
         chain them by hand. Caller still owns the per-platform
         $BasePath / $OverlayPath choice and the per-cycle replacement
         values (VMName, Username, password hash, host IP / port, ...).
-        The YURUNA_RETRY_LIB_BASE64_PLACEHOLDER, YURUNA_VERSIONS_BASE64_PLACEHOLDER,
-        YURUNA_FAE_BASE64_PLACEHOLDER, and YURUNA_NETWORK_BASE64_PLACEHOLDER entries
-        are populated automatically -- a caller that passes them in -Replacement
-        will override the auto-populated values, but this is rarely what you want.
+        These entries are populated automatically, from the guest scripts under
+        $RepoRoot/automation/, from the ambient environment, and from the
+        checkout at $RepoRoot:
+          YURUNA_RETRY_LIB_BASE64_PLACEHOLDER, YURUNA_VERSIONS_BASE64_PLACEHOLDER,
+          YURUNA_FAE_BASE64_PLACEHOLDER, YURUNA_NETWORK_BASE64_PLACEHOLDER,
+          YURUNA_HOST_LOCATE_BASE64_PLACEHOLDER, YURUNA_HOST_ID_PLACEHOLDER,
+          YURUNA_CACHING_PROXY_SERVICE_IP_PLACEHOLDER, YURUNA_GITHUB_REPO_PLACEHOLDER,
+          YURUNA_GITHUB_REF_PLACEHOLDER, GH_TOKEN_PLACEHOLDER,
+          YURUNA_FRAMEWORK_URL_PLACEHOLDER, YURUNA_PROJECT_URL_PLACEHOLDER.
+        A caller that passes any of them in -Replacement overrides the
+        auto-populated value. That is right only when the caller has a better
+        answer than the ambient one -- the service-VM seeds pass a hostId they
+        already resolved -- and is otherwise rarely what you want.
     .PARAMETER BasePath
         Absolute path to the shared base user-data template (e.g.
         $RepoRoot/host/vmconfig/ubuntu.server.base.user-data).

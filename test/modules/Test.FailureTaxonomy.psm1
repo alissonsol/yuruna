@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42b7e3c5-9a14-4d28-8f63-1e0a2b4c6d80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,50 +30,13 @@ $script:FailureClassEnum = @(
     'host_io_blocked', 'pattern_matched_failure', 'retry_exhausted',
     'snapshot_restore_failed', 'script_error', 'wait_timeout',
     'extension_error', 'instrumentation_failure', 'provisioning_failure',
-    # elevation_required: the host asked for a sudo password with no operator
-    # present. Its own class because it is the one failure that is provably
-    # unfixable from anywhere but the console -- retrying it, on this cycle or
-    # any later one, can only reproduce it, so remediation must route it
-    # straight to operator_intervention_required rather than burn the backoff.
-    # project_access_denied: a POOL assigned this host a projectUrl its
-    # credential cannot read. Distinct from bootstrap_sync (this host's own
-    # project failing to clone) because the fix belongs to a different person --
-    # the pool admin who made the assignment, not the host owner -- and distinct
-    # from network_timeout because no retry can ever succeed.
-    # host_network_degraded: the HOST's own guest-network path is broken, so
-    # every network-touching guest on it fails identically for a reason no
-    # guest-level retry can influence. Its own class because a virtual switch
-    # object outlives its uplink binding across a host reboot -- the switch is
-    # still there, nothing it carries forwards, and each guest reports only its
-    # own symptom (network_timeout / provisioning_failure). It is deliberately
-    # absent from the transient fast-retry allow-lists: retrying against a
-    # bridge with no carrier can only spend the cycle budget, so it routes to
-    # the operator like elevation_required does.
-    # ip_not_discovered: no host-side probe could name an address for the guest,
-    # so the step never reached it. Distinct from network_timeout, which means a
-    # real address was found and the path to it failed, and distinct from
-    # host_network_degraded, which is unrecoverable and routes to the operator.
-    # This one is the recoverable lateness class: hypervisor address discovery
-    # rests on caches that age out and daemons that publish late, so the same
-    # call usually answers seconds later. It therefore belongs in the transient
-    # fast-retry allow-lists, and must never be reported as script_error -- the
-    # guest script never ran, and sending a reader to debug it wastes the cycle.
-    # payload_unavailable: the guest was reached and ran the fetch wrapper, but no
-    # source served the script, so the payload never executed. Distinct from
-    # ip_not_discovered, where the HOST could not name the guest: here the guest is
-    # up and talking, and it is the host that it cannot reach. Distinct from
-    # script_error for the reason that matters most -- nothing ran, so there is no
-    # script to debug and no guest state to distrust, which is what makes replaying
-    # the step sound. The usual cause is a host that renumbered under DHCP while the
-    # guest still held its old address; the guest re-asks the pool directory and
-    # normally recovers, so this belongs in the transient fast-retry allow-lists.
-    # It stays ONE class rather than splitting on which leg failed: whether the
-    # payload arrives next time depends on the host becoming reachable again, not
-    # on the GitHub fallback, so a terminal 404 from that fallback does not make
-    # the failure permanent. Where the fallback IS the dead end -- a private
-    # repository with no token -- the recovery text names it.
+    # --- REGION: https://yuruna.link/failure-schema#why-each-infra-failure-class-exists
+    # Each name below is a distinct class only where retry policy, or the person
+    # who can fix it, differs from every other class; the per-class derivation
+    # lives in the doc.
     'bootstrap_sync', 'plan_invalid', 'elevation_required', 'project_access_denied',
-    'host_network_degraded', 'ip_not_discovered', 'payload_unavailable', 'unknown'
+    'host_network_degraded', 'ip_not_discovered', 'payload_unavailable',
+    'pool_storage_full', 'unknown'
 )
 $script:SeverityEnum = @('hard', 'soft', 'unknown')
 

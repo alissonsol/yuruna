@@ -676,11 +676,99 @@ The scheduled `mirror.gcr.io` entry pins `library/registry:2`, the only Docker
 Hub image the workloads depend on. A poll does not suppress the on-demand
 revalidation a client request still triggers, but it keeps the content
 resident, so that revalidation settles as a fast no-op instead of a full
-multi-arch fetch. It is
-also why the canary stays meaningful against a pinned tag: it still walks the
-upstream path it exists to measure. Nothing broader is scheduled, because k8s
-and flannel tags float with version and an unpinned poll would mirror far more
-than the lab pulls.
+multi-arch fetch. Nothing broader is scheduled here, because k8s and flannel
+tags float with version and an unpinned poll would mirror far more than the lab
+pulls — those sets are kept warm by
+[the warm sets](#warm-sets-and-the-cold-sync-reading) instead, which can resolve
+the exact versions in use.
+
+That residency is also the reason the manifest canary is labelled
+**`zot resident-tag revalidation`** rather than as a reading about pulls. It
+times a tag the scheduled poll keeps resident, so it walks the upstream leg and
+returns in milliseconds — including while an image the cache does *not* hold is
+mid-copy and a guest is minutes into waiting for it. The canary cannot show that
+state, by construction: any tag it can measure cheaply and repeatedly is one the
+cache already holds. The warm-set residency counts are the reading that shows
+it.
+
+### Warm sets and the cold-sync reading
+
+A tag request the cache cannot answer from storage copies the whole multi-arch
+index before the manifest is returned. On a control-plane set that is minutes
+per image, against a guest step budget sized for a warm cache — and because
+containerd abandons a pull at its response-header deadline and retries, the
+result reads as a bare step timeout naming no image.
+
+`zot-prewarm.service` (timer: `OnBootSec=3min`, then every 6h) keeps those sets
+resident and times every fetch. The versions are resolved, never pinned in the
+seed:
+
+| Set | Resolved from |
+|---|---|
+| Kubernetes control plane | `YURUNA_K8S_MINOR` fetched from `automation/yuruna-versions.sh` → `dl.k8s.io/release/stable-<minor>.txt` → `kubeadm config images list` run from the matching release binary |
+| CNI (flannel) | the `releases/latest` redirect, then the `image:` names in the `kube-flannel.yml` that tag publishes |
+
+Resolving through `kubeadm` itself is not indirection for its own sake:
+`coredns`, `pause` and `etcd` carry tags of their own, baked into the binary and
+moved on their own schedule, so a tag glob or any arithmetic on the Kubernetes
+version misses three of the seven images — and those three are then the ones
+that arrive cold. Fetching the pin rather than restating it in the seed matters
+for the same reason: the seed is not handed `yuruna-versions.sh` at build time,
+so a version named here would be a second pin, and a second pin only announces
+its staleness as a cold cache during a provisioning run. A resolution outage
+falls back to the previously resolved set rather than to an empty one.
+
+The published reading, on `http://<cache>/cache-health` and as
+`yuruna_prewarm_*` gauges:
+
+```
+Warm sets, last warmed 2026-08-14T16:10:04Z (versions resolved via local host status service):
+  Kubernetes image set (v1.36.3, pinned minor 1.36):
+    resident                 : 3 of 7   <-- a kubeadm init pays 4 cold sync(s)
+  CNI image set (flannel v0.28.1):
+    resident                 : 2 of 2
+  cold-sync watermark        : 611s (registry.k8s.io/kube-scheduler:v1.36.3)
+```
+
+`resident` is the count a guest cares about; the **cold-sync watermark** is the
+slowest fetch that actually moved content at the currently resolved versions,
+carried across runs and reset when a version moves. Once a set is warm every
+later reading is sub-second, so the watermark is the only place the cold cost
+survives. `Get-SystemDiagnostic.ps1` lifts any shortfall into the problems
+summary, since every other reading on the page stays green through it.
+
+Guests warm the same way before they pull — `yuruna_warm_refs` in the
+`*.k8s.sh` scripts issues one patient request per image, prints what it waited
+on, and stops the run with a diagnosable message if the control-plane set has
+not arrived inside `YURUNA_IMAGE_WARM_BUDGET` (default 900s). Stopping is the
+point: the alternative is spending the whole step budget on retries and failing
+as a timeout that names nothing. Interrupted syncs continue in the cache, so a
+re-run lands warm.
+
+Guests **read** the published reading rather than measuring it. The liveness
+gate a guest runs first proves only that the registry process is alive, which it
+stays — in milliseconds — however badly the pull-through behind it is stalled;
+what a pull actually waits on is a manifest request, because that is what
+re-runs the upstream sync. The cache times that itself and publishes the result,
+so reading the page costs nothing, whereas timing a manifest request from the
+guest would spend one pull from the upstream budget the whole lab shares, on
+every provisioning run. The reading is advisory and never fatal — containerd
+waits a slow cache out, and the pull-progress cap bounds a genuine wedge — so a
+slow reading is not grounds to fail a run that can survive it. Its value is
+having the cache's condition recorded in **that guest's** log at provisioning
+time, so a pull that fails an hour later has a before-picture instead of only an
+`ImagePullBackOff`.
+
+Both the prewarm job and the guest loop send `?ns=<upstream>` — the parameter
+containerd's `hosts.toml` form sends, and the cache's only way to know which
+upstream a repository belongs to. Dropping it puts the lookup on the Docker Hub
+catch-all described below, spending metered quota on images Docker Hub never
+served.
+
+The cost is real and not reducible in the registry's configuration: sync copies
+every platform in the index, so the lab stores roughly five architectures to run
+one. Pre-warming does not remove that; it moves it off the path a guest is
+waiting on.
 
 ### Keeping tag resolution off a metered upstream
 
@@ -1486,6 +1574,38 @@ Remote clients point at `http://<host-lan-ip>:3128` (apt) or
 `192.168/16`). Public-IP clients stay denied even if firewall + portproxy
 let the packets through. Not an open internet proxy.
 
+### The bare :80 redirect, and what must not be redirected
+
+`http://<cache>/` — the address an operator types from memory — redirects to
+the pool dashboard Grafana already serves. Unconfigured it answers with
+Ubuntu's stock apache2 placeholder, which says nothing about this VM.
+
+**Only the document root is redirected.** Every other published path on `:80`
+has a consumer that needs its actual content, and each of these breaks
+differently if it starts answering a 302:
+
+| Path | Consumer |
+|---|---|
+| `yuruna-squid-ca.crt`, the pool CA cert | guest provisioning fetches the CA before it can trust the proxy |
+| `squid-meta`, `zot-meta` | Prometheus scrapes both by explicit `metrics_path` against `localhost:80` |
+| `cache-health` | the human-readable health page, and the diagnostic that lifts its shortfalls |
+| the `*-status` breadcrumbs | operator triage of what the seed reached |
+| `/pool-intent.git` | the read-only intent store guests and the pool-control service clone |
+
+**The rule lives in `<Directory>`, not at server level.** mod_rewrite rules are
+NOT inherited into `<VirtualHost>` blocks, and Ubuntu serves `:80` from the
+stock `000-default.conf` vhost — so a server-level `RewriteRule` here parses
+cleanly, passes `apache2ctl configtest`, and then silently never fires.
+`<Directory>` sections merge into the vhost normally, and this path is the
+vhost's own `DocumentRoot`. In that context the match is relative to the
+directory, which is why the empty string is the request for `/`.
+
+**The target is `%{SERVER_NAME}`, never a literal address.** This VM takes its
+IP from DHCP. Under the default `UseCanonicalName Off`, `%{SERVER_NAME}`
+resolves to the host the client actually used with the port stripped, so the
+redirect stays on the same box whether the cache was reached by IP, by name, or
+through a port-forward from the hypervisor host.
+
 ### Pinning the cache VM's IP (stable MAC + DHCP reservation)
 
 Every `Start-CachingProxyServiceVM.ps1` rebuild recreates the VM with a fresh
@@ -1968,6 +2088,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.14
+Last review: 2026.08.16
 
 Back to [Yuruna](../README.md)

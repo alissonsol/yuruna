@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e8f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -83,6 +83,10 @@ function Resolve-HostTag {
     return $script:HostTag
 }
 
+# The supporting test/modules become callable from our function bodies;
+# Export-ModuleMember below decides which of OUR functions become visible
+# to test/ orchestration. Yuruna.Host.psm1's exports shadow any same-name
+# exports the supporting modules also produce.
 # These dependency modules are imported -Global: Yuruna.Host is -Force re-imported
 # mid-cycle, and a bare -Force import here lands in Yuruna.Host's nested scope and
 # EVICTS the global copy other modules call via qualified names (e.g.
@@ -113,7 +117,7 @@ $script:ImagePathTable = @{
     'guest.windows.11'    = "$HOME/yuruna/image/windows.11/host.ubuntu.kvm.guest.windows.11.iso"
 }
 
-# --- REGION: Private helpers
+# --- REGION: KVM host helpers
 
 <#
 .SYNOPSIS
@@ -385,6 +389,68 @@ function Get-VMState {
 
 <#
 .SYNOPSIS
+    Return $DomainXml with its first NIC address set to the deterministic
+    MAC for $VMName. Input is returned unchanged when there is no NIC.
+.DESCRIPTION
+    See https://yuruna.link/network#defining-deterministic-guest-mac-addresses
+    for the address itself. A domain is normally pinned at BUILD time to the
+    identity its guest keeps for life, and then this rewrite is never needed.
+    It exists for the domain that was pinned to the per-kind slot name instead
+    (a guest whose sequence declares no hostname of its own): that address
+    belongs to the slot, and a promoted domain sitting on it makes the NEXT
+    build of the slot ask for an address already in use. Two domains holding
+    one MAC is not a slow leak like the random-address churn this scheme
+    replaced: virt-install refuses the second build outright ("in use by
+    another virtual machine"), and a hypervisor that does not refuse puts two
+    live NICs with one address on the same segment.
+
+    The caller decides whether the rewrite applies -- see Rename-VM, which asks
+    Get-GuestMacFromDomainXml what the NIC currently holds first. Moving a
+    domain that is already on its own identity re-DHCPs a running guest whose
+    state may record the address it was built on.
+
+    Only the first <mac address=.../> is rewritten. A domain with a second
+    interface needs a second DISTINCT address, and giving it this one twice
+    would recreate on one guest exactly what the rewrite exists to prevent.
+#>
+function Set-GuestMacInDomainXml {
+    [CmdletBinding()]
+    [OutputType([string])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Returns rewritten XML; nothing is changed until the caller defines it.')]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$DomainXml,
+        [Parameter(Mandatory)][string]$VMName
+    )
+    if ([string]::IsNullOrEmpty($DomainXml)) { return $DomainXml }
+    # libvirt writes the address lowercase in dumpxml; match its casing so an
+    # unchanged domain compares equal and no needless redefine is attempted.
+    $mac = (Get-YurunaGuestMacAddress -VMName $VMName).ToLowerInvariant()
+    return ([regex]"(?<=<mac address=')[0-9A-Fa-f:]{17}(?=')").Replace($DomainXml, $mac, 1)
+}
+
+<#
+.SYNOPSIS
+    The address on the first NIC in $DomainXml, or '' when there is none.
+.DESCRIPTION
+    The read half of Set-GuestMacInDomainXml, matching the same first
+    <mac address=.../> that rewrite would target, so a caller comparing before
+    writing is comparing the value it is about to replace.
+.OUTPUTS
+    [string] the address as libvirt wrote it, or '' when the domain has no NIC.
+#>
+function Get-GuestMacFromDomainXml {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$DomainXml)
+    if ([string]::IsNullOrEmpty($DomainXml)) { return '' }
+    $m = [regex]::Match($DomainXml, "(?<=<mac address=')[0-9A-Fa-f:]{17}(?=')")
+    if (-not $m.Success) { return '' }
+    return $m.Value
+}
+
+<#
+.SYNOPSIS
     Rename a stopped libvirt domain and relocate its on-disk artifacts.
 .DESCRIPTION
     libvirt 1.2.19+ ships `virsh domrename` which mutates the domain
@@ -396,6 +462,13 @@ function Get-VMState {
     lives under the old path and the next cycle's
     Remove-OrphanedVMFiles.ps1 would reclaim it on the
     "directory-named-after-an-absent-VM" heuristic.
+
+    The same rewrite moves the NIC address, but only for a domain still
+    sitting on the address the OLD name derives: that one belongs to the
+    name being vacated, and the next build under it is refused outright
+    while a domain still holds it. A domain on any other address was
+    pinned at build time to the identity its guest keeps for life and is
+    left alone -- see Set-GuestMacInDomainXml.
 
     Requires the domain to be stopped; the caller (Save-VMDiskSnapshot)
     handles the stop. Returns $false on any sub-step failure.
@@ -457,13 +530,22 @@ function Rename-VM {
         # but possible: '.' in 'ubuntu.server.24' is fine literal but a
         # plain Replace is safer than a regex here).
         $newXmlText = $xmlText.Replace($oldDir, $newDir).Replace("$VMName.", "$NewName.")
+        # A NIC still holding the address the OLD name derives is holding that
+        # NAME's address rather than the guest's, and the name is being vacated
+        # -- so the address has to move with it, or the next domain built under
+        # it is refused for a duplicate. Any other address was pinned at build
+        # time to the identity this guest keeps for life: re-deriving it here
+        # would re-DHCP a guest whose own state records the address it has.
+        if (Test-YurunaGuestMacMatchesName -MacAddress (Get-GuestMacFromDomainXml -DomainXml $newXmlText) -VMName $VMName) {
+            $newXmlText = Set-GuestMacInDomainXml -DomainXml $newXmlText -VMName $NewName
+        }
         if ($newXmlText -ne $xmlText) {
             $tmpXml = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-rename-{0}.xml" -f [Guid]::NewGuid())
             try {
                 Set-Content -LiteralPath $tmpXml -Value $newXmlText -Encoding utf8 -NoNewline -Force
                 Invoke-Virsh -VirshArgs @('define', $tmpXml) 2>&1 | Out-Null
                 if ($LASTEXITCODE -ne 0) {
-                    Write-Warning "Rename-VM: virsh define with rewritten XML failed; domain renamed but disk paths still point at old dir."
+                    Write-Warning "Rename-VM: virsh define with rewritten XML failed; domain renamed but disk paths and NIC address still carry the old name's values."
                     return $false
                 }
             } finally {
@@ -1318,7 +1400,7 @@ function New-ExternalNetwork {
     return 'default'
 }
 
-# --- REGION: helpers for New-YurunaExternalNetwork
+# --- REGION: External network helpers
 # Internal. Returns the interface name carrying the default IPv4 route, or
 # $null if none. Filters out the NIC if it's already a bridge port whose
 # master is the one we're about to (re-)create; matches "what's the WAN-
@@ -2191,7 +2273,7 @@ function New-YurunaExternalNetwork {
     # Write-Output would turn $x into a string[] and break downstream
     # consumers (Get-ExternalNetwork compares against this exact name).
 
-    # --- REGION: Step 1: idempotency
+    # --- REGION: Step 1: Reuse an already-defined network
     # Fast-return when the libvirt network is already defined -- but
     # NOT before verifying the backing host bridge actually has a LAN
     # uplink. A previous bring-up can leave the bridge half-built
@@ -2226,7 +2308,7 @@ function New-YurunaExternalNetwork {
         Write-Information "Rebuilding host bridge '$BridgeName' for the existing libvirt network '$NetworkName'."
     }
 
-    # --- REGION: Step 2: resolve default-route NIC
+    # --- REGION: Step 2: Resolve the default-route NIC
     # Every failure exit from here to the build must stop an
     # already-defined network (Stop-YurunaUnusableExternalNetwork):
     # the reuse branch above (re)started it BEFORE the bridge proved
@@ -2247,7 +2329,7 @@ function New-YurunaExternalNetwork {
         return $null
     }
 
-    # --- REGION: Step 3: maybe the NIC is already bridged
+    # --- REGION: Step 3: Reuse an already-bridged NIC
     # If the operator (or a previous run) already put the WAN NIC on a
     # bridge, reuse it. This keeps the host networking change to zero:
     # we only need to define the libvirt network pointing at the existing
@@ -2278,7 +2360,7 @@ function New-YurunaExternalNetwork {
     if ($existingBridge) {
         $BridgeName = $existingBridge
     } else {
-        # --- REGION: Step 4: build the bridge
+        # --- REGION: Step 4: Build the bridge
         # Guard: if NetworkManager has core-dumped recently AND NM is the
         # active backend, the nmcli bridge build is almost certainly what
         # crashed it (upstream NM assertion bug in nm-settings-utils.c).
@@ -2369,7 +2451,7 @@ function New-YurunaExternalNetwork {
         }
     }
 
-    # --- REGION: Step 5: define + start the libvirt network
+    # --- REGION: Step 5: Define and start the libvirt network
     # libvirt's <forward mode='bridge'/> with a <bridge name='...'/> tells
     # qemu to attach guests directly to the named bridge via a tap; the
     # guest's MAC is visible on the LAN and gets its own DHCP lease.
@@ -2457,6 +2539,18 @@ function New-YurunaBridgeViaNmcli {
     # have exactly one physical NIC under this bridge; loops are
     # impossible). ipv4.method=auto + ipv6.method=auto let the bridge
     # DHCP independently after $Nic's original IP lease is dropped.
+    #
+    # dhcp-client-id/dhcp-iaid = mac is the nmcli spelling of the netplan
+    # path's `dhcp-identifier: mac`, and it is load-bearing for the same
+    # reason: cloning the MAC alone fixes only the layer-2 identity, while
+    # NM's default client-id is a machine-id-derived DUID, so a server that
+    # keys leases on client-id renumbers the host anyway. A host that draws
+    # a fresh address on every renewal consumes the pool at a rate set by
+    # the lease time rather than by how many machines are on the LAN, which
+    # a long lease turns into exhaustion within days. dhcp-send-release
+    # returns the address when the profile goes down rather than parking it
+    # until expiry. See docs/network.md, 'Host address stability'.
+    #
     # nmcli output is captured (not piped to Write-Verbose) so
     # Write-YurunaNmcliFailure can surface the verbatim error -- or
     # diagnose a NetworkManager crash -- on failure.
@@ -2465,6 +2559,9 @@ function New-YurunaBridgeViaNmcli {
         'autoconnect', 'no',
         'bridge.stp', 'no',
         'ipv4.method', 'auto',
+        'ipv4.dhcp-client-id', 'mac',
+        'ipv4.dhcp-iaid', 'mac',
+        'ipv4.dhcp-send-release', 'yes',
         'ipv6.method', 'auto')
     if ($nicMac) { $addArgs += @('bridge.mac-address', $nicMac) }
     $addOut = & sudo nmcli @addArgs 2>&1
@@ -3393,10 +3490,14 @@ Export-ModuleMember -Function `
     Set-HostProxy, Clear-HostProxy, Remove-HostProxy, Get-HostProxyBackupPath, Assert-Virtualization
 
 # Contract-coverage assertion: warns at load time if the export block
-# above drifts away from the canonical Yuruna.Host contract. See
-# host/Yuruna.Host.Contract.psm1 for the verb list and rationale.
+# above drifts away from the canonical Yuruna.Host contract. The module
+# handle travels with the declared list so the check runs against what
+# Export-ModuleMember actually published: the list on its own is a second
+# copy of the contract and would pass even after the export block lost a
+# verb. See host/Yuruna.Host.Contract.psm1 for the verb list and rationale.
 Import-Module (Join-Path -Path $PSScriptRoot -ChildPath '..' -AdditionalChildPath '..', 'Yuruna.Host.Contract.psm1') -Force -DisableNameChecking
-$null = Assert-YurunaHostContractCoverage -HostType 'ubuntu.kvm' -ExportedFunction @(
+$null = Assert-YurunaHostContractCoverage -HostType 'ubuntu.kvm' `
+    -Module $ExecutionContext.SessionState.Module -ExportedFunction @(
     'New-VM','Start-VM','Stop-VM','Stop-VMForce','Remove-VM','Rename-VM','Get-VMState','Get-VMName',
     'Save-VMDiskSnapshot','Restore-VMDiskSnapshot','Test-VMDiskSnapshot',
     'Test-VMConsoleOpen','Restart-VMConsole',

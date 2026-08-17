@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42f3a4b5-c6d7-4e89-9a0b-cd2e3f4a5b64
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,7 +38,7 @@ if (-not (Get-Command ConvertFrom-Yaml -ErrorAction SilentlyContinue)) {
     Import-Module powershell-yaml -ErrorAction SilentlyContinue
 }
 
-# --- REGION: AST helpers (script scope; referenced from It blocks -> Pester 4)
+# --- REGION: https://yuruna.link/memory#pester-file-scope-fixtures
 function Get-FileAst {
     param([string]$Path)
     $errs = $null

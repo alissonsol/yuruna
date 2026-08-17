@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456811
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -455,6 +455,18 @@ function Get-ExtensionHostAddress {
             $fromPool = [string](Get-PoolExtensionHost @lookup)
             if (-not [string]::IsNullOrWhiteSpace($fromPool)) {
                 [void]$candidates.Add(@{ Address = $fromPool; Source = 'the pool' })
+            } elseif (Get-Command Get-PoolExtensionHostLastOutcome -ErrorAction SilentlyContinue) {
+                # An empty pool answer is about to become "found none", which a
+                # caller may turn into a stopped cycle. Say which empty it was:
+                # a reachable pool that knows no such host is a real answer, an
+                # unreachable one is a statement about this host's link and says
+                # nothing about whether the service exists.
+                $poolOutcome = Get-PoolExtensionHostLastOutcome
+                if ($poolOutcome.Outcome -in @('transport-error', 'http-error')) {
+                    Write-Warning "Get-ExtensionHostAddress: the pool could not be asked about '$HostType' ($($poolOutcome.Outcome): $($poolOutcome.Detail)). Treat this as 'unknown', not as 'no $HostType host exists'."
+                } else {
+                    Write-Verbose "Get-ExtensionHostAddress: the pool has no '$HostType' host ($($poolOutcome.Outcome): $($poolOutcome.Detail))."
+                }
             }
         } catch {
             Write-Verbose "Get-ExtensionHostAddress: the pool lookup for '$HostType' failed: $($_.Exception.Message)"

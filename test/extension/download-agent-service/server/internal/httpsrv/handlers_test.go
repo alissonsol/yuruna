@@ -158,7 +158,7 @@ func newServer(t *testing.T, opts Options) (*httptest.Server, *fakeImages) {
 	f := newFake(t)
 	opts.Images = f
 	if opts.Version == "" {
-		opts.Version = "2026.08.14"
+		opts.Version = "2026.08.16"
 	}
 	srv := httptest.NewServer(New(opts).Handler())
 	t.Cleanup(srv.Close)
@@ -443,7 +443,7 @@ func TestTheAdvertisedFileUrlIsFetchableVerbatim(t *testing.T) {
 		t.Fatalf("Commit: %v", err)
 	}
 
-	srv := httptest.NewServer(New(Options{Images: agent, Version: "2026.08.14"}).Handler())
+	srv := httptest.NewServer(New(Options{Images: agent, Version: "2026.08.16"}).Handler())
 	t.Cleanup(srv.Close)
 
 	catalog := decodeBody(t, get(t, srv, "/api/v1/images"))

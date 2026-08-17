@@ -346,7 +346,7 @@ elsewhere; see `test/schemas/lab.vault.schema.yml`). Sharing the
 folders is yours to do — one dedicated account per share, as in the
 A.2 example; any Samba/SMB server with the same share names and
 accounts works. Then, on each machine, fill `networkStorage.*`, put
-the share passwords in the vault, and set `pool.networkReplicate:
+the share passwords in the vault, and set `networkStorage.moveLogsToPoolStorage:
 true` on hosts that should archive cycles
 ([test-config.md](test-config.md)).
 
@@ -354,7 +354,7 @@ true` on hosts that should archive cycles
 `test/lab/New-LocalLabStorage.ps1` does the whole step instead** — the
 accounts, SMB server, shares, vault entries, mounts, and the six
 `networkStorage.*` keys, on top of the `New-Lab` call. Idempotent,
-`-WhatIf`-able, `-EnableReplication` for `pool.networkReplicate`.
+`-WhatIf`-able, `-MoveLogs` for `networkStorage.moveLogsToPoolStorage`.
 Details:
 [operator.md B.7](operator.md#b7-local-shares-for-pool-and-stash-storage).
 
@@ -732,6 +732,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.14
+Last review: 2026.08.16
 
 Back to [Yuruna](../README.md)

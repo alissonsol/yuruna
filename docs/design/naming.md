@@ -44,7 +44,7 @@ nothing bare about `2 * time.Hour`.
 
 ## Booleans: a bare adjective or verb phrase
 
-`enabled`, `stopOnFailure`, `networkReplicate`, `alwaysRedownload`. No `is` or
+`enabled`, `stopOnFailure`, `moveLogsToPoolStorage`, `alwaysRedownload`. No `is` or
 `should` prefix, and no `Enabled` suffix on a compound — nest it instead:
 
 ```yaml
@@ -101,6 +101,30 @@ which is what both of those read.
 [host/README.md](../../host/README.md) for what a host implementation may
 assume about it.
 
+## Host ids: one key, two renderings
+
+The host id is `42` plus 30 hex, and the **undashed 32-hex** form is the only one
+that is ever a key — `runtime/host.uuid`, `POOL.members`, every telemetry label.
+Two renderings exist and neither may be written back to a store:
+
+| Form | Where | Produced by |
+| --- | --- | --- |
+| `42a1b2c3d4e5…` (32 hex) | every store, join and label | `Get-YurunaHostId` |
+| `42a1b2c3-d4e5-…` (8-4-4-4-12) | any surface showing an operator a **full** id | `Format-YurunaHostId`, JS `guid` |
+| `42a1b2c3` (first 8) | dense surfaces — dashboard columns, `<hostId8>` in a VM name | JS `Y.shortHost` |
+
+The dashes are not decoration: a lab holds a dozen ids that share the `42`
+prefix, and 32 undifferentiated hex characters cannot be checked against another
+screen by eye. Because the dashed form is what an operator copies, every
+pool-admin entry point canonicalizes on the way in through
+`ConvertTo-YurunaHostId`.
+
+Render and canonicalize are not inverses. A renderer passes anything that is not
+32 bare hex through untouched, so a pool GUID keeps its own dashes; the
+canonicalizer strips braces and dashes first and returns `$null` on anything that
+is not `42` + 30 hex. Never feed a rendering back to a store, and never hand a
+pool GUID to the canonicalizer.
+
 ## Pages
 
 Named for their function, not their file history: `config.html`,
@@ -133,4 +157,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.14
+Last review: 2026.08.16

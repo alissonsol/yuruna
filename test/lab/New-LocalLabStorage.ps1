@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42c1f7a4-8e05-49bd-9d36-3f7ab2c48e91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -88,10 +88,12 @@
     Lab name passed to New-Lab.ps1 (lowercase letters, digits, hyphens).
     Defaults to this machine's host name, normalized to that charset.
 
-.PARAMETER EnableReplication
-    Also set pool.networkReplicate to true, so finished cycles are archived to
-    the pool share. Off by default: it is a runner behavior change, and with it
-    on a broken share stops cycles from starting rather than being advisory.
+.PARAMETER MoveLogs
+    Select MOVE mode for the pool tier: each finished cycle is copied to the
+    share, verified, and then deleted locally, so the share holds the only copy.
+    Off by default (copy mode keeps the local folder) -- move mode makes a broken
+    or full share stop cycles rather than merely warn. Writing the pool paths
+    already turns archiving on; this only chooses the mode.
 
 .PARAMETER Force
     Skip this script's own confirmation prompts, including the local-only
@@ -104,8 +106,8 @@
     # should live, and does everything else unattended.
 
 .EXAMPLE
-    pwsh test/lab/New-LocalLabStorage.ps1 -Root /srv/yuruna -EnableReplication
-    # Non-interactive about the location, and turns cycle archiving on.
+    pwsh test/lab/New-LocalLabStorage.ps1 -Root /srv/yuruna -MoveLogs
+    # Non-interactive about the location, and archives in move mode.
 
 .EXAMPLE
     pwsh test/lab/New-LocalLabStorage.ps1 -WhatIf
@@ -129,7 +131,7 @@
 param(
     [Parameter(Position = 0)][string]$Root,
     [Parameter(Position = 1)][string]$LabName,
-    [switch]$EnableReplication,
+    [switch]$MoveLogs,
     [switch]$Force
 )
 
@@ -551,14 +553,14 @@ if (-not (Test-Path -LiteralPath $configPath) -and -not $WhatIfPreference) {
         Write-Information "      created test.config.yml from the template"
     }
 }
-$wrote = Set-LocalLabStorageConfigValue -ConfigPath $configPath -Tier $tiers -EnableReplication:$EnableReplication
+$wrote = Set-LocalLabStorageConfigValue -ConfigPath $configPath -Tier $tiers -MoveLogs:$MoveLogs
 if ($wrote) {
     foreach ($t in $tiers) {
         Write-Information "      $($t.ConfigPrefix)NetworkPath: $($t.NetworkPath)"
         Write-Information "      $($t.ConfigPrefix)NetworkUser: $($t.Account)"
         Write-Information "      $($t.ConfigPrefix)LocalPath  : $($t.LocalPath)"
     }
-    if ($EnableReplication) { Write-Information "      pool.networkReplicate: true" }
+    Write-Information "      moveLogsToPoolStorage: $([bool]$MoveLogs)"
 }
 
 # --- REGION: Step 8 -- mount
@@ -595,7 +597,7 @@ if ($WhatIfPreference -or -not $wrote) {
 } else {
     $configDoc  = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Yaml -Ordered
     $mountConfig = @{
-        pool  = Get-YurunaPoolStorageConfig  -Config $configDoc -IgnoreReplicate
+        pool  = Get-YurunaPoolStorageConfig  -Config $configDoc
         stash = Get-YurunaStashStorageConfig -Config $configDoc
     }
     foreach ($t in $tiers) {
@@ -652,10 +654,11 @@ Write-Information "=============================================================
 Write-Information ""
 Write-Information "Next:"
 Write-Information "  1. Validate:  pwsh test/Test-Config.ps1"
-if (-not $EnableReplication) {
-    Write-Information "  2. To archive finished cycles to the pool share, set"
-    Write-Information "     pool.networkReplicate: true in test/test.config.yml (or re-run"
-    Write-Information "     this script with -EnableReplication)."
+Write-Information "  2. Finished cycles are archived to the pool share (the paths are set)."
+if (-not $MoveLogs) {
+    Write-Information "     To ALSO delete each cycle's local folder once archived, set"
+    Write-Information "     networkStorage.moveLogsToPoolStorage: true in test/test.config.yml"
+    Write-Information "     (or re-run this script with -MoveLogs)."
 }
 Write-Information "  3. Other machines in this lab mount the SAME shares over the LAN."
 Write-Information "     They need their hosts entries pointing at THIS machine's LAN"

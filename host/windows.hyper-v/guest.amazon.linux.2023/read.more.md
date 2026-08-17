@@ -17,7 +17,7 @@ One-time per host: install the ADK Deployment Tools (for
 `oscdimg.exe`); confirm the path at the top of
 [`../modules/Yuruna.Host.psm1`](../modules/Yuruna.Host.psm1).
 
-## 2) Create the VM(s)
+## 2) Create the VM
 
 ```
 .\New-VM.ps1 amazon-linux01
@@ -54,6 +54,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.14
+Last review: 2026.08.16
 
 Back to [Yuruna](../../../README.md)

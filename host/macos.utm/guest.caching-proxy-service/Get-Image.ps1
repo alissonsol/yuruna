@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42f2c3d4-e5f6-4a78-b901-c2d3e4f5a6b8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,8 +26,8 @@
     (Get-UbuntuExtensionImageInfo / Save-UbuntuExtensionImage in
     host/modules/Yuruna.Image.psm1). Every extension service on this host
     boots the same cloud image, so one artifact serves all of them instead
-    of a byte-identical copy per service; the second and third service to
-    ask for it cost a single HEAD request. This per-service entry point
+    of a byte-identical copy per service; the second and later service to
+    ask for it costs a single HEAD request. This per-service entry point
     stays so the caching proxy can move to a different release, arch or
     post-processing step later without disturbing the others.
 
@@ -35,6 +35,7 @@
     grows its own per-VM copy to the size squid needs.
 #>
 
+# --- REGION: Log level from environment
 # Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
 # Load only when absent, never -Force. Start-CachingProxyServiceVM.ps1 runs this
 # script IN-PROCESS, so a forced re-import from here tears down and rebuilds the
@@ -49,6 +50,13 @@ if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (T
 }
 if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
+# --- REGION: Host platform guard
+if (-not $IsMacOS) {
+    Write-Error "host/macos.utm/guest.caching-proxy-service/Get-Image.ps1 only runs on macOS."
+    exit 1
+}
+
+# --- REGION: Import host modules
 # Yuruna.Host.psm1 supplies the cache-injecting Save-CachedHttpUri wrapper and
 # (via its global Yuruna.HostDownload import) the sentinel guard the shared
 # pipeline resolves by name. This guest IS the cache, so on a first-run host
@@ -56,6 +64,7 @@ if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLeve
 Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) 'modules/Yuruna.Host.psm1') -Force
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.Image.psm1') -Force
 
+# --- REGION: Resolve and fetch the base image
 try {
     $image = Get-UbuntuExtensionImageInfo -HostType 'macos.utm'
 } catch {

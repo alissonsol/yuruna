@@ -49,44 +49,51 @@ write_files:
     content: YURUNA_HOST_LOCATE_BASE64_PLACEHOLDER
     permissions: '0755'
   # --- REGION: https://yuruna.link/vmconfig#host-address-refresh-timer
-  # fetch-and-execute repairs the host address at the top of each step, which
-  # leaves one window open: a step that runs for many minutes can watch the
-  # host renumber underneath it and has no way back. The timer closes that
-  # window for everything else in the guest -- the project's own scripts, the
-  # perf checkpoints, the log uploads -- none of which pass through the fetch
-  # path and all of which read the same host.env.
-  #
-  # Affordable at this cadence because the resolver probes before it asks:
-  # while the address is still good the minute's work is one LAN round trip
-  # and no writes. A oneshot rather than a daemon -- there is no state to
-  # carry between ticks, and a oneshot cannot wedge.
   - path: /etc/systemd/system/yuruna-host-locate.service
     permissions: '0644'
     content: |
       [Unit]
       Description=Refresh Yuruna host coordinates if the host has changed address
-      # Ordered INTO the network-online barrier rather than after it. Anything
-      # in this guest that needs the host waits on that target, so finishing
-      # before it is what guarantees those consumers never read a stale
-      # address -- and it does so without this unit naming any of them, which
-      # is the whole point of the indirection.
-      #
-      # After the wait-online services (whichever the image ships; ordering
-      # against an absent unit is a no-op) so this runs with an address in
-      # hand rather than before DHCP has answered.
       After=network.target NetworkManager-wait-online.service systemd-networkd-wait-online.service
       Before=network-online.target
 
       [Service]
       Type=oneshot
-      # A resolver that cannot finish must not hold the boot open. Every call
-      # inside is already wall-clock bounded; this is the backstop for the day
-      # one of them is not.
       TimeoutStartSec=30
       ExecStart=/usr/local/lib/yuruna/yuruna-host-locate.sh
 
       [Install]
       WantedBy=network-online.target
+  # --- REGION: https://yuruna.link/network#defining-lease-release-on-teardown
+  # The guest returns its own lease. Asking for it from the host needs a login
+  # user, a resolvable address and a guest that is still running -- and the
+  # guests that hold leases longest are stopped while running and deleted while
+  # off, so there is no moment in their life where the host could ask. Here
+  # there is nothing to resolve and nobody to log in as.
+  #
+  # ExecStop with RemainAfterExit is the whole mechanism: the unit does nothing
+  # at boot and everything at stop, and being ordered After=network.target it
+  # is stopped BEFORE the network is, because shutdown reverses start order.
+  # TimeoutStopSec bounds it -- teardown's standing rule is that a wedged guest
+  # must never stall the sweep, and that has to keep holding for a guest wedged
+  # inside this unit.
+  - path: /etc/systemd/system/yuruna-dhcp-release.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Return this guest's DHCP lease before shutdown
+      Wants=network.target
+      After=network.target
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStart=/bin/true
+      ExecStop=/bin/bash /usr/local/lib/yuruna/yuruna-network.sh release
+      TimeoutStopSec=15
+
+      [Install]
+      WantedBy=multi-user.target
   - path: /etc/systemd/system/yuruna-host-locate.timer
     permissions: '0644'
     content: |
@@ -114,6 +121,15 @@ write_files:
 
 runcmd:
   - rmmod hv_balloon 2>/dev/null || true
+  # --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+  # Best-effort on every profile; a NIC that is not NM-managed is unaffected.
+  - |
+    bash -c 'command -v nmcli >/dev/null 2>&1 || exit 0
+      nmcli -t -f NAME connection show 2>/dev/null | while IFS= read -r c; do
+        [ -n "$c" ] || continue
+        nmcli connection modify "$c" ipv4.dhcp-client-id mac 2>/dev/null || true
+      done
+      nmcli networking off 2>/dev/null && nmcli networking on 2>/dev/null || true'
   # --- REGION: https://yuruna.link/vmconfig#login-session-budget
   - bash -c 'sed -i -E "/^[#[:space:]]*LOGIN_TIMEOUT/d" /etc/login.defs && echo "LOGIN_TIMEOUT 180" >> /etc/login.defs'
   # --- REGION: https://yuruna.link/vmconfig#enable-sshd-on-first-boot
@@ -146,8 +162,7 @@ runcmd:
   # reservation, which makes it the one address a guest can be born knowing.
   # Together they let yuruna-host-locate repair the address above instead of
   # the guest being stranded by it. Either one empty (no pool directory in
-  # this lab) simply leaves the baked address as the only answer, which is
-  # where every guest was before.
+  # this lab) simply leaves the baked address as the only answer.
   - mkdir -p /etc/yuruna
   - |
     cat > /etc/yuruna/host.env << 'EOF'
@@ -162,7 +177,10 @@ runcmd:
     EOF
   - bash -c 'grep -q yuruna-host /etc/hosts || echo "YURUNA_STATUS_SERVICE_IP_PLACEHOLDER yuruna-host" >> /etc/hosts'
   - systemctl enable --now yuruna-host-locate.service yuruna-host-locate.timer || true
-  # --- REGION: https://yuruna.link/definition#defining-the-two-source-scheme-for-framework-and-project-urls
+  # --now so the unit is active from this boot: its ExecStop only runs for a
+  # unit that is running, so one enabled but not started would sit inert until
+  # the reboot after this one and release nothing in between.
+  - systemctl enable --now yuruna-dhcp-release.service || true
   # --- REGION: https://yuruna.link/network#why-git-never-prompts-here
   # Never let git ask a question. There is no terminal to answer it: this guest
   # is driven by OCR of a console, so a credential prompt is not a failure but a

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e99
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -63,7 +63,7 @@ if ($arch -ne 'x86_64') {
 $ErrorActionPreference = 'Stop'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-# --- REGION: Required ISOs
+# --- REGION: Seek the base image
 # If any required ISO is missing, auto-run the sibling Get-Image.ps1 once
 # to try to fetch them, then recheck. Two missing ISOs trigger ONE Get-
 # Image run (not two), and a still-missing ISO after the run is a hard
@@ -101,7 +101,7 @@ Write-Verbose "Creating VM '$VMName' using image: $winIso"
 Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $winIso
 
-# --- REGION: VM directory + new disk
+# --- REGION: Create copies and files for VM
 $vmDir   = Join-Path $HOME "yuruna/vms/$VMName"
 $diskImg = Join-Path $vmDir "$VMName.qcow2"
 $autoIso = Join-Path $vmDir 'autounattend.iso'
@@ -131,6 +131,7 @@ Import-Module (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.Host.ps
 Import-Module (Join-Path $_kvmRepoRoot 'automation/Yuruna.GitHubSource.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $_kvmRepoRoot 'automation/Yuruna.GuestSeed.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $_kvmRepoRoot 'test/modules/Test.Config.psm1') -Global -Force
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
 $YurunaHostIp = Get-GuestReachableHostIp
 if (-not $YurunaHostIp) { $YurunaHostIp = '' }
 $YurunaHostPort = '8080'
@@ -178,7 +179,7 @@ if (-not (Test-Path -LiteralPath $nvram)) {
     Copy-Item -Path $ovmfVars -Destination $nvram
 }
 
-# --- REGION: Define + start the VM
+# --- REGION: Define + start the VM via virt-install
 $virshUri = 'qemu:///system'
 # Capture stdout+stderr + exit code for each call so an operator
 # running with -Verbose sees the per-call outcome. The post-condition
@@ -221,6 +222,13 @@ if ($hostCores -lt 4) {
 # minimum is 2 cores, which the clamp's lower bound preserves.
 $vmCores = [math]::Min($hostCores - 1, [math]::Max(2, [math]::Floor($hostCores / 2)))
 
+# Deterministic per (host, VM name): a rebuilt guest presents the SAME MAC, so
+# the DHCP server returns the SAME lease instead of consuming a new one. Random
+# MACs make every rebuild a fresh lease request, which drains a shared pool until
+# guests boot with no IPv4 at all.
+$YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $VMName
+Write-Verbose "Deterministic guest MAC for '$VMName': $YurunaGuestMac"
+
 $installArgs = @(
     '--connect',     $virshUri,
     '--name',        $VMName,
@@ -237,7 +245,7 @@ $installArgs = @(
     '--cdrom',       $winIso,
     '--disk',        "path=$virtioIso,device=cdrom,bus=sata",
     '--disk',        "path=$autoIso,device=cdrom,bus=sata",
-    '--network',     'network=default,model=virtio',
+    '--network',     "network=default,model=virtio,mac=$YurunaGuestMac",
     '--graphics',    'vnc,listen=127.0.0.1',
     '--noautoconsole'
 )
@@ -249,5 +257,6 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
+# --- REGION: Guidance
 Write-Verbose "VM '$VMName' created. Setup will run unattended; first boot lands at the desktop user 'ywuser1' (password: password)."
 Write-Verbose "Connect with:  virt-viewer --connect $virshUri $VMName"

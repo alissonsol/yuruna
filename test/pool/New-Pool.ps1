@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42c0b1a2-d3e4-4f56-9a87-6b5c4d3e2f10
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -58,12 +58,11 @@ param(
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 
-# Honor the caller's logLevel, published as $env:YURUNA_LOG_LEVEL by whatever
-# entry point started this script (install/setup.ps1, a runner cycle). After the
-# line above on purpose: an explicit level is the operator's choice and replaces
-# this script's own default. $InformationPreference is then re-read from the
-# global the cascade writes, because the script-scoped assignment above shadows
-# it for the rest of this file. See docs/loglevels.md.
+# --- REGION: https://yuruna.link/loglevels#propagation-across-pwsh-boundaries
+# After the preference assignments above on purpose: an explicit level is the
+# operator's choice and replaces this script's own default. $InformationPreference
+# is re-read afterwards because the script-scoped assignment above shadows the
+# global the cascade writes.
 Import-Module (Join-Path $PSScriptRoot '../modules/Test.LogLevel.psm1') -Global -Force -DisableNameChecking
 Use-LogLevelFromEnv
 $InformationPreference = $global:InformationPreference
@@ -74,16 +73,21 @@ $ModulesDir  = $paths.ModulesDir
 Initialize-YurunaEntryPointModuleSet -For PoolAdmin -ModulesDir $ModulesDir
 $ExitOk      = Get-EntryPointExitCode -Outcome Ok
 $ExitFailure = Get-EntryPointExitCode -Outcome Failure
+# The failure paths below pass -ErrorAction Continue: under the strict
+# preference above, a bare Write-Error would itself terminate and skip
+# the clean exit-code path.
 Import-Module powershell-yaml -ErrorAction Stop
 
+# --- REGION: Validate the arguments
 if ($PoolId -notmatch '^[a-z0-9][a-z0-9-]{0,62}$') {
-    Write-Error "PoolId '$PoolId' is invalid (DNS-label-safe: lowercase letters, digits, hyphen; must start alphanumeric)."
+    Write-Error "PoolId '$PoolId' is invalid (DNS-label-safe: lowercase letters, digits, hyphen; must start alphanumeric)." -ErrorAction Continue
     exit $ExitFailure
 }
 
+# --- REGION: Open the intent store
 $t = Resolve-YurunaPoolAdminTarget -IntentGitUrl $IntentGitUrl -IntentDir $IntentDir
 if ([string]::IsNullOrWhiteSpace($t.IntentGitUrl)) {
-    Write-Error 'No intent store URL. Pass -IntentGitUrl or set pool.intentGitUrl in test.config.yml.'
+    Write-Error 'No intent store URL. Pass -IntentGitUrl or set pool.intentGitUrl in test.config.yml.' -ErrorAction Continue
     exit $ExitFailure
 }
 # Creating a pool is the one command that may also create the store it writes
@@ -94,14 +98,15 @@ if ([string]::IsNullOrWhiteSpace($t.IntentGitUrl)) {
 # Read-only pool commands deliberately do NOT do this; see the function's notes.
 $seed = Initialize-YurunaPoolIntentStorePath -IntentGitUrl $t.IntentGitUrl -Confirm:$false
 if (-not $seed.Ok) {
-    Write-Error "The pool-intent store ($($t.IntentGitUrl)) does not exist and could not be created: $($seed.Reason)"
+    Write-Error "The pool-intent store ($($t.IntentGitUrl)) does not exist and could not be created: $($seed.Reason)" -ErrorAction Continue
     exit $ExitFailure
 }
 if ($seed.Created) { Write-Information "Seeded a new pool-intent store at $($t.IntentGitUrl)." -InformationAction Continue }
 
 $open = Open-YurunaPoolIntent -IntentGitUrl $t.IntentGitUrl -IntentDir $t.IntentDir -Confirm:$false
-if (-not $open.Ok) { Write-Error "Could not open the intent store ($($t.IntentGitUrl)): $($open.Error)"; exit $ExitFailure }
+if (-not $open.Ok) { Write-Error "Could not open the intent store ($($t.IntentGitUrl)): $($open.Error)" -ErrorAction Continue; exit $ExitFailure }
 
+# --- REGION: Apply the change
 $doc  = Read-YurunaPoolsDoc -IntentDir $t.IntentDir
 $pool = Get-YurunaPoolFromDoc -Doc $doc -PoolId $PoolId
 if ($pool -and $IfMissing) {
@@ -128,12 +133,13 @@ if ($pool) {
     $action = 'create'
 }
 
+# --- REGION: Save, commit and push
 $save = Save-YurunaPoolDoc -IntentDir $t.IntentDir -RelPath 'pools.yml' -Doc $doc -SchemaName 'pools.schema.yml' -Confirm:$false
-if (-not $save.Ok) { Write-Error "pools.yml validation/write failed: $($save.Error)"; exit $ExitFailure }
+if (-not $save.Ok) { Write-Error "pools.yml validation/write failed: $($save.Error)" -ErrorAction Continue; exit $ExitFailure }
 $pub = Publish-YurunaPoolIntent -IntentDir $t.IntentDir -Message "pool: $action $PoolId" -Confirm:$false
-if (-not $pub.Ok) { Write-Error "Commit failed: $($pub.Error)"; exit $ExitFailure }
+if (-not $pub.Ok) { Write-Error "Commit failed: $($pub.Error)" -ErrorAction Continue; exit $ExitFailure }
 if (-not $pub.Pushed) {
-    Write-Error "Committed locally but NOT pushed to the remote -- the change is not durable and a later admin command will discard it: $($pub.Error)"
+    Write-Error "Committed locally but NOT pushed to the remote -- the change is not durable and a later admin command will discard it: $($pub.Error)" -ErrorAction Continue
     exit $ExitFailure
 }
 

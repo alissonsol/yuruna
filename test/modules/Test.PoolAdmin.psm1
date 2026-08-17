@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42c2d3e4-f5a6-4b78-9c01-2d3e4f5a6b7c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -366,12 +366,15 @@ function Get-YurunaPoolFromDoc {
 Normalizes an operator-typed hostId to its canonical form (42-prefixed 32-hex, no
 separators). Returns $null when the value is not a host uuid in any accepted form.
 .DESCRIPTION
-The stored and on-wire form is always the bare 32 hex chars, but the Grafana pool
-dashboard renders the Host ID column GUID-formatted (a value mapping splits it
-8-4-4-4-12 and joins with dashes) because that is far easier to read across a table
-of a dozen near-identical 42-prefixed ids. An operator copying a hostId off that
-panel therefore pastes a hyphenated string that no store ever contains, so accept it
-here and hand callers the canonical form. Braces and surrounding whitespace are
+The stored and on-wire form is always the bare 32 hex chars, but every surface that
+shows an operator a FULL id spells it GUID-formatted (8-4-4-4-12, what
+Format-YurunaHostId renders) because a dozen near-identical 42-prefixed ids are not
+tellable apart without the dashes -- the Grafana pool dashboard reveals one that way
+from its Host ID column, and so does the pool-control UI. An operator copying a
+hostId off either therefore pastes a hyphenated string that no store ever contains,
+so accept it here and hand callers the canonical form. This is the inverse of
+Format-YurunaHostId; the pair is what makes an id readable in one place and usable
+in the other. Braces and surrounding whitespace are
 tolerated for the same reason -- they come free with a copy from other tooling. Case
 is preserved as lowercase: hex comparisons against pools.yml members[] and the NAS
 record filenames are ordinal, and every producer writes lowercase.

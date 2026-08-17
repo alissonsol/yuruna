@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42d7f3b9-5c1e-4a80-9e2d-7f8a9b0c1d2e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -136,11 +136,20 @@ function Convert-ConfigSyncNetworkStorage {
                 [void]$warnings.Add("networkStorage: the reference host has no $tier storage configured; the local $tier values are being cleared (previous file kept in the .backup).")
             }
             $out[$lpKey] = ''; $out[$npKey] = ''; $out[$nuKey] = ''
+            if ($tier -eq 'pool') { $out['moveLogsToPoolStorage'] = $false }
             continue
         }
 
         $out[$npKey] = Get-PoolStorageUncPath -Path $refNp -Style $style
         $out[$nuKey] = $refNu
+        # moveLogsToPoolStorage travels with the pool tier. It MUST be carried
+        # explicitly: this function rebuilds the networkStorage node from a fixed key
+        # list and the caller REPLACES the node with the result, so any key not named
+        # here is silently erased from the local config on every sync -- which for
+        # this key would quietly turn move mode off across a fleet.
+        if ($tier -eq 'pool') {
+            $out['moveLogsToPoolStorage'] = [bool]$refNs['moveLogsToPoolStorage']
+        }
         if (-not [string]::IsNullOrWhiteSpace($localLp)) {
             # A populated local mount path reflects a mount that already
             # works on this host; adopting the reference's idiom would break

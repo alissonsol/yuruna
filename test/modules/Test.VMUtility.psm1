@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e92
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -311,6 +311,99 @@ function Get-CachingProxyServiceExposedPort {
     [int[]]@(80, 3000, 9302, 9400, $HttpPort, $HttpsPort)
 }
 
+function Invoke-GuestDhcpRelease {
+    <#
+    .SYNOPSIS
+        Best-effort: ask a guest to hand its DHCP lease back before it is killed.
+    .DESCRIPTION
+        Teardown is a hard power-off -- a guest that has wedged must never be able
+        to stall the cycle sweep -- so no guest ever sends a DHCPRELEASE of its own.
+        Its address therefore stays allocated on the server until the lease expires,
+        long after the VM is gone.
+
+        With MACs derived from (host, VM name) this is no longer a leak: the next
+        build of that same slot presents the same MAC and is handed the same address
+        back. What releasing still buys is TIME -- the address returns to the pool
+        now rather than at lease expiry, which matters on a lab whose DHCP server an
+        operator cannot reconfigure to a shorter lease.
+
+        Strictly best-effort and tightly bounded. It runs before the kill, so every
+        second here is paid by every cycle: one short SSH attempt, no address wait,
+        no retry, every failure swallowed. A guest that is already unreachable --
+        the common case for the failure paths that call this -- costs the connect
+        timeout and nothing more.
+
+        The release itself is NOT reimplemented here. The guest already carries a
+        tested one -- network_release() in yuruna-network.sh, deployed to
+        /usr/local/lib/yuruna/ at install time and also reachable as the
+        `networkRelease` sequence action -- which knows the systemd-networkd,
+        dhclient and dhcpcd paths and skips virtual interfaces. Calling it by path
+        keeps one implementation of "how a guest gives a lease back", so a stack
+        added there is picked up here for free.
+
+.OUTPUTS
+        [bool] $true when the release command was delivered.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$GuestKey,
+        [int]$TimeoutSeconds = 8
+    )
+    $script:DhcpReleaseAttempted++
+    if (-not (Get-Command Invoke-GuestSsh -ErrorAction SilentlyContinue)) { return $false }
+    # `|| true` throughout, and the guest is destroyed on the next line, so a guest
+    # whose lib is missing or whose release path fails is never left stranded.
+    $cmd = 'bash /usr/local/lib/yuruna/yuruna-network.sh release 2>/dev/null || true; exit 0'
+    try {
+        $r = Invoke-GuestSsh -VMName $VMName -GuestKey $GuestKey -Command $cmd `
+                -TimeoutSeconds $TimeoutSeconds -AddressWaitSeconds 0 -ErrorAction SilentlyContinue
+        $ok = ($null -ne $r -and $r.exitCode -eq 0)
+        if ($ok) { $script:DhcpReleaseSucceeded++; Write-Verbose "DHCP release requested on '$VMName' before teardown." }
+        else     { Write-Verbose "DHCP release on '$VMName' did not complete; the deterministic MAC reclaims the lease on the next build." }
+        return $ok
+    } catch {
+        Write-Verbose "DHCP release on '$VMName' failed: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+# Every outcome above is swallowed at Verbose, which is the right volume for one
+# guest and the wrong one for the whole cycle: "released none of nine" and
+# "released nine of nine" print identically, and the first is how a teardown
+# path that lost its guest key went unnoticed while the lease pool drained. The
+# tally is the cycle-level statement those per-guest lines cannot make.
+$script:DhcpReleaseAttempted = 0
+$script:DhcpReleaseSucceeded = 0
+
+function Get-GuestDhcpReleaseTally {
+<#
+.SYNOPSIS
+    How many pre-teardown DHCP releases were asked for this cycle, and how many
+    landed.
+.OUTPUTS
+    [hashtable] attempted, succeeded.
+#>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param()
+    return @{ attempted = $script:DhcpReleaseAttempted; succeeded = $script:DhcpReleaseSucceeded }
+}
+
+function Reset-GuestDhcpReleaseTally {
+<#
+.SYNOPSIS
+    Zero the tally at a cycle boundary so each cycle reports its own number.
+#>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([void])]
+    param()
+    if (-not $PSCmdlet.ShouldProcess('DHCP release tally', 'Reset')) { return }
+    $script:DhcpReleaseAttempted = 0
+    $script:DhcpReleaseSucceeded = 0
+}
+
 function Remove-GuestVMQuietly {
     <#
     .SYNOPSIS
@@ -334,8 +427,17 @@ function Remove-GuestVMQuietly {
     param(
         [Parameter(Mandatory)][string]$VMName,
         [switch]$SkipStop,
-        [switch]$BestEffort
+        [switch]$BestEffort,
+        # Enables the pre-kill DHCP release. Omitted, teardown behaves exactly as
+        # before -- the release needs a guest key to pick the SSH login user, and a
+        # caller that has none has nothing to log in as.
+        [string]$GuestKey = ''
     )
+    # Ask for the lease back before the power is cut. -SkipStop means the VM is not
+    # running (a leftover being swept before a rebuild), so there is nobody to ask.
+    if (-not $SkipStop -and -not [string]::IsNullOrWhiteSpace($GuestKey)) {
+        $null = Invoke-GuestDhcpRelease -VMName $VMName -GuestKey $GuestKey
+    }
     $savedProgress = $global:ProgressPreference
     $global:ProgressPreference = 'SilentlyContinue'
     # -Force: this is a stop-then-DELETE. The guest's disk is removed on the very
@@ -1068,4 +1170,4 @@ function Test-TcpEndpointOpen {
     }
 }
 
-Export-ModuleMember -Function Wait-VMRunning, Get-ScreenshotSchedule, Invoke-ScreenshotTest, Compare-Screenshot, Get-CachingProxyServiceExposedPort, Remove-GuestVMQuietly, Update-StashServiceMarkerAddress, Wait-YurunaServiceVmEndpoint, Test-TcpEndpointOpen, Write-YurunaWaitProgress, Close-YurunaWaitProgress, Test-YurunaProgressLineSupported
+Export-ModuleMember -Function Wait-VMRunning, Get-ScreenshotSchedule, Invoke-ScreenshotTest, Compare-Screenshot, Get-CachingProxyServiceExposedPort, Remove-GuestVMQuietly, Invoke-GuestDhcpRelease, Get-GuestDhcpReleaseTally, Reset-GuestDhcpReleaseTally, Update-StashServiceMarkerAddress, Wait-YurunaServiceVmEndpoint, Test-TcpEndpointOpen, Write-YurunaWaitProgress, Close-YurunaWaitProgress, Test-YurunaProgressLineSupported

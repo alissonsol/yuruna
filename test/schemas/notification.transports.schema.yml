@@ -8,8 +8,8 @@ description: >
   Send-Notification.
 
 type: object
-additionalProperties: false
 required: [transports, subscribers]
+additionalProperties: false
 
 properties:
   transports:

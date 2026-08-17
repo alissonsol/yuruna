@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42c9f45e-6b21-4a83-9d0e-3f7a1c58be24
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -357,6 +357,351 @@ function Get-HostAddressChangeCount {
     return $count
 }
 
+function Get-HostAddressChurnVerdict {
+<#
+.SYNOPSIS
+    Read the recorded address changes and say WHY the host is moving: not at
+    all, once, or once per lease renewal.
+.DESCRIPTION
+    The distinction that matters is not how often the address changed but
+    whether the changes are PERIODIC. A host that renumbers on reboots and
+    cable events produces changes at irregular intervals -- ordinary lab life,
+    and what the discovery path exists to absorb. A host that takes a new
+    address on every renewal produces them at one interval, repeated, because
+    the interval IS the renewal timer: its DHCP identity is not being honored,
+    so every renewal is a fresh allocation rather than an extension.
+
+    Reading periodicity instead of frequency is what makes this verdict
+    independent of the lease time. The same fault shows as changes every ten
+    minutes on a twenty-minute lease and every three days on a week-long one;
+    a threshold on "changes per hour" would call the first a fault and the
+    second healthy, while the pool drains faster in the second case, because
+    each abandoned address is parked for a week instead of twenty minutes.
+
+    Regularity is judged against the MEDIAN interval rather than the mean so a
+    single reboot in the middle of an otherwise periodic series does not mask
+    it -- the reboot contributes one outlying interval, and the median ignores
+    it.
+.PARAMETER RuntimeDir
+    The runtime directory holding hostaddress.changes.ndjson.
+.PARAMETER LookbackHours
+    How far back to read. The window has to span several renewals to see a
+    period at all, so it is generous by default.
+.PARAMETER NowUtc
+    Window end. Injectable so the verdict is testable against fixed records.
+.OUTPUTS
+    [hashtable] verdict ('unknown' | 'stable' | 'moved' | 'renewal-churn'),
+    changes, distinctAddresses, medianIntervalMinutes, lookbackHours.
+#>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$RuntimeDir,
+        [int]$LookbackHours = 48,
+        [datetime]$NowUtc = [datetime]::UtcNow
+    )
+    $result = @{
+        verdict               = 'unknown'
+        changes               = -1
+        distinctAddresses     = 0
+        medianIntervalMinutes = 0.0
+        lookbackHours         = $LookbackHours
+    }
+    $path = Join-Path $RuntimeDir 'hostaddress.changes.ndjson'
+    if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return $result }
+
+    $since = $NowUtc.AddHours(-1 * [math]::Abs($LookbackHours))
+    $rows = [System.Collections.Generic.List[object]]::new()
+    foreach ($line in [System.IO.File]::ReadAllLines($path)) {
+        if ([string]::IsNullOrWhiteSpace($line)) { continue }
+        try {
+            $row = $line | ConvertFrom-Json -ErrorAction Stop
+            $at  = ([datetime]$row.changedAtUtc).ToUniversalTime()
+        } catch { continue }
+        if ($at -lt $since -or $at -gt $NowUtc) { continue }
+        $rows.Add([pscustomobject]@{ At = $at; Current = [string]$row.current })
+    }
+    $result.changes = $rows.Count
+    $result.distinctAddresses = @($rows | ForEach-Object { $_.Current } |
+        Where-Object { $_ } | Select-Object -Unique).Count
+    if ($rows.Count -eq 0) { $result.verdict = 'stable'; return $result }
+    # Two changes give one interval, which is a duration and not yet a period.
+    # Three are the fewest that can repeat, and repetition is the whole signal.
+    if ($rows.Count -lt 3) { $result.verdict = 'moved'; return $result }
+
+    $ordered   = @($rows | Sort-Object At)
+    $intervals = @(1..($ordered.Count - 1) | ForEach-Object {
+        ($ordered[$_].At - $ordered[$_ - 1].At).TotalMinutes
+    })
+    $sorted = @($intervals | Sort-Object)
+    $median = if ($sorted.Count % 2) { $sorted[[int](($sorted.Count - 1) / 2)] }
+              else { ($sorted[$sorted.Count / 2 - 1] + $sorted[$sorted.Count / 2]) / 2 }
+    $result.medianIntervalMinutes = [math]::Round($median, 1)
+    if ($median -le 0) { $result.verdict = 'moved'; return $result }
+
+    # A renewal timer is a timer: the intervals it produces cluster tightly.
+    # A quarter of the period is loose enough for poll granularity and the
+    # server's own jitter, and tight enough that reboot-driven changes -- which
+    # follow no clock -- do not reach it.
+    $within = @($intervals | Where-Object { [math]::Abs($_ - $median) -le ($median * 0.25) }).Count
+    $result.verdict = if ($within -ge [math]::Ceiling($intervals.Count * 0.75)) { 'renewal-churn' } else { 'moved' }
+    return $result
+}
+
+function Get-HostBridgeDhcpIdentity {
+<#
+.SYNOPSIS
+    Is this host's bridge pinned to a DHCP identity that survives a renewal?
+.DESCRIPTION
+    The configuration half of the address-stability question, kept separate
+    from the observed half on purpose: a pin that the DHCP server ignores
+    looks identical to no pin at all from the address log, and identical to a
+    working pin from the configuration. Only the pair distinguishes "nobody
+    pinned it" from "it is pinned and the server does not care", and those
+    have different remedies.
+
+    Two backends, because the bridge has two builders. NetworkManager owns it
+    on a desktop-rendered host, where the pin is `ipv4.dhcp-client-id`;
+    systemd-networkd owns it where the generated netplan applied, where the
+    pin is `dhcp-identifier: mac` and is written by
+    Get-YurunaBridgeNetplanYaml. A host running neither (or a bridge that does
+    not exist yet) reports 'unknown' rather than guessing.
+.PARAMETER BridgeName
+    Defaults to the framework bridge.
+.OUTPUTS
+    [hashtable] backend ('networkmanager' | 'networkd' | 'unknown'),
+    pinned ([bool] or $null when unknown), detail, remedy.
+#>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([string]$BridgeName = 'yuruna-br0')
+    $result = @{ backend = 'unknown'; pinned = $null; detail = ''; remedy = '' }
+    if (-not $IsLinux) {
+        $result.detail = 'not a Linux host; the bridge DHCP identity is a KVM-host concept.'
+        return $result
+    }
+    if (Get-Command nmcli -ErrorAction SilentlyContinue) {
+        $shown = @(& nmcli -t -f connection.id,ipv4.dhcp-client-id connection show $BridgeName 2>$null)
+        if ($LASTEXITCODE -eq 0 -and $shown.Count) {
+            $result.backend = 'networkmanager'
+            $idLine = @($shown | Where-Object { $_ -like 'ipv4.dhcp-client-id:*' })[0]
+            $value  = if ($idLine) { ($idLine -split ':', 2)[1].Trim() } else { '' }
+            # nmcli prints '--' for an unset property. Unset means NM's default,
+            # which is a machine-id-derived DUID, not the MAC.
+            $result.pinned = ($value -and $value -ne '--' -and $value -ne 'default')
+            $result.detail = "NetworkManager profile '$BridgeName': ipv4.dhcp-client-id = $(if ($value) { $value } else { '(absent)' })."
+            $result.remedy = "sudo nmcli connection modify '$BridgeName' ipv4.dhcp-client-id mac ipv4.dhcp-iaid mac ipv4.dhcp-send-release yes"
+            return $result
+        }
+    }
+    $netplanPath = '/etc/netplan/99-yuruna-external.yaml'
+    if (Test-Path -LiteralPath $netplanPath) {
+        $result.backend = 'networkd'
+        $text = ''
+        try { $text = [string](Get-Content -LiteralPath $netplanPath -Raw -ErrorAction Stop) }
+        catch { $text = [string](& sudo cat $netplanPath 2>$null) }
+        $result.pinned = ($text -match '(?m)^\s*dhcp-identifier:\s*mac\s*$')
+        $result.detail = "netplan '$netplanPath': dhcp-identifier: mac $(if ($result.pinned) { 'present' } else { 'absent' })."
+        $result.remedy = "re-run the host network setup so '$netplanPath' is regenerated with 'dhcp-identifier: mac', then: sudo netplan apply"
+        return $result
+    }
+    $result.detail = "no NetworkManager profile and no '$netplanPath' for '$BridgeName'."
+    return $result
+}
+
+function Set-HostBridgeDhcpIdentity {
+<#
+.SYNOPSIS
+    Pin an already-built NetworkManager bridge to the DHCP identity a new one
+    would be built with.
+.DESCRIPTION
+    The pin is set when the bridge is CREATED, and nobody rebuilds a working
+    bridge -- so every host built before it existed keeps renumbering forever
+    while the fix sits in a document. Applying it where the fault is detected
+    is the difference between a remedy that reaches the fleet and one that
+    reaches whoever reads the report.
+
+    SAFE TO RUN UNATTENDED, and the reason is narrow enough to state exactly:
+    `nmcli connection modify` writes the stored profile and does NOT reactivate
+    it. The live connection keeps its address, no interface goes down, and no
+    remote session is dropped; the setting takes effect at the next activation.
+    An `nmcli connection up` here would be a different thing entirely and is
+    deliberately absent.
+
+    NETWORKD BRIDGES ARE REPORTED, NOT TOUCHED. Fixing one means rewriting
+    /etc/netplan and running `netplan apply`, which re-plumbs the host's IP
+    stack -- an operator action with eyes on the console, not something a
+    health check does on its way past.
+
+    Best-effort in the strict sense: every failure returns, none throws. A host
+    that cannot elevate is named rather than retried, because a sudo that is
+    refused once is refused all cycle.
+.PARAMETER BridgeName
+    Defaults to the framework bridge.
+.OUTPUTS
+    [hashtable] applied ([bool]), verified ([bool]), reason, detail.
+#>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
+    param([string]$BridgeName = 'yuruna-br0')
+    $result = @{ applied = $false; verified = $false; reason = ''; detail = '' }
+    $before = Get-HostBridgeDhcpIdentity -BridgeName $BridgeName
+    $result.detail = $before.detail
+    if ($before.backend -ne 'networkmanager') {
+        $result.reason = "the bridge is not NetworkManager-managed (backend '$($before.backend)'), and the other backends are not safe to change unattended."
+        return $result
+    }
+    if ($before.pinned -ne $false) {
+        $result.reason = 'already pinned.'
+        $result.verified = [bool]$before.pinned
+        return $result
+    }
+    if (-not (Get-Command Invoke-YurunaSudo -ErrorAction SilentlyContinue)) {
+        $result.reason = 'the shared sudo wrapper is unavailable in this session.'
+        return $result
+    }
+    if (-not $PSCmdlet.ShouldProcess($BridgeName, 'Pin the DHCP client identity to the NIC MAC')) {
+        $result.reason = 'skipped by -WhatIf.'
+        return $result
+    }
+    try {
+        # -TolerateBlocked: a host whose sudo will not run unattended has a
+        # problem this function cannot fix and must not stall the cycle over.
+        $r = Invoke-YurunaSudo -Argument @('nmcli', 'connection', 'modify', $BridgeName,
+                'ipv4.dhcp-client-id', 'mac',
+                'ipv4.dhcp-iaid', 'mac',
+                'ipv4.dhcp-send-release', 'yes') -TolerateBlocked
+        if ($r.Blocked) {
+            # Naming the grant is the whole value of this branch. Unattended
+            # elevation cannot bootstrap itself -- installing the rule needs the
+            # sudo the rule exists to provide -- so one operator action is the
+            # floor, and the message has to be the thing that makes it a
+            # one-liner rather than an investigation.
+            $result.reason = ('sudo refused to run unattended, so the profile was left as it is. Grant the one ' +
+                'command with: sudo install -m 0440 -o root -g root host/ubuntu.kvm/yuruna-bridge-pin.sudoers ' +
+                '/etc/sudoers.d/yuruna-bridge-pin')
+            return $result
+        }
+        if ($r.ExitCode -ne 0) {
+            $result.reason = "nmcli exited $($r.ExitCode): $(($r.Output -join ' ').Trim())"
+            return $result
+        }
+    } catch {
+        $result.reason = "the modify call failed: $($_.Exception.Message)"
+        return $result
+    }
+    $result.applied = $true
+    # Read it back rather than trusting the exit code. nmcli accepts a property
+    # it then stores differently often enough that "it returned 0" and "the
+    # profile now says mac" are separate claims, and only the second one is the
+    # thing that stops the host renumbering.
+    $after = Get-HostBridgeDhcpIdentity -BridgeName $BridgeName
+    $result.verified = ($after.pinned -eq $true)
+    $result.detail   = $after.detail
+    $result.reason   = if ($result.verified) {
+        'pinned; it takes effect at the next activation of the profile, so the address in use now is unchanged.'
+    } else {
+        'nmcli accepted the change but the profile does not read back as pinned.'
+    }
+    return $result
+}
+
+function Get-HostAddressStabilityReport {
+<#
+.SYNOPSIS
+    Combine the observed churn and the configured pin into one verdict with
+    the remedy that actually applies.
+.DESCRIPTION
+    Neither input answers the question alone. The configuration says what was
+    asked for; the address log says what the DHCP server did about it. Pairing
+    them separates the two faults that look the same from either side:
+
+      * not pinned, and renumbering every renewal -- pin it.
+      * pinned, and STILL renumbering every renewal -- the server does not key
+        leases on client-id. No pin will fix that; the address has to come
+        from a reservation or be set statically.
+
+    And it separates both from the case that reads like a fault and is not: a
+    host the lab renumbers deliberately to prove the discovery path works.
+    That one is named in the message rather than silently reported as broken,
+    because advice that is confidently wrong some of the time teaches the
+    operator to skip it.
+
+    Severity is 'ok' / 'advisory' / 'warning'. Nothing here fails a cycle: an
+    address that is drifting has already cost the lab whatever it was going to
+    cost by the time this runs, and a health report that can fail a run is one
+    operators stop running.
+.OUTPUTS
+    [hashtable] severity, verdict, message, remedy, churn, identity.
+#>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$RuntimeDir,
+        [string]$BridgeName = 'yuruna-br0',
+        [int]$LookbackHours = 48,
+        [datetime]$NowUtc = [datetime]::UtcNow
+    )
+    $churn    = Get-HostAddressChurnVerdict -RuntimeDir $RuntimeDir -LookbackHours $LookbackHours -NowUtc $NowUtc
+    $identity = Get-HostBridgeDhcpIdentity -BridgeName $BridgeName
+    $report = @{
+        severity = 'ok'; verdict = $churn.verdict; message = ''; remedy = ''
+        churn    = $churn; identity = $identity
+    }
+    $rate = if ($churn.medianIntervalMinutes -gt 0) {
+        [int][math]::Round(1440.0 / $churn.medianIntervalMinutes)
+    } else { 0 }
+
+    switch ($churn.verdict) {
+        'renewal-churn' {
+            $report.severity = 'warning'
+            $base = ("This host takes a NEW address on every lease renewal: $($churn.changes) changes " +
+                     "in the last $($churn.lookbackHours)h, one every $($churn.medianIntervalMinutes) min, " +
+                     "$($churn.distinctAddresses) distinct addresses -- about $rate addresses a day out of " +
+                     'the LAN pool, held until each one expires. The pool drains at a rate set by the lease ' +
+                     'time rather than by how many machines are on it, so a long lease turns this into ' +
+                     'exhaustion within days and guests then boot with no IPv4 at all.')
+            if ($identity.pinned -eq $false) {
+                $report.message = "$base The bridge's DHCP identity is not pinned, so every renewal presents a client the server has not seen before."
+                $report.remedy  = $identity.remedy
+            } elseif ($identity.pinned -eq $true) {
+                $report.message = "$base The bridge's DHCP identity IS pinned, so the server is not keying leases on it. A pin cannot fix this."
+                $report.remedy  = "reserve the bridge MAC on the DHCP server, or give the bridge a static address -- see docs/network.md, 'Pinning the host address'."
+            } else {
+                $report.message = "$base The bridge's DHCP identity could not be read ($($identity.detail))."
+                $report.remedy  = "see docs/network.md, 'Pinning the host address'."
+            }
+            $report.message += " Unless this host is one the lab renumbers on purpose, in which case leave it be."
+            return $report
+        }
+        'moved' {
+            $report.severity = 'advisory'
+            $report.message  = ("This host changed address $($churn.changes) time(s) in the last " +
+                "$($churn.lookbackHours)h, at no fixed interval -- consistent with reboots or link events " +
+                'rather than a renewal that is not being honored. The discovery path absorbs this.')
+            return $report
+        }
+        'stable' {
+            if ($identity.pinned -eq $false) {
+                $report.severity = 'advisory'
+                $report.message  = ("This host has held one address for the last $($churn.lookbackHours)h, but its " +
+                    'bridge DHCP identity is not pinned -- it is holding the address by the DHCP server''s ' +
+                    'goodwill, and a server restart or a lease-table eviction renumbers it.')
+                $report.remedy   = $identity.remedy
+                return $report
+            }
+            $report.message = "This host has held one address for the last $($churn.lookbackHours)h. $($identity.detail)"
+            return $report
+        }
+        default {
+            $report.severity = 'advisory'
+            $report.message  = ('No host address change record to read, so address stability cannot be ' +
+                'assessed here. It is written by the beacon, which runs with the test runner.')
+            return $report
+        }
+    }
+}
+
 function Assert-HostAddressStability {
 <#
 .SYNOPSIS
@@ -506,5 +851,7 @@ function Invoke-HostAddressBeaconTick {
 
 Export-ModuleMember -Function Get-HostAddressBeaconState, Reset-HostAddressBeaconState, Assert-HostAddressStability,
     Write-HostAddressRecord, Write-HostAddressChangeRecord, Get-HostAddressChangeCount,
+    Get-HostAddressChurnVerdict, Get-HostBridgeDhcpIdentity, Set-HostBridgeDhcpIdentity,
+    Get-HostAddressStabilityReport,
     Send-HostAddressAnnounce, Invoke-HostAddressSquidNudge,
     Invoke-HostAddressBeaconTick

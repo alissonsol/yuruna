@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42b9c0d1-e2f3-4a56-b789-0c1d2e3f4a57
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,7 +54,7 @@ if (!(Test-Path -Path $downloadDir)) {
 $windowsOk = $false
 $spiceOk = $false
 
-# --- REGION: 1. Windows 11 ARM64 ISO
+# --- REGION: Windows 11 ARM64 ISO
 Write-Output ""
 Write-Output "--- Windows 11 ARM64 ISO ---"
 
@@ -87,20 +87,7 @@ if (Test-Path -Path $baseImageFile) {
 }
 
 if (-not $windowsOk) {
-    # --- REGION: https://yuruna.link/guest-image-setup#agent-first-image-downloads
-    # Only reached with no ARM64 ISO on this host: the existence check and the
-    # drop-in adoption above have already run, so a local copy is never traded
-    # for a LAN transfer. When the lab has an agent holding the Windows media
-    # this spares a multi-gigabyte pull through Microsoft's short-lived signed
-    # URL; when it does not, the Fido attempt below runs exactly as it always
-    # has. The family is best effort by design (the agent mints its URL by
-    # running this same Fido under Linux pwsh), so "the agent does not serve
-    # Windows 11" is an ordinary answer and stays verbose -- only an agent that
-    # took the request and then broke is worth a warning.
-    #
-    # No local fingerprint is sent: this script's sidecar is the 2-line
-    # filename + URL form, which carries no byte count for the agent to compare,
-    # and the existence check above is already the local-copy decision.
+    # --- REGION: https://yuruna.link/guest-image-setup#windows-11-the-agent-is-asked-last-and-only-sometimes-answers
     $agentStagingFile = Join-Path $downloadDir "downloaded.iso"
     # The host driver carries the download-agent client. This script has no other
     # reason to load a driver, so the import is guarded: a driver that cannot
@@ -163,7 +150,8 @@ if (-not $windowsOk) {
     Write-Output ""
     Write-Output "Attempting automated download via Fido..."
     $fidoScript = Join-Path $PSScriptRoot "Fido.ps1"
-    $downloadUrl = $null
+    $downloadUrl  = $null
+    $downloadFile = $null
 
     try {
         Write-Output "[Step 1/3] Downloading Fido script..."
@@ -280,7 +268,7 @@ if (-not $windowsOk) {
     Write-Output "  Then run this script again to continue."
 }
 
-# --- REGION: 2. UTM Guest Tools ISO (SPICE + VirtIO drivers, ARM64-compatible)
+# --- REGION: UTM Guest Tools ISO (SPICE + VirtIO drivers, ARM64-compatible)
 Write-Output ""
 Write-Output "--- UTM Guest Tools ISO (SPICE + VirtIO drivers for ARM64) ---"
 

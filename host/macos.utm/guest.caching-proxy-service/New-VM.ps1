@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e6f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -142,13 +142,16 @@ Write-Output "Creating VM '$VMName' using image: $baseImageFile"
 Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
-# --- REGION: Create copies and files for VM
+# --- REGION: Remove existing VM
 if (Test-Path -LiteralPath $UtmDir) { Remove-Item -LiteralPath $UtmDir -Recurse -Force }
+
+# --- REGION: Per-VM directory + disk
 New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 
 # EFI vars: QEMU has its own EDK2 firmware; UEFIBoot=true in the plist
-# makes UTM provide a per-bundle pflash file automatically. No Swift
-# VZEFIVariableStore step required (that was the AVF-only path).
+# makes UTM provide a per-bundle pflash file automatically. A Swift
+# VZEFIVariableStore step is needed only for the Apple Virtualization
+# backend, which these bundles do not use.
 
 # --- REGION: Copy base image -> per-VM disk
 # Copy the pre-built qcow2 cloud image into the bundle as the boot disk; no
@@ -182,7 +185,7 @@ if (-not (Expand-ExtensionVmDisk -Path $DiskImage -SizeBytes 512GB -Format 'qcow
     Write-Warning "  qemu-img resize -f qcow2 '$DiskImage' 512G"
 }
 
-# --- REGION: Generate cloud-init seed ISO
+# --- REGION: Stage the cloud-init seed directory
 $SeedDir = Join-Path $downloadDir "seed_temp/$VMName"
 if (Test-Path -LiteralPath $SeedDir) { Remove-Item -LiteralPath $SeedDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
@@ -190,6 +193,9 @@ New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 # meta-data is shared under host/vmconfig/ (byte-identical across all 3 host platforms).
 $hostVmConfigDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) 'host/vmconfig'
 Copy-Item -Path (Join-Path $hostVmConfigDir 'caching-proxy-service.meta-data') -Destination "$SeedDir/meta-data"
+
+# --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+Copy-Item -Path (Join-Path $hostVmConfigDir 'guest-dhcp.network-config') -Destination "$SeedDir/network-config"
 
 # --- REGION: Yuruna harness SSH key
 # yuruna test-harness SSH public key (same module the Ubuntu Server
@@ -217,6 +223,7 @@ Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentica
 [void](Save-CachingProxyServiceState -Secret $AdminPassword -Confirm:$false)
 $PasswordFile = Get-CachingProxyServiceStatePath
 
+# --- REGION: Pick a UTM network mode (BEFORE building user-data)
 # --- REGION: https://yuruna.link/network#cache-vm-seed-host-binding
 # macOS: NetworkMode pair -- Wi-Fi -> Shared NAT (VZ gateway 192.168.64.1), Ethernet -> bridged (host LAN IP). Resolved once here and reused for the plist below, so the mode and the address can never disagree.
 Import-Module (Join-Path $_repoRootForExt 'host/macos.utm/modules/Yuruna.Host.psm1') -Force
@@ -372,7 +379,7 @@ if ((-not $dockerHubUsername) -or (-not $dockerHubToken)) {
     }
 }
 
-# --- REGION: config service mTLS materials
+# --- REGION: Config service mTLS materials
 # --- REGION: https://yuruna.link/caching-proxy-service#cache-vm-nas-and-config-service
 # Mint a per-VM client leaf signed by THIS host's Config CA; PEMs are baked
 # base64 so they survive the cloud-init write_files block scalar.
@@ -392,7 +399,7 @@ try {
     Write-Warning "Host Config CA: could not mint a client cert ($($_.Exception.Message)); the cache VM falls back to its baked NAS credential (dynamic rotation disabled for this VM)."
 }
 
-# --- REGION: dashboard brand identity
+# --- REGION: Dashboard brand identity
 # The Grafana dashboards this VM serves name the enlistment that built it --
 # the same pair the host's status pages carry in their header. Resolved here
 # because the guest is handed built artifacts and never the framework
@@ -433,6 +440,7 @@ $UserData = New-CloudInitUserData `
     -Confirm:$false
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 
+# --- REGION: Generate cloud-init seed ISO
 $SeedIso = "$DataDir/seed.iso"
 Write-Output "Generating seed.iso with cloud-init configuration..."
 & hdiutil makehybrid -o "$SeedIso" -joliet -iso -default-volume-name cidata "$SeedDir" 2>&1 | ForEach-Object { Write-Verbose $_ }
@@ -441,7 +449,7 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# --- REGION: config.plist (QEMU backend)
+# --- REGION: Create and configure the UTM bundle (config.plist, QEMU backend)
 $TemplatePath = Join-Path $ScriptDir "config.plist.template"
 if (-not (Test-Path $TemplatePath)) {
     Write-Error "Template not found at '$TemplatePath'."
@@ -456,11 +464,8 @@ $SeedId  = [guid]::NewGuid().ToString().ToUpper()
 # above) wins; it lets a DHCP reservation pin the cache IP across
 # rebuilds. Otherwise generate a fresh random per-bundle MAC.
 if (-not $MacAddress) {
-    $rng = [System.Random]::new()
-    $MacBytes = [byte[]]::new(6)
-    $rng.NextBytes($MacBytes)
-    $MacBytes[0] = ($MacBytes[0] -bor 0x02) -band 0xFE  # locally administered unicast
-    $MacAddress = ($MacBytes | ForEach-Object { $_.ToString("X2") }) -join ":"
+# --- REGION: https://yuruna.link/network#defining-deterministic-guest-mac-addresses
+$MacAddress = Get-YurunaGuestMacAddress -VMName $VMName
 }
 
 # Per-VM VNC display number (Get-VncDisplayForVm hashes the name into
@@ -492,7 +497,7 @@ if (-not $BridgeInterface) {
     $BridgeInterface = 'en0'
 }
 
-# --- REGION: Pick network mode
+# --- REGION: Report the resolved network mode
 # Bridged QEMU networking is unreliable over Wi-Fi: the AP commonly drops
 # frames from the VM's locally-administered MAC, so a bridged cache never
 # gets a LAN DHCP lease. On a Wi-Fi-only default route build the cache on
@@ -553,7 +558,7 @@ Write-Verbose "config.plist validated OK (VNC on 127.0.0.1:$(5900 + $VncDisplay)
 # --- REGION: Cleanup temporary folders
 Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 
-# --- REGION: Guidance
+# --- REGION: Next steps for the operator
 # LITERAL here-string (@'...'@) for the multi-line block. Shell snippets
 # below contain $(utmctl ...), "$ip", etc. -- pass through verbatim, do
 # NOT let PowerShell evaluate. Placeholders like __VM_NAME__ are
@@ -632,7 +637,7 @@ Write-Output ($guidance.
     Replace('__UTM_DIR__', $UtmDir).
     Replace('__PASSWORD_FILE__', $PasswordFile))
 
-# --- REGION: hand root-run artifacts back to the operator
+# --- REGION: Hand root-run artifacts back to the operator
 # Guard only: the supported invocation is UNELEVATED (these scripts elevate the
 # individual operations that need it, and root has no Aqua session for open /
 # utmctl / osascript). But a run that did reach here as root left the bundle,

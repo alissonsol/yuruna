@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42d7e8f9-a0b1-4c23-8d45-7e8f9a0b1234
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,12 +39,11 @@ param(
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 
-# Honor the caller's logLevel, published as $env:YURUNA_LOG_LEVEL by whatever
-# entry point started this script (install/setup.ps1, a runner cycle). After the
-# line above on purpose: an explicit level is the operator's choice and replaces
-# this script's own default. $InformationPreference is then re-read from the
-# global the cascade writes, because the script-scoped assignment above shadows
-# it for the rest of this file. See docs/loglevels.md.
+# --- REGION: https://yuruna.link/loglevels#propagation-across-pwsh-boundaries
+# After the preference assignments above on purpose: an explicit level is the
+# operator's choice and replaces this script's own default. $InformationPreference
+# is re-read afterwards because the script-scoped assignment above shadows the
+# global the cascade writes.
 Import-Module (Join-Path $PSScriptRoot '../modules/Test.LogLevel.psm1') -Global -Force -DisableNameChecking
 Use-LogLevelFromEnv
 $InformationPreference = $global:InformationPreference
@@ -55,16 +54,21 @@ $ModulesDir  = $paths.ModulesDir
 Initialize-YurunaEntryPointModuleSet -For PoolAdmin -ModulesDir $ModulesDir
 $ExitOk      = Get-EntryPointExitCode -Outcome Ok
 $ExitFailure = Get-EntryPointExitCode -Outcome Failure
+# The failure paths below pass -ErrorAction Continue: under the strict
+# preference above, a bare Write-Error would itself terminate and skip
+# the clean exit-code path.
 Import-Module powershell-yaml -ErrorAction Stop
 
+# --- REGION: Open the intent store
 $t = Resolve-YurunaPoolAdminTarget -IntentGitUrl $IntentGitUrl -IntentDir $IntentDir
 if ([string]::IsNullOrWhiteSpace($t.IntentGitUrl)) {
-    Write-Error 'No intent store URL. Pass -IntentGitUrl or set pool.intentGitUrl in test.config.yml.'
+    Write-Error 'No intent store URL. Pass -IntentGitUrl or set pool.intentGitUrl in test.config.yml.' -ErrorAction Continue
     exit $ExitFailure
 }
 $open = Open-YurunaPoolIntent -IntentGitUrl $t.IntentGitUrl -IntentDir $t.IntentDir -Confirm:$false
-if (-not $open.Ok) { Write-Error "Could not open the intent store ($($t.IntentGitUrl)): $($open.Error)"; exit $ExitFailure }
+if (-not $open.Ok) { Write-Error "Could not open the intent store ($($t.IntentGitUrl)): $($open.Error)" -ErrorAction Continue; exit $ExitFailure }
 
+# --- REGION: Report
 $failures = 0
 # pools.yml is REQUIRED: an absent one must not read as success -- the runners
 # pull whatever is committed, so a missing pools.yml would silently leave the

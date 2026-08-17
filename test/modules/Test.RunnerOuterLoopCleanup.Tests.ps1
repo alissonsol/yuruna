@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42c5d6e7-f809-4a12-9b34-5c6d7e8f9012
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -43,7 +43,7 @@ $here    = Split-Path -Parent $PSCommandPath
 $modPath = Join-Path $here 'Test.RunnerOuterLoop.psm1'
 Import-Module $modPath -Force
 
-# --- REGION: AST helpers (script scope; referenced from It blocks -> Pester 4)
+# --- REGION: https://yuruna.link/memory#pester-file-scope-fixtures
 function Get-ModuleAst {
     $errs = $null
     $ast = [System.Management.Automation.Language.Parser]::ParseFile($modPath, [ref]$null, [ref]$errs)

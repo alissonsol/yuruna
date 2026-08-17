@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a8b3c4-d5e6-4f78-9a0b-1c2d3e4f5a6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -131,20 +131,7 @@ if ($existingIso) {
     exit 0
 }
 
-# --- REGION: https://yuruna.link/guest-image-setup#agent-first-image-downloads
-# Only reached with no ISO anywhere on this host: both existence short-circuits
-# and the drop-in adoption above have already run, so a local copy is never
-# traded for a LAN transfer. When the lab has an agent that holds the Windows
-# media, this spares a multi-gigabyte pull through Microsoft's short-lived
-# signed URL; when it does not, the Fido attempt below runs exactly as it always
-# has. The family is best effort by design (the agent mints its URL by running
-# this same Fido under Linux pwsh), so "the agent does not serve Windows 11" is
-# an ordinary answer and stays verbose -- only an agent that took the request
-# and then broke is worth a warning.
-#
-# No local fingerprint is sent: this script's sidecar is the 2-line
-# filename + URL form, which carries no byte count for the agent to compare, and
-# the existence checks above are already the local-copy decision.
+# --- REGION: https://yuruna.link/guest-image-setup#windows-11-the-agent-is-asked-last-and-only-sometimes-answers
 $agentIsoServed = $false
 $agentStagingFile = Join-Path $downloadDir "downloaded.iso"
 # The host driver carries the download-agent client. This script has no other

@@ -99,7 +99,7 @@ build state, not configuration, and its shape is drawn in
 | `CLOUD_CONFIG.cloud` | the `config/` subfolder name; `localhost`, `aws`, `azure` ship templates | `global/resources/` |
 | `RESOURCES.globalVariables` | flat map, every value must be non-empty | `Yuruna.Validation.psm1` `Confirm-GlobalVariableList` |
 | `RESOURCES.resources` | list of `name` / `template` / `variables` | `Yuruna.Validation.psm1` `Confirm-ResourceList` |
-| `COMPONENTS.components` | list of `project` / `buildPath` / `variables` plus optional `preProcessor`, `buildCommand`, `postProcessor`, `tagCommand`, `pushCommand` | `Yuruna.Component.psm1` |
+| `COMPONENTS.components` | list of `project` (required) / `buildPath` (defaults to `project`) / `variables`, plus `buildCommand`, `tagCommand`, `pushCommand` — **required, but per entry *or* inherited from `globalVariables`** — and the genuinely optional `preProcessor` / `postProcessor` | `Yuruna.Component.psm1`, `Yuruna.Validation.psm1` `Confirm-ComponentList` |
 | `WORKLOADS.workloads` | list of `context` / `variables` / `deployments` | `Yuruna.Validation.psm1` `Confirm-WorkloadList` |
 | `WORKLOADS.deployments` | one of `chart`, `kubectl`, `helm`, `shell` per entry | `Yuruna.DeploymentKind.psm1` catalog |
 | `RESOURCES_OUTPUT.globalVariables` | the expanded pass-1 bag, written back verbatim | `Yuruna.Resource.psm1` |
@@ -114,9 +114,13 @@ is a shipped, sequence-only project with no `config/` tree at all.
 The relationships the engine relies on: a resource's `template` resolves to
 `resources/<template>` with fallback to `global/resources/<template>`; a
 component's `buildPath` (default: its `project`) must hold a `Dockerfile` under
-`components/<buildPath>`; a deployment's `chart` resolves under
-`workloads/<chart>` and requires `variables.installName`. Deployment kind is
-detected by which field is present — one of `chart | kubectl | helm | shell`.
+`components/<buildPath>` — auto-discovered as `Dockerfile` → `dockerfile` →
+`<projectName>-dockerfile`, never configured; a deployment's `chart` resolves
+under `workloads/<chart>` and requires `variables.installName`. Deployment kind
+is detected by which field is present — one of `chart | kubectl | helm | shell`
+— and the precedence is not "exactly one or fail": `chart` wins whenever it is
+present, and otherwise the **last** present non-chart kind in registration order
+(`kubectl`, `helm`, `shell`) is the one that runs.
 
 `RESOURCES_OUTPUT` is the generated `config/<cloud>/resources.output.yml`.
 `Yuruna.VariableExpansion.psm1` flattens it into the environment with two rules:
@@ -166,9 +170,9 @@ string into a cluster Secret, and to mark each file `git update-index
 erDiagram
     PROJECT_REPO ||--|| RUNNER_PLAN : "test.runner.yml"
     RUNNER_PLAN ||--o{ TEST_SET : "testSets"
-    RUNNER_PLAN ||--o{ SEQUENCE : "names by stem"
+    RUNNER_PLAN ||--|{ SEQUENCE : "names by stem"
     RUNNER_PLAN ||--o{ ORCHESTRATION : "orchestration entry"
-    TEST_SET ||--o{ SEQUENCE : "subset"
+    TEST_SET ||--|{ SEQUENCE : "subset"
     ORCHESTRATION ||--o{ SEQUENCE : "InvokeTestSequence"
     SEQUENCE ||--o{ SEQUENCE : "resource prereqs"
     SEQUENCE }o--o{ SNIPPET_LIB : "snippet splice"
@@ -213,8 +217,8 @@ erDiagram
     }
 ```
 
-Seven boxes. The 19 framework sequence files under `test/sequences/` and the
-project's own sequence files are one `SEQUENCE` box, not nineteen; the two
+Seven boxes. The 17 framework sequence files under `test/sequences/` and the
+project's own sequence files are one `SEQUENCE` box, not seventeen; the two
 snippet libraries — framework `test/sequences/_snippets.yml` and project
 `<...>/test/_snippets.yml` — are one `SNIPPET_LIB` box, because they are the same
 shape and a project name overrides a framework name of the same key.
@@ -224,10 +228,10 @@ shape and a project name overrides a framework name of the same key.
 | Edge | Cardinality | Verdict | What happens without it |
 |---|---|---|---|
 | `PROJECT_REPO` → `RUNNER_PLAN` | 1 : 1 | **engine** | `Resolve-CyclePlan` reads `project/test/test.runner.yml`. With no plan the cycle falls back to the legacy `guestSequence` path and skips `Start-GuestOS` for every guest — which is why the outer runner refuses to start when `powershell-yaml` cannot parse it. |
-| `RUNNER_PLAN` → `SEQUENCE` | 1 : 0..n | **engine** | Entries in `sequences:` are resolved by stem, with or without a `.yml`/`.json` suffix. A name that does not resolve is `PlannerFatal` → `plan_invalid`, and the cycle runs zero guests. |
+| `RUNNER_PLAN` → `SEQUENCE` | 1 : 1..n | **engine** | Entries in `sequences:` are resolved by stem, with or without a `.yml`/`.json` suffix. A name that does not resolve is `PlannerFatal` → `plan_invalid`, and the cycle runs zero guests. One-or-more, not zero: `Get-CycleConfig` throws "Runner config has no 'sequences' entries" on a missing or empty list, because a plan with no work is a config error rather than an empty cycle. |
 | `RUNNER_PLAN` → `TEST_SET` | 1 : 0..n | convention | `testSets:` is optional and the implicit set `all` always exists undeclared. A pooled host assigned a named set that is absent simply gets the whole list. |
 | `RUNNER_PLAN` → `ORCHESTRATION` | 1 : 0..n | convention | `Get-CycleOrchestrationList` reads the same file and resolves each entry the same way; a plan with no orchestration entry is the normal per-guest cycle. More than one orchestration, or one mixed with per-guest sequences, is `plan_invalid`. |
-| `TEST_SET` → `SEQUENCE` | 1 : 0..n | **engine** when assigned | `Resolve-TestSetCyclePlan` restricts the plan to the named subset; a set naming a sequence the project does not have is a planner failure exactly as a bad top-level entry is. |
+| `TEST_SET` → `SEQUENCE` | 1 : 1..n | **engine** when assigned | `Resolve-TestSetCyclePlan` restricts the plan to the named subset; a set naming a sequence the project does not have is a planner failure exactly as a bad top-level entry is. One-or-more by construction rather than by validation: a declared set that lists no sequences is warned about and **dropped from the set list**, so no zero-sequence set survives to be assigned. A duplicate set name is warned about and the first kept. |
 | `ORCHESTRATION` → `SEQUENCE` | 1 : 0..n | **engine** | Every `InvokeTestSequence` step names an inner sequence; `Test.Orchestrator` runs them all under one `status.json` cycle. |
 | `SEQUENCE` → `SEQUENCE` | 1 : 0..n | **engine** | `resource:` is a required key: a map from guest-OS identifier to an ordered list of prerequisite sequence names. The runner walks the chain before the top-level, so a broken name breaks the chain. |
 | `SEQUENCE` ↔ `SNIPPET_LIB` | 0..n : 0..n | **engine** when referenced | A `{ snippet: <name> }` step is spliced at load; an unresolvable name fails the load. A sequence that references none needs no library. |
@@ -381,8 +385,8 @@ table.
 | `TEST_CONFIG.vmStart` | `startTimeoutSeconds`, `bootDelaySeconds`, `cachingProxyIp`, `testVmNamePrefix`, `cleanupVmNamePrefixes` | `test/test.config.yml.template` |
 | `TEST_CONFIG.statusService` / `.configService` | `enabled` + `port` (8080 / 8443) | `test/test.config.yml.template` |
 | `TEST_CONFIG.downloadAgentService` | `autoSeed`, `freshnessSeconds`, `prefetchLeadSeconds`, `scanIntervalSeconds`; `enabled` is deliberately **unstated** so it resolves by mode | `test/test.config.yml.template` |
-| `TEST_CONFIG.pool` | `enabled`, `intentGitUrl`, `localClonePath`, `networkReplicate`, `pullTimeoutSeconds` | `test/test.config.yml.template` |
-| `TEST_CONFIG.networkStorage` | six keys: `poolStorage{LocalPath,NetworkPath,NetworkUser}` and `stashStorage{...}` | `test/test.config.yml.template`; `Test.PoolStorage.psm1` |
+| `TEST_CONFIG.pool` | `enabled`, `intentGitUrl`, `localClonePath`, `pullTimeoutSeconds` | `test/test.config.yml.template` |
+| `TEST_CONFIG.networkStorage` | six path/account keys: `poolStorage{LocalPath,NetworkPath,NetworkUser}` and `stashStorage{...}`, plus `moveLogsToPoolStorage` (pool archiving mode) | `test/test.config.yml.template`; `Test.PoolStorage.psm1` |
 | `USERS_MAP.strict` | default `false`; `true` makes every referenced logical user and populated key resolve or the cycle is blocked | `test/schemas/users.schema.yml` |
 | `USERS_MAP.corporate` | `{ domain, sam }` or `{ upn }`; the renderer prefers `{ domain, sam }` when both are populated | `test/schemas/users.schema.yml` |
 | `VAULT_ENTRY.*` | `required: [password, updatedUtc]`; `previousPassword` has no `minLength`, so the empty default is valid | `test/schemas/vault.schema.yml` |
@@ -391,7 +395,7 @@ table.
 | `TRANSPORTS.subscribers` | per-event-code arrays of `{ transport, address }`, `transport` enum `[email]` | `test/schemas/notification.transports.schema.yml` |
 | `STATUS_EVENT.timestamp` / `.event` | the two required fields — `timestamp`, not `utc` | `test/modules/Test.EventSchema.psm1` |
 | `STATUS_EVENT.runnerState` | six-value enum `idle`, `cycle-start`, `in-cycle`, `cycle-end`, `fault`, `paused` | `Test.EventSchema.psm1`, mirroring `Test.RunnerState.psm1` |
-| `STATUS_EVENT.failureClass` | twenty-value enum, single source of truth | `test/modules/Test.FailureTaxonomy.psm1` |
+| `STATUS_EVENT.failureClass` | twenty-one-value enum, single source of truth | `test/modules/Test.FailureTaxonomy.psm1` |
 
 `USERS_MAP` (`users.yml`) maps each logical sequence username to a login
 identity; its `vaultKey` / `localOsPasswordRef` resolve into `VAULT_ENTRY`
@@ -552,7 +556,7 @@ runtime projections each host writes from a pull (`runtime/pool.state.json` and
 | `TEST_SET_LIBRARY.testSets` | `[name, frameworkUrl, projectUrl]` plus `displayName`, `description`, `discovered`, `sequences` | `test/schemas/pool-test-sets.schema.yml` |
 | `GUEST_COMPATIBILITY.rules` | `[guestKey, hypervisors]` plus `notes`; `hypervisors` enum `hyper-v`, `kvm`, `utm` | `test/schemas/guests.compatibility.schema.yml`; read from `project/test/` by `Test.PoolPlanner.psm1` |
 | `PROJECT_REPO.test` | the project repo's `test/` directory — where `guests.compatibility.yml` is looked up, beside `test.runner.yml`. No shipped example project carries one, so the planner's permit-by-default path is the normal case | `Test.PoolPlanner.psm1` `Get-PoolProjectTestDir` |
-| `HOST_REGISTRATION.hostId` | `^42[0-9a-fA-F]{30}$` from `runtime/host.uuid`; survives a hostname change | `test/schemas/host.registration.schema.yml` |
+| `HOST_REGISTRATION.hostId` | `^42[0-9a-fA-F]{30}$` from `runtime/host.uuid`; survives a hostname change. Stored and joined on undashed; rendered in two other spellings (below) | `test/schemas/host.registration.schema.yml` |
 | `HOST_REGISTRATION.poolId` / `.poolGuid` | nullable, **derived** by the runner from `members[]` during the intent pull | `test/schemas/host.registration.schema.yml` |
 | `HOST_REGISTRATION.capabilities` | `Get-HostCapabilityMatrix` output — what the host *could* run | `Test.Capability.psm1` |
 | `HOST_REGISTRATION.activeExtensions` | built from the per-area runtime markers — what runs *now* | `Test.ExtensionService.psm1`, `Test.Capability.psm1` |
@@ -577,6 +581,29 @@ every older host and break pool administration LAN-wide. One cross-field rule is
 enforced in code rather than schema: the `autoEnrollment.targetPoolId` pool is
 forbidden from carrying a `testSet`, because hosts arrive there without anyone
 choosing it for them.
+
+**One host id, three spellings — only one of which is a key.** Every store keys
+on the bare undashed 32 hex (`42` + 30), and nothing built from a rendering may
+be written back to a store. The two renderings exist because a lab holds a dozen
+ids that all begin `42`: a **full** id shown to an operator is GUID-dashed
+8-4-4-4-12 so it is checkable against a second screen by eye
+(`Format-YurunaHostId` in `test/modules/Test.YurunaDir.psm1`, and the JS `guid`
+in the pool-control-service and stash-service `web/assets/common.js` —
+download-agent-service renders only the short form), while a **dense** surface —
+the Grafana Host ID column, a test-VM name's `<hostId8>` — shows the first 8
+characters only.
+The round trip is closed on the way in: `ConvertTo-YurunaHostId`
+(`test/modules/Test.PoolAdmin.psm1:384`) canonicalizes a pasted id back to the
+key, which is why `Add-HostToPool.ps1`, `Remove-HostFromPool.ps1` and
+`Remove-PoolHost.ps1` all accept the dashed form an operator copies off a panel,
+and why `Set-ReclaimedHostUuid` strips braces and dashes before validating
+against `^42[0-9a-fA-F]{30}$`.
+The two directions are deliberately not symmetric. The **renderers** pass an
+input that is not 32 bare hex through untouched, so a pool GUID keeps its own
+dashes; the **canonicalizer** strips braces and dashes first and then returns
+`$null` on anything that is not `42` + 30 hex — so it rejects a bad id rather
+than forwarding it, and a `42`-prefixed pool GUID handed to it would come back
+as a host-id-shaped key. They are not interchangeable.
 
 **Registration is not in that repo.** Each host publishes its own record as
 `runtime/host.registration.json` over its status service, and the aggregator
@@ -610,4 +637,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.14
+Last review: 2026.08.16

@@ -21,6 +21,7 @@ server/
 ├── main.go                               # flags, signals, listener loop, sidecar rebuild
 ├── internal/
 │   ├── config/config.go                  # spec §10 constants in one place
+│   ├── fsutil/fsutil.go                  # crash-durability primitives (SyncDir, AtomicCommit) shared by store + meta
 │   ├── id/id.go                          # per-day 4-char allocator, scans share+buffer (§7)
 │   ├── store/store.go                    # share/buffer layout, extension extraction, mount probe (§6.3, §8.4, §13)
 │   ├── meta/meta.go                      # VM-local SQLite index + sidecars + rebuild (§8, §8.5)
@@ -286,6 +287,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.14
+Last review: 2026.08.16
 
 Back to [Yuruna](../../../../README.md)

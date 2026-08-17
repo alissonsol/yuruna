@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42634a21-7352-4663-b6f4-cff499ce7a2b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -92,7 +92,7 @@ function Update-TransportDefault {
 # Initial load: no -Force needed -- the throttle detects the first load
 # via $TransportConfigLastRefreshUtc == MinValue.
 Update-TransportDefault
-# -- Key code maps (owned by Test.KeyCodeRegistry) ----------------------------
+# --- REGION: Key code maps (owned by Test.KeyCodeRegistry)
 # The Get-KeyCodeMap accessor returns a reference, so the $script:*
 # aliases below stay zero-copy -- existing Send-Key / Send-Text callers
 # read the same backing dictionaries they always have.
@@ -102,7 +102,7 @@ Import-Module (Join-Path $PSScriptRoot 'Test.KeyCodeRegistry.psm1') -Force -Disa
 $script:UTMKeyMap       = Get-KeyCodeMap -Kind 'UTM-Named'
 $script:MacCharKeyCodes = Get-KeyCodeMap -Kind 'UTM-Char'
 
-# -- Cached Hyper-V keyboard (reused across steps) ---------------------------
+# --- REGION: Cached Hyper-V keyboard (reused across steps)
 
 $script:CachedKb = $null
 $script:CachedKbVM = $null
@@ -132,7 +132,7 @@ function Get-HyperVKeyboard {
 $script:PS2ScanCodes  = Get-KeyCodeMap -Kind 'PS2-Named'
 $script:CharScanCodes = Get-KeyCodeMap -Kind 'PS2-Char'
 
-# -- VNC (RFB) keystroke transport --------------------------------------------
+# --- REGION: VNC (RFB) keystroke transport
 # Sends keystrokes directly to the VM's virtual display via the VNC/RFB
 # protocol, bypassing the macOS GUI entirely -- no window focus required.
 # Used for QEMU-backend UTM VMs with a built-in VNC server enabled
@@ -151,7 +151,7 @@ $script:UtmChords = Get-KeyCodeMap -Kind 'UTM-Chord'
 $script:Ps2Chords = Get-KeyCodeMap -Kind 'PS2-Chord'
 $script:X11Chords = Get-KeyCodeMap -Kind 'X11-Chord'
 
-# -- Cached VNC connection (reused across steps within a sequence) ------------
+# --- REGION: Cached VNC connection (reused across steps within a sequence)
 
 $script:CachedVnc   = $null
 $script:CachedVncVM = $null
@@ -232,7 +232,7 @@ function Connect-VNC {
         # per-read ReceiveTimeout.
         $handshakeDeadline = [DateTime]::UtcNow.AddSeconds(15)
 
-        # -- RFB 3.8 handshake ------------------------------------------
+        # --- REGION: RFB 3.8 handshake
         # Server sends protocol version (12 bytes): "RFB 003.008\n"
         $verBytes = Read-VncBuffer -Stream $stream -Count 12 -Deadline $handshakeDeadline
         $serverVersion = [System.Text.Encoding]::ASCII.GetString($verBytes).Trim()
@@ -502,7 +502,7 @@ function Send-TextVNC {
     }
 }
 
-# -- AXUIElement keystroke transport (Accessibility API) ---------------------
+# --- REGION: AXUIElement keystroke transport (Accessibility API)
 # NOT USED in the dispatcher chain. Kept for reference/future use.
 # AXUIElementPostKeyboardEvent targets UTM by PID and reports success, but
 # UTM's SwiftUI VM display view does not route Accessibility keyboard events
@@ -619,7 +619,7 @@ __KEYCALLS__
     return ("$result" -eq "ok")
 }
 
-# -- Hyper-V scan code helper ------------------------------------------------
+# --- REGION: Hyper-V keystroke transport: scan codes over the synthetic keyboard
 
 function Send-ScanCode {
     <#
@@ -635,7 +635,6 @@ function Send-ScanCode {
     return ($r.ReturnValue -eq 0)
 }
 
-# -- Action: key --------------------------------------------------------------
 
 function Send-KeyHyperV {
     <#
@@ -683,6 +682,8 @@ function Send-KeyHyperV {
         return $false
     }
 }
+
+# --- REGION: UTM keystroke transport: AppleScript chords + JXA/CGEvent text
 
 function Send-ChordUTM {
     <#
@@ -847,7 +848,7 @@ return "window_not_found"
     return ("$result" -eq "ok")
 }
 
-# -- libvirt KVM keystroke transport: virsh send-key --------------------------
+# --- REGION: libvirt KVM keystroke transport: virsh send-key
 # VNC (Connect-VNC + Send-TextVNC, the path UTM uses) does not work here.
 # Empirically, libvirt-managed QEMU on Ubuntu 24.04 accepts our TCP connect
 # and emits its 'RFB 003.008' greeting, then drops the connection
@@ -933,6 +934,8 @@ function Send-TextKvm {
 }
 
 
+# --- REGION: Hyper-V keystroke transport: scan codes over the synthetic keyboard
+
 function Send-TextHyperV {
     <#
     .SYNOPSIS
@@ -949,24 +952,10 @@ function Send-TextHyperV {
     $kb = Get-HyperVKeyboard -VMName $VMName
     if (-not $kb) { return $false }
     try {
-        # Defensive modifier-release prefix. The PS/2 controller in
-        # Hyper-V keeps a flat "is key down" state per scan code; the
-        # only thing that flips a key back to "up" is the matching
-        # break code. If a *prior* keyboard event left a modifier in
-        # the held state -- a dropped LShift break (0xAA) from a
-        # canceled Send-Text, a make/break race during VM reboot, an
-        # operator manually clicking the vmconnect window with Shift
-        # held, an IDE focus-steal mid-send -- every subsequent char
-        # this function emits inherits that modifier and lands shifted.
-        # Symptom: typing the test user (e.g. `yauser1`) produces `YAUSER!` at the login
-        # prompt (caught by failure-screenshot OCR). Issuing
-        # break codes for LShift + RShift + LCtrl + RCtrl + LAlt +
-        # RAlt + LMeta + RMeta as a one-shot scancode burst BEFORE
-        # any character typing is sent forces all modifiers to the
-        # released state. Break-for-not-pressed is a no-op on PS/2 so
-        # this is idempotent and safe for the normal case (no leftover
-        # state). E0-prefixed right-side modifiers (RCtrl/RAlt/RMeta)
-        # need the E0 escape byte before each release.
+        # --- REGION: https://yuruna.link/host-io#hyper-v-ps2-scancode-behavior
+        # Break codes for every modifier are issued first: a leftover held
+        # modifier makes every later char land shifted, and break-for-not-pressed
+        # is a no-op on PS/2, so the prefix is idempotent.
         [byte[]]$resetCodes = @(
             0xAA,             # LShift break
             0xB6,             # RShift break
@@ -983,25 +972,12 @@ function Send-TextHyperV {
             # divergence in the cycle log.
             Write-Warning "Send-TextHyperV: modifier-reset prefix failed; proceeding without it."
         }
-        # Batch all chars' scancodes into ONE Send-ScanCode CIM call.
-        # The per-char alternative (one CIM call per char plus a
-        # Start-Sleep $CharDelayMs after each) costs ~N * (CIM ~5-15 ms
-        # + 20 ms default delay) -- a 16-char password takes 400-560 ms
-        # wall-clock just for the typing. Hyper-V's TypeScancodes queues
-        # the entire byte payload internally and feeds the guest's PS/2
-        # buffer at its own (fast) pace, so batching cuts cost to ~one
-        # CIM call.
-        #
-        # For shifted characters: LShift-make, char-make, char-break,
-        # LShift-break -- the standard per-char sequence, concatenated
-        # into the batch. CharDelayMs is interpreted as a wall-clock
-        # SETTLE budget AFTER the batch: an explicit non-zero value
-        # asks the guest to drain before the next action; default
-        # behavior is "minimal pacing, fast through". Operators who
-        # need true per-char pacing (e.g. a guest agetty that drops
-        # bursts) can set vmCommunication.batchedTextSend=false in
-        # test.config.yml -- not wired today; opt-in is a future
-        # extension.
+        # --- REGION: https://yuruna.link/host-io#hyper-v-ps2-scancode-behavior
+        # The whole payload goes in ONE Send-ScanCode CIM call, which makes
+        # CharDelayMs a settle budget applied AFTER the batch rather than a
+        # per-char delay. True per-char pacing (for a guest agetty that drops
+        # bursts) would need vmCommunication.batchedTextSend=false, which is
+        # not wired today.
         $codeList = [System.Collections.Generic.List[byte]]::new()
         $charCount = 0
         foreach ($ch in $Text.ToCharArray()) {
@@ -1092,6 +1068,8 @@ function ConvertTo-ShellEscapedText {
     }
     return "eval ``echo -e '$($sb.ToString())'``"
 }
+
+# --- REGION: UTM keystroke transport: AppleScript chords + JXA/CGEvent text
 
 function Send-TextUTM {
     <#
@@ -1343,6 +1321,8 @@ public class HyperVMouse {
 "@
 }
 
+# --- REGION: Hyper-V mouse transport: vmconnect window clicks
+
 function Send-ClickHyperV {
     <#
     .SYNOPSIS
@@ -1375,6 +1355,8 @@ function Send-ClickHyperV {
     }
     return $ok
 }
+
+# --- REGION: UTM mouse transport: CGEvent clicks in the VM window
 
 function Send-ClickUtm {
     <#

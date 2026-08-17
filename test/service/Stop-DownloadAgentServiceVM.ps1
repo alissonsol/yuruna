@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42d19b7f-33bb-437b-9765-9cdf3d82f362
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -50,22 +50,16 @@ param(
 
 $InformationPreference = 'Continue'
 
-# $ErrorActionPreference is deliberately left at its inherited 'Continue', and
-# must stay that way. A script-scoped 'Stop' is not scoped to the script: an
-# advanced function invoked from here runs under it too, so every host-contract
-# call below would have its NON-terminating errors promoted to terminating ones.
-# Those helpers report and carry on by design -- Get-VMState answers 'absent' for
-# a VM that was never created, Remove-GuestVMQuietly -BestEffort is documented to
-# tolerate an already-gone VM -- and under 'Stop' each of those intended outcomes
-# ends the teardown instead. The sibling service teardowns (stash, caching proxy)
-# run at 'Continue' for the same reason.
+# --- REGION: https://yuruna.link/extensions-api#service-scripts-run-at-erroractionpreference-continue
+# Left at the inherited 'Continue' deliberately, and it must stay that way:
+# 'Stop' is not scoped to this script and would promote every host-contract
+# helper's non-terminating error. Hard stops here are explicit Write-Error + exit.
 
-# Honor the caller's logLevel, published as $env:YURUNA_LOG_LEVEL by whatever
-# entry point started this script (install/setup.ps1, a runner cycle). After the
-# lines above on purpose: an explicit level is the operator's choice and replaces
-# this script's own default. $InformationPreference is then re-read from the
-# global the cascade writes, because the script-scoped assignment above shadows
-# it for the rest of this file. See docs/loglevels.md.
+# --- REGION: https://yuruna.link/loglevels#propagation-across-pwsh-boundaries
+# After the preference assignments above on purpose: an explicit level is the
+# operator's choice and replaces this script's own default. $InformationPreference
+# is re-read afterwards because the script-scoped assignment above shadows the
+# global the cascade writes.
 Import-Module (Join-Path $PSScriptRoot '../modules/Test.LogLevel.psm1') -Global -Force -DisableNameChecking
 Use-LogLevelFromEnv
 $InformationPreference = $global:InformationPreference
@@ -90,6 +84,7 @@ if (-not $HostType) { exit $ExitFailure }
 Write-Information "Host type: $HostType" -InformationAction Continue
 [void](Initialize-YurunaHost -RepoRoot $RepoRoot -HostType $HostType)
 
+# --- REGION: Clear the service marker (this host stops advertising the area)
 # Clear the marker FIRST, before anything touches the VM. The aggregator polls
 # this host's registration on its own schedule, so the window between "the VM is
 # being destroyed" and "the host stops claiming the area" is a window in which
@@ -103,6 +98,7 @@ if (Remove-DownloadAgentServiceMarker -RuntimeDir $runtimeDir) {
     Write-Information "  Cleared download-agent-service marker (host will drop from Extension hosts)." -InformationAction Continue
 }
 
+# --- REGION: Publish the withdrawal (refresh host.registration.json)
 # Publish the removal NOW: regenerate host.registration.json so the marker's
 # absence (activeExtensions drops 'download-agent-service') reaches the
 # aggregator on its next poll, without waiting for a test cycle. Best-effort
@@ -116,6 +112,7 @@ try {
     }
 } catch { Write-Verbose "registration refresh: $($_.Exception.Message)" }
 
+# --- REGION: Stop the VM
 # Tear down the VM and every file it owns so the next Start rebuilds from a
 # clean slate. A graceful stop runs first (clean systemd shutdown, which is also
 # what lets the daemon post its beacon goodbye and release the pool lease); the
@@ -137,11 +134,13 @@ if ($state -eq 'absent') {
     }
 }
 
+# --- REGION: Remove the VM and every file it owns
 # -SkipStop: the stop above already ran; Remove-VM force-stops internally if the
 # graceful path did not fully settle.
 Write-Information "Removing VM '$VMName' and its on-disk files..." -InformationAction Continue
 Remove-GuestVMQuietly -VMName $VMName -SkipStop -BestEffort
 
+# --- REGION: Final state check
 $finalState = Get-VMState -VMName $VMName
 if ($finalState -eq 'absent') {
     Write-Information "Download-agent service stopped; marker cleared; VM '$VMName' and its files removed. The image pool on the pool share is untouched." -InformationAction Continue

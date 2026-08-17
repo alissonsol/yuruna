@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.14
+# Version: 2026.08.16
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -7,6 +7,7 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 export NONINTERACTIVE=1
 
+# --- REGION: Detect architecture
 ARCH=$(uname -m)
 echo "Detected architecture: $ARCH"
 case "$ARCH" in
@@ -25,9 +26,8 @@ esac
 
 # --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
 . /usr/local/lib/yuruna/yuruna-retry.sh
-# Baked retry libs may bound apt attempts on wall-clock -- the wrapped-apt
-# teardown-hang trap class (apt blocks at end-of-transaction under a timeout(1)
-# parent). Force unbounded until no image predates the lib's unbounded default.
+# --- REGION: https://yuruna.link/network#why-apt-and-dnf-attempts-run-unbounded-by-default
+# Re-asserted here because a baked retry lib may still carry a wall-clock bound.
 export YURUNA_APT_STALL_TIMEOUT_SECONDS=0
 
 echo ""
@@ -43,7 +43,10 @@ apt_retry sudo apt-get update -y
 # migration, so never float this to a newer major via an unattended apt-get.
 apt_retry sudo apt-get install -y postgresql-18 postgresql-contrib-18
 
-# Stop PostgreSQL if running and wait for full shutdown before re-creating cluster
+# Stop PostgreSQL and wait for full shutdown before re-creating the cluster.
+# The stop has to follow the install here, not precede it: the deb package
+# creates and starts a cluster as part of its own postinst, so anything stopped
+# beforehand is running again by this point.
 if sudo systemctl is-active postgresql &>/dev/null; then
   sudo systemctl stop postgresql
   while sudo systemctl is-active postgresql &>/dev/null; do
@@ -60,6 +63,7 @@ sudo pg_createcluster 18 main --start
 sudo systemctl enable postgresql
 sudo systemctl start postgresql
 
+# --- REGION: Installation summary
 echo ""
 echo "== Installation Summary =="
 echo "PostgreSQL: $(psql --version)"

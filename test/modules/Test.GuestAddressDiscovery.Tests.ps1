@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42e7c1a9-5d38-4b64-9a17-6c0f2b8d3e75
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -85,7 +85,7 @@ if (-not (Get-Module Yuruna.Host)) {
     throw "Yuruna.Host (macos.utm) did not load from '$DiscoveryModule'; the guest-address chain cannot be exercised."
 }
 
-# --- Fixtures: the shape a bridged service guest actually presents ---
+# --- REGION: Fixtures: the shape a bridged service guest actually presents
 
 # utmctl exits 0 and complains on stderr when the guest has no agent, so this
 # is what a healthy, serving, bridged guest looks like to rung 1.

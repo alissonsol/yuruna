@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42c9e4a7-1b83-4d56-9e07-3a5c8b1d4e26
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -785,9 +785,9 @@ function Get-PoolWorkerConfiguredServer {
     mount depends on -- most importantly the '~' expansion, without which the
     mount point compared here and the one mount(8) reports can never match.
 
-    -IgnoreReplicate on the pool tier: a converting host may not have flipped
-    pool.networkReplicate yet, and its mount still has to be transferred to the
-    lab's storage either way.
+    The pool tier resolves whenever its three paths are populated, which is what a
+    converting host has: its mount must be transferred to the lab's storage
+    regardless of which archiving mode it runs.
 .OUTPUTS
     [pscustomobject[]] Kind, Storage, NetworkPath, LocalPath, Server, ShareName.
 #>
@@ -798,7 +798,7 @@ function Get-PoolWorkerStorageTier {
     $tiers = [System.Collections.Generic.List[pscustomobject]]::new()
     if ($Config -isnot [System.Collections.IDictionary]) { return [pscustomobject[]]@($tiers) }
     $readers = @(
-        @{ Kind = 'pool';  Read = { Get-YurunaPoolStorageConfig  -Config $Config -IgnoreReplicate -WarningAction SilentlyContinue } }
+        @{ Kind = 'pool';  Read = { Get-YurunaPoolStorageConfig  -Config $Config -WarningAction SilentlyContinue } }
         @{ Kind = 'stash'; Read = { Get-YurunaStashStorageConfig -Config $Config -WarningAction SilentlyContinue } }
     )
     foreach ($reader in $readers) {

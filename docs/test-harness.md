@@ -203,6 +203,36 @@ Override runtime and log directories via `$env:YURUNA_RUNTIME_DIR` and
 `$env:YURUNA_LOG_DIR` before launch; the status service remaps the URL
 prefixes.
 
+## Pester discovery and file-scope variables
+
+A suite that stands up a throwaway `$env:YURUNA_RUNTIME_DIR` names it from
+`$PID` and holds that name in an UNQUALIFIED (not `$script:`-qualified)
+file-scope variable. Both details are load-bearing, and both failures are
+silent:
+
+- The file's body is executed during Pester's DISCOVERY pass — and, when the
+  file is run as the entry script, once more before that.
+  `$env:YURUNA_RUNTIME_DIR` is process-global, so the last body execution wins,
+  while the `It` blocks read the name captured by the first. A per-execution
+  GUID would therefore point the module under test at one directory and the
+  assertions at another; a `$PID`-derived name is identical in every pass, so
+  the two cannot diverge.
+- An `It` block runs in a fresh script scope. A `$script:`-qualified read from a
+  test resolves to THAT scope and comes back `$null` even though the file
+  assigned the name. Only an unqualified name walks the scope chain out to the
+  file's own variables.
+
+Cleanup belongs in `AfterAll` for the same reason, never at the end of the file:
+file-level code runs during discovery, BEFORE any `It`, so a trailing
+`Remove-Item` deletes the directory the tests are about to mint into rather than
+cleaning up after them.
+
+Helper FUNCTIONS are the opposite case and stay at file scope, above the first
+`Describe`: function lookup walks the scope chain, so an `It` resolves them,
+while a `Describe` body's functions are discarded before any `It` runs. See
+[Pester file-scope fixtures](memory.md#pester-file-scope-fixtures) for that rule
+and what must stay out of the file body.
+
 ## Self-healing extension points
 
 The harness exposes five registries that the operator, a project,
@@ -584,6 +614,52 @@ both flushing `status.json`) rename each other's half-written temp.
 path stays atomic. The `.tmp` suffix is preserved so any `*.tmp`
 cleanup/ignore rules still match.
 
+## Single-instance locks
+
+Several harness processes must have at most one instance per runtime directory
+— the host-address beacon, the pool push forwarder, and the pool-storage drain.
+Two lock shapes are in use, and every detail of both closes a failure that was
+otherwise silent.
+
+**An OS-held handle, where the kernel can be the lock.** The beacon opens its
+lock file with `FileShare::None` and keeps the handle open for the whole run: a
+second beacon simply cannot open it, and the kernel releases it when the process
+dies — including on a kill, where no cleanup code would have run. Nothing parses
+the file; its contents are diagnostics only.
+
+**A PID record, where a stale lock has to be reclaimable.** The forwarder and
+the drain create the file with `[System.IO.File]::Open` in `CreateNew` mode — an
+OS create-if-not-exists — and record the holder's PID together with its process
+start time. Acquisition being atomic is what makes concurrent starters safe: a
+check-then-write loses to a starter that reads the zero-byte file the winner has
+created but not yet filled, fails to parse it, concludes the lock is stale, and
+reclaims it.
+
+**Identity is PID AND start time.** The liveness check requires both a live PID
+and a matching start time, so OS PID reuse after a crash cannot let a stale lock
+masquerade as a running holder — which would break the guarded work forever
+without ever saying so.
+
+**Start time is recorded as ticks, never as a formatted timestamp.**
+`ConvertFrom-Json` materializes an ISO-8601 field as a `[datetime]`, and
+rendering that back to a string yields a culture-formatted value
+(`08/11/2026 19:07:24`) that can never equal the `'o'` round-trip form it was
+written as. Every comparison mismatches, every start judges a LIVE lock stale
+and reclaims it, and the single-instance guarantee evaporates with nothing in
+the log. A number survives the round trip unchanged.
+
+**Claim the slot before the expensive work.** The beacon takes its lock ahead of
+the module imports beneath it: those pull in the host driver and take seconds,
+and two beacons spawned seconds apart would otherwise both clear the check
+before either had written anything.
+
+**Where the lock lives is part of the design.** The pool-storage lock is held by
+the orchestrator rather than by the detached wrapper script, because move mode
+calls the function directly and in-process — a lock held only by the script
+would leave the synchronous mover free to race a detached drain still working
+through an earlier backlog, one deleting local folders the other is mid-copy
+from.
+
 ## status.json history schema
 
 Each history entry's `guestSummary` is an `[ordered]@{}` so the JSON
@@ -728,6 +804,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.14
+Last review: 2026.08.16
 
 Back to [Yuruna](../README.md)

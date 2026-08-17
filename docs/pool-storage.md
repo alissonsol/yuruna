@@ -3,10 +3,16 @@
 Hosts in the Yuruna pool are **reimageable at any time**, exactly like the guests
 they test. So host-local storage is treated as fast and **ephemeral**, and
 the durable tier is an **optional** Network-Attached Storage share — the *yuruna
-pool storage path* (**ypool-nas**). When enabled, each host replicates its finished
+pool storage path* (**ypool-nas**). When configured, each host archives its finished
 test-cycle output to the share over **SMB3** (the one network-file protocol uniform
 across Windows, macOS, and Linux). Nothing host-local is load-bearing: wipe a host
 and its archived cycles still live on the NAS.
+
+Archiving has two **modes**, selected by `networkStorage.moveLogsToPoolStorage`:
+**copy** (the default — the local folder is kept) and **move** (the local folder is
+deleted once the copy is verified, so the share holds the only copy). Everything
+below describes copy mode unless it says otherwise; [Move mode](#move-mode-the-share-holds-the-only-copy)
+covers what changes.
 
 This document is the **architecture + operations** reference. For
 `test.config.yml` parameters (and how to set the SMB password in the
@@ -28,12 +34,14 @@ which have to be created on the device itself. See
 
 ## The model
 
-- **Local stays local.** The runner writes cycle folders to `test/status/log/`
-  unchanged. poolStorage never changes the live data path or its performance.
+- **Local stays local while a cycle runs.** The runner writes cycle folders to
+  `test/status/log/` unchanged. poolStorage never changes the live data path or its
+  performance; in move mode a finished folder is removed only after its copy is
+  verified on the share.
 - **Stash storage is isolated.** The stash service has its own tier under
   `networkStorage.stash*` — its own NAS share and account, not the pool's share
   or credential. This page covers only the **pool**
-  side (`networkStorage.pool*` + `networkReplicate`); for the stash storage
+  side (`networkStorage.pool*`); for the stash storage
   reference see [test-config.md](test-config.md) and the stash guide.
 - **Replication is a cold archive.** It is a one-way **copy** of
   immutable, finished cycle folders — not a live data directory — and the pool
@@ -45,11 +53,13 @@ which have to be created on the device itself. See
   the guest-image **Download pool** it continuously writes, re-verifies and
   serves to hosts over HTTP (see [On-share layout](#on-share-layout)). Sizing and
   retention are therefore a live concern, not just an archival one.
-- **Per-host namespacing.** Each host writes under `<poolStorageLocalPath>/<hostId>/…`, keyed
-  on the stable opaque `hostId` (`runtime/host.uuid`), so many hosts use one
-  share without collision.
-- **Opt-in + off by default.** `networkReplicate: false` (the default), or any of the
-  paths left empty, is a complete no-op: no mount, no copy, no background work.
+- **Per-host namespacing.** Each host writes under
+  `<poolStorageLocalPath>/hosts/<hostId>/…`, keyed on the stable opaque `hostId`
+  (`runtime/host.uuid`), so many hosts use one share without collision.
+- **The three paths are the opt-in.** Any of `poolStorageNetworkPath`,
+  `poolStorageNetworkUser`, `poolStorageLocalPath` left empty is a complete no-op:
+  no mount, no copy, no background work. Populating all three turns archiving on;
+  `moveLogsToPoolStorage` then selects copy vs move.
 
 ## How replication works — the PoolStorageReplicator
 
@@ -79,7 +89,8 @@ never approaches the cap. A big initial catch-up can be hurried with a one-off
 `Invoke-PoolStorageDrain … -MaxPerRun 500`.
 
 **Atomic — a cycle is copied, or it is not.** Each cycle is copied into
-`<poolStorageLocalPath>/<hostId>/<cycle>/`, then a tiny `.yuruna-complete` **sentinel** file
+`<poolStorageLocalPath>/hosts/<hostId>/test-cycles/<cycle>/`, then a tiny
+`.yuruna-complete` **sentinel** file
 is written **last**, and only then is the cycle recorded in the ledger. A copy
 interrupted partway leaves no sentinel and no ledger entry, so the next run
 deletes the incomplete folder and recopies it.
@@ -116,12 +127,15 @@ map a non-empty `vaultKey` and `Set-Password` it.
 <poolStorageLocalPath>/
   hosts/
     info.<hostId>.yml                       # host registry (uuid + fingerprint)
-  <hostId>/
-    000123.2026-06-10.14-22-08.<hostId>/   # one finished cycle's folder
-      …cycle artifacts…
-      .yuruna-complete                      # sentinel: copy committed
-    000124.2026-06-10.14-39-51.<hostId>/
-      …
+    <hostId>/
+      test-cycles/
+        000123.2026-06-10.14-22-08.<hostId>/   # one finished cycle's folder
+          …cycle artifacts…
+          .yuruna-complete                     # sentinel: copy verified + committed
+        000124.2026-06-10.14-39-51.<hostId>/
+          …
+      services/                             # this host's service data (proxy)
+        caching-proxy-service/{loki,prometheus,grafana}/
   images/                                   # the Download pool (download-agent service)
     .agent-lease.json                       # single-writer lease {hostId, vmName, renewedAtUtc}
     <hostType>/<imageKey>/                  # ubuntu.kvm/guest.ubuntu.server.26/, …
@@ -154,7 +168,7 @@ these are full guest ISOs and cloud images, so budget for the families the lab's
 host types use — the UI's totals row reports the current draw. See
 [pool-admin.md](pool-admin.md#download-agent-service).
 
-Each drain also refreshes `hosts/info.<hostId>.yml` with this host's uuid + a
+Each run also refreshes `hosts/info.<hostId>.yml` with this host's uuid + a
 hardware fingerprint, so a reimaged box can **reclaim** its prior `hostId` instead
 of re-keying — see [Host identity & reimage reclaim](#host-identity--reimage-reclaim).
 A host that declines the reclaim (or whose hardware no longer matches) re-keys with
@@ -175,15 +189,116 @@ replicated (the share is never consulted to decide). Written atomically
   "lastConnectOk": true,
   "lastError": "",
   "pendingCount": 0,
-  "lastCopied": 1
+  "lastCopied": 1,
+
+  "recentArchivedBytes": [1043216384, 998244352],
+  "movedRecent": [ { "cycle": "000123.…", "utc": "…", "bytes": 1043216384 } ],
+  "lastMove": { "utc": "…", "moved": 1, "deleted": 1, "spaceShort": false,
+                "freeBytes": 91234567890, "requiredBytes": 3293216384 }
 }
 ```
+
+`recentArchivedBytes` is a rolling sample of the last few archived cycle sizes,
+recorded in **both** modes so a host switched to move mode already has a real
+projection to size its space check against. `movedRecent` and `lastMove` are
+diagnostics for move mode.
 
 Entries whose cycle folder no longer exists locally (rotated fully away) are
 pruned so the ledger stays bounded. The ledger lives on the host's **ephemeral**
 disk: a reimaged host loses it and re-drains its (small, post-rotation) local
 backlog — wasted work, never lost or duplicated data, since copies are idempotent
 onto immutable folders.
+
+In move mode the pruning empties the `replicated` map almost as fast as it fills,
+because every archived cycle's local folder is deleted. That is safe rather than
+alarming: the pending set is *local folders minus the ledger*, so a folder that is
+gone locally can never re-enter it. The durable record of what was archived is the
+share itself — each committed folder carries a `.yuruna-complete` sentinel.
+
+## Move mode: the share holds the only copy
+
+With `networkStorage.moveLogsToPoolStorage: true`, each finished cycle is copied,
+**verified**, and then deleted locally. Three things change.
+
+**It runs synchronously.** Copy mode fires a detached child and the loop moves on;
+move mode cannot, because whether the copy succeeded is part of the cycle's verdict.
+The phase is wall-clock bounded (30 minutes overall, 10 minutes per copy) and a slow
+NAS produces a warning, not a failure — a slow share is not a full one.
+
+**The commit order is load-bearing.** Verify → sentinel → ledger → delete. Every
+interruption in that sequence is recovered on the next run:
+
+| Killed | Recovery |
+|---|---|
+| before the sentinel | the destination is sentinel-less, so it is nobody's archive: the next run deletes and recopies it |
+| after the sentinel, before the ledger | the cycle is still pending, and the run **adopts** the finished archive rather than re-copying — re-verifying would compare a possibly half-deleted local source against a complete copy, fail, and delete a perfectly good archive |
+| during the delete | the cycle is no longer pending, so a **delete-sweep** at the start of each run finishes it |
+
+**Verification is shape, not content.** Recursive file count and total bytes, source
+against destination, before the sentinel is written. Hashing multi-gigabyte folders
+across SMB every cycle costs far more than it buys, and rsync/robocopy already verify
+each file's own transfer; what this catches is the truncated or partial tree a
+connection that dropped mid-copy leaves behind, which a per-file check cannot see
+because the missing files were never attempted.
+
+What is never moved: the **live cycle** and any folder whose on-disk leaf still ends
+in `.incomplete`. Rotated `history.YYYY-MM-DD/` buckets **are** archived, flattened
+into `test-cycles/` — on-share leaves are always the bare cycle identity, with
+`.incomplete` / `.aborted.<UTC>` suffixes stripped.
+
+### Free space, and what a full share does
+
+A share with no room is the one archiving failure that **fails the cycle**, because
+in move mode a cycle whose results cannot be archived has lost them. Two checks, one
+shared rule — `free >= ceil(size × 1.10) + 2 GiB reserve`:
+
+- **Before each cycle**, projected from the largest of the last five archived cycles
+  (1 GiB floor when there is no sample). Short ⇒ the cycle **does not start**: the
+  runner records `pool_storage_full` and takes its normal failure pause, which ends
+  on a config edit, a new framework/project commit, the dashboard's Start cycle, or
+  the one-hour cap — then re-checks. A cycle that would run for 45 minutes only to
+  fail at the end is not worth running.
+- **Before each copy**, against the folder's measured size. Short ⇒ nothing is copied
+  and nothing is deleted; the cycle is marked failed.
+
+The 2 GiB reserve protects the share's **other** tenants — the guest-image download
+pool, the proxy's observability archive, `pool-intent.git` — from being squeezed to
+zero by archiving. Thresholds are code constants in `Test.PoolStorage.psm1`, next to
+the wall-clock caps.
+
+A share whose free space cannot be measured never fails anything: the copy proceeds
+and fails loudly on its own if the share really is full.
+
+**Nothing prunes the share.** Running out of room is an expected, recoverable state
+whose remedy is a human deleting old archives — which is exactly what the failure
+message says. `test/pool/Remove-PoolHost.ps1` removes a retired host's whole archive
+root (and its pre-unification one, if any).
+
+## Reading archived results after the local copy is gone
+
+Every link in the product still names the local URL (`log/<cycle>/…`), recorded in
+`status.json` history rows written while the folder was local. Rather than rewriting
+those after the fact, two read paths resolve them against the share:
+
+- **The host's own status service** re-roots a `log/…` request at
+  `<poolStorageLocalPath>/hosts/<hostId>/test-cycles/` when the local file is gone,
+  mapping the URL onto the flat share layout (a leading `history.<date>/` segment is
+  dropped and lifecycle suffixes are stripped). The same containment and deny-list
+  checks apply to the share root as to the local one, and only this host's own
+  `hostId` is ever used. The `/cycle/<n>` short link and the `.zip` share page use
+  the same fallback, so **Share cycle results** keeps working. The `/log/` index
+  merges archived cycle names in, so the directory does not look empty.
+- **The pool-aggregator-service** serves the share directly at
+  `/archive/<hostId>/test-cycles/<cycle>/…` on `:9400`, from the mount the proxy
+  already has (`-pool-archive-root`). `/go/cycle` — the dashboard's *Open cycle
+  results* link — redirects there whenever the cycle is committed on the share, which
+  keeps the link working even when the host is switched off or reimaged. Only
+  sentinel-complete folders resolve, so a click can never land inside a copy that is
+  still running. A `yuruna_pool_archive_available` gauge reports 0 when the proxy's
+  NAS mount is away.
+
+Neither path changes any recorded URL, so `Test.Status.psm1`, `Test.Log.psm1` and the
+dashboard JS are untouched.
 
 ## Host identity & reimage reclaim
 
@@ -260,6 +375,53 @@ Windows via SMB mappings need no sudo), and skipped under `-NonInteractive` (whi
 falls back to printing the drop-in to install by hand). The same step is available
 directly as `Set-PoolStorageSudoers`.
 
+### Guest-side pool NAS CIFS mount options
+
+The table above is the host side. The service guests — the download-agent and
+pool-control VMs — mount the same share themselves, at `/mnt/yuruna-pool`, and
+persist it through `/etc/fstab` so it survives a reboot and so systemd exposes a
+`.mount` unit the daemon can order `After=`. The option string is short and every
+part of it is load-bearing:
+
+```
+credentials=/etc/yuruna/pool-nas.cifs.cred,vers=3.0,uid=<svc>,gid=<svc>,file_mode=0666,dir_mode=0777,noperm,nofail,_netdev[,ip=<addr>]
+```
+
+**The modes are a mapping, not a permission choice.** CIFS has no per-file POSIX
+ownership to expose: the whole mount is presented as belonging to one `uid`/`gid`,
+and `file_mode`/`dir_mode` are the permission bits every object on it appears to
+carry. The server then maps that mount mode onto the ACL of objects the guest
+CREATES — so a tight `dir_mode` does not harden anything, it locks each new folder
+to its single creator, and the hosts that have to read the pool back (guest images,
+the audit log, archived cycles) lose access to everything the VM wrote. The open
+`0777`/`0666` pair is chosen to MATCH the parent share; the share's own ACL is where
+access is actually decided. `noperm` tells the client to stop second-guessing with a
+local permission check the server will re-evaluate anyway.
+
+**`ip=` covers name resolution the guest does not have.** The share is configured as
+a UNC path, and its server component is frequently a bare NetBIOS name or a
+host-side alias that only the host's resolver knows. A guest on a hypervisor-private
+network cannot resolve either, and the mount fails at name lookup before any
+credential is tried. `ip=` hands cifs the address directly and leaves the UNC name
+intact for the SMB session. The value is baked by `Get-YurunaPoolSeedValue`, which
+never emits an address a guest cannot dial, so it is safe to pass unconditionally
+whenever it is present.
+
+**Only the LOCAL fallback directory is ever `chown`ed.** After creating the state
+dir, the installers check `mountpoint -q` and run `chown` only when the path is NOT
+on the share. On a mounted share the `uid`/`gid` options have already placed
+ownership, so the `chown` would buy nothing — and worse, on a mode-mapped mount it
+can push an owner-only ACL back onto the server and lock the hosts out of the very
+pool the guest is maintaining. When the mount is absent the daemon degrades to a
+local directory that really is POSIX-owned, and there the `chown` is what lets the
+unprivileged service user write.
+
+`iocharset=utf8` is deliberately absent: `nls_utf8` is not built into the minimal
+cloud kernel and requesting it fails the mount with `error(79)`. Every name in the
+pool is ASCII. `nofail` and `_netdev` keep a NAS outage from wedging boot — the
+daemons are written to start without the share and report it as unavailable rather
+than refusing to run.
+
 ## What is — and isn't — replicated
 
 - **Replicated:** each host's finished **cycle output** (logs, screenshots, NDJSON
@@ -278,7 +440,7 @@ Beyond the host-side cycle replication above, the caching-proxy-service VM archi
 **observability data** to the same share so a reimaged proxy can be restored. It is
 **guest-side**: the proxy's cloud-init seed carries the config + a credential,
 CIFS-mounts the share, and an hourly `ypool-nas-replicate.timer` rsyncs the data dirs to
-`<poolStorageNetworkPath>/<hostId>/services/caching-proxy-service/<svc>/`.
+`<poolStorageNetworkPath>/hosts/<hostId>/services/caching-proxy-service/<svc>/`.
 
 - **Replicated:** `loki` + `prometheus` via `rsync -a` (crash-consistent, additive);
   `grafana` via `sqlite3 .backup` of the live `grafana.db` (a plain rsync of an open
@@ -296,7 +458,7 @@ CIFS-mounts the share, and an hourly `ypool-nas-replicate.timer` rsyncs the data
   Because the account is storage-only, a leaked credential is confined to the pool share
   (no host login, no other service). Empty `poolStorageNetworkUser` ⇒ service replication stays off.
 - **Enablement** is baked at VM-create time: the seed gets `YPOOL_NAS_REPLICATE=true`
-  whenever poolStorage is **configured** (`poolStorageNetworkPath` + `poolStorageNetworkUser` set) — the
+  whenever poolStorage is **configured** (the three `poolStorage*` paths set) — the
   password need not exist at bake time. Until the vault entry is set, the config
   service answers `503` for `/v1/nas/pool`, the credential file stays empty, the mount
   fails (`nofail`), and replication no-ops — self-healing on the next hourly run once you
@@ -316,13 +478,18 @@ the share mounted at `/mnt/ypool-nas`:
 ```sh
 systemctl stop loki prometheus grafana-server
 for s in loki prometheus grafana; do
-  rsync -a "/mnt/ypool-nas/<hostId>/services/caching-proxy-service/$s/" "/var/lib/$s/"
+  rsync -a "/mnt/ypool-nas/hosts/<hostId>/services/caching-proxy-service/$s/" "/var/lib/$s/"
 done
 chown -R loki:loki /var/lib/loki; chown -R prometheus:prometheus /var/lib/prometheus; chown -R grafana:grafana /var/lib/grafana
 systemctl start loki prometheus grafana-server
 ```
 (Grafana also self-rebuilds its datasources + dashboards from the seed's provisioning,
 so a restore mainly recovers retained metrics/logs + any runtime dashboard edits.)
+
+A proxy that has not been rebuilt since the per-host roots were unified is still
+writing to the pre-unification `/mnt/ypool-nas/<hostId>/services/…` path. Restore
+from whichever of the two roots actually holds data; the proxy moves to the
+`hosts/` root on its next rebuild.
 
 ## Syncing a new host's config from a reference host
 
@@ -412,26 +579,30 @@ networkStorage pool block (all three pool paths set, a usable vault credential s
 the mount won't auto-generate a junk password, and SMB `:445` reachability) before
 a cycle runs. When the credential is configured **and** the server is reachable, it
 **actively mounts `poolStorageLocalPath` and creates the per-host
-folder `<poolStorageLocalPath>/<hostId>`** — the same write the replicator does — so a wrong
+folder `<poolStorageLocalPath>/hosts/<hostId>`** — the same write the replicator does — so a wrong
 SMB password, a share-name typo, a missing Linux passwordless-sudo rule, or a
 read-only share is caught here instead of failing silently in the detached drain.
-With `networkReplicate: true` a failure of this active step is a **FAIL that stops the
+With `moveLogsToPoolStorage: true` a failure of this active step is a **FAIL that stops the
 cycle** (the gate refuses to start until it is fixed, or you bypass it with
-`-NoConfigGate`); with `networkReplicate: false` it is advisory only. A merely-offline
+`-NoConfigGate`) — the local copy is about to be deleted, so archiving has to work.
+In copy mode it is advisory only, since the local folder survives regardless. A merely-offline
 NAS (no answer on `:445`) stays a WARN — the loop retries it each cycle, so it
 never blocks a healthy run.
 
 `Invoke-TestRunner`, `Invoke-TestSequence`, and `Invoke-TestProject` all run this
-same gate at startup, so all three refuse to begin when `networkReplicate` is on
-and the share is not writable.
+same gate at startup, so all three refuse to begin when `moveLogsToPoolStorage` is on
+and the share is not writable. The one-shot entry points never archive on their own:
+a finished folder from `Invoke-TestSequence` / `Invoke-TestProject` waits for the
+next runner-driven cycle.
 
 Everything the drain writes lives under the runtime directory:
 
 | File | Purpose |
 |---|---|
-| `runtime/poolstorage.state.json` | the ledger (replicated set + last-run status) |
-| `runtime/poolstorage.drain.out` / `.err` | the last drain's console output (Windows writes both; macOS/Linux writes only `.err`, stdout is discarded) |
-| `runtime/poolstorage.drain.lock` | single-instance lock (`{pid,startUtc}`); absent between runs |
+| `runtime/poolstorage.state.json` | the ledger (archived set + last-run status + the move diagnostics) |
+| `runtime/poolstorage.drain.out` / `.err` | **copy mode only** — the last detached drain's console output (Windows writes both; macOS/Linux writes only `.err`, stdout is discarded). A move-mode host never spawns that child, so these files freeze at the moment it switched; its per-cycle summary goes to the runner console and `runtime/outer.log` instead |
+| `runtime/poolstorage.drain.lock` | single-instance lock (`{pid,startTicks}`); absent between runs. Taken by the archiver itself, so it covers the detached drain and the synchronous mover alike |
+| `runtime/poolstorage.space-fail.notified` | latch so a share that stays full alerts once per streak rather than once per hour; cleared by the next run that finds room |
 
 A drain's summary line reads e.g. `connectOk=True copied=20 pending=1097 error=''`.
 
@@ -441,6 +612,11 @@ where `$env:YURUNA_*` are set:
 ```powershell
 pwsh -NoProfile -File ./test/modules/Invoke-PoolStorageDrain.ps1 -HostId '<hostId>'
 ```
+
+The script resolves the mode from config, so a hand-run on a move-mode host moves
+(and deletes) exactly as the runner would. It takes the same single-instance lock,
+so it is safe to run while the runner is going — one of the two simply waits for the
+next cycle.
 
 or call the function directly after importing the module set
 (`Test.PoolStorage`, `Test.StateFile`, `Test.Config`, and the authentication
@@ -473,13 +649,33 @@ Common findings:
   another `/etc/sudoers.d` file sorting **after** the poolStorage drop-in — the
   last matching rule wins, so a later one re-requiring a password overrides it.
 - **The cycle won't start, gate FAILs on `poolStorageLocalPath / per-host folder
-  pre-flight FAILED`** — `networkReplicate: true` and the active pre-flight could not
-  mount the share or could not create `<poolStorageLocalPath>/<hostId>` on it. The FAIL line
+  pre-flight FAILED`** — `moveLogsToPoolStorage: true` and the active pre-flight could not
+  mount the share or could not create `<poolStorageLocalPath>/hosts/<hostId>` on it. The FAIL line
   names the stage: a *mount* failure points at the password / share name / Linux
   sudo; a *folder* failure points at a read-only share or missing write
   permission for `poolStorageNetworkUser` under `poolStorageLocalPath`. Fix the share, or set
-  `networkReplicate: false` (downgrades it to advisory), or bypass once with
+  `moveLogsToPoolStorage: false` (downgrades it to advisory), or bypass once with
   `-NoConfigGate` for an unrelated in-progress edit.
+- **`spaceShort=True`, or the cycle fails with `pool_storage_full`** — the share is
+  out of room (see [Free space](#free-space-and-what-a-full-share-does)). Nothing was
+  archived and nothing was deleted, so no results were lost. Delete old cycle
+  archives under `<poolStorageLocalPath>/hosts/*/test-cycles/`, or retire dead hosts
+  with `test/pool/Remove-PoolHost.ps1`; the runner re-checks before each cycle and
+  resumes on its own. Check what else is on the volume first — the guest-image pool
+  under `images/` is usually the largest tenant.
+- **A dashboard cycle link 404s on a move-mode host** — the host's own status service
+  serves archived cycles from its mount, and the aggregator serves them from the
+  proxy's. If both are away the results are reachable only from the NAS directly.
+  `yuruna_pool_archive_available 0` on the proxy's `/metrics` means its mount is the
+  one that is gone; `mountpoint -q /mnt/ypool-nas` on the proxy confirms it.
+- **Local disk keeps growing on a move-mode host** — archiving is not reaching the
+  share at all. Move mode never deletes a folder it did not verify, so a NAS that is
+  unreachable, unmountable or credential-broken leaves everything local by design.
+  The health warning at each cycle end names the cause; rotation still caps the
+  directory, so this is bounded, not unbounded.
+- **`another poolStorage run holds the lock`** — a previous run is still working
+  through a backlog (a first archiving pass after a long outage can take a while).
+  This cycle's results stay local and the next run picks them up. Nothing is lost.
 - **The whole config won't load** — a Windows drive-letter `poolStorageLocalPath` must be
   **quoted** in YAML (`poolStorageLocalPath: 'w:'`, not `w:`); unquoted it breaks the entire
   `test.config.yml` parse. See the YAML-quoting note in [test-config.md](test-config.md).
@@ -539,6 +735,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.14
+Last review: 2026.08.16
 
 Back to [Yuruna](../README.md)

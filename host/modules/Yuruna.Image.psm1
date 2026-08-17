@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42de9c8b-f7a6-4b34-9182-3c4d5e6f7ab7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -985,7 +985,7 @@ function Save-UbuntuExtensionImage {
             return $true
         }
 
-        # --- REGION: Download the cloud image
+        # --- REGION: Download the image
         Remove-Item -LiteralPath $downloadFile -Force -ErrorAction SilentlyContinue
         $sourceBaseName = $Image.SourceUrl.Substring($Image.SourceUrl.LastIndexOf('/') + 1)
         $downloaded = Save-ImageWithChecksum `
@@ -1109,6 +1109,8 @@ function Expand-ExtensionVmDisk {
     }
     return $true
 }
+
+# --- REGION: Exports
 
 Export-ModuleMember -Function Save-ImageWithChecksum, Get-ImageChecksumLine, Get-PublishedChecksumBody, ConvertTo-ChecksumText, `
     Convert-Qcow2ToVhdx, Test-PublishedChecksumSignature, `

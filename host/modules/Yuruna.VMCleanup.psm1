@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42b8c9d0-e1f2-4a34-9567-89b0c1d2e3f4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -150,5 +150,7 @@ function Resolve-BaseImageName {
     $names.Add((Get-UbuntuExtensionImageBaseName -HostType (Split-Path -Leaf $HostScriptDir)))
     return @{ HostFolder = $hostFolder; BaseImageNames = $names.ToArray() }
 }
+
+# --- REGION: Exports
 
 Export-ModuleMember -Function Set-VMCleanupQuiet, Write-CleanupMessage, Get-VMFolderSize, Resolve-BaseImageName

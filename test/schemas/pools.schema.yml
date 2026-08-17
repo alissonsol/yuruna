@@ -36,7 +36,7 @@ properties:
   autoEnrollment:
     type: object
     description: >
-      PHASE A (permit-only): declared here so every intent WRITER accepts a
+      Accepted but not yet emitted: declared here so every intent WRITER accepts a
       document containing it before any writer emits it. Every admin write
       re-validates the WHOLE document against the writing checkout's own copy of
       this schema, and this file is `additionalProperties: false` at the root --
@@ -143,7 +143,7 @@ $defs:
           sequences:
             type: array
             description: >
-              PHASE A (permit-only): see the note on `autoEnrollment`.
+              Accepted but not yet emitted: see the note on `autoEnrollment`.
 
               Optional subset of the assigned project's top-level sequences to
               run. ABSENT or EMPTY means run the project's whole

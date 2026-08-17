@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42f2c3d4-e5f6-4a78-b901-c2d3e4f5a682
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,8 +26,8 @@
     (Get-UbuntuExtensionImageInfo / Save-UbuntuExtensionImage in
     host/modules/Yuruna.Image.psm1). Every extension service on this host
     boots the same cloud image, so one artifact serves all of them instead
-    of a byte-identical copy per service; the second and third service to
-    ask for it cost a single HEAD request. This per-service entry point
+    of a byte-identical copy per service; the second and later service to
+    ask for it costs a single HEAD request. This per-service entry point
     stays so the stash service can move to a different release, arch or
     post-processing step later without disturbing the others.
 
@@ -35,10 +35,18 @@
     grows its own per-VM copy to the size the stash daemon needs.
 #>
 
+# --- REGION: Log level from environment
 # Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
 if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
 
+# --- REGION: Host platform guard
+if (-not $IsMacOS) {
+    Write-Error "host/macos.utm/guest.stash-service/Get-Image.ps1 only runs on macOS."
+    exit 1
+}
+
+# --- REGION: Import host modules
 # Yuruna.Host.psm1 supplies the cache-injecting Save-CachedHttpUri wrapper and
 # (via its global Yuruna.HostDownload import) the sentinel guard the shared
 # pipeline resolves by name, so the download routes through the squid cache
@@ -46,6 +54,7 @@ if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-L
 Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) 'modules/Yuruna.Host.psm1') -Force
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.Image.psm1') -Force
 
+# --- REGION: Resolve and fetch the base image
 try {
     $image = Get-UbuntuExtensionImageInfo -HostType 'macos.utm'
 } catch {
@@ -55,3 +64,10 @@ try {
 if (-not (Save-UbuntuExtensionImage -Image $image -Verbose:($VerbosePreference -ne 'SilentlyContinue'))) {
     exit 1
 }
+# Success must be an explicit exit 0. Callers that run this script in-process
+# (& $GetImageScript) read $LASTEXITCODE, and the download-agent discovery
+# ladder inside Save-UbuntuExtensionImage probes VMs that may legitimately be
+# absent (utmctl ip-address on a missing VM exits non-zero). A cache-hit run
+# ends on cmdlets, which never overwrite $LASTEXITCODE, so falling off the end
+# here would report that stale probe failure as this script's own exit status.
+exit 0

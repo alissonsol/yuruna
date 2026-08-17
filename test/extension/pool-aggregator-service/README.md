@@ -76,9 +76,13 @@ Every `-interval` (default 30s) it:
    pattern the Pool hosts table uses for `baseUrl` (a Grafana table column carries no
    field labels, so a `${__field.labels.hostId}` redirect would resolve empty).
    `baseUrl` (the host's status page, empty when the pool does not know the host)
-   rides too, but the Host ID cell is **not** linked: an extension host that runs no
-   cycles has no status page, so `/go/host` would answer *host not known to the
-   pool* — open such a host from the **Pool hosts** table instead. The
+   rides too, but the Host ID cell never links to `/go/host`: an extension host that
+   runs no cycles has no status page, so that redirect would answer *host not known
+   to the pool* — open such a host from the **Pool hosts** table instead. Its menu
+   offers the row's full id and the same extension link the Extension cell carries.
+   `hostIdDashed` rides beside `hostId` for the first of those: the column shows the
+   id's first 8 characters, and a Grafana data link interpolates a field's DISPLAYED
+   value, so the full one cannot be recovered from the cell being shown. The
    `extensionTargets` map is also exposed in `/api/v1/pool-status` for the stash UI's
    `hostId → stashBaseUrl` lookup, and `/go/stash` resolves it for IP-free consumers.
 5c. **Accepts extension self-announces (`POST /announce`).** The registration path
@@ -294,7 +298,8 @@ type · framework version · last cycle · status · last seen · pass/fail, wit
 deep-links to each host's own status page and cycle folder), a **host × time state-timeline**, and a collapsed **drill-down**
 row (incidents · **failures by class & severity** · recent step failures · full
 cycle event stream · status transitions) over Loki. **Every** panel identifies
-each host by its opaque **Host ID** (the stable `hostId`, shown GUID-formatted)
+each host by its opaque **Host ID** (the stable `hostId`, shown as its first 8
+characters and revealed in full, GUID-formatted, from the cell's own menu)
 and its `hostType`, **not** its hostname, so the whole pool view stays safe to
 expose unauthenticated; the hostname stays on each host's own
 (to-be-authenticated) status page. Deep-links point at each host's **own status
@@ -327,11 +332,17 @@ unaffected (graceful degradation).
   `${aggregator}`, a hidden constant variable holding this
   proxy's `/go/` base — routing every host click through `/go/host` is what
   hands the browser the short-lived control token the host's Pause/Continue
-  buttons require. **No Host ID cell is a link, in any table.** In Pool hosts
-  that is so exactly one cell per row grants control and it is the one that says
-  whether control is on offer (point 5e); in **Extension hosts** it is because a
-  host may run an extension service without running cycles, and then it has no
-  status page for `/go/host` to resolve at all. Both copies carry the literal `AGGREGATOR_BASE_PLACEHOLDER`,
+  buttons require. **A Host ID cell opens a menu, never a single destination.** Its
+  first entry is that row's full id, GUID-formatted — text to read and copy, pointing
+  at `#` so it navigates nowhere; the second is the row's own action, which is why a
+  click always opens the menu rather than following one link. In **Pool hosts** that
+  action is the same `/go/host` hop the **Control** cell takes, and Control remains
+  the cell that says whether control is on offer (point 5e); in **Extension hosts**
+  it is the extension UI, because a host may run an extension service without running
+  cycles and then has no status page for `/go/host` to resolve at all. Both the
+  menu entry and the `/go/host` link interpolate the hidden `hostIdDashed` column
+  rather than the Host ID cell: a Grafana data link carries a field's DISPLAYED
+  value, and that cell displays 8 characters. Both copies carry the literal `AGGREGATOR_BASE_PLACEHOLDER`,
   which cloud-init substitutes at boot with `http://<proxy-ip>:9400` — always
   plain http: the `/go/*` hop only redirects the browser to plain-http host
   status pages, so an https link would put a proxy-CA interstitial in front of
@@ -363,7 +374,11 @@ unaffected (graceful degradation).
 disables `POST /announce`) · `-auth-token-file` (file holding the shared
 lab-auth-token that bearer-gates `/ingest` + `/api/v1/forget-host`; the unit
 points it at `/etc/yuruna/lab-auth.token`) · `-lab-token-rotate` (default
-`60s`; `0` disables the Lab token tile and the `/api/v1/lab-token` exchange).
+`60s`; `0` disables the Lab token tile and the `/api/v1/lab-token` exchange) ·
+`-pool-archive-root` (empty; the pool share's `hosts/` directory on this
+machine — empty leaves the `/archive` route unregistered) · `-tls-cert` /
+`-tls-key` (PEM paths; the listener is HTTPS when both name readable files,
+plain HTTP otherwise).
 
 ## Endpoints (`:9400`)
 
@@ -377,7 +392,8 @@ the leaf is absent.
 | `/metrics` | GET | none | Prometheus text (`yuruna_pool_*`) — scraped by the local Prometheus |
 | `/api/v1/pool-status` | GET | none | JSON snapshot of every discovered host's last poll |
 | `/api/v1/extension-hosts[?area=<slug>]` | GET | none | where the pool currently sees each extension area served. With `?area=` one entry (`area`, `host`, `target`, `hostId`, `source`, `lastSeenUnixMs`, plus the health fields) and **404** when no live host serves it; without it every area (`areas`) plus every known registration (`services`), including the ones the pool refuses. Only addresses the aggregator has itself reached are answered (point 5c-ii); usable first, then live announce over registration over rehydrated announce, then freshest, then lowest hostId; a TTL-expired announce is skipped at read time. The lookup a host uses to find the stash / pool-control service knowing only the caching-proxy-service address |
-| `/go/cycle?host=<hostId>&t=<epochMs>` | GET | none | dashboard timeline click → 302 to that host's cycle-results folder. Resolves the host's **current** IP from the live view (so the link survives a host IP change) and the cycle covering `t` (current cycle in-memory, else the host's `/log/` listing, else the Loki transition feed); degrades to the host's status root when the folder can't be resolved |
+| `/go/cycle?host=<hostId>&t=<epochMs>` | GET | none | dashboard timeline click → 302 to that cycle's results. **Archive-first**: once the cycle is committed on the pool share the redirect goes to this service's own `/archive/…` copy, which answers from local disk and keeps working when the host is off or reimaged; otherwise it goes to the host, resolving its **current** IP from the live view (so the link survives a host IP change). The cycle covering `t` is resolved from the archive listing, else the host's `/log/` listing, else the Loki transition feed (current cycle in-memory short-circuits all three); degrades to the host's status root when the folder can't be resolved |
+| `/archive/<hostId>/test-cycles/<cycle>/…` | GET, HEAD | none | archived cycle results served straight off the pool share (`-pool-archive-root`, the proxy's existing `/mnt/ypool-nas/hosts` mount). Read-only, Range-capable, with directory listings for folder URLs. The path shape IS the authorization: 32-hex hostId, the literal `test-cycles`, and a bare cycle identity (no `.incomplete` / `.aborted` suffix — on-share leaves are always the stripped identity) are validated before any filesystem call, and `os.Root` contains the rest in the kernel. The root is re-opened **per request**, because the proxy's CIFS mount is `nofail` and arrives asynchronously after boot. Absent flag ⇒ route not registered; mount away ⇒ 404 and `yuruna_pool_archive_available 0` |
 | `/go/host?host=<hostId>` | GET | none | dashboard timeline click → 302 to that host's status-page **root**. Same `host` uuid → **current** IP resolution as `/go/cycle` (survives a host IP change), but always lands on the status page rather than a cycle folder — the IP-free state-timeline rows can't carry the IP, so the link resolves it here |
 | `/go/stash?host=<hostId>&area=<area>` | GET | none | 302 to that host's extension-service UI (default `area=stash-service`, the stash-service VM), resolved through the same source merge as the dashboard cell — the service's own live announce first, the host's `extensionTargets` when nothing is announcing (see 5c-i). For IP-free, hostId-only consumers — the dashboard table itself links directly via the `target` label. Unknown host/target → 404 |
 | `/api/v1/lab-token` | POST | none (per-IP throttled) | lab-token exchange: body `{"labToken":"<6 chars>"}` → `200 {"ok":true,"v":1,"salt":…,"nonce":…,"ciphertext":…,"tag":…}` — redeems the dashboard's **Lab token** code for the shared lab-auth-token, sealed under that code so only the redeemer can open it (called by `test/lab/Set-LabToken.ps1`). `400` malformed, `403` unknown/expired code, `429` per-IP throttle, `503` disabled (`-lab-token-rotate 0`). Every attempt audited (aggregator log + Loki, `src="lab-token"`) |

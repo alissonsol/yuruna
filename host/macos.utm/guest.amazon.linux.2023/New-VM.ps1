@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42e0f1a2-b3c4-4d56-e789-0f1a2b3c4d56
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -148,6 +148,7 @@ Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentica
 # user-data runcmd) to resolve a local URL before falling back to
 # GitHub. See Test-YurunaHost.ps1 for the in-guest probe.
 Import-Module (Join-Path (Split-Path -Parent $ScriptDir) "modules/Yuruna.Host.psm1") -Force
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
 $YurunaHostIp = Get-GuestReachableHostIp
 $YurunaHostPort = '8080'
 $YurunaTestConfig = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) 'test/test.config.yml'
@@ -194,11 +195,13 @@ if (-not (Test-Path $TemplatePath)) {
 $VmUuid = [guid]::NewGuid().ToString().ToUpper()
 $DiskId = [guid]::NewGuid().ToString().ToUpper()
 $SeedId = [guid]::NewGuid().ToString().ToUpper()
-$rng = [System.Random]::new()
-$MacBytes = [byte[]]::new(6)
-$rng.NextBytes($MacBytes)
-$MacBytes[0] = ($MacBytes[0] -bor 0x02) -band 0xFE  # locally administered unicast
-$MacAddress = ($MacBytes | ForEach-Object { $_.ToString("X2") }) -join ":"
+# Deterministic per (host, guest identity): a rebuilt guest presents the SAME MAC,
+# so the DHCP server returns the SAME lease instead of consuming a new one.
+# Keyed on the guest's durable identity, not on the name the VM carries now: a
+# guest is built in a per-kind slot and renamed to its real name when its
+# baseline is snapshotted, and an address that moved with that rename would
+# re-DHCP a guest whose own state already records the one it was built on.
+$MacAddress = Get-YurunaGuestMacAddress -VMName $GuestHostname
 
 # Per-VM VNC display number (Get-VncDisplayForVm hashes the name into
 # 10..89). Get-VncPortForVm in the harness derives the same value from

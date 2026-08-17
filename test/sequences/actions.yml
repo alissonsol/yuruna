@@ -26,7 +26,9 @@
 # section of docs/test-sequences.md.
 
 # Define defaults per sequence file. ${vmName}, ${hostType}, ${guestKey}
-# are built-in. Use ${varName} in step parameters.
+# and ${hostname} are built-in; ${hostname} is seeded from the VM name and
+# is overridden by a sequence's variables: block when declared.
+# Use ${varName} in step parameters.
 
 actions:
   break: >
@@ -77,7 +79,14 @@ actions:
     default 2), waitPattern (string), timeoutSeconds (number, OCR-wait
     deadline for waitPattern; default = vmCommunication.timeoutSeconds),
     pollSeconds (number, OCR poll interval while waiting for waitPattern;
-    default = vmCommunication.pollSeconds).
+    default = vmCommunication.pollSeconds), freshMatchTailLines (number,
+    default 24 — how many trailing OCR lines the completion marker is
+    looked for in. Raise it when the guest keeps writing to the console
+    after the marker, which otherwise fails a run that succeeded; the
+    wait's timeout reports the value to use. Raise it ONLY when the step
+    clears the screen first, or is the sequence's only fetchAndExecute:
+    the window is what stops an earlier step's marker from satisfying
+    this one, and sequences share a single generic marker string).
 
   pressKey: >
     Send a single keystroke. Parameters: name (string).

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e97
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -60,7 +60,7 @@ if (-not $IsLinux) {
 $ErrorActionPreference = 'Stop'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-# --- REGION: libvirt-qemu search ACL on $HOME (self-heal)
+# --- REGION: libvirt-qemu search ACL on $HOME
 # Ubuntu 24.04 cloud images create /home/<user> at mode 0750, which blocks
 # the libvirt-qemu user (uid 64055, gid kvm) that runs guest qemu processes
 # from traversing $HOME to reach the qcow2 below it. virt-install then
@@ -76,6 +76,7 @@ if (Get-Command -Name 'setfacl' -ErrorAction SilentlyContinue) {
     }
 }
 
+# --- REGION: Inputs
 $arch = (& uname -m).Trim()
 
 # --- REGION: Seek the base image
@@ -108,6 +109,7 @@ $diskImg = Join-Path $vmDir "$VMName.qcow2"
 $seedImg = Join-Path $vmDir 'seed.iso'
 New-Item -ItemType Directory -Force -Path $vmDir | Out-Null
 
+# --- REGION: Yuruna harness SSH key
 # Single harness key shared with Test.Diagnostic; see the
 # guest.ubuntu.server.24/New-VM.ps1 sibling for the why.
 $repoRoot      = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))
@@ -116,6 +118,7 @@ Import-Module $TestSshModule -Force -DisableNameChecking
 $sshPub = Get-YurunaSshPublicKey
 if (-not $sshPub) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
+# --- REGION: Yuruna host coordinates
 # Host coordinates + guest network are a topology-aware matched pair: the
 # guest attaches to the SAME libvirt network as the caching-proxy-service
 # (Get-ExternalNetwork: bridged 'yuruna-external' when defined, else NAT
@@ -153,12 +156,14 @@ foreach ($f in @($baseUserData, $overlayUserData, $metaDataTemplate)) {
 Import-Module (Join-Path $repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
 # Per-cycle authentication vault password for $Username.
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
 $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
 $plaintextPassword = Get-LocalOsPassword -Username $Username
 if (-not $plaintextPassword) { Write-Error "Get-LocalOsPassword returned empty for '$Username'."; exit 1 }
 Write-Output "Password came from authentication mechanism: $_authActiveName"
 Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
 
+# --- REGION: Render user-data / meta-data
 # New-CloudInitUserData merges base+overlay, auto-bakes yuruna-retry.sh /
 # fetch-and-execute.sh / yuruna-network.sh from $repoRoot/automation/ as base64
 # write_files entries, then resolves the per-cycle placeholders below.
@@ -189,6 +194,7 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
+# --- REGION: Copy base image -> per-VM disk
 if (Test-Path -LiteralPath $diskImg) { Remove-Item -Force -LiteralPath $diskImg }
 # qemu-img create -b accepts a SIZE smaller than the backing file's virtual
 # size, but the resulting overlay only exposes the first SIZE bytes of the
@@ -207,6 +213,7 @@ if ($baseVirtualBytes -gt $overlayBytes) { $overlayBytes = $baseVirtualBytes }
 & qemu-img create -f qcow2 -F qcow2 -b $baseImageFile $diskImg $overlayBytes | Out-Null
 if ($LASTEXITCODE -ne 0) { Write-Error "qemu-img create failed"; exit 1 }
 
+# --- REGION: Remove existing VM
 $virshUri = 'qemu:///system'
 # Capture stdout+stderr + exit code for each call so an operator
 # running with -Verbose sees the per-call outcome. The post-condition
@@ -276,6 +283,18 @@ if ($hostCores -lt 4) {
 # frozen until the step timeout gives up.
 $vmCores = [math]::Min($hostCores - 1, [math]::Max(2, [math]::Floor($hostCores / 2)))
 
+# Deterministic per (host, guest identity): a rebuilt guest presents the SAME MAC, so
+# the DHCP server returns the SAME lease instead of consuming a new one. Random
+# MACs make every rebuild a fresh lease request, which drains a shared pool until
+# guests boot with no IPv4 at all.
+# Keyed on the guest's durable identity, not on the name the VM carries now: a
+# guest is built in a per-kind slot and renamed to its real name when its
+# baseline is snapshotted, and an address that moved with that rename would
+# re-DHCP a guest whose own state already records the one it was built on.
+$YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $GuestHostname
+Write-Verbose "Deterministic guest MAC for '$GuestHostname': $YurunaGuestMac"
+
+# --- REGION: Define + start the VM via virt-install
 $installArgs = @(
     '--connect', $virshUri,
     '--name',    $VMName,
@@ -285,7 +304,7 @@ $installArgs = @(
     '--os-variant', $osVariant,
     '--disk',    "path=$diskImg,format=qcow2,bus=virtio",
     '--disk',    "path=$seedImg,device=cdrom",
-    '--network', "network=$networkName,model=virtio",
+    '--network', "network=$networkName,model=virtio,mac=$YurunaGuestMac",
     '--graphics','vnc,listen=127.0.0.1',
     '--events',  'on_reboot=restart',
     '--noautoconsole',
@@ -315,4 +334,5 @@ if ($virtInstallExit -ne 0) {
     exit 1
 }
 
+# --- REGION: Guidance
 Write-Verbose "VM '$VMName' created. Get IP via 'virsh -c $virshUri domifaddr $VMName' once cloud-init finishes."

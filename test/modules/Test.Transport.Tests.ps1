@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42c1a7e9-5b62-4d38-9a04-7e2f1c6b8d90
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -61,7 +61,7 @@ function Get-TransportFunctionText {
     return $fn[0].Extent.Text
 }
 
-# --- Held-key release on an interrupted VNC send -----------------------------
+# --- REGION: Held-key release on an interrupted VNC send
 # Shadows the module-internal transport primitives inside Test.Transport's own
 # session state, so the press/release stream is observable with no socket. This
 # has to sit in the same scope as the Import-Module above: the shadowing runs
@@ -133,7 +133,7 @@ Describe 'Read-VncBuffer wall-clock deadline' {
     }
 }
 
-# --- REGION: control-chord plumbing -------------------------------------------
+# --- REGION: Control-chord plumbing
 # The chord path cannot be exercised against a real guest here (it needs a VM,
 # a VNC server or a raised UTM window), so these guard the two failure modes
 # that are silent at runtime: a chord name falling through to the "unknown

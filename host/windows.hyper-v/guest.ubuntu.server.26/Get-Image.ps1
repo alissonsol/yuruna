@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 4225d6e7-f8a9-4b02-c456-7d8e9f0a1b25
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -43,6 +43,7 @@ param(
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
 if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
 
+# --- REGION: Environment checks
 Write-Output "This script requires elevation (Run as Administrator)."
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Output "Please run this script as Administrator."
@@ -50,6 +51,7 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     exit 1
 }
 
+# --- REGION: Configuration
 $downloadDir = (Get-VMHost).VirtualHardDiskPath
 Write-Output "Hyper-V default VHDX folder: $downloadDir"
 if (!(Test-Path -Path $downloadDir)) {
@@ -63,6 +65,7 @@ if (!(Test-Path -Path $downloadDir)) {
 Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) 'modules/Yuruna.Host.psm1') -Force
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.UbuntuImage.psm1') -Force
 
+# --- REGION: Download the base image
 try {
     Save-UbuntuServerImage `
         -ReleaseCodename 'resolute' `

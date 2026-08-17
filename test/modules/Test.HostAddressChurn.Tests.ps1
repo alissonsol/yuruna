@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42e8b4c0-91d7-4a35-bf62-0c3e75a9d148
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -231,5 +231,309 @@ Describe 'The counter is reachable from the session that actually records it' {
         $text = Get-Content -LiteralPath $logModule -Raw
         $text | Should -Match 'Test\.HostAddressBeacon\.psm1' -Because 'the counter has to be imported where it is used, not assumed present'
         $text | Should -Match '\$addressChanges = -1' -Because 'an unmeasured cycle must not be able to report a plausible zero'
+    }
+}
+
+Describe 'Get-HostAddressChurnVerdict -- periodic, or merely frequent?' {
+
+    It 'calls a quiet host stable, and an absent record unknown' {
+        $d = New-ChurnTempDir
+        try {
+            (Get-HostAddressChurnVerdict -RuntimeDir $d).verdict | Should -Be 'unknown' `
+                -Because 'no record means the question was not asked, not that the answer is good'
+            Add-ChurnRow -Dir $d -AtUtc ([datetime]::UtcNow.AddDays(-30))
+            (Get-HostAddressChurnVerdict -RuntimeDir $d -LookbackHours 48).verdict | Should -Be 'stable' `
+                -Because 'the only change on file is far outside the window'
+        } finally { Remove-Item -Recurse -Force $d }
+    }
+
+    It 'reads one address per renewal as renewal-churn, at ANY lease length' {
+        # The property that has to hold for a lab on a 20-minute lease and a
+        # customer on a week-long one: the verdict is the same, because the
+        # signal is the repetition and not the rate. A rate threshold would call
+        # the first a fault and the second healthy -- while the second is worse,
+        # each abandoned address being parked for a week instead of 20 minutes.
+        foreach ($periodMin in 10, 600, 5040) {
+            $d = New-ChurnTempDir
+            try {
+                $now = [datetime]::UtcNow
+                foreach ($i in 1..8) {
+                    Add-ChurnRow -Dir $d -AtUtc $now.AddMinutes(-1 * $periodMin * $i) -To "192.168.7.$(10 + $i)"
+                }
+                $v = Get-HostAddressChurnVerdict -RuntimeDir $d -LookbackHours (($periodMin * 10) / 60 + 1) -NowUtc $now
+                $v.verdict | Should -Be 'renewal-churn' -Because "a $periodMin-minute period repeats just as plainly as any other"
+                $v.medianIntervalMinutes | Should -Be $periodMin
+                $v.distinctAddresses | Should -Be 8 -Because 'every renewal took a fresh address'
+            } finally { Remove-Item -Recurse -Force $d }
+        }
+    }
+
+    It 'does not mistake reboots and link events for a renewal timer' {
+        # Same number of changes as the case above, spread at no fixed interval.
+        # This is what the discovery path exists to absorb, and telling an
+        # operator to re-pin their DHCP identity over it is wrong advice.
+        $d = New-ChurnTempDir
+        try {
+            $now = [datetime]::UtcNow
+            foreach ($m in 5, 47, 63, 400, 415, 1200) { Add-ChurnRow -Dir $d -AtUtc $now.AddMinutes(-$m) }
+            (Get-HostAddressChurnVerdict -RuntimeDir $d -NowUtc $now).verdict | Should -Be 'moved'
+        } finally { Remove-Item -Recurse -Force $d }
+    }
+
+    It 'still sees the period when a reboot lands in the middle of it' {
+        # The reason regularity is measured against the median and not the mean:
+        # one outlying gap must not be able to hide a timer that is otherwise
+        # ticking on every renewal.
+        $d = New-ChurnTempDir
+        try {
+            $now = [datetime]::UtcNow
+            # Eight 30-minute steps with one 9-hour gap wedged in.
+            $offsets = @(30, 60, 90, 120, 660, 690, 720, 750)
+            foreach ($m in $offsets) { Add-ChurnRow -Dir $d -AtUtc $now.AddMinutes(-$m) -To "192.168.7.$m" }
+            $v = Get-HostAddressChurnVerdict -RuntimeDir $d -NowUtc $now
+            $v.verdict | Should -Be 'renewal-churn'
+            $v.medianIntervalMinutes | Should -Be 30
+        } finally { Remove-Item -Recurse -Force $d }
+    }
+
+    It 'will not call two changes a period' {
+        # Two points make one interval, which is a duration; a period needs a
+        # repetition to be one. Guessing from a single gap is how a host that
+        # rebooted twice gets told its DHCP identity is broken.
+        $d = New-ChurnTempDir
+        try {
+            $now = [datetime]::UtcNow
+            foreach ($m in 30, 60) { Add-ChurnRow -Dir $d -AtUtc $now.AddMinutes(-$m) }
+            (Get-HostAddressChurnVerdict -RuntimeDir $d -NowUtc $now).verdict | Should -Be 'moved'
+        } finally { Remove-Item -Recurse -Force $d }
+    }
+}
+
+Describe 'Get-HostAddressStabilityReport -- pairing what was asked for with what happened' {
+
+    It 'tells "nobody pinned it" apart from "the server ignores the pin"' {
+        # The two faults are indistinguishable from either signal alone and have
+        # different remedies: one is a setting on this host, the other cannot be
+        # fixed on this host at all. Reporting either one for both is how an
+        # operator applies a pin, sees no change, and stops trusting the check.
+        $d = New-ChurnTempDir
+        try {
+            $now = [datetime]::UtcNow
+            foreach ($i in 1..8) { Add-ChurnRow -Dir $d -AtUtc $now.AddMinutes(-30 * $i) -To "192.168.7.$(10 + $i)" }
+            InModuleScope -ModuleName Test.HostAddressBeacon -Parameters @{ Dir = $d; Now = $now } {
+                param($Dir, $Now)
+                Mock Get-HostBridgeDhcpIdentity { @{ backend = 'networkmanager'; pinned = $false; detail = 'x'; remedy = 'PIN-IT' } }
+                $unpinned = Get-HostAddressStabilityReport -RuntimeDir $Dir -NowUtc $Now
+                $unpinned.severity | Should -Be 'warning'
+                $unpinned.remedy   | Should -Be 'PIN-IT'
+
+                Mock Get-HostBridgeDhcpIdentity { @{ backend = 'networkmanager'; pinned = $true; detail = 'x'; remedy = 'PIN-IT' } }
+                $pinned = Get-HostAddressStabilityReport -RuntimeDir $Dir -NowUtc $Now
+                $pinned.severity | Should -Be 'warning'
+                $pinned.remedy   | Should -Not -Be 'PIN-IT' -Because 'a pin that is already set cannot be the remedy for its own failure'
+                $pinned.remedy   | Should -Match 'reserv|static'
+            }
+        } finally { Remove-Item -Recurse -Force $d }
+    }
+
+    It 'flags a host that is stable only by the server''s goodwill' {
+        # No churn to see, no pin to hold it. Nothing is wrong yet, which is
+        # exactly when saying so is cheap -- the alternative is finding out at
+        # the next lease-table eviction.
+        $d = New-ChurnTempDir
+        try {
+            InModuleScope -ModuleName Test.HostAddressBeacon -Parameters @{ Dir = $d } {
+                param($Dir)
+                Set-Content -Path (Join-Path $Dir 'hostaddress.changes.ndjson') -Value ''
+                Mock Get-HostBridgeDhcpIdentity { @{ backend = 'networkmanager'; pinned = $false; detail = 'x'; remedy = 'PIN-IT' } }
+                $r = Get-HostAddressStabilityReport -RuntimeDir $Dir
+                $r.verdict  | Should -Be 'stable'
+                $r.severity | Should -Be 'advisory'
+                $r.remedy   | Should -Be 'PIN-IT'
+
+                Mock Get-HostBridgeDhcpIdentity { @{ backend = 'networkd'; pinned = $true; detail = 'pinned'; remedy = '' } }
+                (Get-HostAddressStabilityReport -RuntimeDir $Dir).severity | Should -Be 'ok'
+            }
+        } finally { Remove-Item -Recurse -Force $d }
+    }
+
+    It 'never reports a severity a cycle could fail on' {
+        $d = New-ChurnTempDir
+        try {
+            (Get-HostAddressStabilityReport -RuntimeDir $d).severity |
+                Should -BeIn @('ok', 'advisory', 'warning')
+        } finally { Remove-Item -Recurse -Force $d }
+    }
+}
+
+Describe 'Set-HostBridgeDhcpIdentity -- applying the remedy instead of printing it' {
+
+    # The stubs take the parameters the real callees take and USE them, so the
+    # assertions below read the arguments the function actually passed rather
+    # than trusting that it passed the right ones.
+
+    It 'writes the stored profile and never reactivates it' {
+        # The whole basis for doing this unattended. `nmcli connection modify`
+        # leaves the live connection alone; an `up` here would re-DHCP the host
+        # mid-cycle and could drop the operator's session on a remote machine.
+        InModuleScope -ModuleName Test.HostAddressBeacon {
+            $script:calls = [System.Collections.Generic.List[string]]::new()
+            function Get-HostBridgeDhcpIdentity { param($BridgeName)
+                @{ backend = 'networkmanager'; pinned = $false; detail = "unpinned:$BridgeName"; remedy = 'r' } }
+            function Invoke-YurunaSudo { param($Argument, [switch]$TolerateBlocked)
+                $script:calls.Add(($Argument -join ' ') + " tolerate=$TolerateBlocked")
+                @{ ExitCode = 0; Output = @(); Blocked = $false } }
+            $null = Set-HostBridgeDhcpIdentity -Confirm:$false
+            $script:calls.Count | Should -Be 1
+            $script:calls[0] | Should -Match 'nmcli connection modify'
+            $script:calls[0] | Should -Match 'ipv4\.dhcp-client-id mac'
+            $script:calls[0] | Should -Not -Match 'connection up' -Because 'reactivating is what would make this unsafe to run unattended'
+            $script:calls[0] | Should -Match 'tolerate=True' -Because 'a host that cannot elevate must be reported, not throw into the cycle'
+        }
+    }
+
+    It 'leaves a netplan bridge alone' {
+        # Fixing that one means rewriting /etc/netplan and re-plumbing the host's
+        # IP stack. A health check must not do that on its way past.
+        InModuleScope -ModuleName Test.HostAddressBeacon {
+            $script:calls = [System.Collections.Generic.List[string]]::new()
+            function Get-HostBridgeDhcpIdentity { param($BridgeName)
+                @{ backend = 'networkd'; pinned = $false; detail = "netplan:$BridgeName"; remedy = 'r' } }
+            function Invoke-YurunaSudo { param($Argument, [switch]$TolerateBlocked)
+                $script:calls.Add(($Argument -join ' ') + " tolerate=$TolerateBlocked")
+                @{ ExitCode = 0; Output = @(); Blocked = $false } }
+            $r = Set-HostBridgeDhcpIdentity -Confirm:$false
+            $r.applied | Should -BeFalse
+            $script:calls.Count | Should -Be 0 -Because 'nothing may be run against a backend this does not own'
+            $r.reason | Should -Match 'not NetworkManager-managed'
+        }
+    }
+
+    It 'does nothing to a bridge that is already pinned' {
+        InModuleScope -ModuleName Test.HostAddressBeacon {
+            $script:calls = [System.Collections.Generic.List[string]]::new()
+            function Get-HostBridgeDhcpIdentity { param($BridgeName)
+                @{ backend = 'networkmanager'; pinned = $true; detail = "pinned:$BridgeName"; remedy = '' } }
+            function Invoke-YurunaSudo { param($Argument, [switch]$TolerateBlocked)
+                $script:calls.Add(($Argument -join ' ') + " tolerate=$TolerateBlocked")
+                @{ ExitCode = 0; Output = @(); Blocked = $false } }
+            $r = Set-HostBridgeDhcpIdentity -Confirm:$false
+            $r.applied  | Should -BeFalse
+            $r.verified | Should -BeTrue -Because 'already pinned is the desired end state, not a failure'
+            $script:calls.Count | Should -Be 0
+        }
+    }
+
+    It 'believes the profile, not the exit code' {
+        # nmcli accepts a property it then stores differently often enough that
+        # "returned 0" and "the profile now says mac" are separate claims. Only
+        # the second one stops the host renumbering.
+        InModuleScope -ModuleName Test.HostAddressBeacon {
+            function Get-HostBridgeDhcpIdentity { param($BridgeName)
+                @{ backend = 'networkmanager'; pinned = $false; detail = "still unpinned:$BridgeName"; remedy = 'r' } }
+            function Invoke-YurunaSudo { param($Argument, [switch]$TolerateBlocked)
+                @{ ExitCode = 0; Output = @($Argument.Count, $TolerateBlocked); Blocked = $false } }
+            $r = Set-HostBridgeDhcpIdentity -Confirm:$false
+            $r.applied  | Should -BeTrue
+            $r.verified | Should -BeFalse -Because 'the read-back still says unpinned, so the claim is not earned'
+        }
+    }
+
+    It 'reports a refused sudo instead of throwing into the cycle' {
+        # A sudo refused once is refused all cycle. This is a health check, and
+        # a health check that can abort a run is one operators stop running.
+        InModuleScope -ModuleName Test.HostAddressBeacon {
+            function Get-HostBridgeDhcpIdentity { param($BridgeName)
+                @{ backend = 'networkmanager'; pinned = $false; detail = "unpinned:$BridgeName"; remedy = 'r' } }
+            function Invoke-YurunaSudo { param($Argument, [switch]$TolerateBlocked)
+                @{ ExitCode = 1; Output = @("blocked $($Argument[0]) tolerate=$TolerateBlocked"); Blocked = $true } }
+            { Set-HostBridgeDhcpIdentity -Confirm:$false } | Should -Not -Throw
+            $r = Set-HostBridgeDhcpIdentity -Confirm:$false
+            $r.applied | Should -BeFalse
+            $r.reason  | Should -Match 'sudo refused'
+        }
+    }
+
+    It 'runs nothing under -WhatIf' {
+        InModuleScope -ModuleName Test.HostAddressBeacon {
+            $script:calls = [System.Collections.Generic.List[string]]::new()
+            function Get-HostBridgeDhcpIdentity { param($BridgeName)
+                @{ backend = 'networkmanager'; pinned = $false; detail = "unpinned:$BridgeName"; remedy = 'r' } }
+            function Invoke-YurunaSudo { param($Argument, [switch]$TolerateBlocked)
+                $script:calls.Add(($Argument -join ' ') + " tolerate=$TolerateBlocked")
+                @{ ExitCode = 0; Output = @(); Blocked = $false } }
+            $null = Set-HostBridgeDhcpIdentity -WhatIf
+            $script:calls.Count | Should -Be 0
+        }
+    }
+}
+
+Describe 'the grant that lets the remedy run unattended' {
+
+    BeforeAll {
+        # test/modules/<this file> -> test/modules -> test -> repo root.
+        $script:Root       = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
+        $script:SudoersRaw = Get-Content -Raw -LiteralPath (Join-Path $script:Root 'host/ubuntu.kvm/yuruna-bridge-pin.sudoers')
+        $script:InstallSh  = Get-Content -Raw -LiteralPath (Join-Path $script:Root 'install/ubuntu.kvm.sh')
+        $script:BeaconSrc  = Get-Content -Raw -LiteralPath (Join-Path $script:Root 'test/modules/Test.HostAddressBeacon.psm1')
+    }
+
+    It 'grants exactly the command the code runs, argument for argument' {
+        # sudo matches the full argument vector. Reorder the properties in the
+        # code, or add one, and the rule stops matching -- so the remedy silently
+        # goes back to "sudo refused" on every host that had it working. Nothing
+        # else in the system would notice; the check would keep reporting the
+        # fault it can no longer fix.
+        $call = [regex]::Match($script:BeaconSrc,
+            "(?s)Invoke-YurunaSudo -Argument @\((.*?)\) -TolerateBlocked").Groups[1].Value
+        $call | Should -Not -BeNullOrEmpty -Because 'the elevated call must be findable'
+        $fromCode = (@([regex]::Matches($call, "'([^']+)'") | ForEach-Object { $_.Groups[1].Value }) +
+                     @('yuruna-br0')) -join ' '
+        # $BridgeName is a variable in the source; splice the default in at the
+        # position the sudoers rule spells out.
+        $fromCode = ((@([regex]::Matches($call, "'([^']+)'|\`$BridgeName") |
+            ForEach-Object { if ($_.Groups[1].Success) { $_.Groups[1].Value } else { 'yuruna-br0' } })) -join ' ')
+
+        $ruleLine = @($script:SudoersRaw -split "`n" | Where-Object { $_ -match 'NOPASSWD:' })[0]
+        $fromRule = ($ruleLine -replace '^.*NOPASSWD:\s*', '' -replace '^/usr/bin/', '').Trim()
+
+        $fromRule | Should -Be $fromCode -Because 'the granted command line and the executed one are one contract'
+    }
+
+    It 'grants no wildcard' {
+        # A trailing * on `connection modify yuruna-br0` would permit ipv4.method,
+        # ipv4.addresses and connection.autoconnect -- enough to take the host off
+        # the network permanently, from a rule installed to keep it on.
+        $script:SudoersRaw -split "`n" |
+            Where-Object { $_ -match 'NOPASSWD:' } |
+            ForEach-Object { $_ | Should -Not -Match '\*' }
+    }
+
+    It 'is installed by the host install script, for hosts that do not exist yet' {
+        # The grant cannot bootstrap itself: installing it needs the sudo it
+        # provides. The elevated install is the one place it can happen without
+        # asking the operator for a second privileged act, so a future host that
+        # skipped this line would arrive with the same unfixable fault.
+        $script:InstallSh | Should -Match 'yuruna-bridge-pin\.sudoers' -Because 'the installer must ship the grant'
+        $script:InstallSh | Should -Match '/etc/sudoers\.d/yuruna-bridge-pin'
+    }
+
+    It 'validates the rule before installing it' {
+        # A malformed drop-in breaks sudo for every command on the host,
+        # including the ones needed to remove it. Order is the whole assertion.
+        $fn = [regex]::Match($script:InstallSh, '(?s)install_bridge_pin_sudoers\(\) \{.*?\n\}').Value
+        $fn | Should -Not -BeNullOrEmpty
+        $checkAt   = $fn.IndexOf('visudo -cf')
+        $installAt = $fn.IndexOf('install -m 0440')
+        $checkAt   | Should -BeGreaterThan -1 -Because 'the generated file must be validated'
+        $installAt | Should -BeGreaterThan $checkAt -Because 'validated BEFORE it is put in place, not after'
+    }
+
+    It 'substitutes the runner account rather than shipping one' {
+        # The file names a reference account. A host whose runner is not that
+        # account would install a rule that grants nothing and reads as if it
+        # granted everything.
+        $fn = [regex]::Match($script:InstallSh, '(?s)install_bridge_pin_sudoers\(\) \{.*?\n\}').Value
+        $fn | Should -Match '\$USER' -Because 'the installed rule must name this host''s runner account'
     }
 }

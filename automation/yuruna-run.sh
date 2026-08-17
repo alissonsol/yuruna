@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.14
+# Version: 2026.08.16
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -7,30 +7,14 @@
 # ssh session that started it.
 #
 # --- REGION: https://yuruna.link/network#defining-yuruna-run-supervisor
-# An ssh session dies when either endpoint's address moves under it. The command
-# it was running dies with it, and the host cannot tell whether that command
-# succeeded, failed, or is still going -- the exit status it sees is ssh's own
-# 255. The usual answer, re-run the command on reconnect, only works for a
-# payload that is safe to run twice; a payload that seeds records and then
-# asserts counts over them fails the second time, naming its own assertion
-# rather than the transport that caused the re-run.
-#
-# This turns the reconnect into an ATTACH. The payload runs detached, its output
-# accumulates in a file, and every invocation -- the first one and every
-# reconnect after it -- streams that file from a caller-supplied line offset and
-# reports the payload's real exit status when it finally has one. Re-runnability
-# stops being a precondition for surviving a renumber.
-#
 # Contract:
 #   yuruna-run.sh --token T --from-line N --budget S --cmd-b64 B
 #   yuruna-run.sh --token T --cancel
 # Idempotent on T: starts the run if T is not running, attaches if it is. Streams
 # out.log from line N+1 on stdout and exits with the payload's status.
 #
-# stdout carries payload bytes ONLY. Every diagnostic this script emits goes to
-# stderr, because the host counts stdout lines to know where to resume, and a
-# supervisor line on stdout would both corrupt that count and land in the
-# transcript the OCR/checkpoint scanners read.
+# stdout carries payload bytes ONLY -- the host counts stdout lines to know where
+# to resume, so every diagnostic this script emits goes to stderr.
 set -uo pipefail
 
 YR_TOKEN=''

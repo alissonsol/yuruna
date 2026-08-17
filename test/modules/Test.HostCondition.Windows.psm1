@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42e5b4c3-d2a1-4f9a-6789-0b1c2d3e4f51
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -173,7 +173,7 @@ function Install-YurunaVirtualDisplay {
     if (-not (Test-Path -LiteralPath $debugDir)) { New-Item -ItemType Directory -Force -Path $debugDir | Out-Null }
     $logPath = Join-Path $debugDir 'usbmmidd.log'
 
-    # -- 1. Cache + verify the toolkit (download only when missing) ---------
+    # --- REGION: Cache + verify the toolkit (download only when missing)
     if (-not (Test-Path -LiteralPath $installer)) {
         if (-not $PSCmdlet.ShouldProcess('Amyuni usbmmidd_v2 virtual-display driver', 'Download + verify')) {
             return 'Skipped'
@@ -221,12 +221,12 @@ function Install-YurunaVirtualDisplay {
     $infName = (Get-ChildItem -LiteralPath $toolDir -Filter '*.inf' -ErrorAction SilentlyContinue | Select-Object -First 1).Name
     if (-not $infName) { Write-Warning "usbmmidd .inf not found in $toolDir"; return 'Failed' }
 
-    # -- 2. usbmmidd monitor census -----------------------------------------
+    # --- REGION: usbmmidd monitor census
     # The vendor's enableidd is additive (up to 4 monitors), so a COUNT is the
     # source of truth, not a boolean "is one active?". A mid-cycle KVM switch
     # can leave a usbmmidd monitor PRESENT but not 'OK'; an "is one OK?" gate
     # then misfires and enableidd 1 stacks another monitor every cycle.
-    # Converging on the count (section 4) collapses any leftover / duplicate /
+    # Converging on the count (the "Converge to exactly ONE healthy virtual display" region) collapses any leftover / duplicate /
     # unhealthy state back to exactly one.
     $healthyCount = {
         @(Get-PnpDevice -PresentOnly -Class Monitor -ErrorAction SilentlyContinue |
@@ -237,7 +237,7 @@ function Install-YurunaVirtualDisplay {
             Where-Object { Test-YurunaUsbmmiddDevice $_ }).Count
     }
 
-    # -- 3. Stage the signed driver only when its devnode is absent ---------
+    # --- REGION: Stage the signed driver only when its devnode is absent
     # `install` creates a fresh root devnode on every call; gating on devnode
     # presence keeps re-runs (e.g. after a reboot dropped only the active
     # monitor) from piling up duplicate adapters.
@@ -253,7 +253,7 @@ function Install-YurunaVirtualDisplay {
         } else { return 'Skipped' }
     }
 
-    # -- 4. Converge to exactly ONE healthy virtual display -----------------
+    # --- REGION: Converge to exactly ONE healthy virtual display
     # Leave a lone healthy monitor in place (no per-cycle flicker). For any
     # other state -- zero, several stacked, or one present-but-unhealthy --
     # reset deterministically: enableidd 0 disables ALL usbmmidd monitors,
@@ -277,7 +277,7 @@ function Install-YurunaVirtualDisplay {
         $status = 'Activated'
     }
 
-    # -- 5. Confirm the VIRTUAL display specifically is live ----------------
+    # --- REGION: Confirm the VIRTUAL display specifically is live
     # Confirm via the usbmmidd-specific signal only -- never a generic "any
     # monitor" count. With a physical monitor still attached, a generic count
     # would report success even if the virtual display never activated --
@@ -292,7 +292,7 @@ function Install-YurunaVirtualDisplay {
     } while ([DateTime]::UtcNow -lt $deadlineUtc)
     if (-not $live) { return 'Failed' }
 
-    # -- 6. Mirror the main monitor, pin the virtual as primary, enforce ----
+    # --- REGION: Mirror the main monitor, pin the virtual as primary, enforce
     #       the OCR resolution floor.
     # The virtual display must DUPLICATE (not extend) the physical one and be the
     # primary so the captured surface stays alive when the physical monitor is
@@ -582,7 +582,7 @@ namespace Yuruna {
 
     $changed = $false
 
-    # -- Win32 display flags (PowerShell-side constants) --------------------
+    # --- REGION: Win32 display flags (PowerShell-side constants)
     $ENUM_CURRENT_SETTINGS              = -1
     $DM_POSITION                        = 0x00000020
     $DM_PELSWIDTH                       = 0x00080000
@@ -699,7 +699,7 @@ namespace Yuruna {
     $cloneW = 1920
     $cloneH = 1080
 
-    # -- 1. Force every VIRTUAL display to the 1920x1080 floor --------------
+    # --- REGION: Force every VIRTUAL display to the 1920x1080 floor
     # The usbmmidd monitor powers up at a low default mode (1024x768) that is too
     # small for reliable OCR, and when a physical monitor is attached and
     # extended the clone path below never resizes the virtual one. Pin it here
@@ -728,13 +728,13 @@ namespace Yuruna {
     $extended = (@($active | Where-Object { $_.PosX -ne 0 -or $_.PosY -ne 0 }).Count -gt 0)
 
     if ($physical.Count -ge 1 -and $virtuals.Count -ge 1) {
-        # -- 2. Physical + virtual attached -> DUPLICATE (clone), always -----
+        # --- REGION: Physical + virtual attached -> DUPLICATE (clone), always
         # The VIRTUAL display is made the primary so the surface the runner
         # captures is anchored to the always-present display; unplugging the
         # physical monitor then only drops a secondary and the guest-console
         # capture never freezes. A clone binds only when every active display
         # shares one identical mode; the virtual display is fixed at 1920x1080
-        # (step 1), so the physical monitor is normalized to 1920x1080 as well --
+        # (the "Force every VIRTUAL display to the 1920x1080 floor" region), so the physical monitor is normalized to 1920x1080 as well --
         # downscaled if it was running higher. Downscaling a high-resolution
         # monitor for the duration of a test run is the accepted cost of an
         # always-duplicated surface; the alternative (leaving a high-res monitor
@@ -787,7 +787,7 @@ namespace Yuruna {
             }
 
             if ($canClone) {
-                # -- Clone (duplicate) topology across all active displays --
+                # --- REGION: Clone (duplicate) topology across all active displays
                 if ($PSCmdlet.ShouldProcess('All active displays', 'Set clone (duplicate) topology')) {
                     $rc = [Yuruna.DisplayConfig]::SetDisplayConfig(0, [IntPtr]::Zero, 0, [IntPtr]::Zero, ($SDC_APPLY -bor $SDC_TOPOLOGY_CLONE))
                     if ($LogPath) { Add-Content -LiteralPath $LogPath -Value "== SetDisplayConfig(clone) rc=$rc ==" }
@@ -808,7 +808,7 @@ namespace Yuruna {
                     $changed = $true
                 }
 
-                # -- Verify the clone actually bound ------------------------
+                # --- REGION: Verify the clone actually bound
                 $postActive = @(& $enumActive)
                 $stillExtended = (@($postActive | Where-Object { $_.PosX -ne 0 -or $_.PosY -ne 0 }).Count -gt 0)
                 if ($stillExtended) {
@@ -823,9 +823,9 @@ namespace Yuruna {
             }
         }
     } else {
-        # -- 3. Single display (headless virtual-only, or physical-only) ----
+        # --- REGION: Single display (headless virtual-only, or physical-only)
         # Nothing to clone. A headless host's lone virtual display was already
-        # pinned to >= 1920x1080 in step 1; this also holds the floor on a
+        # pinned to >= 1920x1080 by the "Force every VIRTUAL display to the 1920x1080 floor" region; this also holds the floor on a
         # physical-only host that has no virtual display yet. Target the primary
         # by name -- EnumDisplaySettings against $null reads the calling thread's
         # window and returns nothing from a windowless runner step. No topology
@@ -847,7 +847,7 @@ namespace Yuruna {
         }
     }
 
-    # -- Scaling: force the PRIMARY to 100% live ----------------------------
+    # --- REGION: Scaling: force the PRIMARY to 100% live
     # OCR needs 100%. The registry knobs in Set-WindowsHostConditionSet only
     # apply on next sign-in; the CCD per-monitor DPI device-info call applies
     # immediately (best-effort -- never fails the cycle). Re-read the primary's
@@ -875,7 +875,7 @@ namespace Yuruna {
         }
     }
 
-    # -- Pull any window stranded off the primary back onto it --------------
+    # --- REGION: Pull any window stranded off the primary back onto it
     # New windows open on the primary, but apps that remember a position (or a
     # window dragged onto the extended virtual display) can land off-screen.
     # Best-effort; never fails the cycle.
@@ -1032,7 +1032,7 @@ function Set-YurunaDisplayScale100 {
         if ($u -gt [int32]::MaxValue) { return [int32]($u - 0x100000000) } else { return [int32]$u }
     }
 
-    # -- 1. Per-monitor DPI -------------------------------
+    # --- REGION: Per-monitor DPI
     # foreach statement (not ForEach-Object) so $scaleChanged writes
     # reach function scope -- ForEach-Object's scriptblock runs in a
     # child scope where the assignment would be silently local.
@@ -1063,7 +1063,7 @@ function Set-YurunaDisplayScale100 {
         Write-Verbose "HKCU:\Control Panel\Desktop\PerMonitorSettings absent; skipping per-monitor DPI override."
     }
 
-    # -- 2. System-wide DPI (LogPixels fallback) ------------
+    # --- REGION: System-wide DPI (LogPixels fallback)
     # For non-per-monitor-aware
     # apps. Touch only when LogPixels overrides the default (96).
     # Win8DpiScaling=1 is meaningful only alongside a non-96 LogPixels
@@ -1085,7 +1085,7 @@ function Set-YurunaDisplayScale100 {
         Write-Information "System DPI (LogPixels) is already 96 (100%)."
     }
 
-    # -- 3. Windows 11 Accessibility "Text size" ---------
+    # --- REGION: Windows 11 Accessibility "Text size"
     $accPath = 'HKCU:\Software\Microsoft\Accessibility'
     if (-not (Test-Path -LiteralPath $accPath)) {
         if ($PSCmdlet.ShouldProcess($accPath, 'Create Accessibility key')) {
@@ -1125,24 +1125,33 @@ function Set-WindowsHostConditionSet {
     Set-WindowsHostConditionSet -WhatIf  # show what would change without applying
     #>
     [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([int])]
     param()
 
     if (-not $IsWindows) {
         Write-Warning "Set-WindowsHostConditionSet is only supported on Windows."
-        return
+        return 0
     }
 
-    # -- 0. Elevation check -----------------------------------------------
+    # --- REGION: Pre-flight: elevation
     $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole(
         [Security.Principal.WindowsBuiltInRole]"Administrator")
     if (-not $isAdmin) {
         Write-Error "This script must be run as Administrator. Right-click PowerShell -> Run as Administrator."
-        return
+        return 1
     }
 
     $changed = $false
 
-    # -- 1. Hyper-V service -----------------------------------------------
+    # Conditions this run wanted and could not establish. The count is the
+    # return value, so a host that came out degraded is a distinguishable
+    # outcome for the caller rather than a warning in a captured log nothing
+    # reads. Only knobs that need an operator -- a reboot, a feature install, a
+    # policy this process cannot overrule -- go in here; anything this function
+    # can fix by itself is fixed, not counted.
+    $unmet = [System.Collections.Generic.List[string]]::new()
+
+    # --- REGION: Hyper-V service
     $svc = Get-Service -Name vmms -ErrorAction SilentlyContinue
     if (-not $svc) {
         # vmms missing has two cases with different fixes:
@@ -1165,10 +1174,12 @@ function Set-WindowsHostConditionSet {
         if ($featureState -eq 'Enabled') {
             Write-Warning "Hyper-V feature is Enabled but components (vmms) are not deployed yet."
             Write-Warning "  A Windows RESTART is pending. Reboot, then re-run this script."
+            $unmet.Add('Hyper-V components pending a reboot')
         } else {
             Write-Warning "Hyper-V service (vmms) is not installed (feature state: $featureState)."
             Write-Warning "  Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All"
             Write-Warning "  Then reboot and re-run this script."
+            $unmet.Add('Hyper-V service (vmms) not installed')
         }
     } elseif ($svc.Status -ne 'Running') {
         if ($PSCmdlet.ShouldProcess("Hyper-V service (vmms)", "Start")) {
@@ -1180,7 +1191,7 @@ function Set-WindowsHostConditionSet {
         Write-Information "Hyper-V service (vmms) is already running."
     }
 
-    # -- 2. Display timeout -> Never ---------------------------------------
+    # --- REGION: Display timeout -> Never
     $acTimeout = powercfg /query SCHEME_CURRENT SUB_VIDEO VIDEOIDLE 2>$null |
         Select-String 'Current AC Power Setting Index:\s+0x([0-9a-fA-F]+)' |
         Select-Object -First 1
@@ -1198,7 +1209,7 @@ function Set-WindowsHostConditionSet {
         Write-Information "Display timeout (AC) is already set to Never."
     }
 
-    # -- 3. Machine inactivity lock -> disabled ----------------------------
+    # --- REGION: Machine inactivity lock -> disabled
     $regPath = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System'
     $lockTimeoutSeconds = $null
     $regProps = Get-ItemProperty -Path $regPath -ErrorAction SilentlyContinue
@@ -1216,7 +1227,7 @@ function Set-WindowsHostConditionSet {
         Write-Information "Machine inactivity lock is already disabled."
     }
 
-    # -- 4. Lock screen on resume -> disabled ------------------------------
+    # --- REGION: Lock screen on resume -> disabled
     # power-plan consolelock via powercfg
     $consoleLock = powercfg /query SCHEME_CURRENT SUB_NONE CONSOLELOCK 2>$null |
         Select-String 'Current AC Power Setting Index:\s+0x([0-9a-fA-F]+)' |
@@ -1235,7 +1246,7 @@ function Set-WindowsHostConditionSet {
         Write-Information "Lock screen on resume is already disabled (or not applicable)."
     }
 
-    # -- 5. Allow ICMPv4 echo (ping) from VM guests and the LAN ----------
+    # --- REGION: Allow ICMPv4 echo (ping) from VM guests and the LAN
     # Enable the built-in echo-request Allow rules across all profiles
     # (a scoped custom rule alone doesn't work), plus a scoped rule as
     # belt-and-suspenders for missing built-ins. See docs/host-hyperv.md
@@ -1315,7 +1326,7 @@ function Set-WindowsHostConditionSet {
         Write-Warning "If ping still fails, disable these or ask your admin -- GPO may be pushing them."
     }
 
-    # -- 6. Allow inbound TCP on the status-service port -------------------
+    # --- REGION: Allow inbound TCP on the status-service port
     # Start-StatusService.ps1 binds HttpListener to http://*:$Port/ which
     # covers every interface at the socket level -- but Windows Firewall
     # drops inbound TCP on non-loopback interfaces without an Allow
@@ -1360,9 +1371,13 @@ function Set-WindowsHostConditionSet {
             Write-Warning "  $($r.DisplayName) [profile: $($r.Profile)]"
         }
         Write-Warning "If remote clients still get 'connection timed out' on port $statusPort, disable these or ask your admin -- GPO may be pushing them."
+        # A Block rule wins over the Allow rule just ensured, and removing one
+        # pushed by policy is not this process's call, so the status port stays
+        # closed to the LAN until an operator or their admin acts.
+        $unmet.Add("inbound TCP Block rule on the status-service port $statusPort")
     }
 
-    # -- 7. Host clock -> disciplined by the Windows Time service ---------
+    # --- REGION: Host clock
     # Guests inherit this clock from their virtual RTC at power-on; see
     # Sync-WindowsHostClock for what a drifting one does to them.
     $clock = Sync-WindowsHostClock
@@ -1371,6 +1386,7 @@ function Set-WindowsHostConditionSet {
         $changed = $true
     } else {
         Write-Warning "Host clock not disciplined: $($clock.Message)"
+        $unmet.Add('host clock discipline (W32Time)')
     }
 
     # Display/text scale = 100% (HKCU per-monitor DPI, system DPI, Win11
@@ -1398,6 +1414,16 @@ function Set-WindowsHostConditionSet {
         Write-Information "Settings updated. Re-run Assert-HostConditionSet to verify:"
         Write-Information "  Assert-HostConditionSet -HostType 'host.windows.hyper-v'"
     }
+
+    # A preview changed nothing, so it has nothing to report as unmet: the
+    # ShouldProcess-gated blocks above never ran and the probe-only branches
+    # describe a host this run did not attempt to fix.
+    if ($WhatIfPreference) { return 0 }
+
+    if ($unmet.Count -gt 0) {
+        Write-Warning "Host settings applied with $($unmet.Count) condition(s) still unmet: $($unmet -join ', ')."
+    }
+    return $unmet.Count
 }
 
 function Sync-WindowsHostClock {
@@ -1407,13 +1433,11 @@ function Sync-WindowsHostClock {
     started, and resynchronized. Returns @{ Succeeded; Message }.
 
     .DESCRIPTION
-    Hyper-V seeds every guest's virtual RTC from this clock at power-on,
-    so a drifting host hands the same error to each VM it starts, and the
-    guest's own NTP client then steps the clock mid-boot -- which is what
-    leaves a Kubernetes guest with pods Running but never Ready and its
-    NodePorts refusing. W32Time ships trigger-started: on a lab host that
-    never joins a domain it can sit stopped for weeks, long enough to
-    drift by hours.
+    Hyper-V seeds every guest's virtual RTC from this clock at power-on.
+    W32Time ships trigger-started: on a lab host that never joins a domain
+    it can sit stopped for weeks, long enough to drift by hours. What a
+    drifted clock then does to a guest:
+    https://yuruna.link/test/harness#the-host-clock
 
     Reports rather than throws. Every step here needs Administrator, and
     a caller has to be free to carry on with a warning when it does not
@@ -1475,10 +1499,10 @@ function Assert-WindowsHostConditionSet {
     param([string]$HostType)
     if ($HostType -ne "host.windows.hyper-v") { return $true }
 
-    # 1. Administrator elevation
+    # --- REGION: Pre-flight: elevation
     if (-not (Assert-Elevation -HostType $HostType)) { return $false }
 
-    # 2. Hyper-V management service must be running
+    # --- REGION: Hyper-V management service must be running
     $svc = Get-Service -Name vmms -ErrorAction SilentlyContinue
     if (-not $svc -or $svc.Status -ne 'Running') {
         Write-Warning "==================================================================="
@@ -1494,7 +1518,7 @@ function Assert-WindowsHostConditionSet {
         return $false
     }
 
-    # 3. Screen lock / display timeout -- warn if display will turn off
+    # --- REGION: Screen lock / display timeout -- warn if display will turn off
     try {
         $acTimeout = (powercfg /query SCHEME_CURRENT SUB_VIDEO VIDEOIDLE 2>$null |
             Select-String 'Current AC Power Setting Index:\s+0x([0-9a-fA-F]+)' |
@@ -1518,7 +1542,7 @@ function Assert-WindowsHostConditionSet {
         Write-Debug "Display timeout check failed: $_"
     }
 
-    # 4. Lock screen timeout -- warn if machine will lock
+    # --- REGION: Lock screen timeout -- warn if machine will lock
     try {
         $lockTimeoutSeconds = $null
         $regProps = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' -ErrorAction SilentlyContinue
@@ -1539,10 +1563,10 @@ function Assert-WindowsHostConditionSet {
         Write-Debug "Lock screen timeout check failed: $_"
     }
 
-    # 5. Host clock -- every guest inherits it at power-on. Warn-only and
-    #    once per cycle: the repair needs an elevation this process cannot
-    #    ask for, so a drifted host runs and says so rather than refusing
-    #    every cycle until an operator notices.
+    # --- REGION: https://yuruna.link/test/harness#the-host-clock
+    # Warn-only and once per cycle: the repair needs a privilege this process
+    # cannot ask for, so a drifted host runs and says so rather than refusing
+    # every cycle until an operator notices.
     Write-HostClockDriftWarning -HostType $HostType
 
     return $true

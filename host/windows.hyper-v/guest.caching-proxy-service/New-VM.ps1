@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e6f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -64,6 +64,20 @@ param(
     [Parameter()]
     [string]$SquidCacheMem = '7 GB'
 )
+
+# Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+# Load only when absent, never -Force. Start-CachingProxyServiceVM.ps1 runs this
+# script IN-PROCESS, so a forced re-import from here tears down and rebuilds the
+# module instance its caller is already using, taking whatever that instance keeps
+# in module scope with it and narrating a dozen import lines into the run's
+# transcript at Verbose (feedback_module_force_import_evicts_global). Tradeoff: an
+# edit to the module mid-session is not picked up here, which is acceptable for a
+# leaf script that only reads the level.
+$_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
+if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
+    Import-Module $_logLevelMod -Global
+}
+if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     Write-Output "Invalid VMName '$VMName'. Only alphanumeric characters, dots, hyphens, and underscores are allowed."
@@ -151,12 +165,14 @@ if ($existingVM) {
     Write-Output "VM '$VMName' deleted."
 }
 
-# --- REGION: Copy base image -> per-VM disk
+# --- REGION: Per-VM directory + disk
 $vmDir = Join-Path $downloadDir $VMName
 if (-not (Test-Path -Path $vmDir)) {
     New-Item -ItemType Directory -Path $vmDir -Force | Out-Null
 }
 $vhdxFile = Join-Path $vmDir "$VMName.vhdx"
+
+# --- REGION: Copy base image -> per-VM disk
 Write-Output "Creating VHDX for '$VMName' by copying base image..."
 Copy-Item -Path $baseImageFile -Destination $vhdxFile -Force
 
@@ -172,7 +188,7 @@ if (-not (Expand-ExtensionVmDisk -Path $vhdxFile -SizeBytes 512GB -Format 'vhdx'
     exit 1
 }
 
-# --- REGION: Generate cloud-init seed ISO
+# --- REGION: Stage the cloud-init seed directory
 # meta-data is shared under host/vmconfig/ (byte-identical across all 3 host platforms).
 $hostVmConfigDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'host/vmconfig'
 # 4-digit entropy is weak by design (10k cases) but enough to defeat
@@ -185,12 +201,16 @@ New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 
 Copy-Item -Path (Join-Path $hostVmConfigDir 'caching-proxy-service.meta-data') -Destination "$SeedDir/meta-data"
 
+# --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+Copy-Item -Path (Join-Path $hostVmConfigDir 'guest-dhcp.network-config') -Destination "$SeedDir/network-config"
+
 # --- REGION: Yuruna harness SSH key
 # Load the yuruna test-harness SSH public key -- same module the Ubuntu
 # Desktop guest uses; one keypair grants passwordless access to every VM
 # (including this cache VM, for debugging squid/cloud-init).
 $TestSshModule = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) "test/modules/Test.Ssh.psm1"
 Import-Module $TestSshModule -Force
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
 $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
@@ -393,7 +413,7 @@ if ((-not $dockerHubUsername) -or (-not $dockerHubToken)) {
     }
 }
 
-# --- REGION: config service mTLS materials
+# --- REGION: Config service mTLS materials
 # --- REGION: https://yuruna.link/caching-proxy-service#cache-vm-nas-and-config-service
 # Mint a per-VM client leaf signed by THIS host's Config CA; PEMs are baked
 # base64 so they survive the cloud-init write_files block scalar.
@@ -413,7 +433,7 @@ try {
     Write-Warning "Host Config CA: could not mint a client cert ($($_.Exception.Message)); the cache VM falls back to its baked NAS credential (dynamic rotation disabled for this VM)."
 }
 
-# --- REGION: dashboard brand identity
+# --- REGION: Dashboard brand identity
 # The Grafana dashboards this VM serves name the enlistment that built it --
 # the same pair the host's status pages carry in their header. Resolved here
 # because the guest is handed built artifacts and never the framework
@@ -454,6 +474,7 @@ $UserData = New-CloudInitUserData `
     -Confirm:$false
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 
+# --- REGION: Generate cloud-init seed ISO
 $SeedIso = Join-Path $vmDir "seed.iso"
 Write-Output "Generating seed.iso with cloud-init configuration..."
 CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId "cidata"
@@ -471,12 +492,19 @@ Write-Output "  If the wait below stalls or fails, open 'vmconnect localhost $VM
 Write-Output "  and log in with the credentials above to inspect cloud-init state."
 Write-Output ""
 
-# --- REGION: Create and configure Hyper-V VM
+# --- REGION: Create and configure the Hyper-V VM
 # --- REGION: https://yuruna.link/caching-proxy-service#cache-vm-sizing
 # 12 GB RAM, 4 vCPU on all three hosts, budgeted around squid's cache_mem;
 # swap is masked, so undersizing is an unrecoverable OOM.
 Write-Output "Creating new VM '$VMName' on switch '$switchName'..."
 Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes ($MemoryMb * 1MB) -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
+
+# --- REGION: https://yuruna.link/network#defining-deterministic-guest-mac-addresses
+# Hyper-V takes bare hex, no separators.
+$YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $VMName
+Hyper-V\Set-VMNetworkAdapter -VMName $VMName -StaticMacAddress ($YurunaGuestMac -replace ':','')
+Write-Verbose "Deterministic guest MAC for '$VMName': $YurunaGuestMac"
+
 if ($MacAddress) {
     # Pin the NIC's MAC before first start so the very first DHCP request
     # already carries it -- an operator DHCP reservation keyed to this MAC

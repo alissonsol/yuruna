@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a3d6f5-c0b1-4478-de26-5f7a0c4d3e62
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -175,6 +175,36 @@ function Get-YurunaHostId {
     return $null
 }
 
+function Format-YurunaHostId {
+    <#
+    .SYNOPSIS
+        The GUID-dashed spelling of a host id (8-4-4-4-12), for every surface
+        that shows an operator a FULL one.
+    .DESCRIPTION
+        Get-YurunaHostId mints and every store keys on the undashed 32-hex form,
+        so this is a rendering and nothing that goes back to a store may be built
+        from it. It exists because 32 undifferentiated hex characters are not
+        checkable against another screen by eye, and a lab holds a dozen ids that
+        share the '42' prefix -- the dashes are what let an operator confirm they
+        are looking at the same machine in two places. ConvertTo-YurunaHostId is
+        the inverse and takes this spelling back to the key, which is why every
+        pool-admin command accepts an id pasted off a panel.
+
+        A value that is not 32 hex is returned untouched: a pool GUID already
+        carries its dashes, and an id in some other shape is not this function's
+        to reinterpret.
+    .OUTPUTS
+        System.String -- the id as 8-4-4-4-12, or the input unchanged.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter()][AllowNull()][string]$HostId)
+    if ([string]::IsNullOrWhiteSpace($HostId)) { return [string]$HostId }
+    $h = $HostId.Trim()
+    if ($h -notmatch '^[0-9a-fA-F]{32}$') { return $HostId }
+    return ('{0}-{1}-{2}-{3}-{4}' -f $h.Substring(0, 8), $h.Substring(8, 4), $h.Substring(12, 4), $h.Substring(16, 4), $h.Substring(20, 12))
+}
+
 function Test-PidFileIdentity {
     <#
     .SYNOPSIS
@@ -214,4 +244,4 @@ function Test-PidFileIdentity {
     }
 }
 
-Export-ModuleMember -Function Initialize-YurunaLogDir, Initialize-YurunaRuntimeDir, Get-YurunaHostId, Test-PidFileIdentity
+Export-ModuleMember -Function Initialize-YurunaLogDir, Initialize-YurunaRuntimeDir, Get-YurunaHostId, Format-YurunaHostId, Test-PidFileIdentity

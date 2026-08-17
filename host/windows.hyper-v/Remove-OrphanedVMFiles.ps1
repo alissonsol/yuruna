@@ -1,9 +1,9 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42b7e3a1-c8d9-4f56-ab12-3e4f5a6b7c8d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS
+.TAGS yuruna test host windows hyper-v cleanup
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
@@ -16,14 +16,34 @@
 
 #requires -version 7
 
+<#
+.SYNOPSIS
+    Delete files under the Hyper-V storage paths that no longer belong to a
+    registered VM.
+
+.DESCRIPTION
+    Sibling of host/ubuntu.kvm/Remove-OrphanedVMFiles.ps1 and
+    host/macos.utm/Remove-OrphanedVMFiles.ps1. Scans VirtualHardDiskPath and
+    VirtualMachinePath, keeps every file claimed by a registered VM or matching
+    a base-image name, and deletes the rest plus the subfolders that empty out.
+    vmms-owned state under VirtualMachinePath is never a candidate.
+
+    Needs Administrator: Get-VMHost, Get-VM and Get-VMHardDiskDrive all do.
+
+.PARAMETER Force
+    Skip the YES confirmation. Used by test/Remove-TestVMFiles.ps1.
+
+.PARAMETER Quiet
+    Suppress the per-file cleanup log; warnings and errors still print.
+#>
+
 param(
-        [switch]$Force,
-    # Quiet mode: suppress every Write-CleanupMessage (host paths, per-VM file
-    # listings, base-image keep-list, "Deleted: <file>" trail) so the
-    # automated cycle-start sweep (Remove-TestVMFiles.ps1 -Quiet) emits
-    # nothing from this script. Write-Warning / Write-Error remain
-    # visible because they always represent an actual problem. Direct
-    # invocation (no -Quiet) prints the full log.
+    [switch]$Force,
+    # Suppress every Write-CleanupMessage so the automated cycle-start sweep
+    # (Remove-TestVMFiles.ps1 -Quiet) emits nothing from this script. Warnings
+    # and errors still print: they always mean something the operator needs.
+    # The routing contract is Set-VMCleanupQuiet in
+    # host/modules/Yuruna.VMCleanup.psm1.
     [switch]$Quiet
 )
 
@@ -136,7 +156,7 @@ if ($allFiles.Count -eq 0) {
     exit 0
 }
 
-# --- REGION: Identify files claimed by active VMs
+# --- REGION: Enumerate registered VMs and the files they claim
 $allVMs = Get-VM
 $claimedFiles = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
 

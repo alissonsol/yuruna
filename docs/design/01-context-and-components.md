@@ -87,14 +87,14 @@ but no `gcp` templates.
   caller is
   `yuruna-project/example/website/test/ubuntu.server.26/ubuntu.server.26.workload.k8s.website.sh`,
   which does `cd "$REAL_HOME/yuruna/project/example"` and then
-  `pwsh ../../automation/Set-Resource.ps1 website localhost` (line 232),
-  `Set-Component.ps1` (397) and `Set-Workload.ps1` (399). The operator running
+  `pwsh ../../automation/Set-Resource.ps1 website localhost` (line 236),
+  `Set-Component.ps1` (417) and `Set-Workload.ps1` (420). The operator running
   the phases by hand is the other entry point.
 - **`guest-workloads --> deploy-engine`** — this is a **toolchain** edge, not a
   call. `guest/ubuntu.server.26/ubuntu.server.26.k8s.sh` installs Docker,
   Kubernetes, Helm, OpenTofu and mkcert, and says so in its own failure text:
-  "downstream chart-based workloads … will fail at Set-Workload" (`:498`) and
-  "Downstream Set-Resource steps rely on 'tofu'" (`:514`). No script under
+  "downstream chart-based workloads … will fail at Set-Workload" (`:565`) and
+  "Downstream Set-Resource steps rely on 'tofu'" (`:581`). No script under
   `guest/` invokes a phase script.
 - **`guest-workloads --> test-harness`** — the guest pulls its scripts back from
   the runner host's status service, so a `guest/` script and a project script
@@ -177,4 +177,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.14
+Last review: 2026.08.16

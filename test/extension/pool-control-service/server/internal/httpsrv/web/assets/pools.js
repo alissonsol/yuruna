@@ -7,6 +7,11 @@
   // intent rather than reloading, so a half-typed new-pool id is not wiped.
   const chrome = Y.initChrome({ refresh: function () { load({ quiet: true }); } });
 
+  // Built once, not per read: the sort an operator chose is theirs until they
+  // change it, and re-reading pool intent every minute must not put the table
+  // back in the server's order under them.
+  const sorter = Y.sortTable(document.getElementById('pool-rows'), { key: 'pool' });
+
   // The three states an operator picks between, in the order the host's own
   // status page presents them: continue first, then the two pause depths.
   const ACTIONS = [
@@ -90,6 +95,14 @@
     }
   }
 
+  // What the status column sorts on: the label the cell shows, so rows group
+  // the way they read. A pool whose state is unknown has nothing to order by --
+  // its cell is an em dash -- so it sorts as a blank, which ranks last.
+  function statusValue(p) {
+    const current = (control[p.poolId] || {}).state || 'unknown';
+    return current === 'unknown' ? '' : (LABEL[current] || current);
+  }
+
   // reportApply says what actually happened per host. A fan-out is partial by
   // nature -- one member never enrolled a lab token while the rest paused -- and
   // a bare "done" would hide exactly the host that needs attention.
@@ -137,10 +150,13 @@
     const tbody = document.getElementById('pool-rows');
     tbody.textContent = '';
     if (pools.length === 0) {
-      tbody.appendChild(Y.el('tr', {}, [Y.el('td', { colspan: '6', class: 'muted', text: 'No pools yet.' })]));
+      sorter.set([]);
+      tbody.appendChild(Y.el('tr', {}, [Y.el('td', { colspan: '7', class: 'muted', text: 'No pools yet.' })]));
       return;
     }
     const statusCells = {};
+    const rowsByPool = {};
+    const rows = [];
     for (const p of pools) {
       const members = p.members || [];
 
@@ -180,15 +196,27 @@
       statusCells[p.poolId] = statusTd;
       renderStatus(statusTd, p);
 
-      tbody.appendChild(Y.el('tr', {}, [
-        Y.el('td', { text: p.poolId }),
-        Y.el('td', {}, [Y.idCell(p.poolGuid)]),
-        Y.el('td', { text: p.displayName || '' }),
-        memCell,
-        statusTd,
-        Y.el('td', {}, [delBtn])
-      ]));
+      const row = {
+        tr: Y.el('tr', {}, [
+          Y.el('td', { text: p.poolId }),
+          Y.el('td', {}, [Y.idCell(p.poolGuid)]),
+          Y.el('td', { text: p.displayName || '' }),
+          memCell,
+          statusTd,
+          Y.el('td', {}, [delBtn])
+        ]),
+        values: {
+          pool: p.poolId || '',
+          poolGuid: p.poolGuid || '',
+          name: p.displayName || '',
+          members: members.length,
+          status: statusValue(p)
+        }
+      };
+      rowsByPool[p.poolId] = row;
+      rows.push(row);
     }
+    sorter.set(rows);
 
     // Best-effort, and last: the member read reaches every host in the lab, so
     // a pool whose hosts are all down still renders and stays editable.
@@ -196,7 +224,11 @@
     catch (e) { /* keep the previous states rather than blanking the column */ }
     for (const p of pools) {
       if (statusCells[p.poolId]) renderStatus(statusCells[p.poolId], p);
+      if (rowsByPool[p.poolId]) rowsByPool[p.poolId].values.status = statusValue(p);
     }
+    // The column these states feed is sortable, so the table has to answer for
+    // the values it just took on. Rows already in order are left untouched.
+    sorter.refresh();
   }
 
   document.getElementById('create').addEventListener('click', async function () {

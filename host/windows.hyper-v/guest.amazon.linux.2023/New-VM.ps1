@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42e9f0a1-b2c3-4d45-e678-9f0a1b2c3d45
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -184,6 +184,7 @@ if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty
 # rotation runs against the OS prompt.
 $_repoRootForExt = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
 $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
 $Password = Get-LocalOsPassword -Username $Username
 if (-not $Password) { Write-Error "Get-LocalOsPassword returned empty for '$Username'."; exit 1 }
@@ -260,6 +261,19 @@ CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId $VolumeId
 
 Write-Verbose "Creating new VM '$VMName' on switch '$switchName'..."
 Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 12288MB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
+
+# Deterministic per (host, guest identity): a rebuilt guest presents the SAME MAC, so the
+# DHCP server returns the SAME lease instead of consuming a new one. Random MACs
+# make every rebuild a fresh lease request, which drains a shared pool until guests
+# boot with no IPv4 at all. Hyper-V takes bare hex, no separators.
+# Keyed on the guest's durable identity, not on the name the VM carries now: a
+# guest is built in a per-kind slot and renamed to its real name when its
+# baseline is snapshotted, and an address that moved with that rename would
+# re-DHCP a guest whose own state already records the one it was built on.
+$YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $GuestHostname
+Hyper-V\Set-VMNetworkAdapter -VMName $VMName -StaticMacAddress ($YurunaGuestMac -replace ':','')
+Write-Verbose "Deterministic guest MAC for '$GuestHostname': $YurunaGuestMac"
+
 Set-VM -Name $VMName -MemoryStartupBytes 12288MB -MemoryMinimumBytes 12288MB -MemoryMaximumBytes 12288MB -AutomaticCheckpointsEnabled $false | Out-Null
 Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
 Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null

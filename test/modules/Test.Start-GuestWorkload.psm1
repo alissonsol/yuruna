@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456715
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,7 +16,7 @@
 
 #requires -version 7
 
-# -- Start-GuestWorkload dispatcher ------------------------------------------
+# --- REGION: Start-GuestWorkload dispatcher
 #
 # Generic dispatcher that runs a caller-supplied list of workload
 # sequence names via Invoke-SequenceByName -- one entry point regardless
@@ -25,15 +25,9 @@
 # top-level baseline chain and collecting every entry whose name does
 # not start with "start.".
 #
-# Naming convention (by design):
-#     Module filename = "Test.<exported-cmdlet>.psm1"
-# This file exports exactly one cmdlet, `Start-GuestWorkload`, so the
-# filename is `Test.Start-GuestWorkload.psm1`. The hyphen makes the
-# basename look like a cmdlet -- that is the FEATURE:
-# `grep -l Test.Start-GuestWorkload` finds the single source file that
-# defines the dashboard tile of the same name, and the operator clicking
-# through from the status UI lands on the right file. See its sibling
-# Test.Start-GuestOS.psm1 for the convention's full statement.
+# Filename = "Test.<exported-cmdlet>.psm1" so grep and status-UI
+# click-through land here; see Test.Start-GuestOS.psm1 for the
+# convention's full statement.
 
 Import-Module (Join-Path $PSScriptRoot "Test.YurunaDir.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
 $script:EngineModule = Join-Path $PSScriptRoot "Test.SequenceEngine.psm1"

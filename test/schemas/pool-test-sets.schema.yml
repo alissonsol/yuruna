@@ -50,7 +50,7 @@ properties:
         sequences:
           type: array
           description: >
-            PHASE A (permit-only): declared so every intent WRITER accepts a
+            Accepted but not yet emitted: declared so every intent WRITER accepts a
             document containing it before any writer emits it. Every admin write
             re-validates the WHOLE document against the writing checkout's own
             copy of this schema, and each entry is `additionalProperties:

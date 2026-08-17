@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42b1c2d3-e4f5-4a67-8901-2c3d4e5f6a7b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -48,16 +48,21 @@ $ModulesDir  = $paths.ModulesDir
 Initialize-YurunaEntryPointModuleSet -For PoolAdmin -ModulesDir $ModulesDir
 $ExitOk      = Get-EntryPointExitCode -Outcome Ok
 $ExitFailure = Get-EntryPointExitCode -Outcome Failure
+# The failure paths below pass -ErrorAction Continue: under the strict
+# preference above, a bare Write-Error would itself terminate and skip
+# the clean exit-code path.
 Import-Module powershell-yaml -ErrorAction Stop
 
+# --- REGION: Open the intent store
 $t = Resolve-YurunaPoolAdminTarget -IntentGitUrl $IntentGitUrl -IntentDir $IntentDir
 if ([string]::IsNullOrWhiteSpace($t.IntentGitUrl)) {
-    Write-Error 'No intent store URL. Pass -IntentGitUrl or set pool.intentGitUrl in test.config.yml.'
+    Write-Error 'No intent store URL. Pass -IntentGitUrl or set pool.intentGitUrl in test.config.yml.' -ErrorAction Continue
     exit $ExitFailure
 }
 $open = Open-YurunaPoolIntent -IntentGitUrl $t.IntentGitUrl -IntentDir $t.IntentDir -Confirm:$false
-if (-not $open.Ok) { Write-Error "Could not open the intent store ($($t.IntentGitUrl)): $($open.Error)"; exit $ExitFailure }
+if (-not $open.Ok) { Write-Error "Could not open the intent store ($($t.IntentGitUrl)): $($open.Error)" -ErrorAction Continue; exit $ExitFailure }
 
+# --- REGION: Apply the change
 $doc  = Read-YurunaPoolsDoc -IntentDir $t.IntentDir
 $pool = Get-YurunaPoolFromDoc -Doc $doc -PoolId $PoolId
 if (-not $pool) {
@@ -66,18 +71,19 @@ if (-not $pool) {
 }
 $members = @($pool['members'])
 if ($members.Count -gt 0 -and -not $Force) {
-    Write-Error "Pool '$PoolId' still has $($members.Count) member(s). Remove them first (./Remove-HostFromPool.ps1) or pass -Force."
+    Write-Error "Pool '$PoolId' still has $($members.Count) member(s). Remove them first (./Remove-HostFromPool.ps1) or pass -Force." -ErrorAction Continue
     exit $ExitFailure
 }
 
 $doc['pools'] = @(@($doc['pools']) | Where-Object { -not (($_ -is [System.Collections.IDictionary]) -and ([string]$_['poolId'] -eq $PoolId)) })
 
+# --- REGION: Save, commit and push
 $save = Save-YurunaPoolDoc -IntentDir $t.IntentDir -RelPath 'pools.yml' -Doc $doc -SchemaName 'pools.schema.yml' -Confirm:$false
-if (-not $save.Ok) { Write-Error "pools.yml validation/write failed: $($save.Error)"; exit $ExitFailure }
+if (-not $save.Ok) { Write-Error "pools.yml validation/write failed: $($save.Error)" -ErrorAction Continue; exit $ExitFailure }
 $pub = Publish-YurunaPoolIntent -IntentDir $t.IntentDir -Message "pool: delete $PoolId" -Confirm:$false
-if (-not $pub.Ok) { Write-Error "Commit failed: $($pub.Error)"; exit $ExitFailure }
+if (-not $pub.Ok) { Write-Error "Commit failed: $($pub.Error)" -ErrorAction Continue; exit $ExitFailure }
 if (-not $pub.Pushed) {
-    Write-Error "Committed locally but NOT pushed to the remote -- the change is not durable and a later admin command will discard it: $($pub.Error)"
+    Write-Error "Committed locally but NOT pushed to the remote -- the change is not durable and a later admin command will discard it: $($pub.Error)" -ErrorAction Continue
     exit $ExitFailure
 }
 

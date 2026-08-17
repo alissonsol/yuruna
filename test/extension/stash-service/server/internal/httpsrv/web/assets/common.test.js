@@ -15,6 +15,8 @@
       does not memoize a failure;
     - stashKey renders a row as the bulk-delete API's field form, and propagates
       the same null a malformed permalink produces everywhere else;
+    - guid spells a full host id 8-4-4-4-12 for display and passes anything else
+      through, so no dashed value can leak into a URL built from view.hostId;
     - a control proof in the URL fragment is spent once, at load, and is taken
       out of the address bar; a page with no fragment sends nothing;
     - Y.session reports a locked, unconfigured gate when the daemon cannot be
@@ -107,6 +109,18 @@ function loadWithHash(hash) {
   assert.strictEqual(Y.stashKey(null), null, 'stashKey(null) -> null');
   assert.strictEqual(Y.stashKey({ hostId: 'h', permalink: 42 }), null, 'stashKey(non-string permalink) -> null');
   assert.strictEqual(Y.stashKey({ hostId: 'h', permalink: '/s/h/2026/07' }), null, 'stashKey(short permalink) -> null');
+
+  // (2c) guid renders a full host id the way every operator-facing surface spells
+  // one, and leaves anything that is not 32 hex alone -- the URL builders above
+  // are fed view.hostId itself, so a dashed value must never reach a request.
+  assert.strictEqual(Y.guid('426d17ef0b88426b922180dad1a9e921'), '426d17ef-0b88-426b-9221-80dad1a9e921',
+    'guid(32 hex) is spelled 8-4-4-4-12');
+  assert.strictEqual(Y.guid('426d17ef-0b88-426b-9221-80dad1a9e921'), '426d17ef-0b88-426b-9221-80dad1a9e921',
+    'guid(already dashed) is unchanged');
+  assert.strictEqual(Y.guid('h1'), 'h1', 'guid(short opaque id) is unchanged');
+  assert.strictEqual(Y.guid(null), '', 'guid(null) -> empty');
+  assert.strictEqual(Y.shortHost('426d17ef0b88426b922180dad1a9e921'), '426d17ef',
+    'shortHost still names the row: its text is the first field of guid()');
 
   // (3a) api aborts a never-resolving request once the timeout fires.
   fetchImpl = function (p, o) {

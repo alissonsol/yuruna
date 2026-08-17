@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42f3a1c8-7b2d-4e59-8c04-1d6ea9b73f52
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -83,7 +83,7 @@ if (-not (Get-Command -Name 'Describe' -ErrorAction SilentlyContinue)) {
     function It       { param([string]$Name, [scriptblock]$Test)    & $Test; Write-Output "    [pass] $Name" }
 }
 
-# --- the inventory of prompts protected by something other than the predicate -
+# --- REGION: The inventory of prompts protected by something other than the predicate
 # File is repo-relative with forward slashes; Function is '' for a prompt at file
 # scope; Max is the number of prompt sites that body may contain.
 $script:KnownPromptSite = @(
@@ -185,7 +185,7 @@ sync helpers.
     }
 )
 
-# --- scan ---------------------------------------------------------------------
+# --- REGION: Scan
 $PromptCommand = @('Read-Host', 'Get-Credential')
 
 function Get-EnclosingFunctionName {

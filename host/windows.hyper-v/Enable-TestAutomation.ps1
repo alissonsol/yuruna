@@ -1,9 +1,9 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456755
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS
+.TAGS yuruna test host windows hyper-v enable-test-automation
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
@@ -34,6 +34,11 @@
         is set (prevents Tesseract OCR failures on VM screenshots caused by
         HiDPI up-scaling on fresh Win11 laptops)
     Requires Administrator elevation. Idempotent -- safe to re-run.
+
+    Exits 0 when every condition is in place and 2 when the settings were
+    applied but something still needs an operator (a reboot to deploy Hyper-V
+    components, a firewall Block rule pushed by policy). Re-running does not
+    clear a 2, which is why it is not reported as an outright failure.
 
     The opt-in virtual display (checksum-verified usbmmidd_v2) that keeps
     DWM painting the Hyper-V synthetic GPU when the physical monitor comes and
@@ -79,7 +84,7 @@ $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Import-Module (Join-Path $RepoRoot 'automation/Yuruna.HostSetup.psm1') -Force
 Initialize-HostSetupModule -RepoRoot $RepoRoot -BoundParameters $PSBoundParameters
 
-# --- REGION: pre-automation capture
+# --- REGION: Pre-automation capture
 # BEFORE anything is changed: record what these knobs were, so
 # Disable-TestAutomation can put them back. Written once and never overwritten
 # -- a second Enable must not capture Enable's own values as the operator's.
@@ -87,11 +92,19 @@ Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostAutomationState.psm1')
 $capturePath = Save-HostAutomationState -Platform 'windows.hyper-v' -WhatIf:$WhatIfPreference
 if ($capturePath) { Write-Information "Captured prior host settings to $capturePath (Disable-TestAutomation restores from it)." }
 
+# --- REGION: Host condition set
 # -SkipPoolStorage is ours, not Set-WindowsHostConditionSet's; splatting it
 # through would fail parameter binding.
 $conditionArgs = @{}
 foreach ($k in $PSBoundParameters.Keys) { if ($k -ne 'SkipPoolStorage') { $conditionArgs[$k] = $PSBoundParameters[$k] } }
-Set-WindowsHostConditionSet @conditionArgs
+# Select the count out of whatever came back rather than casting the lot.
+# Set-WindowsHostConditionSet shells out to powercfg, dism and w32tm, and one
+# uncaptured line from any of them would make its return an array -- which a
+# straight [int] cast turns into a thrown error, converting a cosmetic leak into
+# a failed setup step.
+$conditionResult = @(Set-WindowsHostConditionSet @conditionArgs)
+$unmetCount = @($conditionResult | Where-Object { $_ -is [int] } | Select-Object -Last 1)
+$unmetCount = if ($unmetCount.Count) { [int]$unmetCount[0] } else { 0 }
 
 # --- REGION: networkStorage pool host-identity setup + reimage reclaim (interactive)
 # Offer to configure networkStorage pool (NAS replication) and, on a host with no local
@@ -132,3 +145,25 @@ screen-capture/OCR doesn't go all-black:
 See docs/host-hyperv.md for what it attaches (checksum-pinned usbmmidd_v2) and the manual fallbacks.
 "@
 }
+
+# --- REGION: Outcome
+# The exit code is the only failure channel across the child-process boundary:
+# everything this script says about a setting it could not apply goes to a
+# captured log the orchestrator does not read, so an explicit exit is the one
+# way that host is distinguishable from a clean success. Falling off the end
+# gives 0.
+#
+#   0  every condition is in place
+#   1  the script threw (ErrorActionPreference stops it before this line)
+#   2  the settings were applied and some condition remains unmet
+#
+# 2 is deliberately not 1. Everything at 2 is a host that needs an operator --
+# a reboot to deploy Hyper-V components, a Block rule pushed by GPO -- and
+# re-running this script cannot clear any of it, so a caller that treats it as a
+# failed step would advise a re-run that changes nothing. The caller maps it to
+# a warned outcome; see install/setup.ps1's host-settings step.
+if ($unmetCount -gt 0) {
+    Write-Warning "Host settings applied, but $unmetCount condition(s) still need an operator (listed above)."
+    exit 2
+}
+exit 0

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a1c8e7-5b34-4d29-9f06-1e7d3a2b4c58
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -89,5 +89,35 @@ Describe 'Get-YurunaHostId' {
             [System.IO.File]::WriteAllText((Join-Path $fx.Tmp 'host.uuid'), $seed, [System.Text.UTF8Encoding]::new($false))
             Assert-Equal -Expected $seed -Actual (Get-YurunaHostId) -Because 'reads the existing file, does not regenerate'
         } finally { Remove-RuntimeFixture -Fixture $fx }
+    }
+}
+
+Describe 'Format-YurunaHostId (the spelling a full id is shown in)' {
+
+    It 'renders a minted id 8-4-4-4-12' {
+        $fx = New-RuntimeFixture
+        try {
+            $id = Get-YurunaHostId
+            $shown = Format-YurunaHostId -HostId $id
+            Assert-True ($shown -match '^42[0-9a-f]{6}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$') "shown: $shown"
+            Assert-Equal -Expected $id -Actual ($shown -replace '-', '') -Because 'the dashes are the only difference from the stored key'
+        } finally { Remove-RuntimeFixture -Fixture $fx }
+    }
+
+    It 'passes through anything that is not a 32-hex id' {
+        # A pool GUID already carries its dashes and an opaque service id is not
+        # this function's to reinterpret; both must survive a render untouched, or
+        # a caller that renders every id it shows would corrupt them.
+        foreach ($v in @('42a1b2c3-d4e5-4f60-8a1b-2c3d4e5f6071', 'stash-vm-01', '4253419c', '')) {
+            Assert-Equal -Expected $v -Actual (Format-YurunaHostId -HostId $v) -Because "passes through [$v]"
+        }
+    }
+
+    It 'round-trips through the operator-input normalizer' {
+        # The pair is what makes an id readable on a panel and usable in a command:
+        # what Format shows must be what ConvertTo accepts, or a pasted id is refused.
+        Import-Module (Join-Path $here 'Test.PoolAdmin.psm1') -Force -DisableNameChecking -ErrorAction SilentlyContinue
+        $id = '42abcdef0123456789abcdef01234567'
+        Assert-Equal -Expected $id -Actual (ConvertTo-YurunaHostId -Value (Format-YurunaHostId -HostId $id)) -Because 'shown form is accepted back'
     }
 }

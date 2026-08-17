@@ -38,15 +38,7 @@ APT_PROXY_BLOCK_PLACEHOLDER
   interactive-sections: []
 # === YURUNA_OVERLAY_EARLY_COMMANDS ===
   late-commands:
-    # Make sshd notice a client that stopped answering, and reap the session.
-    # Upstream leaves ClientAliveInterval at 0, so a connection broken under an
-    # established session -- either endpoint renumbering onto a new address is
-    # the ordinary way that happens -- is detected only when TCP finally gives
-    # up, minutes later. Until then the command the harness was running keeps
-    # running, unwatched, holding apt/dpkg locks and its own network
-    # connections, so a host that reconnects and re-runs the step collides with
-    # its own orphan. 15s x 4 mirrors the client-side keepalive bound in
-    # Test.Ssh.psm1 Invoke-GuestSsh, so both ends give up on the same schedule.
+    # --- REGION: https://yuruna.link/network#why-sshd-notices-a-client-that-left
     - |
       mkdir -p /target/etc/ssh/sshd_config.d
       cat > /target/etc/ssh/sshd_config.d/60-yuruna-keepalive.conf << 'EOF'
@@ -136,6 +128,14 @@ APT_PROXY_BLOCK_PLACEHOLDER
         chmod 0644 /target/etc/iptables/rules.v4 /target/etc/iptables/rules.v6
         curtin in-target --target=/target -- systemctl enable netfilter-persistent || true
       fi
+    # --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+    # Idempotent: a re-run finds the key already present and leaves the file alone.
+    - |
+      for f in /target/etc/netplan/*.yaml; do
+        [ -f "$f" ] || continue
+        grep -q 'dhcp-identifier' "$f" && continue
+        sed -i -E 's/^([[:space:]]*)dhcp4:[[:space:]]*(true|yes)[[:space:]]*$/\1dhcp4: \2\n\1dhcp-identifier: mac/' "$f"
+      done
     # --- REGION: https://yuruna.link/vmconfig#cap-systemd-networkd-wait-online
     - mkdir -p /target/etc/systemd/system/systemd-networkd-wait-online.service.d
     - |
@@ -189,7 +189,7 @@ APT_PROXY_BLOCK_PLACEHOLDER
     # knowing. Together they let yuruna-host-locate repair the address above
     # instead of the guest being stranded by it. Either one empty (no pool
     # directory in this lab) simply leaves the baked address as the only
-    # answer, which is where every guest was before.
+    # answer.
     - mkdir -p /target/etc/yuruna
     - |
       cat > /target/etc/yuruna/host.env << 'EOF'
@@ -228,38 +228,15 @@ APT_PROXY_BLOCK_PLACEHOLDER
       printf '%s' "YURUNA_HOST_LOCATE_BASE64_PLACEHOLDER" | base64 -d > /target/usr/local/lib/yuruna/yuruna-host-locate.sh
       chmod 0755 /target/usr/local/lib/yuruna/yuruna-host-locate.sh
     # --- REGION: https://yuruna.link/vmconfig#host-address-refresh-timer
-    # fetch-and-execute repairs the address at the top of each step, which
-    # leaves one window open: a step that runs for many minutes can watch the
-    # host renumber underneath it and has no way back. The timer closes that
-    # window for everything in the guest -- the project's own scripts, the
-    # perf checkpoints, the log uploads -- none of which pass through the
-    # fetch path and all of which read the same host.env.
-    #
-    # Cheap enough to run this often because the resolver probes before it
-    # asks: when the address is still good the minute's work is one LAN round
-    # trip and no writes at all. Deliberately not a long-running daemon --
-    # there is no state to hold between ticks, and a oneshot cannot wedge.
     - |
       cat > /target/etc/systemd/system/yuruna-host-locate.service << 'EOF'
       [Unit]
       Description=Refresh Yuruna host coordinates if the host has changed address
-      # Ordered INTO the network-online barrier rather than after it. Anything
-      # in this guest that needs the host waits on that target, so finishing
-      # before it is what guarantees those consumers never read a stale
-      # address -- and it does so without this unit naming any of them, which
-      # is the whole point of the indirection.
-      #
-      # After the wait-online services (whichever the image ships; ordering
-      # against an absent unit is a no-op) so this runs with an address in
-      # hand rather than before DHCP has answered.
       After=network.target NetworkManager-wait-online.service systemd-networkd-wait-online.service
       Before=network-online.target
 
       [Service]
       Type=oneshot
-      # A resolver that cannot finish must not hold the boot open. Every call
-      # inside is already wall-clock bounded; this is the backstop for the day
-      # one of them is not.
       TimeoutStartSec=30
       ExecStart=/usr/local/lib/yuruna/yuruna-host-locate.sh
 
@@ -279,6 +256,37 @@ APT_PROXY_BLOCK_PLACEHOLDER
       WantedBy=timers.target
       EOF
       curtin in-target --target=/target -- systemctl enable yuruna-host-locate.service yuruna-host-locate.timer || true
+    # --- REGION: https://yuruna.link/network#defining-lease-release-on-teardown
+    # The guest returns its own lease. Asking for it from the host needs a login
+    # user, a resolvable address and a guest that is still running -- and the
+    # guests that hold leases longest are stopped while running and deleted
+    # while off, so there is no moment in their life where the host could ask.
+    # Here there is nothing to resolve and nobody to log in as.
+    #
+    # ExecStop with RemainAfterExit is the whole mechanism: the unit does
+    # nothing at boot and everything at stop, and being ordered
+    # After=network.target it is stopped BEFORE the network is, because
+    # shutdown reverses start order. TimeoutStopSec bounds it -- teardown's
+    # standing rule is that a wedged guest must never stall the sweep, and that
+    # has to keep holding for a guest wedged inside this unit.
+    - |
+      cat > /target/etc/systemd/system/yuruna-dhcp-release.service << 'EOF'
+      [Unit]
+      Description=Return this guest's DHCP lease before shutdown
+      Wants=network.target
+      After=network.target
+
+      [Service]
+      Type=oneshot
+      RemainAfterExit=yes
+      ExecStart=/bin/true
+      ExecStop=/bin/bash /usr/local/lib/yuruna/yuruna-network.sh release
+      TimeoutStopSec=15
+
+      [Install]
+      WantedBy=multi-user.target
+      EOF
+      curtin in-target --target=/target -- systemctl enable yuruna-dhcp-release.service || true
     # --- REGION: https://yuruna.link/definition#defining-the-two-source-scheme-for-framework-and-project-urls
     # git does NOT read GH_TOKEN (a gh(1) convention); without this GIT_ASKPASS shim a private
     # clone hangs on a username prompt -- "Private repositories" in the REGION topic above.

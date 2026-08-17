@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42f0a1b2-c3d4-4e56-f789-0a1b2c3d4e80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,7 +27,7 @@
     host/modules/Yuruna.Image.psm1). Every extension service on this host
     boots the same cloud image, so one artifact serves all of them instead
     of a byte-identical copy per service -- which on Hyper-V also collapses
-    three qcow2-to-VHDX conversions into one. This per-service entry point
+    the qcow2-to-VHDX conversions into one. This per-service entry point
     stays so the stash service can move to a different release, arch or
     post-processing step later without disturbing the others.
 
@@ -35,10 +35,12 @@
     grows its own per-VM copy to the size the stash daemon needs.
 #>
 
+# --- REGION: Log level from environment
 # Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
 if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
 
+# --- REGION: Pre-flight: elevation
 Write-Output "This script requires elevation (Run as Administrator)."
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Output "Please run this script as Administrator."
@@ -46,6 +48,7 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     exit 1
 }
 
+# --- REGION: Import host modules
 # Yuruna.Host.psm1 supplies the cache-injecting Save-CachedHttpUri wrapper and
 # (via its global Yuruna.HostDownload import) the sentinel guard the shared
 # pipeline resolves by name, so the download routes through the squid cache
@@ -53,6 +56,7 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yuruna.Host.psm1") -Force
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Yuruna.Image.psm1") -Force
 
+# --- REGION: Resolve and fetch the base image
 try {
     $image = Get-UbuntuExtensionImageInfo -HostType 'windows.hyper-v'
 } catch {
@@ -63,3 +67,10 @@ Write-Output "Hyper-V default VHDX folder: $($image.DownloadDir)"
 if (-not (Save-UbuntuExtensionImage -Image $image -Verbose:($VerbosePreference -ne 'SilentlyContinue'))) {
     exit 1
 }
+# Success must be an explicit exit 0. Callers that run this script in-process
+# (& $GetImageScript) read $LASTEXITCODE; any native command a helper ran
+# along the way (qemu-img, discovery probes for VMs that may legitimately be
+# absent) leaves its exit code behind, and a cache-hit run ends on cmdlets
+# that never overwrite it. Falling off the end here would report that stale
+# code as this script's own exit status.
+exit 0

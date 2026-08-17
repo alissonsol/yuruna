@@ -25,7 +25,7 @@
     const add = (k, val) => { dl.append(Y.el('dt', { text: k }), Y.el('dd', { text: val })); };
     add('ID', v.id);
     add('Name', v.originalFilename || '(unnamed)');
-    add('Host', v.local ? v.hostId + '  (this host)' : v.hostId);
+    add('Host', v.local ? Y.guid(v.hostId) + '  (this host)' : Y.guid(v.hostId));
     add('Type', (v.mimeType || v.contentClass) + (v.typeLabel ? '  [' + v.typeLabel + ']' : ''));
     add('Size', Y.humanSize(v.sizeBytes));
     add('User', v.username);
@@ -60,7 +60,7 @@
     }
     if (!v.local) {
       const where = Y.el('span', { class: 'muted' }, ' Received by host ');
-      where.append(Y.el('span', { class: 'mono', text: Y.shortHost(v.hostId) }));
+      where.append(Y.el('span', { class: 'mono', text: Y.shortHost(v.hostId), title: Y.guid(v.hostId) }));
       if (v.remoteStashUrl) {
         where.append(' — ', Y.el('a', { href: v.remoteStashUrl, text: 'open on that host' }));
       }

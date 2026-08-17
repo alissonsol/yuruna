@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42d5e8a2-b1c4-4f09-a6d3-7e8f0a1b2c3d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -66,6 +66,12 @@ function Initialize-SequenceFailureStateStore {
     # field always renders as a JSON array, same guard as the inner-recovery slot.
     $Store['WaitForTextOcrTail']        = $null
     $Store['WaitForTextPatternsSought'] = [string[]]@()
+    # Populated when a freshMatch wait times out on text the engines DID read
+    # but that had scrolled past the tail window. Without it the record shows a
+    # sought pattern, an OCR tail that appears not to contain it, and no way to
+    # tell "never printed" from "printed, then pushed out of the window" -- two
+    # failures with different owners and different fixes.
+    $Store['WaitForTextFreshWindowNearMiss'] = [string[]]@()
     # Set by the ssh verbs when host-side discovery never produced an address
     # and the bare VM name was dialed as the last route left. The verb registry
     # classifies those verbs by their COMMON failure -- a guest command that
@@ -177,6 +183,7 @@ function New-SequenceFailureRecord {
     # patternsSought never collapses to $null via the if-pipeline flatten).
     $ocrTail = if ($fail.WaitForTextOcrTail) { [string]$fail.WaitForTextOcrTail } else { '' }
     [string[]]$patternsSought = @($fail.WaitForTextPatternsSought)
+    [string[]]$freshWindowNearMiss = @($fail.WaitForTextFreshWindowNearMiss)
     $stepNumber = if ($fail.LastFailedStepNumber) { [int]$fail.LastFailedStepNumber } else { 0 }
     if ($Reason -eq 'crash') {
         $label = if ($fail.LastFailureLabel) { [string]$fail.LastFailureLabel } else { "engine crash: $($CrashError.Exception.Message)" }
@@ -369,8 +376,9 @@ function New-SequenceFailureRecord {
                 # What was on screen vs what was sought at the wait/OCR failure
                 # site -- the runtime cause behind a verb-static failureClass.
                 causeDetail           = [ordered]@{
-                    ocrTail        = $ocrTail
-                    patternsSought = $patternsSought
+                    ocrTail            = $ocrTail
+                    patternsSought     = $patternsSought
+                    freshWindowNearMiss = $freshWindowNearMiss
                 }
             }
         }

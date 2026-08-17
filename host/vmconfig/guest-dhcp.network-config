@@ -1,0 +1,22 @@
+# --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+# Shipped on the cidata seed as `network-config`, read by cloud-init's NoCloud
+# datasource before networking is configured.
+#
+# Matched by name pattern, not by MAC: this file is shared by every extension
+# guest on every host type, and the interface is enp0s1 on UTM, eth0 on Hyper-V
+# and enp1s0 on KVM. The two entries mirror cloud-init's own fallback network
+# config, so a guest matching neither is no worse off than with no file here.
+version: 2
+ethernets:
+  yuruna-en:
+    match:
+      name: "en*"
+    dhcp4: true
+    dhcp6: true
+    dhcp-identifier: mac
+  yuruna-eth:
+    match:
+      name: "eth*"
+    dhcp4: true
+    dhcp6: true
+    dhcp-identifier: mac

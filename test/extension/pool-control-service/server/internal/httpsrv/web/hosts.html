@@ -33,7 +33,7 @@
         <a href="/test-sets">Test sets</a>
         <a href="/scan">Scan</a>
         <a href="/diagnostics">Diagnostics</a>
-        <a class="menu-out" href="https://yuruna.link/pool-control">Guide</a>
+        <a class="menu-out" href="https://yuruna.link/pool-control" target="_blank" rel="noopener">Guide</a>
       </nav>
     </div>
   </header>
@@ -49,7 +49,9 @@
       repositories each host runs on, as the host itself reports them, and each
       links to where that repository lives:
       <code>No access</code> means it was configured with one it cannot read.
-      Any column header sorts the table. <strong>Hostname</strong> is the name the
+      Any column header sorts the table, and the leading number counts the rows as
+      they are shown, so it stays 1&hellip;n whatever the order.
+      <strong>Hostname</strong> is the name the
       host's own status page shows, and appears only once this browser is unlocked:
       the pool's view of a host is hostname-free, and this page renders unattended too.
     </p>
@@ -61,6 +63,7 @@
     <table>
       <thead>
         <tr>
+          <th class="rownum" aria-label="Row number">#</th>
           <th data-sort="hostId" aria-sort="ascending"><button type="button" class="sort">Host ID</button></th>
           <th data-sort="hostname"><button type="button" class="sort">Hostname</button></th>
           <th data-sort="type"><button type="button" class="sort">Type</button></th>

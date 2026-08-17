@@ -46,15 +46,22 @@ Group=proxy
 # this cannot break links the dashboard still shows. It does NOT expire cumulative
 # pass/fail counters, and it does not evict a host that keeps being re-seeded from the
 # presence feed -- forget-host does that.
-ExecStart=/usr/local/bin/pool-aggregator-service -tls-cert /etc/squid/ssl_cert/pool-aggregator-service.crt -tls-key /etc/squid/ssl_cert/pool-aggregator-service.key -auth-token-file /etc/yuruna/lab-auth.token -host-ttl 24h -lab-token-rotate 60s
+#
+# -pool-archive-root points at the pool share's hosts/ directory on this machine, so
+# archived cycle results are served at /archive/... and the dashboard's cycle links
+# keep resolving after a host has moved its logs to the NAS (or has been switched off
+# entirely). The path is only captured at start; the directory is opened per request,
+# because the CIFS mount is nofail and arrives asynchronously after boot.
+ExecStart=/usr/local/bin/pool-aggregator-service -tls-cert /etc/squid/ssl_cert/pool-aggregator-service.crt -tls-key /etc/squid/ssl_cert/pool-aggregator-service.key -auth-token-file /etc/yuruna/lab-auth.token -host-ttl 24h -lab-token-rotate 60s -pool-archive-root /mnt/ypool-nas/hosts
 Restart=on-failure
 RestartSec=5
 # Auto-discovers pool members by reading the squid access log (proxy owns it,
 # 0640 -- the unit only needs to read it), probing each recent client IP's
 # status service, and pushing to Loki on loopback; serves :9400 (TLS + plain HTTP
 # on the one port when the leaf is present) including the authenticated POST
-# /ingest push surface. The only disk reads are the squid log + the TLS leaf +
-# the auth token; state is in memory.
+# /ingest push surface. Disk reads are the squid log, the TLS leaf, the auth token,
+# and -- read-only, for the /archive/ route -- the pool share under /mnt/ypool-nas;
+# state is in memory.
 ReadOnlyPaths=/var/log/squid
 NoNewPrivileges=true
 ProtectSystem=strict

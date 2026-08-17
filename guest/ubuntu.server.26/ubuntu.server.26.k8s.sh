@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.14
+# Version: 2026.08.16
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -10,6 +10,7 @@ export NONINTERACTIVE=1
 REAL_USER="${SUDO_USER:-$USER}"
 REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
 
+# --- REGION: Detect architecture
 ARCH=$(uname -m)
 echo "Detected architecture: $ARCH"
 case "$ARCH" in
@@ -28,13 +29,13 @@ esac
 
 # --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
 . /usr/local/lib/yuruna/yuruna-retry.sh
-# Baked retry libs may bound apt attempts on wall-clock -- the wrapped-apt
-# teardown-hang trap class (apt blocks at end-of-transaction under a timeout(1)
-# parent). Force unbounded until no image predates the lib's unbounded default.
+# --- REGION: https://yuruna.link/network#why-apt-and-dnf-attempts-run-unbounded-by-default
+# Re-asserted here because a baked retry lib may still carry a wall-clock bound.
 export YURUNA_APT_STALL_TIMEOUT_SECONDS=0
 
 echo "== Installing Kubernetes requirements for Ubuntu =="
 
+# --- REGION: Install basic tools
 echo ""
 echo -e "\e[1;36m==== Basic tools ====\e[0m"
 apt_retry sudo apt-get update -y
@@ -66,6 +67,7 @@ _yuruna_verify_key_fpr() {
     echo "  key verify: OK ($keyfile)"
 }
 
+# --- REGION: Install Docker
 echo ""
 echo -e "\e[1;36m==== Docker ====\e[0m"
 sudo install -m 0755 -d /etc/apt/keyrings
@@ -142,11 +144,13 @@ fi
 
 docker version > /dev/null 2>&1 && echo "Docker engine is responding" || echo "Note: Docker engine not responding yet - may need service restart or reboot"
 
+# --- REGION: Disable swap
 echo ""
 echo -e "\e[1;36m==== Swap disabled ====\e[0m"
 sudo sed -i '/ swap / s/^/#/' /etc/fstab
 sudo swapoff -a || true
 
+# --- REGION: Wait for Docker
 echo ""
 echo -e "\e[1;36m==== Docker up ====\e[0m"
 DOCKER_WAIT_SECONDS=60
@@ -190,6 +194,7 @@ if [ "$DOCKER_READY" = false ]; then
     exit 1
 fi
 
+# --- REGION: Install Kubernetes
 echo ""
 echo -e "\e[1;36m==== K8S ====\e[0m"
 # K8s repo + keyring already written next to the Docker source above so a
@@ -226,25 +231,10 @@ sudo mkdir -p /etc/containerd/certs.d/docker.io \
               /etc/containerd/certs.d/public.ecr.aws \
               /etc/containerd/certs.d/ghcr.io \
               /etc/containerd/certs.d/mcr.microsoft.com
-# Every hosts.toml below names the cache TWICE, and both spellings earn
-# their place:
-#
-#   server = the cache -- containerd tries the [host] entries in order and
-#   then falls back to `server`, and `server` defaults to the upstream when
-#   left out, so naming the upstream (or omitting the key) means any mirror
-#   miss is quietly completed against the origin from the lab's shared
-#   egress IP. That is the path that converts an anonymous-pull throttle
-#   into a failed pull: the throttled origin answers 429 and the pull dies
-#   even though the cache holds -- or would shortly hold -- the layer.
-#   Pointing `server` at the cache leaves no upstream to fall back to, so a
-#   slow or briefly unhappy cache stays a retry against the cache.
-#
-#   [host] = the cache -- this form is what makes containerd append the
-#   `ns=<namespace>` query parameter, which is how zot learns WHICH
-#   upstream a repository belongs to. Drop the host entry and requests
-#   arrive namespace-less, leaving zot to probe its configured upstreams in
-#   order and spend rate-limited docker.io lookups on images that never
-#   lived there.
+# Each hosts.toml below names the cache twice and both spellings are
+# load-bearing: `server` must not fall back to the upstream, and the [host]
+# form is what makes containerd send the ns=<namespace> parameter zot routes
+# on. Full reasoning under the REGION anchor above.
 sudo tee /etc/containerd/certs.d/docker.io/hosts.toml > /dev/null <<HOSTSEOF
 server = "http://${CACHE_HOST}:5000"
 
@@ -304,18 +294,10 @@ if ! curl -fsS --max-time 15 -o /dev/null "http://${CACHE_HOST}:5000/v2/"; then
     echo "           curl -fsS http://${CACHE_HOST}:5000/v2/" >&2
     exit 1
 fi
-# The gate above proves the registry process is alive, which it stays -- in
-# milliseconds -- however badly the pull-through behind it is stalled. What a
-# pull actually waits on is a MANIFEST request, since that re-runs the upstream
-# sync. The cache times that itself and publishes the result, so reading the
-# page costs nothing here; measuring it from this guest would spend one pull
-# from the upstream budget the whole lab shares, on every provisioning run.
-#
-# Advisory, never fatal: containerd waits out a slow cache and the pull progress
-# cap below bounds a genuine wedge, so a slow reading is not grounds to fail a
-# run that can survive it. Its value is having the cache's condition recorded in
-# THIS guest's log at provisioning time, so a pull that fails an hour later has
-# a before-picture instead of only an ImagePullBackOff.
+# --- REGION: https://yuruna.link/caching#warm-sets-and-the-cold-sync-reading
+# Read the cache's published reading rather than measuring from here: measuring
+# would spend a pull from the budget the whole lab shares, every run. Advisory,
+# never fatal -- its value is a before-picture in THIS guest's log.
 if cache_health=$(curl -fsS --max-time 5 "http://${CACHE_HOST}/cache-health" 2>/dev/null); then
     echo "Cache health, as published by ${CACHE_HOST}:"
     printf '%s\n' "$cache_health" | sed 's/^/  /'
@@ -337,6 +319,78 @@ else
 fi
 sudo systemctl enable containerd
 sudo systemctl restart containerd
+
+# --- REGION: https://yuruna.link/caching#warm-sets-and-the-cold-sync-reading
+# Reports through yuruna_warm_missing / yuruna_warm_total rather than exiting,
+# because the two callers owe different answers: a short control plane cannot
+# proceed, while a CNI rollout has its own bounded wait and may still converge.
+# Why a cold cache has to be paid for here at all: see the REGION anchor above.
+YURUNA_IMAGE_WARM_BUDGET="${YURUNA_IMAGE_WARM_BUDGET:-900}"
+yuruna_warm_refs() {
+    _wr_label=$1
+    shift
+    yuruna_warm_total=0
+    yuruna_warm_missing=0
+    _wr_deadline=$(( $(date +%s) + YURUNA_IMAGE_WARM_BUDGET ))
+    # Spelled out because a manifest request stating no preference gets the
+    # registry's default, which for a multi-arch tag is not the index a pull
+    # resolves -- warming the wrong document leaves the real pull still cold.
+    _wr_accept='application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json'
+    echo "== Warming the ${_wr_label} image set through ${CACHE_HOST}:5000 (budget ${YURUNA_IMAGE_WARM_BUDGET}s) =="
+    for _wr_ref in "$@"; do
+        yuruna_warm_total=$((yuruna_warm_total + 1))
+        _wr_upstream=${_wr_ref%%/*}
+        _wr_rest=${_wr_ref#*/}
+        _wr_tag=${_wr_rest##*:}
+        _wr_repo=${_wr_rest%:*}
+        _wr_left=$(( _wr_deadline - $(date +%s) ))
+        if [ "$_wr_left" -le 0 ]; then
+            yuruna_warm_missing=$((yuruna_warm_missing + 1))
+            printf '  %-52s       not attempted (warm budget spent)\n' "${_wr_repo}:${_wr_tag}"
+            continue
+        fi
+        _wr_t0=$(date +%s)
+        # ns= names the upstream this repository belongs to -- the same parameter
+        # containerd's hosts.toml form sends on every pull, and how the cache
+        # picks which upstream to sync from. Without it the cache walks its
+        # configured registries in order, where Docker Hub is the catch-all, and
+        # spends one of the metered lookups the whole lab shares on an image
+        # Docker Hub never served.
+        _wr_code=$(curl -s -o /dev/null --max-time "$_wr_left" -w '%{http_code}' \
+            -H "Accept: ${_wr_accept}" \
+            "http://${CACHE_HOST}:5000/v2/${_wr_repo}/manifests/${_wr_tag}?ns=${_wr_upstream}" 2>/dev/null || true)
+        _wr_el=$(( $(date +%s) - _wr_t0 ))
+        if [ "$_wr_code" = "200" ]; then
+            # Local storage answers in milliseconds, so whole seconds already
+            # mean the upstream leg ran and this guest paid for the copy.
+            if [ "$_wr_el" -lt 5 ]; then _wr_state="already cached"; else _wr_state="cold, now cached"; fi
+            printf '  %-52s %5ss (%s)\n' "${_wr_repo}:${_wr_tag}" "$_wr_el" "$_wr_state"
+        else
+            yuruna_warm_missing=$((yuruna_warm_missing + 1))
+            printf '  %-52s %5ss (NOT CACHED -- HTTP %s)\n' "${_wr_repo}:${_wr_tag}" "$_wr_el" "${_wr_code:-000}"
+        fi
+    done
+    echo "== ${_wr_label}: $((yuruna_warm_total - yuruna_warm_missing)) of ${yuruna_warm_total} images cached =="
+}
+
+# The set comes from kubeadm itself. It cannot be derived from the Kubernetes
+# version: coredns, pause and etcd carry tags of their own, baked into this
+# binary and moved on their own schedule, so any list built here would miss
+# exactly the images that then arrive cold.
+_k8s_refs=$(sudo kubeadm config images list 2>/dev/null || true)
+if [ -z "$_k8s_refs" ]; then
+    echo "Note: kubeadm could not list its images; skipping the warm pass and letting the pull below discover the set."
+else
+    yuruna_warm_refs "control-plane" $_k8s_refs
+    if [ "$yuruna_warm_missing" -gt 0 ]; then
+        echo "ERROR: the cache is still cold -- ${yuruna_warm_missing} of ${yuruna_warm_total} control-plane images did not arrive within the ${YURUNA_IMAGE_WARM_BUDGET}s warm budget." >&2
+        echo "       kubeadm would spend its entire step budget re-requesting them and end as a bare" >&2
+        echo "       timeout naming no image, so stop here while the cause is still on screen." >&2
+        echo "       The cache continues each interrupted sync in the background, so a re-run lands warm." >&2
+        echo "       Cache condition: http://${CACHE_HOST}/cache-health" >&2
+        exit 1
+    fi
+fi
 
 # Pre-pull the kubeadm control-plane images through the zot mirror so
 # `kubeadm init` lands cache-warm. Must run AFTER the containerd mirror config
@@ -451,6 +505,19 @@ if [ ! -s "$FLANNEL_MANIFEST" ]; then
     echo "ERROR: Downloaded kube-flannel.yml at $FLANNEL_MANIFEST is missing or empty" >&2
     exit 1
 fi
+# Flannel's images gate the CNI: a stalled pull leaves kube-flannel-ds at
+# Init:n/m with /etc/cni/net.d empty, so the node never leaves NotReady and the
+# failure surfaces as a node-readiness timeout that says nothing about a
+# registry. Warm them on the same patient path before the DaemonSet asks
+# containerd for them. Advisory rather than fatal, unlike the control plane:
+# the rollout wait below can still converge if an image lands moments later.
+_cni_refs=$(awk '$1=="image:"{print $2}' "$FLANNEL_MANIFEST" | sort -u || true)
+if [ -n "$_cni_refs" ]; then
+    yuruna_warm_refs "flannel" $_cni_refs
+    if [ "$yuruna_warm_missing" -gt 0 ]; then
+        echo "Note: ${yuruna_warm_missing} of ${yuruna_warm_total} flannel images are not cached; the rollout wait below is likely to time out." >&2
+    fi
+fi
 if ! kubectl --kubeconfig="${REAL_HOME}/.kube/config" apply -f "$FLANNEL_MANIFEST"; then
     echo "ERROR: Failed to apply Flannel manifest $FLANNEL_MANIFEST to the cluster" >&2
     exit 1
@@ -486,9 +553,9 @@ kubectl --kubeconfig="${REAL_HOME}/.kube/config" taint nodes --all node-role.kub
 
 kubectl --kubeconfig="${REAL_HOME}/.kube/config" config rename-context kubernetes-admin@kubernetes docker-desktop || true
 
+# --- REGION: https://yuruna.link/network#helm-installer-fetch
 echo ""
 echo -e "\e[1;36m==== Helm ====\e[0m"
-# --- REGION: https://yuruna.link/network#helm-installer-fetch
 # get-helm-4, never get-helm-3 (the v3 installer can only ever land a 3.x binary).
 curl_retry -fsSL "https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-4${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o /tmp/get-helm-4.sh
 chmod +x /tmp/get-helm-4.sh
@@ -515,6 +582,7 @@ if ! command -v tofu >/dev/null 2>&1; then
     exit 1
 fi
 
+# --- REGION: Install mkcert
 # mkcert: prefer the upstream binary from dl.filippo.io (302-redirector to
 # github.com/FiloSottile/mkcert releases). That endpoint can return transient
 # 5xx responses that, under `set -euo pipefail`, would abort the entire
@@ -556,6 +624,7 @@ if [ -n "$MKCERT_ARCH" ]; then
     sudo -u "$TARGET_USER" -H mkcert -install || true
 fi
 
+# --- REGION: Create the HTTPS development certificate
 echo ""
 echo -e "\e[1;36m==== HTTPS development certificate ====\e[0m"
 PFX_DIR="${REAL_HOME}/.aspnet/https"
@@ -566,6 +635,7 @@ rm -f "$PFX_DIR/aspnetapp.key" "$PFX_DIR/aspnetapp.crt"
 # Ensure the real user owns the certificate files (not root)
 chown -R "$REAL_USER:$REAL_USER" "$PFX_DIR"
 
+# --- REGION: Installation summary
 echo ""
 echo "== Installation Summary =="
 docker --version
@@ -577,6 +647,7 @@ helm version --short 2>/dev/null || echo "Helm - run: helm version --short"
 tofu version | head -1 || true
 mkcert -version 2>/dev/null || echo "mkcert - run: mkcert -version"
 
+# --- REGION: Optional steps
 echo ""
 echo "== Optional Steps =="
 echo "Current hostname: $(hostnamectl hostname)"

@@ -261,6 +261,13 @@ th > button.sort:hover { background: none; color: var(--fg); text-decoration: un
 th[aria-sort] > button.sort { color: var(--fg); }
 th[aria-sort="ascending"] > button.sort::after { content: " \25B2"; font-size: .7em; }
 th[aria-sort="descending"] > button.sort::after { content: " \25BC"; font-size: .7em; }
+/* The counter column (Y.numCell). It numbers positions on screen rather than
+   rows of data, so it is furniture: muted, as narrow as its digits, and right
+   aligned on tabular figures so the units line up as the count passes ten. */
+th.rownum, td.rownum {
+  width: 1%; text-align: right; white-space: nowrap;
+  color: var(--muted); font-variant-numeric: tabular-nums;
+}
 /* The footnote a column header marks with an asterisk: one line under the
    table, so a hint that is the same for every row is stated once. */
 .footnote { color: var(--muted); font-size: .82rem; margin-top: .75rem; }

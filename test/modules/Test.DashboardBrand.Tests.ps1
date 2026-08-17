@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
-.GUID 6b2f1d84-0c7a-4e59-9a31-2f5c8d40b7e6
+.VERSION 2026.08.16
+.GUID 42b7f7d0-4a8c-4843-b026-9046481f7163
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna caching proxy grafana dashboard brand version pester
@@ -105,7 +105,7 @@ function Invoke-Brander {
     param(
         [Parameter(Mandatory)][string]$DashboardDir,
         [string]$Name = 'Yurunadev',
-        [string]$Version = '2026.08.14',
+        [string]$Version = '2026.08.16',
         [switch]$NoEnvFile
     )
     $envFile = Join-Path $DashboardDir '..' | Join-Path -ChildPath 'brand.env'
@@ -264,7 +264,7 @@ Describe 'the brand tile is safe to re-run' {
         if (-not $script:Python) { Set-ItResult -Skipped -Because 'python3 is not installed on this host'; return }
 
         $dir = Get-DashboardFixture -Dashboard $script:RealDashboards
-        Invoke-Brander -DashboardDir $dir -Name 'Yurunadev' -Version '2026.08.14' | Out-Null
+        Invoke-Brander -DashboardDir $dir -Name 'Yurunadev' -Version '2026.08.16' | Out-Null
         $doc = Get-Content -Raw (Join-Path $dir 'pool.json') | ConvertFrom-Json
         $geometry = @(Get-TopRow -Dashboard $doc | ForEach-Object { "$($_.gridPos.x),$($_.gridPos.w)" }) -join '|'
 

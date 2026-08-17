@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.14
+# Version: 2026.08.16
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Yuruna Ubuntu KVM/libvirt bootstrap installer.
@@ -12,20 +12,11 @@ set -euo pipefail
 YURUNA_REPO_PUBLIC="https://github.com/alissonsol/yuruna.git"
 YURUNA_REPO_PRIVATE="https://github.com/alissonsol/yurunadev.git"
 YURUNA_REPO="${YURUNA_REPO:-$YURUNA_REPO_PUBLIC}"
-# Track whether the operator pinned a ref explicitly. The development repo
-# (yurunadev) is only tagged at the weekly release, so its pinned-CalVer default
-# would never resolve mid-week; when targeting it we fall back to latest 'main'
-# unless the operator asked for a specific ref.
+# --- REGION: https://yuruna.link/install/explained#development-repo-tracks-latest-main
 YURUNA_BRANCH_EXPLICIT=0
 [[ -n "${YURUNA_BRANCH:-}" ]] && YURUNA_BRANCH_EXPLICIT=1
 YURUNA_BRANCH="${YURUNA_BRANCH:-main}"
-# Pin opt-in: PIN_VERSION=1 (env -- used by the remote one-liners) or the
-# --pin-version flag (local runs). The default 'main' is a tracking branch the
-# runner fast-forwards every cycle (auto-update). When pinning, the host is
-# frozen at the CURRENT release AFTER the clone -- the repo's own VERSION file
-# (single source of truth, top of the repository) is read and that tag checked
-# out as a detached HEAD, so nothing is hard-coded here and a release never
-# needs to re-pin the installer. An explicit YURUNA_BRANCH=<ref> wins.
+# --- REGION: https://yuruna.link/install/explained#release-pinning--signed-integrity
 PIN_VERSION="${PIN_VERSION:-0}"
 for _yuruna_arg in "$@"; do
   [[ "$_yuruna_arg" == "--pin-version" ]] && PIN_VERSION=1
@@ -75,12 +66,10 @@ else
   warn "Could not create an install log file; output goes to this terminal only."
 fi
 
+# --- REGION: https://yuruna.link/network#apt-signing-key-fingerprint-verification
 # Verify a downloaded apt signing key before trusting it as an apt anchor (a
 # MITM that swaps the key fetch would otherwise plant a permanent trust root).
-# Args after the key file are the ALLOWED primary fingerprints; the FIRST is
-# also REQUIRED to be present. Dies if the file carries any fingerprint outside
-# the allow-set, or if the required one is missing. Works on armored .asc and
-# binary .gpg key files.
+# Works on armored .asc and binary .gpg key files.
 verify_key_fingerprints() {
   local keyfile="$1"; shift
   local required="${1^^}"
@@ -658,7 +647,7 @@ pwsh -NoProfile -Command '
     }
 ' || warn "powershell-yaml install reported an error -- see above. Continuing install."
 
-# --- REGION: libvirt: enable + groups + ACL + default network
+# --- REGION: libvirt services + groups + ACL + default network
 log "Enabling libvirtd + virtlogd"
 sudo systemctl enable --now libvirtd
 sudo systemctl enable --now virtlogd
@@ -867,12 +856,7 @@ if [[ -d "$YURUNA_DIR/.git" ]]; then
 fi
 
 # --- REGION: Pin to the current release (opt-in)
-# PIN_VERSION / --pin-version: now that 'main' is cloned/updated, read the
-# repo's own VERSION file (single source of truth -- top of the repository) and
-# detach HEAD at that release tag so the host freezes there and the per-cycle
-# `git pull` is a no-op. An explicit YURUNA_BRANCH already chose a ref, so skip.
-# If VERSION runs ahead of the published tag, warn and leave the host on 'main'
-# rather than fail the install.
+# --- REGION: https://yuruna.link/install/explained#release-pinning--signed-integrity
 if [[ "$PIN_VERSION" != "0" && "$YURUNA_BRANCH_EXPLICIT" -eq 0 && -d "$YURUNA_DIR/.git" ]]; then
   if [[ -f "$YURUNA_DIR/VERSION" ]]; then
     pin_tag="$(tr -d '[:space:]' < "$YURUNA_DIR/VERSION")"
@@ -892,6 +876,44 @@ if [[ ! -f "$TEST_DIR/test.config.yml" && -f "$TEST_DIR/test.config.yml.template
   log "Creating test/test.config.yml from template (review before running tests)"
   cp "$TEST_DIR/test.config.yml.template" "$TEST_DIR/test.config.yml"
 fi
+
+# --- REGION: https://yuruna.link/network#pinning-the-host-address
+# Grant the pre-cycle health check the one command it needs to repair a bridge
+# whose DHCP client identity is not pinned. Without the grant the check detects
+# the fault on every cycle and can do nothing about it, and a host that takes a
+# new address on every renewal spends the LAN pool at a rate the lease time sets
+# rather than the machine count -- which a long lease turns into exhaustion
+# within days, surfacing as guests that boot with no IPv4 at all.
+#
+# Installed here because unattended elevation cannot bootstrap itself: granting
+# the rule needs the sudo the rule provides, so the only place it can be done
+# without asking the operator for a second privileged act is the install that is
+# already elevated. The shipped file names the reference account; the runner
+# account is substituted before it is validated.
+install_bridge_pin_sudoers() {
+  local src="$YURUNA_DIR/host/ubuntu.kvm/yuruna-bridge-pin.sudoers"
+  local dst="/etc/sudoers.d/yuruna-bridge-pin"
+  if [[ ! -f "$src" ]]; then
+    warn "  $src not found -- skipping the bridge-pin sudoers grant."
+    return
+  fi
+  local tmp
+  tmp="$(mktemp)"
+  # awk, not sed: a username is substituted into a security-relevant file, and
+  # awk compares the field literally where a sed pattern would interpret it.
+  awk -v u="$USER" '$1 == "ytest" { $1 = u } { print }' "$src" > "$tmp"
+  # Validate BEFORE installing. A malformed drop-in breaks sudo for every
+  # command on the host, including the ones needed to remove it.
+  if sudo visudo -cf "$tmp" >/dev/null 2>&1; then
+    sudo install -m 0440 -o root -g root "$tmp" "$dst"
+    log "  installed $dst (lets the health check pin the bridge DHCP identity)"
+  else
+    warn "  generated sudoers rule failed 'visudo -c'; NOT installed. Check $src."
+  fi
+  rm -f "$tmp"
+}
+log "Installing the bridge DHCP-identity sudoers grant"
+install_bridge_pin_sudoers
 
 # --- REGION: Baseline reset: remove test-* VMs
 REMOVE_TEST_VMS="$YURUNA_DIR/test/Remove-TestVMFiles.ps1"
@@ -944,7 +966,8 @@ if ! command -v gh >/dev/null 2>&1; then
 fi
 command -v gh >/dev/null 2>&1 || die "gh not found after install."
 
-# --- REGION: Final preflight
+# --- REGION: Preflight: final host readiness
+# --- REGION: https://yuruna.link/install/explained#final-preflight--every-check-is-a-hard-requirement
 log "Running final preflight checks"
 
 PREFLIGHT_ERRORS=()

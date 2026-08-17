@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456790
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -43,7 +43,7 @@ if (-not (Get-Variable -Name '__YurunaRunId' -Scope Global -ErrorAction Silently
     $global:__YurunaRunId = [Guid]::NewGuid().ToString()
 }
 
-# === Cycle-log rotation policy ============================================
+# --- REGION: Cycle-log rotation policy
 # Bound the per-host cycle-log directory: at CYCLE_HISTORY_TRIGGER folders
 # the oldest move to history.YYYY-MM-DD/, keeping CYCLE_HISTORY_KEEP at top
 # level under a CYCLE_HISTORY_LIMIT hard ceiling. Code constants by design
@@ -656,7 +656,33 @@ function Stop-LogFile {
             # Said out loud on a pass, because that is the case where a low count
             # quietly weakens the claim. A failing cycle has a louder problem.
             if ($addressChanges -lt 0) {
-                Write-Warning "Host address changes during this cycle could not be counted; the cycle record carries -1 rather than a number that would read as 'none happened'."
+                # Naming the reason is the difference between a line an operator
+                # can act on and one they learn to scroll past. The two ways to
+                # get here have nothing in common: no record to read is a beacon
+                # that never ran or wrote elsewhere, while no cycle-start stamp
+                # is this module's own state missing.
+                $why = if (-not $global:__YurunaCycleStartUtc) {
+                    'no cycle-start timestamp was recorded, so there is no window to count inside'
+                } elseif (-not (Get-Command Get-HostAddressChangeCount -ErrorAction SilentlyContinue)) {
+                    'the host-address beacon module could not be loaded'
+                } else {
+                    "no address record exists at '$(Join-Path $runtimeDir 'hostaddress.changes.ndjson')' -- the beacon writes it, and it runs with the test runner"
+                }
+                Write-Warning ("Host address changes during this cycle could not be counted ($why); the cycle " +
+                    "record carries -1 rather than a number that would read as 'none happened'.")
+            } elseif ($addressChanges -gt 0) {
+                # A cycle that passed THROUGH churn is the evidence this count
+                # exists to keep, and it is also a lab fault worth naming: every
+                # address the host left behind stays allocated until its lease
+                # expires, which is minutes on a short lease and days on a long
+                # one. Said at warning volume on a pass because a passing cycle
+                # has nothing else loud in it, and this is otherwise discoverable
+                # only by reading a beacon log nobody reads.
+                Write-Warning ("Cycle $($Outcome) with $addressChanges host address change(s) inside it. " +
+                    'Each address the host moved off stays allocated until its lease expires, so this ' +
+                    'spends the LAN pool at a rate the lease time sets. Run ' +
+                    "'pwsh test/Test-Config.ps1' for the verdict and the remedy. Unless this host is one " +
+                    'the lab renumbers on purpose, in which case leave it be.')
             } elseif ($Outcome -eq 'pass') {
                 Write-Information "Cycle passed with $addressChanges host address change(s) inside it." -InformationAction Continue
             }
@@ -687,8 +713,30 @@ function Stop-LogFile {
                 # folder -- and the pool copy of it -- carries the recommendation
                 # next to the failure. Only on a non-pass outcome: a passing cycle
                 # has no remediation of its own, so any file present is stale.
+                #
+                # A non-pass outcome alone is not enough to prove ownership. The
+                # source sits in the log ROOT, shared by every cycle, and the
+                # dispatcher does NOT run for every failure -- one that stops
+                # before classification (a pre-flight refusing to start the
+                # cycle) leaves the root file untouched. Copying on presence
+                # then hands this cycle the PREVIOUS cycle's recommendation,
+                # which reads as a diagnosis of a failure it never saw and sends
+                # the operator after the wrong cause. Match the run stamp
+                # instead; an unstamped record predates the stamp and is
+                # likewise not ours.
                 $srcRemediation = Join-Path $env:YURUNA_LOG_DIR 'last_remediation.json'
+                $remediationIsThisRun = $false
                 if (Test-Path -LiteralPath $srcRemediation) {
+                    try {
+                        $remRecord = Get-Content -LiteralPath $srcRemediation -Raw -ErrorAction Stop |
+                            ConvertFrom-Json -ErrorAction Stop
+                        $remediationIsThisRun = ($remRecord.runId -and $global:__YurunaRunId -and
+                            ([string]$remRecord.runId -eq [string]$global:__YurunaRunId))
+                    } catch {
+                        Write-Verbose "Stop-LogFile: could not read last_remediation.json to check its run stamp: $($_.Exception.Message)"
+                    }
+                }
+                if ($remediationIsThisRun) {
                     $dstRemediation = Join-Path $global:__YurunaCycleFolder 'last_remediation.json'
                     try { Copy-Item -LiteralPath $srcRemediation -Destination $dstRemediation -Force -ErrorAction Stop }
                     catch { Write-Verbose "Stop-LogFile: could not archive last_remediation.json: $($_.Exception.Message)" }

@@ -4,6 +4,18 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.08.16
+
+- **Cycle results live on pool storage.** Finished cycles are copied to the
+  pool share, verified, then optionally deleted locally — so hosts stop
+  filling up and a rebuilt host's results survive. Dashboard and status-page
+  links keep working.
+
+- **Other reliability improvements.** Guests get a stable MAC per host and
+  guest name, so rebuilds keep their DHCP lease instead of draining the pool.
+  The dashboard shows short host ids, expandable to the full GUID; storage and
+  the wire are unchanged.
+
 ## 2026.08.14
 
 - **More reliable test cycles.** A run now resumes from a known-good snapshot
@@ -410,6 +422,6 @@ LICENSEURI <https://yuruna.link/license>
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.14
+Last review: 2026.08.16
 
 Back to [Yuruna](README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42d5e6f7-a8b9-4c01-9234-ef6789012abc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,6 +33,11 @@
     lookup -- the one call a host makes to find a pool service it does not run
     itself.
 #>
+
+# Why the last extension-host lookup answered as it did. Initialized here, not
+# on first write, so reading it before any lookup is a defined 'none' rather
+# than an error under Set-StrictMode in a calling scope.
+$script:LastPoolLookup = $null
 
 <#
 .SYNOPSIS
@@ -136,11 +141,13 @@ function Get-PoolExtensionHost {
         }
     }
     if (-not (Get-Command Get-PoolAggregatorServiceSeedUrl -ErrorAction SilentlyContinue)) {
+        Set-PoolLookupOutcome -Outcome 'no-aggregator' -Detail 'Test.CachingProxyService not loadable' -Confirm:$false
         Write-Verbose "Get-PoolExtensionHost: Test.CachingProxyService not loadable; cannot resolve the aggregator."
         return ''
     }
     $base = Get-PoolAggregatorServiceSeedUrl
     if ([string]::IsNullOrWhiteSpace($base)) {
+        Set-PoolLookupOutcome -Outcome 'no-aggregator' -Detail 'no caching-proxy-service address known' -Confirm:$false
         Write-Verbose "Get-PoolExtensionHost: no caching-proxy-service address known, so no aggregator to ask."
         return ''
     }
@@ -155,6 +162,16 @@ function Get-PoolExtensionHost {
     a whole host) stays separate from the LOOKUP (which needs only a URL). Every
     failure shape returns '' -- this sits in front of a cycle and must not throw
     into one.
+
+    Returning '' for every shape keeps that contract but erases the distinction
+    a caller most needs: "the pool says no host serves this area" is a settled
+    answer, while "the pool could not be reached" is a statement about the
+    asker's own link and usually cures itself. A caller that stops a cycle on
+    the empty string reports the first when it saw the second, sending an
+    operator to look for a service that was running the whole time. The reason
+    is therefore recorded alongside the return for
+    Get-PoolExtensionHostLastOutcome to read, and a transport failure is a
+    warning rather than a verbose line: it is the shape that stops cycles.
 .OUTPUTS
     [string] host address, or ''.
 #>
@@ -180,21 +197,66 @@ function Get-PoolExtensionHostFrom {
             # The fallback is identical, so they are not worth branching on --
             # but the body tells them apart, and the second is fixed by
             # redeploying the collector.
-            Write-Verbose "Get-PoolExtensionHost: 404 for area '$Area' -- $(($response.Content | Out-String).Trim())"
+            $detail = ($response.Content | Out-String).Trim()
+            Set-PoolLookupOutcome -Outcome 'no-host' -Uri $uri -Detail "404 -- $detail" -Confirm:$false
+            Write-Verbose "Get-PoolExtensionHost: 404 for area '$Area' -- $detail"
             return ''
         }
         if ($response.StatusCode -ne 200) {
+            Set-PoolLookupOutcome -Outcome 'http-error' -Uri $uri -Detail "HTTP $($response.StatusCode)" -Confirm:$false
             Write-Verbose "Get-PoolExtensionHost: aggregator answered $($response.StatusCode) for area '$Area'."
             return ''
         }
         $entry = $response.Content | ConvertFrom-Json
         $resolved = [string]$entry.host
-        if ([string]::IsNullOrWhiteSpace($resolved)) { return '' }
+        if ([string]::IsNullOrWhiteSpace($resolved)) {
+            Set-PoolLookupOutcome -Outcome 'no-host' -Uri $uri -Detail 'aggregator answered 200 with no host' -Confirm:$false
+            return ''
+        }
+        Set-PoolLookupOutcome -Outcome 'ok' -Uri $uri -Detail $resolved.Trim() -Confirm:$false
         return $resolved.Trim()
     } catch {
-        Write-Verbose "Get-PoolExtensionHost: asking $BaseUrl for area '$Area' failed: $($_.Exception.Message)"
+        Set-PoolLookupOutcome -Outcome 'transport-error' -Uri $uri -Detail $_.Exception.Message -Confirm:$false
+        Write-Warning "Get-PoolExtensionHost: could not reach the aggregator at $BaseUrl for area '$Area' ($($_.Exception.Message)). This is the asker's own link, not a statement that no '$Area' host exists."
         return ''
     }
 }
 
-Export-ModuleMember -Function Get-PoolAggregatorServiceManifest, Get-PoolExtensionHost, Get-PoolExtensionHostFrom
+<#
+.SYNOPSIS
+    Why the last Get-PoolExtensionHostFrom in this session returned what it did.
+.DESCRIPTION
+    The lookup answers with a bare string so it can never throw into a cycle.
+    This is where the reason behind an empty answer is kept, so a caller about
+    to stop a cycle can say WHICH condition it hit instead of reporting the one
+    that happens to read worst.
+
+    Session-scoped and overwritten per lookup: read it immediately after the
+    call it belongs to.
+.OUTPUTS
+    [hashtable] Outcome ('none' | 'ok' | 'no-host' | 'http-error' |
+    'transport-error' | 'no-aggregator'), Detail [string], Uri [string].
+#>
+function Get-PoolExtensionHostLastOutcome {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param()
+    if ($null -eq $script:LastPoolLookup) {
+        return @{ Outcome = 'none'; Detail = ''; Uri = '' }
+    }
+    return $script:LastPoolLookup
+}
+
+function Set-PoolLookupOutcome {
+    [CmdletBinding(SupportsShouldProcess)]
+    param(
+        [Parameter(Mandatory)][string]$Outcome,
+        [AllowEmptyString()][string]$Uri = '',
+        [AllowEmptyString()][string]$Detail = ''
+    )
+    if ($PSCmdlet.ShouldProcess('pool lookup outcome', "record '$Outcome'")) {
+        $script:LastPoolLookup = @{ Outcome = $Outcome; Detail = $Detail; Uri = $Uri }
+    }
+}
+
+Export-ModuleMember -Function Get-PoolAggregatorServiceManifest, Get-PoolExtensionHost, Get-PoolExtensionHostFrom, Get-PoolExtensionHostLastOutcome

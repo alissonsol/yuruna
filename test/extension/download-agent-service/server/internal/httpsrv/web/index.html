@@ -33,7 +33,7 @@
       <nav class="menu-panel" id="menu-panel" aria-label="Pages" hidden>
         <a href="/" aria-current="page">Download pool</a>
         <a href="/diagnostics">Diagnostics</a>
-        <a class="menu-out" href="https://yuruna.link/download-agent">Guide</a>
+        <a class="menu-out" href="https://yuruna.link/download-agent" target="_blank" rel="noopener">Guide</a>
       </nav>
     </div>
   </header>
@@ -89,13 +89,14 @@
       <span id="as-of" class="muted"></span>
     </div>
 
-    <!-- Every header but Actions sorts. The control inside each one is a real
-         <button>, so Enter and Space activate it without this page
+    <!-- Every header but the counter and Actions sorts. The control inside each
+         one is a real <button>, so Enter and Space activate it without this page
          reimplementing key handling, and aria-sort on the th itself is what a
          screen reader announces. -->
     <table>
       <thead>
         <tr>
+          <th class="rownum" aria-label="Row number">#</th>
           <th data-sort="state" aria-sort="none"><button type="button" class="th-sort">State<span class="sort-arrow" aria-hidden="true"></span></button></th>
           <th data-sort="image" aria-sort="none"><button type="button" class="th-sort">Image<span class="sort-arrow" aria-hidden="true"></span></button></th>
           <th data-sort="artifact" aria-sort="none"><button type="button" class="th-sort">Artifact<span class="sort-arrow" aria-hidden="true"></span></button></th>

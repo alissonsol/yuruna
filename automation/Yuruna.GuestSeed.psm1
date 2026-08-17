@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42b7c8d9-e0f1-4a23-9b45-6c7d8e9f0a12
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -95,7 +95,6 @@ function New-AptProxyBlock {
     same inputs, which is what puts it in this module: only the resolution of
     those inputs differs per platform, and that stays in the per-guest scripts.
 
-    --- REGION: https://yuruna.link/network#defining-yuruna-host-locate-lib
     The coordinates are split by whether DHCP can invalidate them. A seed ISO
     is burned BEFORE Windows Setup runs, and Setup takes longer than a short
     lease, so an address written into it can already name a host that has
@@ -155,6 +154,7 @@ function New-WindowsGuestBootstrap {
         [Parameter()][AllowEmptyString()][string]$GhToken = ''
     )
 
+    # --- REGION: https://yuruna.link/network#defining-yuruna-host-locate-lib
     # Ambient defaults, read the same way the cloud-init seeds resolve theirs
     # so a Windows guest and a Linux guest provisioned in one cycle cannot
     # disagree about which host they belong to.

@@ -125,27 +125,43 @@ hardcoded in the daemon (`server/internal/config`), so a host with no
 Hosts (like guests) are **reimageable at any time**, so local storage stays local,
 fast, and ephemeral; optional Network-Attached Storage shares are the durable tier.
 `networkStorage` carries the paths/credentials for two **independent** tiers: the
-**pool** (cycle-output replication, keys `pool*`; its on/off switch is the pool
-behavior `pool.networkReplicate`) and the **stash** (the stash service's own
-durable store, keys `stash*`). They use **separate NAS shares and
+**pool** (cycle-output archiving, keys `pool*`) and the **stash** (the stash
+service's own durable store, keys `stash*`). They use **separate NAS shares and
 accounts** — the stash does not reuse the pool's share or credential.
 
-When `pool.networkReplicate` is true, each cycle's pool output is copied to
-`<poolStorageLocalPath>/<hostId>/` on the share over **SMB3** (uniform across
-Windows/macOS/Linux). The squid cache is **not** replicated (rebuildable; left to
-squid pools). The stash tier has no replicate flag — the stash daemon writes its
-files directly to its own share.
+**Populating the three `poolStorage*` paths is the opt-in.** A host that names a
+share, an account and a mount point has asked for its cycles to reach that share,
+so each finished cycle is copied to
+`<poolStorageLocalPath>/hosts/<hostId>/test-cycles/` over **SMB3** (uniform across
+Windows/macOS/Linux). `moveLogsToPoolStorage` then selects the **mode**, never
+whether archiving happens:
+
+| Mode | `moveLogsToPoolStorage` | Behavior |
+|---|---|---|
+| **copy** (default) | `false` | Copy each finished cycle to the share and **keep** the local folder. Runs detached at cycle end; a slow or absent NAS never delays the loop. |
+| **move** | `true` | Copy, **verify**, and then **delete** the local folder, so the share holds the only copy. Runs synchronously at cycle end, because the cycle's verdict depends on it. |
+
+The squid cache is **not** archived (rebuildable; left to squid pools). The stash
+tier has no mode flag — the stash daemon writes its files directly to its own share.
+
+> **`pool.networkReplicate` is retired.** It is ignored wherever it still appears,
+> and `pwsh test/Test-Config.ps1` prints one advisory naming the replacement. A host
+> that had the three paths populated with `networkReplicate: false` — the
+> pre-validation state this page used to recommend — **starts archiving in copy mode
+> at upgrade**, and its next caching-proxy rebuild starts replicating the proxy's
+> observability data too. Delete the key; add `moveLogsToPoolStorage: true` if you
+> want move semantics.
 
 This section is the parameter reference; for the architecture (the async,
 fail-fast, atomic, backlog-draining replicator), the on-share layout, the Linux
 passwordless-sudo precondition, and operations/troubleshooting, see
 [pool-storage.md](pool-storage.md).
 
-### Pool storage (cycle-output replication)
+### Pool storage (cycle-output archiving)
 
 | Key | Type | Meaning |
 |---|---|---|
-| `pool.networkReplicate` | bool | Master switch for the **pool** tier — it lives under the **`pool:`** node (a pool behavior, not a path/credential). **Default `false`.** `false`, or any of the `networkStorage.pool*` paths empty, ⇒ pool replication OFF (no mount, no copy). |
+| `moveLogsToPoolStorage` | bool | **Default `false`.** `true` ⇒ **move** mode: each finished cycle is copied to the share, verified (file count + total bytes), and only then deleted locally. The share becomes the only copy, so a broken or **full** share is a hard gate failure and stops cycles rather than merely warning. `false` ⇒ **copy** mode, the local folder is kept. Requires the three paths below; with any of them empty, archiving is off entirely and this key does nothing. |
 | `poolStorageNetworkPath` | string | The pool SMB share. Windows `\\server.local\work`; macOS/Linux `//server.local/work` (either form is accepted and normalized). |
 | `poolStorageNetworkUser` | string | The **single** SMB account used for **every** pool connection to the share — host-side cycle replication (the host mounts) **and** the caching-proxy-service guest's service replication alike. **Also the vault key** its password is fetched under (see below). Scope it **storage-only** on the NAS (write access to `poolStorageNetworkPath` and nothing else). |
 | `poolStorageLocalPath` | string | The host's pool mount point. Windows `'y:'` (**must be quoted** — see below) · macOS `~/Shares/ypool-nas` · Linux `/mnt/ypool-nas`. |
@@ -155,8 +171,6 @@ platform (the `stash*` keys, documented below, follow the same per-platform rule
 
 **Windows:**
 ```yaml
-pool:
-  networkReplicate: true
 networkStorage:
   poolStorageNetworkPath: \\server.local\work
   poolStorageNetworkUser: yuruna-pool
@@ -165,8 +179,6 @@ networkStorage:
 
 **macOS:**
 ```yaml
-pool:
-  networkReplicate: true
 networkStorage:
   poolStorageNetworkPath: //server.local/work
   poolStorageNetworkUser: yuruna-pool
@@ -175,8 +187,6 @@ networkStorage:
 
 **Ubuntu (Linux):**
 ```yaml
-pool:
-  networkReplicate: true
 networkStorage:
   poolStorageNetworkPath: //server.local/work
   poolStorageNetworkUser: yuruna-pool
@@ -218,8 +228,6 @@ be active; leave them empty to keep it off. The reader is
 Example (Windows; macOS/Linux follow the same slash/mount-point rules as the pool):
 
 ```yaml
-pool:
-  networkReplicate: true
 networkStorage:
   poolStorageNetworkPath: \\ypool-nas\work\yuruna.pool
   poolStorageNetworkUser: yuruna-pool
@@ -291,9 +299,9 @@ that.
 
 Verify with `pwsh test/Test-Config.ps1`. Beyond checking that mapped vault
 entries exist, when the server is reachable it **actively mounts `poolStorageLocalPath`
-and creates the per-host folder `<poolStorageLocalPath>/<hostId>`** — so a wrong password,
+and creates the per-host folder `<poolStorageLocalPath>/hosts/<hostId>`** — so a wrong password,
 a share-name typo, missing Linux passwordless sudo, or a read-only share surfaces
-as a gate failure (and, with `networkReplicate: true`, **stops the cycle from
+as a gate failure (and, with `moveLogsToPoolStorage: true`, **stops the cycle from
 starting**) instead of replication silently never happening. See
 [pool-storage.md](pool-storage.md#operating--troubleshooting). Password
 characters: `a-z A-Z 0-9` and `! @ # $ % ^ & * ( ) - _ = +`; avoid quotes,
@@ -395,7 +403,7 @@ story: [caching.md](caching.md#external-cache-override).
 maps logical (sequence-level) usernames onto corporate identities (AD/Entra/...)
 plus the vault keys holding the corresponding passwords. Bootstrap-from-template
 runs on first cycle, so a fresh checkout gets a runtime file pre-seeded with the
-four bundled logical users and the three service-VM administrators, all with
+four bundled logical users and the four service-VM administrators, all with
 empty corporate fields (local-only behavior).
 
 Strict mode (the default) blocks the cycle when an active sequence references a
@@ -411,6 +419,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.14
+Last review: 2026.08.16
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a9b3c7-d1e5-4f02-9b8a-6c3d7e1f4a52
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,7 +31,7 @@ Import-Module (Join-Path $PSScriptRoot 'Test.OcrEngine.psm1') -Global -Force
 # vary per call and would balloon memory.
 $script:OcrPatternCache = @{}
 
-# -- OCR-tolerant matching ----------------------------------------------------
+# --- REGION: OCR-tolerant matching
 
 # Common OCR confusion groups: characters within each group are frequently
 # misrecognized as each other on console/monospace text.
@@ -236,7 +236,7 @@ function Test-OCRMatch {
     return $false
 }
 
-# -- Multi-engine OCR combine logic ------------------------------------------
+# --- REGION: Multi-engine OCR combine logic
 
 # Combine mode: 'Or' (default, resilient) vs 'And' (strict, fewer FPs);
 # switch via $env:YURUNA_OCR_COMBINE or the default in Get-OcrCombineMode below.
@@ -382,4 +382,81 @@ function Test-CombinedOcrMatch {
     }
 }
 
-Export-ModuleMember -Function Get-OCRNormalized, Test-OCRMatch, Get-OcrCombineMode, Test-CombinedOcrMatch
+<#
+.SYNOPSIS
+    Report patterns an OCR engine DID read but that sat outside the freshMatch
+    tail window, so a wait that timed out on present-but-unwindowed text can say
+    so instead of reporting a bare "no match" (pure).
+.DESCRIPTION
+    freshMatch tests only the last N lines, and that narrowness is the point: it
+    is what stops a marker left on screen by an EARLIER step from satisfying
+    this one. The cost is a false negative that looks identical to a real one.
+    When the guest prints what the wait wants and then ANYTHING else follows it
+    -- a console repaint, a shell completion listing, a late daemon line -- the
+    sought text slides past N while still being plainly on screen, and both the
+    engine text and the transcript say only "no match". An operator reading the
+    captured frame then sees the very text the wait claimed was missing, with
+    nothing to explain the contradiction.
+
+    Re-testing the FULL engine text once the wait has already lost tells the two
+    cases apart. This runs at the timeout only, never in the poll loop, so a
+    healthy wait pays nothing for it.
+
+    Per-line testing supplies the distance. A pattern that matches the whole
+    text but no single line -- one straddling a line break -- is still reported,
+    just without a count: the conclusion the operator needs is the same.
+.PARAMETER EngineResult
+    The EngineResults map from the last Test-CombinedOcrMatch of the wait:
+    engine name -> @{ Text; Matched; MatchedPattern }.
+.PARAMETER Pattern
+    The patterns the wait was seeking.
+.PARAMETER FreshMatchTailLines
+    The window that was actually applied. 0 or less means no window was in
+    force, so there is nothing to report.
+.OUTPUTS
+    [string[]] one line per engine+pattern near miss; empty when the window was
+    not the reason -- nothing matched anywhere, or the frame was short enough
+    that the window covered all of it.
+#>
+function Get-OcrFreshWindowNearMiss {
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [AllowNull()][System.Collections.IDictionary]$EngineResult,
+        [string[]]$Pattern,
+        [int]$FreshMatchTailLines
+    )
+    $found = [System.Collections.Generic.List[string]]::new()
+    if ($null -eq $EngineResult -or $FreshMatchTailLines -le 0) { return [string[]]$found.ToArray() }
+
+    foreach ($engineName in $EngineResult.Keys) {
+        $entry = $EngineResult[$engineName]
+        if ($null -eq $entry) { continue }
+        # An engine that matched is not a near miss, and in Or-mode a matching
+        # engine short-circuits the rest -- neither reaches this function on a
+        # failed wait, but both are cheap to exclude.
+        if ([bool]$entry.Matched) { continue }
+        $text = [string]$entry.Text
+        if ([string]::IsNullOrWhiteSpace($text)) { continue }
+        $lines = $text -split "`n"
+        # The window covered the whole frame, so it cannot have hidden anything.
+        if ($lines.Count -le $FreshMatchTailLines) { continue }
+        $windowStart = $lines.Count - $FreshMatchTailLines
+
+        foreach ($p in $Pattern) {
+            if ([string]::IsNullOrWhiteSpace($p)) { continue }
+            # The tail already failed, so a hit on the full text is by
+            # construction a hit above the window.
+            if (-not (Test-OCRMatch -Text $text -Pattern $p)) { continue }
+            $lastHit = -1
+            for ($i = $windowStart - 1; $i -ge 0; $i--) {
+                if (Test-OCRMatch -Text $lines[$i] -Pattern $p) { $lastHit = $i; break }
+            }
+            $where = if ($lastHit -ge 0) { "$($windowStart - $lastHit) line(s) above" } else { 'above' }
+            $found.Add("[$engineName] read '$p' $where the ${FreshMatchTailLines}-line freshMatch window: the text WAS on screen, just outside what was tested. Raise freshMatchTailLines for this step, or stop the guest printing after the marker.")
+        }
+    }
+    return [string[]]$found.ToArray()
+}
+
+Export-ModuleMember -Function Get-OCRNormalized, Test-OCRMatch, Get-OcrCombineMode, Test-CombinedOcrMatch, Get-OcrFreshWindowNearMiss

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42d4e5f6-a7b8-4c90-8123-4e5f6a7b8c9d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,6 +47,7 @@ Import-Module powershell-yaml -ErrorAction Stop
 function Write-JsonResult { param($Obj) [Console]::Out.WriteLine(($Obj | ConvertTo-Json -Depth 12 -Compress)) }
 
 try {
+    # --- REGION: Open the intent store
     $t = Resolve-YurunaPoolAdminTarget -IntentGitUrl $IntentGitUrl -IntentDir $IntentDir
     if ([string]::IsNullOrWhiteSpace($t.IntentGitUrl)) {
         Write-JsonResult ([ordered]@{ ok = $false; error = 'No intent store URL. Pass -IntentGitUrl or set pool.intentGitUrl in test.config.yml.' })
@@ -57,6 +58,7 @@ try {
         Write-JsonResult ([ordered]@{ ok = $false; error = "Could not open the intent store: $($open.Error)" })
         exit $ExitFailure
     }
+    # --- REGION: Report
     $doc = Read-YurunaPoolsDoc -IntentDir $t.IntentDir
     $libPath = Join-Path $t.IntentDir 'test-sets.yml'
     $testSets = @()

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42e1f2a3-b4c5-4d67-89ab-ce2f3a4b5c63
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,7 +34,7 @@ $yurunaDir   = Join-Path $here 'Test.YurunaDir.psm1'
 $script:configSync  = Join-Path $here 'Test.ConfigSync.psm1'
 Import-Module $yurunaDir -Force -ErrorAction SilentlyContinue
 
-# --- REGION: AST helpers (script scope; referenced from It blocks -> Pester 4)
+# --- REGION: https://yuruna.link/memory#pester-file-scope-fixtures
 function Get-FileAst {
     param([string]$Path)
     $errs = $null

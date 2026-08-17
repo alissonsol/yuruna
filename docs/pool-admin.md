@@ -45,7 +45,8 @@ library, `guests.compatibility.yml`). No credential is ever routed through it.
    A host with `pool.enabled: false` (the default) runs standalone.
 3. **You know each host's id.** Every host has a stable id in `runtime/host.uuid` — a
    `42`-prefixed 32-hex string, also shown as `hostId` on the host's own status page and
-   on the pool dashboard.
+   on the pool dashboard. Anywhere a FULL one is put in front of you it is spelled
+   GUID-dashed (`42abcdef-0123-4567-89ab-cdef01234567`); the stores hold the bare hex.
 4. **You can write the intent repo.** The HTTP URL above is read-only. The admin commands
    need a **writable** path/URL, so run them **on the caching-proxy-service** against the local repo
    (`/var/lib/yuruna/pool-intent.git`), or against any pre-authenticated writable remote.
@@ -74,8 +75,9 @@ pwsh test/pool/Add-HostToPool.ps1 -PoolId lab -HostId 42abcdef0123456789abcdef01
 ```
 
 - `-HostId` is the host's `runtime/host.uuid` (`42` + 30 hex). The pool dashboard's
-  **Host ID** column renders it GUID-dashed for readability, and every pool-admin
-  command accepts that form, so a value copied off the panel works as pasted.
+  **Host ID** column shows its first 8 characters and reveals the full id GUID-dashed
+  from the cell's own menu; every pool-admin command accepts that form, so a value
+  copied off the panel works as pasted, and each command echoes it back the same way.
   Membership is the single source of truth; re-adding a host is a no-op.
 - To remove a host later, see **Step 6** below (drain it first if it is running).
 
@@ -220,7 +222,6 @@ so the UI and the command line cannot diverge.
   attached storage (a USB or Thunderbolt drive, a card, a mounted image, a
   network share) is left out, since it cannot be planned against and a share
   would otherwise be counted once per host that mounts it.
-  Any column header sorts the table; clicking the sorted one reverses it.
   **Hostname** is the one column withheld from an uncredentialed read &mdash;
   the pool's own view of a host is deliberately hostname-free and this page
   renders unattended too, so the name arrives only once the browser is
@@ -230,6 +231,14 @@ so the UI and the command line cannot diverge.
   that answer to the monitored list, pool member or not (below).
 - **Test sets** (`/test-sets`) &mdash; CRUD the named-triple library
   (`test-sets.yml`). GH_TOKEN is **never** stored here.
+
+Assign, Hosts, Pools and Test sets sort on any column header &mdash; clicking the
+sorted one reverses it, and the columns that hold a control sort on the value
+that control shows now (**Assign test set** on the set the pool holds, **Members**
+on how many there are). The order survives the page's own minute-by-minute
+re-read, so a table left sorted stays that way. Each of those tables opens with a
+counter column that numbers the rows *as shown*: it reads 1&hellip;n down the page
+whatever the sort, which is how many pools, hosts or test sets there are.
 
 Assigning copies the chosen library triple into the pool's inline `testSet`;
 members then behave exactly as on the CLI path in Steps 3-4 above.
@@ -673,6 +682,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.14
+Last review: 2026.08.16
 
 Back to [Yuruna](../README.md)

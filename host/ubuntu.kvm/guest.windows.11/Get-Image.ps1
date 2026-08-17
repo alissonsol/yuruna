@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e9a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -81,20 +81,7 @@ if (-not (Test-Path -LiteralPath $winIso)) {
     }
 }
 if (-not (Test-Path -LiteralPath $winIso)) {
-    # --- REGION: https://yuruna.link/guest-image-setup#agent-first-image-downloads
-    # This host has no automated Windows-media path of its own -- the section
-    # below exits 1 with instructions -- so an agent that holds the ISO is the
-    # only way this script ever finishes unattended. It is consulted only once
-    # the ISO is genuinely absent (the existence check and the drop-in adoption
-    # above have both run), and the manual instructions stay exactly as they are
-    # for when it cannot serve one. The family is best effort by design (the
-    # agent mints its URL by running Fido under Linux pwsh), so "the agent does
-    # not serve Windows 11" is an ordinary answer and stays verbose -- only an
-    # agent that took the request and then broke is worth a warning.
-    #
-    # No local fingerprint is sent: this script's sidecar is the 2-line
-    # filename + URL form, which carries no byte count for the agent to compare,
-    # and the existence check above is already the local-copy decision.
+    # --- REGION: https://yuruna.link/guest-image-setup#windows-11-the-agent-is-asked-last-and-only-sometimes-answers
     $agentStagingFile = Join-Path $downloadDir 'downloaded.iso'
     # The host driver carries the download-agent client. It is imported again
     # further down for the virtio-win fetch; here the import is guarded because

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456740
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -849,6 +849,102 @@ function Send-GitArchive {
 # as running. -QuietErrors routes the check's own diagnostics to the debug
 # stream; the default path forwards them to server.err, matching each caller's
 # prior behavior.
+# --- REGION: Archived cycle results (poolStorage move mode)
+# A move-mode host copies each finished cycle to the pool share, verifies it, and
+# DELETES the local folder. Every link in the product still names the local URL
+# ("log/<cycle>/..."), recorded in status.json history rows that were written while
+# the folder was local -- so rather than rewriting recorded URLs after the fact,
+# across processes and under the status lock, the server resolves those same URLs
+# against the mounted share when the local copy is gone.
+#
+# Only this host's OWN hostId is ever used, so a host can never serve another
+# host's archives; the caller applies the same containment and deny-list checks to
+# the returned path that it applies to a local one.
+`$script:ArchiveHostId = `$null
+function Get-ArchiveHostId {
+    # runtime/host.uuid cannot change while this server runs, so it is read once.
+    if (`$null -ne `$script:ArchiveHostId) { return `$script:ArchiveHostId }
+    `$script:ArchiveHostId = ''
+    try {
+        `$uuidFile = Join-Path `$runtimeDir 'host.uuid'
+        if (Test-Path -LiteralPath `$uuidFile) { `$script:ArchiveHostId = (Get-Content -Raw -LiteralPath `$uuidFile).Trim() }
+    } catch { `$script:ArchiveHostId = '' }
+    return `$script:ArchiveHostId
+}
+
+function Get-ArchiveCycleRoot {
+    # Resolved per call through the mtime+hash-cached config read, so an operator
+    # edit to test.config.yml is observed on the next request exactly like every
+    # other handler here. Returns '' when pool storage is unconfigured or its mount
+    # is not present -- this server never mounts anything and never runs sudo.
+    try {
+        if (-not (Get-Command Get-YurunaPoolStorageConfig -ErrorAction SilentlyContinue)) { return '' }
+        `$hid = Get-ArchiveHostId
+        if ([string]::IsNullOrWhiteSpace(`$hid)) { return '' }
+        `$cfgPath = Join-Path `$repoRoot 'test/test.config.yml'
+        if (-not (Test-Path -LiteralPath `$cfgPath)) { return '' }
+        `$psCfg = Get-YurunaPoolStorageConfig -Config (Read-TestConfig -Path `$cfgPath) -WarningAction SilentlyContinue
+        if (-not `$psCfg) { return '' }
+        if (-not (Test-Path -LiteralPath `$psCfg.LocalPath)) { return '' }
+        `$root = Get-PoolStorageCycleRootPath -Config `$psCfg -HostId `$hid
+        if (-not (Test-Path -LiteralPath `$root)) { return '' }
+        return `$root
+    } catch { return '' }
+}
+
+function ConvertTo-ArchiveRelativePath {
+    # Maps a log-relative request path onto the flat share layout. Two shapes have
+    # to be normalized away, both of which appear in URLs recorded before a cycle
+    # was archived:
+    #   history.YYYY-MM-DD/<leaf>/...  the local rotation bucket; the share has no
+    #                                  buckets, the archiver flattens them in.
+    #   <base>.incomplete / <base>.aborted.<UTC>
+    #                                  lifecycle suffixes; the archiver keys the
+    #                                  destination on the STRIPPED identity, so the
+    #                                  share holds '<base>'.
+    # Without this a link to a rotated or crash-recovered cycle 404s against an
+    # archive that is holding exactly the folder it asked for, under its real name.
+    param([string]`$Rel)
+    `$norm = (`$Rel -replace '\\', '/').TrimStart('/')
+    if ([string]::IsNullOrWhiteSpace(`$norm)) { return '' }
+    `$parts = @(`$norm -split '/' | Where-Object { `$_ -ne '' })
+    if (`$parts.Count -eq 0) { return '' }
+    if (`$parts[0] -like 'history.*') {
+        if (`$parts.Count -lt 2) { return '' }
+        `$parts = @(`$parts[1..(`$parts.Count - 1)])
+    }
+    `$parts[0] = `$parts[0] -replace '\.incomplete`$', '' -replace '\.aborted\.[^/]+`$', ''
+    if (`$parts[0] -notmatch '^\d{6}\..+\..+\..+') { return '' }
+    return (`$parts -join '/')
+}
+
+function Resolve-ArchivedLogPath {
+    # The full local-path -> share-path fallback: '' when there is no archive, no
+    # mapping, or nothing at the mapped location.
+    param([string]`$Rel)
+    `$root = Get-ArchiveCycleRoot
+    if ([string]::IsNullOrWhiteSpace(`$root)) { return '' }
+    `$mapped = ConvertTo-ArchiveRelativePath -Rel `$Rel
+    if ([string]::IsNullOrWhiteSpace(`$mapped)) { return '' }
+    `$candidate = Join-Path `$root (`$mapped -replace '/', [System.IO.Path]::DirectorySeparatorChar)
+    if (Test-Path -LiteralPath `$candidate) { return `$candidate }
+    return ''
+}
+
+function Get-ArchivedCycleName {
+    # The archived leaf names, for the merged /log/ index and the cycle-number
+    # short link. Only sentinel-complete folders: a destination exists
+    # sentinel-less for the whole duration of its copy, and listing one would
+    # advertise a half-copied tree as a finished cycle.
+    `$root = Get-ArchiveCycleRoot
+    if ([string]::IsNullOrWhiteSpace(`$root)) { return @() }
+    try {
+        return @(Get-ChildItem -LiteralPath `$root -Directory -ErrorAction SilentlyContinue |
+            Where-Object { `$_.Name -match '^\d{6}\..+\..+\..+' -and (Test-Path -LiteralPath (Join-Path `$_.FullName '.yuruna-complete')) } |
+            ForEach-Object { `$_.Name })
+    } catch { return @() }
+}
+
 function Test-RunnerAlive {
     param([switch]`$QuietErrors)
     `$runnerPidFile   = Join-Path `$runtimeDir 'runner.pid'
@@ -1861,7 +1957,7 @@ try {
                 `$pidVal  = `$rs.RunnerPid
                 `$res.ContentType = 'application/json; charset=utf-8'
                 `$res.Headers.Add('Cache-Control', 'no-store')
-                # --- REGION: liveness -------------------------------------
+                # --- REGION: Liveness
                 # "A runner process exists" is NOT "the runner is progressing".
                 # runner.heartbeat is written by a threadpool timer that keeps
                 # ticking through a wedged runspace, so a host blocked on an
@@ -2776,6 +2872,19 @@ try {
                         ForEach-Object { Get-ChildItem -LiteralPath `$_.FullName -Directory -Filter "`$wantedCycle.*" -ErrorAction SilentlyContinue } |
                         Sort-Object Name | Select-Object -Last 1)
                 }
+                if (`$cycleHit.Count -eq 0) {
+                    # Third tier: the pool share. On a move-mode host this is where
+                    # every finished cycle lives, so it is the only tier that can
+                    # answer -- the two above see just the running cycle.
+                    `$archivedName = @(Get-ArchivedCycleName | Where-Object { `$_ -like "`$wantedCycle.*" } | Sort-Object | Select-Object -Last 1)
+                    if (`$archivedName.Count -gt 0) {
+                        `$res.StatusCode = 302
+                        `$res.Headers.Add('Cache-Control', 'no-store, no-cache, must-revalidate')
+                        `$res.Headers.Add('Location', "/log/`$(`$archivedName[0])/`$(`$archivedName[0]).html")
+                        `$res.OutputStream.Close()
+                        continue
+                    }
+                }
                 if (`$cycleHit.Count -gt 0) {
                     # The folder keeps whatever lifecycle suffix it has on disk
                     # (.incomplete mid-cycle, .aborted.<UTC> after a crash); the
@@ -2827,11 +2936,40 @@ try {
                 `$archiveName = '{0}.{1}T{2}Z.zip' -f `$Matches[4].Substring(0,8), `$Matches[2], `$Matches[3]
                 `$srcDir = Join-Path `$logDir `$cycleFolder
                 if (-not (Test-Path -LiteralPath `$srcDir -PathType Container)) {
+                    # Archived: pack from the share instead. The zip is still built
+                    # on this host from a filesystem it can see, so the share page
+                    # keeps working for a cycle whose local folder has been deleted.
+                    `$archivedSrc = Resolve-ArchivedLogPath -Rel `$cycleFolder
+                    if (`$archivedSrc -and (Test-Path -LiteralPath `$archivedSrc -PathType Container)) { `$srcDir = `$archivedSrc }
+                }
+                if (-not (Test-Path -LiteralPath `$srcDir -PathType Container)) {
                     `$res.StatusCode = 404
                     `$res.ContentType = 'text/plain; charset=utf-8'
                     `$body = [System.Text.Encoding]::UTF8.GetBytes("No cycle results folder `$cycleFolder on this host.")
                     `$res.ContentLength64 = `$body.Length
                     if (`$req.HttpMethod -ne 'HEAD') { `$res.OutputStream.Write(`$body, 0, `$body.Length) }
+                    `$res.OutputStream.Close()
+                    continue
+                }
+                # A HEAD asks whether there is a cycle folder to pack, and the
+                # grammar match and the folder check above have already answered
+                # it -- so answer without packing one. The share page probes with
+                # HEAD before starting a download whose outcome it has no way to
+                # observe; packing a whole folder to answer it would make the
+                # probe cost as much as the download it precedes, on a route that
+                # is open to the LAN.
+                if (`$req.HttpMethod -eq 'HEAD') {
+                    `$res.StatusCode = 200
+                    `$res.ContentType = 'application/zip'
+                    `$res.Headers.Add('Content-Disposition', ('attachment; filename="' + `$archiveName + '"'))
+                    `$res.Headers.Add('Cache-Control', 'no-store')
+                    # ContentLength64 stays unset, so the reply frames itself and
+                    # carries no length. The length here is knowable only by
+                    # packing, which is the work this branch exists to skip, and
+                    # RFC 9110 section 9.3.2 permits a HEAD to omit a field
+                    # determined only while generating content -- while
+                    # forbidding outright a length a GET would not have sent.
+                    # Setting it to 0 to look tidy would be exactly that.
                     `$res.OutputStream.Close()
                     continue
                 }
@@ -2897,7 +3035,7 @@ try {
                     `$res.Headers.Add('Content-Disposition', ('attachment; filename="' + `$archiveName + '"'))
                     `$res.Headers.Add('Cache-Control', 'no-store')
                     `$res.ContentLength64 = `$archiveBytes.Length
-                    if (`$req.HttpMethod -ne 'HEAD') { `$res.OutputStream.Write(`$archiveBytes, 0, `$archiveBytes.Length) }
+                    `$res.OutputStream.Write(`$archiveBytes, 0, `$archiveBytes.Length)
                 } catch {
                     # Naming the cycle and the failure is the difference between
                     # "that cycle is gone" and "the pack itself broke", which the
@@ -2907,7 +3045,7 @@ try {
                     `$res.ContentType = 'text/plain; charset=utf-8'
                     `$body = [System.Text.Encoding]::UTF8.GetBytes("Could not pack `${cycleFolder}: `$(`$_.Exception.Message)")
                     `$res.ContentLength64 = `$body.Length
-                    if (`$req.HttpMethod -ne 'HEAD') { `$res.OutputStream.Write(`$body, 0, `$body.Length) }
+                    `$res.OutputStream.Write(`$body, 0, `$body.Length)
                 } finally {
                     Remove-Item -LiteralPath `$tmpArchive -Force -ErrorAction SilentlyContinue
                 }
@@ -3002,6 +3140,18 @@ try {
                 }
             }
             `$file = Join-Path `$root `$rel
+            # Archived-cycle fallback: a move-mode host has deleted the local folder,
+            # so serve the same URL from the mounted share instead. Re-rooting here
+            # (rather than rewriting the recorded URLs) is what keeps status.json
+            # history rows, per-guest tiles and flame-chart links working unchanged.
+            # The containment check below is applied to whichever root won.
+            if ((`$path -like 'log/*') -and -not (Test-Path -LiteralPath `$file)) {
+                `$archived = Resolve-ArchivedLogPath -Rel `$rel
+                if (`$archived) {
+                    `$file = `$archived
+                    `$root = Get-ArchiveCycleRoot
+                }
+            }
             `$file = [System.IO.Path]::GetFullPath(`$file)
             `$rootFull = [System.IO.Path]::GetFullPath(`$root).TrimEnd([System.IO.Path]::DirectorySeparatorChar)
             # Equality is legitimate here (empty `$rel serves the mount's
@@ -3043,6 +3193,31 @@ try {
                 }
                 `$entries = @(Get-ChildItem -LiteralPath `$file -Force -ErrorAction SilentlyContinue |
                     Sort-Object @{Expression = { -not `$_.PSIsContainer }}, Name)
+                # The /log/ ROOT index also lists archived cycles. Without this a
+                # move-mode host shows an almost empty log directory -- and the pool
+                # aggregator, which resolves a clicked cycle partly by reading this
+                # listing, loses its view of everything the host has archived.
+                # Scoped to the root index only (that is the one level the
+                # aggregator fetches) and deduplicated by name with the LOCAL entry
+                # winning, so a copy-mode host -- where every archived cycle is also
+                # still local -- renders exactly as it did before.
+                if (`$path -eq 'log' -or `$path -eq 'log/') {
+                    `$localNames = @{}
+                    foreach (`$e in `$entries) { `$localNames[`$e.Name] = `$true }
+                    `$archiveRootDir = Get-ArchiveCycleRoot
+                    if (`$archiveRootDir) {
+                        `$extra = [System.Collections.Generic.List[object]]::new()
+                        foreach (`$an in @(Get-ArchivedCycleName)) {
+                            if (`$localNames.ContainsKey(`$an)) { continue }
+                            `$ai = Get-Item -LiteralPath (Join-Path `$archiveRootDir `$an) -ErrorAction SilentlyContinue
+                            if (`$ai) { `$extra.Add(`$ai) }
+                        }
+                        if (`$extra.Count -gt 0) {
+                            `$entries = @(@(`$entries) + @(`$extra) |
+                                Sort-Object @{Expression = { -not `$_.PSIsContainer }}, Name)
+                        }
+                    }
+                }
                 `$sb = [System.Text.StringBuilder]::new()
                 `$titleEnc = [System.Net.WebUtility]::HtmlEncode(`$origLocal)
                 # Single-quoted concat avoids double-quote escaping

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42311df0-0dfd-4fd8-ad78-0a91997848c5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,20 +39,9 @@
 BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 
-# The throwaway runtime dir is named from $PID, and the name is held in an
-# unqualified (not $script:-qualified) file-scope variable. Both details are
-# load-bearing:
-#
-#   * This file's body is executed during Pester's DISCOVERY pass -- and, when the
-#     file is run as the entry script, once more before that. $env:YURUNA_RUNTIME_DIR
-#     is process-global, so the last body execution wins, while the It blocks read
-#     their $AgentTestRuntime from the first. A per-execution GUID would therefore
-#     point the module at one directory and the assertions at another. A
-#     $PID-derived name is identical in every pass, so they cannot diverge.
-#   * An It block runs in a fresh script scope: a `$script:`-qualified read from a
-#     test resolves to THAT scope and comes back $null even though the file assigned
-#     the name. Only an unqualified name walks the scope chain out to the file's own
-#     variables.
+# --- REGION: https://yuruna.link/test/harness#pester-discovery-and-file-scope-variables
+# The runtime dir is named from $PID and held in an UNQUALIFIED file-scope
+# variable. Both are load-bearing -- see the doc before changing either.
 $AgentTestRuntime = Join-Path ([System.IO.Path]::GetTempPath()) "yrn-dlagent-$PID"
 $env:YURUNA_RUNTIME_DIR = $AgentTestRuntime
 Remove-Item -LiteralPath $AgentTestRuntime -Recurse -Force -ErrorAction SilentlyContinue

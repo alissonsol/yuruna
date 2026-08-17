@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42f9c4d6-8a2b-4e73-9d51-7c3e4f5a6b72
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,6 +29,7 @@ Import-Module (Join-Path -Path (Split-Path -Parent $PSScriptRoot) -ChildPath "mo
 $null = Initialize-YurunaRuntimeDir
 $PidFile = Join-Path $env:YURUNA_RUNTIME_DIR "config-server.pid"
 
+# --- REGION: Locate the PID file
 if (-not (Test-Path $PidFile)) {
     Write-Output "No config-server PID file found at '$PidFile'. Service may not be running."
     exit 0
@@ -41,6 +42,7 @@ if (-not $pid_value) {
     exit 0
 }
 
+# --- REGION: Parse the recorded PID
 # Parse the PID before touching Get-Process/Stop-Process: -Id coerces its argument
 # to [int] at parameter-binding time, and that ParameterBindingException is NOT
 # suppressed by -ErrorAction SilentlyContinue -- a corrupt/non-numeric PID file
@@ -53,6 +55,7 @@ if (-not [int]::TryParse($pid_value, [ref]$id)) {
     exit 0
 }
 
+# --- REGION: PID-reuse guard, then stop
 $proc = Get-Process -Id $id -ErrorAction SilentlyContinue
 if (-not $proc) {
     Write-Output "Process $id is not running. Service was already stopped."

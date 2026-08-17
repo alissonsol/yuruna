@@ -8,8 +8,8 @@ description: >
   left in place on cycle failure for debugging.
 
 type: object
-additionalProperties: false
 required: [users]
+additionalProperties: false
 
 properties:
   users:

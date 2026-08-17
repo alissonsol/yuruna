@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 428a1d5f-7c92-4b40-a6e1-9d2f4c8b0a63
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -330,7 +330,60 @@ function New-WarmResumeEvent {
     return $emit
 }
 
+# Verbs that hand work to the guest which OUTLIVES the step: a fetched script
+# installs packages, writes files, initializes tofu state. Replaying one puts
+# the second run on top of the first run's residue, and tools that are
+# deliberately not idempotent (tofu refusing an already-initialized working
+# directory is the canonical one) fail on the residue rather than on whatever
+# stopped the original attempt. Verbs absent from this list only read, type or
+# wait, so replaying them costs time and nothing else.
+$script:WarmResumeGuestStateVerbs = @('fetchAndExecute', 'sshFetchAndExecute', 'sshExec')
+
+function Test-WarmResumeReplayIsSafe {
+    <#
+    .SYNOPSIS
+        Whether the checkpoint step can be replayed IN PLACE -- with no restore
+        point to discard what the failed attempt already applied (pure).
+    .DESCRIPTION
+        Get-WarmResumeRewindStep pulls a resume point back to the
+        loadDiskSnapshot before it precisely so the replay meets the state its
+        steps were written for. When the sequence has no such boundary that
+        lookup returns the checkpoint unchanged, and the resume proceeds anyway
+        -- straight onto the residue the boundary exists to discard.
+
+        For a step that only reads or types, that is harmless. For one that ran
+        guest work, it is worse than not resuming: the replay fails on leftovers
+        from the first attempt, and THAT failure is what gets reported, so the
+        cycle blames a state conflict the guest created rather than the
+        transient that actually stopped it -- and the original evidence is gone.
+        Declining to resume keeps the real failure intact and costs only the
+        recovery that was never sound to attempt.
+
+        A checkpoint outside the known action list is treated as unsafe: an
+        unreadable sequence is not evidence that replaying is harmless.
+    .OUTPUTS
+        [bool] $true when replaying in place is safe.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [AllowNull()][string[]]$StepAction,
+        [int]$ResumeFromStep
+    )
+    # @($null) is a ONE-element array holding $null, not an empty one, so a null
+    # action list would otherwise index to '' -- a verb absent from the list --
+    # and report the replay safe. For a guard, "I could not tell" must fall on
+    # the same side as "unsafe".
+    if ($null -eq $StepAction) { return $false }
+    $actions = @($StepAction)
+    if ($actions.Count -lt 1) { return $false }
+    if ([int]$ResumeFromStep -lt 1 -or [int]$ResumeFromStep -gt $actions.Count) { return $false }
+    $verb = [string]$actions[[int]$ResumeFromStep - 1]
+    if ([string]::IsNullOrWhiteSpace($verb)) { return $false }
+    return ($verb -notin $script:WarmResumeGuestStateVerbs)
+}
+
 Export-ModuleMember -Function `
     Get-WarmResumeEligibleClass, Test-WarmResumeEligibleClass, Get-WarmResumeCheckpointFromRecord, `
     Read-WarmResumeCheckpoint, Get-WarmResumeDecision, New-WarmResumeEvent, `
-    Get-WarmResumeRewindStep, Get-WarmResumeStepAction
+    Get-WarmResumeRewindStep, Get-WarmResumeStepAction, Test-WarmResumeReplayIsSafe

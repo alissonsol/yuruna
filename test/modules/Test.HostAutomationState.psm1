@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42b7c3e1-9d05-4a82-bf46-2e18c74a0d93
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -510,6 +510,16 @@ function Get-WindowsPreAutomationState {
         }
         if ($map.Count -eq 0) { return $null }
         return $map
+    }
+
+    # Startup type AND run state, because Sync-WindowsHostClock changes both:
+    # W32Time ships trigger-started and stopped on a host that never joins a
+    # domain, and restoring only the startup type would leave a service running
+    # that was not running before.
+    $knobs['service/W32Time'] = Invoke-CaptureRead -Name 'W32Time service state' -Reader {
+        $svc = Get-Service -Name 'W32Time' -ErrorAction SilentlyContinue
+        if (-not $svc) { return $null }
+        return @{ StartType = [string]$svc.StartType; Status = [string]$svc.Status }
     }
 
     return $knobs

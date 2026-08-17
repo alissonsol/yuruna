@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a3e79c-5f14-4b28-8d60-1e9b3c7d5a42
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -167,6 +167,11 @@ param(
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 
+# --- REGION: https://yuruna.link/loglevels#propagation-across-pwsh-boundaries
+# After the preference assignments above on purpose: an explicit level is the
+# operator's choice and replaces this script's own default. $InformationPreference
+# is re-read afterwards because the script-scoped assignment above shadows the
+# global the cascade writes.
 Import-Module (Join-Path $PSScriptRoot '../modules/Test.LogLevel.psm1') -Global -Force -DisableNameChecking
 Use-LogLevelFromEnv
 $InformationPreference = $global:InformationPreference
@@ -241,7 +246,7 @@ function Write-ConvertStep {
     Write-Information "[$script:step/$script:StepCount] $Title" -InformationAction Continue
 }
 
-# --- REGION: 1. Pre-flight
+# --- REGION: 1. Pre-flight against the reference host
 # Everything that can refuse the run is asked BEFORE the first change. A
 # conversion that syncs the configuration and then discovers it has no token has
 # already repointed this host at a lab it cannot authenticate to, which is a
@@ -393,7 +398,7 @@ if ($servedShare.Count -eq 0) {
     Write-Information "  Storage this machine serves: $($servedShare -join ', ') -- the shares and their accounts will be withdrawn (the data is kept)." -InformationAction Continue
 }
 
-# --- REGION: Consent
+# --- REGION: 1b. Consent
 if (-not $Force -and -not $NonInteractive -and -not $WhatIfPreference) {
     if (-not (Test-YurunaCanPrompt)) {
         Write-Error 'This session cannot prompt and neither -Force nor -NonInteractive was passed; nothing was changed.'
@@ -426,7 +431,7 @@ if (-not $Force -and -not $NonInteractive -and -not $WhatIfPreference) {
     }
 }
 
-# --- REGION: 2. Sync the lab's configuration
+# --- REGION: 2. Sync configuration from the reference host
 # Through the documented redirector rather than the module function, so this
 # conversion gets the per-host conversion, the elevation checks, and the
 # freshness gate exactly as an operator running the sync by hand would.
@@ -493,7 +498,7 @@ try {
     $WhatIfPreference = $PreviousWhatIf
 }
 
-# --- REGION: 3. Retire the local services
+# --- REGION: 3. Retire the local service VMs
 # After the sync, deliberately. The sync is the step that can refuse (a stale
 # reference, an unreachable host, a rejected credential), and a refusal after
 # the VMs were deleted would leave a machine with neither its own services nor a
@@ -508,7 +513,7 @@ foreach ($result in $teardown) {
 }
 $teardownFailed = @($teardown | Where-Object { $_.Action -in @('failed', 'unretirable') })
 
-# --- REGION: 4. Stop advertising the services this host no longer runs
+# --- REGION: 4. Stop announcing the retired services
 # Re-read rather than reusing the pre-flight list: the teardown above cleared the
 # marker of every service it retired, and re-clearing those would report work
 # that step 3 already did. What is left here is what no stop script could reach
@@ -594,7 +599,7 @@ if ($tiers.Count -eq 0) {
     }
 }
 
-# --- REGION: 6. Drop the aliases the retired services owned
+# --- REGION: 6. Hosts-file aliases
 # Scoped by the POST-SYNC configuration: a storage alias the new config still
 # names is the lab's now, and the sync has repointed it. What comes down is the
 # dashboard alias, which named the local proxy VM that step 3 just deleted.
@@ -619,7 +624,7 @@ foreach ($outcome in @(Remove-PoolWorkerAlias -RepoRoot $RepoRoot -Plan $aliasPl
     Write-Information "  $($outcome.Name) -> $($outcome.Action) ($($outcome.Message))" -InformationAction Continue
 }
 
-# --- REGION: 7. Verify
+# --- REGION: 7. Verify this host is now a pool worker
 # Two questions, in this order. Test-Config validates the FILE and the
 # connections it names -- deferred to here, where every step it depends on has
 # run, so what it reports is the end state rather than the middle of one. Then
@@ -697,5 +702,3 @@ if (-not $KeepLocalShares -and $servedShare.Count -gt 0) {
 }
 Write-Information '  pwsh test/Invoke-TestProject.ps1                  # one cycle against the lab, before the pool drives it' -InformationAction Continue
 exit 0
-
-# Copyright (c) 2019-2026 by Alisson Sol et al.

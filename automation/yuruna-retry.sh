@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.14
+# Version: 2026.08.16
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -195,6 +195,7 @@ _yuruna_classify_wget() {
     return 0
 }
 
+# --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
 # --speed-limit/--speed-time abort a transfer that drops below 1 KB/s for
 # 60s (curl exit 28), turning a stalled-after-headers or trickling download
 # into a retryable failure instead of an unbounded hang. Wall-clock bounds

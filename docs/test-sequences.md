@@ -354,6 +354,28 @@ Type a command + Enter, then wait for `waitPattern` to appear on screen
 | `timeoutSeconds` | number | Default `vmCommunication.timeoutSeconds`. |
 | `pollSeconds` | number | Default `vmCommunication.pollSeconds`. |
 
+### The fetchAndExecute typing length budget
+
+`fetchAndExecute` does not pipe its command anywhere — it TYPES it into the
+guest console, one key event per character, and the whole line has to land
+intact. Long lines have been observed to corrupt mid-send on `host.macos.utm`
+(RFB → QEMU → guest): characters are silently dropped, and then a key is left
+held down that the guest kernel auto-repeats at the console default of
+~30 chars/sec, filling the screen until the VM is rebuilt. A 557-character send
+has been lost repeatedly, degrading around character ~416, while the 370- and
+410-character sends in the same sequence were unaffected.
+
+A step whose console-typed length exceeds 400 characters is therefore flagged —
+just under the longest length observed to survive. It is a WARNING, not a cap:
+the fix for a long step is to move the work into the fetched script, where it
+costs no keystrokes, never to raise the number.
+
+**Authors: the budget is not the YAML `text:` on its own.** The harness prepends
+roughly 225 characters of integrity envelope (two SHA-256 digests plus the
+fallback repo and commit), so a 276-character `text:` is really a
+~500-character send. Keeping `text:` near 120 characters leaves comfortable
+headroom.
+
 ### inputText
 
 Type a text string.
@@ -699,7 +721,7 @@ A bare `return` (no value) is coerced to `$false`. Always be explicit.
 | `Description`        | `[string]`                                                                                                                                                                                                                                                                                     | Free-form note. Surfaces in the capability matrix.                                                                                                          |
 | `Aliases`            | `[string[]]`                                                                                                                                                                                                                                                                                   | Alternate YAML names that resolve to the same entry (legacy renames).                                                                                       |
 | `Handler`            | `[scriptblock]` `param([hashtable]$c)` → `[bool]`                                                                                                                                                                                                                                              | The body that runs when the verb dispatches.                                                                                                                |
-| `FailureClass`       | `ValidateSet`: `ocr_timeout`, `network_timeout`, `credential_expired`, `host_io_blocked`, `pattern_matched_failure`, `retry_exhausted`, `snapshot_restore_failed`, `script_error`, `wait_timeout`, `extension_error`, `instrumentation_failure`, `provisioning_failure`, `bootstrap_sync`, `plan_invalid`, `elevation_required`, `project_access_denied`, `host_network_degraded`, `ip_not_discovered`, `payload_unavailable`, `unknown`                                       | Machine-readable failure category for downstream routing (no regex-on-label needed).                                                                        |
+| `FailureClass`       | `ValidateSet`: `ocr_timeout`, `network_timeout`, `credential_expired`, `host_io_blocked`, `pattern_matched_failure`, `retry_exhausted`, `snapshot_restore_failed`, `script_error`, `wait_timeout`, `extension_error`, `instrumentation_failure`, `provisioning_failure`, `bootstrap_sync`, `plan_invalid`, `elevation_required`, `project_access_denied`, `host_network_degraded`, `ip_not_discovered`, `payload_unavailable`, `pool_storage_full`, `unknown`                                       | Machine-readable failure category for downstream routing (no regex-on-label needed).                                                                        |
 | `Severity`           | `ValidateSet`: `hard`, `soft`, `unknown`                                                                                                                                                                                                                                                       | `soft` = retry is plausible; `hard` = retry won't help (e.g. snapshot restore failed); `unknown` = no claim either way.                                     |
 | `SuggestedRecoveries`| `[string[]]` — free-form, ordered                                                                                                                                                                                                                                                              | Hints for an autonomous remediation loop. Common values: `retry_immediately`, `wait_and_retry`, `restore_snapshot`, `notify_operator`. A token outside the remediation dispatcher's vocabulary warns at registration. |
 
@@ -937,6 +959,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.14
+Last review: 2026.08.16
 
 Back to [Yuruna](../README.md)

@@ -6,6 +6,11 @@
   // library rather than reloading, so a half-typed test set is not wiped.
   const chrome = Y.initChrome({ refresh: function () { load({ quiet: true }); } });
 
+  // Built once, not per read: the sort an operator chose is theirs until they
+  // change it, and re-reading the library every minute must not put the table
+  // back in the server's order under them.
+  const sorter = Y.sortTable(document.getElementById('ts-rows'), { key: 'name' });
+
   // quiet marks the countdown's read, which keeps the table it is refreshing on
   // screen. Every other read replaces it and says so: the library is read by
   // running a CLI on the server, which is not instant.
@@ -33,9 +38,11 @@
     const tbody = document.getElementById('ts-rows');
     tbody.textContent = '';
     if (sets.length === 0) {
-      tbody.appendChild(Y.el('tr', {}, [Y.el('td', { colspan: '4', class: 'muted', text: 'No test sets yet.' })]));
+      sorter.set([]);
+      tbody.appendChild(Y.el('tr', {}, [Y.el('td', { colspan: '5', class: 'muted', text: 'No test sets yet.' })]));
       return;
     }
+    const rows = [];
     for (const t of sets) {
       const editBtn = Y.el('button', { text: 'Edit' });
       editBtn.addEventListener('click', function () {
@@ -49,13 +56,21 @@
         try { await Y.mutate('/api/testset?name=' + encodeURIComponent(t.name), { method: 'DELETE' }); Y.notice('ok', "Deleted '" + t.name + "'."); load(); }
         catch (e) { Y.notice('error', 'Delete failed: ' + e.message); delBtn.disabled = false; }
       });
-      tbody.appendChild(Y.el('tr', {}, [
-        Y.el('td', { text: t.name }),
-        Y.el('td', { class: 'mono', text: t.frameworkUrl }),
-        Y.el('td', { class: 'mono', text: t.projectUrl }),
-        Y.el('td', {}, [editBtn, ' ', delBtn])
-      ]));
+      rows.push({
+        tr: Y.el('tr', {}, [
+          Y.el('td', { text: t.name }),
+          Y.el('td', { class: 'mono', text: t.frameworkUrl }),
+          Y.el('td', { class: 'mono', text: t.projectUrl }),
+          Y.el('td', {}, [editBtn, ' ', delBtn])
+        ]),
+        values: {
+          name: t.name || '',
+          frameworkUrl: t.frameworkUrl || '',
+          projectUrl: t.projectUrl || ''
+        }
+      });
     }
+    sorter.set(rows);
   }
 
   document.getElementById('save').addEventListener('click', async function () {

@@ -5,7 +5,13 @@
 # modules, and two VMs may legitimately share a pinned hostname.
 instance-id: INSTANCE_ID_PLACEHOLDER
 local-hostname: HOSTNAME_PLACEHOLDER
-# eth0 is the image's default (and only) NIC.
+# ENI-format hint, read by the NoCloud datasource only because these
+# ubuntu.server seeds ship no `network-config` file -- where one is shipped
+# (the service seeds) it wins over this key. eth0 is the interface name on
+# Hyper-V only: UTM presents enp0s1 and KVM enp1s0 (guest-dhcp.network-config
+# documents the three-way split), so on those two the stanza matches nothing.
+# Nothing depends on it there: the live installer brings up DHCP itself, and
+# the installed system's netplan comes from the autoinstall `network:` section.
 network-interfaces: |
   auto eth0
   iface eth0 inet dhcp

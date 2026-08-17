@@ -68,10 +68,14 @@ shells out to docker/kubectl/helm/mkcert and returns a bool.
 every entry point and owns `Resolve-YurunaRootSet`, which resolves the
 yuruna/project/config roots and gates the run before any publisher loads.
 `Yuruna.Result.psm1` is the other all-three dependency. `Yuruna.Common.psm1` is
-imported by all three publishers too, but only **one** of its 39 exported
+imported by all three publishers too, but only **one** of its 41 exported
 functions — `New-YurunaTimestampedBackup` — is reachable from the deploy path;
-the other 38 are host, network, memory and sudo helpers serving `host/` and
-`test/`. `Yuruna.Retry.psm1` reaches only the resource and workload publishers,
+the other 40 are host, network, memory and sudo helpers, and their consumers are
+`host/`, `test/` and a third importer outside both — `install/setup.ps1`, which
+imports the module directly for its service-VM memory sizing and sudo prompts.
+Three of the 40 — `Get-PwshApplicationPath`, `Test-YurunaSudoRefusal`,
+`Test-Ipv6Address` — have no caller anywhere outside the module itself.
+`Yuruna.Retry.psm1` reaches only the resource and workload publishers,
 and `Yuruna.DeploymentKind.psm1` — the single catalog of the four workload kinds
 `chart`, `kubectl`, `helm`, `shell` — only the workload publisher and validation.
 `Yuruna.Log.psm1` lives here but has **no automation-layer importer** at all; it
@@ -169,6 +173,18 @@ implemented twice, in `Yuruna.Resource.psm1` and again in
 matching templates, so `gcp` remains planned. `global/components/` and
 `global/workloads/` hold placeholders.
 
+**Two of the ten templates cannot complete the resource phase**, and one of them
+is referenced by a shipped example. `Publish-ResourceListHelper` treats an empty
+`tofu output -json` as fatal — "this codebase requires every resource to define
+at least one `output` block" — but `global/resources/aws/eks-cluster/` and
+`global/resources/azure/vm-linux/` declare none, while the other eight declare
+one to three each. `yuruna-project/example/website/config/aws/resources.yml`
+names `aws/eks-cluster`, so that config throws on the apply pass as written. The
+`localhost` and `azure` chains the harness actually exercises are unaffected.
+`global/resources/aws/eks-cluster/cluster-import.ps1` is likewise unreferenced by
+any `.tf` beside it, where its Azure peer is wired through a `local-exec`
+provisioner.
+
 The handoff between the boxes is one file. `resources.output.yml` carries a flat
 `globalVariables` map plus one block per deployed resource, and
 `Set-ExpandedResourcesOutput` flattens those resource leaves into **dotted**
@@ -265,7 +281,7 @@ flowchart TD
 | `ubuntu-kvm` | `host/ubuntu.kvm/modules/Yuruna.Host.psm1`, `host/ubuntu.kvm/modules/Yuruna.GuestRail.psm1` + 4 operator scripts + 8 `guest.<key>/` | The libvirt/KVM driver; seed ISOs via `genisoimage`, arch read from `uname -m`. The only provider shipping a second module. |
 | `macos-utm` | `host/macos.utm/modules/Yuruna.Host.psm1` + 6 operator scripts + 9 `guest.<key>/` | The UTM driver; seed ISOs via `hdiutil makehybrid`, arch hard-coded `arm64`, and the only provider with `guest.macos.26`. |
 | `host-modules` | `host/modules/` — `Yuruna.DownloadAgent`, `Yuruna.HostDownload`, `Yuruna.HostProvision`, `Yuruna.Image`, `Yuruna.UbuntuImage`, `Yuruna.VMCleanup` | The provider-neutral image-acquisition, squid-download, provisioning and cleanup stack shared by all three drivers. |
-| `vmconfig` | `host/vmconfig/` — 31 files | Cloud-init base + meta-data + per-hypervisor overlay per seed family, plus one shared `extension-service.network-config`. |
+| `vmconfig` | `host/vmconfig/` — 31 files | Cloud-init base + meta-data + per-hypervisor overlay per seed family, plus one shared `guest-dhcp.network-config`. |
 | `infra-guests` | `host/<provider>/guest.{caching-proxy-service,download-agent-service,pool-control-service,stash-service}/` | The four service VMs' `Get-Image.ps1` + `New-VM.ps1` pairs, present under every provider. |
 
 `$script:YurunaHostContract` **declares 38 verbs across eleven groups** — VM
@@ -276,9 +292,13 @@ network, host port mapping, caching-proxy-service probes, and host proxy
 management. The coverage check is **warn-only**: each driver calls
 `Assert-YurunaHostContractCoverage` and discards the result, and the function
 warns once naming every gap and returns `$false` rather than throwing, so a
-missing verb produces one warning and load continues. Each driver also passes a
-hand-maintained copy of its export list rather than its own `Export-ModuleMember`
-block — `windows.hyper-v` passes exactly the 38, `ubuntu.kvm` 40 and `macos.utm`
+missing verb produces one warning and load continues. Each driver passes **both**
+a hand-maintained copy of its export list *and* its own module handle
+(`-Module $ExecutionContext.SessionState.Module`), and the check intersects the
+two: the declared list alone is a second copy of the contract and would pass even
+after a verb was dropped from `Export-ModuleMember`, so a name that is declared
+here but never published counts as missing. The declared lists are
+`windows.hyper-v` exactly the 38, `ubuntu.kvm` 40 and `macos.utm`
 39, the extras being provider-local exports.
 
 Two verbs carry contract text worth repeating. `Get-VMName` **must distinguish
@@ -302,8 +322,13 @@ focus-independent capture and keystroke injection. That provider alone carries
 plus `Remove-StaleDhcpLease.ps1`, `Start-CachingProxyServiceForwarder.ps1` and
 `brew-doctor-fix.sh`, giving it six root scripts against the other two's four.
 `ubuntu.kvm/modules/` is the only provider module folder with two entries: the
-driver plus `Yuruna.GuestRail.psm1`, which hands each guest a second stable
-address on libvirt's NAT net for guest-to-guest traffic.
+driver plus `Yuruna.GuestRail.psm1`, which would hand each guest a second stable
+address on libvirt's NAT net for guest-to-guest traffic — **planned, and
+deliberately not wired**. Its own header says so ("NOTHING CALLS THIS"), and a
+repo-wide grep finds one reference, its own Pester suite: `Get-GuestRailAddress`
+keys on the transient VM name, so reconnecting it as it stands would break VM
+creation on the second guest of every cycle. It is kept for the derivation and
+the tests, so no edge in this document runs through it.
 
 `host/modules/Yuruna.DownloadAgent.psm1` has the strictest load rule of the six
 shared modules: it imports nothing and exports exactly three uniquely-named
@@ -323,7 +348,7 @@ the request protocol to an outcome string, because every call sits in front of a
 `stash-service`, `ubuntu.server`) × five files each — `<family>.base.user-data`,
 `<family>.meta-data`, and one overlay per hypervisor
 (`<family>.hyperv|kvm|utm.overlay.yml`) — plus one shared
-`extension-service.network-config` the three service families seed from. Overlays
+`guest-dhcp.network-config` the three service families seed from. Overlays
 are anchor-section files, not YAML documents: sections named
 `# === YURUNA_OVERLAY_<NAME> ===` are merged into the base in base-file order and
 an empty section emits nothing, which is why all three
@@ -413,16 +438,23 @@ stale against a moving `main`: the verified-install path only works from
 `?nocache=<timestamp>` convention, and the `-PinVersion` / `PIN_VERSION` /
 `--pin-version` pinning path.
 
-**Fold:** `install/` holds 10 tracked files and `tools/` six entries; six boxes draw
+**Fold:** `install/` holds 10 tracked files and `tools/` seven entries; six boxes draw
 them. The two signature files and the three `keys/` entries collapse into the
-single `integrity` box. The other four `tools/` entries are development gates
+single `integrity` box. The other five `tools/` entries are development gates
 rather than shipped artifacts, so they stay in prose: `Invoke-Lint.ps1` runs
 PSScriptAnalyzer over `git ls-files --cached --others --exclude-standard`
 (tracked + new, minus `.gitignore`) so a working tree the harness has run in does
 not drown the scan in generated findings; `Sync-ExtensionSdk.ps1` mirrors the
 extension SDK into every discovered `test/extension/<area>/server/go.mod` target;
 `Update-TestConfigNaming.ps1` migrates `test.config.yml` key names and converts
-values whose unit changed. `tools/githooks/pre-commit` is the local, advisory
+values whose unit changed; `Test-RegionAnchors.ps1` resolves every
+`# --- REGION: https://yuruna.link/<slug>#<anchor>` pointer in the tree against a
+real heading in the document that slug names, slugifying headings the way GitHub
+does so a renamed heading turns up as a dead in-source link instead of staying
+silent. It calls itself a CI gate and behaves like one — it exits non-zero on a
+dangling pointer — but nothing invokes it: there is no CI configuration in the
+repository and `githooks/pre-commit` runs only `Test-AsciiNoBom.ps1`, so it is a
+gate an operator runs by hand. `tools/githooks/pre-commit` is the local, advisory
 hook that blocks a BOM or non-ASCII byte reaching the bootstrappers — advisory
 because it is skipped when `pwsh` is absent and bypassable with `--no-verify`,
 which is why `Update-YurunaReleasePins.ps1` re-runs the same gate as a hard
@@ -453,7 +485,7 @@ flowchart TD
 |---|---|---|
 | `runner` | `test/Invoke-TestRunner.ps1`, `test/modules/Invoke-TestCycleRunner.ps1` | The forever-living outer entry point and the fresh per-cycle child it spawns and polls. |
 | `inner` | `test/modules/Invoke-TestRunnerInnerLoop.ps1` | One cycle of work in one process: preamble phases, plan resolution, the per-guest step loop, finalization, exit 0/1. |
-| `modules` | `test/modules/` — 94 `.psm1`, 5 non-test `.ps1`, 170 `*.Tests.ps1` | The implementation layer everything else delegates to. |
+| `modules` | `test/modules/` — 94 `.psm1`, 5 non-test `.ps1`, 175 tracked `*.Tests.ps1` | The implementation layer everything else delegates to. |
 | `plans` | `test/sequences/` (19 `.yml`), `test/schemas/` (13 `.yml`) | The step plans the sequence engine executes and the schemas that validate every YAML the harness reads. |
 | `status` | `test/Start-StatusService.ps1`, `test/status/` | The `HttpListener` dashboard on port 8080, its five HTML pages, and the `runtime/` + `log/` state trees it serves. |
 | `extensions` | `test/extension/` — 8 subdirectories | Seven loadable areas plus the Go `extension-sdk`; four areas declare a `service:` block, and the three that carry a `vmName` become VMs. |
@@ -489,7 +521,7 @@ synthesizes a `last_failure.json` with `failureClass = wait_timeout` so the
 gated auto-remediation can break the failure pause early.
 
 `test/modules/` is the implementation layer — **94 `.psm1` modules**, those five
-non-test `.ps1` entry points and **170 Pester files** — including everything the
+non-test `.ps1` entry points and **175 tracked Pester files** — including everything the
 runner boxes delegate to: `Test.RunnerOuterLoop`, `Test.RunnerInnerLoop`,
 `Test.RunnerWatchdog`, `Test.RunnerState`, `Test.SequenceEngine`,
 `Test.SequenceAction` (the 21-verb registry), `Test.OcrEngine` (built-in engines
@@ -562,7 +594,7 @@ join: it syncs the lab's configuration onto a standalone machine and retires the
 local services the lab already provides.
 
 **Fold:** `test/` holds **50 tracked non-test `.ps1`**, 94 `.psm1` under
-`test/modules/` and 170 Pester files. Seven boxes cover the three runner
+`test/modules/` and 175 tracked Pester files. Seven boxes cover the three runner
 processes (the outer loop and its per-cycle child share one), the module layer,
 `sequences/` + `schemas/` together, the status service, the extensions and the
 admin CLIs. The `admin` box is the widest fold — it stands for four directories:
@@ -576,7 +608,7 @@ and `test/check/` (2 OCR probes, `Test-TesseractOcr.ps1` and
 the one-shot developer entry points `Invoke-TestProject.ps1` and
 `Invoke-TestSequence.ps1`, the validators `Test-Config.ps1` and
 `Test-CachingProxyService.ps1`, alongside the two operator utilities
-`New-LocalTestUser.ps1` and `Remove-TestVMFiles.ps1`. The 170 Pester suites are
+`New-LocalTestUser.ps1` and `Remove-TestVMFiles.ps1`. The 175 Pester suites are
 counted, never drawn — they mirror the modules beside them, and drawing them
 would double every node.
 
@@ -628,4 +660,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.14
+Last review: 2026.08.16

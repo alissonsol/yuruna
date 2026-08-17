@@ -78,7 +78,7 @@ nodes, the largest holding four children.
 
 **Doc 1 — the seven blocks**
 
-- `tools/` (6 entries) is folded into **Installers** rather than drawn as an
+- `tools/` (7 entries) is folded into **Installers** rather than drawn as an
   eighth block, because the signed integrity artifacts under `install/` are its
   output; its remaining entries are development gates, not shipped artifacts.
 - `global/` is folded into **Project & Global Data** rather than into the Deploy
@@ -122,16 +122,16 @@ nodes, the largest holding four children.
 - **Host Provisioning**: the six `host/modules/*.psm1` collapse to one **modules**
   box, and the `README.md` / `read.more.md` files throughout `host/` are omitted.
 - **Installers**: `install/` (the three bootstrappers, `setup.ps1`, `README.md`,
-  the two signature artifacts and `keys/`) plus `tools/`'s 6 entries fold to 6
+  the two signature artifacts and `keys/`) plus `tools/`'s 7 entries fold to 6
   boxes — the two signature files and the three `keys/` entries become one
   integrity box, while `Invoke-Lint.ps1`, `Sync-ExtensionSdk.ps1`,
-  `Update-TestConfigNaming.ps1` and `githooks/pre-commit` stay in prose as
-  development gates.
+  `Update-TestConfigNaming.ps1`, `Test-RegionAnchors.ps1` and
+  `githooks/pre-commit` stay in prose as development gates.
 - **Test Harness**: 50 tracked non-test `.ps1`, 94 `.psm1` under `test/modules/`
-  and 170 Pester files fold to 7 boxes; the admin box is the widest fold,
+  and 175 tracked Pester files fold to 7 boxes; the admin box is the widest fold,
   standing for `test/service/` (13), `test/pool/` (13), `test/lab/` (9) and
   `test/check/` (2).
-- **Test Harness**: the 170 Pester suites are counted, never drawn — they mirror
+- **Test Harness**: the 175 tracked Pester suites are counted, never drawn — they mirror
   the modules beside them.
 - **External Services**: no fold — seven external dependencies, seven boxes.
 
@@ -164,10 +164,10 @@ nodes, the largest holding four children.
 - **Outer runner**: the watchdog is not a state. It is the mechanism that forces
   `in-cycle → fault`, so its arm / bound / kill / disarm / attribute / restart
   stages are a table under the diagram instead of a seventh and eighth box.
-- **Outer runner**: the seven `Invoke-OuterCycleDispatch` outcomes (completed,
-  pull-error, drain, paused, spawn-failed, cycle-aborted, shutdown) are a table
-  rather than states, because four of them return without any transition and
-  leave the machine where the child left it.
+- **Outer runner**: the eight `Invoke-OuterCycleDispatch` outcomes (completed,
+  pull-error, drain, paused, storage-full, spawn-failed, cycle-aborted, shutdown)
+  are a table rather than states, because four of them return without any
+  transition and leave the machine where the child left it.
 - **Per-guest lifecycle**: teardown is the exit *transition* rather than an
   eighth state, so a `Cleanup` failure is a second edge out of the machine rather
   than an edge into the failure-capture box.
@@ -177,14 +177,16 @@ nodes, the largest holding four children.
 - **Warm resume**: the five literal `Get-WarmResumeDecision` refusal reasons
   collapse into one `attempts exhausted` state and are enumerated in the
   transition table, because each is a distinct string on one return path rather
-  than a distinct place the loop can sit.
+  than a distinct place the loop can sit. The sixth exit — a rewind that finds no
+  restore point in front of a step that ran guest work — stays a drawn edge,
+  because it leaves from a different box.
 
 **Doc 5 — the four data views**
 
 - The model is split into **four** erDiagrams — project deploy, cycle plan and
   sequences, harness runtime, pool intent — so none exceeds seven entities; each
   lands on exactly seven.
-- **Cycle plan**: the 19 framework sequence files under `test/sequences/` plus
+- **Cycle plan**: the 17 framework sequence files under `test/sequences/` plus
   every project's own sequence files are one `SEQUENCE` entity, and the two
   snippet libraries (framework `test/sequences/_snippets.yml` and a project's
   own `_snippets.yml`) are one `SNIPPET_LIB`, because they are the same shape and
@@ -203,7 +205,7 @@ nodes, the largest holding four children.
 - Roughly twenty deployed processes group into seven `subgraph` network nodes,
   fifteen boxes in all, with the largest subgraph — the runner host — at four
   children.
-- The caching-proxy VM's eleven long-lived listeners and seven timers fold into
+- The caching-proxy VM's fifteen long-lived listeners and eight timers fold into
   one box, because drawing them alone would exceed the seven-child budget.
 - The stash VM's two listeners (`:22` SCP sink and `:80` UI) fold into one box
   because they are one process, and the fold is named in both the box label and
@@ -226,7 +228,7 @@ nodes, the largest holding four children.
   Two `%% planned` comments in doc 5 mark the other two: a `gcp` `CLOUD_CONFIG`
   parses but has no templates, and `HOST_REGISTRATION.supportedGuests` /
   `.capacity` are declared but null until populated.
-- **Test files.** The 170 Pester suites under `test/modules/` are counted, never
+- **Test files.** The 175 tracked Pester suites under `test/modules/` are counted, never
   drawn — they mirror the modules beside them, so drawing them would double every
   node in doc 2's Test Harness diagram.
 - **Generated mirrors.** `test/extension/extension-sdk/` is one box in doc 2's
@@ -252,7 +254,7 @@ nodes, the largest holding four children.
 - **Phase-to-phase edges inside the Deploy Engine.** The three `Set-*.ps1`
   scripts never invoke one another; their only coupling is the generated
   `config/<cloud>/resources.output.yml`, which is doc 2's and doc 3's concern.
-- **Registries drawn as counts.** The 21 sequence verbs, the 20 failure classes
+- **Registries drawn as counts.** The 21 sequence verbs, the 21 failure classes
   and the 3 severities are cited by count and source, never drawn — they are
   lookup tables, not message exchanges or states.
 - **Counters, latches and sleeps that ride alongside a machine.** The
@@ -261,12 +263,12 @@ nodes, the largest holding four children.
   doc 4's prose; none of them changes the shape of a state machine.
 - **Ports, protocols and process co-residency outside doc 6.** Docs 1–5 name no
   port on purpose, so a topology change touches exactly one document. Doc 6 in
-  turn draws none of the four loopback-only listeners on the caching-proxy VM
-  (Loki 3100, Prometheus 9090, the node exporter 9100 and the squid exporter
-  9301) — they reach nothing across the network, so it names them in prose
-  instead. It also omits the operator's browser edges to the stash UI and
-  Grafana, and three of the four identical bootstrap edges into a deploying
-  host's status service.
+  turn draws none of the six loopback-only listeners on the caching-proxy VM
+  (Loki 3100 and its 9096 gRPC port, promtail 9080, Prometheus 9090, the node
+  exporter 9100 and the squid exporter 9301) — they reach nothing across the
+  network, so it names them in prose instead. It also omits the operator's
+  browser edges to the stash UI and Grafana, and three of the four identical
+  bootstrap edges into a deploying host's status service.
 - **Utilities with no caller on a drawn path.** `automation/yuruna.ps1`,
   `Invoke-Clear.ps1`, `Get-SystemDiagnostic.ps1`, `Set-HostAlias.ps1`,
   `Test-YurunaHost.ps1`, `Check-DependencyVersion.ps1`, `context-copy.ps1`,
@@ -288,4 +290,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.14
+Last review: 2026.08.16

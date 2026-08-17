@@ -50,9 +50,20 @@
 
     #share-status { margin-top: 1rem; font-size: .8rem; line-height: 1.5; }
     #share-status.error { color: var(--fail-fg); }
+
     #share-status code {
       background: rgba(0,0,0,.06); padding: .05rem .3rem;
       border-radius: .2rem; font-family: var(--font-mono);
+    }
+
+    /* Numbered because the order matters: a draft opened before the file has
+       landed is a message the operator cannot finish. Touch targets sized for a
+       phone, where this page is these two links and nothing else. */
+    #share-steps { margin: 1rem 0 0; padding-left: 1.4rem; font-size: .9rem; }
+    #share-steps li { margin-bottom: .35rem; }
+    #share-steps a {
+      display: inline-block; padding: .35rem 0; min-height: 1.75rem;
+      font-family: var(--font-mono); word-break: break-all;
     }
     /* Body-sized and in the primary foreground: the second sentence is an
        instruction the operator has to act on before the message is worth
@@ -78,7 +89,7 @@
       <a href="config.html">Config</a>
       <a href="performance.html">Performance</a>
       <a href="diagnostics.html">Diagnostics</a>
-      <a class="menu-out" href="https://yuruna.link/operator">Guide</a>
+      <a class="menu-out" href="https://yuruna.link/operator" target="_blank" rel="noopener">Guide</a>
     </nav>
   </div>
 </header>
@@ -96,13 +107,23 @@
     <dt>Started (UTC)</dt><dd id="share-started">—</dd>
     <dt>Archive</dt><dd id="share-filename">—</dd>
   </dl>
-  <button id="share-go" type="button">Pack and open an email draft</button>
+  <button id="share-go" type="button">Pack and download the cycle results</button>
   <p id="share-status"></p>
+  <!--
+    Hidden until the host has answered for the folder, then both links at once.
+    The draft is the operator's own click and not something the page navigates
+    to: a mailto: navigation fired next to the download cancels it outright on
+    an engine that loads downloads in the frame (see yuruna.common.js).
+  -->
+  <ol id="share-steps" hidden>
+    <li><a id="share-download" href="#">Download the archive</a></li>
+    <li><a id="share-draft" href="#">Open the email draft</a></li>
+  </ol>
   <p class="share-note">
-    The archive is built on this host and never uploaded anywhere by this page.
-    <strong>Where a browser cannot attach a file to a message itself, the archive
-    is downloaded and the draft opens with its subject and body filled in —
-    attach the downloaded file before sending.</strong>
+    The archive is built from server logs only and downloaded to this machine.
+    No data from this browsing session is included.
+    <strong>Draft emails cannot automatically include attachments, so please
+      manually attach the downloaded file before you send it.</strong>
   </p>
 </main>
 

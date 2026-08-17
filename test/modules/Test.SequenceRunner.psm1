@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42f2c5e4-b9a0-4367-cd15-4e6f9b3c2d51
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -128,7 +128,7 @@ function Resolve-TestSequencePlan {
         Write-Information "Chain: $($ChainPlan.fullChain[0]) (no baseline prereqs declared)" -InformationAction Continue
     }
 
-    # === requiresSnapshot warm-path probe =======================================
+    # --- REGION: requiresSnapshot warm-path probe
     # When the top-level sequence declares `requiresSnapshot: { id: <X> }`,
     # the chain ends in a saveDiskSnapshot that renames `test-<guestKey>`
     # -> <X>. Two paths:

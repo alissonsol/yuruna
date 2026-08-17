@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42e5f6a7-b8c9-4d12-9345-6e7f8a9b0c1d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,7 +37,7 @@
     so the heartbeat + kill logic stays decoupled from the loop.
 #>
 
-# === Pure git / config helpers ============================================
+# --- REGION: Pure git / config helpers
 # Each helper is module-level and takes its inputs as parameters; no
 # script-scope state is read implicitly. Callers (Invoke-RunnerOuterLoop
 # and downstream test fixtures) pass repo paths + config paths
@@ -583,7 +583,7 @@ function Test-OuterNoStatusServiceForwarded {
     return (($ArgList -join ' ') -match '(?<![\w-])-NoStatusService(?![\w-])')
 }
 
-# === Forward-env + outer.log helpers ======================================
+# --- REGION: Forward-env + outer.log helpers
 
 function Sync-ForwardEnv {
     <#
@@ -681,7 +681,7 @@ function Clear-TerminalNotifierJob {
     }
 }
 
-# === Main loop ============================================================
+# --- REGION: Main loop
 
 # Every Invoke-RunnerOuterCycle return lands here as well as on the pipeline, so
 # Invoke-TestCycleRunner.ps1 can read the outcome WITHOUT capturing the success
@@ -720,6 +720,372 @@ function Get-LastOuterCycleResult {
     [OutputType([pscustomobject])]
     param()
     return $script:LastOuterCycleResult
+}
+
+# --- REGION: Pool-storage move mode (cycle-end archiving that can fail the cycle)
+# Every function here is best-effort and Get-Command-guarded: a runner whose
+# framework clone predates the archiving module, or a host with no pool storage
+# configured, degrades to doing nothing rather than failing to run cycles.
+
+<#
+.SYNOPSIS
+Imports the module set the archiver needs into THIS process, returning $true when the orchestrator is callable afterwards.
+.DESCRIPTION
+The per-cycle process runs the Outer module set, which carries none of it: without
+the authentication extension in particular, the vault pre-check cannot resolve a
+credential and every archiving attempt would exit "vault credential not configured"
+-- silently, once per cycle, forever. Test.HostIdentity additionally re-enables the
+per-run hosts/info.<hostId>.yml refresh. Mirrors the import set of
+Invoke-PoolStorageDrain.ps1, which is what the detached copy-mode path uses.
+#>
+function Import-OuterPoolStorageModuleSet {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param()
+    foreach ($m in @('Test.PoolStorage.psm1', 'Test.StateFile.psm1', 'Test.Config.psm1',
+                     'Test.YurunaDir.psm1', 'Test.HostIdentity.psm1', 'Test.Log.psm1', 'Test.Extension.psm1')) {
+        $p = Join-Path $PSScriptRoot $m
+        if (Test-Path -LiteralPath $p) { Import-Module $p -Global -ErrorAction SilentlyContinue }
+    }
+    if (Get-Command Import-Extension -ErrorAction SilentlyContinue) {
+        try { $null = Import-Extension -Area 'authentication' -RequireSingle } catch { $null = $_ }
+    }
+    return [bool](Get-Command Invoke-PoolStorageDrain -ErrorAction SilentlyContinue)
+}
+
+<#
+.SYNOPSIS
+$true when this host archives in MOVE mode (networkStorage.moveLogsToPoolStorage with the three pool paths set). Best-effort: any read failure answers $false, which is the safe direction -- nothing is deleted.
+#>
+function Get-OuterPoolStorageMoveMode {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$ConfigPath)
+    try {
+        if (-not (Get-Command Get-YurunaPoolStorageConfig -ErrorAction SilentlyContinue)) {
+            if (-not (Import-OuterPoolStorageModuleSet)) { return $false }
+        }
+        if (-not (Get-Command Read-TestConfig -ErrorAction SilentlyContinue)) { return $false }
+        $doc = Read-TestConfig -Path $ConfigPath
+        $cfg = Get-YurunaPoolStorageConfig -Config $doc -WarningAction SilentlyContinue
+        return [bool]($cfg -and $cfg.MoveLogs)
+    } catch {
+        Write-Verbose "Get-OuterPoolStorageMoveMode: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+<#
+.SYNOPSIS
+How long the move may wait for the detached push forwarder to finish reading the cycle folder. Reads the archiving module's constant when loaded, else the same default.
+#>
+function Get-OuterPoolStoragePushWait {
+    [CmdletBinding()]
+    [OutputType([int])]
+    param()
+    $m = Get-Module -Name 'Test.PoolStorage' -ErrorAction SilentlyContinue
+    if ($m) {
+        try {
+            $v = & $m { $script:PoolStoragePushDrainWaitSeconds }
+            if ($v -and [int]$v -gt 0) { return [int]$v }
+        } catch { $null = $_ }
+    }
+    return 120
+}
+
+<#
+.SYNOPSIS
+Waits (bounded) for the detached push forwarder to EXIT. Returns $true when it exited within the budget, $false on timeout or when there is nothing to wait for.
+.DESCRIPTION
+Takes either a Process object (Windows Start-Process -PassThru) or a bare PID (the
+POSIX nohup spawn echoes it). Waiting on the process rather than on the forwarder's
+lock file is the whole point: the lock is taken well into the child's startup and
+skipped entirely on its early-exit paths, so its absence proves nothing.
+#>
+function Wait-OuterPushForwarder {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter()][AllowNull()]$Process,
+        [Parameter()][int]$ProcessId = 0,
+        [Parameter()][int]$TimeoutSeconds = 120
+    )
+    $budgetMs = [math]::Max(1, $TimeoutSeconds) * 1000
+    if ($Process) {
+        try { return [bool]$Process.WaitForExit($budgetMs) } catch { Write-Verbose "Wait-OuterPushForwarder: $($_.Exception.Message)"; return $false }
+    }
+    if ($ProcessId -le 0) { return $false }
+    $deadline = (Get-Date).AddMilliseconds($budgetMs)
+    while ((Get-Date) -lt $deadline) {
+        if (-not (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)) { return $true }
+        Start-Sleep -Milliseconds 250
+    }
+    return $false
+}
+
+<#
+.SYNOPSIS
+PRE-SPAWN gate: refuses to start a cycle when the pool share cannot hold the cycle it is about to produce. Returns @{ ok; message }. Move mode only; ok = $true for every other state.
+.DESCRIPTION
+Reads only -- it never mounts. An unmounted share is the unreachable-NAS case, not
+the full-share case, so it is skipped: nothing is deleted while the share is away,
+and the backlog simply waits. Mount presence is answered by Test-PoolStorageMountEntry
+(the mount TABLE), not Test-YurunaPoolStorageMounted, which write-probes the share on
+every call and would make a read-only gate perform I/O against a possibly wedged NAS
+once per cycle.
+#>
+function Test-OuterPoolStorageSpaceReady {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$ConfigPath
+    )
+    $ok = @{ ok = $true; message = '' }
+    try {
+        if (-not (Get-Command Get-YurunaPoolStorageConfig -ErrorAction SilentlyContinue)) {
+            if (-not (Import-OuterPoolStorageModuleSet)) { return $ok }
+        }
+        if (-not (Get-Command Read-TestConfig -ErrorAction SilentlyContinue)) { return $ok }
+        $cfg = Get-YurunaPoolStorageConfig -Config (Read-TestConfig -Path $ConfigPath) -WarningAction SilentlyContinue
+        if (-not $cfg -or -not $cfg.MoveLogs) { return $ok }
+        if (-not (Get-Command Test-PoolStorageMountEntry -ErrorAction SilentlyContinue)) { return $ok }
+        if (-not (Test-PoolStorageMountEntry -Config $cfg)) {
+            Write-Verbose "pre-spawn storage check: '$($cfg.LocalPath)' is not mounted; skipping (offline NAS is not a full NAS)."
+            return $ok
+        }
+        $free = Get-PoolStorageFreeSpace -Config $cfg
+        if ($free -lt 0) { return $ok }
+        $ledger = $null
+        if ((Get-Command Read-PoolStorageLedger -ErrorAction SilentlyContinue) -and $env:YURUNA_RUNTIME_DIR) {
+            try { $ledger = Read-PoolStorageLedger -RuntimeDir $env:YURUNA_RUNTIME_DIR } catch { $null = $_ }
+        }
+        $projected = Get-PoolStorageProjectedSize -Ledger $ledger
+        $verdict = Test-PoolStorageSpaceSufficient -FreeBytes $free -NeedBytes $projected
+        if ($verdict.ok) {
+            # Room again: re-arm the notification so the NEXT time the share fills the
+            # operator hears about it instead of the latch swallowing it.
+            $null = Clear-PoolStorageSpaceNotification -Confirm:$false
+            return $ok
+        }
+        $msg = "pool storage is full: '$($cfg.LocalPath)/hosts/' has $(Format-PoolStorageSize -Bytes $free) free but the next cycle needs $(Format-PoolStorageSize -Bytes ([long]$verdict.required)) (a $(Format-PoolStorageSize -Bytes ([long]$verdict.reserve)) reserve plus $(Format-PoolStorageSize -Bytes $projected) projected from recent cycles). No cycle will start until old cycle archives are deleted from the share."
+        return @{ ok = $false; message = $msg }
+    } catch {
+        Write-Verbose "Test-OuterPoolStorageSpaceReady: $($_.Exception.Message)"
+        return $ok
+    }
+}
+
+<#
+.SYNOPSIS
+Runs the SYNCHRONOUS move at cycle end: archive every finished cycle folder, verify it, then delete the local copy. Returns the archiver's summary hashtable (or $null when it did not run). Never throws.
+.DESCRIPTION
+Bounded by the archiving module's move-phase cap: the loop is blocked while this
+runs, which is the price of a verdict that depends on the copy. Exceeding the cap
+leaves every not-yet-moved folder local and reports a warning -- a slow NAS is not a
+full NAS, and only the full-NAS verdict is allowed to fail a cycle.
+#>
+function Invoke-OuterPoolStorageMove {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter()][int]$Cycle = 0
+    )
+    try {
+        if (-not (Import-OuterPoolStorageModuleSet)) {
+            Write-Warning "[outer cycle $Cycle] move mode is configured but the poolStorage module set could not be loaded; nothing was archived or deleted."
+            return $null
+        }
+        $hid = ''
+        if (Get-Command Get-YurunaHostId -ErrorAction SilentlyContinue) {
+            try { $hid = [string](Get-YurunaHostId) } catch { $null = $_ }
+        }
+        if ([string]::IsNullOrWhiteSpace($hid)) {
+            Write-Warning "[outer cycle $Cycle] move mode: this host has no resolvable id (runtime/host.uuid); nothing was archived or deleted."
+            return $null
+        }
+        $started = Get-Date
+        $summary = Invoke-PoolStorageDrain -HostId $hid -LogDir $env:YURUNA_LOG_DIR -RuntimeDir $env:YURUNA_RUNTIME_DIR `
+            -MoveLogs -SpaceCheck -Confirm:$false
+        $elapsed = [int]((Get-Date) - $started).TotalSeconds
+        if (-not $summary) { return $null }
+        if ($summary.lockBusy) {
+            Write-Warning "[outer cycle $Cycle] another poolStorage run holds the lock; this cycle's results stay local and are archived by the next run."
+            return $null
+        }
+        $line = "[outer cycle $Cycle] poolStorage move: moved=$($summary.moved) deleted=$($summary.deleted) pending=$($summary.pending) spaceShort=$($summary.spaceShort) in ${elapsed}s"
+        Write-Output $line
+        Write-OuterLog $line
+        if ($summary.error -and -not $summary.spaceShort) {
+            Write-Warning "[outer cycle $Cycle] poolStorage move reported: $($summary.error)"
+        }
+        return $summary
+    } catch {
+        Write-Warning "[outer cycle $Cycle] poolStorage move error (non-fatal): $($_.Exception.Message)"
+        return $null
+    }
+}
+
+<#
+.SYNOPSIS
+Persists a schema-v2 last_failure.json describing a full pool share, so the failure pause classifies on 'pool_storage_full' rather than on a stale record. Writes only when no richer record exists (a cycle that already failed keeps its own).
+#>
+function Write-PoolStorageSpaceFailureRecord {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$Message,
+        [Parameter()][string]$Stage = 'PoolStorageMove',
+        [Parameter()][int]$Cycle = 0,
+        [switch]$Force
+    )
+    if (-not $env:YURUNA_LOG_DIR) { return $false }
+    $path = Join-Path $env:YURUNA_LOG_DIR 'last_failure.json'
+    if ((-not $Force) -and (Test-Path -LiteralPath $path)) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($path, 'Write pool_storage_full failure record')) { return $false }
+    # New-InfraFailureRecord builds the canonical schema-v2 shape but persists
+    # nothing, and its module is not in the Outer set -- import it best-effort and
+    # fall back to the same shape inline (the watchdog synth above does likewise) so
+    # a missing module cannot leave the pause with nothing to classify.
+    $record = $null
+    if (-not (Get-Command New-InfraFailureRecord -ErrorAction SilentlyContinue)) {
+        $sfs = Join-Path $PSScriptRoot 'Test.SequenceFailureState.psm1'
+        if (Test-Path -LiteralPath $sfs) { Import-Module $sfs -Global -ErrorAction SilentlyContinue }
+    }
+    if (Get-Command New-InfraFailureRecord -ErrorAction SilentlyContinue) {
+        try {
+            $built = New-InfraFailureRecord -Stage $Stage -FailureClass 'pool_storage_full' -Severity 'hard' -ErrorMessage $Message
+            if ($built -and $built.File) { $record = $built.File }
+        } catch { Write-Verbose "New-InfraFailureRecord: $($_.Exception.Message)" }
+    }
+    if (-not $record) {
+        $record = [ordered]@{
+            schemaVersion        = 2
+            reason               = 'infra'
+            stepNumber           = 0
+            totalSteps           = 0
+            action               = $Stage
+            description          = $Message
+            vmName               = ''
+            guestKey             = ''
+            timestamp            = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss')
+            failureClass         = 'pool_storage_full'
+            severity             = 'hard'
+            suggestedRecoveries  = @()
+            actionVerb           = $Stage
+            classificationSource = 'infra-stage'
+            sequenceName         = ''
+            context              = [ordered]@{ hostType = ''; stage = $Stage; cycle = $Cycle }
+        }
+    }
+    if (Get-Command Write-YurunaStateFileJson -ErrorAction SilentlyContinue) {
+        return [bool](Write-YurunaStateFileJson -Path $path -InputObject $record -Depth 6 -Confirm:$false)
+    }
+    try {
+        [System.IO.File]::WriteAllText($path, ($record | ConvertTo-Json -Depth 6), [System.Text.UTF8Encoding]::new($false))
+        return $true
+    } catch {
+        Write-Verbose "Write-PoolStorageSpaceFailureRecord: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+<#
+.SYNOPSIS
+Sends the cycle-failure notification for a full share, at most once per consecutive-failure streak. Best-effort.
+.DESCRIPTION
+Gated on a runtime flag rather than sent every time: the pre-spawn refusal repeats
+every hour for as long as the share stays full, and an unbounded stream of identical
+"pool storage is full" mails is how an operator learns to filter the channel that
+also carries real failures. The flag clears on the next run that finds room.
+#>
+function Send-PoolStorageSpaceNotification {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$Message,
+        [Parameter()][int]$Cycle = 0
+    )
+    if (-not $env:YURUNA_RUNTIME_DIR) { return $false }
+    $flag = Join-Path $env:YURUNA_RUNTIME_DIR 'poolstorage.space-fail.notified'
+    if (Test-Path -LiteralPath $flag) { return $false }
+    if (-not $PSCmdlet.ShouldProcess('pool storage full', 'Send cycle failure notification')) { return $false }
+    # Latch FIRST. The flag means "this streak has been reported", not "a mail was
+    # delivered": a host with no transport configured -- or one whose transport is
+    # briefly down -- would otherwise never write it and would re-attempt on every
+    # hourly refusal, which is the flood this gate exists to prevent.
+    try { [System.IO.File]::WriteAllText($flag, (Get-Date).ToUniversalTime().ToString('o')) } catch { Write-Verbose "space-fail latch: $($_.Exception.Message)" }
+    try {
+        if (-not (Get-Command Send-CycleFailureNotification -ErrorAction SilentlyContinue)) {
+            $nm = Join-Path $PSScriptRoot 'Test.Notify.psm1'
+            if (Test-Path -LiteralPath $nm) { Import-Module $nm -Global -ErrorAction SilentlyContinue }
+        }
+        if (Get-Command Send-CycleFailureNotification -ErrorAction SilentlyContinue) {
+            $hostType = ''
+            if (Get-Command Get-HostType -ErrorAction SilentlyContinue) {
+                try { $hostType = [string](Get-HostType) } catch { $null = $_ }
+            }
+            # EventData is passed PRE-BUILT: the helper's own fallback builder reads
+            # last_failure.json out of the cycle folder, which this process does not
+            # have, and would ship failureClass 'unknown' for a failure whose whole
+            # point is its class.
+            $eventData = [ordered]@{
+                failureClass = 'pool_storage_full'
+                severity     = 'hard'
+                reason       = 'infra'
+                action       = 'PoolStorageMove'
+                description  = $Message
+                cycle        = $Cycle
+            }
+            Send-CycleFailureNotification -HostType $hostType -SubjectSuffix 'pool storage full' `
+                -GuestKey '(poolStorage)' -StepName 'archive cycle results' -ErrorMessage $Message `
+                -EventData $eventData -ErrorAction SilentlyContinue
+        }
+        return $true
+    } catch {
+        Write-Verbose "Send-PoolStorageSpaceNotification: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+<#
+.SYNOPSIS
+Clears the space-failure notification latch so the next full share re-alerts.
+#>
+function Clear-PoolStorageSpaceNotification {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param()
+    if (-not $env:YURUNA_RUNTIME_DIR) { return $false }
+    $flag = Join-Path $env:YURUNA_RUNTIME_DIR 'poolstorage.space-fail.notified'
+    if (-not (Test-Path -LiteralPath $flag)) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($flag, 'Clear the pool-storage space-failure latch')) { return $false }
+    Remove-Item -LiteralPath $flag -Force -ErrorAction SilentlyContinue
+    return $true
+}
+
+<#
+.SYNOPSIS
+Reports a post-cycle space failure: console, outer log, failure record (only when the inner left none), and a streak-gated notification.
+#>
+function Write-PoolStorageSpaceFailure {
+    [CmdletBinding()]
+    [OutputType([void])]
+    param(
+        [Parameter(Mandatory)]$Move,
+        [Parameter()][int]$Cycle = 0,
+        [Parameter()][int]$InnerExitCode = 0
+    )
+    $msg = [string]$Move.error
+    if ([string]::IsNullOrWhiteSpace($msg)) { $msg = 'pool storage is full; this cycle could not be archived.' }
+    $full = "$msg Cycle results were NOT archived and were NOT deleted locally. Delete old cycle archives under the share's hosts/ folder to continue."
+    Write-Warning "[outer cycle $Cycle] $full"
+    Write-OuterLog "[outer cycle $Cycle] pool storage full: $full"
+    # Only when the inner passed. A cycle that already failed wrote its own, richer
+    # record; replacing it would trade a real diagnosis for a storage message.
+    if ($InnerExitCode -eq 0) {
+        $null = Write-PoolStorageSpaceFailureRecord -Message $full -Stage 'PoolStorageMove' -Cycle $Cycle -Confirm:$false
+    }
+    $null = Send-PoolStorageSpaceNotification -Message $full -Cycle $Cycle -Confirm:$false
 }
 
 function Invoke-RunnerOuterCycle {
@@ -762,6 +1128,9 @@ function Invoke-RunnerOuterCycle {
             throw "Invoke-RunnerOuterCycle: -State is missing required key '$k'."
         }
     }
+    # Set by the cycle-end move when the share turned out to be full. Read at the
+    # single return point, where it can still turn a passing cycle into a failing one.
+    $spaceFailure = $null
 
         # State machine: idle -> cycle-start. The transition lands
         # before any per-cycle work so a watchdog reading
@@ -877,6 +1246,30 @@ function Invoke-RunnerOuterCycle {
         Remove-Item -LiteralPath $stepHbFile      -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $phaseFile       -Force -ErrorAction SilentlyContinue
         Remove-Item -LiteralPath $lastFailureFile -Force -ErrorAction SilentlyContinue
+
+        # --- REGION: Pre-spawn pool-storage space check (move mode only)
+        # Deliberately AFTER the last_failure.json wipe. The failure pause classifies
+        # from that file, so a check placed before the wipe would leave the PREVIOUS
+        # cycle's record in place -- and if its class were a transient one, a host with
+        # auto-remediation on would cut the storage pause short and re-enter the same
+        # wall every few minutes instead of holding for the hour.
+        #
+        # Running a full cycle only to discover at the end that its results cannot be
+        # archived wastes the cycle; this refuses before the spawn, on a projection
+        # from what recent cycles actually cost.
+        $preSpawnSpace = Test-OuterPoolStorageSpaceReady -ConfigPath $State.ConfigPath
+        if ($preSpawnSpace -and -not $preSpawnSpace.ok) {
+            Write-Warning "[outer cycle $cycle] $($preSpawnSpace.message)"
+            Write-OuterLog "[outer cycle $cycle] pre-spawn storage check refused the cycle: $($preSpawnSpace.message)"
+            Write-PoolStorageSpaceFailureRecord -Message $preSpawnSpace.message -Stage 'PoolStorageSpaceCheck' -Cycle $cycle
+            Send-PoolStorageSpaceNotification -Message $preSpawnSpace.message -Cycle $cycle
+            if (Get-Command Set-RunnerState -ErrorAction SilentlyContinue) {
+                $null = Set-RunnerState -To 'fault' -Reason 'pool storage full' -Confirm:$false
+            }
+            # ExitCode 1 (not 0) so the loop's failure branch takes it into the normal
+            # pause; the outcome name keeps it distinguishable from a cycle that ran.
+            return ($script:LastOuterCycleResult = [pscustomobject]@{ Outcome = 'storage-full'; ExitCode = 1 })
+        }
         # Post-wipe: if Remove-Item failed (locked file, transient
         # permission error, AV mid-scan, anything), the watchdog about
         # to arm would read the stale mtime and kill the new inner
@@ -1023,7 +1416,7 @@ function Invoke-RunnerOuterCycle {
         Write-Output "[outer cycle $cycle] inner exited with code $exitCode"
         Write-OuterLog "[outer cycle $cycle] inner exited with code $exitCode"
 
-        # === poolStorage health surfacing (best-effort) ===========================
+        # --- REGION: poolStorage health surfacing (best-effort)
         # The drain below runs DETACHED + best-effort, so a host that has STOPPED
         # replicating (bad credential, read-only share, a Windows drive-letter /
         # credential collision) records the failure ONLY in the ledger -- where no
@@ -1038,18 +1431,16 @@ function Invoke-RunnerOuterCycle {
             }
             if ((Get-Command Read-PoolStorageLedger -ErrorAction SilentlyContinue) -and
                 (Get-Command Get-PoolStorageHealthWarning -ErrorAction SilentlyContinue) -and
+                (Get-Command Get-YurunaPoolStorageConfig -ErrorAction SilentlyContinue) -and
                 (Get-Command Read-TestConfig -ErrorAction SilentlyContinue)) {
-                $psReplicate = $false
+                $psArchiveCfg = $null
                 try {
                     $psCfgNow = Read-TestConfig -Path $State.ConfigPath
-                    if (($psCfgNow -is [System.Collections.IDictionary]) -and
-                        ($psCfgNow['pool'] -is [System.Collections.IDictionary])) {
-                        $psReplicate = [bool]$psCfgNow['pool']['networkReplicate']
-                    }
+                    $psArchiveCfg = Get-YurunaPoolStorageConfig -Config $psCfgNow -WarningAction SilentlyContinue
                 } catch { $null = $_ }
-                if ($psReplicate) {
+                if ($psArchiveCfg) {
                     $psLedger = Read-PoolStorageLedger -RuntimeDir $env:YURUNA_RUNTIME_DIR
-                    $psWarn   = Get-PoolStorageHealthWarning -Ledger $psLedger -Replicate $true
+                    $psWarn   = Get-PoolStorageHealthWarning -Ledger $psLedger
                     if ($psWarn) {
                         Write-Warning "[outer cycle $cycle] $psWarn"
                         Write-OuterLog "[outer cycle $cycle] poolStorage health: $psWarn"
@@ -1060,17 +1451,22 @@ function Invoke-RunnerOuterCycle {
             Write-Verbose "poolStorage health check skipped: $($_.Exception.Message)"
         }
 
-        # === yuruna pool storage replication (best-effort, DETACHED) ===
-        # Fire the backlog-draining replicator in its OWN detached process so a
+        # --- REGION: Pool-storage archiving, COPY mode (best-effort, DETACHED)
+        # Fire the backlog-draining archiver in its OWN detached process so a
         # slow/absent NAS can NEVER delay the next cycle. The drain self-dedupes
         # (single-instance lock file), fail-fasts on an unreachable share, copies
-        # every not-yet-replicated cycle atomically, and is a no-op unless
-        # pool.networkReplicate is configured. Spawn failure is non-fatal. Detach
-        # idiom mirrors Start-StatusService.ps1 (empty stdin sink on Windows so the
-        # child can't pin conhost; nohup + own process group on macOS/Linux).
+        # every not-yet-archived cycle atomically, and is a no-op unless the three
+        # pool paths are configured. Spawn failure is non-fatal. Detach idiom mirrors
+        # Start-StatusService.ps1 (empty stdin sink on Windows so the child can't pin
+        # conhost; nohup + own process group on macOS/Linux).
+        #
+        # MOVE mode is deliberately excluded here: it deletes local folders, so it has
+        # to run synchronously (below) where its verdict can still fail the cycle, and
+        # a detached copy running beside it would race it for the same folders.
+        $psMoveMode = Get-OuterPoolStorageMoveMode -ConfigPath $State.ConfigPath
         try {
             $drainScript = Join-Path $PSScriptRoot 'Invoke-PoolStorageDrain.ps1'
-            if (Test-Path -LiteralPath $drainScript) {
+            if ((-not $psMoveMode) -and (Test-Path -LiteralPath $drainScript)) {
                 $hid = if (Get-Command Get-YurunaHostId -ErrorAction SilentlyContinue) { [string](Get-YurunaHostId) } else { '' }
                 $drainErr = Join-Path $env:YURUNA_RUNTIME_DIR 'poolstorage.drain.err'
                 if ($IsWindows) {
@@ -1091,7 +1487,7 @@ function Invoke-RunnerOuterCycle {
             Write-Warning "[outer cycle $cycle] poolStorage drain spawn error (non-fatal): $($_.Exception.Message)"
         }
 
-        # === pool push forwarder (best-effort, DETACHED) ===
+        # --- REGION: Pool push forwarder (best-effort, DETACHED)
         # Ship this cycle's NDJSON events to the aggregator's /ingest so they reach Loki
         # without waiting for the next 30s pull. Runs in its OWN detached process (same
         # idiom as the drain) so a slow/absent aggregator can NEVER delay the next cycle
@@ -1099,6 +1495,8 @@ function Invoke-RunnerOuterCycle {
         # forwarder self-gates: it is a fast no-op unless the lab-auth-token is configured
         # (enrollment is the push opt-in) AND a caching-proxy-service is reachable. Spawn failure is
         # non-fatal.
+        $pushProc = $null
+        $pushPid  = 0
         try {
             $pushScript = Join-Path $PSScriptRoot 'Invoke-PoolPushForwarder.ps1'
             if (Test-Path -LiteralPath $pushScript) {
@@ -1109,20 +1507,63 @@ function Invoke-RunnerOuterCycle {
                     if (-not (Test-Path -LiteralPath $pushStdin)) { [System.IO.File]::WriteAllBytes($pushStdin, [byte[]]@()) }
                     $pushOut = Join-Path $env:YURUNA_RUNTIME_DIR 'poolpush.forwarder.out'
                     $pushScriptQuoted = '"' + $pushScript + '"'
-                    Start-Process -FilePath $State.PwshExe `
+                    $pushProc = Start-Process -FilePath $State.PwshExe `
                         -ArgumentList "-NoProfile", "-WindowStyle", "Hidden", "-File", $pushScriptQuoted, "-HostId", $phid `
                         -RedirectStandardInput  $pushStdin `
                         -RedirectStandardOutput $pushOut `
-                        -RedirectStandardError  $pushErr | Out-Null
+                        -RedirectStandardError  $pushErr `
+                        -PassThru
                 } else {
-                    & bash -c "set -m; nohup '$($State.PwshExe)' -NoProfile -File '$pushScript' -HostId '$phid' </dev/null >/dev/null 2>'$pushErr' & echo `$!" | Out-Null
+                    $spawned = & bash -c "set -m; nohup '$($State.PwshExe)' -NoProfile -File '$pushScript' -HostId '$phid' </dev/null >/dev/null 2>'$pushErr' & echo `$!"
+                    $parsedPid = 0
+                    if ([int]::TryParse("$spawned".Trim(), [ref]$parsedPid)) { $pushPid = $parsedPid }
                 }
             }
         } catch {
             Write-Warning "[outer cycle $cycle] pool push spawn error (non-fatal): $($_.Exception.Message)"
         }
 
-        # === pool alert notifier (best-effort, BOUNDED cycle-end hook) =============
+        # --- REGION: Move mode: let the forwarder finish reading before anything is deleted
+        # Wait on the forwarder PROCESS, not on its lock file. The lock is created
+        # well into the child's own startup -- after module imports, the vault token,
+        # the proxy-IP read and the cycle-folder scan -- and three gated paths exit
+        # without ever taking it. A wait-for-release would therefore observe "released"
+        # instantly while the child was still booting, and the mover would delete the
+        # cycle folder out from under the read it exists to protect. Process exit is
+        # the only signal that means every read is done.
+        #
+        # Timing out is survivable, not silent: the archived folder carries its own
+        # cycle.events.ndjson, so the events are never lost -- only their arrival in
+        # Loki is delayed until the aggregator's pull re-reaches the file through the
+        # host's mount fallback.
+        if ($psMoveMode -and ($pushProc -or $pushPid -gt 0)) {
+            $waitSeconds = 120
+            if (Get-Command Get-OuterPoolStoragePushWait -ErrorAction SilentlyContinue) {
+                $waitSeconds = Get-OuterPoolStoragePushWait
+            }
+            $exited = Wait-OuterPushForwarder -Process $pushProc -ProcessId $pushPid -TimeoutSeconds $waitSeconds
+            if (-not $exited) {
+                Write-Warning "[outer cycle $cycle] the pool push forwarder did not finish within ${waitSeconds}s; archiving proceeds. This cycle's events reach Loki on a later pull, not on this push."
+                Write-OuterLog "[outer cycle $cycle] push forwarder wait timed out after ${waitSeconds}s; proceeding with the move."
+            }
+        }
+
+        # --- REGION: Pool-storage archiving, MOVE mode (SYNCHRONOUS, bounded)
+        # Move mode copies, verifies, and then DELETES each finished cycle's local
+        # folder, so its outcome is part of the cycle's verdict and it cannot be
+        # detached. It blocks the loop by necessity; the phase is wall-clock bounded
+        # and a slow NAS is reported as a warning rather than a failure.
+        if ($psMoveMode) {
+            $moveResult = Invoke-OuterPoolStorageMove -Cycle $cycle
+            if ($moveResult -and $moveResult.spaceShort) {
+                # The share is full: nothing was copied and nothing was deleted. Fail
+                # the cycle so the runner takes its normal failure pause instead of
+                # running the next cycle into the same wall.
+                $spaceFailure = $moveResult
+            }
+        }
+
+        # --- REGION: Pool alert notifier (best-effort, BOUNDED cycle-end hook)
         # On the ONE host the operator configured the pool.alert transport, deliver the
         # aggregator's ADVISORY pool-degraded alerts: read the latched yuruna_pool_alert_
         # active gauge over HTTP, enqueue rising edges on the poolStorage NAS spool, deliver
@@ -1251,6 +1692,15 @@ function Invoke-RunnerOuterCycle {
                 }
             }
         }
+
+    # A full share turns a passing cycle into a failing one: its results could not be
+    # archived, and on a move-mode host that is the difference between having them and
+    # not. A cycle that ALREADY failed keeps its own, richer verdict and its own
+    # last_failure.json -- the runner never replaces a real failure with this one.
+    if ($spaceFailure) {
+        Write-PoolStorageSpaceFailure -Move $spaceFailure -Cycle $cycle -InnerExitCode $exitCode
+        if ($exitCode -eq 0) { $exitCode = 1 }
+    }
 
     return ($script:LastOuterCycleResult = [pscustomobject]@{ Outcome = 'completed'; ExitCode = $exitCode })
 }
@@ -1488,6 +1938,12 @@ function Invoke-RunnerOuterLoop {
         # to print and nothing for the failure machinery to act on. Holding and
         # re-entering is right for the same reason it is right for a failed spawn --
         # the condition is upstream of the tests and usually momentary.
+        # 'storage-full' is deliberately NOT in this list. These outcomes take a short
+        # hold and retry, which is right for a momentary condition upstream of the
+        # tests; a full share is not momentary -- retrying every 30 seconds would burn
+        # the day re-discovering that nobody has deleted anything yet. It falls through
+        # to the failure branch below and takes the full pause, which ends early only
+        # on a config edit or a new commit: the two things that plausibly change it.
         if ($outcome -in @('pull-error','paused','spawn-failed','cycle-aborted')) {
             $holdSeconds = switch ($outcome) {
                 'pull-error'    { $State.OuterPullErrorSleepSeconds }
@@ -1734,4 +2190,9 @@ Export-ModuleMember -Function `
     Sync-ForwardEnv, Write-OuterLog, `
     Clear-TerminalNotifierJob, `
     Wait-OuterInterruptible, Stop-ProcessTree, Invoke-OuterCycleDispatch, `
-    Invoke-RunnerOuterCycle, Get-LastOuterCycleResult, Invoke-RunnerOuterLoop
+    Invoke-RunnerOuterCycle, Get-LastOuterCycleResult, Invoke-RunnerOuterLoop, `
+    Get-OuterPoolStorageMoveMode, Get-OuterPoolStoragePushWait, `
+    Wait-OuterPushForwarder, Test-OuterPoolStorageSpaceReady, Invoke-OuterPoolStorageMove, `
+    Write-PoolStorageSpaceFailureRecord, Send-PoolStorageSpaceNotification, `
+    Clear-PoolStorageSpaceNotification, Write-PoolStorageSpaceFailure, `
+    Import-OuterPoolStorageModuleSet

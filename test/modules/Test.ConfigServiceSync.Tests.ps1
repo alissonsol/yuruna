@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42f6a2c8-1d3e-4b90-8a7f-2e3d4c5b6a7e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -315,19 +315,13 @@ Describe 'Yuruna control tag (dashboard Control column)' {
     }
 }
 
-# ---------------------------------------------------------------------------
-# lab-auth-token provisioning (Set-UserVaultKey + Set-LabAuthToken). The auth
-# extension's vault + users.yml paths are redirected into a throwaway temp dir
-# so the tests never touch the real vault.
-#
-# Setup and teardown MUST live in BeforeAll/AfterAll, not at file scope. Pester
-# executes the whole file top-level during DISCOVERY, before any It runs -- so a
-# file-scope teardown tears the redirect down (the -Force re-import re-runs the
-# module prologue and recomputes the paths from the module location) while the
-# tests are still pending. The Its then run against the REAL vault and write
-# their fixtures into the operator's live credential store. BeforeAll/AfterAll
-# are run-phase, so the redirect brackets the Its the way it reads.
-# ---------------------------------------------------------------------------
+# --- REGION: lab-auth-token provisioning (Set-UserVaultKey + Set-LabAuthToken)
+# The auth extension's vault + users.yml paths are redirected into a throwaway
+# temp dir so the tests never touch the real vault. The redirect brackets the
+# Its from BeforeAll/AfterAll rather than file scope -- a file-scope teardown
+# would fire during discovery and leave the Its writing fixtures into the
+# operator's live credential store. Why discovery runs it early:
+# https://yuruna.link/memory#pester-file-scope-fixtures
 Describe 'lab-auth-token provisioning' {
     BeforeAll {
         # $PSScriptRoot, not the file-scope $here: discovery-phase variables are
@@ -396,7 +390,7 @@ Describe 'lab-auth-token provisioning' {
     }
 }
 
-# ---------------------------------------------------------------------------
+# --- REGION: Status-service bounce
 # The status-service bounce must be bounded by the CHILD it starts, never by the
 # status service that child detaches.
 #
@@ -409,7 +403,6 @@ Describe 'lab-auth-token provisioning' {
 # silently, because the same redirection swallowed every progress line. This
 # drives the real code path against a stand-in start script that detaches a
 # long-lived grandchild the same way the real one does.
-# ---------------------------------------------------------------------------
 Describe 'status-service bounce' {
     BeforeAll {
         $bnDir = Join-Path ([System.IO.Path]::GetTempPath()) ('yuruna-bounce-' + [guid]::NewGuid().ToString('N'))
@@ -470,14 +463,12 @@ exit 0
     }
 }
 
-# ---------------------------------------------------------------------------
-# Reference-host response classifiers (pure; the HTTP is a thin wrapper around
-# these). Every value these decide about is one the operator would otherwise
-# type by hand, so the tests pin the two behaviors that keep the sync from
-# prompting for input it could have obtained: a serving reference is recognized
-# as serving, and a reference that cannot answer says WHY rather than returning
-# a silent $null.
-# ---------------------------------------------------------------------------
+# --- REGION: Reference-host response classifiers
+# Pure; the HTTP is a thin wrapper around them. Every value these decide about
+# is one the operator would otherwise type by hand, so the tests pin the two
+# behaviors that keep the sync from prompting for input it could have obtained:
+# a serving reference is recognized as serving, and a reference that cannot
+# answer says WHY rather than returning a silent $null.
 Describe 'Get-ConfigSyncCredentialReadiness (credential capability verdict)' {
     # A wrong-proof probe that comes back 403 is the GO signal: the reference
     # holds a token and has a credential path for this user, so the only missing
@@ -512,12 +503,10 @@ Describe 'Get-ConfigSyncCredentialReadiness (credential capability verdict)' {
     }
 }
 
-# ---------------------------------------------------------------------------
-# Lab-token exchange verdict (pure; Request-LabTokenExchange is a thin HTTP
-# wrapper around it). Every status the aggregator's /api/v1/lab-token can
-# answer maps to one operator-actionable sentence, so a failed enrollment
-# never dead-ends in a bare status code.
-# ---------------------------------------------------------------------------
+# --- REGION: Lab-token exchange verdict
+# Pure; Request-LabTokenExchange is a thin HTTP wrapper around it. Every status
+# the aggregator's /api/v1/lab-token can answer maps to one operator-actionable
+# sentence, so a failed enrollment never dead-ends in a bare status code.
 Describe 'Get-LabTokenExchangeVerdict (lab-token exchange verdict)' {
     It 'accepts a 200 that carries the shared token' {
         $r = Get-LabTokenExchangeVerdict -StatusCode 200 -Token 'the-shared-token' -AggregatorUrl 'https://proxy:9400/api/v1/lab-token'
@@ -556,14 +545,13 @@ Describe 'Get-LabTokenExchangeVerdict (lab-token exchange verdict)' {
     }
 }
 
-# ---------------------------------------------------------------------------
-# Lab-token envelope. The seal is what authenticates the exchange's ANSWER to a
-# host that cannot verify the aggregator's TLS leaf, so the vector below is
-# produced by the Go side (pool-aggregator-service sealLabToken) and MUST open here: if
-# it stops opening, the two implementations have drifted on the KDF, the
-# iteration count, the AEAD label, or the envelope framing, and enrollment
-# would fail closed against a correctly-behaving aggregator.
-# ---------------------------------------------------------------------------
+# --- REGION: Lab-token envelope
+# The seal is what authenticates the exchange's ANSWER to a host that cannot
+# verify the aggregator's TLS leaf, so the vector below is produced by the Go
+# side (pool-aggregator-service sealLabToken) and MUST open here: if it stops
+# opening, the two implementations have drifted on the KDF, the iteration count,
+# the AEAD label, or the envelope framing, and enrollment would fail closed
+# against a correctly-behaving aggregator.
 Describe 'Unprotect-LabTokenEnvelope (cross-language lab-token envelope)' {
     # Golden envelope produced by the Go seal (pool-aggregator-service sealLabToken) for
     # code 'k3v9qa' over token 'shared-lab-auth-token-value'.

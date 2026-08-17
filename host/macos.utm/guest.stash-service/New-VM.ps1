@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e681
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -89,8 +89,10 @@ $_repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScrip
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
-# --- REGION: Create copies and files for VM
+# --- REGION: Remove existing VM
 if (Test-Path -LiteralPath $UtmDir) { Remove-Item -LiteralPath $UtmDir -Recurse -Force }
+
+# --- REGION: Per-VM directory + disk
 New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 
 # --- REGION: Copy base image -> per-VM disk
@@ -115,7 +117,7 @@ if (-not (Expand-ExtensionVmDisk -Path $DiskImage -SizeBytes 256GB -Format 'qcow
     Write-Warning "Resize manually with: qemu-img resize -f qcow2 '$DiskImage' 256G"
 }
 
-# --- REGION: Generate cloud-init seed ISO
+# --- REGION: Stage the cloud-init seed directory
 $SeedDir = Join-Path $downloadDir "seed_temp/$VMName"
 if (Test-Path -LiteralPath $SeedDir) { Remove-Item -LiteralPath $SeedDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
@@ -123,25 +125,24 @@ New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 # meta-data is shared under host/vmconfig/ (byte-identical across all 3 host platforms).
 $hostVmConfigDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) 'host/vmconfig'
 Copy-Item -Path (Join-Path $hostVmConfigDir 'stash-service.meta-data') -Destination "$SeedDir/meta-data"
-# network-config, shipped alongside meta-data on the same seed: it pins the
-# guest DHCP client identity to the interface MAC. Without it the guest
-# identifies itself by a machine-id-derived DUID, which cloud-init changes
-# mid-boot, so the DHCP server sees a new client and leases a different address
-# -- and every host-side artifact aimed at the first address (port-forwarder,
-# readiness probe, published URL) is left pointing at one the guest abandoned.
-Copy-Item -Path (Join-Path $hostVmConfigDir 'extension-service.network-config') -Destination "$SeedDir/network-config"
+# --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+Copy-Item -Path (Join-Path $hostVmConfigDir 'guest-dhcp.network-config') -Destination "$SeedDir/network-config"
 
-# --- REGION: Yuruna harness SSH key + vault password
+# --- REGION: Yuruna harness SSH key
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.Ssh.psm1')       -Force -DisableNameChecking
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
 $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty."; exit 1 }
+
+# --- REGION: Vault admin password
 $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
 $AdminPassword = Get-Password -Username 'stash-admin'
 if (-not $AdminPassword) { Write-Error "Get-Password returned empty for 'stash-admin'."; exit 1 }
 Write-Output "Password came from authentication mechanism: $_authActiveName"
 Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
 
+# --- REGION: Pick a UTM network mode (BEFORE building user-data)
+# --- REGION: https://yuruna.link/network#cache-vm-seed-host-binding
 # Host coordinates (status service, for the in-VM source fetch) + stash storage
 # coordinates (the share), baked into the seed. The network mode and the host
 # address are a matched pair -- the address only works from the network the VM
@@ -183,6 +184,7 @@ $aggregatorSeedUrl = Get-PoolAggregatorServiceSeedUrl
 # stash-service.*). New-CloudInitUserData resolves placeholders with literal
 # .Replace(), so values carrying regex-special chars are safe.
 Import-Module (Join-Path $_repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
 $UserData = New-CloudInitUserData `
     -BasePath    (Join-Path $_repoRoot 'host/vmconfig/stash-service.base.user-data') `
     -OverlayPath (Join-Path $_repoRoot 'host/vmconfig/stash-service.utm.overlay.yml') `
@@ -201,6 +203,7 @@ $UserData = New-CloudInitUserData `
     } -Confirm:$false
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 
+# --- REGION: Generate cloud-init seed ISO
 $SeedIso = "$DataDir/seed.iso"
 Write-Output "Generating seed.iso with cloud-init configuration..."
 & hdiutil makehybrid -o "$SeedIso" -joliet -iso -default-volume-name cidata "$SeedDir" 2>&1 | ForEach-Object { Write-Verbose $_ }
@@ -209,7 +212,7 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# --- REGION: config.plist (QEMU backend)
+# --- REGION: Create and configure the UTM bundle (config.plist, QEMU backend)
 $TemplatePath = Join-Path $ScriptDir "config.plist.template"
 if (-not (Test-Path $TemplatePath)) {
     Write-Error "Template not found at '$TemplatePath'."
@@ -219,12 +222,8 @@ if (-not (Test-Path $TemplatePath)) {
 $VmUuid  = [guid]::NewGuid().ToString().ToUpper()
 $DiskId  = [guid]::NewGuid().ToString().ToUpper()
 $SeedId  = [guid]::NewGuid().ToString().ToUpper()
-$rng     = [System.Random]::new()
-
-$MacBytes = [byte[]]::new(6)
-$rng.NextBytes($MacBytes)
-$MacBytes[0] = ($MacBytes[0] -bor 0x02) -band 0xFE  # locally administered unicast
-$MacAddress = ($MacBytes | ForEach-Object { $_.ToString("X2") }) -join ":"
+# --- REGION: https://yuruna.link/network#defining-deterministic-guest-mac-addresses
+$MacAddress = Get-YurunaGuestMacAddress -VMName $VMName
 
 Import-Module (Join-Path (Split-Path -Parent $ScriptDir) "modules/Yuruna.Host.psm1") -Force
 $VncDisplay = Get-VncDisplayForVm -VMName $VMName
@@ -249,15 +248,7 @@ if ($NetworkMode -eq 'Shared') {
     Write-Output "Bridge interface: $BridgeInterface (stash-service VM will request DHCP on this LAN)"
 }
 
-# 2 GB RAM, 4 vCPU. Sized for the SCP receive + SQLite metadata writer
-# + in-VM UI, none of which holds a large resident working set: the transfers
-# stream to disk rather than buffering whole artifacts. What sets the floor is
-# the first-boot `go build`, not steady state: the pure-Go SQLite driver is the
-# largest compile in the graph, and a cold build of it peaks near 1.1 GB with no
-# swap in the guest. One baseline across all three extension VMs. UTM's
-# MemorySize is a fixed allocation with no balloon, so the whole amount stays
-# committed on the host -- the extension VMs share one machine with the cache VM
-# on a standalone host.
+# --- REGION: https://yuruna.link/definition#defining-the-vm-memory-policy
 # --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
 $hostCores = [int](& /usr/sbin/sysctl -n hw.physicalcpu)
 if ($hostCores -lt 4) {
@@ -301,7 +292,7 @@ Write-Verbose "config.plist validated OK (VNC on 127.0.0.1:$(5900 + $VncDisplay)
 # --- REGION: Cleanup temporary folders
 Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 
-# --- REGION: Guidance
+# --- REGION: Next steps for the operator
 Write-Output ""
 Write-Output "== stash-service VM bundle created =="
 Write-Output "  Path:      $UtmDir"
@@ -344,7 +335,7 @@ Write-Output ($guidance.
     Replace('__VM_NAME__', $VMName).
     Replace('__UTM_DIR__', $UtmDir))
 
-# --- REGION: hand root-run artifacts back to the operator
+# --- REGION: Hand root-run artifacts back to the operator
 # Guard only: the supported invocation is UNELEVATED (these scripts elevate the
 # individual operations that need it, and root has no Aqua session for open /
 # utmctl / osascript). But a run that did reach here as root left the bundle,

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42f6a7b8-c9d0-4e12-8345-6a7b8c9d0e1f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,44 +42,41 @@ param(
 
 $InformationPreference = 'Continue'
 
-# $ErrorActionPreference is deliberately left at its inherited 'Continue', and
-# must stay that way. A script-scoped 'Stop' is not scoped to the script: an
-# advanced function invoked from here runs under it too, so every host-contract
-# call below would have its NON-terminating errors promoted to terminating ones.
-# Those helpers report and carry on by design -- Get-VMState answers 'absent' for
-# a VM that was never created, Remove-GuestVMQuietly -BestEffort is documented to
-# tolerate an already-gone VM -- and under 'Stop' each of those intended outcomes
-# ends the teardown instead. The sibling service teardowns (stash, caching proxy)
-# run at 'Continue' for the same reason.
+# --- REGION: https://yuruna.link/extensions-api#service-scripts-run-at-erroractionpreference-continue
+# Left at the inherited 'Continue' deliberately, and it must stay that way:
+# 'Stop' is not scoped to this script and would promote every host-contract
+# helper's non-terminating error. Hard stops here are explicit Write-Error + exit.
 
-# Honor the caller's logLevel, published as $env:YURUNA_LOG_LEVEL by whatever
-# entry point started this script (install/setup.ps1, a runner cycle). After the
-# lines above on purpose: an explicit level is the operator's choice and replaces
-# this script's own default. $InformationPreference is then re-read from the
-# global the cascade writes, because the script-scoped assignment above shadows
-# it for the rest of this file. See docs/loglevels.md.
+# --- REGION: https://yuruna.link/loglevels#propagation-across-pwsh-boundaries
+# After the preference assignments above on purpose: an explicit level is the
+# operator's choice and replaces this script's own default. $InformationPreference
+# is re-read afterwards because the script-scoped assignment above shadows the
+# global the cascade writes.
 Import-Module (Join-Path $PSScriptRoot '../modules/Test.LogLevel.psm1') -Global -Force -DisableNameChecking
 Use-LogLevelFromEnv
 $InformationPreference = $global:InformationPreference
 
+Import-Module (Join-Path $PSScriptRoot '../modules/Test.Prelude.psm1') -Global -Force
+$paths       = Initialize-YurunaEntryPoint -ScriptRoot $PSScriptRoot -InsideSubfolder
+$RepoRoot    = $paths.RepoRoot
+$ModulesDir  = $paths.ModulesDir
+$ExitOk      = Get-EntryPointExitCode -Outcome Ok
+$ExitFailure = Get-EntryPointExitCode -Outcome Failure
+
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     Write-Error "Invalid VMName '$VMName'. Only alphanumeric, dot, hyphen, and underscore are allowed."
-    exit 1
+    exit $ExitFailure
 }
 
-Import-Module (Join-Path $PSScriptRoot '../modules/Test.Prelude.psm1') -Global -Force
-$paths      = Initialize-YurunaEntryPoint -ScriptRoot $PSScriptRoot -InsideSubfolder
-$RepoRoot   = $paths.RepoRoot
-$ModulesDir = $paths.ModulesDir
-$ExitOk     = Get-EntryPointExitCode -Outcome Ok
 Import-Module (Join-Path $ModulesDir 'Test.HostContract.psm1') -Global -Force
 Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
 
 $HostType = Get-HostType
-if (-not $HostType) { exit 1 }
+if (-not $HostType) { exit $ExitFailure }
 Write-Information "Host type: $HostType" -InformationAction Continue
 [void](Initialize-YurunaHost -RepoRoot $RepoRoot -HostType $HostType)
 
+# --- REGION: Clear the service marker (this host stops advertising the area)
 # Read the marker BEFORE removing it. A -HostSideProof run records the host-side
 # daemon's pid here; stop that process so the host-side proof is fully torn down.
 Import-Module (Join-Path $ModulesDir 'Test.YurunaDir.psm1') -Global -Force
@@ -95,6 +92,7 @@ if ($m) {
     }
 }
 
+# --- REGION: Publish the withdrawal (refresh host.registration.json)
 # Publish the removal NOW: regenerate host.registration.json so the marker's
 # absence (activeExtensions drops 'pool-control-service') reaches the aggregator on its
 # next poll, without waiting for a test cycle. Best-effort telemetry -- never
@@ -107,6 +105,7 @@ try {
     }
 } catch { Write-Verbose "registration refresh: $($_.Exception.Message)" }
 
+# --- REGION: Stop the VM
 # Tear down the pool-control-service VM and every file it owns so the next Start rebuilds
 # from a clean slate. The durable pool state lives on the pool NAS, not on the
 # disposable VM disk, which Start rebuilds from the base image. A graceful stop
@@ -128,15 +127,17 @@ if ($state -eq 'absent') {
     }
 }
 
+# --- REGION: Remove the VM and every file it owns
 # -SkipStop: the stop above already ran; Remove-VM force-stops internally if the
 # graceful path did not fully settle.
 Write-Information "Removing VM '$VMName' and its on-disk files..." -InformationAction Continue
 Remove-GuestVMQuietly -VMName $VMName -SkipStop -BestEffort
 
+# --- REGION: Final state check
 $finalState = Get-VMState -VMName $VMName
 if ($finalState -eq 'absent') {
     Write-Information "Pool-control service stopped; marker cleared; VM '$VMName' and its files removed." -InformationAction Continue
     exit $ExitOk
 }
 Write-Warning "VM '$VMName' final state: $finalState (expected absent after removal). Inspect via the host's tooling, then re-run or use Remove-TestVMFiles.ps1."
-exit 1
+exit $ExitFailure

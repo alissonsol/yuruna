@@ -161,7 +161,7 @@ up a test machine.
   model](design/05-data-model.md), and the [deployment
   topology](design/06-deployment.md).
 - **[design/naming.md](design/naming.md)** — the naming rules: components are
-  "<name> service", durations carry `Seconds`/`Ms`, booleans are bare
+  "`<name>` service", durations carry `Seconds`/`Ms`, booleans are bare
   adjectives, acronyms are words in camelCase — plus the foreign contracts
   (Kubernetes, .NET, squid) that are deliberately exempt.
 
@@ -230,6 +230,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.14
+Last review: 2026.08.16
 
 Back to [Yuruna](../README.md)

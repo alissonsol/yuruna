@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42f4e5f6-a7b8-4c9d-0123-4e5f6a7b8c81
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -53,7 +53,7 @@ if (-not $IsLinux) {
 $ErrorActionPreference = 'Stop'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
-# --- REGION: libvirt-qemu search ACL on $HOME (self-heal)
+# --- REGION: libvirt-qemu search ACL on $HOME
 # Self-heal libvirt-qemu's search ACL on $HOME (Ubuntu 24.04+ default 0750).
 if (Get-Command -Name 'setfacl' -ErrorAction SilentlyContinue) {
     & getent passwd libvirt-qemu *>$null
@@ -133,11 +133,13 @@ if (-not (Expand-ExtensionVmDisk -Path $diskImg -SizeBytes 256GB -Format 'qcow2'
     Write-Warning "Resize manually with: qemu-img resize -f qcow2 '$diskImg' 256G"
 }
 
-# --- REGION: Yuruna harness SSH key + vault password
+# --- REGION: Yuruna harness SSH key
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Ssh.psm1')       -Force -DisableNameChecking
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
 $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty."; exit 1 }
+
+# --- REGION: Vault admin password
 $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
 $AdminPassword = Get-Password -Username 'stash-admin'
 if (-not $AdminPassword) { Write-Error "Get-Password returned empty for 'stash-admin'."; exit 1 }
@@ -154,7 +156,7 @@ foreach ($f in @($baseUserData, $overlayUserData, $metaDataTemplate)) {
         exit 1
     }
 }
-# --- REGION: Pick libvirt network (BEFORE building user-data)
+# --- REGION: Pick a libvirt network (BEFORE building user-data)
 # The baked share + source coordinates depend on whether this is NAT
 # 'default' (host = libvirt gateway) or bridged 'yuruna-external' (host =
 # LAN IP), so resolve the network first. Resolve-GuestHostBinding returns the
@@ -162,6 +164,7 @@ foreach ($f in @($baseUserData, $overlayUserData, $metaDataTemplate)) {
 # every VM on this host lands on one network and the baked host address is
 # always routable from it.
 Import-Module (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.Host.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
 $guestBinding = Resolve-GuestHostBinding
 $networkName  = $guestBinding.NetworkName
 if (-not $networkName) {
@@ -173,7 +176,8 @@ if ($networkName -eq 'default') {
 } else {
     Write-Output "Using libvirt network: $networkName (stash-service VM will get a LAN-routable IP)"
 
-    # --- REGION: bridge-uplink preflight (fail fast, not a silent 20-min wait)
+    # --- REGION: Bridge-uplink preflight
+    # Fails fast here instead of leaving the operator a silent 20-minute wait.
     # A libvirt <forward mode='bridge'/> network stays ACTIVE even after its host
     # bridge loses its physical uplink (only guest tap ports remain): virsh reports
     # the network as fine, the guest attaches and boots, but its DHCP request has no
@@ -212,6 +216,7 @@ uplink NIC). Nothing was created; the stash-service VM was not started.
     }
 }
 
+# --- REGION: https://yuruna.link/network#cache-vm-seed-host-binding
 # Host coordinates (status service, for the in-VM source fetch) + stash storage
 # coordinates (the share), baked into the seed. The host address came from the
 # same binding as the network above ($env:YURUNA_GUEST_REACHABLE_HOST_IP wins
@@ -266,13 +271,8 @@ $seedDir = Join-Path $vmDir 'seed.src'
 New-Item -ItemType Directory -Force -Path $seedDir | Out-Null
 Set-Content -LiteralPath (Join-Path $seedDir 'user-data') -Value $userData -NoNewline
 Set-Content -LiteralPath (Join-Path $seedDir 'meta-data') -Value $metaData -NoNewline
-# network-config, on the same seed: it pins the guest DHCP client identity to
-# the interface MAC. Without it the guest identifies itself by a
-# machine-id-derived DUID, which cloud-init changes mid-boot, so the DHCP server
-# sees a new client and leases a different address -- and every host-side
-# artifact aimed at the first address (port-forwarder, readiness probe,
-# published URL) is left pointing at one the guest abandoned.
-Copy-Item -Path (Join-Path $repoRoot 'host/vmconfig/extension-service.network-config') `
+# --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+Copy-Item -Path (Join-Path $repoRoot 'host/vmconfig/guest-dhcp.network-config') `
     -Destination (Join-Path $seedDir 'network-config')
 
 # --- REGION: Generate cloud-init seed ISO
@@ -293,7 +293,7 @@ Write-Output "    virt-viewer --connect $virshUri $VMName"
 Write-Output "  and log in with the credentials above to inspect cloud-init state."
 Write-Output ""
 
-# --- REGION: virt-install
+# --- REGION: Create and configure the libvirt domain (virt-install)
 $arch = (& uname -m).Trim()
 $osVariant = 'linux2022'
 $osList = & virt-install --osinfo list 2>$null
@@ -312,14 +312,7 @@ if ($LASTEXITCODE -eq 0) {
     }
 }
 
-# 2 GB RAM, 4 vCPU. Sized for the SCP receive + SQLite metadata writer
-# + in-VM UI, none of which holds a large resident working set: the transfers
-# stream to disk rather than buffering whole artifacts. What sets the floor is
-# the first-boot `go build`, not steady state: the pure-Go SQLite driver is the
-# largest compile in the graph, and a cold build of it peaks near 1.1 GB with no
-# swap in the guest. One baseline across all three extension VMs. The domain has
-# no balloon target below this, so the whole amount stays committed on the host
-# -- the extension VMs share one machine with the cache VM on a standalone host.
+# --- REGION: https://yuruna.link/definition#defining-the-vm-memory-policy
 # --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
 $hostCores = [int](& nproc --all)
 if ($hostCores -lt 4) {
@@ -327,6 +320,10 @@ if ($hostCores -lt 4) {
     exit 1
 }
 $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
+
+# --- REGION: https://yuruna.link/network#defining-deterministic-guest-mac-addresses
+$YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $VMName
+Write-Verbose "Deterministic guest MAC for '$VMName': $YurunaGuestMac"
 
 $installArgs = @(
     '--connect',    $virshUri,
@@ -337,7 +334,7 @@ $installArgs = @(
     '--os-variant', $osVariant,
     '--disk',       "path=$diskImg,format=qcow2,bus=virtio",
     '--disk',       "path=$seedImg,device=cdrom",
-    '--network',    "network=$networkName,model=virtio",
+    '--network',    "network=$networkName,model=virtio,mac=$YurunaGuestMac",
     '--graphics',   'vnc,listen=127.0.0.1',
     '--channel',    'unix,target_type=virtio,name=org.qemu.guest_agent.0',
     '--events',     'on_reboot=restart',
@@ -358,6 +355,7 @@ if ($virtInstallExit -ne 0) {
     exit 1
 }
 
+# --- REGION: Cleanup temporary folders
 Remove-Item -LiteralPath $seedDir -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- REGION: Wait for VM IP

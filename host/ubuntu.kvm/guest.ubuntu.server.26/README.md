@@ -10,10 +10,17 @@ GRUB -> "Continue with autoinstall?" -> unattended install -> reboot
 -> text-mode login at `yuuser26` / `<vault-managed>` (password expired on
 first login). Architecture (amd64 / arm64) is picked from the host.
 
-## Manual run
+Cross-host concepts: [Hosts — ...](../../README.md).
+
+## One-time
 
 ```
 pwsh ./Get-Image.ps1                        # download / refresh live-server ISO
+```
+
+## For each VM
+
+```
 pwsh ./New-VM.ps1                           # default name: ubuntu-server01
 pwsh ./New-VM.ps1 -VMName myhost            # custom name
 pwsh ./New-VM.ps1 -CachingProxyServiceUrl http://192.168.122.10:3128
@@ -68,6 +75,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.14
+Last review: 2026.08.16
 
 Back to [Yuruna](../../../README.md)

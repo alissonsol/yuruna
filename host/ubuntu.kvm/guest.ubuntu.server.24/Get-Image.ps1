@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e94
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,8 +24,8 @@
     Mirrors host/macos.utm/guest.ubuntu.server.24/Get-Image.ps1 and
     host/windows.hyper-v/guest.ubuntu.server.24/Get-Image.ps1 so all three
     hosts boot the same live-server ISO and run subiquity autoinstall.
-    The pre-baked cloud image (.img) + NoCloud cloud-init seed
-    alternative boots in seconds but DOES NOT show
+    The pre-baked cloud image (.img) + NoCloud cloud-init seed is
+    deliberately NOT used: it boots in seconds but DOES NOT show
     the "Continue with autoinstall?" prompt or fire subiquity's
     late-commands -- making the boot sequence non-comparable across
     hosts (the GUI test sequence step that waits for that prompt would
@@ -48,11 +48,13 @@ param(
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
 if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
 
+# --- REGION: Environment checks
 if (-not $IsLinux) {
     Write-Error "host/ubuntu.kvm/guest.ubuntu.server.24/Get-Image.ps1 only runs on Linux."
     exit 1
 }
 
+# --- REGION: Configuration
 $arch = (& uname -m).Trim()
 switch ($arch) {
     'x86_64'  { $cloudArch = 'amd64' }
@@ -68,6 +70,7 @@ $downloadDir = "$HOME/yuruna/image/ubuntu.env"
 Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) 'modules/Yuruna.Host.psm1') -Force
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.UbuntuImage.psm1') -Force
 
+# --- REGION: Download the base image
 try {
     Save-UbuntuServerImage `
         -ReleaseCodename 'noble' `

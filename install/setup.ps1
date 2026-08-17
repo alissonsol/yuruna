@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 426d4f21-8a35-49be-b7e0-3d18f52a9c6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -225,7 +225,7 @@ function Import-SetupModule {
     }
 }
 
-# --- REGION: log level
+# --- REGION: Log level
 # The cascade every yuruna entry point shares -- command line beats
 # test.config.yml beats 'Information'. See docs/loglevels.md.
 #
@@ -258,7 +258,7 @@ $EffectiveLogLevel = Test.LogLevel\Resolve-LogLevel -CmdLineLevel $logLevel -Con
 # Error and -logLevel Warning would quiet every child and none of these lines.
 $InformationPreference = $global:InformationPreference
 
-# --- REGION: run log
+# --- REGION: Run log
 # Every question asked, every answer taken and every message printed also lands
 # in test/status/log/setup.<yyyy.MM.dd.HH.mm>.log. A setup run is long, mostly
 # unattended in the middle, and the interesting part is usually gone from the
@@ -1721,10 +1721,8 @@ function Test-NetworkSubnetConnectivity {
             # same way a host without ufw does.
             $ufwStatus = & sudo -n ufw status 2>$null
             if ($LASTEXITCODE -eq 0 -and $ufwStatus -match 'Status:\s*active') {
-                # Look for outbound DENY/REJECT rules targeting /24 subnets
                 $denyRules = @($ufwStatus | Where-Object { $_ -match '\bDENY OUT\b|\bREJECT OUT\b' })
                 if ($denyRules.Count -gt 0) {
-                    # Verify if any DENY OUT rule matches a /24 subnet (e.g. 192.168.7.0/24)
                     foreach ($rule in $denyRules) {
                         if ($rule -match '\b(?:\d{1,3}\.){3}\d{1,3}/24\b') {
                             $hasSubnetAccess = $false
@@ -1785,7 +1783,7 @@ function Get-ConfiguredPoolNetworkPath {
         Import-SetupModule (Join-Path $TestRoot 'modules/Test.PoolStorage.psm1')
         Import-SetupModule (Join-Path $TestRoot 'modules/Test.Config.psm1')
         $cfg  = Read-TestConfig -Path $ConfigPath
-        $pool = Get-YurunaPoolStorageConfig -Config $cfg -IgnoreReplicate -WarningAction SilentlyContinue
+        $pool = Get-YurunaPoolStorageConfig -Config $cfg -WarningAction SilentlyContinue
         if (-not $pool -or -not $pool.NetworkPath) { return '' }
         if (-not (Test-PoolStorageServerIsLocal -NetworkPath $pool.NetworkPath)) { return '' }
         return [string]$pool.NetworkPath
@@ -2019,7 +2017,7 @@ function Get-StorageAliasTier {
     $tiers = [System.Collections.Generic.List[hashtable]]::new()
     $cfg = Read-TestConfig -Path $ConfigPath
     foreach ($storage in @(
-        (Get-YurunaPoolStorageConfig  -Config $cfg -IgnoreReplicate -WarningAction SilentlyContinue),
+        (Get-YurunaPoolStorageConfig  -Config $cfg -WarningAction SilentlyContinue),
         (Get-YurunaStashStorageConfig -Config $cfg -WarningAction SilentlyContinue))) {
         if (-not $storage -or -not $storage.NetworkPath) { continue }
         $name = Get-PoolStorageServerName -NetworkPath $storage.NetworkPath
@@ -2071,7 +2069,7 @@ function Get-StorageServedElsewhere {
         # what makes "an address of this machine" mean anything.
         $localAddress = @(Get-PoolStorageHostAddress)
         $tiers = @(
-            @{ Kind = 'pool';  Storage = (Get-YurunaPoolStorageConfig  -Config $cfg -IgnoreReplicate -WarningAction SilentlyContinue) },
+            @{ Kind = 'pool';  Storage = (Get-YurunaPoolStorageConfig  -Config $cfg -WarningAction SilentlyContinue) },
             @{ Kind = 'stash'; Storage = (Get-YurunaStashStorageConfig -Config $cfg -WarningAction SilentlyContinue) }
         )
         foreach ($tier in $tiers) {
@@ -2321,7 +2319,7 @@ function Write-SetupReport {
     if ($Script:LogFile) { Write-SetupMessage "Log: $Script:LogFile" }
 }
 
-# --- REGION: preflight
+# --- REGION: Preflight
 Import-SetupModule (Join-Path $RepoRoot 'automation/Yuruna.HostRedirect.psm1')
 # Yuruna.Common in its own right: Yuruna.HostRedirect imports it into its OWN
 # session state, which does not put the helpers in reach of this script.
@@ -2420,7 +2418,7 @@ if ($IsWindows) {
     }
 }
 
-# --- REGION: answers
+# --- REGION: Answers
 $Script:Unattended = [bool]$AnswerFile
 $answers = $null
 if ($AnswerFile) {
@@ -2638,7 +2636,7 @@ if ($storageKind -eq 'local') {
     Write-SetupMessage '  those accounts and permissions have to be created on that device, by its own tools.'
 }
 
-# --- REGION: what a previous `sudo` run left behind -- the SCAN and the asking
+# --- REGION: What a previous `sudo` run left behind -- the SCAN and the asking
 # Read-only here; the chown / umount / kill that acts on these answers is a step
 # further down, where the run holds the credential it needs.
 #
@@ -2692,7 +2690,7 @@ if (-not $IsWindows -and -not $WhatIfPreference) {
     }
 }
 
-# --- REGION: 0. one authorization, then nothing may ask again
+# --- REGION: 0. One authorization, then nothing may ask again
 # The last point at which the operator still owns the terminal. Every step below
 # runs with its output captured into the run log, and a prompt raised under
 # capture is invisible: the question goes to a file while stdin stays the
@@ -2717,9 +2715,9 @@ if (-not $WhatIfPreference) {
     Write-SetupMessage 'Setup processing:'
 }
 
-# --- REGION: 1. preflight checks
+# --- REGION: 1. Preflight checks
 [void](Invoke-SetupStep -Name 'Preflight: network subnet connectivity check' -Critical -Action {
-    if (-not (Test-NetworkSubnetConnectivity -DocumentationUrl 'https://yuruna.link/docs/network-troubleshooting')) {
+    if (-not (Test-NetworkSubnetConnectivity)) {
         throw "Machine network firewall rules restrict outbound /24 subnet traffic. Adjust firewall rules and re-run setup."
     }
 })
@@ -2778,7 +2776,7 @@ if (-not $WhatIfPreference) {
     Write-SetupDetail "host type: $HostType"
 })
 
-# --- REGION: 1b. what a previous `sudo` run left behind -- the CLEARING
+# --- REGION: 1b. What a previous `sudo` run left behind -- the CLEARING
 # BEFORE anything is written, because two of the things this finds are what makes
 # the writing fail. Refusing to run as root (above) stops the next root run; it
 # does nothing about the machine an earlier one already changed, and that state
@@ -2828,7 +2826,7 @@ if (-not $IsWindows) {
     })
 }
 
-# --- REGION: 2. config
+# --- REGION: 2. Config
 [void](Invoke-SetupStep -Name 'Create or refresh test/test.config.yml from the template' -Critical -AlreadyDone {
     # Only "already done" when the file exists AND the operator named no project
     # URL -- otherwise there is a change to apply.
@@ -2876,7 +2874,7 @@ if (-not $IsWindows) {
     }
 })
 
-# --- REGION: 3. folders
+# --- REGION: 3. Folders
 [void](Invoke-SetupStep -Name 'Create the image, VM, log and runtime folders' -Action {
     $base = if ($env:HOME) { $env:HOME } else { $env:USERPROFILE }
     # The VM root is per-platform and the step name is not. macOS keeps guest
@@ -2895,7 +2893,7 @@ if (-not $IsWindows) {
     }
 })
 
-# --- REGION: 4. host settings
+# --- REGION: 4. Host settings
 if ($runTests) {
     [void](Invoke-SetupStep -Name 'Configure host settings (Enable-TestAutomation -SkipPoolStorage)' -Action {
         # -SkipPoolStorage: setup.ps1 owns storage, in its own order, at step 5.
@@ -2922,7 +2920,7 @@ if ($runTests) {
     Add-SkippedStep -Description 'Host settings (this machine was declared services-only)'
 }
 
-# --- REGION: 5. storage
+# --- REGION: 5. Storage
 # CRITICAL whenever storage was asked for. Everything after it either needs the
 # shares (the stash and download-agent services, a lab's pool) or writes host
 # state that presumes them (the alias step), so a run that continues past a
@@ -3036,7 +3034,7 @@ if ($storageKind -eq 'none') {
         # they decide where the mount goes and whether it works -- but neither is
         # evidence that this machine is the one answering.
         $tiers = @(
-            (Get-YurunaPoolStorageConfig  -Config $cfg -IgnoreReplicate -WarningAction SilentlyContinue),
+            (Get-YurunaPoolStorageConfig  -Config $cfg -WarningAction SilentlyContinue),
             (Get-YurunaStashStorageConfig -Config $cfg -WarningAction SilentlyContinue)
         )
         # Both tiers, because the step stands up both: a run interrupted between
@@ -3075,7 +3073,7 @@ if ($storageKind -eq 'none') {
             [void](Set-PoolStorageSudoers -Confirm:$false -NonInteractive:(-not (Test-YurunaCanPrompt)))
         }
         $cfg  = Read-TestConfig -Path $ConfigPath
-        $pool = Get-YurunaPoolStorageConfig -Config $cfg -IgnoreReplicate -WarningAction SilentlyContinue
+        $pool = Get-YurunaPoolStorageConfig -Config $cfg -WarningAction SilentlyContinue
         if (-not $pool) {
             throw "networkStorage.pool is not configured in $ConfigPath. Set networkPath ($storageNetworkPath), networkUser ($storageNetworkUser) and localPath there, then re-run."
         }
@@ -3113,7 +3111,7 @@ if ($storageKind -eq 'none') {
     }
 }
 
-# --- REGION: 5b. hosts aliases -- standalone
+# --- REGION: 5b. Hosts aliases -- standalone
 # Standalone is the mode where nothing else owns these lines. A lab always stands
 # up storage, and the local-storage script writes the aliases as part of it; a
 # standalone host may decline storage entirely (storage.kind = none is
@@ -3168,7 +3166,7 @@ if (-not $isLab -and $storageKind -eq 'local') {
     })
 }
 
-# --- REGION: 6. caching proxy
+# --- REGION: 6. Caching proxy
 $proxyIp = ''
 # The proxy's own bring-up adopts a healthy VM and takes -ForceRebuild. Stopping
 # it first defeats that -- the adopt probe finds nothing left, so the re-run pays
@@ -3200,7 +3198,7 @@ if (-not $WhatIfPreference) {
     } catch { Write-SetupVerbose "proxy state read: $($_.Exception.Message)" }
 }
 
-# --- REGION: 6b. aggregator readiness
+# --- REGION: 6b. Aggregator readiness
 # The gate that closes the "services never register" bug: the aggregator URL is
 # baked into each dependent guest's seed ONCE, and an empty value there is never
 # re-resolved for the life of that VM.
@@ -3218,14 +3216,14 @@ if (-not $WhatIfPreference) {
     }
 })
 
-# --- REGION: 7. stash service
+# --- REGION: 7. Stash service
 # The reason comes from the model rather than a hand-written string: the service
 # exits 1 without configured storage, and "not requested" and "did not succeed"
 # are different things to tell an operator about the same missing service.
 Invoke-ServiceVMEnsure -Service 'stash service' -RosterKey 'stash' -Requires 'storage' `
     -StopScript 'Stop-StashServiceVM.ps1' -StartScript 'Start-StashServiceVM.ps1'
 
-# --- REGION: 8. bind config to the local proxy
+# --- REGION: 8. Bind config to the local proxy
 [void](Invoke-SetupStep -Name 'Point test.config.yml at this machine''s caching proxy' -AlreadyDone {
     if (-not $proxyIp) { return $false }
     (Get-Content -LiteralPath $ConfigPath -Raw) -match "(?m)^\s*cachingProxyIp\s*:\s*$([regex]::Escape($proxyIp))\s*$"
@@ -3245,7 +3243,7 @@ Invoke-ServiceVMEnsure -Service 'stash service' -RosterKey 'stash' -Requires 'st
     Write-SetupDetail "cachingProxyIp -> $proxyIp"
 })
 
-# --- REGION: 8b. dashboard alias -- standalone
+# --- REGION: 8b. Dashboard alias -- standalone
 # The dashboard is the one URL an operator types by hand and returns to, and it
 # is addressed by a DHCP lease: a bookmark saved today is wrong after the cache
 # VM is rebuilt, and the address is nowhere an operator would think to look it up
@@ -3274,7 +3272,7 @@ if (-not $isLab) {
     })
 }
 
-# --- REGION: 9. validate
+# --- REGION: 9. Validate
 [void](Invoke-SetupStep -Name 'Validate the configuration (Test-Config gate)' -Action {
     Import-SetupModule (Join-Path $TestRoot 'modules/Test.ConfigPreflight.psm1')
     # -ExpectStorageConfigured is this run telling the gate what it just did. An
@@ -3307,7 +3305,7 @@ if (-not $isLab) {
     if (-not $gate.passed) { throw "Test-Config reported failures (exit $($gate.exitCode)); the block above names them" }
 })
 
-# --- REGION: 9b. download-agent service
+# --- REGION: 9b. Download-agent service
 # A lab runs it by default -- its whole point is sharing images across the
 # pool's hosts. A standalone host does not: every gigabyte a service VM holds
 # is one the test guests on the same machine cannot have, and with no agent
@@ -3334,7 +3332,7 @@ if (-not $downloadAgentEnabled) {
         -StopScript 'Stop-DownloadAgentServiceVM.ps1' -StartScript 'Start-DownloadAgentServiceVM.ps1'
 }
 
-# --- REGION: 10-13. lab only
+# --- REGION: 10-13. Lab only
 $intentGitUrl = ''
 if ($isLab) {
     [void](Invoke-SetupStep -Name 'Enrol this machine into its own lab (Set-LabToken)' -Action {
@@ -3372,7 +3370,7 @@ if ($isLab) {
         Import-SetupModule (Join-Path $TestRoot 'modules/Test.PoolStorage.psm1')
         Import-SetupModule (Join-Path $TestRoot 'modules/Test.Config.psm1')
         $cfg  = Read-TestConfig -Path $ConfigPath -NoCache
-        $pool = Get-YurunaPoolStorageConfig -Config $cfg -IgnoreReplicate -WarningAction SilentlyContinue
+        $pool = Get-YurunaPoolStorageConfig -Config $cfg -WarningAction SilentlyContinue
         if (-not $pool -or -not $pool.LocalPath) { throw 'pool storage has no localPath, so the intent store has nowhere to live' }
         # The WRITABLE local path through the mount. The http:// URL apache
         # serves is read-only by design and push-fails; without an explicit
@@ -3414,7 +3412,7 @@ if ($WhatIfPreference) {
     Exit-Setup 0
 }
 
-# --- REGION: write the answer file this run used
+# --- REGION: Write the answer file this run used
 $answerOut = Join-Path $RepoRoot "install/setup.answers.$setupType.yml"
 if (-not $AnswerFile) {
     # The resolved values, not the answers as given: an interactive run's storage
@@ -3456,7 +3454,7 @@ if (-not $AnswerFile) {
     }
 }
 
-# --- REGION: report
+# --- REGION: Report
 Write-SetupReport
 
 # A non-critical step that failed still leaves the run here. Saying "ready" and

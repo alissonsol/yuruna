@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42b8c9d0-e1f2-4a34-b5c6-7d8e9f0a1b2c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,7 +38,7 @@ Import-Module (Join-Path $PSScriptRoot 'Test.Hash.psm1') -Global -Force
     caller (see Wait-ForText in Test.SequenceEngine.psm1).
 #>
 
-# -- Provider registry -------------------------------------------------------
+# --- REGION: Provider registry
 #
 # Backed by Test.Registry's New-YurunaRegistry primitive so the shape
 # matches Test.SequenceAction and Test.HostIO. An autonomous remediator
@@ -257,7 +257,7 @@ function Invoke-AllEnabledOcr {
     return $results
 }
 
-# -- Built-in provider: Tesseract --------------------------------------------
+# --- REGION: Built-in provider: Tesseract
 
 # -Global is mandatory: a bare -Force re-import of an already-global
 # Test.Tesseract yanks it out of the global session into this module's
@@ -279,7 +279,7 @@ Register-OcrProvider -Name 'tesseract' `
         [bool](Find-Tesseract)
     }
 
-# -- Built-in provider: WinRT (Windows only, via powershell.exe 5.1) --------
+# --- REGION: Built-in provider: WinRT (Windows only, via powershell.exe 5.1)
 # Windows.Media.Ocr is available on all Windows 10+ machines but requires
 # PowerShell 5.1 (powershell.exe) because .NET 6+ removed WinRT projection.
 
@@ -1165,7 +1165,7 @@ Register-OcrProvider -Name 'macos-vision' `
         $IsMacOS -and [bool](Get-Command swift -ErrorAction SilentlyContinue)
     }
 
-# -- Exports -----------------------------------------------------------------
+# --- REGION: Exports
 
 Export-ModuleMember -Function @(
     'Register-OcrProvider'

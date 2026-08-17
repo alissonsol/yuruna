@@ -107,6 +107,8 @@ Default credentials: `ywuser1` / `password`, auto-logon on first boot.
 The autounattend sets computer name, locale `en-US`, keyboard `en-US`,
 UEFI/GPT, and enables Remote Desktop. Generic Windows 11 Pro key — not
 activated until a purchased key or KMS is applied.
+Product keys, edition switching and activation:
+[Windows 11 Unattended Configuration](../../windows.hyper-v/guest.windows.11/vmconfig/README.md).
 
 ## 3) Troubleshooting
 
@@ -151,6 +153,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.14
+Last review: 2026.08.16
 
 Back to [Yuruna](../../../README.md)

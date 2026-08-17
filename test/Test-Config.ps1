@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456709
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -97,7 +97,7 @@ $SchemasRoot          = Join-Path $TestRoot "schemas"
 $NotificationCfgPath  = Join-Path $ExtensionStateRoot "notification/transports.yml"
 $NotificationTmplPath = Join-Path $ExtensionRoot      "notification/transports.yml.template"
 
-# -- helpers ------------------------------------------------------------------
+# --- REGION: Helpers
 # Write-Pass / Write-Fail / Write-Warn / Write-Info / Write-Section /
 # Write-Summary / Exit-WithSummary are exported by Test.Output.psm1.
 # Test-IsSet / Test-AgainstSchema / Test-RepoFreshness are exported by
@@ -178,7 +178,7 @@ function ConvertTo-YurunaBool {
     return [bool]$Value
 }
 
-# -- Section 1: Config file ----------------------------------------------------
+# --- REGION: Section 1: Config file
 
 Write-Section "Config file"
 
@@ -201,7 +201,7 @@ if (-not (Test-Path $ConfigPath)) {
     Write-Pass "Config file found: $ConfigPath"
 }
 
-# -- Section 2: YAML parsing ---------------------------------------------------
+# --- REGION: Section 2: YAML parsing
 
 Write-Section "YAML structure"
 
@@ -214,7 +214,7 @@ try {
     Exit-WithSummary 1
 }
 
-# -- Section 2a: retired key names --------------------------------------------
+# --- REGION: Section 2a: Retired key names
 # Only the current key names are accepted. A retired key that merely warned
 # would keep working by accident on the host that still carries it while the
 # code reads the new name and silently falls back to a default -- the config
@@ -241,7 +241,7 @@ if (-not (Test-Path $configNamingMod)) {
     }
 }
 
-# -- Section 2b: Config schema vs template ------------------------------------
+# --- REGION: Section 2b: Config schema vs template
 # The template is the schema source of truth: Sync-TestConfigToTemplate fully
 # reconciles the live test.config.yml to it (add missing fields, remove
 # dropped keys with a .backup, rewrite alphabetically); at cycle start the
@@ -314,7 +314,7 @@ if (-not (Test-Path $TemplatePath)) {
     }
 }
 
-# -- Section 3: Host requirements (quick) -------------------------------------
+# --- REGION: Section 3: Host requirements (quick)
 # Imports Test.HostContract.psm1 and runs the same fast pre-flight that
 # operator-facing helpers (Remove-TestVMFiles.ps1, ...) call: detects
 # the host type and verifies the absolute minimum (Administrator +
@@ -359,7 +359,7 @@ if (-not (Test-Path $hostModPath)) {
     }
 }
 
-# -- Section 3b: Host clock ---------------------------------------------------
+# --- REGION: Section 3b: Host clock
 # Every hypervisor here seeds a guest's clock from the host at power-on, so
 # a drifting host starts every VM equally wrong and the guest's own NTP
 # client steps it to real time seconds into the boot -- mid-startup for
@@ -436,7 +436,7 @@ if (-not $HostType) {
     }
 }
 
-# -- Section 4: Host capacity -------------------------------------------------
+# --- REGION: Section 4: Host capacity
 # RAM + CPU. Below the per-platform threshold = WARN (the harness still
 # runs but risks OOM kills inside guests / slow OCR). The 16 GiB and
 # 4-core thresholds match the "three concurrent 2-vCPU/4 GiB guests + an
@@ -483,7 +483,7 @@ try {
     Write-Warn "Could not read host capacity: $($_.Exception.Message)"
 }
 
-# -- Section 5: Host-specific feature state -----------------------------------
+# --- REGION: Section 5: Host-specific feature state
 # Deeper, host-type-specific verification beyond the "command/service
 # exists" gate in Test-HostRequirement: Hyper-V feature state (DISM)
 # on Windows, libvirtd active + qemu installed on Linux, UTM helper
@@ -559,7 +559,59 @@ switch ($HostType) {
     }
 }
 
-# -- Section 6: Framework / project staleness ---------------------------------
+# --- REGION: Section 5b: Host address stability
+# A host that draws a new lease on every renewal spends addresses at a rate the
+# lease time sets, not the machine count -- so the same fault is survivable on a
+# short lease and exhausts the pool within days on a long one, and the guests it
+# starves report "no IPv4 address", which reads as their own fault. The check
+# pairs what the address log observed with what the bridge asked for, because
+# a pin the DHCP server ignores looks like a working pin from the config and
+# like no pin at all from the log. Reported, never fatal: by the time this runs
+# the drift has already cost what it was going to cost, and a health report that
+# can fail a run is one operators stop running.
+
+Write-Section "Host address stability"
+
+$beaconMod = Join-Path $script:ModulesDir 'Test.HostAddressBeacon.psm1'
+if (-not (Test-Path -LiteralPath $beaconMod)) {
+    Write-Warn "Test.HostAddressBeacon.psm1 not found at '$beaconMod'; skipping the address-stability check."
+} else {
+    try {
+        Import-Module $beaconMod -Global -Force -DisableNameChecking -ErrorAction Stop
+        $runtimeDir = if ($env:YURUNA_RUNTIME_DIR) { $env:YURUNA_RUNTIME_DIR }
+                      else { Join-Path $TestRoot 'status' -AdditionalChildPath 'runtime' }
+        $stability = Get-HostAddressStabilityReport -RuntimeDir $runtimeDir
+        switch ($stability.severity) {
+            'warning'  { Write-Warn $stability.message }
+            'advisory' { Write-Info $stability.message }
+            default    { Write-Pass $stability.message }
+        }
+        # Apply the pin rather than print it. The remedy is set at bridge-build
+        # time and nobody rebuilds a working bridge, so a printed command reaches
+        # only the operator who happens to run this report by hand -- while this
+        # gate runs on every host at every runner start and its transcript is
+        # discarded when it passes. Safe unattended because the call writes the
+        # stored profile without reactivating it: the address in use does not
+        # move, and nothing drops. Only the NetworkManager backend is touched;
+        # see Set-HostBridgeDhcpIdentity for why netplan is reported instead.
+        if ($stability.identity.backend -eq 'networkmanager' -and $stability.identity.pinned -eq $false) {
+            $pin = Set-HostBridgeDhcpIdentity -Confirm:$false
+            if ($pin.verified) {
+                Write-Pass "Bridge DHCP identity pinned automatically: $($pin.reason)"
+            } elseif ($pin.applied) {
+                Write-Warn "Bridge DHCP identity: $($pin.reason) Apply by hand: $($stability.remedy)"
+            } else {
+                Write-Warn "Bridge DHCP identity could not be pinned automatically ($($pin.reason)) Apply by hand: $($stability.remedy)"
+            }
+        } elseif ($stability.remedy) {
+            Write-Info "  Remedy: $($stability.remedy)"
+        }
+    } catch {
+        Write-Warn "Host address stability could not be assessed: $($_.Exception.Message)"
+    }
+}
+
+# --- REGION: Section 6: Framework / project staleness
 # git fetch + compare HEAD to upstream. WARN (not FAIL) when the local
 # clone is behind: the harness can still run, but its runner / index.html
 # is older than what landed on main. Repeat for the project clone when
@@ -660,7 +712,7 @@ if (Test-IsSet $projectUrlConfigured) {
     }
 }
 
-# -- Section 7: GitHub connectivity -------------------------------------------
+# --- REGION: Section 7: GitHub connectivity
 # DNS + TCP probes of github.com:443. Surfaces a bad network state HERE
 # rather than later when Invoke-GitPull retries inside a running cycle.
 
@@ -682,7 +734,7 @@ try {
     Write-Fail "DNS resolution failed for 'github.com': $($_.Exception.Message)"
 }
 
-# -- Section 8: Top-level fields -----------------------------------------------
+# --- REGION: Section 8: Top-level fields
 
 Write-Section "Top-level settings"
 
@@ -758,7 +810,7 @@ if ($Config.Contains('secrets') -and $Config.secrets -is [System.Collections.IDi
     Write-Warn "secrets.resend is set in test.config.yml -- this block has moved to test/status/extension/notification/transports.yml (transports.resend). Move it manually before the next cycle."
 }
 
-# -- Section 9: Extension configs ---------------------------------------------
+# --- REGION: Section 9: Extension configs
 
 Write-Section "Extension configs"
 
@@ -791,7 +843,7 @@ if (Test-Path $VaultPath) {
     Write-Info "vault.yml not present (expected; created on cycle start)."
 }
 
-# -- Section 9b: Authentication users mapping (users.yml) --------------------
+# --- REGION: Section 9b: Authentication users mapping (users.yml)
 # users.yml model + strict-mode rules:
 # docs/test-config.md#usersyml--authentication-users-mapping
 
@@ -962,7 +1014,7 @@ if (Test-Path $UsersPath) {
     }
 }
 
-# -- Section 9b2: Sequence files (parse + snippet expansion) ------------------
+# --- REGION: Section 9b2: Sequence files (parse + snippet expansion)
 # Read every sequence in the framework AND the default test project through the
 # same loader the runner uses (Read-SequenceFile, which splices `snippet:`
 # references from the _snippets.yml libraries). A YAML error, an unknown or
@@ -1035,7 +1087,7 @@ if (-not (Test-Path $seqResolveMod)) {
     }
 }
 
-# -- Section 9b3: stale SMB alias mappings (Windows) --------------------------
+# --- REGION: Section 9b3: Stale SMB alias mappings (Windows)
 # A persistent Windows drive mapping can outlive the hosts-file alias it points
 # at: after a NAS alias is renamed/removed, the mapping still shows Status OK from
 # its cached connection, yet the dead-name session it holds BLOCKS a fresh mount
@@ -1242,18 +1294,24 @@ function Show-NetworkStorageFieldSwapWarning {
     Write-Warn ("networkStorage {0}: {0}NetworkUser is set to a drive letter ('{1}') -- that's a {0}LocalPath value, not an SMB username. {0}NetworkUser and {0}LocalPath are almost certainly swapped in test.config.yml. See docs/test-config.md." -f $Prefix, $Config.NetworkUser.Trim())
 }
 
-# -- Section 9c: networkStorage pool (ypool-nas) replication -----------------------
-# Validate the optional NAS replication tier when it's switched on: all three
-# paths set, a usable vault credential (so the mount won't silently auto-generate
-# a junk SMB password), that the SMB server answers on :445, and -- when both of
-# those pass -- an ACTIVE mount of localPath plus creation of the per-host folder
-# '<localPath>/<hostId>'. The active step is what proves replication will actually
-# work (credentials, share name, Linux sudo, write permission) instead of silently
-# failing in the detached drain; with replicate on it FAILs the gate (stopping the
-# cycle), and the reachability probe stays a WARN so a merely-offline NAS -- which
-# the loop retries each cycle -- never blocks a healthy run.
+# --- REGION: Section 9c: networkStorage pool (ypool-nas) archiving
+# Validate the optional NAS archiving tier: all three paths set, a usable vault
+# credential (so the mount won't silently auto-generate a junk SMB password), that
+# the SMB server answers on :445, and -- when both of those pass -- an ACTIVE mount
+# of localPath plus creation of the per-host folder '<localPath>/hosts/<hostId>',
+# then the free space that folder's next cycle will need. The active step is what
+# proves archiving will actually work (credentials, share name, Linux sudo, write
+# permission) instead of silently failing later; in MOVE mode a failure FAILs the
+# gate (stopping the cycle) because the local copy is about to be deleted, while in
+# copy mode it is advisory. The reachability probe stays a WARN either way, so a
+# merely-offline NAS -- which the loop retries each cycle -- never blocks a healthy
+# run.
+#
+# The space check runs ONLY behind a succeeded mount: on Linux/macOS `df` against an
+# existing-but-unmounted localPath succeeds and reports the PARENT filesystem, so
+# checking it on any other path would judge the share by the local disk's free space.
 
-Write-Section "networkStorage: pool (ypool-nas) replication"
+Write-Section "networkStorage: pool (ypool-nas) archiving"
 
 $poolMod = Join-Path $ModulesDir 'Test.PoolStorage.psm1'
 if (-not (Test-Path $poolMod)) {
@@ -1276,25 +1334,34 @@ if (-not (Test-Path $poolMod)) {
             Write-Info "networkStorage block not present -- NAS replication is off (optional)."
         }
     } else {
-        # networkReplicate is a pool behavior (pool node), not a networkStorage key.
-        $psReplicate = $false
-        if ($Config.Contains('pool') -and $Config['pool'] -is [System.Collections.IDictionary]) { $psReplicate = ConvertTo-YurunaBool $Config['pool']['networkReplicate'] }
-        # Validate the connection parameters REGARDLESS of the replicate flag, so an
-        # operator can confirm the share + credential work BEFORE flipping replicate
-        # to true. When replicate is on a problem FAILs (it will actually run next
-        # cycle); when off it is advisory (WARN) -- the cycle runs fine without it.
-        $psCfg = Get-YurunaPoolStorageConfig -Config $Config -IgnoreReplicate -WarningAction SilentlyContinue
+        # Deprecated kill switch. It no longer means anything: the three populated
+        # paths are the opt-in, and moveLogsToPoolStorage selects the mode. Say so
+        # once and move on -- failing on a key that has lost its meaning would take
+        # down every host in the field at upgrade, for a value nothing reads.
+        if ($Config.Contains('pool') -and $Config['pool'] -is [System.Collections.IDictionary] -and
+            $Config['pool'].Contains('networkReplicate')) {
+            Write-Warn "pool.networkReplicate is deprecated and IGNORED -- archiving is now ON whenever the three networkStorage poolStorage* paths are set. Delete the key, and set networkStorage.moveLogsToPoolStorage: true if you want finished cycles moved (copied, verified, then deleted locally) instead of copied. See docs/test-config.md."
+        }
+        # The three paths ARE the opt-in; moveLogsToPoolStorage selects the MODE and
+        # therefore the severity here. In move mode a broken share is a FAIL (the
+        # local copy is about to be deleted, so archiving has to work); in copy mode
+        # it is advisory (WARN) -- the cycle runs fine and the backlog waits.
+        $psMove = $false
+        if ($Config['networkStorage'] -is [System.Collections.IDictionary]) {
+            $psMove = ConvertTo-YurunaBool $Config['networkStorage']['moveLogsToPoolStorage']
+        }
+        $psCfg = Get-YurunaPoolStorageConfig -Config $Config -WarningAction SilentlyContinue
         if (-not $psCfg) {
             $incomplete = "networkStorage poolStorageNetworkPath / poolStorageNetworkUser / poolStorageLocalPath are not all set"
-            if ($psReplicate) {
-                Write-Fail "pool.networkReplicate is true but $incomplete -- replication stays OFF until all three are populated. See docs/test-config.md." -FullPath $ConfigPath
+            if ($psMove) {
+                Write-Fail "networkStorage.moveLogsToPoolStorage is true but $incomplete -- archiving stays OFF until all three are populated, and nothing would be moved. See docs/test-config.md." -FullPath $ConfigPath
             } elseif ($ExpectStorageConfigured) {
                 Write-Fail "$storageGap -- $incomplete. See docs/test-config.md." -FullPath $ConfigPath
             } else {
-                Write-Info "pool.networkReplicate = false and $incomplete -- replication is off (optional). Populate all three to pre-validate the share before enabling."
+                Write-Info "$incomplete -- pool archiving is off (optional). Populate all three to archive finished cycles to the share."
             }
         } else {
-            $psState = if ($psReplicate) { 'enabled' } else { 'disabled -- pre-validating' }
+            $psState = if ($psMove) { 'move -- local folders deleted after archiving' } else { 'copy -- local folders kept' }
             Write-Pass "networkStorage pool [$psState]: '$($psCfg.NetworkPath)' -> '$($psCfg.LocalPath)' as user '$($psCfg.NetworkUser)'."
             Show-NetworkStorageFieldSwapWarning -Config $psCfg -Prefix 'pool'
 
@@ -1332,8 +1399,8 @@ if (-not (Test-Path $poolMod)) {
                     # the run looks. `pwsh test/Test-Config.ps1` is the only
                     # invocation that can still ask.
                     $vmsg = "networkStorage pool: '$($psCfg.NetworkUser)' has no usable vault credential -- mounting would auto-generate a junk SMB password the NAS rejects. Run 'pwsh test/Test-Config.ps1' directly from a terminal to be prompted for the password, or map a non-empty vaultKey in users.yml and Set-Password it. See docs/test-config.md."
-                    if ($psReplicate) { Write-Fail $vmsg -FullPath $ConfigPath }
-                    else              { Write-Warn "$vmsg (Advisory: replicate is false, so this won't block the cycle -- fix before enabling.)" }
+                    if ($psMove) { Write-Fail $vmsg -FullPath $ConfigPath }
+                    else         { Write-Warn "$vmsg (Advisory: copy mode keeps the local folder, so this won't block the cycle -- fix before enabling move mode.)" }
                 }
             }
 
@@ -1345,7 +1412,7 @@ if (-not (Test-Path $poolMod)) {
                     $psReachable = $true
                     Write-Pass "networkStorage pool: SMB server reachable (${poolSrv}:445)."
                 } else {
-                    $tail = if ($psReplicate) { 'Replication will fail-fast and retry next cycle' } else { 'Replication is disabled' }
+                    $tail = 'Archiving will fail-fast and retry next cycle'
                     Write-Warn "networkStorage pool: SMB server '${poolSrv}:445' is not reachable right now. $tail -- fine if the NAS is intentionally offline; otherwise check networkPath / firewall / VPN."
                 }
             }
@@ -1362,9 +1429,9 @@ if (-not (Test-Path $poolMod)) {
                 Write-Info "networkStorage on Linux needs passwordless sudo for 'mount'/'umount' (and 'mkdir' when localPath is under a root-owned dir like /mnt) -- an /etc/sudoers.d drop-in. See docs/pool-storage.md."
                 if ((Get-Command Test-PoolStorageCifsHelper -ErrorAction SilentlyContinue) -and -not (Test-PoolStorageCifsHelper)) {
                     $psCanMount = $false
-                    $cmsg = "networkStorage pool: the mount.cifs helper (package cifs-utils) is not installed, so 'mount -t cifs' cannot mount '$($psCfg.NetworkPath)' at all -- replication would silently never happen. Fix: sudo apt-get install -y cifs-utils"
-                    if ($psReplicate) { Write-Fail $cmsg -FullPath $ConfigPath }
-                    else              { Write-Warn "$cmsg (Advisory: replicate is false, so this won't block the cycle -- fix before enabling.)" }
+                    $cmsg = "networkStorage pool: the mount.cifs helper (package cifs-utils) is not installed, so 'mount -t cifs' cannot mount '$($psCfg.NetworkPath)' at all -- archiving would silently never happen. Fix: sudo apt-get install -y cifs-utils"
+                    if ($psMove) { Write-Fail $cmsg -FullPath $ConfigPath }
+                    else         { Write-Warn "$cmsg (Advisory: copy mode keeps the local folder, so this won't block the cycle -- fix before enabling move mode.)" }
                 }
             }
 
@@ -1400,10 +1467,38 @@ if (-not (Test-Path $poolMod)) {
                     }
                     if ($poolReady.ok) {
                         Write-Pass "networkStorage pool: localPath mounted and per-host folder ready ('$($poolReady.folder)')."
+                        # Free space, checked ONLY behind a succeeded pre-flight. On
+                        # Linux/macOS `df` against an existing-but-unmounted localPath
+                        # succeeds and reports the PARENT filesystem, so running this
+                        # on any path where the mount was skipped or failed would
+                        # measure the local disk and pass or fail the gate on the
+                        # wrong number entirely.
+                        if ((Get-Command Get-PoolStorageFreeSpace -ErrorAction SilentlyContinue) -and
+                            (Get-Command Test-PoolStorageSpaceSufficient -ErrorAction SilentlyContinue)) {
+                            $psFree = Get-PoolStorageFreeSpace -Config $psCfg
+                            $psProjected = [long]0
+                            if (Get-Command Get-PoolStorageProjectedSize -ErrorAction SilentlyContinue) {
+                                $psLedger = $null
+                                if ((Get-Command Read-PoolStorageLedger -ErrorAction SilentlyContinue) -and $env:YURUNA_RUNTIME_DIR) {
+                                    try { $psLedger = Read-PoolStorageLedger -RuntimeDir $env:YURUNA_RUNTIME_DIR } catch { $null = $_ }
+                                }
+                                $psProjected = Get-PoolStorageProjectedSize -Ledger $psLedger
+                            }
+                            $psSpace = Test-PoolStorageSpaceSufficient -FreeBytes $psFree -NeedBytes $psProjected
+                            if ($psFree -lt 0) {
+                                Write-Warn "networkStorage pool: could not measure free space on '$($psCfg.LocalPath)'. Archiving proceeds and fails loudly if the share is actually full."
+                            } elseif ($psSpace.ok) {
+                                Write-Pass "networkStorage pool: $(Format-PoolStorageSize -Bytes $psFree) free (next cycle projected to need $(Format-PoolStorageSize -Bytes ([long]$psSpace.required)))."
+                            } else {
+                                $smsg = "networkStorage pool: the share is FULL -- $(Format-PoolStorageSize -Bytes $psFree) free but the next cycle needs $(Format-PoolStorageSize -Bytes ([long]$psSpace.required)) (a $(Format-PoolStorageSize -Bytes ([long]$psSpace.reserve)) reserve plus the projected cycle). Delete old cycle archives under '$($psCfg.LocalPath)/hosts/' to continue."
+                                if ($psMove) { Write-Fail $smsg -FullPath $ConfigPath }
+                                else         { Write-Warn "$smsg (Advisory: copy mode keeps the local folder, so this won't block the cycle.)" }
+                            }
+                        }
                     } else {
-                        $rmsg = "networkStorage pool: localPath '$($psCfg.LocalPath)' / per-host folder pre-flight FAILED -- $($poolReady.error). Replication would silently never happen this way."
-                        if ($psReplicate) { Write-Fail $rmsg -FullPath $ConfigPath }
-                        else              { Write-Warn "$rmsg (Advisory: replicate is false, so this won't block the cycle -- fix before enabling.)" }
+                        $rmsg = "networkStorage pool: localPath '$($psCfg.LocalPath)' / per-host folder pre-flight FAILED -- $($poolReady.error). Archiving would silently never happen this way."
+                        if ($psMove) { Write-Fail $rmsg -FullPath $ConfigPath }
+                        else         { Write-Warn "$rmsg (Advisory: copy mode keeps the local folder, so this won't block the cycle -- fix before enabling move mode.)" }
                         # Interactive install was declined/unavailable or did not
                         # resolve it; print the exact one-time manual fix (a
                         # folder-stage failure is a share-permission issue, not sudo).
@@ -1415,7 +1510,7 @@ if (-not (Test-Path $poolMod)) {
     }
 }
 
-# -- Section 9c-stash: networkStorage stash (stash service) -------------------
+# --- REGION: Section 9c-stash: networkStorage stash (stash service)
 # The stash storage is ISOLATED from the pool (its own share + account). It is
 # optional (only the stash service uses it); issues here are advisory WARN, not
 # FAIL -- Start-StashServiceVM hard-fails at build time when it is misconfigured.
@@ -1493,7 +1588,7 @@ if (-not (Test-Path $poolMod)) {
     }
 }
 
-# -- Section 9c2: extension services registered with the pool -----------------
+# --- REGION: Section 9c2: Extension services registered with the pool
 # The stash storage checks above prove this host could BUILD a stash service.
 # This one asks the opposite question, and the one a cycle actually depends on:
 # which stash service will this host be sent to, and does it answer?
@@ -1620,7 +1715,7 @@ if (-not (Test-Path $aggregatorMod)) {
     }
 }
 
-# -- Section 9d: pool (intent sync) -------------------------------------------
+# --- REGION: Section 9d: Pool (intent sync)
 # Validate the optional pool-intent PULL when configured: enabled implies a
 # non-empty intentGitUrl, and the LAN intent store answers a bounded git
 # ls-remote. Reachability is a WARN (the runner degrades to single-host when the
@@ -1659,7 +1754,7 @@ if (-not (Test-Path $poolSyncMod)) {
     }
 }
 
-# -- Section 10: Resend transport settings ------------------------------------
+# --- REGION: Section 10: Resend transport settings
 
 Write-Section "Resend transport settings"
 
@@ -1703,7 +1798,7 @@ if ((Get-OutputState).FailCount -gt 0) {
     Exit-WithSummary -Code 1
 }
 
-# -- Section 11: Resend API connectivity --------------------------------------
+# --- REGION: Section 11: Resend API connectivity
 
 Write-Section "Resend API connectivity"
 
@@ -1727,7 +1822,7 @@ try {
     Write-Fail "TCP connection to api.resend.com:443 failed: $_"
 }
 
-# -- Section 12: Live smoke notification --------------------------------------
+# --- REGION: Section 12: Live smoke notification
 
 Write-Section "Live smoke notification (config.smoke)"
 
@@ -1767,7 +1862,7 @@ Sent: $((Get-Date).ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss")) UTC
     }
 }
 
-# -- Section: Bootstrap script encoding (ASCII, no BOM) -----------------------
+# --- REGION: Section 13: Bootstrap script encoding (ASCII, no BOM)
 # The PS 5.1 `irm | iex` installer and the guest/windows.11 scripts the fresh
 # Windows guest runs the same way are parsed byte-for-byte before any
 # BOM-tolerant shell exists, so a UTF-8 BOM or non-ASCII byte aborts them at
@@ -1791,7 +1886,7 @@ if (-not (Test-Path -LiteralPath $asciiGate)) {
     }
 }
 
-# -- Summary -------------------------------------------------------------------
+# --- REGION: Summary
 #
 # Exit-WithSummary prints the PASS/WARN/FAIL tally AND the repeated
 # FAILURES block (every Write-Fail's message + full path, grouped by

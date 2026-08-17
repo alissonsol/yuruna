@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42f4e5f6-a7b8-4c9d-0123-4e5f6a7b8c9d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -104,7 +104,7 @@ if ($MacAddress) {
     }
 }
 
-# --- REGION: libvirt-qemu search ACL on $HOME (self-heal)
+# --- REGION: libvirt-qemu search ACL on $HOME
 # Ubuntu 24.04+ cloud images create /home/<user> at mode 0750, which
 # blocks the libvirt-qemu user (uid 64055, gid kvm) that runs guest qemu
 # processes from traversing $HOME to reach the qcow2 below it. virt-install
@@ -257,6 +257,7 @@ foreach ($f in @($baseUserData, $overlayUserData, $metaDataTemplate)) {
         exit 1
     }
 }
+# --- REGION: Pick a libvirt network (BEFORE building user-data)
 # --- REGION: https://yuruna.link/network#cache-vm-seed-host-binding
 # KVM: Resolve-GuestHostBinding pairs the libvirt network + host IP (NAT 'default' -> 192.168.122.1); the resolved $networkName is reused below for virt-install.
 Import-Module (Join-Path $repoRoot 'host/ubuntu.kvm/modules/Yuruna.Host.psm1') -Force -DisableNameChecking
@@ -408,7 +409,7 @@ if ((-not $dockerHubUsername) -or (-not $dockerHubToken)) {
     }
 }
 
-# --- REGION: config service mTLS materials
+# --- REGION: Config service mTLS materials
 # --- REGION: https://yuruna.link/caching-proxy-service#cache-vm-nas-and-config-service
 # Mint a per-VM client leaf signed by THIS host's Config CA; PEMs are baked
 # base64 so they survive the cloud-init write_files block scalar.
@@ -428,7 +429,7 @@ try {
     Write-Warning "Host Config CA: could not mint a client cert ($($_.Exception.Message)); the cache VM falls back to its baked NAS credential (dynamic rotation disabled for this VM)."
 }
 
-# --- REGION: dashboard brand identity
+# --- REGION: Dashboard brand identity
 # The Grafana dashboards this VM serves name the enlistment that built it --
 # the same pair the host's status pages carry in their header. Resolved here
 # because the guest is handed built artifacts and never the framework
@@ -474,8 +475,14 @@ New-Item -ItemType Directory -Force -Path $seedDir | Out-Null
 Set-Content -LiteralPath (Join-Path $seedDir 'user-data') -Value $userData -NoNewline
 Set-Content -LiteralPath (Join-Path $seedDir 'meta-data') -Value $metaData -NoNewline
 
+# --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+Copy-Item -Path (Join-Path $repoRoot 'host/vmconfig/guest-dhcp.network-config') `
+    -Destination (Join-Path $seedDir 'network-config')
+
+# --- REGION: Generate cloud-init seed ISO
 & genisoimage -output $seedImg -volid cidata -joliet -rock `
-    (Join-Path $seedDir 'user-data') (Join-Path $seedDir 'meta-data') 2>&1 | Out-Null
+    (Join-Path $seedDir 'user-data') (Join-Path $seedDir 'meta-data') `
+    (Join-Path $seedDir 'network-config') 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) {
     Write-Error "genisoimage failed (exit $LASTEXITCODE)"
     exit 1
@@ -495,7 +502,7 @@ Write-Output "    virt-viewer --connect $virshUri $VMName"
 Write-Output "  and log in with the credentials above to inspect cloud-init state."
 Write-Output ""
 
-# --- REGION: Pick libvirt network
+# --- REGION: Validate the resolved libvirt network
 # $networkName was resolved above via Resolve-GuestHostBinding; see the
 # .DESCRIPTION network-choice notes for what each mode costs.
 if (-not $networkName) {
@@ -552,7 +559,7 @@ if ($networkName -eq 'default') {
     }
 }
 
-# --- REGION: virt-install
+# --- REGION: Create and configure the libvirt domain (virt-install)
 # `--import` (no install phase) since the cloud image is bootable.
 # `--events on_reboot=restart` matches the amazon.linux.2023 guest -- a
 # system_reset inside the VM (e.g. unattended-upgrades pulling a kernel)
@@ -593,6 +600,10 @@ if ($hostCores -lt 4) {
 }
 $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
 
+# --- REGION: https://yuruna.link/network#defining-deterministic-guest-mac-addresses
+$YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $VMName
+Write-Verbose "Deterministic guest MAC for '$VMName': $YurunaGuestMac"
+
 $installArgs = @(
     '--connect',    $virshUri,
     '--name',       $VMName,
@@ -605,7 +616,7 @@ $installArgs = @(
     # ",mac=" pins the NIC's MAC so an operator DHCP reservation keyed to
     # it gives the cache VM a known, stable IP across rebuilds; empty
     # $MacAddress keeps virt-install's per-run random MAC.
-    '--network',    ("network=$networkName,model=virtio" + $(if ($MacAddress) { ",mac=$MacAddress" } else { '' })),
+    '--network',    ("network=$networkName,model=virtio" + $(if ($MacAddress) { ",mac=$MacAddress" } else { ",mac=$YurunaGuestMac" })),
     '--graphics',   'vnc,listen=127.0.0.1',
     # qemu-guest-agent socket: lets `virsh domifaddr --source agent`
     # query the guest's IPv4 directly when the host can't observe DHCP

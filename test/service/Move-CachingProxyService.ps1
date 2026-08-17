@@ -530,7 +530,7 @@ function Confirm-MigrationParentRelay {
     }
 }
 
-# ======================= parameter validation ===========================
+# --- REGION: Parameter validation
 
 # All usage problems are collected and reported together, before ANY
 # interactive prompt.
@@ -605,7 +605,7 @@ if ([System.Net.IPAddress]::TryParse($NewAddress, [ref]$parsedIp) -and $parsedIp
     }
 }
 
-# ============================ main =======================================
+# --- REGION: Main
 
 # Strict from here on: past validation, any unhandled cmdlet error must
 # abort into the catch (which reports and exits 1), never limp onward.
@@ -624,6 +624,7 @@ try {
     $new.Askpass = $newHelper.Command
 
     if ($Start) {
+        # --- REGION: -Start -- build the parent/child cache hierarchy
         Write-Output "== Move-CachingProxyService: START copy cycle ($OldAddress -> $NewAddress) =="
 
         Connect-VmSession -Vm $new
@@ -674,7 +675,7 @@ try {
         $deployedOld = $false
         $deployedNew = $false
         try {
-            # ---- old cache: accept the child, optionally open the TLS peer port
+            # --- REGION: Old cache -- accept the child, optionally open the TLS peer port
             $oldBaseLines = @(
                 '# Yuruna cache-migration drop-in, managed by test/service/Move-CachingProxyService.ps1.'
                 "# This VM is the PARENT: the replacement cache at $NewAddress warms up"
@@ -724,7 +725,7 @@ try {
                 }
             }
 
-            # ---- new cache: point at the parent
+            # --- REGION: New cache -- point at the parent
             $newLines = @(
                 '# Yuruna cache-migration drop-in, managed by test/service/Move-CachingProxyService.ps1.'
                 "# This VM is the CHILD: cache misses are fetched from the old cache at"
@@ -827,6 +828,7 @@ try {
     }
 
     if ($End) {
+        # --- REGION: -End -- detach the child and retire the old cache
         Write-Output "== Move-CachingProxyService: END copy cycle ($OldAddress -> $NewAddress) =="
 
         # New side first: once the child forgets the parent, the old cache

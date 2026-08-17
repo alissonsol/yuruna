@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 421e5a04-9d3b-4c8e-b6a1-2f0d84e5c913
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,7 +33,7 @@
 
     Deliberately NOT reversed, and reported instead: installed packages, PSGallery
     modules, macOS TCC grants, the credential vault, cloned repos / VM images /
-    history, the vmms and W32Time services, and everything the networkStorage
+    history, the vmms service, and everything the networkStorage
     questionnaire wrote (config keys, vaulted credential, mounts). Tearing down
     storage on a "disable settings" is a surprise, so it is offered as explicit
     commands.
@@ -65,13 +65,25 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# --- REGION: Log level from the environment
+# Honor the caller's logLevel, published as $env:YURUNA_LOG_LEVEL by whatever
+# entry point started this script (install/setup.ps1). See docs/loglevels.md.
+Import-Module (Join-Path $PSScriptRoot '../modules/Test.LogLevel.psm1') -Global -Force -DisableNameChecking
+Use-LogLevelFromEnv
+
+# --- REGION: Shared bootstrap
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'automation/Yuruna.HostRedirect.psm1') -Force -DisableNameChecking
 
+# --- REGION: Common-parameter relay
 # The per-host script narrates each decision under -Verbose; -Verbose binds to
-# this redirector as a common parameter and would otherwise stop here.
+# this redirector as a common parameter and would otherwise stop here. A level
+# of Verbose or Debug asks for the same narration by another name, and the
+# switch is what the child binds -- the env var alone would only reach the
+# per-host script's own preferences, not its -Verbose-gated output.
 $extra = @()
-if ($PSBoundParameters.ContainsKey('Verbose')) { $extra += '-Verbose' }
+if ($PSBoundParameters.ContainsKey('Verbose') -or $VerbosePreference -eq 'Continue') { $extra += '-Verbose' }
 
+# --- REGION: Delegate to the per-host script
 $forwarded = @(ConvertTo-HostScriptArgument `
     -BoundParameters $PSBoundParameters `
     -RemainingArguments $RemainingArguments `

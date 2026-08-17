@@ -319,6 +319,110 @@ telemetry-only ([below](#post-announce-pool-aggregator-service)).
 The roster, the capability matrix, the registration record, the pool lookup and
 the reboot sweep pick it up with no further edits.
 
+### Service scripts run at `$ErrorActionPreference` Continue
+
+Every service bring-up and teardown script leaves `$ErrorActionPreference` at
+its inherited `Continue`, and must keep it there. A script-scoped `Stop` is not
+scoped to the script: an advanced function invoked from it runs under the same
+preference, so every helper the script calls has its NON-terminating errors
+promoted to terminating ones.
+
+Several steps are built on exactly that tolerance — the storage pre-flight warns
+and proceeds when the share does not answer, and the post-boot publish steps are
+reported-never-fatal. Under `Stop` each of those designed outcomes ends the
+bring-up instead, and its reason is left on a console that is gone by the time
+anyone reads the run log.
+
+Where a condition really must stop the script, it says so itself with an
+explicit `Write-Error` followed by `exit`, the way the pre-flight hard gates do.
+That keeps every stopping decision at the point that makes it, instead of
+spreading it across every helper the script happens to call.
+
+### A service that never served fails loudly
+
+A bring-up that ends with no daemon serving exits non-zero. Warning-plus-zero is
+not an option: the caller records the script's exit code as the step's outcome,
+so a zero puts `<service>: PASS` in a run summary for a VM whose daemon does not
+exist.
+
+**An IP is not readiness.** `New-VM` confirms the VM has an address, but the
+daemon still has to build INSIDE the guest — apt, the Go toolchain, the build
+itself, a CIFS mount, then a systemd start — which takes several minutes on
+first boot. Probe `:80` until it actually serves before declaring success.
+
+**Gather the evidence before exiting.** A failing bring-up is the only moment
+the guest is still up and answerable, so the in-guest build log, cloud-init
+status and the service journal are pulled over the harness SSH key before the
+script exits, and the operator sees why without SSHing in blind.
+`/var/log/cloud-init-output.log` is root-only — a plain `tail` as the service
+account returns `Permission denied` — which is why the seed gives the
+`<service>-admin` account NOPASSWD sudo and the capture reads the log through
+`sudo`. Pin that account with `-User`: it is the only login the VM has, and
+`Get-GuestSshUser` would otherwise return a per-cycle cascade override that an
+earlier run in the same shell session left registered for the guest key.
+
+**Say what actually happened, not what the budget allowed.** Very different
+failures reach this line — an address that never answered; that address plus a
+second one the last-resort lookup found, which was also silent; only the
+last-resort address; or no address at all — and quoting the nominal timeout for
+the last of those describes a wait that never occurred, sending the reader to
+look for a long in-guest build behind a failure that took seconds. Name every
+address this host dialed, because the reader's next move is to check the guest's
+own address against them, and one left out of the line is one they cannot rule
+out.
+
+## Which framework snapshot a service VM is built from
+
+The extension service daemons are Go binaries whose version is stamped at
+COMPILE time, read from the `VERSION` file of whatever enlistment the guest
+fetched. Nothing re-reads it afterwards: the guest builds once, and the number
+it prints on its UI, in `/api/hostinfo` and in every diagnostics payload is
+frozen there for the life of the VM.
+
+That makes the fetch the whole story. The cloud-init seed pulls this host's
+enlistment from the host status service (`/yuruna-archive.tar.gz`, with the
+coordinates sed-read out of `/etc/yuruna/host.env`, never sourced) and falls
+back to cloning the public GitHub mirror when the host does not answer, so a
+bring-up still works off-LAN. The two sources are NOT equivalent: the host
+serves the enlistment the operator is working in, while the mirror is a
+published snapshot that lags it by however long since the last release push.
+Whichever wins is compiled into the daemon minutes later, so a silent fall back
+to the mirror deploys older code that then reports itself as current forever.
+
+The status service therefore has to be up BEFORE `New-VM` bakes and boots the
+guest, not after — a server started later is one the guest never saw. The
+bring-up keeps the `{ShouldStart; Port}` record that decision produced rather
+than discarding it, because the framework-source gate later has to probe the
+port this decision resolved; re-deriving it would be a second reading of the
+same config, free to disagree with the reading that actually started the server.
+
+Two checks bracket the build, and only one of them is evidence:
+
+- **Before the build**, `Assert-GuestFrameworkSource` refuses a bring-up whose
+  guest could not possibly reach this host's enlistment. It is a cheap early
+  stop that saves the long in-guest build, nothing more. It cannot prove which
+  address the seed will end up baking, because that is resolved per host type
+  inside `New-VM.ps1`.
+- **After the daemon serves**, `Assert-ServiceVmFrameworkSource` reads what the
+  guest ACTUALLY did (`/etc/yuruna/framework-source`, written by the seed and
+  left world-readable so the unprivileged service account can read it) against
+  what the daemon actually reports (`/api/hostinfo`). That one is authoritative,
+  and it is the check that fails a bring-up.
+
+The split is the point: the pre-flight is a prediction and the post-boot check
+is an observation, so only the second may be trusted to say a deployed service
+runs current code. The pre-flight can pass and the guest still fall back — the
+host address is baked at seed time and the guest reaches for it minutes into
+first boot, so a host that renumbered in between sends the fetch to the mirror
+with everything on this side looking correct.
+
+A mismatch fails the bring-up but does NOT retract the runtime marker. A stale
+build is still a running service, and withdrawing the row would replace an
+accurate advertisement with a false one; what is wrong is the bring-up's claim
+to have deployed this enlistment, so that is what fails. `-AllowMirrorSource` is
+the deliberate escape for an off-LAN bring-up: it downgrades both checks to a
+warning, and the service then runs published code on purpose.
+
 ## Finding a service this host does not run
 
 A host that needs a network service — the stash service, pool-control service,

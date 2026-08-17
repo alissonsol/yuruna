@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42d5a90b-16c7-4e83-b0f2-5c9a7e34d118
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,25 +16,11 @@
 
 #requires -version 7
 
-# --- REGION: the service VMs, and bringing them back after a reboot
-# A host reboot does not damage anything: it leaves every service VM registered
-# with the hypervisor and powered off. Nothing then turns them back on, and the
-# two consequences are not alike --
-#
-#   * the caching proxy merely degrades (guests download direct, slowly), while
-#   * the stash service is FATAL to a cycle: the warm-up resolves it, finds
-#     nothing, and every workload stage is skipped.
-#
-# So a rebooted host keeps burning cycles that can never pass, until an operator
-# notices and starts the VMs by hand. The fix is the cheap one: START what is
-# already built. A rebuild costs ~15 minutes and throws away a warm squid cache;
-# a start costs seconds and preserves it. Rebuilding stays the escalation for a
-# VM that will not come up, never the first response to one that is merely off.
-#
-# Host-neutral by construction. Every driver implements the same VM contract
-# (Get-VMState / Start-VM / Get-VMIp), so this needs no per-host branch -- and
-# because it resolves those by name at CALL time, a caller that has not run
-# Initialize-YurunaHost degrades to a reported no-op instead of an error.
+# --- REGION: https://yuruna.link/operator#bringing-service-vms-back-after-a-host-reboot
+# Host-neutral by construction: every driver implements the same VM contract
+# (Get-VMState / Start-VM / Get-VMIp), and those names are resolved at CALL
+# time, so a caller that has not run Initialize-YurunaHost degrades to a
+# reported no-op instead of an error.
 
 # One TCP probe's cap. The service ports are on the local hypervisor network, so
 # a live service answers in milliseconds; this bound only decides how fast a dead

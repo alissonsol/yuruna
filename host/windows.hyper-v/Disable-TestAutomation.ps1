@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 429f21c7-6d84-4a02-9e15-7c3a8b0d5f46
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,6 +30,7 @@
       * InactivityTimeoutSecs policy
       * per-monitor DpiValue, plus LogPixels / Win8DpiScaling / TextScaleFactor
       * the Enabled state of each built-in inbound ICMPv4 rule Enable switched on
+      * the W32Time startup type and run state Enable's clock discipline changed
 
     And removes what Enable added outright: the status-port firewall rule and
     the 'Yuruna: Allow ICMPv4 Echo Request' rule.
@@ -58,6 +59,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $InformationPreference = 'Continue'
 
+# --- REGION: Platform guard
 if (-not $IsWindows) {
     Write-Error 'Disable-TestAutomation.ps1 (host/windows.hyper-v) only runs on Windows.'
     exit 1
@@ -76,13 +78,14 @@ $state = Read-HostAutomationState
 if ($state) {
     Write-Information "Restoring from the capture taken at $($state.capturedUtc)."
 } else {
-    Write-Warning 'No pre-automation capture on this host (it was enabled before the capture shipped, or the file was removed).'
+    Write-Warning 'No pre-automation capture on this host (Enable-TestAutomation did not write one, or the file was removed).'
     Write-Warning 'Only what is provably ours will be removed: the status-port rule and the Yuruna ICMP rule. Everything else is reported, not guessed at.'
 }
 
 $restored = [System.Collections.Generic.List[string]]::new()
 $skipped  = [System.Collections.Generic.List[string]]::new()
 
+# --- REGION: Script-local helpers
 # Thin local shim over the shared driver so the three per-host scripts stay
 # readable: -State, -Cmdlet and the two lists are the same on every call.
 function Restore-Knob {
@@ -96,7 +99,7 @@ function Restore-Knob {
         -Apply $Apply -Absent $Absent -Cmdlet $PSCmdlet -Restored $restored -Skipped $skipped
 }
 
-# --- REGION: power settings
+# --- REGION: Power settings
 foreach ($scheme in @('AC', 'DC')) {
     $flag = if ($scheme -eq 'AC') { '/SETACVALUEINDEX' } else { '/SETDCVALUEINDEX' }
     Restore-Knob -Name "powercfg/monitor-timeout-$scheme" -Description "Monitor timeout ($scheme)" -Apply {
@@ -115,7 +118,7 @@ if ($restored.Count -gt 0 -and $PSCmdlet.ShouldProcess('Active power scheme', 'R
     & powercfg /SETACTIVE SCHEME_CURRENT
 }
 
-# --- REGION: inactivity policy
+# --- REGION: Inactivity policy
 Restore-Knob -Name 'policy/InactivityTimeoutSecs' -Description 'InactivityTimeoutSecs policy' -Apply {
     param($v)
     Set-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' `
@@ -125,7 +128,7 @@ Restore-Knob -Name 'policy/InactivityTimeoutSecs' -Description 'InactivityTimeou
         -Name 'InactivityTimeoutSecs' -ErrorAction SilentlyContinue
 }
 
-# --- REGION: display scaling
+# --- REGION: Display scaling
 $dpiKnob = Get-HostAutomationKnob -State $state -Name 'dpi/perMonitor'
 if ($dpiKnob -and $dpiKnob.present) {
     $root = 'HKCU:\Control Panel\Desktop\PerMonitorSettings'
@@ -170,7 +173,7 @@ foreach ($spec in @(
     }.GetNewClosure()
 }
 
-# --- REGION: firewall
+# --- REGION: Firewall rules
 # Removed outright: both rules are ours, by name.
 $statusPort = 8080
 $configPath = Join-Path $RepoRoot 'test/test.config.yml'
@@ -209,7 +212,24 @@ if ($icmpKnob -and $icmpKnob.present) {
     $skipped.Add('Built-in ICMPv4 rule states (not captured; left enabled)')
 }
 
-# --- REGION: services (opt-in)
+# --- REGION: Host clock
+Restore-Knob -Name 'service/W32Time' -Description 'Windows Time service (W32Time)' -Apply {
+    param($v)
+    $svc = Get-Service -Name 'W32Time' -ErrorAction SilentlyContinue
+    if (-not $svc) { throw 'the Windows Time service is not present on this host' }
+    $priorStart = [string]$v.StartType
+    if ($priorStart -and $svc.StartType -ne $priorStart) {
+        Set-Service -Name 'W32Time' -StartupType $priorStart -ErrorAction Stop
+    }
+    # Stopping it is part of the restore: the clock is only disciplined while
+    # the service runs, and a host that had it stopped is a host the operator
+    # left free to drift.
+    if ([string]$v.Status -ne 'Running' -and $svc.Status -eq 'Running') {
+        Stop-Service -Name 'W32Time' -ErrorAction Stop
+    }
+}
+
+# --- REGION: Services (opt-in)
 if ($StopServices) {
     foreach ($svc in @('CachingProxyService', 'StashService', 'PoolControlService', 'DownloadAgentService')) {
         $script = Join-Path $RepoRoot "test/Stop-${svc}VM.ps1"
@@ -221,7 +241,7 @@ if ($StopServices) {
     }
 }
 
-# --- REGION: report
+# --- REGION: Report
 Write-DisableReport -Platform 'windows.hyper-v' -Restored $restored -Skipped $skipped
 
 Write-Output ''
@@ -229,7 +249,7 @@ Write-Output 'NOT reversed (deliberately) -- run these yourself if you want them
 Write-DisableManualStep -What 'Installed packages and PSGallery modules (powershell-yaml, PSScriptAnalyzer)' -Command @(
     'Uninstall-Module powershell-yaml, PSScriptAnalyzer'
 )
-Write-DisableManualStep -What 'Hyper-V, vmms and W32Time service state (the bootstrapper enabled these, not Enable-TestAutomation)'
+Write-DisableManualStep -What 'Hyper-V and vmms service state (the bootstrapper enabled these, not Enable-TestAutomation)'
 Write-DisableManualStep -What 'Cloned repos, VM images and run history under ~/yuruna'
 Write-DisableManualStep -What 'networkStorage configuration, the vaulted credential and any mounts' `
     -Command (Get-PoolStorageManualTeardown -RepoRoot $RepoRoot)

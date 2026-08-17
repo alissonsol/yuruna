@@ -1,5 +1,8 @@
 # macOS 26 guest on macOS UTM host
 
+> Common setup pattern: see [Guest Image Setup](../../../docs/guest-image-setup.md).
+> This file documents only what's HOST/GUEST-specific.
+
 Boots a macOS **26** guest via the Apple Virtualization framework. The
 restore image is an `.ipsw` rather than an ISO; the disk has no
 autoinstall seed (macOS has no cloud-init equivalent) so first boot
@@ -67,6 +70,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.14
+Last review: 2026.08.16
 
 Back to [Yuruna](../../../README.md)

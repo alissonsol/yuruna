@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42c7a1b9-3d4e-4f80-9a21-5b6c7d8e9f01
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -177,7 +177,8 @@ function Invoke-OrchestratorGuestRun {
     )
     $fail = { param($msg) return @{ ok = $false; vmName = $null; guestKey = $null; reason = $msg } }
 
-    # --- GuestKey from the baseline map (first OS key), same as Invoke-TestSequence.
+    # --- REGION: Derive GuestKey from the sequence's baseline map
+    # First OS key, the same source of truth Invoke-TestSequence reads.
     $osKeys = @()
     if ($Sequence.baseline -is [System.Collections.IDictionary] -and $Sequence.baseline.Keys.Count -gt 0) {
         $osKeys = @($Sequence.baseline.Keys)
@@ -191,12 +192,14 @@ function Invoke-OrchestratorGuestRun {
         return & $fail "Guest folder not found for '$guestKey' on $HostType (inner '$Name')."
     }
 
-    # --- VM name (prefix from config), overridden to the snapshot id on warm path.
+    # --- REGION: Derive VM name
+    # Prefix from config; the snapshot id on the warm path.
     $prefix = $Config.vmStart.testVmNamePrefix ?? 'test-'
     $vmName = Get-TestVMName -GuestKey $guestKey -Prefix $prefix
 
-    # --- Chain plan (warm-path aware). Pass the resolved file as the top-level
-    #     override so the exact inner file runs; prereqs still resolve by name.
+    # --- REGION: Build chain plan
+    # Warm-path aware. Pass the resolved file as the top-level
+    # override so the exact inner file runs; prereqs still resolve by name.
     $plan = Resolve-TestSequencePlan `
         -RepoRoot $RepoRoot -SequencesDir $SequencesDir -HostType $HostType `
         -SequenceName $Name -OsKey $osKey -SequencePathOverride $SequencePath
@@ -207,13 +210,15 @@ function Invoke-OrchestratorGuestRun {
     $totalSteps    = $plan.chainTotalSteps
     if ($plan.warmPath -and $plan.requiredSnapshotId) { $vmName = $plan.requiredSnapshotId }
 
-    # --- SSH-user override (Save-GuestDiagnostic + SSH-mode host driver read it).
+    # --- REGION: SSH-user override
+    # Save-GuestDiagnostic + the SSH-mode host driver read it.
     if (Get-Command Clear-GuestSshUserOverride -ErrorAction SilentlyContinue) { Clear-GuestSshUserOverride }
     if ($effectiveUser -and (Get-Command Set-GuestSshUserOverride -ErrorAction SilentlyContinue)) {
         Set-GuestSshUserOverride -GuestKey $guestKey -Username $effectiveUser
     }
 
-    # --- Ensure the VM exists (reuse or create), forwarding the shared proxy.
+    # --- REGION: Ensure VM exists (reuse or create)
+    # Forwards the shared proxy.
     if ((Get-VMState -VMName $vmName) -ne 'absent') {
         Write-OrchestratorLine "VM '$vmName' already exists. Reusing."
     } else {
@@ -226,10 +231,11 @@ function Invoke-OrchestratorGuestRun {
         Write-OrchestratorLine "VM '$vmName' created."
     }
 
-    # --- Ensure the VM is running, unless the first step is loadDiskSnapshot
-    #     (its handler tolerates a stopped VM and starts it after the restore).
-    #     Read through a wrapper such as `retry` to the inner step that actually
-    #     runs first, so a nested restore is recognized as one.
+    # --- REGION: Ensure VM is running
+    # Skipped when the first step is loadDiskSnapshot
+    # (its handler tolerates a stopped VM and starts it after the restore).
+    # Read through a wrapper such as `retry` to the inner step that actually
+    # runs first, so a nested restore is recognized as one.
     $firstAction = [string](Get-FirstExecutedStepAction -ChainEntries $chainEntries -StartStep 1)
     if ($firstAction -eq 'loadDiskSnapshot') {
         Write-OrchestratorLine "VM '$vmName': skipping pre-sequence start -- first step is loadDiskSnapshot."
@@ -247,7 +253,7 @@ function Invoke-OrchestratorGuestRun {
         Write-OrchestratorLine "VM '$vmName' is running."
     }
 
-    # --- Run the whole chain (StartStep 1 .. end).
+    # --- REGION: Run each chain entry (StartStep 1 .. end)
     $result = Invoke-TestSequenceChain `
         -ChainEntries $chainEntries -ChainPlan $plan.chainPlan `
         -StartStep 1 -EffectiveStop $totalSteps -StopStep 0 -ChainTotalSteps $totalSteps `
@@ -308,8 +314,9 @@ function Invoke-OrchestrationSequence {
         if ($pfx) { "$pfx/$setName" } else { $setName }
     } else { '' }
 
-    # --- Resolve every step to (name, path, sequence, kind) up front so the
-    #     status cycle can list all inner sequences before the first runs.
+    # --- REGION: Resolve sequence file
+    # Every step is resolved to (name, path, sequence, kind) up front so the
+    # status cycle can list all inner sequences before the first runs.
     $entries = New-Object System.Collections.Generic.List[object]
     $stepIdx = 0
     foreach ($step in @($Sequence['steps'])) {
@@ -354,8 +361,9 @@ function Invoke-OrchestrationSequence {
     Write-OrchestratorLine "  On error:      $(if ($continueOnError) { 'continue (report all)' } else { 'stop at first failure' })"
     Write-OrchestratorLine "============================================="
 
-    # --- Resolve the caching-proxy-service endpoint ONCE (shared by every guest run),
-    #     mirroring Invoke-TestSequence's own resolve. Env candidate wins per its rules.
+    # --- REGION: Resolve the caching-proxy-service endpoint from config + env
+    # Resolved ONCE and shared by every guest run,
+    # mirroring Invoke-TestSequence's own resolve. Env candidate wins per its rules.
     $envCacheIp    = if ($env:YURUNA_CACHING_PROXY_SERVICE_IP) { $env:YURUNA_CACHING_PROXY_SERVICE_IP.Trim() } else { '' }
     $configCacheIp = ''
     if ($Config.vmStart -is [System.Collections.IDictionary] -and $Config.vmStart.Contains('cachingProxyIp')) {
@@ -380,12 +388,13 @@ function Invoke-OrchestrationSequence {
     $cachingProxyUrl = Test-CachingProxyServiceAvailable
     if ($cachingProxyUrl) { Write-OrchestratorLine "Caching-proxy service: $cachingProxyUrl (forwarded to inner runs)" }
 
-    # --- Register the cycle. OWNER: reset + initialize ONE status cycle where
-    #     each inner sequence is its own top-level row (synthetic guest key =
-    #     inner name) so the dashboard shows a single unified cycle. NESTED:
-    #     attach ONE `nested` node for the whole orchestration under the parent
-    #     that invoked us, and write our transcript under the owner's cycle
-    #     folder -- never reset/own the doc.
+    # --- REGION: Register this run as a cycle in status.json
+    # OWNER: reset + initialize ONE status cycle where
+    # each inner sequence is its own top-level row (synthetic guest key =
+    # inner name) so the dashboard shows a single unified cycle. NESTED:
+    # attach ONE `nested` node for the whole orchestration under the parent
+    # that invoked us, and write our transcript under the owner's cycle
+    # folder -- never reset/own the doc.
     if ($orchNested) {
         $nlog = Start-NestedLogFile -RootCycleFolder ([string]$ctx.rootCycleFolder) -NodeId $orchNodeId -CycleStartUtc ([string]$ctx.cycleStartUtc)
         Register-NestedRunNode -StatusPath $statusFile -NodeId $orchNodeId -ParentId ([string]$ctx.parentId) `
@@ -459,10 +468,11 @@ function Invoke-OrchestrationSequence {
     $rootCycleFolder = if ($orchNested) { [string]$ctx.rootCycleFolder } else { [string]$global:__YurunaCycleFolder }
     $rootCycleNumber = if ($orchNested) { [int]$ctx.cycleNumber } else { (Get-CycleNumber) }
 
-    # --- Walk the steps in order.
+    # --- REGION: Run each chain entry that overlaps the requested step range
     $results = New-Object System.Collections.Generic.List[object]
     $stopped = $false
     $overall = 'pass'
+    $firstFailureReason = ''
     try {
         foreach ($e in $entries) {
             if ($stopped) {
@@ -492,6 +502,7 @@ function Invoke-OrchestrationSequence {
                 -RootCycleFolder $rootCycleFolder -CycleNumber $rootCycleNumber -ParentId $stepParentId
 
             $reason = ''
+            $entryVmName = ''
             try {
                 if ($e.kind -eq 'host') {
                     $exit = Invoke-OrchestratorHostAction -Sequence $e.sequence -SequencePath $e.path -Name $e.name
@@ -502,6 +513,7 @@ function Invoke-OrchestrationSequence {
                         -RepoRoot $RepoRoot -SequencesDir $SequencesDir -HostType $HostType -Config $Config `
                         -CachingProxyServiceUrl $cachingProxyUrl -ShowSensitive:$ShowSensitive
                     $ok = [bool]$run.ok
+                    if ($run.vmName) { $entryVmName = [string]$run.vmName }
                     if ($run.vmName -and -not $orchNested) { Set-GuestVMName -GuestKey $e.name -VMName $run.vmName -Confirm:$false }
                     if (-not $ok) { $reason = $run.reason }
                 } else {
@@ -522,6 +534,28 @@ function Invoke-OrchestrationSequence {
             $results.Add([ordered]@{ index = $e.index; name = $e.name; kind = $e.kind; outcome = $outcome })
             if (-not $ok) {
                 $overall = 'fail'
+                # Put a failure record on disk for the failing entry. A GUEST
+                # entry's sequence engine writes its own, far richer record and
+                # this call deliberately never overwrites one; a HOST action has
+                # no such writer at all, so without this a cycle that dies in a
+                # pre-flight ends with no last_failure.json -- the dashboard and
+                # the remediation dispatcher then see an unclassified failure and
+                # the cycle folder carries nothing naming what stopped it.
+                # Soft by contract: the outcome is already decided, so failing to
+                # RECORD it must not change it. Test.RunnerInnerLoop is imported
+                # lazily because a passing orchestration never needs it.
+                try {
+                    if (-not (Get-Command Write-CycleInfraFailure -ErrorAction SilentlyContinue)) {
+                        Import-Module (Join-Path $PSScriptRoot 'Test.RunnerInnerLoop.psm1') -Force -Global -ErrorAction Stop
+                    }
+                    Write-CycleInfraFailure -Stage $e.name -FailureClass 'unknown' -Severity 'hard' `
+                        -GuestKey '(orchestration)' -VMName $entryVmName -ErrorMessage $reason -HostType $HostType
+                } catch {
+                    Write-Verbose "Invoke-OrchestrationSequence: no failure record written for '$($e.name)' -- $($_.Exception.Message)"
+                }
+                # First failure wins: it is the one that stopped the run, and
+                # with continueOnError the later entries are consequences.
+                if (-not $firstFailureReason) { $firstFailureReason = "$($e.name): $reason" }
                 if (-not $continueOnError) { $stopped = $true }
             }
         }
@@ -539,11 +573,11 @@ function Invoke-OrchestrationSequence {
                 $maxHistory = [int]$Config.testCycle.recentDisplayCount
             }
             if (Get-Command Complete-Run -ErrorAction SilentlyContinue) { Complete-Run -OverallStatus $overall -MaxHistoryRuns $maxHistory }
-            if (Get-Command Stop-LogFile -ErrorAction SilentlyContinue) { Stop-LogFile -Outcome $overall -Reason '' }
+            if (Get-Command Stop-LogFile -ErrorAction SilentlyContinue) { Stop-LogFile -Outcome $overall -Reason $firstFailureReason }
         }
     }
 
-    # --- Summary.
+    # --- REGION: Summary
     $failCount = @($results | Where-Object { $_.outcome -eq 'FAIL' }).Count
     $skipCount = @($results | Where-Object { $_.outcome -eq 'SKIPPED' }).Count
     $passCount = @($results | Where-Object { $_.outcome -eq 'PASS' }).Count

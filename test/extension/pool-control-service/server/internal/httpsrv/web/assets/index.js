@@ -7,6 +7,11 @@
   // intent rather than reloading, so an in-progress test-set choice survives.
   const chrome = Y.initChrome({ refresh: function () { load({ quiet: true }); } });
 
+  // Built once, not per read: the sort an operator chose is theirs until they
+  // change it, and re-reading pool intent every minute must not put the table
+  // back in the server's order under them.
+  const sorter = Y.sortTable(document.getElementById('pool-rows'), { key: 'pool' });
+
   // quiet marks the countdown's read, which keeps the table it is refreshing on
   // screen. Every other read replaces it and says so: pool intent is read by
   // running a CLI on the server, which is not instant.
@@ -39,10 +44,12 @@
     tbody.textContent = '';
 
     if (pools.length === 0) {
-      tbody.appendChild(Y.el('tr', {}, [Y.el('td', { colspan: '6', class: 'muted', text: 'No pools defined. Create one on the Pools page.' })]));
+      sorter.set([]);
+      tbody.appendChild(Y.el('tr', {}, [Y.el('td', { colspan: '7', class: 'muted', text: 'No pools defined. Create one on the Pools page.' })]));
       return;
     }
 
+    const rows = [];
     for (const p of pools) {
       const ts = p.testSet || null;
 
@@ -83,15 +90,29 @@
           Y.el('div', { text: ts.projectUrl })
         ])
         : Y.el('td', { class: 'mono', text: '(none)' });
-      tbody.appendChild(Y.el('tr', {}, [
-        Y.el('td', { text: p.poolId }),
-        Y.el('td', {}, [Y.idCell(p.poolGuid)]),
-        Y.el('td', {}, [sel, ' ', assignBtn]),
-        fwProj,
-        memCell,
-        Y.el('td', { text: p.desiredState || 'run' })
-      ]));
+      // The picker column sorts on the set the pool holds NOW, not on the
+      // choice sitting unsubmitted in the dropdown: the table orders what is
+      // true of the lab, and a half-made choice is not that yet.
+      rows.push({
+        tr: Y.el('tr', {}, [
+          Y.el('td', { text: p.poolId }),
+          Y.el('td', {}, [Y.idCell(p.poolGuid)]),
+          Y.el('td', {}, [sel, ' ', assignBtn]),
+          fwProj,
+          memCell,
+          Y.el('td', { text: p.desiredState || 'run' })
+        ]),
+        values: {
+          pool: p.poolId || '',
+          poolGuid: p.poolGuid || '',
+          testSet: ts ? ts.name : '',
+          repos: ts ? ts.frameworkUrl + ' ' + ts.projectUrl : '',
+          members: members.length,
+          state: p.desiredState || 'run'
+        }
+      });
     }
+    sorter.set(rows);
   }
 
   // Wrapped rather than passed straight to the listener: load() reads its first

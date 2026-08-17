@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Version: 2026.08.14
+# Version: 2026.08.16
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -11,6 +11,7 @@
 # invokes. The daemon persists its audit log + status.json under the pool NAS
 # (poolStorageNetworkPath/pool-control-service/), which is CIFS-mounted here with the same
 # credential path the pool-storage replication uses.
+# --- REGION: https://yuruna.link/pool-control-service
 set -euo pipefail
 
 # cloud-init's runcmd runs this as root with a MINIMAL environment where
@@ -41,6 +42,7 @@ if [ -r /usr/local/lib/yuruna/yuruna-retry.sh ]; then
   export YURUNA_APT_STALL_TIMEOUT_SECONDS=0
 fi
 
+# --- REGION: Service user
 # The daemon runs unprivileged. Prefer the cloud-init-created
 # 'pool-control-service-admin' account; fall back to whoever invoked the script (e.g.
 # an interactive test login). The NAS mount's uid/gid must match this user for
@@ -51,6 +53,8 @@ else
   SERVICE_USER="${SERVICE_USER:-$(id -un)}"
 fi
 echo "Service user: $SERVICE_USER"
+
+# --- REGION: Service tunables
 HTTP_ADDR="${POOL_CONTROL_HTTP_ADDR:-0.0.0.0:80}"
 PRESENCE_INTERVAL="${POOL_CONTROL_PRESENCE_INTERVAL:-15m}"
 # The lab-auth token opens the bearer path on the routes that change pool
@@ -76,6 +80,7 @@ AGGREGATOR_URL="$(sed -n 's/^YURUNA_AGGREGATOR_URL=//p' /etc/yuruna/pool.env 2>/
 HOST_ID="$(sed -n 's/^YURUNA_HOST_ID=//p' /etc/yuruna/host.env 2>/dev/null | head -1 || true)"
 INTENT_GIT_URL="$(sed -n 's/^YURUNA_POOL_INTENT_GIT_URL=//p' /etc/yuruna/pool.env 2>/dev/null | head -1 || true)"
 
+# --- REGION: Storage paths
 # Pool NAS mount (CIFS) -> state dir. NAS host/share/cred come from pool.env,
 # matching Test.PoolStorage's networkStorage.poolStorageNetworkPath contract.
 POOL_NAS_UNC="$(sed -n 's/^YURUNA_POOL_NETWORK_PATH=//p' /etc/yuruna/pool.env 2>/dev/null | head -1 || true)"
@@ -90,7 +95,9 @@ STATE_DIR="$MOUNT/pool-control-service"
 # writable store lives there and the proxy can serve those same bytes to runners.
 INTENT_STORE="$MOUNT/pool-intent.git"
 
-echo "== pool-control-service bring-up: installing deps =="
+# --- REGION: Package dependencies
+echo ""
+echo -e "\e[1;36m==== Package dependencies ====\e[0m"
 # libcap2-bin supplies setcap for the DIRECT (non-systemd) launch path; under
 # systemd the load-bearing grant is AmbientCapabilities (see the unit below).
 if command -v apt_retry >/dev/null 2>&1; then
@@ -189,6 +196,7 @@ pwsh --version
 sudo pwsh -NoProfile -NonInteractive -Command "if (-not (Get-Module -ListAvailable powershell-yaml)) { Install-Module powershell-yaml -Scope AllUsers -Force -AcceptLicense }" \
   || echo "pool-control-service: powershell-yaml install failed; the pool-admin CLIs will fail to parse intent. See /diagnostics." >&2
 
+# --- REGION: Locate the daemon source
 # Locate the framework checkout (the pool-control-service source + the pool-admin CLIs).
 # Enumerate candidate enlistments directly rather than piping `find` into
 # `head`: under pipefail the reader closing the pipe leaves the producer with
@@ -217,7 +225,9 @@ REPO_DIR="$(locate_repo_dir)" || {
 SERVER_DIR="$REPO_DIR/test/extension/pool-control-service/server"
 VERSION_STR="$(cat "$REPO_DIR/VERSION" 2>/dev/null || echo dev)"
 
-echo "== building pool-control-service ($VERSION_STR) from $SERVER_DIR =="
+# --- REGION: Build
+echo ""
+echo -e "\e[1;36m==== Building pool-control-service ($VERSION_STR) from $SERVER_DIR ====\e[0m"
 BUILD=/tmp/pool-control-service-build
 rm -rf "$BUILD"; cp -r "$SERVER_DIR" "$BUILD"
 # go.sum is committed, so DO NOT run `go mod tidy` (it needs the network to
@@ -238,27 +248,26 @@ for try in $(seq 1 "$attempts"); do
   sleep "$delay"
   delay=$((delay * 2))
 done
+
+# --- REGION: Install the binary
 sudo install -m 0755 -o root -g root "$BUILD/pool-control-service" /usr/local/bin/pool-control-service
-# Fallback for a DIRECT (non-systemd) launch only: with NoNewPrivileges=true
-# the kernel ignores file capabilities at execve, so this does not reach the
-# systemd-launched process -- AmbientCapabilities in the unit does.
+# Fallback for a DIRECT (non-systemd) launch only: under the unit's
+# NoNewPrivileges=true the grant that reaches the daemon is AmbientCapabilities,
+# so a failure here is not fatal.
+# --- REGION: https://yuruna.link/memory#why-the-service-daemons-bind-low-ports-with-ambientcapabilities-not-setcap
 sudo setcap 'cap_net_bind_service=+ep' /usr/local/bin/pool-control-service || true
 
+# --- REGION: Storage dirs
 # Mount the pool NAS for the state dir (best-effort; the daemon degrades to no
 # persistence if the mount is absent).
 if [[ -n "$POOL_NAS_UNC" ]]; then
   sudo mkdir -p "$MOUNT"
-  # NO iocharset=utf8: nls_utf8 is absent on the minimal cloud kernel and the
-  # mount fails with error(79); the state-dir names are ASCII. Open modes
-  # (0777/0666) match the parent share -- the server maps the cifs mount mode
-  # onto the created object's ACL, so a restrictive dir_mode would lock every
-  # folder the VM creates to the single creator and the host could not read
-  # the audit log back. nofail/_netdev keep a NAS outage from wedging boot.
+  # Every part is load-bearing: the open modes plus noperm are an ownership
+  # MAPPING that must match the parent share, not a hardening choice, and
+  # iocharset=utf8 is absent because nls_utf8 fails the mount with error(79).
+  # --- REGION: https://yuruna.link/pool-storage#guest-side-pool-nas-cifs-mount-options
   MOUNT_OPTS="credentials=/etc/yuruna/pool-nas.cifs.cred,vers=3.0,uid=$(id -u "$SERVICE_USER"),gid=$(id -g "$SERVICE_USER"),file_mode=0666,dir_mode=0777,noperm,nofail,_netdev"
-  # ip= lets cifs connect when the guest cannot resolve the share's server name
-  # -- a bare NetBIOS name, or a host-side alias that only the host resolves.
-  # Baked by Get-YurunaPoolSeedValue, which never emits an address a guest
-  # cannot dial. Same option, same reason, as the stash guest's mount.
+  # ip= carries the mount past a server name the guest has no way to resolve.
   [ -n "$POOL_NAS_IP" ] && MOUNT_OPTS="$MOUNT_OPTS,ip=$POOL_NAS_IP"
   # Persist via fstab so the state dir survives a VM reboot and systemd
   # exposes a .mount unit the daemon can order After=.
@@ -270,15 +279,22 @@ if [[ -n "$POOL_NAS_UNC" ]]; then
     sudo timeout 60 mount "$MOUNT" || echo "pool-control-service: NAS mount failed; persistence disabled" >&2
   fi
 fi
-sudo mkdir -p "$STATE_DIR" 2>/dev/null || true
-# Only chown the LOCAL fallback: on a mode-mapped cifs mount the uid/gid mount
-# options already place ownership, and a chown there can re-impose an
-# owner-only ACL that locks the host out of the audit log.
-if ! mountpoint -q "$MOUNT" 2>/dev/null; then
-  sudo chown -R "$SERVICE_USER":"$SERVICE_USER" "$STATE_DIR" 2>/dev/null || true
+# Never materialize the state dir on the local disk underneath an unmounted NAS
+# mountpoint, for the same reason the intent store below refuses to: the NAS
+# mounting later would shadow it, silently stranding the status.json and audit
+# log written in the meantime. An empty state dir is how the daemon is told to
+# run without persistence, so hand it that instead -- the daemon creates the dir
+# itself on start, and would otherwise recreate exactly the local one this skips.
+if mountpoint -q "$MOUNT" 2>/dev/null; then
+  # No chown on the mounted share: the uid/gid mount options have already placed
+  # ownership and a chown can lock the host out.
+  sudo mkdir -p "$STATE_DIR" 2>/dev/null || true
+else
+  echo "pool-control-service: $MOUNT is not mounted; state persistence is off (a state dir created here would be shadowed by a later mount)." >&2
+  STATE_DIR=''
 fi
 
-# --- REGION: intent store bootstrap
+# --- REGION: Intent store bootstrap
 # A pool-control-service VM with no intent store has no working UI: every read and write
 # targets it. Resolve one, and CREATE it when it is absent, so a first bring-up
 # reaches a working state without an operator pre-staging anything.
@@ -304,7 +320,7 @@ if [[ -n "$INTENT_GIT_URL" && "$INTENT_GIT_URL" != *://* && ! -d "$INTENT_GIT_UR
     echo "pool-control-service: $MOUNT is not mounted; refusing to create $INTENT_GIT_URL on local disk (a later mount would shadow it)." >&2
     INTENT_GIT_URL=''
   else
-    echo "== initializing pool intent store at $INTENT_GIT_URL =="
+    echo -e "\e[1;36m==== Initializing pool intent store at $INTENT_GIT_URL ====\e[0m"
     # Run git AS THE SERVICE USER, not as the root cloud-init runs this under:
     # the cifs mount maps every file to the service user's uid, so a root-created
     # repo is owned by someone other than the caller and git then refuses it with
@@ -357,7 +373,9 @@ if [[ -z "$INTENT_GIT_URL" ]]; then
   echo "pool-control-service: no intent store resolved (pool NAS unmounted and no seeded URL); the UI will start read-only and report why on /diagnostics." >&2
 fi
 
-echo "== env + systemd unit =="
+# --- REGION: Environment file
+echo ""
+echo -e "\e[1;36m==== /etc/yuruna/pool-control-service.env ====\e[0m"
 sudo mkdir -p /etc/yuruna
 sudo tee /etc/yuruna/pool-control-service.env >/dev/null <<EOF
 POOL_CONTROL_HTTP_ADDR=$HTTP_ADDR
@@ -374,6 +392,9 @@ POOL_CONTROL_SCAN_PORT=$SCAN_PORT
 POOL_CONTROL_SCAN_INTERVAL=$SCAN_INTERVAL
 EOF
 
+# --- REGION: systemd unit
+echo ""
+echo -e "\e[1;36m==== /etc/systemd/system/pool-control-service.service ====\e[0m"
 sudo tee /etc/systemd/system/pool-control-service.service >/dev/null <<EOF
 [Unit]
 Description=Yuruna Pool control service
@@ -398,6 +419,7 @@ NoNewPrivileges=true
 WantedBy=multi-user.target
 EOF
 
+# --- REGION: Start the service and wait for readiness
 sudo systemctl daemon-reload
 sudo systemctl enable --now pool-control-service.service
 
@@ -412,7 +434,7 @@ done
 
 if sudo systemctl is-active --quiet pool-control-service.service; then
   ss -ltnp '( sport = :80 )' 2>/dev/null | sed -n '1,4p' || true
-  echo "FETCHED AND EXECUTED: pool-control-service.service active on $HTTP_ADDR (state=$STATE_DIR)"
+  echo "FETCHED AND EXECUTED: pool-control-service.service active on $HTTP_ADDR (state=${STATE_DIR:-off})"
 else
   echo "pool-control-service.service failed to start:" >&2
   sudo journalctl -u pool-control-service.service --no-pager -n 40 >&2 || true

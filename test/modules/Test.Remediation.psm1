@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42d6f5e4-b3a2-4c91-8076-2e3f4a5b6c92
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -202,6 +202,8 @@ function Invoke-Remediation {
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
+        Justification = 'Reads the $global:__YurunaRunId cycle-identity channel to stamp the persisted record; never assigns it.')]
     param(
         [string]$LastFailurePath,
         [hashtable]$FailureRecord
@@ -413,6 +415,13 @@ function Invoke-Remediation {
             $record = [ordered]@{
                 schemaVersion  = 1
                 timestamp      = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                # The record lands in the log ROOT, which outlives any single
+                # cycle, so whoever archives it into a cycle folder cannot tell a
+                # record THIS cycle produced from one an earlier cycle left
+                # behind -- and presence alone reads as "this cycle was
+                # diagnosed". Stamp the producing run so the archive matches on
+                # identity; a record with no stamp is treated as inherited.
+                runId          = if ($global:__YurunaRunId) { [string]$global:__YurunaRunId } else { '' }
                 failureClass   = $failureClass
                 severity       = $severity
                 recommendation = [string]$result['Recommendation']
@@ -669,6 +678,25 @@ function Register-BuiltinRecoveryHandler {
                 'On the console, install the runner drop-in: the failure message carries the exact /etc/sudoers.d/yuruna-runner rule',
                 'Validate it with visudo -cf before relying on it -- an invalid drop-in breaks sudo for every command',
                 'Re-launch test/Invoke-TestRunner.ps1; its startup elevation gate confirms the host before the first cycle'
+            )
+        }
+    }
+
+    Register-RecoveryHandler -FailureClass 'pool_storage_full' -Handler {
+        param([hashtable]$c)
+        # The record's description carries the measured free-vs-required figures;
+        # quote it so the operator sees the actual shortfall rather than being told
+        # to go and measure it themselves.
+        $detail = ''
+        if ($c.Failure -and $c.Failure.description) { $detail = " Reported: $($c.Failure.description)" }
+        return @{
+            Recommendation = 'operator_intervention_required'
+            Rationale      = "pool_storage_full: the pool share has no room left for this host's cycle results, so the cycle's output could not be archived. Nothing the runner can do changes that -- it has no archives of its own to delete, and the next cycle only produces more to store. In move mode the share holds the ONLY copy of a cycle's results, so archiving is not optional and cycles stay paused until there is room.$detail"
+            Actions        = @(
+                "Delete old cycle archives on the share under hosts/<hostId>/test-cycles/ -- they are immutable folders, so removing whole ones is safe",
+                'Retire dead hosts with test/pool/Remove-PoolHost.ps1, which also removes their archive root (including any pre-unification one)',
+                'Check what else shares the volume: the guest-image download pool under images/ is usually the largest tenant',
+                'The runner re-checks before each cycle and resumes on its own once there is room; a config edit or a new commit ends the pause immediately'
             )
         }
     }

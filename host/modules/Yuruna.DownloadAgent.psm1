@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a346a8-65dc-4b6b-b4a8-0c5609e08d3f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -74,6 +74,8 @@ $script:EndpointValue    = ''
 # else is a caller mistake the agent would 400, so it is refused here instead of
 # on the wire.
 $script:KnownHostType = @('windows.hyper-v', 'ubuntu.kvm', 'macos.utm')
+
+# --- REGION: Endpoint URL helpers
 
 function Format-DownloadAgentUrlHost {
     <#
@@ -175,6 +177,8 @@ function ConvertTo-DownloadAgentHostType {
     }
     return $value
 }
+
+# --- REGION: Agent discovery
 
 function Test-DownloadAgentHealth {
     <#
@@ -401,6 +405,8 @@ function Resolve-DownloadAgentEndpoint {
     }
     return $script:EndpointValue
 }
+
+# --- REGION: Artifact transfer
 
 function Get-DownloadAgentImageUri {
     <#
@@ -648,6 +654,8 @@ function Copy-DownloadAgentStream {
     }
     return (Get-Item -LiteralPath $OutFile).Length
 }
+
+# --- REGION: Image request protocol
 
 function Get-DownloadAgentImageMetadata {
     <#
@@ -979,6 +987,7 @@ function Copy-DownloadAgentOriginMetadata {
     $Result.sha256       = [string]$Image.sha256
 }
 
+# --- REGION: Exports
 # Exactly three functions, all uniquely named. Never Save-CachedHttpUri or
 # Test-DownloadAlreadyCurrent: re-exporting either would let this module take
 # the command-table slot a driver's cache-injecting wrapper owns.

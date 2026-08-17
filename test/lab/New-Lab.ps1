@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42f4c810-93a7-4b62-a15e-7d0c2be64f18
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -144,7 +144,7 @@ function Set-DirectoryPrivate {
     }
 }
 
-# --- REGION: storage root
+# --- REGION: Storage root
 # The vault directory is resolved before the banner because an omitted -Root is
 # recovered from a lab vault already in it.
 $vaultDir = Join-Path $paths.RepoRoot 'test/status/extension/authentication'
@@ -206,7 +206,7 @@ function New-DirectoryWithSudoFallback {
     if ($LASTEXITCODE -ne 0) { throw "sudo chown $owner '$Path' failed (exit $LASTEXITCODE)." }
 }
 
-# --- REGION: storage folders
+# --- REGION: Storage folders
 $poolPath  = Join-Path $Root 'yuruna.pool'
 $stashPath = Join-Path $Root 'yuruna.stash'
 foreach ($p in @($Root, $poolPath, $stashPath)) {
@@ -215,7 +215,7 @@ foreach ($p in @($Root, $poolPath, $stashPath)) {
     Write-Output "[1/3] $(if ($existed) { 'confirmed' } else { 'created' }) $p"
 }
 
-# --- REGION: pool-intent repository
+# --- REGION: Pool-intent repository
 # 'pool-intent.git' is the name every consumer already resolves to and cannot
 # discover: the apache Alias the caching proxy publishes, the guest mount path
 # the pool-control service commits to, and the writable path setup.ps1 hands
@@ -238,7 +238,7 @@ if ($store.Created) {
     Write-Output "[2/3] pool-intent store already present at $intentPath ($($store.Reason))"
 }
 
-# --- REGION: lab vault
+# --- REGION: Lab vault
 # $vaultDir is under test/status/extension/authentication/ so it inherits the two
 # protections the per-host vault already has: the `test/status/*/` gitignore rule,
 # and the status service's `extension/*` deny-list entry that keeps it off HTTP. A

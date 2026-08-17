@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a1b2c3-d4e5-4f67-8901-bc012345674a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -75,7 +75,7 @@ function Write-Pass { param([string]$msg) Write-Output "  [PASS] $msg"; $script:
 function Write-Fail { param([string]$msg) Write-Output "  [FAIL] $msg"; $script:FailCount++ }
 function Write-Warn { param([string]$msg) Write-Output "  [WARN] $msg"; $script:WarnCount++ }
 
-# === Resolve the cache IP ===============================================
+# --- REGION: Resolve the cache IP
 # Priority mirrors Invoke-TestRunner's cycle-start resolution:
 #   -CacheIp parameter            (explicit override, this script only)
 #   vmStart.cachingProxyIp        (test/test.config.yml, probed first)
@@ -172,7 +172,7 @@ if ($CacheIp) {
 Write-Output "  Target: $resolvedIp  (source: $resolvedFrom)"
 Write-Output ""
 
-# === Port probes + CA cert fetch =======================================
+# --- REGION: Port probes + CA cert fetch
 # Shared with the cycle-start gate in Invoke-TestRunnerInnerLoop.ps1 via
 # Invoke-CachingProxyServiceProbe in Test.CachingProxyService.psm1 -- both callers see
 # the same PASS/WARN/FAIL classification:
@@ -196,7 +196,7 @@ $script:WarnCount += $probe.WarnCount
 $script:FailCount += $probe.FailCount
 $httpPort  = $probe.HttpPort
 
-# === Host system-proxy check ===========================================
+# --- REGION: Host system-proxy check
 # A stale system proxy (e.g. a previous -SetHostProxy promotion
 # against an IP that has since moved) will silently redirect every
 # Invoke-WebRequest / curl in Invoke-TestRunner. .NET on macOS reads
@@ -237,7 +237,7 @@ if ($IsMacOS) {
     Write-Output "  (no platform-specific system-proxy probe on this OS)"
 }
 
-# === Effective proxy for outbound calls =================================
+# --- REGION: Effective proxy for outbound calls
 # Read process env vars DIRECTLY rather than asking
 # [System.Net.WebRequest]::DefaultWebProxy.GetProxy(). DefaultWebProxy
 # is a per-AppDomain singleton -- HttpEnvironmentProxy gets constructed
@@ -310,7 +310,7 @@ if (-not $effHost) {
     }
 }
 
-# === Summary ============================================================
+# --- REGION: Summary
 
 Write-Output ""
 Write-Output "== Summary: $script:PassCount PASS, $script:WarnCount WARN, $script:FailCount FAIL =="
@@ -321,7 +321,7 @@ if ($script:FailCount -gt 0) {
     exit 1
 }
 
-# === Optional: promote to machine-wide host proxy =======================
+# --- REGION: Optional: promote to machine-wide host proxy
 # Only runs when every FAIL-level check passed -- WARN-level (missing :80 /
 # missing CA cert) is compatible with a working HTTP proxy, so we don't
 # block promotion on it.

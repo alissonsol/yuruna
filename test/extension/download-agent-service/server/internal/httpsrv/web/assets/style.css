@@ -208,6 +208,16 @@ table { border-collapse: collapse; width: 100%; margin-top: .5rem; }
 th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
 th { color: var(--muted); font-weight: 600; font-size: .82rem; text-transform: uppercase; letter-spacing: .03em; }
 tfoot td { font-weight: 600; border-bottom: none; border-top: 2px solid var(--line); }
+/* The counter column (Y.numCell). It numbers positions on screen rather than
+   rows of data, so it is furniture: muted, as narrow as its digits, and right
+   aligned on tabular figures so the units line up as the count passes ten.
+   The same rule, and the same helper, as the pool-control UI -- each daemon
+   embeds its own stylesheet (//go:embed cannot reach outside its module), so
+   the two copies must move together. */
+th.rownum, td.rownum {
+  width: 1%; text-align: right; white-space: nowrap;
+  color: var(--muted); font-variant-numeric: tabular-nums;
+}
 /* Banded rows. The image table is wide enough that the eye loses its row
    between the first and the last column; the alternating background is what
    carries it across. The pair is a token, and the same two values in every

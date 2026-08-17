@@ -866,6 +866,92 @@ runtime dir must still be told its daemon never started.
 Source:
 [`test/service/Start-StashServiceVM.ps1`](../test/service/Start-StashServiceVM.ps1).
 
+### Why the service daemons bind low ports with AmbientCapabilities, not setcap
+
+Every Yuruna service-VM daemon runs as an unprivileged service user and
+still has to listen below 1024 — stash-service on `:22` (the SCP/SFTP
+sink) plus `:80`, pool-control-service and download-agent-service on
+`:80`. Each installer therefore issues two apparently redundant grants:
+a `setcap 'cap_net_bind_service=+ep'` on the installed binary, and an
+`AmbientCapabilities=CAP_NET_BIND_SERVICE` line in the systemd unit.
+They are not redundant, and only one of them is load-bearing under
+systemd.
+
+`setcap` writes a FILE capability into the binary's extended
+attributes. The kernel reads it at `execve` and raises the new process's
+permitted/effective sets from it — which is precisely the kind of
+privilege gain `no_new_privs` exists to forbid. All three units set
+`NoNewPrivileges=true` as part of their hardening block, so the kernel
+DROPS the file capabilities at `execve` and the daemon starts with an
+empty permitted set. Nothing warns: the unit activates, the daemon
+comes up, the `bind()` fails with `EACCES`, and systemd restart-loops a
+service that answers on no port at all.
+
+Ambient capabilities work the other way round. They live in the process
+and are inherited ACROSS `execve` rather than being granted by it, so
+`no_new_privs` has no quarrel with them and systemd can hand the
+service user exactly one capability with no setuid anywhere in the
+picture. That is why `AmbientCapabilities=CAP_NET_BIND_SERVICE` is the
+grant the systemd path actually rests on, and why removing it — on the
+reasoning that "the binary already has the capability" — takes every
+daemon down. `CapabilityBoundingSet=CAP_NET_BIND_SERVICE` alongside it
+caps what the unit could ever hold to that same single capability.
+
+The `setcap` call is still kept, because the unit is not the only way
+these binaries run. An operator debugging on the guest invokes
+`/usr/local/bin/<daemon>` directly, and a direct launch from an
+ordinary shell has no `no_new_privs` set — there the file capability is
+the ONLY grant available, and without it the same debug run needs root.
+`setcap` itself ships in `libcap2-bin`, which each installer adds to its
+apt line for this purpose. Two of the three installers tolerate a
+`setcap` failure (`|| true`) precisely because the systemd path does not
+depend on it.
+
+Source:
+[`guest/ubuntu.server.26/ubuntu.server.26.stash-service.sh`](../guest/ubuntu.server.26/ubuntu.server.26.stash-service.sh),
+[`guest/ubuntu.server.26/ubuntu.server.26.pool-control-service.sh`](../guest/ubuntu.server.26/ubuntu.server.26.pool-control-service.sh),
+[`guest/ubuntu.server.26/ubuntu.server.26.download-agent-service.sh`](../guest/ubuntu.server.26/ubuntu.server.26.download-agent-service.sh).
+
+### Why the stash guest masks the OS sshd instead of disabling it
+
+The stash daemon IS the guest's SSH endpoint: it speaks the SCP/SFTP
+protocol itself so runners can push cycle output at it with an ordinary
+`scp`, which means it must own `:22`. Stock Ubuntu already has OpenSSH
+listening there, so one of the two has to go, and the deploy is
+deliberately the LAST step of the bring-up — everything that needed a
+conventional SSH login has already happened by then, and afterwards
+`:22` speaks the stash protocol.
+
+`systemctl disable` does not achieve this. Disabling removes a unit's
+own `[Install]` symlinks and nothing else, so the unit stays perfectly
+startable by anything that pulls it in by name or activates its socket
+— and stock Ubuntu's `cloud-init-network.service` carries
+`Wants=sshd.service`. A merely disabled sshd is therefore back on the
+NEXT boot, takes `:22` before the daemon is up, and the daemon dies on
+`bind: address already in use` without ever reaching its `:80` listener.
+systemd then restart-loops a stash service that answers on no port at
+all. The failure is invisible at VM-build time, where the disable ran
+after cloud-init had already finished and the daemon did get the port
+once.
+
+Masking is the stronger statement: the unit is symlinked to
+`/dev/null`, so it cannot be started manually, by a dependency, or by
+socket activation. `ssh.service`, `ssh.socket` and the `sshd.service`
+alias are all masked — masking the target unit normally covers its
+alias, but naming the alias too costs nothing and does not depend on
+how the distribution happens to wire it.
+
+What it costs the operator: this guest has no conventional SSH login
+any more. Console access (the hypervisor's serial or graphical console)
+is the way in when the daemon is wedged, and nothing on the host may
+assume it can `ssh` into a stash guest. A mask is reversible with
+`systemctl unmask ssh.service`, but doing that while the daemon holds
+`:22` simply gives OpenSSH a port conflict of its own — stop the stash
+service first.
+
+Source:
+[`guest/ubuntu.server.26/ubuntu.server.26.stash-service.sh`](../guest/ubuntu.server.26/ubuntu.server.26.stash-service.sh).
+
 ### Why Set-HostAlias writes the hosts file via a staged sibling swap?
 
 The rewritten hosts file is written UTF-8 WITHOUT a BOM: a leading
@@ -1493,6 +1579,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.14
+Last review: 2026.08.16
 
 Back to [Yuruna](../README.md)

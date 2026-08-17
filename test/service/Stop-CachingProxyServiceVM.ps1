@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a1b2c3-d4e5-4f67-8901-bc0123456743
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,10 +36,9 @@ param(
 $global:InformationPreference = "Continue"
 $global:ProgressPreference    = "SilentlyContinue"
 
-# Honor the caller's logLevel, published as $env:YURUNA_LOG_LEVEL by whatever
-# entry point started this script (install/setup.ps1, a runner cycle). After the
-# two lines above on purpose: an explicit level is the operator's choice and
-# replaces this script's own default. See docs/loglevels.md.
+# --- REGION: https://yuruna.link/loglevels#propagation-across-pwsh-boundaries
+# After the preference assignments above on purpose: an explicit level is the
+# operator's choice and replaces this script's own default.
 Import-Module (Join-Path $PSScriptRoot '../modules/Test.LogLevel.psm1') -Global -Force -DisableNameChecking
 Use-LogLevelFromEnv
 
@@ -61,7 +60,7 @@ Initialize-YurunaEntryPointModuleSet -For CachingProxyService -ModulesDir $Modul
 # undefine on the cache VM. No-op elsewhere.
 Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
 
-# --- REGION: Step 0: plan + sudo preflight
+# --- REGION: Plan + sudo pre-flight
 # Stop-CachingProxyServiceVM runs UNATTENDED -- no interactive prompts. It has no
 # destructive ShouldProcess gates (every Remove-*/Save-* call below already
 # passes -Confirm:$false), so the only thing to resolve up front is sudo:
@@ -138,6 +137,7 @@ try {
 }
 
 if ($IsMacOS) {
+    # --- REGION: macOS -- tear down forwarders, then stop and delete the VM
     # Repo root for importing Yuruna.Host.psm1 (squid forwarder helpers).
     $RepoRoot    = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 
@@ -217,6 +217,7 @@ if ($IsMacOS) {
     Write-Output "  (delete manually if you want the next Start-CachingProxyServiceVM.ps1"
     Write-Output "   to re-download a fresh cloud image)."
 } elseif ($IsWindows) {
+    # --- REGION: Windows -- tear down port maps, then stop and delete the VM
     Write-Output ""
     Write-Output "== Stop + delete '$VMName' (Windows/Hyper-V) =="
 
@@ -258,6 +259,7 @@ if ($IsMacOS) {
     Write-Output "  (delete manually if you want the next Start-CachingProxyServiceVM.ps1"
     Write-Output "   to re-download a fresh cloud image)."
 } elseif ($IsLinux) {
+    # --- REGION: Linux -- tear down forwarders, then destroy and undefine the VM
     Write-Output ""
     Write-Output "== Stop + delete '$VMName' (Linux/KVM/libvirt) =="
 
@@ -303,5 +305,10 @@ if ($IsMacOS) {
     exit 1
 }
 
+# --- REGION: Final summary
 Write-Output ""
 Write-Output "Done."
+# Explicit, not a fall-through: the teardown branches call native commands
+# (sudo -n -v, id, ps) that legitimately exit non-zero on a healthy run, and
+# without this the script would report the last one's code as its own.
+exit 0

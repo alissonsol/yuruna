@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42e7c4b3-d2a1-4f56-9c78-3e4f5a6b7c80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,7 +39,7 @@
     See docs/host-io.md for the broader transport contract.
 #>
 
-# -- Maps owned by this module -------------------------------------------------
+# --- REGION: Maps owned by this module
 
 # macOS UTM AppleScript named-key code table.
 $script:UtmNamedKeyMap = @{
@@ -284,7 +284,7 @@ $script:KvmNamedKeyMap = @{
     'Right'     = 'KEY_RIGHT'
 }
 
-# -- Modifier chords -----------------------------------------------------------
+# --- REGION: Modifier chords
 # Control chords need their own map family: the *-Named maps hold a SCALAR
 # code per name and every backend dereferences them as a scalar, so an array
 # entry there would be read as a truthy object rather than a chord. A chord

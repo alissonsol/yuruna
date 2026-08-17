@@ -28,6 +28,8 @@ Run `ubuntu.server.26.update.sh` first.
 | `postgresql` | [PostgreSQL](../../docs/guest-image-setup.md#postgresql) from PGDG |
 | `k8s` | [k8s](../../docs/kubernetes.md#guest-side-prerequisites): Docker, Kubernetes, Helm, OpenTofu, cloud CLIs |
 | `stash-service` | [stash service](../../docs/stash-guide.md): Yuruna distributed storage backend |
+| `download-agent-service` | [download agent](../../docs/download-agent.md): one download for the whole lab |
+| `pool-control-service` | [pool control](../../docs/pool-admin.md): pool control daemon for host-pool assignment |
 
 ---
 
@@ -35,6 +37,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.14
+Last review: 2026.08.16
 
 Back to [Yuruna](../../README.md)

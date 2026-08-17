@@ -1,9 +1,9 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e93
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS
+.TAGS yuruna test host ubuntu kvm enable-test-automation
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
@@ -60,6 +60,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+# --- REGION: Platform guard
 if (-not $IsLinux) {
     Write-Error "Enable-TestAutomation.ps1 (host/ubuntu.kvm) only runs on Linux."
     exit 1
@@ -82,6 +83,7 @@ Initialize-HostSetupModule -RepoRoot $RepoRoot -BoundParameters $PSBoundParamete
     'read host hardware fingerprint (/sys/class/dmi product_uuid + board_serial) to register/reclaim this host pool identity'
 )
 
+# --- REGION: Script-local helpers
 function Test-AptPackageInstalled {
     # dpkg-query is the only authority on "is the package installed": probing for
     # a binary on PATH gives false negatives for helpers that live in /sbin, and
@@ -215,7 +217,7 @@ function Invoke-HostSudo {
     return $false
 }
 
-# --- REGION: pre-automation capture
+# --- REGION: Pre-automation capture
 # BEFORE anything is changed: record what these knobs were, so
 # Disable-TestAutomation can put them back. Written once and never overwritten
 # -- a second Enable must not capture Enable's own values as the operator's.
@@ -223,7 +225,7 @@ Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostAutomationState.psm1')
 $capturePath = Save-HostAutomationState -Platform 'ubuntu.kvm' -WhatIf:$WhatIfPreference
 if ($capturePath) { Write-Output "Captured prior host settings to $capturePath (Disable-TestAutomation restores from it)." }
 
-# --- REGION: host package prerequisites
+# --- REGION: Host package prerequisites
 # Establish the ONE fact that explains a whole class of downstream symptoms
 # before any step can misreport it (see Get-MissingHostPackage). Interactive
 # operators are offered the install right here so a standalone run of this
@@ -340,7 +342,7 @@ if (-not $libvirtReady) {
     }
 }
 
-# --- REGION: status-service LAN reachability (host firewall)
+# --- REGION: Status-service LAN reachability (host firewall)
 # Start-StatusService binds http://*:<port>/ (every interface), but a host
 # firewall silently DROPs inbound TCP on non-loopback interfaces without an
 # allow rule -- so localhost answers while the pool-aggregator service (and an operator's
@@ -366,7 +368,7 @@ Invoke-Step -Description "Allow inbound TCP :$statusPort (status service) throug
     Write-Output "  status firewall: $($fwResult.Message)"
 }
 
-# --- REGION: host clock
+# --- REGION: Host clock
 # libvirt seeds each guest's clock from this host at power-on, so a host
 # that has drifted starts every VM equally wrong and the guest's own NTP
 # client steps it to real time seconds into the boot -- mid-startup for
@@ -385,7 +387,7 @@ Invoke-Step -Description 'Put the host clock under NTP discipline (timedatectl s
     }
 }
 
-# --- REGION: yuruna image / VM storage layout
+# --- REGION: Yuruna image / VM storage layout
 $imgDir = Join-Path $HOME 'yuruna/image'
 $vmDir  = Join-Path $HOME 'yuruna/vms'
 foreach ($d in @($imgDir, $vmDir)) {
@@ -413,12 +415,11 @@ if (Test-Path -LiteralPath $cfgPath) {
     $poolCfg = $null
     try {
         $poolConfigDoc = Read-TestConfig -Path $cfgPath
-        # -IgnoreReplicate: prepare the mount point even before the operator
-        # flips replicate to true, as long as localPath is set -- mirrors the
-        # connection-param pre-flight in Test-Config.ps1. Returns $null (skip)
-        # when networkPath / networkUser / localPath are not all populated.
+        # Prepare the mount point whenever the three pool paths are populated:
+        # that is the opt-in to archiving, so the mount is needed either way.
+        # Returns $null (skip) when they are not all set.
         if ($poolConfigDoc) {
-            $poolCfg = Get-YurunaPoolStorageConfig -Config $poolConfigDoc -IgnoreReplicate -WarningAction SilentlyContinue
+            $poolCfg = Get-YurunaPoolStorageConfig -Config $poolConfigDoc -WarningAction SilentlyContinue
         }
     } catch {
         Write-Warning "networkStorage pool mount-point setup: could not read $cfgPath ($($_.Exception.Message)); skipping."
@@ -548,6 +549,7 @@ foreach ($grp in @('libvirt','kvm')) {
 # loads its own sibling dependencies (config/vault/mount); sudo is primed above so
 # the privileged fingerprint read + mount work without a second prompt. The
 # host fingerprint read is included in the -SudoCacheReason banner above.
+# See docs/pool-storage.md.
 if ($SkipPoolStorage) {
     Write-Output 'Skipping the networkStorage questionnaire (-SkipPoolStorage).'
 } elseif (-not $WhatIfPreference) {
@@ -557,7 +559,7 @@ if ($SkipPoolStorage) {
 
 Write-Output "Yuruna host configuration applied."
 
-# --- REGION: outcome
+# --- REGION: Outcome
 # The exit code is the only failure channel across the child-process boundary:
 # every warning this script writes goes to a captured log the orchestrator does
 # not read, so an explicit exit is the one way a host with libvirtd dead is

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.14
+# Version: 2026.08.16
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -8,28 +8,8 @@
 # /usr/local/lib/yuruna/yuruna-host-locate.sh at install time.
 #
 # --- REGION: https://yuruna.link/network#defining-yuruna-host-locate-lib
-# A guest is seeded with the host's address at New-VM time and nothing
-# refreshes it, so a host that renumbers under DHCP strands every guest it
-# provisioned: the status service is unreachable at the baked address, and
-# every consumer of YURUNA_STATUS_SERVICE_IP -- this framework's fetch path
-# and the project's own scripts alike -- builds URLs at a host that is no
-# longer there. Short non-sticky leases make that the normal case in a lab
-# whose DHCP server is the site router.
-#
-# The fix is an indirection the consumers never see. Identity is the
-# constant on both ends: the host is named by its hostId (persistent across
-# reboots, reimages and address changes) and the directory that resolves it
-# lives on the caching-proxy machine, whose address is pinned by MAC
-# reservation and is therefore the one coordinate a guest can be born
-# knowing. Everything else is allowed to move.
-#
-# Nothing here throws, and a guest that cannot resolve ends up exactly where
-# it is today -- the caller degrades on a return code rather than on an
-# exception. The resolve path is bounded rather than instant: when the baked
-# coordinate is dead the directory is re-asked a few times over some seconds,
-# because a guest that starts looking at the moment the host renumbers is
-# racing the same change the directory is still learning. That wait is paid
-# only by a caller whose other option is to fail.
+# Nothing here throws: the caller degrades on a return code, so a guest that
+# cannot resolve ends up exactly where it would have been without this file.
 
 # --- REGION: https://yuruna.link/network#defining-host-locate-file-targets
 # The three files that carry the host's address into the guest's runtime.

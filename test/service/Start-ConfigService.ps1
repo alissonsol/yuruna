@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42e8b3c5-7f1a-4d62-9c40-6b2d3e4f5a61
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -132,7 +132,7 @@ function Resolve-YurunaNasPayload {
     $nasCfg = if ($Name -eq 'stash') {
         Get-YurunaStashStorageConfig -Config $tc
     } else {
-        Get-YurunaPoolStorageConfig -Config $tc -IgnoreReplicate
+        Get-YurunaPoolStorageConfig -Config $tc
     }
     if (-not $nasCfg) { return $null }
     $user = [string]$nasCfg.NetworkUser
@@ -293,7 +293,7 @@ function Invoke-YurunaConfigServeLoop {
     }
 }
 
-# --- REGION: -Serve: run the loop in this (detached) process
+# --- REGION: -Serve -- run the loop in this (detached) process
 if ($Serve) {
     $cfgPath = Join-Path $TestRoot 'test.config.yml'
     Invoke-YurunaConfigServeLoop -ListenPort $Port -ConfigPath $cfgPath
@@ -357,6 +357,7 @@ function Show-YurunaConfigServerLog {
     }
 }
 
+# --- REGION: Skip if an instance is already healthy
 # Skip-if-healthy: the runner re-ensures this every cycle, so a no-op when an
 # instance is already serving keeps it cheap + non-disruptive. -Restart forces a
 # replace (deploying new service code). Either way, a host reboot / crash that
@@ -380,11 +381,13 @@ if ($existingProc -and (Test-PidFileIdentity -PidFile $PidFile -Process $existin
 }
 if (Test-Path -LiteralPath $PidFile) { Remove-Item -LiteralPath $PidFile -Force -ErrorAction SilentlyContinue }
 
+# --- REGION: Mint the CA and the server leaf
 # Mint (idempotent) the CA + server leaf NOW, in the launcher, so the detached
 # serve process only loads them and any minting error surfaces here.
 [void](Initialize-YurunaConfigCA -Confirm:$false)
 [void](New-YurunaConfigServerCertificate -Confirm:$false)
 
+# --- REGION: Open the host firewall (Windows, best-effort)
 # Best-effort: open the host firewall for the config port on Windows (the raw
 # TcpListener needs no urlacl/sslcert, but Defender's inbound filter still
 # applies). Start-CachingProxyServiceVM already runs elevated. Idempotent.
@@ -397,6 +400,7 @@ if ($IsWindows) {
     } catch { Write-Verbose "firewall rule for config port failed (non-fatal): $($_.Exception.Message)" }
 }
 
+# --- REGION: Detach the serve process
 # Detach a serve process that outlives this launcher (mirrors Start-StatusService).
 $scriptPath = $PSCommandPath
 # Set when the detached child is confirmed dead right after launch, so the
@@ -438,7 +442,7 @@ if ($IsWindows) {
     }
 }
 
-# --- REGION: Verify the service is accepting on $Port (TCP connect probe)
+# --- REGION: Verify the service is accepting on the config port (TCP connect probe)
 if ($launchFailedEarly) {
     Write-YurunaConfigHealth -Up $false -HealthPort $Port
     Write-Warning "Full logs: $(Join-Path $RuntimeDir 'config-server.err') (stderr), $(Join-Path $RuntimeDir 'config-server.out') (stdout)."

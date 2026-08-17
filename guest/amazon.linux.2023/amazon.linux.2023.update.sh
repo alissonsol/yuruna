@@ -1,9 +1,10 @@
 #!/bin/bash
-# Version: 2026.08.14
+# Version: 2026.08.16
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
 
+# --- REGION: Detect architecture
 ARCH=$(uname -m)
 echo "Detected architecture: $ARCH"
 case "$ARCH" in
@@ -20,6 +21,7 @@ case "$ARCH" in
     ;;
 esac
 
+# --- REGION: Load the yuruna retry lib
 # --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
 . /usr/local/lib/yuruna/yuruna-retry.sh
 # Baked retry libs may bound dnf attempts on wall-clock -- the wrapped-apt
@@ -28,10 +30,11 @@ esac
 # lib's unbounded default.
 export YURUNA_DNF_STALL_TIMEOUT_SECONDS=0
 
+# --- REGION: Ensure PowerShell is installed
 # --- REGION: https://yuruna.link/memory#why-ubuntu-guest-update-scripts-install-powershell-first
 # AL2023 ships no first-party pwsh package; GitHub-release tarball (both arches).
 echo ""
-echo -e "\e[1;36m==== PowerShell ====\e[0m"
+echo -e "\e[1;36m==== Ensure PowerShell is installed ====\e[0m"
 if ! command -v pwsh >/dev/null 2>&1; then
   case "$ARCH" in
     x86_64)  PS_ARCH="x64" ;;
@@ -104,11 +107,12 @@ if ! command -v pwsh >/dev/null 2>&1; then
 fi
 pwsh --version
 
+# --- REGION: Install powershell-yaml module
 # --- REGION: https://yuruna.link/memory#why-ubuntu--al2023-guest-update-scripts-wrap-install-module-powershell-yaml-with-pwsh_retry
 PWSH_YAML_LOG=/var/log/yuruna/pwsh-yaml-install.log
 sudo install -d -m 0755 -o "$USER" -g "$USER" /var/log/yuruna
 echo ""
-echo -e "\e[1;36m==== powershell-yaml ====\e[0m"
+echo -e "\e[1;36m==== Install powershell-yaml module ====\e[0m"
 
 sudo pwsh -NoProfile -Command - <<'PSEOF' >> "$PWSH_YAML_LOG" 2>&1
 "===== {0} pre-flight (static) =====" -f ([DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"))
@@ -161,10 +165,11 @@ if (-not (Get-Module -ListAvailable -Name powershell-yaml)) {
 "OK"
 PSEOF
 
+# --- REGION: Early yuruna framework extraction
 # --- REGION: https://yuruna.link/memory#why-ubuntu-guest-update-scripts-pre-extract-the-yuruna-tarball
 # Tarball-only here: the git-clone fallback below needs git, which needs dnf.
 echo ""
-echo -e "\e[1;36m==== yuruna framework tarball ====\e[0m"
+echo -e "\e[1;36m==== Early yuruna framework extraction ====\e[0m"
 REAL_USER="${SUDO_USER:-$USER}"
 REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
 if [ -r /etc/yuruna/host.env ]; then
@@ -176,7 +181,13 @@ if [ -n "${YURUNA_STATUS_SERVICE_IP:-}" ] && [ -n "${YURUNA_STATUS_SERVICE_PORT:
   TARBALL_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/yuruna-archive.tar.gz"
   if wget --no-proxy --timeout=2 -qO /dev/null "$LIVECHECK_URL" 2>/dev/null; then
     mkdir -p "$REAL_HOME/yuruna"
-    if wget --no-proxy -qO- "$TARBALL_URL" | tar -xz -C "$REAL_HOME/yuruna"; then
+    # Bounded, unlike the livecheck it follows. The probe proves the host was
+    # answering a moment ago; it says nothing about where the host will be
+    # partway through a multi-megabyte transfer, and wget's defaults would sit
+    # on a stalled one for 900s x 20 tries -- long past the step's own patience,
+    # so the failure arrives as an unexplained timeout instead of a fetch that
+    # said what went wrong.
+    if wget --no-proxy --timeout=30 --tries=2 -qO- "$TARBALL_URL" | tar -xz -C "$REAL_HOME/yuruna"; then
       sudo chown -R "$REAL_USER:$REAL_USER" "$REAL_HOME/yuruna" 2>/dev/null || true
       echo -e "\e[1;32m---- Yuruna framework available at $REAL_HOME/yuruna (early extract). ----\e[0m"
     else
@@ -188,30 +199,35 @@ if [ -n "${YURUNA_STATUS_SERVICE_IP:-}" ] && [ -n "${YURUNA_STATUS_SERVICE_PORT:
   fi
 fi
 
+# --- REGION: Disable services that may suspend the machine
 echo "TESTHACK: Disabling services that may suspend the machine."
 sudo systemctl mask sleep.target suspend.target hibernate.target hybrid-sleep.target
 
+# --- REGION: Disable update notifier popups
 echo "TESTHACK: Disabling update notifier popups that steal focus from the Terminal during tests."
 sudo systemctl disable --now packagekit.service packagekit-offline-update.service 2>/dev/null || true
 sudo systemctl disable --now dnf-automatic.timer dnf-automatic-notifyonly.timer dnf-automatic-install.timer 2>/dev/null || true
 sudo -u "$REAL_USER" DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/$(id -u "$REAL_USER")/bus" \
     gsettings set org.gnome.software download-updates false 2>/dev/null || true
 
+# --- REGION: Update system packages
 echo ""
-echo -e "\e[1;36m==== system packages update ====\e[0m"
+echo -e "\e[1;36m==== Update system packages ====\e[0m"
 # dnf update and dnf upgrade are aliases; one call covers both.
 dnf_retry sudo dnf upgrade -y
 dnf_retry sudo dnf autoremove -y
 
+# --- REGION: Ensure Git is installed
 echo ""
-echo -e "\e[1;36m==== Git ====\e[0m"
+echo -e "\e[1;36m==== Ensure Git is installed ====\e[0m"
 if ! command -v git >/dev/null 2>&1; then
   dnf_retry sudo dnf -y install git
 fi
 git --version
 
+# --- REGION: Resolve framework and project URLs
 # --- REGION: https://yuruna.link/definition#defining-the-two-source-scheme-for-framework-and-project-urls
-echo -e "\e[1;32m==== yuruna framework and project repos ====\e[0m"
+echo -e "\e[1;32m==== Resolve framework and project URLs ====\e[0m"
 FRAMEWORK_URL=""
 PROJECT_URL=""
 if [ -r /etc/yuruna/host.env ]; then
@@ -232,6 +248,20 @@ fi
 : "${FRAMEWORK_URL:=${YURUNA_FRAMEWORK_URL:-}}"
 : "${PROJECT_URL:=${YURUNA_PROJECT_URL:-}}"
 
+# --- REGION: Keep git non-interactive
+# --- REGION: https://yuruna.link/network#why-git-never-prompts-here
+# Belt to the seed's braces. These guests are driven by OCR of a console, so a
+# git credential prompt is a HANG rather than an error: the step spends its whole
+# timeout before anyone learns the clone could not authenticate. Set here as well
+# as in the image because this script runs under sudo and through non-login
+# shells, either of which drops an ambient export -- and because a guest built
+# from an older seed has no such export to drop.
+export GIT_TERMINAL_PROMPT=0
+if [ -x /usr/local/lib/yuruna/git-askpass.sh ]; then
+    export GIT_ASKPASS=/usr/local/lib/yuruna/git-askpass.sh
+fi
+
+# --- REGION: Materialize the yuruna framework and project repos
 if [ ! -d "$REAL_HOME/yuruna" ]; then
   HOST_OK=false
   if [ -n "${YURUNA_STATUS_SERVICE_IP:-}" ] && [ -n "${YURUNA_STATUS_SERVICE_PORT:-}" ]; then
@@ -240,7 +270,7 @@ if [ ! -d "$REAL_HOME/yuruna" ]; then
     if wget --no-proxy --timeout=2 -qO /dev/null "$LIVECHECK_URL" 2>/dev/null; then
       echo "yuruna: fetching committed tarball from $TARBALL_URL"
       mkdir -p "$REAL_HOME/yuruna"
-      if wget --no-proxy -qO- "$TARBALL_URL" | tar -xz -C "$REAL_HOME/yuruna"; then
+      if wget --no-proxy --timeout=30 --tries=2 -qO- "$TARBALL_URL" | tar -xz -C "$REAL_HOME/yuruna"; then
         HOST_OK=true
       else
         echo "yuruna: tarball fetch/extract failed - falling back to git clone"
@@ -306,10 +336,11 @@ fi
 # Tarball extraction and any sudo'd cleanup may have left root-owned files.
 sudo chown -R "$REAL_USER:$REAL_USER" "$REAL_HOME/yuruna" 2>/dev/null || true
 
+# --- REGION: Wait for network convergence
 # --- REGION: https://yuruna.link/network#guest-update-network-convergence-before-handoff
 # Settle the link (max 30 s, never fatal) before the first host->guest SSH.
 echo ""
-echo -e "\e[1;36m==== Network convergence ====\e[0m"
+echo -e "\e[1;36m==== Wait for network convergence ====\e[0m"
 if systemctl is-active --quiet NetworkManager && command -v nm-online >/dev/null 2>&1; then
   nm-online -q -t 30 || echo "WARNING: nm-online did not report 'online' within 30s; continuing."
 elif systemctl is-active --quiet systemd-networkd; then

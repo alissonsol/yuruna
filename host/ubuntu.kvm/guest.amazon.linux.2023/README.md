@@ -1,4 +1,4 @@
-# Amazon Linux 2023 on Ubuntu KVM/libvirt
+# Amazon Linux 2023 guest on Ubuntu KVM host
 
 > Common setup pattern: see [Guest Image Setup](../../../docs/guest-image-setup.md).
 > This file documents only what's HOST/GUEST-specific.
@@ -6,10 +6,19 @@
 Boots the AL2023 KVM cloud image (`kvm` on x86_64, `kvm-arm64` on
 aarch64) with a cloud-init NoCloud seed.
 
-## Manual run
+Cross-host concepts: [Hosts — ...](../../README.md).
+
+## One-time
+
+From `yuruna/host/ubuntu.kvm/guest.amazon.linux.2023`:
 
 ```
 pwsh ./Get-Image.ps1                        # download / refresh base image
+```
+
+## For each VM
+
+```
 pwsh ./New-VM.ps1                           # default name: amazon-linux01
 pwsh ./New-VM.ps1 -VMName myhost            # custom name
 ```
@@ -40,12 +49,16 @@ virsh -c qemu:///system domifaddr <vmname>
 ssh -i ../../../test/status/ssh/yuruna_ed25519 yauser1@<ip>
 ```
 
+## Next
+
+[Amazon Linux 2023 workloads](../../../guest/amazon.linux.2023/README.md)
+
 ---
 
 LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.14
+Last review: 2026.08.16
 
 Back to [Yuruna](../../../README.md)

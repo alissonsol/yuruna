@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 429bbdcc-9f46-47af-ab9b-b756158fc1f7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -63,7 +63,7 @@ if (-not (Get-Command -Name 'Describe' -ErrorAction SilentlyContinue)) {
     function It       { param([string]$Name, [scriptblock]$Test)    & $Test; Write-Output "    [pass] $Name" }
 }
 
-# --- fixtures -------------------------------------------------------------
+# --- REGION: Fixtures
 # The two worlds that look alike. A NAS layout puts a directory inside a share
 # ('work/yuruna.pool'); a machine serving its own storage publishes the share
 # itself. Both are reached under the same alias, and on this host that alias
@@ -112,7 +112,7 @@ $script:ProcMountsLines = @(
 
 $script:ThisMachine = @('127.0.0.1', '::1', '192.168.7.207')
 
-# --- how install/setup.ps1 wires the steps --------------------------------
+# --- REGION: How install/setup.ps1 wires the steps
 # Read from the source rather than re-stated here: the property under test is
 # that the STEP asks the share table, and a copy of the rule in a test file would
 # go on passing after the step stopped asking.

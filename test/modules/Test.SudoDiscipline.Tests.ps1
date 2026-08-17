@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42c1a7d4-3b28-4e60-9f15-6d0c83b7ae21
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -100,7 +100,7 @@ $ScopedFile = @(
 # binds the switch that turns the prompt off, which the last test below pins.
 $script:SudoersInstaller = @('Set-PoolStorageSudoers')
 
-# --- the inventory of sudo calls that may prompt --------------------------
+# --- REGION: The inventory of sudo calls that may prompt
 # File is repo-relative; Function is the enclosing function ('' for file scope);
 # Max is how many prompting sudo calls that body may contain.
 $script:KnownInteractiveSudo = @(
@@ -192,7 +192,7 @@ the CALLERS that have to be checked -- see the caller test below.
     }
 )
 
-# --- AST scan -------------------------------------------------------------
+# --- REGION: AST scan
 function Get-EnclosingBodyText {
     <#
     .SYNOPSIS

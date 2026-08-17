@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42b1e165-f284-484b-aae6-c7d769cedee1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,6 +46,14 @@
 .PARAMETER RemainingArguments
     Anything not declared here is forwarded to the per-host script verbatim, so
     a parameter added there needs no edit here.
+.NOTES
+    -Verbose has no effect here, unlike the Enable/Disable-TestAutomation
+    redirectors in this folder. Those relay the switch because their per-host
+    scripts narrate each decision; the per-host Remove-OrphanedVMFiles.ps1
+    scripts emit no verbose stream, so there is nothing to turn on. -Verbose
+    still binds -- declaring RemainingArguments makes this an advanced script --
+    it simply does not reach the child. Use -Quiet to go the other way and
+    suppress the per-file cleanup log.
 .EXAMPLE
     pwsh test/lab/Remove-OrphanedVMFiles.ps1
 .EXAMPLE
@@ -62,8 +70,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# --- REGION: Shared bootstrap
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'automation/Yuruna.HostRedirect.psm1') -Force -DisableNameChecking
 
+# --- REGION: Delegate to the per-host script
 $forwarded = @(ConvertTo-HostScriptArgument `
     -BoundParameters $PSBoundParameters `
     -RemainingArguments $RemainingArguments `

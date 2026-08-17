@@ -1637,7 +1637,7 @@ runtime-only files live under `<runtimeDir>/` (typically
 | `cycle.events.ndjson` | cycle folder | `Write-CycleNdjsonEvent` in [Test.Log.psm1](../test/modules/Test.Log.psm1) — every emit site routes through the `Send-CycleEventSafely` wrapper | append-only for the life of the cycle | JSON-Lines event stream stamped with `cycleStartUtc` + `cycleFolder` so multi-host pool consumers can join events without parsing folder names. |
 | `cycle.events.gaps` | cycle folder | `Write-CycleNdjsonEvent` failure sentinel | append-only | One line per failed NDJSON append (open-handle race, disk full). Surfaces stream gaps to a remediator that would otherwise consume truncated truth. |
 | `last_failure.json` | `<runtimeDir>` (NOT the cycle folder) | the failure-emit blocks in [Test.SequenceEngine.psm1](../test/modules/Test.SequenceEngine.psm1) | overwritten on the next cycle's first sequence start, and pre-wiped by [Invoke-TestRunner.ps1](../test/Invoke-TestRunner.ps1) before each spawn | Schema-v2 record (failureClass, severity, suggestedRecoveries, action, vmName, guestKey, hostType) that an out-of-process remediator consumes to choose a recovery handler. |
-| `current-action.json` | `<runtimeDir>` | retry-with-backoff write loop in [Test.SequenceEngine.psm1](../test/modules/Test.SequenceEngine.psm1) | every action transition rewrites it; cleared at cycle end | In-flight action breadcrumb the dashboard reads to display "running step N of M: <verb> <description>". |
+| `current-action.json` | `<runtimeDir>` | retry-with-backoff write loop in [Test.SequenceEngine.psm1](../test/modules/Test.SequenceEngine.psm1) | every action transition rewrites it; cleared at cycle end | In-flight action breadcrumb the dashboard reads to display "running step N of M: `<verb>` `<description>`". |
 | `break-active.json` | `<runtimeDir>` | retry-with-backoff write loop in [Test.SequenceHandler.psm1](../test/modules/Test.SequenceHandler.psm1) `break` handler | break handler removes on resume; pre-wiped by [Invoke-TestRunner.ps1](../test/Invoke-TestRunner.ps1) before each spawn | Marks a cooperative breakpoint as parked so the status UI can render a Resume button. |
 | `runner.pid` + `runner.start` | `<runtimeDir>` | `Write-RunnerPidFile` in [Test.SingleInstance.psm1](../test/modules/Test.SingleInstance.psm1) | rewritten by every outer launch; an atomic temp→rename keeps the pair consistent | Outer's pidfile + StartTime sidecar so a re-launched outer can classify the prior occupant as Self / Stale / OtherRunner without misreading via cmdline regex. |
 | `inner.pid` | `<runtimeDir>` | atomic write at top of [Invoke-TestRunnerInnerLoop.ps1](../test/modules/Invoke-TestRunnerInnerLoop.ps1) | pre-wiped by outer before each spawn | Inner's PID — read by the outer's watchdog. Temp-file + Move-Item makes the write atomic so a crash mid-write can't leave a truncated digit. |
@@ -1791,7 +1791,7 @@ enums in [Test.SequenceAction.psm1](../test/modules/Test.SequenceAction.psm1):
   snapshot_restore_failed, script_error, wait_timeout,
   extension_error, instrumentation_failure, provisioning_failure,
   bootstrap_sync, plan_invalid, elevation_required,
-  project_access_denied, host_network_degraded, unknown.
+  project_access_denied, host_network_degraded, pool_storage_full, unknown.
 * **severity**: hard, soft, unknown.
 
 `actionVerb`, `action`, `description`, `sequencePath`, `vmName`,
@@ -2122,7 +2122,7 @@ directly) when the autonomous loop's blast radius is bounded.
 
 `Register-RecoveryHandler` lets external modules override or extend a
 class -- last-writer-wins, so loading a project-specific
-Test.Remediation.<area>.psm1 can replace the default for any class.
+`Test.Remediation.<area>.psm1` can replace the default for any class.
 The registry appears in `Get-YurunaRegistryDirectory` alongside
 SequenceAction / HostIO / OcrProvider / HostCondition.
 
@@ -2138,6 +2138,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.14
+Last review: 2026.08.16
 
 Back to [Yuruna](../README.md)

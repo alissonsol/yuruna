@@ -30,18 +30,29 @@
         <a href="/test-sets">Test sets</a>
         <a href="/scan">Scan</a>
         <a href="/diagnostics">Diagnostics</a>
-        <a class="menu-out" href="https://yuruna.link/pool-control">Guide</a>
+        <a class="menu-out" href="https://yuruna.link/pool-control" target="_blank" rel="noopener">Guide</a>
       </nav>
     </div>
   </header>
   <main>
     <h1>Assign test sets to pools</h1>
-    <p class="muted">Each pool tests one test-set (a framework + project repo pair). GH_TOKEN stays host-local &mdash; it is never stored in pool intent.</p>
+    <p class="muted">Each pool tests one test-set (a framework + project repo pair). GH_TOKEN stays host-local &mdash; it is never stored in pool intent.
+      Any column header sorts the table; clicking the sorted one reverses it, and
+      <strong>Assign test set</strong> sorts by the set each pool holds now. The leading
+      number counts the rows as they are shown, so it stays 1&hellip;n whatever the order.</p>
     <div id="notice" class="notice"></div>
     <div class="row"><button id="refresh">Refresh</button></div>
     <table>
       <thead>
-        <tr><th>Pool</th><th>Pool ID</th><th>Assign test set</th><th>Framework / Project</th><th>Members *</th><th>State</th></tr>
+        <tr>
+          <th class="rownum" aria-label="Row number">#</th>
+          <th data-sort="pool" aria-sort="ascending"><button type="button" class="sort">Pool</button></th>
+          <th data-sort="poolGuid"><button type="button" class="sort">Pool ID</button></th>
+          <th data-sort="testSet"><button type="button" class="sort">Assign test set</button></th>
+          <th data-sort="repos"><button type="button" class="sort">Framework / Project</button></th>
+          <th data-sort="members"><button type="button" class="sort">Members *</button></th>
+          <th data-sort="state"><button type="button" class="sort">State</button></th>
+        </tr>
       </thead>
       <tbody id="pool-rows"></tbody>
     </table>

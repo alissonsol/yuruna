@@ -189,7 +189,10 @@
     return wrap;
   }
 
-  function rowEl(img) {
+  // n is where the row sits on screen, not anything about the image: the
+  // counter is rebuilt from the painted order, so it still reads 1..N after a
+  // header reorders the table.
+  function rowEl(img, n) {
     const stateCell = Y.el('td', {}, [badge(img.state), progressBar(img)]);
     // The reason sits with the badge, not in a tooltip: "unavailable" on its own
     // is the same dead end as no row at all. A row with a hand-download path
@@ -233,6 +236,7 @@
     ]);
 
     return Y.el('tr', {}, [
+      Y.numCell(n),
       stateCell,
       idCell,
       Y.el('td', {}, [artifact]),
@@ -250,6 +254,9 @@
     const byHost = totals.byHostType || {};
     const parts = Object.keys(byHost).sort().map(k => k + ' ' + Y.bytes(byHost[k]));
     foot.appendChild(Y.el('tr', {}, [
+      // Blank, but present: the totals row has to carry a cell for the counter
+      // column or every figure in it sits one column left of what it sums.
+      Y.numCell(0),
       Y.el('td', { text: 'Totals' }),
       Y.el('td', { text: (totals.images || 0) + ' entries' }),
       Y.el('td', { class: 'muted', text: parts.join(' · ') || '—' }),
@@ -319,7 +326,7 @@
     const body = document.getElementById('image-rows');
     body.textContent = '';
     const rows = sort ? YSort.sort(lastImages, sort.col, sort.dir) : lastImages;
-    for (const img of rows) body.appendChild(rowEl(img));
+    rows.forEach((img, i) => body.appendChild(rowEl(img, i + 1)));
     document.getElementById('empty').hidden = lastImages.length > 0;
   }
 

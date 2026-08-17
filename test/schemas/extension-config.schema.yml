@@ -11,8 +11,8 @@ description: >
   iterates the full list.
 
 type: object
-additionalProperties: false
 required: [active]
+additionalProperties: false
 
 properties:
   active:

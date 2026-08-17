@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42c5e8a1-9b3d-4f27-8a6c-1d2e3f4a5b6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,8 +23,15 @@
 # never blocks the caller (the unattended test loop must keep running). Every
 # network-touching subprocess is bounded by a wall-clock cap + kill so a wedged
 # NAS can never freeze the loop. Config lives under `networkStorage`
-# (pool* keys; the replicate flag is pool.networkReplicate) in
+# (pool* keys; the three populated paths are the opt-in, and
+# moveLogsToPoolStorage selects copy-and-keep vs copy-verify-delete) in
 # test.config.yml; networkUser is also the vault key its password is fetched under.
+#
+# MOVE MODE IS NOT BEST-EFFORT AT THE EDGES. Copying stays best-effort, but once a
+# cycle is committed to the share its local folder is deleted, so the commit order
+# is load-bearing: verify -> sentinel -> ledger -> delete. Every interruption window
+# is recovered by Invoke-PoolStorageDrain's delete-sweep or its committed
+# short-circuit; changing that order re-opens a path that deletes a good archive.
 
 # Wall-clock caps (seconds) for the network-touching operations. These are
 # BACKSTOPS for a wedged/unreachable NAS, not normal-path budgets: a healthy LAN
@@ -42,6 +49,32 @@ $script:PoolStorageSmbCmdletTimeoutSeconds = 60
 # long enough that an ordinarily slow NAS is not called dead and short enough
 # that a wedged one does not stall a cycle.
 $script:PoolStorageProbeTimeoutSeconds = 15
+
+# Move-mode policy. Code constants by design -- the same call as
+# CycleHistoryLimit and FailurePauseMaxSeconds: an operator greps and tunes them
+# in one place, without a config-schema migration and without two hosts on one
+# share disagreeing about how full "full" is.
+#
+# Reserve: what must STILL be free after a copy lands. The share is not this
+# feature's alone -- the guest-image download pool, the proxy's observability
+# archive and pool-intent.git all live on it -- so archiving is not allowed to
+# take the share to zero and break them.
+# Headroom: slack over the measured folder size, for the copy's own overhead.
+# Projection: the pre-spawn check has to guess what the NEXT cycle will cost.
+# It takes the MAX of the recent sample rather than the mean, because the cost of
+# guessing high is one skipped cycle while the cost of guessing low is a cycle
+# that runs to completion and then cannot be archived.
+$script:PoolStorageReserveBytes            = 2GB
+$script:PoolStorageCopyHeadroom            = 1.10
+$script:PoolStorageProjectionSample        = 5
+$script:PoolStorageProjectionFloorBytes    = 1GB
+
+# Wall-clock cap for the whole synchronous move phase at cycle end, and the bound
+# on waiting for the detached push forwarder to finish reading the cycle folder
+# before it is deleted. The move phase blocks the loop by necessity (the cycle's
+# verdict depends on it), so it needs an outer bound that a slow NAS cannot exceed.
+$script:PoolStorageMovePhaseTimeoutSeconds = 1800
+$script:PoolStoragePushDrainWaitSeconds    = 120
 
 # Verbatim reason the last Connect-YurunaPoolStorage attempt failed, so the
 # write-path pre-flight can report WHAT went wrong instead of enumerating every
@@ -602,7 +635,7 @@ function Clear-PoolStorageConflictingMount {
     return $result
 }
 
-# --- who is actually serving a mount -------------------------------------
+# --- REGION: Who is actually serving a mount
 # The name a share was mounted under cannot answer that question. A host alias is
 # whatever the last person to configure this machine made it, and an established
 # SMB session does NOT re-resolve its server name -- so 'ypool-nas' can point at
@@ -1021,21 +1054,43 @@ function Resolve-YurunaConfigDoc {
     return $null
 }
 
+# Tolerant boolean coercion for config-sourced values. A raw [bool] cast is wrong
+# here: [bool]'false' is $true in PowerShell, so a YAML value quoted by an operator
+# ('false') would read as ON -- and moveLogsToPoolStorage gates the deletion of the
+# only local copy of a cycle's results. Test-Config.ps1 carries its own copy of this
+# logic (ConvertTo-YurunaBool); the two are duplicated deliberately rather than
+# introducing a cross-module dependency for a single key.
 <#
 .SYNOPSIS
-Returns a normalized pool config object, or $null when the feature is OFF (replicate false unless -IgnoreReplicate, or any of networkPath/networkUser/localPath empty); the object's Replicate field carries the real flag. Accepts an already-parsed config (IDictionary), else reads test.config.yml via Read-TestConfig using a RESOLVED path ($env:YURUNA_CONFIG_PATH) -- never with the path omitted, because Read-TestConfig's Mandatory $Path would stall forever on the interactive parameter prompt under the headless runner (see feedback_byname_detection_mandatory_param_prompt_hang).
+Coerces a config-sourced value to [bool], accepting the YAML string forms an operator may write ('true'/'yes'/'on'/'1' and their negatives). Pure.
+#>
+function ConvertTo-PoolStorageBool {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter()][AllowNull()]$Value)
+    if ($null -eq $Value) { return $false }
+    if ($Value -is [bool]) { return $Value }
+    $s = "$Value".Trim()
+    if ([string]::IsNullOrWhiteSpace($s)) { return $false }
+    return ($s -in @('true', 'yes', 'on', '1'))
+}
+
+<#
+.SYNOPSIS
+Returns a normalized pool config object, or $null when the feature is OFF (any of networkPath/networkUser/localPath empty); the object's MoveLogs field carries networkStorage.moveLogsToPoolStorage. Accepts an already-parsed config (IDictionary), else reads test.config.yml via Read-TestConfig using a RESOLVED path ($env:YURUNA_CONFIG_PATH) -- never with the path omitted, because Read-TestConfig's Mandatory $Path would stall forever on the interactive parameter prompt under the headless runner (see feedback_byname_detection_mandatory_param_prompt_hang).
+.DESCRIPTION
+The three populated paths ARE the opt-in to archiving: a host that names a share, an
+account and a mount point has asked for its cycles to reach that share. MoveLogs then
+selects the archiving MODE -- copy and keep the local folder (false) or copy, verify
+and delete it (true) -- never whether archiving happens at all. The pool-mounting
+service seeds have always resolved storage this way (paths, not a flag), so this is
+the rule the whole product now shares.
 #>
 function Get-YurunaPoolStorageConfig {
     [CmdletBinding()]
     [OutputType([pscustomobject])]
     param(
-        [Parameter()][AllowNull()]$Config,
-        # Return the normalized object even when replicate is false, as long as the
-        # three paths are set -- for pre-flight validation (Test-Config) of the
-        # connection parameters before an operator flips replicate to true. The
-        # returned object's Replicate field still reflects the real flag. The runner
-        # / drain never pass this, so a false replicate stays a no-op there.
-        [switch]$IgnoreReplicate
+        [Parameter()][AllowNull()]$Config
     )
     if (-not $Config) {
         $Config = Resolve-YurunaConfigDoc -CallerName 'Get-YurunaPoolStorageConfig'
@@ -1044,27 +1099,21 @@ function Get-YurunaPoolStorageConfig {
     if (-not ($Config -is [System.Collections.IDictionary]) -or -not $Config.Contains('networkStorage')) { return $null }
     $ps = $Config['networkStorage']
     if (-not ($ps -is [System.Collections.IDictionary])) { return $null }
-    # networkReplicate is a POOL behavior, so it lives under the `pool` node;
-    # networkStorage carries only the path/credential keys.
-    $replicate = $false
-    if ($Config.Contains('pool') -and ($Config['pool'] -is [System.Collections.IDictionary])) {
-        $replicate = [bool]$Config['pool']['networkReplicate']
-    }
     $networkPath = [string]$ps['poolStorageNetworkPath']
     $networkUser = [string]$ps['poolStorageNetworkUser']
     $localPath   = [string]$ps['poolStorageLocalPath']
-    if (-not $replicate -and -not $IgnoreReplicate) { return $null }
+    $moveLogs    = ConvertTo-PoolStorageBool -Value $ps['moveLogsToPoolStorage']
     if ([string]::IsNullOrWhiteSpace($networkPath) -or
         [string]::IsNullOrWhiteSpace($networkUser) -or
         [string]::IsNullOrWhiteSpace($localPath)) {
-        if ($replicate) {
-            Write-Warning "pool.networkReplicate is true but networkStorage.poolStorageNetworkPath/poolStorageNetworkUser/poolStorageLocalPath are not all set; replication disabled."
+        if ($moveLogs) {
+            Write-Warning "networkStorage.moveLogsToPoolStorage is true but poolStorageNetworkPath/poolStorageNetworkUser/poolStorageLocalPath are not all set; archiving disabled."
         }
         return $null
     }
     $localPath = Expand-YurunaLocalPath -Path $localPath
     return [pscustomobject]@{
-        Replicate   = $replicate
+        MoveLogs    = $moveLogs
         NetworkPath = $networkPath.Trim()
         NetworkUser = $networkUser.Trim()
         LocalPath   = $localPath
@@ -1110,7 +1159,10 @@ function Get-YurunaStashStorageConfig {
     }
     $localPath = Expand-YurunaLocalPath -Path $localPath
     return [pscustomobject]@{
-        Replicate   = $false
+        # Shape parity with the pool record so the generic mount/credential helpers
+        # take either tier unchanged. The stash daemon writes files directly, so it
+        # has no archiving mode of its own.
+        MoveLogs    = $false
         NetworkPath = $networkPath.Trim()
         NetworkUser = $networkUser.Trim()
         LocalPath   = $localPath
@@ -1676,7 +1728,7 @@ function Sync-YurunaPoolStorageFolder {
     return $true
 }
 
-# === Replicator: async, fail-fast, atomic, backlog-draining =================
+# --- REGION: Replicator: async, fail-fast, atomic, backlog-draining
 # The host->pool copy is driven by Invoke-PoolStorageDrain (fired DETACHED at
 # cycle end by the outer loop, single-instance via a lock file). It copies EVERY
 # not-yet-replicated cycle (oldest first), each atomically (a cycle is committed
@@ -1982,11 +2034,20 @@ function Test-PoolStorageStoredCredential {
     try { return [bool](Test-VaultEntry -VaultKey $resolvedKey) } catch { Write-Verbose "Test-VaultEntry failed: $($_.Exception.Message)"; return $false }
 }
 
-# Copy-PoolStorageCycle copies one cycle folder to <localPath>/<HostId>/<CycleName>/
-# and commits it with a .yuruna-complete sentinel written LAST. Any pre-existing
-# copy WITHOUT a sentinel (a crashed prior attempt) is deleted first and recopied,
-# so a partial is never trusted. Returns $true only when copy AND sentinel both
-# succeed. Private; assumes the share is already mounted.
+# Copy-PoolStorageCycle copies one cycle folder to
+# <localPath>/hosts/<HostId>/test-cycles/<CycleName>/ and commits it with a
+# .yuruna-complete sentinel written LAST. Any pre-existing copy WITHOUT a sentinel
+# (a crashed prior attempt) is deleted first and recopied, so a partial is never
+# trusted. Returns $true only when every step succeeds. Private; assumes the share
+# is already mounted.
+#
+# -Verify (move mode) compares the copy against its source BEFORE the sentinel is
+# written. The order matters twice over: the sentinel lives INSIDE the destination,
+# so a comparison made after writing it is always off by one file and one stamp's
+# worth of bytes; and the sentinel is what every reader treats as "committed", so
+# writing it over an unverified tree would publish a half-copy. A failed
+# verification removes the destination -- it is sentinel-less, so it is nobody's
+# archive -- and leaves the source untouched for the next run.
 function Copy-PoolStorageCycle {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
@@ -1994,16 +2055,26 @@ function Copy-PoolStorageCycle {
         [Parameter(Mandatory)][pscustomobject]$Config,
         [Parameter(Mandatory)][string]$Source,
         [Parameter(Mandatory)][string]$HostId,
-        [Parameter(Mandatory)][string]$CycleName
+        [Parameter(Mandatory)][string]$CycleName,
+        [switch]$Verify
     )
-    if (-not $PSCmdlet.ShouldProcess("$HostId/$CycleName", 'Replicate cycle to poolStorage')) { return $false }
-    $destSub  = Join-Path $HostId $CycleName
-    $destFull = Join-PoolStoragePath -LocalPath $Config.LocalPath -SubPath $destSub
-    $sentinel = Join-PoolStoragePath -LocalPath $destFull -SubPath '.yuruna-complete'
+    if (-not $PSCmdlet.ShouldProcess("$HostId/$CycleName", 'Archive cycle to poolStorage')) { return $false }
+    $cycleRoot = Get-PoolStorageCycleRootPath -Config $Config -HostId $HostId
+    $destFull  = Join-PoolStoragePath -LocalPath $cycleRoot -SubPath $CycleName
+    $destSub   = "hosts/$HostId/test-cycles/$CycleName"
+    $sentinel  = Join-PoolStoragePath -LocalPath $destFull -SubPath '.yuruna-complete'
     if ((Test-Path -LiteralPath $destFull) -and -not (Test-Path -LiteralPath $sentinel)) {
         Remove-Item -LiteralPath $destFull -Recurse -Force -ErrorAction SilentlyContinue
     }
     if (-not (Sync-YurunaPoolStorageFolder -Config $Config -Source $Source -DestSubPath $destSub -Confirm:$false)) { return $false }
+    if ($Verify) {
+        $check = Test-PoolStorageCycleCopy -Source $Source -Destination $destFull
+        if (-not $check.ok) {
+            Write-Warning "poolStorage: $CycleName copied but failed verification ($($check.reason)); removing the incomplete destination and keeping the local folder."
+            $null = Remove-PoolStorageTree -Path $destFull -Confirm:$false
+            return $false
+        }
+    }
     try {
         $stamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'") + "`n"
         [System.IO.File]::WriteAllText($sentinel, $stamp, [System.Text.UTF8Encoding]::new($false))
@@ -2016,7 +2087,330 @@ function Copy-PoolStorageCycle {
 
 <#
 .SYNOPSIS
-Orchestrator: loud-fail vault pre-check -> TCP fast-fail gate -> mount -> compute the backlog (local cycles minus the ledger, oldest first) -> copy up to MaxPerRun cycles atomically -> persist the ledger. Best-effort: returns a summary hashtable, never throws, never blocks the loop (it runs in a detached child process). Stops draining on the first copy failure (likely a lost connection) and resumes on the next run.
+Compares an archived cycle folder against its local source by recursive FILE COUNT and TOTAL BYTES, returning @{ ok; reason; sourceFiles; destFiles; sourceBytes; destBytes }. Bounded; never throws.
+.DESCRIPTION
+Shape, not content: hashing a multi-gigabyte folder across SMB every cycle costs far more than it buys, and robocopy/rsync/cp already verify each file's own transfer. What this catches is the failure that actually happens -- a truncated or partially-copied tree from a connection that dropped mid-copy -- which a per-file transfer check cannot see because the missing files were never attempted.
+
+Call this BEFORE the .yuruna-complete sentinel is written: the sentinel lives inside the destination, so counting after it exists always reports one extra file.
+#>
+function Test-PoolStorageCycleCopy {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$Source,
+        [Parameter(Mandatory)][string]$Destination
+    )
+    $result = @{ ok = $false; reason = ''; sourceFiles = -1; destFiles = -1; sourceBytes = -1L; destBytes = -1L }
+    $r = Invoke-PoolStorageBoundedScript -TimeoutSeconds $script:PoolStorageSmbCmdletTimeoutSeconds -ArgumentList @($Source, $Destination) -ScriptBlock {
+        param($src, $dst)
+        $tally = {
+            param($root)
+            $files = @(Get-ChildItem -LiteralPath $root -Recurse -File -Force -ErrorAction Stop)
+            $sum = 0L
+            foreach ($f in $files) { $sum += [long]$f.Length }
+            return [pscustomobject]@{ Count = $files.Count; Bytes = $sum }
+        }
+        return [pscustomobject]@{ Src = (& $tally $src); Dst = (& $tally $dst) }
+    }
+    if ($r.TimedOut) {
+        $result.reason = "verification timed out after ${script:PoolStorageSmbCmdletTimeoutSeconds}s (the share may be wedged)"
+        return $result
+    }
+    if ($r.Error -or -not $r.Result) {
+        $result.reason = if ($r.Error) { "could not enumerate both trees: $($r.Error)" } else { 'could not enumerate both trees' }
+        return $result
+    }
+    $result.sourceFiles = [int]$r.Result.Src.Count
+    $result.destFiles   = [int]$r.Result.Dst.Count
+    $result.sourceBytes = [long]$r.Result.Src.Bytes
+    $result.destBytes   = [long]$r.Result.Dst.Bytes
+    if ($result.sourceFiles -ne $result.destFiles) {
+        $result.reason = "file count differs: source $($result.sourceFiles), destination $($result.destFiles)"
+        return $result
+    }
+    if ($result.sourceBytes -ne $result.destBytes) {
+        $result.reason = "total bytes differ: source $($result.sourceBytes), destination $($result.destBytes)"
+        return $result
+    }
+    $result.ok = $true
+    return $result
+}
+
+<#
+.SYNOPSIS
+Returns the total bytes of a folder tree (recursive sum of file lengths), or -1 when it cannot be measured. Bounded; never throws. Used to size a cycle before archiving it and to record what an archived cycle cost.
+#>
+function Get-PoolStorageFolderSize {
+    [CmdletBinding()]
+    [OutputType([long])]
+    param([Parameter(Mandatory)][string]$Path)
+    if (-not (Test-Path -LiteralPath $Path)) { return -1L }
+    $r = Invoke-PoolStorageBoundedScript -TimeoutSeconds $script:PoolStorageSmbCmdletTimeoutSeconds -ArgumentList @($Path) -ScriptBlock {
+        param($p)
+        $sum = 0L
+        foreach ($f in @(Get-ChildItem -LiteralPath $p -Recurse -File -Force -ErrorAction Stop)) { $sum += [long]$f.Length }
+        return $sum
+    }
+    if ($r.TimedOut -or $r.Error -or ($null -eq $r.Result)) {
+        Write-Verbose "Get-PoolStorageFolderSize($Path): unmeasurable"
+        return -1L
+    }
+    return [long]$r.Result
+}
+
+<#
+.SYNOPSIS
+Returns the bytes still free on the mounted share, or -1 when it cannot be told. Bounded; never throws.
+.DESCRIPTION
+CALLERS MUST HAVE ESTABLISHED THE MOUNT FIRST. On Linux/macOS `df` against an
+existing-but-unmounted localPath succeeds and reports the PARENT filesystem -- a
+confidently wrong number rather than a refusal -- so a caller that skips the mount
+check gets the local disk's free space and judges the share by it. Windows fails the
+other way (a disconnected mapping throws, giving -1), which is why the precondition
+has to be the caller's and cannot be inferred here.
+
+Field extraction on the `df -Pk` record counts from the RIGHT: the device column can
+contain spaces (`//server/my share`), so the Available column is the 4th-from-last
+field, never the 4th-from-left. -P is what guarantees one record per filesystem on
+both Linux and macOS.
+#>
+function Get-PoolStorageFreeSpace {
+    [CmdletBinding()]
+    [OutputType([long])]
+    param([Parameter(Mandatory)][pscustomobject]$Config)
+    $localPath = [string]$Config.LocalPath
+    if ([string]::IsNullOrWhiteSpace($localPath)) { return -1L }
+    if ($IsWindows) {
+        $r = Invoke-PoolStorageBoundedScript -TimeoutSeconds $script:PoolStorageSmbCmdletTimeoutSeconds -ArgumentList @($localPath) -ScriptBlock {
+            param($p)
+            $root = [System.IO.Path]::GetPathRoot($p)
+            if ([string]::IsNullOrWhiteSpace($root)) { $root = $p }
+            return [long]([System.IO.DriveInfo]::new($root).AvailableFreeSpace)
+        }
+        if ($r.TimedOut -or $r.Error -or ($null -eq $r.Result)) {
+            # A UNC localPath has no DriveInfo; fall back to the PowerShell drive
+            # table, which does answer for a PSDrive-backed share.
+            $alt = Invoke-PoolStorageBoundedScript -TimeoutSeconds $script:PoolStorageSmbCmdletTimeoutSeconds -ArgumentList @($localPath) -ScriptBlock {
+                param($p)
+                $d = Get-PSDrive -PSProvider FileSystem -ErrorAction Stop |
+                    Where-Object { $p -like ($_.Root.TrimEnd('\', '/') + '*') } |
+                    Sort-Object { $_.Root.Length } -Descending |
+                    Select-Object -First 1
+                if ($d -and $null -ne $d.Free) { return [long]$d.Free }
+                return $null
+            }
+            if ($alt.TimedOut -or $alt.Error -or ($null -eq $alt.Result)) {
+                Write-Verbose "Get-PoolStorageFreeSpace: could not measure '$localPath' on Windows"
+                return -1L
+            }
+            return [long]$alt.Result
+        }
+        return [long]$r.Result
+    }
+    $proc = Invoke-PoolStorageProcessResult -FilePath 'df' -ArgumentList @('-Pk', $localPath) -TimeoutSeconds $script:PoolStorageSmbCmdletTimeoutSeconds
+    if ($proc.ExitCode -ne 0) {
+        Write-Verbose "Get-PoolStorageFreeSpace: df -Pk '$localPath' exited $($proc.ExitCode)"
+        return -1L
+    }
+    $lines = @("$($proc.StdOut)" -split "`r?`n" | Where-Object { -not [string]::IsNullOrWhiteSpace($_) })
+    if ($lines.Count -lt 2) { return -1L }
+    $fields = @($lines[-1] -split '\s+' | Where-Object { $_ -ne '' })
+    if ($fields.Count -lt 4) { return -1L }
+    $availableKib = $fields[$fields.Count - 3]
+    $parsed = 0L
+    if (-not [long]::TryParse($availableKib, [ref]$parsed)) {
+        Write-Verbose "Get-PoolStorageFreeSpace: unparseable df Available field '$availableKib'"
+        return -1L
+    }
+    return ($parsed * 1024L)
+}
+
+<#
+.SYNOPSIS
+Decides whether a copy of NeedBytes fits: free >= ceil(NeedBytes * headroom) + reserve. Returns @{ ok; required; free; shortfall; reserve }. Pure -- no I/O -- so the pre-spawn projection check and the per-cycle check cannot drift apart.
+.DESCRIPTION
+FreeBytes -1 means "could not measure", and that is deliberately ok = $true: the
+copy then proceeds and fails loudly on its own if the share really is full. Failing
+a cycle on a measurement that was never taken would turn an unreadable `df` into an
+hourly outage.
+#>
+function Test-PoolStorageSpaceSufficient {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][long]$FreeBytes,
+        [Parameter(Mandatory)][long]$NeedBytes
+    )
+    $need = if ($NeedBytes -lt 0) { 0L } else { $NeedBytes }
+    $required = [long][math]::Ceiling($need * $script:PoolStorageCopyHeadroom) + $script:PoolStorageReserveBytes
+    $reserve = [long]$script:PoolStorageReserveBytes
+    if ($FreeBytes -lt 0) {
+        return @{ ok = $true; required = $required; free = $FreeBytes; shortfall = 0L; reserve = $reserve }
+    }
+    $shortfall = $required - $FreeBytes
+    if ($shortfall -le 0) {
+        return @{ ok = $true; required = $required; free = $FreeBytes; shortfall = 0L; reserve = $reserve }
+    }
+    return @{ ok = $false; required = $required; free = $FreeBytes; shortfall = $shortfall; reserve = $reserve }
+}
+
+<#
+.SYNOPSIS
+Projects the byte cost of the NEXT cycle from the ledger's recentArchivedBytes sample: the MAX of the sample, or PoolStorageProjectionFloorBytes when the sample is empty. Pure.
+#>
+function Get-PoolStorageProjectedSize {
+    [CmdletBinding()]
+    [OutputType([long])]
+    param([Parameter()][AllowNull()]$Ledger)
+    $sample = @()
+    if (($Ledger -is [System.Collections.IDictionary]) -and $Ledger.Contains('recentArchivedBytes')) {
+        $sample = @($Ledger['recentArchivedBytes'] | Where-Object { $null -ne $_ } | ForEach-Object { [long]$_ } | Where-Object { $_ -gt 0 })
+    }
+    if ($sample.Count -eq 0) { return [long]$script:PoolStorageProjectionFloorBytes }
+    return [long](($sample | Measure-Object -Maximum).Maximum)
+}
+
+<#
+.SYNOPSIS
+Renders a byte count as a human-readable GiB string for the operator-facing space messages.
+#>
+function Format-PoolStorageSize {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][long]$Bytes)
+    if ($Bytes -lt 0) { return 'unknown' }
+    return ('{0:N1} GiB' -f ($Bytes / 1GB))
+}
+
+# --- REGION: Single-instance lock (pidfile, hardened)
+# --- REGION: https://yuruna.link/test/harness#single-instance-locks
+# The lock lives HERE, in the orchestrator, rather than in the detached wrapper
+# script: move mode calls the function directly and in-process, so a lock held
+# only by the script would leave the synchronous mover free to race a detached
+# drain still working through a backlog from an earlier cycle -- one deleting
+# local folders the other is mid-copy from.
+function Get-PoolStorageProcessStart {
+    param([int]$ProcId)
+    try { return ((Get-Process -Id $ProcId -ErrorAction Stop).StartTime.ToUniversalTime().Ticks) } catch { return $null }
+}
+
+function Test-PoolStorageLockHeldLive {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$Path)
+    try { $j = (Get-Content -Raw -LiteralPath $Path -ErrorAction Stop) | ConvertFrom-Json -ErrorAction Stop } catch { return $false }
+    if (-not $j.pid) { return $false }
+    $liveStart = Get-PoolStorageProcessStart -ProcId ([int]$j.pid)
+    if (-not $liveStart) { return $false }                          # PID not running -> stale
+    if (-not $j.startTicks) { return $false }                       # no recorded start -> identity unprovable, treat as stale/reclaimable
+    if ([long]$liveStart -ne [long]$j.startTicks) { return $false } # PID reused -> stale
+    return $true
+}
+
+function Add-PoolStorageLockFile {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$Path, [Parameter(Mandatory)][string]$Body)
+    try {
+        $fs = [System.IO.File]::Open($Path, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::Write, [System.IO.FileShare]::Read)
+        try { $b = [System.Text.Encoding]::UTF8.GetBytes($Body); $fs.Write($b, 0, $b.Length) } finally { $fs.Dispose() }
+        return $true
+    } catch { return $false }   # already exists (or unwritable) -> not acquired
+}
+
+<#
+.SYNOPSIS
+Acquires runtime/poolstorage.drain.lock, reclaiming it once when stale. Returns $true when the caller owns the lock and must release it.
+#>
+function Enter-PoolStorageDrainLock {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$RuntimeDir)
+    if (-not (Test-Path -LiteralPath $RuntimeDir)) { New-Item -ItemType Directory -Force -Path $RuntimeDir | Out-Null }
+    $lockPath = Join-Path $RuntimeDir 'poolstorage.drain.lock'
+    $lockBody = (@{ pid = $PID; startTicks = (Get-PoolStorageProcessStart -ProcId $PID) } | ConvertTo-Json -Compress)
+    if (Add-PoolStorageLockFile -Path $lockPath -Body $lockBody) { return $true }
+    if (Test-PoolStorageLockHeldLive -Path $lockPath) { return $false }
+    Remove-Item -LiteralPath $lockPath -Force -ErrorAction SilentlyContinue
+    return (Add-PoolStorageLockFile -Path $lockPath -Body $lockBody)
+}
+
+<#
+.SYNOPSIS
+Releases the drain lock, but only when this process still owns it -- so a stale-lock reclaim by another drain cannot have us delete its newer lock.
+#>
+function Exit-PoolStorageDrainLock {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$RuntimeDir)
+    $lockPath = Join-Path $RuntimeDir 'poolstorage.drain.lock'
+    if (-not (Test-Path -LiteralPath $lockPath)) { return $true }
+    if (-not $PSCmdlet.ShouldProcess($lockPath, 'Release poolStorage drain lock')) { return $false }
+    $owner = 0
+    try { $owner = [int](((Get-Content -Raw -LiteralPath $lockPath -ErrorAction Stop) | ConvertFrom-Json -ErrorAction Stop).pid) } catch { $owner = 0 }
+    if ($owner -eq $PID) { Remove-Item -LiteralPath $lockPath -Force -ErrorAction SilentlyContinue }
+    return $true
+}
+
+<#
+.SYNOPSIS
+Appends a measured cycle size to the ledger's rolling recentArchivedBytes sample, newest last, capped at PoolStorageProjectionSample entries. Pure: takes and returns the array.
+.DESCRIPTION
+Recorded in BOTH modes. Copy mode has no use for it itself, but a host flipped from
+copy to move would otherwise start with an empty sample and project the floor -- badly
+under-projecting a host whose cycles run tens of gigabytes, which admits a cycle that
+then cannot be archived.
+#>
+function Add-PoolStorageArchivedSize {
+    [CmdletBinding()]
+    [OutputType([long[]], [object[]])]
+    param(
+        [Parameter()][AllowNull()]$Existing,
+        [Parameter(Mandatory)][long]$Bytes
+    )
+    $list = [System.Collections.Generic.List[long]]::new()
+    foreach ($v in @($Existing)) {
+        if ($null -eq $v) { continue }
+        try { $n = [long]$v } catch { continue }
+        if ($n -gt 0) { $list.Add($n) }
+    }
+    if ($Bytes -gt 0) { $list.Add($Bytes) }
+    $keep = [math]::Max(1, $script:PoolStorageProjectionSample)
+    while ($list.Count -gt $keep) { $list.RemoveAt(0) }
+    return @($list)
+}
+
+<#
+.SYNOPSIS
+Orchestrator: single-instance lock -> loud-fail vault pre-check -> TCP fast-fail gate -> mount -> (move mode) recover interrupted deletes -> compute the backlog -> copy up to MaxPerRun cycles, each committed atomically -> persist the ledger. Best-effort: returns a summary hashtable and never throws.
+.DESCRIPTION
+COPY MODE (-MoveLogs absent) is the historical behavior: copy, sentinel, ledger, keep
+the local folder. It is fired detached at cycle end and nothing downstream waits on it.
+
+MOVE MODE (-MoveLogs) additionally verifies each copy and then DELETES the local
+folder, so it runs synchronously in the per-cycle process and its verdict can fail the
+cycle. Its commit order is verify -> sentinel -> ledger -> delete, and every
+interruption window in that sequence is recovered:
+
+  killed before the sentinel  -> destination is sentinel-less; the next run deletes
+                                 and recopies it (Copy-PoolStorageCycle).
+  killed after the sentinel,
+  before the ledger           -> the cycle is still pending, and the committed
+                                 short-circuit below adopts the finished archive
+                                 instead of re-copying a source that may itself be
+                                 half-deleted (re-verifying THAT would fail and
+                                 delete a perfectly good archive).
+  killed after the ledger,
+  before/inside the delete    -> the cycle is no longer pending, so only the
+                                 delete-sweep below can finish it; without the sweep
+                                 the local folder would survive until rotation.
+
+.PARAMETER MoveLogs
+Verify each copy and delete the local folder once the archive is committed.
+.PARAMETER SpaceCheck
+Refuse to copy a cycle that does not fit (measured size + headroom + reserve), and
+report it via the summary's spaceShort field. Move mode only -- in copy mode the local
+folder survives regardless, so a failed copy is merely retried.
 #>
 function Invoke-PoolStorageDrain {
     [CmdletBinding(SupportsShouldProcess)]
@@ -2026,77 +2420,219 @@ function Invoke-PoolStorageDrain {
         [Parameter(Mandatory)][string]$LogDir,
         [Parameter(Mandatory)][string]$RuntimeDir,
         [Parameter()][AllowNull()]$Config,
-        [Parameter()][int]$MaxPerRun = 100
+        [Parameter()][int]$MaxPerRun = 100,
+        [switch]$MoveLogs,
+        [switch]$SpaceCheck,
+        # Skip the single-instance lock. For unit tests and for a caller that has
+        # already taken it; never for a real drain.
+        [switch]$NoLock
     )
-    $summary = @{ connectOk = $false; copied = 0; pending = 0; error = '' }
+    $summary = @{
+        connectOk = $false; copied = 0; pending = 0; error = ''
+        moved = 0; deleted = 0; spaceShort = $false
+        freeBytes = -1L; requiredBytes = 0L; lockBusy = $false
+    }
     $cfg = Get-YurunaPoolStorageConfig -Config $Config
     if (-not $cfg) { return $summary }   # feature off -> no-op
 
-    $nowUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
-    $ledger = Read-PoolStorageLedger -RuntimeDir $RuntimeDir
-    $cycleMap = Get-PoolStorageLocalCycleMap -LogDir $LogDir
-    $localNames = @($cycleMap.Keys)
-
-    $recordAndReturn = {
-        param($errMsg, $connectOk)
-        $pendingNow = @(Get-PoolStoragePendingSet -LocalNames $localNames -Ledger $ledger)
-        $summary.pending = $pendingNow.Count
-        $summary.error = $errMsg
-        $status = @{ lastAttemptUtc = $nowUtc; lastConnectOk = [bool]$connectOk; lastError = [string]$errMsg; pendingCount = $pendingNow.Count }
-        $merged = Merge-PoolStorageLedger -Ledger $ledger -Status $status -LocalNames $localNames -NowUtc $nowUtc
-        $null = Write-PoolStorageLedger -RuntimeDir $RuntimeDir -Ledger $merged -Confirm:$false
-        return $summary
-    }
-
-    if (-not (Test-PoolStorageVaultReady -Config $cfg)) { return (& $recordAndReturn 'vault credential not configured' $false) }
-    if (-not (Test-PoolStorageServerReachable -Config $cfg)) {
-        return (& $recordAndReturn "server unreachable: $(Get-PoolStorageServerName -NetworkPath $cfg.NetworkPath):445" $false)
-    }
-    if (-not (Connect-YurunaPoolStorage -Config $cfg -Confirm:$false)) { return (& $recordAndReturn 'mount failed' $false) }
-    $summary.connectOk = $true
-
-    $pending = @(Get-PoolStoragePendingSet -LocalNames $localNames -Ledger $ledger)
-    $summary.pending = $pending.Count
-    $committed = [System.Collections.Generic.List[string]]::new()
-    # Hybrid order: copy the newest few + the oldest remainder each run, so a fresh
-    # cycle reaches the share within one drain even behind a deep backlog (the
-    # remainder still backfills oldest-first). Equivalent to oldest-first when the
-    # whole backlog fits in one run.
-    foreach ($name in @(Get-PoolStorageDrainOrder -PendingOldestFirst $pending -Max $MaxPerRun)) {
-        $src = [string]$cycleMap[$name]
-        if (-not $src -or -not (Test-Path -LiteralPath $src)) { continue }
-        if (Copy-PoolStorageCycle -Config $cfg -Source $src -HostId $HostId -CycleName $name) {
-            $committed.Add($name)
-        } else {
-            break   # likely lost connection; resume next drain
+    $haveLock = $false
+    if (-not $NoLock) {
+        $haveLock = Enter-PoolStorageDrainLock -RuntimeDir $RuntimeDir
+        if (-not $haveLock) {
+            $summary.lockBusy = $true
+            $summary.error = 'another drain holds the lock'
+            return $summary
         }
     }
-    $summary.copied = $committed.Count
-    $remaining = $pending.Count - $committed.Count
-    $status = @{
-        lastAttemptUtc = $nowUtc; lastConnectOk = $true; lastError = ''
-        pendingCount = $remaining; lastCopied = $committed.Count
-    }
-    $merged = Merge-PoolStorageLedger -Ledger $ledger -Committed @($committed) -Status $status -LocalNames $localNames -NowUtc $nowUtc
-    $null = Write-PoolStorageLedger -RuntimeDir $RuntimeDir -Ledger $merged -Confirm:$false
+    try {
+        $nowUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+        $ledger = Read-PoolStorageLedger -RuntimeDir $RuntimeDir
+        $cycleMap = Get-PoolStorageLocalCycleMap -LogDir $LogDir
+        # Move mode never touches a folder whose on-disk leaf is still .incomplete:
+        # that is the live cycle (or one boot-recovery has not renamed yet), and the
+        # pending set would otherwise include it -- the map matches .incomplete leaves
+        # and strips the suffix into the key, which is deliberate for copy mode.
+        if ($MoveLogs) {
+            $filtered = @{}
+            foreach ($k in $cycleMap.Keys) {
+                $leaf = Split-Path -Leaf ([string]$cycleMap[$k])
+                if ($leaf -match '\.incomplete$') { continue }
+                $filtered[$k] = $cycleMap[$k]
+            }
+            $cycleMap = $filtered
+        }
+        $localNames = @($cycleMap.Keys)
 
-    # Refresh this host's NAS identity record (hosts/info.<HostId>.yml) once per
-    # successful drain, so a reimaged host can later recognize + reclaim its uuid.
-    # Best-effort + optional: gated on Test.HostIdentity being loaded (the drain
-    # script imports it) so Test.PoolStorage carries no hard dependency, and never
-    # allowed to break the drain.
-    if ((Get-Command Write-HostInfoRecord -ErrorAction SilentlyContinue) -and (Get-Command Get-CachedHostHardwareFingerprint -ErrorAction SilentlyContinue)) {
-        try {
-            $fp = Get-CachedHostHardwareFingerprint
-            if ($fp) { $null = Write-HostInfoRecord -MountRoot $cfg.LocalPath -HostId $HostId -Fingerprint $fp -Confirm:$false }
-        } catch { Write-Verbose "poolStorage drain: host-identity record write failed (non-fatal): $($_.Exception.Message)" }
+        $recordAndReturn = {
+            param($errMsg, $connectOk)
+            $pendingNow = @(Get-PoolStoragePendingSet -LocalNames $localNames -Ledger $ledger)
+            $summary.pending = $pendingNow.Count
+            $summary.error = $errMsg
+            $status = @{ lastAttemptUtc = $nowUtc; lastConnectOk = [bool]$connectOk; lastError = [string]$errMsg; pendingCount = $pendingNow.Count }
+            $merged = Merge-PoolStorageLedger -Ledger $ledger -Status $status -LocalNames $localNames -NowUtc $nowUtc
+            $null = Write-PoolStorageLedger -RuntimeDir $RuntimeDir -Ledger $merged -Confirm:$false
+            return $summary
+        }
+
+        if (-not (Test-PoolStorageVaultReady -Config $cfg)) { return (& $recordAndReturn 'vault credential not configured' $false) }
+        if (-not (Test-PoolStorageServerReachable -Config $cfg)) {
+            return (& $recordAndReturn "server unreachable: $(Get-PoolStorageServerName -NetworkPath $cfg.NetworkPath):445" $false)
+        }
+        if (-not (Connect-YurunaPoolStorage -Config $cfg -Confirm:$false)) { return (& $recordAndReturn 'mount failed' $false) }
+        $summary.connectOk = $true
+
+        $cycleRoot = Get-PoolStorageCycleRootPath -Config $cfg -HostId $HostId
+        $isCommitted = {
+            param($cycleName)
+            $dest = Join-PoolStoragePath -LocalPath $cycleRoot -SubPath $cycleName
+            return [bool](Test-Path -LiteralPath (Join-PoolStoragePath -LocalPath $dest -SubPath '.yuruna-complete'))
+        }
+
+        # Delete-sweep: a cycle already recorded in the ledger whose archive is
+        # committed but whose local folder is still here was interrupted between the
+        # ledger write and the delete. It is not pending (the ledger has it), so
+        # nothing else would ever finish it.
+        if ($MoveLogs) {
+            $replicatedSet = @{}
+            if (($ledger -is [System.Collections.IDictionary]) -and ($ledger['replicated'] -is [System.Collections.IDictionary])) {
+                foreach ($k in $ledger['replicated'].Keys) { $replicatedSet[[string]$k] = $true }
+            }
+            foreach ($name in @($localNames)) {
+                if (-not $replicatedSet.ContainsKey([string]$name)) { continue }
+                $src = [string]$cycleMap[$name]
+                if (-not $src -or -not (Test-Path -LiteralPath $src)) { continue }
+                if (-not (& $isCommitted $name)) { continue }
+                if (Remove-PoolStorageTree -Path $src -Confirm:$false) {
+                    $summary.deleted++
+                    Write-Verbose "poolStorage: swept the local remainder of already-archived cycle $name"
+                }
+            }
+            if ($summary.deleted -gt 0) {
+                $cycleMap = Get-PoolStorageLocalCycleMap -LogDir $LogDir
+                $filtered = @{}
+                foreach ($k in $cycleMap.Keys) {
+                    $leaf = Split-Path -Leaf ([string]$cycleMap[$k])
+                    if ($leaf -match '\.incomplete$') { continue }
+                    $filtered[$k] = $cycleMap[$k]
+                }
+                $cycleMap = $filtered
+                $localNames = @($cycleMap.Keys)
+            }
+        }
+
+        $pending = @(Get-PoolStoragePendingSet -LocalNames $localNames -Ledger $ledger)
+        $summary.pending = $pending.Count
+        $committed = [System.Collections.Generic.List[string]]::new()
+        $archivedBytes = if (($ledger -is [System.Collections.IDictionary]) -and $ledger.Contains('recentArchivedBytes')) { @($ledger['recentArchivedBytes']) } else { @() }
+        $movedRecent = [System.Collections.Generic.List[object]]::new()
+        if (($ledger -is [System.Collections.IDictionary]) -and $ledger.Contains('movedRecent')) {
+            foreach ($m in @($ledger['movedRecent'])) { if ($null -ne $m) { $movedRecent.Add($m) } }
+        }
+        $freeBytes = if ($SpaceCheck) { Get-PoolStorageFreeSpace -Config $cfg } else { -1L }
+        $summary.freeBytes = $freeBytes
+
+        # Hybrid order: copy the newest few + the oldest remainder each run, so a fresh
+        # cycle reaches the share within one drain even behind a deep backlog (the
+        # remainder still backfills oldest-first). Equivalent to oldest-first when the
+        # whole backlog fits in one run.
+        foreach ($name in @(Get-PoolStorageDrainOrder -PendingOldestFirst $pending -Max $MaxPerRun)) {
+            $src = [string]$cycleMap[$name]
+            if (-not $src -or -not (Test-Path -LiteralPath $src)) { continue }
+
+            # Committed short-circuit: the archive is already finished (a previous run
+            # was killed after the sentinel, before the ledger). Adopt it. Re-copying
+            # would be waste, and re-VERIFYING would compare a possibly half-deleted
+            # local source against a complete archive, fail, and delete the archive.
+            if ($MoveLogs -and (& $isCommitted $name)) {
+                $committed.Add($name)
+                $summary.moved++
+                if (Remove-PoolStorageTree -Path $src -Confirm:$false) { $summary.deleted++ }
+                continue
+            }
+
+            $cycleBytes = -1L
+            if ($MoveLogs -or $SpaceCheck) { $cycleBytes = Get-PoolStorageFolderSize -Path $src }
+            if ($SpaceCheck) {
+                $verdict = Test-PoolStorageSpaceSufficient -FreeBytes $freeBytes -NeedBytes $cycleBytes
+                $summary.requiredBytes = [long]$verdict.required
+                if (-not $verdict.ok) {
+                    $summary.spaceShort = $true
+                    $summary.error = "pool storage is full: archiving '$name' needs $(Format-PoolStorageSize -Bytes ([long]$verdict.required)) free but the share has $(Format-PoolStorageSize -Bytes $freeBytes)"
+                    break   # copy nothing, delete nothing
+                }
+            }
+
+            if (Copy-PoolStorageCycle -Config $cfg -Source $src -HostId $HostId -CycleName $name -Verify:$MoveLogs) {
+                $committed.Add($name)
+                if ($cycleBytes -gt 0) {
+                    $archivedBytes = Add-PoolStorageArchivedSize -Existing $archivedBytes -Bytes $cycleBytes
+                }
+                if ($MoveLogs) {
+                    $summary.moved++
+                    $movedRecent.Add([ordered]@{ cycle = [string]$name; utc = $nowUtc; bytes = [long]$cycleBytes })
+                    # Ledger BEFORE delete: a kill in the delete leaves a folder the
+                    # sweep can finish, whereas a kill between delete and ledger would
+                    # leave a cycle that is neither pending nor swept.
+                    $interim = Merge-PoolStorageLedger -Ledger $ledger -Committed @($committed) `
+                        -Status @{ lastAttemptUtc = $nowUtc; lastConnectOk = $true } -LocalNames $localNames -NowUtc $nowUtc
+                    $null = Write-PoolStorageLedger -RuntimeDir $RuntimeDir -Ledger $interim -Confirm:$false
+                    if (Remove-PoolStorageTree -Path $src -Confirm:$false) { $summary.deleted++ }
+                    else { Write-Warning "poolStorage: archived $name but could not delete the local folder '$src'; the next run sweeps it." }
+                }
+                # 0L, not 0: a bare 0 binds [math]::Max's Int32 overload and every real
+                # free-space figure overflows it.
+                if ($freeBytes -ge 0 -and $cycleBytes -gt 0) { $freeBytes = [long][math]::Max([long]0, [long]$freeBytes - [long]$cycleBytes) }
+            } else {
+                break   # likely lost connection or a failed verification; resume next run
+            }
+        }
+        $summary.copied = $committed.Count
+        $remaining = $pending.Count - $committed.Count
+        $status = @{
+            lastAttemptUtc = $nowUtc; lastConnectOk = $true; lastError = [string]$summary.error
+            pendingCount = $remaining; lastCopied = $committed.Count
+            recentArchivedBytes = @($archivedBytes)
+        }
+        if ($MoveLogs -or $summary.spaceShort) {
+            while ($movedRecent.Count -gt 50) { $movedRecent.RemoveAt(0) }
+            $status['movedRecent'] = @($movedRecent)
+            $status['lastMove'] = [ordered]@{
+                utc = $nowUtc; moved = [int]$summary.moved; deleted = [int]$summary.deleted
+                spaceShort = [bool]$summary.spaceShort
+                freeBytes = [long]$summary.freeBytes; requiredBytes = [long]$summary.requiredBytes
+            }
+        }
+        # LocalNames is recomputed here: move mode has just deleted folders, and the
+        # prune keeps only entries whose folder still exists locally. That is safe --
+        # the pending set is "local minus ledger", so a folder that is gone locally can
+        # never re-enter it, and the share's own sentinel is the durable record of what
+        # was archived.
+        $localNamesAfter = @((Get-PoolStorageLocalCycleMap -LogDir $LogDir).Keys)
+        $merged = Merge-PoolStorageLedger -Ledger $ledger -Committed @($committed) -Status $status -LocalNames $localNamesAfter -NowUtc $nowUtc
+        $null = Write-PoolStorageLedger -RuntimeDir $RuntimeDir -Ledger $merged -Confirm:$false
+
+        # Refresh this host's NAS identity record (hosts/info.<HostId>.yml) once per
+        # successful drain, so a reimaged host can later recognize + reclaim its uuid.
+        # Best-effort + optional: gated on Test.HostIdentity being loaded (the drain
+        # script imports it) so Test.PoolStorage carries no hard dependency, and never
+        # allowed to break the drain.
+        if ((Get-Command Write-HostInfoRecord -ErrorAction SilentlyContinue) -and (Get-Command Get-CachedHostHardwareFingerprint -ErrorAction SilentlyContinue)) {
+            try {
+                $fp = Get-CachedHostHardwareFingerprint
+                if ($fp) { $null = Write-HostInfoRecord -MountRoot $cfg.LocalPath -HostId $HostId -Fingerprint $fp -Confirm:$false }
+            } catch { Write-Verbose "poolStorage drain: host-identity record write failed (non-fatal): $($_.Exception.Message)" }
+        }
+        return $summary
+    } finally {
+        if ($haveLock) { $null = Exit-PoolStorageDrainLock -RuntimeDir $RuntimeDir -Confirm:$false }
     }
-    return $summary
 }
 
 <#
 .SYNOPSIS
-Returns the per-host destination ROOT on the share -- '<localPath>/<HostId>' -- the parent of every replicated cycle folder (Copy-PoolStorageCycle writes '<localPath>/<HostId>/<CycleName>/'). Pure + testable; deriving the gate's pre-flight target and the real copy destination from ONE helper keeps the two from drifting apart.
+Returns this host's ROOT on the share -- '<localPath>/hosts/<HostId>' -- the parent of the per-host archive subtrees (test-cycles/ written here, services/ written by the caching-proxy guest). Pure + testable.
+.DESCRIPTION
+'hosts/' already carries the info.<hostId>.yml registry records; per-host DIRECTORIES sit beside those files without collision (the reclaim scanner enumerates with -Filter 'info.*.yml' -File, so a directory is invisible to it). Shares written before this layout keep a bare '<localPath>/<hostId>/' root: those are frozen -- never read, never migrated -- and Remove-PoolHost is their only sanctioned deleter.
 #>
 function Get-PoolStorageHostFolderPath {
     [CmdletBinding()]
@@ -2105,7 +2641,29 @@ function Get-PoolStorageHostFolderPath {
         [Parameter(Mandatory)][pscustomobject]$Config,
         [Parameter(Mandatory)][string]$HostId
     )
-    return (Join-PoolStoragePath -LocalPath $Config.LocalPath -SubPath $HostId)
+    # Composed one segment at a time through Join-PoolStoragePath: pre-joining the
+    # relative part with Join-Path would bake THIS platform's separator into a path
+    # meant for the localPath's platform, and the bare Windows drive-letter form
+    # ('y:') has to keep composing by string rather than through the PSDrive table.
+    $hostsRoot = Join-PoolStoragePath -LocalPath $Config.LocalPath -SubPath 'hosts'
+    return (Join-PoolStoragePath -LocalPath $hostsRoot -SubPath $HostId)
+}
+
+<#
+.SYNOPSIS
+Returns the per-host CYCLE ARCHIVE root -- '<localPath>/hosts/<HostId>/test-cycles' -- the parent of every archived cycle folder. Pure + testable; the gate's pre-flight target, the copy destination, the host's serving fallback and the aggregator's archive root all derive from this one helper so they cannot drift apart.
+.DESCRIPTION
+Leaf names under this root are ALWAYS the stable stripped cycle identity ('NNNNNN.date.time.hostId'): the drain keys its map, destination and ledger on Get-PoolStorageCycleIdentity, so no '.incomplete'/'.aborted.<UTC>' suffix and no 'history.YYYY-MM-DD/' bucket ever appears here -- rotated cycles flatten in. Every reader depends on that, and on the reverse mapping when translating a local log/ URL back to a share path.
+#>
+function Get-PoolStorageCycleRootPath {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][pscustomobject]$Config,
+        [Parameter(Mandatory)][string]$HostId
+    )
+    $hostRoot = Get-PoolStorageHostFolderPath -Config $Config -HostId $HostId
+    return (Join-PoolStoragePath -LocalPath $hostRoot -SubPath 'test-cycles')
 }
 
 <#
@@ -2146,7 +2704,7 @@ function Initialize-PoolStorageHostFolder {
             $conflicts = @(Get-PoolStorageConflictingMount -Config $Config)
             if ($conflicts.Count -gt 0) {
                 $pts = ($conflicts | ForEach-Object { "'$($_.MountPoint)' [$($_.Remote)]" }) -join ', '
-                $result.error += ". NOTE: the same share is already mounted elsewhere ($pts) -- on macOS this blocks the new mount with 'File exists'. Run Clear-PoolStorageConflictingMount -Config (Get-YurunaPoolStorageConfig -IgnoreReplicate) to unmount it after confirmation"
+                $result.error += ". NOTE: the same share is already mounted elsewhere ($pts) -- on macOS this blocks the new mount with 'File exists'. Run Clear-PoolStorageConflictingMount -Config (Get-YurunaPoolStorageConfig) to unmount it after confirmation"
             }
         }
         return $result
@@ -2273,7 +2831,7 @@ function Initialize-PoolStorageTargetFolder {
         return $result
     }
     $parentCfg = [pscustomobject]@{
-        Replicate   = $false
+        MoveLogs    = $false
         NetworkPath = '//' + $parentBare
         NetworkUser = $Config.NetworkUser
         LocalPath   = $Config.LocalPath
@@ -2342,16 +2900,18 @@ function Get-PoolStorageDrainOrder {
 
 <#
 .SYNOPSIS
-Returns a human-readable warning string when the PRIOR drain's ledger indicates replication is failing/stalled (and replicate is on), else $null. The drain is detached + best-effort, so a host that has STOPPED replicating (bad credential, read-only share, a Windows drive-letter/credential collision) otherwise records the failure ONLY in the ledger, where no operator looks; the outer loop calls this each cycle so the failure surfaces loudly (console + outer.log). Pure: ledger hashtable + replicate flag in, message out. Distinguishes a genuine stall from healthy states: caught-up (pending 0) and mid-backlog (copied > 0) both return $null.
+Returns a human-readable warning string when the PRIOR drain's ledger indicates archiving is failing/stalled, else $null. Archiving is best-effort (and detached in copy mode), so a host that has STOPPED archiving (bad credential, read-only share, a Windows drive-letter/credential collision) otherwise records the failure ONLY in the ledger, where no operator looks; the outer loop calls this each cycle so the failure surfaces loudly (console + outer.log). Pure: ledger hashtable in, message out. Distinguishes a genuine stall from healthy states: caught-up (pending 0) and mid-backlog (copied > 0) both return $null.
+.DESCRIPTION
+The caller decides WHETHER to ask -- it holds the config and knows whether the three
+paths are populated. There is no flag parameter here: a ledger with no recorded
+attempt returns $null on its own, which is what a host that has never archived has.
 #>
 function Get-PoolStorageHealthWarning {
     [CmdletBinding()]
     [OutputType([string])]
     param(
-        [Parameter()][AllowNull()]$Ledger,
-        [Parameter()][bool]$Replicate
+        [Parameter()][AllowNull()]$Ledger
     )
-    if (-not $Replicate) { return $null }
     if (-not ($Ledger -is [System.Collections.IDictionary])) { return $null }
     # A ledger with no recorded attempt yet (first run, or feature just enabled)
     # carries none of these scalars -- nothing to warn about.
@@ -2362,14 +2922,14 @@ function Get-PoolStorageHealthWarning {
     $lastErr   = [string]$Ledger['lastError']
     if (-not $connectOk) {
         $tail = if ($lastErr) { " ($lastErr)" } else { '' }
-        return "poolStorage replication is FAILING: the last drain could not connect to the share$tail. $pending cycle(s) unreplicated. See docs/pool-storage.md (Operating & troubleshooting)."
+        return "poolStorage archiving is FAILING: the last run could not connect to the share$tail. $pending cycle(s) unarchived. See docs/pool-storage.md (Operating & troubleshooting)."
     }
     if ($copied -le 0 -and $pending -gt 0) {
         $tail = if ($lastErr) { " Last error: $lastErr." } else { '' }
-        return "poolStorage connected but copied 0 of $pending pending cycle(s) last run -- likely a read-only share or the pool account lacking write permission.$tail See docs/pool-storage.md."
+        return "poolStorage connected but archived 0 of $pending pending cycle(s) last run -- likely a read-only share or the pool account lacking write permission.$tail See docs/pool-storage.md."
     }
     if ($lastErr) {
-        return "poolStorage last drain reported an error: $lastErr ($pending cycle(s) pending)."
+        return "poolStorage last run reported an error: $lastErr ($pending cycle(s) pending)."
     }
     return $null
 }
@@ -2469,7 +3029,7 @@ function Get-YurunaStashSeedValue {
 
 <#
 .SYNOPSIS
-Resolves the POOL storage coordinates a pool-mounting service VM's cloud-init seed needs (the pool-control-service and download-agent-service guests) -- the pool NAS share UNC (unix form), the poolStorageNetworkUser, its vault password, and this host's id -- read from the pool networkStorage keys via Get-YurunaPoolStorageConfig -IgnoreReplicate (so the seed bakes regardless of the replicate flag, matching how the stash seed has no replicate gate). Returns empty strings when unavailable so a caller bakes blanks (the guest then degrades to no persistence); the fail-fast gate lives in each service's Start script, not here. Get-YurunaHostId and Get-Password must be loaded in the caller's session.
+Resolves the POOL storage coordinates a pool-mounting service VM's cloud-init seed needs (the pool-control-service and download-agent-service guests) -- the pool NAS share UNC (unix form), the poolStorageNetworkUser, its vault password, and this host's id -- read from the pool networkStorage keys via Get-YurunaPoolStorageConfig (the three populated paths are the opt-in, matching how the stash seed resolves its own tier). Returns empty strings when unavailable so a caller bakes blanks (the guest then degrades to no persistence); the fail-fast gate lives in each service's Start script, not here. Get-YurunaHostId and Get-Password must be loaded in the caller's session.
 #>
 function Get-YurunaPoolSeedValue {
     [CmdletBinding()]
@@ -2483,7 +3043,7 @@ function Get-YurunaPoolSeedValue {
     if (-not $out.HostId) { $out.HostId = 'unknown-host' }
     $cfg = $null
     if ($Config) {
-        try { $cfg = Get-YurunaPoolStorageConfig -Config $Config -IgnoreReplicate } catch { Write-Verbose "pool seed config: $($_.Exception.Message)" }
+        try { $cfg = Get-YurunaPoolStorageConfig -Config $Config } catch { Write-Verbose "pool seed config: $($_.Exception.Message)" }
     }
     if (-not $cfg) { return $out }
     $user    = [string]$cfg.NetworkUser
@@ -2595,8 +3155,11 @@ Export-ModuleMember -Function `
     Test-PoolStorageStoredCredential, `
     Test-PoolStorageHostResolvable, Get-PoolStorageStaleAliasMount, `
     Remove-PoolStorageStaleAliasMount, Initialize-PoolStorageTargetFolder, `
-    Get-PoolStorageHostFolderPath, Initialize-PoolStorageHostFolder, `
+    Get-PoolStorageHostFolderPath, Get-PoolStorageCycleRootPath, Initialize-PoolStorageHostFolder, `
     Get-PoolStorageDrainOrder, Get-PoolStorageHealthWarning, `
     Invoke-PoolStorageDrain, Get-YurunaStashSeedValue, Get-YurunaPoolSeedValue, `
     Test-PoolStorageRoutableAddress, Select-PoolStorageSeedAddress, `
-    Remove-PoolStorageTree
+    Remove-PoolStorageTree, ConvertTo-PoolStorageBool, `
+    Test-PoolStorageCycleCopy, Get-PoolStorageFolderSize, Get-PoolStorageFreeSpace, `
+    Test-PoolStorageSpaceSufficient, Get-PoolStorageProjectedSize, Format-PoolStorageSize, `
+    Add-PoolStorageArchivedSize, Enter-PoolStorageDrainLock, Exit-PoolStorageDrainLock

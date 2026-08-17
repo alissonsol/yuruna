@@ -30,7 +30,7 @@
         <a href="/test-sets">Test sets</a>
         <a href="/scan">Scan</a>
         <a href="/diagnostics">Diagnostics</a>
-        <a class="menu-out" href="https://yuruna.link/pool-control">Guide</a>
+        <a class="menu-out" href="https://yuruna.link/pool-control" target="_blank" rel="noopener">Guide</a>
       </nav>
     </div>
   </header>
@@ -38,7 +38,10 @@
     <h1>Pools</h1>
     <p class="muted">A pool groups hosts and carries a stable Pool ID (GUID). A host belongs to at most one pool.
       <strong>Pool Status</strong> drives every member the way its own status page would: it reads what the
-      members are doing now, and choosing a value applies it to each of them.</p>
+      members are doing now, and choosing a value applies it to each of them.
+      Any column header sorts the table; clicking the sorted one reverses it, and
+      <strong>Members</strong> sorts by how many there are. The leading number counts the
+      rows as they are shown, so it stays 1&hellip;n whatever the order.</p>
     <div id="notice" class="notice"></div>
     <div class="row">
       <input id="new-poolid" placeholder="pool-id (lowercase, dns-safe)" size="26">
@@ -46,7 +49,17 @@
       <button id="create" class="primary">Create pool</button>
     </div>
     <table>
-      <thead><tr><th>Pool</th><th>Pool ID</th><th>Name</th><th>Members</th><th>Pool Status</th><th>Actions</th></tr></thead>
+      <thead>
+        <tr>
+          <th class="rownum" aria-label="Row number">#</th>
+          <th data-sort="pool" aria-sort="ascending"><button type="button" class="sort">Pool</button></th>
+          <th data-sort="poolGuid"><button type="button" class="sort">Pool ID</button></th>
+          <th data-sort="name"><button type="button" class="sort">Name</button></th>
+          <th data-sort="members"><button type="button" class="sort">Members</button></th>
+          <th data-sort="status"><button type="button" class="sort">Pool Status</button></th>
+          <th>Actions</th>
+        </tr>
+      </thead>
       <tbody id="pool-rows"></tbody>
     </table>
   </main>

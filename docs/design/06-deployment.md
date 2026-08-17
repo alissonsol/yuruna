@@ -56,7 +56,7 @@ flowchart TD
     guest -->|/livecheck /yuruna-repo :8080| statussrv
     guest -->|apt + image pulls :3128 :3129 :5000| squid
     squid -->|miss 80/443| mirrors
-    squid -->|/yuruna-repo build source :8080| statussrv
+    squid -->|/yuruna-repo build source + version pin :8080| statussrv
     runner -->|git pull 443| github
     k8s -->|image pull| registry
 
@@ -66,7 +66,7 @@ flowchart TD
     %% has its own.
     %% gate: configService.enabled
     squid -.->|mTLS /v1/nas/pool :8443| hostcfg
-    %% gate: pool.networkReplicate baked as YPOOL_NAS_REPLICATE
+    %% gate: networkStorage.poolStorage* baked as YPOOL_NAS_REPLICATE
     squid -.->|CIFS 445| nas
     %% gate: aggregator -status-port and -interval flags
     squid -.->|probe /runtime/status.json :8080| statussrv
@@ -74,7 +74,7 @@ flowchart TD
     runner -.->|clone pool-intent.git :80| squid
     %% gate: stored lab-auth-token
     runner -.->|cycle NDJSON /ingest :9400| squid
-    %% gate: pool.networkReplicate + networkStorage.poolStorage keys
+    %% gate: the three networkStorage.poolStorage keys
     runner -.->|replicate CIFS 445| nas
     %% gate: downloadAgentService.enabled, then the discovery ladder
     provider -.->|ensure + artifact :80| agent
@@ -103,7 +103,7 @@ flowchart TD
 ```
 
 **What runs where.** Co-resident processes are folded into the VM box that runs
-them — the caching-proxy VM alone hides eleven long-lived listeners and seven
+them — the caching-proxy VM alone hides fifteen long-lived listeners and eight
 timers, and drawing them would blow the seven-child budget on its own.
 
 | Box | What runs on it | Brought up by |
@@ -128,11 +128,11 @@ link has its own flag, and two of them live outside `test.config.yml` entirely.
 | Dashed edge | Exact gate |
 |-------------|------------|
 | `squid → hostcfg` | `configService.enabled` (default `true`) and `configService.port`. `Start-CachingProxyServiceVM.ps1` refuses to build the VM when the service is enabled but :8443 is not accepting. |
-| `squid → nas` | `pool.networkReplicate`, baked into the seed as the line `YPOOL_NAS_REPLICATE='true'` in `/etc/yuruna/ypool-nas.env`; `ypool-nas-replicate.timer` is enabled only when that exact line is present. |
+| `squid → nas` | the three `networkStorage.poolStorage*` keys, baked into the seed as the line `YPOOL_NAS_REPLICATE='true'` in `/etc/yuruna/ypool-nas.env`; `ypool-nas-replicate.timer` is enabled only when that exact line is present. |
 | `squid → statussrv` | Aggregator flags only — `-status-port` (8080), `-interval` (30s), `-host-ttl` (24h). No `test.config.yml` key. |
 | `runner → squid` (intent) | `pool.enabled` (default `false`) **and** a non-empty `pool.intentGitUrl`; bounded by `pool.pullTimeoutSeconds`. |
 | `runner → squid` (`/ingest`) | A stored vault `lab-auth-token` (legacy name `pool-auth-token`) **and** a reachable proxy. The aggregator self-gates on `-auth-token-file` and answers 503 without one. |
-| `runner → nas` | `pool.networkReplicate` (default `false`) **and** all three of `networkStorage.poolStorage{LocalPath,NetworkPath,NetworkUser}`. |
+| `runner → nas` | all three of `networkStorage.poolStorage{LocalPath,NetworkPath,NetworkUser}` (populating them is the opt-in); `networkStorage.moveLogsToPoolStorage` then selects copy vs move. |
 | `provider → agent` | `downloadAgentService.enabled` decides only whether `install/setup.ps1` brings the VM up. The call itself is gated by the discovery ladder in `Yuruna.DownloadAgent.psm1`: `$env:YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE`, then a local `yuruna-download-agent-service` VM, then the pool's `/api/v1/extension-hosts` — every rung proved with a 2-second `/healthz`. |
 | `agent → nas` | `--pool-dir` (default `/mnt/yuruna-pool`) over a mounted share. |
 | `agent → squid` | `YURUNA_CACHE_PROXY_IP` in `/etc/yuruna/download-agent.env` becomes `--proxy-http` / `--proxy-https`; HTTPS proxying is dropped when the `--proxy-ca` PEM is absent, and freshness probes always go direct. |
@@ -144,15 +144,34 @@ link has its own flag, and two of them live outside `test.config.yml` entirely.
 | `cli → poolctl` | Reads are open on the trusted LAN; writes need a lab-token session backed by `--auth-token-file`. |
 | `cli → nas` | `pool.intentGitUrl`, or `-IntentGitUrl` on the CLI, resolved by `Resolve-YurunaPoolAdminTarget`. |
 
-**The caching-proxy-service VM is the busiest box.** It co-locates squid (HTTP
-proxy :3128, ssl-bump :3129, plus PROXY-protocol variants :3138/:3139 that macOS
-maps host→VM), the zot OCI pull-through cache (:5000), Apache (:80), Grafana
-(:3000), the Go access-log parser (:9302), the **pool-aggregator-service**
-(:9400) and loopback-only Loki (127.0.0.1:3100), Prometheus (127.0.0.1:9090),
-the node exporter (127.0.0.1:9100) and the squid exporter (127.0.0.1:9301),
-reachable only through Grafana. Only :3128 is a hard runner dependency. Apache
-:80 serves the CA certificates, `/squid-meta`, `/ypool-nas-status`, and the
-read-only `/pool-intent.git` alias.
+**The caching-proxy-service VM is the busiest box.** Nine of its fifteen
+listeners face the LAN: squid (HTTP proxy :3128 — the distro default the seed
+deliberately never redeclares, ssl-bump :3129, plus PROXY-protocol variants
+:3138/:3139 that macOS maps host→VM), the zot OCI pull-through cache (:5000),
+Apache (:80), Grafana (:3000), the Go access-log parser (:9302) and the
+**pool-aggregator-service** (:9400). The other six are loopback-only and
+reachable only through Grafana: Loki (127.0.0.1:3100 HTTP, :9096 gRPC),
+promtail (127.0.0.1:9080), Prometheus (127.0.0.1:9090), the node exporter
+(127.0.0.1:9100) and the squid exporter (127.0.0.1:9301). Squid answers only
+RFC1918 clients. Only :3128 is a hard runner dependency. Apache
+:80 serves the CA certificates, `/squid-meta`, `/cache-health`,
+`/ypool-nas-status`, and the read-only `/pool-intent.git` alias.
+
+**The cache holds image sets, not just bytes it happened to see.** `zot-prewarm`
+(`OnBootSec=3min`, then every 6h) keeps the Kubernetes control-plane and CNI
+images resident ahead of any guest asking for them, because a tag the registry
+cannot answer from storage copies a whole multi-arch index before it replies —
+minutes per image, inside a guest step budget sized for a warm cache. The job
+resolves what to hold rather than carrying a version of its own: it reads
+`YURUNA_K8S_MINOR` from `/yuruna-repo/automation/yuruna-versions.sh`, the patch
+from `dl.k8s.io`, and the image list from the matching `kubeadm` binary, so the
+warm set cannot drift from what guests install. That makes the deploying host's
+status service a **runtime** dependency of this VM and not only a build-time one
+— with `raw.githubusercontent.com` as the standing fallback, and the previously
+resolved set as the fallback after that. The same run times every fetch, which
+is what `/cache-health` publishes as residency and a cold-sync watermark; the
+manifest canary beside it walks a tag the scheduled sync keeps resident and
+cannot report that state.
 
 **Two edges run opposite to the obvious direction.** The cache VM is the *client*
 of the config service: its cloud-init curls `https://<san>:8443/v1/nas/pool` with
@@ -252,7 +271,26 @@ harness SSH key, rewriting the `AGGREGATOR_BASE_PLACEHOLDER` from the guest's ow
 address and letting Grafana's 30-second file provider pick it up without a
 restart. A warm squid cache likewise survives a VM replacement:
 `test/service/Move-CachingProxyService.ps1` hands it to the successor through a
-temporary parent-child cache hierarchy rather than refetching it.
+temporary `cache_peer` parent link — TLS on :3130, plain on :3128 — rather than
+refetching it.
+
+**:9400 is one port serving two protocols — when it has a leaf.** TLS activates
+only when the `-tls-cert` / `-tls-key` pair is readable and non-empty; a proxy
+provisioned without the leaf degrades to plain `ListenAndServe` and logs that it
+did. With the leaf present the listener sniffs the first bytes and answers either
+TLS or plain HTTP on the same socket, so the transport is chosen per client: TLS
+for the token-bearing callers, plain HTTP for the browser-facing `/go/*`
+deep-links, which only redirect to a plain-HTTP host status page and would
+otherwise add a proxy-CA interstitial. The leaf is signed by the proxy's own squid
+ssl-bump CA and its SANs cover the VM's LAN IP and `127.0.0.1` only — which is why
+the pool dashboard's aggregator base is rewritten to a plain `http://<ip>:9400`
+and why the guests' presence beacons announce with verification disabled. The two
+legs that pin the CA are the host's token-bearing calls — the `/ingest` cycle push
+and the `/api/v1/forget-host` eviction — which fetch it over plain HTTP from the
+proxy's `/yuruna-pool-ca.crt` (the same bytes Apache also publishes as
+`/yuruna-squid-ca.crt`). That CA is unrelated to the
+per-host **Config CA** behind :8443, which is EC P-256, lives in the host's
+runtime dir, and leaves the host only as the `ca.crt` baked into the proxy seed.
 
 **A failed NAS mount now reports its own cause.** The three service-VM launchers
 used to assert that the `networkUser` credential had failed; they now read the
@@ -279,4 +317,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.14
+Last review: 2026.08.16

@@ -107,8 +107,8 @@ func TestDualProtocolListenerServesBoth(t *testing.T) {
 }
 
 // TestNormalizeHostID: the /go/* deep-links must resolve both spellings of a
-// hostId -- the undashed pool key and the GUID-formatted rendering the
-// dashboard tables display -- and must not touch anything else (hostIds are
+// hostId -- the undashed pool key and the GUID-formatted rendering every panel
+// and UI reveals a full id in -- and must not touch anything else (hostIds are
 // opaque by contract).
 func TestNormalizeHostID(t *testing.T) {
 	const raw = "4253419c1f0b45a08260f36a1521a857"

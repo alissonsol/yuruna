@@ -1,4 +1,4 @@
-# Windows 11 on Ubuntu KVM/libvirt
+# Windows 11 guest on Ubuntu KVM host
 
 > Common setup pattern: see [Guest Image Setup](../../../docs/guest-image-setup.md).
 > This file documents only what's HOST/GUEST-specific.
@@ -7,12 +7,14 @@ Boots Windows 11 Pro (multi-edition x64) unattended on KVM/QEMU with
 TPM 2.0 emulation, OVMF Secure Boot, and virtio-scsi/virtio-net for
 performance.
 
-## Manual run
+Cross-host concepts: [Hosts — ...](../../README.md).
+
+## One-time
+
+From `yuruna/host/ubuntu.kvm/guest.windows.11`:
 
 ```
 pwsh ./Get-Image.ps1                        # stage Win11 ISO + virtio-win ISO
-pwsh ./New-VM.ps1                           # default name: windows-11-01
-pwsh ./New-VM.ps1 -VMName myhost            # custom name
 ```
 
 `Get-Image.ps1` cannot auto-fetch the Windows 11 ISO -- Microsoft serves
@@ -22,6 +24,13 @@ signed URLs. The script prints download instructions; drop the ISO at
 `Win11*.iso` in that directory -- the script renames it on the next
 run). The virtio-win driver ISO IS auto-fetched from Fedora's hosted
 bundle (signed).
+
+## For each VM
+
+```
+pwsh ./New-VM.ps1                           # default name: windows-11-01
+pwsh ./New-VM.ps1 -VMName myhost            # custom name
+```
 
 `New-VM.ps1`:
 
@@ -53,6 +62,7 @@ see the qcow2 disk.
 The `ywuser1` / `password` credentials match the macOS UTM and Hyper-V
 variants of `guest.windows.11`, so one test sequence targets the same
 account across all supported hosts.
+Product keys, edition switching and activation: [Windows 11 Unattended Configuration](../../windows.hyper-v/guest.windows.11/vmconfig/README.md).
 
 ## Reaching the guest
 
@@ -71,12 +81,16 @@ x86_64 only. Windows 11 ARM64 on KVM aarch64 is technically possible
 (via UUP-dump-assembled ISOs) but unsupported here. Use the macOS UTM
 guest for ARM64 Windows 11.
 
+## Next
+
+[Windows 11 workloads](../../../guest/windows.11/README.md)
+
 ---
 
 LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.14
+Last review: 2026.08.16
 
 Back to [Yuruna](../../../README.md)

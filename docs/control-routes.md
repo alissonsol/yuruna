@@ -133,8 +133,10 @@ from an operator who already holds it and stores it the same way.)
 caching-proxy service and follow the host's link — the **Control** cell in the *Pool
 hosts* table, or the timeline's "open host status page" — both route through the
 aggregator's `/go/host` redirect. Arriving that way is what carries the proof; typing the
-host's URL by hand does not. Host ID cells are plain text in **every** table: exactly one cell per row grants
-control, and it is the one that tells you whether control is on offer.
+host's URL by hand does not. A **Host ID** cell opens a menu instead of one destination:
+its first entry is that row's full id, GUID-formatted, to read and copy. In *Pool hosts*
+its second entry repeats the host link, so two cells per row carry the proof — but
+**Control** is still the one that tells you whether control is on offer.
 
 The Pool control service's own tables link host ids at the same redirect. **Every browser
 link to `/go/*` is plain http, even where the aggregator has a TLS leaf** — the redirect
@@ -331,6 +333,21 @@ route reached them.
 never reaches it: it names a folder to pack rather than a file to serve, and it
 carries its own grammar in place of the StartsWith pin (see below).
 
+**Archived cycles.** On a host with `networkStorage.moveLogsToPoolStorage: true`,
+a finished cycle's local folder is deleted once its copy on the pool share is
+verified — but every recorded link still names the local URL. So when a `log/…`
+path does not exist locally, the request is re-rooted at
+`<poolStorageLocalPath>/hosts/<hostId>/test-cycles/` and retried once. The mapping
+is not verbatim: the share layout is flat and its leaves are the bare cycle
+identity, so a leading `history.<date>/` segment is dropped and an `.incomplete` /
+`.aborted.<UTC>` suffix is stripped before the lookup. The StartsWith pin and the
+deny-list are then applied against the share root exactly as against the local one,
+and only *this* host's own `hostId` is ever used — a host can never serve another
+host's archives. Nothing is mounted here: the fallback is skipped unless the mount
+is already present, because the status service never runs `sudo`. The `/log/` root
+index also lists archived cycles (deduplicated against local ones), so the
+directory does not look empty on a move-mode host.
+
 ## Short per-cycle links: `/cycle/<number>`
 
 `GET /cycle/004062` redirects (302) to that cycle's HTML transcript. It exists
@@ -340,7 +357,9 @@ nothing a reader can recognize. The cycle number is the part an operator reads
 off the runner console or a dashboard row, so it is the part the link uses.
 
 The number is resolved against the log dir at request time: the recent cycles at
-the top level first, then the dated `history.<date>/` rotation buckets. That
+the top level first, then the dated `history.<date>/` rotation buckets, then — on a
+move-mode host, where the first two see only the running cycle — the archived
+cycles on the pool share. That
 resolution lets one stable link survive the folder's lifecycle renames
 (`<base>.incomplete` while running, `<base>` on clean close,
 `<base>.aborted.<UTC>` after a crash-recovery sweep) and rotation moving the
@@ -381,13 +400,27 @@ response serves that, so a pack that fails halfway answers 500 naming the
 failure instead of a truncated download; the temp file is removed in a
 `finally`, so a failed pack leaks nothing.
 
-`share-cycle.html?cycle=log/<folder>` is the page that drives it, reached from
-the **Share cycle results** link on the dashboard's cycle timeline by way of the
-aggregator's `/go/cycle-share` (which resolves host and cycle exactly as
-`/go/cycle` does, so the archive can never be a different cycle than the one the
-click would have opened). One button packs the folder and hands it to the
-operator's mail client, with subject `Yuruna Host <short id> at <UTC time>` and
-the body `Yuruna cycle results are attached`. The body says so because the
+`HEAD` on the same URL answers whether there is a folder to pack — the grammar
+match and the folder-exists check, then a 200 with the `Content-Disposition` the
+`GET` would carry — **without** packing anything. It therefore carries no
+`Content-Length`, which [RFC 9110
+§9.3.2](https://www.rfc-editor.org/rfc/rfc9110#section-9.3.2) permits: packing a
+whole cycle folder to compute a length no caller reads would double the work for
+a question nobody asked. The share page probes with it before starting a
+download whose outcome it has no way to observe.
+
+An archived cycle is packed from the pool share instead of the log dir, so the
+share page keeps working after the local folder is gone. The zip is still built on
+the host, from a filesystem the host can see, and is not uploaded anywhere.
+
+`share-cycle.html?cycle=<folder>` is the page that drives it — the folder *leaf*,
+which is what both the archive name and the mail subject are derived from —
+reached from the **Share cycle results** link on the dashboard's cycle timeline
+by way of the aggregator's `/go/cycle-share` (which resolves host and cycle
+exactly as `/go/cycle` does, so the archive can never be a different cycle than
+the one the click would have opened). One button packs the folder and hands it to
+the operator's mail client, with subject `Yuruna Host <short id> at <UTC time>`
+and the body `Yuruna cycle results are attached`. The body says so because the
 fallback below leaves the attaching to the operator: a mail client that reads
 its own draft for that word is the last warning before a message that promises
 a file and carries none.
@@ -396,11 +429,24 @@ How it hands it over depends on what the browser offers. `navigator.share` can
 carry the file itself, so where it is available the message arrives with the
 archive attached. It is secure-context gated and the status service speaks plain
 HTTP over the LAN, so on a lab host it is normally absent — then the archive
-downloads and the draft opens with subject and body filled in, for the operator
-to attach it. `mailto:` cannot carry an attachment ([RFC 6068
+downloads and the page reveals a draft link, subject and body filled in, for the
+operator to click and attach to. `mailto:` cannot carry an attachment ([RFC 6068
 §5](https://www.rfc-editor.org/rfc/rfc6068#section-5)); that is a property of the
 scheme, not a gap to work around, which is why the fallback asks for one manual
 step instead of appearing to do it.
+
+The draft is a **separate click**, never a navigation fired next to the download.
+WebKit runs an `<a download>` click as an ordinary frame load and only promotes
+it to a download once the response headers arrive — and this route packs the
+entire folder before writing its first header, so a `mailto:` navigation in that
+same frame lands inside the gap and cancels the still-provisional load: the mail
+client opens and no file is ever saved. Engines with an out-of-frame download
+manager are immune, so a single-gesture hand-over is a race one browser loses
+silently while the rest win by construction. Two gestures have no such gap, and
+for the same reason nothing is clicked on the operator's behalf once the user
+activation is spent — after a `navigator.share` attempt, both links are offered
+rather than triggered, because a synthetic download click with no activation
+behind it is refused without a word.
 
 The route is open, like the file tree it archives: every byte in that archive is
 already readable file by file from the same server, so gating the convenient
@@ -421,6 +467,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.14
+Last review: 2026.08.16
 
 Back to [Yuruna](../README.md)

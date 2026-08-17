@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42e852c9-d7d9-4a61-948c-e4887b59331e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,15 +35,18 @@
     grows its own per-VM copy to the size the download-agent daemon needs.
 #>
 
+# --- REGION: Log level from environment
 # Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
 if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
 
+# --- REGION: Host platform guard
 if (-not $IsLinux) {
     Write-Error "host/ubuntu.kvm/guest.download-agent-service/Get-Image.ps1 only runs on Linux."
     exit 1
 }
 
+# --- REGION: Import host modules
 # Yuruna.Host.psm1 supplies the cache-injecting Save-CachedHttpUri wrapper and
 # (via its global Yuruna.HostDownload import) the sentinel guard the shared
 # pipeline resolves by name, so the download routes through the squid cache
@@ -51,6 +54,7 @@ if (-not $IsLinux) {
 Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) 'modules/Yuruna.Host.psm1') -Force
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.Image.psm1') -Force
 
+# --- REGION: Resolve and fetch the base image
 try {
     $image = Get-UbuntuExtensionImageInfo -HostType 'ubuntu.kvm'
 } catch {
@@ -60,3 +64,10 @@ try {
 if (-not (Save-UbuntuExtensionImage -Image $image -Verbose:($VerbosePreference -ne 'SilentlyContinue'))) {
     exit 1
 }
+# Success must be an explicit exit 0. Callers that run this script in-process
+# (& $GetImageScript) read $LASTEXITCODE, and the download-agent discovery
+# ladder inside Save-UbuntuExtensionImage probes VMs that may legitimately be
+# absent (virsh domifaddr on a missing domain exits 1). A cache-hit run ends
+# on cmdlets, which never overwrite $LASTEXITCODE, so falling off the end here
+# would report that stale probe failure as this script's own exit status.
+exit 0

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.14
+.VERSION 2026.08.16
 .GUID 42b7d3e6-5c81-4a92-b0f4-6d5e8c1a7b23
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1503,7 +1503,7 @@ function Format-LocalLabStorageSize {
 
 <#
 .SYNOPSIS
-Writes the six networkStorage keys (pool and stash) for the supplied tiers into test.config.yml, preserving every other setting. Optionally turns pool replication on. Returns $true when the file was written.
+Writes the six networkStorage path/account keys (pool and stash) for the supplied tiers into test.config.yml, preserving every other setting. Optionally selects move mode for the pool tier. Returns $true when the file was written.
 .DESCRIPTION
 The document is round-tripped rather than templated, because test.config.yml is per-host and git-ignored: it already holds the operator's project URL, guest sequence, and service ports, none of which this may disturb.
 #>
@@ -1513,7 +1513,9 @@ function Set-LocalLabStorageConfigValue {
     param(
         [Parameter(Mandatory)][string]$ConfigPath,
         [Parameter(Mandatory)][object[]]$Tier,
-        [switch]$EnableReplication
+        # Writing the pool paths already turns archiving on; this selects MOVE mode
+        # (copy, verify, then delete the local folder) over copy-and-keep.
+        [switch]$MoveLogs
     )
     if (-not $PSCmdlet.ShouldProcess($ConfigPath, 'Write the networkStorage pool + stash values')) { return $false }
     if (-not (Get-Command ConvertFrom-Yaml -ErrorAction SilentlyContinue) -or -not (Get-Command ConvertTo-Yaml -ErrorAction SilentlyContinue)) {
@@ -1533,12 +1535,12 @@ function Set-LocalLabStorageConfigValue {
             $ns["$($t.ConfigPrefix)NetworkUser"] = $t.Account
             $ns["$($t.ConfigPrefix)LocalPath"]   = $t.LocalPath
         }
-        if ($EnableReplication) {
-            # networkReplicate is a pool BEHAVIOR, so it lives under `pool`;
-            # networkStorage carries only paths and accounts.
-            if (-not ($doc['pool'] -is [System.Collections.IDictionary])) { $doc['pool'] = [ordered]@{} }
-            $doc['pool']['networkReplicate'] = $true
+        if (@($Tier | Where-Object { $_.ConfigPrefix -eq 'poolStorage' }).Count -gt 0) {
+            $ns['moveLogsToPoolStorage'] = [bool]$MoveLogs
         }
+        # A leftover deprecated kill switch is dropped as the document is rewritten,
+        # so a host configured here does not keep tripping the config-gate advisory.
+        if ($doc['pool'] -is [System.Collections.IDictionary]) { $doc['pool'].Remove('networkReplicate') }
         $yaml = ConvertTo-Yaml $doc
         $wrote = $false
         if (Get-Command Write-YurunaStateFile -ErrorAction SilentlyContinue) {

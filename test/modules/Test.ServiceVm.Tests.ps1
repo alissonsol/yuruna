@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42f1c60d-4b28-4d97-a3e5-90b6d2417fac
+.VERSION 2026.08.19
+.GUID 4244dbae-a452-49ac-b6cb-0ab2d797bde7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test service vm reboot pester
@@ -45,9 +45,7 @@ Get-Module -Name 'Yuruna.Host' -All | Remove-Module -Force -ErrorAction Silently
 $script:ServiceDir = Join-Path $script:TestRoot 'service'
 Import-Module (Join-Path $here 'Test.ServiceVm.psm1') -Force -DisableNameChecking
 
-function Assert-Equal { param($Expected, $Actual, [string]$Because = '') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-True  { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
-function Assert-False { param($Condition, [string]$Because = '') if ($Condition) { throw "Expected false. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 }
 

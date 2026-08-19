@@ -4,22 +4,22 @@ Canonical documentation (setup, configuration, monitoring, credentials,
 management): **[Caching](../../../docs/caching.md)**.
 Test-harness wrappers (`Start-CachingProxyServiceVM.ps1`,
 `Test-CachingProxyService.ps1`, `YURUNA_CACHING_PROXY_SERVICE_IP`):
-**[Caching-proxy service — test-harness operator reference](../../../docs/caching.md#caching-proxy-service--test-harness-operator-reference)**.
+**[Caching-proxy service -- test-harness operator reference](../../../docs/caching.md#caching-proxy-service--test-harness-operator-reference)**.
 
 Scripts and config in this folder:
 
-- [Get-Image.ps1](Get-Image.ps1) — base Ubuntu Server cloud image
+- [Get-Image.ps1](Get-Image.ps1) -- base Ubuntu Server cloud image
   (arm64, qcow2, resized to 512 GB sparse).
-- [New-VM.ps1](New-VM.ps1) — assembles the UTM bundle and seeds via
+- [New-VM.ps1](New-VM.ps1) -- assembles the UTM bundle and seeds via
   cloud-init.
-- [config.plist.template](config.plist.template) — UTM VM template
+- [config.plist.template](config.plist.template) -- UTM VM template
   (QEMU backend with `-vnc`, 12 GB RAM / core-count-policy vCPUs
   (min 4); dedicated cache box
-  budgeted around squid's 7 GB `cache_mem` — 58 % of RAM).
-- [host/vmconfig/caching-proxy-service.base.user-data](../../vmconfig/caching-proxy-service.base.user-data) — shared
+  budgeted around squid's 7 GB `cache_mem` -- 58 % of RAM).
+- [host/vmconfig/caching-proxy-service.base.user-data](../../vmconfig/caching-proxy-service.base.user-data) -- shared
   cloud-init base (+ per-host overlay): squid, Prometheus + Grafana + squid-exporter,
   snapshot-cache tuning, `offline_mode` flip after prewarm.
-- [host/vmconfig/caching-proxy-service.meta-data](../../vmconfig/caching-proxy-service.meta-data) — shared
+- [host/vmconfig/caching-proxy-service.meta-data](../../vmconfig/caching-proxy-service.meta-data) -- shared
   cloud-init instance metadata.
 
 ---
@@ -28,6 +28,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../../../README.md)

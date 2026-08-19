@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42f6a7b8-c9d0-4e12-f3a4-5b6c7d8e9f0a
+.VERSION 2026.08.19
+.GUID 424c7cc6-4425-4493-95dc-35c015c4f9ed
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS Test-TesseractOcr

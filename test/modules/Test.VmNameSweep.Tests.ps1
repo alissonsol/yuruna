@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42b9e3d1-7c04-4a52-9e18-3f6b28d5a4c7
+.VERSION 2026.08.19
+.GUID 42e0baf3-f2f9-48ca-aa27-fcf4d1a9763e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test vm cleanup prefix sweep contract pester
@@ -38,11 +38,7 @@ Import-Module (Join-Path $here 'Test.Config.psm1') -Force -DisableNameChecking
 
 $script:SweepRepoRoot = $repoRoot
 
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
-function Assert-Equal {
-    param($Expected, $Actual, [string]$Because = '')
-    if ("$Expected" -ne "$Actual") { throw "Expected '$Expected' but got '$Actual'. $Because" }
-}
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 }
 
@@ -51,14 +47,14 @@ Describe 'Select-NameByPrefix' {
     It 'selects only the names carrying one of the prefixes' {
         $names = @('test-ubuntu-01', 'amisad-build', 'amisad-core', 'yuruna-caching-proxy-service')
         $got = @(Select-NameByPrefix -Name $names -Prefix @('amisad-'))
-        Assert-Equal 2 $got.Count -Because 'only the two amisad- guests match'
-        Assert-Equal 'amisad-build,amisad-core' ($got -join ',')
+        Assert-StringEqual 2 $got.Count -Because 'only the two amisad- guests match'
+        Assert-StringEqual 'amisad-build,amisad-core' ($got -join ',')
     }
 
     It 'accepts several prefixes at once and keeps input order' {
         $names = @('test-ubuntu-01', 'amisad-build', 'unrelated-vm')
         $got = @(Select-NameByPrefix -Name $names -Prefix @('amisad-', 'test-'))
-        Assert-Equal 'test-ubuntu-01,amisad-build' ($got -join ',') -Because 'input order, not prefix order'
+        Assert-StringEqual 'test-ubuntu-01,amisad-build' ($got -join ',') -Because 'input order, not prefix order'
     }
 
     It 'treats an absent or empty prefix set as no filter' {
@@ -66,8 +62,8 @@ Describe 'Select-NameByPrefix' {
         # not "nothing" -- the opposite reading would silently sweep no VMs
         # and let leftovers accumulate unnoticed.
         $names = @('a-vm', 'b-vm')
-        Assert-Equal 2 (@(Select-NameByPrefix -Name $names).Count)
-        Assert-Equal 2 (@(Select-NameByPrefix -Name $names -Prefix @()).Count)
+        Assert-StringEqual 2 (@(Select-NameByPrefix -Name $names).Count)
+        Assert-StringEqual 2 (@(Select-NameByPrefix -Name $names -Prefix @()).Count)
     }
 
     It 'matches prefixes literally rather than as wildcards' {
@@ -76,28 +72,28 @@ Describe 'Select-NameByPrefix' {
         # whole host.
         $names = @('a*b-vm', 'axb-vm', 'anything-else')
         $got = @(Select-NameByPrefix -Name $names -Prefix @('a*b-'))
-        Assert-Equal 'a*b-vm' ($got -join ',') -Because 'wildcard semantics would also match axb-vm and anything-else'
+        Assert-StringEqual 'a*b-vm' ($got -join ',') -Because 'wildcard semantics would also match axb-vm and anything-else'
     }
 
     It 'ignores blank candidates and blank prefixes' {
         $got = @(Select-NameByPrefix -Name @('keep-me', '', $null) -Prefix @('keep-'))
-        Assert-Equal 'keep-me' ($got -join ',')
+        Assert-StringEqual 'keep-me' ($got -join ',')
     }
 
     It 'returns nothing when no name matches' {
-        Assert-Equal 0 (@(Select-NameByPrefix -Name @('a-vm') -Prefix @('zzz-')).Count)
+        Assert-StringEqual 0 (@(Select-NameByPrefix -Name @('a-vm') -Prefix @('zzz-')).Count)
     }
 }
 
 Describe 'Resolve-CleanupVmNamePrefix' {
 
     It 'defaults to the test prefix when nothing is configured' {
-        Assert-Equal 'test-' ((Resolve-CleanupVmNamePrefix -VmStart $null) -join ',')
+        Assert-StringEqual 'test-' ((Resolve-CleanupVmNamePrefix -VmStart $null) -join ',')
     }
 
     It 'honours a customized test-VM prefix' {
         $got = Resolve-CleanupVmNamePrefix -VmStart @{ testVmNamePrefix = 'yr-' }
-        Assert-Equal 'yr-' ($got -join ',')
+        Assert-StringEqual 'yr-' ($got -join ',')
     }
 
     It 'always keeps the test prefix when extra prefixes are configured' {
@@ -108,17 +104,17 @@ Describe 'Resolve-CleanupVmNamePrefix' {
             testVmNamePrefix      = 'test-'
             cleanupVmNamePrefixes = @('amisad-', 'amisad.')
         }
-        Assert-Equal 'test-,amisad-,amisad.' ($got -join ',') -Because 'test prefix first, then the configured extras'
+        Assert-StringEqual 'test-,amisad-,amisad.' ($got -join ',') -Because 'test prefix first, then the configured extras'
     }
 
     It 'accepts a bare string for cleanupVmNamePrefixes' {
         $got = Resolve-CleanupVmNamePrefix -VmStart @{ cleanupVmNamePrefixes = 'amisad-' }
-        Assert-Equal 'test-,amisad-' ($got -join ',')
+        Assert-StringEqual 'test-,amisad-' ($got -join ',')
     }
 
     It 'drops blank entries so the sweep never matches every VM' {
         $got = Resolve-CleanupVmNamePrefix -VmStart @{ cleanupVmNamePrefixes = @('', '  ', 'amisad-') }
-        Assert-Equal 'test-,amisad-' ($got -join ',') -Because 'a stray empty list entry must not widen the sweep'
+        Assert-StringEqual 'test-,amisad-' ($got -join ',') -Because 'a stray empty list entry must not widen the sweep'
     }
 
     It 'de-duplicates a prefix repeated in the extra list' {
@@ -126,7 +122,7 @@ Describe 'Resolve-CleanupVmNamePrefix' {
             testVmNamePrefix      = 'test-'
             cleanupVmNamePrefixes = @('test-', 'amisad-')
         }
-        Assert-Equal 'test-,amisad-' ($got -join ',')
+        Assert-StringEqual 'test-,amisad-' ($got -join ',')
     }
 }
 
@@ -234,7 +230,7 @@ Describe 'Concurrent-VM pre-flight' {
     }
 
     It 'runs before the refusal guard in both entry points' {
-        foreach ($caller in @('test/modules/Invoke-TestRunnerInnerLoop.ps1', 'test/Invoke-TestSequence.ps1')) {
+        foreach ($caller in @('test/modules/Invoke-TestRunnerInnerLoop.ps1', 'test/Debug-TestSequence.ps1')) {
             $text = Get-Content -Raw (Join-Path $script:SweepRepoRoot $caller)
             $stopAt  = $text.IndexOf('Stop-ConcurrentVM')
             $guardAt = $text.IndexOf('Assert-NoConcurrentUtmVm -')

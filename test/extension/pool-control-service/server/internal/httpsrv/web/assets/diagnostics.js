@@ -102,7 +102,7 @@
   // dependency, and the ones worth waiting for are the ones timing out.
   async function refresh(opts) {
     const quiet = !!(opts && opts.quiet);
-    const done = quiet ? function () { } : Y.busy(document.getElementById('check-rows'), 'Running checks…');
+    const done = quiet ? function () { } : Y.busy(document.getElementById('check-rows'), 'Running checks...');
     chrome.busy(true);
     try {
       render(await load());

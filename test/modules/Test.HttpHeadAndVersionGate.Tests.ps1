@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42d8b0a1-6c74-4e35-9f28-1a5b3c7d0e46
+.VERSION 2026.08.19
+.GUID 4205b74c-99c2-4813-9bcc-4e26d11c1f8b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test http head version-gate pester
@@ -40,11 +40,10 @@
 BeforeAll {
 $here    = Split-Path -Parent $PSCommandPath
 $repo    = Split-Path -Parent (Split-Path -Parent $here)
-$script:sssPath = Join-Path $repo 'test/Start-StatusService.ps1'
+$script:sssPath = Join-Path $repo 'test/service/Start-StatusService.ps1'
 $chkPath = Join-Path $repo 'automation/Check-DependencyVersion.ps1'
 
-function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # The gate script's source is read at FILE scope: a Describe body is executed
 # during discovery and its variables are discarded before any It runs, so an

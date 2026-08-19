@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 421e2a7b-3d84-4f61-9a05-8e6d2b9c4f17
+.VERSION 2026.08.19
+.GUID 42a16e14-fbaa-40df-9892-f5dbdcb49b50
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test ocr engine pester
@@ -46,7 +46,7 @@ BeforeAll {
 $here       = Split-Path -Parent $PSCommandPath
 $modulePath = Join-Path $here 'Test.OcrEngine.psm1'
 
-function Assert-True { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # Tail-match a VariablePath so 'Foo', '$script:Foo', '$global:Foo' all match 'Foo'.
 function Test-VarPathIs {

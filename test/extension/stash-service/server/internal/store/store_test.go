@@ -5,7 +5,7 @@ package store
 
 import "testing"
 
-// Each case mirrors a §6.3 rule or its boundary. Cases for §13's
+// Each case mirrors a section 6.3 rule or its boundary. Cases for section 13's
 // option-c outcome cover the disallowed-character path.
 func TestExtractExtension(t *testing.T) {
 	cases := []struct {
@@ -23,7 +23,7 @@ func TestExtractExtension(t *testing.T) {
 		{"dotfile/.gitignore", ".gitignore", ""},
 		{"dotfile/.config.json", ".config.json", ""},
 
-		// Rule 3: from first dot onward — preserves compound extensions.
+		// Rule 3: from first dot onward -- preserves compound extensions.
 		{"compound/report.final.v2.pdf", "report.final.v2.pdf", ".final.v2.pdf"},
 		{"compound/archive.tar.gz", "archive.tar.gz", ".tar.gz"},
 		{"single/notes.txt", "notes.txt", ".txt"},
@@ -40,12 +40,12 @@ func TestExtractExtension(t *testing.T) {
 			"." + repeat("a", 31),
 		},
 
-		// Rule 5 + §13 decision (option c): any disallowed char -> "".
+		// Rule 5 + section 13 decision (option c): any disallowed char -> "".
 		{"charset/space", "file.bad name", ""},
 		{"charset/colon", "file.bad:name", ""},
 		{"charset/unicode", "file.café", ""},
 		{"charset/parens", "file.(1)", ""},
-		// Underscore and hyphen ARE allowed per §10's table.
+		// Underscore and hyphen ARE allowed per section 10's table.
 		{"charset/underscore-ok", "file.tar_gz", ".tar_gz"},
 		{"charset/hyphen-ok", "file.tar-gz", ".tar-gz"},
 	}

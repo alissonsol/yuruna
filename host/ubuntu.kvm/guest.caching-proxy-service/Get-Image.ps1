@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42f3d4e5-f6a7-4b89-c012-3d4e5f6a7b8c
+.VERSION 2026.08.19
+.GUID 42fd53eb-d3ac-4b95-bf52-d0fb87211494
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
@@ -36,7 +36,7 @@
 #>
 
 # --- REGION: Log level from environment
-# Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+# Honor logLevel from Start-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
 # Load only when absent, never -Force. Start-CachingProxyServiceVM.ps1 runs this
 # script IN-PROCESS, so a forced re-import from here tears down and rebuilds the
 # module instance its caller is already using, taking whatever that instance keeps

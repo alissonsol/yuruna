@@ -1,6 +1,6 @@
 # Windows 11 guest on Windows Hyper-V host — Nerd-Level Details
 
-See [Hosts — ...](../../README.md) for host prerequisites (Hyper-V, ADK
+See [Hosts -- ...](../../README.md) for host prerequisites (Hyper-V, ADK
 Deployment Tools for `oscdimg.exe`), VM sizing, and connectivity.
 
 ## 1) Get the image
@@ -31,7 +31,7 @@ and enables Guest Service Interface.
 
 The autounattend sets locale `en-US`, keyboard `en-US`, UEFI/GPT, and
 enables Remote Desktop. Default credentials: `ywuser1` / `password`
-(auto-logon first boot only). Generic Windows 11 Pro key — see
+(auto-logon first boot only). Generic Windows 11 Pro key -- see
 [Windows 11 ...](./vmconfig/README.md) for KMS keys and activation.
 
 ## Known limitations
@@ -47,6 +47,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../../../README.md)

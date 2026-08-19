@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42d4a3b2-c1f0-4e89-5678-9a0b1c2d3e40
+.VERSION 2026.08.19
+.GUID 42ed1667-e5c7-4bea-b28b-0e6c1706de72
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test host macos
@@ -1169,7 +1169,7 @@ function Set-MacHostConditionSet {
     # manual step; flagged here so the operator knows it exists.
     Write-Information "Tip (manual): right-click UTM in the Dock -> Options -> Assign To -> All Desktops."
     Write-Information "      Combined with the AppleSpacesSwitchOnActivation toggle above, this lets"
-    Write-Information "      Invoke-TestRunner activate UTM without yanking the operator off VS Code."
+    Write-Information "      Start-TestRunner activate UTM without yanking the operator off VS Code."
 
     # --- REGION: Managed Configuration Profile detection (MDM override)
     # If MDM-managed, a Configuration Profile can enforce screen lock /

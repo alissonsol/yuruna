@@ -13,12 +13,12 @@ detail is folded into the items below, and the large workstreams they
 tracked are now mostly shipped (see
 [Recently shipped](#recently-shipped)).
 
-Status: 🚧 in progress · ⏸ deferred / parked · no marker = open.
+Status: [WIP] in progress - [PARKED] deferred / parked - no marker = open.
 Priorities are ranked against an 860-cycle single-host corpus
-(2026-05-21 → 06-08): 53 real failures, dominated by SSH readiness (16)
+(2026-05-21 -> 06-08): 53 real failures, dominated by SSH readiness (16)
 and OCR/capture (4+); several a-priori "big" items (IP-pool exhaustion,
 proxy 5xx, disk) show **zero** occurrences on one host and only become
-real under multi-host fan-out — which is why they sit in Low ROI.
+real under multi-host fan-out -- which is why they sit in Low ROI.
 
 ## Roadmap
 
@@ -47,22 +47,22 @@ track finer-grained infrastructure and reliability work.
 
 ## High ROI
 
-Highest value for the least effort — mostly things already built that need
+Highest value for the least effort -- mostly things already built that need
 validation, or small changes against real recurring pain.
 
-- **Live-validate the pool MVP end-to-end.** 🚧 The read-only pool view
+- **Live-validate the pool MVP end-to-end.** [WIP] The read-only pool view
   (pull-collector, Grafana dashboard, Loki/Prometheus wiring) is built and
   statically verified but has never run against live hosts. Bring up the host
   status service, boot the caching-proxy-service VM, run a cycle or two so hosts
   pull through the squid proxy, then confirm `:9400/healthz`, that
   `/api/v1/pool-status` lists discovered hosts, the Prometheus target is
-  UP, Loki streams flow, the dashboard renders across ≥2 hosts, and killing
+  UP, Loki streams flow, the dashboard renders across >=2 hosts, and killing
   the collector leaves every runner still testing. The only part of the
   pool MVP not statically checkable; it validates the
   `(hostId, runId, cycleStartUtc)` join keys on real data.
 - **Archive `last_failure.json` per-cycle.** Copy it into each cycle folder
   so matched-pattern / label / OCR-tail detail survives history. Today only
-  the flattened `step_failure` event persists — the one corpus blind spot
+  the flattened `step_failure` event persists -- the one corpus blind spot
   (it prevents measuring real-vs-false `pattern_matched_failure`) and the
   prerequisite for predictive tuning. Cheap, no-regrets.
 - **SSH connectivity across hosts.** Wire uniform host-to-host SSH so
@@ -83,30 +83,30 @@ validation, or small changes against real recurring pain.
   ([issue #757](https://github.com/terraform-aws-modules/terraform-aws-eks/issues/757)).
   Make it work under Windows shells so AWS clusters can be provisioned from
   Windows hosts.
-- **Finish the Windows-installer single-materialization.** 🚧 Built (IRM to
+- **Finish the Windows-installer single-materialization.** [WIP] Built (IRM to
   a GUID-named BOM-less temp file, every child relaunched via `-File`,
   eliminating the multi-fetch), statically verified. Remaining: a real
   `irm | iex` run on a fresh PS5.1 host before relying on it. Closes the
   supply-chain window where the elevated child re-fetched a moving `main`.
-- **Enforce the ASCII/no-BOM gate at release time.** 🚧 The check exists
+- **Enforce the ASCII/no-BOM gate at release time.** [WIP] The check exists
   and runs per-cycle and in a per-clone pre-commit hook; what remains is
   invoking it as a hard precondition in the release script (the
   authoritative backstop). A UTF-8 BOM on `windows.hyper-v.ps1` makes PS5.1
-  `irm | iex` die at line 1 — denial-of-bootstrap on every fresh host.
+  `irm | iex` die at line 1 -- denial-of-bootstrap on every fresh host.
 
 ## Medium ROI
 
-Solid value, moderate effort — the bulk of the everyday backlog.
+Solid value, moderate effort -- the bulk of the everyday backlog.
 
 **Harness reliability**
-- **Reduce framework incidents to ≤1 per rolling 24 h.** Umbrella
+- **Reduce framework incidents to <=1 per rolling 24 h.** Umbrella
   reliability bar for unattended cycles; fed by the resilience and pool
   work rather than a single fix.
-- **OCR → SSH-marker fallback for readiness gates.** Where a step's
+- **OCR -> SSH-marker fallback for readiness gates.** Where a step's
   readiness can be proven over SSH, prefer an SSH-side marker over the
   fragile capture/OCR feed; also neutralizes the OCR command-echo
   false-match. Highest-leverage open item against real recurring pain
-  (OCR/capture), but large — the next Horizon-A unit.
+  (OCR/capture), but large -- the next Horizon-A unit.
 - **Loop / repeat-count sequence construct.** Add `loop: _number(001-003)`
   so repeated near-identical steps are expressed once instead of
   copy-pasted; the "single PowerShell script for a repeated block" doc note
@@ -118,7 +118,7 @@ Solid value, moderate effort — the bulk of the everyday backlog.
 **Pool harness**
 - **Persistent volume for pool telemetry.** Retention tiering is done, but
   `/var/lib/{loki,prometheus}` sit on the caching-proxy-service VM root, so a
-  rebuild wipes all pool history — move them onto a persistent volume.
+  rebuild wipes all pool history -- move them onto a persistent volume.
 - **Wire the parsed-but-stubbed cycle strategies and provisioning modes.**
   Only `cycleStrategy: all` + `provisioning.betweenSets: none` are
   runtime-active; `round-robin`/`single` and snapshot-revert/reprovision
@@ -132,7 +132,7 @@ Solid value, moderate effort — the bulk of the everyday backlog.
   needs key distribution. **Constraint:** any route must replicate the
   `/yuruna-repo` secret deny-list (vault.yml, transports.yml, ssh keys,
   password files, caching-proxy-service config, `.git`, test.config.yml)
-  byte-for-byte — one missed pattern leaks secrets pool-wide; do not change
+  byte-for-byte -- one missed pattern leaks secrets pool-wide; do not change
   security posture without explicit authorization.
 
 **Cloud providers**
@@ -141,7 +141,7 @@ Solid value, moderate effort — the bulk of the everyday backlog.
 - **AWS: resolve cluster public-IP addressing** (incl.
   `public_subnet_map_public_ip_on_launch`) so nodes get the intended public
   addressing.
-- **GCP: fix `min_master_version` and remove the v1.19+ ingress hack** —
+- **GCP: fix `min_master_version` and remove the v1.19+ ingress hack** --
   same root cause; cluster creation with v1.19+ failed, forcing an
   ingress workaround.
 - **GCP: fix the IP load balancer** so services get a working external IP.
@@ -153,15 +153,15 @@ Solid value, moderate effort — the bulk of the everyday backlog.
 - **Reword the in-guest download line to a transparency message.** Replace
   the pre-download echo in `fetch-and-execute.sh` with one human-readable
   line so anyone watching the console/OCR log sees remote code is about to
-  run. Disclosure only — guest-side integrity gating is deliberately
+  run. Disclosure only -- guest-side integrity gating is deliberately
   declined (disposable VM, same trust domain). Avoid the literal tokens
   "fetch"/"execute" so the OCR failure-matcher doesn't false-trip.
 - **Skip a `tofu` variable when it isn't required**, to drop spurious apply
   warnings that obscure real issues.
-- **Destroy `tofu` `local-exec` resources on `tofu destroy`** — they
+- **Destroy `tofu` `local-exec` resources on `tofu destroy`** -- they
   currently leak because destroy doesn't track them.
 - **Decide whether to copy all code during component setup**
-  (`Yuruna.Component.psm1`) — affects setup cost and component isolation.
+  (`Yuruna.Component.psm1`) -- affects setup cost and component isolation.
 - **Document the Hyper-V Amazon Linux nested-virtualization setup**
   (`host/windows.hyper-v/guest.amazon.linux.2023/read.more.md`).
 
@@ -170,40 +170,40 @@ Solid value, moderate effort — the bulk of the everyday backlog.
 Low current value, very high effort, or deliberately deferred. Worth doing
 only when the enabling condition arrives.
 
-- **Horizon B resilience gates — IP/capacity admission, caching-proxy-service
-  circuit breaker, disk-headroom.** ⏸ Each hooks into fields the host
+- **Horizon B resilience gates -- IP/capacity admission, caching-proxy-service
+  circuit breaker, disk-headroom.** [PARKED] Each hooks into fields the host
   registration and pool planner already reserve, so they are data-population
   exercises, not re-architecture. Deferred because the failure classes they
   address (DHCP/IP exhaustion, proxy 5xx, full disk) show **zero**
   occurrences on a single host. Gate on the pool harness.
-- **Quorum-gated failure-pause break (consensus control).** ⏸ Making a
+- **Quorum-gated failure-pause break (consensus control).** [PARKED] Making a
   pool's advisory `degraded` flag actually pause/break a host's
   failure-pause loop needs cross-host consensus, which the atomic
   single-instance runner model deliberately avoids. Hardest item here;
   tackle only with a clear consensus design.
-- **Write-side control beyond polled intent.** ⏸ The git intent store,
+- **Write-side control beyond polled intent.** [PARKED] The git intent store,
   pull-sync shim, and admin CLI already give decentralized `desiredState`
-  control. Keep any expansion intent-based (pull) — a central
+  control. Keep any expansion intent-based (pull) -- a central
   command-dispatch master would add a single point of failure and fight the
   autonomous pull model.
-- **Snapshot integrity pre-check.** ⏸ Verify a snapshot exists and is
+- **Snapshot integrity pre-check.** [PARKED] Verify a snapshot exists and is
   consistent at save/pre-cycle time, not first at restore. Parked: zero
   `snapshot_restore_failed` events in the corpus.
-- **Predictive per-step timeout & pre-restore.** ⏸ Read recent
+- **Predictive per-step timeout & pre-restore.** [PARKED] Read recent
   `last_failure.json` history to pre-widen timeouts or pre-restore for
-  flaky steps. Parked — depends on the per-cycle failure archive above.
-- **Vault / credential drift pre-check.** ⏸ Verify the provisioned
+  flaky steps. Parked -- depends on the per-cycle failure archive above.
+- **Vault / credential drift pre-check.** [PARKED] Verify the provisioned
   credential matches what the sequence will authenticate with, before the
-  auth step. **Constraint:** read-only verification only — no changes to
+  auth step. **Constraint:** read-only verification only -- no changes to
   password alphabets, lengths, hashing, or vault layout, and no
   detection evasion. Parked (1 corpus occurrence).
-- **Fully close the Windows installer `%TEMP%` TOCTOU.** ⏸ GUID-random
+- **Fully close the Windows installer `%TEMP%` TOCTOU.** [PARKED] GUID-random
   naming + delete defeats predictable-path hijack but not a same-user race
   between write and open. A full fix (ACL'd per-user dir the child
   re-validates, or passing bytes via handle/stdin) abandons the
   `-File`/`$PSCommandPath` model and is UAC-fragile for a threat that
-  already requires same-user code execution — kept as *mitigated*.
-- **Serve immutable per-cycle repo snapshots.** ⏸ Would eliminate the
+  already requires same-user code execution -- kept as *mitigated*.
+- **Serve immutable per-cycle repo snapshots.** [PARKED] Would eliminate the
   working-tree-rename race at its source, but conflicts with the
   interceptor workflow that serves the live working tree so local changes
   are testable without pushing. The race is already handled by the capture
@@ -220,43 +220,43 @@ only when the enabling condition arrives.
 Completed large workstreams, kept for context (details in the linked
 docs / code):
 
-- **Autonomous-remediation infrastructure** — failure-class dispatcher,
+- **Autonomous-remediation infrastructure** -- failure-class dispatcher,
   NDJSON schema validator, cycle correlation IDs, and the runner state
   machine; together they turn the telemetry surface into something a
   remediation loop can act on.
-- **State-recovery primitives** — the atomic `Write-YurunaStateFile`
+- **State-recovery primitives** -- the atomic `Write-YurunaStateFile`
   helper and the boot-time recovery sweep, so every state class either
   has an atomic write helper or a startup detection + archive path.
   Snapshot manifest sidecars and the log-rotation primitive shipped
   alongside.
-- **Verb-handler registry migration** — all 21 sequence verbs moved from
+- **Verb-handler registry migration** -- all 21 sequence verbs moved from
   the inline switch in `Test.SequenceEngine.psm1` to the
   `Test.SequenceAction` / `Test.SequenceHandler` registry;
   `Invoke-Sequence` is now purely the executor.
-- **Cross-driver host-driver shared helpers** — platform-independent
+- **Cross-driver host-driver shared helpers** -- platform-independent
   download/VM/guest-IP/proxy-probe logic factored into `host/modules/`,
   injecting the one varying platform detail per call. (Backend VM/proxy
   paths stay per-platform by design; the KVM IPv6-bracketing proxy probe is
   intentionally not folded in.)
-- **Multi-host pool harness, Phases 0–6** — DHCP-resilient `hostId` +
+- **Multi-host pool harness, Phases 0-6** -- DHCP-resilient `hostId` +
   capability record; the self-discovering stdlib-Go pull-collector and
   Grafana pool dashboard; per-step NDJSON tail + incident correlation; v1
   pool/test-set schemas, git intent store, pull-sync shim, and admin CLI
   ([pool-admin.md](pool-admin.md)); test-set execution with per-guest
   overrides; advisory pool gating, alerting, and first-engage remediation;
-  push telemetry with TLS/bearer auth. All additive — a no-pool host is
+  push telemetry with TLS/bearer auth. All additive -- a no-pool host is
   byte-identical to single-host.
-- **Installer & in-guest script integrity** — signed `install.sha256`
+- **Installer & in-guest script integrity** -- signed `install.sha256`
   (RSA-4096 detached signature + bundled key); opt-in git-tag pinning;
   pinned apt-key fingerprints + PowerShell tarball checksum in the Ubuntu
   installer; hard-fail image/ISO checksums with GPG-authenticated Ubuntu
   hashes and a commit-pinned `Fido.ps1`; pinned Homebrew and libosinfo
   fetches; the ASCII/no-BOM pre-commit hook. (Standing rule: re-verify every
   fingerprint/hash/commit-SHA against live upstream at implementation time.)
-- **Resilience Horizon A** — the graceful-degradation / observability
+- **Resilience Horizon A** -- the graceful-degradation / observability
   contract (`Send-YurunaDegradation`, [failure-schema.md](failure-schema.md));
   OCR degradation-trend early action in `Wait-ForText`; and SSH-readiness
-  hardening (`Wait-SshReady` failure-cause classification) — the last
+  hardening (`Wait-SshReady` failure-cause classification) -- the last
   addresses the empirical #1 recurring failure class.
 
 ---
@@ -265,6 +265,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../README.md)

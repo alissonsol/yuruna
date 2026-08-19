@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42b1c9e4-7d52-4f8a-9c36-e15a8d40b972
+.VERSION 2026.08.19
+.GUID 4250adff-0991-409e-81bf-56dfdf1149db
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test host hyper-v network seed vswitch pester
@@ -48,7 +48,7 @@ $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
 $hostFile = Join-Path $repoRoot 'host' -AdditionalChildPath 'windows.hyper-v', 'modules', 'Yuruna.Host.psm1'
 
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # Parse once; each test reads the function bodies out of the AST so that
 # comments and strings can never be mistaken for calls.
@@ -270,5 +270,97 @@ Describe 'hyper-v-guest-new-vm-switch-fallback' {
         Assert-True ('guest.windows.11' -in $seedBuilder) 'the Windows guest resolves the status-service address like the others'
         $windowsGuest = Get-Content -Raw -LiteralPath (Get-GuestNewVmScriptPath -GuestName 'guest.windows.11')
         Assert-True ($windowsGuest -match 'New-WindowsGuestBootstrap') 'and hands it to the bootstrap builder that embeds the resolver'
+    }
+}
+
+# The seed carries an address the guest can correct later; Get-BestHostIp is
+# the other half of that -- what this host publishes about ITSELF, to the pool
+# directory the guest corrects against. A wrong answer here is worse than a
+# stale seed: it does not merely age, it never changes, so a host that is
+# renumbering constantly looks perfectly still and no guest is ever told.
+#
+# Behavioral rather than AST, because what has to hold is the choice the
+# function makes among adapters, and no call shape expresses that. The function
+# body is lifted out of the module and run against a recorded inventory, so
+# these cases need neither a live hypervisor nor a Windows host.
+Describe 'hyper-v-host-own-address' {
+
+    BeforeAll {
+        # A Hyper-V host bridged the way this framework builds one: the LAN
+        # address sits on the External switch's management vNIC, two internal
+        # vNICs and two foreign NAT adapters sit alongside it, and only the
+        # first is an address anything off this machine can reach.
+        $script:BestIpHarness = @'
+param([bool]$HyperVReadable, [bool]$HasDefaultRoute)
+$addresses = @(
+    [pscustomobject]@{ IPAddress = '192.168.7.105'; InterfaceAlias = 'vEthernet (Yuruna-External)';   InterfaceIndex = 25; PrefixOrigin = 'Dhcp' }
+    [pscustomobject]@{ IPAddress = '172.24.144.1';  InterfaceAlias = 'vEthernet (WSLCore)';           InterfaceIndex = 40; PrefixOrigin = 'Manual' }
+    [pscustomobject]@{ IPAddress = '192.168.128.1'; InterfaceAlias = 'vEthernet (Default Switch)';    InterfaceIndex = 41; PrefixOrigin = 'Manual' }
+    [pscustomobject]@{ IPAddress = '192.168.159.1'; InterfaceAlias = 'VMware Network Adapter VMnet8'; InterfaceIndex = 12; PrefixOrigin = 'Manual' }
+    [pscustomobject]@{ IPAddress = '192.168.80.1';  InterfaceAlias = 'VMware Network Adapter VMnet1'; InterfaceIndex = 11; PrefixOrigin = 'Manual' }
+    [pscustomobject]@{ IPAddress = '127.0.0.1';     InterfaceAlias = 'Loopback Pseudo-Interface 1';   InterfaceIndex = 1;  PrefixOrigin = 'WellKnown' }
+)
+$metric = @{ 25 = 25; 40 = 5; 41 = 5; 12 = 35; 11 = 35; 1 = 75 }
+function Get-NetIPAddress { param($AddressFamily, $InterfaceAlias, $InterfaceIndex, $ErrorAction) $addresses }
+function Get-NetIPInterface { param($InterfaceIndex, $AddressFamily, $ErrorAction) [pscustomobject]@{ InterfaceMetric = $metric[$InterfaceIndex] } }
+function Get-NetRoute {
+    param($AddressFamily, $DestinationPrefix, $InterfaceIndex, $ErrorAction)
+    if (-not $HasDefaultRoute) { return @() }
+    @([pscustomobject]@{ InterfaceIndex = 25; NextHop = '192.168.7.1' })
+}
+function Get-VMSwitch {
+    param($Name, $ErrorAction)
+    if (-not $HyperVReadable) { throw 'You do not have the required permission to complete this task.' }
+    @(
+        [pscustomobject]@{ Name = 'Yuruna-External'; SwitchType = 'External' }
+        [pscustomobject]@{ Name = 'Default Switch';  SwitchType = 'Internal' }
+        [pscustomobject]@{ Name = 'WSLCore';         SwitchType = 'Internal' }
+    )
+}
+__FUNCTION__
+Get-BestHostIp
+'@
+
+        # Defined here rather than beside the It blocks: a bare function in a
+        # Describe body is created during discovery, in a scope no test body
+        # can see.
+        #
+        # Stubs shadow cmdlets only inside the scope that defines them, so the
+        # harness and the lifted function have to be one scriptblock.
+        function Invoke-BestHostIpProbe {
+            param([bool]$HyperVReadable = $true, [bool]$HasDefaultRoute = $true)
+            $fn = Get-FunctionAst -Name 'Get-BestHostIp'
+            Assert-True ($null -ne $fn) 'the host must be able to answer what address it is on'
+            $sb = [scriptblock]::Create($script:BestIpHarness.Replace('__FUNCTION__', $fn.Extent.Text))
+            return [string](& $sb -HyperVReadable $HyperVReadable -HasDefaultRoute $HasDefaultRoute)
+        }
+    }
+
+    It 'answers the External switch vEthernet, not a foreign hypervisor NAT adapter' {
+        # Excluding every vEthernet is the intuitive way to skip the internal
+        # vNICs, and on this topology it excludes the only correct answer --
+        # leaving an address that is local to this machine, permanent, and
+        # therefore silently untrue.
+        Invoke-BestHostIpProbe | Should -Be '192.168.7.105'
+    }
+
+    It 'keeps the internal and NAT vNICs out' {
+        $answer = Invoke-BestHostIpProbe
+        $answer | Should -Not -Be '192.168.128.1' -Because 'the Default Switch is an internal NAT segment no LAN peer routes to'
+        $answer | Should -Not -Be '172.24.144.1'  -Because 'the WSL vNIC is the same kind of segment'
+    }
+
+    It 'still finds the LAN vEthernet when Hyper-V refuses to name its switches' {
+        # Get-VMSwitch needs Hyper-V administrator rights and the address
+        # beacon does not always have them; the default route is readable by
+        # anyone and rides the LAN-facing adapter whatever it is called.
+        Invoke-BestHostIpProbe -HyperVReadable $false | Should -Be '192.168.7.105'
+    }
+
+    It 'prefers the External switch vNIC when there is no default route to rank by' {
+        # A host between DHCP leases has no default route at all -- the moment
+        # a renumber is happening, which is exactly when the beacon must not
+        # answer with something else.
+        Invoke-BestHostIpProbe -HasDefaultRoute $false | Should -Be '192.168.7.105'
     }
 }

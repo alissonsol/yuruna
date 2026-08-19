@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42c3d4e5-f6a7-4081-9b93-4c5d6e7f8091
+.VERSION 2026.08.19
+.GUID 426e14b8-0b20-4669-be3f-a832ab317992
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test sequence handler tab pester
@@ -34,7 +34,7 @@ BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 $script:src  = Get-Content (Join-Path $here 'Test.SequenceHandler.psm1') -Raw
 
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 }
 

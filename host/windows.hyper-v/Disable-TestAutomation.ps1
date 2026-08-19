@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 429f21c7-6d84-4a02-9e15-7c3a8b0d5f46
+.VERSION 2026.08.19
+.GUID 42639d1d-6649-49d9-82a8-a37f8410ebbc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test host windows hyper-v disable-test-automation
@@ -232,8 +232,8 @@ Restore-Knob -Name 'service/W32Time' -Description 'Windows Time service (W32Time
 # --- REGION: Services (opt-in)
 if ($StopServices) {
     foreach ($svc in @('CachingProxyService', 'StashService', 'PoolControlService', 'DownloadAgentService')) {
-        $script = Join-Path $RepoRoot "test/Stop-${svc}VM.ps1"
-        if (-not (Test-Path -LiteralPath $script)) { $skipped.Add("test/Stop-${svc}VM.ps1 not found"); continue }
+        $script = Join-Path $RepoRoot "test/service/Stop-${svc}VM.ps1"
+        if (-not (Test-Path -LiteralPath $script)) { $skipped.Add("test/service/Stop-${svc}VM.ps1 not found"); continue }
         if ($PSCmdlet.ShouldProcess("$svc VM", 'Stop')) {
             & pwsh -NoProfile -File $script
             $restored.Add("$svc VM stopped")

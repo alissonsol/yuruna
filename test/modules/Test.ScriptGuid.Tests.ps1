@@ -1,6 +1,6 @@
 <#PSScriptInfo
 .VERSION 2026.07.27
-.GUID 42b30a01-b620-49c9-86d7-d350a1a6c299
+.GUID 42d362a1-db11-4834-938e-bcea5a9d09f2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test guid psscriptinfo pester
@@ -40,8 +40,7 @@ BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
 
-function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # PSScriptInfo `.GUID <guid>` (scripts) and a manifest's `GUID = '<guid>'`
 # (.psd1) are the two shapes the convention appears in.

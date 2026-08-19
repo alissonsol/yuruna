@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a1b2c3-d4e5-4f67-8901-9c0d1e2f3a58
+.VERSION 2026.08.19
+.GUID 42a8c19c-6467-464c-bbe1-27786a9557d2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test start-guest dispatcher dedup pester

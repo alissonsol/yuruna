@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42b7d1e4-9c2a-4f68-8b30-5d1c7e9a0b46
+.VERSION 2026.08.19
+.GUID 42b1ac37-5615-4bfc-a3de-731b717694e9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test kvm bridge networkmanager pester
@@ -40,8 +40,7 @@ $here = Split-Path -Parent $PSCommandPath
 $repo = Split-Path -Parent (Split-Path -Parent $here)
 $modulePath = Join-Path $repo 'host/ubuntu.kvm/modules/Yuruna.Host.psm1'
 
-function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # macos.utm, ubuntu.kvm and windows.hyper-v each publish a module named
 # 'Yuruna.Host'. The suite shares one runspace, so a driver left resident by

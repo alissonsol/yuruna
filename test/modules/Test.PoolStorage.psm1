@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42c5e8a1-9b3d-4f27-8a6c-1d2e3f4a5b6c
+.VERSION 2026.08.19
+.GUID 42273fc7-eee1-4ff4-9191-32ad482e41dd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna pool storage smb nas replication
@@ -1060,11 +1060,12 @@ function Resolve-YurunaConfigDoc {
 # only local copy of a cycle's results. Test-Config.ps1 carries its own copy of this
 # logic (ConvertTo-YurunaBool); the two are duplicated deliberately rather than
 # introducing a cross-module dependency for a single key.
-<#
-.SYNOPSIS
-Coerces a config-sourced value to [bool], accepting the YAML string forms an operator may write ('true'/'yes'/'on'/'1' and their negatives). Pure.
-#>
 function ConvertTo-PoolStorageBool {
+    <#
+    .SYNOPSIS
+    Coerces a config-sourced value to [bool], accepting the YAML string forms an
+    operator may write ('true'/'yes'/'on'/'1' and their negatives). Pure.
+    #>
     [CmdletBinding()]
     [OutputType([bool])]
     param([Parameter()][AllowNull()]$Value)

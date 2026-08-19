@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42d7e6c5-b4a3-4928-8f16-5a4b3c2d1e0f
+.VERSION 2026.08.19
+.GUID 42370011-0231-4e74-92a9-2c8cee1d8a15
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna pool storage replication drain

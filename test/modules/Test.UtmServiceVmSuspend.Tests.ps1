@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42e9c31b-7a06-4d52-8f14-6b27d90ae4c3
+.VERSION 2026.08.19
+.GUID 4219b525-eda6-4092-a1ab-0224926173fe
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test macos utm suspend service vm pester
@@ -47,7 +47,7 @@ BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 $SuspendRepoRoot = Split-Path -Parent (Split-Path -Parent $here)
 
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 function Get-FunctionBody {
     [CmdletBinding()]

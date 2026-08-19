@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 4206c748-f960-4178-9901-2341a0b2c3d4
+.VERSION 2026.08.19
+.GUID 42b12429-cc5c-4bad-b0f3-72cc2ef90475
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS

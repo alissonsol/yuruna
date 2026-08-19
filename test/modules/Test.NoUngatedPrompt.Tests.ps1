@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42f3a1c8-7b2d-4e59-8c04-1d6ea9b73f52
+.VERSION 2026.08.19
+.GUID 42281767-d625-4032-8afb-cbb95e2cfc40
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test prompt unattended guard ast pester
@@ -70,7 +70,7 @@ BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
 
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # Pester is not installed on every host that runs this repo's scripts, and the
 # assertions here are plain throws, so the harness the file needs is three

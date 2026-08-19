@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.16
+# Version: 2026.08.19
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -66,47 +66,28 @@ yuruna_host_env() {
 # script noticing.
 yuruna_host_relocate() {
     [ -x /usr/local/lib/yuruna/yuruna-host-locate.sh ] || return 1
-    /usr/local/lib/yuruna/yuruna-host-locate.sh >/dev/null 2>&1 || true
+    # The resolver's exit code is the only thing that separates "the address on
+    # disk is now correct" from "it is the same dead address it was". Discarding
+    # it and reporting whatever host.env happens to hold makes the two identical
+    # to the caller: a well-formed file naming a host that has moved passes every
+    # test yuruna_host_env can apply, so an unrepaired coordinate would be
+    # announced as a refreshed one and retried against the address that just
+    # failed. stderr is kept for the same reason -- it carries the line naming
+    # the address the pool directory answered with, which is the whole
+    # explanation of a failed repair.
+    /usr/local/lib/yuruna/yuruna-host-locate.sh >/dev/null || return 1
     yuruna_host_env
 }
 
 # --- REGION: Recover the caching-proxy CA
 # --- REGION: https://yuruna.link/network#caching-proxy-service-ca-cert-rc60-gate
-# CA self-heal: an untrusted SSL-bump (empty CA baked at seed time) would rc=60
-# the first HTTPS below; re-fetch the CA from the host status service. Non-fatal.
-yuruna_ca_selfheal() {
-  # Guard on the bump port with a boundary so a no-cache/direct guest (empty
-  # https_proxy) or a proxy on some other port is a hard no-op.
-  printf '%s' "${https_proxy:-}" | grep -qE ':3129/?($|[^0-9])' || return 0
-  # Already trusted? A bump HTTPS that verifies needs no repair.
-  if wget -q --spider --timeout=15 --tries=1 "https://github.com/" 2>/dev/null; then
-    return 0
-  fi
-  if [ -r /etc/yuruna/host.env ]; then . /etc/yuruna/host.env; fi
-  if [ -z "${YURUNA_STATUS_SERVICE_IP:-}" ] || [ -z "${YURUNA_STATUS_SERVICE_PORT:-}" ]; then
-    echo "CA self-heal: bump HTTPS untrusted and no host.env coordinates; cannot recover CA." >&2
-    return 0
-  fi
-  echo "CA self-heal: bump HTTPS untrusted; fetching CA from host status service ..."
-  local ca_tmp
-  ca_tmp=$(mktemp) || return 0
-  if wget --no-proxy --timeout=10 --tries=2 -qO "$ca_tmp" \
-        "http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/ca.crt" \
-     && [ -s "$ca_tmp" ] && grep -q 'BEGIN CERTIFICATE' "$ca_tmp"; then
-    sudo install -m 0644 "$ca_tmp" /usr/local/share/ca-certificates/yuruna-squid-ca.crt || true
-    sudo update-ca-certificates >/dev/null 2>&1 || true
-    if wget -q --spider --timeout=15 --tries=1 "https://github.com/" 2>/dev/null; then
-      echo "CA self-heal: OK -- bump HTTPS now trusted."
-    else
-      echo "CA self-heal: CA installed but bump still untrusted (stale/wrong CA, or cache unreachable); HTTPS through the bump will still fail." >&2
-    fi
-  else
-    echo "CA self-heal: host status service served no usable CA (cache may still be unreachable); HTTPS through the bump will still fail." >&2
-  fi
-  rm -f "$ca_tmp"
-  return 0
-}
-yuruna_ca_selfheal
+# An untrusted ssl-bump -- a CA-less seed, or a cache rebuilt since this guest
+# last anchored to it -- would rc=60 the first HTTPS below. yuruna_ca_selfheal
+# (yuruna-retry.sh) re-fetches the current CA from the host status service and
+# is a no-op when the bump already verifies. Non-fatal: a guest that cannot be
+# repaired here fails at the fetch that needs HTTPS, with that fetch's own
+# diagnosis attached.
+yuruna_ca_selfheal || true
 
 # --- REGION: Ensure PowerShell is installed
 # --- REGION: https://yuruna.link/memory#why-ubuntu-guest-update-scripts-install-powershell-first
@@ -367,7 +348,10 @@ if [ ! -d "$REAL_HOME/yuruna" ]; then
   # rather than a fall-through to a git clone of the public mirror.
   for host_attempt in 1 2; do
     if [ "$host_attempt" -eq 2 ]; then
-      yuruna_host_relocate || break
+      if ! yuruna_host_relocate; then
+        echo "yuruna: host coordinates could not be refreshed - the pool directory has no live address for this host."
+        break
+      fi
       echo "yuruna: host coordinates refreshed; retrying the tarball fetch."
     else
       yuruna_host_env || break
@@ -420,7 +404,10 @@ if [ ! -d "$REAL_HOME/yuruna/project" ]; then
   # guest is an interactive prompt and the step's entire timeout.
   for project_attempt in 1 2; do
     if [ "$project_attempt" -eq 2 ]; then
-      yuruna_host_relocate || break
+      if ! yuruna_host_relocate; then
+        echo "yuruna: host coordinates could not be refreshed - the pool directory has no live address for this host."
+        break
+      fi
       echo "yuruna: host coordinates refreshed; retrying the project tarball fetch."
     else
       yuruna_host_env || break

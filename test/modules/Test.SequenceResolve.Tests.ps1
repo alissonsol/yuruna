@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42b9e1c4-7a3d-4f52-8e16-9c4d2a7b3e58
+.VERSION 2026.08.19
+.GUID 42c94790-0880-4f88-b0b7-07f2de824904
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test sequence snippet pester
@@ -36,19 +36,7 @@ $here       = Split-Path -Parent $PSCommandPath
 $modulePath = Join-Path $here 'Test.SequenceResolve.psm1'
 Import-Module $modulePath -Force -DisableNameChecking -ErrorAction SilentlyContinue
 
-function Assert-Equal { param($Expected, $Actual, [string]$Because = '') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-True  { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
-function Assert-Throw {
-    param([scriptblock]$Script, [string]$Match = '', [string]$Because = '')
-    $threw = $false
-    try { & $Script } catch {
-        $threw = $true
-        if ($Match -and ($_.Exception.Message -notmatch $Match)) {
-            throw "Threw, but message '$($_.Exception.Message)' did not match '$Match'. $Because"
-        }
-    }
-    if (-not $threw) { throw "Expected a throw. $Because" }
-}
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # Unqualified file-scope fixtures. An It body resolves an unqualified file-level
 # variable but not a $script:-qualified one: the run pass re-enters the file in a

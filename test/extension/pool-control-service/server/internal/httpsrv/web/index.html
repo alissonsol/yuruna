@@ -36,10 +36,8 @@
   </header>
   <main>
     <h1>Assign test sets to pools</h1>
-    <p class="muted">Each pool tests one test-set (a framework + project repo pair). GH_TOKEN stays host-local &mdash; it is never stored in pool intent.
-      Any column header sorts the table; clicking the sorted one reverses it, and
-      <strong>Assign test set</strong> sorts by the set each pool holds now. The leading
-      number counts the rows as they are shown, so it stays 1&hellip;n whatever the order.</p>
+    <p class="muted">Each pool tests one test set (a framework + project repo pair).
+      GH_TOKEN stays host-local &mdash; never stored in pool intent.</p>
     <div id="notice" class="notice"></div>
     <div class="row"><button id="refresh">Refresh</button></div>
     <table>
@@ -63,8 +61,8 @@
     </p>
   </main>
   <footer id="footer-bar">
-    <span id="footer-ips"><span class="label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-label="Server IP addresses">—</textarea></span>
-    <span>Loaded: <span id="last-loaded">—</span><span id="footer-busy" aria-hidden="true" hidden></span></span>
+    <span id="footer-ips"><span class="label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-label="Server IP addresses">--</textarea></span>
+    <span>Loaded: <span id="last-loaded">--</span><span id="footer-busy" aria-hidden="true" hidden></span></span>
     <span><a id="footer-refresh" href="#">Refresh</a>: <span id="countdown">60</span>s</span>
   </footer>
   <script src="/assets/common.js"></script>

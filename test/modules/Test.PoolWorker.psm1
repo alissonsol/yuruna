@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42c9e4a7-1b83-4d56-9e07-3a5c8b1d4e26
+.VERSION 2026.08.19
+.GUID 42f1c309-1ba8-498f-b2f0-a6425d163096
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna pool worker standalone conversion service teardown

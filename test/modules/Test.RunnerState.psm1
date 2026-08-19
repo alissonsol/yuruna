@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42bc8a7d-e6f5-4d23-9180-3a4b5c6d7e95
+.VERSION 2026.08.19
+.GUID 42507b72-36d6-40f8-9a02-4a16e5a058b9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test runner state-machine lifecycle
@@ -332,7 +332,7 @@ function Set-RunnerState {
     # global __YurunaCycleStartUtc set by Start-LogFile. The state machine
     # is upstream of Start-LogFile inside a cycle, so this is only
     # populated when the caller already set the global beforehand
-    # (Invoke-TestSequence / Project paths that drive Start-LogFile
+    # (Debug-TestSequence / Project paths that drive Start-LogFile
     # themselves).
     if (($To -eq 'cycle-start') -and $global:__YurunaCycleStartUtc) {
         $newState['lastCycleStartUtc'] = [string]$global:__YurunaCycleStartUtc

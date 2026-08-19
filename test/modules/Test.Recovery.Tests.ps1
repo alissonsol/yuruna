@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42c1d8e4-6b7a-4c39-9f52-0a1b2c3d4e5f
+.VERSION 2026.08.19
+.GUID 42f3d4d7-d8b5-4931-a70a-4825cc9dc2b2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test recovery boot pester
@@ -41,8 +41,7 @@ $here       = Split-Path -Parent $PSCommandPath
 $modulePath = Join-Path $here 'Test.Recovery.psm1'
 Import-Module $modulePath -Force -DisableNameChecking
 
-function Assert-Equal { param($Expected, $Actual, [string]$Because = '') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-True  { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # File-scope fixture helper: a Describe body runs during discovery and
 # everything it declares is discarded before any It executes, so a helper

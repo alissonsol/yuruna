@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42e3f4a5-6b7c-4d8e-9f0a-1b2c3d4e5f6a
+.VERSION 2026.08.19
+.GUID 42914d9e-337f-4e2e-936a-1f6c1af240ff
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test ocr event pester
@@ -36,7 +36,7 @@ $here       = Split-Path -Parent $PSCommandPath
 $modulePath = Join-Path $here 'Test.OcrEngine.psm1'
 $script:helper     = 'Send-SoftCycleEvent'
 
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 function Get-ModuleAst {
     [CmdletBinding()]

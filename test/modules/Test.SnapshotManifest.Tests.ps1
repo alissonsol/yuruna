@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42bf9cc9-1b2b-499b-90cc-a4c2c9b939aa
+.VERSION 2026.08.19
+.GUID 42fe1ae4-05a9-49ae-b073-a5c31573254d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test snapshot manifest sidecar pester
@@ -46,8 +46,7 @@ BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.SnapshotManifest.psm1') -Force -DisableNameChecking
 
-function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # Fixtures and helpers live in BeforeAll, not at file scope: file scope and
 # Describe bodies both run during discovery, and nothing they define reaches an

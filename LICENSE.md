@@ -15,7 +15,7 @@ copies or substantial portions of the Software.
 ## No Warranty / "As Is"
 
 **There is no warranty of any kind.** The Software is provided **"as is"**,
-without any guarantees — express or implied — including but not limited to
+without any guarantees -- express or implied -- including but not limited to
 correctness, completeness, fitness for a particular purpose, merchantability,
 or non-infringement. You assume the entire risk of using it.
 
@@ -34,8 +34,8 @@ privileges** (e.g., as Administrator on Windows, or via `sudo` / root on
 Linux and macOS). Running code at this privilege level is **inherently
 risky**: it can modify system configuration, create or destroy virtual
 machines, alter networking, install or remove packages, and read or write
-arbitrary files. Mistakes — whether in the Software, in the operator's
-input, or in the surrounding environment — **may lead to data loss, system
+arbitrary files. Mistakes -- whether in the Software, in the operator's
+input, or in the surrounding environment -- **may lead to data loss, system
 instability, or unrecoverable changes**.
 
 By executing any part of the Software with administrator or root permissions,
@@ -49,6 +49,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](README.md)

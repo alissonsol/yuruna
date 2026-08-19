@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 4292b214-b454-46f0-976c-81a548f8de5d
+.VERSION 2026.08.19
+.GUID 4245d5d1-5745-4e5e-b405-e37f1c12f700
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
@@ -20,7 +20,7 @@
 .SYNOPSIS
     One-shot project test: wipe <RepoRoot>/project, re-clone from
     repositories.projectUrl, then run a single test cycle exactly as
-    Invoke-TestRunner would have. Not a loop -- exits when the cycle
+    Start-TestRunner would have. Not a loop -- exits when the cycle
     finishes.
 
 .DESCRIPTION
@@ -32,7 +32,7 @@
                 "what + why" line; the inner is never spawned.
 
       Step 3   spawns Invoke-TestRunnerInnerLoop.ps1 in a fresh pwsh -- the
-                same spawn shape Invoke-TestRunner uses for every cycle --
+                same spawn shape Start-TestRunner uses for every cycle --
                 with -NoProjectClone (the clone is already fresh) and
                 -NoGitPull (Invoke-TestProject tests the project as it stands
                 locally; a mid-test framework update would muddle the
@@ -44,7 +44,7 @@
                 explicitly if they want another pass.
 
     By calling Update-ProjectClone + Invoke-TestRunnerInnerLoop directly,
-    Invoke-TestProject exercises the same code paths Invoke-TestRunner does --
+    Invoke-TestProject exercises the same code paths Start-TestRunner does --
     a regression in either surfaces here first.
 
 .PARAMETER ConfigPath  test.config.yml path (default: next to this script)
@@ -54,8 +54,8 @@
 .NOTES
     Concurrency: Invoke-TestProject does not manage runner.pid itself. The
     inner runner it spawns owns inner.pid and runs its own single-
-    instance check (which will stop a running Invoke-TestRunner.ps1).
-    Stop any long-running Invoke-TestRunner before invoking Invoke-TestProject
+    instance check (which will stop a running Start-TestRunner.ps1).
+    Stop any long-running Start-TestRunner before invoking Invoke-TestProject
     if you want clean isolation; the inner's takeover handles the
     interactive operator case but cannot rescue cycles already
     mid-flight.
@@ -67,12 +67,12 @@ param(
     # in-progress edit runs where the operator knowingly accepts that a
     # misconfigured test.config.yml / vault.yml / users.yml will surface
     # in the cycle itself instead of at startup. Mirrors -NoConfigGate
-    # on Invoke-TestRunner / Invoke-TestSequence.
+    # on Start-TestRunner / Debug-TestSequence.
     [switch]$NoConfigGate,
     # Skip the built-in HTTP status service. Invoke-TestProject starts no server of
     # its own -- it delegates that to the inner runner it spawns -- so this is
     # forwarded to Invoke-TestRunnerInnerLoop, where the shared status-service gate
-    # honors it. Mirrors -NoStatusService on Invoke-TestRunner / Invoke-TestSequence.
+    # honors it. Mirrors -NoStatusService on Start-TestRunner / Debug-TestSequence.
     [switch]$NoStatusService,
     [ValidateSet('Error', 'Warning', 'Information', 'Verbose', 'Debug', IgnoreCase = $true)]
     [string]$logLevel
@@ -180,23 +180,23 @@ Set repositories.projectUrl to a clonable URL and retry.
 # Initialize-YurunaRuntimeDir / Initialize-YurunaLogDir publish
 # YURUNA_RUNTIME_DIR / YURUNA_LOG_DIR; the inner inherits them so its
 # pidfile, heartbeats, status.json, and per-cycle log all land in the
-# same place an Invoke-TestRunner cycle would write to. Test.YurunaDir
+# same place a Start-TestRunner cycle would write to. Test.YurunaDir
 # was imported by Initialize-YurunaEntryPointModuleSet above.
 $null = Initialize-YurunaRuntimeDir
 $null = Initialize-YurunaLogDir
 
-# Refuse to start when an Invoke-TestRunner already owns the runtime dir.
+# Refuse to start when a Start-TestRunner already owns the runtime dir.
 # Invoke-TestProject spawns its own inner with YURUNA_RUNNER_RELAUNCH=1 below,
 # which tells inner to skip its own pidfile-takeover guard -- safe only
 # when Invoke-TestProject itself is the legitimate parent. If a real
-# Invoke-TestRunner is already running, that contract would let our inner race
+# Start-TestRunner is already running, that contract would let our inner race
 # the live cycle's runner.pid + status.json updates. Assert-NoOtherRunner
 # (Test.Prelude, backed by Test.SingleInstance) reads runner.pid +
-# runner.start and refuses; Invoke-TestRunner's takeover path is the
+# runner.start and refuses; Start-TestRunner's takeover path is the
 # opposite (Stop-StaleRunner) and stays in the outer.
 if (-not (Assert-NoOtherRunner -RuntimeDir $env:YURUNA_RUNTIME_DIR -CallerName 'Invoke-TestProject')) {
     Stop-WithReason -Code $ExitFailure -Step 'Pre-flight (single-instance)' `
-        -Reason 'A live Invoke-TestRunner already owns runner.pid in this runtime dir. Stop it before invoking Invoke-TestProject, or run from a different YURUNA_RUNTIME_DIR.'
+        -Reason 'A live Start-TestRunner already owns runner.pid in this runtime dir. Stop it before invoking Invoke-TestProject, or run from a different YURUNA_RUNTIME_DIR.'
 }
 
 # Sweep the parked interactive control state before handing off to the
@@ -205,7 +205,7 @@ if (-not (Assert-NoOtherRunner -RuntimeDir $env:YURUNA_RUNTIME_DIR -CallerName '
 # inner doesn't inherit the parked break state -- the status UI would
 # otherwise keep the previous run's Continue button live. Invoke-TestProject
 # spawns Invoke-TestRunnerInnerLoop directly (bypassing the outer
-# Invoke-TestRunner that normally hosts Invoke-YurunaBootRecovery), so
+# Start-TestRunner that normally hosts Invoke-YurunaBootRecovery), so
 # this sweep has to happen here. PreSpawn deliberately leaves
 # control.cycle-restart for the child inner to consume as ITS own restart.
 if (Get-Command Clear-StaleControlState -ErrorAction SilentlyContinue) {
@@ -222,7 +222,7 @@ Write-Output "  Inner:      $InnerScript"
 Write-Output "  Stop:       Ctrl+C (or completes when the inner exits)"
 Write-Output '============================================='
 
-# --- REGION: Pre-cycle config gate (mirrors Invoke-TestRunner + Invoke-TestSequence)
+# --- REGION: Pre-cycle config gate (mirrors Start-TestRunner + Debug-TestSequence)
 # Invoke-TestProject re-clones the project then runs one cycle. Without this gate
 # a misconfigured framework config (vault, users, transports) would only
 # surface mid-cycle as a confusing step failure. Bypass with -NoConfigGate
@@ -237,7 +237,7 @@ if (-not $gate.passed) {
 # Update-ProjectClone is the same helper Invoke-TestRunnerInnerLoop uses every
 # cycle -- by calling it here, a regression in clone removal, git clone
 # itself, or the safety check (refuse to delete outside RepoRoot) surfaces
-# in Invoke-TestProject before it ever bites Invoke-TestRunner. The function
+# in Invoke-TestProject before it ever bites Start-TestRunner. The function
 # combines the wipe + clone in a single safe sequence; splitting them in
 # Invoke-TestProject would duplicate the safety check without adding value.
 # Test.HostContract was imported by Initialize-YurunaEntryPointModuleSet above.
@@ -252,10 +252,10 @@ if (-not $cloneRes.success) {
 Write-Output '[Invoke-TestProject] Step 1+2: complete.'
 
 # --- REGION: Step 3: spawn one inner cycle
-# Mirror Invoke-TestRunner's spawn pattern so Invoke-TestProject exercises the
+# Mirror Start-TestRunner's spawn pattern so Invoke-TestProject exercises the
 # same boundary the recurring runner does:
 #   * call operator (not Start-Process) -- the inner inherits our env,
-#     stdio, and signal context; same as Invoke-TestRunner
+#     stdio, and signal context; same as Start-TestRunner
 #   * -Command (not -File) -- pwsh -File coerces every argv to [string],
 #     which would break [switch] / [int] parameters
 #   * -NoProfile -- $PROFILE can't clobber YURUNA_* env vars

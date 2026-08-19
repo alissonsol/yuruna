@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42194e68-1535-4731-bba7-f7195cc13b3c
+.VERSION 2026.08.19
+.GUID 42da5cce-810b-4f7b-9c05-6d1901f4e6b4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test pidfile identity recovery pester

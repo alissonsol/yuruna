@@ -1,7 +1,7 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 resource "azurerm_public_ip" "frontendIp" {
-  name                = format("%s.frontendIp", var.resourceGroup) 
+  name                = format("%s.frontendIp", var.resourceGroup)
   resource_group_name = azurerm_kubernetes_cluster.default.node_resource_group
   location            = azurerm_kubernetes_cluster.default.location
   allocation_method   = "Static"

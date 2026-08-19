@@ -10,7 +10,7 @@
 // Yuruna status service but has never enrolled is therefore invisible to every
 // pool UI, even though it is sitting on the same subnet answering probes.
 //
-// This package closes that gap from the other direction — ask the network — and
+// This package closes that gap from the other direction -- ask the network -- and
 // deliberately keeps its answers local: the store is this daemon's, so the list
 // survives an aggregator outage and needs no write path into anyone else's
 // registry. Membership of a pool is untouched; a discovered host is monitored,
@@ -40,7 +40,7 @@ type Host struct {
 	// reads one can read the other without a second code path.
 	BaseURL string `json:"baseUrl"`
 	// HostID is the host's own stable id, read from its registration record.
-	// Empty when that read failed — see the type comment.
+	// Empty when that read failed -- see the type comment.
 	HostID       string `json:"hostId,omitempty"`
 	Hostname     string `json:"hostname,omitempty"`
 	HostType     string `json:"hostType,omitempty"`
@@ -55,7 +55,7 @@ type Host struct {
 // otherwise the address it answered on. Two probes of the same machine
 // therefore collapse to one entry, and a machine that starts reporting an id
 // after a rebuild lands as a new entry rather than silently overwriting the
-// address-keyed one — which is the honest outcome, because from here they are
+// address-keyed one -- which is the honest outcome, because from here they are
 // not provably the same machine.
 func (h Host) Key() string {
 	if h.HostID != "" {

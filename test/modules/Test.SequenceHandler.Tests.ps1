@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a9d4e1-7c3b-4f08-9e21-3b6c5d8a1f02
+.VERSION 2026.08.19
+.GUID 427227f6-5537-49d8-bd74-b53ec39ba8f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test sequence break pester
@@ -38,7 +38,7 @@ BeforeAll {
 $here       = Split-Path -Parent $PSCommandPath
 $script:modulePath = Join-Path $here 'Test.SequenceHandler.psm1'
 
-function Assert-True { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # Argument expression following a named parameter on a command call, handling
 # both `-P arg` (space) and `-P:arg` (colon) forms.

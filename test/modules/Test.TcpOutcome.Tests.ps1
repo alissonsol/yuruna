@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42c4e820-1b7d-4f36-a95e-70d2c8b41a95
+.VERSION 2026.08.19
+.GUID 425dfdd4-fd92-4c1a-9012-e60152b4c11b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test tcp probe refused timeout caching-proxy pester
@@ -51,11 +51,7 @@ $TcpRepoRoot = Split-Path -Parent (Split-Path -Parent $here)
 Import-Module (Join-Path $TcpRepoRoot 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking -Global
 Import-Module (Join-Path $TcpRepoRoot 'test/modules/Test.CachingProxyService.psm1') -Force -DisableNameChecking -Global
 
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
-function Assert-Equal {
-    param($Expected, $Actual, [string]$Because = '')
-    if ("$Expected" -ne "$Actual") { throw "Expected '$Expected' but got '$Actual'. $Because" }
-}
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # A bound-but-idle listener answers the SYN; closing it leaves the port with
 # nothing behind it, which is what produces the RST.
@@ -87,7 +83,7 @@ Describe 'A refused connection is not an unreachable one' {
         $l = New-LoopbackListener
         try {
             $r = Test-TcpConnectOutcome -IpAddress '127.0.0.1' -Port $l.LocalEndpoint.Port -TimeoutMs 3000
-            Assert-Equal -Expected 'reachable' -Actual $r.Outcome
+            Assert-StringEqual -Expected 'reachable' -Actual $r.Outcome
             Assert-True $r.Reachable 'the convenience flag agrees with the outcome'
         } finally { $l.Stop() }
     }
@@ -96,7 +92,7 @@ Describe 'A refused connection is not an unreachable one' {
         # The distinction the incident turned on: the cache VM answered, squid
         # did not. Calling that a timeout points at the network instead.
         $r = Test-TcpConnectOutcome -IpAddress '127.0.0.1' -Port (Get-ClosedLoopbackPort) -TimeoutMs 3000
-        Assert-Equal -Expected 'refused' -Actual $r.Outcome
+        Assert-StringEqual -Expected 'refused' -Actual $r.Outcome
         Assert-True (-not $r.Reachable) 'a refusal is still a failure'
     }
 
@@ -138,7 +134,7 @@ Describe 'A cache is confirmed to stay up before a cycle commits to it' {
             $r = Wait-CachingProxyServiceSettled -CacheIp '127.0.0.1' -Port $l.LocalEndpoint.Port `
                     -RequiredConsecutive 3 -IntervalSeconds 0 -TimeoutSeconds 20
             Assert-True $r.Settled 'a healthy cache settles'
-            Assert-Equal -Expected 3 -Actual $r.Consecutive -Because 'it took the required run of accepts'
+            Assert-StringEqual -Expected 3 -Actual $r.Consecutive -Because 'it took the required run of accepts'
         } finally { $l.Stop() }
     }
 
@@ -149,7 +145,7 @@ Describe 'A cache is confirmed to stay up before a cycle commits to it' {
         try {
             $r = Wait-CachingProxyServiceSettled -CacheIp '127.0.0.1' -Port $l.LocalEndpoint.Port `
                     -RequiredConsecutive 2 -IntervalSeconds 0 -TimeoutSeconds 20
-            Assert-Equal -Expected 0 -Actual $r.Lines.Count -Because 'a settled cache prints nothing'
+            Assert-StringEqual -Expected 0 -Actual $r.Lines.Count -Because 'a settled cache prints nothing'
         } finally { $l.Stop() }
     }
 

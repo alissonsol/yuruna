@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42b7e3a1-c8d9-4f56-ab12-3e4f5a6b7c8d
+.VERSION 2026.08.19
+.GUID 420effcb-c2e1-4c95-b3b0-ddb550aecce4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test host windows hyper-v cleanup

@@ -2,7 +2,7 @@
 
 > One sentence: the most frequent runtime data flows, one sequence diagram each.
 
-See [Design overview](00-index.md) · [Component breakdown](02-component-breakdown.md) · [Yuruna Architecture](../architecture.md).
+See [Design overview](00-index.md) - [Component breakdown](02-component-breakdown.md) - [Yuruna Architecture](../architecture.md).
 
 Derived from `automation/Set-{Resource,Component,Workload}.ps1`,
 `automation/Yuruna.{Resource,Component,Component.Registry,Workload,DeploymentKind,Retry,Result,VariableExpansion}.psm1`,
@@ -13,7 +13,7 @@ call sites, `host/vmconfig/{ubuntu.server,caching-proxy-service}.base.user-data`
 and the `test/extension/{download-agent-service,pool-control-service,stash-service}/server/`
 daemons.
 
-Each diagram carries only the participants that actually exchange messages —
+Each diagram carries only the participants that actually exchange messages --
 seven or fewer everywhere. Where reality has more actors than that, the fold is
 named in the prose under the diagram.
 
@@ -56,12 +56,12 @@ sequenceDiagram
 | `Operator` | the project's own guest workload script, e.g. `yuruna-project/example/website/test/ubuntu.server.26/ubuntu.server.26.workload.k8s.website.sh` (three `pwsh ../../automation/Set-*.ps1` calls) |
 | `Engine` | `automation/Set-Resource.ps1`, `Set-Component.ps1`, `Set-Workload.ps1` over `Yuruna.Resource.psm1`, `Yuruna.Component.psm1`, `Yuruna.Workload.psm1` |
 | `Tofu` | `tofu` invoked through `Invoke-DynamicExpression.psm1` under `Yuruna.Retry.psm1` |
-| `Docker` / `Registry` | `Invoke-ComponentCommand` inside `Yuruna.Component.psm1`; login resolved by `Yuruna.Component.Registry.psm1` → `Yuruna.CredentialProvider.psm1` |
+| `Docker` / `Registry` | `Invoke-ComponentCommand` inside `Yuruna.Component.psm1`; login resolved by `Yuruna.Component.Registry.psm1` -> `Yuruna.CredentialProvider.psm1` |
 | `Cluster` | `Invoke-WorkloadChartDeployment` / `Invoke-WorkloadToolDeployment` in `Yuruna.Workload.psm1` |
 | `Files` | `<project_root>/config/<cloud>/*.yml` and `<project_root>/.yuruna/<cloud>/{resources,components,workloads}/` |
 
 The operator runs the phases one by one; **nothing chains them**. No file under
-`automation/` invokes another `Set-*.ps1` — the in-guest variant of this flow is
+`automation/` invokes another `Set-*.ps1` -- the in-guest variant of this flow is
 the project's own workload script spawning one `pwsh` per phase, and in the
 website example the three calls are not even adjacent (a `kubectl config
 rename-context` derived from the freshly written `resources.output.yml` sits
@@ -71,7 +71,7 @@ between phase 1 and phase 2). `resources.output.yml` is the only hand-off.
 `Publish-ResourceListHelper` twice. Pass 1 (`isInitialization = $true`) expands
 `globalVariables` into a module-scope bag, runs `tofu init` and
 `tofu plan -out=tofu.planfile`, and aborts with a `config_error` manifest if
-`.terraform` already exists — the message points at `yuruna clear`. Pass 2
+`.terraform` already exists -- the message points at `yuruna clear`. Pass 2
 truncates and rewrites `resources.output.yml`, re-inits, applies the **saved
 plan file**, and runs `tofu output -json` per resource. When the plan file is
 missing, pass 2 falls back to a refreshing `tofu apply` that is deliberately
@@ -82,19 +82,19 @@ Each resource's work folder is staged atomically: the template is copied into
 over, `<wf>` moves to `<wf>.old`, `<wf>.new` moves into place, and a
 `.workfolder.complete` marker is written last. A **SIGKILL-recovery guard** runs
 before any other staging step: if `<wf>` is gone but `<wf>.old` survives, the
-prior cycle died between the two moves and `.old` is restored — without it the
+prior cycle died between the two moves and `.old` is restored -- without it the
 next `tofu apply` would run against a stateless folder and destroy live cloud
 resources.
 
-The component phase is six ordered steps through `Invoke-ComponentCommand` —
+The component phase is six ordered steps through `Invoke-ComponentCommand` --
 `preProcessor`, `build`, `postProcessor`, `tag`, `registryLogin`, `push` (the
 pre/post hooks and the login are optional). `registryLogin` dispatches through
 `Yuruna.CredentialProvider.psm1`, whose five providers (`azurecr`, `ecr`, `gar`,
 `dockerhub`, `docker-generic`) are matched first-wins by hostname pattern; a
 `$null` answer silently skips the phase.
 
-The workload phase runs one of **four** registered deployment kinds — `chart`,
-`kubectl`, `helm`, `shell` — resolved by `Resolve-YurunaDeploymentKind` from the
+The workload phase runs one of **four** registered deployment kinds -- `chart`,
+`kubectl`, `helm`, `shell` -- resolved by `Resolve-YurunaDeploymentKind` from the
 single catalog in `Yuruna.DeploymentKind.psm1`. The chart pipeline is
 `helm lint .` (the explicit `.` is a helm 4 required argument) then
 `helm upgrade --install --atomic <installName> . --debug`, with a pending-release
@@ -109,16 +109,16 @@ paths, so a post-mortem never depends on the transcript surviving:
 
 | Phase | Log | Exit code | Written by |
 |---|---|---|---|
-| Resource | `.yuruna/<cloud>/resources/<resource>/tofu.stderr.log` | `…/tofu.rc` | `Invoke-WithYurunaRetry -LogPath -RcFile` for init, apply and output |
+| Resource | `.yuruna/<cloud>/resources/<resource>/tofu.stderr.log` | `.../tofu.rc` | `Invoke-WithYurunaRetry -LogPath -RcFile` for init, apply and output |
 | Component | `.yuruna/<cloud>/components/docker.stderr.log` (all components append) | `.yuruna/<cloud>/components/docker.rc` (last phase wins) | `Invoke-ComponentCommand` |
-| Workload chart | `.yuruna/<cloud>/workloads/<context>/<installName>/helm.stderr.log` | `…/helm.rc` | inline `Add-Content` / `Set-Content` in `Yuruna.Workload.psm1` |
-| Workload tool | `.yuruna/<cloud>/workloads/<context>/<tool>.stderr.log` | `…/<tool>.rc` | retry `-LogPath` plus an inline `Set-Content` |
+| Workload chart | `.yuruna/<cloud>/workloads/<context>/<installName>/helm.stderr.log` | `.../helm.rc` | inline `Add-Content` / `Set-Content` in `Yuruna.Workload.psm1` |
+| Workload tool | `.yuruna/<cloud>/workloads/<context>/<tool>.stderr.log` | `.../<tool>.rc` | retry `-LogPath` plus an inline `Set-Content` |
 
 `Get-SystemDiagnostic.ps1` is the consumer: it globs `*.stderr.log` under the
 repo root with `-Force` (needed for the dot-directory `.yuruna`), tails each to
 64 KB, and derives the sidecar by rewriting `.stderr` to `.rc` so every dump is
 annotated `(last rc=N)`. It also carries the
-`GAP.tofu-state-without-helm-releases` heuristic — tfstate present but zero helm
+`GAP.tofu-state-without-helm-releases` heuristic -- tfstate present but zero helm
 releases means the workloads phase never ran.
 
 **Failure shapes differ, and the diagram's uniform arrows hide it.** Every
@@ -126,8 +126,8 @@ releases means the workloads phase never ran.
 `ok | config_error | cluster_unreachable | chart_invalid | tool_failed | unknown`;
 every *tool* error inside the resource phase `throw`s. `Set-Resource.ps1` has no
 try/catch, so a tofu throw escapes past `Stop-Transcript` and
-`Complete-YurunaRun` — the process still exits 1, but it emits a bare PowerShell
-exception rather than the `{"success":false,…}` JSON the component and workload
+`Complete-YurunaRun` -- the process still exits 1, but it emits a bare PowerShell
+exception rather than the `{"success":false,...}` JSON the component and workload
 phases emit.
 
 ## B. Test cycle (one guest)
@@ -165,18 +165,18 @@ sequenceDiagram
 
 | Box | Real artifact |
 |---|---|
-| `Outer` | `test/Invoke-TestRunner.ps1` + `test/modules/Test.RunnerOuterLoop.psm1` |
+| `Outer` | `test/Start-TestRunner.ps1` + `test/modules/Test.RunnerOuterLoop.psm1` |
 | `Cycle` | `test/modules/Invoke-TestCycleRunner.ps1` (a fresh process per cycle) |
 | `Inner` | `test/modules/Invoke-TestRunnerInnerLoop.ps1` + `Test.RunnerInnerLoop.psm1`, `Test.SequenceEngine.psm1` |
 | `Host` | `test/modules/Test.HostContract.psm1` `Initialize-YurunaHost` over `host/<host type>/modules/Yuruna.Host.psm1` |
 | `Guest` | the `test-`-prefixed VM seeded from `host/vmconfig/<key>.base.user-data` |
-| `Status` | `test/Start-StatusService.ps1` writing `test/status/runtime/status.json` via `Test.Status.psm1` |
-| `Notify` | `test/modules/Test.Notify.psm1` → `test/extension/notification/default.psm1` |
+| `Status` | `test/service/Start-StatusService.ps1` writing `test/status/runtime/status.json` via `Test.Status.psm1` |
+| `Notify` | `test/modules/Test.Notify.psm1` -> `test/extension/notification/default.psm1` |
 
 **Three processes, not two**, each a fresh `pwsh`: the long-lived outer loop, one
 cycle runner per cycle, and one inner runner inside it. The per-cycle child
 exists so that the cycle logic and every module it imports is **re-read from disk
-each cycle** — an operator edit lands on the next cycle without restarting the
+each cycle** -- an operator edit lands on the next cycle without restarting the
 runner. It is `Start-Process`-spawned and then *polled* (`WaitForExit(1000)` in a
 loop) rather than waited on, which is what makes Ctrl+C observable mid-cycle. The
 inner is spawned with the **call operator** so it inherits the terminal, and
@@ -186,7 +186,7 @@ code; only the inner's exit code drives the fault path.
 
 Two participants are folded. `Host` stands for the whole 38-verb host contract
 (`host/Yuruna.Host.Contract.psm1`) and the three drivers behind it, and the OCR
-stack is drawn as a **self-message on `Inner`** rather than an eighth box —
+stack is drawn as a **self-message on `Inner`** rather than an eighth box --
 correctly, because `Test.OcrEngine.psm1` runs in the inner process
 (`tesseract` in-process, `winrt` through a persistent Windows PowerShell 5.1
 worker, `macos-vision` through a cached `swiftc -O` binary). `Wait-ForText`
@@ -195,13 +195,13 @@ a fresh `Get-VMScreenshot`, ring-buffers it to `screens_<VM>/raw_<ts>.png` with 
 `.txt` sidecar, and asks `Test-CombinedOcrMatch` in `Or` or `And` combine mode.
 
 The per-guest step plan is derived per cycle by `Get-CycleStepNameList`:
-`New-VM` → `Start-VM` → `Start-GuestOS` → `New-VM.Resource` → `Screenshots`
-(only when a screenshot schedule exists) → `Start-GuestWorkload` (only when
-workload sequences exist) → teardown. A plan with neither optional step runs
-four. Three steps have a third outcome besides pass/fail — `skipped`. Teardown is
+`New-VM` -> `Start-VM` -> `Start-GuestOS` -> `New-VM.Resource` -> `Screenshots`
+(only when a screenshot schedule exists) -> `Start-GuestWorkload` (only when
+workload sequences exist) -> teardown. A plan with neither optional step runs
+four. Three steps have a third outcome besides pass/fail -- `skipped`. Teardown is
 not a formality: if a VM is still `running` after `Stop-VM` / `Remove-VM` and one
 retry, the step is recorded as `Cleanup`, a `provisioning_failure` record is
-written by `Write-CycleInfraFailure`, and the guest loop breaks — so a guest can
+written by `Write-CycleInfraFailure`, and the guest loop breaks -- so a guest can
 fail after every step passed.
 
 The guarding machinery is deliberately outside the loop. `Start-Watchdog` arms a
@@ -249,34 +249,34 @@ sequenceDiagram
 | `Harness` | `Get-FetchExecuteEnvPrefix` in `test/modules/Test.SequenceHandler.psm1` |
 | `Guest` | `automation/fetch-and-execute.sh`, installed mode 0755 by cloud-init |
 | `HostEnv` | `/etc/yuruna/host.env`, written by `host/vmconfig/ubuntu.server.base.user-data`; refreshed by `automation/yuruna-host-locate.sh` |
-| `StatusSrv` | `test/Start-StatusService.ps1` on `statusService.port` (default 8080) |
+| `StatusSrv` | `test/service/Start-StatusService.ps1` on `statusService.port` (default 8080) |
 | `Proxy` | the `yuruna-caching-proxy-service` VM from `host/vmconfig/caching-proxy-service.base.user-data` (squid 3128/3129, zot 5000) |
 | `Upstream` | `raw.githubusercontent.com` / `api.github.com`, apt and dnf mirrors |
-| `Stash` | `test/extension/stash-service/server/` — one process on `:22` (SCP/SFTP) and `:80` (UI/API) |
+| `Stash` | `test/extension/stash-service/server/` -- one process on `:22` (SCP/SFTP) and `:80` (UI/API) |
 
 **The digest gate is the point of this flow.** The fetched bytes are never handed
 to `bash` until `verify_sha256` matches them against `E_SHA`. That digest arrives
 *out of band*: `Get-FetchExecuteEnvPrefix` hashes the working-tree copy of the
 script the guest is about to fetch and types
-`EXEC_REQUIRE_SHA256=1 E_SHA=… E_RETRY_SHA=… E_FB_REPO=<owner/repo> E_FB_REF=<12-hex>`
+`EXEC_REQUIRE_SHA256=1 E_SHA=... E_RETRY_SHA=... E_FB_REPO=<owner/repo> E_FB_REF=<12-hex>`
 over the console or SSH channel, never over the HTTP the bytes came from. A
 missing digest under `EXEC_REQUIRE_SHA256=1` fails closed; a mismatch triggers
 exactly one re-fetch and re-verify (absorbing a concurrent-edit race) and
-otherwise exits 3. The short names are a keystroke budget, not a style choice —
+otherwise exits 3. The short names are a keystroke budget, not a style choice --
 see [the typed envelope](../definition.md#defining-the-fetch-and-execute-typed-envelope).
 Both name generations stay live so host and guest can skew in either direction:
 `EXEC_REQUIRE_SHA256` keeps its long name because an older guest image
 recognizes only that spelling and must fail closed, and the legacy `EXEC_*`
 spellings are still read so a current guest works under an older host. `GH_TOKEN`
-is never typed — the console is screenshotted and OCR'd into the published run
-log — so the guest gets it from the cloud-init seed instead.
+is never typed -- the console is screenshotted and OCR'd into the published run
+log -- so the guest gets it from the cloud-init seed instead.
 
 Proxy routing is the opposite of what it looks like. `--no-proxy` is set **only**
 for the host route, so `/livecheck`, `/yuruna-repo/` and the perf-checkpoint POST
 deliberately bypass squid, while the GitHub fallback inherits the guest-wide
 `http_proxy` / `https_proxy` that cloud-init writes into `/etc/environment`,
 `/etc/profile.d/yuruna-proxy.sh` and
-`/etc/systemd/system.conf.d/yuruna-proxy.conf` — `github.com` is not in
+`/etc/systemd/system.conf.d/yuruna-proxy.conf` -- `github.com` is not in
 `no_proxy`. The fallback is also conditional: with no pinned repo and ref (from
 `E_FB_REPO` / `E_FB_REF` or `host.env`) the script prints `NO FETCH SOURCE` and
 exits 2. When `GH_TOKEN` is set the fallback uses the `api.github.com` Contents
@@ -288,7 +288,7 @@ and the token, so the fallback lands on the same bytes the digest was taken from
 rather than on a moving branch or a public mirror.
 
 **The stash leg is a different contract from the proxy leg.** The proxy is
-transparent — the guest sets no stash address of its own. The stash address is
+transparent -- the guest sets no stash address of its own. The stash address is
 resolved *by the harness* through `${ext:stash-service.ResolveHost(<vm>)}` in a
 sequence's `variables:` block (`Resolve-Host` in
 `test/extension/stash-service/default.psm1`, re-probed per cycle because a cycle
@@ -312,7 +312,7 @@ The proxy leg is deliberately conservative about revalidation: `offline_mode on`
 serves a stored object without asking the origin whether it changed, and long
 `refresh_pattern` entries with `override-expire override-lastmod` pin `.deb`,
 `.iso`, `.zip`, tarballs and registry blobs. That suppresses fetching only for
-objects already stored — a MISS still goes upstream. The switch that actually
+objects already stored -- a MISS still goes upstream. The switch that actually
 refuses upstream is a separate `/etc/squid/conf.d/yuruna-no-upstream.conf` the
 operator writes on demand.
 
@@ -355,7 +355,7 @@ sequenceDiagram
 the `last_failure.json` ordered dictionary *and* the matching `step_failure`
 NDJSON record from the same live store, so the file and the stream can never
 drift. It starts from the failing verb's registry entry in `Test.SequenceAction`
-— all 21 verbs carry a `FailureClass`, `Severity` and `SuggestedRecoveries` — and
+-- all 21 verbs carry a `FailureClass`, `Severity` and `SuggestedRecoveries` -- and
 then applies **ordered reclassification**: a matched fail-pattern wins as
 `pattern_matched_failure`, else an unresolved guest address becomes
 `ip_not_discovered`, else a lost transport becomes `network_timeout`, else a lost
@@ -366,15 +366,15 @@ run becomes `instrumentation_failure`, else a missing payload becomes
 `Test.FailureTaxonomy.psm1` is the single source of truth for the 21 classes and
 the three severities (`hard`, `soft`, `unknown`); `Test.EventSchema.psm1`
 validates every emitted event
-against it but **never rejects** — a violation emits a synthetic
+against it but **never rejects** -- a violation emits a synthetic
 `schema_violation` event naming the bad fields plus the original record, so a bug
 in the emitter costs visibility rather than data.
 
 The alert is gated, not immediate. A latch persisted in
-`runtime/runner.gating.json` runs `Armed → (failuresBeforeAlert failures) →
-Fired → (successesBeforeRearm successes) → Armed`, because each cycle is a fresh
+`runtime/runner.gating.json` runs `Armed -> (failuresBeforeAlert failures) ->
+Fired -> (successesBeforeRearm successes) -> Armed`, because each cycle is a fresh
 process and an in-memory counter would reset every time.
-`Invoke-Remediation` sits on the path but is **advisory only** — it computes a
+`Invoke-Remediation` sits on the path but is **advisory only** -- it computes a
 recommendation, emits `remediation_recommended` and persists
 `last_remediation.json`, and never acts; it is skipped entirely when the failure
 is the planner's own (`FailedGuest -eq '(planner)'`).
@@ -383,18 +383,18 @@ A watchdog kill enters the same path from the other side. The outer detects that
 the inner exited non-zero **and** `runner.stepHeartbeat` is older than the step
 timeout, then synthesizes `last_failure.json` itself with `reason=watchdog_kill`,
 `failureClass=wait_timeout`, `classificationSource=synthetic` and
-`synthesizedBy=outer-watchdog` — only if the inner left none. That synthetic
+`synthesizedBy=outer-watchdog` -- only if the inner left none. That synthetic
 class is exactly what lets the streak-capped auto-remediation break the failure
 pause early instead of waiting the full human pause.
 
 **A third entry needs no cycle at all.** `Test-OuterPoolStorageSpaceReady` runs
 *before* the spawn, and when the projected archive will not fit it writes the
-record itself — `Write-PoolStorageSpaceFailureRecord` with
-`failureClass = pool_storage_full`, then `Send-PoolStorageSpaceNotification` —
+record itself -- `Write-PoolStorageSpaceFailureRecord` with
+`failureClass = pool_storage_full`, then `Send-PoolStorageSpaceNotification` --
 and returns the `storage-full` outcome without ever starting an inner. The class
 is deliberately **absent** from the auto-remediation allow-list the watchdog
 class sits in: a full share does not clear on a retry, so this one holds the
-full human pause on purpose. The ordering matters as much as the class — the
+full human pause on purpose. The ordering matters as much as the class -- the
 check sits after the `last_failure.json` wipe, because reading a stale transient
 record from the previous cycle is exactly what would cut the pause short and walk
 the runner back into the same wall minutes later.
@@ -433,12 +433,12 @@ sequenceDiagram
 | `Client` | `host/modules/Yuruna.DownloadAgent.psm1` (exports exactly `Resolve-DownloadAgentEndpoint`, `Get-DownloadAgentImageMetadata`, `Request-DownloadAgentImage`) |
 | `Agg` | `test/extension/pool-aggregator-service/main.go` on `:9400`, inside the caching-proxy VM |
 | `Agent` | `test/extension/download-agent-service/server/` on `:80` |
-| `Pool` | `<pool share>/images/` — `internal/imagestore/store.go`, `lease.go` |
+| `Pool` | `<pool share>/images/` -- `internal/imagestore/store.go`, `lease.go` |
 | `Origin` | `releases.ubuntu.com`, `cdimage.ubuntu.com`, `cloud-images.ubuntu.com`, `cdn.amazonlinux.com`, and a pinned Fido for Windows 11 |
 
 **This flow can only ever save work, never cost a cycle.** Every rung degrades to
 the plain publisher path: `Yuruna.DownloadAgent.psm1` imports nothing and throws
-nothing — `Resolve-DownloadAgentEndpoint` collapses to `''` when nothing answers,
+nothing -- `Resolve-DownloadAgentEndpoint` collapses to `''` when nothing answers,
 and `Request-DownloadAgentImage` collapses to an `unavailable` or `failed`
 outcome, so the caller proceeds exactly as a lab running no agent would. It also
 exports only uniquely-named functions, so it can never take the command-table
@@ -461,7 +461,7 @@ trying to avoid. `downloaded` is claimed only after the received bytes hash to
 the agent's advertised SHA-256; the staging file is removed on every other
 outcome, so a bogus artifact can never be promoted by a caller that only checks
 for a file. The byte route resumes with `Range: bytes=<offset>-`, and a `200`
-answer to a ranged request forces `FileMode.Create` rather than `Append` — a
+answer to a ranged request forces `FileMode.Create` rather than `Append` -- a
 server that ignored the range must not have its bytes spliced onto a partial.
 
 The `Agent->>Origin` arrow hides one asymmetry between guest families. Most
@@ -474,7 +474,7 @@ path rather than to no image.
 Two directions of traffic are deliberately opposite. Byte transfers go through
 squid first and fall back to direct on any proxy failure; **freshness probes and
 resolver fetches always go direct**, because the proxy pins `.iso` / `.zip` with
-`override-expire override-lastmod` and runs `offline_mode` after prewarm — a
+`override-expire override-lastmod` and runs `offline_mode` after prewarm -- a
 proxied `HEAD` would return frozen prewarm-era headers as a success and certify
 staleness as freshness forever.
 
@@ -513,13 +513,13 @@ sequenceDiagram
 | `PoolNas` | `networkStorage.poolStorage{LocalPath,NetworkPath,NetworkUser}` |
 | `StashNas` | `networkStorage.stashStorage{LocalPath,NetworkPath,NetworkUser}` |
 
-`Runner` is a **≤7 fold**: the detached `Invoke-PoolStorageDrain.ps1` and the
+`Runner` is a **<=7 fold**: the detached `Invoke-PoolStorageDrain.ps1` and the
 in-process pool notifier are two different writers that happen to run on the same
 machine, drawn as one participant so the two shares stay visible.
 
 **Two shares, not one.** The pool tier and the stash tier have their own path,
 their own SMB account, their own credential and their own mount point; the stash
-never touches the pool share. Both are optional and both are off by default —
+never touches the pool share. Both are optional and both are off by default --
 empty paths are a complete no-op. Only the pool tier has a replicate flag
 (the three `networkStorage.poolStorage*` paths); the stash daemon writes files directly, so
 `Get-YurunaStashStorageConfig` reports `Replicate = $false` always while keeping
@@ -550,7 +550,7 @@ On-share layout, derived from `Test.PoolStorage.psm1`, `Test.HostIdentity.psm1`,
   stash/<hostId>/files/YYYY/MM/DD/   artifacts + .yuruna.meta.json sidecars
 ```
 
-**Five writers, five different disciplines** — and none of them is a lock in the
+**Five writers, five different disciplines** -- and none of them is a lock in the
 usual sense:
 
 - **The drain** writes only into its own `hosts/<hostId>/` namespace, so there is
@@ -560,19 +560,19 @@ usual sense:
   enumerates with `-Filter 'info.*.yml' -File`. The aggregator points
   `-pool-archive-root` at that same `hosts/` directory, which is what lets it
   serve archived cycles it never wrote. Shares written before this unification
-  keep a bare `<share>/<hostId>/` root: those are **frozen** — never read, never
-  migrated — and `Remove-PoolHost.ps1` is their only sanctioned deleter.
+  keep a bare `<share>/<hostId>/` root: those are **frozen** -- never read, never
+  migrated -- and `Remove-PoolHost.ps1` is their only sanctioned deleter.
   Its single-instance guard is a local
   `runtime/poolstorage.drain.lock` claimed with `CreateNew` and recording PID
   **plus process StartTime**, so PID reuse cannot make a stale lock look live.
   Per-cycle atomicity is the `.yuruna-complete` sentinel written last, and the
-  authoritative ledger is host-local (`runtime/poolstorage.state.json`) — the
+  authoritative ledger is host-local (`runtime/poolstorage.state.json`) -- the
   share is never consulted to decide what has been replicated, so a destination
   folder without a sentinel is deleted and recopied rather than trusted.
 - **The download agent** takes an `images/.agent-lease.json` lease, but
   correctness never depends on it: **content-addressed generations make
   concurrent writers safe**, and the lease only makes duplicate work rare. It is
-  claimed by write → 500 ms confirm delay → read-back, because CIFS
+  claimed by write -> 500 ms confirm delay -> read-back, because CIFS
   atomic-create is unproven here; a live foreign lease puts the agent in
   read-only mode rather than stopping it. `Store.Commit` writes the sidecar first
   and flips the tiny pointer file **last**, so a refresh never renames over bytes
@@ -580,8 +580,8 @@ usual sense:
 - **The pool-control service** relies on git itself: clone-or-fetch,
   `reset --hard FETCH_HEAD` (refused outright when a rebase is in progress or
   `merge-base --is-ancestor` disagrees), schema-validated write, then commit and
-  push with a rebase-retry. An unpushed commit is reported as a hard error —
-  "committed locally but NOT pushed" — because the change is not durable.
+  push with a rebase-retry. An unpushed commit is reported as a hard error --
+  "committed locally but NOT pushed" -- because the change is not durable.
 - **The pool notifier** claims a message by **renaming it into `sending/`**,
   which is the atomic operation; a message stranded there past a reclaim grace
   goes back to `outgoing/`, and terminal states are `delivered/` or `failed/`.
@@ -589,10 +589,10 @@ usual sense:
   `transports.yml`.
 - **The stash service** writes each artifact beside a JSON sidecar so the rich
   metadata survives a VM reimage, while its SQLite index and its 5 GB
-  NAS-offline buffer stay VM-local — SQLite locking is unreliable over SMB/CIFS.
+  NAS-offline buffer stay VM-local -- SQLite locking is unreliable over SMB/CIFS.
 
 **The cache VM is the odd one out**: it both writes (its own Loki, Prometheus and
-Grafana data, hourly, via `ypool-nas-replicate.timer` — Grafana through
+Grafana data, hourly, via `ypool-nas-replicate.timer` -- Grafana through
 `sqlite3 .backup` rather than an rsync of an open WAL database) and serves
 (Apache aliases `/pool-intent.git` to the store on the same share, read-only, so
 every runner clones the intent from the cache VM while the pool-control service
@@ -605,7 +605,7 @@ a directory that enumeration already reports as empty.
 
 Nothing here is on the cycle's critical path. The drain and the event push are
 detached children the outer loop never waits on, and `Connect-YurunaPoolStorage`
-never throws and never blocks — every network-touching subprocess is wall-clock
+never throws and never blocks -- every network-touching subprocess is wall-clock
 bounded and its process tree killed on timeout. It also runs a **post-mount write
 probe**, because a read-only share mounts cleanly and then fails at `git push`;
 the verbatim reason is recorded and read back by `Get-PoolStorageLastMountError`,
@@ -618,4 +618,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19

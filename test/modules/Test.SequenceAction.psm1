@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a1b2c3-d4e5-4f67-8901-bc0123456726
+.VERSION 2026.08.19
+.GUID 42c1c329-52af-4255-9e3b-0caf47235605
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
@@ -100,13 +100,13 @@ function Register-SequenceAction {
         # regex-matching the human label. Severity tags whether retry
         # is plausible. SuggestedRecoveries are ordered hints for an
         # autonomous remediation loop.
-        [ValidateSet('ocr_timeout','network_timeout','credential_expired',
+        [ValidateSet('ocr_timeout','console_flooded','network_timeout','credential_expired',
             'host_io_blocked','pattern_matched_failure','retry_exhausted',
             'snapshot_restore_failed','script_error','wait_timeout',
             'extension_error','instrumentation_failure','provisioning_failure',
             'bootstrap_sync','plan_invalid','elevation_required','project_access_denied',
             'host_network_degraded','ip_not_discovered','payload_unavailable',
-            'pool_storage_full','unknown')]
+            'pool_storage_full','dhcp_identity_unbounded','unknown')]
         [string]$FailureClass = 'unknown',
         [ValidateSet('hard','soft','unknown')]
         [string]$Severity = 'unknown',
@@ -158,13 +158,13 @@ function Register-SequenceAction {
 # so a standalone import without the taxonomy module degrades to no-check.
 if (Get-Command Assert-FailureTaxonomyInSync -ErrorAction SilentlyContinue) {
     $null = Assert-FailureTaxonomyInSync -Source 'Test.SequenceAction Register-SequenceAction ValidateSet' `
-        -FailureClass @('ocr_timeout','network_timeout','credential_expired',
+        -FailureClass @('ocr_timeout','console_flooded','network_timeout','credential_expired',
             'host_io_blocked','pattern_matched_failure','retry_exhausted',
             'snapshot_restore_failed','script_error','wait_timeout',
             'extension_error','instrumentation_failure','provisioning_failure',
             'bootstrap_sync','plan_invalid','elevation_required','project_access_denied',
             'host_network_degraded','ip_not_discovered','payload_unavailable',
-            'pool_storage_full','unknown') `
+            'pool_storage_full','dhcp_identity_unbounded','unknown') `
         -Severity @('hard','soft','unknown')
 }
 

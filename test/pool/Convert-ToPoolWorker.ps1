@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a3e79c-5f14-4b28-8d60-1e9b3c7d5a42
+.VERSION 2026.08.19
+.GUID 423d3dd4-8e4d-441b-9914-81735aaf24c6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna pool worker standalone conversion lab join
@@ -258,7 +258,7 @@ try {
     $reference = Get-ConfigSyncReferenceConfig -ReferenceHost $ReferenceHost -Port $StatusPort
 } catch {
     Write-Error ("$ReferenceHost is not serving its configuration on :$StatusPort ($($_.Exception.Message)). " +
-                 'Start the status service there (pwsh test/Start-StatusService.ps1) and re-run.')
+                 'Start the status service there (pwsh test/service/Start-StatusService.ps1) and re-run.')
     exit 1
 }
 Write-Information "  Reference host $ReferenceHost is serving its configuration." -InformationAction Continue

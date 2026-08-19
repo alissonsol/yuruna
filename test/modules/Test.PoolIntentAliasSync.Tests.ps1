@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42d9f5a7-c3e4-4b02-8f56-8a7b9c0d1e23
+.VERSION 2026.08.19
+.GUID 428a6a51-09a1-4515-99d2-2504e234cbcf
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test pool intent apache alias proxy pester
@@ -38,9 +38,7 @@
 BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 
-function Assert-True  { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
-function Assert-False { param($Condition, [string]$Because = '') if ($Condition) { throw "Expected false. $Because" } }
-function Assert-Equal { param($Expected, $Actual, [string]$Because = '') if ($Expected -ne $Actual) { throw "Expected '$Expected' but got '$Actual'. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 Import-Module (Join-Path $here 'Test.Ssh.psm1')          -Global -Force -DisableNameChecking
 Import-Module (Join-Path $here 'Test.CachingProxyService.psm1')         -Force -DisableNameChecking

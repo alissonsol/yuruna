@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a1b2c3-d4e5-4f67-8901-bc0123456755
+.VERSION 2026.08.19
+.GUID 4256c18e-dd7e-400d-aa57-445e74e55994
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test host windows hyper-v enable-test-automation
@@ -48,7 +48,7 @@
     the census must be re-evaluated each cycle rather than once at enable time.
     See docs/host-hyperv.md.
 
-    Run this before Invoke-TestRunner.ps1 when Assert-HostConditionSet
+    Run this before Start-TestRunner.ps1 when Assert-HostConditionSet
     reports that display timeout or lock screen settings will interfere
     with test runs. If the scale reset fires on a machine that was at
     125% or 150%, sign out and back in (or reboot) before the next run

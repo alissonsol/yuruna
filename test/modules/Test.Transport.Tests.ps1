@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42c1a7e9-5b62-4d38-9a04-7e2f1c6b8d90
+.VERSION 2026.08.19
+.GUID 42869a92-a8d2-410d-9364-cdfba1a4ed8e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test transport vnc pester
@@ -32,18 +32,7 @@ $here       = Split-Path -Parent $PSCommandPath
 $modulePath = Join-Path $here 'Test.Transport.psm1'
 Import-Module $modulePath -Force -DisableNameChecking -ErrorAction SilentlyContinue
 
-function Assert-True  { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
-function Assert-Throw {
-    param([scriptblock]$Script, [string]$Match = '', [string]$Because = '')
-    $threw = $false
-    try { & $Script } catch {
-        $threw = $true
-        if ($Match -and ($_.Exception.Message -notmatch $Match)) {
-            throw "Threw, but message '$($_.Exception.Message)' did not match '$Match'. $Because"
-        }
-    }
-    if (-not $threw) { throw "Expected a throw. $Because" }
-}
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 
 function Get-TransportAst {

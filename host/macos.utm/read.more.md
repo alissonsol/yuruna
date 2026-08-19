@@ -11,9 +11,9 @@ Latest instructions at [brew.sh](https://brew.sh/):
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 ```
 
-Open a new terminal so `brew shellenv` lands on `PATH`. Apple Silicon →
-`/opt/homebrew`; Intel → `/usr/local`. Homebrew depends on the Xcode CLI
-tools — macOS prompts when missing, or trigger explicitly:
+Open a new terminal so `brew shellenv` lands on `PATH`. Apple Silicon ->
+`/opt/homebrew`; Intel -> `/usr/local`. Homebrew depends on the Xcode CLI
+tools -- macOS prompts when missing, or trigger explicitly:
 
 ```
 xcode-select --install
@@ -26,12 +26,12 @@ brew install --cask utm
 brew install git powershell tesseract openssl qemu wget
 ```
 
-- `utm` — [UTM](https://mac.getutm.app/) VM host, built on QEMU.
-- `git` — clone the repo.
-- `powershell` — `pwsh` runs every script under `test/`.
-- `tesseract` — OCR for [Test.Tesseract.psm1](../../test/modules/Test.Tesseract.psm1).
-- `qemu` — `qemu-img` for disk image resizing in `Get-Image.ps1`.
-- `openssl` / `wget` — image-fetch and cloud-init preparation.
+- `utm` -- [UTM](https://mac.getutm.app/) VM host, built on QEMU.
+- `git` -- clone the repo.
+- `powershell` -- `pwsh` runs every script under `test/`.
+- `tesseract` -- OCR for [Test.Tesseract.psm1](../../test/modules/Test.Tesseract.psm1).
+- `qemu` -- `qemu-img` for disk image resizing in `Get-Image.ps1`.
+- `openssl` / `wget` -- image-fetch and cloud-init preparation.
 
 ## 3) Clone the Yuruna Repository
 
@@ -55,7 +55,7 @@ QEMU-backend guests can opt into a `-vnc` argument in
 `AdditionalArguments` for a VNC transport that sends keystrokes and
 reads the framebuffer over TCP, bypassing AppKit: no focus, no
 Space-pinning, no Accessibility prompt. `guest.windows.11` uses QEMU
-but ships with empty `AdditionalArguments` — to opt in, follow the
+but ships with empty `AdditionalArguments` -- to opt in, follow the
 comment in its `config.plist.template`.
 
 ### Per-VM VNC port architecture
@@ -84,9 +84,9 @@ captures via `screencapture -l <windowID>`; the
 windowID lookup uses `kCGWindowListOptionAll` to find UTM windows on
 other Spaces, and `Enable-TestAutomation.ps1` flips
 `AppleSpacesSwitchOnActivation` so UTM activation doesn't yank the
-view across Spaces. AVF keystrokes still take focus — for the cleanest
-cross-Space behavior, right-click UTM in the Dock → Options → Assign
-To → All Desktops.
+view across Spaces. AVF keystrokes still take focus -- for the cleanest
+cross-Space behavior, right-click UTM in the Dock -> Options -> Assign
+To -> All Desktops.
 
 ## 5) Disable Display Sleep and Screen Lock
 
@@ -119,7 +119,7 @@ open -a UTM      # surfaces any first-run dialogs
 
 ## 8) Optional: Squid cache VM
 
-See [Hosts — ...](../README.md#optional-squid-cache-vm) and
+See [Hosts -- ...](../README.md#optional-squid-cache-vm) and
 [Caching](../../docs/caching.md). After provision,
 double-click
 `~/yuruna/guest.nosync/yuruna-caching-proxy-service.utm` to register
@@ -128,7 +128,7 @@ the bundle with UTM and start the VM.
 ## 9) Run the Test Harness
 
 ```
-pwsh ~/git/yuruna/test/Invoke-TestRunner.ps1
+pwsh ~/git/yuruna/test/Start-TestRunner.ps1
 ```
 
 ---
@@ -137,6 +137,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../../README.md)

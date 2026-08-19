@@ -37,7 +37,7 @@ fallbacks invoked only when the primary's text did not match.
 | Variable                  | Effect |
 |---------------------------|--------|
 | `YURUNA_OCR_ENGINES`      | Comma-separated provider list. Reorders or restricts the active set. Example: `tesseract,winrt`. |
-| `YURUNA_OCR_COMBINE`      | `Or` (default — first match wins) or `And` (every enabled provider must match). |
+| `YURUNA_OCR_COMBINE`      | `Or` (default -- first match wins) or `And` (every enabled provider must match). |
 | `YURUNA_OCR_WORKER`       | `0` disables the persistent WinRT worker and reverts to one-shot `powershell.exe` spawns per OCR call (slower; debug only). |
 
 ## Why a persistent WinRT worker
@@ -45,8 +45,8 @@ fallbacks invoked only when the primary's text did not match.
 `powershell.exe` cold-starts at 150-300 ms per spawn, so a cycle with
 ~1000 OCR polls would burn 3-5 minutes on process-start overhead
 alone. The persistent worker keeps one `powershell.exe` alive for the
-inner-runner lifetime and feeds image paths over stdin — per-call
-latency drops to ~5-15 ms (a ~10-30× speedup). A worker failure falls
+inner-runner lifetime and feeds image paths over stdin -- per-call
+latency drops to ~5-15 ms (a ~10-30x speedup). A worker failure falls
 back to the one-shot path for that single call, so a broken worker can
 never harden into a permanent OCR outage.
 
@@ -54,11 +54,11 @@ never harden into a permanent OCR outage.
 
 | Direction | Line | Meaning |
 |-----------|------|---------|
-| parent → worker | `<imagePath>\n` | One request per OCR call |
-| worker → parent | `__YURUNA_READY__\n` | Printed once after init |
-| worker → parent | `<ocrLine>\n` | Zero or more per request |
-| worker → parent | `__YURUNA_EOR_OK__\n` | Success terminator |
-| worker → parent | `__YURUNA_EOR_ERR__ <msg>\n` | Failure terminator |
+| parent -> worker | `<imagePath>\n` | One request per OCR call |
+| worker -> parent | `__YURUNA_READY__\n` | Printed once after init |
+| worker -> parent | `<ocrLine>\n` | Zero or more per request |
+| worker -> parent | `__YURUNA_EOR_OK__\n` | Success terminator |
+| worker -> parent | `__YURUNA_EOR_ERR__ <msg>\n` | Failure terminator |
 
 **Lifecycle.** Lazy spawn on first call. Any I/O failure or unexpected
 EOF tears down the worker and re-throws; `Invoke-WinRtOcr` catches and
@@ -83,7 +83,7 @@ worker.
 Two non-obvious transforms protect every macOS UTM screenshot before
 `VNRecognizeTextRequest` sees it:
 
-1. **Densest-text-row crop.** UTM/screencapture writes 2898×1698 PNGs
+1. **Densest-text-row crop.** UTM/screencapture writes 2898x1698 PNGs
    where the login text fills only the top ~150 rows. Vision's
    detector returns 0 observations on images where content fills <10%
    of the vertical extent. The script counts lit pixels per row, skips
@@ -104,16 +104,16 @@ nonsense.
 
 `--psm 6` (single uniform block of text) is the only page-segmentation
 mode that reads a terminal screenshot end-to-end. Terminal captures ARE
-uniform blocks — monospace, equal-size lines, top-aligned — and PSM 6
+uniform blocks -- monospace, equal-size lines, top-aligned -- and PSM 6
 walks the whole image as one block, so a sparse top-of-image text region
 with empty space below still gets read in full.
 
 Every neighboring mode drops text the harness depends on:
 
 - **`--psm 4`** (single column of variable sizes): on screens with two
-  visually-distinct content regions — e.g. a tiny login prompt at the
+  visually-distinct content regions -- e.g. a tiny login prompt at the
   top plus a cloud-init dump rendered as a virtual second column at the
-  bottom on retried boots — PSM 4 picks ONE region as "the column" and
+  bottom on retried boots -- PSM 4 picks ONE region as "the column" and
   silently drops the text in the other. The visible symptom is a
   `<hostname> login:` line missing from the OCR output even though the
   screenshot shows it.
@@ -150,6 +150,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../README.md)

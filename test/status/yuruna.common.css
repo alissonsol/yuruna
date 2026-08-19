@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.08.16
+  Version: 2026.08.19
   --- REGION: https://yuruna.link/definition#defining-the-status-page-browser-baseline
   --- REGION: https://yuruna.link/definition#defining-the-status-page-header-anatomy
   --- REGION: https://yuruna.link/definition#defining-the-status-page-mobile-and-dark-mode-hardening
@@ -265,7 +265,7 @@ header.app .btn:not(.primary):hover { background: var(--chrome-raised); }
 /* The trailing link leaves the service; the rule says so before it is followed. */
 .menu-panel .menu-out { margin-top: .3rem; padding-top: .4rem; border-top: 1px solid var(--chrome-line); border-radius: 0 0 6px 6px; }
 
-/* Footer bar (server IPs · loaded · refresh countdown), the same surface as the
+/* Footer bar (server IPs - loaded - refresh countdown), the same surface as the
    header above -- fixed at the bottom, with a readonly mono textarea for the
    (possibly long) IP list. main pads its bottom so the fixed bar never covers
    the last row of a table. margin-top/text-align are restated because one page

@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42b2897a-ae65-437f-a651-3e7a48775174
+.VERSION 2026.08.19
+.GUID 423d0e57-097d-4f6e-aabb-76a866d96fe5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna host redirect

@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42c8e4f6-b2d3-4a91-9e45-7f6a8b9c0d12
+.VERSION 2026.08.19
+.GUID 42657c1d-d334-49f4-8ac3-79b2e8df3f52
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test pool intent seed url precedence pester
@@ -40,7 +40,7 @@ BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 $cachingProxyModule = Join-Path $here 'Test.CachingProxyService.psm1'
 
-function Assert-Equal { param($Expected, $Actual, [string]$Because = '') if ($Expected -ne $Actual) { throw "Expected '$Expected' but got '$Actual'. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 Import-Module $cachingProxyModule -Force -DisableNameChecking
 

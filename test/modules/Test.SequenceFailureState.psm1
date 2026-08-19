@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42d5e8a2-b1c4-4f09-a6d3-7e8f0a1b2c3d
+.VERSION 2026.08.19
+.GUID 428d5583-549b-428b-9150-dfe8fe3266a4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
@@ -72,6 +72,14 @@ function Initialize-SequenceFailureStateStore {
     # tell "never printed" from "printed, then pushed out of the window" -- two
     # failures with different owners and different fixes.
     $Store['WaitForTextFreshWindowNearMiss'] = [string[]]@()
+    # Populated when the console filled with one repeating log line while the
+    # wait was seeking its pattern. That case is NOT the same failure as a
+    # pattern that never printed, and the byte-hash freeze detector cannot see
+    # it: a scrolling flood changes every frame, so the feed is live and only the
+    # CONTENT is useless. Left as one class they are indistinguishable in the
+    # record, and the flood is the one whose owner is the guest rather than the
+    # capture path.
+    $Store['WaitForTextConsoleFlood'] = $null
     # Set by the ssh verbs when host-side discovery never produced an address
     # and the bare VM name was dialed as the last route left. The verb registry
     # classifies those verbs by their COMMON failure -- a guest command that
@@ -184,6 +192,7 @@ function New-SequenceFailureRecord {
     $ocrTail = if ($fail.WaitForTextOcrTail) { [string]$fail.WaitForTextOcrTail } else { '' }
     [string[]]$patternsSought = @($fail.WaitForTextPatternsSought)
     [string[]]$freshWindowNearMiss = @($fail.WaitForTextFreshWindowNearMiss)
+    $consoleFlood = if ($fail.WaitForTextConsoleFlood) { [string]$fail.WaitForTextConsoleFlood } else { '' }
     $stepNumber = if ($fail.LastFailedStepNumber) { [int]$fail.LastFailedStepNumber } else { 0 }
     if ($Reason -eq 'crash') {
         $label = if ($fail.LastFailureLabel) { [string]$fail.LastFailureLabel } else { "engine crash: $($CrashError.Exception.Message)" }
@@ -199,6 +208,17 @@ function New-SequenceFailureRecord {
         # benefit from one.
         if ($matchedFailPattern) {
             $failureClass = 'pattern_matched_failure'
+            [string[]]$suggested = @('pause_and_inspect')
+        }
+        # A wait that ended with the console overwriting itself did not fail the
+        # way ocr_timeout describes. ocr_timeout's recoveries assume the pattern
+        # never printed -- so they restart the guest and try again, which reruns
+        # the flood. The owner here is whatever is filling the console, and the
+        # answer is to read it, so the class and the recovery both change. Ranked
+        # below a matched failure pattern: that is the guest announcing its own
+        # failure in words, which outranks an inference drawn from screen shape.
+        elseif ($fail.WaitForTextConsoleFlood) {
+            $failureClass = 'console_flooded'
             [string[]]$suggested = @('pause_and_inspect')
         }
         # A step that never resolved an address never reached the guest, so the
@@ -273,7 +293,7 @@ function New-SequenceFailureRecord {
     # repro: a copy-paste command that re-runs the failing sequence (and its
     # baseline chain) to reproduce the failure deterministically. The command
     # deliberately OMITS -StartStep: stepNumber is file-local (1-based within
-    # this sequence file), but Invoke-TestSequence's -StartStep is chain-GLOBAL, so a
+    # this sequence file), but Debug-TestSequence's -StartStep is chain-GLOBAL, so a
     # naive -StartStep would mis-target a leaf that still has an unbuilt
     # baseline. The file-local failing step is exposed as resumeFromStep
     # (advisory; valid as -StartStep on the warm / no-baseline path). Contract
@@ -287,7 +307,7 @@ function New-SequenceFailureRecord {
     $shellSafe = { param([string]$v) ($v -replace '[`"$\r\n]', '') }
     $reproCommand = ''
     if ($sequenceName) {
-        $reproParts = @('pwsh test/Invoke-TestSequence.ps1', "-SequenceName `"$(& $shellSafe $sequenceName)`"")
+        $reproParts = @('pwsh test/Debug-TestSequence.ps1', "-SequenceName `"$(& $shellSafe $sequenceName)`"")
         if ($GuestKey) { $reproParts += "-GuestKey `"$(& $shellSafe $GuestKey)`"" }
         if ($VMName)   { $reproParts += "-VMName `"$(& $shellSafe $VMName)`"" }
         $reproParts += '-logLevel Debug'
@@ -295,8 +315,8 @@ function New-SequenceFailureRecord {
     }
     $repro = [ordered]@{
         command        = $reproCommand
-        runnerScript   = 'test/Invoke-TestSequence.ps1'
-        entrypoint     = 'Invoke-TestSequence'
+        runnerScript   = 'test/Debug-TestSequence.ps1'
+        entrypoint     = 'Debug-TestSequence'
         sequenceName   = $sequenceName
         resumeFromStep = $stepNumber
     }
@@ -379,6 +399,10 @@ function New-SequenceFailureRecord {
                     ocrTail            = $ocrTail
                     patternsSought     = $patternsSought
                     freshWindowNearMiss = $freshWindowNearMiss
+                    # Empty string rather than $null when absent, so the field is
+                    # always present and a consumer never has to tell "not
+                    # flooded" from "this record predates the check".
+                    consoleFlood       = $consoleFlood
                 }
             }
         }

@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42e8b4c0-91d7-4a35-bf62-0c3e75a9d148
+.VERSION 2026.08.19
+.GUID 42218fa5-018e-4ea0-a6fe-a80cc7202613
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test network churn beacon pester
@@ -95,6 +95,22 @@ Describe 'Get-HostAddressChangeCount' {
         $d = New-ChurnTempDir
         try {
             Add-ChurnRow -Dir $d -AtUtc ([datetime]::UtcNow.AddMinutes(-90))
+            Get-HostAddressChangeCount -RuntimeDir $d -StartUtc ([datetime]::UtcNow.AddHours(-1)) -EndUtc ([datetime]::UtcNow) |
+                Should -Be 0
+        } finally { Remove-Item -Recurse -Force $d }
+    }
+
+    It 'reports zero for a host that has held one address since the beacon started' {
+        # The other half of the -1 rule, and the half that was inverted: the
+        # record used to come into existence only once a host MOVED, so a host
+        # that has never moved had no file and reported "cannot measure" --
+        # meaning the most bounded hosts in the lab were indistinguishable from
+        # the ones nothing was watching. The baseline row is what separates
+        # them, and it must never itself count as a change.
+        $d = New-ChurnTempDir
+        try {
+            Write-HostAddressBaselineRecord -RuntimeDir $d -Current '192.168.7.115' `
+                -ObservedAtUtc ([datetime]::UtcNow.AddMinutes(-10).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")) -Confirm:$false
             Get-HostAddressChangeCount -RuntimeDir $d -StartUtc ([datetime]::UtcNow.AddHours(-1)) -EndUtc ([datetime]::UtcNow) |
                 Should -Be 0
         } finally { Remove-Item -Recurse -Force $d }
@@ -247,6 +263,23 @@ Describe 'Get-HostAddressChurnVerdict -- periodic, or merely frequent?' {
         } finally { Remove-Item -Recurse -Force $d }
     }
 
+    It 'calls a beacon-started, never-moved host stable rather than unknown' {
+        # A restarted beacon writes a fresh baseline. If that were counted, a
+        # motionless host whose status service restarted three times would read
+        # as 'moved' -- and on a long lease that is the reading that sends an
+        # operator hunting for leaked addresses that were never leaked.
+        $d = New-ChurnTempDir
+        try {
+            foreach ($ago in 300, 200, 100) {
+                Write-HostAddressBaselineRecord -RuntimeDir $d -Current '192.168.7.115' `
+                    -ObservedAtUtc ([datetime]::UtcNow.AddMinutes(-$ago).ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")) -Confirm:$false
+            }
+            $v = Get-HostAddressChurnVerdict -RuntimeDir $d
+            $v.verdict | Should -Be 'stable'
+            $v.changes | Should -Be 0
+        } finally { Remove-Item -Recurse -Force $d }
+    }
+
     It 'reads one address per renewal as renewal-churn, at ANY lease length' {
         # The property that has to hold for a lab on a 20-minute lease and a
         # customer on a week-long one: the verdict is the same, because the
@@ -362,6 +395,109 @@ Describe 'Get-HostAddressStabilityReport -- pairing what was asked for with what
         try {
             (Get-HostAddressStabilityReport -RuntimeDir $d).severity |
                 Should -BeIn @('ok', 'advisory', 'warning')
+        } finally { Remove-Item -Recurse -Force $d }
+    }
+
+    # A window whose every change reports the same current address describes a
+    # host that lost and reacquired ONE address. No second address was ever
+    # observed, so "changed address N times" asserts a renumbering that left no
+    # trace anywhere else -- and it buries the signal that is actually present.
+    # An operator reading it goes looking for address mobility, finds a host
+    # sitting on one address, and concludes the check is noise.
+    It 'does not report a renumbering when only one address was ever seen' {
+        $d = New-ChurnTempDir
+        try {
+            $now = [datetime]::UtcNow
+            # Irregular gaps so the verdict is 'moved' rather than periodic, and
+            # a single current address throughout.
+            foreach ($m in 5, 47, 63, 400, 415, 1200) { Add-ChurnRow -Dir $d -AtUtc $now.AddMinutes(-$m) -To '192.168.7.9' }
+            InModuleScope -ModuleName Test.HostAddressBeacon -Parameters @{ Dir = $d; Now = $now } {
+                param($Dir, $Now)
+                Mock Get-HostBridgeDhcpIdentity { @{ backend = 'networkd'; pinned = $true; detail = 'pinned'; remedy = '' } }
+                $r = Get-HostAddressStabilityReport -RuntimeDir $Dir -NowUtc $Now
+                $r.churn.distinctAddresses | Should -Be 1
+                $r.message | Should -Not -Match 'changed address \d+ time'
+                $r.message | Should -Match 'only ever observed on ONE address'
+                $r.message | Should -Match 'took no extra lease'
+                $r.severity | Should -BeIn @('ok', 'advisory', 'warning')
+            }
+        } finally { Remove-Item -Recurse -Force $d }
+    }
+
+    It 'still reports a real renumbering when more than one address was seen' {
+        $d = New-ChurnTempDir
+        try {
+            $now = [datetime]::UtcNow
+            $i = 0
+            foreach ($m in 5, 47, 63, 400, 415, 1200) {
+                $i++; Add-ChurnRow -Dir $d -AtUtc $now.AddMinutes(-$m) -To "192.168.7.$(20 + $i)"
+            }
+            InModuleScope -ModuleName Test.HostAddressBeacon -Parameters @{ Dir = $d; Now = $now } {
+                param($Dir, $Now)
+                Mock Get-HostBridgeDhcpIdentity { @{ backend = 'networkd'; pinned = $true; detail = 'pinned'; remedy = '' } }
+                $r = Get-HostAddressStabilityReport -RuntimeDir $Dir -NowUtc $Now
+                $r.churn.distinctAddresses | Should -BeGreaterThan 1
+                $r.message | Should -Match 'changed address \d+ time'
+                $r.message | Should -Match 'distinct addresses'
+            }
+        } finally { Remove-Item -Recurse -Force $d }
+    }
+
+    # The pool-drain arithmetic in the periodic branch is a quantitative claim
+    # ("about N addresses a day out of the LAN pool"). On one address it is
+    # false, and a false leak sends an operator to the DHCP server for a fault
+    # that is on the wire.
+    It 'withdraws the pool-drain claim when the periodic changes are all one address' {
+        $d = New-ChurnTempDir
+        try {
+            $now = [datetime]::UtcNow
+            foreach ($i in 1..8) { Add-ChurnRow -Dir $d -AtUtc $now.AddMinutes(-30 * $i) -To '192.168.7.9' }
+            InModuleScope -ModuleName Test.HostAddressBeacon -Parameters @{ Dir = $d; Now = $now } {
+                param($Dir, $Now)
+                Mock Get-HostBridgeDhcpIdentity { @{ backend = 'networkd'; pinned = $true; detail = 'pinned'; remedy = '' } }
+                $r = Get-HostAddressStabilityReport -RuntimeDir $Dir -NowUtc $Now
+                $r.verdict  | Should -Be 'renewal-churn' -Because 'the periodicity is real and still worth a warning'
+                $r.severity | Should -Be 'warning'
+                $r.message  | Should -Not -Match 'takes a NEW address'
+                $r.message  | Should -Not -Match 'a day'
+                $r.message  | Should -Match 'LOSES AND REACQUIRES'
+            }
+        } finally { Remove-Item -Recurse -Force $d }
+    }
+
+    # The periodic multi-address branch reports a RATE, and a rate is not a
+    # drain. Converting one into the other needs the lease period and the scope
+    # size, and this beacon is handed neither -- it reads one host's address log
+    # and nothing else. The same rate is unremarkable on a short lease and fatal
+    # on a long one, so asserting the fatal reading is a guess presented as a
+    # measurement, and it sends whoever reads it to a DHCP server that may have
+    # most of its pool free.
+    It 'reports the churn rate without asserting renewal or exhaustion' {
+        $d = New-ChurnTempDir
+        try {
+            $now = [datetime]::UtcNow
+            $i = 0
+            foreach ($k in 1..8) {
+                $i++; Add-ChurnRow -Dir $d -AtUtc $now.AddMinutes(-20 * $k) -To "192.168.7.$(20 + $i)"
+            }
+            InModuleScope -ModuleName Test.HostAddressBeacon -Parameters @{ Dir = $d; Now = $now } {
+                param($Dir, $Now)
+                Mock Get-HostBridgeDhcpIdentity { @{ backend = 'networkd'; pinned = $true; detail = 'pinned'; remedy = '' } }
+                $r = Get-HostAddressStabilityReport -RuntimeDir $Dir -NowUtc $Now
+                $r.verdict | Should -Be 'renewal-churn'
+                $r.churn.distinctAddresses | Should -BeGreaterThan 1
+                # A renewal fires at half the lease. The beacon does not know the
+                # lease, so it cannot call an interval a renewal -- on a 12h lease
+                # a 20-minute period is emphatically not one.
+                $r.message | Should -Not -Match 'on every lease renewal'
+                $r.message | Should -Not -Match 'exhaustion within days'
+                # What it must do instead: name the two numbers that would settle
+                # it, and point at the only place they can be read.
+                $r.message | Should -Match 'lease period and the scope size'
+                $r.message | Should -Match 'free-lease count'
+                # The one claim the address log DOES support stays.
+                $r.message | Should -Match 'breaks every guest behind it'
+            }
         } finally { Remove-Item -Recurse -Force $d }
     }
 }

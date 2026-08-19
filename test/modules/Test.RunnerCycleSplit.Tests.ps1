@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42b9d4e1-7c53-4a08-8bd6-0f92e5a37c14
+.VERSION 2026.08.19
+.GUID 424757c6-0173-447c-a3d1-c814f73109f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test runner cycle split pester
@@ -41,7 +41,7 @@ BeforeAll {
 $ErrorActionPreference = 'Stop'
 $testRoot   = Split-Path -Parent $PSScriptRoot
 $script:cycleFile  = Join-Path $PSScriptRoot 'Invoke-TestCycleRunner.ps1'
-$script:outerFile  = Join-Path $testRoot 'Invoke-TestRunner.ps1'
+$script:outerFile  = Join-Path $testRoot 'Start-TestRunner.ps1'
 $loopModule = Join-Path $PSScriptRoot 'Test.RunnerOuterLoop.psm1'
 
 Import-Module $loopModule -Force -DisableNameChecking

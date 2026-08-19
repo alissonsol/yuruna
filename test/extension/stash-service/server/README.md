@@ -2,12 +2,12 @@
 
 A single static binary with TWO listeners:
 
-- **TCP/22** — the SCP/SFTP sink. Accepts any SSH authentication (§4.3
+- **TCP/22** -- the SCP/SFTP sink. Accepts any SSH authentication (section 4.3
   pass-through) and stores every upload as a content artifact (plus an
   on-share `.yuruna.meta.json` sidecar and a VM-local SQLite index row,
-  §6, §8). Serves BOTH the legacy SCP sink-mode wire protocol (§5) and the
-  SFTP subsystem (modern scp's default, §4.1).
-- **TCP/80** — the browser **UI + JSON API**
+  section 6, section 8). Serves BOTH the legacy SCP sink-mode wire protocol (section 5) and the
+  SFTP subsystem (modern scp's default, section 4.1).
+- **TCP/80** -- the browser **UI + JSON API**
   (docs/stash-guide.md): pool-wide
   browse/search, create (paste or upload), inline viewing, and gated
   delete. Same process, so create flows through the same storage
@@ -17,24 +17,24 @@ A single static binary with TWO listeners:
 
 ```
 server/
-├── go.mod / go.sum                       # module stash-service (go.sum committed)
-├── main.go                               # flags, signals, listener loop, sidecar rebuild
-├── internal/
-│   ├── config/config.go                  # spec §10 constants in one place
-│   ├── fsutil/fsutil.go                  # crash-durability primitives (SyncDir, AtomicCommit) shared by store + meta
-│   ├── id/id.go                          # per-day 4-char allocator, scans share+buffer (§7)
-│   ├── store/store.go                    # share/buffer layout, extension extraction, mount probe (§6.3, §8.4, §13)
-│   ├── meta/meta.go                      # VM-local SQLite index + sidecars + rebuild (§8, §8.5)
-│   ├── scp/scp.go                        # legacy SCP sink-mode wire protocol (§5)
-│   ├── sshsrv/{sshsrv,sftp,flush}.go     # crypto/ssh server, SFTP backend, NAS-offline flush (§4, §4.1, §8.4)
-│   ├── sshsrv/ingest.go                  # UI-facing ingest (paste/upload) + local delete (ui §5, §8)
-│   ├── detect/                           # content-type detection: pure-Go heuristic + magika build-tag adapter (ui §6.1)
-│   ├── yex/                              # mirrored extension SDK: beacon (§4.7), labgate, pool
-│   └── httpsrv/                          # UI/API HTTP server, pool-wide index, host resolution, embedded web/ (ui §2–§9)
-│       ├── gate.go                       # the lab-token gate in front of DELETE
-│       ├── delete.go                     # one stash or a selection, on any host in the pool
-│       └── reconcile.go                  # drops index rows whose share files are gone
-└── *_test.go                             # unit tests for the pure-logic bits
++-- go.mod / go.sum                       # module stash-service (go.sum committed)
++-- main.go                               # flags, signals, listener loop, sidecar rebuild
++-- internal/
+|   +-- config/config.go                  # spec section 10 constants in one place
+|   +-- fsutil/fsutil.go                  # crash-durability primitives (SyncDir, AtomicCommit) shared by store + meta
+|   +-- id/id.go                          # per-day 4-char allocator, scans share+buffer (section 7)
+|   +-- store/store.go                    # share/buffer layout, extension extraction, mount probe (section 6.3, section 8.4, section 13)
+|   +-- meta/meta.go                      # VM-local SQLite index + sidecars + rebuild (section 8, section 8.5)
+|   +-- scp/scp.go                        # legacy SCP sink-mode wire protocol (section 5)
+|   +-- sshsrv/{sshsrv,sftp,flush}.go     # crypto/ssh server, SFTP backend, NAS-offline flush (section 4, section 4.1, section 8.4)
+|   +-- sshsrv/ingest.go                  # UI-facing ingest (paste/upload) + local delete (ui section 5, section 8)
+|   +-- detect/                           # content-type detection: pure-Go heuristic + magika build-tag adapter (ui section 6.1)
+|   +-- yex/                              # mirrored extension SDK: beacon (section 4.7), labgate, pool
+|   +-- httpsrv/                          # UI/API HTTP server, pool-wide index, host resolution, embedded web/ (ui section 2-section 9)
+|       +-- gate.go                       # the lab-token gate in front of DELETE
+|       +-- delete.go                     # one stash or a selection, on any host in the pool
+|       +-- reconcile.go                  # drops index rows whose share files are gone
++-- *_test.go                             # unit tests for the pure-logic bits
 ```
 
 `ui` section references above are docs/stash-guide.md.
@@ -57,7 +57,7 @@ sudo install -m 0755 stash-service /usr/local/bin/stash-service
 ### Magika detection backend (optional build)
 
 Content-type detection (`internal/detect`) defaults to a pure-Go heuristic
-(extension + content sniff + UTF-8 text check) — no cgo, no model, always
+(extension + content sniff + UTF-8 text check) -- no cgo, no model, always
 built and tested. The richer **magika** backend
 ([google/magika](https://github.com/google/magika/tree/main/go)) is built only with `-tags magika`,
 so plain `go build` / `go test` stay pure-Go and offline. Enabling it
@@ -83,12 +83,12 @@ The bring-up script honors `STASH_BUILD_TAGS=magika` to opt in.
 
 The production bring-up (`guest/ubuntu.server.26/ubuntu.server.26.stash-service.sh`,
 run by the VM's cloud-init) does all of this plus the mount, systemd unit,
-and `/var/lib/stash-service` provisioning — this section is for ad-hoc dev.
+and `/var/lib/stash-service` provisioning -- this section is for ad-hoc dev.
 
 ## Run (manual / dev)
 
 ```bash
-# 1. Disable the OS sshd so the custom server can bind :22 (§4.2).
+# 1. Disable the OS sshd so the custom server can bind :22 (section 4.2).
 sudo systemctl disable --now ssh
 
 # 2. Allow non-root binding of port 22 (or run the daemon as root).
@@ -105,7 +105,7 @@ unit the bring-up installs (`journalctl -u stash-service`).
 
 ## Exercise
 
-The daemon serves BOTH protocols (see the spec §4.1):
+The daemon serves BOTH protocols (see the spec section 4.1):
 
 ```bash
 # Modern scp defaults to SFTP -- works, one record per file. Stored on
@@ -141,17 +141,17 @@ view, delete). The JSON API it consumes:
 | GET | `/healthz` | liveness (`ok`) |
 | GET | `/api/stashes` | list/search the pool-wide view (`q`,`id`,`username`,`filename`,`path`,`class`,`status`,`host`,`from`,`to`,`sort`,`dir`,`limit`,`offset`) |
 | GET | `/api/stashes/{hostId}/{y}/{m}/{d}/{id}` | one stash's metadata |
-| GET | `/api/stashes/{…}/{id}/archive` | ZIP entry listing |
+| GET | `/api/stashes/{...}/{id}/archive` | ZIP entry listing |
 | GET | `/raw/{hostId}/{y}/{m}/{d}/{id}` | bytes, inline (safety headers; active content served as text) |
-| GET | `/download/{…}` | bytes, attachment |
+| GET | `/download/{...}` | bytes, attachment |
 | POST | `/api/stashes` | create (multipart `files`/`text`/`title`/`author`, urlencoded, or JSON) |
-| DELETE | `/api/stashes/{hostId}/{…}` | delete one stash, on any host — **gated** |
-| POST | `/api/stashes/delete` | delete a selection: `{"stashes":[{hostId,year,month,day,id}]}` → per-stash verdicts — **gated** |
+| DELETE | `/api/stashes/{hostId}/{...}` | delete one stash, on any host -- **gated** |
+| POST | `/api/stashes/delete` | delete a selection: `{"stashes":[{hostId,year,month,day,id}]}` -> per-stash verdicts -- **gated** |
 | GET | `/api/session` | which ways through the delete gate exist, and whether this browser is through one |
 | POST | `/api/login` | exchange the dashboard's 6-character Lab token for a session |
 | POST | `/api/unlock-proof` | exchange a dashboard control proof for a session |
 | POST | `/api/refresh` | force a pool-index rescan |
-| GET | `/api/host?host=<id>` | best-effort hostId→stash-UI resolution (pool-aggregator-service) |
+| GET | `/api/host?host=<id>` | best-effort hostId->stash-UI resolution (pool-aggregator-service) |
 | GET | `/api/hostinfo` | host id, version, this daemon's own IPs |
 
 Flags (defaults): `--http-addr` (`0.0.0.0:80`, empty disables the UI),
@@ -159,29 +159,29 @@ Flags (defaults): `--http-addr` (`0.0.0.0:80`, empty disables the UI),
 `--list-default-limit` (`50`), `--aggregator-url` (empty), `--listen-addr`
 (`0.0.0.0:22`, dev override when the OS sshd holds :22), `--host-id` (empty)
 and `--presence-interval` (`2m`, `0` disables; the bring-up passes `15m`) for the
-presence beacon (§4.7).
+presence beacon (section 4.7).
 
 **Delete authorization.** Reads and creates are open on the LAN; `DELETE` needs
 a session, unlocked either with the dashboard's rotating Lab token or with the
 short-lived control proof the *Extension hosts* link carries in its URL
 fragment. This VM holds no lab auth token, so `--aggregator-url` is what makes
-either possible — without it every delete answers `503`, and the UI says so
+either possible -- without it every delete answers `503`, and the UI says so
 instead of offering a button. A delete reaches **any** host's stash, not only
 this one's: the share is mounted with write access to all of them.
 
 An aggregator that is configured but **unreachable** is a third state, distinct
 from both a good code and a wrong one: `/api/login` answers `503` with reason
-`lab-token-unavailable`, never `401`. Sessions already granted are unaffected —
+`lab-token-unavailable`, never `401`. Sessions already granted are unaffected --
 the cookie is verified against a key this process holds, so an unlocked browser
-keeps deleting for its 7-day life — but no new unlock can be made until the
+keeps deleting for its 7-day life -- but no new unlock can be made until the
 aggregator answers. The signing key is generated per start, so a restart also
 ends every session: restarting while the aggregator is down leaves nobody able
 to unlock.
 
 Diagnosing a refused delete: `/api/session` is what the UI reads to decide
 whether to render the controls, every unlock attempt is logged with its source
-address and outcome — `ok` / `refused` / `unavailable` (`journalctl -u
-stash-service | grep unlock`) — and each delete logs its target and source. The
+address and outcome -- `ok` / `refused` / `unavailable` (`journalctl -u
+stash-service | grep unlock`) -- and each delete logs its target and source. The
 launch line records the gate once at startup (`grep 'delete authz'`). The bring-up stamps the framework version via
 `-ldflags "-X main.version=<v>"` (shown in the UI header); ad-hoc dev builds
 show `vdev`.
@@ -196,7 +196,7 @@ host's status service**: the registration path goes dark whenever that server
 is down (routinely, after a host reboot), while this VM auto-restarts and
 keeps serving. The announce carries only the host's `hostId` + this UI's
 port; the aggregator derives the URL from the connection's source address,
-so an announcer can only advertise itself. Best-effort throughout — an
+so an announcer can only advertise itself. Best-effort throughout -- an
 unreachable aggregator never affects stash operation.
 
 The UI is pool-wide: this host's live index merged with every other host's
@@ -206,12 +206,12 @@ a peer's stash is unlinked directly on the share, and that host drops the
 now-orphaned index row on its own next reconcile pass, so reclaiming disk
 never depends on another VM being reachable. The list adds a per-row
 Delete plus a checkbox selection driving **Delete selected**, which is one
-`POST /api/stashes/delete` for the whole selection (ui §8.5).
+`POST /api/stashes/delete` for the whole selection (ui section 8.5).
 
 Column sorting is served, not scripted: a header click re-requests the list
 with `sort`/`dir` rather than reordering the rows the browser holds. The page
 is one window onto a larger merged set, so only the daemon can order the whole
-of it — a browser could only rank the page it was given. Every ordering is
+of it -- a browser could only rank the page it was given. Every ordering is
 total (ties break on created-then-id, in a fixed direction), which is what lets
 `offset` name a stable window: without it, two stashes of equal size could swap
 between requests and a "Load more" would skip or repeat one.
@@ -224,35 +224,35 @@ go test ./...
 
 Coverage focuses on the spec-driven pure-logic bits:
 
-- `internal/store/` — §6.3 extension-extraction rules + §13 boundaries;
-  mountinfo parsing (the cifs-nofail trap), DirSize, AtomicCopyFile (§8.4).
-- `internal/id/id_test.go` — per-day uniqueness, on-disk scan picks up
-  pre-existing IDs incl. sidecars (restart safety), cross-day re-use (§12).
-- `internal/meta/` — sidecar write → reimage rebuild round-trip (§8.5);
-  buffered lifecycle (UpdateOnComplete preserves the flag, §8.4).
-- `internal/sshsrv/` — flush worker (move+sidecar+clear+remove, offline
-  no-op, idempotent, §8.4); SFTP ingest (store+sidecar+metadata,
-  truncation, offline buffering, §4.1).
-- `internal/detect/` — heuristic classification (extension/sniff/text,
-  SVG+HTML→download-only) (ui §6.1, §7.4).
-- `internal/yex/` — the shared extension SDK, mirrored from
+- `internal/store/` -- section 6.3 extension-extraction rules + section 13 boundaries;
+  mountinfo parsing (the cifs-nofail trap), DirSize, AtomicCopyFile (section 8.4).
+- `internal/id/id_test.go` -- per-day uniqueness, on-disk scan picks up
+  pre-existing IDs incl. sidecars (restart safety), cross-day re-use (section 12).
+- `internal/meta/` -- sidecar write -> reimage rebuild round-trip (section 8.5);
+  buffered lifecycle (UpdateOnComplete preserves the flag, section 8.4).
+- `internal/sshsrv/` -- flush worker (move+sidecar+clear+remove, offline
+  no-op, idempotent, section 8.4); SFTP ingest (store+sidecar+metadata,
+  truncation, offline buffering, section 4.1).
+- `internal/detect/` -- heuristic classification (extension/sniff/text,
+  SVG+HTML->download-only) (ui section 6.1, section 7.4).
+- `internal/yex/` -- the shared extension SDK, mirrored from
   [`test/extension/extension-sdk/`](../../extension-sdk/) and never edited
   here. `beacon` covers the hello/periodic/goodbye lifecycle, catch-up retry
-  until the first success, and the https→http downgrade only on transport
-  errors (§4.7); `pool` is the aggregator read behind the remote-stash
-  deep-link (§3.4).
-- `internal/httpsrv/` — create→list→get→raw→delete round-trip, the delete
+  until the first success, and the https->http downgrade only on transport
+  errors (section 4.7); `pool` is the aggregator read behind the remote-stash
+  deep-link (section 3.4).
+- `internal/httpsrv/` -- create->list->get->raw->delete round-trip, the delete
   gate (locked/unlocked/unconfigured), cross-host delete on the share, bulk
   delete with partial failure, the reconcile predicate (including the
   offline-share case that must prune nothing), pool-wide remote-sidecar
   aggregation, html-served-as-text, multi-file archive + listing, static
-  pages (ui §3–§9).
+  pages (ui section 3-section 9).
 
 The front-end has two framework-free unit files run by hand (there is no JS
-runner in the repo — `node internal/httpsrv/web/assets/common.test.js` and
+runner in the repo -- `node internal/httpsrv/web/assets/common.test.js` and
 `node internal/httpsrv/web/assets/index.test.js`, exit 0 = pass). They cover
 the shared helpers' URL/timeout guards and the list page's selection +
-delete surface (ui §8.5) against a minimal DOM/fetch shim.
+delete surface (ui section 8.5) against a minimal DOM/fetch shim.
 
 The legacy SCP wire protocol and the live SFTP path are exercised against
 a real `scp`/`sftp` client only in the in-VM end-to-end (host `:22` is
@@ -263,21 +263,21 @@ typically taken by sshd, so a local daemon can't bind it; use
 
 - The magika detection backend is built only with `-tags magika` (the
   default is the pure-Go heuristic); ONNX Runtime + model vendoring is a
-  VM-image-build concern (ui §6.1, §14).
+  VM-image-build concern (ui section 6.1, section 14).
 - **Cross-day ID reuse vs the global SQLite PRIMARY KEY**:
-  the allocator's uniqueness scope is per-UTC-day (§7/§12, IDs may repeat
+  the allocator's uniqueness scope is per-UTC-day (section 7/section 12, IDs may repeat
   across days), but `uploads.id` is a global `PRIMARY KEY`, so a 4-char ID
   reused on a later day collides with a surviving older-day row and fails
-  the upload (clean rejection — SCP exit 1 / UI 500 — no corruption). Rare
+  the upload (clean rejection -- SCP exit 1 / UI 500 -- no corruption). Rare
   at this tool's volume; a proper fix is a composite `(day, id)` key plus
-  date-scoped `Get`/`Delete` (resolve is already date-scoped, ui §4.4), or a
+  date-scoped `Get`/`Delete` (resolve is already date-scoped, ui section 4.4), or a
   bounded re-allocate-on-collision retry.
-- Cleanup / retention / aging (§12).
-- Backup / restore beyond the durable share + sidecars (§12).
+- Cleanup / retention / aging (section 12).
+- Backup / restore beyond the durable share + sidecars (section 12).
 
 ## Module path note
 
-`go.mod` declares `module stash-service` — short, local, never imported
+`go.mod` declares `module stash-service` -- short, local, never imported
 from outside this directory. Internal packages live under
 `stash-service/internal/...`.
 
@@ -287,6 +287,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../../../../README.md)

@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42c3a9e8-5b2d-4f17-8a04-1c6d3e5f7a92
+.VERSION 2026.08.19
+.GUID 42430431-3a59-45e7-9caa-8e653f023904
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test remediation pester
@@ -32,8 +32,7 @@ Import-Module (Join-Path $here 'Test.FailureTaxonomy.psm1') -Force -DisableNameC
 Import-Module $modulePath -Force -DisableNameChecking -ErrorAction SilentlyContinue
 if (Get-Command Register-BuiltinRecoveryHandler -ErrorAction SilentlyContinue) { Register-BuiltinRecoveryHandler }
 
-function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 }
 
@@ -75,7 +74,7 @@ Describe 'Invoke-Remediation forwards the enriched Context' {
         $rec = @{
             failureClass = 'ocr_timeout'; severity = 'hard'; stepNumber = 4; actionVerb = 'waitForText'
             sequenceName = 'wl.test'
-            repro = @{ command = 'pwsh test/Invoke-TestSequence.ps1 -SequenceName "wl.test"' }
+            repro = @{ command = 'pwsh test/Debug-TestSequence.ps1 -SequenceName "wl.test"' }
             context = @{ sequencePath = 'x/wl.test.yml'; matchedFailurePattern = 'kernel panic' }
         }
         $vocab = @(Get-RecoveryRecommendationName)

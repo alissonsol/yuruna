@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42d90c17-58b4-4a3e-b6f1-9c2e70a4d835
+.VERSION 2026.08.19
+.GUID 4252ca7f-dcdd-4cf0-893b-f8d1bb64deb4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test setup dashboard hosts-alias pester
@@ -42,12 +42,7 @@ $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = Split-Path -Parent (Split-Path -Parent $here)
 $setupPs1 = Join-Path $repoRoot 'install/setup.ps1'
 
-function Assert-Equal { param($Expected, $Actual, [string]$Because = '') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
-function Assert-NoFinding {
-    param([string[]]$Findings, [string]$Because = '')
-    if ($Findings.Count -gt 0) { throw ("$Because`n  " + ($Findings -join "`n  ")) }
-}
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # File scope, above the first Describe: a Describe body is evaluated during
 # discovery and its variables are gone before any It runs.

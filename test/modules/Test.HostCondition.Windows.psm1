@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42e5b4c3-d2a1-4f9a-6789-0b1c2d3e4f51
+.VERSION 2026.08.19
+.GUID 42475b3f-e79e-40ac-8114-ff6104d9b316
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test host windows
@@ -1106,7 +1106,7 @@ function Set-YurunaDisplayScale100 {
 
     if ($scaleChanged) {
         Write-Warning "Display/text scale changes take effect on next sign-in."
-        Write-Warning "Sign out and back in (or reboot) before running Invoke-TestRunner.ps1 again, or OCR will still see the old scale."
+        Write-Warning "Sign out and back in (or reboot) before running Start-TestRunner.ps1 again, or OCR will still see the old scale."
     }
     return $scaleChanged
 }

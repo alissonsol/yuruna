@@ -34,7 +34,7 @@
   const seenHosts = new Set();
   // Every rendered row in display order: { view, tr, pick }, where pick is the
   // row's checkbox, or null while the page is locked. The array is the
-  // selection model — the checkboxes themselves hold the state, so a row that
+  // selection model -- the checkboxes themselves hold the state, so a row that
   // leaves the table takes its selection with it.
   let rendered = [];
   let deleting = false;
@@ -160,7 +160,7 @@
     return entry;
   }
 
-  // dropRow removes a deleted row in place — the per-row Delete deliberately does
+  // dropRow removes a deleted row in place -- the per-row Delete deliberately does
   // NOT reload the list, so an operator working down a page keeps their position
   // and the rest of their selection. The counters follow the row out, `offset`
   // included: the server's result window just shrank by one, and leaving offset
@@ -186,7 +186,7 @@
     // page can no longer keep. One unlink usually beats the grace period, so
     // the barrier is invisible in the common case and only shows itself when
     // the share is slow enough for the question to arise.
-    const done = Y.block('Deleting…');
+    const done = Y.block('Deleting...');
     try {
       const url = Y.stashApiURL(entry.view);
       if (!url) throw new Error('malformed permalink');
@@ -220,7 +220,7 @@
     // the daemon may already have unlinked. Downloading one, or opening its
     // permalink, would fail in a way that looks like the page's fault -- so
     // there is nothing to press until the page can be trusted again.
-    const done = Y.block('Deleting…');
+    const done = Y.block('Deleting...');
     // One request for the whole selection, not one per row: the operator made a
     // single decision, and the daemon records and answers it as one. The
     // per-stash verdicts come back together, so a refusal in the middle cannot
@@ -252,12 +252,12 @@
     } finally {
       done();
     }
-    if (failed.length) showError(failed.length + ' of ' + picked.length + ' could not be deleted — ' + failed.join('; '));
+    if (failed.length) showError(failed.length + ' of ' + picked.length + ' could not be deleted -- ' + failed.join('; '));
   }
 
   async function load(reset) {
     if (reset) { offset = 0; rendered = []; Y.replace($('rows')); clearError(); }
-    $('status').textContent = 'Loading…';
+    $('status').textContent = 'Loading...';
     // Before the rows, never after: row() reads the gate as it builds each one.
     // This also spends a control proof carried in from the dashboard, so a
     // browser that arrived by that link renders its first page already unlocked.
@@ -313,7 +313,7 @@
 
   // Shared footer: server IPs, last-loaded time, and the refresh countdown
   // (default 60 s). The countdown drives the visibility-aware auto-refresh of
-  // the first page — but only when not searching or paginated (§4.1), so it
+  // the first page -- but only when not searching or paginated (section 4.1), so it
   // never yanks the user off a "Load more" page or an active query. Each
   // successful load() stamps the footer's "Loaded" time + resets the countdown.
   const footer = Y.initFooter({

@@ -1,6 +1,6 @@
 # Windows 11 guest on macOS UTM host — Nerd-Level Details
 
-See [Hosts — ...](../../README.md) for host prerequisites, VM sizing,
+See [Hosts -- ...](../../README.md) for host prerequisites, VM sizing,
 and connectivity. macOS counterpart of
 [Hyper-V version](../../windows.hyper-v/guest.windows.11/). Uses
 UTM with the QEMU backend (aarch64, hardware-accelerated via Apple
@@ -32,13 +32,13 @@ pwsh ./Get-Image.ps1
 
 Three sourcing options:
 
-1. **[UUP dump](https://uupdump.net)** (recommended, free) — builds the
+1. **[UUP dump](https://uupdump.net)** (recommended, free) -- builds the
    ISO from Windows Update packages. Pick latest ARM64, English (US),
    Windows 11 Pro; run the scripts; save as
    `~/yuruna/image/windows.env/host.macos.utm.guest.windows.11.iso`.
 2. **[Windows Insider Program](https://www.microsoft.com/en-us/software-download/windowsinsiderpreviewARM64)**
-   — download the ARM64 VHDX and rename it to the path above.
-3. **Volume Licensing** (VLSC) — for eligible subscribers.
+   -- download the ARM64 VHDX and rename it to the path above.
+3. **Volume Licensing** (VLSC) -- for eligible subscribers.
 
 ## 2) Create the VM
 
@@ -49,10 +49,10 @@ Three sourcing options:
 - Creates a 512 GB blank qcow2 disk (`disk.qcow2`).
 - Generates an `autounattend.xml` seed ISO labeled `OEMDRV`.
 - Writes `config.plist` from
-  [`config.plist.template`](./config.plist.template) — QEMU aarch64,
+  [`config.plist.template`](./config.plist.template) -- QEMU aarch64,
   core-count-policy vCPUs (min 4), 12 GB RAM, UEFI + TPM, NVMe, USB CD,
   virtio-net-pci, intel-hda, clipboard.
-- Warns if the UTM Guest Tools ISO (`spice.iso`) is missing — attach it
+- Warns if the UTM Guest Tools ISO (`spice.iso`) is missing -- attach it
   manually after install (see 2.1), never during it.
 
 ```
@@ -69,11 +69,11 @@ The Guest Tools ISO contains its own `autounattend.xml`. Setup scans
 every attached drive for that file, so attaching `spice.iso` during
 installation aborts unattended mode. Attach it only afterwards.
 
-After install the VM has no network — `virtio-net-pci` needs a VirtIO
+After install the VM has no network -- `virtio-net-pci` needs a VirtIO
 driver not built into Windows.
 
-1. Stop the VM. In UTM → Drives, remove `<hostname>.iso` and `seed.iso`.
-2. Add a drive — Type CD/DVD, Interface USB, Image:
+1. Stop the VM. In UTM -> Drives, remove `<hostname>.iso` and `seed.iso`.
+2. Add a drive -- Type CD/DVD, Interface USB, Image:
    `~/yuruna/image/windows.env/host.macos.utm.guest.windows.11.spice.iso`.
 3. Start the VM; in File Explorer, open the CD drive and run
    **UTM Guest Tools** (SPICE agent + VirtIO network). Allow reboot.
@@ -81,16 +81,16 @@ driver not built into Windows.
 
 ### 2.2) Network configuration
 
-Default is `virtio-net-pci` (needs Guest Tools — see 2.1). Modes via
+Default is `virtio-net-pci` (needs Guest Tools -- see 2.1). Modes via
 `-NetworkMode`:
 
 | Mode | Description | When to use |
 |---|---|---|
-| `Shared` (default) | UTM NAT — VM reaches internet via UTM's router | No Mac VPN |
+| `Shared` (default) | UTM NAT -- VM reaches internet via UTM's router | No Mac VPN |
 | `Bridged` | VM connects directly to the LAN | Mac has an active VPN |
 
 VPNs break Shared mode: UTM NAT routes VM traffic through the macOS
-stack, and a corporate VPN sends that traffic over the tunnel — Windows
+stack, and a corporate VPN sends that traffic over the tunnel -- Windows
 reports "a VPN that cannot be reset." Bridged bypasses it.
 
 ```
@@ -105,7 +105,7 @@ Find the active interface: `route get default | grep interface`.
 
 Default credentials: `ywuser1` / `password`, auto-logon on first boot.
 The autounattend sets computer name, locale `en-US`, keyboard `en-US`,
-UEFI/GPT, and enables Remote Desktop. Generic Windows 11 Pro key — not
+UEFI/GPT, and enables Remote Desktop. Generic Windows 11 Pro key -- not
 activated until a purchased key or KMS is applied.
 Product keys, edition switching and activation:
 [Windows 11 Unattended Configuration](../../windows.hyper-v/guest.windows.11/vmconfig/README.md).
@@ -126,7 +126,7 @@ UTM rejected the `config.plist`. Diagnose:
      | grep -i -E 'error|invalid|import|version'
    ```
 
-2. Check version compatibility — UTM validates `ConfigurationVersion`:
+2. Check version compatibility -- UTM validates `ConfigurationVersion`:
 
    ```bash
    /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" /Applications/UTM.app/Contents/Info.plist
@@ -153,6 +153,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../../../README.md)

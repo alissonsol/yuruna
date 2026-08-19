@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42e5a9c1-3b7d-4f28-9a06-1c2d3e4f5a6b
+.VERSION 2026.08.19
+.GUID 42a296aa-3108-4ad0-928d-3bf246b2d537
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test vm sizing memory cores new-vm cascade pester
@@ -22,7 +22,7 @@
     and `variables.cores` must reach the per-guest New-VM.ps1, exactly like
     `variables.username` / `variables.hostname` do.
 .DESCRIPTION
-    The value crosses the same files (planner -> runner/Invoke-TestSequence -> the
+    The value crosses the same files (planner -> runner/Debug-TestSequence -> the
     Invoke-PerGuestNewVm dispatcher -> the per-guest New-VM.ps1), and the
     dispatcher forwards -MemoryStartupBytes/-Cores only to scripts that DECLARE
     them, dropping them on the Verbose stream otherwise. A guest script that
@@ -38,7 +38,7 @@ BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = Split-Path -Parent (Split-Path -Parent $here)
 
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # The guest scripts wired for sizing overrides: ubuntu.server.24 on every host.
 $guestPaths = @(
@@ -59,7 +59,7 @@ $script:provisionSrc = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'host/
 $script:plannerSrc   = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'test/modules/Test.SequencePlanner.psm1')
 $script:runnerSrc    = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'test/modules/Test.SequenceRunner.psm1')
 $script:innerSrc     = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'test/modules/Test.RunnerInnerLoop.psm1')
-$script:seqEntrySrc  = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'test/Invoke-TestSequence.ps1')
+$script:seqEntrySrc  = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'test/Debug-TestSequence.ps1')
 
 }
 
@@ -155,8 +155,8 @@ Describe 'vm-sizing -- the planner cascade surfaces the effective fields' {
         Assert-True ($script:runnerSrc -match 'effectiveCores') 'Resolve-TestSequencePlan must surface cores'
     }
     It 'both forward sites add MemoryStartupBytes/Cores to newVmArgs' {
-        Assert-True ($script:seqEntrySrc -match [regex]::Escape('$newVmArgs.MemoryStartupBytes')) 'Invoke-TestSequence must forward memory'
-        Assert-True ($script:seqEntrySrc -match [regex]::Escape('$newVmArgs.Cores')) 'Invoke-TestSequence must forward cores'
+        Assert-True ($script:seqEntrySrc -match [regex]::Escape('$newVmArgs.MemoryStartupBytes')) 'Debug-TestSequence must forward memory'
+        Assert-True ($script:seqEntrySrc -match [regex]::Escape('$newVmArgs.Cores')) 'Debug-TestSequence must forward cores'
         Assert-True ($script:innerSrc -match [regex]::Escape('$newVmArgs.MemoryStartupBytes')) 'the runner must forward memory'
         Assert-True ($script:innerSrc -match [regex]::Escape('$newVmArgs.Cores')) 'the runner must forward cores'
     }

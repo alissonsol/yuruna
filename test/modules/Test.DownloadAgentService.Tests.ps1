@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42311df0-0dfd-4fd8-ad78-0a91997848c5
+.VERSION 2026.08.19
+.GUID 421157f0-4a70-494a-a09e-b13c89c002b4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna download agent service extension service pester
@@ -59,11 +59,7 @@ Import-Module $AgentClientModule -Force -DisableNameChecking
 # tested against the shipping implementation rather than a restatement of it.
 Import-Module (Join-Path $AgentRepoRoot 'host' -AdditionalChildPath 'modules', 'Yuruna.HostDownload.psm1') -Force -DisableNameChecking
 
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
-function Assert-Equal {
-    param($Expected, $Actual, [string]$Because = '')
-    if ("$Expected" -ne "$Actual") { throw "Expected '$Expected', got '$Actual'. $Because" }
-}
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 function Get-DownloadAgentScratchDir {
     <#
@@ -155,6 +151,10 @@ function Get-FakeAgent {
 
     $job = Start-ThreadJob -ScriptBlock {
         param($Listener, $Plan)
+        # Everything is inside one try: an exception escaping a thread job is
+        # unhandled and kills the process, so even the loop condition -- which
+        # touches a listener the test may be disposing -- must not throw out.
+        try {
         while ($Listener.IsListening) {
             $context = $null
             try { $context = $Listener.GetContext() } catch { break }
@@ -233,6 +233,11 @@ function Get-FakeAgent {
                 try { $context.Response.Abort() } catch { Write-Verbose 'fake agent: abort failed' }
             }
         }
+        } catch {
+            # The listener was disposed under us, or the thread was torn down
+            # mid-serve. Either way the test is finished with this agent.
+            Write-Verbose "fake agent: responder exiting ($($_.Exception.Message))."
+        }
     } -ArgumentList $listener, $Plan
 
     return @{
@@ -253,9 +258,26 @@ function Close-FakeAgent {
     [OutputType([void])]
     param([AllowNull()][hashtable]$Agent)
     if ($null -eq $Agent) { return }
+
+    # Order matters, and getting it wrong aborts the whole process rather than
+    # failing a test. The responder runs on a thread job; an exception that
+    # escapes there is unhandled by definition, and .NET tears the process down
+    # (SIGABRT, no Pester result file). Disposing the listener underneath a live
+    # responder is exactly such an escape -- ObjectDisposedException from inside
+    # GetContext or the write path.
+    #
+    # So: Stop() first, which unblocks the pending GetContext and lets the loop
+    # break on its own; WAIT for the thread to actually exit; only then dispose.
+    # Under parallel suite execution the thread is descheduled long enough for
+    # the old Stop-Close-Remove order to lose this race about one run in three.
     try { $Agent.Listener.Stop() } catch { Write-Verbose "Close-FakeAgent: stop failed ($($_.Exception.Message))." }
+
+    if ($Agent.Job) {
+        $null = Wait-Job -Job $Agent.Job -Timeout 10 -ErrorAction SilentlyContinue
+        $Agent.Job | Remove-Job -Force -ErrorAction SilentlyContinue
+    }
+
     try { $Agent.Listener.Close() } catch { Write-Verbose "Close-FakeAgent: close failed ($($_.Exception.Message))." }
-    if ($Agent.Job) { $Agent.Job | Remove-Job -Force -ErrorAction SilentlyContinue }
 }
 
 function Get-FakeArtifactByte {
@@ -413,15 +435,15 @@ Describe 'Test.DownloadAgentService marker' {
         $path = Write-DownloadAgentServiceMarker -RuntimeDir $dir -Active $true `
             -VMName 'yuruna-download-agent-service' -HostType 'host.ubuntu.kvm' `
             -BaseUrl 'http://192.168.1.42/' -StartedAtUtc '2026-08-03T14:11:07Z'
-        Assert-Equal 'download-agent-service.json' (Split-Path -Leaf $path) -Because 'the marker file name is the area slug'
-        Assert-Equal $path (Get-DownloadAgentServiceMarkerPath -RuntimeDir $dir) -Because 'the path helper agrees with the writer'
+        Assert-StringEqual 'download-agent-service.json' (Split-Path -Leaf $path) -Because 'the marker file name is the area slug'
+        Assert-StringEqual $path (Get-DownloadAgentServiceMarkerPath -RuntimeDir $dir) -Because 'the path helper agrees with the writer'
 
         $marker = Read-DownloadAgentServiceMarker -RuntimeDir $dir
         Assert-True ($null -ne $marker) 'the marker reads back'
         Assert-True ([bool]$marker.active) 'active round-trips'
-        Assert-Equal 'yuruna-download-agent-service' $marker.vmName -Because 'vmName round-trips'
-        Assert-Equal 'host.ubuntu.kvm' $marker.hostType -Because 'hostType round-trips'
-        Assert-Equal 'http://192.168.1.42/' $marker.downloadAgentServiceBaseUrl -Because 'the deep-link round-trips'
+        Assert-StringEqual 'yuruna-download-agent-service' $marker.vmName -Because 'vmName round-trips'
+        Assert-StringEqual 'host.ubuntu.kvm' $marker.hostType -Because 'hostType round-trips'
+        Assert-StringEqual 'http://192.168.1.42/' $marker.downloadAgentServiceBaseUrl -Because 'the deep-link round-trips'
 
         # The timestamp is asserted against the FILE, not the parsed object:
         # ConvertFrom-Json coerces an ISO-8601 string into a [datetime] and the
@@ -445,7 +467,7 @@ Describe 'Test.DownloadAgentService marker' {
             [void](Write-DownloadAgentServiceMarker -RuntimeDir $dir -Active $verdict `
                 -VMName 'yuruna-download-agent-service' -HostType 'host.windows.hyper-v' -BaseUrl 'http://10.0.0.9/')
             $marker = Read-DownloadAgentServiceMarker -RuntimeDir $dir
-            Assert-Equal $verdict ([bool]$marker.active) -Because "a readiness verdict of $verdict is what the marker publishes"
+            Assert-StringEqual $verdict ([bool]$marker.active) -Because "a readiness verdict of $verdict is what the marker publishes"
         }
     }
 
@@ -465,38 +487,38 @@ Describe 'Test.DownloadAgentService marker' {
     }
 
     It 'is a no-op when there is no runtime dir to write into' {
-        Assert-Equal '' (Get-DownloadAgentServiceMarkerPath -RuntimeDir '') -Because 'no runtime dir means no path'
-        Assert-Equal '' (Write-DownloadAgentServiceMarker -RuntimeDir '' -Active $true -VMName 'v' -HostType 'h' -BaseUrl '') -Because 'the writer declines rather than guessing a location'
+        Assert-StringEqual '' (Get-DownloadAgentServiceMarkerPath -RuntimeDir '') -Because 'no runtime dir means no path'
+        Assert-StringEqual '' (Write-DownloadAgentServiceMarker -RuntimeDir '' -Active $true -VMName 'v' -HostType 'h' -BaseUrl '') -Because 'the writer declines rather than guessing a location'
         Assert-True ($null -eq (Read-DownloadAgentServiceMarker -RuntimeDir '')) 'the reader declines too'
     }
 }
 
 Describe 'Test.DownloadAgentService published address' {
     It 'publishes the VM address on a directly routable network' {
-        Assert-Equal 'http://192.168.1.42/' (Resolve-DownloadAgentServiceBaseUrl -VMIp '192.168.1.42' -NetworkMode 'Bridged' -HostAddress '10.0.0.9') -Because 'bridged peers reach the VM itself'
-        Assert-Equal 'http://192.168.1.42/' (Resolve-DownloadAgentServiceBaseUrl -VMIp '192.168.1.42') -Because 'Hyper-V / KVM report no network mode at all'
+        Assert-StringEqual 'http://192.168.1.42/' (Resolve-DownloadAgentServiceBaseUrl -VMIp '192.168.1.42' -NetworkMode 'Bridged' -HostAddress '10.0.0.9') -Because 'bridged peers reach the VM itself'
+        Assert-StringEqual 'http://192.168.1.42/' (Resolve-DownloadAgentServiceBaseUrl -VMIp '192.168.1.42') -Because 'Hyper-V / KVM report no network mode at all'
     }
 
     It 'publishes the host forward on UTM Shared NAT, where the VM address is unroutable' {
-        Assert-Equal 'http://10.0.0.9:8082/' (Resolve-DownloadAgentServiceBaseUrl -VMIp '192.168.64.7' -NetworkMode 'Shared' -HostAddress '10.0.0.9') -Because 'peers reach the Mac, not the NAT segment'
-        Assert-Equal 8082 (Get-DownloadAgentServiceForwardedPort) -Because 'the forwarded port is the one the start script maps'
+        Assert-StringEqual 'http://10.0.0.9:8082/' (Resolve-DownloadAgentServiceBaseUrl -VMIp '192.168.64.7' -NetworkMode 'Shared' -HostAddress '10.0.0.9') -Because 'peers reach the Mac, not the NAT segment'
+        Assert-StringEqual 8082 (Get-DownloadAgentServiceForwardedPort) -Because 'the forwarded port is the one the start script maps'
     }
 
     It 'falls back to the VM address when a Shared-NAT host cannot name itself' {
-        Assert-Equal 'http://192.168.64.7/' (Resolve-DownloadAgentServiceBaseUrl -VMIp '192.168.64.7' -NetworkMode 'Shared' -HostAddress '') -Because 'locally usable beats publishing nothing'
+        Assert-StringEqual 'http://192.168.64.7/' (Resolve-DownloadAgentServiceBaseUrl -VMIp '192.168.64.7' -NetworkMode 'Shared' -HostAddress '') -Because 'locally usable beats publishing nothing'
     }
 
     It 'publishes nothing when no address resolved at all' {
-        Assert-Equal '' (Resolve-DownloadAgentServiceBaseUrl -VMIp '' -NetworkMode '' -HostAddress '') -Because 'an unresolved VM yields no deep-link'
-        Assert-Equal '' (Resolve-DownloadAgentServiceBaseUrl -VMIp '' -NetworkMode 'Bridged' -HostAddress '10.0.0.9') -Because 'a bridged host address is not the agent address'
+        Assert-StringEqual '' (Resolve-DownloadAgentServiceBaseUrl -VMIp '' -NetworkMode '' -HostAddress '') -Because 'an unresolved VM yields no deep-link'
+        Assert-StringEqual '' (Resolve-DownloadAgentServiceBaseUrl -VMIp '' -NetworkMode 'Bridged' -HostAddress '10.0.0.9') -Because 'a bridged host address is not the agent address'
     }
 
     It 'brackets an IPv6 literal so the URL authority parses' {
-        Assert-Equal 'http://[fd00::1]/' (Resolve-DownloadAgentServiceBaseUrl -VMIp 'fd00::1')
-        Assert-Equal 'http://[fd00::5]:8082/' (Resolve-DownloadAgentServiceBaseUrl -VMIp '192.168.64.7' -NetworkMode 'Shared' -HostAddress 'fd00::5')
-        Assert-Equal '[fd00::1]' (Format-DownloadAgentServiceUrlHost -Address 'fd00::1')
-        Assert-Equal '[fd00::1]' (Format-DownloadAgentServiceUrlHost -Address '[fd00::1]') -Because 'an already-bracketed literal is left alone'
-        Assert-Equal '192.168.1.42' (Format-DownloadAgentServiceUrlHost -Address '192.168.1.42') -Because 'an IPv4 literal is never bracketed'
+        Assert-StringEqual 'http://[fd00::1]/' (Resolve-DownloadAgentServiceBaseUrl -VMIp 'fd00::1')
+        Assert-StringEqual 'http://[fd00::5]:8082/' (Resolve-DownloadAgentServiceBaseUrl -VMIp '192.168.64.7' -NetworkMode 'Shared' -HostAddress 'fd00::5')
+        Assert-StringEqual '[fd00::1]' (Format-DownloadAgentServiceUrlHost -Address 'fd00::1')
+        Assert-StringEqual '[fd00::1]' (Format-DownloadAgentServiceUrlHost -Address '[fd00::1]') -Because 'an already-bracketed literal is left alone'
+        Assert-StringEqual '192.168.1.42' (Format-DownloadAgentServiceUrlHost -Address '192.168.1.42') -Because 'an IPv4 literal is never bracketed'
     }
 }
 
@@ -505,9 +527,9 @@ Describe 'Test.DownloadAgentService readiness' {
         $saved = $env:YURUNA_DOWNLOAD_AGENT_SERVICE_READY_TIMEOUT_SECONDS
         try {
             $env:YURUNA_DOWNLOAD_AGENT_SERVICE_READY_TIMEOUT_SECONDS = ''
-            Assert-Equal 2700 (Get-DownloadAgentServiceReadyTimeoutSeconds) -Because 'a first boot installs a Go toolchain and compiles the daemon in-guest, which runs to roughly half an hour on a slow arch against a cold mirror'
+            Assert-StringEqual 2700 (Get-DownloadAgentServiceReadyTimeoutSeconds) -Because 'a first boot installs a Go toolchain and compiles the daemon in-guest, which runs to roughly half an hour on a slow arch against a cold mirror'
             $env:YURUNA_DOWNLOAD_AGENT_SERVICE_READY_TIMEOUT_SECONDS = '120'
-            Assert-Equal 120 (Get-DownloadAgentServiceReadyTimeoutSeconds) -Because 'a quick re-check can shorten the wait'
+            Assert-StringEqual 120 (Get-DownloadAgentServiceReadyTimeoutSeconds) -Because 'a quick re-check can shorten the wait'
         } finally {
             $env:YURUNA_DOWNLOAD_AGENT_SERVICE_READY_TIMEOUT_SECONDS = $saved
         }
@@ -518,7 +540,7 @@ Describe 'Test.DownloadAgentService readiness' {
         try {
             foreach ($bad in @('abc', '0', '-30', '90s')) {
                 $env:YURUNA_DOWNLOAD_AGENT_SERVICE_READY_TIMEOUT_SECONDS = $bad
-                Assert-Equal 2700 (Get-DownloadAgentServiceReadyTimeoutSeconds) -Because "'$bad' is not a usable budget, so the default stands"
+                Assert-StringEqual 2700 (Get-DownloadAgentServiceReadyTimeoutSeconds) -Because "'$bad' is not a usable budget, so the default stands"
             }
         } finally {
             $env:YURUNA_DOWNLOAD_AGENT_SERVICE_READY_TIMEOUT_SECONDS = $saved
@@ -547,7 +569,7 @@ Describe 'Yuruna.DownloadAgent endpoint ladder' {
 
     It 'exports exactly the three client functions, and nothing that could evict a driver wrapper' {
         $exported = @((Get-Module Yuruna.DownloadAgent).ExportedFunctions.Keys | Sort-Object)
-        Assert-Equal 'Get-DownloadAgentImageMetadata,Request-DownloadAgentImage,Resolve-DownloadAgentEndpoint' ($exported -join ',') `
+        Assert-StringEqual 'Get-DownloadAgentImageMetadata,Request-DownloadAgentImage,Resolve-DownloadAgentEndpoint' ($exported -join ',') `
             -Because 'exporting a fourth name is how a shared helper starts shadowing a driver wrapper'
         foreach ($forbidden in @('Save-CachedHttpUri', 'Test-DownloadAlreadyCurrent', 'Write-ImageSentinel')) {
             Assert-True ($exported -notcontains $forbidden) "$forbidden must never be re-exported by the agent client"
@@ -562,7 +584,7 @@ Describe 'Yuruna.DownloadAgent endpoint ladder' {
         try {
             $env:YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE = $agent.BaseUrl
             $env:YURUNA_CACHING_PROXY_SERVICE_IP = ''
-            Assert-Equal $agent.BaseUrl (Resolve-DownloadAgentEndpoint -Refresh) -Because 'the pin is the operator escape hatch and must win'
+            Assert-StringEqual $agent.BaseUrl (Resolve-DownloadAgentEndpoint -Refresh) -Because 'the pin is the operator escape hatch and must win'
             Assert-True (@($plan.Requests) -contains 'GET /healthz') 'the pinned candidate is proved with a /healthz probe, not believed'
         } finally {
             $env:YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE = $savedPin
@@ -581,7 +603,7 @@ Describe 'Yuruna.DownloadAgent endpoint ladder' {
             # address, which has to acquire a scheme.
             $port = ([System.Uri]$agent.BaseUrl).Port
             $env:YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE = "http://127.0.0.1:$port/"
-            Assert-Equal "http://127.0.0.1:$port" (Resolve-DownloadAgentEndpoint -Refresh) -Because 'a trailing slash is trimmed, the port is kept'
+            Assert-StringEqual "http://127.0.0.1:$port" (Resolve-DownloadAgentEndpoint -Refresh) -Because 'a trailing slash is trimmed, the port is kept'
         } finally {
             $env:YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE = $savedPin
             Close-FakeAgent -Agent $agent
@@ -600,7 +622,7 @@ Describe 'Yuruna.DownloadAgent endpoint ladder' {
             # Something IS listening there -- it just is not a working agent.
             # Believing the address anyway is how a cycle spends its timeouts on
             # a service that cannot answer.
-            Assert-Equal '' (Resolve-DownloadAgentEndpoint -Refresh) -Because 'a listening socket is not an agent'
+            Assert-StringEqual '' (Resolve-DownloadAgentEndpoint -Refresh) -Because 'a listening socket is not an agent'
         } finally {
             $env:YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE = $savedPin
             $env:YURUNA_CACHING_PROXY_SERVICE_IP = $savedCache
@@ -617,7 +639,7 @@ Describe 'Yuruna.DownloadAgent endpoint ladder' {
             # Nothing pinned, no driver loaded, no proxy known: every rung is
             # absent, which is a supported state and not an error.
             $env:YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE = ''
-            Assert-Equal '' (Resolve-DownloadAgentEndpoint -Refresh) -Because 'no rung resolves anything'
+            Assert-StringEqual '' (Resolve-DownloadAgentEndpoint -Refresh) -Because 'no rung resolves anything'
 
             # A pin that outlived its service: bind a port only to learn the
             # address, then release it.
@@ -625,18 +647,18 @@ Describe 'Yuruna.DownloadAgent endpoint ladder' {
             $deadUrl = $dead.BaseUrl
             Close-FakeAgent -Agent $dead
             $env:YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE = $deadUrl
-            Assert-Equal '' (Resolve-DownloadAgentEndpoint -Refresh) -Because 'a refused connection is no agent'
+            Assert-StringEqual '' (Resolve-DownloadAgentEndpoint -Refresh) -Because 'a refused connection is no agent'
 
             foreach ($garbage in @('not a url at all', 'ftp://10.0.0.9', 'nonsense://x', '://')) {
                 $env:YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE = $garbage
-                Assert-Equal '' (Resolve-DownloadAgentEndpoint -Refresh) -Because "'$garbage' cannot become an endpoint, and must not become an exception either"
+                Assert-StringEqual '' (Resolve-DownloadAgentEndpoint -Refresh) -Because "'$garbage' cannot become an endpoint, and must not become an exception either"
             }
 
             # A proxy claim pointing at nothing: the aggregator lookup fails and
             # the ladder simply runs out of rungs.
             $env:YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE = ''
             $env:YURUNA_CACHING_PROXY_SERVICE_IP = '127.0.0.1'
-            Assert-Equal '' (Resolve-DownloadAgentEndpoint -Refresh) -Because 'an aggregator that is not there contributes nothing'
+            Assert-StringEqual '' (Resolve-DownloadAgentEndpoint -Refresh) -Because 'an aggregator that is not there contributes nothing'
         } finally {
             $env:YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE = $savedPin
             $env:YURUNA_CACHING_PROXY_SERVICE_IP = $savedCache
@@ -651,14 +673,14 @@ Describe 'Yuruna.DownloadAgent endpoint ladder' {
         try {
             $env:YURUNA_CACHING_PROXY_SERVICE_IP = ''
             $env:YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE = $agent.BaseUrl
-            Assert-Equal $agent.BaseUrl (Resolve-DownloadAgentEndpoint -Refresh)
+            Assert-StringEqual $agent.BaseUrl (Resolve-DownloadAgentEndpoint -Refresh)
             $probes = @($plan.Requests | Where-Object { $_ -eq 'GET /healthz' }).Count
 
             $env:YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE = ''
-            Assert-Equal $agent.BaseUrl (Resolve-DownloadAgentEndpoint) -Because 'a Get-Image run asks once per family and must not re-walk the ladder each time'
-            Assert-Equal $probes (@($plan.Requests | Where-Object { $_ -eq 'GET /healthz' }).Count) -Because 'the memoized answer costs no probe'
+            Assert-StringEqual $agent.BaseUrl (Resolve-DownloadAgentEndpoint) -Because 'a Get-Image run asks once per family and must not re-walk the ladder each time'
+            Assert-StringEqual $probes (@($plan.Requests | Where-Object { $_ -eq 'GET /healthz' }).Count) -Because 'the memoized answer costs no probe'
 
-            Assert-Equal '' (Resolve-DownloadAgentEndpoint -Refresh) -Because '-Refresh is what re-resolves'
+            Assert-StringEqual '' (Resolve-DownloadAgentEndpoint -Refresh) -Because '-Refresh is what re-resolves'
         } finally {
             $env:YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE = $savedPin
             $env:YURUNA_CACHING_PROXY_SERVICE_IP = $savedCache
@@ -692,7 +714,7 @@ Describe 'Yuruna.DownloadAgent endpoint ladder' {
             $env:YURUNA_CACHING_PROXY_SERVICE_IP = '127.0.0.1'
             # The advertised target carries the port; assuming :80 would reach
             # nothing on a Shared-NAT Mac, which publishes :8082.
-            Assert-Equal $agent.BaseUrl (Resolve-DownloadAgentEndpoint -Refresh) -Because 'the advertised target is used verbatim'
+            Assert-StringEqual $agent.BaseUrl (Resolve-DownloadAgentEndpoint -Refresh) -Because 'the advertised target is used verbatim'
             Assert-True (@($aggregatorPlan.Requests) -contains 'GET /api/v1/extension-hosts?area=download-agent-service') `
                 "the pool is asked by area; saw: $(@($aggregatorPlan.Requests) -join ' | ')"
         } finally {
@@ -721,8 +743,8 @@ Describe 'Yuruna.DownloadAgent metadata read' {
             $meta = Get-DownloadAgentImageMetadata -BaseUrl $agent.BaseUrl -HostType 'host.ubuntu.kvm' `
                 -ImageKey 'guest.ubuntu.server.26' -Arch 'amd64'
             Assert-True ($null -ne $meta) 'a 200 with an image yields the entry'
-            Assert-Equal 'ubuntu-26.04.1-live-server-amd64.iso' $meta.upstreamFilename
-            Assert-Equal $sha $meta.sha256
+            Assert-StringEqual 'ubuntu-26.04.1-live-server-amd64.iso' $meta.upstreamFilename
+            Assert-StringEqual $sha $meta.sha256
             Assert-True (@($plan.Requests) -contains 'GET /api/v1/images/ubuntu.kvm/guest.ubuntu.server.26?arch=amd64&variant=stable') `
                 "the request carries the stripped host type plus arch and variant; saw: $(@($plan.Requests) -join ' | ')"
         } finally { Close-FakeAgent -Agent $agent }
@@ -772,16 +794,16 @@ Describe 'Yuruna.DownloadAgent image request' {
                 -LocalFilename 'ubuntu-26.04.1-live-server-amd64.iso' -LocalByteCount $bytes.Length `
                 -StagingPath $staging
 
-            Assert-Equal 'skipped' $result.outcome -Because 'matching bytes are never re-fetched'
+            Assert-StringEqual 'skipped' $result.outcome -Because 'matching bytes are never re-fetched'
             Assert-True (-not (Test-Path -LiteralPath $staging)) 'a skip moves no bytes at all'
             Assert-True (@($plan.Requests | Where-Object { $_ -match '/file/' }).Count -eq 0) 'the byte route is never touched on a skip'
             # The fingerprint deliberately carries no hash: the 4-line sentinel
             # has none, and hashing a multi-GB local artifact to ask a question
             # costs more than the download the question avoids.
             $sent = $plan.LastEnsureBody | ConvertFrom-Json
-            Assert-Equal 'ubuntu-26.04.1-live-server-amd64.iso' $sent.filename
-            Assert-Equal $bytes.Length $sent.byteCount
-            Assert-Equal '' ([string]$sent.sha256) -Because 'filename + byte count is exactly the agent fallback comparison'
+            Assert-StringEqual 'ubuntu-26.04.1-live-server-amd64.iso' $sent.filename
+            Assert-StringEqual $bytes.Length $sent.byteCount
+            Assert-StringEqual '' ([string]$sent.sha256) -Because 'filename + byte count is exactly the agent fallback comparison'
         } finally { Close-FakeAgent -Agent $agent }
     }
 
@@ -807,7 +829,7 @@ Describe 'Yuruna.DownloadAgent image request' {
             # independent of freshness age: a host must never wait on -- or
             # re-download after -- a refresh of bytes it already holds. It picks
             # the new generation up on its next start.
-            Assert-Equal 'skipped' $result.outcome -Because 'staleness must not force a host to wait on a refresh'
+            Assert-StringEqual 'skipped' $result.outcome -Because 'staleness must not force a host to wait on a refresh'
             Assert-True (-not (Test-Path -LiteralPath $staging)) 'a stale skip moves no bytes either'
             Assert-True (@($plan.Requests | Where-Object { $_ -match '/file/' }).Count -eq 0) 'no byte fetch on a stale skip'
         } finally { Close-FakeAgent -Agent $agent }
@@ -829,10 +851,10 @@ Describe 'Yuruna.DownloadAgent image request' {
             $result = Request-DownloadAgentImage -BaseUrl $agent.BaseUrl -HostType 'ubuntu.kvm' `
                 -ImageKey 'guest.ubuntu.server.26' -Arch 'amd64' -StagingPath $staging -DeadlineSeconds 120
 
-            Assert-Equal 'downloaded' $result.outcome -Because "expected a completed fetch, error was: $($result.error)"
+            Assert-StringEqual 'downloaded' $result.outcome -Because "expected a completed fetch, error was: $($result.error)"
             Assert-True (Test-Path -LiteralPath $staging) 'the bytes land at the staging path the caller named'
-            Assert-Equal $bytes.Length ((Get-Item -LiteralPath $staging).Length)
-            Assert-Equal $sha ((Get-FileHash -LiteralPath $staging -Algorithm SHA256).Hash.ToLowerInvariant())
+            Assert-StringEqual $bytes.Length ((Get-Item -LiteralPath $staging).Length)
+            Assert-StringEqual $sha ((Get-FileHash -LiteralPath $staging -Algorithm SHA256).Hash.ToLowerInvariant())
             Assert-True (@($plan.Requests | Where-Object { $_ -match '/ensure' }).Count -ge 3) 'the client polls rather than giving up on the first 202'
             # The byte route takes no query parameters; recomposing the URL with
             # an arch would 400 every fetch.
@@ -861,10 +883,10 @@ Describe 'Yuruna.DownloadAgent image request' {
 
             # Restarting a multi-GB artifact because the last 10% went missing is
             # the failure this avoids: the second request asks only for the rest.
-            Assert-Equal 'downloaded' $result.outcome -Because "expected a resumed fetch, error was: $($result.error)"
-            Assert-Equal $sha ((Get-FileHash -LiteralPath $staging -Algorithm SHA256).Hash.ToLowerInvariant()) `
+            Assert-StringEqual 'downloaded' $result.outcome -Because "expected a resumed fetch, error was: $($result.error)"
+            Assert-StringEqual $sha ((Get-FileHash -LiteralPath $staging -Algorithm SHA256).Hash.ToLowerInvariant()) `
                 -Because 'the resumed halves join into the original artifact, not two spliced copies'
-            Assert-Equal 2 (@($plan.Requests | Where-Object { $_ -match '/file/' }).Count) -Because 'exactly one resume, not a restart loop'
+            Assert-StringEqual 2 (@($plan.Requests | Where-Object { $_ -match '/file/' }).Count) -Because 'exactly one resume, not a restart loop'
         } finally {
             Remove-Item -LiteralPath $staging -Force -ErrorAction SilentlyContinue
             Close-FakeAgent -Agent $agent
@@ -886,7 +908,7 @@ Describe 'Yuruna.DownloadAgent image request' {
                 -ImageKey 'guest.ubuntu.server.26' -Arch 'amd64' -StagingPath $staging -DeadlineSeconds 120
 
             Assert-True ($result.outcome -ne 'downloaded') "unverified bytes are never reported as downloaded; got '$($result.outcome)'"
-            Assert-Equal 'failed' $result.outcome -Because 'a hash that does not match is a definite negative verdict, not an absent agent'
+            Assert-StringEqual 'failed' $result.outcome -Because 'a hash that does not match is a definite negative verdict, not an absent agent'
             # A caller that only tests for the file would otherwise promote it.
             Assert-True (-not (Test-Path -LiteralPath $staging)) 'the bogus artifact is deleted rather than left for the promote path'
             Assert-True ($result.error -match 'SHA-256 mismatch') "the error names the mismatch; got '$($result.error)'"
@@ -904,16 +926,16 @@ Describe 'Yuruna.DownloadAgent image request' {
             [void]$plan.EnsureQueue.Add(@{ Status = 503; Json = '{"ok":false,"state":"unavailable","reason":"pool-unavailable"}' })
             $unmounted = Request-DownloadAgentImage -BaseUrl $agent.BaseUrl -HostType 'ubuntu.kvm' `
                 -ImageKey 'guest.ubuntu.server.26' -Arch 'amd64' -StagingPath $staging -DeadlineSeconds 30
-            Assert-Equal 'unavailable' $unmounted.outcome -Because 'a 503 sends the caller back to the path it already had'
+            Assert-StringEqual 'unavailable' $unmounted.outcome -Because 'a 503 sends the caller back to the path it already had'
             Assert-True ($unmounted.error -match 'pool-unavailable') "the machine-readable reason is carried through; got '$($unmounted.error)'"
 
             $plan.EnsureQueue.Clear()
             [void]$plan.EnsureQueue.Add(@{ Status = 404; Json = '{"ok":false,"state":"unsupported","reason":"unsupported-image"}' })
             $unsupported = Request-DownloadAgentImage -BaseUrl $agent.BaseUrl -HostType 'ubuntu.kvm' `
                 -ImageKey 'guest.windows.11' -Arch 'amd64' -StagingPath $staging -DeadlineSeconds 30
-            Assert-Equal 'unavailable' $unsupported.outcome -Because 'a family the agent has no resolver for is not a failure'
+            Assert-StringEqual 'unavailable' $unsupported.outcome -Because 'a family the agent has no resolver for is not a failure'
 
-            Assert-Equal 'unavailable' (Request-DownloadAgentImage -BaseUrl '' -HostType 'ubuntu.kvm' `
+            Assert-StringEqual 'unavailable' (Request-DownloadAgentImage -BaseUrl '' -HostType 'ubuntu.kvm' `
                 -ImageKey 'guest.ubuntu.server.26' -Arch 'amd64' -StagingPath $staging).outcome -Because 'no endpoint is the commonest case of all'
             Assert-True (-not (Test-Path -LiteralPath $staging)) 'nothing was staged on any of those paths'
         } finally {
@@ -930,7 +952,7 @@ Describe 'Yuruna.DownloadAgent image request' {
             [void]$plan.EnsureQueue.Add(@{ Status = 200; Json = (Get-FakeEnsureJson -State 'failed' -ErrorText 'origin probe releases.ubuntu.com: dial tcp i/o timeout') })
             $result = Request-DownloadAgentImage -BaseUrl $agent.BaseUrl -HostType 'ubuntu.kvm' `
                 -ImageKey 'guest.ubuntu.server.26' -Arch 'amd64' -StagingPath $staging -DeadlineSeconds 30
-            Assert-Equal 'failed' $result.outcome
+            Assert-StringEqual 'failed' $result.outcome
             Assert-True ($result.error -match 'i/o timeout') "the agent's own error is surfaced; got '$($result.error)'"
         } finally {
             Remove-Item -LiteralPath $staging -Force -ErrorAction SilentlyContinue
@@ -946,7 +968,7 @@ Describe 'Yuruna.DownloadAgent image request' {
             [void]$plan.EnsureQueue.Add(@{ Status = 202; Json = (Get-FakeEnsureJson -State 'downloading' -RefreshInFlight -BytesDone 1 -BytesTotal 100) })
             $result = Request-DownloadAgentImage -BaseUrl $agent.BaseUrl -HostType 'ubuntu.kvm' `
                 -ImageKey 'guest.ubuntu.server.26' -Arch 'amd64' -StagingPath $staging -DeadlineSeconds 3
-            Assert-Equal 'unavailable' $result.outcome -Because 'an exhausted budget sends the caller to the fallback, it does not fail the cycle'
+            Assert-StringEqual 'unavailable' $result.outcome -Because 'an exhausted budget sends the caller to the fallback, it does not fail the cycle'
             Assert-True ($result.error -match 'still downloading') "the error says what ran out; got '$($result.error)'"
         } finally {
             Remove-Item -LiteralPath $staging -Force -ErrorAction SilentlyContinue
@@ -979,7 +1001,7 @@ Describe 'Yuruna.DownloadAgent sentinel interop' {
 
             $result = Request-DownloadAgentImage -BaseUrl $agent.BaseUrl -HostType 'ubuntu.kvm' `
                 -ImageKey 'guest.ubuntu.server.26' -Arch 'amd64' -StagingPath $staging -DeadlineSeconds 120
-            Assert-Equal 'downloaded' $result.outcome -Because "expected bytes, error was: $($result.error)"
+            Assert-StringEqual 'downloaded' $result.outcome -Because "expected bytes, error was: $($result.error)"
 
             # Exactly the promote path a Get-Image script runs today.
             Move-Item -LiteralPath $staging -Destination $baseImage -Force
@@ -987,11 +1009,11 @@ Describe 'Yuruna.DownloadAgent sentinel interop' {
                 -SizeBytes $result.byteCount -LastModified $result.lastModified -Confirm:$false
 
             $lines = @(Get-Content -LiteralPath $sentinel)
-            Assert-Equal 4 $lines.Count -Because 'the 4-line format is what the reader requires'
-            Assert-Equal $result.filename $lines[0].Trim() -Because 'the agent upstreamFilename and the URL-derived filename must agree'
-            Assert-Equal $result.sourceUrl $lines[1].Trim()
-            Assert-Equal $result.byteCount $lines[2].Trim()
-            Assert-Equal $result.lastModified $lines[3].Trim()
+            Assert-StringEqual 4 $lines.Count -Because 'the 4-line format is what the reader requires'
+            Assert-StringEqual $result.filename $lines[0].Trim() -Because 'the agent upstreamFilename and the URL-derived filename must agree'
+            Assert-StringEqual $result.sourceUrl $lines[1].Trim()
+            Assert-StringEqual $result.byteCount $lines[2].Trim()
+            Assert-StringEqual $result.lastModified $lines[3].Trim()
 
             # The real reader, HEADing the real (fake) origin: the quadruple has
             # to survive the round trip or the next run downloads again.
@@ -1033,7 +1055,7 @@ Describe 'Yuruna.DownloadAgent import precedence' {
             $out = @(& $pwsh -NoProfile -NonInteractive -File $probe 2>&1 | ForEach-Object { "$_".Trim() } | Where-Object { $_ })
             $verdict = @($out | Where-Object { $_ -match '^[\w.]+\|(True|False)$' -or $_ -eq 'MISSING' }) | Select-Object -Last 1
             Assert-True ($verdict -ne 'MISSING') 'Save-CachedHttpUri must still be on the command table after both imports'
-            Assert-Equal 'Yuruna.Host|False' $verdict `
+            Assert-StringEqual 'Yuruna.Host|False' $verdict `
                 -Because "the driver wrapper (which has no -ResolveCacheHostIp of its own) must keep the slot; the child said: $($out -join ' / ')"
         } finally { Remove-Item -LiteralPath $probe -Force -ErrorAction SilentlyContinue }
     }
@@ -1055,7 +1077,7 @@ Describe 'Download-agent pins agree across languages' {
         $goUrl  = ([regex]::Match($go,  $rx)).Value
         Assert-True ([bool]$kvmUrl) 'the KVM script still pins a versioned virtio-win URL'
         Assert-True ([bool]$goUrl)  'the Go resolver still pins a versioned virtio-win URL'
-        Assert-Equal $kvmUrl $goUrl -Because 'a host served by the agent would otherwise get a different driver bundle than the same host without one'
+        Assert-StringEqual $kvmUrl $goUrl -Because 'a host served by the agent would otherwise get a different driver bundle than the same host without one'
     }
 
     It 'pins the same Fido release and hash in the host scripts and the agent seed' {
@@ -1071,8 +1093,8 @@ Describe 'Download-agent pins agree across languages' {
             $hashes += ([regex]::Match($text, '[0-9a-f]{64}')).Value
         }
         Assert-True (($tags | Where-Object { $_ }).Count -eq $sites.Count) "every site names a pinned Fido tag; got: $($tags -join ',')"
-        Assert-Equal 1 (@($tags   | Sort-Object -Unique).Count) -Because "the agent must vendor the same Fido release the hosts run; got: $($tags -join ', ')"
-        Assert-Equal 1 (@($hashes | Sort-Object -Unique).Count) -Because "a hash that differs from the pinned release would refuse to install, silently disabling the Windows family"
+        Assert-StringEqual 1 (@($tags   | Sort-Object -Unique).Count) -Because "the agent must vendor the same Fido release the hosts run; got: $($tags -join ', ')"
+        Assert-StringEqual 1 (@($hashes | Sort-Object -Unique).Count) -Because "a hash that differs from the pinned release would refuse to install, silently disabling the Windows family"
     }
 
     It 'sends an operator to the same Windows page, and the same choices on it, from the host scripts and the pool page' {

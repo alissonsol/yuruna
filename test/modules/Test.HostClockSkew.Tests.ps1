@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 4258d7b3-f0cd-4067-93af-fd6942a23808
+.VERSION 2026.08.19
+.GUID 42c5e353-0701-44d3-9ece-c8318df10ad6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test host clock ntp pester
@@ -54,7 +54,7 @@ $here      = Split-Path -Parent $PSCommandPath
 $sharedFile = Join-Path $here 'Test.HostCondition.psm1'
 $script:outerLoopFile = Join-Path $here 'Test.RunnerOuterLoop.psm1'
 
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 Import-Module $sharedFile -Force -DisableNameChecking
 

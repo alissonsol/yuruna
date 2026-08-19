@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42f0a1b2-c3d4-4e56-8a78-9b0c1d2e3f40
+.VERSION 2026.08.19
+.GUID 422984c1-a8cf-44a9-a11d-01ec2ed555b0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test log rotation loglevel pester
@@ -49,8 +49,7 @@ $logLevel  = Join-Path $here 'Test.LogLevel.psm1'
 $logRot    = Join-Path $here 'Test.LogRotation.psm1'
 $script:logMod    = Join-Path $here 'Test.Log.psm1'
 
-function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
-function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # Unqualified (not $script:-qualified) file-scope names: an It block runs in a
 # fresh script scope, so `$script:Foo` there resolves to that new scope and reads

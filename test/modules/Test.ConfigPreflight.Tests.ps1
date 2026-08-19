@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 4279eb7c-6790-4ef6-934f-bbde817895d6
+.VERSION 2026.08.19
+.GUID 42871662-c8fc-4b5a-9380-fa9ff5c48ae5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test config preflight gate pester
@@ -40,8 +40,7 @@ BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.ConfigPreflight.psm1') -Force -DisableNameChecking
 
-function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # Paths only at file scope; the directories and the stub script are created in
 # BeforeAll and removed in AfterAll. A standalone run executes this file body
@@ -200,12 +199,12 @@ Describe 'Invoke-ConfigGate' {
 
         It 'fails, propagates the child exit code, and repeats only the FAILURES block' {
             $plan = New-GatePlan -Root $script:planRoot -Name 'red' -Stdout $script:failuresTranscript -ExitCode 7
-            $o    = Get-GateOutcome -TestRoot $script:gateRoot -ConfigPath $plan.ConfigPath -CallerName 'Invoke-TestRunner'
+            $o    = Get-GateOutcome -TestRoot $script:gateRoot -ConfigPath $plan.ConfigPath -CallerName 'Start-TestRunner'
             Assert-Equal -Expected $false -Actual $o.Result.passed
             Assert-Equal -Expected 7      -Actual $o.Result.exitCode -Because 'the caller reports the child exit code, not a generic 1'
             Assert-Equal -Expected $false -Actual $o.Result.skipped
 
-            Assert-True ($o.Text -match 'Invoke-TestRunner\] Pre-cycle config gate FAILED') 'the banner names the entry point that owned the failure'
+            Assert-True ($o.Text -match 'Start-TestRunner\] Pre-cycle config gate FAILED') 'the banner names the entry point that owned the failure'
             Assert-True ($o.Text -match 'Test-Config\.ps1 exit 7')
             Assert-True ($o.Text -match 'poolStorageNetworkPath is not reachable') 'the FAILURES detail is repeated under the banner'
             Assert-True ($o.Text -match 'projectUrl is empty')

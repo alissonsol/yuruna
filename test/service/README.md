@@ -12,9 +12,9 @@ root:
 | `Start-PoolControlServiceVM.ps1` / `Stop-PoolControlServiceVM.ps1` | the pool-control-service VM that serves the lab dashboard |
 | `Start-ConfigService.ps1` / `Stop-ConfigService.ps1` | the in-process host config service (no VM) |
 
-`Stop-StatusService.ps1` also lives here. Its partner
-[`../Start-StatusService.ps1`](../Start-StatusService.ps1) stays in `test/`
-because starting the status UI is a daily-driver command; stopping it is not.
+[`Start-StatusService.ps1`](Start-StatusService.ps1) /
+[`Stop-StatusService.ps1`](Stop-StatusService.ps1) complete the set: the host
+status HTTP server that publishes the status UI (no VM of its own).
 
 Two caching-proxy operations sit alongside the pair that owns that VM:
 
@@ -69,7 +69,7 @@ shape to converge on.
 [`../modules/Test.ServiceVm.psm1`](../modules/Test.ServiceVm.psm1) declare
 only a script *name* (`stopScript: Stop-StashServiceVM.ps1`); the harness
 supplies this folder when it resolves one. That keeps the extension config
-schema — which pins the value to a bare filename — unchanged for
+schema -- which pins the value to a bare filename -- unchanged for
 third-party extensions, and keeps "where service scripts live" a single
 decision rather than one repeated in every config.
 

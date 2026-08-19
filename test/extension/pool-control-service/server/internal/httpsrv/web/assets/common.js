@@ -125,7 +125,7 @@
   };
 
   // unlockFromProof exchanges that proof for this service's session, so arriving
-  // through a link on the Yuruna hosts dashboard is enough to act — the operator
+  // through a link on the Yuruna hosts dashboard is enough to act -- the operator
   // is not sent back to the dashboard to copy the rotating code off a tile.
   //
   // Resolves false on anything short of a granted session (no fragment, expired
@@ -181,7 +181,7 @@
   // that takes it back down. Every slow read on every page goes through it, so
   // one wait looks like every other one.
   //
-  //   const done = Y.busy(el, 'Loading pools…');
+  //   const done = Y.busy(el, 'Loading pools...');
   //   try { ...render... } finally { done(); }
   //
   // done() must run on the FAILURE path too, or a read that never lands leaves
@@ -199,7 +199,7 @@
     if (!container) return function () { };
     const inner = Y.el('div', { class: 'loading', role: 'status' }, [
       Y.el('span', { class: 'spinner', 'aria-hidden': 'true' }),
-      Y.el('span', { class: 'loading-text', text: message || 'Loading…' })
+      Y.el('span', { class: 'loading-text', text: message || 'Loading...' })
     ]);
     // A <tbody> may only hold rows, so there the indicator travels in one that
     // spans the table; every other container takes it directly.
@@ -297,7 +297,7 @@
   // here would put a proxy-CA interstitial in front of every host link.
   Y.hostLink = function (hostId, poolId, goBaseUrl) {
     const full = String(hostId || '');
-    if (!full) return Y.el('span', { class: 'muted', text: '—' });
+    if (!full) return Y.el('span', { class: 'muted', text: '--' });
     const base = httpBase(goBaseUrl);
     if (!base) return Y.el('span', { class: 'mono', text: Y.shortHost(full), title: Y.guid(full) });
     const url = base + '/go/host?host=' + encodeURIComponent(full) + '&pool=' + encodeURIComponent(poolId || '');
@@ -331,7 +331,7 @@
   // it rather than be reimplemented.
   Y.idCell = function (id) {
     const full = Y.guid(id);
-    if (!full) return Y.el('span', { class: 'muted', text: '—' });
+    if (!full) return Y.el('span', { class: 'muted', text: '--' });
     const short = Y.shortHost(full);
     const btn = Y.el('button', { type: 'button', class: 'id-toggle mono', text: short, title: 'Show the full id' });
     btn.addEventListener('click', function () {
@@ -458,7 +458,7 @@
 
   // initChrome wires the shared page chrome: the header's version + host id and
   // the bottom footer bar (server IPs, last-loaded time, refresh countdown).
-  // Page-agnostic — every fact comes from /api/hostinfo, so a page adds the
+  // Page-agnostic -- every fact comes from /api/hostinfo, so a page adds the
   // chrome by carrying the markup and calling this once.
   //
   // Returns { markLoaded, stamp, busy }. markLoaded stamps the "Loaded" time AND
@@ -478,14 +478,14 @@
     const $ = function (id) { return document.getElementById(id); };
     let countdown = interval;
 
-    // Render IPs into the readonly textarea, sized to 1–2 rows (one per address
+    // Render IPs into the readonly textarea, sized to 1-2 rows (one per address
     // family). These are the daemon's own IPs, but use .value (never innerHTML)
-    // anyway. Em dash (—) is the empty placeholder.
+    // anyway. Em dash (--) is the empty placeholder.
     const renderIps = function (text) {
       const el = $('footer-ip-list');
       if (!el) return;
       const v = (text || '').replace(/\s+$/, '');
-      el.value = v || '—';
+      el.value = v || '--';
       el.rows = Math.min(2, Math.max(1, el.value.split('\n').length));
     };
 
@@ -521,7 +521,7 @@
       // Stamp here, not only from a page's data load: a page with no feed of its
       // own would otherwise show the em-dash forever. A page that does fetch
       // overwrites this a moment later with its own load time. stamp, not
-      // markLoaded — arriving host facts must not restart the countdown a
+      // markLoaded -- arriving host facts must not restart the countdown a
       // caller may already be running.
       stamp();
     });

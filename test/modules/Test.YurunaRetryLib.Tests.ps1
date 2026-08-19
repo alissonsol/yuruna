@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 423e1a49-2b85-4d60-9f12-6a0d5c8e2b74
+.VERSION 2026.08.19
+.GUID 421b43ea-86ef-4745-ba78-cc02250870e2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test retry jitter transient-gate pester
@@ -34,15 +34,14 @@ $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = Split-Path -Parent (Split-Path -Parent $here)
 $script:libPath  = Join-Path $repoRoot 'automation/yuruna-retry.sh'
 
-function Assert-Equal { param($Actual, $Expected, [string]$Because = '') if ("$Actual" -ne "$Expected") { throw "Expected '$Expected', got '$Actual'. $Because" } }
-function Assert-True  { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 }
 
 Describe 'yuruna-retry.sh transient gate + jitter (bash)' {
     It 'classifies 404 permanent / 503 + 429 + network transient, fails fast on permanent, and jitters within [delay/2, delay]' {
         $bash = Get-Command bash -ErrorAction SilentlyContinue
-        if (-not $bash) { Assert-True $true 'bash unavailable -- skipping shell check'; return }
+        if (-not $bash) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
         $lib = Get-Content -Raw -LiteralPath $script:libPath
         $driver = @'
 
@@ -71,7 +70,7 @@ echo "$r"
         $script = $lib + "`n" + $driver
         $out = ($script | & $bash.Source 2>$null | Select-Object -Last 1 | Out-String).Trim()
         # rc7=transient(0) rc3=permanent(1) 404=permanent(1) 503=transient(0) 429=transient(0) | 1 attempt | jitter-in-band
-        Assert-Equal -Actual $out -Expected '0 1 1 0 0 1 J' -Because "classifier/gate/jitter result was: '$out'"
+        Assert-StringEqual -Actual $out -Expected '0 1 1 0 0 1 J' -Because "classifier/gate/jitter result was: '$out'"
     }
     It 'advertises the safe-stall marker and wraps a bounded call in timeout --foreground' {
         # The marker is what lets a guest script ask for a wall-clock bound
@@ -82,7 +81,7 @@ echo "$r"
         # If the wrapper ever loses those flags the marker becomes a lie, and
         # every guest that gated on it starts killing apt the unsafe way.
         $bash = Get-Command bash -ErrorAction SilentlyContinue
-        if (-not $bash) { Assert-True $true 'bash unavailable -- skipping shell check'; return }
+        if (-not $bash) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
         $lib = Get-Content -Raw -LiteralPath $script:libPath
         $driver = @'
 
@@ -106,11 +105,11 @@ echo "$r"
 '@
         $script = $lib + "`n" + $driver
         $out = ($script | & $bash.Source 2>$null | Select-Object -Last 1 | Out-String).Trim()
-        Assert-Equal -Actual $out -Expected 'M B U' -Because "marker/wrap/no-wrap result was: '$out'"
+        Assert-StringEqual -Actual $out -Expected 'M B U' -Because "marker/wrap/no-wrap result was: '$out'"
     }
     It 'classifies wget exit codes (incl. re-probe on exit 8) and emits one YURUNA_RETRY marker per failed attempt' {
         $bash = Get-Command bash -ErrorAction SilentlyContinue
-        if (-not $bash) { Assert-True $true 'bash unavailable -- skipping shell check'; return }
+        if (-not $bash) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
         $lib = Get-Content -Raw -LiteralPath $script:libPath
         $driver = @'
 
@@ -132,6 +131,59 @@ echo "$r"
         $script = $lib + "`n" + $driver
         $out = ($script | & $bash.Source 2>$null | Select-Object -Last 1 | Out-String).Trim()
         # wget: net=0 auth=1 parse=1 404=1 503=0 | 2 markers over 2 failed attempts
-        Assert-Equal -Actual $out -Expected '0 1 1 1 0 2' -Because "wget classifier + marker result was: '$out'"
+        Assert-StringEqual -Actual $out -Expected '0 1 1 1 0 2' -Because "wget classifier + marker result was: '$out'"
+    }
+    It 'routes a certificate failure (curl 60 / wget 5) through the bump-CA re-anchor and retries only when it repaired something' {
+        $bash = Get-Command bash -ErrorAction SilentlyContinue
+        if (-not $bash) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
+        $lib = Get-Content -Raw -LiteralPath $script:libPath
+        # A stale bump CA is the only cert failure a retry can survive, and only
+        # after the anchor has actually been replaced. The stub stands in for the
+        # trust store: TRUSTED tracks what a spider probe would see, and the
+        # /ca.crt fetch flips it when HEAL_WORKS says the served CA matches.
+        $driver = @'
+
+r=""
+TRUSTED=no; CA_SERVED=yes; HEAL_WORKS=yes
+wget() {
+  case "$*" in
+    *--spider*) [ "$TRUSTED" = yes ] && return 0 || return 1 ;;
+    *ca.crt*)   [ "$CA_SERVED" = yes ] || return 1
+                prev=""; for a in "$@"; do [ "$prev" = "-qO" ] && echo "-----BEGIN CERTIFICATE-----" > "$a"; prev="$a"; done
+                [ "$HEAL_WORKS" = yes ] && TRUSTED=yes; return 0 ;;
+  esac; return 1
+}
+sudo() { return 0; }
+YURUNA_STATUS_SERVICE_IP=10.0.0.2; YURUNA_STATUS_SERVICE_PORT=8080
+# no bump in front of the guest -> nothing to repair, so a cert failure is the
+# far end's certificate and retrying it is pointless
+https_proxy=""
+yuruna_ca_selfheal >/dev/null 2>&1; r="$r$? "                       # 1
+_yuruna_classify_curl 60 >/dev/null 2>&1; r="$r$? "                 # 1 permanent
+# bump present and already trusted -> same verdict, without a fetch
+https_proxy="http://10.0.0.1:3129/"; TRUSTED=yes
+yuruna_ca_selfheal >/dev/null 2>&1; r="$r$? "                       # 1
+_yuruna_classify_curl 60 >/dev/null 2>&1; r="$r$? "                 # 1 permanent
+# stale CA the status service can replace -> repaired, so spend a retry
+TRUSTED=no
+yuruna_ca_selfheal >/dev/null 2>&1; r="$r$? "                       # 0
+TRUSTED=no; _yuruna_classify_curl 60 >/dev/null 2>&1; r="$r$? "     # 0 transient
+TRUSTED=no; _yuruna_classify_wget 5 >/dev/null 2>&1; r="$r$? "      # 0 transient
+# a CA that arrives but does not match the bump -> tried and still untrusted
+TRUSTED=no; HEAL_WORKS=no
+yuruna_ca_selfheal >/dev/null 2>&1; r="$r$? "                       # 2
+_yuruna_classify_curl 60 >/dev/null 2>&1; r="$r$? "                 # 1 permanent
+# nothing usable served at all -> same, and never a silent pass
+TRUSTED=no; CA_SERVED=no
+yuruna_ca_selfheal >/dev/null 2>&1; r="$r$? "                       # 2
+# the ladder stops on the first attempt once the anchor cannot be repaired
+_c60() { return 60; }
+a=$(YURUNA_RETRY_CLASSIFY=_yuruna_classify_curl YURUNA_RETRY_MAX_ATTEMPTS=5 YURUNA_RETRY_DELAY_SECONDS=1 _yuruna_retry t _c60 2>&1 | grep -c 'attempt .* failed')
+r="$r$a"
+echo "$r"
+'@
+        $script = $lib + "`n" + $driver
+        $out = ($script | & $bash.Source 2>$null | Select-Object -Last 1 | Out-String).Trim()
+        Assert-StringEqual -Actual $out -Expected '1 1 1 1 0 0 0 2 1 2 1' -Because "cert-failure re-anchor result was: '$out'"
     }
 }

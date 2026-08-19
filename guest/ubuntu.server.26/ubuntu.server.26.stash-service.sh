@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.16
+# Version: 2026.08.19
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -156,7 +156,7 @@ SERVER_DIR=$(locate_server_dir) || {
 }
 echo "Daemon source: $SERVER_DIR"
 
-# Framework version (repo root is four levels above server/) — stamped into
+# Framework version (repo root is four levels above server/) -- stamped into
 # the binary so the UI header shows it (stash-guide / status pages style).
 # Read before staging; empty/missing falls back to "dev".
 VERSION_STR=$(cat "$SERVER_DIR/../../../../VERSION" 2>/dev/null | head -n1 | tr -d '[:space:]' || true)

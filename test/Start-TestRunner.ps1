@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a1b2c3-d4e5-4f67-8901-bc0123456707
+.VERSION 2026.08.19
+.GUID 4246a89e-2ebb-49a1-87a4-31d719f44bf1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
@@ -103,7 +103,7 @@ $script:ForwardEnvNames = @(
 
 # --- REGION: Resolve paths
 # Canonical path bundle from Test.Prelude. Same call shape used by
-# Invoke-TestProject, Invoke-TestSequence, and Invoke-TestRunnerInnerLoop -- adding a
+# Invoke-TestProject, Debug-TestSequence, and Invoke-TestRunnerInnerLoop -- adding a
 # new entry point uses the same one-liner.
 Import-Module (Join-Path $PSScriptRoot 'modules/Test.Prelude.psm1') -Global -Force
 $paths       = Initialize-YurunaEntryPoint -ScriptRoot $PSScriptRoot -ConfigPath $ConfigPath
@@ -176,7 +176,7 @@ $global:__YurunaHostId = Get-YurunaHostId
 # that no live runner is honouring, and leftover pause flags
 # (control.step-pause / control.cycle-pause) so a fresh launch never
 # inherits a prior session's pause -- the same Clear-StalePauseFlag
-# policy Invoke-TestProject and Invoke-TestSequence apply directly at their startup.
+# policy Invoke-TestProject and Debug-TestSequence apply directly at their startup.
 # Runs ONCE per outer startup and is a no-op on a clean boot. Sits BEFORE the runner.pid dance so the
 # existing single-instance flow sees a clean field; Clear-StalePidFile
 # inside the sweep only removes pidfiles whose process is provably
@@ -229,7 +229,7 @@ switch ($priorRunner.status) {
     'OtherRunner' {
         Write-Output ""
         Write-Output "============================================="
-        Write-Output "  Another Invoke-TestRunner is running"
+        Write-Output "  Another Start-TestRunner is running"
         Write-Output "  PID:    $($priorRunner.pid)"
         Write-Output "  Action: stopping it + Remove-TestVMFiles.ps1"
         Write-Output "============================================="
@@ -237,7 +237,7 @@ switch ($priorRunner.status) {
     }
     'Stale' {
         if ($priorRunner.pid -gt 0) {
-            Write-Warning "Stale runner.pid: PID $($priorRunner.pid) is not an Invoke-TestRunner process. Ignoring."
+            Write-Warning "Stale runner.pid: PID $($priorRunner.pid) is not a Start-TestRunner process. Ignoring."
         }
     }
     default { } # 'None' / 'Self' -- nothing to do
@@ -251,7 +251,7 @@ Remove-Item -LiteralPath $RunnerStartFile -Force -ErrorAction SilentlyContinue
 # plain Set-Content and one PID would silently get overwritten.
 $pidWritten = Write-RunnerPidFile -RunnerPidFile $RunnerPidFile -RunnerStartFile $RunnerStartFile -Confirm:$false
 if (-not $pidWritten) {
-    Write-Error "Lost the pidfile race against a concurrent Invoke-TestRunner. Inspect $RunnerPidFile and retry."
+    Write-Error "Lost the pidfile race against a concurrent Start-TestRunner. Inspect $RunnerPidFile and retry."
     exit (Get-EntryPointExitCode -Outcome Failure)
 }
 

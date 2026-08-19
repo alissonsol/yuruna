@@ -3,7 +3,7 @@
 
 // Package detect classifies a stored artifact's content type. Detection runs
 // server-side at upload/flush: once per artifact rather than per view, and
-// identically for SCP- and UI-created stashes — the classifier sees bytes,
+// identically for SCP- and UI-created stashes -- the classifier sees bytes,
 // not origin.
 //
 // Two backends share one Detector interface:
@@ -15,7 +15,7 @@
 //   - magika (detect_magika.go, behind `//go:build magika`): wraps the
 //     official Go binding github.com/google/magika/go/magika. It needs cgo,
 //     the ONNX Runtime native library + the model assets, all vendored
-//     into the VM image — a build/packaging concern, so it is OFF in the
+//     into the VM image -- a build/packaging concern, so it is OFF in the
 //     default build to keep `go build`/`go test` pure-Go and offline.
 //
 // New() returns whichever backend the build selected (newBackend, defined
@@ -49,7 +49,7 @@ type Result struct {
 type Detector interface {
 	// DetectFile classifies the artifact at path. originalFilename is the
 	// client-supplied name (its extension is a secondary hint, never
-	// authoritative per §6.1). A read error yields a best-effort "other"
+	// authoritative per section 6.1). A read error yields a best-effort "other"
 	// result rather than failing the caller.
 	DetectFile(path, originalFilename string) Result
 }
@@ -97,7 +97,7 @@ func Classify(head []byte, originalFilename string) Result {
 		mt = strings.TrimSpace(http.DetectContentType(head))
 	}
 	// Strip any "; charset=..." parameter for the stored mimeType + class
-	// decision; the raw endpoint re-adds charset for text (§7.3).
+	// decision; the raw endpoint re-adds charset for text (section 7.3).
 	base := mt
 	if i := strings.IndexByte(base, ';'); i >= 0 {
 		base = strings.TrimSpace(base[:i])
@@ -107,7 +107,7 @@ func Classify(head []byte, originalFilename string) Result {
 	// http.DetectContentType returns application/octet-stream for content it
 	// can't place; if the bytes are in fact valid printable UTF-8 text, treat
 	// it as text/plain so a README with no extension still renders inline.
-	// Only override an UNKNOWN type — a concrete type (pdf, svg, html, image)
+	// Only override an UNKNOWN type -- a concrete type (pdf, svg, html, image)
 	// is authoritative even when its bytes happen to be printable text.
 	if (base == "" || base == "application/octet-stream") && looksLikeText(head) {
 		base = "text/plain"
@@ -144,11 +144,11 @@ func mimeFromExtension(name string) string {
 		return "text/csv"
 	case ".svg":
 		// SVG is image/svg+xml but the UI treats it as download-only active
-		// content (§7.4); ClassFromMime maps it to "other" deliberately.
+		// content (section 7.4); ClassFromMime maps it to "other" deliberately.
 		return "image/svg+xml"
 	case ".html", ".htm":
 		// Pinned (not registry-dependent) so HTML is reliably classed
-		// "other" / download-only on every platform (§7.4).
+		// "other" / download-only on every platform (section 7.4).
 		return "text/html"
 	case ".xhtml":
 		return "application/xhtml+xml"
@@ -162,7 +162,7 @@ func mimeFromExtension(name string) string {
 
 // ClassFromMime maps a (parameter-stripped) MIME type onto a UI content
 // class. SVG and HTML/XHTML are classed "other" on purpose: they are active
-// content the UI serves download-only (§7.4), so they must never land in an
+// content the UI serves download-only (section 7.4), so they must never land in an
 // inline-rendered class.
 func ClassFromMime(mt string) string {
 	mt = strings.ToLower(strings.TrimSpace(mt))
@@ -215,6 +215,6 @@ func looksLikeText(head []byte) bool {
 			ctrl++
 		}
 	}
-	// More than ~10% odd control bytes → treat as binary.
+	// More than ~10% odd control bytes -> treat as binary.
 	return ctrl*10 <= len(head)
 }

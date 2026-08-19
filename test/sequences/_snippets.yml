@@ -7,12 +7,16 @@
 # swallowed while the tty input layer is still draining, so on KVM the
 # leading character of the username is lost. Pressing Enter and pausing lets
 # agetty settle so the subsequent passwdPrompt types into a stable prompt.
+#
+# The nudge leads, and that order carries a second job beyond priming. agetty
+# prints "login:" once and never reprints it, so console writes arriving after
+# it -- cloud-init's closing banner, an installer's tail -- scroll the prompt
+# off a screen that then stops changing. Waiting first would hang the full
+# budget against a frozen frame with the recovery sitting unreachable below it,
+# and inside a retry block every attempt would re-enter that same wait. Enter
+# costs nothing when the prompt is already there and is what brings it back
+# when it is not.
 firstLoginPrime:
-  - action: waitForText
-    pattern: "login:"
-    timeoutSeconds: 600
-    description: "OCR: login:"
-
   - action: pressKey
     name: Enter
     description: "Push agetty to redraw a fresh login"
@@ -20,3 +24,8 @@ firstLoginPrime:
   - action: waitForSeconds
     seconds: 2
     description: "Let agetty redraw"
+
+  - action: waitForText
+    pattern: "login:"
+    timeoutSeconds: 600
+    description: "OCR: login:"

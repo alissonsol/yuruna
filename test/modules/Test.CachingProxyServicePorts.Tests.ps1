@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42e6c9b2-7d18-4a53-8f01-2b4c6e9d0a37
+.VERSION 2026.08.19
+.GUID 428bdced-5d24-48a9-b128-714be1d253d9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test caching-proxy-service port pester
@@ -39,8 +39,7 @@ BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 $script:repo = Split-Path -Parent (Split-Path -Parent $here)
 
-function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 Import-Module (Join-Path $here 'Test.VMUtility.psm1') -Force -DisableNameChecking -ErrorAction SilentlyContinue
 
@@ -63,7 +62,7 @@ Describe 'caching-proxy-service exposed-port set is single-sourced' {
     }
 
     It 'no caller re-inlines the fixed @(80, 3000, 9302, ...) port set' {
-        foreach ($rel in @('test/Start-StatusService.ps1', 'test/modules/Invoke-TestRunnerInnerLoop.ps1', 'test/service/Start-CachingProxyServiceVM.ps1')) {
+        foreach ($rel in @('test/service/Start-StatusService.ps1', 'test/modules/Invoke-TestRunnerInnerLoop.ps1', 'test/service/Start-CachingProxyServiceVM.ps1')) {
             $t = Get-Content -Raw -LiteralPath (Join-Path $script:repo $rel)
             Assert-True (-not ($t -match '@\(80,\s*3000,\s*9302,')) "the inline exposed-port set reappeared in $rel -- route it through Get-CachingProxyServiceExposedPort"
         }

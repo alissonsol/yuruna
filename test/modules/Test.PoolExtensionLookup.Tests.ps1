@@ -1,6 +1,6 @@
 <#PSScriptInfo
 .VERSION 2026.07.27
-.GUID 42cf7f04-54f2-4dab-abff-66b238af7992
+.GUID 42078042-0ea1-4de8-bb69-d88309b26736
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test pool-aggregator service extension stash discovery pester
@@ -44,7 +44,7 @@ $testRoot      = Split-Path -Parent $here
 $aggregatorPsm = Join-Path $testRoot 'extension' -AdditionalChildPath 'pool-aggregator-service', 'default.psm1'
 $script:stashPsm      = Join-Path $testRoot 'extension' -AdditionalChildPath 'stash-service', 'default.psm1'
 
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 Import-Module $aggregatorPsm -Force -Global -DisableNameChecking
 # The framework-level client entry point. Imported with the aggregator's reader

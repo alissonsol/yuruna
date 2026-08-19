@@ -53,7 +53,7 @@ properties:
       enabled:
         type: boolean
         description: >
-          Master switch for the auto-enrolment sweep across this LAN. Default
+          Master switch for the auto-enrollment sweep across this LAN. Default
           false: the feature ships off and is turned on deliberately.
       targetPoolId:
         type: string

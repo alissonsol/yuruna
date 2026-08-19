@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42f1a7c3-5b28-4e96-b0d4-7c8e9f0a1b23
+.VERSION 2026.08.19
+.GUID 42d76e1e-670d-4849-af41-08ce879f3532
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna pool storage move archive verify pester
@@ -46,18 +46,17 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$here = Split-Path -Parent $PSCommandPath
-Import-Module (Join-Path $here 'Test.PoolStorage.psm1') -Force -DisableNameChecking
-Import-Module (Join-Path $here 'Test.StateFile.psm1')   -Force -DisableNameChecking -ErrorAction SilentlyContinue
-
 if (-not (Get-Command -Name 'Describe' -ErrorAction SilentlyContinue)) {
     function Describe { param([string]$Name, [scriptblock]$Fixture) Write-Output "Describe: $Name"; & $Fixture }
     function It       { param([string]$Name, [scriptblock]$Test)    & $Test; Write-Output "    [pass] $Name" }
 }
 
-function Assert-True { param($Condition, [string]$Because) if (-not $Condition) { throw "Expected true. $Because" } }
-function Assert-False { param($Condition, [string]$Because) if ($Condition) { throw "Expected false. $Because" } }
-function Assert-Equal { param($Expected, $Actual, [string]$Because) if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
+BeforeAll {
+$here = Split-Path -Parent $PSCommandPath
+Import-Module (Join-Path $here 'Test.PoolStorage.psm1') -Force -DisableNameChecking
+Import-Module (Join-Path $here 'Test.StateFile.psm1')   -Force -DisableNameChecking -ErrorAction SilentlyContinue
+
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # --- REGION: https://yuruna.link/memory#pester-file-scope-fixtures
 # A host directory tree that looks like a real one: a log dir with finished cycle
@@ -121,7 +120,8 @@ function Get-ArchivedCyclePath {
     return (Join-Path $Fixture.Share (Join-Path 'hosts' (Join-Path $HostId (Join-Path 'test-cycles' $Cycle))))
 }
 
-$HOSTID = 'HOSTID'
+$script:HOSTID = 'HOSTID'
+}
 
 Describe 'Test-PoolStorageSpaceSufficient (the arithmetic both space checks share)' {
     It 'requires the measured size plus headroom plus the reserve' {
@@ -222,11 +222,11 @@ Describe 'Invoke-PoolStorageDrain -MoveLogs (the commit sequence)' {
         try {
             Enable-MoveStub
             $cycle = '000001.2026-08-16.10-00-00.HOSTID'
-            $r = Invoke-PoolStorageDrain -HostId $HOSTID -LogDir $f.LogDir -RuntimeDir $f.RuntimeDir `
+            $r = Invoke-PoolStorageDrain -HostId $script:HOSTID -LogDir $f.LogDir -RuntimeDir $f.RuntimeDir `
                 -Config (Get-MoveConfigDoc -Fixture $f) -MoveLogs -NoLock -Confirm:$false
             Assert-Equal -Expected 1 -Actual $r.moved -Because 'one cycle moved'
             Assert-Equal -Expected 1 -Actual $r.deleted -Because 'its local folder deleted'
-            $dest = Get-ArchivedCyclePath -Fixture $f -HostId $HOSTID -Cycle $cycle
+            $dest = Get-ArchivedCyclePath -Fixture $f -HostId $script:HOSTID -Cycle $cycle
             Assert-True (Test-Path -LiteralPath $dest) 'archived under hosts/<hostId>/test-cycles/'
             Assert-True (Test-Path -LiteralPath (Join-Path $dest '.yuruna-complete')) 'sentinel committed'
             Assert-True (Test-Path -LiteralPath (Join-Path $dest "$cycle.html")) 'artifacts archived'
@@ -239,7 +239,7 @@ Describe 'Invoke-PoolStorageDrain -MoveLogs (the commit sequence)' {
         $f = Get-MoveFixture -Cycles @('000002.2026-08-16.11-00-00.HOSTID') -Suffix '.incomplete'
         try {
             Enable-MoveStub
-            $r = Invoke-PoolStorageDrain -HostId $HOSTID -LogDir $f.LogDir -RuntimeDir $f.RuntimeDir `
+            $r = Invoke-PoolStorageDrain -HostId $script:HOSTID -LogDir $f.LogDir -RuntimeDir $f.RuntimeDir `
                 -Config (Get-MoveConfigDoc -Fixture $f) -MoveLogs -NoLock -Confirm:$false
             Assert-Equal -Expected 0 -Actual $r.moved -Because 'the running cycle is not archived'
             Assert-Equal -Expected 0 -Actual $r.deleted -Because 'and certainly not deleted'
@@ -255,7 +255,7 @@ Describe 'Invoke-PoolStorageDrain -MoveLogs (the commit sequence)' {
         try {
             Enable-MoveStub
             $cycle = '000001.2026-08-16.10-00-00.HOSTID'
-            $dest = Get-ArchivedCyclePath -Fixture $f -HostId $HOSTID -Cycle $cycle
+            $dest = Get-ArchivedCyclePath -Fixture $f -HostId $script:HOSTID -Cycle $cycle
             New-Item -ItemType Directory -Force -Path $dest | Out-Null
             Set-Content -LiteralPath (Join-Path $dest "$cycle.html") -Value "<html>$cycle</html>" -NoNewline
             New-Item -ItemType Directory -Force -Path (Join-Path $dest 'guest-1') | Out-Null
@@ -264,7 +264,7 @@ Describe 'Invoke-PoolStorageDrain -MoveLogs (the commit sequence)' {
             # A half-deleted local source, exactly as an interrupted delete leaves it.
             Remove-Item -LiteralPath (Join-Path $f.LogDir "$cycle/guest-1/diag.txt") -Force
 
-            $r = Invoke-PoolStorageDrain -HostId $HOSTID -LogDir $f.LogDir -RuntimeDir $f.RuntimeDir `
+            $r = Invoke-PoolStorageDrain -HostId $script:HOSTID -LogDir $f.LogDir -RuntimeDir $f.RuntimeDir `
                 -Config (Get-MoveConfigDoc -Fixture $f) -MoveLogs -NoLock -Confirm:$false
             Assert-Equal -Expected 1 -Actual $r.moved -Because 'the committed archive is adopted'
             Assert-True (Test-Path -LiteralPath (Join-Path $dest '.yuruna-complete')) 'THE ARCHIVE SURVIVED'
@@ -281,13 +281,13 @@ Describe 'Invoke-PoolStorageDrain -MoveLogs (the commit sequence)' {
         try {
             Enable-MoveStub
             $cycle = '000001.2026-08-16.10-00-00.HOSTID'
-            $dest = Get-ArchivedCyclePath -Fixture $f -HostId $HOSTID -Cycle $cycle
+            $dest = Get-ArchivedCyclePath -Fixture $f -HostId $script:HOSTID -Cycle $cycle
             New-Item -ItemType Directory -Force -Path $dest | Out-Null
             Set-Content -LiteralPath (Join-Path $dest '.yuruna-complete') -Value 'committed' -NoNewline
             $ledger = [ordered]@{ replicated = [ordered]@{ $cycle = '2026-08-16T10:30:00Z' } }
             $null = Write-PoolStorageLedger -RuntimeDir $f.RuntimeDir -Ledger $ledger -Confirm:$false
 
-            $r = Invoke-PoolStorageDrain -HostId $HOSTID -LogDir $f.LogDir -RuntimeDir $f.RuntimeDir `
+            $r = Invoke-PoolStorageDrain -HostId $script:HOSTID -LogDir $f.LogDir -RuntimeDir $f.RuntimeDir `
                 -Config (Get-MoveConfigDoc -Fixture $f) -MoveLogs -NoLock -Confirm:$false
             Assert-Equal -Expected 1 -Actual $r.deleted -Because 'the sweep finished the interrupted delete'
             Assert-False (Test-Path -LiteralPath (Join-Path $f.LogDir $cycle)) 'local folder gone'
@@ -313,11 +313,11 @@ Describe 'Invoke-PoolStorageDrain -MoveLogs (the commit sequence)' {
                     return $true
                 }
             }
-            $r = Invoke-PoolStorageDrain -HostId $HOSTID -LogDir $f.LogDir -RuntimeDir $f.RuntimeDir `
+            $r = Invoke-PoolStorageDrain -HostId $script:HOSTID -LogDir $f.LogDir -RuntimeDir $f.RuntimeDir `
                 -Config (Get-MoveConfigDoc -Fixture $f) -MoveLogs -NoLock -Confirm:$false
             Assert-Equal -Expected 0 -Actual $r.moved -Because 'a failed verification is not a move'
             Assert-True (Test-Path -LiteralPath (Join-Path $f.LogDir $cycle)) 'LOCAL FOLDER KEPT -- nothing is lost'
-            Assert-False (Test-Path -LiteralPath (Get-ArchivedCyclePath -Fixture $f -HostId $HOSTID -Cycle $cycle)) 'the untrustworthy destination is removed'
+            Assert-False (Test-Path -LiteralPath (Get-ArchivedCyclePath -Fixture $f -HostId $script:HOSTID -Cycle $cycle)) 'the untrustworthy destination is removed'
         } finally { Clear-MoveFixture $f }
     }
 
@@ -327,7 +327,7 @@ Describe 'Invoke-PoolStorageDrain -MoveLogs (the commit sequence)' {
             Enable-MoveStub
             & (Get-Module Test.PoolStorage) { Set-Item -Path function:script:Get-PoolStorageFreeSpace -Value { param($Config) $null = $Config; return [long]1024 } }
             $cycle = '000001.2026-08-16.10-00-00.HOSTID'
-            $r = Invoke-PoolStorageDrain -HostId $HOSTID -LogDir $f.LogDir -RuntimeDir $f.RuntimeDir `
+            $r = Invoke-PoolStorageDrain -HostId $script:HOSTID -LogDir $f.LogDir -RuntimeDir $f.RuntimeDir `
                 -Config (Get-MoveConfigDoc -Fixture $f) -MoveLogs -SpaceCheck -NoLock -Confirm:$false
             Assert-True $r.spaceShort 'spaceShort reported'
             Assert-Equal -Expected 0 -Actual $r.moved -Because 'nothing copied'
@@ -342,7 +342,7 @@ Describe 'Invoke-PoolStorageDrain -MoveLogs (the commit sequence)' {
         try {
             Enable-MoveStub
             $cycle = '000001.2026-08-16.10-00-00.HOSTID'
-            $null = Invoke-PoolStorageDrain -HostId $HOSTID -LogDir $f.LogDir -RuntimeDir $f.RuntimeDir `
+            $null = Invoke-PoolStorageDrain -HostId $script:HOSTID -LogDir $f.LogDir -RuntimeDir $f.RuntimeDir `
                 -Config (Get-MoveConfigDoc -Fixture $f -MoveLogs $false) -SpaceCheck -NoLock -Confirm:$false
             $led = Read-PoolStorageLedger -RuntimeDir $f.RuntimeDir
             Assert-True ($led.Contains('recentArchivedBytes')) 'the sample exists after a copy-mode run'
@@ -359,12 +359,12 @@ Describe 'Invoke-PoolStorageDrain -MoveLogs (the commit sequence)' {
         try {
             Enable-MoveStub
             $cfg = Get-MoveConfigDoc -Fixture $f
-            $null = Invoke-PoolStorageDrain -HostId $HOSTID -LogDir $f.LogDir -RuntimeDir $f.RuntimeDir -Config $cfg -MoveLogs -NoLock -Confirm:$false
-            $dest = Get-ArchivedCyclePath -Fixture $f -HostId $HOSTID -Cycle '000001.2026-08-16.10-00-00.HOSTID'
+            $null = Invoke-PoolStorageDrain -HostId $script:HOSTID -LogDir $f.LogDir -RuntimeDir $f.RuntimeDir -Config $cfg -MoveLogs -NoLock -Confirm:$false
+            $dest = Get-ArchivedCyclePath -Fixture $f -HostId $script:HOSTID -Cycle '000001.2026-08-16.10-00-00.HOSTID'
             # -Force: the sentinel is dot-prefixed, so it is hidden on Unix and
             # Get-Item skips it without one.
             $stamp = (Get-Item -Force -LiteralPath (Join-Path $dest '.yuruna-complete')).LastWriteTimeUtc
-            $second = Invoke-PoolStorageDrain -HostId $HOSTID -LogDir $f.LogDir -RuntimeDir $f.RuntimeDir -Config $cfg -MoveLogs -NoLock -Confirm:$false
+            $second = Invoke-PoolStorageDrain -HostId $script:HOSTID -LogDir $f.LogDir -RuntimeDir $f.RuntimeDir -Config $cfg -MoveLogs -NoLock -Confirm:$false
             Assert-Equal -Expected 0 -Actual $second.moved -Because 'nothing left to move'
             Assert-Equal -Expected $stamp -Actual (Get-Item -Force -LiteralPath (Join-Path $dest '.yuruna-complete')).LastWriteTimeUtc -Because 'the archive was not rewritten'
         } finally { Clear-MoveFixture $f }
@@ -379,10 +379,10 @@ Describe 'Invoke-PoolStorageDrain -MoveLogs (the commit sequence)' {
             New-Item -ItemType Directory -Force -Path (Join-Path $bucket $rotated) | Out-Null
             Set-Content -LiteralPath (Join-Path $bucket "$rotated/$rotated.html") -Value 'old' -NoNewline
 
-            $r = Invoke-PoolStorageDrain -HostId $HOSTID -LogDir $f.LogDir -RuntimeDir $f.RuntimeDir `
+            $r = Invoke-PoolStorageDrain -HostId $script:HOSTID -LogDir $f.LogDir -RuntimeDir $f.RuntimeDir `
                 -Config (Get-MoveConfigDoc -Fixture $f) -MoveLogs -NoLock -Confirm:$false
             Assert-Equal -Expected 2 -Actual $r.moved -Because 'the top-level cycle AND the rotated one'
-            $dest = Get-ArchivedCyclePath -Fixture $f -HostId $HOSTID -Cycle $rotated
+            $dest = Get-ArchivedCyclePath -Fixture $f -HostId $script:HOSTID -Cycle $rotated
             Assert-True (Test-Path -LiteralPath $dest) 'the rotated cycle lands FLAT under test-cycles/, with no bucket'
             Assert-False (Test-Path -LiteralPath (Join-Path $bucket $rotated)) 'and its local copy is gone'
         } finally { Clear-MoveFixture $f }
@@ -419,7 +419,7 @@ Describe 'Enter-/Exit-PoolStorageDrainLock (single instance across BOTH invocati
         try {
             Enable-MoveStub
             Assert-True (Enter-PoolStorageDrainLock -RuntimeDir $f.RuntimeDir) 'hold it'
-            $r = Invoke-PoolStorageDrain -HostId $HOSTID -LogDir $f.LogDir -RuntimeDir $f.RuntimeDir `
+            $r = Invoke-PoolStorageDrain -HostId $script:HOSTID -LogDir $f.LogDir -RuntimeDir $f.RuntimeDir `
                 -Config (Get-MoveConfigDoc -Fixture $f) -MoveLogs -Confirm:$false
             Assert-True $r.lockBusy 'lockBusy reported'
             Assert-Equal -Expected 0 -Actual $r.moved -Because 'nothing archived while another run holds the lock'

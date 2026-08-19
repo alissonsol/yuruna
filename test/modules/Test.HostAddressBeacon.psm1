@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42c9f45e-6b21-4a83-9d0e-3f7a1c58be24
+.VERSION 2026.08.19
+.GUID 42d5663b-af64-472f-8342-ab50456c2fc4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna host address dhcp beacon pool
@@ -306,6 +306,55 @@ function Write-HostAddressChangeRecord {
     }
 }
 
+function Write-HostAddressBaselineRecord {
+<#
+.SYNOPSIS
+    Append the first address this beacon observed, as a baseline rather than
+    as a change.
+.DESCRIPTION
+    The record file used to come into existence only when the host MOVED, and
+    that made two opposite facts look identical from the outside: a host that
+    has held one address since boot has no file, and a host whose beacon never
+    started has no file either. The reader returns "cannot measure" for both,
+    so the one host that is provably bounded reports the same thing as the one
+    nothing is watching -- and a stable fleet reads as an unmonitored one.
+
+    Writing the first observation as its own event fixes both directions. The
+    file now exists for as long as the beacon has run, so its ABSENCE means
+    exactly one thing: nothing is watching this host. And because the row is
+    not a change, the first tick after a beacon restart no longer books a
+    phantom move against whatever cycle happens to be running -- which is what
+    an empty 'previous' used to record.
+.PARAMETER RuntimeDir
+    The runtime directory the beacon writes into.
+.PARAMETER Current
+    The address the host holds at the first observation.
+.PARAMETER ObservedAtUtc
+    ISO-8601 'Z' timestamp of the observation. Named changedAtUtc on the row
+    like every other, so one reader parses the file.
+#>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([void])]
+    param(
+        [Parameter(Mandatory)][string]$RuntimeDir,
+        [Parameter(Mandatory)][string]$Current,
+        [Parameter(Mandatory)][string]$ObservedAtUtc
+    )
+    $path = Join-Path $RuntimeDir 'hostaddress.changes.ndjson'
+    if (-not $PSCmdlet.ShouldProcess($path, "Record address baseline $Current")) { return }
+    try {
+        $row = [ordered]@{
+            event        = 'host_address_baseline'
+            previous     = ''
+            current      = $Current
+            changedAtUtc = $ObservedAtUtc
+        } | ConvertTo-Json -Compress
+        [System.IO.File]::AppendAllText($path, "$row`n")
+    } catch {
+        Write-Verbose "host address baseline record: $($_.Exception.Message)"
+    }
+}
+
 function Get-HostAddressChangeCount {
 <#
 .SYNOPSIS
@@ -337,6 +386,13 @@ function Get-HostAddressChangeCount {
     # change and a cycle whose record was never written are different facts, and
     # only one of them is evidence about surviving churn. Collapsing them is how
     # five cycles were read as "no churn happened" when three of them had churn.
+    #
+    # The baseline row is what keeps that distinction honest in the other
+    # direction. It parses -- so a host whose beacon is running and whose
+    # address has never moved reports a real 0 -- but it is not a change, so it
+    # never counts. Without it the file appeared only once a host had already
+    # moved, and the most stable hosts in the lab were the ones reporting that
+    # they could not be measured.
     $path = Join-Path $RuntimeDir 'hostaddress.changes.ndjson'
     if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { return -1 }
     $count = 0
@@ -347,6 +403,7 @@ function Get-HostAddressChangeCount {
             $row = $line | ConvertFrom-Json -ErrorAction Stop
             $at  = ([datetime]$row.changedAtUtc).ToUniversalTime()
             $parsed++
+            if ([string]$row.event -eq 'host_address_baseline') { continue }
             if ($at -ge $StartUtc -and $at -le $EndUtc) { $count++ }
         } catch {
             Write-Verbose "host address change count: skipping unparseable row -- $($_.Exception.Message)"
@@ -418,6 +475,10 @@ function Get-HostAddressChurnVerdict {
             $row = $line | ConvertFrom-Json -ErrorAction Stop
             $at  = ([datetime]$row.changedAtUtc).ToUniversalTime()
         } catch { continue }
+        # The baseline says the beacon started here, not that the host moved
+        # here. Counting it would turn every beacon restart into a change and
+        # make a restarted beacon on a motionless host read as 'moved'.
+        if ([string]$row.event -eq 'host_address_baseline') { continue }
         if ($at -lt $since -or $at -gt $NowUtc) { continue }
         $rows.Add([pscustomobject]@{ At = $at; Current = [string]$row.current })
     }
@@ -654,19 +715,48 @@ function Get-HostAddressStabilityReport {
 
     switch ($churn.verdict) {
         'renewal-churn' {
+            # Periodic changes that all report the SAME address are a timer
+            # resetting the link, not a timer allocating addresses: one address
+            # is held throughout, so the pool-drain arithmetic below would be
+            # asserting a leak that is provably not happening. The periodicity
+            # is still worth a warning -- an address dropping on a clock breaks
+            # every guest behind it each time -- so the verdict stands and only
+            # the claim about the pool is withdrawn.
             $report.severity = 'warning'
-            $base = ("This host takes a NEW address on every lease renewal: $($churn.changes) changes " +
+            if ($churn.distinctAddresses -le 1) {
+                $base = ("This host LOSES AND REACQUIRES one address on a timer: $($churn.changes) changes " +
+                         "in the last $($churn.lookbackHours)h, one every $($churn.medianIntervalMinutes) min, " +
+                         'but only ever on a single address. No lease is being leaked and the pool is not ' +
+                         'draining, so the address itself is not the problem -- something is resetting this ' +
+                         'link on a clock, and every guest behind it loses the wire each time even though ' +
+                         'nothing renumbers. That is invisible in a guest log, which shows only the outage.')
+                $report.message = "$base Look at the link and the renewal path, not at the DHCP identity."
+                $report.remedy  = "confirm whether the interface drops carrier or the address at each tick; see docs/network.md, 'Pinning the host address'."
+                return $report
+            }
+            # Reports the rate and stops there. Turning "N addresses a day" into
+            # a drain -- let alone into exhaustion -- needs the lease period and
+            # the scope size, and this beacon is handed NEITHER: it sees only its
+            # own host's address log. The same rate is unremarkable on a short
+            # lease and fatal on a long one, so asserting the fatal reading is a
+            # guess wearing the costume of a measurement, and it sends whoever
+            # reads it to the DHCP server to fix a pool that may be mostly free.
+            # State the observation; name the two numbers that would settle it.
+            $base = ("This host re-addresses on a short clock: $($churn.changes) changes " +
                      "in the last $($churn.lookbackHours)h, one every $($churn.medianIntervalMinutes) min, " +
-                     "$($churn.distinctAddresses) distinct addresses -- about $rate addresses a day out of " +
-                     'the LAN pool, held until each one expires. The pool drains at a rate set by the lease ' +
-                     'time rather than by how many machines are on it, so a long lease turns this into ' +
-                     'exhaustion within days and guests then boot with no IPv4 at all.')
+                     "$($churn.distinctAddresses) distinct addresses -- about $rate a day. Whether that " +
+                     'is harmless or is draining the pool depends on the lease period and the scope size, ' +
+                     'which are facts about the DHCP server and are not visible from this host: at a ' +
+                     'lease of L hours each address is held L hours, so roughly rate x L / 24 are held ' +
+                     'at once. Compare that against the free-lease count on the server before treating ' +
+                     'this as a pool problem. What IS certain from here is the churn itself -- an address ' +
+                     'changing on a clock breaks every guest behind it each time it moves.')
             if ($identity.pinned -eq $false) {
                 $report.message = "$base The bridge's DHCP identity is not pinned, so every renewal presents a client the server has not seen before."
                 $report.remedy  = $identity.remedy
             } elseif ($identity.pinned -eq $true) {
                 $report.message = "$base The bridge's DHCP identity IS pinned, so the server is not keying leases on it. A pin cannot fix this."
-                $report.remedy  = "reserve the bridge MAC on the DHCP server, or give the bridge a static address -- see docs/network.md, 'Pinning the host address'."
+                $report.remedy  = "find what re-requests the lease on this clock (a renewal timer would fire at half the lease, so a much shorter period is something restarting the connection); a DHCP reservation for the bridge MAC, or a static address, makes the address stable regardless -- see docs/network.md, 'Pinning the host address'."
             } else {
                 $report.message = "$base The bridge's DHCP identity could not be read ($($identity.detail))."
                 $report.remedy  = "see docs/network.md, 'Pinning the host address'."
@@ -676,7 +766,28 @@ function Get-HostAddressStabilityReport {
         }
         'moved' {
             $report.severity = 'advisory'
-            $report.message  = ("This host changed address $($churn.changes) time(s) in the last " +
+            # "Changed address N times" is only sayable when more than one
+            # address was actually seen. A window whose changes all report the
+            # same current address records a host that kept LOSING and
+            # REACQUIRING one address, not one that renumbered -- no second
+            # address was ever observed and no extra lease was drawn. Saying it
+            # moved 62 times invents a renumbering that leaves no trace anywhere
+            # else, and it buries the signal that is really there: something is
+            # dropping this host's address and handing the same one back.
+            if ($churn.distinctAddresses -le 1) {
+                $every = if ($churn.medianIntervalMinutes -gt 0) {
+                    " about every $($churn.medianIntervalMinutes) min"
+                } else { '' }
+                $report.message = ("This host recorded $($churn.changes) address change(s) in the last " +
+                    "$($churn.lookbackHours)h but was only ever observed on ONE address, so it did not " +
+                    "renumber and took no extra lease from the pool: it kept losing that address and " +
+                    "getting it back$every. Address-mobility questions do not apply -- the thing to look at " +
+                    'is why the address keeps dropping, which is a link or renewal event rather than a move. ' +
+                    'A guest that fails with no IPv4 while this host looks healthy is the symptom to expect.')
+                return $report
+            }
+            $report.message  = ("This host changed address $($churn.changes) time(s) across " +
+                "$($churn.distinctAddresses) distinct addresses in the last " +
                 "$($churn.lookbackHours)h, at no fixed interval -- consistent with reboots or link events " +
                 'rather than a renewal that is not being honored. The discovery path absorbs this.')
             return $report
@@ -694,9 +805,16 @@ function Get-HostAddressStabilityReport {
             return $report
         }
         default {
-            $report.severity = 'advisory'
-            $report.message  = ('No host address change record to read, so address stability cannot be ' +
-                'assessed here. It is written by the beacon, which runs with the test runner.')
+            # The beacon writes a baseline row the first time it sees an
+            # address, so the record exists for as long as it has run. Nothing
+            # to read is therefore not "this host is quiet" -- it is "nothing is
+            # watching this host", which is worth more than an advisory: an
+            # unwatched host is exactly where unbounded renumbering hides.
+            $report.severity = 'warning'
+            $report.message  = ('No host address record to read. The beacon writes one the first time it ' +
+                'observes an address, so its absence means the beacon is not running here -- this host''s ' +
+                'address footprint is unmeasured, not proven quiet.')
+            $report.remedy   = 'start the status service (the beacon runs alongside it) and confirm it writes runtime/hostaddress.changes.ndjson.'
             return $report
         }
     }
@@ -809,11 +927,25 @@ function Invoke-HostAddressBeaconTick {
         # defaults to SilentlyContinue -- so without it the line is written
         # nowhere and a failed cycle cannot be reconstructed afterwards.
         $changedAtUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
-        Write-Information "[$changedAtUtc] Host address changed: '$($script:LastRecordedAddress)' -> '$CurrentAddress'. Refreshing records and republishing to the pool directory." -InformationAction Continue
+        # No previous address means this beacon has only just started looking,
+        # so the host has not been seen to move -- it has been seen for the
+        # first time. Recording that as a change books a move the host never
+        # made against whatever cycle is running, and every beacon restart
+        # would book another one.
+        $isBaseline = [string]::IsNullOrWhiteSpace($script:LastRecordedAddress)
+        if ($isBaseline) {
+            Write-Information "[$changedAtUtc] Host address baseline: '$CurrentAddress'. Recording it so a stable host is distinguishable from an unwatched one." -InformationAction Continue
+        } else {
+            Write-Information "[$changedAtUtc] Host address changed: '$($script:LastRecordedAddress)' -> '$CurrentAddress'. Refreshing records and republishing to the pool directory." -InformationAction Continue
+        }
         Write-HostAddressRecord -RuntimeDir $RuntimeDir -Address $CurrentAddress
-        Write-HostAddressChangeRecord -RuntimeDir $RuntimeDir -Previous $script:LastRecordedAddress -Current $CurrentAddress -ChangedAtUtc $changedAtUtc
+        if ($isBaseline) {
+            Write-HostAddressBaselineRecord -RuntimeDir $RuntimeDir -Current $CurrentAddress -ObservedAtUtc $changedAtUtc
+        } else {
+            Write-HostAddressChangeRecord -RuntimeDir $RuntimeDir -Previous $script:LastRecordedAddress -Current $CurrentAddress -ChangedAtUtc $changedAtUtc
+        }
         $script:LastRecordedAddress = $CurrentAddress
-        Assert-HostAddressStability
+        if (-not $isBaseline) { Assert-HostAddressStability }
     }
 
     if ([string]::IsNullOrWhiteSpace($CacheAddress)) {
@@ -850,7 +982,8 @@ function Invoke-HostAddressBeaconTick {
 }
 
 Export-ModuleMember -Function Get-HostAddressBeaconState, Reset-HostAddressBeaconState, Assert-HostAddressStability,
-    Write-HostAddressRecord, Write-HostAddressChangeRecord, Get-HostAddressChangeCount,
+    Write-HostAddressRecord, Write-HostAddressChangeRecord, Write-HostAddressBaselineRecord,
+    Get-HostAddressChangeCount,
     Get-HostAddressChurnVerdict, Get-HostBridgeDhcpIdentity, Set-HostBridgeDhcpIdentity,
     Get-HostAddressStabilityReport,
     Send-HostAddressAnnounce, Invoke-HostAddressSquidNudge,

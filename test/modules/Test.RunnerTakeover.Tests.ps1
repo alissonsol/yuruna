@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42e7a3c9-1d68-4b25-8f30-9c2e5b7a4d61
+.VERSION 2026.08.19
+.GUID 42213d20-67de-42c8-8f4a-9f107b0b9088
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna runner takeover process-tree console pester
@@ -41,11 +41,7 @@ BeforeAll {
     $repo = Split-Path -Parent (Split-Path -Parent $PSCommandPath)
     Import-Module (Join-Path $repo 'modules/Test.SingleInstance.psm1') -Force -DisableNameChecking
 
-    function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
-    function Assert-Equal {
-        param($Expected, $Actual, [string]$Because = '')
-        if ("$Expected" -ne "$Actual") { throw "Expected '$Expected' but got '$Actual'. $Because" }
-    }
+    Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
     # A parent sh that spawns a child sleep and then sleeps itself. Returns both
     # PIDs. The child is what a naive single-PID kill leaves behind.

@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e92
+.VERSION 2026.08.19
+.GUID 42cfa437-bd81-47fb-8d48-e2ca1335fa07
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test cross-host
@@ -404,6 +404,192 @@ function Reset-GuestDhcpReleaseTally {
     $script:DhcpReleaseSucceeded = 0
 }
 
+# --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+# Releasing a lease is an optimization and can always miss; the BOUND is what
+# decides whether a long lease is survivable. The bound says a guest asks for a
+# new address only when its identity is new -- so the way to test it is to
+# rebuild the same identity and see whether the same address comes back.
+#
+# Observed, not configured, deliberately. A pin that is present and a pin the
+# server honors look identical from the guest's own files, and only one of them
+# bounds anything. This measures the outcome, which is the half that cannot be
+# faked by a correct-looking setting.
+$script:GuestAddressChecked   = 0
+$script:GuestAddressUnbounded = 0
+$script:GuestAddressMoves     = [System.Collections.Generic.List[object]]::new()
+
+function Get-GuestAddressLedgerPath {
+<#
+.SYNOPSIS
+    Where this host records the address each guest identity last held.
+.PARAMETER RuntimeDir
+    The runtime directory the runner already keeps its per-host state in.
+.OUTPUTS
+    [string]
+#>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$RuntimeDir)
+    return (Join-Path $RuntimeDir 'guestaddress.ledger.json')
+}
+
+function Register-GuestAddressObservation {
+<#
+.SYNOPSIS
+    Record the address a guest identity holds now, and say whether that identity
+    has moved since it was last seen.
+.DESCRIPTION
+    Keyed on the identity the guest keeps for its whole life -- the same key its
+    deterministic MAC is derived from -- NOT on the VM name of the moment. A
+    guest is built in a per-kind slot and promoted out of it, so keying on the
+    transient name would report a rename as a renumbering and cry wolf on every
+    promotion.
+
+    A first sighting is never a move: an identity with no prior address is being
+    recorded, not judged. That is the difference between a lab that has just
+    added a guest and one that is leaking addresses, and only the second is
+    worth stopping for.
+.PARAMETER RuntimeDir
+    The runtime directory holding the ledger.
+.PARAMETER Identity
+    The guest's lifelong identity key.
+.PARAMETER Address
+    The IPv4 address it holds now.
+.OUTPUTS
+    [hashtable] bounded, firstSighting, previous, current.
+#>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$RuntimeDir,
+        [Parameter(Mandatory)][string]$Identity,
+        [Parameter(Mandatory)][string]$Address
+    )
+    $result = @{ bounded = $true; firstSighting = $true; previous = ''; current = $Address }
+    $path = Get-GuestAddressLedgerPath -RuntimeDir $RuntimeDir
+    if (-not $PSCmdlet.ShouldProcess($path, "Record $Identity at $Address")) { return $result }
+
+    $ledger = @{}
+    if (Test-Path -LiteralPath $path -PathType Leaf) {
+        try {
+            $raw = [string](Get-Content -LiteralPath $path -Raw -ErrorAction Stop)
+            if (-not [string]::IsNullOrWhiteSpace($raw)) {
+                # A ledger that cannot be read is treated as empty rather than
+                # fatal. Losing the history costs one cycle of detection; failing
+                # here would cost the teardown it runs inside.
+                ($raw | ConvertFrom-Json -ErrorAction Stop).PSObject.Properties |
+                    ForEach-Object { $ledger[$_.Name] = [string]$_.Value }
+            }
+        } catch {
+            Write-Verbose "guest address ledger: unreadable, starting fresh -- $($_.Exception.Message)"
+        }
+    }
+
+    if ($ledger.ContainsKey($Identity) -and $ledger[$Identity]) {
+        $result.firstSighting = $false
+        $result.previous = [string]$ledger[$Identity]
+        $result.bounded  = ($result.previous -eq $Address)
+    }
+    $ledger[$Identity] = $Address
+    try {
+        ($ledger | ConvertTo-Json -Depth 3) |
+            Set-Content -LiteralPath $path -Encoding utf8 -ErrorAction Stop
+    } catch {
+        Write-Verbose "guest address ledger: could not write '$path' -- $($_.Exception.Message)"
+    }
+    return $result
+}
+
+function Assert-GuestAddressBounded {
+<#
+.SYNOPSIS
+    Check that a guest came back on the address its identity already owns, and
+    record the answer for the cycle.
+.DESCRIPTION
+    Runs where the guest is still alive and still addressable -- before the
+    teardown kill -- because that is the last moment the question can be asked
+    at all.
+
+    A guest whose address cannot be resolved is counted as UNCHECKED, never as
+    passing. Coverage and compliance are different facts: an unreachable guest
+    is the ordinary case on a failure path, and letting it report as bounded
+    would make a cycle where nothing could be checked look exactly like a cycle
+    where everything was.
+.PARAMETER VMName
+    The VM to resolve an address for.
+.PARAMETER Identity
+    The guest's lifelong identity key; defaults to the VM name for guests that
+    carry one name for life.
+.PARAMETER RuntimeDir
+    The runtime directory holding the ledger.
+.OUTPUTS
+    [hashtable] checked, bounded, previous, current, identity.
+#>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter()][AllowEmptyString()][string]$Identity = '',
+        [Parameter(Mandatory)][string]$RuntimeDir
+    )
+    $key = if ([string]::IsNullOrWhiteSpace($Identity)) { $VMName } else { $Identity }
+    $outcome = @{ checked = $false; bounded = $true; previous = ''; current = ''; identity = $key }
+    if (-not $PSCmdlet.ShouldProcess($VMName, 'Check guest address is bounded by identity')) { return $outcome }
+    if (-not (Get-Command Get-VMIp -ErrorAction SilentlyContinue)) { return $outcome }
+
+    $address = ''
+    try { $address = [string](Get-VMIp -VMName $VMName -ErrorAction SilentlyContinue) }
+    catch { Write-Verbose "guest address check: '$VMName' has no resolvable address -- $($_.Exception.Message)" }
+    if ([string]::IsNullOrWhiteSpace($address)) { return $outcome }
+
+    $obs = Register-GuestAddressObservation -RuntimeDir $RuntimeDir -Identity $key -Address $address -Confirm:$false
+    $outcome.checked  = $true
+    $outcome.bounded  = [bool]$obs.bounded
+    $outcome.previous = [string]$obs.previous
+    $outcome.current  = [string]$obs.current
+    $script:GuestAddressChecked++
+    if (-not $obs.bounded) {
+        $script:GuestAddressUnbounded++
+        $script:GuestAddressMoves.Add([pscustomobject]@{
+            identity = $key; vmName = $VMName
+            previous = [string]$obs.previous; current = [string]$obs.current
+        })
+    }
+    return $outcome
+}
+
+function Get-GuestAddressFootprintTally {
+<#
+.SYNOPSIS
+    How many guests could be checked against their own identity this cycle, and
+    how many came back on an address that identity did not already own.
+.OUTPUTS
+    [hashtable] checked, unbounded, moves.
+#>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param()
+    return @{
+        checked   = $script:GuestAddressChecked
+        unbounded = $script:GuestAddressUnbounded
+        moves     = @($script:GuestAddressMoves)
+    }
+}
+
+function Reset-GuestAddressFootprintTally {
+<#
+.SYNOPSIS
+    Zero the guest-address tally at a cycle boundary.
+#>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([void])]
+    param()
+    if (-not $PSCmdlet.ShouldProcess('guest address footprint tally', 'Reset')) { return }
+    $script:GuestAddressChecked   = 0
+    $script:GuestAddressUnbounded = 0
+    $script:GuestAddressMoves     = [System.Collections.Generic.List[object]]::new()
+}
+
 function Remove-GuestVMQuietly {
     <#
     .SYNOPSIS
@@ -436,6 +622,27 @@ function Remove-GuestVMQuietly {
     # Ask for the lease back before the power is cut. -SkipStop means the VM is not
     # running (a leftover being swept before a rebuild), so there is nobody to ask.
     if (-not $SkipStop -and -not [string]::IsNullOrWhiteSpace($GuestKey)) {
+        # Read the address BEFORE the release: a guest that has just handed its
+        # lease back no longer has one to report, so asking afterwards would
+        # measure nothing on exactly the guests that behaved correctly.
+        #
+        # Keyed on the name the VM carries at TEARDOWN, which is the closest
+        # identity available here and not quite the one the MAC is derived from
+        # (that is the cloud-init hostname the sequence declares, which this
+        # layer never sees). The approximation is safe in the direction that
+        # matters: a guest built and promoted the same way each cycle ends at
+        # the same name, so like is compared with like. Where a hostname is
+        # shared across tiers of a chain, several names map onto one address and
+        # each simply reads as bounded -- extra rows, no false alarm. Callers
+        # that DO know the lifelong identity should pass it as -Identity.
+        $addressRuntimeDir = if ($env:YURUNA_RUNTIME_DIR) { $env:YURUNA_RUNTIME_DIR }
+                             else { Join-Path (Split-Path -Parent $PSScriptRoot) 'status' -AdditionalChildPath 'runtime' }
+        try {
+            $null = Assert-GuestAddressBounded -VMName $VMName -Identity $VMName `
+                        -RuntimeDir $addressRuntimeDir -Confirm:$false
+        } catch {
+            Write-Verbose "guest address check on '$VMName' failed: $($_.Exception.Message)"
+        }
         $null = Invoke-GuestDhcpRelease -VMName $VMName -GuestKey $GuestKey
     }
     $savedProgress = $global:ProgressPreference
@@ -1170,4 +1377,4 @@ function Test-TcpEndpointOpen {
     }
 }
 
-Export-ModuleMember -Function Wait-VMRunning, Get-ScreenshotSchedule, Invoke-ScreenshotTest, Compare-Screenshot, Get-CachingProxyServiceExposedPort, Remove-GuestVMQuietly, Invoke-GuestDhcpRelease, Get-GuestDhcpReleaseTally, Reset-GuestDhcpReleaseTally, Update-StashServiceMarkerAddress, Wait-YurunaServiceVmEndpoint, Test-TcpEndpointOpen, Write-YurunaWaitProgress, Close-YurunaWaitProgress, Test-YurunaProgressLineSupported
+Export-ModuleMember -Function Wait-VMRunning, Get-ScreenshotSchedule, Invoke-ScreenshotTest, Compare-Screenshot, Get-CachingProxyServiceExposedPort, Remove-GuestVMQuietly, Invoke-GuestDhcpRelease, Get-GuestDhcpReleaseTally, Reset-GuestDhcpReleaseTally, Get-GuestAddressLedgerPath, Register-GuestAddressObservation, Assert-GuestAddressBounded, Get-GuestAddressFootprintTally, Reset-GuestAddressFootprintTally, Update-StashServiceMarkerAddress, Wait-YurunaServiceVmEndpoint, Test-TcpEndpointOpen, Write-YurunaWaitProgress, Close-YurunaWaitProgress, Test-YurunaProgressLineSupported

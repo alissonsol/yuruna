@@ -24,7 +24,7 @@
   const OBSERVED = {
     mixed: 'Mixed',
     both: 'Paused after cycle and step',
-    unknown: '—'
+    unknown: '--'
   };
   const LABEL = {};
   for (const a of ACTIONS) LABEL[a.value] = a.label;
@@ -117,7 +117,7 @@
       return;
     }
     const detail = failed.map(function (h) { return Y.shortHost(h.hostId) + ' (' + (h.error || 'failed') + ')'; }).join('; ');
-    Y.notice('error', LABEL[action] + ': ' + res.applied + ' applied, ' + failed.length + ' failed — ' + detail);
+    Y.notice('error', LABEL[action] + ': ' + res.applied + ' applied, ' + failed.length + ' failed -- ' + detail);
   }
 
   // quiet marks the countdown's read, which keeps the table it is refreshing on
@@ -125,7 +125,7 @@
   // for pool intent and then on every member for its state.
   async function load(opts) {
     const quiet = !!(opts && opts.quiet);
-    const done = quiet ? function () { } : Y.busy(document.getElementById('pool-rows'), 'Loading pools…');
+    const done = quiet ? function () { } : Y.busy(document.getElementById('pool-rows'), 'Loading pools...');
     chrome.busy(true);
     try {
       await renderPools();

@@ -2,7 +2,7 @@
 
 One-time setup for a macOS host with UTM. Cross-host concepts
 (install-one-liner convention, post-install steps, optional Squid cache
-VM, guest workload pattern) live in [Hosts — ...](../README.md).
+VM, guest workload pattern) live in [Hosts -- ...](../README.md).
 
 ## Quick install (one line)
 
@@ -16,25 +16,25 @@ Installs Xcode CLI Tools, Homebrew, `git`, `pwsh`, `tesseract`, and UTM;
 clones the repo to `~/git/yuruna`; seeds `test/test.config.yml`.
 Idempotent; prompts for your macOS password once. Disabling display
 sleep and screen-saver lock for unattended runs is a separate opt-in
-step — run [`Enable-TestAutomation.ps1`](Enable-TestAutomation.ps1)
+step -- run [`Enable-TestAutomation.ps1`](Enable-TestAutomation.ps1)
 manually after install, or let `pwsh install/setup.ps1` do it as one step
 of a guided [standalone-host or lab setup](../../install/README.md#guided-setup).
 
 After the script finishes, follow the steps in
-[Hosts — ...](../README.md#install-one-liner-convention). macOS notes:
+[Hosts -- ...](../README.md#install-one-liner-convention). macOS notes:
 
-- Step 1 (new shell): Apple Silicon — `eval "$(/opt/homebrew/bin/brew shellenv)"`;
-  Intel — `/usr/local`.
+- Step 1 (new shell): Apple Silicon -- `eval "$(/opt/homebrew/bin/brew shellenv)"`;
+  Intel -- `/usr/local`.
 - Step 4 (launch hypervisor): `open -a UTM`.
-- Step 5 — both TCC grants (Accessibility, Screen Recording) covered in
-  [Hosts — ...](../README.md#install-one-liner-convention).
+- Step 5 -- both TCC grants (Accessibility, Screen Recording) covered in
+  [Hosts -- ...](../README.md#install-one-liner-convention).
 
   `Enable-TestAutomation.ps1` also flips `AppleSpacesSwitchOnActivation`
   to `false` so UTM activation during an AVF-guest keystroke doesn't
   yank you off another Space. One manual step the script doesn't
   automate (Dock plist edits are fragile): right-click UTM in the Dock
-  → Options → Assign To → All Desktops. With both, a long
-  `Invoke-TestRunner` can run on Space 1 while you debug in VS Code on
+  -> Options -> Assign To -> All Desktops. With both, a long
+  `Start-TestRunner` can run on Space 1 while you debug in VS Code on
   Space 2. See
   [macOS UTM Host Setup - Nerd-Level Details](read.more.md#running-across-macos-spaces-desktops).
 
@@ -46,15 +46,15 @@ The installer's tested baseline is **macOS 26+ (Tahoe)**, **Apple
 Silicon (arm64)**, **16+ physical cores**, **32 GB+ RAM**, and
 **512 GB+ free disk**. A preflight check warns and prompts for
 confirmation if any is unmet; continuing is permitted but UNTESTED.
-See [Installation — system-requirements preflight](../../docs/install.md#system-requirements-preflight).
+See [Installation -- system-requirements preflight](../../docs/install.md#system-requirements-preflight).
 
 ## Optional: Squid cache VM
 
-See [Hosts — ...](../README.md#optional-squid-cache-vm) and
+See [Hosts -- ...](../README.md#optional-squid-cache-vm) and
 [Caching](../../docs/caching.md).
 
 The cache VM uses UTM's QEMU **bridged networking** on an Ethernet
-default route — it gets its own DHCP-assigned IP on the host's LAN,
+default route -- it gets its own DHCP-assigned IP on the host's LAN,
 identical in shape to the Hyper-V Yuruna-External vSwitch path, and
 squid sees real client IPs at TCP level with no host-side TCP
 forwarder layer. On a Wi-Fi-only default route `New-VM.ps1` builds it
@@ -66,14 +66,14 @@ ports to it.
   to `Test-CachingProxyServiceAvailable` and injects e.g.
   `http://192.168.7.150:3128` into the autoinstall seed ISO.
 - **Remote LAN hosts** set `vmStart.cachingProxyIp: <cache-lan-ip>` in
-  their `test/test.config.yml` (probed first at cycle start) — or
-  `YURUNA_CACHING_PROXY_SERVICE_IP=<cache-lan-ip>` before `Invoke-TestRunner.ps1`
+  their `test/test.config.yml` (probed first at cycle start) -- or
+  `YURUNA_CACHING_PROXY_SERVICE_IP=<cache-lan-ip>` before `Start-TestRunner.ps1`
   on hosts whose config key is empty; a populated, reachable config
   value outranks the env var. The cache's LAN IP is printed in the
   summary line of `test/service/Start-CachingProxyServiceVM.ps1`.
 - **If the cache VM is `started` but no `:3128` answer is found on the
   host's LAN `/24`**, `New-VM.ps1` exits 1 rather than silently falling
-  back — typically a Wi-Fi AP that filters the cache's
+  back -- typically a Wi-Fi AP that filters the cache's
   locally-administered MAC. Switch to Ethernet or rebuild on a network
   that allows it.
 
@@ -97,6 +97,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../../README.md)

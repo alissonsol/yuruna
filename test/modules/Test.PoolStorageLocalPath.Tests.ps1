@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42b1c2d3-e4f5-4061-8a72-3b4c5d6e7f80
+.VERSION 2026.08.19
+.GUID 424870fb-615c-4ade-a4de-1429ce37a8ca
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test poolstorage localpath pester
@@ -35,7 +35,7 @@ $src      = Get-Content (Join-Path $here 'Test.PoolStorage.psm1') -Raw
 $script:tildeRx  = '^~(?=[\\/]|$)'
 $script:exportLn = ($src -split "`n" | Where-Object { $_ -match 'Export-ModuleMember' }) -join "`n"
 
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 }
 

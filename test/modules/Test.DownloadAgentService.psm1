@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 4239d599-3701-465c-b5ee-af4da9b7f14d
+.VERSION 2026.08.19
+.GUID 4282b189-cc04-4ccc-b651-075780a31acd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna download agent service extension service

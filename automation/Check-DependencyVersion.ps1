@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42d1e2f3-a4b5-4c67-8d90-1e2f3a4b5c6d
+.VERSION 2026.08.19
+.GUID 427703ae-4857-433b-ab5f-5f81a7ae94c2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna dependency version pin
@@ -42,9 +42,16 @@
     pinned -- the guest scripts intentionally fetch their newest release at
     install time -- so they are reported for visibility only and never flagged
     as out of date. Pass -PinnedOnly to omit them.
+    Yuruna.Requirement.yml is checked alongside it. Those entries are host-tool
+    FLOORS -- the versions a host is probed against, not versions anything
+    installs -- so a newer upstream is reported for visibility and never fails
+    the run. They are listed only when the tracked rows are (omit -PinnedOnly).
 .PARAMETER VersionsFile
     Path to the version manifest. Defaults to yuruna-versions.sh next to this
     script.
+.PARAMETER RequirementFile
+    Path to the host-tool requirement list. Defaults to Yuruna.Requirement.yml
+    next to this script.
 .PARAMETER PinnedOnly
     Only check the dependencies that have a pin in the manifest; skip the
     informational "latest"-tracked rows.
@@ -65,6 +72,7 @@
 [OutputType([pscustomobject])]
 param(
     [string]$VersionsFile = (Join-Path $PSScriptRoot 'yuruna-versions.sh'),
+    [string]$RequirementFile = (Join-Path $PSScriptRoot 'Yuruna.Requirement.yml'),
     [switch]$PinnedOnly,
     [switch]$AsJson
 )
@@ -90,6 +98,37 @@ function Get-VersionPin {
         # whitespace or comment so a trailing `# note` never leaks into it.
         if ($line -match '^\s*(?:export\s+)?(?<k>[A-Za-z_][A-Za-z0-9_]*)=(?<v>[^#\s]+)') {
             $map[$Matches['k']] = $Matches['v']
+        }
+    }
+    return $map
+}
+
+function Get-RequirementFloor {
+    <#
+    .SYNOPSIS
+        Parse Yuruna.Requirement.yml into a tool -> version-number hashtable.
+    .DESCRIPTION
+        The `version:` values are the strings each probe command prints, so they
+        carry vendor decoration around the number ('7.6.4 (Core)', 'curl 8.21.0',
+        'aws-cli/2.36.18', 'qemu-img version 11.0.3'). The first dotted numeric
+        run in the value is the version; everything around it is noise.
+
+        A two-key regex rather than powershell-yaml: this script has no module
+        dependencies today, and the two keys it needs sit at a fixed indent.
+    .OUTPUTS
+        [hashtable]
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$Path)
+    $map = @{}
+    if (-not (Test-Path -LiteralPath $Path)) { return $map }
+    $tool = $null
+    foreach ($line in (Get-Content -LiteralPath $Path)) {
+        if ($line -match '^\s*-\s+tool:\s*"(?<t>[^"]+)"') { $tool = $Matches['t']; continue }
+        if ($tool -and $line -match '^\s*version:\s*"(?<v>[^"]+)"') {
+            if ($Matches['v'] -match '(?<n>\d+(?:\.\d+)+)') { $map[$tool] = $Matches['n'] }
+            $tool = $null
         }
     }
     return $map
@@ -220,6 +259,23 @@ $trackedDeps = @(
     @{ Name = 'PowerShell (tracks latest)'; Source = 'github.com/PowerShell/PowerShell';        Resolve = { Get-GitHubLatestTag -Repo 'PowerShell/PowerShell' } }
 )
 
+# Host-tool floors from Yuruna.Requirement.yml. These are the versions a host is
+# probed against, not versions anything installs, so upstream moving ahead is
+# informational: it never fails the run. Without them nothing watches the host
+# side at all, and a floor can trail for months unnoticed.
+#
+# Only tools with an unambiguous upstream release feed are listed. Docker and
+# Docker buildx are deliberately absent: both track what Docker Desktop bundles
+# rather than the newest upstream tag, so comparing them to upstream would report
+# drift on a correctly provisioned machine every time.
+$hostFloorDeps = @(
+    @{ Name = 'PowerShell (host floor)'; Tool = 'PowerShell'; Source = 'github.com/PowerShell/PowerShell';       Resolve = { Get-GitHubLatestTag -Repo 'PowerShell/PowerShell' } }
+    @{ Name = 'containerd (host floor)'; Tool = 'containerd'; Source = 'github.com/containerd/containerd';       Resolve = { Get-GitHubLatestTag -Repo 'containerd/containerd' } }
+    @{ Name = 'tesseract (host floor)';  Tool = 'tesseract';  Source = 'github.com/tesseract-ocr/tesseract';     Resolve = { Get-GitHubLatestTag -Repo 'tesseract-ocr/tesseract' } }
+    @{ Name = 'mkcert (host floor)';     Tool = 'mkcert';     Source = 'github.com/FiloSottile/mkcert';          Resolve = { Get-GitHubLatestTag -Repo 'FiloSottile/mkcert' } }
+    @{ Name = 'VS Code (host floor)';    Tool = 'Visual Studio Code'; Source = 'github.com/microsoft/vscode';    Resolve = { Get-GitHubLatestTag -Repo 'microsoft/vscode' } }
+)
+
 $pins    = Get-VersionPin -Path $VersionsFile
 $results = New-Object System.Collections.Generic.List[pscustomobject]
 
@@ -272,6 +328,40 @@ if (-not $PinnedOnly) {
             Detail     = if ($errMsg) { $errMsg } else { '' }
         })
     }
+
+    $floors = Get-RequirementFloor -Path $RequirementFile
+    if ($floors.Count -gt 0) {
+        Write-Information "Host-tool floors from $RequirementFile"
+    }
+    foreach ($dep in $hostFloorDeps) {
+        $floor = if ($floors.ContainsKey($dep.Tool)) { $floors[$dep.Tool] } else { $null }
+        $latestFull = ''
+        $errMsg     = $null
+        try {
+            $raw = & $dep.Resolve
+            if (-not [string]::IsNullOrWhiteSpace($raw)) { $latestFull = ([string]$raw) -replace '^v', '' }
+        } catch {
+            $errMsg = $_.Exception.Message
+        }
+        $status =
+            if ($null -eq $floor)  { 'no floor in requirements' }
+            elseif ($errMsg)       { 'check failed' }
+            else {
+                switch (Get-VersionStatus -Pinned $floor -Latest $latestFull -Kind 'full') {
+                    'UPDATE AVAILABLE' { 'floor behind latest' }
+                    'pinned ahead'     { 'floor ahead of latest' }
+                    default            { $_ }
+                }
+            }
+        $results.Add([pscustomobject]@{
+            Dependency = $dep.Name
+            Pinned     = if ($null -eq $floor) { '(missing)' } else { $floor }
+            Latest     = if ($errMsg) { '?' } else { $latestFull }
+            Status     = $status
+            Source     = $dep.Source
+            Detail     = if ($errMsg) { $errMsg } else { '' }
+        })
+    }
 }
 
 $updateCount = @($results | Where-Object { $_.Status -eq 'UPDATE AVAILABLE' }).Count
@@ -283,6 +373,10 @@ if ($updateCount -gt 0) {
 }
 if ($failCount -gt 0) {
     Write-Information "$failCount dependency(ies) could not be checked (see the Detail column)."
+}
+$floorBehind = @($results | Where-Object { $_.Status -eq 'floor behind latest' }).Count
+if ($floorBehind -gt 0) {
+    Write-Information "$floorBehind host-tool floor(s) trail their upstream stable release -- informational; raise them in $RequirementFile when a host is known to carry the newer build."
 }
 
 if ($AsJson) {

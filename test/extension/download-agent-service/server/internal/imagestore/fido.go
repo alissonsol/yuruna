@@ -312,7 +312,7 @@ func headOf(s string, limit int) string {
 		return s
 	}
 	r := []rune(s[:limit])
-	return string(r[:len(r)-1]) + "…"
+	return string(r[:len(r)-1]) + "..."
 }
 
 // firstHTTPSURL picks the download URL out of whatever the interpreter printed.
@@ -381,7 +381,7 @@ func briefly(s string) string {
 		s = strings.TrimSpace(s[:i])
 	}
 	if r := []rune(s); len(r) > 200 {
-		s = string(r[:200]) + "…"
+		s = string(r[:200]) + "..."
 	}
 	return s
 }

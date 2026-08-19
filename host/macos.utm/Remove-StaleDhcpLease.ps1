@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42f3b8c1-6d29-4e07-b514-8a3c7d02e9f4
+.VERSION 2026.08.19
+.GUID 4287fe47-ee43-47e6-b67f-e2fb5baf90c5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna host macos utm dhcp lease cleanup

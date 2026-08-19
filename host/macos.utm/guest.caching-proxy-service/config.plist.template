@@ -2,7 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!-- LICENSEURI https://yuruna.link/license -->
 <!-- Copyright (c) 2019-2026 by Alisson Sol et al. -->
-<!-- Yuruna VM config · https://yuruna.link/vmconfig -->
+<!-- Yuruna VM config - https://yuruna.link/vmconfig -->
 <!-- QEMU backend (not Apple Virtualization) so we can pass -vnc to QEMU.
      QEMU's built-in RFB server gives the test harness focus-independent
      screen capture (Get-VncScreenshot) AND keystroke injection
@@ -90,7 +90,7 @@
 		<true/>
 	</dict>
 	<!-- Minimal Display: this is a headless service VM. UTM requires a
-	     Display entry, but nothing observes this console — no OCR
+	     Display entry, but nothing observes this console -- no OCR
 	     calibration concern. virtio-gpu-pci (no -gl) is still needed so
 	     UEFI publishes a GOP and the early kernel can paint pixels;
 	     virtio-ramfb leaves the framebuffer stuck on QEMU's "Display
@@ -114,7 +114,7 @@
 			<string>Nearest</string>
 		</dict>
 	</array>
-	<!-- Two drives: the 512 GB qcow2 cloud image (bootable, sparse —
+	<!-- Two drives: the 512 GB qcow2 cloud image (bootable, sparse --
 	     qcow2 grows on demand) and the cidata seed ISO (read-only,
 	     consumed by cloud-init on first boot). -->
 	<key>Drive</key>
@@ -173,9 +173,9 @@
 	     physical NIC, substituted at bundle creation time by New-VM.ps1.
 	     NOTE: UTM's QEMU plist uses the key `BridgedInterface` (past
 	     participle) whereas the Apple Virtualization plist uses
-	     `BridgeInterface` (noun) — same value, different spelling. Wi-Fi
+	     `BridgeInterface` (noun) -- same value, different spelling. Wi-Fi
 	     APs that filter MACs may reject the new locally-administered MAC
-	     and the cache will not receive a DHCP lease — Step 4 of
+	     and the cache will not receive a DHCP lease -- Step 4 of
 	     Start-CachingProxyServiceVM.ps1 will time out loudly; switch to Ethernet
 	     on those networks. -->
 	<key>Network</key>

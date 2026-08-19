@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42b81e18-a081-4f36-a562-0f5fdfb2efbd
+.VERSION 2026.08.19
+.GUID 424fe851-fed8-47ea-9226-0b27f8af81c6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test poolstorage share normalize pester
@@ -35,7 +35,7 @@ BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 $script:src  = Get-Content (Join-Path $here 'Test.PoolStorage.psm1') -Raw
 
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # The source text of ONE top-level function, from its 'function' line to the start
 # of the next top-level function or of that function's doc-comment block. Lets a

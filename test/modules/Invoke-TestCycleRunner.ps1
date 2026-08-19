@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42c7a1b4-6e28-4d35-9f70-2a41c6b8e903
+.VERSION 2026.08.19
+.GUID 42b78fbd-8036-4aa8-93eb-161e72bdba4a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test runner cycle
@@ -18,7 +18,7 @@
 
 <#
 .SYNOPSIS
-    Run exactly ONE test cycle, then exit. Spawned fresh by Invoke-TestRunner.ps1.
+    Run exactly ONE test cycle, then exit. Spawned fresh by Start-TestRunner.ps1.
 
 .DESCRIPTION
     This is the volatile half of the runner. Everything that changes when the inner
@@ -30,7 +30,7 @@
     imports -- is picked up by the very next cycle. The long-lived runner holds its
     own code resident and would otherwise keep running whatever it parsed at
     startup, which is why updating a machine used to mean stopping the runner.
-    Invoke-TestRunner.ps1 keeps only what must not be redone per cycle: the
+    Start-TestRunner.ps1 keeps only what must not be redone per cycle: the
     single-instance pidfile, the boot-recovery sweep, the runner state machine, and
     the Ctrl+C subscription.
 

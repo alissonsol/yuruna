@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42d4f1a7-6c83-4b29-9e05-2a7b8c1d3e60
+.VERSION 2026.08.19
+.GUID 42e7a0f2-fce5-47f4-aa02-059ecae18abf
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test telemetry failure-taxonomy pester
@@ -32,9 +32,7 @@ Import-Module (Join-Path $here 'Test.FailureTaxonomy.psm1') -Force -DisableNameC
 Import-Module (Join-Path $here 'Test.EventSchema.psm1')     -Force -DisableNameChecking -Global -ErrorAction SilentlyContinue
 Import-Module (Join-Path $here 'Test.SequenceAction.psm1')  -Force -DisableNameChecking -Global -ErrorAction SilentlyContinue
 
-function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
-function Assert-False { param($Condition, [string]$Because='') if ($Condition) { throw "Expected false. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 }
 

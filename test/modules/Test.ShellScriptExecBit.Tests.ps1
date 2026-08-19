@@ -1,6 +1,6 @@
 <#PSScriptInfo
 .VERSION 2026.07.16
-.GUID 42d71104-fd71-45a5-bf16-48383ba0385d
+.GUID 42c53656-cbe7-4882-9a43-998f29ec9609
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test git filemode execbit shellscript pester
@@ -48,7 +48,7 @@ $here     = Split-Path -Parent $PSCommandPath
 $testDir  = Split-Path -Parent $here
 $repoRoot = Split-Path -Parent $testDir
 
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 function Test-GitWorkTree {
     param([string]$Root)

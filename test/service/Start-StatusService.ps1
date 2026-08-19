@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a1b2c3-d4e5-4f67-8901-bc0123456740
+.VERSION 2026.08.19
+.GUID 42fba995-7607-4a66-acfd-0149a2a9f06a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
@@ -47,8 +47,8 @@ $ErrorActionPreference = "Stop"
 # second, so this is also the maximum number of poll attempts.
 $script:StatusServiceReadyTimeoutSeconds = 60
 
-Import-Module (Join-Path $PSScriptRoot 'modules/Test.Prelude.psm1') -Global -Force
-$paths      = Initialize-YurunaEntryPoint -ScriptRoot $PSScriptRoot
+Import-Module (Join-Path $PSScriptRoot '../modules/Test.Prelude.psm1') -Global -Force
+$paths      = Initialize-YurunaEntryPoint -ScriptRoot $PSScriptRoot -InsideSubfolder
 $TestRoot   = $paths.TestRoot
 $RepoRoot   = $paths.RepoRoot
 $StatusDir  = $paths.StatusDir
@@ -427,7 +427,7 @@ try {
         $cachingProxyUrl = Test-CachingProxyServiceAvailable -Quiet
         if ($cachingProxyUrl) {
             # Port mapping so the status-page banner reports the same
-            # state as Invoke-TestRunner's console output.
+            # state as Start-TestRunner's console output.
             # Add-PortMap dispatches per-platform via the host driver
             # (netsh portproxy on Hyper-V, detached TcpListener
             # forwarders on macOS/UTM). Both channels read
@@ -557,7 +557,7 @@ try {
                         if (-not $bestIp) { $bestIp = $vmIp }
                     } else {
                         # HTTP/HTTPS port mapping is platform-divergent on the
-                        # Default-Switch fallback (see Invoke-TestRunner.ps1
+                        # Default-Switch fallback (see Start-TestRunner.ps1
                         # for full rationale): macOS uses pwsh forwarder +
                         # PROXY v1 (real LAN IPs); Windows uses plain netsh
                         # portproxy because the user-mode listener path is
@@ -1340,7 +1340,7 @@ try {
             # vmStart.cachingProxyIp. Value reflects the server process's
             # env (snapshotted at server start when this pwsh inherited
             # its parent's env block) -- separate from the value that an
-            # Invoke-TestRunner.ps1 inner runspace might see if it was
+            # Start-TestRunner.ps1 inner runspace might see if it was
             # launched from a different shell. Caveat documented in the
             # UI tooltip on the read-only field.
             if (`$path -eq 'control/runtime-env') {
@@ -1946,7 +1946,7 @@ try {
                 continue
             }
 
-            # --- REGION: /control/runner-status: is Invoke-TestRunner actually alive?
+            # --- REGION: /control/runner-status: is Start-TestRunner actually alive?
             # Verifies <runtime>/runner.pid really is the outer runner
             # (runner.start StartTime sidecar preferred; cmdline-regex
             # fallback) and returns { running: bool, pid: int|null }.
@@ -1983,12 +1983,18 @@ try {
                         `$lapsed = "`$(Get-Content -LiteralPath `$lapsePath -Raw)".Trim()
                     }
                     # Same bound the watchdog applies: the tight preamble one
-                    # while runner.phase exists, the step budget otherwise. Read
-                    # fresh so an operator's config edit is reflected without
-                    # restarting this server.
+                    # while runner.phase exists, the step budget otherwise.
+                    #
+                    # A cached read is what reflects an operator's config edit,
+                    # not a bypassed one: Read-TestConfig keys its cache on the
+                    # path, the file's LastWriteTimeUtc AND a SHA-256 of its
+                    # first 64 KB, so an edit invalidates the entry by content
+                    # even when the timestamp and size are unchanged. -NoCache
+                    # here bought nothing and re-parsed the whole document on
+                    # every poll of this route.
                     `$stepBound = 2700; `$preBound = 600
                     try {
-                        `$cfgLive = Read-TestConfig -Path `$serverConfigPath -NoCache
+                        `$cfgLive = Read-TestConfig -Path `$serverConfigPath
                         `$sv = Get-TestConfigValue -Config `$cfgLive -Path 'testCycle.stepTimeoutSeconds'
                         `$pv = Get-TestConfigValue -Config `$cfgLive -Path 'testCycle.preambleTimeoutSeconds'
                         `$tmp = 0
@@ -2358,7 +2364,7 @@ try {
             #      VMs out from under a running cycle; the inner then errors
             #      out, outer respawns, and the saved test.config.yml mtime
             #      change is what wakes outer out of its failure-pause
-            #   4. if no runner is currently running, spawn Invoke-TestRunner.ps1
+            #   4. if no runner is currently running, spawn Start-TestRunner.ps1
             #      detached (same idiom Start-StatusService.ps1 uses to spawn
             #      this server -- Start-Process Hidden on Windows, bash nohup
             #      on Linux/macOS)
@@ -2452,9 +2458,9 @@ try {
                     #    log files so the operator can debug a failed spawn.
                     if (-not `$runnerAlive) {
                         `$action = 'spawned'
-                        `$runnerScript = Join-Path `$repoRoot 'test/Invoke-TestRunner.ps1'
+                        `$runnerScript = Join-Path `$repoRoot 'test/Start-TestRunner.ps1'
                         if (-not (Test-Path -LiteralPath `$runnerScript)) {
-                            throw "Invoke-TestRunner.ps1 not found at `$runnerScript"
+                            throw "Start-TestRunner.ps1 not found at `$runnerScript"
                         }
                         `$spawnOut = Join-Path `$runtimeDir 'runner.spawned-from-web.out'
                         `$spawnErr = Join-Path `$runtimeDir 'runner.spawned-from-web.err'
@@ -3382,7 +3388,7 @@ if ($IsWindows) {
     # Explicit stdio redirection on Windows is REQUIRED for outer-runner
     # liveness. Without -RedirectStandardOutput / -RedirectStandardError,
     # this grandchild inherits the parent's console handles. The chain
-    # is: Invoke-TestRunner.ps1 spawns modules/Invoke-TestRunnerInnerLoop.ps1 with
+    # is: Start-TestRunner.ps1 spawns modules/Invoke-TestRunnerInnerLoop.ps1 with
     # Start-Process -NoNewWindow (shared console); the inner here spawns
     # the long-running status service which without explicit redirection
     # also inherits those shared handles. When the inner cycle ends and
@@ -3480,7 +3486,33 @@ if ($serverReady) {
         $beaconScript = Join-Path $RepoRoot 'test/modules/Invoke-HostAddressBeacon.ps1'
         if (Test-Path -LiteralPath $beaconScript) {
             $beaconErr = Join-Path $RuntimeDir 'hostaddress.beacon.err'
-            if ($IsWindows) {
+            # Ask whether a beacon is already running BEFORE spawning, rather
+            # than spawning and letting its own lock turn the surplus process
+            # away. The beacon follows server.pid rather than a process handle,
+            # so one that predates this restart keeps ticking for the service
+            # started here and nothing needs launching -- while the spawn itself
+            # is not free of side effects: the redirection files below are opened
+            # by the PARENT, so a live beacon still holding them makes
+            # Start-Process throw before the new process ever reaches the lock.
+            # That turns the ordinary every-cycle case into an exception, which
+            # is why a real spawn failure has to be told apart from it here.
+            #
+            # An OPEN probe, not Test-Path: the beacon deletes the file on a
+            # clean exit, so a lock file that survives a kill names no holder and
+            # must not wedge the next beacon out.
+            $beaconLock    = Join-Path $RuntimeDir 'hostaddress.beacon.lock'
+            $beaconRunning = $false
+            if (Test-Path -LiteralPath $beaconLock) {
+                try {
+                    $lockProbe = [System.IO.File]::Open(
+                        $beaconLock, [System.IO.FileMode]::Open,
+                        [System.IO.FileAccess]::Write, [System.IO.FileShare]::None)
+                    $lockProbe.Dispose()
+                } catch { $beaconRunning = $true }
+            }
+            if ($beaconRunning) {
+                Write-Verbose 'Host-address beacon: one is already running and follows server.pid across a restart, so this service is covered; not spawning a second.'
+            } elseif ($IsWindows) {
                 $beaconStdin = Join-Path $RuntimeDir 'hostaddress.beacon.stdin.empty'
                 if (-not (Test-Path -LiteralPath $beaconStdin)) { [System.IO.File]::WriteAllBytes($beaconStdin, [byte[]]@()) }
                 $beaconOut = Join-Path $RuntimeDir 'hostaddress.beacon.out'
@@ -3501,7 +3533,15 @@ if ($serverReady) {
             }
         }
     } catch {
-        Write-Verbose "Host-address beacon spawn (non-fatal): $($_.Exception.Message)"
+        # Non-fatal, but not silent. With the already-running case handled
+        # above, reaching here means this host has NO push path to the pool
+        # directory: guests that need to re-resolve a moved host wait on the
+        # aggregator's own log-tail discovery, which lags exactly when it
+        # matters. A verbose-only line makes that state indistinguishable from
+        # a healthy one in the cycle log.
+        Write-Warning ("Host-address beacon could not be started: $($_.Exception.Message) -- this host will not " +
+            "announce an address change to the pool directory until the next status-service start. Details: " +
+            (Join-Path $RuntimeDir 'hostaddress.beacon.err'))
     }
 }
 

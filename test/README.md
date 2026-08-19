@@ -13,17 +13,17 @@ notification, and either preserves the VM or cleans it up depending on
 
 ## Where the scripts are
 
-`test/` itself holds only the eight commands reached for daily —
-`Invoke-TestRunner.ps1`, `Invoke-TestProject.ps1`, `Invoke-TestSequence.ps1`,
-`Test-Config.ps1`, `Test-CachingProxyService.ps1`, `Start-StatusService.ps1`,
+`test/` itself holds only the seven commands reached for daily --
+`Start-TestRunner.ps1`, `Invoke-TestProject.ps1`, `Debug-TestSequence.ps1`,
+`Test-Config.ps1`, `Test-CachingProxyService.ps1`,
 `New-LocalTestUser.ps1`, `Remove-TestVMFiles.ps1`. Everything else is grouped
 by what it acts on:
 
 | Folder | Holds |
 |---|---|
-| [`lab/`](lab/) | standing a lab up on this host: the four host-neutral entry points, lab creation, local storage, token enrolment |
-| [`pool/`](pool/) | the pool-admin CLI — everything that reads or writes a lab's pool intent — and the sample intent files |
-| [`service/`](service/) | start/stop pairs for the service VMs and the host config/status services, plus the caching-proxy operations |
+| [`lab/`](lab/) | standing a lab up on this host: the four host-neutral entry points, lab creation, local storage, token enrollment |
+| [`pool/`](pool/) | the pool-admin CLI -- everything that reads or writes a lab's pool intent -- and the sample intent files |
+| [`service/`](service/) | start/stop pairs for the service VMs and the host config/status services (`Start-StatusService.ps1` among them), plus the caching-proxy operations |
 | [`check/`](check/) | standalone host-capability checks (OCR engines) |
 | [`modules/`](modules/) | harness modules and the two per-cycle children; not invoked directly |
 
@@ -33,7 +33,7 @@ it gates commits and releases rather than a host.
 
 ## Prerequisites
 
-Same as the host setup — see
+Same as the host setup -- see
 [macOS UTM ...](../host/macos.utm/README.md) or
 [Windows Hyper-V ...](../host/windows.hyper-v/README.md).
 Windows requires elevation; macOS does not.
@@ -80,7 +80,7 @@ Full key table, defaults, and behavioral notes:
 
 `guestSequence` controls which guests run and in what order. Any
 `guest.<name>` is valid as long as `host/<short-host>/<guestKey>/`
-exists on the current host — the runner discovers guests by folder, not
+exists on the current host -- the runner discovers guests by folder, not
 a hardcoded list. Adding a new guest = creating the folder with
 `Get-Image.ps1` + `New-VM.ps1`; no harness code change.
 
@@ -110,13 +110,13 @@ Each check prints `[PASS]`, `[WARN]`, or `[FAIL]`.
 
 The runner auto-discovers a local `caching-proxy-service` VM. Point at a remote
 proxy by setting `vmStart.cachingProxyIp` in `test/test.config.yml`
-(or on the status page) — it is probed first at cycle start and wins
+(or on the status page) -- it is probed first at cycle start and wins
 when its `:3128` answers. The session-scope alternative is the env
 var, consulted only when the config key is empty or unreachable:
 
 ```
 $Env:YURUNA_CACHING_PROXY_SERVICE_IP = '10.0.0.5'
-pwsh test/Invoke-TestRunner.ps1
+pwsh test/Start-TestRunner.ps1
 ```
 
 Setup, monitoring, SSL-bump, and offline replay:
@@ -126,11 +126,11 @@ Setup, monitoring, SSL-bump, and offline replay:
 ## Usage
 
 ```
-pwsh test/Invoke-TestRunner.ps1                       # default
-pwsh test/Invoke-TestRunner.ps1 -NoGitPull            # dev mode
-pwsh test/Invoke-TestRunner.ps1 -NoStatusService      # headless
-pwsh test/Invoke-TestRunner.ps1 -CycleDelaySeconds 60
-pwsh test/Invoke-TestRunner.ps1 -logLevel Debug
+pwsh test/Start-TestRunner.ps1                       # default
+pwsh test/Start-TestRunner.ps1 -NoGitPull            # dev mode
+pwsh test/Start-TestRunner.ps1 -NoStatusService      # headless
+pwsh test/Start-TestRunner.ps1 -CycleDelaySeconds 60
+pwsh test/Start-TestRunner.ps1 -logLevel Debug
 ```
 
 `logLevel` (Error|Warning|Information|Verbose|Debug) controls which
@@ -144,7 +144,7 @@ active: `http://localhost:8080/status/` (architecture in
 ## Host pools
 
 Run several hosts as one **pool** that shares assigned test sequences and reports
-together. Default-off — a host with no `pool` config runs standalone. To create a pool
+together. Default-off -- a host with no `pool` config runs standalone. To create a pool
 and assign already-developed test sequences to it, see the operator guide
 [Pool admin](../docs/pool-admin.md).
 
@@ -171,6 +171,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../README.md)

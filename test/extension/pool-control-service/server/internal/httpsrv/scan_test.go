@@ -171,7 +171,7 @@ func TestHostsIncludesDiscovered(t *testing.T) {
 	if found["192.168.7.9"]["baseUrl"] != "http://192.168.7.9:8080" {
 		t.Fatalf("a discovered host must carry the base URL it answered on: %v", found["192.168.7.9"])
 	}
-	// No pool: discovery monitors a host, it does not enrol one.
+	// No pool: discovery monitors a host, it does not enroll one.
 	if pool, ok := found["192.168.7.9"]["pool"]; ok && pool != "" {
 		t.Fatalf("a discovered host must belong to no pool: %v", found["192.168.7.9"])
 	}

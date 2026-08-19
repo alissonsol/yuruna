@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42b7e3c5-9a14-4d28-8f63-1e0a2b4c6d80
+.VERSION 2026.08.19
+.GUID 42a11720-948f-47cf-8739-5beedf5f7176
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna telemetry failure-taxonomy enum
@@ -26,7 +26,7 @@
 # safe to load first in any module set.
 
 $script:FailureClassEnum = @(
-    'ocr_timeout', 'network_timeout', 'credential_expired',
+    'ocr_timeout', 'console_flooded', 'network_timeout', 'credential_expired',
     'host_io_blocked', 'pattern_matched_failure', 'retry_exhausted',
     'snapshot_restore_failed', 'script_error', 'wait_timeout',
     'extension_error', 'instrumentation_failure', 'provisioning_failure',
@@ -36,7 +36,7 @@ $script:FailureClassEnum = @(
     # lives in the doc.
     'bootstrap_sync', 'plan_invalid', 'elevation_required', 'project_access_denied',
     'host_network_degraded', 'ip_not_discovered', 'payload_unavailable',
-    'pool_storage_full', 'unknown'
+    'pool_storage_full', 'dhcp_identity_unbounded', 'unknown'
 )
 $script:SeverityEnum = @('hard', 'soft', 'unknown')
 

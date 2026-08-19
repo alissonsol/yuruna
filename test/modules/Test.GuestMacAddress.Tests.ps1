@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42c4e1b9-7d30-4a52-9f18-6b2e5c0a3d47
+.VERSION 2026.08.19
+.GUID 42b98737-f5a4-45fd-a853-c26c9d97ec84
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna mac address dhcp lease determinism pester
@@ -44,34 +44,32 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$here = Split-Path -Parent $PSCommandPath
-$repoRoot = Split-Path -Parent (Split-Path -Parent $here)
-Import-Module (Join-Path $repoRoot 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking
-
 if (-not (Get-Command -Name 'Describe' -ErrorAction SilentlyContinue)) {
     function Describe { param([string]$Name, [scriptblock]$Fixture) Write-Output "Describe: $Name"; & $Fixture }
     function It       { param([string]$Name, [scriptblock]$Test)    & $Test; Write-Output "    [pass] $Name" }
 }
 
-function Assert-True { param($Condition, [string]$Because) if (-not $Condition) { throw "Expected true. $Because" } }
-function Assert-Equal { param($Expected, $Actual, [string]$Because) if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-NotEqual { param($NotExpected, $Actual, [string]$Because) if ($NotExpected -eq $Actual) { throw "Expected NOT [$NotExpected]. $Because" } }
+BeforeAll {
+$here = Split-Path -Parent $PSCommandPath
+$repoRoot = Split-Path -Parent (Split-Path -Parent $here)
+Import-Module (Join-Path $repoRoot 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking
+
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # A representative slot name: the shape the harness actually builds
 # (testVmNamePrefix + guest key + instance number).
-$VM1 = 'test-guest.ubuntu.server.24-01'
-$VM2 = 'test-guest.ubuntu.server.24-02'
-$HOSTA = '422dd0cac87e4cc6831c3228f12ae689'
-$HOSTB = '42512149e3dc437ca677a40828382528'
+$script:VM1 = 'test-guest.ubuntu.server.24-01'
+$script:VM2 = 'test-guest.ubuntu.server.24-02'
+$script:HOSTA = '422dd0cac87e4cc6831c3228f12ae689'
+$script:HOSTB = '42512149e3dc437ca677a40828382528'
 
-# Fixtures for the rename block far below. They sit HERE, above the first
-# Describe, because that is the only file-scope region an It block can see: the
-# run phase replays the discovered Describes rather than the statements between
-# them, so a variable or helper defined after the first one -- or inside a
-# Describe body -- is simply absent when the tests execute.
+# Fixtures for the rename block far below. Every fixture this file uses lives
+# in the BeforeAll, which is the scope Pester 5 shares with the It blocks:
+# discovery and run are separate passes, so a variable assigned at file scope
+# is already gone by the time a test body reads it and binds as empty.
 $KvmModule    = Join-Path $repoRoot 'host/ubuntu.kvm/modules/Yuruna.Host.psm1'
-$UtmModule    = Join-Path $repoRoot 'host/macos.utm/modules/Yuruna.Host.psm1'
-$HyperVModule = Join-Path $repoRoot 'host/windows.hyper-v/modules/Yuruna.Host.psm1'
+$script:UtmModule    = Join-Path $repoRoot 'host/macos.utm/modules/Yuruna.Host.psm1'
+$script:HyperVModule = Join-Path $repoRoot 'host/windows.hyper-v/modules/Yuruna.Host.psm1'
 $KvmText      = Get-Content -Raw -LiteralPath $KvmModule
 
 # Define the KVM rewriter and its reader from their own source so the behaviour
@@ -84,7 +82,7 @@ $KvmText      = Get-Content -Raw -LiteralPath $KvmModule
 # promoted out of the shared slot, and so the ones that must key on the identity
 # the guest keeps rather than on the slot it is built in. The rest (service VMs,
 # windows.11, macos.26) carry one fixed name for life, where the two coincide.
-$PromotableBuilders = @(
+$script:PromotableBuilders = @(
     'host/windows.hyper-v/guest.ubuntu.server.24/New-VM.ps1'
     'host/windows.hyper-v/guest.ubuntu.server.26/New-VM.ps1'
     'host/windows.hyper-v/guest.amazon.linux.2023/New-VM.ps1'
@@ -103,27 +101,28 @@ function Format-DomainXml {
     }) -join "`n"
     "<domain type='kvm'>`n  <name>amisad-build</name>`n  <devices>`n$nics`n  </devices>`n</domain>"
 }
+}
 
 Describe 'Get-YurunaGuestMacAddress -- the identity property' {
     It 'returns the SAME MAC for the same host and VM, every time' {
         # This is the whole point: a rebuilt guest must reclaim its existing lease.
-        $first = Get-YurunaGuestMacAddress -VMName $VM1 -HostId $HOSTA
+        $first = Get-YurunaGuestMacAddress -VMName $script:VM1 -HostId $script:HOSTA
         foreach ($i in 1..25) {
-            Assert-Equal -Expected $first -Actual (Get-YurunaGuestMacAddress -VMName $VM1 -HostId $HOSTA) -Because 'derivation is deterministic'
+            Assert-Equal -Expected $first -Actual (Get-YurunaGuestMacAddress -VMName $script:VM1 -HostId $script:HOSTA) -Because 'derivation is deterministic'
         }
     }
     It 'ignores casing and surrounding whitespace in both inputs' {
         # An operator retyping a VM name with different casing must not mint a
         # second identity for a slot that already has one.
-        $canonical = Get-YurunaGuestMacAddress -VMName $VM1 -HostId $HOSTA
-        Assert-Equal -Expected $canonical -Actual (Get-YurunaGuestMacAddress -VMName $VM1.ToUpperInvariant() -HostId $HOSTA.ToUpperInvariant()) -Because 'case-insensitive'
-        Assert-Equal -Expected $canonical -Actual (Get-YurunaGuestMacAddress -VMName "  $VM1  " -HostId "  $HOSTA  ") -Because 'whitespace-insensitive'
+        $canonical = Get-YurunaGuestMacAddress -VMName $script:VM1 -HostId $script:HOSTA
+        Assert-Equal -Expected $canonical -Actual (Get-YurunaGuestMacAddress -VMName $script:VM1.ToUpperInvariant() -HostId $script:HOSTA.ToUpperInvariant()) -Because 'case-insensitive'
+        Assert-Equal -Expected $canonical -Actual (Get-YurunaGuestMacAddress -VMName "  $script:VM1  " -HostId "  $script:HOSTA  ") -Because 'whitespace-insensitive'
     }
 }
 
 Describe 'Get-YurunaGuestMacAddress -- the wire format' {
     It 'is a canonical uppercase MAC starting with the Yuruna 42 marker' {
-        $mac = Get-YurunaGuestMacAddress -VMName $VM1 -HostId $HOSTA
+        $mac = Get-YurunaGuestMacAddress -VMName $script:VM1 -HostId $script:HOSTA
         Assert-True ($mac -cmatch '^42(:[0-9A-F]{2}){5}$') "got '$mac'; expected 42:XX:XX:XX:XX:XX uppercase"
     }
     It 'is a valid locally-administered UNICAST address' {
@@ -131,12 +130,12 @@ Describe 'Get-YurunaGuestMacAddress -- the wire format' {
         # DHCP will lease to it; bit 1 (locally administered) set so it cannot
         # collide with a real vendor OUI on the LAN. Both matter -- a multicast
         # first octet is silently never leased.
-        $first = [Convert]::ToInt32(((Get-YurunaGuestMacAddress -VMName $VM1 -HostId $HOSTA) -split ':')[0], 16)
+        $first = [Convert]::ToInt32(((Get-YurunaGuestMacAddress -VMName $script:VM1 -HostId $script:HOSTA) -split ':')[0], 16)
         Assert-Equal -Expected 0 -Actual ($first -band 0x01) -Because 'unicast (multicast bit clear)'
         Assert-Equal -Expected 2 -Actual ($first -band 0x02) -Because 'locally administered bit set'
     }
     It 'survives the shared MAC validator unchanged' {
-        $mac = Get-YurunaGuestMacAddress -VMName $VM1 -HostId $HOSTA
+        $mac = Get-YurunaGuestMacAddress -VMName $script:VM1 -HostId $script:HOSTA
         Assert-Equal -Expected $mac -Actual (ConvertTo-YurunaMacAddress -MacAddress $mac) -Because 'already canonical'
     }
 }
@@ -145,20 +144,20 @@ Describe 'Get-YurunaGuestMacAddress -- the 42:HH:HH:VV:VV:VV layout' {
     It 'keeps the host pair constant across every guest on one host' {
         # This is what makes a DHCP lease table readable: all of a host's leases
         # share a visible prefix, so an operator can group them by machine.
-        $prefix = ((Get-YurunaGuestMacAddress -VMName $VM1 -HostId $HOSTA) -split ':')[0..2] -join ':'
-        foreach ($vm in @($VM2, 'test-guest.windows.11-01', 'test-guest.amazon.linux.2023-01')) {
-            $got = ((Get-YurunaGuestMacAddress -VMName $vm -HostId $HOSTA) -split ':')[0..2] -join ':'
+        $prefix = ((Get-YurunaGuestMacAddress -VMName $script:VM1 -HostId $script:HOSTA) -split ':')[0..2] -join ':'
+        foreach ($vm in @($script:VM2, 'test-guest.windows.11-01', 'test-guest.amazon.linux.2023-01')) {
+            $got = ((Get-YurunaGuestMacAddress -VMName $vm -HostId $script:HOSTA) -split ':')[0..2] -join ':'
             Assert-Equal -Expected $prefix -Actual $got -Because "host pair is stable for '$vm'"
         }
     }
     It 'gives different hosts different host pairs' {
-        $a = ((Get-YurunaGuestMacAddress -VMName $VM1 -HostId $HOSTA) -split ':')[1..2] -join ':'
-        $b = ((Get-YurunaGuestMacAddress -VMName $VM1 -HostId $HOSTB) -split ':')[1..2] -join ':'
+        $a = ((Get-YurunaGuestMacAddress -VMName $script:VM1 -HostId $script:HOSTA) -split ':')[1..2] -join ':'
+        $b = ((Get-YurunaGuestMacAddress -VMName $script:VM1 -HostId $script:HOSTB) -split ':')[1..2] -join ':'
         Assert-NotEqual -NotExpected $a -Actual $b -Because 'host pair separates hosts'
     }
     It 'gives different guest slots on one host different addresses' {
-        Assert-NotEqual -NotExpected (Get-YurunaGuestMacAddress -VMName $VM1 -HostId $HOSTA) `
-                        -Actual      (Get-YurunaGuestMacAddress -VMName $VM2 -HostId $HOSTA) -Because 'slots must not share a lease'
+        Assert-NotEqual -NotExpected (Get-YurunaGuestMacAddress -VMName $script:VM1 -HostId $script:HOSTA) `
+                        -Actual      (Get-YurunaGuestMacAddress -VMName $script:VM2 -HostId $script:HOSTA) -Because 'slots must not share a lease'
     }
     It 'varies the VM bytes BY HOST, not by name alone' {
         # The subtle one. Guest slots are named identically on every host
@@ -166,8 +165,8 @@ Describe 'Get-YurunaGuestMacAddress -- the 42:HH:HH:VV:VV:VV layout' {
         # by itself would make the whole address depend on the two host bytes --
         # and two hosts landing on the same pair would then collide on every guest
         # they share. Mixing the host into the VM hash restores the full 40 bits.
-        $a = ((Get-YurunaGuestMacAddress -VMName $VM1 -HostId $HOSTA) -split ':')[3..5] -join ':'
-        $b = ((Get-YurunaGuestMacAddress -VMName $VM1 -HostId $HOSTB) -split ':')[3..5] -join ':'
+        $a = ((Get-YurunaGuestMacAddress -VMName $script:VM1 -HostId $script:HOSTA) -split ':')[3..5] -join ':'
+        $b = ((Get-YurunaGuestMacAddress -VMName $script:VM1 -HostId $script:HOSTB) -split ':')[3..5] -join ':'
         Assert-NotEqual -NotExpected $a -Actual $b -Because 'same slot name on two hosts must not share VM bytes'
     }
 }
@@ -200,8 +199,8 @@ Describe 'Get-YurunaGuestMacAddress -- fleet-scale uniqueness' {
 
 Describe 'Get-YurunaHostMacSeed -- what the host half is keyed on' {
     It 'prefers an explicitly supplied host id' {
-        Assert-Equal -Expected $HOSTA -Actual (Get-YurunaHostMacSeed -HostId $HOSTA) -Because 'explicit wins'
-        Assert-Equal -Expected $HOSTA -Actual (Get-YurunaHostMacSeed -HostId "  $HOSTA ") -Because 'trimmed'
+        Assert-Equal -Expected $script:HOSTA -Actual (Get-YurunaHostMacSeed -HostId $script:HOSTA) -Because 'explicit wins'
+        Assert-Equal -Expected $script:HOSTA -Actual (Get-YurunaHostMacSeed -HostId "  $script:HOSTA ") -Because 'trimmed'
     }
     It 'falls back to something STABLE, never to randomness, when no id exists' {
         # A random fallback would hand every guest a new MAC on every build -- the
@@ -222,11 +221,11 @@ Describe 'Get-YurunaHostMacSeed -- what the host half is keyed on' {
         $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ('mac-' + [guid]::NewGuid().ToString('N').Substring(0, 8))
         try {
             New-Item -ItemType Directory -Force -Path $tmp | Out-Null
-            Set-Content -LiteralPath (Join-Path $tmp 'host.uuid') -Value "$HOSTB`n" -NoNewline
+            Set-Content -LiteralPath (Join-Path $tmp 'host.uuid') -Value "$script:HOSTB`n" -NoNewline
             $env:YURUNA_RUNTIME_DIR = $tmp
-            Assert-Equal -Expected $HOSTB -Actual (Get-YurunaHostMacSeed) -Because 'host.uuid is the preferred seed'
-            Assert-Equal -Expected (Get-YurunaGuestMacAddress -VMName $VM1 -HostId $HOSTB) `
-                         -Actual  (Get-YurunaGuestMacAddress -VMName $VM1) -Because 'resolved seed matches an explicit one'
+            Assert-Equal -Expected $script:HOSTB -Actual (Get-YurunaHostMacSeed) -Because 'host.uuid is the preferred seed'
+            Assert-Equal -Expected (Get-YurunaGuestMacAddress -VMName $script:VM1 -HostId $script:HOSTB) `
+                         -Actual  (Get-YurunaGuestMacAddress -VMName $script:VM1) -Because 'resolved seed matches an explicit one'
         } finally {
             $env:YURUNA_RUNTIME_DIR = $saved
             Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
@@ -246,7 +245,7 @@ Describe 'the guest is pinned at build time to the identity it keeps' {
     # a pure metadata change.
 
     It 'derives from the guest identity, not the slot the VM is built in' {
-        foreach ($rel in $PromotableBuilders) {
+        foreach ($rel in $script:PromotableBuilders) {
             $text = Get-Content -Raw -LiteralPath (Join-Path $repoRoot $rel)
             Assert-True ($text -match '\$GuestHostname\s*=\s*if\s*\(\$Hostname\)') "$rel resolves a guest identity"
             Assert-True ($text -match 'Get-YurunaGuestMacAddress\s+-VMName\s+\$GuestHostname') `
@@ -259,8 +258,8 @@ Describe 'the guest is pinned at build time to the identity it keeps' {
         # amisad-core: three names, one guest. Keyed on the name it carries the
         # address would move at each step -- which is what makes the input to the
         # derivation, asserted above, the whole of the fix.
-        $carried = @($VM1, 'amisad-core-k8s', 'amisad-core')
-        $byCarriedName = @($carried | ForEach-Object { Get-YurunaGuestMacAddress -VMName $_ -HostId $HOSTA })
+        $carried = @($script:VM1, 'amisad-core-k8s', 'amisad-core')
+        $byCarriedName = @($carried | ForEach-Object { Get-YurunaGuestMacAddress -VMName $_ -HostId $script:HOSTA })
         Assert-Equal -Expected $carried.Count -Actual (@($byCarriedName | Select-Object -Unique).Count) `
             -Because 'each name the VM wears derives its own address, so the carried name cannot be the key'
     }
@@ -268,26 +267,26 @@ Describe 'the guest is pinned at build time to the identity it keeps' {
         # The collision this whole scheme guards: four guests built serially in
         # one slot must never end up sharing an address on one switch.
         $macs = @('amisad-build', 'amisad-edge-a', 'amisad-edge-b', 'amisad-core') |
-            ForEach-Object { Get-YurunaGuestMacAddress -VMName $_ -HostId $HOSTA }
+            ForEach-Object { Get-YurunaGuestMacAddress -VMName $_ -HostId $script:HOSTA }
         Assert-Equal -Expected 4 -Actual (@($macs | Select-Object -Unique).Count) -Because 'four identities, four addresses'
-        Assert-True ($macs -notcontains (Get-YurunaGuestMacAddress -VMName $VM1 -HostId $HOSTA)) `
+        Assert-True ($macs -notcontains (Get-YurunaGuestMacAddress -VMName $script:VM1 -HostId $script:HOSTA)) `
             'and none of them is the slot address, so the next build of the slot is free'
     }
 }
 
 Describe 'Test-YurunaGuestMacMatchesName -- whose address is this NIC on?' {
     It 'recognizes the address a name derives, in any notation a hypervisor reports' {
-        $mac = Get-YurunaGuestMacAddress -VMName $VM1 -HostId $HOSTA
+        $mac = Get-YurunaGuestMacAddress -VMName $script:VM1 -HostId $script:HOSTA
         foreach ($form in @($mac, $mac.ToLowerInvariant(), ($mac -replace ':', ''), ($mac -replace ':', '-'))) {
-            Assert-True (Test-YurunaGuestMacMatchesName -MacAddress $form -VMName $VM1 -HostId $HOSTA) `
+            Assert-True (Test-YurunaGuestMacMatchesName -MacAddress $form -VMName $script:VM1 -HostId $script:HOSTA) `
                 "'$form' is the same address as '$mac'"
         }
     }
     It 'says no for an address belonging to any other name' {
-        $mac = Get-YurunaGuestMacAddress -VMName $VM1 -HostId $HOSTA
-        Assert-True (-not (Test-YurunaGuestMacMatchesName -MacAddress $mac -VMName 'amisad-core' -HostId $HOSTA)) `
+        $mac = Get-YurunaGuestMacAddress -VMName $script:VM1 -HostId $script:HOSTA
+        Assert-True (-not (Test-YurunaGuestMacMatchesName -MacAddress $mac -VMName 'amisad-core' -HostId $script:HOSTA)) `
             'a guest on its own identity must not be mistaken for one on the slot address'
-        Assert-True (-not (Test-YurunaGuestMacMatchesName -MacAddress '52:54:00:aa:bb:cc' -VMName $VM1 -HostId $HOSTA)) `
+        Assert-True (-not (Test-YurunaGuestMacMatchesName -MacAddress '52:54:00:aa:bb:cc' -VMName $script:VM1 -HostId $script:HOSTA)) `
             'nor must an address this scheme never issued'
     }
     It 'treats an address it could not read as no match, quietly' {
@@ -295,7 +294,7 @@ Describe 'Test-YurunaGuestMacMatchesName -- whose address is this NIC on?' {
         # therefore answer $false -- and without a warning, because this is a
         # question about state, not an assertion that the state is wrong.
         foreach ($bad in @('', '   ', 'not-a-mac', '42:7E:F9:EA:82')) {
-            Assert-True (-not (Test-YurunaGuestMacMatchesName -MacAddress $bad -VMName $VM1 -HostId $HOSTA -WarningAction Stop)) `
+            Assert-True (-not (Test-YurunaGuestMacMatchesName -MacAddress $bad -VMName $script:VM1 -HostId $script:HOSTA -WarningAction Stop)) `
                 "'$bad' is not a match"
         }
     }
@@ -310,7 +309,7 @@ Describe 'a rename releases the name it vacates, and nothing else' {
     # that address belongs to the name, every other one belongs to the guest.
 
     It 'rewrites the domain NIC to the address the NEW name derives' {
-        $slotMac = (Get-YurunaGuestMacAddress -VMName $VM1).ToLowerInvariant()
+        $slotMac = (Get-YurunaGuestMacAddress -VMName $script:VM1).ToLowerInvariant()
         $out = Set-GuestMacInDomainXml -DomainXml (Format-DomainXml -Mac $slotMac) -VMName 'amisad-build'
         $want = (Get-YurunaGuestMacAddress -VMName 'amisad-build').ToLowerInvariant()
         Assert-True ($out -match "<mac address='$want'/>") "expected the promoted name's address; got: $out"
@@ -319,7 +318,7 @@ Describe 'a rename releases the name it vacates, and nothing else' {
     It 'frees the slot address for the next build, and separates the promoted guests' {
         # The actual failure: build slot -> promote to amisad-build -> build slot
         # again -> promote to amisad-edge-a. All three addresses must differ.
-        $slotMac = (Get-YurunaGuestMacAddress -VMName $VM1).ToLowerInvariant()
+        $slotMac = (Get-YurunaGuestMacAddress -VMName $script:VM1).ToLowerInvariant()
         $build = [regex]::Match((Set-GuestMacInDomainXml -DomainXml (Format-DomainXml -Mac $slotMac) -VMName 'amisad-build'), "address='([^']+)'").Groups[1].Value
         $edge  = [regex]::Match((Set-GuestMacInDomainXml -DomainXml (Format-DomainXml -Mac $slotMac) -VMName 'amisad-edge-a'), "address='([^']+)'").Groups[1].Value
         Assert-NotEqual -NotExpected $slotMac -Actual $build -Because 'the promoted VM must release the slot address'
@@ -355,7 +354,7 @@ Describe 'a rename releases the name it vacates, and nothing else' {
         # UTM reads config.plist when it loads a VM and holds that copy for the
         # life of the app, so a write while it holds the VM changes the file and
         # not the running configuration.
-        $body = [regex]::Match((Get-Content -Raw -LiteralPath $UtmModule), '(?ms)^function Rename-VM\b.*?\n\}').Value
+        $body = [regex]::Match((Get-Content -Raw -LiteralPath $script:UtmModule), '(?ms)^function Rename-VM\b.*?\n\}').Value
         Assert-True ($body -match 'Set-GuestMacInBundle') 'the rename re-pins the NIC'
         $quitAt   = $body.IndexOf('to quit')
         $macAt    = $body.IndexOf('Set-GuestMacInBundle')
@@ -364,7 +363,7 @@ Describe 'a rename releases the name it vacates, and nothing else' {
         Assert-True ($reopenAt -gt $macAt) 'and relaunched after, so it loads the new value'
     }
     It 'is applied by the Hyper-V rename, after the VM answers to the new name' {
-        $body = [regex]::Match((Get-Content -Raw -LiteralPath $HyperVModule), '(?ms)^function Rename-VM\b.*?\n\}').Value
+        $body = [regex]::Match((Get-Content -Raw -LiteralPath $script:HyperVModule), '(?ms)^function Rename-VM\b.*?\n\}').Value
         Assert-True ($body -match 'StaticMacAddress') 'the rename re-pins the NIC'
         $renameAt = $body.IndexOf('Hyper-V\Rename-VM -Name')
         $macAt    = $body.IndexOf('StaticMacAddress')
@@ -373,7 +372,7 @@ Describe 'a rename releases the name it vacates, and nothing else' {
     It 'derives from the destination name on every host type' {
         # Deriving from $VMName would re-pin the address the guest already has:
         # a no-op that reads like a fix.
-        foreach ($m in @($KvmModule, $UtmModule, $HyperVModule)) {
+        foreach ($m in @($KvmModule, $script:UtmModule, $script:HyperVModule)) {
             $body = [regex]::Match((Get-Content -Raw -LiteralPath $m), '(?ms)^function Rename-VM\b.*?\n\}').Value
             $line = @($body -split "`n" | Where-Object { $_ -match 'Set-GuestMacInDomainXml|Set-GuestMacInBundle|StaticMacAddress' })[0]
             Assert-True ($line -match '\$NewName') "in $(Split-Path -Leaf (Split-Path -Parent (Split-Path -Parent $m))): '$line' must key on the destination name"
@@ -391,7 +390,7 @@ Describe 'a rename releases the name it vacates, and nothing else' {
         # address it was built with. Without it the rename re-keys every NIC it
         # passes -- including one already pinned to the guest's own identity,
         # whose in-guest state records the address it currently answers on.
-        foreach ($m in @($KvmModule, $UtmModule, $HyperVModule)) {
+        foreach ($m in @($KvmModule, $script:UtmModule, $script:HyperVModule)) {
             $where = Split-Path -Leaf (Split-Path -Parent (Split-Path -Parent $m))
             $body  = [regex]::Match((Get-Content -Raw -LiteralPath $m), '(?ms)^function Rename-VM\b.*?\n\}').Value
             $guardAt = $body.IndexOf('Test-YurunaGuestMacMatchesName')

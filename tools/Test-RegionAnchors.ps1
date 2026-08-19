@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 425a0170-ca9a-4ed5-a768-4cf3925b242a
+.VERSION 2026.08.19
+.GUID 427a25a9-d3c8-4ce6-b877-b396666875b0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna ci-gate docs anchors region
@@ -18,8 +18,10 @@
 
 <#
 .SYNOPSIS
-    CI gate: every `# --- REGION: https://yuruna.link/<slug>#<anchor>` pointer
-    resolves to a real heading in the document that slug names.
+    CI gate for the two comment-shaped tokens this repo parses: every
+    `# --- REGION: https://yuruna.link/<slug>#<anchor>` pointer resolves to a
+    real heading, and every `# === YURUNA_OVERLAY_<KEY> ===` anchor pairs
+    between a cloud-init base seed and its per-host overlays.
 .DESCRIPTION
     Load-bearing rationale lives in `docs/`, and source files point at it with a
     one-line REGION comment instead of carrying the explanation inline. That
@@ -189,8 +191,68 @@ foreach ($rel in $tracked) {
     }
 }
 
+# Second check: the cloud-init overlay anchors.
+#
+# `# === YURUNA_OVERLAY_<KEY> ===` looks like a comment but is a parsed token.
+# Merge-CloudInitUserData matches it with a case-sensitive regex and throws when
+# a base anchors a key its overlay does not define, or an overlay defines a key
+# the base never anchors. That throw lands at VM-creation time, on a host,
+# mid-cycle -- so a comment restyle that drops or reflows one of these lines
+# passes review, passes the build, and fails at the first guest bring-up. The
+# same pairing is cheap to check here, where a wrong edit is still a diff.
+$anchorRe    = [regex]'^\s*#\s*===\s*YURUNA_OVERLAY_([A-Z0-9_]+)\s*===\s*$'
+$overlayBad  = New-Object System.Collections.Generic.List[hashtable]
+$seedsSeen   = 0
+$vmconfigDir = Join-Path $RepoRoot 'host/vmconfig'
+
+function Get-OverlayAnchorName {
+    <#
+    .SYNOPSIS
+        Anchor keys named by a base seed or defined by an overlay, in file order.
+    .OUTPUTS
+        [string[]]
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param([Parameter(Mandatory)][string]$Path)
+    $keys = New-Object System.Collections.Generic.List[string]
+    foreach ($line in (Get-Content -LiteralPath $Path)) {
+        $m = $anchorRe.Match($line)
+        if ($m.Success) { $keys.Add($m.Groups[1].Value) }
+    }
+    return [string[]]$keys.ToArray()
+}
+
+if ((Test-Path -LiteralPath $vmconfigDir -PathType Container) -and
+    ($roots | Where-Object { $vmconfigDir.StartsWith($_, [StringComparison]::Ordinal) })) {
+    foreach ($base in (Get-ChildItem -LiteralPath $vmconfigDir -Filter '*.base.user-data' -File | Sort-Object Name)) {
+        $seedsSeen++
+        $stem      = $base.Name -replace '\.base\.user-data$', ''
+        $anchored  = @(Get-OverlayAnchorName -Path $base.FullName)
+        foreach ($overlay in (Get-ChildItem -LiteralPath $vmconfigDir -Filter "$stem.*.overlay.yml" -File | Sort-Object Name)) {
+            $defined = @(Get-OverlayAnchorName -Path $overlay.FullName)
+            $dupe    = @($defined | Group-Object | Where-Object { $_.Count -gt 1 } | ForEach-Object { $_.Name })
+            foreach ($k in $dupe) {
+                $overlayBad.Add(@{ file = $overlay.Name; key = $k; why = 'defined twice in the overlay -- the later payload silently wins' })
+            }
+            foreach ($k in ($anchored | Where-Object { $defined -notcontains $_ })) {
+                $overlayBad.Add(@{ file = $overlay.Name; key = $k; why = "anchored by $($base.Name) but this overlay defines no such section" })
+            }
+            foreach ($k in ($defined | Where-Object { $anchored -notcontains $_ })) {
+                $overlayBad.Add(@{ file = $overlay.Name; key = $k; why = "defined here but $($base.Name) anchors no such key -- the section is never emitted" })
+            }
+        }
+    }
+}
+
 if (-not $Quiet) {
     Write-Output "Test-RegionAnchors: $checked pointer(s) checked against $($slugToDoc.Count) docs slug(s)."
+    Write-Output "Test-RegionAnchors: overlay anchors checked across $seedsSeen cloud-init seed(s)."
+}
+
+foreach ($o in ($overlayBad | Sort-Object { $_.file }, { $_.key })) {
+    Write-Warning ("  FAIL  {0}" -f $o.file)
+    Write-Warning ("        YURUNA_OVERLAY_{0} {1}" -f $o.key, $o.why)
 }
 
 foreach ($u in $unknown) {
@@ -198,10 +260,15 @@ foreach ($u in $unknown) {
     Write-Warning ("                slug '{0}' is not a docs/ target in the link map (external or sibling-repo target)" -f $u.slug)
 }
 
-if ($dangling.Count -eq 0) {
-    Write-Output "Test-RegionAnchors: all in-repo pointers resolve."
+if ($dangling.Count -eq 0 -and $overlayBad.Count -eq 0) {
+    Write-Output "Test-RegionAnchors: all in-repo pointers resolve; every overlay anchor pairs."
     exit $ExitOk
 }
+
+if ($overlayBad.Count -gt 0) {
+    Write-Warning "Test-RegionAnchors: $($overlayBad.Count) overlay anchor(s) do not pair -- the merge would throw at VM creation."
+}
+if ($dangling.Count -eq 0) { exit $ExitFailure }
 
 Write-Warning "Test-RegionAnchors: $($dangling.Count) pointer(s) name a heading that does not exist:"
 foreach ($d in ($dangling | Sort-Object { $_.doc }, { $_.anchor })) {

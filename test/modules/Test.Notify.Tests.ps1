@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42759f4b-9143-4909-b379-0ff23a9fc154
+.VERSION 2026.08.19
+.GUID 42f41a3a-96b8-4ab6-ac90-5f5f7b020de7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test notification dispatch pester
@@ -40,8 +40,7 @@ $here = Split-Path -Parent $PSCommandPath
 Import-Module powershell-yaml -Force -ErrorAction SilentlyContinue
 Import-Module (Join-Path $here 'Test.Notify.psm1') -Force -DisableNameChecking
 
-function Assert-Equal { param($Expected, $Actual, [string]$Because = '') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # --- REGION: https://yuruna.link/memory#pester-file-scope-fixtures
 
@@ -150,7 +149,7 @@ Describe 'Format-FailureMessage' {
             actionVerb           = 'sshWaitReady'
             cycleFolderUrl       = 'http://box:8080/status/log/cycle-000042/'
             suggestedRecoveries  = @('restart guest', 'recreate guest')
-            repro                = @{ command = 'pwsh test/Invoke-TestSequence.ps1 -Guest ubuntu-24' }
+            repro                = @{ command = 'pwsh test/Debug-TestSequence.ps1 -Guest ubuntu-24' }
         }
         $body = Format-FailureMessage -HostType 'ht' -Hostname 'h' -GuestKey 'g' -StepName 's' -ErrorMessage 'e' -CycleStartUtc 'c' -GitCommit 'gc' -EventData $data
         Assert-True ($body -match '(?m)^failureClass:\s+ssh_timeout$')
@@ -158,7 +157,7 @@ Describe 'Format-FailureMessage' {
         Assert-True ($body -match '(?m)^severity:\s+hard$')
         Assert-True ($body -match '(?m)^cycleFolderUrl:\s+http://box:8080/status/log/cycle-000042/$')
         Assert-True ($body -match '(?m)^suggestedRecoveries:\s+restart guest, recreate guest$') 'the recovery list is flattened for the human reader'
-        Assert-True ($body -match '(?m)^repro:\s+pwsh test/Invoke-TestSequence\.ps1 -Guest ubuntu-24$') 'the nested repro.command is lifted out of the JSON'
+        Assert-True ($body -match '(?m)^repro:\s+pwsh test/Debug-TestSequence\.ps1 -Guest ubuntu-24$') 'the nested repro.command is lifted out of the JSON'
         Assert-True ($body -match '--- yuruna-failure-json ---') 'the structured consumer still gets the whole payload'
         Assert-True ($body -match '--- end yuruna-failure-json ---')
         Assert-True ($body -match '"failureClass": "ssh_timeout"')

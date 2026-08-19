@@ -8,16 +8,16 @@
 // (chooseTarget + FinalizeStaging + commit). Downloads and listings are
 // refused; the stash is a sink.
 //
-// Path handling (§5.1): the client-supplied path is metadata, not a real
+// Path handling (section 5.1): the client-supplied path is metadata, not a real
 // location. Stat reports EVERY path as a directory, so scp appends the
 // real local filename and we always capture a sensible originalFilename;
 // the full requested path is stored verbatim as pathMetadata.
 //
-// Limitation: the SFTP protocol has no channel to surface the §9
+// Limitation: the SFTP protocol has no channel to surface the section 9
 // "YURUNA-STASH-ID: <id>" line to the scp client (that marker only shows
 // under the legacy protocol, which renders server stderr). Over SFTP the
 // ID is logged server-side and recorded in metadata, not echoed to the
-// client. Each uploaded file becomes its own record (the §5.3/§5.4
+// client. Each uploaded file becomes its own record (the section 5.3/section 5.4
 // multi-file/recursive ZIP grouping is a legacy-protocol behavior).
 package sshsrv
 
@@ -60,7 +60,7 @@ type stashSFTP struct {
 	clientIP string
 }
 
-// Fileread — downloads are not supported; the stash is write-only.
+// Fileread -- downloads are not supported; the stash is write-only.
 func (h *stashSFTP) Fileread(*sftp.Request) (io.ReaderAt, error) {
 	return nil, sftp.ErrSSHFxOpUnsupported
 }
@@ -72,12 +72,12 @@ func (h *stashSFTP) Filewrite(r *sftp.Request) (io.WriterAt, error) {
 }
 
 // Filecmd accepts the metadata operations scp issues (setstat/mtime,
-// mkdir for -r, rename, remove) as no-ops — none map to a real filesystem
+// mkdir for -r, rename, remove) as no-ops -- none map to a real filesystem
 // here, and failing them would abort an otherwise-fine transfer.
 func (h *stashSFTP) Filecmd(*sftp.Request) error { return nil }
 
 // Filelist answers Stat/List/Readlink. Stat reports any path as a
-// directory so scp appends the local filename (§5.1 path-is-metadata);
+// directory so scp appends the local filename (section 5.1 path-is-metadata);
 // List is empty; Readlink is unsupported.
 func (h *stashSFTP) Filelist(r *sftp.Request) (sftp.ListerAt, error) {
 	switch r.Method {
@@ -134,7 +134,7 @@ type sftpUpload struct {
 
 // newSFTPUpload allocates an ID, picks the share/buffer target, inserts a
 // pending row, and opens a staging file. reqPath is the client-supplied
-// path, stored verbatim as pathMetadata (§5.1).
+// path, stored verbatim as pathMetadata (section 5.1).
 func (s *Server) newSFTPUpload(reqPath, username, clientIP string) (*sftpUpload, error) {
 	now := time.Now().UTC()
 	id, err := s.IDs.Allocate(now)
@@ -185,7 +185,7 @@ func (s *Server) newSFTPUpload(reqPath, username, clientIP string) (*sftpUpload,
 }
 
 // WriteAt writes a chunk to the staging file, enforcing the 100 MB cap
-// (§5.5): bytes past the cap are dropped and the record flagged truncated,
+// (section 5.5): bytes past the cap are dropped and the record flagged truncated,
 // but the client still sees a full-length write so the transfer completes.
 func (u *sftpUpload) WriteAt(p []byte, off int64) (int, error) {
 	capN := int64(config.PerFileSizeLimit)
@@ -211,7 +211,7 @@ func (u *sftpUpload) WriteAt(p []byte, off int64) (int, error) {
 
 // Close finalizes the staged file into the stash (single-file artifact)
 // and commits the metadata + sidecar. pkg/sftp calls this on the SFTP
-// CLOSE request. A mid-transfer failure is recorded as partial (§8.2).
+// CLOSE request. A mid-transfer failure is recorded as partial (section 8.2).
 func (u *sftpUpload) Close() error {
 	_ = u.f.Close()
 	if u.failed {

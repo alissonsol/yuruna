@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42b8d1f3-6a4c-4e29-9b57-0d3e2f6a8c15
+.VERSION 2026.08.19
+.GUID 42e437e6-8cf0-45ba-9f8c-03558f1d5809
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test pool admin gc pester
@@ -36,8 +36,7 @@ BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 $script:rph  = Join-Path (Split-Path -Parent $here) 'pool/Remove-PoolHost.ps1'
 
-function Assert-True  { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
-function Assert-Equal { param($Expected, $Actual, [string]$Because = '') if ($Expected -ne $Actual) { throw "Expected '$Expected', got '$Actual'. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 function New-RphFixture {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',

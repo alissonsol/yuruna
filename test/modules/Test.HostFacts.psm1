@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42c5d9e1-7b34-4a80-91f6-2d0e5c8a4b73
+.VERSION 2026.08.19
+.GUID 42d14c70-0d75-4092-84e4-29debef3a34b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test host storage facts

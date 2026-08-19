@@ -158,7 +158,7 @@ func newServer(t *testing.T, opts Options) (*httptest.Server, *fakeImages) {
 	f := newFake(t)
 	opts.Images = f
 	if opts.Version == "" {
-		opts.Version = "2026.08.16"
+		opts.Version = "2026.08.19"
 	}
 	srv := httptest.NewServer(New(opts).Handler())
 	t.Cleanup(srv.Close)
@@ -443,7 +443,7 @@ func TestTheAdvertisedFileUrlIsFetchableVerbatim(t *testing.T) {
 		t.Fatalf("Commit: %v", err)
 	}
 
-	srv := httptest.NewServer(New(Options{Images: agent, Version: "2026.08.16"}).Handler())
+	srv := httptest.NewServer(New(Options{Images: agent, Version: "2026.08.19"}).Handler())
 	t.Cleanup(srv.Close)
 
 	catalog := decodeBody(t, get(t, srv, "/api/v1/images"))
@@ -593,15 +593,26 @@ func TestEveryColumnButActionsSortsAndSaysSoAccessibly(t *testing.T) {
 	page, _ := io.ReadAll(get(t, srv, "/").Body)
 
 	want := []string{"state", "image", "artifact", "size", "verified", "checksum", "source"}
+	// The two columns that legitimately do not sort, in the order they appear.
+	// Naming them beats counting them: a new data column that forgot its
+	// data-sort still fails, which a bare count would let through.
+	wantNonSorting := []string{"rownum", "Actions"}
 	var declared []string
-	unsortable := 0
+	var nonSorting []string
 	for _, th := range tableHeaderRE.FindAllStringSubmatch(string(page), -1) {
 		attrs, inner := th[1], th[2]
 		col := sortColumnRE.FindStringSubmatch(attrs)
 		if col == nil {
-			unsortable++
-			if !strings.Contains(inner, "Actions") {
-				t.Errorf("header %q neither sorts nor is Actions", strings.TrimSpace(inner))
+			switch {
+			case strings.Contains(attrs, `class="rownum"`):
+				// A row ordinal is presentation, not data: it renumbers to
+				// follow whatever sort is applied, so there is nothing for it
+				// to sort by.
+				nonSorting = append(nonSorting, "rownum")
+			case strings.Contains(inner, "Actions"):
+				nonSorting = append(nonSorting, "Actions")
+			default:
+				t.Errorf("header %q neither sorts nor is a declared non-sorting column", strings.TrimSpace(inner))
 			}
 			continue
 		}
@@ -618,8 +629,8 @@ func TestEveryColumnButActionsSortsAndSaysSoAccessibly(t *testing.T) {
 	if strings.Join(declared, ",") != strings.Join(want, ",") {
 		t.Fatalf("sortable columns = %v, want %v", declared, want)
 	}
-	if unsortable != 1 {
-		t.Fatalf("%d headers do not sort, want exactly 1 (Actions)", unsortable)
+	if strings.Join(nonSorting, ",") != strings.Join(wantNonSorting, ",") {
+		t.Fatalf("non-sorting headers = %v, want %v", nonSorting, wantNonSorting)
 	}
 }
 

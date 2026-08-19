@@ -16,7 +16,7 @@ import (
 // TestSFTPUploadStoresArtifactAndSidecar drives the SFTP ingest the way
 // pkg/sftp would (newSFTPUpload -> WriteAt -> Close) and verifies the file
 // lands in the stash with the right metadata + a sidecar, with the path
-// captured as metadata (not used as a location, §5.1).
+// captured as metadata (not used as a location, section 5.1).
 func TestSFTPUploadStoresArtifactAndSidecar(t *testing.T) {
 	s := newTestServer(t, true) // share online -> stores on the share store
 	up, err := s.newSFTPUpload("/scratch/report.PDF", "alice", "10.0.0.5")
@@ -47,7 +47,7 @@ func TestSFTPUploadStoresArtifactAndSidecar(t *testing.T) {
 	if rec.Username != "alice" || rec.ClientAddress != "10.0.0.5" {
 		t.Fatalf("username=%q client=%q; want alice/10.0.0.5", rec.Username, rec.ClientAddress)
 	}
-	// On-disk name is <id>.pdf (extension lowercased, §6.3); content intact.
+	// On-disk name is <id>.pdf (extension lowercased, section 6.3); content intact.
 	if !strings.HasSuffix(rec.StoredPath, up.id+".pdf") {
 		t.Fatalf("storedPath=%q; want suffix %s.pdf", rec.StoredPath, up.id)
 	}
@@ -62,7 +62,7 @@ func TestSFTPUploadStoresArtifactAndSidecar(t *testing.T) {
 }
 
 // TestSFTPUploadTruncates verifies the per-file cap flags truncation while
-// still reporting a full-length write to the client (§5.5).
+// still reporting a full-length write to the client (section 5.5).
 func TestSFTPUploadTruncates(t *testing.T) {
 	s := newTestServer(t, true)
 	up, err := s.newSFTPUpload("/scratch/big.bin", "u", "10.0.0.6")
@@ -88,7 +88,7 @@ func TestSFTPUploadTruncates(t *testing.T) {
 
 // TestSFTPUploadBuffersWhenShareOffline confirms an offline share routes
 // the SFTP upload into the VM-local buffer (locallyBuffered=true, no
-// sidecar yet) like the legacy path (§8.4).
+// sidecar yet) like the legacy path (section 8.4).
 func TestSFTPUploadBuffersWhenShareOffline(t *testing.T) {
 	s := newTestServer(t, false) // share offline -> buffer
 	up, err := s.newSFTPUpload("/scratch/note.txt", "u", "10.0.0.7")

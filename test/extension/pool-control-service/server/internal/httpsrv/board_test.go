@@ -183,7 +183,7 @@ func TestBoardTargetPoolCannotBeAssigned(t *testing.T) {
 
 	cards := cardsByID(t, boardPayload(t, s, ""))
 	if cards["default"]["assignAllowed"].(bool) {
-		t.Error("the auto-enrolment target pool must not be assignable")
+		t.Error("the auto-enrollment target pool must not be assignable")
 	}
 	if cards["default"]["reason"].(string) == "" {
 		t.Error("a disabled control must carry a reason, not be silently omitted")
@@ -480,9 +480,9 @@ func TestSessionReportsTheWaysIn(t *testing.T) {
 	}
 }
 
-// --- auto-enrolment sweep --------------------------------------------------
+// --- auto-enrollment sweep --------------------------------------------------
 
-func TestSweepOnlyEnrolsReadyUnpooledHosts(t *testing.T) {
+func TestSweepOnlyEnrollsReadyUnpooledHosts(t *testing.T) {
 	agg := aggStub(t, `{"hosts":[
         {"hostId":"42aa","control":"ready"},
         {"hostId":"42new","control":"ready"},

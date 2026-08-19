@@ -11,7 +11,7 @@
   const chrome = Y.initChrome({ intervalSeconds: 60, refresh: load, refreshOnVisible: true });
 
   const setCard = function (id, value, sub) {
-    $(id).textContent = value || '—';
+    $(id).textContent = value || '--';
     $(id + '-sub').textContent = sub || '';
   };
 
@@ -38,7 +38,7 @@
     container.appendChild(Y.el('p', null, [
       badge(ok ? 'fresh' : 'failed', ok ? 'succeeded' : 'failed'),
       ' ',
-      Y.el('span', { class: 'muted', text: facts.join(' — ') })
+      Y.el('span', { class: 'muted', text: facts.join(' -- ') })
     ]));
     if (at.error) container.appendChild(Y.el('p', { class: 'err-line', text: at.error }));
     if (at.url) container.appendChild(Y.el('p', null, ['Minted: ', Y.el('code', { text: at.url })]));
@@ -86,7 +86,7 @@
       // does not: the family re-arms itself when the TTL runs out.
       let sub = fam ? (fam.reason || '') : '';
       if (g.rememberedFailure && g.rememberedFailure.expiresUtc) {
-        sub += ' — retries after ' + Y.stamp(g.rememberedFailure.expiresUtc);
+        sub += ' -- retries after ' + Y.stamp(g.rememberedFailure.expiresUtc);
       }
       setCard('dg-family', 'unavailable', sub);
     }
@@ -97,12 +97,12 @@
 
     const sc = g.script || {};
     if (sc.error) setCard('dg-script', 'missing', sc.error);
-    else setCard('dg-script', (sc.sha256 || '').slice(0, 12) || 'found', sc.path + (sc.sizeBytes ? ' — ' + Y.bytes(sc.sizeBytes) : ''));
+    else setCard('dg-script', (sc.sha256 || '').slice(0, 12) || 'found', sc.path + (sc.sizeBytes ? ' -- ' + Y.bytes(sc.sizeBytes) : ''));
 
-    setCard('dg-os', g.os || (g.goos || '?'), (g.kernel ? 'kernel ' + g.kernel + ' — ' : '') + (g.goos || '') + '/' + (g.goarch || ''));
+    setCard('dg-os', g.os || (g.goos || '?'), (g.kernel ? 'kernel ' + g.kernel + ' -- ' : '') + (g.goos || '') + '/' + (g.goarch || ''));
 
     if (g.proxyHttp || g.proxyHttps) {
-      setCard('dg-proxy', 'configured', [g.proxyHttp, g.proxyHttps].filter(Boolean).join(' · ') + (g.proxyCaSet ? '' : ' — no CA'));
+      setCard('dg-proxy', 'configured', [g.proxyHttp, g.proxyHttps].filter(Boolean).join(' - ') + (g.proxyCaSet ? '' : ' -- no CA'));
     } else {
       setCard('dg-proxy', 'none', 'Byte downloads go direct.');
     }
@@ -131,7 +131,7 @@
     try {
       const res = await fetch('/api/v1/diagnostics/fido-test?arch=' + encodeURIComponent(arch), { method: 'POST' });
       if (res.status === 401) {
-        Y.notice('error', 'Unlock actions first — enter the Lab token above.');
+        Y.notice('error', 'Unlock actions first -- enter the Lab token above.');
         return;
       }
       let data = {};
@@ -141,8 +141,8 @@
         return;
       }
       renderAttempt($('test-result'), data.attempt);
-      if (data.ok) Y.notice('ok', 'Resolve succeeded — the family is usable on this agent.');
-      else Y.notice('error', 'Resolve failed — the capture below says why.');
+      if (data.ok) Y.notice('ok', 'Resolve succeeded -- the family is usable on this agent.');
+      else Y.notice('error', 'Resolve failed -- the capture below says why.');
       // The family card may have flipped either way; re-read the report.
       await load();
     } catch (e) {

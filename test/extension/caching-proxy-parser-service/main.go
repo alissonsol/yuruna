@@ -6,7 +6,7 @@
 // Replaces loki + promtail for the Grafana dashboard's "Recent 100 requests"
 // panel: tails the squid yuruna access log into a 100-entry in-memory ring,
 // served as JSON + a self-contained HTML page. Single host, one log, one
-// panel — no tenancy, no persistence, no auth, no LogQL.
+// panel -- no tenancy, no persistence, no auth, no LogQL.
 //
 // Full design and operator guide: https://yuruna.link/caching-proxy-parser-service (README.md).
 //
@@ -255,12 +255,12 @@ func handleJSON(r *ring) http.HandlerFunc {
 
 // handleHTML renders a self-contained page (no external assets) that
 // fetches /recent-requests every 5 s and rebuilds the table with
-// textContent, never innerHTML — squid log fields are attacker-
+// textContent, never innerHTML -- squid log fields are attacker-
 // controlled (URL + User-Agent), so element creation is safer.
 const indexHTML = `<!doctype html>
 <html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Squid cache — recent 100 requests</title>
+<title>Squid cache -- recent 100 requests</title>
 <style>
   /* Banded rows, the same two values every Yuruna UI bands its tables with.
      Only the dark pair is defined: this page paints a dark surface outright
@@ -288,7 +288,7 @@ const indexHTML = `<!doctype html>
   .gray { color: #6b7280; }
 </style>
 </head><body>
-<h1>Squid cache — recent 100 requests <span id="meta"></span></h1>
+<h1>Squid cache -- recent 100 requests <span id="meta"></span></h1>
 <table id="t"><thead>
 <tr><th>time</th><th>client</th><th>status</th><th>bytes</th>
 <th>method</th><th>url</th><th>user-agent</th></tr>

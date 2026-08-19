@@ -1,6 +1,6 @@
 <#PSScriptInfo
 .VERSION 2026.07.27
-.GUID 42fcb367-61e9-49c5-a325-548305490c56
+.GUID 42d7f870-73af-4342-b771-c578f6b19167
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test install checkout probe pester
@@ -49,9 +49,7 @@ $here      = Split-Path -Parent $PSCommandPath
 $repoRoot  = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
 $installer = Join-Path $repoRoot 'install/windows.hyper-v.ps1'
 
-function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
-function Assert-False { param($Condition, [string]$Because='') if ($Condition) { throw "Expected false. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 function Get-InstallerAst {
     [CmdletBinding()]
@@ -139,7 +137,10 @@ function New-CheckoutFixture {
 # same way.
 function Lock-CheckoutAgainstRename {
     [CmdletBinding()]
-    [OutputType([object])]
+    # Two concrete types, one per platform: a real file handle on Windows, a
+    # permission-restoring token elsewhere. Both expose Dispose(), which is the
+    # only member a caller uses.
+    [OutputType([System.IO.FileStream], [psobject])]
     param([Parameter(Mandatory)][string]$Dir)
     if ($IsWindows) {
         return [System.IO.File]::Open((Join-Path $Dir '.git/objects/pack.idx'), 'Open', 'ReadWrite', 'None')

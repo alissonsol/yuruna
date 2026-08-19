@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 422b4f6a-1c3e-4a57-8b90-6e2d4c1a7f38
+.VERSION 2026.08.19
+.GUID 42aadd98-3c26-4f0c-9a81-eaa6c787aaa2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test runner circuit-breaker guest-quarantine pester
@@ -45,14 +45,7 @@ Import-Module (Join-Path $here 'Test.Prelude.psm1')          -Force -DisableName
 Import-Module (Join-Path $here 'Test.EventSchema.psm1')      -Force -DisableNameChecking
 Import-Module (Join-Path $here 'Test.GuestQuarantine.psm1')  -Force -DisableNameChecking
 
-function Assert-Equal {
-    param($Expected, $Actual, [string]$Because = '')
-    if ($Expected -ne $Actual) { throw "Expected [$Expected] but got [$Actual]. $Because" }
-}
-function Assert-True {
-    param($Condition, [string]$Because = '')
-    if (-not $Condition) { throw "Expected condition to be true. $Because" }
-}
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 function New-QTempDir {
     [CmdletBinding()]
     [OutputType([string])]

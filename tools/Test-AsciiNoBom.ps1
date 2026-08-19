@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42d0c9e8-f7a6-4c54-5432-bad0c9e8f7a6
+.VERSION 2026.08.19
+.GUID 42e9bd8a-5257-4459-82a4-765455c96fe3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna ci-gate ascii bom
@@ -78,7 +78,8 @@ param(
     [string[]]$Path,
     [switch]$Quiet,
     [switch]$BomOnly,
-    [switch]$Staged
+    [switch]$Staged,
+    [switch]$Bootstrap
 )
 
 $TestRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -87,6 +88,20 @@ $RepoRoot = Split-Path -Parent $TestRoot
 Import-Module (Join-Path $RepoRoot 'test/modules/Test.Prelude.psm1') -Global -Force
 $ExitOk      = Get-EntryPointExitCode -Outcome Ok
 $ExitFailure = Get-EntryPointExitCode -Outcome Failure
+
+if ($Bootstrap) {
+    # The four paths a fresh host executes byte-for-byte before any
+    # BOM-tolerant shell exists. A switch rather than a path list for the same
+    # reason -Staged is one: `pwsh -File` binds each argument after the script
+    # as a separate positional value, so `-Path a b c` does not bind and a
+    # caller that tried would silently check NOTHING and pass.
+    $Path = @(
+        (Join-Path $RepoRoot 'install/windows.hyper-v.ps1'),
+        (Join-Path $RepoRoot 'install/ubuntu.kvm.sh'),
+        (Join-Path $RepoRoot 'install/macos.utm.sh'),
+        (Join-Path $RepoRoot 'guest/windows.11/*.ps1')
+    )
+}
 
 if ($Staged) {
     # Advisory: a repo-less or git-less environment must not block a commit,
@@ -105,19 +120,47 @@ if ($Staged) {
 }
 
 if (-not $Path -or $Path.Count -eq 0) {
-    # Default set: every script fetched and executed byte-for-byte on a
-    # fresh host before any BOM-tolerant shell exists -- the three bootstrap
-    # installers (PS 5.1 `irm | iex` and the `curl | bash` Linux/macOS ones,
-    # where a leading BOM breaks the shebang) and the guest/windows.11 scripts
-    # the freshly-provisioned Windows guest runs first the same way. A BOM or
-    # non-ASCII byte in any of them aborts at line 1. Add more such scripts
-    # here as they adopt the convention.
-    $Path = @(
-        (Join-Path $RepoRoot 'install/windows.hyper-v.ps1'),
-        (Join-Path $RepoRoot 'install/ubuntu.kvm.sh'),
-        (Join-Path $RepoRoot 'install/macos.utm.sh'),
-        (Join-Path $RepoRoot 'guest/windows.11/*.ps1')
-    )
+    # The default set is every tracked file whose type is ASCII BY POLICY.
+    #
+    # It began as four bootstrap paths -- the three installers fetched with
+    # `irm | iex` or `curl | bash`, and the guest/windows.11 scripts a fresh
+    # Windows guest runs the same way -- where a BOM or a non-ASCII byte
+    # aborts at line 1 before any tolerant shell exists. Those are still the
+    # sharpest cases, but four files turned out to be too narrow an aperture:
+    # a tree-wide normalization can rewrite a character in three copies of a
+    # shared block and miss the fourth, and nothing here would notice. That
+    # is not hypothetical -- it forked the page-chrome block that
+    # Test.ExtensionUiChrome.Tests.ps1 requires to be byte-identical, and
+    # only that unrelated guard caught it.
+    #
+    # WHAT IS DELIBERATELY NOT COVERED, and why widening further would be
+    # wrong rather than merely stricter: markdown, HTML and JavaScript carry
+    # USER-VISIBLE typography -- em dashes in a <title>, an ellipsis in a
+    # loading label, the box-drawing separators in yuruna.common.js -- and
+    # store_test.go holds a deliberate "file.cafe" charset fixture whose
+    # whole purpose is to be non-ASCII. Forcing those to ASCII would damage
+    # what they render or what they prove. The types below carry no such
+    # content: all 476 PowerShell files, 35 shell scripts, 5 stylesheets, and
+    # every tracked JSON and YAML document are ASCII today, so this gate is
+    # green on adoption and stays a real signal rather than a backlog.
+    $trackedTypes = @('*.ps1', '*.psm1', '*.psd1', '*.sh', '*.bash', '*.css', '*.json', '*.yml', '*.yaml')
+    $tracked = @(& git -C $RepoRoot ls-files --cached --others --exclude-standard 2>$null)
+    if ($LASTEXITCODE -eq 0 -and $tracked.Count -gt 0) {
+        $Path = @($tracked |
+            Where-Object { $n = [IO.Path]::GetFileName($_); $trackedTypes | Where-Object { $n -like $_ } } |
+            ForEach-Object { Join-Path $RepoRoot $_ } |
+            Where-Object { Test-Path -LiteralPath $_ -PathType Leaf })
+    }
+    # Outside a work tree there is nothing to enumerate, so fall back to the
+    # bootstrap set the gate started with rather than checking nothing.
+    if (-not $Path -or $Path.Count -eq 0) {
+        $Path = @(
+            (Join-Path $RepoRoot 'install/windows.hyper-v.ps1'),
+            (Join-Path $RepoRoot 'install/ubuntu.kvm.sh'),
+            (Join-Path $RepoRoot 'install/macos.utm.sh'),
+            (Join-Path $RepoRoot 'guest/windows.11/*.ps1')
+        )
+    }
 }
 
 # Resolve every input (supporting wildcards) into concrete file paths.
@@ -136,6 +179,10 @@ foreach ($p in $Path) {
 }
 if ($resolved.Count -eq 0) {
     Write-Warning "Test-AsciiNoBom: no files matched any input path."
+    # Reached only with an explicit -Path (a -Staged run with nothing staged
+    # returns earlier). Passing here would report success having read nothing,
+    # which is the failure mode this gate exists to prevent.
+    exit $ExitFailure
     exit $ExitOk
 }
 

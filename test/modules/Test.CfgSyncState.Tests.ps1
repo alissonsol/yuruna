@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42e1f2a3-b4c5-4d67-89ab-ce2f3a4b5c63
+.VERSION 2026.08.19
+.GUID 4241d9f0-ad34-48bf-acbd-de2cff3f7bf7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test config sync state hostid pester

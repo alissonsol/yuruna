@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 423ac469-e001-458b-88bc-eb86ef723658
+.VERSION 2026.08.19
+.GUID 4218aa1e-40ef-4c05-ae43-e48a889c70d1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test download agent table sort counter column pester
@@ -53,12 +53,7 @@ $here = Split-Path -Parent $PSCommandPath
 $repo = Split-Path -Parent (Split-Path -Parent $here)
 $web = Join-Path $repo 'test/extension/download-agent-service/server/internal/httpsrv/web'
 
-function Assert-Equal { param($Expected, $Actual, [string]$Because = '') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
-function Assert-NoFinding {
-    param([string[]]$Findings, [string]$Because = '')
-    if ($Findings.Count -gt 0) { throw ("$Because`n  " + ($Findings -join "`n  ")) }
-}
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 $script:html = Get-Content -Raw -LiteralPath (Join-Path $web 'index.html')
 $script:common = Get-Content -Raw -LiteralPath (Join-Path $web 'assets/common.js')

@@ -6,7 +6,7 @@ logging knobs, and status-service details.
 
 ## Configuration keys
 
-`test.config.yml` uses a nested layout — related settings are grouped
+`test.config.yml` uses a nested layout -- related settings are grouped
 under `vmStart`, `vmImage`, `vmCommunication`, `repositories`, and
 `testCycle` nodes. The dotted paths below are the YAML node + key.
 
@@ -25,8 +25,8 @@ under `vmStart`, `vmImage`, `vmCommunication`, `repositories`, and
 | `vmImage.refreshSeconds` | `604800` | Seconds between automatic re-downloads |
 | `vmImage.alwaysRedownload` | `false` | Force re-download even if image exists |
 | `vmCommunication.charDelayMs` | `10` | ms between keystrokes in `inputText`/`inputTextAndEnter` (per-step `charDelayMs` in sequences overrides this default) |
-| `vmCommunication.pollSeconds` | `5` | Default poll interval (seconds) for wait-style actions (`waitForText`, `passwdPrompt`, `waitForAndEnter`, `sshWaitReady`, …). A step's own `pollSeconds` overrides this default |
-| `vmCommunication.timeoutSeconds` | `180` | Default timeout (seconds) for wait-style actions (`waitForText`, `passwdPrompt`, `fetchAndExecute`, `sshExec`, `sshWaitReady`, …). A step's own `timeoutSeconds` overrides this default |
+| `vmCommunication.pollSeconds` | `5` | Default poll interval (seconds) for wait-style actions (`waitForText`, `passwdPrompt`, `waitForAndEnter`, `sshWaitReady`, ...). A step's own `pollSeconds` overrides this default |
+| `vmCommunication.timeoutSeconds` | `180` | Default timeout (seconds) for wait-style actions (`waitForText`, `passwdPrompt`, `fetchAndExecute`, `sshExec`, `sshWaitReady`, ...). A step's own `timeoutSeconds` overrides this default |
 | `vmCommunication.vncPort` | `5900` | Fallback VNC port when no VM name is given. Per-VM ports (5910..5989) are derived from the VM name by `Get-VncDisplayForVm` (`host/macos.utm/modules/Yuruna.Host.psm1`); each QEMU-backed UTM guest gets a unique port so concurrent VMs can't poach each other's framebuffer |
 | `repositories.frameworkUrl` | `https://github.com/alissonsol/yurunadev` | URL of the framework repo. Used by status page for commit links AND polled by the outer runner during a failure-pause to break out early when a new commit lands upstream. |
 | `repositories.projectUrl` | `https://github.com/alissonsol/yurunadev-project` | URL of the project-under-test repo. Polled alongside `repositories.frameworkUrl` during a failure-pause, so a fix pushed to the project also breaks out of the 1-hour wait. Empty value disables the project clone (in-tree `project/` is used instead). |
@@ -40,8 +40,8 @@ under `vmStart`, `vmImage`, `vmCommunication`, `repositories`, and
 
 At cycle start the runner overlays `test.config.yml.template` to pick up
 any newly added keys. If the on-disk `test.config.yml` no longer matches
-the nested node layout above — for example a checkout still using the flat
-layout — the runner does **not** silently migrate it. Instead it:
+the nested node layout above -- for example a checkout still using the flat
+layout -- the runner does **not** silently migrate it. Instead it:
 
 1. Copies the current file to `test.config.yml.backup`.
 2. Resets `test.config.yml` to the template defaults.
@@ -73,7 +73,7 @@ event code (`cycle.failure`, `config.smoke`).
     - `transports.resend.apiKey`
     - `transports.resend.fromEmail`
     - `subscribers["cycle.failure"][].address` (one entry per recipient)
-    - `subscribers["config.smoke"]` — leave empty unless you want
+    - `subscribers["config.smoke"]` -- leave empty unless you want
       `Test-Config.ps1` smoke runs to deliver mail.
 5. Run `pwsh test/Test-Config.ps1` to validate the config and dispatch a
    `config.smoke` event end-to-end. The file is gitignored.
@@ -128,7 +128,7 @@ manifest, not created on the fly.
 Sequence steps fetch live values via the inline `${ext:area.Method(args)}`
 substitution form, e.g. `${ext:authentication.GetPassword(${username})}` and
 `${ext:authentication.NewRandomPassword()}`. Each `${ext:...}` is invoked
-fresh on every reference — no caching. To pin a generated value across
+fresh on every reference -- no caching. To pin a generated value across
 multiple steps (e.g. `New password:` and the matching `Retype:`), assign
 the call to a variable in the sequence's `variables:` block:
 
@@ -154,12 +154,12 @@ entire dependency chain. Example:
   - `workload.guest.ubuntu.server.26.k8s.website.yml` declares
     `username: webuser`. As the cycle's top-level, it wins.
   - The planner injects `webuser` as the effective username across
-    the entire chain (`start.*` → `workload.*` → workload-website).
+    the entire chain (`start.*` -> `workload.*` -> workload-website).
   - Cloud-init creates a local OS account named `webuser`, **not**
     `yuuser26`. Every `${username}` substitution in every sequence
     of the chain renders as `webuser`. The baseline `start.*.yml`
     keeps its `username: yuuser26` line as the stand-alone-invocation
-    default (used only by `Invoke-TestSequence.ps1` runs outside a
+    default (used only by `Debug-TestSequence.ps1` runs outside a
     workload context).
 
 The cascade applies to **any** key declared under `variables:` (not
@@ -173,7 +173,7 @@ Entra / SSSD-against-LDAP / ...) via
 template at `test/extension/authentication/users.yml.template` ships
 pre-seeded with the four bundled logical users (`yuuser24`,
 `yuuser26`, `yauser1`, `ywuser1`) plus the service-VM admin accounts,
-all with empty corporate fields → out of the box, behavior is the
+all with empty corporate fields -> out of the box, behavior is the
 local-only flow (`${loginUser}` = `${username}`, vault auto-generates
 passwords).
 
@@ -197,15 +197,15 @@ webuser:
 
 Inside sequences, use:
 
-  - `${username}` — logical/local-OS user name (cascade-resolved).
+  - `${username}` -- logical/local-OS user name (cascade-resolved).
     Use this for shell-side references (`/home/${username}`, `whoami`).
-  - `${loginUser}` — rendered corporate identity from `users.yml`
+  - `${loginUser}` -- rendered corporate identity from `users.yml`
     (`CORP\alisson.sol` or `user@upn.domain`); falls back to
     `${username}` when no corporate mapping is set. Use this for
     interactive login prompts.
-  - `${ext:authentication.GetPassword(${username})}` — password for
+  - `${ext:authentication.GetPassword(${username})}` -- password for
     the sequence-login prompt. Routed through `users.yml`'s `vaultKey`.
-  - `${ext:authentication.GetLocalOsPassword(${username})}` — password
+  - `${ext:authentication.GetLocalOsPassword(${username})}` -- password
     for the local OS account at cloud-init time. Routed through
     `users.yml`'s `localOsPasswordRef`.
 
@@ -213,7 +213,7 @@ Inside sequences, use:
 sets it false. Every logical username referenced by an active sequence
 MUST be declared, and every populated `vaultKey` MUST exist in
 `vault.yml` -- `Test-Config.ps1`
-blocks the cycle on the first violation, and `Invoke-TestRunner.ps1`
+blocks the cycle on the first violation, and `Start-TestRunner.ps1`
 runs `Test-Config.ps1` automatically as a pre-cycle gate (bypass with
 `-NoConfigGate` for ad-hoc / in-progress edit runs).
 Side-effecting commits (e.g. `authentication.SetPassword`) use the
@@ -221,15 +221,15 @@ Side-effecting commits (e.g. `authentication.SetPassword`) use the
 
 ## Developing test sequences
 
-[`Invoke-TestSequence.ps1`](Invoke-TestSequence.ps1) runs a single
+[`Debug-TestSequence.ps1`](Debug-TestSequence.ps1) runs a single
 sequence without downloading images or recreating a VM:
 
 ```
-pwsh test/Invoke-TestSequence.ps1 -SequenceName "workload.guest.ubuntu.server.24"
-pwsh test/Invoke-TestSequence.ps1 -SequenceName "workload.guest.ubuntu.server.24" -StartStep 5
-pwsh test/Invoke-TestSequence.ps1 -SequenceName "workload.guest.ubuntu.server.24" -StartStep 3 -StopStep 7
-pwsh test/Invoke-TestSequence.ps1 -SequenceName "workload.guest.ubuntu.server.24" -VMName "private-ubuntu"
-pwsh test/Invoke-TestSequence.ps1 ..\project\example\text-to-sql\test\workload.guest.ubuntu.server.24.k8s.text-to-sql.baseline.yml
+pwsh test/Debug-TestSequence.ps1 -SequenceName "workload.guest.ubuntu.server.24"
+pwsh test/Debug-TestSequence.ps1 -SequenceName "workload.guest.ubuntu.server.24" -StartStep 5
+pwsh test/Debug-TestSequence.ps1 -SequenceName "workload.guest.ubuntu.server.24" -StartStep 3 -StopStep 7
+pwsh test/Debug-TestSequence.ps1 -SequenceName "workload.guest.ubuntu.server.24" -VMName "private-ubuntu"
+pwsh test/Debug-TestSequence.ps1 ..\project\example\text-to-sql\test\workload.guest.ubuntu.server.24.k8s.text-to-sql.baseline.yml
 ```
 
 `-SequenceName` accepts either a **name** (no folder, no `.yml`; the
@@ -241,10 +241,10 @@ is mounted as a sibling working tree, not cloned under
 still walk the prerequisite chain. Sequences are flat and
 self-describing: each declares its own `keystrokeMechanism`, and an SSH
 variant is a distinct `<name>.ssh` sequence -- no gui/ssh fallback.
-Missing sequence → listing from `test/sequences/` and the project test
+Missing sequence -> listing from `test/sequences/` and the project test
 tree.
 When the path form points to a generic `.yml` and a
-`<name>.<hostShort>.yml` sibling exists, Invoke-TestSequence warns -- the
+`<name>.<hostShort>.yml` sibling exists, Debug-TestSequence warns -- the
 runner would have picked the variant on this host, so the path form is
 hiding a tier the runner sees.
 
@@ -254,7 +254,7 @@ auto-resolve to the existing `guest.ubuntu.server.24` folder. Pass
 `-GuestKey` to override the walk.
 
 So that a sequence behaves the same once wired into the runner,
-Invoke-TestSequence mirrors the runner-side resolutions:
+Debug-TestSequence mirrors the runner-side resolutions:
 
 * **Resource chain walk** -- the same `Resolve-CyclePlan` logic the runner
   uses. When a sequence's `resource:` field declares prereqs, every
@@ -264,7 +264,7 @@ Invoke-TestSequence mirrors the runner-side resolutions:
   the first step of the deepest prereq -- not the named sequence's
   step 1. Prereqs resolve via the standard search (framework
   `test/sequences/` and project `<RepoRoot>/project/...`).
-* `Test-Config.ps1` runs as a pre-cycle gate (same as Invoke-TestRunner).
+* `Test-Config.ps1` runs as a pre-cycle gate (same as Start-TestRunner).
   Pass `-NoConfigGate` to skip while iterating on test.config.yml,
   vault.yml, or users.yml edits.
 * The chain's `effectiveUsername` (cascaded top-down from the named
@@ -280,8 +280,8 @@ Invoke-TestSequence mirrors the runner-side resolutions:
   failure, publishing the winner into the env var (same precedence the
   runner uses).
 * `control.cycle-restart` is consumed at startup so leftover state from a
-  Ctrl-C'd runner can't make a clean Invoke-TestSequence run look broken.
-* `-ShowSensitive` is OFF by default (matches Invoke-TestRunner's masked
+  Ctrl-C'd runner can't make a clean Debug-TestSequence run look broken.
+* `-ShowSensitive` is OFF by default (matches Start-TestRunner's masked
   output). Add the switch when local debugging needs cleartext.
 
 The script prints a numbered step list with run markers, grouped under
@@ -330,6 +330,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../README.md)

@@ -12,9 +12,9 @@ import (
 	"stash-service/internal/config"
 )
 
-// TestSidecarRoundTrip writes a sidecar for a committed record, then —
-// against a FRESH (empty) index, simulating a reimaged VM — rebuilds from
-// the on-share sidecars and confirms the record comes back intact (§8.5).
+// TestSidecarRoundTrip writes a sidecar for a committed record, then --
+// against a FRESH (empty) index, simulating a reimaged VM -- rebuilds from
+// the on-share sidecars and confirms the record comes back intact (section 8.5).
 func TestSidecarRoundTrip(t *testing.T) {
 	share := t.TempDir()
 	dayDir := filepath.Join(share, "files", "2026", "06", "14")

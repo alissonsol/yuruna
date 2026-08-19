@@ -3,8 +3,8 @@
 > Common setup pattern: see [Guest Image Setup](../../../docs/guest-image-setup.md).
 > This file documents only what's HOST/GUEST-specific.
 
-Minimal commands. Walk-through: [Windows 11 guest on Windows Hyper-V host — Nerd-Level Details](read.more.md). Cross-host
-concepts: [Hosts — ...](../../README.md).
+Minimal commands. Walk-through: [Windows 11 guest on Windows Hyper-V host -- Nerd-Level Details](read.more.md). Cross-host
+concepts: [Hosts -- ...](../../README.md).
 
 ## One-time
 
@@ -47,7 +47,7 @@ Restart-Computer
 
 [Windows 11 workloads](../../../guest/windows.11/README.md)
 
-Read more: [Windows 11 guest on Windows Hyper-V host — Nerd-Level Details](read.more.md).
+Read more: [Windows 11 guest on Windows Hyper-V host -- Nerd-Level Details](read.more.md).
 
 ---
 
@@ -55,6 +55,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../../../README.md)

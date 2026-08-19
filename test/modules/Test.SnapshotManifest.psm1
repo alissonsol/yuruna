@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42cd8b7a-e6f5-4a23-9081-3b4c5d6e7fa6
+.VERSION 2026.08.19
+.GUID 421a4d8a-ef0d-4f12-ab3c-235c0e8c3732
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna snapshot manifest sidecar

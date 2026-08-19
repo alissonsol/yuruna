@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 4260f181-a3d7-4772-b069-c453a1938b2a
+.VERSION 2026.08.19
+.GUID 42a887fd-7c8d-47f1-9a01-ca5c0ab67d4a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test provenance pester
@@ -36,8 +36,7 @@ BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.Provenance.psm1') -Force -DisableNameChecking
 
-function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # Only the PATH is computed at file scope; the directory itself is created in
 # BeforeAll and removed in AfterAll. A standalone run executes this file body

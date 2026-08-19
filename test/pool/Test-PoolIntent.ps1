@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42d7e8f9-a0b1-4c23-8d45-7e8f9a0b1234
+.VERSION 2026.08.19
+.GUID 421a5b0c-c7c1-4612-9a9e-d61b0c836775
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna pool admin validation ci-gate
@@ -99,7 +99,7 @@ if (Test-Path -LiteralPath $poolsPath) {
         if ($dupes -eq 0) { Write-Information 'PASS  member-uniqueness: no host is in more than one pool.' -InformationAction Continue }
         else { $failures += $dupes }
 
-        # The auto-enrolment target pool must carry NO test-set. This is the
+        # The auto-enrollment target pool must carry NO test-set. This is the
         # AUTHORITATIVE check: the CLI refuses and the UI disables, but only
         # this one catches a hand-edited file or a store written by an older
         # release. It is a cross-field constraint (a pool named by ANOTHER
@@ -114,7 +114,7 @@ if (Test-Path -LiteralPath $poolsPath) {
                 if ($p -isnot [System.Collections.IDictionary]) { continue }
                 if ([string]$p['poolId'] -ne $targetPoolId) { continue }
                 if ($p['testSet']) {
-                    Write-Warning "FAIL  target-pool-no-testset: '$targetPoolId' is the auto-enrolment target pool and must not carry a testSet (it would repoint every auto-enrolled host). Remove it, or point autoEnrollment.targetPoolId at a different pool."
+                    Write-Warning "FAIL  target-pool-no-testset: '$targetPoolId' is the auto-enrollment target pool and must not carry a testSet (it would repoint every auto-enrolled host). Remove it, or point autoEnrollment.targetPoolId at a different pool."
                     $violations++
                 }
             }

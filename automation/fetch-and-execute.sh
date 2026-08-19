@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.16
+# Version: 2026.08.19
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 
@@ -63,10 +63,14 @@ resolve_fetch_source() {
         >&2 echo "!! GUEST HAS NO IPv4"
         >&2 echo "!!   state:   no global IPv4 address on any interface"
         >&2 echo "!!   meaning: nothing is reachable from here -- neither the host nor"
-        >&2 echo "!!            GitHub -- so the host is not what is broken."
-        >&2 echo "!!   cause:   host-side: the virtual switch this vNIC attaches to has"
-        >&2 echo "!!            no live uplink, the vNIC is disconnected, or no DHCP"
-        >&2 echo "!!            lease was granted. See the NETWORK DIAGNOSTIC below."
+        >&2 echo "!!            GitHub -- so neither of those is implicated by this"
+        >&2 echo "!!            failure."
+        >&2 echo "!!   cause:   could be either side, and only the diagnostic can say"
+        >&2 echo "!!            which. A link held down from inside this guest is a"
+        >&2 echo "!!            guest-side fault no host can cause; no carrier, or a"
+        >&2 echo "!!            carrier with no lease, is host- or LAN-side. Read the"
+        >&2 echo "!!            verdict in the NETWORK DIAGNOSTIC below before"
+        >&2 echo "!!            attributing this to the host."
         >&2 echo ""
         FETCH_SOURCE='github'
         return
@@ -103,7 +107,14 @@ resolve_fetch_source() {
     fi
     if [ -n "${YURUNA_STATUS_SERVICE_IP:-}" ] && [ -n "${YURUNA_STATUS_SERVICE_PORT:-}" ]; then
         # --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-host-environment-variables
-        if wget -q --no-proxy --timeout=2 -O /dev/null \
+        # Two attempts, not one. This probe decides between the only source
+        # that can serve a private framework repository and one that then
+        # cannot serve it at all, and the caller may have reached here on an
+        # address that arrived seconds ago -- with bridge learning and ARP
+        # still settling, a single 2s exchange is thin evidence for a verdict
+        # that cannot be revisited. The cost is bounded and paid only on the
+        # path that is already failing.
+        if wget -q --no-proxy --timeout=2 --tries=2 -O /dev/null \
             "http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/livecheck" 2>/dev/null; then
             FETCH_SOURCE='host'
             HOST_BASE="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/yuruna-repo/"
@@ -306,12 +317,73 @@ clear
 echo "About to download and run project code: $FILE_PATH"
 
 # --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-failure-modes
-# Resolve the base URL once (host status service, else the GitHub fallback) and
-# do a single fetch. A failed fetch on a bridged guest is most often the guest
-# having no IPv4 DHCP lease -- DHCP pool exhaustion, which retrying cannot fix --
-# so on failure run network_diag (sourced from yuruna-network.sh) to surface the
-# connectivity state and flag the exhaustion case, instead of re-probing in a
-# loop. resolve_fetch_source prefers the fast --no-proxy host path when reachable.
+# Hold an address BEFORE choosing a source, then resolve once and fetch.
+#
+# Source resolution probes the host status service, and a guest holding no
+# IPv4 fails that probe for a reason that says nothing about the host: the
+# probe could not have succeeded whether the host was up or down. Resolving
+# in that state does not pick a fallback, it discards the host route on
+# evidence that was never gathered -- and where the framework repository is
+# private, the GitHub leg it lands on can only answer 404, so a lease that
+# arrives moments later cannot rescue the fetch no matter how long anything
+# waits afterwards. Waiting first is what makes the resolution below mean
+# what it says: 'github' then describes a host that was asked and did not
+# answer, which is a fact worth acting on.
+#
+# Free on the normal path: a guest that already holds a lease answers
+# yuruna_has_ipv4 immediately and never enters the wait. A late lease is
+# still waited for exactly once -- the budget is shared with the post-fetch
+# second chance below, so the two cannot each spend the full allowance and
+# double this guest's worst-case boot.
+#
+# Every other failure runs network_diag (from the same library) to surface
+# the connectivity state rather than re-probing in a loop. Whether a lease is
+# late or refused is not decidable from inside the guest, so the wait is
+# bounded and its outcome is reported either way.
+if [ -r /usr/local/lib/yuruna/yuruna-network.sh ]; then
+    # shellcheck disable=SC1091
+    . /usr/local/lib/yuruna/yuruna-network.sh
+fi
+
+# Seconds this run may still spend waiting for an address, across both call
+# sites. Reaching 0 makes the second call return immediately rather than
+# waiting the allowance a second time.
+fae_ipv4_budget="${YURUNA_FETCH_IPV4_WAIT:-180}"
+
+# 0 = this guest holds an IPv4 (already, or one arrived within the budget);
+# 1 = it does not, because the budget is spent or the network library is
+# absent (a guest imaged before it existed keeps the pre-existing behavior).
+#
+# The nudge partway through exists because waiting alone only rescues the
+# lease that is merely late: a client stuck in lost-DISCOVER backoff, or a
+# NIC that no profile claimed, waits forever, and both answer to
+# yuruna_net_repair_ipv4 (reload + reconfigure, never taking a link down).
+# Nudging partway leaves the client's own early retransmits undisturbed,
+# then spends what is left on the fresh transaction the repair started.
+fae_await_ipv4() {
+    command -v yuruna_wait_ipv4 >/dev/null 2>&1 || return 1
+    yuruna_has_ipv4 && return 0
+    [ "$fae_ipv4_budget" -gt 0 ] || return 1
+    local budget="$fae_ipv4_budget" nudge_at=60 start="$SECONDS" spent rc=1
+    [ "$nudge_at" -gt "$budget" ] && nudge_at="$budget"
+    echo "  no IPv4 address yet -- waiting up to ${budget}s for a lease before giving up"
+    if yuruna_wait_ipv4 "$nudge_at"; then
+        rc=0
+    elif [ "$budget" -gt "$nudge_at" ]; then
+        if command -v yuruna_net_repair_ipv4 >/dev/null 2>&1; then
+            echo "  no lease after ${nudge_at}s -- re-kicking address acquisition before waiting out the rest"
+            yuruna_net_repair_ipv4
+        fi
+        yuruna_wait_ipv4 "$((budget - nudge_at))" && rc=0
+    fi
+    spent=$((SECONDS - start))
+    fae_ipv4_budget=$((fae_ipv4_budget - spent))
+    [ "$fae_ipv4_budget" -lt 0 ] && fae_ipv4_budget=0
+    [ "$rc" -eq 0 ] || echo "  still no IPv4 after ${spent}s -- the wait is exhausted, not skipped"
+    return "$rc"
+}
+
+fae_await_ipv4
 resolve_fetch_source
 # Two-valued for the log line and the perf-checkpoint POST below: 'host' means a
 # reachable status service that can receive the POST, so an https:// EXEC_BASE_URL
@@ -384,6 +456,39 @@ byte_count=$(wc -c < "$fetch_tmp" 2>/dev/null | tr -d '[:space:]')
 echo "  url: $FULL_URL"
 echo "  source: $BASE_SOURCE"
 
+# --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-failure-modes
+# Second chance for the one failure shape a second chance can fix: this guest
+# lost the address it had. The boot that STARTS without one is already handled
+# before source resolution above, which is the only place that repair is worth
+# anything -- a lease acquired after the source was chosen cannot undo a host
+# route discarded for the want of it.
+#
+# wget rc 4/5/7 mean the request never left the guest. With no IPv4 route that
+# verdict is reached in milliseconds, so --tries=2 buys nothing -- both attempts
+# fail before the DHCP client has even finished its first backoff. A guest whose
+# lease simply has not landed is therefore indistinguishable, at this instant,
+# from one that will never get an address, and failing here turns the recoverable
+# case into a failed cycle.
+#
+# Gated on there being no IPv4 at all, so a guest that HAS an address and still
+# cannot fetch falls straight through to the diagnosis below: that fault is not
+# a lease and waiting on one would only delay the report. fae_await_ipv4 draws
+# on the budget the pre-resolution wait already spent from, so a guest that has
+# waited its allowance reports the exhaustion it already printed instead of
+# waiting the whole allowance a second time.
+if { [ "$wget_rc" -ne 0 ] || [ "$byte_count" -eq 0 ]; } \
+   && { [ "$wget_rc" -eq 4 ] || [ "$wget_rc" -eq 5 ] || [ "$wget_rc" -eq 7 ]; }; then
+    if command -v yuruna_has_ipv4 >/dev/null 2>&1 && ! yuruna_has_ipv4; then
+        if fae_await_ipv4; then
+            echo "  retrying the fetch now that this guest holds an address"
+            wget --timeout=20 --tries=2 "${WGET_FETCH_FLAGS[@]}" -qO "$fetch_tmp" "$FULL_URL"
+            wget_rc=$?
+            byte_count=$(wc -c < "$fetch_tmp" 2>/dev/null | tr -d '[:space:]')
+            [ -z "$byte_count" ] && byte_count=0
+        fi
+    fi
+fi
+
 if [ "$wget_rc" -ne 0 ] || [ "$byte_count" -eq 0 ]; then
     rm -f "$fetch_tmp" 2>/dev/null || true
     echo ""
@@ -429,8 +534,10 @@ if [ "$wget_rc" -ne 0 ] || [ "$byte_count" -eq 0 ]; then
         esac
     fi
     echo ""
-    # Diagnose rather than retry: show whether the guest even holds an IPv4
-    # address (the DHCP-pool-exhaustion case) before giving up.
+    # Diagnose before giving up: show the connectivity state this failure was
+    # reached in. Anything a wait could have fixed was already waited on above,
+    # so reaching here means the address never arrived or the fault was never
+    # about an address.
     if [ -r /usr/local/lib/yuruna/yuruna-network.sh ]; then
         # shellcheck disable=SC1091
         . /usr/local/lib/yuruna/yuruna-network.sh
@@ -499,6 +606,22 @@ if [ ! -r "$YURUNA_RETRY_LIB" ]; then
 fi
 # shellcheck disable=SC1090
 [ -r "$YURUNA_RETRY_LIB" ] && . "$YURUNA_RETRY_LIB"
+
+# --- REGION: https://yuruna.link/network#caching-proxy-service-ca-cert-rc60-gate
+# Re-anchor the ssl-bump CA before handing control to the payload. The guest's
+# copy of that CA is only as current as the cache that minted it, and a cache
+# rebuilt from a blank disk between two steps of the same run mints a fresh one:
+# every step that already passed stays passed, and the next bumped HTTPS fails
+# certificate verification. Checking here rather than inside any one script is
+# what makes the repair survive that boundary -- a run resumed mid-way re-enters
+# through this file and nowhere else, so a script's own first HTTPS is never the
+# thing that discovers a trust anchor that went stale while it was not looking.
+# Non-fatal by contract: a guest with no bump in front of it is a hard no-op,
+# and a repair that cannot complete leaves the payload to fail with its own
+# diagnosis rather than being pre-empted by a less specific one here.
+if command -v yuruna_ca_selfheal >/dev/null 2>&1; then
+    yuruna_ca_selfheal || true
+fi
 
 # --- REGION: https://yuruna.link/memory#why-fetch-and-execute-tees-into-a-well-known-per-run-log
 fae_log='/tmp/yuruna-last-fetch-and-execute.log'

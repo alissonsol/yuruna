@@ -37,21 +37,17 @@
   <main>
     <h1>Scan a network for Yuruna hosts</h1>
     <p class="muted">
-      Every address in the network is asked whether it is running a Yuruna host status service.
-      The ones that answer are added to the hosts this service monitors &mdash; whether or not they
-      belong to a pool, and whether or not they ever registered with the aggregator.
+      Asks every address in the network for a Yuruna host status service and adds the ones
+      that answer to the monitored hosts &mdash; pooled or not, enrolled or not.
       Scanning changes nothing on the hosts themselves.
     </p>
 
     <h2>Which network? (CIDR notation)</h2>
     <p class="muted">
-      A network is written as an address and a prefix length: <code>192.168.7.0/24</code>.
-      The prefix length is how many leading bits the addresses share, so <code>/24</code> fixes the
-      first three numbers and scans the last one &mdash; <code>192.168.7.1</code> through
-      <code>192.168.7.254</code>, the 254 machines on that subnet. A smaller number covers more
-      addresses (<code>/23</code> is two subnets, <code>/16</code> is 65,536 addresses); a larger one
-      covers fewer (<code>/32</code> is a single machine). Entering an address inside the network is
-      fine &mdash; <code>192.168.7.34/24</code> means the same subnet as <code>192.168.7.0/24</code>.
+      <code>192.168.7.0/24</code> scans <code>192.168.7.1</code> through <code>192.168.7.254</code>;
+      a smaller prefix number covers more addresses (<code>/16</code> is 65,536), a larger one fewer
+      (<code>/32</code> is one machine). An address inside the network means the same subnet:
+      <code>192.168.7.34/24</code> equals <code>192.168.7.0/24</code>.
     </p>
 
     <div id="notice" class="notice"></div>
@@ -99,8 +95,8 @@
     </table>
   </main>
   <footer id="footer-bar">
-    <span id="footer-ips"><span class="label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-label="Server IP addresses">—</textarea></span>
-    <span>Loaded: <span id="last-loaded">—</span><span id="footer-busy" aria-hidden="true" hidden></span></span>
+    <span id="footer-ips"><span class="label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-label="Server IP addresses">--</textarea></span>
+    <span>Loaded: <span id="last-loaded">--</span><span id="footer-busy" aria-hidden="true" hidden></span></span>
     <span><a id="footer-refresh" href="#">Refresh</a>: <span id="countdown">60</span>s</span>
   </footer>
   <script src="/assets/common.js"></script>

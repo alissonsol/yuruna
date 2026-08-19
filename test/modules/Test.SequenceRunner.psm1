@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42f2c5e4-b9a0-4367-cd15-4e6f9b3c2d51
+.VERSION 2026.08.19
+.GUID 42876323-908f-424a-bc58-2069b325aa64
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
@@ -16,7 +16,7 @@
 
 #requires -version 7
 
-# Chain planning + chain execution helpers for Invoke-TestSequence.ps1; each
+# Chain planning + chain execution helpers for Debug-TestSequence.ps1; each
 # function's inputs and return shape are in its own .SYNOPSIS block below.
 # Every input arrives by parameter (no script-scope reads) so a test harness
 # can call these with fixture data. The host-driver-resolved $VMName and
@@ -25,7 +25,7 @@
 function Resolve-TestSequencePlan {
     <#
     .SYNOPSIS
-        Build the chain plan + entries for Invoke-TestSequence and detect a
+        Build the chain plan + entries for Debug-TestSequence and detect a
         warm-path requiresSnapshot.
     .DESCRIPTION
         Walks the named sequence's baseline chain via
@@ -260,7 +260,7 @@ function Save-ChainFailureArtifact {
         the failing script's own output -- is gathered by
         Copy-FailureArtifactsToStatusLog, which the runner's inner loop calls from
         its own failure paths. A chain run under the orchestrator or straight from
-        Invoke-TestSequence reaches none of those paths, so it calls this and a
+        Debug-TestSequence reaches none of those paths, so it calls this and a
         failed sequence stops being a screenshot with no story behind it.
 
         Soft by contract, like the capture it wraps: an unreachable guest, an
@@ -392,14 +392,14 @@ function Invoke-TestSequenceChain {
         # slices internally (Select-SequenceStepWindow), so there is no temp YAML
         # to write or sweep, and the perf row + SSH-variant resolution see the
         # real sequence path instead of a random temp name. -ShowSensitive
-        # defaults OFF to match Invoke-TestRunner's masking; the operator opts in
+        # defaults OFF to match Start-TestRunner's masking; the operator opts in
         # for cleartext during local debugging.
         $ok = Invoke-Sequence -HostType $HostType -GuestKey $GuestKey -VMName $VMName -SequencePath $entry.path -EffectiveVariables $ChainPlan.effectiveVariables -ShowSensitive:$ShowSensitive -StartStep $localStart -StopStep $localEnd
         if ($ok -ne $true) {
             Write-Warning "Sequence failed: $($entry.name)"
             Write-Information "" -InformationAction Continue
             Write-Information "To reproduce with full diagnostics:" -InformationAction Continue
-            Write-Information "  pwsh test/Invoke-TestSequence.ps1 -SequenceName `"$SequenceName`" -StartStep $sliceStart -logLevel Debug" -InformationAction Continue
+            Write-Information "  pwsh test/Debug-TestSequence.ps1 -SequenceName `"$SequenceName`" -StartStep $sliceStart -logLevel Debug" -InformationAction Continue
             return @{ ok = $false; finishedVmName = $VMName }
         }
 

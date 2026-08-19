@@ -35,7 +35,7 @@
   function cardEl(c) {
     const kids = [
       Y.el('h2', { text: c.displayName }),
-      Y.el('p', { class: 'hosts', text: c.hostsTotal + (c.hostsTotal === 1 ? ' host' : ' hosts') + ' · ' + c.hostsReporting + ' reporting' }),
+      Y.el('p', { class: 'hosts', text: c.hostsTotal + (c.hostsTotal === 1 ? ' host' : ' hosts') + ' - ' + c.hostsReporting + ' reporting' }),
       Y.el('div', { class: 'hero ' + heroClass(c.successPct) }, [
         Y.el('span', { class: 'pct', text: fmtPct(c.successPct) }),
         Y.el('span', { class: 'lbl', text: 'success' })
@@ -51,13 +51,13 @@
     if (c.testSet) {
       assigned.appendChild(Y.el('strong', { text: c.testSetLabel || c.testSet }));
     } else {
-      assigned.appendChild(Y.el('span', { class: 'none', text: 'the hosts’ own projects' }));
+      assigned.appendChild(Y.el('span', { class: 'none', text: 'the hosts\' own projects' }));
     }
     kids.push(assigned);
 
     if (c.assignAllowed) {
       const sel = Y.el('select', { 'aria-label': 'Test set for ' + c.displayName });
-      sel.appendChild(Y.el('option', { value: '', text: 'Change test set…' }));
+      sel.appendChild(Y.el('option', { value: '', text: 'Change test set...' }));
       for (const o of state.offers) {
         const opt = Y.el('option', { value: o.name, text: offerLabel(o) });
         if (o.name === c.testSet) opt.selected = true;
@@ -95,7 +95,7 @@
   // The failure mode is a mis-tap, so name the blast radius before writing.
   function askConfirm(card, offer, selectEl) {
     pending = { card: card, offer: offer, selectEl: selectEl };
-    $('confirm-title').textContent = 'Assign “' + offerLabel(offer) + '” to ' + card.displayName + '?';
+    $('confirm-title').textContent = 'Assign "' + offerLabel(offer) + '" to ' + card.displayName + '?';
     const n = card.hostsTotal;
     $('confirm-body').textContent =
       n + (n === 1 ? ' host will switch to ' : ' hosts will switch to ') +
@@ -165,7 +165,7 @@
       // The empty-state line is an ANSWER ("no pools yet"), so it must not sit
       // under the indicator claiming one before the read has landed.
       $('empty').hidden = true;
-      done = Y.busy($('cards'), 'Loading pools…');
+      done = Y.busy($('cards'), 'Loading pools...');
     }
     chrome.busy(true);
     try {

@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a1b2c3-d4e5-4f67-8901-bc012345677a
+.VERSION 2026.08.19
+.GUID 423c7308-8393-45aa-a74f-97c52bf1c3df
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
@@ -636,11 +636,11 @@ function Get-CyclePlanSequencesForGuest {
 
 <#
 .SYNOPSIS
-    Walks the baseline chain of a single named sequence (Invoke-TestSequence helper).
+    Walks the baseline chain of a single named sequence (Debug-TestSequence helper).
 .DESCRIPTION
     Resolve-CyclePlan keys off project/test/test.runner.yml, which the
-    runner consumes but Invoke-TestSequence does not. This sibling takes a top-
-    level sequence NAME directly (the same name an Invoke-TestSequence operator
+    runner consumes but Debug-TestSequence does not. This sibling takes a top-
+    level sequence NAME directly (the same name a Debug-TestSequence operator
     types) and produces the same per-entry shape Resolve-CyclePlan would
     have emitted for that sequence:
       topLevel / guestKey / fullChain / startSequences / workloadSequences
@@ -653,10 +653,10 @@ function Get-CyclePlanSequencesForGuest {
 
     -OsKey is optional; absent, the first key of the sequence's own
     `baseline:` map is used. Pass it explicitly when a sequence supports
-    more than one OS and the caller wants a specific one (Invoke-TestSequence
+    more than one OS and the caller wants a specific one (Debug-TestSequence
     derives it from the resolved GuestKey, stripping the "guest." prefix).
 
-    -TopLevelPath is the path-override escape hatch for Invoke-TestSequence dev
+    -TopLevelPath is the path-override escape hatch for Debug-TestSequence dev
     setups where the project repo is NOT cloned under <RepoRoot>/project/
     (e.g. yuruna-project as a sibling working tree). When provided, the
     walker uses that path verbatim for the top-level sequence -- but still
@@ -676,7 +676,7 @@ function Resolve-NamedSequenceChain {
         [string]$OsKey,
         [string]$TopLevelPath
     )
-    # Top-level: prefer the explicit override (Invoke-TestSequence path-form),
+    # Top-level: prefer the explicit override (Debug-TestSequence path-form),
     # fall back to Resolve-SequencePath for the name form.
     $topPath = if ($TopLevelPath) { $TopLevelPath } else {
         Resolve-SequencePath -SequencesDir $SequencesDir -Name $SequenceName -HostType $HostType -RepoRoot $RepoRoot

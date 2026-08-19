@@ -35,7 +35,7 @@ To execute PowerShell scripts in Windows, verify [execution policy](https://lear
   gh auth login
   ```
 
-Pick `GitHub.com` → `HTTPS` → browser (recommended) or a Personal Access
+Pick `GitHub.com` -> `HTTPS` -> browser (recommended) or a Personal Access
 Token with at minimum the `repo` scope. The token `gh` stores is the same
 one accepted by `raw.githubusercontent.com` for private repo reads.
 
@@ -43,7 +43,7 @@ one accepted by `raw.githubusercontent.com` for private repo reads.
 
 Likely the best path for command-line use and environments like Linux.
 
-- Go to GitHub → Settings → Developer Settings → Personal Access Tokens → Tokens (classic).
+- Go to GitHub -> Settings -> Developer Settings -> Personal Access Tokens -> Tokens (classic).
 - Generate a token with repo, workflow, and read:org scopes.
 - Linux environment
   - Edit `~/.bashrc` to add this line:
@@ -138,29 +138,29 @@ No assistance is provided for migrating changes made in the public repositories 
 #### `repositories.ghToken` — reading a private framework/project repo
 
 Leave `ghToken: ""` if both `frameworkUrl` and `projectUrl` are public. You
-need it only when a guest has to read a **private** repo — either to clone
+need it only when a guest has to read a **private** repo -- either to clone
 the framework/project, or to fetch its update script from GitHub when the host
 status service is unreachable.
 
 **Use a read-only, fine-grained token scoped to exactly those two repositories.**
 This token is copied onto every test VM and served by the status service on
 `/control/test-config`, so anything that can reach the host on port 8080 can read
-it. Its blast radius should be "read these two repos", nothing more — the guests
+it. Its blast radius should be "read these two repos", nothing more -- the guests
 only ever pull.
 
-- GitHub → *Settings* → *Developer settings* → *Personal access tokens* →
-  **Fine-grained tokens** → *Generate new token*.
+- GitHub -> *Settings* -> *Developer settings* -> *Personal access tokens* ->
+  **Fine-grained tokens** -> *Generate new token*.
 - **Resource owner:** the account that owns both repos (e.g. `alissonsol`).
-- **Repository access:** *Only select repositories* → select **both**
+- **Repository access:** *Only select repositories* -> select **both**
   `yurunadev` **and** `yurunadev-project`.
-- **Permissions** → *Repository permissions* → **Contents: Read-only**. That is
+- **Permissions** -> *Repository permissions* -> **Contents: Read-only**. That is
   the only one needed: it covers `git clone` / `fetch` / `pull` over HTTPS *and*
   the Contents API the GitHub fallback reads. (*Metadata: Read-only* is added
-  automatically and cannot be removed.) Grant nothing else — no write, no
+  automatically and cannot be removed.) Grant nothing else -- no write, no
   `workflow`, no org permissions.
 - Set an **expiration** and rotate it. Re-issuing is a one-line config edit.
 
-The result looks like `github_pat_…`:
+The result looks like `github_pat_...`:
 
 ```
  repositories:
@@ -174,7 +174,7 @@ Two constraints before you generate one:
 - **A fine-grained token covers a single resource owner.** It works here because
   `frameworkUrl` and `projectUrl` live under the same account. If they ever move
   to different owners or orgs, no single fine-grained token can pull from both,
-  and `repositories.ghToken` holds only one — you would need the repos under a
+  and `repositories.ghToken` holds only one -- you would need the repos under a
   common owner, or a GitHub App.
 - **A classic PAT is a poor fit.** Its smallest useful scope, `repo`, is
   read-**write** and reaches *every* repository the account can see. On a
@@ -182,7 +182,7 @@ Two constraints before you generate one:
   radius than this job needs. Prefer fine-grained; use classic only if you must.
 
 The token never travels over the VM console (the host screenshots and OCRs that
-into the published run log) — guests receive it on the cloud-init seed. It also
+into the published run log) -- guests receive it on the cloud-init seed. It also
 stays out of `~/.gitconfig`, out of remote URLs, and out of the process list.
 `test/test.config.yml` is gitignored, so the real value is never committed; only
 the empty `ghToken: ""` in the template is.
@@ -207,7 +207,7 @@ the empty `ghToken: ""` in the template is.
    `transports.resend.apiKey`, `transports.resend.fromEmail`, plus the
    `subscribers["cycle.failure"]` list.
     - See
-   [Test Runner — Nerd-Level Details](test/read.more.md) for the full notification
+   [Test Runner -- Nerd-Level Details](test/read.more.md) for the full notification
    setup. Test-user credentials are managed by the
    `test/extension/authentication/` extension (the live vault.yml is at
    `test/status/extension/authentication/vault.yml`, gitignored;
@@ -219,21 +219,21 @@ the empty `ghToken: ""` in the template is.
 
 ### 5. **Running Tests**
 
-  - If not using a local caching-proxy service, set the address of that server —
+  - If not using a local caching-proxy service, set the address of that server --
     durably via `vmStart.cachingProxyIp` in `test/test.config.yml` (probed
     first at cycle start), or for the session only via the fallback env var
     (consulted only when the config key is empty or unreachable):
     ```
     $env:YURUNA_CACHING_PROXY_SERVICE_IP = 'x.y.z.a'
     ```
-  
+
   - Test your configuration, address the errors, and understand the warnings.
     - Test just the caching-proxy service: `test/Test-CachingProxyService.ps1`
     - Check the configuration: `test/Test-Config.ps1`
 
 #### **Ensuring local changes are used in tests**
 
-  - If the projectUrl points to an external site (like `GitHub.com`), the "status service interceptor" doesn't serve its local commits. Why? You can clone that remote repository into multiple local folders — which one would hold the code you want "intercepted"?
+  - If the projectUrl points to an external site (like `GitHub.com`), the "status service interceptor" doesn't serve its local commits. Why? You can clone that remote repository into multiple local folders -- which one would hold the code you want "intercepted"?
     - Solutions:
       - Serve the folder you want as a git repository using the git daemon.
         ```
@@ -264,13 +264,13 @@ the empty `ghToken: ""` in the template is.
   - For unattended tests, see the [Test Runner](docs/runner-outer-loop.md) documentation.
 
 ### 7. **Debug a specific step**
-  - `Invoke-TestSequence.ps1` re-runs a
+  - `Debug-TestSequence.ps1` re-runs a
    single sequence from (or stopping at) a chosen step without VM
    re-creation:
 
      ```
-     test/Invoke-TestSequence.ps1 -SequenceName "start.guest.ubuntu.server.24" -StartStep 5
-     test/Invoke-TestSequence.ps1 -SequenceName "start.guest.ubuntu.server.24" -StartStep 3 -StopStep 7
+     test/Debug-TestSequence.ps1 -SequenceName "start.guest.ubuntu.server.24" -StartStep 5
+     test/Debug-TestSequence.ps1 -SequenceName "start.guest.ubuntu.server.24" -StartStep 3 -StopStep 7
      ```
 
    The script lists all steps with markers showing which will execute
@@ -284,35 +284,35 @@ workarounds collected during development live in [Yuruna Workarounds](docs/worka
 
 ## Guidelines
 
-- **PowerShell** — run [PSScriptAnalyzer](https://github.com/PowerShell/PSScriptAnalyzer)
+- **PowerShell** -- run [PSScriptAnalyzer](https://github.com/PowerShell/PSScriptAnalyzer)
   via `pwsh tools/Invoke-Lint.ps1`. It scans git-tracked (and new, non-ignored)
   files only, so generated/runtime trees that are not source and not the merge
-  gate — the per-cycle clone (`project/`), the runtime dir
+  gate -- the per-cycle clone (`project/`), the runtime dir
   (`test/status/runtime/`, incl. the generated `.status-service.ps1`), pool
-  build outputs — are excluded without a hand-maintained list. (Bare
+  build outputs -- are excluded without a hand-maintained list. (Bare
   `Invoke-ScriptAnalyzer -Path . -Recurse` ignores `.gitignore` and floods the
   output with those pre-existing, non-gate findings on a tree where the harness
   has run.) The repo ships a `PSScriptAnalyzerSettings.psd1` that PSSA
   auto-discovers; it does not filter by severity, so findings of every severity
-  must be zero before merge — including Information-level results (missing
+  must be zero before merge -- including Information-level results (missing
   comment help, undeclared output types, positional-parameter calls) and
   `PSUseBOMForUnicodeEncodedFile`. Resolve a genuine false positive with a
   scoped `[Diagnostics.CodeAnalysis.SuppressMessageAttribute(... ,
   Justification = '...')]` carrying a one-line reason, not a blanket exclusion.
-- **Commit hook** — a repo-tracked `tools/githooks/pre-commit` runs the
+- **Commit hook** -- a repo-tracked `tools/githooks/pre-commit` runs the
   ASCII/no-BOM gate (`tools/Test-AsciiNoBom.ps1`) and blocks a commit that
   would put a BOM or non-ASCII byte into a byte-parsed bootstrap script
   (`irm|iex` / `curl|bash`) or first-run guest script. The install scripts
   activate it automatically via `.gitconfig.yuruna`; on a clone set up by
   hand, enable it once with
-  `git config --local core.hooksPath tools/githooks`. It is advisory —
+  `git config --local core.hooksPath tools/githooks`. It is advisory --
   skipped when `pwsh` is absent and bypassable with
-  `git commit --no-verify` — so the release script must run the same gate as
+  `git commit --no-verify` -- so the release script must run the same gate as
   a hard precondition (the authoritative check for the published artifact).
-- **Resources** — keep OpenTofu files simple; minimize variables.
-- **Components** — reusable components are best explained in an
+- **Resources** -- keep OpenTofu files simple; minimize variables.
+- **Components** -- reusable components are best explained in an
   end-to-end example.
-- **Workloads** — examples should demonstrate resource + component
+- **Workloads** -- examples should demonstrate resource + component
   wiring and work on at least `localhost` and one cloud provider.
 
 ## Testing changes from a branch
@@ -323,9 +323,9 @@ workarounds collected during development live in [Yuruna Workarounds](docs/worka
 
 **Testing workload scripts** (self-contained):
 
-  - Option A — clone on the guest,
+  - Option A -- clone on the guest,
 `git checkout your-branch`, run the script directly.
-  - Option B — push
+  - Option B -- push
 the branch and use `EXEC_BASE_URL` with `fetch-and-execute.sh`:
     ```
     EXEC_BASE_URL="https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/your-branch-name/" \
@@ -333,7 +333,7 @@ the branch and use `EXEC_BASE_URL` with `fetch-and-execute.sh`:
     ```
 
 **Cloud-init user-data**: URLs are baked into the seed ISO at
-`New-VM.ps1` time from the local checkout — the `YURUNA_GITHUB_REPO` /
+`New-VM.ps1` time from the local checkout -- the `YURUNA_GITHUB_REPO` /
 `YURUNA_GITHUB_REF` placeholders in `host/vmconfig/<guest>.base.user-data`
 resolve to the framework repo and its HEAD commit, so committed branch
 changes are served automatically. The exception is
@@ -361,6 +361,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](README.md)

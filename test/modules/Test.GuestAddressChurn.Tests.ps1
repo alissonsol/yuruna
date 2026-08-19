@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42c9d1b7-5e34-4a86-9f02-6b1d7c8e4a55
+.VERSION 2026.08.19
+.GUID 42089573-8998-4e24-a068-6a573905dd7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test dhcp address churn readiness pester
@@ -41,11 +41,7 @@ BeforeAll {
     Import-Module (Join-Path $repo 'host/modules/Yuruna.HostProvision.psm1') -Force -DisableNameChecking
     Import-Module (Join-Path $repo 'test/modules/Test.VMUtility.psm1') -Force -DisableNameChecking
 
-    function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
-    function Assert-Equal {
-        param($Expected, $Actual, [string]$Because = '')
-        if ("$Expected" -ne "$Actual") { throw "Expected '$Expected' but got '$Actual'. $Because" }
-    }
+    Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
     # A resolver that hands back a scripted sequence, one answer per call, then
     # repeats the last one forever. That is the shape of the real fault: several
@@ -70,7 +66,7 @@ Describe 'Invoke-WaitVmIp settle window' {
         # client identities before the guest keeps an address.
         $r = Get-SequenceResolver -Answer @('192.168.64.13', '192.168.64.14', '192.168.64.15')
         $got = Invoke-WaitVmIp -VMName 'guest' -TimeoutSeconds 30 -PollSeconds 1 -StableForSeconds 3 -ResolveVmIp $r.Script
-        Assert-Equal -Expected '192.168.64.15' -Actual $got -Because 'the first answer is the one the guest abandons; the settle window exists to outlast that.'
+        Assert-StringEqual -Expected '192.168.64.15' -Actual $got -Because 'the first answer is the one the guest abandons; the settle window exists to outlast that.'
     }
 
     It 'returns promptly when the address never moves' {
@@ -78,7 +74,7 @@ Describe 'Invoke-WaitVmIp settle window' {
         $start = Get-Date
         $got = Invoke-WaitVmIp -VMName 'guest' -TimeoutSeconds 30 -PollSeconds 1 -StableForSeconds 2 -ResolveVmIp $r.Script
         $elapsed = ((Get-Date) - $start).TotalSeconds
-        Assert-Equal -Expected '10.0.0.5' -Actual $got
+        Assert-StringEqual -Expected '10.0.0.5' -Actual $got
         Assert-True ($elapsed -lt 10) 'a stable address must cost one settle window, not the whole timeout.'
     }
 
@@ -88,14 +84,14 @@ Describe 'Invoke-WaitVmIp settle window' {
         # replace a good address with nothing.
         $r = Get-SequenceResolver -Answer @('10.0.0.5', '', '', '10.0.0.5')
         $got = Invoke-WaitVmIp -VMName 'guest' -TimeoutSeconds 30 -PollSeconds 1 -StableForSeconds 3 -ResolveVmIp $r.Script
-        Assert-Equal -Expected '10.0.0.5' -Actual $got
+        Assert-StringEqual -Expected '10.0.0.5' -Actual $got
     }
 
     It 'honours StableForSeconds 0 as the first-answer behaviour' {
         $r = Get-SequenceResolver -Answer @('10.0.0.5', '10.0.0.9')
         $got = Invoke-WaitVmIp -VMName 'guest' -TimeoutSeconds 30 -PollSeconds 1 -StableForSeconds 0 -ResolveVmIp $r.Script
-        Assert-Equal -Expected '10.0.0.5' -Actual $got -Because 'a caller that re-resolves on its own must be able to waive the wait.'
-        Assert-Equal -Expected 1 -Actual $r.State.Calls -Because 'waiving the window must not cost extra resolver calls.'
+        Assert-StringEqual -Expected '10.0.0.5' -Actual $got -Because 'a caller that re-resolves on its own must be able to waive the wait.'
+        Assert-StringEqual -Expected 1 -Actual $r.State.Calls -Because 'waiving the window must not cost extra resolver calls.'
     }
 
     It 'still returns nothing when no address ever appears' {
@@ -152,7 +148,7 @@ Describe 'Wait progress line' {
             Write-YurunaWaitProgress -Message 'changed text' -Mode lines -RedirectedEverySeconds 300 6>&1 |
                 ForEach-Object { $emitted.Add("$_") }
         } finally { $InformationPreference = $saved }
-        Assert-Equal -Expected 2 -Actual $emitted.Count -Because 'the repeat is suppressed; only a CHANGE earns a new line.'
+        Assert-StringEqual -Expected 2 -Actual $emitted.Count -Because 'the repeat is suppressed; only a CHANGE earns a new line.'
         Assert-True ($emitted[0] -match 'same text')
         Assert-True ($emitted[1] -match 'changed text')
     }
@@ -181,10 +177,10 @@ Describe 'Wait-YurunaServiceVmEndpoint follows a moving guest' {
             -OnAddressChanged { param($a) $moved.Add($a) }
 
         Assert-True $result.Ready 'the daemon answers at the address the guest moved to.'
-        Assert-Equal -Expected '192.168.64.15' -Actual $result.Address
-        Assert-Equal -Expected 1 -Actual $result.AddressChanges
+        Assert-StringEqual -Expected '192.168.64.15' -Actual $result.Address
+        Assert-StringEqual -Expected 1 -Actual $result.AddressChanges
         Assert-True (-not $probed.Contains('192.168.64.13')) 'the stale address must never be probed once a newer one resolves.'
-        Assert-Equal -Expected '192.168.64.15' -Actual ($moved -join ',') -Because 'the caller must be told, so it can re-point a forwarder still dialing the old address.'
+        Assert-StringEqual -Expected '192.168.64.15' -Actual ($moved -join ',') -Because 'the caller must be told, so it can re-point a forwarder still dialing the old address.'
     }
 
     It 'reports Unreachable (not merely not-ready) when the daemon is up but the host cannot reach it' {
@@ -230,7 +226,7 @@ Describe 'Wait-YurunaServiceVmEndpoint follows a moving guest' {
 
         Assert-True $result.Ready 'following SSH to the live address is what makes the probe succeed.'
         Assert-True (-not $result.Unreachable) 'a stale probe target must never be reported as an unreachable service.'
-        Assert-Equal -Expected '192.168.64.15' -Actual $result.Address
+        Assert-StringEqual -Expected '192.168.64.15' -Actual $result.Address
     }
 
     It 'extends the budget while cloud-init reports the guest is still building' {
@@ -248,8 +244,8 @@ Describe 'Wait-YurunaServiceVmEndpoint follows a moving guest' {
         Assert-True ($result.WaitedSeconds -gt 4) 'the wait must actually outlast the original budget.'
         Assert-True ($result.WaitedSeconds -le 20) 'and must still stop at the cap rather than running forever.'
         Assert-True $result.StillBuilding 'hitting the cap while building is its own verdict, not a failure.'
-        Assert-Equal -Expected 'running' -Actual $result.CloudInitStatus
-        Assert-Equal -Expected 'Setting up golang-1.26-go' -Actual $result.LastProgress -Because 'the last build step is what makes a long wait legible.'
+        Assert-StringEqual -Expected 'running' -Actual $result.CloudInitStatus
+        Assert-StringEqual -Expected 'Setting up golang-1.26-go' -Actual $result.LastProgress -Because 'the last build step is what makes a long wait legible.'
     }
 
     It 'does NOT extend once cloud-init is done -- a missing daemon is then a real failure' {
@@ -260,7 +256,7 @@ Describe 'Wait-YurunaServiceVmEndpoint follows a moving guest' {
             -TestPortOpen { $false } `
             -InvokeInGuest { @{ success = $true; exitCode = 0; output = "YURUNA_NOT_LISTENING`nYURUNA_CLOUDINIT=done`nYURUNA_PROGRESS=Cloud-init finished" } }
 
-        Assert-Equal -Expected 0 -Actual $result.ExtendedSeconds -Because 'the build is over; waiting longer cannot help and would only hide the fault.'
+        Assert-StringEqual -Expected 0 -Actual $result.ExtendedSeconds -Because 'the build is over; waiting longer cannot help and would only hide the fault.'
         Assert-True (-not $result.StillBuilding)
         Assert-True ($result.WaitedSeconds -le 10) 'it must stop at the original budget.'
     }

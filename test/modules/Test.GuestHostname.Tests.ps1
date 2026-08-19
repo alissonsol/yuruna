@@ -1,6 +1,6 @@
 <#PSScriptInfo
 .VERSION 2026.07.20
-.GUID 42c43484-d985-4134-91ec-2781371292b3
+.GUID 42904e1e-c247-4036-a38b-fb377e975d26
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test guest hostname cloud-init contract pester
@@ -43,7 +43,7 @@ BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = Split-Path -Parent (Split-Path -Parent $here)
 
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # Guest scripts in scope: those that actually template a hostname. The Its that
 # iterate them are fed by the file-scope case list below; this run-phase copy
@@ -170,5 +170,32 @@ Describe 'guest-hostname -- ${hostname} resolves in every sequence, pinned or no
         $src = Get-Content -Raw -LiteralPath $path
         Assert-True ($src -notmatch [regex]::Escape('${username}@${vmName}')) `
             "$name matches the prompt on the VM name; a pinned hostname in ANY sequence of its chain makes that assertion time out"
+    }
+}
+
+Describe 'agetty nudge ordering -- the redraw precedes the wait it unblocks' {
+
+    # agetty prints "login:" once and never reprints it. Console writes that
+    # land afterwards (cloud-init's closing banner, subiquity's tail) scroll the
+    # prompt away, and the screen then stops changing -- so an OCR wait for
+    # "login:" can only spend its entire budget against a frozen frame. The
+    # recovery is a keypress, and it only works if it happens BEFORE the wait.
+    #
+    # Placed after the wait it is unreachable, because a retry block restarts at
+    # its first step: every attempt re-enters the wait that cannot pass and no
+    # attempt ever reaches the nudge. That shape cost three full waits per guest
+    # on several hosts before it was found, and it is invisible in a passing run
+    # because the ordering only matters once the prompt has been overwritten.
+    It 'puts the redraw keypress before the login wait in <name>' -TestCases $seqCase {
+        param($name, $path)
+        $src = Get-Content -Raw -LiteralPath $path
+        # Only sequences that carry BOTH a redraw nudge and a login wait are in
+        # scope; the rest have nothing to order.
+        $nudge = [regex]::Match($src, '(?m)^\s*-\s*action:\s*pressKey\s*$.*?redraw a fresh login', 'Singleline')
+        $wait  = [regex]::Match($src, '(?m)^\s*-\s*action:\s*waitForText\s*$\s*\n\s*pattern:\s*"login:"')
+        if (-not ($nudge.Success -and $wait.Success)) { return }
+        Assert-True ($nudge.Index -lt $wait.Index) `
+            ("$name waits for 'login:' before nudging agetty; a prompt already scrolled away can never appear, " +
+             'and a retry restarts at the wait so the nudge below it is unreachable')
     }
 }

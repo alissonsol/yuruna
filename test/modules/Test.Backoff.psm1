@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42f3e8d7-c6b5-4a32-9087-1d2e3f4a5b67
+.VERSION 2026.08.19
+.GUID 42f8c915-1577-4dd3-8cb2-c71d9cbe26ce
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna backoff retry poll

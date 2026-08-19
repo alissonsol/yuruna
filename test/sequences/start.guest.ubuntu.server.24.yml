@@ -26,6 +26,29 @@ component:
     maxAttempts: 3
     description: "Login, password rotation, and vault commit (restart on timeout)"
     steps:
+      # The nudge comes BEFORE the wait, and that ordering is the whole point.
+      # agetty prints "login:" once and does not reprint it; the installer's
+      # closing console writes land after it and scroll it away. The prompt is
+      # then gone from a screen that never changes again, so an OCR wait for it
+      # can only spend its budget -- 1800 s per attempt here, three attempts, an
+      # hour and a half to reach a foregone conclusion. An ordering that waited
+      # first and nudged second would put the recovery downstream of the very
+      # step it exists to unblock, and since a retry attempt restarts at this
+      # step, no attempt would ever reach it.
+      #
+      # Enter is safe to send unconditionally: at a prompt it draws a fresh one,
+      # and mid-boot it is discarded. The autoinstall prompt is already answered
+      # by the waitForAndEnter ahead of this block, so nothing here can consume
+      # it. Every retry attempt issues the nudge, so a prompt overwritten during
+      # one attempt is recovered by the next.
+      - action: pressKey
+        name: Enter
+        description: "Push agetty to redraw a fresh login"
+
+      - action: waitForSeconds
+        seconds: 2
+        description: "Let agetty redraw"
+
       - action: waitForText
         pattern: "login:"
         timeoutSeconds: 1800
@@ -38,14 +61,6 @@ component:
           - "Press enter to start a shell"
           - "An error occurred"
         description: "OCR: login:"
-
-      - action: pressKey
-        name: Enter
-        description: "Push agetty to redraw a fresh login"
-
-      - action: waitForSeconds
-        seconds: 2
-        description: "Let agetty redraw"
 
       - action: passwdPrompt
         pattern: "login:"

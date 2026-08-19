@@ -13,9 +13,9 @@ import (
 
 // handleHostInfo returns the lightweight host facts the shared UI chrome
 // renders: this host's id, the daemon version, and the server's own LAN IP
-// addresses. It is page-agnostic on purpose — every page of this service drives
+// addresses. It is page-agnostic on purpose -- every page of this service drives
 // the same header and footer module (assets/common.js initChrome) from this one
-// endpoint, so the chrome needs no page-specific data shape — and it is
+// endpoint, so the chrome needs no page-specific data shape -- and it is
 // intentionally cheap so the footer's periodic poll stays trivial.
 //
 // goBaseUrl rides along because the tables turn every host id into a link to
@@ -46,7 +46,7 @@ func (s *Server) handleHostInfo(w http.ResponseWriter, _ *http.Request) {
 // presence beacon, the lab-token and control-proof checks, the pool read) should
 // use it. A browser must not. Those redirects land on a host's plain-http status
 // page, so the https hop protects nothing the next hop does not already carry in
-// clear — while putting a proxy-CA interstitial in front of every host link,
+// clear -- while putting a proxy-CA interstitial in front of every host link,
 // because an operator's browser has no reason to trust that CA. The aggregator
 // answers both protocols on the same port, so downgrading here costs nothing.
 // Same rule the Grafana dashboard's links follow, where cloud-init substitutes a
@@ -77,7 +77,7 @@ func goBaseURL(configured string) string {
 // and de-duplicated. The two-line shape mirrors the status pages' footer (whose
 // ipaddresses.txt carries one address family per line, so the IP textarea
 // renders at most two rows). Link-local addresses (169.254/16, fe80::/10) are
-// dropped as noise — they are never how a peer reaches the daemon. Returns ""
+// dropped as noise -- they are never how a peer reaches the daemon. Returns ""
 // when no usable address is found, so the footer shows its em-dash placeholder.
 // Best-effort: an enumeration error yields "".
 func serverIPLines() string {

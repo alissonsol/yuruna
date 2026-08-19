@@ -16,7 +16,7 @@ const testHostID = "42512149deadbeef"
 
 // TestHostInfo covers the chrome's host-facts endpoint: ok=true, the local
 // hostId, the daemon version, and a serverIps STRING (newline-separated lines,
-// possibly empty in a sandboxed CI with no non-loopback interface — the contract
+// possibly empty in a sandboxed CI with no non-loopback interface -- the contract
 // is the shape, not a specific address).
 func TestHostInfo(t *testing.T) {
 	srv := httptest.NewServer(New(&fakeIntent{}, Options{Version: "test", HostID: testHostID}).Handler())
@@ -100,7 +100,7 @@ func TestGoBaseURL(t *testing.T) {
 
 // TestEveryPageServesChrome verifies that every page of this service carries the
 // shared header and footer markup, and that the module driving it ships in
-// common.js — i.e. the chrome is wired end-to-end on all of them, not just on
+// common.js -- i.e. the chrome is wired end-to-end on all of them, not just on
 // whichever page it was added to first.
 func TestEveryPageServesChrome(t *testing.T) {
 	srv := httptest.NewServer(New(&fakeIntent{}, Options{Version: "test"}).Handler())

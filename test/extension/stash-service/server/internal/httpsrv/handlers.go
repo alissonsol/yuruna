@@ -28,7 +28,7 @@ import (
 
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
-	// JSON API (§9).
+	// JSON API (section 9).
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 	mux.HandleFunc("GET /api/stashes", s.handleList)
 	mux.HandleFunc("POST /api/stashes", s.handleCreate)
@@ -47,14 +47,14 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/unlock-proof", s.handleUnlockProof)
 	mux.HandleFunc("DELETE /api/stashes/{hostId}/{year}/{month}/{day}/{id}", s.gate.Require(s.handleDelete))
 	mux.HandleFunc("POST /api/stashes/delete", s.gate.Require(s.handleDeleteBatch))
-	// Local short-alias routes (§4.4): the hostId wildcard is omitted and
+	// Local short-alias routes (section 4.4): the hostId wildcard is omitted and
 	// defaults to this host in parsePathKey, so /s/<y>/<m>/<d>/<id> works.
 	mux.HandleFunc("GET /api/stashes/{year}/{month}/{day}/{id}", s.handleGetMeta)
 	mux.HandleFunc("GET /api/stashes/{year}/{month}/{day}/{id}/archive", s.handleArchive)
 	mux.HandleFunc("DELETE /api/stashes/{year}/{month}/{day}/{id}", s.gate.Require(s.handleDelete))
 	mux.HandleFunc("GET /raw/{year}/{month}/{day}/{id}", s.handleRaw)
 	mux.HandleFunc("GET /download/{year}/{month}/{day}/{id}", s.handleDownload)
-	// Static pages + assets (§2.3).
+	// Static pages + assets (section 2.3).
 	mux.HandleFunc("GET /assets/", s.handleAsset)
 	mux.HandleFunc("GET /new", s.servePage("new.html"))
 	mux.HandleFunc("GET /s/", s.servePage("stash.html"))
@@ -63,7 +63,7 @@ func (s *Server) routes() http.Handler {
 	// canonical /s/<hostId>/<y>/<m>/<d>/<id>. The bare /{id} is a single-
 	// segment wildcard; the literal routes above (/new, /healthz, /assets/,
 	// /s/, /{$}) are more specific and still win, and a non-id segment just
-	// 404s — so this is the catch-all of last resort.
+	// 404s -- so this is the catch-all of last resort.
 	mux.HandleFunc("GET /v/{id}", s.handleShortRedirect)
 	mux.HandleFunc("GET /{id}", s.handleShortRedirect)
 	return mux
@@ -142,7 +142,7 @@ func (s *Server) parsePathKey(r *http.Request) (pathKey, bool) {
 // BODY (the bulk delete) passes exactly the checks one named in the URL does.
 // A second, laxer parser for the batch route is how a traversal gets in.
 func (s *Server) newPathKey(hostID, yS, mS, dS, id string) (pathKey, bool) {
-	// The short-alias routes (/s/<y>/<m>/<d>/<id>, §4.4) omit the hostId
+	// The short-alias routes (/s/<y>/<m>/<d>/<id>, section 4.4) omit the hostId
 	// wildcard; default it to this host, so the alias resolves to a local
 	// stash exactly like the canonical full permalink.
 	if hostID == "" {
@@ -227,7 +227,7 @@ func (s *Server) resolve(k pathKey) (*resolved, bool, error) {
 }
 
 // findArtifact returns the artifact file for id in dir (the file named id,
-// or id.<ext>, or id.yuruna.archive.zip) — excluding the sidecar and any
+// or id.<ext>, or id.yuruna.archive.zip) -- excluding the sidecar and any
 // leftover staging dir. Empty when none is found.
 func findArtifact(dir, id string) string {
 	entries, err := os.ReadDir(dir)
@@ -251,10 +251,10 @@ func findArtifact(dir, id string) string {
 }
 
 // effectiveResult returns the record's stored detection, classifying
-// on-the-fly when a record predates the §10 type fields. For a LOCALLY
+// on-the-fly when a record predates the section 10 type fields. For a LOCALLY
 // owned record it backfills (persists) the result; for a REMOTE record it
-// only computes (never writes another host's storage — the §8.1 ownership
-// boundary, honored by the on-the-fly detection in §10).
+// only computes (never writes another host's storage -- the section 8.1 ownership
+// boundary, honored by the on-the-fly detection in section 10).
 func (s *Server) effectiveResult(r *resolved) detect.Result {
 	rec := r.rec
 	if rec.ContentClass != "" {
@@ -268,7 +268,7 @@ func (s *Server) effectiveResult(r *resolved) detect.Result {
 	}
 	res := s.detector().DetectFile(r.artifact, rec.OriginalFilename)
 	if r.hostID == s.localHostID && rec.Status == meta.StatusComplete {
-		// Backfill our own record + rewrite the sidecar (§10).
+		// Backfill our own record + rewrite the sidecar (section 10).
 		if err := s.meta().UpdateType(rec.ID, res.MimeType, res.ContentClass, res.IsText, res.TypeLabel, res.TypeScore); err == nil {
 			if fresh, gerr := s.meta().Get(rec.ID); gerr == nil && !fresh.LocallyBuffered {
 				_ = meta.WriteSidecar(fresh)
@@ -382,7 +382,7 @@ func (s *Server) handleGetMeta(w http.ResponseWriter, r *http.Request) {
 	eff := s.effectiveResult(res)
 	view := s.viewFromRecord(res.rec, res.hostID)
 	view.MimeType, view.ContentClass, view.IsText, view.TypeLabel, view.TypeScore = eff.MimeType, eff.ContentClass, eff.IsText, eff.TypeLabel, eff.TypeScore
-	// Remote stash → resolve the owning host's UI deep-link (best-effort).
+	// Remote stash -> resolve the owning host's UI deep-link (best-effort).
 	if !view.Local {
 		if base := s.resolveStashBaseURL(r.Context(), res.hostID); base != "" {
 			view.RemoteStashURL = base + view.Permalink
@@ -432,7 +432,7 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) { s.serv
 // serveBytes streams an artifact. attachment=true forces a download
 // (Content-Disposition: attachment, octet-stream); attachment=false serves
 // inline for the UI's <img>/<embed>/<audio>/<video>/text fetch. Either way
-// the active-content safety rules (§7.4) apply: nosniff, a restrictive CSP,
+// the active-content safety rules (section 7.4) apply: nosniff, a restrictive CSP,
 // and text/plain for any non-(image|pdf|audio|video) type so a .html/.svg
 // stash can never execute when opened directly.
 func (s *Server) serveBytes(w http.ResponseWriter, r *http.Request, attachment bool) {
@@ -701,7 +701,7 @@ func (s *Server) servePage(name string) http.HandlerFunc {
 		// a stray injected link or attribute can't execute or exfiltrate
 		// (the artifact bytes have their own stricter CSP in serveBytes).
 		// img-src/media-src 'self' covers the inline /raw image+av viewers.
-		// script-src stays strict ('self', no unsafe-inline) — that is the
+		// script-src stays strict ('self', no unsafe-inline) -- that is the
 		// real XSS control. style-src allows 'unsafe-inline' only so the
 		// pages' few declarative style="display:none" attributes work;
 		// inline style is not an exploitable sink here.
@@ -777,7 +777,7 @@ func dirName(asc bool) string {
 // parseTimeBound parses a from/to filter value. A full RFC3339 timestamp is
 // used verbatim. A bare date "2006-01-02" is treated as a whole-day bound:
 // the lower bound is that day's 00:00:00, the upper bound is that day's
-// 23:59:59.999999999 — so `to=2026-06-16` includes the entire 16th rather
+// 23:59:59.999999999 -- so `to=2026-06-16` includes the entire 16th rather
 // than excluding everything after midnight. Both the SQL path (createdAt <=)
 // and the in-memory match (After) honor this identically.
 func parseTimeBound(s string, upper bool) time.Time {
@@ -839,7 +839,7 @@ func inlineContentType(res detect.Result) string {
 		// Honor the stored MIME only when it maps back to the SAME renderable
 		// class. A remote sidecar is peer-written, so a mismatch like
 		// {class:image, mime:text/html} must not yield an inline text/html
-		// response (§7.4); fall back to octet-stream in that case.
+		// response (section 7.4); fall back to octet-stream in that case.
 		if res.MimeType != "" && detect.ClassFromMime(res.MimeType) == res.ContentClass {
 			return res.MimeType
 		}
@@ -847,8 +847,8 @@ func inlineContentType(res detect.Result) string {
 	case config.ClassText:
 		return "text/plain; charset=utf-8"
 	default:
-		// other/archive served inline → text/plain so active content
-		// (html/svg) can never execute when opened directly (§7.4).
+		// other/archive served inline -> text/plain so active content
+		// (html/svg) can never execute when opened directly (section 7.4).
 		return "text/plain; charset=utf-8"
 	}
 }

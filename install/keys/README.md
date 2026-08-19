@@ -3,8 +3,8 @@
 This folder holds the **public** half of the Yuruna release signing key,
 in two encodings so a fresh host can verify a release with no extra tooling:
 
-- `yuruna-release-signing.pub.pem` — PEM, for `openssl` (macOS / Linux).
-- `yuruna-release-signing.pub.xml` — .NET `RSAKeyValue` XML, for Windows
+- `yuruna-release-signing.pub.pem` -- PEM, for `openssl` (macOS / Linux).
+- `yuruna-release-signing.pub.xml` -- .NET `RSAKeyValue` XML, for Windows
   PowerShell 5.1's `RSACryptoServiceProvider.FromXmlString` (the `irm | iex`
   bootstrap runs on .NET Framework 4.8, which lacks `RSA.ImportFromPem`).
 
@@ -55,6 +55,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../../README.md)

@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a1b2c3-d4e5-4f67-8901-bc0123456723
+.VERSION 2026.08.19
+.GUID 426aeda1-aa39-4af4-ab2d-2e9d00f2ca45
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
@@ -25,8 +25,8 @@
 # delivering an email on every outer relaunch / dev iteration would
 # flood the subscribers["config.smoke"] list.
 #
-# Centralizing the gate here keeps Invoke-TestRunner outer-startup,
-# Invoke-TestSequence, and Invoke-TestProject agreeing on the same gate semantics --
+# Centralizing the gate here keeps Start-TestRunner outer-startup,
+# Debug-TestSequence, and Invoke-TestProject agreeing on the same gate semantics --
 # a new gate parameter reaches every caller from one place instead of
 # drifting between near-identical copy-pastes.
 
@@ -44,7 +44,7 @@ function Invoke-ConfigGate {
         passed -NoConfigGate or similar bypass).
     .PARAMETER CallerName
         Short label used in the banner so the operator sees which entry
-        point owned the gate failure ('Invoke-TestRunner', 'Invoke-TestSequence',
+        point owned the gate failure ('Start-TestRunner', 'Debug-TestSequence',
         'Invoke-TestProject').
     .PARAMETER ExpectStorageConfigured
         Tells the gate that shared storage was supposed to have been configured

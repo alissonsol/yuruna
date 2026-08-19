@@ -18,7 +18,7 @@
   async function load(opts) {
     const quiet = !!(opts && opts.quiet);
     const tbody = document.getElementById('pool-rows');
-    const done = quiet ? function () { } : Y.busy(tbody, 'Loading pools…');
+    const done = quiet ? function () { } : Y.busy(tbody, 'Loading pools...');
     chrome.busy(true);
     try {
       await renderPools(tbody);

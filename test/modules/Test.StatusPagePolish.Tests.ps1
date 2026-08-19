@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42c3f5a8-0e61-4d92-b7a4-3f8c1d6e9b57
+.VERSION 2026.08.19
+.GUID 42ada5a7-c360-4c5f-80be-7d4773345016
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test status accessibility anchor pester
@@ -44,8 +44,7 @@ $repo    = Split-Path -Parent (Split-Path -Parent $here)
 $cssPath = Join-Path $repo 'test/status/yuruna.common.css'
 $script:defPath = Join-Path $repo 'docs/definition.md'
 
-function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 function Get-RelLuminance([string]$hex) {
     $hex = $hex.TrimStart('#')

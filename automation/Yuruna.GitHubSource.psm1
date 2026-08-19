@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42b7c1d9-3e5a-4f26-9c84-6d1f0a7b2e53
+.VERSION 2026.08.19
+.GUID 42e3bcc4-f80a-473e-9173-4d943fa7def8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna github fallback token

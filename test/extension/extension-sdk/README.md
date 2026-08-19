@@ -22,14 +22,20 @@ That is a deliberate answer to how these daemons are built. Each is its own Go
 module, compiled **inside its own VM** at bring-up from the framework checkout,
 and the bring-up copies only `<area>/server/` into a build directory before
 running `go build`. A module outside that directory is not there when the
-compiler looks for it. Committing the mirror also keeps every service
-independently buildable and testable from a plain checkout &mdash; the tests
-that ship with the SDK compile inside each service too, so a service whose
-mirror drifted fails its own `go test`.
+compiler looks for it.
 
-The copies are generated, never edited. Change a package here, re-run the sync
-script, commit both. `Test.ExtensionService.Tests.ps1` fails the suite if a
-mirror differs.
+Only the SOURCES are mirrored. `*_test.go` is excluded, because `go build`
+never compiles it &mdash; so `go test ./...` inside a service reports "no test
+files" for `internal/yex/...`, which is expected. The tests that cover this
+code are the canonical ones here, and what proves a service is running the same
+code is byte-identity to this directory, enforced by
+`tools/Sync-ExtensionSdk.ps1 -Verify` and by `Test.ExtensionService.Tests.ps1`.
+That check is strictly stronger than a mirrored test run: it fails on any
+difference, not only on one a test happens to assert.
+
+The mirrored directories are GENERATED, never edited, and the sync sweeps
+orphans &mdash; so a test file added there by hand would be deleted on the next
+run. Change a package here, re-run the sync script, commit both.
 
 Because no package imports a sibling, the mirrored files are identical to these
 ones regardless of the module path they land under: the only import paths that

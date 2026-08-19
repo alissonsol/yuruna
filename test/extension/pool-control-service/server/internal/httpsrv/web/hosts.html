@@ -40,20 +40,14 @@
   <main>
     <h1>Hosts</h1>
     <p class="muted">
-      Every host the aggregator knows. <strong>Control</strong> is the wire value:
-      <code>ready</code> holds this lab's token and its clock agrees;
-      <code>mismatch</code> holds a different token; <code>skew</code> is a clock problem;
-      <code>none</code> never enrolled. Only <code>ready</code> hosts are auto-enrolled.
+      Every host the aggregator knows. <strong>Control</strong>:
+      <code>ready</code> (this lab's token, clock agrees &mdash; only these auto-enroll),
+      <code>mismatch</code> (different token), <code>skew</code> (clock problem),
+      <code>none</code> (never enrolled).
       Choosing a pool <em>moves</em> the host &mdash; a host belongs to at most one.
-      <strong>Framework</strong> and <strong>Project</strong> name the two
-      repositories each host runs on, as the host itself reports them, and each
-      links to where that repository lives:
-      <code>No access</code> means it was configured with one it cannot read.
-      Any column header sorts the table, and the leading number counts the rows as
-      they are shown, so it stays 1&hellip;n whatever the order.
-      <strong>Hostname</strong> is the name the
-      host's own status page shows, and appears only once this browser is unlocked:
-      the pool's view of a host is hostname-free, and this page renders unattended too.
+      <strong>Framework</strong> and <strong>Project</strong> are the repos the host
+      reports, linked to their source; <code>No access</code> means it cannot read the
+      one configured. Hostnames appear once this browser is unlocked.
     </p>
     <div id="notice" class="notice"></div>
     <div class="row">
@@ -81,8 +75,8 @@
     </table>
   </main>
   <footer id="footer-bar">
-    <span id="footer-ips"><span class="label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-label="Server IP addresses">—</textarea></span>
-    <span>Loaded: <span id="last-loaded">—</span><span id="footer-busy" aria-hidden="true" hidden></span></span>
+    <span id="footer-ips"><span class="label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-label="Server IP addresses">--</textarea></span>
+    <span>Loaded: <span id="last-loaded">--</span><span id="footer-busy" aria-hidden="true" hidden></span></span>
     <span><a id="footer-refresh" href="#">Refresh</a>: <span id="countdown">60</span>s</span>
   </footer>
   <script src="/assets/common.js"></script>

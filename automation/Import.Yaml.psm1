@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42e8bceb-f7aa-4ae8-a633-1fc36173d278
+.VERSION 2026.08.19
+.GUID 42a7694d-69b5-445b-b086-f13404589e45
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS Import.Yaml

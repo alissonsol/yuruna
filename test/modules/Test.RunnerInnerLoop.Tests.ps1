@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42e2607c-3d4e-4f50-8a61-7c8d9e0f1a2b
+.VERSION 2026.08.19
+.GUID 422a68fe-a953-4858-a4d5-e3de9fbbbaf8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test runner inner-loop pester
@@ -61,14 +61,7 @@ Import-Module (Join-Path $here 'Test.Config.psm1')          -Force -DisableNameC
 Import-Module (Join-Path $here 'Test.HostDetection.psm1')   -Force -DisableNameChecking -Global
 try { Import-Module powershell-yaml -Force -ErrorAction Stop } catch { Write-Warning "powershell-yaml unavailable; YAML-dependent tests will fail." }
 
-function Assert-Equal {
-    param($Expected, $Actual, [string]$Because = '')
-    if ($Expected -ne $Actual) { throw "Expected [$Expected] but got [$Actual]. $Because" }
-}
-function Assert-True {
-    param($Condition, [string]$Because = '')
-    if (-not $Condition) { throw "Expected condition to be true. $Because" }
-}
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 function New-TempConfigFile {
     [CmdletBinding()]
     [OutputType([string])]
@@ -440,8 +433,9 @@ Describe 'Inner-cycle child-script import discipline' {
     # mis-scanned -- only real Import-Module calls are checked.
     It 'host-contract/driver -Force imports in the &-invoked cycle scripts use -Global' {
         $testRoot = Split-Path -Parent $here
-        foreach ($name in @('Remove-TestVMFiles.ps1', 'Start-StatusService.ps1')) {
-            $path = Join-Path $testRoot $name
+        foreach ($rel in @('Remove-TestVMFiles.ps1', 'service/Start-StatusService.ps1')) {
+            $path = Join-Path $testRoot $rel
+            $name = Split-Path -Leaf $rel
             Assert-True (Test-Path $path) "cycle script exists: $name"
             $ast = [System.Management.Automation.Language.Parser]::ParseFile($path, [ref]$null, [ref]$null)
             $imports = $ast.FindAll({ param($n)

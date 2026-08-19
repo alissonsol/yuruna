@@ -1,13 +1,13 @@
 # Test Modules
 
 Cross-host harness modules. Each is a `.psm1` imported by
-[`../Invoke-TestRunner.ps1`](../Invoke-TestRunner.ps1) (and ad-hoc by
-[`../Invoke-TestSequence.ps1`](../Invoke-TestSequence.ps1) for one-off
+[`../Start-TestRunner.ps1`](../Start-TestRunner.ps1) (and ad-hoc by
+[`../Debug-TestSequence.ps1`](../Debug-TestSequence.ps1) for one-off
 sequence runs). Module list and per-module purpose:
-[Test harness — architecture](../../docs/test-harness.md#module-responsibilities).
+[Test harness -- architecture](../../docs/test-harness.md#module-responsibilities).
 
-This folder also holds the two scripts the outer `Invoke-TestRunner.ps1`
-spawns per cycle —
+This folder also holds the two scripts the outer `Start-TestRunner.ps1`
+spawns per cycle --
 [`Invoke-TestCycleRunner.ps1`](Invoke-TestCycleRunner.ps1) (the per-cycle
 child, launched in a fresh `pwsh` so an edit to cycle logic takes effect
 without restarting the runner) and
@@ -18,16 +18,43 @@ defensive single-instance guard inside the inner warns and exits if it
 detects an outer already running.
 
 Scripts under here take their `$TestRoot` from
-`Initialize-YurunaEntryPoint -InsideSubfolder`, which walks one level up —
+`Initialize-YurunaEntryPoint -InsideSubfolder`, which walks one level up --
 the same switch used by every script in the sibling `service/`, `pool/`
 and `check/` folders.
+
+## The Pester suites
+
+Most files here are `*.Tests.ps1`, and they are **not** part of a test cycle --
+nothing in the cycle path references them. Run them beside the harness:
+
+```
+pwsh -NoProfile -File ../../tools/Invoke-TestSuite.ps1
+pwsh -NoProfile -File ../../tools/Invoke-TestSuite.ps1 -Filter 'Test.Pool*'
+```
+
+Two rules apply to every suite here, both enforced by
+[`Test.SuiteHelperAdoption.Tests.ps1`](Test.SuiteHelperAdoption.Tests.ps1):
+
+- **Fixtures live in a `BeforeAll`**, never at file scope. A file-scope
+  assignment works under `pwsh -File` and binds as empty under
+  `Invoke-Pester -Path`, so the suite passes one way and fails the other.
+- **No local `Assert-*`.** Import
+  [`Test.Assert.psm1`](Test.Assert.psm1) instead. `Assert-Equal` compares by
+  value; use `Assert-StringEqual` when comparing string renderings.
+
+`suite-baseline.json` records the suite set and each suite's test count. The
+runner fails when a suite disappears or its count drops -- the two ways coverage
+leaks without anything turning red. Re-record it only deliberately.
+
+For the reasoning behind all of this, see
+[Test harness -- running the suites](../../docs/test-harness.md#running-the-suites).
 
 ## Sequence engine and cycle planner
 
 The cycle needs no per-guest `.ps1` extensions. The runner walks
 `project/test/test.runner.yml` to derive an ordered execution plan,
 and runs every sequence inline through
-[`Test.SequenceEngine.psm1`](Test.SequenceEngine.psm1) — the engine that
+[`Test.SequenceEngine.psm1`](Test.SequenceEngine.psm1) -- the engine that
 implements the YAML `actions` (keystrokes, OCR waits, SSH pushes,
 etc.). Action reference and per-host
 [Yuruna.Host](../../host) contract notes:
@@ -35,18 +62,18 @@ etc.). Action reference and per-host
 
 ### Where the work lives
 
-- **Runner definition** — `project/test/test.runner.yml`:
+- **Runner definition** -- `project/test/test.runner.yml`:
   top-level workload sequence names to drive each cycle.
-- **Per-sequence resource** — every sequence's `resource` field
+- **Per-sequence resource** -- every sequence's `resource` field
   declares which guest OSes it supports and which prerequisite
   sequences must complete first, keyed by OS:
   ```json
   "resource": { "ubuntu.server.24": ["start.guest.ubuntu.server.24"] }
   ```
   Walking these recursively produces the dependency-ordered chain.
-- **Sequence files** —
+- **Sequence files** --
   - Generic per-OS sequences live flat under
-    [`../sequences/`](../sequences/) — e.g.
+    [`../sequences/`](../sequences/) -- e.g.
     `start.guest.<os>.yml`, `workload.guest.<os>.yml`, with SSH variants
     as distinct `<name>.ssh.yml` files.
   - Project-specific sequences live with the project itself, under
@@ -62,7 +89,7 @@ etc.). Action reference and per-host
 | Function | Purpose |
 |---|---|
 | `Resolve-CyclePlan` | Reads `project/test/test.runner.yml` and walks each top-level sequence's baseline chain to produce ordered `(topLevel, guestKey, fullChain)` entries. |
-| `Get-CyclePlanGuestList` | Deduplicated guest list in plan order — used for pre-flight folder checks and image refresh. |
+| `Get-CyclePlanGuestList` | Deduplicated guest list in plan order -- used for pre-flight folder checks and image refresh. |
 | `Get-CyclePlanSequencesForGuest` | Merged `startSequences` / `workloadSequences` for a single guest across all matching plan entries (current runner contract: one VM lifecycle per unique guest). |
 
 Sequences whose name starts with `start.` route to the runner's
@@ -83,7 +110,7 @@ tree:
   `manifest.json`?** Use [`Test.Log.psm1`](Test.Log.psm1).
 - **Writing a one-shot `Test-*` check script that needs a PASS/FAIL
   tally + a 0/1 exit code at the end?** Use [`Test.Output.psm1`](Test.Output.psm1).
-- **None of the above?** Don't add a fourth logger — open an issue and
+- **None of the above?** Don't add a fourth logger -- open an issue and
   describe the gap. The three modules below cover the framework's
   documented logging contract; a new one almost certainly belongs as
   a function inside one of them.
@@ -126,6 +153,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../../README.md)

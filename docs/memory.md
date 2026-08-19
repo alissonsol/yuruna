@@ -1,12 +1,12 @@
 # Yuruna memory
 
 This file collects load-bearing rationale comments that used to live
-inline in the codebase. Long historical explanations — "this code is
-shaped this way because of incident X on date Y" — drift out of date
+inline in the codebase. Long historical explanations -- "this code is
+shaped this way because of incident X on date Y" -- drift out of date
 when scattered across files; one place is easier to update and
 cross-reference.
 
-Source files stay short — each large comment block collapses to a
+Source files stay short -- each large comment block collapses to a
 single line of the form:
 
 ```
@@ -29,10 +29,10 @@ Adding a new entry:
 1. Pick the source comment block.
 2. Add a `### Why <topic>?` heading here with the migrated content.
 3. Replace the source comment with a single
-   `# --- REGION: https://yuruna.link/memory#<slug>` line (or `// --- REGION: …`
+   `# --- REGION: https://yuruna.link/memory#<slug>` line (or `// --- REGION: ...`
    for Go, etc.).
 4. The yuruna.link `memory` key already redirects to this file on
-   GitHub — individual topics need no `yuruna.link.json` edit.
+   GitHub -- individual topics need no `yuruna.link.json` edit.
 
 ---
 
@@ -54,7 +54,7 @@ specific virt-install behavior:
   autoinstall config; `--cdrom` owns the install media slot and only
   takes one path.
 - **`--wait 0` is critical.** With `--cdrom`, virt-install blocks by
-  default until the install completes (~5–10 min). The test runner
+  default until the install completes (~5-10 min). The test runner
   expects `New-VM.ps1` to return promptly so the GUI sequence can pick
   up at "Continue with autoinstall?". `--wait 0` returns immediately
   after defining + starting the domain.
@@ -69,16 +69,16 @@ specific virt-install behavior:
   (no BIOS on virt machine type).
 - **The on_reboot dance.** virt-install's `--cdrom` install path is
   two-phase. Phase 1 bakes `<on_reboot>destroy</on_reboot>` into the
-  install XML — that's how virt-install detects "install reboot just
+  install XML -- that's how virt-install detects "install reboot just
   happened": libvirt destroys the domain on reboot, virt-install sees
   it gone, generates phase 2 XML (no install media,
   `on_reboot=restart`) and starts the domain again. The
   `--events on_reboot=restart` flag does NOT override
-  phase 1's hardcoded destroy; verified empirically — subiquity's
+  phase 1's hardcoded destroy; verified empirically -- subiquity's
   post-install reboot at ~105 s killed the domain and
   `virsh screenshot failed` looped forever. Letting virt-install do its
   own phase-2 transition requires `--wait > 0`, which blocks until the
-  install completes — equally intolerable for the test runner.
+  install completes -- equally intolerable for the test runner.
 - **Workaround.** Ask virt-install to print the phase-1 XML
   (`--print-xml=1`) instead of starting the domain,
   regex-replace `on_reboot=destroy` to `on_reboot=restart`, then
@@ -87,7 +87,7 @@ specific virt-install behavior:
   `system_reset` (NVRAM preserved), UEFI boots the `ubuntu` entry that
   efibootmgr added during install (priority 0 in BootOrder, ahead of
   the still-attached CDROM), and the same QEMU process keeps serving
-  QMP screen-dumps to `virsh` — the harness's OCR loop never sees the
+  QMP screen-dumps to `virsh` -- the harness's OCR loop never sees the
   install boundary.
 
 `--noautoconsole` and `--wait 0` are no-ops with `--print-xml=1` (the
@@ -101,12 +101,12 @@ Source:
 ### Why we swap boot order 1 and 2 in the install XML?
 
 Even with `on_reboot=restart` patched in, subiquity's post-install
-reboot lands back on the live ISO and re-runs autoinstall in a loop —
+reboot lands back on the live ISO and re-runs autoinstall in a loop --
 visible as "Continue with autoinstall?" reappearing right after
 `${vmName} login:`. Root cause: OVMF re-evaluates QEMU `bootindex`
 hints on EVERY `system_reset` (not just first boot), so the `ubuntu`
 `Boot####` entry that subiquity's efibootmgr writes into NVRAM is
-overridden by the QEMU hint on each subsequent boot — back to CDROM,
+overridden by the QEMU hint on each subsequent boot -- back to CDROM,
 back to autoinstall.
 
 virt-install `--cdrom` emits the boot ordering in one of two shapes
@@ -115,7 +115,7 @@ depending on its version; both must be handled:
 - **(a) Per-device, single-quoted (older virt-install):**
   `<boot order='1'/>` on the install CDROM device,
   `<boot order='2'/>` on the qcow2 device.
-  Swapping `order=1` ↔ `order=2` promotes the qcow2 to priority-1.
+  Swapping `order=1` <-> `order=2` promotes the qcow2 to priority-1.
   A sentinel-based 3-step swap keeps the second replace from rewriting
   what the first just produced.
 - **(b) Domain-level, double-quoted (current virt-install on Noble):**
@@ -158,8 +158,8 @@ stripping a leading UTF-8 BOM (`EF BB BF`). When that string is piped
 to `iex`, the BOM character (`U+FEFF`) becomes the first token of the
 parse stream and PS 5.1 fails the very first line with "Unexpected
 token at the beginning of the script." Direct invocation as a file
-works either way — both PS 5.1 and pwsh handle BOM-prefixed files on
-disk — but the `irm | iex` path is the documented installer entry
+works either way -- both PS 5.1 and pwsh handle BOM-prefixed files on
+disk -- but the `irm | iex` path is the documented installer entry
 point (see `.EXAMPLE` in the script header) and MUST work.
 
 Consequence: every comment, string, here-doc, and identifier in the
@@ -176,25 +176,25 @@ Source:
 The macOS UTM ubuntu.server.24 guest is arm64-only. When a cache is
 reachable, the autoinstall apt block injects:
 
-- **`proxy`** — routes apt (and, unavoidably, `http_proxy` /
+- **`proxy`** -- routes apt (and, unavoidably, `http_proxy` /
   `https_proxy`) via squid.
-- **`primary`** — pins the arm64 mirror to `ports.ubuntu.com` so
+- **`primary`** -- pins the arm64 mirror to `ports.ubuntu.com` so
   subiquity doesn't elect `archive.ubuntu.com` (the amd64 default)
   and 404 behind the proxy.
-- **`geoip: false`** — skips the HTTPS `geoip.ubuntu.com` lookup that
+- **`geoip: false`** -- skips the HTTPS `geoip.ubuntu.com` lookup that
   otherwise goes through squid (`http_proxy` is exported globally when
-  `apt.proxy` is set — `subiquity/server/controllers/proxy.py:43-44`)
+  `apt.proxy` is set -- `subiquity/server/controllers/proxy.py:43-44`)
   and can stall on the squid CONNECT path, keeping subiquity's
   mirror-election retry loop (`mirror.py:200-227`) alive.
-- **`sources_list`** — legacy `/etc/apt/sources.list` with
+- **`sources_list`** -- legacy `/etc/apt/sources.list` with
   `ports.ubuntu.com` entries.
-- **`preserve_sources_list: false`** — tells curtin it owns the
+- **`preserve_sources_list: false`** -- tells curtin it owns the
   sources.
-- **`sources.yuruna-ports`** — curtin writes this entry to
+- **`sources.yuruna-ports`** -- curtin writes this entry to
   `/etc/apt/sources.list.d/yuruna-ports.list`. The 24.04 arm64 Server
   squashfs ships `ubuntu.sources` with ONLY a `file:/cdrom` entry, and
   curtin's `primary` modifymirrors step only *rewrites* an existing
-  URI — it cannot add one. With no network URI in `ubuntu.sources`,
+  URI -- it cannot add one. With no network URI in `ubuntu.sources`,
   curtin's mirror config never reaches the target and any postinstall
   `apt install <pkg>` for a package not on the cdrom fails with
   `E: Unable to locate package`. Writing a separate file under
@@ -207,9 +207,9 @@ arm64 Server install, and the install failed. Curtin-owned sources
 land synchronously and deterministically.
 
 The retry loop is the driver of the
-"subiquity/Network/_send_update CHANGE enp0s1" console spam — each
+"subiquity/Network/_send_update CHANGE enp0s1" console spam -- each
 retry's netplan re-apply fires `RTM_NEWLINK` events that subiquity
-consumes in `update_link → _send_update`. Pinning `primary` +
+consumes in `update_link -> _send_update`. Pinning `primary` +
 disabling `geoip` makes the mirror election succeed on the first try.
 
 Source:
@@ -219,10 +219,10 @@ Source:
 
 Acquire tuning is a step-budget decision, not a networking preference.
 apt blocks on each index fetch, and a sequence step that waits for a
-completion marker has a fixed timeout (10–30 min). `Retries 5` x
+completion marker has a fixed timeout (10-30 min). `Retries 5` x
 `Timeout 120` allows ~12 minutes of stalling PER INDEX, so a single
 unreachable mirror consumed an entire step budget and the step failed
-with the guest still wedged inside apt — no marker, no error, nothing
+with the guest still wedged inside apt -- no marker, no error, nothing
 to read but a truncated log. Three attempts at 30s bounds one index to
 ~90s, which leaves the failure legible and the remaining budget
 available to the rest of the script. `Timeout` is an inactivity
@@ -250,7 +250,7 @@ Source:
 
 Ubuntu 24.04 may not be in the host's `osinfo-db` yet (the shipped
 package can predate the release). The KVM `New-VM.ps1` probes
-`virt-install --osinfo list` and falls back through `ubuntu22.04` →
+`virt-install --osinfo list` and falls back through `ubuntu22.04` ->
 `linux2022` generic so a fresh host doesn't fail at VM-create time
 with "Unknown OS name 'ubuntu24.04'". Same pattern as
 `guest.amazon.linux.2023/New-VM.ps1`.
@@ -270,7 +270,7 @@ x86_64 amazon.linux.2023 on KVM uses the libvirt default (i440fx + SeaBIOS).
 Switching to UEFI/q35 to chase a `dracut-initqueue: starting timeout
 scripts` stall broke fresh boots with "No bootable option or device
 was found", because the AL2023 KVM cloud image's EFI System Partition
-only carries `\EFI\amazon\grubx64.efi` — it does NOT ship the fallback
+only carries `\EFI\amazon\grubx64.efi` -- it does NOT ship the fallback
 `\EFI\BOOT\BOOTX64.EFI` that OVMF requires when the NVRAM has no boot
 entries. `New-VM.ps1` calls `virsh undefine --nvram` every cycle, so
 the NVRAM is always fresh on first boot and OVMF has nothing to load.
@@ -281,7 +281,7 @@ That stall under SeaBIOS+i440fx was disk-size truncation (now fixed:
 visible partitions and dracut waits forever for a rootfs device that
 never enumerates). If it resurfaces, the next suspects are missing
 virtio modules in the initramfs or a stale `root=` on the kernel
-cmdline — root-cause those rather than re-disabling boot entirely.
+cmdline -- root-cause those rather than re-disabling boot entirely.
 
 aarch64 has no BIOS option in QEMU, so UEFI is mandatory there.
 
@@ -304,11 +304,11 @@ Source:
 
 The Hyper-V caching-proxy-service VM's VHDX is grown to 512 GB for cache
 storage (384 GB `squid cache_dir` + ~128 GB OS/logs/headroom). VHDX is
-dynamic, so 512 GB is the APPARENT size only — actual disk consumption
+dynamic, so 512 GB is the APPARENT size only -- actual disk consumption
 stays low until squid starts caching (or unattended-upgrades pulls a
 kernel). The `cache_dir` budget was raised from 128 GB so squid can
 hold the macOS install image (~18 GB) plus other multi-GB objects with
-breathing room — see
+breathing room -- see
 `host/vmconfig/caching-proxy-service.base.user-data` and the
 `maximum_object_size 65 GB` directive.
 
@@ -325,14 +325,14 @@ Source:
 
 ### Why YURUNA env vars are snapshotted and re-asserted across inner spawns?
 
-A child process inherits the parent's environment — `Start-Process`
-too, as long as `-UseNewEnvironment` is not passed — so anything in
+A child process inherits the parent's environment -- `Start-Process`
+too, as long as `-UseNewEnvironment` is not passed -- so anything in
 `$env:` at spawn time reaches the inner automatically. That implicit
 inheritance breaks down quietly when a long-running outer is mutated
 mid-run (a module unset / overwrite, or a `Remove-Item Env:X` slipping
 through), and the operator only finds out cycles later when the inner
 says "no caching-proxy service". The snapshot in
-`Invoke-TestRunner.ps1` makes the contract explicit:
+`Start-TestRunner.ps1` makes the contract explicit:
 
 - Captured ONCE at outer startup (from whatever shell launched us).
 - RE-ASSERTED into `$env:` right before every inner spawn, so even if
@@ -350,7 +350,7 @@ $env:YURUNA_CACHING_PROXY_SERVICE_IP = '192.168.7.223'
 ```
 
 silently wins in the child even when the operator cleared the var in
-the outer shell — the inner inherited the cleared state but then ran
+the outer shell -- the inner inherited the cleared state but then ran
 profile and re-wrote it. That produced a cycle pointing at an external
 (stale) cache while `Test-CachingProxyService` reported the local
 cache correctly. (With config-first resolution, a profile-injected env
@@ -363,7 +363,7 @@ only `YURUNA_RUNNER_RELAUNCH` is intentionally outer-internal (set
 per-spawn, not snapshotted).
 
 Source:
-[`test/Invoke-TestRunner.ps1`](../test/Invoke-TestRunner.ps1).
+[`test/Start-TestRunner.ps1`](../test/Start-TestRunner.ps1).
 
 ### Why the inner spawn uses the call operator instead of Start-Process?
 
@@ -375,7 +375,7 @@ inner emitted its final cycle-end line.
 
 Root cause: any long-running grandchild spawned by the inner that
 inherited the inner's console handles kept the outer's `WaitForExit()`
-from completing — the status service is the worst offender, which is
+from completing -- the status service is the worst offender, which is
 why `Start-StatusService.ps1` redirects its stdio explicitly. The call
 operator hands inner invocation to PowerShell's native command
 pipeline, which waits on the child's exit code directly without the
@@ -383,7 +383,7 @@ pipeline, which waits on the child's exit code directly without the
 redirection, control returns cleanly to the outer.
 
 Source:
-[`test/Invoke-TestRunner.ps1`](../test/Invoke-TestRunner.ps1).
+[`test/Start-TestRunner.ps1`](../test/Start-TestRunner.ps1).
 
 ### Why the diagnostic shows recent .yuruna/ file mtime as cycle footprint?
 
@@ -396,9 +396,9 @@ under any `.yuruna/` working folder, with mtime and size. On an
 aborted cycle the timestamp tells the operator how recent the failure
 is, and the last few files hint at which stage was reached:
 
-- mtime stops at a `templates/01-website.yml` → helm rendered but
+- mtime stops at a `templates/01-website.yml` -> helm rendered but
   never installed.
-- mtime stops at a `terraform.tfstate` → tofu apply succeeded but the
+- mtime stops at a `terraform.tfstate` -> tofu apply succeeded but the
   workload phase never started.
 
 Source:
@@ -412,7 +412,7 @@ are not. `Remove-TestVMFiles.ps1` enumerates Hyper-V VMs matching the
 `test-` prefix and stops + removes each. `yuruna-caching-proxy-service`
 does NOT match this prefix and is preserved.
 
-Skipped when Hyper-V was just enabled in this run — `vmms` only
+Skipped when Hyper-V was just enabled in this run -- `vmms` only
 exists after the pending reboot, and `Hyper-V\Get-VM` would fail with
 the same "permission required" error `Enable-TestAutomation.ps1`
 skips for the same reason. Failure on a single VM (locked `.vhdx`,
@@ -427,7 +427,7 @@ Source:
 `Add-YurunaLogLine` appends one already-stringified line to the
 per-cycle transcript via `[IO.File]::AppendAllText`, preserving
 `Out-File`'s open/write/close per-call durability without the
-PowerShell pipeline + `Out-File` cmdlet overhead — the thousands of
+PowerShell pipeline + `Out-File` cmdlet overhead -- the thousands of
 `Write-*` calls per cycle add up. A failed append is non-fatal
 (swallowed to Verbose) so logging never breaks the caller; the catch
 uses the fully-qualified `Microsoft.PowerShell.Utility\Write-Verbose`
@@ -440,7 +440,7 @@ errors/warnings) and machine-filterable (select `.log-error` /
 body is HtmlEncode'd; the span markup is emitted verbatim so it
 renders as an element rather than escaped angle brackets inside the
 `<pre>`. An unknown/empty severity degrades to
-the neutral `log-output` class rather than dropping the record — the
+the neutral `log-output` class rather than dropping the record -- the
 tag is additive and never gates whether a line is written.
 
 Source:
@@ -454,8 +454,8 @@ checks, so the Windows HTTP.sys / `netsh` versus Unix `lsof` dispatch
 is written once. Every caller asks the same three questions in the
 same order, and the answers are not interchangeable:
 
-**Who holds the port?** `Get-PortListenerPid` uses `netsh` on Windows —
-HTTP.sys hides the real owner from `Get-NetTCPConnection` — and `lsof`
+**Who holds the port?** `Get-PortListenerPid` uses `netsh` on Windows --
+HTTP.sys hides the real owner from `Get-NetTCPConnection` -- and `lsof`
 on macOS/Linux. It returns empty when the holder belongs to another
 user, because both tools hide those without elevation. Empty means
 "no PID resolvable", not "port free", so it cannot be the source of
@@ -474,8 +474,8 @@ alone cannot tell them apart.
 `Resolve-PortOrphan` is the one opinionated entry point. It reclaims an
 orphan pwsh holder this user owns; otherwise it classifies the port as
 `Conflict`, or as `PrivilegeRequired` when nothing holds it and the
-wildcard reservation was refused. Both outcomes refuse to start — the
-status service binds the same prefix and would fail identically — but
+wildcard reservation was refused. Both outcomes refuse to start -- the
+status service binds the same prefix and would fail identically -- but
 only one of them has a holder that can be stopped. It returns a
 structured result and never exits or throws, so the caller
 (Start-StatusService) decides how to refuse, and that refusal aborts
@@ -499,7 +499,7 @@ the runner (`Test.RunnerInnerLoop`) and the re-invocation in the engine
 `-ResumeFromSequence` / `-ResumeFromStep`).
 
 Two constraints make it sound. First, resume is attempted only for
-genuinely transient failure classes — the same allow-list the outer
+genuinely transient failure classes -- the same allow-list the outer
 loop's gated auto-remediation uses. A hard, deterministic failure would
 redo the install and fail again: nothing to gain, a cycle of wall-clock
 to lose.
@@ -507,7 +507,7 @@ to lose.
 Second, resume runs only in the runner path, where each workload
 sequence runs as a single file (`Invoke-SequenceByName`). That makes
 `last_failure.json`'s file-local `repro.resumeFromStep` map directly onto
-`Invoke-Sequence`'s file-local `-StartStep`. `Invoke-TestSequence`'s chain
+`Invoke-Sequence`'s file-local `-StartStep`. `Debug-TestSequence`'s chain
 runner concatenates baselines, which would make the same mapping
 chain-global rather than file-local; the runner does not concatenate, so
 the mapping is exact. See [failure-schema.md](failure-schema.md).
@@ -526,20 +526,20 @@ Source:
 ### Why warm resume rewinds to a snapshot?
 
 A checkpoint names the step that FAILED, and its class says why that step
-stopped — not how much of its work landed first. An install that unpacked
+stopped -- not how much of its work landed first. An install that unpacked
 before its network call died, or a seed script that wrote some rows, leaves
 the guest changed; restarting there replays the step onto its own residue,
 which is a different run from the one the sequence describes. `loadDiskSnapshot`
 is the one action that makes guest state known again, so it is the only honest
-place to restart. The contract itself — event fields, the no-boundary
-degradation, step numbering — is in
+place to restart. The contract itself -- event fields, the no-boundary
+degradation, step numbering -- is in
 [failure-schema.md](failure-schema.md#rewind-to-a-restore-boundary); what
 follows is why `Get-WarmResumeRewindStep` and its input are shaped this way.
 
 The scan reads each step's *lead* action, not the name the step carries. A
 sequence that nests its restore inside a `retry` block has no `loadDiskSnapshot`
 at top level, so reading the wrapper's own name would leave the rewind with no
-boundary to find — and "no boundary" degrades to resuming in place, onto
+boundary to find -- and "no boundary" degrades to resuming in place, onto
 exactly the residue the boundary exists to discard. Rewinding to the wrapper is
 sound because entering it runs that restore first.
 
@@ -549,7 +549,7 @@ ones `-StartStep` counts against. Normalizing that result again would re-reject
 it: the loader's output carries a synthesized `baseline` key the normalizer
 treats as the legacy shape. Any failure to read yields an empty list, which the
 rewind treats as "no boundary known" and leaves the checkpoint alone. A
-checkpoint past the end — a sequence edited since the failure — is clamped to
+checkpoint past the end -- a sequence edited since the failure -- is clamped to
 the step count so it still gets a boundary from the steps that do exist rather
 than no answer at all.
 
@@ -558,25 +558,40 @@ Source:
 
 ### Pester file-scope fixtures
 
-The Pester test files keep helper functions and path fixtures at FILE
-scope, above the first `Describe`. Two Pester behaviors force that
-placement: a `Describe` body runs during discovery and its variables
-and functions are discarded before any `It` executes, and the run pass
-stops descending top-level statements at the first `Describe`. So
-anything an `It` body needs must be defined above the first `Describe`.
+Helper functions and fixtures belong in a `BeforeAll`, which is the
+scope Pester 5 shares with every `It` body. A `Describe` body runs
+during discovery and its variables and functions are discarded before
+any `It` executes, so a fixture defined there is gone by the time a
+test reads it.
 
-Only the PATHS are computed at file scope. The directories, files, and
-child processes those paths name are side effects, and the file body
-runs twice (discovery, then run) — so the creation itself (`New-Item`
-calls, spawned processes) stays inside `BeforeAll` / `It` bodies.
+The tempting shortcut -- assigning fixtures at file scope, above the
+first `Describe` -- is **invocation-dependent, and must not be used**.
+It resolves under `pwsh -File <suite>` and binds as empty under
+`Invoke-Pester -Path <suite>`, where the failure surfaces far from its
+cause as `Cannot bind argument ... because it is an empty string`. A
+suite written that way therefore reports green one way and red the
+other, which is how three suites stayed broken while the set looked
+healthy. `test/modules/Test.SuiteHelperAdoption.Tests.ps1` now fails any
+suite that declares no `BeforeAll`.
+
+Two placements that ARE correct and are easy to mistake for the
+shortcut: a `BeforeAll` nested inside a `Describe` (shared with that
+block's tests), and a file-scope assignment feeding the discovery pass,
+such as the case array behind `It ... -TestCases $cases` -- discovery
+descends those statements while they are still in scope.
+
+Fixtures are values, not side effects. The file body runs twice
+(discovery, then run), so directory creation, file writes and spawned
+processes stay inside `BeforeAll` / `It` bodies, where they run once.
 
 Source:
 [`test/modules/Test.Notify.Tests.ps1`](../test/modules/Test.Notify.Tests.ps1),
-[`test/modules/Test.SingleInstance.Tests.ps1`](../test/modules/Test.SingleInstance.Tests.ps1).
+[`test/modules/Test.SingleInstance.Tests.ps1`](../test/modules/Test.SingleInstance.Tests.ps1),
+[`test/modules/Test.SuiteHelperAdoption.Tests.ps1`](../test/modules/Test.SuiteHelperAdoption.Tests.ps1).
 
 ### Why the guest SSH-user overrides are anchored in the global scope?
 
-`$GuestSshUserOverrides` holds per-cycle overrides for `Get-GuestSshUser`, populated by the runner (`Invoke-TestRunnerInnerLoop` / `Invoke-TestSequence`) from the cycle plan's `effectiveUsername`. That is how a workload's `variables.username:` cascade reaches every SSH callsite routed through `Get-GuestSshUser`: `Wait-SshReady`, `Invoke-GuestSsh`, `Save-GuestDiagnostic`, the host driver `Send-Text` / `Send-Key` SSH-mode dispatchers, and the inner runner's fetchAndExecute SSH path. The alternative -- a `-Username` parameter threaded through every public signature -- would touch every callsite and the host contract for the same outcome.
+`$GuestSshUserOverrides` holds per-cycle overrides for `Get-GuestSshUser`, populated by the runner (`Invoke-TestRunnerInnerLoop` / `Debug-TestSequence`) from the cycle plan's `effectiveUsername`. That is how a workload's `variables.username:` cascade reaches every SSH callsite routed through `Get-GuestSshUser`: `Wait-SshReady`, `Invoke-GuestSsh`, `Save-GuestDiagnostic`, the host driver `Send-Text` / `Send-Key` SSH-mode dispatchers, and the inner runner's fetchAndExecute SSH path. The alternative -- a `-Username` parameter threaded through every public signature -- would touch every callsite and the host contract for the same outcome.
 
 The table is anchored in the GLOBAL scope because `Save-GuestDiagnostic` and several host drivers `-Force` re-import `Test.Ssh` defensively. A module-scoped `$script:GuestSshUserOverrides = @{}` would be re-initialized on every re-import, wiping the cascade value registered at plan-resolution time and falling SSH auth back to the per-guest default (e.g. `yauser1`) -- breaking exactly the workloads `variables.username:` was meant to serve. This is the same eviction-safe pattern `Test.Output` and the `Test.Registry`-based registries already use. `Set-Variable` / `Get-Variable -Scope Global` is used instead of `$global:` so PSSA's `PSAvoidGlobalVars` stays quiet for the rest of that large module.
 
@@ -601,7 +616,7 @@ The empty pipeline input is what redirects the child's stdin. Without
 it a native command on the SOURCE side of a pipeline has its stdout
 captured and its stdin INHERITED, so inside the child
 `[Console]::IsInputRedirected` is `$false` and every prompt guard that
-consults it concludes an operator is present — while the question it
+consults it concludes an operator is present -- while the question it
 then asks goes into the captured-output buffer, which is printed only
 on a non-zero exit. A blocked child never exits, so that is a run
 parked forever on a question nobody was shown. `@()` rather than `''`
@@ -621,7 +636,7 @@ set only by a native command, and a hand-rolled two-pipe drain would
 re-introduce the deadlock that a child filling one 64K buffer while the
 reader blocks on the other produces. Converting this to
 `[Diagnostics.Process]` means changing the exit-code read in the SAME
-edit — a stale `$LASTEXITCODE` of 0 turns a FAILING gate into
+edit -- a stale `$LASTEXITCODE` of 0 turns a FAILING gate into
 `passed = $true`, which is worse than the hang.
 
 Source:
@@ -666,13 +681,13 @@ The write surface is scoped narrowly:
 |---|---|
 | Method | `PUT` or `POST` only |
 | Path | `log-upload/<rel>` with no `..` segments |
-| Extension | `.log` `.txt` `.json` `.err` `.crash` — what `/var/log/installer/*` actually produces; rejects e.g. `.ps1` / `.exe` upload attempts |
+| Extension | `.log` `.txt` `.json` `.err` `.crash` -- what `/var/log/installer/*` actually produces; rejects e.g. `.ps1` / `.exe` upload attempts |
 | Body cap | 4 MB (a typical curtin-install.log tail is ~200 KB; the full file ~1-2 MB) |
 
 The path is normalized and range-checked against `$logDir` so nothing
 escapes the log mount.
 
-Source: [`test/Start-StatusService.ps1`](../test/Start-StatusService.ps1).
+Source: [`test/service/Start-StatusService.ps1`](../test/service/Start-StatusService.ps1).
 
 ---
 
@@ -685,7 +700,7 @@ that `vmms` keeps open for its lifetime: `data.vmcx` at the root,
 `Resource Types\<GUID>.vmcx` per registered provider, plus empty
 placeholder subdirs for planned/snapshot/undo state. Walking the whole
 tree flags those files as "unclaimed" on a no-VMs host and tries to
-delete them — `vmms` refuses every delete with "file in use",
+delete them -- `vmms` refuses every delete with "file in use",
 producing ~26 warnings per cycle on a fresh install. The canonical
 VM-data subtree is `Virtual Machines\`; that stays in scope along with
 all of `VirtualHardDiskPath`.
@@ -700,7 +715,7 @@ UTM 4.x `utmctl list` layout is
 (UUID + 1 padding space); Status col is 9 wide (longest UTM.sdef enum
 `starting`/`stopping` is 8 chars). So between UUID and Status there
 is exactly ONE space: a `-split '\s{2,}'` parser sees only two tokens
-— `<uuid> <status>` and `<name>` — and the UUID regex check on
+-- `<uuid> <status>` and `<name>` -- and the UUID regex check on
 `parts[0]` (44 chars) always fails. `$registeredVMs` then stays empty
 and every bundle looks orphaned (the UUID-keyed orphan dedupe path
 still works by accident through `Get-UTMBundleUUID`, but the
@@ -747,11 +762,11 @@ any guest on this libvirt network stays stranded with no IP, and
 - **Repair:** find NM connection(s) whose `connection.master` is this
   bridge and `nmcli connection up` them. NM deactivates the
   conflicting profile on the slave's NIC (e.g. `netplan-<nic>`) as
-  part of the user-initiated activation — this is the moment SSH may
+  part of the user-initiated activation -- this is the moment SSH may
   flap.
 
 Idempotent and best-effort: a no-op on a healthy bridge or when NM
-isn't active. On failure it logs a recovery hint but does not throw —
+isn't active. On failure it logs a recovery hint but does not throw --
 the caller (`New-YurunaExternalNetwork`) prefers to return the network
 name and let the operator see the downstream timeout in full context.
 
@@ -771,7 +786,7 @@ way:
   profiles can trigger its nm-settings-utils.c assertion crash.
 - **The netplan file** (`99-yuruna-external.yaml`): systemd-networkd
   keeps claiming the bridge + NIC, and netplan's generated udev rule
-  marks them NM_UNMANAGED — which makes `nmcli connection up <bridge>`
+  marks them NM_UNMANAGED -- which makes `nmcli connection up <bridge>`
   fail with "Failed to find a compatible device for this connection".
 - **The kernel bridge device itself**: deleting the NM profile or the
   netplan file does NOT remove an already-created device, and a
@@ -787,7 +802,7 @@ Source:
 the documented neutralizer. CRITICAL: `-setwebproxy` /
 `-setsecurewebproxy` flip the proxy state back ON as a side-effect,
 so `-setwebproxystate off` MUST be the last step or the system ends
-up `Enabled=Yes` pointing at `0.0.0.0` — and .NET `HttpClient` (which
+up `Enabled=Yes` pointing at `0.0.0.0` -- and .NET `HttpClient` (which
 reads `CFNetworkCopySystemProxySettings`) then fails the next
 `Invoke-WebRequest` with
 "IPv4 address 0.0.0.0 ... cannot be used as a target address".
@@ -803,7 +818,7 @@ Source:
 ### Why the group-membership probe uses getent rather than the id command?
 
 `id -nG` reports the RUNNING shell's group set, which was sampled at
-login — on a first install run, `usermod -aG libvirt,kvm` has just
+login -- on a first install run, `usermod -aG libvirt,kvm` has just
 updated `/etc/group` but the parent shell still carries the stale
 set, so `id -nG` would falsely claim the user is "not in 'libvirt'
 group yet" even though the membership took. Masking that in
@@ -821,15 +836,15 @@ Source:
 Callers that need a guaranteed array wrap with `@()`. The bare
 pipeline shape avoids three traps:
 
-1. **No leading `,` array-wrap** — it makes the function emit ONE
+1. **No leading `,` array-wrap** -- it makes the function emit ONE
    `String[]`; `@(Get-CacheVmCandidateIp ...)` then wraps that into
    `Object[1]` whose sole element is the array, breaking
    `foreach ($ip in ...)` with
    "Cannot convert value to type System.String".
-2. **No `[string[]](pipeline)` as the return expression** — on empty
+2. **No `[string[]](pipeline)` as the return expression** -- on empty
    input the cast emits a single `$null` instead of zero items, so
    callers get a ghost element.
-3. **No outer `@(...)`** — PSScriptAnalyzer statically infers
+3. **No outer `@(...)`** -- PSScriptAnalyzer statically infers
    `System.Array` from the `@`-subexpression even with string content,
    tripping `PSUseOutputTypeCorrectly`. The bare pipeline emits
    strings directly.
@@ -840,12 +855,12 @@ Source:
 ### Why stash-service bring-up waits for the daemon, not just the VM?
 
 Returning as soon as the VM is registered used to end
-`Start-StashServiceVM.ps1` roughly 15–30 minutes before the
+`Start-StashServiceVM.ps1` roughly 15-30 minutes before the
 service existed: a first boot installs a Go toolchain and compiles the
 daemon, and until that finishes there is nothing listening. Everything
 downstream inherited that gap. The dashboard's Extension cell has no
 link, because the address a link needs comes from the daemon's own
-announce and there is no daemon yet to announce — this host withholds
+announce and there is no daemon yet to announce -- this host withholds
 its own copy of the address whenever the VM sits on a
 hypervisor-private network, which is every Wi-Fi UTM host. So the
 operator finished a "successful" run and found an unlinked row, with
@@ -869,7 +884,7 @@ Source:
 ### Why the service daemons bind low ports with AmbientCapabilities, not setcap
 
 Every Yuruna service-VM daemon runs as an unprivileged service user and
-still has to listen below 1024 — stash-service on `:22` (the SCP/SFTP
+still has to listen below 1024 -- stash-service on `:22` (the SCP/SFTP
 sink) plus `:80`, pool-control-service and download-agent-service on
 `:80`. Each installer therefore issues two apparently redundant grants:
 a `setcap 'cap_net_bind_service=+ep'` on the installed binary, and an
@@ -879,7 +894,7 @@ systemd.
 
 `setcap` writes a FILE capability into the binary's extended
 attributes. The kernel reads it at `execve` and raises the new process's
-permitted/effective sets from it — which is precisely the kind of
+permitted/effective sets from it -- which is precisely the kind of
 privilege gain `no_new_privs` exists to forbid. All three units set
 `NoNewPrivileges=true` as part of their hardening block, so the kernel
 DROPS the file capabilities at `execve` and the daemon starts with an
@@ -892,15 +907,15 @@ and are inherited ACROSS `execve` rather than being granted by it, so
 `no_new_privs` has no quarrel with them and systemd can hand the
 service user exactly one capability with no setuid anywhere in the
 picture. That is why `AmbientCapabilities=CAP_NET_BIND_SERVICE` is the
-grant the systemd path actually rests on, and why removing it — on the
-reasoning that "the binary already has the capability" — takes every
+grant the systemd path actually rests on, and why removing it -- on the
+reasoning that "the binary already has the capability" -- takes every
 daemon down. `CapabilityBoundingSet=CAP_NET_BIND_SERVICE` alongside it
 caps what the unit could ever hold to that same single capability.
 
 The `setcap` call is still kept, because the unit is not the only way
 these binaries run. An operator debugging on the guest invokes
 `/usr/local/bin/<daemon>` directly, and a direct launch from an
-ordinary shell has no `no_new_privs` set — there the file capability is
+ordinary shell has no `no_new_privs` set -- there the file capability is
 the ONLY grant available, and without it the same debug run needs root.
 `setcap` itself ships in `libcap2-bin`, which each installer adds to its
 apt line for this purpose. Two of the three installers tolerate a
@@ -918,14 +933,14 @@ The stash daemon IS the guest's SSH endpoint: it speaks the SCP/SFTP
 protocol itself so runners can push cycle output at it with an ordinary
 `scp`, which means it must own `:22`. Stock Ubuntu already has OpenSSH
 listening there, so one of the two has to go, and the deploy is
-deliberately the LAST step of the bring-up — everything that needed a
+deliberately the LAST step of the bring-up -- everything that needed a
 conventional SSH login has already happened by then, and afterwards
 `:22` speaks the stash protocol.
 
 `systemctl disable` does not achieve this. Disabling removes a unit's
 own `[Install]` symlinks and nothing else, so the unit stays perfectly
 startable by anything that pulls it in by name or activates its socket
-— and stock Ubuntu's `cloud-init-network.service` carries
+-- and stock Ubuntu's `cloud-init-network.service` carries
 `Wants=sshd.service`. A merely disabled sshd is therefore back on the
 NEXT boot, takes `:22` before the daemon is up, and the daemon dies on
 `bind: address already in use` without ever reaching its `:80` listener.
@@ -937,7 +952,7 @@ once.
 Masking is the stronger statement: the unit is symlinked to
 `/dev/null`, so it cannot be started manually, by a dependency, or by
 socket activation. `ssh.service`, `ssh.socket` and the `sshd.service`
-alias are all masked — masking the target unit normally covers its
+alias are all masked -- masking the target unit normally covers its
 alias, but naming the alias too costs nothing and does not depend on
 how the distribution happens to wire it.
 
@@ -946,7 +961,7 @@ any more. Console access (the hypervisor's serial or graphical console)
 is the way in when the daemon is wedged, and nothing on the host may
 assume it can `ssh` into a stash guest. A mask is reversible with
 `systemctl unmask ssh.service`, but doing that while the daemon holds
-`:22` simply gives OpenSSH a port conflict of its own — stop the stash
+`:22` simply gives OpenSSH a port conflict of its own -- stop the stash
 service first.
 
 Source:
@@ -962,7 +977,7 @@ BOM and uses platform-native line endings.
 The content is staged to a sibling temp file on the same volume, then
 swapped in. A crash or disk-full mid-write can never truncate the
 live hosts file (the half-written bytes land in the temp), and
-`[IO.File]::Replace` preserves the live file's ACLs/owner — a plain
+`[IO.File]::Replace` preserves the live file's ACLs/owner -- a plain
 `Move-Item` would inherit the temp's. If the swap throws, the live
 file is left intact and the temp is removed. `[NullString]::Value`
 passes a real null for the (declined) backup argument; a bare `$null`
@@ -1009,7 +1024,7 @@ When `/proc/cpuinfo` has no `model name` line (some ARM cores,
 qemu/KVM generic CPU, container-stripped cpuinfos), the pipeline
 that extracts it produces `AutomationNull`. The downstream `-replace`
 then also yields `AutomationNull`, which `-f` treats as ZERO
-arguments — raising "Index (zero based) must be greater than or
+arguments -- raising "Index (zero based) must be greater than or
 equal to zero and less than the size of the argument list".
 
 The CPU section captures the line first and falls back to a literal
@@ -1036,8 +1051,8 @@ the SUMMARY without the operator having to remember `helm list -A`.
 
 `deployed` and `superseded` are the healthy steady states (the
 latter is what a prior revision moves to after a successful
-upgrade). Anything else — `failed`, `pending-*`, `uninstalling`,
-`unknown` — is worth flagging.
+upgrade). Anything else -- `failed`, `pending-*`, `uninstalling`,
+`unknown` -- is worth flagging.
 
 Source:
 [`automation/Get-SystemDiagnostic.ps1`](../automation/Get-SystemDiagnostic.ps1).
@@ -1067,8 +1082,8 @@ journal, split across "Creating Scriptblock text (N of M):" entries
 whose script body lands on indented continuation lines. Left alone it
 dominates the journal sample with an echo of this script.
 
-The redactor catches each such entry via the `(N of M)` marker — no
-end-of-script sentinel needed — and drops the indented continuation
+The redactor catches each such entry via the `(N of M)` marker -- no
+end-of-script sentinel needed -- and drops the indented continuation
 lines carrying the source.
 
 Source:
@@ -1084,17 +1099,17 @@ trigger words but are NOT real failures.
 Mechanism: each denylist match is wiped from a copy of the line
 before re-testing the base pattern. If the stripped line no longer
 matches `error|fail|warning`, the original hits were ALL inside
-denylisted identifiers → skip the line. Lines that contain BOTH a
+denylisted identifiers -> skip the line. Lines that contain BOTH a
 denylisted identifier AND an unrelated trigger word still surface
 (e.g. `$ErrorActionPreference = 'Stop'  # real error here` because
 stripping `ErrorAction` leaves "real error here").
 
-Pattern: `(?i)\b(?:term1|term2|...)\w*\b` — `(?i)` makes the deny
+Pattern: `(?i)\b(?:term1|term2|...)\w*\b` -- `(?i)` makes the deny
 match case-insensitive whether or not the caller passes
 `-CaseSensitive`; leading `\b` anchors to a word boundary; trailing
 `\w*` eats any camelCase / PascalCase suffix, so `ErrorAction` also
 covers `ErrorActionPreference`, and `failureThreshold` covers
-`failureThresholdSeconds`. Deny entries are *root identifiers* — list
+`failureThresholdSeconds`. Deny entries are *root identifiers* -- list
 the shortest prefix you want suppressed.
 
 The `linesFiltered` counter appears in the tail summary, so an
@@ -1106,7 +1121,7 @@ Source:
 ### Why SUMMARY is outside Invoke-DiagnosticSection?
 
 SUMMARY sits OUTSIDE `Invoke-DiagnosticSection` deliberately: if it
-threw (which it shouldn't — it just iterates `$script:Problems`),
+threw (which it shouldn't -- it just iterates `$script:Problems`),
 there is no later section to fall through to, and the safety net
 would swallow the most important section to surface.
 
@@ -1121,7 +1136,7 @@ Source:
 
 `tofu output -json` returning `'{}'` means apply ran but every `output`
 block evaluated to nothing. The cause is always an upstream silent
-failure inside a `null_resource` provisioner — typically a
+failure inside a `null_resource` provisioner -- typically a
 `local-exec` script that wrote no JSON to stdout because its
 underlying command (a `docker run`, a `pwsh` data-source program)
 failed without propagating a non-zero exit. Letting that empty block
@@ -1142,7 +1157,7 @@ Source:
 transient 5xx under load, and a single blip fails the provider
 download. A swallowed first-attempt exit then cascades into
 `tofu output -json` returning `{}`, an empty `resources.output.yml`
-block, and a helm chart rendering an `InvalidImageName` pod — the
+block, and a helm chart rendering an `InvalidImageName` pod -- the
 failure surfaces ~30 minutes downstream from the cause.
 
 The shared Yuruna.Retry policy (five attempts, 10 s initial delay,
@@ -1164,7 +1179,7 @@ program lookups. A successful plan does not guarantee a successful
 apply: the apply pass exercises those external programs a second time,
 and pwsh cold-start jitter, transient HTTPS errors, or a briefly empty
 stdout are each enough to fail that second read. `data "external"`
-blocks are the most common offender — spawning pwsh, parsing stdin
+blocks are the most common offender -- spawning pwsh, parsing stdin
 JSON, and emitting JSON on stdout, on every apply.
 
 Switching to `tofu plan -out=tfplan` followed by `tofu apply tfplan`
@@ -1186,7 +1201,7 @@ The per-resource `tofu.stderr.log` lives inside the guest VM and gets
 cleaned up after a failed cycle, so "Inspect $tofuLogFile" alone
 forces the operator to SSH into a VM that may no longer exist.
 Appending the last 30 lines of that log to every throw makes the
-cycle log self-contained — the test-runner output already captures
+cycle log self-contained -- the test-runner output already captures
 the throw message, so the tofu Error frame (header, frame hint, inner
 provider message) is preserved with no extra plumbing.
 
@@ -1236,17 +1251,17 @@ block.
 If the apt-get block stalls (UTM bridge throughput is the known
 culprit on macOS hosts) the cycle watchdog fires, the orchestrator
 captures diagnostics, and `Get-SystemDiagnostic.ps1` must already be
-on disk — else `pwsh` exits 64 and writes its usage banner instead of
+on disk -- else `pwsh` exits 64 and writes its usage banner instead of
 real guest state.
 
 Tarball-only at this position: the git-clone fallback stays later in
-the script because it needs `git`, which requires `apt-get` to work —
+the script because it needs `git`, which requires `apt-get` to work --
 exactly what may be stuck.
 
 The same rationale applies to the other supported guests:
 
 - **Amazon Linux 2023**: identical structure with `dnf` in the stuck
-  role — the early extract runs before the long dnf transaction, and
+  role -- the early extract runs before the long dnf transaction, and
   the git-clone fallback stays late because it needs `git`, which
   needs a working `dnf`.
 - **Windows 11**: the update script pre-fetches the tarball before the
@@ -1254,8 +1269,8 @@ The same rationale applies to the other supported guests:
   the git-clone fallback lives in the late "Materialize" section
   because it needs `git`, which winget may only install in the update
   stage that follows. The host coordinates (`YURUNA_STATUS_SERVICE_IP` /
-  `YURUNA_STATUS_SERVICE_PORT`) come from `C:\ProgramData\yuruna\host.env` — the
-  Windows-side equivalent of the Linux `host.env` injection — written
+  `YURUNA_STATUS_SERVICE_PORT`) come from `C:\ProgramData\yuruna\host.env` -- the
+  Windows-side equivalent of the Linux `host.env` injection -- written
   when the host driver supports it; when the file or the variables are
   absent the early-extract block soft-fails into a no-op.
 
@@ -1328,13 +1343,13 @@ Source:
 tees the inner script's combined stdout/stderr into
 `/tmp/yuruna-last-fetch-and-execute.log` so the harness can `scp` it
 back on failure
-(`Copy-FailureArtifactsToStatusLog` → `Save-GuestFetchAndExecuteLog`).
+(`Copy-FailureArtifactsToStatusLog` -> `Save-GuestFetchAndExecuteLog`).
 The file is truncated at every fetch-and-execute call so it always
-holds the LAST script's output — the most useful post-mortem artifact
+holds the LAST script's output -- the most useful post-mortem artifact
 for a sequence that ended on a `fetchAndExecute` step.
 
-Without the tee — say a workload wrapper exits 0 with no useful
-output — that wrapper's console output has already scrolled
+Without the tee -- say a workload wrapper exits 0 with no useful
+output -- that wrapper's console output has already scrolled
 off-screen behind the `test-localhost.sh` poll loop, and the OCR
 screenshot captures only the polling, not the wrapper.
 
@@ -1342,7 +1357,7 @@ The header records WHICH script was fetched, so a reader of the file
 alone can tell whether the last fetch was the workload wrapper or a
 smaller helper (`test-localhost.sh`, etc.). The tee runs in a subshell
 so the inner script still sees a "regular" stdout/stderr (some tools
-behave differently under a pipe — e.g. `docker build`'s progress UI).
+behave differently under a pipe -- e.g. `docker build`'s progress UI).
 
 Source:
 [`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh).
@@ -1403,7 +1418,7 @@ Source:
 `Publish-ResourceList` points `TF_PLUGIN_CACHE_DIR` at an on-disk
 provider cache shared across resources and cycles. Once `tofu init`
 has fetched a provider, later inits reuse the cached plugin instead of
-round-tripping to github.com — guarding against the
+round-tripping to github.com -- guarding against the
 registry-5xx-burst class where releases.opentofu.org /
 registry.opentofu.org returns the same 5xx within a tight retry
 window: a per-attempt retry loop cannot survive the burst, but a
@@ -1443,7 +1458,7 @@ Source:
 
 A non-zero `helm lint` exit indicates the chart has a
 schema/required-field violation that WILL cascade to a failed install
-— e.g. an `image: /<repo>:<tag>` produced when
+-- e.g. an `image: /<repo>:<tag>` produced when
 `componentsRegistry.registryLocation` rendered as `""` because
 `resources.output.yml` had `componentsRegistry: {}`. The captured
 output goes to the Information stream and the cycle aborts BEFORE
@@ -1462,7 +1477,7 @@ Source:
 
 A watchdog SIGKILL of helm mid-upgrade (or a host crash) leaves the
 release in a `pending-*` state. Helm's atomic-rollback guarantees
-fire only on a helm-detected failure — a process kill bypasses them.
+fire only on a helm-detected failure -- a process kill bypasses them.
 The next cycle's `helm upgrade --install` then exits with "another
 operation in progress", and no auto-recovery is wired downstream. The
 deploy therefore probes `helm status` first, detects a `pending-*`
@@ -1488,7 +1503,7 @@ release in the namespace). A two-step uninstall+install pair would, on
 a watchdog kill between the two calls, strand the operator with no
 release, a dirty namespace, and no recovery beyond a full rerun.
 
-A non-zero exit is still authoritative — the release did NOT land (or
+A non-zero exit is still authoritative -- the release did NOT land (or
 it landed and was auto-rolled-back). The captured output is ALSO
 scanned for helm's terminal error shapes because helm can return 0 on
 certain post-render rejections (server-side admission failures that
@@ -1506,14 +1521,14 @@ Source:
 
 `/etc/docker/daemon.json` is written **before** `docker-ce` is installed.
 The package `postinst` auto-starts `dockerd`, and `dockerd` reads
-`daemon.json` only at startup — inserting the file afterward would
+`daemon.json` only at startup -- inserting the file afterward would
 require a service restart and races with workloads that may already be
 pulling.
 
 `registry-mirrors` routes every `docker.io` pull through the
 yuruna-caching-proxy-service's zot pull-through cache. The cache's
 stale-on-error semantics mask upstream rate-limit blips (e.g. AWS ECR
-Public returning HTTP 400 for `library/registry:2` manifest HEADs — an
+Public returning HTTP 400 for `library/registry:2` manifest HEADs -- an
 incident class that has taken out multiple test hosts at once).
 `CACHE_HOST` is parsed from the guest's system-wide
 `$http_proxy`, falling back to the well-known `yuruna-caching-proxy-service`
@@ -1533,7 +1548,7 @@ The install tracks the newest Flannel release but fetches the in-tree
 
 That download URL relies on the maintainers attaching a
 `kube-flannel.yml` *release asset*, and a release can ship without one
-(v0.28.6 did) — `releases/latest` then 302s to an assetless tag and the
+(v0.28.6 did) -- `releases/latest` then 302s to an assetless tag and the
 download 404s, aborting the whole install under `set -euo pipefail`.
 `Documentation/kube-flannel.yml` is generated from the repo tree, so it
 is present at every tag and is byte-for-byte equivalent to the release
@@ -1560,7 +1575,7 @@ even on a healthy host. Each invocation is wrapped in `_yuruna_retry`
 for the same backoff every other fetch in the script gets.
 
 Both paths pass `--opentofu-version "$YURUNA_OPENTOFU_VERSION"` so
-neither asks the GitHub releases API for "latest" — an unauthenticated
+neither asks the GitHub releases API for "latest" -- an unauthenticated
 `api.github.com` call that 403s on rate limits once many guests share
 one NAT egress IP, which would leave the standalone fallback as fragile
 as the deb path it backs up.
@@ -1579,6 +1594,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../README.md)

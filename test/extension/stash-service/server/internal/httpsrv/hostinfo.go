@@ -12,9 +12,9 @@ import (
 
 // handleHostInfo returns the lightweight host facts the shared UI footer
 // renders: this host's id, the daemon version, and the server's own LAN IP
-// addresses. It is page-agnostic on purpose — any UI page drives the same
+// addresses. It is page-agnostic on purpose -- any UI page drives the same
 // footer module (assets/common.js initFooter) from this one endpoint, so the
-// footer needs no page-specific data shape — and it is intentionally cheap so
+// footer needs no page-specific data shape -- and it is intentionally cheap so
 // the footer's periodic poll stays trivial.
 //
 // Whether the caller may delete is NOT here: that is a question about a
@@ -36,7 +36,7 @@ func (s *Server) handleHostInfo(w http.ResponseWriter, _ *http.Request) {
 // and de-duplicated. The two-line shape mirrors the status pages' footer (whose
 // ipaddresses.txt carries one address family per line, so the IP textarea
 // renders at most two rows). Link-local addresses (169.254/16, fe80::/10) are
-// dropped as noise — they are never how a peer reaches the daemon. Returns ""
+// dropped as noise -- they are never how a peer reaches the daemon. Returns ""
 // when no usable address is found, so the footer shows its em-dash placeholder.
 // Best-effort: an enumeration error yields "".
 func serverIPLines() string {

@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42c6a4b0-7182-4394-8ea5-1a2b3c4d5e6f
+.VERSION 2026.08.19
+.GUID 423c8376-a989-4f09-aa00-2e5a728ffa76
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test prelude statusservice pester
@@ -31,8 +31,7 @@ BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.Prelude.psm1') -Force -DisableNameChecking
 
-function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # File scope, above the first Describe: a Describe body is evaluated during the discovery
 # pass and everything it declares is torn down before the first It runs, so a path
@@ -201,7 +200,7 @@ Describe 'Register-EntryPointCancelHandler (shared Ctrl+C handler)' {
 }
 
 Describe 'entry-point Ctrl+C handlers delegate to the shared helper' {
-    # Invoke-TestRunner.ps1 and Invoke-TestSequence.ps1 must register/tear down the cancel
+    # Start-TestRunner.ps1 and Debug-TestSequence.ps1 must register/tear down the cancel
     # handler through Register-/Unregister-EntryPointCancelHandler, not a hand-rolled
     # inline Register-ObjectEvent -EventName CancelKeyPress, so the pipeline-thread
     # subscription cannot drift between entry points.
@@ -210,8 +209,8 @@ Describe 'entry-point Ctrl+C handlers delegate to the shared helper' {
     # variable would be gone by the time the It body executed, leaving $entry null and the
     # assertion reading an empty path; -TestCases binds the value into the It's own scope.
     It "<Entry> delegates to the shared cancel handler with no inline CancelKeyPress registration" -TestCases @(
-        @{ Entry = 'Invoke-TestRunner.ps1' }
-        @{ Entry = 'Invoke-TestSequence.ps1' }
+        @{ Entry = 'Start-TestRunner.ps1' }
+        @{ Entry = 'Debug-TestSequence.ps1' }
     ) {
         param($Entry)
         $path = Join-Path $script:EntryPointDir $Entry

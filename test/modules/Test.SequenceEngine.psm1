@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a1b2c3-d4e5-4f67-8901-bc0123456770
+.VERSION 2026.08.19
+.GUID 4210c3aa-ab5b-4b2b-9259-5c68ad1cb72e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
@@ -46,7 +46,7 @@ Import-Module (Join-Path $PSScriptRoot 'Test.SequenceVariable.psm1') -Global -Fo
 
 # Sequence-file reading + gui/ssh search-path resolution. -Global so the
 # engine's own callers (Invoke-SequenceByName, Invoke-Sequence) and the
-# external importers (Test.SequencePlanner / Test.SequenceRunner / Invoke-TestSequence)
+# external importers (Test.SequencePlanner / Test.SequenceRunner / Debug-TestSequence)
 # resolve the moved functions transitively.
 Import-Module (Join-Path $PSScriptRoot 'Test.SequenceResolve.psm1') -Global -Force
 
@@ -593,6 +593,97 @@ function Get-OcrDegradationGrace {
     return [int][math]::Max(0, [math]::Min($want, $remaining))
 }
 
+function Get-ConsoleFloodVerdict {
+    <#
+    .SYNOPSIS
+        Is this console surface a repeating log line rather than a screen the
+        sought pattern could still be read from? Pure, so the thresholds are
+        testable without a VM.
+    .DESCRIPTION
+        The third content state a poll can be in. A blank capture is caught by
+        the no-text counter; a capture that stopped changing is caught by the
+        frame-hash freeze detector. A console scrolling one line escapes both:
+        every frame differs, so the feed is provably live, and every frame is
+        full of text, so there is nothing to self-heal. The pattern being sought
+        has simply been pushed off the visible surface and cannot come back
+        while the flood continues -- so the wait is already lost, and the record
+        has to say which failure it was.
+
+        Judged on LINE DIVERSITY, not on volume. A busy screen is not a flooded
+        one: an installer printing many different lines is making progress and
+        may yet print the pattern, while a surface whose lines are nearly all
+        the same line is overwriting itself. Digits and runs of whitespace are
+        normalized away first because the repeating line usually carries a
+        counter or a timestamp, and because OCR of a framebuffer misreads
+        characters differently in each frame -- comparing raw text would see
+        variety that is only noise.
+
+        Requires a minimum line count so a nearly-empty screen (two lines, both
+        a prompt) cannot look like a flood.
+    .PARAMETER Text
+        The OCR text of one captured frame.
+    .PARAMETER MinLines
+        Fewest non-empty lines before diversity is meaningful.
+    .OUTPUTS
+        [hashtable] Flooded, TotalLines, DistinctLines, DominantLine,
+        DominantCount.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Text,
+        [int]$MinLines = 12
+    )
+    $verdict = @{
+        Flooded = $false; TotalLines = 0; DistinctLines = 0
+        DominantLine = ''; DominantCount = 0
+    }
+    if ([string]::IsNullOrWhiteSpace($Text)) { return $verdict }
+
+    $counts = @{}
+    $total  = 0
+    foreach ($raw in ($Text -split "`r?`n")) {
+        # Normalize before counting: strip digits, collapse whitespace, fold
+        # case. What survives is the line's shape, which is what repeats.
+        $norm = ($raw -replace '\d+', '#') -replace '\s+', ' '
+        $norm = $norm.Trim().ToLowerInvariant()
+        # Very short fragments are OCR debris (a lone bracket, a stray glyph)
+        # and would inflate the repeat count on any screen at all.
+        if ($norm.Length -lt 8) { continue }
+        $total++
+        $counts[$norm] = 1 + ($counts[$norm] ?? 0)
+    }
+    $verdict.TotalLines    = $total
+    $verdict.DistinctLines = $counts.Keys.Count
+    if ($total -lt $MinLines -or $counts.Keys.Count -eq 0) { return $verdict }
+
+    $ranked = @($counts.GetEnumerator() | Sort-Object -Property Value -Descending)
+    $verdict.DominantLine  = [string]$ranked[0].Key
+    $verdict.DominantCount = [int]$ranked[0].Value
+
+    # Two independent conditions, both required.
+    #
+    # Diversity is the primary signal, and it scales with the evidence: a
+    # 200-line screen may hold a couple of dozen shapes and still be repeating,
+    # while a 12-line one has to be almost entirely uniform before the same
+    # claim is safe.
+    $fewDistinct = $counts.Keys.Count -le [math]::Max(2, [int][math]::Floor($total / 8))
+
+    # Concentration across the TOP FEW lines, not the single most common one. A
+    # real flood is a repeating UNIT rather than a repeating line: the observed
+    # case alternates a start/finish pair, and OCR further splits each into
+    # fragments, so no individual line reaches half the screen even when the
+    # screen carries nothing else. Requiring one line to dominate therefore
+    # misses exactly the shape this exists to catch, while the top few lines
+    # covering most of the surface describes it precisely.
+    $topCount = 0
+    foreach ($e in ($ranked | Select-Object -First 3)) { $topCount += [int]$e.Value }
+    $topConcentrated = $topCount -ge [int][math]::Ceiling($total * 0.7)
+
+    $verdict.Flooded = ($fewDistinct -and $topConcentrated)
+    return $verdict
+}
+
 function Wait-ForText {
     <#
     .SYNOPSIS
@@ -644,6 +735,7 @@ function Wait-ForText {
     $script:Fail.WaitForTextOcrTail        = $null
     $script:Fail.WaitForTextPatternsSought = [string[]]@()
     $script:Fail.WaitForTextFreshWindowNearMiss = [string[]]@()
+    $script:Fail.WaitForTextConsoleFlood   = $null
     if ($HostType) { Write-Debug "Wait-ForText: -HostType '$HostType' is informational; Yuruna.Host dispatches Get-VMScreenshot internally." }
 
     $patternLabel = $Pattern[0]
@@ -740,6 +832,12 @@ function Wait-ForText {
     $consoleRestarts        = 0
     $frozenFeedSeconds      = 45
     $maxConsoleRestarts     = 2
+    # Flooded-console state (the poll loop's third content case). Neither
+    # counter above can see it: the feed is live and full of text, and only the
+    # text is useless. Counted in polls rather than wall-clock because what has
+    # to persist is the CONTENT across independent captures, not a duration.
+    $floodPolls    = 0
+    $floodReported = $false
     # Degradation-trend early action: the two self-heals above are reactive at a fixed
     # threshold. Once the feed has proven flaky (a console restart fired), drop
     # the freeze threshold so the next stall is caught sooner -- acting on the
@@ -865,6 +963,46 @@ function Wait-ForText {
                             Write-Debug "      Text detected across recent frames: '$p'"
                             return $true
                         }
+                    }
+
+                    # Flooded-console detection, and a THIRD case distinct from
+                    # both branches around it. The no-text branch below sees a
+                    # feed with nothing on it; the byte-hash freeze detector
+                    # further down sees a feed that stopped changing. A console
+                    # scrolling one repeating log line is neither: every frame
+                    # differs, so the feed looks perfectly healthy, and every
+                    # frame is full of text, so AnyText is true -- while the
+                    # pattern being sought has already scrolled out of the
+                    # visible surface and is never coming back into it. Left
+                    # unnamed this spends the entire timeout and is recorded as
+                    # an ordinary pattern-never-printed, which sends the reader
+                    # to the guest script that was in fact never reached.
+                    #
+                    # Recorded, NOT acted on: the wait still runs its full
+                    # budget. A flood can stop, and aborting early on a
+                    # heuristic would trade a slow correct answer for a fast
+                    # wrong one. What changes is that the failure names itself.
+                    $floodVerdict = Get-ConsoleFloodVerdict -Text ([string]$result.AnyText)
+                    if ($floodVerdict.Flooded) {
+                        $floodPolls++
+                        # One burst is not a flood -- a legitimate screen can
+                        # repeat a line while something else is mid-print. The
+                        # signal is persistence across polls, each of which is a
+                        # fresh capture seconds apart.
+                        if ($floodPolls -ge 3 -and -not $floodReported) {
+                            $floodReported = $true
+                            $floodDetail = ("console filled with a repeating line while seeking '$patternLabel': " +
+                                "$($floodVerdict.DistinctLines) distinct line(s) across $($floodVerdict.TotalLines) " +
+                                "on screen, dominant line '$($floodVerdict.DominantLine)' x$($floodVerdict.DominantCount)")
+                            $script:Fail.WaitForTextConsoleFlood = $floodDetail
+                            Write-Warning "      Wait-ForText: $floodDetail -- the pattern cannot be read off a surface this is overwriting, so the wait will run its budget and the failure will be recorded as a flooded console rather than a missing pattern."
+                            if (Get-Command Send-YurunaDegradation -ErrorAction SilentlyContinue) {
+                                Send-YurunaDegradation -Dependency 'console-content' -Primary 'readable-console' -Fallback 'none' `
+                                    -Reason $floodDetail
+                            }
+                        }
+                    } else {
+                        $floodPolls = 0
                     }
                 }
 
@@ -1027,6 +1165,25 @@ function Wait-ForText {
             }
         }
 
+        # An exhausted repair budget leaves an ambiguity the artifacts cannot
+        # settle: a byte-identical capture can mean a guest that stopped
+        # drawing or a capture pipeline that lost the live feed while the
+        # guest kept going. Where the host driver can read the framebuffer
+        # independently of the capture path, ask it, so the failure names the
+        # side to investigate instead of leaving both under suspicion.
+        if ($consoleRestarts -ge $maxConsoleRestarts -and (Get-Command Get-VMConsoleSecondOpinion -ErrorAction SilentlyContinue)) {
+            try {
+                $secondOpinion = Get-VMConsoleSecondOpinion -VMName $VMName
+                if ($secondOpinion -and $secondOpinion.Verdict -ne 'unavailable') {
+                    Write-Warning "      Console second opinion ($($secondOpinion.Verdict)): $($secondOpinion.Detail)"
+                } elseif ($secondOpinion) {
+                    Write-Verbose "      Console second opinion unavailable: $($secondOpinion.Detail)"
+                }
+            } catch {
+                Write-Verbose "      Get-VMConsoleSecondOpinion failed: $($_.Exception.Message)"
+            }
+        }
+
         if ($deadlineGrantedSeconds -gt 0) {
             $waited = [int]([DateTime]::UtcNow - $startUtc).TotalSeconds
             Write-Warning "Text '$patternLabel' not found within ${TimeoutSeconds}s (+${deadlineGrantedSeconds}s degradation grace; waited ~${waited}s)"
@@ -1090,7 +1247,7 @@ function Invoke-SequenceByName {
         # this map REPLACES the same-named entry under the sequence
         # file's `variables:` block before step expansion (top-of-chain
         # wins for the whole chain -- see Test.SequencePlanner). Empty
-        # map = standalone Invoke-TestSequence.ps1 invocation, keeps the
+        # map = standalone Debug-TestSequence.ps1 invocation, keeps the
         # legacy "sequence-local variables win" path.
         # Use IDictionary (not [hashtable]) so an [ordered]@{} from the
         # planner keeps its insertion order through parameter binding.
@@ -1167,7 +1324,7 @@ function Select-SequenceStepWindow {
 # The VM name in effect when the most recent Invoke-Sequence returned, including
 # a mid-sequence saveDiskSnapshot rename. Chain callers read this after each
 # sequence so the next one targets the renamed VM -- one shared mechanism for
-# both the inner runner's Start-Guest* loops and Invoke-TestSequence's chain runner.
+# both the inner runner's Start-Guest* loops and Debug-TestSequence's chain runner.
 function Get-SequenceFinishedVMName {
     <#
     .SYNOPSIS
@@ -1266,7 +1423,7 @@ function Invoke-GuestSequenceList {
         Write-Information "  ${s}: PASS" -InformationAction Continue
         # Pick up a mid-sequence saveDiskSnapshot rename so the next sequence in the
         # list targets the renamed VM -- the same Get-SequenceFinishedVMName mechanism
-        # Invoke-TestSequence's chain runner uses. No-op when nothing renamed.
+        # Debug-TestSequence's chain runner uses. No-op when nothing renamed.
         $finishedVm = Get-SequenceFinishedVMName
         if ($finishedVm -and $finishedVm -ne $VMName) {
             Write-Information "  VM renamed mid-chain: '$VMName' -> '$finishedVm'." -InformationAction Continue
@@ -1298,7 +1455,7 @@ function Invoke-Sequence {
         [string]$SequencePath,
         # Planner-cascaded variable overrides; see Invoke-SequenceByName.
         # Null/empty = use the sequence file's own `variables:` block
-        # verbatim (standalone Invoke-TestSequence.ps1 path).
+        # verbatim (standalone Debug-TestSequence.ps1 path).
         # Use IDictionary (not [hashtable]) so an [ordered]@{} from the
         # planner keeps its insertion order through parameter binding.
         # A [hashtable] cast would coerce OrderedDictionary -> Hashtable
@@ -1418,7 +1575,7 @@ function Invoke-Sequence {
     if (-not $vars.ContainsKey('loginUser') -and $vars.ContainsKey('username')) {
         try {
             # Import the extension area lazily; the planner / runner has
-            # usually already loaded it, but standalone Invoke-TestSequence
+            # usually already loaded it, but standalone Debug-TestSequence
             # invocations may reach this path cold.
             $extLoader = Join-Path $PSScriptRoot 'Test.Extension.psm1'
             if (Test-Path $extLoader) {
@@ -1453,7 +1610,7 @@ function Invoke-Sequence {
 
     # Per-step perf logging. Set-PerfSequenceContext / Set-PerfGuestContext
     # are silent no-ops when Test.Perf is not loaded OR when Start-PerfCycle
-    # never ran (e.g. a direct Invoke-TestSequence.ps1 invocation outside the
+    # never ran (e.g. a direct Debug-TestSequence.ps1 invocation outside the
     # runner), so this block is safe to call unconditionally. The raw YAML
     # body is snapshotted so a row's sequenceContentHash can be mapped
     # back to the exact sequence that ran -- gui/ and ssh/ variants of
@@ -1514,7 +1671,7 @@ function Invoke-Sequence {
     # Empty-steps sequences have already returned above, so the sequence-
     # level wait here never triggers for a sequence that has nothing to do.
     # Cycle-pause (control.cycle-pause) is gated separately in
-    # Invoke-TestRunner.ps1 at cycle boundaries -- Invoke-Sequence is only
+    # Start-TestRunner.ps1 at cycle boundaries -- Invoke-Sequence is only
     # concerned with step-level pauses.
     $runtimeDir = Initialize-YurunaRuntimeDir
     $stepPauseFlagFile = Join-Path $runtimeDir 'control.step-pause'
@@ -1632,8 +1789,8 @@ function Invoke-Sequence {
     # After a host reboot the Hyper-V console window may render blank;
     # closing and reopening it forces a full framebuffer refresh.
     # Yuruna.Host's Restart-VMConsole is in scope here because
-    # Initialize-YurunaHost is called by Invoke-TestSequence.ps1 /
-    # Invoke-TestRunner.ps1 before sequences run. Guard it like the other contract calls so a
+    # Initialize-YurunaHost is called by Debug-TestSequence.ps1 /
+    # Start-TestRunner.ps1 before sequences run. Guard it like the other contract calls so a
     # missing/failed host contract degrades to "no repaint" instead of crashing the sequence.
     if (Get-Command Restart-VMConsole -ErrorAction SilentlyContinue) {
         try { [void](Restart-VMConsole -VMName $VMName -Confirm:$false) }
@@ -2113,4 +2270,4 @@ function Invoke-Sequence {
 Export-ModuleMember -Function Invoke-Sequence, Invoke-SequenceByName, Send-Text, Send-Key, Send-Click, `
     Wait-ForText, Invoke-TapOn, Save-DebugScreenshot, Write-ProgressTick, `
     Select-SequenceStepWindow, Get-SequenceFinishedVMName, Get-OcrDegradationGrace, `
-    Invoke-GuestSequenceList
+    Get-ConsoleFloodVerdict, Invoke-GuestSequenceList

@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a1b2c3-d4e5-4f67-8901-bc0123456743
+.VERSION 2026.08.19
+.GUID 42008bcd-66da-4584-84a4-c4454a7f8958
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
@@ -225,7 +225,7 @@ if ($IsMacOS) {
     # cache VM (Grafana on :3000 etc.). Done BEFORE deleting the VM so the
     # state file on disk and the in-kernel portproxy + firewall rules are
     # removed in sync -- otherwise a stale :3000 listener would outlive the
-    # VM and black-hole LAN traffic until the next Invoke-TestRunner cycle.
+    # VM and black-hole LAN traffic until the next Start-TestRunner cycle.
     $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
     Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostContract.psm1') -Force
     [void](Initialize-YurunaHost -RepoRoot $RepoRoot)

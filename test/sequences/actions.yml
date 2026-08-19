@@ -8,7 +8,7 @@
 # instead of redeclaring each action's description. Action names here
 # match the 'action' field in each step. Every step also accepts a
 # step-level 'description' (string, free-form label shown in the cycle
-# log and dashboard) — not repeated under each action's parameter list.
+# log and dashboard) -- not repeated under each action's parameter list.
 # Source of truth for which actions actually exist is the registry
 # populated by the Register-SequenceAction calls in
 # test/modules/Test.SequenceHandler.psm1; keep this file in sync when
@@ -16,7 +16,7 @@
 # registered names).
 #
 # Rendered, prose-style companion (with per-host Yuruna.Host contract
-# notes — including the saveDiskSnapshot rename behavior and its
+# notes -- including the saveDiskSnapshot rename behavior and its
 # divergence across Hyper-V / KVM / UTM): see docs/test-sequences.md.
 #
 # Besides the actions below, a step may be a SNIPPET REFERENCE -- a step
@@ -65,9 +65,9 @@ actions:
 
   callExtension: >
     Side-effecting call into the active extension for an area
-    (e.g. authentication.SetPassword) — used as the dedicated write verb
+    (e.g. authentication.SetPassword) -- used as the dedicated write verb
     when variable substitution is not allowed to have side effects.
-    Parameters: method (string, 'area.Method' — area selects which extension
+    Parameters: method (string, 'area.Method' -- area selects which extension
     family loads, Method is a function exported by that extension),
     args (object, named parameters forwarded to the extension method;
     string values support ${var} and ${ext:...} substitution).
@@ -80,7 +80,7 @@ actions:
     deadline for waitPattern; default = vmCommunication.timeoutSeconds),
     pollSeconds (number, OCR poll interval while waiting for waitPattern;
     default = vmCommunication.pollSeconds), freshMatchTailLines (number,
-    default 24 — how many trailing OCR lines the completion marker is
+    default 24 -- how many trailing OCR lines the completion marker is
     looked for in. Raise it when the guest keeps writing to the console
     after the marker, which otherwise fails a run that succeeded; the
     wait's timeout reports the value to use. Raise it ONLY when the step
@@ -124,7 +124,7 @@ actions:
 
   passwdPrompt: >
     Like waitForAndEnter, but `text` is always treated as sensitive
-    (no `sensitive` field needed) — for PAM password prompts
+    (no `sensitive` field needed) -- for PAM password prompts
     (e.g. `Current password:`, `Retype new password:`) that get
     overwritten on the framebuffer by late console messages. The step
     waits for the pattern, then types the secret + Enter. Parameters:
@@ -179,12 +179,12 @@ actions:
     automation/Get-SystemDiagnostic.ps1, and writes the captured text
     into the per-guest cycleGuestDataFolder as
     `yyyy-MM-dd.HH-mm.system.diagnostic.<id>.txt`. Soft-failing on
-    every rung — the step is informational, so an unreachable guest
+    every rung -- the step is informational, so an unreachable guest
     or missing pwsh does not break the sequence. Capture is opt-in:
     place this step explicitly wherever a snapshot is wanted
     (e.g. right after a workload deploy, before tearing down state,
     or as the final step in a guest sequence). The runner does not
-    auto-invoke it. Parameters: id (string, REQUIRED — appended to
+    auto-invoke it. Parameters: id (string, REQUIRED -- appended to
     the saved filename so two captures in the same cycle don't
     collide; e.g. 'after.k8s.bootstrap', 'before.reboot').
 
@@ -202,7 +202,7 @@ actions:
 
   sshFetchAndExecute: >
     Run a long-lived command over SSH (SSH equivalent of
-    fetchAndExecute). No OCR polling, no password-prompt handling —
+    fetchAndExecute). No OCR polling, no password-prompt handling --
     sudo is expected to be passwordless or the command handles its
     own auth. Parameters: command (string), timeoutSeconds (number,
     default = vmCommunication.timeoutSeconds).
@@ -215,7 +215,7 @@ actions:
     (number, default = vmCommunication.pollSeconds),
     installerFailurePatterns (string or string-array of anti-patterns;
     when set, the wait is chunked and the guest framebuffer is OCR'd
-    between chunks — matching any pattern aborts the wait immediately
+    between chunks -- matching any pattern aborts the wait immediately
     with a fail label that names the matched pattern). Canonical use
     is subiquity's 'install_fail.crash' / 'Press enter to start a
     shell' / 'An error occurred' so a crashed install fails the cycle
@@ -242,7 +242,7 @@ actions:
     timeoutSeconds (number, default = vmCommunication.timeoutSeconds),
     pollSeconds (number, default = vmCommunication.pollSeconds),
     freshMatch (boolean), freshMatchTailLines (number,
-    default 12), failurePatterns (string or string-array — see
+    default 12), failurePatterns (string or string-array -- see
     waitForText), text (string), sensitive (boolean), tabCount
     (number, Tab presses before typing to navigate focus, default 0),
     charDelayMs (number, default = vmCommunication.charDelayMs), delaySeconds (number, default 2).
@@ -259,7 +259,7 @@ actions:
     freshMatchTailLines (number, default 12), failurePatterns (string
     or string-array of anti-patterns; matching any short-circuits the
     wait and fails the step with a label that names the matched pattern
-    — canonical use: subiquity's 'install_fail.crash' / 'Press enter to
+    -- canonical use: subiquity's 'install_fail.crash' / 'Press enter to
     start a shell' so an installer crash fails the cycle in ~20s
     instead of waiting the full timeoutSeconds for a login prompt that
     will never come). Uses ${var} substitution.

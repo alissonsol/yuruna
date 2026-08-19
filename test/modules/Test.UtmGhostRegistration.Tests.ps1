@@ -1,6 +1,6 @@
 <#PSScriptInfo
 .VERSION 2026.08.03
-.GUID 42d7c5e9-1b83-4a06-9e5f-7c24b81d3fa0
+.GUID 42caf871-b327-4fe1-9fdb-2ee70289ee2b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test utm registration ghost delete pester
@@ -63,11 +63,7 @@ Describe 'A UTM registration whose bundle is gone (host.macos.utm)' {
         $script:GhostRegDir = Join-Path $script:GhostRoot 'registry'
         $script:GhostStore  = Join-Path $script:GhostHome 'yuruna/guest.nosync'
 
-        function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
-        function Assert-Equal {
-            param($Expected, $Actual, [string]$Because = '')
-            if ("$Expected" -ne "$Actual") { throw "Expected '$Expected' but got '$Actual'. $Because" }
-        }
+        Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
         # The fake reproduces the two behaviours of the real tool that the code
         # under test exists for: `status` is the only trustworthy answer to "is
@@ -170,7 +166,7 @@ Describe 'A UTM registration whose bundle is gone (host.macos.utm)' {
             Assert-True $ok 'the deregistration reports success'
             Assert-True (-not (Test-UtmVMRegistered -VMName 'stranded-vm')) 'and UTM no longer lists the name'
         }
-        Assert-Equal 0 (Get-GhostStoreCount) -Because 'the restored bundle went with the delete, leaving no residue'
+        Assert-StringEqual 0 (Get-GhostStoreCount) -Because 'the restored bundle went with the delete, leaving no residue'
     }
 
     It 'reports failure and leaves no placeholder when the delete never takes' {
@@ -189,7 +185,7 @@ Describe 'A UTM registration whose bundle is gone (host.macos.utm)' {
                 Assert-True (Test-UtmVMRegistered -VMName 'immovable-vm') 'the name is still registered'
             }
         } finally { $env:YRN_FAKE_DELETE_FAILS = '' }
-        Assert-Equal 0 (Get-GhostStoreCount) -Because 'the placeholder is removed once it is clear the delete will not use it'
+        Assert-StringEqual 0 (Get-GhostStoreCount) -Because 'the placeholder is removed once it is clear the delete will not use it'
     }
 
     It 'leaves a bundle alone when its registration survives the delete' {
@@ -206,7 +202,7 @@ Describe 'A UTM registration whose bundle is gone (host.macos.utm)' {
                 Assert-True (-not $ok) 'the failure is reported'
             }
         } finally { $env:YRN_FAKE_DELETE_FAILS = '' }
-        Assert-Equal 1 (Get-GhostStoreCount) -Because 'the bundle stays, so the registration stays removable'
+        Assert-StringEqual 1 (Get-GhostStoreCount) -Because 'the bundle stays, so the registration stays removable'
     }
 
     It 'reports success without a delete when the name was never registered' {
@@ -226,7 +222,6 @@ Describe 'The removal path never trusts a utmctl delete exit code' {
         $script:ModuleText = Get-Content -Raw -LiteralPath $script:ModuleFile
         $script:ModuleAst  = [System.Management.Automation.Language.Parser]::ParseFile(
             $script:ModuleFile, [ref]$null, [ref]$null)
-        function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
         function Get-FunctionBody {
             param([Parameter(Mandatory)][string]$Name)
             return [regex]::Match($script:ModuleText, "(?ms)^function $Name\b.*?\n\}").Value

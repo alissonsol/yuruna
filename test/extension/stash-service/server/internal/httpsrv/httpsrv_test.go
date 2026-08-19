@@ -129,7 +129,7 @@ func tail(permalink string) string { return strings.TrimPrefix(permalink, "/s/")
 func TestCreateListGetRawDeleteText(t *testing.T) {
 	ts, _, _ := newTestUI(t)
 
-	// Create via form text (§5.1).
+	// Create via form text (section 5.1).
 	form := "title=notes.txt&author=alice&text=" + "hello+stash+world"
 	resp, err := http.Post(ts.URL+"/api/stashes", "application/x-www-form-urlencoded", strings.NewReader(form))
 	if err != nil {
@@ -146,7 +146,7 @@ func TestCreateListGetRawDeleteText(t *testing.T) {
 		t.Fatalf("create: %+v", created)
 	}
 
-	// List (§4) — should contain it, marked local.
+	// List (section 4) -- should contain it, marked local.
 	var list struct {
 		Stashes []StashView `json:"stashes"`
 		Total   int         `json:"total"`
@@ -163,7 +163,7 @@ func TestCreateListGetRawDeleteText(t *testing.T) {
 		t.Fatalf("metadata not captured: %+v", v)
 	}
 
-	// Get metadata (§6).
+	// Get metadata (section 6).
 	var meta1 struct {
 		Stash StashView `json:"stash"`
 	}
@@ -172,7 +172,7 @@ func TestCreateListGetRawDeleteText(t *testing.T) {
 		t.Fatalf("meta id mismatch: %+v", meta1.Stash)
 	}
 
-	// Raw inline (§7): bytes + safety headers + text content type.
+	// Raw inline (section 7): bytes + safety headers + text content type.
 	rraw, err := http.Get(ts.URL + "/raw/" + tail(created.Permalink))
 	if err != nil {
 		t.Fatal(err)
@@ -192,7 +192,7 @@ func TestCreateListGetRawDeleteText(t *testing.T) {
 		t.Fatalf("raw text content-type = %q", ct)
 	}
 
-	// Download is an attachment (§7.5).
+	// Download is an attachment (section 7.5).
 	rdl, err := http.Get(ts.URL + "/download/" + tail(created.Permalink))
 	if err != nil {
 		t.Fatal(err)
@@ -202,7 +202,7 @@ func TestCreateListGetRawDeleteText(t *testing.T) {
 		t.Fatalf("download disposition = %q", cd)
 	}
 
-	// Delete local (§8), through an unlocked session → then 404.
+	// Delete local (section 8), through an unlocked session -> then 404.
 	dresp := deleteStash(t, unlocked(t, ts), ts.URL+"/api/stashes/"+tail(created.Permalink))
 	dresp.Body.Close()
 	if dresp.StatusCode != http.StatusOK {
@@ -537,16 +537,16 @@ func TestCreateHTMLServedAsText(t *testing.T) {
 	}
 	getJSON(t, ts.URL+"/api/stashes/"+tail(permalink), &got)
 	if got.Stash.ContentClass != config.ClassOther {
-		t.Fatalf("html class = %q, want other (download-only §7.4)", got.Stash.ContentClass)
+		t.Fatalf("html class = %q, want other (download-only section 7.4)", got.Stash.ContentClass)
 	}
-	// Raw must NOT serve text/html (would execute) — served as text/plain.
+	// Raw must NOT serve text/html (would execute) -- served as text/plain.
 	r, err := http.Get(ts.URL + "/raw/" + tail(permalink))
 	if err != nil {
 		t.Fatal(err)
 	}
 	r.Body.Close()
 	if ct := r.Header.Get("Content-Type"); strings.Contains(ct, "html") {
-		t.Fatalf("html stash served as %q — must not be executable", ct)
+		t.Fatalf("html stash served as %q -- must not be executable", ct)
 	}
 }
 
@@ -604,7 +604,7 @@ func TestShortAliasAndDateScoping(t *testing.T) {
 	full := tail(created.Permalink)            // <host>/<y>/<m>/<d>/<id>
 	short := full[strings.Index(full, "/")+1:] // <y>/<m>/<d>/<id>
 
-	// Short alias resolves to the same local stash (§4.4).
+	// Short alias resolves to the same local stash (section 4.4).
 	var got struct {
 		Stash StashView `json:"stash"`
 	}
@@ -794,7 +794,7 @@ func postFile(t *testing.T, base, name, body string) string {
 
 // TestHostInfo covers the footer's host-facts endpoint: ok=true, the local
 // hostId, and a serverIps STRING (newline-separated lines, possibly empty in a
-// sandboxed CI with no non-loopback interface — the contract is the shape, not
+// sandboxed CI with no non-loopback interface -- the contract is the shape, not
 // a specific address). What this browser may DO is deliberately not here; that
 // is /api/session's answer, and it changes under a page these facts do not.
 func TestHostInfo(t *testing.T) {
@@ -826,7 +826,7 @@ func TestHostInfo(t *testing.T) {
 }
 
 // TestIndexServesFooter verifies the home page carries the shared footer
-// markup and that the footer module ships in common.js — i.e. the footer is
+// markup and that the footer module ships in common.js -- i.e. the footer is
 // actually wired end-to-end, not just defined.
 func TestIndexServesFooter(t *testing.T) {
 	ts, _, _ := newTestUI(t)

@@ -102,7 +102,7 @@
     return (s / 86400).toFixed(1) + 'd';
   };
   Y.stamp = function (iso) {
-    if (!iso) return '—';
+    if (!iso) return '--';
     const d = new Date(iso);
     if (isNaN(d.getTime())) return iso;
     return d.toLocaleString();
@@ -120,7 +120,7 @@
 
   // initChrome wires the shared page chrome: the header's version + host id and
   // the bottom footer bar (server IPs, last-loaded time, refresh countdown).
-  // Page-agnostic — every fact comes from /api/hostinfo, so a page adds the
+  // Page-agnostic -- every fact comes from /api/hostinfo, so a page adds the
   // chrome by carrying the markup and calling this once.
   //
   // Returns { markLoaded, stamp }. markLoaded stamps the "Loaded" time AND
@@ -139,14 +139,14 @@
     const $ = function (id) { return document.getElementById(id); };
     let countdown = interval;
 
-    // Render IPs into the readonly textarea, sized to 1–2 rows (one per address
+    // Render IPs into the readonly textarea, sized to 1-2 rows (one per address
     // family). These are the daemon's own IPs, but use .value (never innerHTML)
-    // anyway. Em dash (—) is the empty placeholder.
+    // anyway. Em dash (--) is the empty placeholder.
     const renderIps = function (text) {
       const el = $('footer-ip-list');
       if (!el) return;
       const v = (text || '').replace(/\s+$/, '');
-      el.value = v || '—';
+      el.value = v || '--';
       el.rows = Math.min(2, Math.max(1, el.value.split('\n').length));
     };
 
@@ -166,7 +166,7 @@
       // Stamp here, not only from a page's data load: a page with no feed of its
       // own (a static link list) would otherwise show the em-dash forever. A page
       // that does fetch overwrites this a moment later with its own load time.
-      // stamp, not markLoaded — arriving host facts must not restart the
+      // stamp, not markLoaded -- arriving host facts must not restart the
       // countdown a caller may already be running.
       stamp();
     }).catch(function () { renderIps(''); });

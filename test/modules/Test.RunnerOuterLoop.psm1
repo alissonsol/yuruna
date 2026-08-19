@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42e5f6a7-b8c9-4d12-9345-6e7f8a9b0c1d
+.VERSION 2026.08.19
+.GUID 42904a4e-7e96-4d32-883d-8326239ad090
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test runner outer-loop
@@ -18,7 +18,7 @@
 
 <#
 .SYNOPSIS
-    Eternal cycle loop for [test/Invoke-TestRunner.ps1](../Invoke-TestRunner.ps1):
+    Eternal cycle loop for [test/Start-TestRunner.ps1](../Start-TestRunner.ps1):
     git pull, spawn the inner runner per cycle, watch the heartbeat,
     pause on failure with four break-out triggers (framework commit,
     project commit, local config edit, status-UI start request).
@@ -28,9 +28,9 @@
     network, a hung sequence, an unhandled exception inside the
     inner -- is just another failure that the outer absorbs and retries.
 
-    Lives in its own module, separate from the Invoke-TestRunner.ps1
+    Lives in its own module, separate from the Start-TestRunner.ps1
     entry point, so the loop body and its helpers can be unit-tested
-    independently of the entry-point script. The caller (Invoke-TestRunner.ps1) builds
+    independently of the entry-point script. The caller (Start-TestRunner.ps1) builds
     a State hashtable and calls Invoke-RunnerOuterLoop; the function
     returns when ShutdownState['Requested'] flips. The watchdog lives
     in its own module ([Test.RunnerWatchdog](Test.RunnerWatchdog.psm1))
@@ -1304,7 +1304,7 @@ function Invoke-RunnerOuterCycle {
         }
         # break-active.json: written by the `break` sequence action
         # when a cooperative breakpoint parks the cycle, removed on
-        # resume. If the operator restarts only Invoke-TestRunner.ps1
+        # resume. If the operator restarts only Start-TestRunner.ps1
         # while a break is parked, the file survives and the first
         # new-cycle step's Gate #1 thinks a break is still active --
         # hanging the cycle on a non-existent marker. Status-server
@@ -2012,7 +2012,7 @@ function Invoke-RunnerOuterLoop {
             if (-not (Test-OuterNoStatusServiceForwarded -ArgList $State.ArgList) -and
                 (Get-Command Resolve-StatusServiceStart -ErrorAction SilentlyContinue) -and
                 (Get-Command Read-TestConfig -ErrorAction SilentlyContinue)) {
-                $ensureStartScript = Join-Path $State.RepoRoot 'test/Start-StatusService.ps1'
+                $ensureStartScript = Join-Path $State.RepoRoot 'test/service/Start-StatusService.ps1'
                 if (Test-Path -LiteralPath $ensureStartScript) {
                     $ensureCfg      = Read-TestConfig -Path $State.ConfigPath
                     $ensureDecision = Resolve-StatusServiceStart -Config $ensureCfg
@@ -2117,7 +2117,7 @@ function Invoke-RunnerOuterLoop {
                 # poll, that path would leave the UI's "Start cycle"
                 # button silent until the backoff cap. Consume the
                 # flag here so the next inner spawn doesn't re-fire on
-                # it (Invoke-TestSequence / inner's boot sweep also consume,
+                # it (Debug-TestSequence / inner's boot sweep also consume,
                 # but the closer the consume to the wake the smaller
                 # the window for stale-flag re-entry).
                 $outerRestartFlag = Join-Path $env:YURUNA_RUNTIME_DIR 'control.cycle-restart'
@@ -2146,7 +2146,34 @@ function Invoke-RunnerOuterLoop {
                 $autoRem = Get-OuterAutoRemediation -ConfigPath $State.ConfigPath
                 if ($autoRem.Enabled -and $remediationAutoSkips -lt $autoRem.MaxAttempts) {
                     $failClass = Get-OuterLastFailureClass
-                    if ($failClass -in @('wait_timeout','instrumentation_failure','network_timeout','host_io_blocked')) {
+                    # The allow-list lives with the registry that classifies
+                    # failures, not here. A literal in this file could not stay
+                    # in step with the handlers: it named four classes while
+                    # three more already recommended a retry, and nothing
+                    # reconciled the two. If the module is unavailable -- this
+                    # runs in a separate process on the shipped path -- the
+                    # answer is NO: an unclassifiable failure is the one that
+                    # should stop and be looked at, not the one to retry blind.
+                    #
+                    # The import is guarded and local, matching how this module
+                    # picks up its other optional dependencies: the entry-point
+                    # module set already carries Test.Remediation on the shipped
+                    # path, but this function is also reachable directly, and a
+                    # dependency that only resolves via the caller's module set
+                    # is one the caller can silently remove.
+                    if (-not (Get-Command Test-AutoRemediationAllowed -ErrorAction SilentlyContinue)) {
+                        $remMod = Join-Path $PSScriptRoot 'Test.Remediation.psm1'
+                        if (Test-Path -LiteralPath $remMod) {
+                            Import-Module $remMod -Global -ErrorAction SilentlyContinue
+                        }
+                    }
+                    $mayRetry = $false
+                    if (Get-Command Test-AutoRemediationAllowed -ErrorAction SilentlyContinue) {
+                        $mayRetry = Test-AutoRemediationAllowed -FailureClass $failClass
+                    } else {
+                        Write-OuterLog "[outer cycle $cycle] auto-remediation: Test.Remediation unavailable; '$failClass' not retried."
+                    }
+                    if ($mayRetry) {
                         $remediationAutoSkips++
                         Write-Output "[outer cycle $cycle] auto-remediation: transient '$failClass' -- ending pause early to retry (auto-retry $remediationAutoSkips/$($autoRem.MaxAttempts))."
                         Write-OuterLog "[outer cycle $cycle] auto-remediation: transient '$failClass' -- ending pause early (auto-retry $remediationAutoSkips/$($autoRem.MaxAttempts))."

@@ -44,7 +44,7 @@ func TestClassifyByExtension(t *testing.T) {
 }
 
 func TestClassifyExtensionlessText(t *testing.T) {
-	// No extension, printable UTF-8 → text/plain (a README/LICENSE/Makefile).
+	// No extension, printable UTF-8 -> text/plain (a README/LICENSE/Makefile).
 	got := Classify([]byte("all: build\n\tgo build ./...\n"), "Makefile")
 	if got.ContentClass != config.ClassText || !got.IsText {
 		t.Fatalf("extensionless text misclassified: %+v", got)

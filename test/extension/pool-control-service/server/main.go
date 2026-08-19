@@ -42,8 +42,8 @@ func main() {
 	monitorInterval := flag.Duration("monitor-interval", 60*time.Second, "how often to probe the intent + refresh status.json")
 	configPath := flag.String("config-file", "/etc/yuruna/pool-control-service.env", "env file re-read before each intent operation for POOL_CONTROL_INTENT_GIT_URL (empty pins the launch flag)")
 	authTokenFile := flag.String("auth-token-file", config.DefaultAuthTokenFile, "file holding the lab auth token accepted as a bearer on the mutating routes (empty or missing leaves the dashboard's lab token as the only way in)")
-	autoEnrol := flag.Bool("auto-enrol", false, "enable the auto-enrolment sweep (adds lab-token-ready hosts to the target pool); OFF by default")
-	autoEnrolInterval := flag.Duration("auto-enrol-interval", 60*time.Second, "how often the auto-enrolment sweep runs when --auto-enrol is set")
+	autoEnroll := flag.Bool("auto-enroll", false, "enable the auto-enrollment sweep (adds lab-token-ready hosts to the target pool); OFF by default")
+	autoEnrollInterval := flag.Duration("auto-enroll-interval", 60*time.Second, "how often the auto-enrollment sweep runs when --auto-enroll is set")
 	scanCIDR := flag.String("scan-cidr", "", "network to sweep for Yuruna hosts, in CIDR notation (empty = the /24 around this service's own address)")
 	scanPort := flag.Int("scan-port", discovery.DefaultPort, "host status-service port probed on each address during a scan")
 	scanInterval := flag.Duration("scan-interval", discovery.DefaultInterval, "how often the discovery sweep runs (0 disables the timer; the Scan page still scans on demand)")
@@ -75,13 +75,13 @@ func main() {
 	errCh := make(chan error, 1)
 	go func() { errCh <- ui.ListenAndServe(ctx) }()
 
-	// Auto-enrolment runs on its OWN ticker, started unconditionally here --
+	// Auto-enrollment runs on its OWN ticker, started unconditionally here --
 	// deliberately NOT inside the store.Enabled() block below. That block is
 	// gated on --state-dir, which the host-side launcher never passes, so a
 	// sweep riding it would silently not exist on that deployment.
-	go ui.RunAutoEnrolment(ctx, httpsrv.AutoEnrolOptions{
-		Enabled:  *autoEnrol,
-		Interval: *autoEnrolInterval,
+	go ui.RunAutoEnrollment(ctx, httpsrv.AutoEnrollOptions{
+		Enabled:  *autoEnroll,
+		Interval: *autoEnrollInterval,
 	})
 
 	// Network discovery, on its own ticker for the same reason: the sweep is how

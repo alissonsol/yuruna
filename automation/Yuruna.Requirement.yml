@@ -39,7 +39,7 @@ requirements:
     releases: "https://opentofu.org/docs/intro/install/"
   - tool: "Helm"
     command: "helm version --short"
-    version: "v4.2.3"
+    version: "v4.2.4"
     releases: "https://github.com/helm/helm/releases"
   - tool: "Docker"
     # `docker --version` is local (no daemon roundtrip) -- avoids the

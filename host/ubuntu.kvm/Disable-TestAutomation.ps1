@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 424c8e37-1b52-4f6d-8c07-e5d29a3b7104
+.VERSION 2026.08.19
+.GUID 427d85b1-fda1-4ae0-9a2f-5a950d4da265
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test host ubuntu kvm disable-test-automation
@@ -222,8 +222,8 @@ if (-not $ufwCmd) {
 # --- REGION: Services (opt-in)
 if ($StopServices) {
     foreach ($svc in @('CachingProxyService', 'StashService', 'PoolControlService', 'DownloadAgentService')) {
-        $script = Join-Path $RepoRoot "test/Stop-${svc}VM.ps1"
-        if (-not (Test-Path -LiteralPath $script)) { $skipped.Add("test/Stop-${svc}VM.ps1 not found"); continue }
+        $script = Join-Path $RepoRoot "test/service/Stop-${svc}VM.ps1"
+        if (-not (Test-Path -LiteralPath $script)) { $skipped.Add("test/service/Stop-${svc}VM.ps1 not found"); continue }
         if ($PSCmdlet.ShouldProcess("$svc VM", 'Stop')) {
             & pwsh -NoProfile -File $script
             $restored.Add("$svc VM stopped")

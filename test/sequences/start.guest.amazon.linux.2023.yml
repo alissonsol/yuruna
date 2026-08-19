@@ -20,11 +20,18 @@ component:
     maxAttempts: 3
     description: "Login, password rotation, and vault commit (restart on timeout)"
     steps:
-      - action: waitForText
-        pattern: "login:"
-        timeoutSeconds: 300
-        description: "OCR: login:"
-
+      # The nudge comes BEFORE the wait, and that ordering is the whole point.
+      # agetty prints "login:" once and does not reprint it; cloud-init's
+      # closing console writes (the SSH host-key banner is the long one) land
+      # after it and scroll it away. The prompt is then gone from a screen that
+      # never changes again, so an OCR wait for it can only spend its full
+      # budget. An ordering that waited first and nudged second would put the
+      # recovery downstream of the very step it exists to unblock, and since a
+      # retry attempt restarts at this step, no attempt would ever reach it.
+      #
+      # Enter is safe to send unconditionally: at a prompt it draws a fresh
+      # one, and mid-boot it is discarded. Every retry attempt issues it, so a
+      # prompt overwritten during one attempt is recovered by the next.
       - action: pressKey
         name: Enter
         description: "Push agetty to redraw a fresh login"
@@ -32,6 +39,11 @@ component:
       - action: waitForSeconds
         seconds: 2
         description: "Let agetty redraw"
+
+      - action: waitForText
+        pattern: "login:"
+        timeoutSeconds: 300
+        description: "OCR: login:"
 
       - action: passwdPrompt
         pattern: "login:"

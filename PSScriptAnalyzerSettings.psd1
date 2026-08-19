@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a9b8c7-d6e5-4f43-2109-87a6b5c4d3e2
+.VERSION 2026.08.19
+.GUID 42119fc0-fb66-4f97-be1e-9ecb9b66d1f5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna pssa-settings

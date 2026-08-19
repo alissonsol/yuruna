@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42d1e2f3-a4b5-4c67-89ab-cd0e1f2a3b52
+.VERSION 2026.08.19
+.GUID 4277d76d-71f9-4057-a9d2-4d6341c5dd2d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test diagnostic console tty pester
@@ -43,8 +43,7 @@ $here    = Split-Path -Parent $PSCommandPath
 $modPath = Join-Path $here 'Test.Diagnostic.psm1'
 Import-Module $modPath -Force
 
-function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # Fixtures live at FILE scope, above the first Describe: a Describe body runs
 # during discovery and its variables are thrown away before any It executes.

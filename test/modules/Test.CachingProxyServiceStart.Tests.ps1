@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a3b4c5-d6e7-4f89-8a01-2b3c4d5e6f70
+.VERSION 2026.08.19
+.GUID 4264d5c7-e082-4c67-a5f9-915f2f84141e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test cachingproxy deadline lastexitcode pester
@@ -65,7 +65,7 @@ $testDir = Split-Path -Parent $here
 $script:startCp  = Join-Path $testDir 'service/Start-CachingProxyServiceVM.ps1'
 $script:repoRoot = Split-Path -Parent $testDir
 
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 function Get-Ast {
     param([string]$Path)

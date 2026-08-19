@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42f1b2c3-d4e5-4f67-8901-a2b3c4d5e6f9
+.VERSION 2026.08.19
+.GUID 4220d762-3e46-4f5b-808c-166adb4d8b1b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
@@ -65,7 +65,7 @@ param(
     [string]$SquidCacheMem = '7 GB'
 )
 
-# Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+# Honor logLevel from Start-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
 # Load only when absent, never -Force. Start-CachingProxyServiceVM.ps1 runs this
 # script IN-PROCESS, so a forced re-import from here tears down and rebuilds the
 # module instance its caller is already using, taking whatever that instance keeps

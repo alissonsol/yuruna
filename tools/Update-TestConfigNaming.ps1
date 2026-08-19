@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42b5c7d9-1e08-4a3f-9b26-5c8d0e1f2a37
+.VERSION 2026.08.19
+.GUID 42f97555-078b-4a8e-8eef-1fac4bd333c4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna config migration naming

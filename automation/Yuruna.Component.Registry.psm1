@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42d2e3f4-a5b6-4789-0123-4d5e6f7a8b9c
+.VERSION 2026.08.19
+.GUID 428308ce-5f89-47bf-9321-39f004dc556d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS Yuruna.Component.Registry

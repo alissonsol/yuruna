@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a1b2c3-d4e5-4f67-8901-bc0123456716
+.VERSION 2026.08.19
+.GUID 424a4bb4-0925-4cb5-8746-7b99ea564ac0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
@@ -89,7 +89,7 @@ function Start-GuestOS {
     )
     # ShowOutput is a compatibility shim, never read inside this function. A
     # long-running macOS runner re-imports modules each cycle without reloading
-    # Invoke-TestRunner.ps1 itself, so a runner launched from an older call site
+    # Start-TestRunner.ps1 itself, so a runner launched from an older call site
     # can still be passing the arg. Accept and ignore until those runners restart.
     Write-Debug "Start-GuestOS: -ShowOutput=$ShowOutput accepted as a no-op (transitional shim)."
     # The dispatcher loop lives in Invoke-Sequence (Invoke-GuestSequenceList), shared

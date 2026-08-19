@@ -1,6 +1,6 @@
 <#PSScriptInfo
 .VERSION 2026.07.15
-.GUID 42b7d3e5-a1c2-4f89-9d34-6e5f7a8b9c01
+.GUID 424c3d85-6f03-4c68-b42d-34204ceb41ef
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test cachingproxy endpoint precedence pester
@@ -47,9 +47,7 @@ $here = Split-Path -Parent $PSCommandPath
 $vmUtilityModule    = Join-Path $here 'Test.VMUtility.psm1'
 $cachingProxyModule = Join-Path $here 'Test.CachingProxyService.psm1'
 
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
-function Assert-False { param($Condition, [string]$Because = '') if ($Condition) { throw "Expected false. $Because" } }
-function Assert-Equal { param($Expected, $Actual, [string]$Because = '') if ($Expected -ne $Actual) { throw "Expected '$Expected' but got '$Actual'. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 function Get-SourceProbeIndex {
 <#

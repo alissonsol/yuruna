@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42e6b2d9-4a17-4c83-9f25-3b8c1d6e0a47
+.VERSION 2026.08.19
+.GUID 42d985d1-8774-4cde-a9d4-deb5b4740d25
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test status telemetry pester
@@ -30,9 +30,7 @@ BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.Status.psm1') -Force -DisableNameChecking -Global -ErrorAction SilentlyContinue
 
-function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
-function Assert-Null  { param($Actual, [string]$Because='') if ($null -ne $Actual) { throw "Expected null got [$Actual]. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 function New-TempStatusDir {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
@@ -125,12 +123,12 @@ Describe 'status.json lastFailure surface' {
         Assert-Null $j.lastFailure 'fresh doc has null lastFailure'
 
         Set-LastFailureSummary -FailureClass 'ocr_timeout' -Severity 'hard' -StepNumber 3 -SequenceName 'wl.test' `
-            -ReproCommand 'pwsh test/Invoke-TestSequence.ps1 -SequenceName "wl.test"' -RelPath 'last_failure.json' `
+            -ReproCommand 'pwsh test/Debug-TestSequence.ps1 -SequenceName "wl.test"' -RelPath 'last_failure.json' `
             -GuestKey 'guest.x' -StepName 'Start-GuestWorkload' -ErrorMessage 'OCR timeout' -VmName 'vm1' -Confirm:$false
         $j2 = Get-Content -Raw $sf | ConvertFrom-Json
         Assert-Equal -Expected 'ocr_timeout' -Actual $j2.lastFailure.failureClass -Because 'cause recorded'
         Assert-Equal -Expected 3 -Actual $j2.lastFailure.stepNumber -Because 'step recorded'
-        Assert-True ([string]$j2.lastFailure.reproCommand -match 'Invoke-TestSequence') 'repro recorded'
+        Assert-True ([string]$j2.lastFailure.reproCommand -match 'Debug-TestSequence') 'repro recorded'
         Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
     }
 

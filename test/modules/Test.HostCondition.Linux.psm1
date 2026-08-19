@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42c5d6e7-f8a9-4b01-9234-5e6f7a8b9c0d
+.VERSION 2026.08.19
+.GUID 4264541c-67da-418e-bf26-a11eb9662af8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test host linux kvm libvirt
@@ -242,12 +242,12 @@ libvirt -- so virt-install and virsh hit 'Permission denied' on the
 libvirt socket. A desktop logout/login does NOT always refresh the group
 set on systemd-logind systems with user lingering.
 
-Fix (pick one) and re-run Invoke-TestRunner.ps1:
+Fix (pick one) and re-run Start-TestRunner.ps1:
   A. one-off, no logout needed:
-       sg libvirt -c 'pwsh ./Invoke-TestRunner.ps1'
+       sg libvirt -c 'pwsh ./Start-TestRunner.ps1'
   B. this shell only:
        newgrp libvirt
-       pwsh ./Invoke-TestRunner.ps1
+       pwsh ./Start-TestRunner.ps1
   C. fully refresh (most reliable):
        sudo reboot
 "@

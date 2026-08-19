@@ -16,7 +16,7 @@ Placeholders used in this document:
 ## Lifecycle stages
 
 The same six stages apply across hosts. A per-host README that
-diverges is documenting host-specific knowledge — keep that content;
+diverges is documenting host-specific knowledge -- keep that content;
 don't duplicate the common stages.
 
 ### 1. Download / refresh the image
@@ -26,23 +26,23 @@ pwsh ./Get-Image.ps1                # macOS UTM, Ubuntu KVM
 .\Get-Image.ps1                     # Windows Hyper-V (elevated PowerShell)
 ```
 
-`Get-Image.ps1` is idempotent — it skips the download when the local
+`Get-Image.ps1` is idempotent -- it skips the download when the local
 copy matches the upstream metadata (size + timestamp). The script
 writes into `~/yuruna/image/<GUEST>.env/` (POSIX) or
 `%USERPROFILE%\yuruna\image\<GUEST>.env\` (Windows). Architecture
-(amd64 / arm64) follows the host automatically — there is no flag to
+(amd64 / arm64) follows the host automatically -- there is no flag to
 force a cross-architecture image.
 
 Image source by host:
 
-- **Hyper-V** — vendor ISO (Ubuntu live-server, Windows 11 media)
+- **Hyper-V** -- vendor ISO (Ubuntu live-server, Windows 11 media)
   pulled directly. Some publishers gate the download behind a
   short-lived URL; `Get-Image.ps1` prints manual fallback steps when
   the automated fetch is blocked.
-- **macOS UTM** — same as Hyper-V for ISO-based guests. macOS guests
+- **macOS UTM** -- same as Hyper-V for ISO-based guests. macOS guests
   use `.ipsw` (queried via the Virtualization framework rather than a
   stable URL).
-- **Ubuntu KVM** — qcow2 cloud image for amazon.linux.2023; live-server
+- **Ubuntu KVM** -- qcow2 cloud image for amazon.linux.2023; live-server
   ISO for ubuntu.server.\<N\>. The script resizes the qcow2 to the
   target size with `qemu-img resize`.
 
@@ -52,34 +52,34 @@ When a [download-agent service](download-agent.md) is running somewhere in
 the lab, `Get-Image.ps1` asks it before touching the publisher. This
 covers the Ubuntu live-server ISOs (24.04, 26.04), the shared
 `ubuntu.extension.26` cloud image every extension-service VM boots,
-Amazon Linux 2023, the KVM guest's virtio-win driver ISO, and — best
-effort, see below — the Windows 11 media. macOS images are not part of
+Amazon Linux 2023, the KVM guest's virtio-win driver ISO, and -- best
+effort, see below -- the Windows 11 media. macOS images are not part of
 it (the Virtualization framework mints `.ipsw` URLs per Mac), and
 neither is the UTM guest's SPICE guest-tools fetch.
 
-The host sends the *identity* of what it wants — host type, guest key,
-architecture, `stable` or `daily` — plus a fingerprint of the copy it
+The host sends the *identity* of what it wants -- host type, guest key,
+architecture, `stable` or `daily` -- plus a fingerprint of the copy it
 already holds, taken from the sentinel's filename and byte count. Three
 things can come back:
 
-- **"you already hold the current artifact"** — the script prints a skip
+- **"you already hold the current artifact"** -- the script prints a skip
   line naming the agent and exits `0`. No index page is scraped, no HEAD
   probe sent, no bytes moved. The agent answers from its own record of
   the origin, so the answer holds even while it is busy refreshing that
   image for someone else.
-- **verified bytes** — streamed from the agent (resumable, SHA-256
+- **verified bytes** -- streamed from the agent (resumable, SHA-256
   checked against what the agent recorded at download time) into the same
   staging file the publisher download would have used. Everything after
   that is the same: previous generation preserved, zip extracted or
   qcow2 converted to VHDX where that applies, and the 4-line sentinel
-  written — from the agent's record of the origin URL, byte count and
+  written -- from the agent's record of the origin URL, byte count and
   Last-Modified, so the next run's skip guard compares the same four
   fields it always has.
-- **anything else** — the origin path below runs instead.
+- **anything else** -- the origin path below runs instead.
 
 **What an operator sees when there is no agent: nothing new.** The hooks
-are guarded twice — the client module must be loaded *and* an endpoint
-must resolve to a healthy agent — and no lab is required to run one. A
+are guarded twice -- the client module must be loaded *and* an endpoint
+must resolve to a healthy agent -- and no lab is required to run one. A
 missing module, an agent VM that was never started or is down, one
 whose pool share is unmounted, a request that fails a checksum
 or runs out its deadline: each falls through to the resolve /
@@ -98,14 +98,14 @@ The three `guest.windows.11` scripts differ from the rest in two
 deliberate ways.
 
 **The agent is consulted only when the ISO is genuinely absent.** Those
-scripts open with their own file-existence checks — the configured VHD
+scripts open with their own file-existence checks -- the configured VHD
 folder on Hyper-V, the download folder on UTM and KVM, plus the "adopt
-any `Win11*.iso` the operator dropped here" step — and all of them run
+any `Win11*.iso` the operator dropped here" step -- and all of them run
 first. Only with no media anywhere on the host does the agent get asked;
 only if it cannot serve one does the fallback run (Fido on Hyper-V and
 UTM, the manual-download instructions on KVM). These scripts also keep
 their **2-line sidecar** (filename + source URL); they do not use the
-4-line sentinel, so no byte-count fingerprint is sent — the existence
+4-line sentinel, so no byte-count fingerprint is sent -- the existence
 checks are the local-copy decision.
 
 **The family is best effort, so "no" is a normal answer.** Microsoft
@@ -113,13 +113,13 @@ serves the media only through a short-lived signed URL, and the agent
 mints one the same way a host does: by running Fido under PowerShell
 inside its Linux VM. That is unproven, and either PowerShell or Fido can
 be missing from an agent VM. When any of it fails the agent reports the
-family absent and the scripts fall through **without a warning** — an
+family absent and the scripts fall through **without a warning** -- an
 agent that does not hold Windows media is an ordinary state, not a fault.
 Only an agent that took the request and then broke warns.
 
 What this buys, when it works, is uneven: on Hyper-V and UTM it replaces
 a repeated multi-gigabyte pull, and on **KVM it is a capability that host
-never had** — that script has always exited non-zero with manual
+never had** -- that script has always exited non-zero with manual
 instructions, and a pool holding the media makes it unattended. The
 virtio-win ISO the same KVM script stages is *not* best effort: a plain
 pinned URL, pooled and fingerprinted like the Ubuntu images, so a host
@@ -128,7 +128,7 @@ that already holds the current one transfers nothing.
 #### Skip-if-same-source guard
 
 `Test-DownloadAlreadyCurrent` (host/modules/Yuruna.HostDownload.psm1) returns
-`$true` — and `Get-Image.ps1` exits without downloading — only when ALL of
+`$true` -- and `Get-Image.ps1` exits without downloading -- only when ALL of
 the following match the on-disk state:
 
 - the base image file exists, and
@@ -136,8 +136,8 @@ the following match the on-disk state:
   count, Last-Modified) records the same filename, URL, byte count, AND
   Last-Modified date as a fresh HEAD probe of the source URL.
 
-Any mismatch — including a legacy 3-line sentinel that lacks the
-Last-Modified field — forces a re-download. The only manual way to force
+Any mismatch -- including a legacy 3-line sentinel that lacks the
+Last-Modified field -- forces a re-download. The only manual way to force
 one is to delete or rename the base image (or the sentinel).
 
 The 4-line sentinel guards against the silent-skip regression class where a
@@ -181,18 +181,18 @@ pwsh ./New-VM.ps1 -CachingProxyServiceUrl http://192.168.122.10:3128
 
 What `New-VM.ps1` does depends on the host:
 
-- **virt-install (KVM)** — renders the shared `host/vmconfig/` user-data
+- **virt-install (KVM)** -- renders the shared `host/vmconfig/` user-data
   (base + per-host overlay) + meta-data with the per-cycle SSH key
   (`test/status/ssh/yuruna_ed25519`, auto-generated when missing),
   builds a CIDATA seed ISO with `genisoimage`, allocates an empty
   qcow2 install target, and runs `virt-install` against
   `qemu:///system` with the live ISO + seed CD attached.
-- **New-VM (Hyper-V)** — calls `New-VM` / `Set-VMProcessor` /
+- **New-VM (Hyper-V)** -- calls `New-VM` / `Set-VMProcessor` /
   `Add-VMHardDiskDrive` directly. Contract names (`New-VM`,
   `Start-VM`, `Stop-VM`, `Remove-VM`) collide with the Hyper-V
   cmdlets; the Yuruna.Host module qualifies them with `Hyper-V\` to
   bypass the collision.
-- **UTM (macOS)** — writes a `.utm` bundle in
+- **UTM (macOS)** -- writes a `.utm` bundle in
   `~/yuruna/guest.nosync/` that the operator double-clicks in Finder
   to import. The bundle ships the same cloud-init seed content as
   the KVM path.
@@ -201,13 +201,13 @@ What `New-VM.ps1` does depends on the host:
 
 The install method depends on the guest family:
 
-- **Ubuntu live-server** — subiquity autoinstall driven by the CIDATA
+- **Ubuntu live-server** -- subiquity autoinstall driven by the CIDATA
   seed, fully unattended (`interactive-sections: []`). After install
   the VM reboots and lands at a text-mode login.
-- **Amazon Linux 2023** — boots straight from the cloud image; first
+- **Amazon Linux 2023** -- boots straight from the cloud image; first
   boot triggers cloud-init, which lays down `<USERNAME>` on top of
   the default `ec2-user` and forces a password rotation.
-- **Windows 11** — installer runs unattended via `autounattend.xml`
+- **Windows 11** -- installer runs unattended via `autounattend.xml`
   (~15 min). First login auto-logs as `ywuser1`/`password`; a password
   change is forced at the next login.
 
@@ -218,10 +218,10 @@ The harness considers a guest ready when:
 1. The VM is in the `running` state (per the host driver's
    `Get-VMState`, polled by `Wait-VMRunning`).
 2. The guest's IP is discoverable (`Wait-VMIp` / `Get-VMIp`; KVP on
-   Hyper-V — an External vSwitch puts a third party in charge of DHCP,
+   Hyper-V -- an External vSwitch puts a third party in charge of DHCP,
    so KVP can be 5-15 min late and an active probe of the subnet may
    be needed; `virsh domifaddr` on KVM).
-3. SSH completes a real handshake — `Wait-SshReady`, not just TCP/22
+3. SSH completes a real handshake -- `Wait-SshReady`, not just TCP/22
    (a TCP-only check races a half-up sshd in the moments after a
    guest reboot).
 
@@ -246,16 +246,16 @@ Each `guest/<GUEST>/` folder ships a `<GUEST>.update.sh` script (e.g.
 manager non-interactively, clear stale state, and reboot if the
 kernel was bumped. Two ways to invoke them:
 
-- **Inside a cycle** — the framework's workload sequences call the
+- **Inside a cycle** -- the framework's workload sequences call the
   matching update script during the per-guest workload phase.
-- **Ad hoc** — to refresh a long-running VM without a full cycle:
+- **Ad hoc** -- to refresh a long-running VM without a full cycle:
 
   ```
   ssh -i ../../../test/status/ssh/yuruna_ed25519 <USERNAME>@<ip> \
       'bash -s' < ../../guest/<GUEST>/<GUEST>.update.sh
   ```
 
-The scripts are idempotent — they're safe to re-run when a GUI lock
+The scripts are idempotent -- they're safe to re-run when a GUI lock
 or settings-panel glitch needs a clean reboot to clear (the symptom in
 [host/README.md](../host/README.md#troubleshooting-themes)).
 
@@ -279,7 +279,7 @@ and PowerShell.
 | **Amazon Linux 2023** | `/usr/local/lib/yuruna/fetch-and-execute.sh guest/amazon.linux.2023/amazon.linux.2023.code.sh` |
 | **Ubuntu Server 24.04** | `/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.code.sh` |
 | **Ubuntu Server 26.04** | `/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.26/ubuntu.server.26.code.sh` |
-| **Windows 11** | `irm "…/guest/windows.11/windows.11.code.ps1$nc" \| iex` (see [Windows 11 ...](../guest/windows.11/README.md)) |
+| **Windows 11** | `irm ".../guest/windows.11/windows.11.code.ps1$nc" \| iex` (see [Windows 11 ...](../guest/windows.11/README.md)) |
 
 After install:
 
@@ -328,7 +328,7 @@ openclaw onboard --install-daemon
 
 **Careful: you are about to give AI privileged access to your accounts!**
 
-![OpenClaw onboarding consent screen — list of accounts and capabilities the agent is about to be granted access to](images/001.openclaw.config.png)
+![OpenClaw onboarding consent screen -- list of accounts and capabilities the agent is about to be granted access to](images/001.openclaw.config.png)
 
 See [Getting Started](https://docs.openclaw.ai/start/getting-started).
 
@@ -348,7 +348,7 @@ Verify:
 sudo -u postgres psql -c "SELECT version();"
 ```
 
-Download guides: [Ubuntu](https://www.postgresql.org/download/linux/ubuntu/) ·
+Download guides: [Ubuntu](https://www.postgresql.org/download/linux/ubuntu/) -
 [Red Hat](https://www.postgresql.org/download/linux/redhat/).
 
 ## Credentials
@@ -371,7 +371,7 @@ When a `guest.caching-proxy-service` VM is running on any host, pass its IP via
 guests (24.04, 26.04) accept the parameter and cloud-init / autoinstall
 points apt at it for the install, much faster than hitting upstream
 mirrors on every rebuild. Amazon Linux 2023 guests do
-**not** support the caching-proxy service — their `New-VM.ps1` declares no
+**not** support the caching-proxy service -- their `New-VM.ps1` declares no
 `-CachingProxyServiceUrl` parameter because templating a dnf proxy into
 cloud-init proved unreliable. See the per-guest README files for
 feature availability, and
@@ -382,7 +382,7 @@ feature availability, and
 The stash, pool-control, caching-proxy and download-agent service VMs all boot
 the **same** Ubuntu server cloud image: same release, same arch, same publisher
 URL. They differ only in cloud-init and required disk size. One
-artifact per host type therefore serves all of them — a per-service copy would be
+artifact per host type therefore serves all of them -- a per-service copy would be
 byte-identical, costing an extra download and an extra full-size disk each. The
 nominal size is deliberately **not** baked into the shared artifact (see
 `Expand-ExtensionVmDisk`): every consumer grows its own per-VM copy instead.
@@ -398,8 +398,36 @@ rather than going EOL mid-cycle. It also has to be recent enough that the distro
 Go toolchain satisfies the stash / pool-control daemons' `go.mod` directive.
 
 The on-disk stem (`ubuntu.extension.26`) carries the release number too, so a
-codename bump moves both — and the changed stem gives the new release a fresh
+codename bump moves both -- and the changed stem gives the new release a fresh
 artifact rather than silently overwriting the one running VMs were built from.
+
+### What each service VM folder holds
+
+Every `host/<host type>/guest.<service>-service/` folder holds the same three
+things -- `Get-Image.ps1`, `New-VM.ps1`, and (UTM only) a
+`config.plist.template` -- plus two shared cloud-init files under
+[`host/vmconfig/`](../host/vmconfig/): `<service>.base.user-data`, which creates
+the `yuruna` user with the harness SSH key and a console password from the
+authentication vault, and `<service>.meta-data`.
+
+Only two things vary, and they vary by HOST, not by service:
+
+| Host type | Base image | What `New-VM.ps1` creates |
+| --- | --- | --- |
+| `macos.utm` | arm64 qcow2, resized to 256 GB sparse on APFS | a UTM bundle (QEMU backend, `-vnc`, bridged networking), seeded via cloud-init |
+| `ubuntu.kvm` | amd64 qcow2, resized to 256 GB sparse | a libvirt domain, seeded via a cloud-init NoCloud ISO |
+| `windows.hyper-v` | amd64 qcow2 converted to VHDX, resized to 256 GB dynamic | a Hyper-V VM, seeded via a cloud-init ISO |
+
+All three sizes are 2 GB RAM and core-count-policy vCPUs (minimum 4).
+
+Canonical documentation per service:
+[stash](stash-guide.md), [pool-control](pool-admin.md),
+[download-agent](download-agent.md).
+
+The `guest.caching-proxy-service` folders keep their own READMEs: that service
+is not a plain consumer of this pattern -- it is the machine the pool services
+run on, and its notes carry network-selection, bridging and `cache_mem` sizing
+rationale that is not recoverable from the scripts.
 
 ## Shared host-driver modules
 
@@ -430,7 +458,7 @@ driver-private pieces a shared body cannot see are **injected** as
 
 Injection is required because a name typed inside the shared module
 resolves in *that* module's session state, not the importing driver's
-— a bare-name call to a driver-private command would silently fail to
+-- a bare-name call to a driver-private command would silently fail to
 bind. See `feedback_closure_foreign_module_command_resolution.md`.
 
 The caching-proxy-service probe's cross-module dependencies are the exception:
@@ -441,7 +469,7 @@ imports rather than assuming a driver imported them into a visible
 scope, mirroring the `Yuruna.HostDownload.psm1` self-import pattern. A
 load-time check warns if any of the four fails to resolve, so a broken
 or moved module surfaces at import instead of on the one
-caching-proxy-service probe per cycle — where it would look like a cache
+caching-proxy-service probe per cycle -- where it would look like a cache
 outage.
 
 ### Cache-routed downloads: `Yuruna.HostDownload.psm1`
@@ -452,7 +480,7 @@ Holds the shared squid caching-proxy-service download stack:
 probe. Centralizing them means a hardening fix to the X509
 chain-validation callback cannot drift between drivers.
 
-The one platform-specific piece — discovering the cache VM's IP — stays
+The one platform-specific piece -- discovering the cache VM's IP -- stays
 per-driver as `Resolve-CacheHostIp` and is **injected** as a
 scriptblock, so this module never reaches across a module boundary by
 name; a by-name reach would be fragile under `-Force` re-imports (see
@@ -471,10 +499,10 @@ Centralizes the resolve / download / verify / swap workflow for
 
 `Save-CachedHttpUri` and `Test-DownloadAlreadyCurrent` are exported
 from each per-host `Yuruna.Host.psm1` driver. With the driver imported,
-`Save-UbuntuServerImage` routes downloads through the squid cache —
+`Save-UbuntuServerImage` routes downloads through the squid cache --
 HTTPS via the SSL-bump port with per-process trust of
 the freshly-fetched yuruna CA, HTTP via the proxy port, falling through
-to a direct `Invoke-WebRequest` when no cache is reachable — and
+to a direct `Invoke-WebRequest` when no cache is reachable -- and
 reads/writes the shared 4-line sentinel. A bare caller that imports
 only this module, with no host driver, falls back to a direct
 `Invoke-WebRequest` with the inline 3-line same-source guard.
@@ -521,6 +549,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../README.md)

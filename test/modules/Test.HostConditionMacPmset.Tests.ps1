@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42d7f083-96ba-4c21-8e5d-3a49c7f1e605
+.VERSION 2026.08.19
+.GUID 421185fc-300c-4e42-9cb0-2d84ae9be9cc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test macos pmset sleep pester
@@ -45,8 +45,7 @@ $here = Split-Path -Parent $PSCommandPath
 $macModulePath = Join-Path $here 'Test.HostCondition.Mac.psm1'
 $macModule = Import-Module $macModulePath -Force -PassThru -DisableNameChecking
 
-function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # Get-MacPmsetGuardList / Get-MacPmsetGuardPending are module-private (the
 # facade exports only the Set/Assert surface), so reach them in module scope.

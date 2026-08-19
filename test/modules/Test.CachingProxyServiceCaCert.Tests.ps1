@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a4c5d6-e7f8-4a90-8b12-3c4d5e6f7081
+.VERSION 2026.08.19
+.GUID 42fd45e3-d490-4fe2-a3d8-49d6577c6a35
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test cachingproxy cacert selfheal rc60 pester
@@ -19,8 +19,8 @@
 <#
 .SYNOPSIS
     Guards the durable fix for the SSL-bump empty-CA amplifier: the CA-source
-    helpers in Test.CachingProxyService.psm1, the guest CA self-heal in the ubuntu
-    update scripts, and the /ca.crt status-service endpoint.
+    helpers in Test.CachingProxyService.psm1, the guest CA self-heal in the shared
+    retry lib and the callers that invoke it, and the /ca.crt status-service endpoint.
 .DESCRIPTION
     Behavioral tests exercise Test-CachingProxyServiceCaPem / the caCert state
     round-trip / Resolve-CachingProxyServiceCaCertPem / Get-CachingProxyServiceCaCertBase64
@@ -33,15 +33,25 @@
     from It blocks, so this runs under Pester 4.10.1.
 #>
 
+$here     = Split-Path -Parent $PSCommandPath
+$repoRoot = Split-Path -Parent (Split-Path -Parent $here)
+# Resolved outside BeforeAll on purpose: the per-script Contexts below are built
+# while Pester is DISCOVERING tests, and a BeforeAll body has not run by then. A
+# loop over a not-yet-assigned list generates no Contexts at all and reports a
+# clean pass having asserted nothing -- the same vacuous-pass failure mode the
+# fixture comment below guards against, one scope up.
+$script:updateScripts = @(
+    (Join-Path $repoRoot 'guest/ubuntu.server.24/ubuntu.server.24.update.sh'),
+    (Join-Path $repoRoot 'guest/ubuntu.server.26/ubuntu.server.26.update.sh')
+)
+
 BeforeAll {
 $here    = Split-Path -Parent $PSCommandPath
 $testDir = Split-Path -Parent $here
 $repoRoot = Split-Path -Parent $testDir
 $script:module  = Join-Path $here 'Test.CachingProxyService.psm1'
 
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
-function Assert-False { param($Condition, [string]$Because = '') if ($Condition) { throw "Expected false. $Because" } }
-function Assert-Equal { param($Expected, $Actual, [string]$Because = '') if ($Expected -ne $Actual) { throw "Expected '$Expected' but got '$Actual'. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 function Get-TestCaPem {
     $req = [System.Security.Cryptography.X509Certificates.CertificateRequest]::new(
@@ -58,17 +68,11 @@ function Get-TestCaPem {
 # Describe/Context body is executed during test discovery and its variables are discarded
 # before any It runs, so a body-local $body would reach the assertion as $null -- and a
 # -match against $null passes vacuously, which is exactly the silent false-pass these
-# shape guards exist to prevent. The per-script bodies are keyed by path and the key is
-# handed to each It as test-case data, since the discovery-time loop variable is gone too.
-$updateScripts = @(
-    (Join-Path $repoRoot 'guest/ubuntu.server.24/ubuntu.server.24.update.sh'),
-    (Join-Path $repoRoot 'guest/ubuntu.server.26/ubuntu.server.26.update.sh')
-)
-$updateScriptBody = @{}
-foreach ($updateScript in $updateScripts) {
-    $updateScriptBody[$updateScript] = Get-Content -Raw -LiteralPath $updateScript
-}
-$statusServicePath = Join-Path $repoRoot 'test/Start-StatusService.ps1'
+# shape guards exist to prevent. A guard whose subject varies per Context takes the PATH
+# as test-case data and reads the file itself, so nothing has to survive the phase change.
+$script:retryLibBody = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'automation/yuruna-retry.sh')
+$script:fetchExecBody = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'automation/fetch-and-execute.sh')
+$statusServicePath = Join-Path $repoRoot 'test/service/Start-StatusService.ps1'
 $script:statusServiceBody = Get-Content -Raw -LiteralPath $statusServicePath
 
 }
@@ -150,28 +154,55 @@ Describe 'Test.CachingProxyService CA-source helpers' {
     }
 }
 
-Describe 'Guest CA self-heal shape (ubuntu update scripts)' {
-    foreach ($s in $updateScripts) {
+Describe 'Guest CA self-heal shape (yuruna-retry.sh)' {
+    It 'guards on the :3129 bump port with a boundary' {
+        Assert-True ($script:retryLibBody -match ':3129/\?\(\$\|\[\^0-9\]\)') 'port-boundary grep present'
+    }
+    It 'fetches the CA over --no-proxy' {
+        Assert-True ($script:retryLibBody -match 'wget --no-proxy[\s\S]{0,200}/ca\.crt') '--no-proxy /ca.crt fetch'
+    }
+    It 'runs update-ca-certificates after installing the cert' {
+        Assert-True ($script:retryLibBody -match 'update-ca-certificates') 'installs into trust store'
+    }
+    It 'emits a non-lying diagnostic when the bump is still untrusted' {
+        Assert-True ($script:retryLibBody -match 'CA installed but bump still untrusted') 'never an unqualified success'
+    }
+    It 'never relaxes egress (no direct :443 / iptables edit in the self-heal)' {
+        Assert-False ($script:retryLibBody -match 'yuruna_ca_selfheal[\s\S]*?iptables') 'self-heal does not touch iptables'
+    }
+    It 'separates repaired from nothing-to-repair from tried-and-failed' {
+        # The rc=60 gate spends a retry only on the repaired case, so collapsing
+        # the three outcomes into one exit code would either retry a cert failure
+        # that can never clear or refuse to retry one that just did.
+        Assert-True ($script:retryLibBody -match 'yuruna_ca_selfheal\(\)[\s\S]*?local ca_tmp rc=2') 'tried-and-failed is the default outcome'
+        Assert-True ($script:retryLibBody -match 'CA self-heal: OK[\s\S]{0,120}rc=0') 'repaired is reported distinctly'
+    }
+    It 'routes a certificate failure through the re-anchor rather than the backoff ladder' {
+        Assert-True ($script:retryLibBody -match 'rc" -eq 60 \D[\s\S]{0,120}yuruna_ca_selfheal') 'curl 60 re-anchors'
+        Assert-True ($script:retryLibBody -match 'rc" -eq 5 \D[\s\S]{0,120}yuruna_ca_selfheal') 'wget 5 re-anchors'
+        Assert-False ($script:retryLibBody -match '\|60\|') 'curl 60 is no longer an unconditional transient'
+    }
+}
+
+Describe 'CA re-anchor runs at every fetched-script boundary' {
+    # A trust anchor that only gets checked once per guest goes stale the moment
+    # the cache is rebuilt mid-run: every step that already passed stays passed,
+    # and the next one fails on a certificate nobody touched. fetch-and-execute
+    # is the one file a resumed run re-enters through, so the check belongs there.
+    It 'fetch-and-execute re-anchors before handing control to the payload' {
+        Assert-True ($script:fetchExecBody -match 'yuruna_ca_selfheal') 'fetch-and-execute calls the re-anchor'
+        Assert-True ($script:fetchExecBody -match 'yuruna_ca_selfheal[\s\S]{0,80}\|\| true') 'non-fatal: a payload still fails with its own diagnosis'
+    }
+    It 'the re-anchor is sourced before it is called' {
+        Assert-True ($script:fetchExecBody -match 'YURUNA_RETRY_LIB"[\s\S]{0,1200}yuruna_ca_selfheal') 'lib sourced first'
+    }
+    foreach ($s in $script:updateScripts) {
         Context (Split-Path $s -Leaf) {
-            It 'guards on the :3129 bump port with a boundary' -TestCases @(@{ ScriptPath = $s }) {
+            It 'calls the shared re-anchor and does not carry its own copy' -TestCases @(@{ ScriptPath = $s }) {
                 param($ScriptPath)
-                Assert-True ($updateScriptBody[$ScriptPath] -match ':3129/\?\(\$\|\[\^0-9\]\)') 'port-boundary grep present'
-            }
-            It 'fetches the CA over --no-proxy' -TestCases @(@{ ScriptPath = $s }) {
-                param($ScriptPath)
-                Assert-True ($updateScriptBody[$ScriptPath] -match 'wget --no-proxy[\s\S]{0,200}/ca\.crt') '--no-proxy /ca.crt fetch'
-            }
-            It 'runs update-ca-certificates after installing the cert' -TestCases @(@{ ScriptPath = $s }) {
-                param($ScriptPath)
-                Assert-True ($updateScriptBody[$ScriptPath] -match 'update-ca-certificates') 'installs into trust store'
-            }
-            It 'emits a non-lying diagnostic when the bump is still untrusted' -TestCases @(@{ ScriptPath = $s }) {
-                param($ScriptPath)
-                Assert-True ($updateScriptBody[$ScriptPath] -match 'CA installed but bump still untrusted') 'never an unqualified success'
-            }
-            It 'never relaxes egress (no direct :443 / iptables edit in the self-heal)' -TestCases @(@{ ScriptPath = $s }) {
-                param($ScriptPath)
-                Assert-False ($updateScriptBody[$ScriptPath] -match 'yuruna_ca_selfheal[\s\S]*?iptables') 'self-heal does not touch iptables'
+                $body = Get-Content -Raw -LiteralPath $ScriptPath
+                Assert-True ($body -match 'yuruna_ca_selfheal \|\| true') 'calls the shared re-anchor'
+                Assert-False ($body -match 'yuruna_ca_selfheal\(\)') 'no second copy to drift from the lib'
             }
         }
     }

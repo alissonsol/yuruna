@@ -5,12 +5,12 @@ passing test cycle, plus the two service VMs a standalone machine
 benefits from (caching-proxy, stash).
 
 [Section A: Quickstart](#section-a-quickstart) is the complete command
-sequence — run it top to bottom, or let
+sequence -- run it top to bottom, or let
 [A.0](#a0-shortcut-the-standalone-setup-script) run its middle
-(A.3–A.7). [Section B: Deep dive](#section-b-deep-dive) explains each
+(A.3-A.7). [Section B: Deep dive](#section-b-deep-dive) explains each
 step; read it when a step needs judgment or fails.
-For a lab — several machines sharing one caching-proxy service,
-NAS-backed storage, and pool-control service — complete A.1–A.2 on
+For a lab -- several machines sharing one caching-proxy service,
+NAS-backed storage, and pool-control service -- complete A.1-A.2 on
 each machine, then continue with the
 [Lab operator guide](lab-operator.md).
 
@@ -22,14 +22,14 @@ Start from a freshly installed Windows 11 Pro/Enterprise/Education (or
 Windows Server), macOS 26+, or Ubuntu 26+ host: 32 GB RAM, 512 GB free
 disk, 16+ physical cores, virtualization enabled in firmware, OS
 activated and updated, network access to github.com
-([B.1](#b1-operating-system-baseline-assumed)–[B.2](#b2-preflight-dependencies)).
+([B.1](#b1-operating-system-baseline-assumed)-[B.2](#b2-preflight-dependencies)).
 "Elevated" means an Administrator PowerShell on Windows, `sudo` on
 macOS / Ubuntu.
 
 ### A.0 Shortcut: the standalone setup script
 
 **Do [A.1](#a1-install-the-framework) and [A.2](#a2-create-the-test-user)
-first** — `setup.ps1` installs nothing, clones nothing, and creates
+first** -- `setup.ps1` installs nothing, clones nothing, and creates
 no test user. Then, signed in as the test account, from the
 framework folder:
 
@@ -39,16 +39,16 @@ pwsh install/setup.ps1
 
 It asks what it cannot infer (standalone or lab, host settings, where
 storage lives), then runs
-[A.3](#a3-enable-test-automation)–[A.7](#a7-start-the-stash-service) in
+[A.3](#a3-enable-test-automation)-[A.7](#a7-start-the-stash-service) in
 order, ending on the `Test-Config` gate. On Windows it relaunches
-itself elevated once. It runs no cycles —
-[A.8](#a8-run-one-test-cycle)–[A.9](#a9-run-continuous-cycles) are
+itself elevated once. It runs no cycles --
+[A.8](#a8-run-one-test-cycle)-[A.9](#a9-run-continuous-cycles) are
 still yours. Re-running is safe, **except that every run rebuilds the
 service VMs** (~15 minutes for the caching-proxy). Parameters,
 `-WhatIf`, unattended runs, coverage, and failure behavior:
 [B.0](#b0-the-guided-setup-script).
 
-The steps below are the by-hand path — read them when a step needs
+The steps below are the by-hand path -- read them when a step needs
 judgment, fails under `setup.ps1`, or you are repairing a host.
 
 ### A.1 Install the framework
@@ -87,10 +87,10 @@ pwsh test/New-LocalTestUser.ps1 -Admin
 
 **Sign in as the new account (default `yurunatest`) for everything
 that follows**, and repeat the [A.1](#a1-install-the-framework)
-one-liner in that session — the clone is per-user, and the second run
+one-liner in that session -- the clone is per-user, and the second run
 is quick.
 
-> **Lab?** Switch to the [Lab operator guide](lab-operator.md) now —
+> **Lab?** Switch to the [Lab operator guide](lab-operator.md) now --
 > it picks up after this step.
 
 ### A.3 Enable test automation
@@ -109,8 +109,8 @@ unless this machine only hosts services.*
 
 ### A.4 Configure and validate
 
-Edit `test/test.config.yml` — at minimum `repositories.projectUrl`
-(and `GH_TOKEN` if private) and `guestSequence` — then validate
+Edit `test/test.config.yml` -- at minimum `repositories.projectUrl`
+(and `GH_TOKEN` if private) and `guestSequence` -- then validate
 ([B.6](#b6-configure-and-validate)):
 
 ```
@@ -120,12 +120,12 @@ pwsh test/Test-Config.ps1
 Fix every FAIL before moving on.
 
 *[A.0](#a0-shortcut-the-standalone-setup-script) creates the file and
-runs this validation, but the edits are still yours — it never touches
+runs this validation, but the edits are still yours -- it never touches
 `guestSequence` or `GH_TOKEN`.*
 
 ### A.5 Create pool and stash storage
 
-**Storage on this machine (no NAS)** — elevated, one idempotent
+**Storage on this machine (no NAS)** -- elevated, one idempotent
 command creates the folders, accounts, shares, mounts, and config
 ([B.7](#b7-local-shares-for-pool-and-stash-storage)):
 
@@ -137,14 +137,14 @@ It asks only where storage should live (suggesting a per-OS default),
 writes `networkStorage.*` and both vault entries, and calls `New-Lab`
 for you. Add `-EnableReplication` to archive finished cycles to the
 pool share. A later lab on the same machine needs only
-`pwsh test/lab/New-Lab.ps1 -Name <lab-name>` — it reuses the folders and
+`pwsh test/lab/New-Lab.ps1 -Name <lab-name>` -- it reuses the folders and
 accounts already here.
 
 *[A.0](#a0-shortcut-the-standalone-setup-script) runs this when you
 answer `local`. `nas` only mounts what `networkStorage.*` already
 names; `none` skips shared storage and, with it, the stash service.*
 
-**Storage on a NAS or a separate file server** — this machine cannot
+**Storage on a NAS or a separate file server** -- this machine cannot
 create accounts there. Create the folders and the lab vault here, then
 grant the share permissions on the device itself:
 
@@ -153,7 +153,7 @@ pwsh test/lab/New-Lab.ps1 -Name <lab-name> -Root <storage-root>
 ```
 
 `<lab-name>` is lowercase (letters, digits, hyphens); `<storage-root>`
-is e.g. `D:\work` or `/srv/yuruna`. Share the two folders it created —
+is e.g. `D:\work` or `/srv/yuruna`. Share the two folders it created --
 one dedicated account per share, using the passwords `New-Lab` just
 generated into the lab vault:
 
@@ -210,7 +210,7 @@ pwsh test/Invoke-TestProject.ps1
 ([B.11](#b11-run-continuous-cycles)):
 
 ```
-pwsh test/Invoke-TestRunner.ps1
+pwsh test/Start-TestRunner.ps1
 ```
 
 Watch progress on the status dashboard it starts at
@@ -238,20 +238,20 @@ place. It needs pwsh 7; its preflight fails the run if
 
 | Quickstart step | Does `setup.ps1` do it? |
 | --------------- | ----------------------- |
-| [A.1](#a1-install-the-framework) install the framework | No — bootstrapper, by hand, first |
-| [A.2](#a2-create-the-test-user) create the test user | No — `New-LocalTestUser.ps1`, by hand, first |
-| [A.3](#a3-enable-test-automation) enable test automation | Yes — runs `Enable-TestAutomation -SkipPoolStorage`, unless `runTests: false` |
-| [A.4](#a4-configure-and-validate) configure and validate | Partly — creates or refreshes `test/test.config.yml` from the template and ends on the `Test-Config` gate; the edits in between are still yours |
-| [A.5](#a5-create-pool-and-stash-storage) pool and stash storage | Yes for `kind: local` — runs `New-LocalLabStorage`. For `kind: nas` it only **mounts** what `networkStorage.*` already names |
-| [A.6](#a6-start-the-caching-proxy-service) caching-proxy service | Yes — stops and removes any existing one first, builds the VM, waits up to 15 minutes for the pool-aggregator service, then writes `vmStart.cachingProxyIp` |
-| [A.7](#a7-start-the-stash-service) stash service | Yes — same stop-then-build — unless storage was skipped |
+| [A.1](#a1-install-the-framework) install the framework | No -- bootstrapper, by hand, first |
+| [A.2](#a2-create-the-test-user) create the test user | No -- `New-LocalTestUser.ps1`, by hand, first |
+| [A.3](#a3-enable-test-automation) enable test automation | Yes -- runs `Enable-TestAutomation -SkipPoolStorage`, unless `runTests: false` |
+| [A.4](#a4-configure-and-validate) configure and validate | Partly -- creates or refreshes `test/test.config.yml` from the template and ends on the `Test-Config` gate; the edits in between are still yours |
+| [A.5](#a5-create-pool-and-stash-storage) pool and stash storage | Yes for `kind: local` -- runs `New-LocalLabStorage`. For `kind: nas` it only **mounts** what `networkStorage.*` already names |
+| [A.6](#a6-start-the-caching-proxy-service) caching-proxy service | Yes -- stops and removes any existing one first, builds the VM, waits up to 15 minutes for the pool-aggregator service, then writes `vmStart.cachingProxyIp` |
+| [A.7](#a7-start-the-stash-service) stash service | Yes -- same stop-then-build -- unless storage was skipped |
 | [A.8](#a8-run-one-test-cycle) one test cycle | No |
-| [A.9](#a9-run-continuous-cycles) continuous cycles | No — the closing message points you at `pwsh test/Invoke-TestRunner.ps1` |
+| [A.9](#a9-run-continuous-cycles) continuous cycles | No -- the closing message points you at `pwsh test/Start-TestRunner.ps1` |
 
 It also creates the image, VM, log and runtime folders. `setup.ps1`
 *itself* edits exactly two keys in `test.config.yml`, by
 comment-preserving line replacement: `projectUrl` (when you supply one)
-and `vmStart.cachingProxyIp`. The scripts it runs write more —
+and `vmStart.cachingProxyIp`. The scripts it runs write more --
 answering `local` runs `New-LocalLabStorage.ps1`, which writes the six
 `networkStorage.*` keys and both vault entries
 ([A.5](#a5-create-pool-and-stash-storage)). Nothing touches
@@ -260,13 +260,13 @@ answering `local` runs `New-LocalLabStorage.ps1`, which writes the six
 #### Re-running, and the service-VM exception
 
 Every step runs in a child `pwsh`, and a step that can tell it is
-already done — config file present, pool storage mounted,
-`cachingProxyIp` matching — is skipped, so re-running is safe.
+already done -- config file present, pool storage mounted,
+`cachingProxyIp` matching -- is skipped, so re-running is safe.
 
 **The service VMs are the exception: every run rebuilds them.** Each
-start is preceded by its own `Stop-…ServiceVM.ps1`. That lets a
-re-run *apply* a change — a healthy proxy left alone is adopted in
-seconds, keeping the configuration you re-ran to replace — and keeps
+start is preceded by its own `Stop-...ServiceVM.ps1`. That lets a
+re-run *apply* a change -- a healthy proxy left alone is adopted in
+seconds, keeping the configuration you re-ran to replace -- and keeps
 a start from failing over a registered VM whose files are gone.
 Budget roughly 15 minutes for the proxy. A run only removes a service
 it will rebuild, so a standalone re-run leaves a former lab's
@@ -280,7 +280,7 @@ service, the aggregator wait, and an unmountable NAS when
 `storage.onFailure` is `stop`.
 
 Storage stops the run because everything after it either needs the
-shares or writes host state that presumes them — the hosts-file
+shares or writes host state that presumes them -- the hosts-file
 aliases, the stash and download-agent services, a lab's pool.
 
 `storage.onFailure` decides what an unmountable NAS means, attended
@@ -289,13 +289,13 @@ or not. The default is `stop`; set it to `local` (with
 
 Anything else that fails is warned about, recorded in the closing
 Failed list, and the run continues. **A non-empty Failed list exits
-non-zero** — including a failed `Test-Config` gate — so the exit code
+non-zero** -- including a failed `Test-Config` gate -- so the exit code
 never calls a broken host ready. Fix what the list names and re-run.
 
 A step that could not run because something it needs failed is
 reported as `BLOCK` and listed under **Blocked** in the closing
 report, separately from **Skipped**: skipped is a decision, blocked
-is a consequence. Blocked steps do not add to the exit code — the
+is a consequence. Blocked steps do not add to the exit code -- the
 failure they came from already did.
 
 #### Parameters
@@ -311,8 +311,8 @@ questions are still asked).
 `-Rebuild` tears down and rebuilds every service VM this run touches
 instead of adopting a healthy one. It is how a changed address or
 credential reaches a guest, because the seed is baked at build time.
-It also makes a re-run expensive — roughly 15 minutes for the proxy,
-plus a cold squid cache — so drop it when re-running to fix something
+It also makes a re-run expensive -- roughly 15 minutes for the proxy,
+plus a cold squid cache -- so drop it when re-running to fix something
 the proxy does not bake in. The run
 log's header records the switches each run was invoked with.
 
@@ -335,7 +335,7 @@ pwsh install/setup.ps1 -AnswerFile install/setup.answers.standalone.yml
 
 An unattended `storage.kind: local` run must include
 `storage.localRoot`. `New-LocalLabStorage.ps1` runs as a child with
-its stdin closed, so a question it asks reaches nobody — the run stops
+its stdin closed, so a question it asks reaches nobody -- the run stops
 in its first second and names the key rather than guessing a path and
 creating OS accounts and shares there. An interactive run does
 not ask either: it takes the platform's convention (`/srv/yuruna` on
@@ -348,7 +348,7 @@ changes: an unusable file is refused in the first second, with one
 message per problem naming the key that fixes it.
 
 The standalone keys it reads (anything else in the file is ignored,
-and a section this script does not read is warned about — a mistyped
+and a section this script does not read is warned about -- a mistyped
 `storages:` takes every key under it with it):
 
 ```yaml
@@ -372,7 +372,7 @@ key, so a file without it is accepted, and the run warns that the
 fallback it declares cannot actually run.
 
 The file a guided run writes carries the values it *resolved*, not the
-answers as typed — so the storage root it settled on is in there, and
+answers as typed -- so the storage root it settled on is in there, and
 the file can set up the next machine. If a key is missing for an
 unattended replay, the run says so when it writes the file rather than
 letting the next machine discover it.
@@ -388,12 +388,12 @@ expects is listed in [B.2](#b2-preflight-dependencies).
 
 Before running the installer, confirm:
 
-- **License / activation** — Windows must be activated and a
+- **License / activation** -- Windows must be activated and a
   Hyper-V-capable edition (Pro or above; Home has no Hyper-V).
-- **OS updates applied** — pending updates can force a reboot mid-install.
-- **Virtualization enabled in firmware** — Intel VT-x / AMD-V
+- **OS updates applied** -- pending updates can force a reboot mid-install.
+- **Virtualization enabled in firmware** -- Intel VT-x / AMD-V
   (Ubuntu: `grep -E 'vmx|svm' /proc/cpuinfo` must match).
-- **Network access to github.com** — the installer clones the framework.
+- **Network access to github.com** -- the installer clones the framework.
 
 The installer re-checks the hardware baselines and prompts before
 proceeding on an under-spec'd host. Some examples also assume a
@@ -410,7 +410,7 @@ repair a partial install. Run
 used in testing
 ([`automation/Yuruna.Requirement.yml`](../automation/Yuruna.Requirement.yml)).
 
-- Install [PowerShell Core](https://github.com/powershell/powershell) 7.6.4+ — the floor in [`Yuruna.Requirement.yml`](../automation/Yuruna.Requirement.yml); anything older fails `Test-Requirement.ps1`.
+- Install [PowerShell Core](https://github.com/powershell/powershell) 7.6.4+ -- the floor in [`Yuruna.Requirement.yml`](../automation/Yuruna.Requirement.yml); anything older fails `Test-Requirement.ps1`.
   On Windows, from an Administrator PowerShell:
   - `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned` (see [execution policies](https://go.microsoft.com/fwlink/?LinkID=135170))
   - `Install-Module -Name powershell-yaml`
@@ -468,7 +468,7 @@ Commands: [A.1](#a1-install-the-framework); the one-liners are owned
 by [install/README.md](../install/README.md), also at
 <https://yuruna.link/install>. The installer installs dependencies,
 clones the framework, and seeds `test/test.config.yml` when absent.
-First-time Hyper-V enablement triggers RESTART REQUIRED — reboot
+First-time Hyper-V enablement triggers RESTART REQUIRED -- reboot
 before continuing. Alternatively `git clone` and run the matching
 `install/<host>.{ps1,sh}` yourself; signature-checked installs and
 release pinning: [install/README.md](../install/README.md).
@@ -482,7 +482,7 @@ pwsh test/New-LocalTestUser.ps1 -Admin
 Elevated (Administrator / sudo). Creates a dedicated local OS account
 (default `yurunatest`) that owns test operation, so the harness never
 runs under your personal profile. `-Admin` makes it a local
-administrator — required, because later steps elevate. The password is
+administrator -- required, because later steps elevate. The password is
 asked interactively (twice) and is immediately usable; add
 `-ForcePasswordChange` for a one-shot initial credential instead. The
 account is also registered under the default Yuruna authentication
@@ -491,7 +491,7 @@ comment-based help.
 
 Sign in as this user for everything that follows, so the config,
 vault, and runtime state belong to the test account. The clone is
-per-user — hence A.2 repeats the install one-liner in the test-user
+per-user -- hence A.2 repeats the install one-liner in the test-user
 session; the heavyweight work is already done, so that run only
 clones and seeds the config.
 
@@ -505,7 +505,7 @@ Explicit opt-in that turns this machine into a test host: display
 sleep, screen saver, screen lock, display scaling (Windows), TCC
 grants (macOS). Elevated (Administrator / sudo); idempotent; supports
 `-WhatIf`. On Windows, sign out and back in if it reports display-scaling
-changes — OCR needs 100% scaling. Details:
+changes -- OCR needs 100% scaling. Details:
 `host/<platform>/Enable-TestAutomation.ps1`. To undo it, see
 [Putting the machine back](#putting-the-machine-back).
 
@@ -523,7 +523,7 @@ pwsh test/Test-Config.ps1
 
 Checks the config and the `test/extension/*` configs, probes GitHub and
 Resend reachability, and fires a smoke-test notification (`-SkipSend`
-to validate only). Fix every FAIL before moving on — this takes seconds
+to validate only). Fix every FAIL before moving on -- this takes seconds
 and the next step takes many minutes.
 
 ### B.7 Local shares for pool and stash storage
@@ -538,19 +538,19 @@ storage root of `/srv/yuruna` (Ubuntu), `/Users/Shared/yuruna`
 It calls `New-Lab` for the folders, the lab vault, and the intent
 repository, then does what `New-Lab` deliberately leaves alone:
 
-- **One local account per tier** — `yuruna-pool` and `yuruna-stash`,
+- **One local account per tier** -- `yuruna-pool` and `yuruna-stash`,
   each scoped to its own share and nothing else: not an administrator,
   no interactive shell, hidden from the macOS login window, and on
   Ubuntu no OS password at all (the SMB credential lives in Samba's
   own passdb).
-- **An SMB server** — started on Windows, File Sharing enabled on
+- **An SMB server** -- started on Windows, File Sharing enabled on
   macOS, `samba` + `cifs-utils` installed on Ubuntu.
 - **One share per tier**, granting only that tier's account, so a
   leaked pool credential cannot reach the stash share.
-- **The vault** — each password stored under a non-empty `vaultKey`,
+- **The vault** -- each password stored under a non-empty `vaultKey`,
   which keeps `Get-Password` off the auto-generate path (a random
   password the share never had).
-- **The mount and the config** — both shares mounted, the six
+- **The mount and the config** -- both shares mounted, the six
   `networkStorage.*` keys written; `-EnableReplication` also sets
   `networkStorage.moveLogsToPoolStorage`.
 
@@ -562,7 +562,7 @@ single-machine lab therefore exercises the same replication, gating,
 and mount code as a NAS-backed one; moving to real hardware later only
 changes what the alias resolves to. On Windows the two names are also
 registered as NTLM loopback exemptions (`BackConnectionHostNames`) and
-`EnableLinkedConnections` is set — without them the machine refuses
+`EnableLinkedConnections` is set -- without them the machine refuses
 its own SMB connection or shows the mapped drives only to elevated
 processes; both apply at the next restart or sign-in.
 
@@ -570,14 +570,14 @@ processes; both apply at the next restart or sign-in.
 accounts are **machine-wide**, so it **reuses** what is already
 present rather than minting a second set:
 
-- `-Root` may be omitted — the storage root is read back from an
+- `-Root` may be omitted -- the storage root is read back from an
   existing lab's vault, so a typo cannot land a second lab's folders
   elsewhere.
 - Credentials already in the host vault are **reused**, not
   regenerated: a fresh password would leave the OS account, the SMB
   server, and the lab's other machines holding the old one, so every
   mount driven from the new vault would fail. `-Force` (which rewrites
-  the lab vault file) still reuses rather than rotates — rotation must
+  the lab vault file) still reuses rather than rotates -- rotation must
   also reach the OS account and the share, so it stays a deliberate,
   separate act.
 
@@ -588,7 +588,7 @@ the pool folder, and avoids git's "dubious ownership" refusal that
 chowning to the share account would trigger.
 
 **It is for local storage only.** A NAS or separate file server owns
-its own accounts — create them **on that device**. Use
+its own accounts -- create them **on that device**. Use
 `test/lab/New-Lab.ps1` for the folders and lab vault, share them there,
 then fill `networkStorage.*` and store the share passwords in the host
 vault
@@ -617,7 +617,7 @@ survives framework reinstalls. Details: [caching.md](caching.md#caching-proxy-se
 pwsh test/service/Start-StashServiceVM.ps1
 ```
 
-Brings up the `yuruna-stash-service` VM — the shared drop box for files
+Brings up the `yuruna-stash-service` VM -- the shared drop box for files
 and snippets (web UI + scp). Elevated on Windows. It mounts the
 `yuruna.stash` share from
 [B.7](#b7-local-shares-for-pool-and-stash-storage), so set that up
@@ -632,19 +632,19 @@ pwsh test/Invoke-TestProject.ps1
 
 One-shot cycle: wipes `project/`, re-clones `repositories.projectUrl`,
 runs a single cycle exactly as the runner would, and exits. Debug here
-until green — one cycle with no loop around it is the cheapest place
+until green -- one cycle with no loop around it is the cheapest place
 to debug.
 
 ### B.11 Run continuous cycles
 
 ```
-pwsh test/Invoke-TestRunner.ps1
+pwsh test/Start-TestRunner.ps1
 ```
 
 The resilient outer loop: pulls the framework, runs a cycle in a fresh
 inner process, repeats; on failure it pauses until new commits land or
 a timeout passes ([runner-outer-loop.md](runner-outer-loop.md)). It auto-starts the
-status dashboard at `http://<host>:8080/` — no separate
+status dashboard at `http://<host>:8080/` -- no separate
 `Start-StatusService.ps1` step.
 
 ---
@@ -653,7 +653,7 @@ status dashboard at `http://<host>:8080/` — no separate
 
 A host reboot damages nothing: it leaves every service VM registered with
 the hypervisor and powered off. Nothing then turns them back on, and the
-two consequences are not alike —
+two consequences are not alike --
 
 - the **caching-proxy service** merely degrades: guests download direct,
   slowly;
@@ -665,14 +665,14 @@ healthy the whole time, until an operator notices.
 
 **The runner covers this by itself.** Every cycle start runs a sweep that
 starts any service VM that is registered but not running, and reports what
-it did. The sweep is cheap on a healthy host — one state query per
-service — which is why it runs at every cycle rather than only at boot: it
+it did. The sweep is cheap on a healthy host -- one state query per
+service -- which is why it runs at every cycle rather than only at boot: it
 also catches a service that died or was stopped mid-session. A service
 that is *absent* is not a failure and never triggers anything. A
 standalone host legitimately runs no stash service, so absent means "not
 this host's job"; only a registered-but-stopped VM is something this host
 owns and failed to start. The sweep's health wait is deliberately
-non-authoritative — a freshly resumed guest can take a while to re-open
+non-authoritative -- a freshly resumed guest can take a while to re-open
 its listener, and the real gates run afterwards and own the verdict.
 
 **Start what is built; do not rebuild.** A rebuild costs ~15 minutes and
@@ -680,8 +680,8 @@ throws away a warm squid cache; a start costs seconds and preserves it.
 Rebuilding is the escalation for a VM that will not come up, never the
 first response to one that is merely off.
 
-On a host with no cycle running to do it for you — a workstation used
-interactively, or a machine just rebooted before a manual run — bring them
+On a host with no cycle running to do it for you -- a workstation used
+interactively, or a machine just rebooted before a manual run -- bring them
 up with the ordinary scripts from [A.6](#a6-start-the-caching-proxy-service)
 and [A.7](#a7-start-the-stash-service), which adopt a healthy VM rather
 than rebuilding it.
@@ -711,14 +711,14 @@ Its closing report distinguishes three things:
   `timedatectl set-ntp`, and the `libvirtd`/`virtlogd` enabled state
   on Ubuntu. A knob that was *unset* before automation is removed
   where it can be, not written back as a zero. **No capture, no
-  restore** — an uncaptured knob is listed under "Left as it is"
+  restore** -- an uncaptured knob is listed under "Left as it is"
   instead. The capture file is kept so the command can be re-run;
   delete it yourself when done.
 - **Removed outright.** Only what is provably the framework's own, by
   name: on Windows the status-port firewall rule and the rule
   `Yuruna: Allow ICMPv4 Echo Request`; on Ubuntu the `ufw` allow rule
   for the status port, plus `libvirt` / `kvm` group membership and the
-  `libvirt-qemu` ACL on `$HOME` — those last two only when the capture
+  `libvirt-qemu` ACL on `$HOME` -- those last two only when the capture
   proves `Enable-TestAutomation` added them. macOS removes nothing.
 - **Only reported.** The closing `NOT reversed (deliberately)` list
   names what it will not touch, most with the command to do it
@@ -730,12 +730,12 @@ Its closing report distinguishes three things:
   libvirt default network, guests defined here, and the pool-storage
   sudoers drop-in.
 
-The service VMs stay up unless you pass `-StopServices` — restoring
+The service VMs stay up unless you pass `-StopServices` -- restoring
 host settings and tearing down services are different intentions.
 `-WhatIf` restores nothing and still prints both lists.
 
 It refuses to run while a test runner owns this host's runtime
-directory, naming the live PID — restoring screen lock under a running
+directory, naming the live PID -- restoring screen lock under a running
 cycle would blank capture mid-run. Stop the runner first.
 
 ---
@@ -752,14 +752,14 @@ lives under its own vault key:
 | `yuruna-stash-service` | `stash-admin` |
 | `yuruna-download-agent-service` | `download-agent-service-admin` |
 
-(`yuruna-pool-control-service` appears when a lab builds that VM —
+(`yuruna-pool-control-service` appears when a lab builds that VM --
 [lab-operator.md](lab-operator.md).) One shared account would mean one
 vault entry: building any VM would overwrite the password the others
 were provisioned with, and their console logins would silently stop
 working.
 
 The download-agent service's board gates its mutating actions with the
-rotating 6-character **Lab token** from the Yuruna hosts dashboard —
+rotating 6-character **Lab token** from the Yuruna hosts dashboard --
 checked with the pool aggregator, never stored in the vault; nothing
 to mint or rotate by hand
 ([download-agent.md](download-agent.md#unlocking-the-actions)). A
@@ -767,16 +767,16 @@ stale `download-agent-service-passcode` entry from an earlier build
 can be deleted; nothing reads it.
 
 A VM whose seed named a different administrator keeps it until rebuilt
-— the names above apply from each VM's next build.
+-- the names above apply from each VM's next build.
 `Move-CachingProxyService.ps1` talks to two cache VMs at once, so pass
 `-OldUser` when the source VM's account differs from the default.
 Remove a superseded vault entry only after every VM provisioned with
 it has been rebuilt.
 
 `users.yml.template` declares all four. An existing `users.yml` is not
-re-bootstrapped — new template entries are merged in one by one, and
+re-bootstrapped -- new template entries are merged in one by one, and
 only while they carry no operator meaning (no vault key, no corporate
-mapping) — so a `strict: true` host picks up a new service's
+mapping) -- so a `strict: true` host picks up a new service's
 administrator without hand-editing. See
 [test-config.md](test-config.md).
 
@@ -786,6 +786,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../README.md)

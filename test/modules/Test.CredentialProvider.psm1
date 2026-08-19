@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42be89e8-3a2d-4f1f-b917-21148e97c8ef
+.VERSION 2026.08.19
+.GUID 424ac6f6-cc32-4fff-beb1-ec808f35ab29
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
@@ -48,7 +48,10 @@ function Get-CredentialProviderMatrix {
         Snapshot of registered providers as an ordered dictionary keyed
         by provider type, value = the match Pattern.
     .DESCRIPTION
-        Used by the startup capability matrix to render the active
+        Available to render the active providers in a capability matrix.
+        Get-HostCapabilityMatrix does NOT carry a credentials key today, so
+        nothing calls this; it is kept because the shape it returns is the
+        one such a matrix would need. Reads the active
         credential providers without exposing the Authenticator
         scriptblock.
     #>
@@ -63,9 +66,14 @@ function Get-CredentialProviderMatrix {
 function Repair-Credential {
     <#
     .SYNOPSIS
-        Self-healing primitive: re-authenticate against the registry
-        whose Pattern matches $Target. Called from a component-push
-        failure path after a 401/403 response.
+        Re-authenticate against the registry whose Pattern matches $Target.
+
+        NOT WIRED. No production path calls this: the remediation dispatcher
+        classifies a 401 as credential_expired and returns a recommendation
+        rather than acting on it. Invoking a real `az acr login` / `docker
+        login` from a failure path is a behavior change on a live push, and
+        needs a class allow-list plus an attempt cap first, so a misclassified
+        failure cannot drive repeated logins.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]

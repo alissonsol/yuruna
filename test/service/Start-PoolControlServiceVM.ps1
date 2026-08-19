@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42e5f6a7-b8c9-4d01-8234-5f6a7b8c9d0e
+.VERSION 2026.08.19
+.GUID 421a21ac-638b-4121-a908-7c26df6a9e86
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna pool-control service extension service
@@ -223,7 +223,7 @@ $remedy
     # config reading that started the server.
     $statusDecision = $null
     try {
-        $statusScript = Join-Path $repoRoot 'test/Start-StatusService.ps1'
+        $statusScript = Join-Path $repoRoot 'test/service/Start-StatusService.ps1'
         if ($tc -and (Test-Path -LiteralPath $statusScript)) {
             $statusResult = Start-YurunaStatusServiceIfEnabled -Config $tc -StartScript $statusScript
             $statusDecision = @($statusResult | Where-Object { $_ -is [System.Collections.IDictionary] }) | Select-Object -Last 1

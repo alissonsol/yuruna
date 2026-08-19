@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42ca0b24-d5cf-4c36-8488-7537249b3b3d
+.VERSION 2026.08.19
+.GUID 42059317-b175-4928-938e-8776d088f5e7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test host redirect pester
@@ -51,19 +51,7 @@ $repoRoot = Split-Path -Parent (Split-Path -Parent $here)
 Import-Module (Join-Path $repoRoot 'automation/Yuruna.HostRedirect.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $repoRoot 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking
 
-function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
-function Assert-False { param($Condition, [string]$Because='') if ($Condition) { throw "Expected false. $Because" } }
-function Assert-Throw {
-    param([scriptblock]$Action, [string]$Match, [string]$Because='')
-    try { & $Action } catch {
-        if ($Match -and $_.Exception.Message -notmatch $Match) {
-            throw "Threw, but message [$($_.Exception.Message)] does not match [$Match]. $Because"
-        }
-        return
-    }
-    throw "Expected a throw. $Because"
-}
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 function New-RedirectFixture {
     <#

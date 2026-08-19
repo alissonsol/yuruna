@@ -26,10 +26,10 @@
   // the wire value instead, because mismatch (wrong token) and skew (clock) need
   // completely different fixes.
   const CONTROL_HINT = {
-    ready: 'Holds this lab’s token; clock agrees.',
-    none: 'Never enrolled a lab token — run Set-LabToken.ps1 on the host.',
-    mismatch: 'Holds a DIFFERENT token — re-enrol against this proxy.',
-    skew: 'Token is right but the clock is off — fix the host clock.',
+    ready: 'Holds this lab\'s token; clock agrees.',
+    none: 'Never enrolled a lab token -- run Set-LabToken.ps1 on the host.',
+    mismatch: 'Holds a DIFFERENT token -- re-enroll against this proxy.',
+    skew: 'Token is right but the clock is off -- fix the host clock.',
     unknown: 'Not answered yet, or the proxy holds no token of its own.'
   };
 
@@ -48,8 +48,8 @@
   // value that needs an operator. It rides the project cell's tooltip: the
   // column itself shows what the host holds, which is a different fact.
   const POOL_ACCESS_HINT = {
-    denied: 'The pool assigned this host a project its git credential cannot read — grant its GH_TOKEN access to that repo, or reassign the pool to one every member can read. Its cycles fail until then, and no retry can fix it.',
-    unreachable: 'The project this host’s pool assigned did not answer — network, not permission. Transient: the cycle’s clone retries through the normal backoff.'
+    denied: 'The pool assigned this host a project its git credential cannot read -- grant its GH_TOKEN access to that repo, or reassign the pool to one every member can read. Its cycles fail until then, and no retry can fix it.',
+    unreachable: 'The project this host\'s pool assigned did not answer -- network, not permission. Transient: the cycle\'s clone retries through the normal backoff.'
   };
 
   // Raw value for a repository column, or '' when the host did not report one.
@@ -107,7 +107,7 @@
       // checks first: a url naming the wrong repository looks exactly like a
       // credential that is missing one until someone follows it.
       return repoEl(url, {
-        title: 'This host cannot read the ' + what + ' repository it is configured with — check its git credential and the url in test.config.yml.' + where
+        title: 'This host cannot read the ' + what + ' repository it is configured with -- check its git credential and the url in test.config.yml.' + where
       }, Y.el('strong', { text: NO_ACCESS }));
     }
     if (value) {
@@ -116,7 +116,7 @@
       }, value);
     }
     return Y.el('span', {
-      class: 'muted', text: '—',
+      class: 'muted', text: '--',
       title: poolHint || error ||
         'This host has no ' + what + ' repository and none configured, or it has not answered yet.'
     });
@@ -128,7 +128,7 @@
   function hostnameCell(name) {
     if (name) return Y.el('span', { text: name });
     return Y.el('span', {
-      class: 'muted', text: '—',
+      class: 'muted', text: '--',
       title: hostnamesVisible
         ? 'This host has not reported a name.'
         : 'Unlock with the Lab token to see hostnames.'
@@ -136,7 +136,7 @@
   }
 
   function typeCell(type) {
-    if (!type) return Y.el('span', { class: 'muted', text: '—' });
+    if (!type) return Y.el('span', { class: 'muted', text: '--' });
     return Y.el('span', { text: type });
   }
 
@@ -163,7 +163,7 @@
   // Takes a formatted string or a raw number (the Cores column).
   function factCell(value, error) {
     if (value !== null && value !== undefined && value !== '') return Y.el('span', { text: String(value) });
-    return Y.el('span', { class: 'muted', text: '—', title: error || 'This host has not reported hardware facts.' });
+    return Y.el('span', { class: 'muted', text: '--', title: error || 'This host has not reported hardware facts.' });
   }
 
   // The identity a row's facts arrive under. A discovered host that could not
@@ -238,7 +238,7 @@
     if (h.baseUrl) {
       box.appendChild(Y.el('a', {
         class: 'mono', href: h.baseUrl, target: '_blank', rel: 'noopener',
-        title: 'Open this host’s own status page at ' + h.baseUrl + ' (found by a network scan' + seen + ')'
+        title: 'Open this host\'s own status page at ' + h.baseUrl + ' (found by a network scan' + seen + ')'
       }, h.address));
     } else {
       box.appendChild(Y.el('span', { class: 'mono', text: h.address, title: 'Found by a network scan' + seen }));
@@ -251,7 +251,7 @@
     const sel = Y.el('select', { 'aria-label': 'Pool for host ' + (h.hostId || h.address) });
     sel.appendChild(Y.el('option', { value: '', text: '(none)' }));
     for (const p of pools) {
-      const o = Y.el('option', { value: p, text: p + (p === targetPoolId ? ' — auto-enrolment target' : '') });
+      const o = Y.el('option', { value: p, text: p + (p === targetPoolId ? ' -- auto-enrollment target' : '') });
       if (p === h.pool) o.selected = true;
       sel.appendChild(o);
     }
@@ -260,7 +260,7 @@
       const label = to || '(none)';
       // (none) also records an exclusion, or the sweep would undo this within a
       // minute and the UI would look broken. Say so, rather than surprise them.
-      const extra = to ? '' : '\n\nIt will also be excluded from auto-enrolment, so the sweep will not add it back.';
+      const extra = to ? '' : '\n\nIt will also be excluded from auto-enrollment, so the sweep will not add it back.';
       if (!confirm('Move host ' + Y.guid(h.hostId) + ' to ' + label + '?' + extra)) {
         sel.value = h.pool || '';
         return;
@@ -347,7 +347,7 @@
   // host in the lab and a silent machine holds it up for seconds.
   async function load(opts) {
     const quiet = !!(opts && opts.quiet);
-    const done = quiet ? function () { } : Y.busy(document.getElementById('host-rows'), 'Loading hosts…');
+    const done = quiet ? function () { } : Y.busy(document.getElementById('host-rows'), 'Loading hosts...');
     chrome.busy(true);
     try {
       // The hostname column turns on a session, and arriving from the dashboard

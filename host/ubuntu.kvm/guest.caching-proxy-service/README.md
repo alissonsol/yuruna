@@ -4,19 +4,19 @@ Canonical documentation (setup, configuration, monitoring, credentials,
 management): **[Caching](../../../docs/caching.md)**.
 Test-harness wrappers (`Start-CachingProxyServiceVM.ps1`,
 `Test-CachingProxyService.ps1`, `YURUNA_CACHING_PROXY_SERVICE_IP`):
-**[Caching-proxy service — test-harness operator reference](../../../docs/caching.md#caching-proxy-service--test-harness-operator-reference)**.
+**[Caching-proxy service -- test-harness operator reference](../../../docs/caching.md#caching-proxy-service--test-harness-operator-reference)**.
 
 Scripts and config in this folder:
 
-- [Get-Image.ps1](Get-Image.ps1) — base Ubuntu Server cloud image
+- [Get-Image.ps1](Get-Image.ps1) -- base Ubuntu Server cloud image
   (amd64 on x86_64, arm64 on aarch64, qcow2, resized to 512 GB sparse).
-- [New-VM.ps1](New-VM.ps1) — defines the libvirt domain
+- [New-VM.ps1](New-VM.ps1) -- defines the libvirt domain
   (12 GB RAM / core-count-policy vCPUs, min 4) and seeds via cloud-init. Dedicated cache box
   budgeted around squid's 7 GB `cache_mem` (58 % of RAM).
-- [host/vmconfig/caching-proxy-service.base.user-data](../../vmconfig/caching-proxy-service.base.user-data) — shared
+- [host/vmconfig/caching-proxy-service.base.user-data](../../vmconfig/caching-proxy-service.base.user-data) -- shared
   cloud-init base (+ per-host overlay): squid, Prometheus + Grafana + squid-exporter,
   qemu-guest-agent, snapshot-cache tuning, `offline_mode` flip after prewarm.
-- [host/vmconfig/caching-proxy-service.meta-data](../../vmconfig/caching-proxy-service.meta-data) — shared
+- [host/vmconfig/caching-proxy-service.meta-data](../../vmconfig/caching-proxy-service.meta-data) -- shared
   cloud-init instance metadata.
 
 ## LAN-bridged network (recommended)
@@ -38,9 +38,9 @@ On first invocation it:
 2. Sweeps any half-built leftovers from previous attempts (stale
    NetworkManager profiles, a stale
    `/etc/netplan/99-yuruna-external.yaml`, a stale `yuruna-br0`
-   device — each makes a fresh build fail in its own way).
+   device -- each makes a fresh build fail in its own way).
 3. Builds a Linux bridge (`yuruna-br0`) and moves the NIC onto it via
-   NetworkManager (`nmcli`) or netplan — picked by which backend
+   NetworkManager (`nmcli`) or netplan -- picked by which backend
    manages the NIC. The bridge clones the NIC's MAC, so the DHCP
    server normally re-issues the same IP the NIC held.
 4. Verifies the NIC actually enslaved to the bridge before defining
@@ -48,10 +48,10 @@ On first invocation it:
    (autostart on). A bridge that never got its uplink is rolled back
    instead of being handed to libvirt.
 
-The helper is idempotent — re-running `Start-CachingProxyServiceVM.ps1`
+The helper is idempotent -- re-running `Start-CachingProxyServiceVM.ps1`
 once the bridge exists is a no-op for host networking, and a bridge
 that lost its LAN uplink is healed (or rebuilt from scratch). The
-bridge build causes a brief network outage (typically 1–5 s) while DHCP
+bridge build causes a brief network outage (typically 1-5 s) while DHCP
 migrates the IP from the bare NIC onto the bridge; SSH sessions over
 the NIC reconnect once the lease arrives.
 
@@ -90,7 +90,7 @@ sudo virsh net-list --all
 
 ### Rollback
 
-To revert, run ALL of the blocks below **in this order** — connectivity
+To revert, run ALL of the blocks below **in this order** -- connectivity
 is restored FIRST so an SSH session survives the teardown steps.
 Artifacts from either backend may be present; each command is a no-op
 when its artifact is absent.
@@ -129,11 +129,11 @@ sets one up automatically for ports 80 / 3000 / 9302 / 9400 / 3128 /
 
 **The multi-host pool dashboard requires the bridge.** On the NAT
 fallback the forwarder is `systemd-socket-proxyd`, a userspace TCP proxy
-that re-originates every connection from the host — so squid records a
+that re-originates every connection from the host -- so squid records a
 single client IP (the NAT gateway `192.168.122.1`) for the whole LAN.
 The pool-aggregator-service discovers hosts by their real client IP in
 squid's log, so on NAT it discovers none and
-`…/d/yuruna-pool/yuruna-hosts` shows "No data" however many hosts point
+`.../d/yuruna-pool/yuruna-hosts` shows "No data" however many hosts point
 at the proxy. Bridging is the only reliable fix (the macOS UTM and
 Hyper-V cache VMs are bridged, which is why their pool dashboards
 populate); forwarding `:9400` exposes the aggregator API but cannot
@@ -143,7 +143,7 @@ recover the client IPs the forwarder already erased.
 
 The cache VM's `yuruna` password is persisted (so reboots and rebuilds
 keep the same credentials) at
-`test/status/runtime/yuruna-caching-proxy-service.yml` — the same file written
+`test/status/runtime/yuruna-caching-proxy-service.yml` -- the same file written
 by the Hyper-V and macOS UTM caching-proxy-service hosts. This
 host-agnostic state is managed by `test/modules/Test.CachingProxyService.psm1`.
 
@@ -153,6 +153,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../../../README.md)

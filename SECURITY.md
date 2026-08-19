@@ -17,9 +17,9 @@ patched. Run the latest release before reporting.
 Please **do not** open a public GitHub issue for suspected
 vulnerabilities. Use one of:
 
-- **Preferred** — GitHub's [private vulnerability reporting](https://github.com/alissonsol/yuruna/security/advisories/new)
+- **Preferred** -- GitHub's [private vulnerability reporting](https://github.com/alissonsol/yuruna/security/advisories/new)
   on the `alissonsol/yuruna` repository.
-- **Email** — [security@yuruna.dev](mailto:security@yuruna.dev),
+- **Email** -- [security@yuruna.dev](mailto:security@yuruna.dev),
   or [contrib@yuruna.dev](mailto:contrib@yuruna.dev) as fallback.
 
 Include: affected files or scripts, host/guest platform
@@ -38,7 +38,7 @@ In scope:
 - [Installer entry points](install/README.md) executed via `curl | bash`
   / `irm | iex` from `raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/`.
 - Cloud-init `user-data` and "fetch-and-execute" patterns documented
-  in [Yuruna Contributor Guidance](CONTRIBUTING.md) — these download from `main`
+  in [Yuruna Contributor Guidance](CONTRIBUTING.md) -- these download from `main`
   at VM-creation time.
 - Default configurations shipped with the
   [test harness](test/README.md) and
@@ -50,7 +50,7 @@ Out of scope:
   Docker, OpenTofu, container images, Linux/Windows guests).
   Report those to their own projects.
 - Findings that require local administrator/root on the host running
-  Yuruna — Yuruna assumes the operator already has it.
+  Yuruna -- Yuruna assumes the operator already has it.
 - Anything inside an example workload under `project/` (cloned from
   [yuruna-project](https://github.com/alissonsol/yuruna-project))
   beyond what is documented as supported.
@@ -60,16 +60,16 @@ Out of scope:
 Yuruna's design assumes the operator controls the host. Treat the
 following as your responsibility, not the project's:
 
-- **Credentials** — files matching `*.config.yml`,
+- **Credentials** -- files matching `*.config.yml`,
   `transports.yml` (notification), and the per-cycle authentication
   vault under `test/status/extension/authentication/`
   hold secrets and are gitignored. Never commit them.
-- **Network exposure** — Kubernetes deployments, the status service,
+- **Network exposure** -- Kubernetes deployments, the status service,
   and the caching-proxy service bind to the host. Restrict ingress before
   running outside a trusted LAN.
-- **Cloud cost and blast radius** — see the cost warning in
+- **Cloud cost and blast radius** -- see the cost warning in
   [Yuruna ...](README.md) and [Yuruna Resources Clean Up](docs/kubernetes.md#cleaning-up-cloud-resources).
-- **Verifying fetched scripts** — installer one-liners and
+- **Verifying fetched scripts** -- installer one-liners and
   cloud-init pull from `main`. Pin to a commit SHA if you need
   reproducibility.
 
@@ -92,6 +92,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](README.md)

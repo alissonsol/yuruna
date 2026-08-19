@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42b7c3f8-9a1d-4e62-8c05-6d4f2a1b9e37
+.VERSION 2026.08.19
+.GUID 42267d15-1bc0-481c-b068-2bb6d74f5ffb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna pool lab auth admin
@@ -80,7 +80,7 @@ param(
     [switch]$BounceStatusService,
     [switch]$NonInteractive,
     # Skip seeding pool.enabled / pool.intentGitUrl into test.config.yml.
-    # Enrolment is the natural moment to do it -- the operator is present and has
+    # Enrollment is the natural moment to do it -- the operator is present and has
     # just named the proxy -- but a host that must stay standalone can opt out.
     [switch]$NoPoolConfig
 )
@@ -229,17 +229,17 @@ if ($provision.ok -and $proxyAddress -and ($addressSource -in @('parameter', 'pr
 # --- REGION: Seed the pool intent store binding
 # A host that has just enrolled its lab token is a host the operator intends to
 # manage from the lab. The intent store it should pull from is served by the very
-# proxy they just named, so bind it now: enrolment is the one moment an operator
+# proxy they just named, so bind it now: enrollment is the one moment an operator
 # is present, authenticated, and has already supplied the address.
 #
 # Runs for EVERY resolved address, not only an operator-supplied one -- a host
 # whose cachingProxyIp was already in config still needs the pool binding, and
-# that is the common case on a re-enrolment.
+# that is the common case on a re-enrollment.
 #
 # Idempotent and non-destructive: an existing non-empty intentGitUrl is left
 # exactly as it is, so an operator pointing a host at a different intent store is
 # never overwritten. Best-effort throughout -- the token is already stored, and
-# failing to seed an optional binding must not fail the enrolment.
+# failing to seed an optional binding must not fail the enrollment.
 if ($provision.ok -and $proxyAddress -and -not $NoPoolConfig) {
     $configPath = Join-Path $PSScriptRoot '../test.config.yml'
     try {

@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42b1e7d4-9a3c-4f60-8b2e-5c1d0a9f3e26
+.VERSION 2026.08.19
+.GUID 420bd99b-9a43-48a6-9d05-9d19abdacd2d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test status atomic-write race pester
@@ -40,11 +40,10 @@
 
 BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
-$sss  = Join-Path (Split-Path -Parent $here) 'Start-StatusService.ps1'
+$sss  = Join-Path (Split-Path -Parent $here) 'service/Start-StatusService.ps1'
 $script:txt  = Get-Content -Raw -LiteralPath $sss
 
-function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 }
 

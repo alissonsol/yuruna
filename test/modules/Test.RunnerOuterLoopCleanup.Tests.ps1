@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42c5d6e7-f809-4a12-9b34-5c6d7e8f9012
+.VERSION 2026.08.19
+.GUID 42a641ab-18b0-4d5b-a99c-e837d2b17ef8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test runner outer watchdog notifier pester

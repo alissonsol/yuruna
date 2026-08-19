@@ -1,17 +1,17 @@
 # Guests — workloads that run inside a VM
 
 Each subfolder holds the workload scripts (Code, k8s, n8n, postgresql,
-…) that run **inside** a running guest, independent of which host
+...) that run **inside** a running guest, independent of which host
 created the VM.
 
 - [Amazon Linux 2023](amazon.linux.2023/README.md)
-- [macOS 26](macos.26/README.md) — Apple Silicon only; Setup Assistant not yet automated
+- [macOS 26](macos.26/README.md) -- Apple Silicon only; Setup Assistant not yet automated
 - [Ubuntu Server 24.04](ubuntu.server.24/README.md)
 - [Ubuntu Server 26.04](ubuntu.server.26/README.md)
 - [Windows 11](windows.11/README.md)
 
 Project-wide architecture: [Yuruna Architecture](../docs/architecture.md). VM provisioning
-scripts (per hypervisor): [Hosts — ...](../host/README.md).
+scripts (per hypervisor): [Hosts -- ...](../host/README.md).
 
 ## Guest workload pattern
 
@@ -30,7 +30,7 @@ irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/guest/w
 ```
 
 Available workloads are listed in each guest folder's `README.md` (linked
-above) and documented per-workload under [../docs/](../docs/) — see [Guest
+above) and documented per-workload under [../docs/](../docs/) -- see [Guest
 workloads](../docs/guest-image-setup.md#guest-workloads) for
 code/n8n/openclaw/postgresql, and [kubernetes.md](../docs/kubernetes.md).
 
@@ -40,6 +40,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../README.md)

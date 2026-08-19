@@ -38,11 +38,11 @@
     setCard('ag-lease', ag.readOnly ? 'read-only' : 'writer',
       ag.readOnly ? ('held by ' + (ag.leaseHolder || 'another agent')) : (ag.leaseError || (ag.leaseHolder || '')));
 
-    const every = ag.scanIntervalSeconds ? ('every ' + Y.duration(ag.scanIntervalSeconds)) : '—';
+    const every = ag.scanIntervalSeconds ? ('every ' + Y.duration(ag.scanIntervalSeconds)) : '--';
     let scanSub = 'last ' + Y.stamp(ag.lastScanUtc);
-    if (ag.nextScanUtc) scanSub += ' · next ' + Y.stamp(ag.nextScanUtc);
+    if (ag.nextScanUtc) scanSub += ' - next ' + Y.stamp(ag.nextScanUtc);
     if (ag.freshnessSeconds) {
-      scanSub += ' · fresh ' + Y.duration(ag.freshnessSeconds) + ', lead ' + Y.duration(ag.prefetchLeadSeconds);
+      scanSub += ' - fresh ' + Y.duration(ag.freshnessSeconds) + ', lead ' + Y.duration(ag.prefetchLeadSeconds);
     }
     setCard('ag-scan', every, scanSub);
 
@@ -51,10 +51,10 @@
     if (seed.error) seedSub = 'last pass failed: ' + seed.error;
     else if (seed.skipped) seedSub = 'skipped: ' + seed.skipped;
     else if (seed.atUtc) {
-      seedSub = Y.stamp(seed.atUtc) + ' · started ' + (seed.started || 0);
-      if (seed.deferred) seedSub += ' · deferred ' + seed.deferred;
-      if (seed.hostTypes && seed.hostTypes.length) seedSub += ' · ' + seed.hostTypes.join(', ');
-      if (seed.skippedHosts) seedSub += ' · ' + seed.skippedHosts + ' host(s) without status';
+      seedSub = Y.stamp(seed.atUtc) + ' - started ' + (seed.started || 0);
+      if (seed.deferred) seedSub += ' - deferred ' + seed.deferred;
+      if (seed.hostTypes && seed.hostTypes.length) seedSub += ' - ' + seed.hostTypes.join(', ');
+      if (seed.skippedHosts) seedSub += ' - ' + seed.skippedHosts + ' host(s) without status';
     }
     setCard('ag-seed', ag.autoSeed ? 'on' : 'off', seedSub);
 
@@ -64,14 +64,14 @@
     const fams = ag.bestEffort || [];
     const down = fams.filter(f => !f.available);
     setCard('ag-besteffort',
-      fams.length ? ((fams.length - down.length) + ' of ' + fams.length + ' available') : '—',
+      fams.length ? ((fams.length - down.length) + ' of ' + fams.length + ' available') : '--',
       down.length
-        ? down.map(f => f.imageKey + ': ' + (f.reason || 'unavailable')).join(' · ')
+        ? down.map(f => f.imageKey + ': ' + (f.reason || 'unavailable')).join(' - ')
         : fams.map(f => f.imageKey).join(', '));
 
     const totals = ag.totals || {};
     setCard('ag-bytes', Y.bytes(totals.bytes || 0),
-      (totals.images || 0) + ' entries · ' + Y.bytes(totals.currentBytes || 0) + ' current');
+      (totals.images || 0) + ' entries - ' + Y.bytes(totals.currentBytes || 0) + ' current');
   }
 
   // --- table ----------------------------------------------------------------
@@ -91,12 +91,12 @@
     const bar = Y.el('span', { class: 'progress' }, [fill]);
     const label = img.bytesTotal > 0
       ? Y.bytes(img.bytesDone) + ' / ' + Y.bytes(img.bytesTotal)
-      : (img.phase || 'working') + '…';
-    return Y.el('div', {}, [Y.el('span', { class: 'muted', text: (img.phase ? img.phase + ' · ' : '') + label }), bar]);
+      : (img.phase || 'working') + '...';
+    return Y.el('div', {}, [Y.el('span', { class: 'muted', text: (img.phase ? img.phase + ' - ' : '') + label }), bar]);
   }
 
   function verifiedCell(img) {
-    if (!img.lastVerifiedAt) return Y.el('span', { class: 'muted', text: '—' });
+    if (!img.lastVerifiedAt) return Y.el('span', { class: 'muted', text: '--' });
     const kids = [Y.el('div', { text: Y.stamp(img.lastVerifiedAt) })];
     const s = Number(img.secondsToExpiry || 0);
     const word = s >= 0 ? ('expires in ' + Y.duration(s)) : ('expired ' + Y.duration(-s) + ' ago');
@@ -105,12 +105,12 @@
   }
 
   function verdictCell(img) {
-    if (!img.checksumVerdict) return Y.el('span', { class: 'muted', text: '—' });
+    if (!img.checksumVerdict) return Y.el('span', { class: 'muted', text: '--' });
     return Y.el('span', { class: 'verdict-' + img.checksumVerdict, text: img.checksumVerdict });
   }
 
   function sourceCell(img) {
-    if (!img.sourceUrl) return Y.el('span', { class: 'muted', text: '—' });
+    if (!img.sourceUrl) return Y.el('span', { class: 'muted', text: '--' });
     // Rendered as text, not an anchor: the CSP forbids off-origin navigation
     // targets and the value is only ever read, never followed from here.
     return Y.el('code', { title: img.sourceUrl, text: img.sourceUrl });
@@ -211,13 +211,13 @@
     // landed on. Naming both only when they differ is what tells an operator
     // that preference-with-fallback fired, rather than letting the row assert a
     // build the bytes did not come from.
-    let ident = img.hostType + ' · ' + img.arch + ' · ' + img.variant;
+    let ident = img.hostType + ' - ' + img.arch + ' - ' + img.variant;
     if (img.resolvedVariant && img.resolvedVariant !== img.variant) {
       ident += ' (resolved ' + img.resolvedVariant + ')';
     }
     // Best-effort families are never auto-seeded, so an operator who expects the
     // scanner to fill this row eventually needs to know it will not.
-    if (img.bestEffort) ident += ' · best effort';
+    if (img.bestEffort) ident += ' - best effort';
     const idCell = Y.el('td', {}, [
       Y.el('div', { text: img.imageKey }),
       Y.el('div', { class: 'muted', text: ident })
@@ -228,7 +228,7 @@
         Y.el('code', { text: img.upstreamFilename }),
         img.generation ? Y.el('div', { class: 'muted mono', text: img.generation }) : null
       ])
-      : Y.el('span', { class: 'muted', text: img.supported ? '—' : 'no resolver' });
+      : Y.el('span', { class: 'muted', text: img.supported ? '--' : 'no resolver' });
 
     const size = Y.el('div', {}, [
       Y.el('div', { text: Y.bytes(img.currentBytes) }),
@@ -259,7 +259,7 @@
       Y.numCell(0),
       Y.el('td', { text: 'Totals' }),
       Y.el('td', { text: (totals.images || 0) + ' entries' }),
-      Y.el('td', { class: 'muted', text: parts.join(' · ') || '—' }),
+      Y.el('td', { class: 'muted', text: parts.join(' - ') || '--' }),
       Y.el('td', {}, [
         Y.el('div', { text: Y.bytes(totals.currentBytes || 0) }),
         Y.el('div', { class: 'muted', text: 'previous ' + Y.bytes(totals.previousBytes || 0) })
@@ -301,7 +301,7 @@
       const active = sort && sort.col === th.getAttribute('data-sort');
       th.setAttribute('aria-sort', active ? (sort.dir > 0 ? 'ascending' : 'descending') : 'none');
       const arrow = th.querySelector('.sort-arrow');
-      if (arrow) arrow.textContent = active ? (sort.dir > 0 ? '↑' : '↓') : '';
+      if (arrow) arrow.textContent = active ? (sort.dir > 0 ? '^' : 'v') : '';
     }
   }
 
@@ -374,7 +374,7 @@
   // rather than a reload: a reload would wipe a half-typed lab token out of the
   // unlock form. stamp() (not markLoaded) records each poll, because a 5 s poll
   // that reset the 60 s countdown would pin it at 60 and it would never fire.
-  // refreshOnVisible is off — the poll below already reloads on that event.
+  // refreshOnVisible is off -- the poll below already reloads on that event.
   const chrome = Y.initChrome({ intervalSeconds: 60, refresh: load, refreshOnVisible: false });
 
   async function load() {

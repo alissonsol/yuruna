@@ -1,10 +1,10 @@
 # Ubuntu Server 26.04 Guest - Workloads
 
-See [Guests — ...](../README.md) for the guest workload pattern.
+See [Guests -- ...](../README.md) for the guest workload pattern.
 
 Create the guest VM first:
-[macOS UTM](../../host/macos.utm/guest.ubuntu.server.26/README.md) ·
-[Windows Hyper-V](../../host/windows.hyper-v/guest.ubuntu.server.26/README.md) ·
+[macOS UTM](../../host/macos.utm/guest.ubuntu.server.26/README.md) -
+[Windows Hyper-V](../../host/windows.hyper-v/guest.ubuntu.server.26/README.md) -
 [Ubuntu KVM](../../host/ubuntu.kvm/guest.ubuntu.server.26/README.md).
 
 ## Post-install setup
@@ -37,6 +37,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../../README.md)

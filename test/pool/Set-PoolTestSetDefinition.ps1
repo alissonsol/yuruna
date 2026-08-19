@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42c3d4e5-f6a7-4b89-8012-3d4e5f6a7b8c
+.VERSION 2026.08.19
+.GUID 423f5481-df7c-4b50-bc42-b39e3fe0b5d1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna pool admin

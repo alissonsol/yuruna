@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42d1e2f3-4a5b-4c6d-8e7f-9a0b1c2d3e4f
+.VERSION 2026.08.19
+.GUID 42b667c7-9705-40d2-b7ab-42c08bffb2a3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test hostgit install pester
@@ -37,7 +37,7 @@ $repoRoot   = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalCh
 $modulePath = Join-Path $repoRoot 'test/modules/Test.HostGit.psm1'
 $script:helper     = 'Install-YurunaGalleryModuleIfMissing'
 
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 function Get-ModuleAst {
     [CmdletBinding()]

@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42f2a3b4-c5d6-4e78-9012-3f4a5b6c7d81
+.VERSION 2026.08.19
+.GUID 422f8480-0c5e-4aaf-bac0-6975691a9ce1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
@@ -30,7 +30,7 @@
 
 param(
     [string]$VMName = "ubuntu-server01",
-    # Forwarded by the test harness (Invoke-TestRunner -> Invoke-NewVM) so
+    # Forwarded by the test harness (Start-TestRunner -> Invoke-NewVM) so
     # every guest in a run agrees on a single caching-proxy service URL. When bound
     # (even to ""), the local subnet probe is skipped and this value is
     # used verbatim: "" means "no cache, go direct"; a URL means "use this".
@@ -53,7 +53,7 @@ param(
     [string]$Cores = ''
 )
 
-# Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+# Honor logLevel from Start-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
 if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
 
@@ -402,6 +402,19 @@ $MetaData = (Get-Content -Raw $MetaDataTemplate) `
     -replace 'INSTANCE_ID_PLACEHOLDER', $VMName `
     -replace 'HOSTNAME_PLACEHOLDER', $GuestHostname
 Set-Content -Path "$SeedDir/meta-data" -Value $MetaData -NoNewline
+# --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+# Governs the INSTALLER's own DHCP request, and subiquity carries the network
+# config it installed with into the target -- so the pin is present from the
+# very first lease this guest ever asks for. The late-command in the
+# autoinstall user-data patches the same key into the installed netplan and
+# stays as the belt to this braces; it cannot replace this, because by the time
+# a late-command runs the installer has already taken a lease under the default
+# machine-id identity, and on a long lease that address is spent for a week.
+# Matching en*/eth* mirrors cloud-init's own fallback, so a guest whose
+# interface matches neither is no worse off than with no file here -- the
+# property that makes this safe to apply during an install.
+Copy-Item -LiteralPath (Join-Path $HostVmConfigDir 'guest-dhcp.network-config') `
+    -Destination "$SeedDir/network-config" -Force
 
 # --- REGION: Generate cloud-init seed ISO
 $SeedIso = "$DataDir/seed.iso"

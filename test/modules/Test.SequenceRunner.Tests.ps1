@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42f8c3d6-1a4b-4e29-9c70-5d8e1f2a3b40
+.VERSION 2026.08.19
+.GUID 42b4e120-ffe3-4090-9478-c0444af48a73
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test sequence chain pester
@@ -39,14 +39,13 @@
 BeforeAll {
 $here               = Split-Path -Parent $PSCommandPath
 $modulePath         = Join-Path $here 'Test.SequenceRunner.psm1'
-$script:testSequenceScript = Join-Path (Split-Path -Parent $here) 'Invoke-TestSequence.ps1'
+$script:testSequenceScript = Join-Path (Split-Path -Parent $here) 'Debug-TestSequence.ps1'
 
 Import-Module $modulePath -Force -DisableNameChecking -ErrorAction SilentlyContinue
 # Get-FirstExecutedStepAction resolves a wrapper step through Get-StepLeadAction.
 Import-Module (Join-Path $here 'Test.SequenceResolve.psm1') -Force -DisableNameChecking -ErrorAction SilentlyContinue
 
-function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # One chain entry in the shape Resolve-TestSequencePlan returns.
 function Get-ChainEntry { param($Steps) @{ sequence = @{ steps = $Steps } } }
@@ -164,7 +163,7 @@ Describe 'A failed chain gathers its own evidence' {
             'an un-piped call puts the capture''s Write-Output strings into the caller''s return value.'
     }
     It 'both chain callers capture before they report the failure' {
-        # The orchestrator runs the cycle; Invoke-TestSequence runs the repro
+        # The orchestrator runs the cycle; Debug-TestSequence runs the repro
         # command the failure record prints. A guest that failed on either one
         # has the same story to tell.
         $orchestrator = Join-Path $here 'Test.Orchestrator.psm1'
@@ -217,7 +216,7 @@ Describe 'Get-FirstExecutedStepAction reads through wrapper steps' {
     }
 }
 
-Describe 'Invoke-TestSequence.ps1 resolves the first executed action through the module' {
+Describe 'Debug-TestSequence.ps1 resolves the first executed action through the module' {
     It 'defines no local Get-FirstExecutedStepAction (a local copy would shadow the wrapper-aware one)' {
         $tokens = $null; $errs = $null
         $ast = [System.Management.Automation.Language.Parser]::ParseFile($script:testSequenceScript, [ref]$tokens, [ref]$errs)
@@ -247,7 +246,7 @@ Describe 'Invoke-TestSequenceChain accepts the planner List shape' {
     }
 }
 
-Describe 'Invoke-TestSequence.ps1 passes ChainEntries without an @() wrap' {
+Describe 'Debug-TestSequence.ps1 passes ChainEntries without an @() wrap' {
     It 'forwards the bare $ChainEntries variable (an @() wrap breaks the [IList] bind)' {
         $arg = Get-CallArgumentAst -Path $script:testSequenceScript -Command 'Invoke-TestSequenceChain' -ParameterName 'ChainEntries'
         Assert-True ($arg -is [System.Management.Automation.Language.VariableExpressionAst]) `

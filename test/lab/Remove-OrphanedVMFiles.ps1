@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42b1e165-f284-484b-aae6-c7d769cedee1
+.VERSION 2026.08.19
+.GUID 42abb186-f4b8-4269-9bed-8d5f24f258e5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test host cleanup

@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a1b2c3-d4e5-4f67-8901-bc0123456742
+.VERSION 2026.08.19
+.GUID 42647c3a-19a7-4931-b638-07791d5f0b1b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
@@ -373,7 +373,7 @@ if (-not $ForceRebuild) {
         # means the VM keeps its current baked creds until it is back up.
         Import-Module (Join-Path $ModulesDir 'Test.Config.psm1') -Global -Force
         $cpAdoptConfig = Read-TestConfig -Path (Join-Path $PSScriptRoot '../test.config.yml')
-        [void](Start-YurunaStatusServiceIfEnabled -Config $cpAdoptConfig -StartScript (Join-Path $PSScriptRoot '../Start-StatusService.ps1'))
+        [void](Start-YurunaStatusServiceIfEnabled -Config $cpAdoptConfig -StartScript (Join-Path $PSScriptRoot 'Start-StatusService.ps1'))
         [void](Start-YurunaConfigServiceIfEnabled -Config $cpAdoptConfig -StartScript (Join-Path $PSScriptRoot 'Start-ConfigService.ps1'))
         # Re-assert LAN exposure (idempotent, clear-all-first): LAN-direct
         # (bridged/external) needs no forwarder; a NAT'd cache gets host port maps.
@@ -592,7 +592,7 @@ if (-not (Test-Path $ImageFile)) {
 Write-Output ""
 Write-Output "== Step 2.5: host status service (serves the local repo to the cache VM) =="
 Import-Module (Join-Path $ModulesDir 'Test.Config.psm1') -Global -Force
-$cpStatusScript = Join-Path $PSScriptRoot '../Start-StatusService.ps1'
+$cpStatusScript = Join-Path $PSScriptRoot 'Start-StatusService.ps1'
 $cpConfig = Read-TestConfig -Path (Join-Path $PSScriptRoot '../test.config.yml')
 $cpStatusDecision = Start-YurunaStatusServiceIfEnabled -Config $cpConfig -StartScript $cpStatusScript
 if ($cpStatusDecision.ShouldStart) {
@@ -745,7 +745,7 @@ if ($IsMacOS) {
     # UTM gates every launch behind that confirmation -- which would block
     # this unattended bring-up until a human clicks Continue. UTM exposes no
     # way to suppress it (it is a deliberate security gate), so reuse the same
-    # osascript watchdog Start-UtmVM uses for the Invoke-TestRunner path.
+    # osascript watchdog Start-UtmVM uses for the Start-TestRunner path.
     # Ensure the macOS host module (which exports the watchdog) is loaded --
     # Step 2/3's Get-Image / New-VM run -Force imports that can evict the
     # copy Step 1 loaded (feedback_module_force_import_evicts_global); only
@@ -1089,7 +1089,7 @@ if ($IsMacOS) {
     # the VM directly (172.25.x.x NAT subnet is visible from the host and
     # from every Hyper-V guest on that switch), so this portproxy adds LAN
     # exposure without changing the local-guest path -- those still target
-    # the VM's private IP. The port list matches Invoke-TestRunner.ps1's
+    # the VM's private IP. The port list matches Start-TestRunner.ps1's
     # Add-PortMap call; mismatched lists fight each other because
     # the function runs Clear-AllCachingProxyServicePortMapping first. Requires
     # elevation; Add-PortMap warns and no-ops otherwise.
@@ -1160,7 +1160,7 @@ if ($cacheIp) {
         Write-Output "  CA cert:     http://${cacheIp}/yuruna-squid-ca.crt  (trust to enable :${summaryHttpsPort} HTTPS caching)"
         Write-Output ""
         Write-Output "  Remote LAN clients (other hosts on this network):"
-        Write-Output "    Set on the remote host BEFORE Invoke-TestRunner.ps1:"
+        Write-Output "    Set on the remote host BEFORE Start-TestRunner.ps1:"
         Write-Output "      export YURUNA_CACHING_PROXY_SERVICE_IP=${cacheIp}"
         Write-Output "      (or on Windows: setx YURUNA_CACHING_PROXY_SERVICE_IP ${cacheIp})"
         Write-Output "    Quick check from the remote host:"
@@ -1184,7 +1184,7 @@ if ($cacheIp) {
         Write-Output "  cachemgr:    ssh to the VM, then 'squidclient mgr:info'  (web UI dropped in Ubuntu 26.04)"
         Write-Output "  CA cert:     http://${cacheIp}/yuruna-squid-ca.crt  (trust to enable :${summaryHttpsPort} HTTPS caching)"
         Write-Output ""
-        Write-Output "  Same-Mac test VM: just run Invoke-TestRunner.ps1 -- do NOT set"
+        Write-Output "  Same-Mac test VM: just run Start-TestRunner.ps1 -- do NOT set"
         Write-Output "    YURUNA_CACHING_PROXY_SERVICE_IP. The guest finds the cache at ${cacheIp}."
         if ($cacheLanIp) {
             Write-Output ""
@@ -1193,7 +1193,7 @@ if ($cacheIp) {
             Write-Output "    $cacheIp (pwsh socket-proxy). NOTE: this forwarder is torn down by any"
             Write-Output "    later Remove-PortMap (test run / status restart); if a remote client"
             Write-Output "    gets 'connection refused', re-run Start-CachingProxyServiceVM.ps1 to restore it."
-            Write-Output "    export YURUNA_CACHING_PROXY_SERVICE_IP=${cacheLanIp}    # remote host, before Invoke-TestRunner.ps1"
+            Write-Output "    export YURUNA_CACHING_PROXY_SERVICE_IP=${cacheLanIp}    # remote host, before Start-TestRunner.ps1"
             Write-Output "      (or on Windows: setx YURUNA_CACHING_PROXY_SERVICE_IP ${cacheLanIp})"
             Write-Output "    quick check:  curl -x http://${cacheLanIp}:${summaryHttpPort} http://cdimage.ubuntu.com/ -I"
             Write-Output "    NOTE: a populated vmStart.cachingProxyIp in the remote host's"
@@ -1217,7 +1217,7 @@ if ($cacheIp) {
         if ($cacheForwarded -and $cacheLanIp -ne $cacheIp) {
             Write-Output ""
             Write-Output "  Remote LAN clients (OTHER physical hosts only):"
-            Write-Output "    export YURUNA_CACHING_PROXY_SERVICE_IP=${lanIp}    # remote host, before Invoke-TestRunner.ps1"
+            Write-Output "    export YURUNA_CACHING_PROXY_SERVICE_IP=${lanIp}    # remote host, before Start-TestRunner.ps1"
             Write-Output "    quick check:  curl -x http://${lanIp}:${summaryHttpPort} http://cdimage.ubuntu.com/ -I"
             Write-Output "    NOTE: a populated vmStart.cachingProxyIp in the remote host's"
             Write-Output "      test.config.yml is probed first and outranks the env var."

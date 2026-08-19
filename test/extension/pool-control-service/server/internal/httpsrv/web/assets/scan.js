@@ -65,7 +65,7 @@
   // --- rendering ------------------------------------------------------------
 
   function fmtTime(iso) {
-    if (!iso) return '—';
+    if (!iso) return '--';
     const d = new Date(iso);
     return isNaN(d) ? iso : d.toLocaleString();
   }
@@ -88,7 +88,7 @@
       // The addresses just probed, oldest first, so the line reads left to
       // right the way the scan moved through the range.
       if (scan.recent && scan.recent.length) {
-        ticker.appendChild(Y.el('span', { class: 'mono', text: scan.recent.join('  ·  ') }));
+        ticker.appendChild(Y.el('span', { class: 'mono', text: scan.recent.join('  -  ') }));
       }
       return;
     }
@@ -113,8 +113,8 @@
       body.appendChild(Y.el('tr', {}, [
         Y.el('td', { class: 'mono', text: h.address }),
         Y.el('td', {}, [idCell(h.hostId)]),
-        Y.el('td', { text: h.hostname || '—' }),
-        Y.el('td', { text: h.hostType || '—' }),
+        Y.el('td', { text: h.hostname || '--' }),
+        Y.el('td', { text: h.hostType || '--' }),
         Y.el('td', { text: fmtTime(h.firstSeenUtc) })
       ]));
     }
@@ -159,8 +159,8 @@
       body.appendChild(Y.el('tr', {}, [
         Y.el('td', { class: 'mono' }, [where]),
         Y.el('td', {}, [idCell(h.hostId)]),
-        Y.el('td', { text: h.hostname || '—' }),
-        Y.el('td', { text: h.hostType || '—' }),
+        Y.el('td', { text: h.hostname || '--' }),
+        Y.el('td', { text: h.hostType || '--' }),
         Y.el('td', { text: fmtTime(h.firstSeenUtc) }),
         Y.el('td', { text: fmtTime(h.lastSeenUtc) }),
         Y.el('td', {}, [forget])
@@ -178,7 +178,7 @@
   function sweepSentence(data) {
     if (!data.sweepSeconds) return 'The periodic sweep is off; this page is the only way a scan runs.';
     const minutes = Math.round(data.sweepSeconds / 60);
-    return 'A sweep of ' + (data.defaultCidr || 'this service’s own network') + ' runs on its own every '
+    return 'A sweep of ' + (data.defaultCidr || 'this service\'s own network') + ' runs on its own every '
       + (minutes >= 1 ? minutes + (minutes === 1 ? ' minute' : ' minutes') : data.sweepSeconds + ' seconds')
       + ', asking port ' + data.port + ' on every address.';
   }

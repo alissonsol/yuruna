@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a7b8c9-d0e1-4f23-a4b5-6c7d8e9f0a1b
+.VERSION 2026.08.19
+.GUID 42570333-9ac2-4031-a0fd-695d1459461e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS Test.Tesseract
@@ -21,8 +21,8 @@
     Common Tesseract OCR utilities: locate the executable, guide installation, and run OCR.
 
 .DESCRIPTION
-    Provides shared functions for Tesseract OCR used by Invoke-TestRunner,
-    Invoke-TestSequence, and the OCR-engine dispatcher (Test.OcrEngine).
+    Provides shared functions for Tesseract OCR used by Start-TestRunner,
+    Debug-TestSequence, and the OCR-engine dispatcher (Test.OcrEngine).
     Works on Windows, macOS, and Linux.
 #>
 

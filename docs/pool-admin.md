@@ -10,20 +10,20 @@
 
 A **pool** is a named group of test hosts that run the same assigned work and report
 under one label (the `poolId`). You manage a pool by editing one small file
-of **intent** — `pools.yml` — through a handful of admin commands. You never touch the
+of **intent** -- `pools.yml` -- through a handful of admin commands. You never touch the
 hosts directly: each runner **pulls** the intent every cycle and acts on it.
 
 Intent has three parts:
 
-- **members** — which hosts belong to the pool (by their stable host id).
-- **test-set** — which framework/project repo pair the pool runs; the assigned
+- **members** -- which hosts belong to the pool (by their stable host id).
+- **test-set** -- which framework/project repo pair the pool runs; the assigned
   project's own `test.runner.yml` is the work.
-- **desiredState** — whether the pool is running, paused, or draining.
+- **desiredState** -- whether the pool is running, paused, or draining.
 
 ```
-  you ──run──▶ admin CLI ──writes──▶ pools.yml  (intent git repo on the caching-proxy-service)
-                                          │
-  every host ──pulls read-only each cycle─┘──▶ runs the assigned test-set, reports under <poolId>
+  you --run--> admin CLI --writes--> pools.yml  (intent git repo on the caching-proxy-service)
+                                          |
+  every host --pulls read-only each cycle-+--> runs the assigned test-set, reports under <poolId>
 ```
 
 The intent repo holds **only non-secret** files (`pools.yml`, the `test-sets.yml`
@@ -43,7 +43,7 @@ library, `guests.compatibility.yml`). No credential is ever routed through it.
      localClonePath: ''                              # optional; defaults under runtime/
    ```
    A host with `pool.enabled: false` (the default) runs standalone.
-3. **You know each host's id.** Every host has a stable id in `runtime/host.uuid` — a
+3. **You know each host's id.** Every host has a stable id in `runtime/host.uuid` -- a
    `42`-prefixed 32-hex string, also shown as `hostId` on the host's own status page and
    on the pool dashboard. Anywhere a FULL one is put in front of you it is spelled
    GUID-dashed (`42abcdef-0123-4567-89ab-cdef01234567`); the stores hold the bare hex.
@@ -62,7 +62,7 @@ pwsh test/pool/New-Pool.ps1 -PoolId lab -DisplayName 'Lab pool' -IntentGitUrl <w
 ```
 
 - `-PoolId` is a short, lowercase, DNS-safe name (`a-z 0-9 -`). It becomes the **permanent
-  label** for this pool's telemetry on the dashboard, so pick it deliberately — renaming it
+  label** for this pool's telemetry on the dashboard, so pick it deliberately -- renaming it
   later forks the history.
 - The pool starts empty (`desiredState: run`, no members, no test-set).
 
@@ -96,7 +96,7 @@ pwsh test/pool/Set-PoolTestSetDefinition.ps1 -Name smoke -FrameworkUrl <framewor
 ```
 
 - The library keeps the UI and CLI views consistent; for CLI-only use it is
-  optional — Step 4's `Set-PoolTestSet.ps1` takes the URLs directly.
+  optional -- Step 4's `Set-PoolTestSet.ps1` takes the URLs directly.
 - Full field reference: [`test/schemas/pool-test-sets.schema.yml`](../test/schemas/pool-test-sets.schema.yml).
 
 ## Step 4 — Assign the test-set to the pool
@@ -108,7 +108,7 @@ pwsh test/pool/Set-PoolTestSet.ps1 -PoolId lab -Name smoke -FrameworkUrl <framew
 - A pool holds **exactly one** `testSet`; assigning replaces the previous one (a
   legacy `testSets[]` array is dropped on write).
 - The URLs are recorded inline in `pools.yml`, so the assignment is
-  self-contained — no file in the project repo is involved.
+  self-contained -- no file in the project repo is involved.
 - Nothing probes the URLs at assignment time: a typo first surfaces when a
   member's next cycle tries to clone.
 
@@ -131,10 +131,10 @@ pwsh test/pool/Set-PoolDesiredState.ps1 -PoolId lab -State paused -IntentGitUrl 
 pwsh test/pool/Remove-HostFromPool.ps1  -PoolId lab -HostId 42<...30 hex...> -IntentGitUrl <writable-url>
 ```
 
-- **run** — cycle normally.
-- **paused** — finish the in-flight cycle, then hold (re-checking every ~30 s) until you set
+- **run** -- cycle normally.
+- **paused** -- finish the in-flight cycle, then hold (re-checking every ~30 s) until you set
   it back to `run`.
-- **drain** — stop after the current cycle; the runner process exits. Re-add the host and
+- **drain** -- stop after the current cycle; the runner process exits. Re-add the host and
   restart its runner to rejoin.
 - **Removing a running host:** set `drain` first, let it stop, then `Remove-HostFromPool`.
 
@@ -144,11 +144,11 @@ In-flight cycles always finish, so pause/drain never corrupt an accumulating run
 
 `Remove-HostFromPool` only drops a host from ONE pool's `members[]`. A host that
 ran cycles also leaves a `hosts/info.<hostId>.yml` identity record plus replicated
-cycle folders on the NAS, and — separately — keeps showing on the **Yuruna hosts**
+cycle folders on the NAS, and -- separately -- keeps showing on the **Yuruna hosts**
 dashboard, which is the pool-aggregator-service's own polled, in-memory view (each host
-kept for the aggregator's host TTL after last contact — 24h by default, set with
-`-host-ttl`), *not* the NAS records. To fully retire a stale host — a disposable
-`example/nested.host` run, a decommissioned box, an id that will never return — use:
+kept for the aggregator's host TTL after last contact -- 24h by default, set with
+`-host-ttl`), *not* the NAS records. To fully retire a stale host -- a disposable
+`example/nested.host` run, a decommissioned box, an id that will never return -- use:
 
 ```powershell
 pwsh test/pool/Remove-PoolHost.ps1 -HostId 42<...30 hex...>          # add -WhatIf to preview
@@ -162,7 +162,7 @@ the aggregator to **forget** the host (`POST /api/v1/forget-host`) so it leaves 
 dashboard NOW instead of after the host TTL. Step 3 is opt-in + best-effort: it
 fires only when a `lab-auth-token` and a caching-proxy-service are configured (the same
 CA-pinned bearer transport as pool push), and a missing token / unreachable
-aggregator is a silent skip — the panel still self-clears on the TTL. A host that
+aggregator is a silent skip -- the panel still self-clears on the TTL. A host that
 is still live is re-discovered on the aggregator's next poll, so stop/drain it
 before forgetting. It refuses this host's own uuid, or a record last seen < 24 h
 ago, unless `-Force`. Run it on a host with the pool share mounted.
@@ -181,15 +181,15 @@ Every command below lives in `test/pool/`.
 | `Set-PoolTestSetDefinition.ps1` | upsert/delete a library test-set | `-Name` (req), `-FrameworkUrl`, `-ProjectUrl`, `-Delete` |
 | `Set-PoolDesiredState.ps1` | run / pause / drain | `-PoolId` (req), `-State` (req) |
 | `Get-PoolStatus.ps1` | read members + the assigned test-set (intent) | `-PoolId` |
-| `Get-PoolIntent.ps1` | dump the whole intent store as JSON (what the dashboard reads) | — |
-| `Test-PoolIntent.ps1` | validate the intent files | — |
+| `Get-PoolIntent.ps1` | dump the whole intent store as JSON (what the dashboard reads) | -- |
+| `Test-PoolIntent.ps1` | validate the intent files | -- |
 | `Convert-ToPoolWorker.ps1` | turn a standalone machine into a worker of an existing lab | `-ReferenceHost` (req), `-SharedToken`, `-KeepCachingProxy` |
 
 All mutating commands support `-WhatIf` (preview) and `-Confirm`, validate against the
 schemas **before** writing, and `git commit` + `push` for you. `-IntentGitUrl` defaults to
 `pool.intentGitUrl` from `test.config.yml` when omitted. A failed push **fails the command**
 (non-zero exit): a change committed locally but not pushed is not durable, and a later admin
-command discards it — recover by re-running from a writable location (on the proxy: a `file://`
+command discards it -- recover by re-running from a writable location (on the proxy: a `file://`
 or local path to the bare repo), or delete the admin clone dir to discard the local change and
 re-clone from the remote. Every command has full help: e.g. `Get-Help test/pool/Set-PoolTestSet.ps1 -Full`.
 
@@ -247,9 +247,9 @@ members then behave exactly as on the CLI path in Steps 3-4 above.
 
 The two repository columns on `/hosts` are each host's own account of what it
 runs on: the **framework** checkout its status service runs from, and the
-**project** clone beside it. Each cell names the repository — the last segment
+**project** clone beside it. Each cell names the repository -- the last segment
 of that clone's `remote.origin.url`, so `https://github.com/alius-git/amisad.dev`
-reads `amisad.dev` — which makes the table a lab-wide inventory: one glance says
+reads `amisad.dev` -- which makes the table a lab-wide inventory: one glance says
 which machines are on `yuruna` and which on a fork of it, and which project each
 is testing.
 
@@ -257,7 +257,7 @@ Each cell also **links** to that repository, so a name that is not the one you
 expected is one click from the repository itself rather than a url to retype.
 The link is the host's own `remote.origin.url`, wherever it points: an ssh
 remote (`git@github.com:owner/repo.git`) opens as its `https://` equivalent, and
-a host running from a **local copy** links to that path as a `file:` url — most
+a host running from a **local copy** links to that path as a `file:` url -- most
 browsers will not follow one from a served page, but it still names the location
 and copies. A credential written into a remote is stripped at the host, before
 the url is served. A cell whose host reported no url at all stays plain text.
@@ -265,16 +265,16 @@ the url is served. A cell whose host reported no url at all stays plain text.
 | Value | What it means | What to do |
 | --- | --- | --- |
 | a repository name | the clone this host holds, named by its own `remote.origin.url`, and linked to it | nothing |
-| **`No access`** | the host was configured with a repository it cannot read — a credential without access, or a url that did not answer. It links to the url that failed | grant that host's `GH_TOKEN` access to the repo, or fix the url in its `test.config.yml` |
-| `—` | the host has no such clone *and* none configured (the in-tree project layout), or it has not answered yet | nothing |
+| **`No access`** | the host was configured with a repository it cannot read -- a credential without access, or a url that did not answer. It links to the url that failed | grant that host's `GH_TOKEN` access to the repo, or fix the url in its `test.config.yml` |
+| `--` | the host has no such clone *and* none configured (the in-tree project layout), or it has not answered yet | nothing |
 
 The clone answers before the network does: it is what the machine actually
-tracks — which is not always the configured url, since a pool assignment
-overrides that for a cycle — and it costs no round trip. Only a host with no
+tracks -- which is not always the configured url, since a pool assignment
+overrides that for a cycle -- and it costs no round trip. Only a host with no
 readable clone probes the url it was configured with, which is what separates
 "cannot read it" from "has not cloned it yet"; that probe runs *after* the
 answer is sent, so it can never make a host's other columns time out with it,
-and such a host reads `—` for one refresh before its answer arrives. Like the
+and such a host reads `--` for one refresh before its answer arrives. Like the
 hardware columns, these are read on page load and on **Refresh**, not on the
 footer countdown.
 
@@ -284,28 +284,28 @@ A pool can hand a host a `projectUrl` that host's git credential cannot read:
 the assignment is made centrally, the credential is host-local, and `GH_TOKEN`
 deliberately never travels in pool intent. So each host also runs a
 `git ls-remote` against a **pool-assigned** url at the top of a cycle *before*
-the clone — the problem is named at the host that has it, rather than surfacing
+the clone -- the problem is named at the host that has it, rather than surfacing
 minutes later as a generic bootstrap error. Only a pool-assigned url is probed
 this way; a host's own `projectUrl` is already preflighted by the clone, and
 probing it twice would cost every unpooled host a round trip for nothing.
 
 That answer rides in the host's registration record, and it is a different
-question from the columns above — *what the pool told this host to read*, not
+question from the columns above -- *what the pool told this host to read*, not
 *what the host holds*. It surfaces as the board's pool-level attention flag,
 and as a tooltip on the host's **Project** cell.
 
 | Value | What it means | What to do |
 | --- | --- | --- |
 | `ok` | the probe read the assigned project | nothing |
-| `denied` | this host's git credential cannot read the assigned project — a private repo, or a token without access to it | grant that host's `GH_TOKEN` access to the repo, **or** reassign the pool to a project every member can read |
-| `unreachable` | the repo did not answer — network or DNS, not permission | nothing; it is transient, and the cycle's clone retries through the normal backoff |
+| `denied` | this host's git credential cannot read the assigned project -- a private repo, or a token without access to it | grant that host's `GH_TOKEN` access to the repo, **or** reassign the pool to a project every member can read |
+| `unreachable` | the repo did not answer -- network or DNS, not permission | nothing; it is transient, and the cycle's clone retries through the normal backoff |
 | absent | no probe ran: the host is in no pool, its pool assigned no test-set, the host did not answer, or the aggregator is unavailable | nothing |
 
 `denied` **fails that host's cycle**, and the host does *not* fall back to its
 own project: a green cycle running something the pool never assigned would
 misreport the pool's coverage. It is classed `project_access_denied`, which
 routes to operator intervention instead of consuming auto-remediation attempts
-on a problem no retry can fix — so every member of a pool with a bad assignment
+on a problem no retry can fix -- so every member of a pool with a bad assignment
 goes red until someone acts, which is the intended loudness. The board names the
 same hosts as a pool-level attention flag, which is advisory and changes no
 state.
@@ -332,7 +332,7 @@ leaves **at most one** of them armed on every member &mdash; so the column alway
 names something a host is really doing. The cell shows what the members report
 right now: one of the three when they all agree, **Mixed** when they differ or a
 member did not answer (the disagreeing hosts are then listed under the
-selector), `—` when none answered. Hosts stay individually controllable from
+selector), `--` when none answered. Hosts stay individually controllable from
 their own status pages; this changes them all and then reads them back.
 
 This is **not** the pool's `desiredState` (`run`/`paused`/`drain`): that one
@@ -356,7 +356,7 @@ carries this. When neither is available the change is refused **once**, naming
 the file, rather than collecting one `403` per host.
 
 Members are driven individually and reported individually: `2 applied, 1 failed
-— 42ab12cd (the host holds no lab token …)`. A host that was never enrolled, is
+-- 42ab12cd (the host holds no lab token ...)`. A host that was never enrolled, is
 powered off, or holds a different lab token fails on its own without costing the
 others their change. Every fan-out is written to the audit log with how much of
 it landed.
@@ -400,7 +400,7 @@ extension service:
   were making. There is nothing to set up: the daemon already knows the
   aggregator, and the aggregator owns the codes.
 - **From automation**, send the shared `lab-auth-token` as
-  `Authorization: Bearer …`. The daemon reads it from `--auth-token-file`
+  `Authorization: Bearer ...`. The daemon reads it from `--auth-token-file`
   (default `/etc/yuruna/lab-auth.token`, absent by default). Nothing bakes that
   file into the VM seed, so the bearer is opt-in: drop the token there yourself
   on a service VM that automation drives.
@@ -454,12 +454,12 @@ pwsh test/service/Start-PoolControlServiceVM.ps1 -HostSideProof [-Port 8090] [-A
 Needs `go` + `pwsh` on PATH and the framework checkout (the CLIs live at
 `<repo>/test/*.ps1`).
 
-### Auto-enrolment
+### Auto-enrollment
 
 A host that has enrolled its lab token, and is in **no pool at all**, can join a
 pool without you adding it. It **ships off**: the sweep runs only when an
 `autoEnrollment` block in the intent store's `pools.yml` names a target pool
-*and* the daemon runs with `--auto-enrol` (`--auto-enrol-interval`, default 60s,
+*and* the daemon runs with `--auto-enroll` (`--auto-enroll-interval`, default 60s,
 sets the cadence).
 
 Once on, each tick does exactly this and no more:
@@ -475,11 +475,11 @@ Once on, each tick does exactly this and no more:
   target pool is never re-added &mdash; otherwise you and a 60-second timer would
   fight forever.
 - **Nothing to do means nothing happens**: no commit, no push, no audit row.
-- **Every tick logs the candidate count**, so "never enrols anyone" reads
-  differently from "nothing to enrol".
+- **Every tick logs the candidate count**, so "never enrolls anyone" reads
+  differently from "nothing to enroll".
 
 Failure is **bounded, not atomic**. Each host is its own CLI run, commit and
-push, so a failure partway through leaves the earlier hosts enrolled. Enrolment
+push, so a failure partway through leaves the earlier hosts enrolled. Enrollment
 is idempotent and resumable, so the next tick finishes the job.
 
 ### Network scan — finding hosts nobody registered
@@ -542,10 +542,10 @@ the next sweep.
 ## Download-agent service
 
 The Download-agent service is the pool's shared guest-image downloader. It keeps
-a **Download pool** on the pool NAS (`<pool root>/images/…`), re-verifies each
+a **Download pool** on the pool NAS (`<pool root>/images/...`), re-verifies each
 image against its origin on a schedule, and serves the artifacts to hosts over
-HTTP — so a lab pulls an ISO or cloud image from the internet once instead of
-once per host. It needs pool storage configured — without a share the service
+HTTP -- so a lab pulls an ISO or cloud image from the internet once instead of
+once per host. It needs pool storage configured -- without a share the service
 is skipped.
 
 ### What it does
@@ -558,7 +558,7 @@ is skipped.
 - **Keeps it fresh.** A background scanner walks the pool every
   `downloadAgentService.scanIntervalSeconds` and acts on anything expiring within
   `prefetchLeadSeconds` of its `freshnessSeconds` budget. Freshness probes go
-  **direct** to the origin, never through the squid cache — a proxied HEAD would
+  **direct** to the origin, never through the squid cache -- a proxied HEAD would
   return frozen prewarm-era headers and certify staleness as freshness. Byte
   downloads do use the cache, falling back to direct on any proxy failure. When a
   refresh fails, the previous verified artifact stays servable.
@@ -572,20 +572,20 @@ is skipped.
 
 ### The UI and its three actions
 
-The daemon serves a single-page UI at `http://<agent-vm-ip>/` — the agent
+The daemon serves a single-page UI at `http://<agent-vm-ip>/` -- the agent
 header (version, pool availability, lease state, scanner cadence, last seed
 outcome), one row per image with its state badge, current filename, size on disk,
 `lastVerifiedAt` and time-to-expiry, checksum verdict, source URL, and live
 progress for in-flight downloads, plus a totals row answering "what is eating the
 share". Reads are open on the LAN. Three per-row actions are gated:
 
-- **Force refresh** — re-verify against the origin now; download only if it
+- **Force refresh** -- re-verify against the origin now; download only if it
   changed. Also usable on an absent row to trigger a first download.
-- **Delete** — cancel any in-flight download, remove the pointer first, then
+- **Delete** -- cancel any in-flight download, remove the pointer first, then
   every generation and sidecar. The next host request or seed pass re-downloads
   from the origin; this is the "force a new download" path. Hosts' local copies
   are untouched.
-- **Prune previous** — drop only the previous generation to reclaim space; the
+- **Prune previous** -- drop only the previous generation to reclaim space; the
   current one stays servable.
 
 Each action is appended to `<pool root>/download-agent-service/audit.jsonl`. The
@@ -599,18 +599,18 @@ hosts* dashboard's *Extension hosts* table and it arrives already unlocked: that
 link goes through the aggregator's `/go/stash` redirect, which hands the page a
 short-lived control proof in the URL fragment (never sent to a server, never in
 an access log), and the page exchanges it for a session on arrival. The prompt
-below is what you see when there is no proof to spend — the page was opened by
+below is what you see when there is no proof to spend -- the page was opened by
 typing its address, or bookmarked, or the proof expired while the tab sat open.
 
 The board's **Unlock actions** prompt takes the rotating 6-character **Lab
-token** the Yuruna hosts dashboard already displays on its own tile — the same
-code `test/lab/Set-LabToken.ps1` redeems to enrol a host. Read it off the tile,
+token** the Yuruna hosts dashboard already displays on its own tile -- the same
+code `test/lab/Set-LabToken.ps1` redeems to enroll a host. Read it off the tile,
 type it in, and that browser stays unlocked for a week. Nothing is provisioned
 or stored on the agent VM.
 
 The daemon does not judge the code itself: it forwards it to the aggregator's
 `POST /api/v1/lab-token` exchange, which owns the rotation. So an aggregator
-that is down means the board cannot be unlocked — a deliberate fail-closed,
+that is down means the board cannot be unlocked -- a deliberate fail-closed,
 answered as `503 lab-token-unavailable` rather than as "wrong code". Automation
 is unaffected; the same routes take `Authorization: Bearer <lab-auth-token>`.
 
@@ -619,7 +619,7 @@ its open `/metrics`). It stops a stray click on Delete; it is not a secret, and
 it is worth having because it expires on its own.
 
 With neither an aggregator to ask nor a lab-auth-token configured the mutating
-routes answer `503` — never an ungated write.
+routes answer `503` -- never an ungated write.
 
 ### Running it
 
@@ -641,21 +641,21 @@ fails setup on it. Config keys:
 
 ## Design choices
 
-- **One test-set per pool** — split hosts into two pools to run two bodies of
+- **One test-set per pool** -- split hosts into two pools to run two bodies of
   tests side by side.
-- **Assignment is not probed** — `Set-PoolTestSet` records the repo URLs without
+- **Assignment is not probed** -- `Set-PoolTestSet` records the repo URLs without
   cloning them, and `Test-PoolIntent.ps1` checks shape, not reachability.
-- **Members do not split the work** — every member runs the assigned project's
+- **Members do not split the work** -- every member runs the assigned project's
   full `test.runner.yml` plan; there is no per-guest scheduling across members.
 
 ## Advanced: two more optional `pools.yml` blocks
 
-These have no dedicated command yet — author them directly in `pools.yml` (validate with
+These have no dedicated command yet -- author them directly in `pools.yml` (validate with
 `Test-PoolIntent.ps1`); see [`test/schemas/pools.schema.yml`](../test/schemas/pools.schema.yml):
 
-- **`config.testCycle`** — override test-cycle knobs for the whole pool (e.g.
+- **`config.testCycle`** -- override test-cycle knobs for the whole pool (e.g.
   `stepTimeoutSeconds`, `autoRemediation.enabled`); pool value wins over each host's config.
-- **`gating`** — pool health-alert thresholds (the healthy-member quorum + how long before a
+- **`gating`** -- pool health-alert thresholds (the healthy-member quorum + how long before a
   pool is flagged "degraded"). Advisory: it drives alerting + the dashboard, never gating a
   cycle. Delivery is configured separately on the alert host (see the notifier docs).
 
@@ -664,17 +664,17 @@ These have no dedicated command yet — author them directly in `pools.yml` (val
 The pool layer is entirely opt-in: a host with no `pool` block, or a pool with no
 members or no assigned test-set, runs its local `test.runner.yml` exactly as a
 standalone host. An unreachable intent store falls back to the last good copy,
-then to standalone — a pool never stops a host from testing.
+then to standalone -- a pool never stops a host from testing.
 
 ## See also
 
-- [control-routes.md](control-routes.md) — what a host accepts from the dashboard's action
+- [control-routes.md](control-routes.md) -- what a host accepts from the dashboard's action
   buttons, and the one-time `lab-auth-token` setup that enables them from another machine.
-- [pool-storage.md](pool-storage.md) — optional NAS replication of pool observability data
+- [pool-storage.md](pool-storage.md) -- optional NAS replication of pool observability data
   (a separate, NAS-only feature).
-- [test/extension/pool-aggregator-service/README.md](../test/extension/pool-aggregator-service/README.md) —
+- [test/extension/pool-aggregator-service/README.md](../test/extension/pool-aggregator-service/README.md) --
   the read-only pool dashboard + telemetry collector.
-- [test-config.md](test-config.md) — the host-side `pool` config keys.
+- [test-config.md](test-config.md) -- the host-side `pool` config keys.
 
 ---
 
@@ -682,6 +682,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../README.md)

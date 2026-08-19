@@ -118,18 +118,99 @@ write_files:
           Username*) echo "x-access-token" ;;
           *)         echo "${GH_TOKEN}" ;;
       esac
+  # --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+  # Safety net for the boot where cloud-init's fallback claims nothing.
+  # networkd applies the FIRST matching file in lexical order, so 98- sorts
+  # after the 10-cloud-init-* fallback and is inert on a healthy boot; it
+  # becomes the claiming profile exactly when no other file matched the NIC
+  # (the IFF_UP-clear shape, where DHCP is never attempted at all). This is a
+  # networkd profile, not a seed network-config: it ADDS a lower-priority
+  # match instead of replacing cloud-init's fallback generation, which is the
+  # trap that forbids shipping this guest a network-config. write_files lands
+  # after networkd has already started, so the identity runcmd below reloads
+  # and reconfigures to make it effective on the boot that wrote it; every
+  # boot after that reads it natively.
+  - path: /etc/systemd/network/98-yuruna-fallback-dhcp.network
+    permissions: '0644'
+    content: |
+      [Match]
+      Name=eth* en*
+      [Network]
+      DHCP=yes
+      [DHCPv4]
+      ClientIdentifier=mac
 
 runcmd:
   - rmmod hv_balloon 2>/dev/null || true
   # --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
-  # Best-effort on every profile; a NIC that is not NM-managed is unaffected.
+  # This guest receives NO seed network-config at all -- not a name-matched
+  # one, not a MAC-matched one. Supplying cloud-init any network-config
+  # REPLACES the fallback it would otherwise generate, and a config the
+  # renderer does not resolve to a real device leaves the NIC unclaimed with
+  # IFF_UP clear: no address, no carrier reading, and the console as the only
+  # way to find out. An unpinned client-id costs a lease; an unclaimed NIC
+  # costs the guest. Leave the seed alone.
+  #
+  # The image's live renderer is systemd-networkd: cloud-init's fallback
+  # lands as /etc/systemd/network/10-cloud-init-*.network, and networkd
+  # identifies itself to DHCP by a DUID derived from /etc/machine-id --
+  # regenerated on every build, so a guest with a perfectly deterministic MAC
+  # still presents a brand-new identity each cycle and draws a brand-new
+  # address. The pin is a [DHCPv4] ClientIdentifier=mac drop-in installed
+  # beside whatever fallback this boot rendered, plus the
+  # 98-yuruna-fallback-dhcp.network profile in write_files for the boot
+  # where the fallback claimed nothing.
+  #
+  # cloud-init runs no user-supplied content -- not runcmd, not bootcmd, not
+  # a boothook -- before it renders the network, so the first DHCP
+  # transaction of a fresh build always runs under the DUID. The reconfigure
+  # below trades that one short-lived DUID lease for the MAC-keyed lease
+  # every later activation, reboot and rebuild will share: one transient
+  # lease per build is the whole cost of a stable per-guest address.
+  #
+  # Never disable networking to make a setting take hold. NM keeps its
+  # networking-enabled flag in /var/lib/NetworkManager/NetworkManager.state,
+  # so a disable that is not paired with a successful re-enable outlives both
+  # the boot that issued it and every reboot after it -- and a guest whose
+  # console is the only way in has then lost the one channel that could
+  # repair it. Nothing about a DHCP client identity needs a link to go down,
+  # so nothing here takes one down: networkctl reconfigure re-runs address
+  # acquisition with IFF_UP set throughout.
+  #
+  # Failures print. A silenced state change is indistinguishable from one that
+  # never ran, and the guest that has to be diagnosed from an OCR'd console is
+  # the one that can least afford a missing line.
   - |
-    bash -c 'command -v nmcli >/dev/null 2>&1 || exit 0
-      nmcli -t -f NAME connection show 2>/dev/null | while IFS= read -r c; do
-        [ -n "$c" ] || continue
-        nmcli connection modify "$c" ipv4.dhcp-client-id mac 2>/dev/null || true
+    bash -c 'command -v networkctl >/dev/null 2>&1 || exit 0
+      pinned=0
+      for f in /etc/systemd/network/10-cloud-init-*.network; do
+        [ -e "$f" ] || continue
+        mkdir -p "${f}.d" || { echo "Yuruna => could not create ${f}.d" >&2; continue; }
+        if printf "[DHCPv4]\nClientIdentifier=mac\n" > "${f}.d/yuruna-dhcp-identity.conf"; then
+          pinned=1
+        else
+          echo "Yuruna => could not write ${f}.d/yuruna-dhcp-identity.conf" >&2
+        fi
       done
-      nmcli networking off 2>/dev/null && nmcli networking on 2>/dev/null || true'
+      networkctl reload 2>/dev/null || echo "Yuruna => networkctl reload failed; drop-ins apply on next activation" >&2
+      for i in /sys/class/net/*; do
+        i=$(basename "$i")
+        case "$i" in eth*|en*) ;; *) continue ;; esac
+        [ -e "/sys/class/net/$i/device" ] || continue
+        if [ "$pinned" = "1" ] || [ -z "$(ip -4 -o address show dev "$i" scope global 2>/dev/null)" ]; then
+          networkctl reconfigure "$i" || echo "Yuruna => networkctl reconfigure $i failed" >&2
+        fi
+      done'
+  # Best-effort sibling for a NetworkManager-managed build of this image; a
+  # NIC that is not NM-managed is unaffected, and where nmcli is absent the
+  # skip prints so the transcript shows which manager the pin reached.
+  - |
+    bash -c 'command -v nmcli >/dev/null 2>&1 || { echo "Yuruna => nmcli not present; identity rides the networkd drop-in on this build"; exit 0; }
+      nmcli -t -f NAME connection show | while IFS= read -r c; do
+        [ -n "$c" ] || continue
+        nmcli connection modify "$c" ipv4.dhcp-client-id mac || \
+          echo "Yuruna => could not pin dhcp-client-id on connection $c" >&2
+      done'
   # --- REGION: https://yuruna.link/vmconfig#login-session-budget
   - bash -c 'sed -i -E "/^[#[:space:]]*LOGIN_TIMEOUT/d" /etc/login.defs && echo "LOGIN_TIMEOUT 180" >> /etc/login.defs'
   # --- REGION: https://yuruna.link/vmconfig#enable-sshd-on-first-boot

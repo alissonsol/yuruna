@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42d7ae10-3c5b-4f92-8b61-0d4a7c19e5b8
+.VERSION 2026.08.19
+.GUID 424d0ae7-c25c-4fdf-b29d-12a4768bb7d1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test hostgit repository access pester
@@ -49,10 +49,7 @@ $here       = Split-Path -Parent $PSCommandPath
 $repoRoot   = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
 $modulePath = Join-Path $repoRoot 'test/modules/Test.HostGit.psm1'
 
-function Assert-Equal {
-    param($Expected, $Actual, [string]$Because = '')
-    if ($Expected -ne $Actual) { throw "Expected '$Expected' but got '$Actual'. $Because" }
-}
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 Import-Module $modulePath -Force
 

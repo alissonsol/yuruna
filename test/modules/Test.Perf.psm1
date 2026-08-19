@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a1b2c3-d4e5-4f67-8901-bc0123456783
+.VERSION 2026.08.19
+.GUID 423aae05-8d83-44cc-b4aa-068ce46e8c35
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
@@ -50,7 +50,7 @@ Import-Module (Join-Path $PSScriptRoot 'Test.Hash.psm1') -Global -Force
 
     Cross-process: a cycle owner publishes the open cycle handle to
     $env:YURUNA_PERF_CONTEXT, so a child pwsh spawned mid-cycle (a host
-    action re-entering Invoke-TestSequence.ps1, a nested run) appends to the
+    action re-entering Debug-TestSequence.ps1, a nested run) appends to the
     SAME cycle file instead of losing its rows. Adoption is automatic --
     Set-PerfSequenceContext resumes from the handle when this runspace has
     no cycle of its own -- so a new call site cannot forget to opt in.
@@ -513,7 +513,7 @@ function Set-PerfSequenceContext {
     )
     # Every sequence run passes through here, which makes this the one place
     # that can attach a runspace to the ambient cycle. A child pwsh (host
-    # action re-entering Invoke-TestSequence.ps1, nested run) starts with no cycle
+    # action re-entering Debug-TestSequence.ps1, nested run) starts with no cycle
     # of its own; adopting here means no caller has to know it is nested for
     # its rows to land.
     if (-not $script:Cycle) { $null = Resume-PerfCycle -Confirm:$false }

@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a1b2c3-d4e5-4f67-8901-bc0123456760
+.VERSION 2026.08.19
+.GUID 42d07272-8c12-4ba7-807e-c0b201076d87
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
@@ -179,7 +179,7 @@ if (-not (Test-Path -LiteralPath $newVm)) {
 # Honors statusService.enabled + port; a healthy server is left running.
 $statusDecision = $null
 try {
-    $statusScript = Join-Path $RepoRoot 'test/Start-StatusService.ps1'
+    $statusScript = Join-Path $RepoRoot 'test/service/Start-StatusService.ps1'
     if ($tc -and (Test-Path -LiteralPath $statusScript)) {
         # Start-YurunaStatusServiceIfEnabled's own console output is intentionally
         # not surfaced; keep only the {ShouldStart; Port} record, the last
@@ -585,7 +585,7 @@ if ($statusDecision -and $statusDecision.ShouldStart) {
     if ($accepting) {
         Write-Output "  Status service accepting on :$statusPort -- this host will appear under Extension hosts."
     } else {
-        Write-Warning "Status service is not accepting on :$statusPort -- the pool-aggregator service cannot read host.registration.json over HTTP, so the Extension hosts row depends solely on the stash-service VM's own presence beacon (which the aggregator shows without the host's status baseUrl link). Run test/Start-StatusService.ps1 to diagnose."
+        Write-Warning "Status service is not accepting on :$statusPort -- the pool-aggregator service cannot read host.registration.json over HTTP, so the Extension hosts row depends solely on the stash-service VM's own presence beacon (which the aggregator shows without the host's status baseUrl link). Run test/service/Start-StatusService.ps1 to diagnose."
     }
 }
 

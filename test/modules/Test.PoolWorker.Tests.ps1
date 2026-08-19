@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42d8b1e5-9c37-4a06-b2f8-5e1d7a4c93b0
+.VERSION 2026.08.19
+.GUID 42297400-7548-4b09-b1c9-29bdec98ce18
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test pool worker standalone conversion pester
@@ -40,9 +40,7 @@ Import-Module (Join-Path $here 'Test.PoolWorker.psm1') -Force -DisableNameChecki
 
 # File scope, above the first Describe: a Describe body runs during discovery and
 # everything it declares is discarded before the first It.
-function Assert-Equal { param($Expected, $Actual, [string]$Because = '') if ("$Expected" -ne "$Actual") { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-True  { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
-function Assert-False { param($Condition, [string]$Because = '') if ($Condition) { throw "Expected false. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # Pester is not installed on every host that runs this repo's scripts, and the
 # assertions above are plain throws, so the harness this file needs is three
@@ -84,15 +82,15 @@ function New-ServiceFact {
 
 Describe 'Get-PoolWorkerStopScriptName' {
     It 'derives the stop script from the start script' {
-        Assert-Equal 'Stop-StashServiceVM.ps1' (Get-PoolWorkerStopScriptName -StartScript 'Start-StashServiceVM.ps1')
-        Assert-Equal 'Stop-CachingProxyServiceVM.ps1' (Get-PoolWorkerStopScriptName -StartScript 'Start-CachingProxyServiceVM.ps1')
+        Assert-StringEqual 'Stop-StashServiceVM.ps1' (Get-PoolWorkerStopScriptName -StartScript 'Start-StashServiceVM.ps1')
+        Assert-StringEqual 'Stop-CachingProxyServiceVM.ps1' (Get-PoolWorkerStopScriptName -StartScript 'Start-CachingProxyServiceVM.ps1')
     }
     It 'returns empty for a name that is not a Start script' {
         # The caller reports a service it cannot retire rather than composing a
         # path that does not exist.
-        Assert-Equal '' (Get-PoolWorkerStopScriptName -StartScript 'Invoke-Something.ps1')
-        Assert-Equal '' (Get-PoolWorkerStopScriptName -StartScript '')
-        Assert-Equal '' (Get-PoolWorkerStopScriptName -StartScript 'Start-.ps1')
+        Assert-StringEqual '' (Get-PoolWorkerStopScriptName -StartScript 'Invoke-Something.ps1')
+        Assert-StringEqual '' (Get-PoolWorkerStopScriptName -StartScript '')
+        Assert-StringEqual '' (Get-PoolWorkerStopScriptName -StartScript 'Start-.ps1')
     }
 }
 
@@ -101,69 +99,69 @@ Describe 'Get-PoolWorkerServiceTeardownPlan' {
         $plan = @(Get-PoolWorkerServiceTeardownPlan -Service @(
             (New-ServiceFact -Key 'caching-proxy' -VMName 'yuruna-caching-proxy-service' -StartScript 'Start-CachingProxyServiceVM.ps1' -State 'running')
             (New-ServiceFact -State 'stopped')))
-        Assert-Equal 2 $plan.Count
-        Assert-Equal 'retire' $plan[0].Action
-        Assert-Equal 'retire' $plan[1].Action
+        Assert-StringEqual 2 $plan.Count
+        Assert-StringEqual 'retire' $plan[0].Action
+        Assert-StringEqual 'retire' $plan[1].Action
     }
     It 'retires a stopped VM rather than leaving it, because the cycle sweep restarts it' {
         $plan = @(Get-PoolWorkerServiceTeardownPlan -Service @((New-ServiceFact -State 'stopped')))
-        Assert-Equal 'retire' $plan[0].Action
+        Assert-StringEqual 'retire' $plan[0].Action
     }
     It 'reports absent as the converged state, not a failure' {
         $plan = @(Get-PoolWorkerServiceTeardownPlan -Service @((New-ServiceFact -State 'absent')))
-        Assert-Equal 'absent' $plan[0].Action
+        Assert-StringEqual 'absent' $plan[0].Action
     }
     It 'treats an unreadable state as PRESENT' {
         # Assuming absence here would skip the teardown of a running VM, and a
         # live local service silently wins every extension lookup. A stop script
         # run against a genuinely absent VM is a cheap no-op; the reverse is not.
         $plan = @(Get-PoolWorkerServiceTeardownPlan -Service @((New-ServiceFact -State 'unknown')))
-        Assert-Equal 'retire' $plan[0].Action
+        Assert-StringEqual 'retire' $plan[0].Action
     }
     It 'flags a present VM it has no stop script for' {
         $plan = @(Get-PoolWorkerServiceTeardownPlan -Service @((New-ServiceFact -StartScript 'Build-Thing.ps1' -State 'running')))
-        Assert-Equal 'unretirable' $plan[0].Action
+        Assert-StringEqual 'unretirable' $plan[0].Action
     }
     It 'does not flag an ABSENT VM it has no stop script for' {
         $plan = @(Get-PoolWorkerServiceTeardownPlan -Service @((New-ServiceFact -StartScript 'Build-Thing.ps1' -State 'absent')))
-        Assert-Equal 'absent' $plan[0].Action
+        Assert-StringEqual 'absent' $plan[0].Action
     }
     It 'accepts an empty roster' {
-        Assert-Equal 0 (@(Get-PoolWorkerServiceTeardownPlan -Service @())).Count
+        Assert-StringEqual 0 (@(Get-PoolWorkerServiceTeardownPlan -Service @())).Count
     }
 }
 
 Describe 'Get-PoolWorkerAdvertisementPlan' {
     It 'withdraws every advertisement this host still carries' {
         $plan = @(Get-PoolWorkerAdvertisementPlan -AdvertisedArea @('stash-service', 'download-agent-service') -ExemptArea @())
-        Assert-Equal 2 $plan.Count
-        Assert-Equal 'clear' $plan[0].Action
-        Assert-Equal 'clear' $plan[1].Action
+        Assert-StringEqual 2 $plan.Count
+        Assert-StringEqual 'clear' $plan[0].Action
+        Assert-StringEqual 'clear' $plan[1].Action
     }
     It 'withdraws a claim whose VM is already gone' {
         # The case no stop script can reach, and the one that survives every
         # re-run: the marker outlives the VM, so a host whose services were
         # removed by other means advertises them forever.
         $plan = @(Get-PoolWorkerAdvertisementPlan -AdvertisedArea @('stash-service') -ExemptArea @())
-        Assert-Equal 'clear' $plan[0].Action
+        Assert-StringEqual 'clear' $plan[0].Action
     }
     It 'keeps the areas the caller is still running' {
         $plan = @(Get-PoolWorkerAdvertisementPlan -AdvertisedArea @('pool-aggregator-service') `
             -ExemptArea @('pool-aggregator-service'))
-        Assert-Equal 'kept' $plan[0].Action
+        Assert-StringEqual 'kept' $plan[0].Action
     }
     It 'matches the exemption case-insensitively' {
         $plan = @(Get-PoolWorkerAdvertisementPlan -AdvertisedArea @('Pool-Aggregator-Service') `
             -ExemptArea @('pool-aggregator-service'))
-        Assert-Equal 'kept' $plan[0].Action
+        Assert-StringEqual 'kept' $plan[0].Action
     }
     It 'de-duplicates and ignores blanks' {
         $plan = @(Get-PoolWorkerAdvertisementPlan -AdvertisedArea @('stash-service', 'stash-service', '', '  ') -ExemptArea @())
-        Assert-Equal 1 $plan.Count
+        Assert-StringEqual 1 $plan.Count
     }
     It 'has nothing to do on a host that advertises nothing' {
-        Assert-Equal 0 (@(Get-PoolWorkerAdvertisementPlan -AdvertisedArea @() -ExemptArea @())).Count
-        Assert-Equal 0 (@(Get-PoolWorkerAdvertisementPlan -AdvertisedArea $null -ExemptArea $null)).Count
+        Assert-StringEqual 0 (@(Get-PoolWorkerAdvertisementPlan -AdvertisedArea @() -ExemptArea @())).Count
+        Assert-StringEqual 0 (@(Get-PoolWorkerAdvertisementPlan -AdvertisedArea $null -ExemptArea $null)).Count
     }
 }
 
@@ -178,21 +176,21 @@ Describe 'Get-PoolWorkerCachingProxyArea' {
 
 Describe 'Get-PoolWorkerLocalShareName' {
     It 'reads the tier share out of a NAS-shaped path' {
-        Assert-Equal 'yuruna.pool' (Get-PoolWorkerLocalShareName -NetworkPath '//ypool-nas/work/yuruna.pool')
+        Assert-StringEqual 'yuruna.pool' (Get-PoolWorkerLocalShareName -NetworkPath '//ypool-nas/work/yuruna.pool')
     }
     It 'reads the same name out of the shape a local bring-up publishes' {
         # The whole point: the two layouts differ in everything but this, so one
         # name answers "does this machine still publish the tier?" either way.
-        Assert-Equal 'yuruna.pool' (Get-PoolWorkerLocalShareName -NetworkPath '//ypool-nas/yuruna.pool')
+        Assert-StringEqual 'yuruna.pool' (Get-PoolWorkerLocalShareName -NetworkPath '//ypool-nas/yuruna.pool')
     }
     It 'accepts the Windows spelling and a trailing separator' {
-        Assert-Equal 'yuruna.stash' (Get-PoolWorkerLocalShareName -NetworkPath '\\ystash-nas\work\yuruna.stash')
-        Assert-Equal 'yuruna.stash' (Get-PoolWorkerLocalShareName -NetworkPath '//ystash-nas/work/yuruna.stash/')
+        Assert-StringEqual 'yuruna.stash' (Get-PoolWorkerLocalShareName -NetworkPath '\\ystash-nas\work\yuruna.stash')
+        Assert-StringEqual 'yuruna.stash' (Get-PoolWorkerLocalShareName -NetworkPath '//ystash-nas/work/yuruna.stash/')
     }
     It 'reads no share out of a path that names only a server' {
-        Assert-Equal '' (Get-PoolWorkerLocalShareName -NetworkPath '//ypool-nas')
-        Assert-Equal '' (Get-PoolWorkerLocalShareName -NetworkPath '')
-        Assert-Equal '' (Get-PoolWorkerLocalShareName -NetworkPath $null)
+        Assert-StringEqual '' (Get-PoolWorkerLocalShareName -NetworkPath '//ypool-nas')
+        Assert-StringEqual '' (Get-PoolWorkerLocalShareName -NetworkPath '')
+        Assert-StringEqual '' (Get-PoolWorkerLocalShareName -NetworkPath $null)
     }
 }
 
@@ -200,7 +198,7 @@ Describe 'Get-PoolWorkerAliasPlan' {
     It 'drops the dashboard alias, which named a service VM this host no longer runs' {
         $plan = @(Get-PoolWorkerAliasPlan -CandidateName @('yuruna-dash') -ConfiguredServer @() `
             -Resolution @{ 'yuruna-dash' = '192.168.7.20' })
-        Assert-Equal 'drop' $plan[0].Action
+        Assert-StringEqual 'drop' $plan[0].Action
     }
     It 'KEEPS a storage alias the synced configuration still names' {
         # The decisive case. 'ypool-nas' means this machine on a host that served
@@ -209,39 +207,39 @@ Describe 'Get-PoolWorkerAliasPlan' {
         # just made and leave the mount with a name nothing resolves.
         $plan = @(Get-PoolWorkerAliasPlan -CandidateName @('ypool-nas') -ConfiguredServer @('ypool-nas') `
             -Resolution @{ 'ypool-nas' = '127.0.0.1' })
-        Assert-Equal 'keep' $plan[0].Action
+        Assert-StringEqual 'keep' $plan[0].Action
     }
     It 'drops a loopback storage alias the configuration no longer names' {
         $plan = @(Get-PoolWorkerAliasPlan -CandidateName @('ystash-nas') -ConfiguredServer @('lab-nas') `
             -Resolution @{ 'ystash-nas' = '127.0.0.1' })
-        Assert-Equal 'drop' $plan[0].Action
+        Assert-StringEqual 'drop' $plan[0].Action
     }
     It 'keeps an unconfigured alias that resolves off this machine' {
         # Someone else's, or an earlier lab's. Not this conversion's to remove.
         $plan = @(Get-PoolWorkerAliasPlan -CandidateName @('ypool-nas') -ConfiguredServer @() `
             -Resolution @{ 'ypool-nas' = '192.168.7.99' })
-        Assert-Equal 'keep' $plan[0].Action
+        Assert-StringEqual 'keep' $plan[0].Action
     }
     It 'keeps a name that does not resolve, because there is no entry to drop' {
         $plan = @(Get-PoolWorkerAliasPlan -CandidateName @('ypool-nas') -ConfiguredServer @() -Resolution @{})
-        Assert-Equal 'keep' $plan[0].Action
+        Assert-StringEqual 'keep' $plan[0].Action
     }
     It 'matches the configured server case-insensitively' {
         $plan = @(Get-PoolWorkerAliasPlan -CandidateName @('YPOOL-NAS') -ConfiguredServer @('ypool-nas') `
             -Resolution @{ 'YPOOL-NAS' = '127.0.0.1' })
-        Assert-Equal 'keep' $plan[0].Action
+        Assert-StringEqual 'keep' $plan[0].Action
     }
     It 'de-duplicates repeated candidates' {
         $plan = @(Get-PoolWorkerAliasPlan -CandidateName @('yuruna-dash', 'yuruna-dash') -ConfiguredServer @() `
             -Resolution @{ 'yuruna-dash' = '10.0.0.5' })
-        Assert-Equal 1 $plan.Count
+        Assert-StringEqual 1 $plan.Count
     }
     It 'keeps the dashboard alias when the configuration somehow names it as a storage server' {
         # Contrived, but the configured-server check runs FIRST on purpose: a name
         # the mount depends on is never dropped, whatever else is true of it.
         $plan = @(Get-PoolWorkerAliasPlan -CandidateName @('yuruna-dash') -ConfiguredServer @('yuruna-dash') `
             -Resolution @{ 'yuruna-dash' = '10.0.0.5' })
-        Assert-Equal 'keep' $plan[0].Action
+        Assert-StringEqual 'keep' $plan[0].Action
     }
 }
 
@@ -251,20 +249,20 @@ Describe 'Get-PoolWorkerConfiguredServer' {
             poolStorageNetworkPath  = '//lab-nas/yuruna.pool'
             stashStorageNetworkPath = '//lab-nas/yuruna.stash' } }
         $servers = @(Get-PoolWorkerConfiguredServer -Config $config)
-        Assert-Equal 1 $servers.Count
-        Assert-Equal 'lab-nas' $servers[0]
+        Assert-StringEqual 1 $servers.Count
+        Assert-StringEqual 'lab-nas' $servers[0]
     }
     It 'skips an unconfigured tier' {
         $config = @{ networkStorage = @{
             poolStorageNetworkPath  = '\\ypool-nas\yuruna.pool'
             stashStorageNetworkPath = '' } }
         $servers = @(Get-PoolWorkerConfiguredServer -Config $config)
-        Assert-Equal 1 $servers.Count
-        Assert-Equal 'ypool-nas' $servers[0]
+        Assert-StringEqual 1 $servers.Count
+        Assert-StringEqual 'ypool-nas' $servers[0]
     }
     It 'returns nothing for a config with no networkStorage node' {
-        Assert-Equal 0 (@(Get-PoolWorkerConfiguredServer -Config @{})).Count
-        Assert-Equal 0 (@(Get-PoolWorkerConfiguredServer -Config $null)).Count
+        Assert-StringEqual 0 (@(Get-PoolWorkerConfiguredServer -Config @{})).Count
+        Assert-StringEqual 0 (@(Get-PoolWorkerConfiguredServer -Config $null)).Count
     }
 }
 
@@ -364,7 +362,7 @@ Describe 'Get-PoolWorkerReadinessVerdict' {
             -CachingProxyIp '192.168.7.229' -CachingProxyIsLocal $false `
             -ExemptServiceKey @('caching-proxy')
         Assert-False $v.Ready
-        Assert-Equal 1 $v.Problem.Count
+        Assert-StringEqual 1 $v.Problem.Count
     }
     It 'ignores blank entries in the advertised and unconverged lists' {
         $v = Get-PoolWorkerReadinessVerdict -Service @() -ActiveExtension @('', '  ') `

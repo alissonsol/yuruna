@@ -11,8 +11,8 @@ step always succeeds. First boot lands in a text-mode login.
 **Nested-virt requirements (Docker/KVM inside the VM)**: macOS 15+,
 Apple **M3+**, UTM v4.6+. `New-VM.ps1` validates only baseline
 compatibility (macOS 12+, any M-series, UTM 4.0+); the nested-virt
-floor is not checked — verify it separately before use.
-Cross-host concepts: [Hosts — ...](../../README.md).
+floor is not checked -- verify it separately before use.
+Cross-host concepts: [Hosts -- ...](../../README.md).
 
 ## One-time
 
@@ -40,7 +40,7 @@ Initial password comes from the per-cycle vault of the authentication
 extension (`test/extension/authentication/`) and is **expired** on
 first login, so the test sequence's Current/New/Retype rotation runs
 against the OS prompt. See
-[Test Runner — Nerd-Level Details](../../../test/read.more.md) for the
+[Test Runner -- Nerd-Level Details](../../../test/read.more.md) for the
 vault model.
 
 ---
@@ -49,6 +49,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../../../README.md)

@@ -35,8 +35,8 @@ Reference: [Microsoft KMS Client Activation Keys](https://learn.microsoft.com/en
 
 Edit `autounattend.xml`:
 
-1. `<Key>` in `<ProductKey>` → the key from the tables above.
-2. `<Value>` in `<InstallFrom>` → the edition name (e.g. `Windows 11 Enterprise`).
+1. `<Key>` in `<ProductKey>` -> the key from the tables above.
+2. `<Value>` in `<InstallFrom>` -> the edition name (e.g. `Windows 11 Enterprise`).
 
 ## Activating After Installation
 
@@ -63,6 +63,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../../../../README.md)

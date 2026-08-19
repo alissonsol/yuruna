@@ -30,7 +30,7 @@ import (
 //     attributing cycles by that label would fold non-members into a pool.
 //
 // Cards are therefore enumerated from INTENT and the stats joined onto them. A
-// pool whose hosts are all silent still renders ("N hosts · 0 reporting"),
+// pool whose hosts are all silent still renders ("N hosts - 0 reporting"),
 // instead of vanishing because no Loki stream mentioned it -- which is exactly
 // the pool that most needs looking at.
 
@@ -71,7 +71,7 @@ type boardCard struct {
 	// resolved from the discovery cache when a project declared a displayName.
 	TestSet      string `json:"testSet"`
 	TestSetLabel string `json:"testSetLabel"`
-	// AssignAllowed is false for the auto-enrolment target pool, which is
+	// AssignAllowed is false for the auto-enrollment target pool, which is
 	// structurally forbidden from carrying a test-set. The UI disables the
 	// control and shows Reason, rather than silently omitting it.
 	AssignAllowed bool   `json:"assignAllowed"`
@@ -563,7 +563,7 @@ func (s *Server) handleMoveHost(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if body.PoolID == "" {
-		// Out of every pool. Remove-HostFromPool against the auto-enrolment
+		// Out of every pool. Remove-HostFromPool against the auto-enrollment
 		// target records the exclusion, so the sweep does not undo this.
 		if t := strings.TrimSpace(doc.AutoEnrollment.TargetPoolID); t != "" && current != t {
 			_ = s.intent.RemoveHost(r.Context(), t, body.HostID)

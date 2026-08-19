@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42d9c8b7-6f5e-4a23-9c81-7e4f3a2d1b50
+.VERSION 2026.08.19
+.GUID 42228108-7cf2-409b-8ae4-1bb3028f378f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna runner pidfile single-instance
@@ -20,7 +20,7 @@
 .SYNOPSIS
     Shared single-instance pidfile guard for the runner trio.
 .DESCRIPTION
-    Outer ([test/Invoke-TestRunner.ps1](../Invoke-TestRunner.ps1)) and
+    Outer ([test/Start-TestRunner.ps1](../Start-TestRunner.ps1)) and
     inner ([test/modules/Invoke-TestRunnerInnerLoop.ps1](Invoke-TestRunnerInnerLoop.ps1))
     share one pidfile guard here instead of each carrying a near-identical
     hand-rolled copy that drifts when a per-platform fix lands -- the
@@ -67,12 +67,12 @@ function Get-RunnerInstanceState {
         [Parameter(Mandatory)][string]$RunnerPidFile,
         [string]$RunnerStartFile,
         # Cmdline regex applied as the identity fallback. Outer matches
-        # both "Invoke-TestRunner.ps1" and "Invoke-TestRunnerInnerLoop.ps1"
+        # both "Start-TestRunner.ps1" and "Invoke-TestRunnerInnerLoop.ps1"
         # so a stranded inner that owns the pidfile is also taken over;
-        # inner restricts to "Invoke-TestRunner.ps1" so it never targets a
+        # inner restricts to "Start-TestRunner.ps1" so it never targets a
         # sibling inner. "Invoke-TestCycleRunner.ps1" is deliberately not
         # matched -- the outer owns the pidfile across its per-cycle children.
-        [string]$CmdLinePattern = 'Invoke-TestRunner(?:InnerLoop)?\.ps1'
+        [string]$CmdLinePattern = '(?:Start-TestRunner|Invoke-TestRunnerInnerLoop)\.ps1'
     )
     if (-not (Test-Path -LiteralPath $RunnerPidFile)) {
         return @{ status='None'; pid=0; identityVia='none'; cmdline=$null }
@@ -113,7 +113,7 @@ function Get-RunnerInstanceState {
     } elseif ($IsMacOS -or $IsLinux) {
         # `-ww` forces unlimited column width. Without it, BSD/macOS ps
         # truncates `args` to the controlling terminal's columns (or 80
-        # if there's no TTY), hiding the trailing Invoke-TestRunner.ps1
+        # if there's no TTY), hiding the trailing Start-TestRunner.ps1
         # token and breaking the regex match.
         $cmd = & '/bin/ps' -ww -p $filePid -o args= 2>$null
     }
@@ -258,7 +258,7 @@ function Write-RunnerPidFile {
         cross-check the live runner without a torn read.
     .DESCRIPTION
         Atomic-create with exclusive share. Two concurrent operators
-        launching Invoke-TestRunner.ps1 at the same moment otherwise
+        launching Start-TestRunner.ps1 at the same moment otherwise
         both pass Get-RunnerInstanceState's check (both see "None")
         and both write their PID via plain Set-Content, leaving the
         loser's file overwritten and neither knowing the other won

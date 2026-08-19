@@ -1,7 +1,7 @@
 # Pool admin
 
-The whole pool-admin CLI — everything that reads or writes a lab's pool
-intent store — plus the sample intent files under [`examples/`](examples/).
+The whole pool-admin CLI -- everything that reads or writes a lab's pool
+intent store -- plus the sample intent files under [`examples/`](examples/).
 
 | Script | Purpose |
 |---|---|
@@ -31,7 +31,7 @@ Full command table, parameters and workflow:
 
 `test/extension/pool-control-service/` drives this CLI rather than
 reimplementing git + YAML + schema validation in Go. It carries each script
-as a `test/`-relative path — the `exec` calls in
+as a `test/`-relative path -- the `exec` calls in
 `server/internal/intent/intent.go`, the `poolAdminCLIs` presence probe in
 `server/internal/httpsrv/diagnostics.go`, and the skip guard in
 `server/internal/intent/cliargs_test.go`. Moving a script out of this folder

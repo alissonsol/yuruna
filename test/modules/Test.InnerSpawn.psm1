@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a1b2c3-d4e5-4f67-8901-bc0123456722
+.VERSION 2026.08.19
+.GUID 42a27240-9228-4384-9324-f2bcf259469f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
@@ -26,7 +26,7 @@
 #   $PROFILE in the launching shell can re-set YURUNA_* env vars in the
 #   child AFTER the parent's snapshot pinned the right values.
 # Why a helper module:
-#   Invoke-TestRunner.ps1, Invoke-TestProject.ps1 and Invoke-TestCycleRunner.ps1
+#   Start-TestRunner.ps1, Invoke-TestProject.ps1 and Invoke-TestCycleRunner.ps1
 #   all need the same single-quote escaping + -Command construction; duplicated,
 #   a quoting-edge-case fix in one would not reach the others.
 

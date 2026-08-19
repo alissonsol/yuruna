@@ -12,7 +12,7 @@ unattended, and the threat model for the test harness's credential store.
 
 - Create an administrator user (not the root user) per [AWS guidance](https://docs.aws.amazon.com/IAM/latest/UserGuide/getting-started_create-admin-group.html).
 - Login with the [AWS CLI](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-quickstart.html) (once per PowerShell session):
-  - `aws configure` — enter `AWS Access Key ID`, `AWS Secret Access Key`, `Default region name`, `Default output format`.
+  - `aws configure` -- enter `AWS Access Key ID`, `AWS Secret Access Key`, `Default region name`, `Default output format`.
   - Show [current configuration](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html): `aws configure list`.
   - Verify the account is ready: `aws eks list-clusters`.
 
@@ -27,16 +27,16 @@ unattended, and the threat model for the test harness's credential store.
 
 ## Google Cloud
 
-> **Note:** GCP deployment is planned and not yet available — the
+> **Note:** GCP deployment is planned and not yet available -- the
 > `global/resources/gcp/` resource templates do not ship yet. These steps
 > prepare for it.
 
 - One-time initialization:
   - Check currently active configuration: `gcloud config list`
-  - `gcloud init --skip-diagnostics` — start a new configuration and project so you don't disrupt other work.
+  - `gcloud init --skip-diagnostics` -- start a new configuration and project so you don't disrupt other work.
   - Enable required APIs (adjust project name as needed). If this is the first API enabled for the project, billing must also be enabled.
-    - <https://console.developers.google.com/apis/library/compute.googleapis.com?project=yuruna> → `Enable API`
-    - <https://console.developers.google.com/apis/library/containerregistry.googleapis.com?project=yuruna> → `Enable API`
+    - <https://console.developers.google.com/apis/library/compute.googleapis.com?project=yuruna> -> `Enable API`
+    - <https://console.developers.google.com/apis/library/containerregistry.googleapis.com?project=yuruna> -> `Enable API`
   - Set a default region for the project (preferably the same region used in the OpenTofu resource config):
     - Inspect: `gcloud compute project-info describe --project [project]`
     - Change: `gcloud compute project-info add-metadata --metadata google-compute-default-region=[region]`
@@ -44,7 +44,7 @@ unattended, and the threat model for the test harness's credential store.
     - Create a service account with the role 'Container Registry Service Agent' (or reuse the one [auto-added](https://cloud.google.com/container-registry/docs/overview#container_registry_service_account) when you enabled the Container Registry API).
     - Create the JSON access key file:
       - Open the [API credentials](https://console.cloud.google.com/apis/credentials?project=yuruna) page and click the service account.
-      - Under "Keys", select `Add Key` → `Create new key` → `JSON` → `CREATE`. Save the downloaded file as `global/config/gcp/gcp-access-key.json`.
+      - Under "Keys", select `Add Key` -> `Create new key` -> `JSON` -> `CREATE`. Save the downloaded file as `global/config/gcp/gcp-access-key.json`.
 
 - Per-session authentication:
   - Check defaults: `gcloud config list`
@@ -73,7 +73,7 @@ build / tag / push, so the `registryLogin` phase shares
 The dispatcher keeps registry knowledge out of `Yuruna.Component`,
 which carries no per-registry branching like
 `if ($registryLocation -like '*azurecr.io*')`. Adding a registry
-kind (ECR, GAR, Docker Hub, Harbor, Nexus, …) is one
+kind (ECR, GAR, Docker Hub, Harbor, Nexus, ...) is one
 `Register-CredentialProvider` call; nothing in `Yuruna.Component`
 changes.
 
@@ -100,18 +100,18 @@ concentrates the dispatch in one place.
 |---|---|---|
 | `Register-CredentialProvider -Type -Pattern -Authenticator [-LoginCommand]` | `Yuruna.CredentialProvider` | Built-in registrations at module load; external modules can add more |
 | `Get-CredentialProvider -Target` | `Yuruna.CredentialProvider` | Dispatcher; introspection |
-| `Get-CredentialProviderMatrix` | `Test.CredentialProvider` | Startup capability matrix |
-| `Repair-Credential -Target` | `Test.CredentialProvider` | Self-heal path: re-auth after a 401 mid-push |
+| `Get-CredentialProviderMatrix` | `Test.CredentialProvider` | Available for a capability matrix; no caller today |
+| `Repair-Credential -Target` | `Test.CredentialProvider` | Available for a caller wanting to re-auth after a 401; **no automatic invoker today** |
 | `Clear-CredentialProvider` | `Test.CredentialProvider` | Tests only |
 | `Resolve-ComponentRegistryLogin -RegistryLocation` | `Yuruna.Component.Registry` | The push pipeline; returns the login command string or `$null` |
 
 Each provider exposes two scriptblocks:
 
-- **`Authenticator`** — self-heal path
-  (`Repair-Credential` after a 401). Runs the auth in-process
+- **`Authenticator`** -- the re-auth entry point
+  (`Repair-Credential`, if a caller invokes it). Runs the auth in-process
   (calls `az acr login`, `gcloud auth print-access-token | docker
-  login`, …). Returns `[bool]`.
-- **`LoginCommand`** — batch pipeline
+  login`, ...). Returns `[bool]`.
+- **`LoginCommand`** -- batch pipeline
   (`Yuruna.Component` push). Returns the shell command string the
   push pipeline pipes through its own logging wrapper, or `$null`
   when the environment doesn't have the credentials.
@@ -149,21 +149,21 @@ provider-supplied credentials.
 
 ### Adding a new registry kind
 
-1. Pick a `Type` name (`harbor`, `nexus`, `quay`, …) and a regex
+1. Pick a `Type` name (`harbor`, `nexus`, `quay`, ...) and a regex
    `Pattern` matching the host shape.
 2. Implement both scriptblocks (self-heal `Authenticator` and batch
    `LoginCommand`); return `[bool]` and `[string]` respectively.
 3. Call `Register-CredentialProvider` at the bottom of
    [`Yuruna.CredentialProvider`](../automation/Yuruna.CredentialProvider.psm1)
-   in registration order — more specific patterns first.
+   in registration order -- more specific patterns first.
 4. The push pipeline picks up the new provider on the next outer
    restart.
 
 ### Related registries
 
-- [Host-condition registry](test-harness.md#host-condition-registry) — same `New-YurunaRegistry` primitive, different domain.
-- [Host I/O registry](host-io.md) — the older, two-level registry that established the pattern.
-- [Remediation dispatcher](failure-schema.md#remediation-dispatcher) — calls `Repair-Credential` when a push fails with 401.
+- [Host-condition registry](test-harness.md#host-condition-registry) -- same `New-YurunaRegistry` primitive, different domain.
+- [Host I/O registry](host-io.md) -- the older, two-level registry that established the pattern.
+- [Remediation dispatcher](failure-schema.md#remediation-dispatcher) -- classifies a 401 as `credential_expired` and RECOMMENDS re-authentication. It does not call `Repair-Credential`; applying the recommendation is the caller's job.
 
 ## Test-harness vault — threat model
 
@@ -180,7 +180,7 @@ first contact via `Set-Password`, stores both `password` and
 exports the value off the local machine.
 
 What never lands in it: cloud-provider credentials (`aws configure` /
-`az login` / `gcloud auth …` keep their own files, see sections
+`az login` / `gcloud auth ...` keep their own files, see sections
 above), API keys, registry tokens, SSH host keys (those live under
 `test/status/ssh/`), or any operator personal credential.
 
@@ -208,6 +208,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../README.md)

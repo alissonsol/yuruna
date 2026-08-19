@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a1b2c3-d4e5-4f67-8901-ac0d1e2f3a62
+.VERSION 2026.08.19
+.GUID 42fda77b-2565-4419-bec1-4390061f6c15
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test vmutility compare-screenshot gdi dispose pester

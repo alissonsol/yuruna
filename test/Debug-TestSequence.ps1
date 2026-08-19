@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a1b2c3-d4e5-4f67-8901-bc0123456708
+.VERSION 2026.08.19
+.GUID 422de2af-9e3f-4bca-8c35-df0040af74c0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
@@ -23,7 +23,7 @@
     See test/README.md (Developing test sequences) for usage and naming.
 
     When the named sequence declares a `baseline:` chain (the same chain
-    the cycle planner walks), Invoke-TestSequence runs every prereq sequence
+    the cycle planner walks), Debug-TestSequence runs every prereq sequence
     in order BEFORE the named sequence -- start.* + workload.* both, in
     dependency order -- so the VM lands in the same state the runner
     would have produced. -StartStep/-StopStep index into the resulting
@@ -53,11 +53,11 @@
                           would pick the wrong base.
 .PARAMETER ShowSensitive Print expanded passwords / vault secrets in the
                           transcript. OFF by default to match production
-                          (Invoke-TestRunner). Turn on only for one-off
+                          (Start-TestRunner). Turn on only for one-off
                           local debugging; never share a transcript captured
                           with this switch on.
 .PARAMETER NoConfigGate   Skip the pre-cycle Test-Config.ps1 preflight.
-                          Default: gate runs (matches Invoke-TestRunner). Use
+                          Default: gate runs (matches Start-TestRunner). Use
                           for in-progress edits where you want to iterate on
                           a sequence while test.config.yml / vault.yml /
                           users.yml are still being adjusted.
@@ -82,16 +82,16 @@ param(
 
     [switch]$NoConfigGate,
 
-    # Skip the built-in HTTP status service, matching Invoke-TestRunner /
+    # Skip the built-in HTTP status service, matching Start-TestRunner /
     # Invoke-TestRunnerInnerLoop. Without it, an enabled statusService is started
     # (restarted) so the dashboard tracks this run.
     [switch]$NoStatusService,
 
     # Skip refreshing <RepoRoot>/project. An orchestration caller clones the project
     # ONCE before iterating a test-set, then passes this so each child
-    # Invoke-TestSequence reuses that fresh tree instead of re-cloning per entry.
+    # Debug-TestSequence reuses that fresh tree instead of re-cloning per entry.
     # Standalone callers should omit it -- the default clone keeps a lone
-    # Invoke-TestSequence run in sync with the runner (same as Invoke-TestRunnerInnerLoop).
+    # Debug-TestSequence run in sync with the runner (same as Invoke-TestRunnerInnerLoop).
     [switch]$NoProjectClone,
 
     # Three-state: omitted -> read from test.config.yml.logLevel;
@@ -152,7 +152,7 @@ Import-Module (Join-Path $ModulesDir 'Test.Orchestrator.psm1') -Global -Force
 $global:VerbosePreference = $savedVerbose
 
 # --- REGION: Nested-cycle detection
-# When this Invoke-TestSequence was started inside another run's process tree -- a
+# When this Debug-TestSequence was started inside another run's process tree -- a
 # host-action step re-entering us in a child pwsh (e.g. Set-Resource.ps1 fanning
 # out per-stage guest builds) -- it inherits the owner's cycle-context handle
 # ($env:YURUNA_CYCLE_CONTEXT). Its presence means THIS run is NESTED: it attaches
@@ -179,7 +179,7 @@ $configLevel = Get-TestConfigValue -Config $cfgForLevel -Path 'logLevel'
 $null = Test.LogLevel\Resolve-LogLevel -CmdLineLevel $script:CmdLineLogLevel -ConfigLevel $configLevel
 
 # Auto-relaunch under sg libvirt on host.ubuntu.kvm when this shell's
-# group set lacks libvirt -- Invoke-TestSequence runs the engine which
+# group set lacks libvirt -- Debug-TestSequence runs the engine which
 # calls virsh / virt-install on demand. No-op on other hosts / fresh
 # shells.
 Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
@@ -198,24 +198,24 @@ $Config = Read-TestConfig -Path $ConfigPath
 if (-not $Config) { Write-Error "Config not found or unparseable: $ConfigPath"; exit $ExitFailure }
 
 # --- REGION: Pre-cycle config gate
-# Mirror Invoke-TestRunner: refuse to bring up a VM when test.config.yml /
+# Mirror Start-TestRunner: refuse to bring up a VM when test.config.yml /
 # vault.yml / users.yml / transports.yml are in a state Test-Config.ps1
-# would reject. Without this gate a sequence can "pass" under Invoke-TestSequence
+# would reject. Without this gate a sequence can "pass" under Debug-TestSequence
 # (extension quirks-mode covers misconfig) while the runner refuses to even
 # start the cycle on the same config -- exactly the kind of confusing
 # surprise this gate guards against. Bypass with -NoConfigGate for
 # ad-hoc / in-progress edits.
 # Spawn a fresh pwsh so an Out-Of-Order ::Stop early-exit inside Test-Config
 # cannot unwind this script. -SkipSend stops the smoke-test email from
-# flooding subscribers["config.smoke"] on every Invoke-TestSequence invocation.
+# flooding subscribers["config.smoke"] on every Debug-TestSequence invocation.
 # Test.ConfigPreflight was imported by Initialize-YurunaEntryPointModuleSet above.
-$gate = Invoke-ConfigGate -TestRoot $TestRoot -ConfigPath $ConfigPath -Skip:$NoConfigGate -CallerName 'Invoke-TestSequence'
+$gate = Invoke-ConfigGate -TestRoot $TestRoot -ConfigPath $ConfigPath -Skip:$NoConfigGate -CallerName 'Debug-TestSequence'
 if (-not $gate.passed) { exit $gate.exitCode }
 
 # --- REGION: Refresh <RepoRoot>/project from test.config.yml's repositories.projectUrl
 # Mirror Invoke-TestRunnerInnerLoop: the cycle's planner (and Resolve-SequencePath
 # right below) reads project-tree sequences from <RepoRoot>/project/, so an
-# absent or stale clone makes Invoke-TestSequence silently diverge from the runner.
+# absent or stale clone makes Debug-TestSequence silently diverge from the runner.
 # Skipped when repositories.projectUrl is empty (in-tree project layout).
 # Failure aborts before VM bring-up, same as the runner.
 $projUrl = $null
@@ -232,7 +232,7 @@ if ($NoProjectClone) {
         Write-Warning ""
         Write-Warning "============================================================"
         Write-Warning "  Project clone FAILED: $($cloneRes.errorMessage)"
-        Write-Warning "  Invoke-TestSequence cannot resolve project-tree sequences without"
+        Write-Warning "  Debug-TestSequence cannot resolve project-tree sequences without"
         Write-Warning "  <RepoRoot>/project/. Fix repositories.projectUrl in"
         Write-Warning "  test.config.yml (or empty it to use the in-tree project)."
         Write-Warning "============================================================"
@@ -242,11 +242,11 @@ if ($NoProjectClone) {
 
 # --- REGION: Ensure status service is running (restart to pick up any changes)
 # Shared gate (Test.Prelude) so enabled / -NoStatusService / port / restart match the
-# inner runner. -Restart: a re-invoked Invoke-TestSequence must pick up edits.
+# inner runner. -Restart: a re-invoked Debug-TestSequence must pick up edits.
 # Skipped when nested: the owner already started (and owns) the status service;
 # a nested child restarting it would bounce the owner's live server mid-cycle.
 if (-not $isNested) {
-    $startScript = Join-Path $TestRoot "Start-StatusService.ps1"
+    $startScript = Join-Path $TestRoot "service/Start-StatusService.ps1"
     $null = Start-YurunaStatusServiceIfEnabled -Config $Config -StartScript $startScript -NoStatusService:$NoStatusService -Restart
 }
 # The config service is a caching-proxy-service companion (owned by Start-CachingProxyServiceVM.ps1),
@@ -298,7 +298,7 @@ if ($SequencePathOverride) {
     Write-Output "Sequence path: $SequencePathOverride (basename: $SequenceName)"
     # Heads-up: if a host-variant sibling exists, Resolve-SequencePath
     # would have picked it (the runner does). Path-override skips that
-    # tier, so warn loudly -- otherwise the operator thinks Invoke-TestSequence
+    # tier, so warn loudly -- otherwise the operator thinks Debug-TestSequence
     # validated what the runner will execute, when it didn't.
     $hostShort = $HostType -replace '^host\.',''
     if ($SequenceName -notmatch "\.$([regex]::Escape($hostShort))$") {
@@ -307,7 +307,7 @@ if ($SequencePathOverride) {
         $variantPath  = Join-Path $overrideDir "$SequenceName.$hostShort$overrideExt"
         if (Test-Path -LiteralPath $variantPath) {
             Write-Warning "Host-variant sibling exists: $variantPath"
-            Write-Warning "  Invoke-TestRunner would pick the variant on $HostType, but Invoke-TestSequence is running the generic file you passed."
+            Write-Warning "  Start-TestRunner would pick the variant on $HostType, but Debug-TestSequence is running the generic file you passed."
             Write-Warning "  Pass the variant path explicitly to match runner behavior."
         }
     }
@@ -348,17 +348,17 @@ Write-Output "Track directory: $env:YURUNA_RUNTIME_DIR"
 Write-Output "Log directory:   $env:YURUNA_LOG_DIR"
 
 # --- REGION: Single-instance guard
-# Refuse to start when an Invoke-TestRunner already owns the runtime dir.
-# Invoke-TestSequence is a dev entry point: it does not coordinate the runner
+# Refuse to start when a Start-TestRunner already owns the runtime dir.
+# Debug-TestSequence is a dev entry point: it does not coordinate the runner
 # state machine, so a concurrent run would race the runner's pidfile,
 # status.json registrations, and VM operations. Get-RunnerInstanceState
 # (Test.SingleInstance) does the read; Assert-NoOtherRunner wraps it
 # with the "refuse + banner" semantics this entry point needs --
-# Invoke-TestRunner's takeover path is the opposite (Stop-StaleRunner).
+# Start-TestRunner's takeover path is the opposite (Stop-StaleRunner).
 # Nested runs skip the guard: they don't own the runtime dir (the outer cycle
 # owner does), and the owner already passed this same check. Enforcing it here
 # would make every nested stage refuse to start the moment the owner registered.
-if (-not $isNested -and -not (Assert-NoOtherRunner -RuntimeDir $env:YURUNA_RUNTIME_DIR -CallerName 'Invoke-TestSequence')) {
+if (-not $isNested -and -not (Assert-NoOtherRunner -RuntimeDir $env:YURUNA_RUNTIME_DIR -CallerName 'Debug-TestSequence')) {
     exit $ExitFailure
 }
 
@@ -371,7 +371,7 @@ if (-not $isNested -and -not (Assert-NoOtherRunner -RuntimeDir $env:YURUNA_RUNTI
 # the operator can inspect post-mortem via virsh / vmconnect / utmctl.
 $script:CancelState = Register-EntryPointCancelHandler
 
-# Sweep the stale inter-cycle control state a freshly-typed Invoke-TestSequence
+# Sweep the stale inter-cycle control state a freshly-typed Debug-TestSequence
 # command line must not inherit. -Scope Startup consumes control.cycle-
 # restart (so Invoke-Sequence Gate #1 doesn't throw YurunaCycleRestart on
 # our first step and make it look like the SEQUENCE broke) AND archives a
@@ -434,8 +434,8 @@ if (Test-IsOrchestrationSequence -Sequence $topLevelDoc) {
 # silently derail the whole chain (and a project sequence like
 # `ch01.website.example.yml` has no guest token in its name at all).
 # Same lookup the cycle planner uses in Resolve-CyclePlan
-# (Test.SequencePlanner.psm1) for Invoke-TestRunner / Invoke-TestProject,
-# kept symmetric so Invoke-TestSequence behaves the same standalone.
+# (Test.SequencePlanner.psm1) for Start-TestRunner / Invoke-TestProject,
+# kept symmetric so Debug-TestSequence behaves the same standalone.
 if ($GuestKey) {
     Write-Output "Guest key (override): $GuestKey"
 } else {
@@ -459,7 +459,7 @@ if ($GuestKey) {
     }
     $osKey = $osKeys[0]
     if ($osKeys.Count -gt 1) {
-        Write-Warning "Sequence '$SequenceName' declares multiple resource OS keys ($($osKeys -join ', ')). Invoke-TestSequence will target '$osKey'. Pass -GuestKey to choose explicitly."
+        Write-Warning "Sequence '$SequenceName' declares multiple resource OS keys ($($osKeys -join ', ')). Debug-TestSequence will target '$osKey'. Pass -GuestKey to choose explicitly."
     }
     $GuestKey = "guest.$osKey"
     Write-Output "Guest key (from baseline): $GuestKey"
@@ -534,7 +534,7 @@ if ($plan.warmPath -and -not $PSBoundParameters.ContainsKey('VMName')) { $VMName
 # Same cascade registration as Invoke-TestRunnerInnerLoop: Test.Ssh's
 # Get-GuestSshUser is the lookup point for Save-GuestDiagnostic +
 # host-driver SSH-mode Send-Text / fetchAndExecute SSH. Standalone
-# Invoke-TestSequence runs the same chain as a one-off, so register the
+# Debug-TestSequence runs the same chain as a one-off, so register the
 # same override here. Empty $effectiveUser falls through to the
 # hardcoded per-guest default via Get-GuestSshUser unchanged.
 if (-not (Get-Command Set-GuestSshUserOverride -ErrorAction SilentlyContinue)) {
@@ -552,7 +552,7 @@ if ($effectiveUser -and (Get-Command Set-GuestSshUserOverride -ErrorAction Silen
 # persistent UI-edited key, probed first) and $env:YURUNA_CACHING_PROXY_SERVICE_IP
 # (session-scope fallback, probed only when the config candidate is
 # absent or fails), keeps the first whose HTTP proxy port is reachable,
-# and clears the env when none answers. Invoke-TestSequence runs the SAME
+# and clears the env when none answers. Debug-TestSequence runs the SAME
 # Resolve-CachingProxyServiceEndpoint so a syntactically valid but dead IP
 # configured via the status service's Edit-config page can't survive into
 # guest cidata here either. When neither source is set, the resolver is
@@ -631,7 +631,7 @@ if ((Get-VMState -VMName $VMName) -ne 'absent') {
     # Forward -Username / -Hostname when the sequence declares them. Mirrors
     # Invoke-TestRunnerInnerLoop's cascade forward (the cascade-walk is not
     # feasible standalone, but the sequence's own variables.username /
-    # variables.hostname are the overrides Invoke-TestSequence can honor without
+    # variables.hostname are the overrides Debug-TestSequence can honor without
     # the planner). Empty values fall through to the per-host New-VM
     # defaults (the account default and the VM name, respectively).
     $newVmArgs = @{ GuestKey = $GuestKey; RepoRoot = $RepoRoot; VMName = $VMName; CachingProxyServiceUrl = $newVmProxy }
@@ -726,13 +726,13 @@ $effectiveStop = $StopStep -ne 0 ? $StopStep : $totalSteps
 $stopLabel = $StopStep -ne 0 ? ", stopping after step $effectiveStop" : ""
 
 # --- REGION: Register this run as a cycle in status.json
-# Without this block an Invoke-TestSequence run lands under cycle "000000" with
+# Without this block a Debug-TestSequence run lands under cycle "000000" with
 # no row in the dashboard's history table, and break-active.json has no live
 # cycle to anchor the Continue button against. Mirrors
 # Invoke-TestRunnerInnerLoop's shape but uses a single 'Sequence' step: the
 # inner runner's fixed phase pills -- New-VM / Start-VM / Start-GuestOS / ...
 # -- would render four "pending" chips that never animate, since
-# Invoke-TestSequence skips those phase boundaries.
+# Debug-TestSequence skips those phase boundaries.
 # $nestedNodeId is the id of this run's node in the owner's `nested` map; it
 # stays $null for an owner run and is read again in the finally{} to finalize
 # the node, so it must live in the script scope BEFORE the branch.
@@ -898,7 +898,7 @@ try {
     }
     Unregister-EntryPointCancelHandler
     # Finalize the status.json cycle row so the dashboard's history table
-    # reflects this Invoke-TestSequence run. 'unknown' (mid-try exit before
+    # reflects this Debug-TestSequence run. 'unknown' (mid-try exit before
     # outcome was assigned) is recorded as 'fail' -- a cycle the operator
     # walked away from is closer to a failed cycle than a clean pass for
     # downstream automation (notification, retry, history pruning).

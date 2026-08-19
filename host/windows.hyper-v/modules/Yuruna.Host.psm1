@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e90
+.VERSION 2026.08.19
+.GUID 425e6973-60a5-43b1-90b8-194b4331c1f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna host windows hyperv
@@ -3171,7 +3171,7 @@ public class HyperVCapture {
                 # Detect the "headless host" symptom: WMI returns a valid
                 # thumbnail but every pixel is black because the host's
                 # DWM isn't actively painting the synthetic GPU. Reported
-                # ONCE per process so a long Invoke-TestRunner cycle
+                # ONCE per process so a long Start-TestRunner cycle
                 # doesn't flood the log with the same message every step.
                 # Verbose, not Warning: the PrintWindow/vmconnect fallback
                 # below recovers a usable framebuffer, so a headless host
@@ -3326,7 +3326,14 @@ function Start-VM {
     [OutputType([hashtable])]
     param([Parameter(Mandatory)][string]$VMName)
     if (-not $PSCmdlet.ShouldProcess($VMName, 'Start VM')) { return @{ success = $false; errorMessage = 'WhatIf' } }
-    return Start-HyperVVM -VMName $VMName -Confirm:$false
+    $result = Start-HyperVVM -VMName $VMName -Confirm:$false
+    # Arm the DHCP wire capture the moment the guest exists on the switch:
+    # its first DISCOVER lands seconds after firmware, before any sequence
+    # step runs, so no later hook could catch it. Armed on every start
+    # because whether THIS boot's lease goes wrong is not knowable up front;
+    # the capture is discarded unless a failure collects it.
+    if ($result -and $result.success) { [void](Start-VMDhcpCapture -VMName $VMName) }
+    return $result
 }
 
 <#
@@ -3371,6 +3378,14 @@ function Remove-VM {
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$VMName)
     if (-not $PSCmdlet.ShouldProcess($VMName, 'Remove VM')) { return $false }
+    # Discard only a capture this VM owns: the cycle-start sweep removes
+    # leftover VMs by prefix, and an unowned discard there would kill the
+    # capture just armed for the guest actually under test. A failure path
+    # collects (and clears) the capture before removal, so this fires only
+    # on the no-failure teardown.
+    if ($script:YurunaDhcpCapture -and $script:YurunaDhcpCapture.VMName -eq $VMName) {
+        [void](Stop-VMDhcpCapture)
+    }
     return [bool](Remove-HyperVTestVM -VMName $VMName -Confirm:$false)
 }
 
@@ -3532,7 +3547,7 @@ function Save-VMDiskSnapshot {
 .SYNOPSIS
     Returns $true when checkpoint $Id is present on $VMName, $false
     otherwise (including when the VM does not exist). Used by
-    Invoke-TestSequence.ps1's requiresSnapshot warm-path probe before
+    Debug-TestSequence.ps1's requiresSnapshot warm-path probe before
     deciding whether to walk the baseline chain.
 #>
 function Test-VMDiskSnapshot {
@@ -3845,6 +3860,227 @@ function Get-VMScreenshot {
     }
     # 'frame' source: WMI GetVirtualSystemThumbnailImage, with vmconnect PrintWindow fallback (Get-HyperVScreenshot).
     return Get-HyperVScreenshot -VMName $VMName -OutputPath $OutFile
+}
+
+<#
+.SYNOPSIS
+    Read the guest framebuffer twice through WMI and say whether it changed.
+.DESCRIPTION
+    A wait that exhausts its console-reconnect repairs ends on one ambiguous
+    fact: every captured frame was byte-identical. That has two causes with
+    opposite owners -- a guest whose framebuffer is truly static, and a
+    capture pipeline that lost the live feed while the guest kept drawing.
+    The capture path cannot arbitrate its own suspects (its viewer window and
+    its PrintWindow capture are the parts in question), so this reads the
+    framebuffer through GetVirtualSystemThumbnailImage alone -- no vmconnect,
+    no PrintWindow fallback -- twice, a few seconds apart. Differing bytes
+    mean the guest is still drawing and the capture path is at fault;
+    identical bytes mean the guest side is static too. A blinking cursor can
+    vanish in thumbnail downscaling, so an identical pair is reported as what
+    was observed, never as proof the guest is dead.
+.OUTPUTS
+    [pscustomobject] Verdict 'guest-static' | 'guest-live' | 'unavailable', Detail.
+#>
+function Get-VMConsoleSecondOpinion {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [int]$IntervalSeconds = 5
+    )
+    try {
+        $vmSettingData = Get-CimInstance -Namespace root/virtualization/v2 `
+            -ClassName Msvm_VirtualSystemSettingData `
+            -Filter "ElementName='$VMName'" |
+            Where-Object { $_.VirtualSystemType -eq 'Microsoft:Hyper-V:System:Realized' }
+        if (-not $vmSettingData) {
+            return [pscustomobject]@{ Verdict = 'unavailable'; Detail = "no realized Msvm_VirtualSystemSettingData for '$VMName'" }
+        }
+        $vmms = Get-CimInstance -Namespace root/virtualization/v2 `
+            -ClassName Msvm_VirtualSystemManagementService
+        $readFrame = {
+            $result = Invoke-CimMethod -InputObject $vmms `
+                -MethodName GetVirtualSystemThumbnailImage `
+                -Arguments @{
+                    TargetSystem = $vmSettingData
+                    WidthPixels  = [uint16]640
+                    HeightPixels = [uint16]480
+                }
+            if ($result.ReturnValue -ne 0 -or -not $result.ImageData -or $result.ImageData.Length -eq 0) { return $null }
+            return ,[byte[]]$result.ImageData
+        }
+        $first = & $readFrame
+        if (-not $first) {
+            return [pscustomobject]@{ Verdict = 'unavailable'; Detail = 'WMI thumbnail read returned no image data' }
+        }
+        Start-Sleep -Seconds $IntervalSeconds
+        $second = & $readFrame
+        if (-not $second) {
+            return [pscustomobject]@{ Verdict = 'unavailable'; Detail = 'second WMI thumbnail read returned no image data' }
+        }
+        $cpu = $null
+        try { $cpu = (Hyper-V\Get-VM -Name $VMName -ErrorAction Stop).CPUUsage } catch { $cpu = $null }
+        $cpuText = if ($null -ne $cpu) { "VM CPU ${cpu}%" } else { 'VM CPU unreadable' }
+        if ([System.Linq.Enumerable]::SequenceEqual([byte[]]$first, [byte[]]$second)) {
+            return [pscustomobject]@{
+                Verdict = 'guest-static'
+                Detail  = "hypervisor framebuffer reads ${IntervalSeconds}s apart are byte-identical ($cpuText): the guest side is static too, so the capture pipeline is not the fault"
+            }
+        }
+        return [pscustomobject]@{
+            Verdict = 'guest-live'
+            Detail  = "hypervisor framebuffer reads ${IntervalSeconds}s apart differ ($cpuText): the guest is still drawing, so suspect the capture/viewer path"
+        }
+    } catch {
+        return [pscustomobject]@{ Verdict = 'unavailable'; Detail = $_.Exception.Message }
+    }
+}
+
+# --- REGION: DHCP wire capture (pktmon)
+# The guest-side network diagnostic can only say "no lease". Whether the
+# DISCOVER left the guest at all, died crossing the vSwitch or the uplink, or
+# went out and was never answered is visible only on the host's packet path --
+# and each of those shapes indicts a different machine. pktmon records every
+# component a packet traverses, so the drop point is in the artifact, and the
+# pcapng form keeps payloads (client-id, xid) for reading which identity asked.
+#
+# pktmon allows ONE session per system, so every start clears whatever session
+# precedes it, and the capture is DHCP-only (ports 67/68) in a small circular
+# log: a session nothing ever stops -- a flow that starts a VM and never
+# removes it -- stays bounded instead of growing with uptime.
+
+# The one live capture, if any: @{ VMName; EtlPath }. Session state, not
+# durable state -- pktmon itself is the source of truth for whether a capture
+# is running; this only remembers which VM the current one belongs to so an
+# unrelated Remove-VM (the cycle-start sweep) cannot discard a capture it
+# does not own.
+$script:YurunaDhcpCapture = $null
+
+<#
+.SYNOPSIS
+    Arm a bounded, DHCP-only pktmon capture for one guest VM.
+.OUTPUTS
+    [bool] $true when the capture is running.
+#>
+function Start-VMDhcpCapture {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Diagnostic capture: records packets, changes no durable system state, and must never prompt inside a runner cycle.')]
+    param([Parameter(Mandatory)][string]$VMName)
+    try {
+        if (-not (Get-Command pktmon.exe -ErrorAction SilentlyContinue)) {
+            Write-Verbose 'pktmon not present; DHCP capture unavailable.'
+            return $false
+        }
+        & pktmon stop 2>$null | Out-Null
+        & pktmon filter remove 2>$null | Out-Null
+        $etl = Join-Path $env:TEMP "yuruna-dhcp-$VMName.etl"
+        Remove-Item -LiteralPath $etl -Force -ErrorAction SilentlyContinue
+        & pktmon filter add YurunaDhcpSrv -p 67 2>$null | Out-Null
+        & pktmon filter add YurunaDhcpCli -p 68 2>$null | Out-Null
+        $startOutput = & pktmon start --capture --pkt-size 0 --log-mode circular --file-size 50 -f $etl 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Verbose "pktmon start failed: $startOutput"
+            & pktmon filter remove 2>$null | Out-Null
+            return $false
+        }
+        $script:YurunaDhcpCapture = @{ VMName = $VMName; EtlPath = $etl }
+        Write-Verbose "DHCP capture armed for '$VMName' -> $etl"
+        return $true
+    } catch {
+        Write-Verbose "Start-VMDhcpCapture failed: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+<#
+.SYNOPSIS
+    Stop the live DHCP capture and discard its file (the no-failure path).
+.OUTPUTS
+    [bool] $true when nothing is left running or on disk.
+#>
+function Stop-VMDhcpCapture {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Diagnostic teardown: stops a packet capture and deletes its temp file; must never prompt inside a runner cycle.')]
+    param()
+    try {
+        if (Get-Command pktmon.exe -ErrorAction SilentlyContinue) {
+            & pktmon stop 2>$null | Out-Null
+            & pktmon filter remove 2>$null | Out-Null
+        }
+        if ($script:YurunaDhcpCapture -and $script:YurunaDhcpCapture.EtlPath) {
+            Remove-Item -LiteralPath $script:YurunaDhcpCapture.EtlPath -Force -ErrorAction SilentlyContinue
+        }
+        $script:YurunaDhcpCapture = $null
+        return $true
+    } catch {
+        Write-Verbose "Stop-VMDhcpCapture failed: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+<#
+.SYNOPSIS
+    Stop the live DHCP capture and land its evidence next to the failure
+    diagnostics.
+.DESCRIPTION
+    Written in three forms because each answers a different question: the .etl
+    is the lossless original, the .txt carries pktmon's per-component
+    traversal (WHERE a packet stopped), and the .pcapng carries payloads
+    (WHICH identity asked). The converters are guarded separately -- a build
+    that lacks one still lands the others. An info file records the VM's MAC
+    so the reader knows what to grep without resolving it from Hyper-V later,
+    after the VM is gone.
+.OUTPUTS
+    [bool] $true when at least the .etl landed in OutputDirectory.
+#>
+function Save-VMDhcpCapture {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Diagnostic collection: stops a packet capture and copies artifacts; must never prompt inside a runner cycle.')]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$OutputDirectory
+    )
+    try {
+        $capture = $script:YurunaDhcpCapture
+        if (-not $capture -or $capture.VMName -ne $VMName) {
+            Write-Verbose "no live DHCP capture belongs to '$VMName'; nothing to save."
+            return $false
+        }
+        $guestMac = $null
+        try { $guestMac = Get-VMMac -VMName $VMName } catch { $guestMac = $null }
+        & pktmon stop 2>$null | Out-Null
+        & pktmon filter remove 2>$null | Out-Null
+        $script:YurunaDhcpCapture = $null
+        if (-not (Test-Path -LiteralPath $capture.EtlPath)) { return $false }
+        if (-not (Test-Path -LiteralPath $OutputDirectory)) {
+            New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
+        }
+        Copy-Item -LiteralPath $capture.EtlPath -Destination (Join-Path $OutputDirectory 'dhcp.capture.etl') -Force
+        & pktmon etl2txt $capture.EtlPath -o (Join-Path $OutputDirectory 'dhcp.capture.txt') 2>$null | Out-Null
+        & pktmon etl2pcap $capture.EtlPath -o (Join-Path $OutputDirectory 'dhcp.capture.pcapng') 2>$null | Out-Null
+        Set-Content -LiteralPath (Join-Path $OutputDirectory 'dhcp.capture.info.txt') -Encoding utf8NoBOM -Value @(
+            "vmName:   $VMName"
+            "guestMac: $(if ($guestMac) { $guestMac } else { '(unresolved)' })"
+            "savedUtc: $([DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ'))"
+            'reading:  dhcp.capture.txt shows each packet at every component it crossed;'
+            '          a DISCOVER present on the VM switch port but absent at the NIC'
+            '          died on this host, present at the NIC with no OFFER back means'
+            '          the wire or the DHCP server, and no DISCOVER at all means the'
+            '          guest client never transmitted. dhcp.capture.pcapng carries the'
+            '          payloads (client-id, xid) for the same packets.'
+        )
+        Remove-Item -LiteralPath $capture.EtlPath -Force -ErrorAction SilentlyContinue
+        return $true
+    } catch {
+        Write-Verbose "Save-VMDhcpCapture failed: $($_.Exception.Message)"
+        return $false
+    }
 }
 
 <#
@@ -4172,27 +4408,67 @@ function Remove-PortMap {
 
 <#
 .SYNOPSIS
-    Return the host's best LAN-routable IPv4 for browser-facing URLs.
+    Return the host's best LAN-routable IPv4 -- for browser-facing URLs, and
+    for the address this host publishes to the pool directory.
 #>
 function Get-BestHostIp {
     [CmdletBinding()]
     [OutputType([string])]
     param()
-    # Filter loopback / link-local / Hyper-V vEthernet, then rank by:
-    # 1. Has default route (penalty 0 vs 1000), 2. InterfaceMetric.
+    # Binding a NIC to an External vSwitch moves the host's own LAN address off
+    # that NIC and onto `vEthernet (<switch>)`, so on the topology this
+    # framework builds the correct answer is ALWAYS a vEthernet adapter.
+    # Excluding vEthernet wholesale -- the obvious way to keep the internal and
+    # NAT vNICs out (Default Switch, WSL) -- therefore discards the only right
+    # answer and settles for whatever NAT adapter another hypervisor installed:
+    # an address that resolves locally, answers nothing, and never changes,
+    # which is indistinguishable from a host that is not moving.
+    #
+    # A vEthernet is admitted on either of two independent grounds, and the
+    # second is what keeps this working where the first cannot be read:
+    # Get-VMSwitch needs Hyper-V administrator rights, and not every caller has
+    # them, while the default route is readable by anyone and is on the
+    # LAN-facing adapter whatever it happens to be called.
+    $externalVnic = @()
+    try {
+        $externalVnic = @(Get-VMSwitch -ErrorAction Stop |
+            Where-Object { $_.SwitchType -eq 'External' } |
+            ForEach-Object { "vEthernet ($($_.Name))" })
+    } catch {
+        Write-Verbose "Get-BestHostIp: could not enumerate External vSwitches ($($_.Exception.Message)); using the default route alone to tell a LAN vEthernet from an internal one."
+    }
+
+    # Resolved once rather than per address: the same answer for every
+    # candidate, and it decides both the filter and the ranking below.
+    $gatewayIndex = @(Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' -ErrorAction SilentlyContinue |
+        Where-Object { $_.NextHop -ne '0.0.0.0' } |
+        Select-Object -ExpandProperty InterfaceIndex -Unique)
+
+    # PrefixOrigin 'WellKnown' drops loopback and APIPA together; an adapter
+    # sitting at 169.254 has not been answered by DHCP, so its address is the
+    # absence of one rather than a worse one.
     $ranked = Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object {
         $_.PrefixOrigin -ne 'WellKnown' -and
-        $_.InterfaceAlias -notmatch 'vEthernet|Pseudo'
+        $_.InterfaceAlias -notmatch 'Pseudo' -and
+        ($_.InterfaceAlias -notmatch 'vEthernet' -or
+         $externalVnic -contains $_.InterfaceAlias -or
+         $gatewayIndex -contains $_.InterfaceIndex)
     } | ForEach-Object {
-        $ifaceIndex = $_.InterfaceIndex
-        $interface  = Get-NetIPInterface -InterfaceIndex $ifaceIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue
-        $hasGateway = [bool](Get-NetRoute -InterfaceIndex $ifaceIndex -DestinationPrefix 0.0.0.0/0 -ErrorAction SilentlyContinue)
+        $interface      = Get-NetIPInterface -InterfaceIndex $_.InterfaceIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue
+        $hasGateway     = $gatewayIndex -contains $_.InterfaceIndex
+        $isExternalVnic = $externalVnic -contains $_.InterfaceAlias
+        # Three ranks, decades apart so a hand-set InterfaceMetric cannot reach
+        # across them: carrying the default route, then being an External
+        # switch's management vNIC, then the metric. The middle rank is what
+        # answers the case with no default route to rank by at all -- a host
+        # between DHCP leases -- where the pick would otherwise fall to
+        # whichever unrelated NAT adapter happened to sort first.
         [PSCustomObject]@{
             IPAddress     = $_.IPAddress
             InterfaceName = $_.InterfaceAlias
             Metric        = $interface.InterfaceMetric
             HasGateway    = $hasGateway
-            Priority      = ($hasGateway ? 0 : 1000) + [int]($interface.InterfaceMetric)
+            Priority      = ($hasGateway ? 0 : 100000) + ($isExternalVnic ? 0 : 10000) + [int]($interface.InterfaceMetric)
         }
     } | Sort-Object Priority
     return ($ranked | Select-Object -ExpandProperty IPAddress -First 1)
@@ -4460,7 +4736,8 @@ Export-ModuleMember -Function `
     Stop-WindowsCachingProxyServiceForwarder, Start-WindowsCachingProxyServiceForwarder, Add-CachingProxyServiceFirewallRule, `
     Get-WindowsForwarderPidPort, Get-YurunaMappedPortFromFirewall, `
     Remove-SinglePortMap, Clear-AllCachingProxyServicePortMapping, `
-    Get-HyperVScreenshot, Get-HyperVWindowScreenshot, `
+    Get-HyperVScreenshot, Get-HyperVWindowScreenshot, Get-VMConsoleSecondOpinion, `
+    Start-VMDhcpCapture, Save-VMDhcpCapture, Stop-VMDhcpCapture, `
     Remove-OrphanedVMFileAccess
 
 # Contract-coverage assertion: warns at load time if the export block

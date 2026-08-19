@@ -3,7 +3,50 @@
 # Hyper-V overlay for ubuntu.server.base.user-data.
 # Anchor sections in base-file order. An empty section emits nothing at that anchor.
 # === YURUNA_OVERLAY_NETWORK ===
+  # --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+  # The installer runs its OWN DHCP client, before /target exists, so the
+  # in-target netplan patch in late-commands cannot reach it: without a pin here
+  # the INSTALL asks under a machine-id DUID while the installed system asks
+  # under the MAC. That is two leases drawn from a shared pool for one guest, on
+  # every build, and it is the installer's lease that goes unaccounted for.
+  #
+  # Matched by NAME PATTERN rather than by a literal, and covering both
+  # families. A key that names the wrong interface leaves the installer with no
+  # network at all -- a worse failure than the one being fixed, and one that
+  # strands the install rather than slowing it. The two entries mirror
+  # cloud-init's own fallback config, so an interface matching neither is no
+  # worse off than with no key here.
+  network:
+    version: 2
+    ethernets:
+      yuruna-en:
+        match:
+          name: "en*"
+        dhcp4: true
+        dhcp-identifier: mac
+      yuruna-eth:
+        match:
+          name: "eth*"
+        dhcp4: true
+        dhcp-identifier: mac
 # === YURUNA_OVERLAY_EARLY_COMMANDS ===
+  early-commands:
+    # --- REGION: https://yuruna.link/vmconfig#console-quiet
+    # The INSTALLED system gets `quiet loglevel=3` from a grub drop-in in
+    # late-commands. That drop-in cannot help the INSTALLER: it governs the kernel
+    # the guest boots after this, while the phase a host has to read by OCR is
+    # this one -- and there is no seam for the installer's own kernel cmdline
+    # short of remastering the ISO. Lower the console log level from inside the
+    # installer environment instead, so kernel and journal-forwarded chatter stops
+    # painting over the prompt the host is waiting to match. What is suppressed
+    # here is still recorded in the journal and in /var/log/installer, which is
+    # what the failure archive collects.
+    #
+    # This does NOT silence everything. The installer's own progress output is not
+    # journal traffic and stays on the console by design, so a console that fills
+    # with repeating installer log lines remains possible -- which is why the OCR
+    # wait has to classify that case rather than only time out on it.
+    - dmesg -n 1 2>/dev/null || true
 # === YURUNA_OVERLAY_GRUB_PRE_CONSOLE_QUIET ===
     # --- REGION: https://yuruna.link/vmconfig#hv_balloon-denylist
     - |

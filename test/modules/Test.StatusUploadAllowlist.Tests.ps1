@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42f8c1d4-6b02-4e79-9d3a-71c5e08b4f26
+.VERSION 2026.08.19
+.GUID 42db5b4f-9255-4491-9e61-27cc60af1914
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test status-service upload allowlist pester
@@ -46,10 +46,9 @@
 BeforeAll {
 $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = Split-Path -Parent (Split-Path -Parent $here)
-$svcPath  = Join-Path $repoRoot 'test/Start-StatusService.ps1'
+$svcPath  = Join-Path $repoRoot 'test/service/Start-StatusService.ps1'
 
-function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # File scope, above the first Describe: a Describe body is evaluated during
 # discovery and its variables are gone before any It runs.

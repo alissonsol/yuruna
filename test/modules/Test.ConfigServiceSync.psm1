@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42d7f3b9-5c1e-4a80-9e2d-7f8a9b0c1d2e
+.VERSION 2026.08.19
+.GUID 42523d00-1e52-4f07-92e7-2f54c6fa62da
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna host config sync networkStorage
@@ -622,7 +622,7 @@ function Resolve-ConfigSyncAliasResponse {
     $isMap = $Doc -is [System.Collections.IDictionary]
     if ($StatusCode -ne 200 -or -not $isMap -or -not $Doc['ok']) {
         $reason = if ($isMap -and $Doc['error']) { [string]$Doc['error'] } else { "HTTP $StatusCode" }
-        return @{ Map = $null; Warning = "host-aliases: $ReferenceHost could not supply its networkStorage name->IP map ($reason). Any name that does not resolve here has to be entered by hand; restarting the status service on $ReferenceHost (test/Start-StatusService.ps1 -Restart) usually clears this." }
+        return @{ Map = $null; Warning = "host-aliases: $ReferenceHost could not supply its networkStorage name->IP map ($reason). Any name that does not resolve here has to be entered by hand; restarting the status service on $ReferenceHost (test/service/Start-StatusService.ps1 -Restart) usually clears this." }
     }
     $map = if ($Doc['aliases'] -is [System.Collections.IDictionary]) { $Doc['aliases'] } else { $null }
     return @{ Map = $map; Warning = $null }
@@ -1800,7 +1800,7 @@ function Set-LabAuthToken {
     Write-Information "[3/$steps] vault: $verifyNote." -InformationAction Continue
 
     if ($BounceStatusService) {
-        $startScript = Join-Path (Split-Path -Parent $PSScriptRoot) 'Start-StatusService.ps1'
+        $startScript = Join-Path (Split-Path -Parent $PSScriptRoot) 'service/Start-StatusService.ps1'
         $pwshExe = [System.Environment]::ProcessPath
         if ((Test-Path -LiteralPath $startScript) -and $pwshExe -and (Test-Path -LiteralPath $pwshExe)) {
             Write-Information "[4/$steps] status service: restarting so the running process re-reads users.yml now (up to ${BounceTimeoutSeconds}s) ..." -InformationAction Continue

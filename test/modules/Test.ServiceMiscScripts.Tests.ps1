@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42d7e8f9-a0b1-4c23-8d45-6e7f8a9b0c1d
+.VERSION 2026.08.19
+.GUID 424533be-1c51-4584-9728-27ea5064d2b7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test cleanup ocr pester
@@ -55,7 +55,7 @@ $script:removeVmFiles = Join-Path $testDir 'Remove-TestVMFiles.ps1'
 $script:winRtOcr      = Join-Path $testDir 'check/Test-WinRtOcr.ps1'
 $script:utmDriver     = Join-Path (Split-Path -Parent $testDir) 'host/macos.utm/modules/Yuruna.Host.psm1'
 
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 function Get-ScriptAst {
     param([string]$Path)

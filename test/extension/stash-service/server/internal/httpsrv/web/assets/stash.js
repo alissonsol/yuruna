@@ -4,11 +4,11 @@
 // deletes any stash once this browser is through the lab-token gate.
 
 (function () {
-  const TEXT_PREVIEW_CAP = 1024 * 1024; // fallback if the server omits inlineTextCap (§6.2)
+  const TEXT_PREVIEW_CAP = 1024 * 1024; // fallback if the server omits inlineTextCap (section 6.2)
   const state = { inlineTextCap: 0 };
   const $ = (id) => document.getElementById(id);
 
-  // Parse /s/<host>/<y>/<m>/<d>/<id> (the canonical permalink, §4.4). The
+  // Parse /s/<host>/<y>/<m>/<d>/<id> (the canonical permalink, section 4.4). The
   // local short alias /s/<y>/<m>/<d>/<id> also resolves: it produces a
   // 4-segment API path that the server's alias route maps to this host.
   function apiPath() {
@@ -55,14 +55,14 @@
     } else {
       box.append(Y.el('button', { class: 'btn destructive', disabled: 'disabled', title: 'Unlock actions to delete' }, 'Delete'));
       box.append(Y.el('span', { class: 'muted' }, gate.labToken
-        ? ' Locked — unlock actions with the Lab token above, or open this page from the Yuruna hosts dashboard.'
+        ? ' Locked -- unlock actions with the Lab token above, or open this page from the Yuruna hosts dashboard.'
         : ' Delete is unavailable: this service has no pool aggregator configured, so no Lab token can be checked.'));
     }
     if (!v.local) {
       const where = Y.el('span', { class: 'muted' }, ' Received by host ');
       where.append(Y.el('span', { class: 'mono', text: Y.shortHost(v.hostId), title: Y.guid(v.hostId) }));
       if (v.remoteStashUrl) {
-        where.append(' — ', Y.el('a', { href: v.remoteStashUrl, text: 'open on that host' }));
+        where.append(' -- ', Y.el('a', { href: v.remoteStashUrl, text: 'open on that host' }));
       }
       box.append(where);
     }
@@ -74,7 +74,7 @@
     // Same barrier as the list page: from here on this page is describing a
     // stash that is going away, and its Download button would fail for a reason
     // that looks like the page's fault.
-    const done = Y.block('Deleting…');
+    const done = Y.block('Deleting...');
     try {
       await Y.api(apiPath(), { method: 'DELETE' });
       // Deliberately NOT released here: the browser is leaving, and a page that
@@ -91,9 +91,9 @@
 
   async function renderViewer(v) {
     const wrap = Y.el('div', { class: 'card' });
-    if (v.status === 'pending') { wrap.append(Y.el('div', { class: 'muted', text: 'Still receiving — no preview yet.' })); return wrap; }
-    if (v.status === 'partial') { wrap.append(Y.el('div', { class: 'muted', text: 'Incomplete upload — partial bytes available via Download.' })); return wrap; }
-    if (v.status === 'truncated') wrap.append(Y.el('div', { class: 'notice warn', text: 'Truncated at the 100 MB cap — Download serves the capped artifact.' }));
+    if (v.status === 'pending') { wrap.append(Y.el('div', { class: 'muted', text: 'Still receiving -- no preview yet.' })); return wrap; }
+    if (v.status === 'partial') { wrap.append(Y.el('div', { class: 'muted', text: 'Incomplete upload -- partial bytes available via Download.' })); return wrap; }
+    if (v.status === 'truncated') wrap.append(Y.el('div', { class: 'notice warn', text: 'Truncated at the 100 MB cap -- Download serves the capped artifact.' }));
 
     const raw = Y.rawURL(v);
     switch (v.contentClass) {
@@ -138,8 +138,8 @@
       const cap = state.inlineTextCap || TEXT_PREVIEW_CAP;
       if (body.length > cap) { body = body.slice(0, cap); truncated = true; }
       const pre = Y.el('pre', { class: 'viewer wrap' });
-      pre.textContent = body; // textContent: never interpret as HTML (§7.4)
-      if (truncated) wrap.append(Y.el('div', { class: 'notice warn', text: 'Preview truncated — Download for the full content.' }));
+      pre.textContent = body; // textContent: never interpret as HTML (section 7.4)
+      if (truncated) wrap.append(Y.el('div', { class: 'notice warn', text: 'Preview truncated -- Download for the full content.' }));
       wrap.append(pre);
     } catch (e) {
       wrap.append(Y.el('div', { class: 'notice error', text: 'Could not load text: ' + e.message }));
@@ -147,7 +147,7 @@
   }
 
   async function renderArchive(wrap, v) {
-    wrap.append(Y.el('div', { class: 'muted', text: 'Archive (' + Y.humanSize(v.sizeBytes) + ') — contents:' }));
+    wrap.append(Y.el('div', { class: 'muted', text: 'Archive (' + Y.humanSize(v.sizeBytes) + ') -- contents:' }));
     try {
       const data = await Y.api(apiPath() + '/archive');
       const tbl = Y.el('table', { class: 'stashes' });
@@ -173,7 +173,7 @@
       const v = data.stash;
       state.inlineTextCap = data.inlineTextCap || 0;
       // Page first, service second, so a row of open tabs stays tellable apart.
-      document.title = (v.originalFilename || v.id) + ' — Yuruna Stash';
+      document.title = (v.originalFilename || v.id) + ' -- Yuruna Stash';
       const detail = $('detail');
       detail.className = '';
       Y.replace(detail,

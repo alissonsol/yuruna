@@ -12,9 +12,9 @@ step always succeeds. First boot lands in a text-mode login.
 Apple **M3+**, UTM v4.6+ with the Apple Virtualization backend. This
 guest runs on the QEMU+HVF backend, which does not expose nested
 virtualization. `New-VM.ps1` does not check these requirements (it
-validates only baseline compatibility — macOS 12+, any M-series,
+validates only baseline compatibility -- macOS 12+, any M-series,
 UTM 4.0+); verify manually if nested virtualization is required.
-Cross-host concepts: [Hosts — ...](../../README.md).
+Cross-host concepts: [Hosts -- ...](../../README.md).
 
 ## One-time
 
@@ -42,7 +42,7 @@ Initial password comes from the per-cycle vault of the authentication
 extension (`test/extension/authentication/`) and is **expired** on
 first login, so the test sequence's Current/New/Retype rotation runs
 against the OS prompt. See
-[Test Runner — Nerd-Level Details](../../../test/read.more.md) for the
+[Test Runner -- Nerd-Level Details](../../../test/read.more.md) for the
 vault model.
 
 ---
@@ -51,6 +51,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../../../README.md)

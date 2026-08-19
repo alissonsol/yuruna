@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e97
+.VERSION 2026.08.19
+.GUID 4264b221-526c-4487-9f9f-8d58b28b11dd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
@@ -186,6 +186,28 @@ $seedDir = Join-Path $vmDir 'seed.src'
 New-Item -ItemType Directory -Force -Path $seedDir | Out-Null
 Set-Content -LiteralPath (Join-Path $seedDir 'user-data') -Value $userData -NoNewline
 Set-Content -LiteralPath (Join-Path $seedDir 'meta-data') -Value $metaData -NoNewline
+# --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+# Amazon Linux deliberately does NOT receive the shared seed network-config the
+# netplan guests get. Two facts combine badly here:
+#
+#   * Supplying network-config REPLACES cloud-init's own fallback rather than
+#     adding to it, so a config that matches no interface is not neutral. It
+#     leaves the guest with no network configuration at all -- strictly worse
+#     than shipping no file.
+#   * Whether a given match form resolves under this guest's live renderer is
+#     not decidable by reading the parser -- only a lab cycle settles it --
+#     and the failure shape is total: nothing claims the NIC, it stays with
+#     IFF_UP clear, carrier cannot even be read, DHCP is never attempted, and
+#     the only way into the guest is the console it just lost.
+#
+# The client-id pin for this guest rides its user-data instead. The image's
+# live renderer is systemd-networkd, whose DHCP identity is a DUID from the
+# per-build /etc/machine-id, so the pin is a [DHCPv4] ClientIdentifier=mac
+# drop-in installed beside cloud-init's fallback profile, backed by a 98-
+# fallback .network profile for the boot where that fallback claims nothing,
+# with a best-effort nmcli pin kept for a NetworkManager-managed build. None
+# of these is a seed network-config, so cloud-init's fallback generation
+# stays intact.
 
 & genisoimage -output $seedImg -volid cidata -joliet -rock `
     (Join-Path $seedDir 'user-data') (Join-Path $seedDir 'meta-data') 2>&1 | Out-Null

@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42e8a1b2-c3d4-4e5f-9012-cd0123456821
+.VERSION 2026.08.19
+.GUID 42670b9e-4ecd-4c4f-b0e0-628a4e11334c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test host windows hyper-v pool config

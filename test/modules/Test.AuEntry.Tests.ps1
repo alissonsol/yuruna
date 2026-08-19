@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42d5e6f7-a8b9-4c01-9d23-ef4a5b6c7d82
+.VERSION 2026.08.19
+.GUID 42bad34d-afe5-4516-b9c8-4c8fb18b5c09
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test automation entrypoint resolve-path literalpath pester

@@ -19,7 +19,7 @@ is enumerable at startup.
 | `Send-Text`  | `-HostType -VMName -Text -CharDelayMs [-ShellEscape]`            | sequence engine, `Yuruna.Host\Send-Text` contract |
 | `Send-Click` | `-HostType -VMName -X -Y [-Capture]`                             | sequence engine, `Yuruna.Host\Send-Click` contract |
 
-Each dispatcher is a five-line `try { Invoke-HostIOAction … } catch
+Each dispatcher is a five-line `try { Invoke-HostIOAction ... } catch
 { Write-Warning; return $false }` wrapper over `Test.HostIO`.
 
 ## Why the registry over inline dispatch
@@ -29,7 +29,7 @@ lookup table. Adding a new host or a new action verb is a single
 `Register-HostIOProvider` call; nothing in the dispatcher changes.
 Adding the same host across three separate `if/elseif` chains
 (one per action) invites "Send-Key works on the new host but
-Send-Text was forgotten" drift — with every pair enumerable, the
+Send-Text was forgotten" drift -- with every pair enumerable, the
 [capability gate](test-harness.md#capability-matrix-and-cycle-plan-gate) refuses cycles that reference
 an unwired backend rather than failing mid-step. The same pattern
 recurs across the workspace: [SequenceAction](test-sequences.md#handler-contract)
@@ -51,10 +51,10 @@ eviction-safe global-anchor pattern but is hand-rolled in
 |----------------------|-------------------|-------------------|------------------|
 | `host.windows.hyper-v` | `Send-KeyHyperV` (PS/2 scancodes via WMI Msvm_Keyboard) | `Send-TextHyperV` (per-char scancodes with modifier-reset prefix) | `Send-ClickHyperV` (SendInput) |
 | `host.macos.utm`     | VNC first, then AppleScript fallback | VNC first, then JXA/CGEvent | `Send-ClickUtm` (CGEvent in window coords) |
-| `host.ubuntu.kvm`    | `Send-KeyKvm` (`virsh send-key`) | `Send-TextKvm` (`virsh send-key` per char) | _(not implemented — KVM guests use SSH after GUI bring-up)_ |
+| `host.ubuntu.kvm`    | `Send-KeyKvm` (`virsh send-key`) | `Send-TextKvm` (`virsh send-key` per char) | _(not implemented -- KVM guests use SSH after GUI bring-up)_ |
 
 The macOS Send-Key VNC-first / AppleScript-fallback decision lives in
-the registered scriptblock, in one place — not a branch repeated across
+the registered scriptblock, in one place -- not a branch repeated across
 three dispatchers. VNC comes first because UTM's SwiftUI VM display
 does not route Accessibility keyboard events into the guest:
 `AXUIElementPostKeyboardEvent` reports success but the keys never reach
@@ -69,7 +69,7 @@ so the dispatcher, the registry scriptblocks and the three
 resolve from their own `*-Chord` map family: the `*-Named` maps hold a
 single code per name and every backend dereferences them as a scalar,
 so a chord cannot live there. On macOS a chord takes the CGEvent path
-even when AppleScript would serve a plain key — `key code` cannot hold
+even when AppleScript would serve a plain key -- `key code` cannot hold
 a modifier down across the base key.
 
 ## Hyper-V PS/2 scancode behavior
@@ -81,9 +81,9 @@ uses it.
 **Every send starts with a modifier-release prefix.** The controller keeps a
 flat "is key down" state per scan code, and the only thing that flips a key back
 to up is the matching break code. If a prior keyboard event left a modifier
-held — a dropped LShift break from a cancelled `Send-Text`, a make/break race
+held -- a dropped LShift break from a cancelled `Send-Text`, a make/break race
 during a VM reboot, an operator clicking the vmconnect window with Shift held,
-an IDE stealing focus mid-send — every character sent afterwards inherits that
+an IDE stealing focus mid-send -- every character sent afterwards inherits that
 modifier and lands shifted. The recognisable symptom is the test user arriving
 at the login prompt as `YAUSER!` instead of `yauser1`, normally first seen on a
 failure screenshot through OCR. Break codes for LShift, RShift, LCtrl, RCtrl,
@@ -92,11 +92,11 @@ character typing, which forces every modifier to the released state. A break for
 a key that is not pressed is a no-op on PS/2, so the prefix is idempotent and
 harmless in the normal case; the right-side modifiers are E0-prefixed and need
 that escape byte before each release. A prefix that fails is a warning, not an
-abort — the character writes may still succeed, and the warning puts the
+abort -- the character writes may still succeed, and the warning puts the
 divergence in the cycle log.
 
 **The whole payload goes in one CIM call.** One call per character plus a sleep
-after each costs roughly N × (5-15 ms of CIM plus the 20 ms default delay) — a
+after each costs roughly N x (5-15 ms of CIM plus the 20 ms default delay) -- a
 16-character password spends 400-560 ms of wall clock on typing alone.
 `TypeScancodes` queues the entire byte payload internally and feeds the guest's
 PS/2 buffer at its own fast pace, so batching cuts the cost to about a single
@@ -122,7 +122,7 @@ Each `Implementation` is a `param([hashtable]$a)` scriptblock returning
 ## Adding a new host
 
 1. Implement the per-host backend functions (the keystroke delivery
-   mechanism — WMI / VNC / virsh / something new).
+   mechanism -- WMI / VNC / virsh / something new).
 2. Add a per-host module `test/modules/Test.HostIO.<NewHost>.psm1`
    owning its `Register-HostIOProvider` calls (mirror
    `Test.HostIO.HyperV.psm1` / `Test.HostIO.Utm.psm1` /
@@ -163,13 +163,13 @@ empty the table. See repo memory
 `feedback_module_force_import_evicts_global.md` for the trap class.
 
 The paired provider registries (`Test.ScreenshotProvider`,
-`Test.VncProvider`, …) follow the same pattern: each delegates storage
+`Test.VncProvider`, ...) follow the same pattern: each delegates storage
 to the shared `Test.Registry` primitive (`New-YurunaRegistry`) so there
 is one registry mechanism across the harness and every domain shows up
 in the cross-domain introspection directory
 (`Get-YurunaRegistryDirectory`/`Summary`), and each reuses a `$global:`
 anchor name (`$global:YurunaScreenshotProviders`,
-`$global:YurunaVncProviders`, …) as the backing store so registrations
+`$global:YurunaVncProviders`, ...) as the backing store so registrations
 survive `-Force` re-imports and cross-module eviction.
 
 ## Backend module layout
@@ -177,21 +177,21 @@ survive `-Force` re-imports and cross-module eviction.
 [`Test.Transport.psm1`](../test/modules/Test.Transport.psm1) holds the
 per-host I/O backends consumed by the registry:
 
-- **Key code maps** — `UTMKeyMap`, `MacCharKeyCodes`, `PS2ScanCodes`,
+- **Key code maps** -- `UTMKeyMap`, `MacCharKeyCodes`, `PS2ScanCodes`,
   `CharScanCodes` (KVM key map lives inside `Get-KvmCharKeyMap`).
-- **Cached connections** — `Get-HyperVKeyboard` +
+- **Cached connections** -- `Get-HyperVKeyboard` +
   `script:CachedKb`/`KbVM`; `Connect-VNC` / `Disconnect-VNC` + the
   cached VNC handle.
-- **Send-Key backends** — `Send-KeyHyperV` / `Send-KeyVNC` /
+- **Send-Key backends** -- `Send-KeyHyperV` / `Send-KeyVNC` /
   `Send-KeyUTM` / `Send-KeyKvm` / `Send-KeyAXUI`, plus `Send-ChordUTM`
   for the macOS modifier-chord path.
-- **Send-Text backends** — `Send-TextHyperV` / `Send-TextVNC` /
+- **Send-Text backends** -- `Send-TextHyperV` / `Send-TextVNC` /
   `Send-TextUTM` / `Send-TextKvm` / `Send-TextAXUI`, plus the
   `Test-HardCharsInText` + `ConvertTo-ShellEscapedText` helpers used
   only by `Send-TextUTM`.
-- **Send-Click backends** — `Initialize-HyperVMouseType`,
+- **Send-Click backends** -- `Initialize-HyperVMouseType`,
   `Send-ClickHyperV`, `Send-ClickUtm`.
-- **Send-ScanCode** — Hyper-V PS/2 scancode-burst primitive.
+- **Send-ScanCode** -- Hyper-V PS/2 scancode-burst primitive.
 
 `Test.SequenceEngine.psm1` exports the three dispatchers (`Send-Key`,
 `Send-Text`, `Send-Click`) and routes them through `Test.HostIO`'s
@@ -203,12 +203,12 @@ imported with `-Global`.
 ## Transport config reload at module load
 
 `Test.Transport` reads transport-level defaults (`charDelayMs`,
-`vncPort`, …) from `test.config.yml` at module-load time via
+`vncPort`, ...) from `test.config.yml` at module-load time via
 `Test.Config` (mtime-cached, so this is cheap even on re-import).
 Modules are re-imported every cycle, so a freshly-committed
 `vmCommunication.charDelayMs` / `vmCommunication.vncPort` takes
 effect on the next step rather than requiring a runner restart. This
-mirrors the broader live-edit responsiveness contract — an operator
+mirrors the broader live-edit responsiveness contract -- an operator
 clicking "Stop on failure" in the dashboard at step 5 must abort the
 cycle at step 6, not wait for the next cycle.
 
@@ -223,6 +223,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../README.md)

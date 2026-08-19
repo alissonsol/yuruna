@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42f1c7d5-6b28-4a19-8c40-7d2e5a9b1c63
+.VERSION 2026.08.19
+.GUID 42d44e40-22d7-4ce0-9ba2-dca8905a4b80
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test lease dhcp subnet discovery pester
@@ -43,11 +43,7 @@ $LeaseTestRoot = Join-Path ([System.IO.Path]::GetTempPath()) "yrn-lease-$PID"
 Remove-Item -LiteralPath $LeaseTestRoot -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force -Path $LeaseTestRoot | Out-Null
 
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
-function Assert-Equal {
-    param($Expected, $Actual, [string]$Because = '')
-    if ($Expected -ne $Actual) { throw "Expected '$Expected' but got '$Actual'. $Because" }
-}
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # The live host's interface table at the time of the failure being guarded
 # against: en0 on the LAN, bridge100 as the vmnet gateway every UTM guest is

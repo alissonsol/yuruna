@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42e9f0a1-b2c3-4d45-9e67-8f9a0b1c2d36
+.VERSION 2026.08.19
+.GUID 4255aa64-3611-4e05-addc-aea90bd5791a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test sequence startstep loaddisksnapshot pester
@@ -18,7 +18,7 @@
 
 <#
 .SYNOPSIS
-    Invoke-TestSequence.ps1's pre-start VM-skip decision inspects the step that will ACTUALLY
+    Debug-TestSequence.ps1's pre-start VM-skip decision inspects the step that will ACTUALLY
     execute first (the global -StartStep index across the concatenated chain), so a
     prerequisite chain at ChainEntries[0] or a partway -StartStep does not hide the
     sequence's loadDiskSnapshot first step.
@@ -33,16 +33,16 @@
 
 BeforeAll {
 $here       = Split-Path -Parent $PSCommandPath
-$scriptPath = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath 'Invoke-TestSequence.ps1')).Path
+$scriptPath = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath 'Debug-TestSequence.ps1')).Path
 # The AST is an unqualified file-scope variable: inside an It block a $script: reference
 # resolves to the test runner's own script scope, not this file's, so a $script:-qualified
 # fixture reaches the assertions as $null -- and a -Not -Match against $null passes
 # vacuously, which is exactly the silent false-pass the AST guards exist to prevent.
 $errs = $null
 $seqAst = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$errs)
-if ($errs) { throw "Parse errors in Invoke-TestSequence.ps1: $($errs[0].Message)" }
+if ($errs) { throw "Parse errors in Debug-TestSequence.ps1: $($errs[0].Message)" }
 if (-not $seqAst.Extent.Text) {
-    throw "Test.EntSequence.Tests.ps1: Invoke-TestSequence.ps1 parsed to an empty AST -- the -Not -Match guards below would pass vacuously."
+    throw "Test.EntSequence.Tests.ps1: Debug-TestSequence.ps1 parsed to an empty AST -- the -Not -Match guards below would pass vacuously."
 }
 Import-Module (Join-Path $here 'Test.SequenceRunner.psm1') -Force -DisableNameChecking
 # Get-FirstExecutedStepAction resolves a wrapper step through Get-StepLeadAction.
@@ -94,7 +94,7 @@ Describe 'Get-FirstExecutedStepAction resolves the first executed step honoring 
     }
 }
 
-Describe 'Invoke-TestSequence.ps1 routes the pre-start skip through the StartStep-aware lookup' {
+Describe 'Debug-TestSequence.ps1 routes the pre-start skip through the StartStep-aware lookup' {
     It 'the pre-start decision calls Get-FirstExecutedStepAction' {
         (Get-CommandCallCount -Ast $seqAst -Name 'Get-FirstExecutedStepAction') | Should -BeGreaterOrEqual 1
     }

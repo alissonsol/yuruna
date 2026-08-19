@@ -3,8 +3,8 @@
 > Common setup pattern: see [Guest Image Setup](../../../docs/guest-image-setup.md).
 > This file documents only what's HOST/GUEST-specific.
 
-Minimal commands. Walk-through: [Amazon Linux 2023 guest on Windows Hyper-V host — Nerd-Level Details](read.more.md). Cross-host
-concepts: [Hosts — ...](../../README.md).
+Minimal commands. Walk-through: [Amazon Linux 2023 guest on Windows Hyper-V host -- Nerd-Level Details](read.more.md). Cross-host
+concepts: [Hosts -- ...](../../README.md).
 
 ## One-time
 
@@ -46,7 +46,7 @@ Good moment for a Hyper-V checkpoint.
 
 [Amazon Linux 2023 workloads](../../../guest/amazon.linux.2023/README.md)
 
-Read more: [Amazon Linux 2023 guest on Windows Hyper-V host — Nerd-Level Details](read.more.md).
+Read more: [Amazon Linux 2023 guest on Windows Hyper-V host -- Nerd-Level Details](read.more.md).
 
 ---
 
@@ -54,6 +54,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../../../README.md)

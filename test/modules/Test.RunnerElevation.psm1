@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 421f0c84-2d77-4a19-9f3e-5c8a41d02e77
+.VERSION 2026.08.19
+.GUID 423b72a7-afb9-44a7-8fef-2acb7cbf69b0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test runner elevation sudo unattended
@@ -357,7 +357,7 @@ function Assert-RunnerElevation {
     Write-Host ''
     foreach ($line in (Get-RunnerElevationHint -Spec $spec)) { Write-Host $line }
     Write-Host ''
-    Write-Host '  Then re-run: pwsh test/Invoke-TestRunner.ps1'
+    Write-Host '  Then re-run: pwsh test/Start-TestRunner.ps1'
     Write-Host '================================================================'
     Write-Host ''
     return $false

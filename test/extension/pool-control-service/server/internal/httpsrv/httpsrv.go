@@ -84,7 +84,7 @@ type Server struct {
 	opts   Options
 	gate   *labgate.Gate
 	// pool reads the aggregator for the board's cycle counts and the
-	// auto-enrolment sweep's candidate list.
+	// auto-enrollment sweep's candidate list.
 	pool *pool.Client
 	// hostctl drives the pause switches on the hosts themselves, for the
 	// pool-wide selector on the Pools page.

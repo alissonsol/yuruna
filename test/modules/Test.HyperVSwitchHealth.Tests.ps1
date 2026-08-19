@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42646cc9-f27d-42cf-9882-9c56c352de85
+.VERSION 2026.08.19
+.GUID 4274f795-11a9-4183-b8be-e0da0ebdbc52
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test host hyper-v vswitch uplink pester
@@ -54,9 +54,7 @@ $repoRoot = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChil
 $hostFile = Join-Path $repoRoot 'host' -AdditionalChildPath 'windows.hyper-v', 'modules', 'Yuruna.Host.psm1'
 $script:contractFile = Join-Path $repoRoot 'host' -AdditionalChildPath 'Yuruna.Host.Contract.psm1'
 
-function Assert-Equal { param($Expected, $Actual, [string]$Because = '') if ("$Expected" -ne "$Actual") { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-True  { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
-function Assert-NotEqual { param($Expected, $Actual, [string]$Because = '') if ("$Expected" -eq "$Actual") { throw "Expected anything but [$Expected]. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # macos.utm, ubuntu.kvm and windows.hyper-v each publish a module named
 # 'Yuruna.Host'. The suite shares one runspace, so a driver left resident by
@@ -249,7 +247,7 @@ Describe 'hyper-v-uplink-classifier: verdict ladder' {
 
     It 'reports unknown when there is no switch record at all' {
         # An absent switch is the create path's business, not a fault.
-        Assert-Equal -Expected 'unknown' -Actual (Invoke-UplinkVerdict -SwitchName 'Yuruna-External' -SwitchRecord $null -AdapterRecord @() -HostIpRecord @())
+        Assert-StringEqual -Expected 'unknown' -Actual (Invoke-UplinkVerdict -SwitchName 'Yuruna-External' -SwitchRecord $null -AdapterRecord @() -HostIpRecord @())
     }
 
     It 'reports not-external when the name now belongs to an Internal switch' {
@@ -257,7 +255,7 @@ Describe 'hyper-v-uplink-classifier: verdict ladder' {
         $verdict = Invoke-UplinkVerdict -SwitchName 'Yuruna-External' `
             -SwitchRecord (Get-SwitchRecord -SwitchType 'Internal' -Uplink '') `
             -AdapterRecord @($bare.Nic) -HostIpRecord @($bare.Ip)
-        Assert-Equal -Expected 'not-external' -Actual $verdict 'an Internal switch bearing the preferred name must not be handed out as a bridge'
+        Assert-StringEqual -Expected 'not-external' -Actual $verdict 'an Internal switch bearing the preferred name must not be handed out as a bridge'
     }
 
     # Incident fingerprint (b): the switch survived the reboot with no uplink
@@ -267,7 +265,7 @@ Describe 'hyper-v-uplink-classifier: verdict ladder' {
         $verdict = Invoke-UplinkVerdict -SwitchName 'Yuruna-External' `
             -SwitchRecord (Get-SwitchRecord -Uplink '') `
             -AdapterRecord @($bare.Nic) -HostIpRecord @($bare.Ip)
-        Assert-Equal -Expected 'uplink-missing' -Actual $verdict 'a switch with no bound NIC cannot bridge anything'
+        Assert-StringEqual -Expected 'uplink-missing' -Actual $verdict 'a switch with no bound NIC cannot bridge anything'
     }
 
     It 'reports uplink-down when the bound NIC is not Up' {
@@ -275,7 +273,7 @@ Describe 'hyper-v-uplink-classifier: verdict ladder' {
         $verdict = Invoke-UplinkVerdict -SwitchName 'Yuruna-External' `
             -SwitchRecord (Get-SwitchRecord) `
             -AdapterRecord @($down) -HostIpRecord @(Get-HostIpRecord -Address '192.168.7.69' -Alias 'Ethernet' -Index 12)
-        Assert-Equal -Expected 'uplink-down' -Actual $verdict 'Hyper-V cannot bridge a link that is down'
+        Assert-StringEqual -Expected 'uplink-down' -Actual $verdict 'Hyper-V cannot bridge a link that is down'
     }
 
     # Incident fingerprint (a): the binding survived and the NIC is Up, but
@@ -286,7 +284,7 @@ Describe 'hyper-v-uplink-classifier: verdict ladder' {
         $verdict = Invoke-UplinkVerdict -SwitchName 'Yuruna-External' `
             -SwitchRecord (Get-SwitchRecord -AllowManagementOS $true) `
             -AdapterRecord @($bare.Nic) -HostIpRecord @($bare.Ip)
-        Assert-Equal -Expected 'management-os-detached' -Actual $verdict 'AllowManagementOS true with no management vNIC is a bridge that lost its host leg'
+        Assert-StringEqual -Expected 'management-os-detached' -Actual $verdict 'AllowManagementOS true with no management vNIC is a bridge that lost its host leg'
     }
 
     It 'reports management-os-unaddressed when the management vNIC exists but holds only APIPA' {
@@ -299,7 +297,7 @@ Describe 'hyper-v-uplink-classifier: verdict ladder' {
             -SwitchRecord (Get-SwitchRecord) `
             -AdapterRecord @($bare.Nic, $vnic, $veth) `
             -HostIpRecord @(Get-HostIpRecord -Address '169.254.11.22' -Alias 'vEthernet (Yuruna-External)' -Index 40)
-        Assert-Equal -Expected 'management-os-unaddressed' -Actual $verdict 'an APIPA-only management vNIC means DHCP never answered on that segment'
+        Assert-StringEqual -Expected 'management-os-unaddressed' -Actual $verdict 'an APIPA-only management vNIC means DHCP never answered on that segment'
     }
 
     It 'reports healthy for a live bridge with an addressed management vNIC' {
@@ -310,7 +308,7 @@ Describe 'hyper-v-uplink-classifier: verdict ladder' {
             -SwitchRecord (Get-SwitchRecord) `
             -AdapterRecord @($bare.Nic, $vnic, $veth) `
             -HostIpRecord @(Get-HostIpRecord -Address '192.168.7.69' -Alias 'vEthernet (Yuruna-External)' -Index 40)
-        Assert-Equal -Expected 'healthy' -Actual $verdict
+        Assert-StringEqual -Expected 'healthy' -Actual $verdict
     }
 }
 
@@ -342,7 +340,7 @@ Describe 'hyper-v-uplink-classifier: management vNIC MAC is not unique' {
             -HostIpRecord @(
                 (Get-HostIpRecord -Address '169.254.98.144' -Alias 'vEthernet (External)' -Index 21),
                 (Get-HostIpRecord -Address '192.168.7.13'   -Alias 'vEthernet (Yuruna-External)' -Index 20))
-        Assert-Equal -Expected 'healthy' -Actual $verdict 'a leftover adapter sharing the cloned MAC must not answer for the switch that is actually bridged'
+        Assert-StringEqual -Expected 'healthy' -Actual $verdict 'a leftover adapter sharing the cloned MAC must not answer for the switch that is actually bridged'
     }
 
     # The mirror control: the same collision, but the switch's OWN vNIC is the
@@ -359,7 +357,7 @@ Describe 'hyper-v-uplink-classifier: management vNIC MAC is not unique' {
             -HostIpRecord @(
                 (Get-HostIpRecord -Address '192.168.7.13'  -Alias 'vEthernet (External)' -Index 21),
                 (Get-HostIpRecord -Address '169.254.11.22' -Alias 'vEthernet (Yuruna-External)' -Index 20))
-        Assert-Equal -Expected 'management-os-unaddressed' -Actual $verdict 'an address on a leftover is not the switch own leg, so the fault must still be reported'
+        Assert-StringEqual -Expected 'management-os-unaddressed' -Actual $verdict 'an address on a leftover is not the switch own leg, so the fault must still be reported'
     }
 
     # A renamed vNIC keeps its own alias, which is why the vNIC name is consulted
@@ -375,7 +373,7 @@ Describe 'hyper-v-uplink-classifier: management vNIC MAC is not unique' {
             -HostIpRecord @(
                 (Get-HostIpRecord -Address '169.254.98.144' -Alias 'vEthernet (External)' -Index 21),
                 (Get-HostIpRecord -Address '192.168.7.13'   -Alias 'vEthernet (LAN-uplink)' -Index 20))
-        Assert-Equal -Expected 'healthy' -Actual $verdict 'a renamed vNIC is still the switch own leg and its address counts'
+        Assert-StringEqual -Expected 'healthy' -Actual $verdict 'a renamed vNIC is still the switch own leg and its address counts'
     }
 
     # Neither candidate carries an alias that names this switch or its vNIC, so
@@ -390,7 +388,7 @@ Describe 'hyper-v-uplink-classifier: management vNIC MAC is not unique' {
             -SwitchRecord (Get-SwitchRecord) `
             -AdapterRecord @($bare.Nic, $vnic, $one, $two) `
             -HostIpRecord @(Get-HostIpRecord -Address '169.254.98.144' -Alias 'vEthernet (External)' -Index 21)
-        Assert-Equal -Expected 'unknown' -Actual $verdict 'an unresolvable mapping must fail open rather than guess an adapter'
+        Assert-StringEqual -Expected 'unknown' -Actual $verdict 'an unresolvable mapping must fail open rather than guess an adapter'
     }
 
     # The bare NIC the switch bridges carries the clone too, and it is the one
@@ -405,7 +403,7 @@ Describe 'hyper-v-uplink-classifier: management vNIC MAC is not unique' {
             -SwitchRecord (Get-SwitchRecord) `
             -AdapterRecord @($shared, $vnic, $veth) `
             -HostIpRecord @(Get-HostIpRecord -Address '192.168.7.69' -Alias 'Ethernet' -Index 12)
-        Assert-Equal -Expected 'management-os-unaddressed' -Actual $verdict 'an address on the bridged NIC is not the management vNIC own address'
+        Assert-StringEqual -Expected 'management-os-unaddressed' -Actual $verdict 'an address on the bridged NIC is not the management vNIC own address'
     }
 }
 
@@ -416,7 +414,7 @@ Describe 'hyper-v-uplink-classifier: repair eligibility by verdict' {
     It 'offers a DHCP renew for an unaddressed management vNIC' {
         $r = Invoke-SwitchRepairable -Verdict 'management-os-unaddressed'
         Assert-True $r.Repairable 'an intact bridge missing only its host lease is repairable'
-        Assert-Equal -Expected 'renew-dhcp' -Actual $r.Remedy 'the binding is already correct, so rebinding is the wrong tool'
+        Assert-StringEqual -Expected 'renew-dhcp' -Actual $r.Remedy 'the binding is already correct, so rebinding is the wrong tool'
     }
 
     # Mechanically fixable by the same cmdlet that rebinds, and deliberately not
@@ -425,7 +423,7 @@ Describe 'hyper-v-uplink-classifier: repair eligibility by verdict' {
     It 'offers nothing for a detached management vNIC' {
         $r = Invoke-SwitchRepairable -Verdict 'management-os-detached'
         Assert-True (-not $r.Repairable) 'restoring a management vNIC stays an operator decision'
-        Assert-Equal -Expected 'none' -Actual $r.Remedy
+        Assert-StringEqual -Expected 'none' -Actual $r.Remedy
     }
 
     It 'offers nothing for a switch that is already usable' {
@@ -445,7 +443,7 @@ Describe 'hyper-v-uplink-classifier: negative controls (a working bridge must ne
         $verdict = Invoke-UplinkVerdict -SwitchName 'Yuruna-External' `
             -SwitchRecord (Get-SwitchRecord -AllowManagementOS $false) `
             -AdapterRecord @($bare.Nic) -HostIpRecord @($bare.Ip)
-        Assert-Equal -Expected 'healthy' -Actual $verdict 'no management vNIC is expected here, so its absence is not a fault'
+        Assert-StringEqual -Expected 'healthy' -Actual $verdict 'no management vNIC is expected here, so its absence is not a fault'
     }
 
     It 'reports healthy for a Switch Embedded Team whose members appear only on the plural property' {
@@ -459,7 +457,7 @@ Describe 'hyper-v-uplink-classifier: negative controls (a working bridge must ne
             -UplinkTeam @('Intel(R) Ethernet Connection I219-LM', 'Intel(R) I210 Gigabit Network Connection #2')
         $verdict = Invoke-UplinkVerdict -SwitchName 'LAN-Bridge' -SwitchRecord $team `
             -AdapterRecord @($bare.Nic) -HostIpRecord @($bare.Ip)
-        Assert-Equal -Expected 'healthy' -Actual $verdict 'a match on any team member counts as bound'
+        Assert-StringEqual -Expected 'healthy' -Actual $verdict 'a match on any team member counts as bound'
     }
 
     It 'reports healthy for a management vNIC that was renamed away from the default alias' {
@@ -474,7 +472,7 @@ Describe 'hyper-v-uplink-classifier: negative controls (a working bridge must ne
             -SwitchRecord (Get-SwitchRecord) `
             -AdapterRecord @($bare.Nic, $vnic, $renamed) `
             -HostIpRecord @(Get-HostIpRecord -Address '192.168.7.69' -Alias 'LabMgmt' -Index 40)
-        Assert-Equal -Expected 'healthy' -Actual $verdict 'an alias string must never be what decides a fleet-wide demotion'
+        Assert-StringEqual -Expected 'healthy' -Actual $verdict 'an alias string must never be what decides a fleet-wide demotion'
     }
 
     It 'fails open to unknown when a named binding resolves to no adapter' {
@@ -484,7 +482,7 @@ Describe 'hyper-v-uplink-classifier: negative controls (a working bridge must ne
             -SwitchRecord (Get-SwitchRecord) `
             -AdapterRecord @(Get-AdapterRecord -Alias 'Wi-Fi' -Description 'Some Other Adapter' -Index 3) `
             -HostIpRecord @(Get-HostIpRecord -Address '192.168.7.69' -Alias 'Wi-Fi' -Index 3)
-        Assert-Equal -Expected 'unknown' -Actual $verdict 'an unresolvable binding must not become a positive fault'
+        Assert-StringEqual -Expected 'unknown' -Actual $verdict 'an unresolvable binding must not become a positive fault'
     }
 
     It 'stays in injected mode for all three record parameters at once' {
@@ -493,7 +491,7 @@ Describe 'hyper-v-uplink-classifier: negative controls (a working bridge must ne
         # on a machine with no Hyper-V -- it answers 'unknown' instead.
         $verdict = Invoke-UplinkVerdict -SwitchName 'Yuruna-External' -SwitchRecord (Get-SwitchRecord) `
             -AdapterRecord @() -HostIpRecord @()
-        Assert-Equal -Expected 'unknown' -Actual $verdict 'a half-armed seam must fail open, not fall through to live cmdlets'
+        Assert-StringEqual -Expected 'unknown' -Actual $verdict 'a half-armed seam must fail open, not fall through to live cmdlets'
     }
 }
 
@@ -513,15 +511,15 @@ Describe 'hyper-v-uplink-classifier: vocabulary and cross-function agreement' {
                 if ($literal) { $literal.Value } else { "<non-literal: $($_.Extent.Text)>" }
             } | Sort-Object -Unique)
         $stray = @($emitted | Where-Object { $_ -notin $script:UplinkVerdict })
-        Assert-Equal -Expected 0 -Actual $stray.Count "these are outside the closed vocabulary every consumer switches on: $($stray -join ', ')"
+        Assert-StringEqual -Expected 0 -Actual $stray.Count "these are outside the closed vocabulary every consumer switches on: $($stray -join ', ')"
         $missing = @($script:UplinkVerdict | Where-Object { $_ -notin $emitted })
-        Assert-Equal -Expected 0 -Actual $missing.Count "the ladder no longer emits: $($missing -join ', ')"
+        Assert-StringEqual -Expected 0 -Actual $missing.Count "the ladder no longer emits: $($missing -join ', ')"
     }
 
     It 'exposes healthy and unknown as the usable pair' {
         $mod = Get-Module Yuruna.Host
         $ok = @(& $mod { $script:UplinkVerdictOk })
-        Assert-Equal -Expected 'healthy,unknown' -Actual (($ok | Sort-Object) -join ',') `
+        Assert-StringEqual -Expected 'healthy,unknown' -Actual (($ok | Sort-Object) -join ',') `
             'unknown must map to usable, or an unevaluable probe would demote a host to NAT'
     }
 
@@ -569,7 +567,7 @@ Describe 'hyper-v-uplink-classifier: the reuse branches consult it and can decli
         $bindLines    = @(Get-CallLine -FunctionAst $fn -CommandName 'New-VMSwitch')
         $divertLines  = @(Get-CallLine -FunctionAst $fn -CommandName 'Test-WindowsUplinkNotBridgeable')
         Assert-True ($verdictLines.Count -ge 2) "the preferred-name branch and the any-External branch must each classify (found $($verdictLines.Count))"
-        Assert-Equal -Expected 1 -Actual $bindLines.Count 'a second, earlier create site would invert the ordering guards in the seed-IP suite'
+        Assert-StringEqual -Expected 1 -Actual $bindLines.Count 'a second, earlier create site would invert the ordering guards in the seed-IP suite'
         Assert-True ($divertLines.Count -ge 1) 'the not-bridgeable divert must still run'
         Assert-True ($divertLines[0] -lt $verdictLines[0]) 'the Wi-Fi/USB divert answers first; it is a steady state, not a fault'
         Assert-True ($verdictLines[-1] -lt $bindLines[0]) 'both reuse branches must classify before anything is created'
@@ -609,7 +607,7 @@ Describe 'hyper-v-uplink-classifier: the reuse branches consult it and can decli
         $fn = Get-FunctionAst -Name 'Get-OrCreateYurunaExternalSwitch'
         $waitLines = @(Get-CallLine -FunctionAst $fn -CommandName 'Wait-ExternalSwitchHostIpv4')
         $bindLines = @(Get-CallLine -FunctionAst $fn -CommandName 'New-VMSwitch')
-        Assert-Equal -Expected 1 -Actual $waitLines.Count 'exactly one settle wait, on the create path'
+        Assert-StringEqual -Expected 1 -Actual $waitLines.Count 'exactly one settle wait, on the create path'
         Assert-True ($waitLines[0] -gt $bindLines[0]) 'the settle wait belongs after the bind'
     }
 }
@@ -635,7 +633,7 @@ Describe 'hyper-v-uplink-classifier: cache-reachability discriminator' {
     It 'answers $false for a cache VM that does not exist' {
         $mod = Get-Module Yuruna.Host
         $answer = & $mod { param($n) Test-CacheVmOnYurunaExternalSwitch -VMName $n } 'yuruna-absent-cache-vm-42646cc9'
-        Assert-Equal -Expected $false -Actual $answer 'no VM means no bridged cache, on every platform'
+        Assert-StringEqual -Expected $false -Actual $answer 'no VM means no bridged cache, on every platform'
     }
 }
 
@@ -677,7 +675,7 @@ Describe 'hyper-v-uplink-classifier: the state a real host presented' {
         $captured = Get-CapturedHostState
         $verdict = Invoke-UplinkVerdict -SwitchName 'Yuruna-External' `
             -SwitchRecord $captured.Switch -AdapterRecord @($captured.Nic) -HostIpRecord @($captured.Ip)
-        Assert-Equal -Expected 'management-os-detached' -Actual $verdict 'the captured record must classify as degraded, not healthy'
+        Assert-StringEqual -Expected 'management-os-detached' -Actual $verdict 'the captured record must classify as degraded, not healthy'
     }
 
     It 'is missed by every rung above the management-vNIC check' {
@@ -714,7 +712,7 @@ Describe 'hyper-v-uplink-classifier: the state a real host presented' {
         $captured = Get-CapturedHostState
         $verdict = Invoke-UplinkVerdict -SwitchName 'Default Switch' `
             -SwitchRecord $captured.DefaultSwitch -AdapterRecord @($captured.Nic) -HostIpRecord @($captured.Ip)
-        Assert-Equal -Expected 'not-external' -Actual $verdict 'the Default Switch is Internal, so it is never an External candidate'
+        Assert-StringEqual -Expected 'not-external' -Actual $verdict 'the Default Switch is Internal, so it is never an External candidate'
     }
 }
 

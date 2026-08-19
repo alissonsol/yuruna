@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 421e5a04-9d3b-4c8e-b6a1-2f0d84e5c913
+.VERSION 2026.08.19
+.GUID 424e6972-d523-4837-8d0f-f7e8f6aa351c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test host disable-test-automation

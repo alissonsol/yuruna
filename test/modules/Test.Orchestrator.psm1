@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42c7a1b9-3d4e-4f80-9a21-5b6c7d8e9f01
+.VERSION 2026.08.19
+.GUID 42fb91f9-ac3c-48ec-849f-108167698afd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
@@ -16,13 +16,13 @@
 
 #requires -version 7
 
-# Orchestration-sequence execution for Invoke-TestSequence.ps1: runs every
+# Orchestration-sequence execution for Debug-TestSequence.ps1: runs every
 # `InvokeTestSequence` inner sequence IN-PROCESS under ONE status.json
 # cycle, one dashboard row per inner sequence. See
 # docs/runner-outer-loop.md#what-a-testrunneryml-entry-can-be.
 #
 # Known duplication: Invoke-OrchestratorGuestRun below mirrors the per-guest
-# prep + chain-run Invoke-TestSequence.ps1 performs inline for a standalone run
+# prep + chain-run Debug-TestSequence.ps1 performs inline for a standalone run
 # (plan -> caching-proxy service -> ssh-user override -> VM ensure/start ->
 # Invoke-TestSequenceChain). The two are kept separate so a change here cannot
 # regress the standalone path; folding them onto one helper needs a full-lab
@@ -90,7 +90,7 @@ function Invoke-OrchestratorHostAction {
         the per-stage step-by-step detail is NOT on the console. That detail
         still lands in two places: (a) the redirected <name>.out.log file,
         and (b) each child's OWN per-cycle HTML transcript -- every child
-        Invoke-TestSequence.ps1 run calls Start-LogFile and gets its own
+        Debug-TestSequence.ps1 run calls Start-LogFile and gets its own
         <cycle>.html under status/log/. This divergence is intentional
         (stages are quiet on the console, verbose in their own logs; the
         child's out/err tail is echoed to the console only on non-zero
@@ -158,7 +158,7 @@ function Invoke-OrchestratorGuestRun {
         the chain plan, ensure/start the VM, and run the whole chain via
         Invoke-TestSequenceChain. Returns @{ ok; vmName; guestKey; reason }.
     .DESCRIPTION
-        Mirrors Invoke-TestSequence.ps1's standalone per-guest prep for a single
+        Mirrors Debug-TestSequence.ps1's standalone per-guest prep for a single
         full run (StartStep 1 .. end). The caching-proxy-service URL is resolved
         once by the caller and forwarded so every inner run shares it.
     #>
@@ -178,7 +178,7 @@ function Invoke-OrchestratorGuestRun {
     $fail = { param($msg) return @{ ok = $false; vmName = $null; guestKey = $null; reason = $msg } }
 
     # --- REGION: Derive GuestKey from the sequence's baseline map
-    # First OS key, the same source of truth Invoke-TestSequence reads.
+    # First OS key, the same source of truth Debug-TestSequence reads.
     $osKeys = @()
     if ($Sequence.baseline -is [System.Collections.IDictionary] -and $Sequence.baseline.Keys.Count -gt 0) {
         $osKeys = @($Sequence.baseline.Keys)
@@ -303,7 +303,7 @@ function Invoke-OrchestrationSequence {
     # ONE node for the whole orchestration and skips every owner-only status op
     # (Reset/Initialize/Set-Guest*/Complete-Run/Start-LogFile). Either way, the
     # step loop publishes a cycle-context handle before each step so a child
-    # PROCESS the step spawns (a host action re-entering Invoke-TestSequence.ps1)
+    # PROCESS the step spawns (a host action re-entering Debug-TestSequence.ps1)
     # attaches as a nested node under the right parent. See Test.Status.psm1
     # "Nested-cycle support".
     $ctx        = Get-CycleContext
@@ -363,7 +363,7 @@ function Invoke-OrchestrationSequence {
 
     # --- REGION: Resolve the caching-proxy-service endpoint from config + env
     # Resolved ONCE and shared by every guest run,
-    # mirroring Invoke-TestSequence's own resolve. Env candidate wins per its rules.
+    # mirroring Debug-TestSequence's own resolve. Env candidate wins per its rules.
     $envCacheIp    = if ($env:YURUNA_CACHING_PROXY_SERVICE_IP) { $env:YURUNA_CACHING_PROXY_SERVICE_IP.Trim() } else { '' }
     $configCacheIp = ''
     if ($Config.vmStart -is [System.Collections.IDictionary] -and $Config.vmStart.Contains('cachingProxyIp')) {
@@ -380,7 +380,24 @@ function Invoke-OrchestrationSequence {
         # gap pins the address, then reports the cache lost for the next several
         # steps while the guests it seeded fall back to direct downloads.
         if ($endpoint.EffectiveIp -and (Get-Command Wait-CachingProxyServiceSettled -ErrorAction SilentlyContinue)) {
-            $settle = Wait-CachingProxyServiceSettled -CacheIp $endpoint.EffectiveIp -Port $endpoint.HttpPort
+            # The registry leg is charged to the cycle preamble on purpose. The
+            # cache's container registry comes up after squid on a rebuild, and a
+            # guest that starts in that gap spends its entire step budget
+            # discovering the registry is absent and then fails the cycle -- the
+            # same wait, paid in the one place where it is fatal. Waiting here
+            # costs the preamble and fails nothing.
+            #
+            # Opt-in with a configurable budget because absence and restarting
+            # are indistinguishable from a probe: a lab that fronts no registry
+            # sets this to 0 rather than paying the budget every cycle for
+            # something that is never coming.
+            $regWait = 120
+            if ($Config -and $Config.vmStart -is [System.Collections.IDictionary] -and
+                $Config.vmStart.Contains('cachingProxyRegistryWaitSeconds')) {
+                $regWait = [int]$Config.vmStart.cachingProxyRegistryWaitSeconds
+            }
+            $settle = Wait-CachingProxyServiceSettled -CacheIp $endpoint.EffectiveIp -Port $endpoint.HttpPort `
+                -RegistryTimeoutSeconds $regWait
             foreach ($line in $settle.Lines) { Write-OrchestratorLine $line }
         }
         $env:YURUNA_CACHING_PROXY_SERVICE_IP = $endpoint.EffectiveIp
@@ -491,7 +508,7 @@ function Invoke-OrchestrationSequence {
             }
 
             # Publish the cycle-context handle so any child PROCESS this step
-            # spawns (a host action re-entering Invoke-TestSequence.ps1 -- e.g.
+            # spawns (a host action re-entering Debug-TestSequence.ps1 -- e.g.
             # set-resource -> Set-Resource.ps1 -> per-stage guest builds)
             # attaches as a nested node under this step. Owner: parent = the
             # step's top-level row ($e.name). Nested: parent = this
@@ -548,7 +565,34 @@ function Invoke-OrchestrationSequence {
                     if (-not (Get-Command Write-CycleInfraFailure -ErrorAction SilentlyContinue)) {
                         Import-Module (Join-Path $PSScriptRoot 'Test.RunnerInnerLoop.psm1') -Force -Global -ErrorAction Stop
                     }
-                    Write-CycleInfraFailure -Stage $e.name -FailureClass 'unknown' -Severity 'hard' `
+                    # Adopt the class the nested run already established, rather
+                    # than announcing 'unknown' over the top of it. A host action
+                    # that drives a guest sequence fails BECAUSE that sequence
+                    # did, and the sequence engine has already written a
+                    # precisely classified record; hard-coding 'unknown' here
+                    # threw that away at exactly the layer the dashboard reads,
+                    # so a whole class of failures arrived pre-anonymized and
+                    # cross-host incident correlation -- which requires a shared
+                    # class -- could never group them.
+                    # 'unknown' remains the honest answer when there is no inner
+                    # record: a host action that failed on its own has nothing
+                    # more specific to say, and guessing would be worse.
+                    $inheritedClass = 'unknown'
+                    if ($env:YURUNA_LOG_DIR) {
+                        $innerFailure = Join-Path $env:YURUNA_LOG_DIR 'last_failure.json'
+                        if (Test-Path -LiteralPath $innerFailure -PathType Leaf) {
+                            try {
+                                $innerRec = Get-Content -Raw -LiteralPath $innerFailure -ErrorAction Stop |
+                                    ConvertFrom-Json -AsHashtable -ErrorAction Stop
+                                if ($innerRec.Contains('failureClass') -and $innerRec['failureClass']) {
+                                    $inheritedClass = [string]$innerRec['failureClass']
+                                }
+                            } catch {
+                                Write-Verbose "Invoke-OrchestrationSequence: inner failure class unreadable -- $($_.Exception.Message)"
+                            }
+                        }
+                    }
+                    Write-CycleInfraFailure -Stage $e.name -FailureClass $inheritedClass -Severity 'hard' `
                         -GuestKey '(orchestration)' -VMName $entryVmName -ErrorMessage $reason -HostType $HostType
                 } catch {
                     Write-Verbose "Invoke-OrchestrationSequence: no failure record written for '$($e.name)' -- $($_.Exception.Message)"

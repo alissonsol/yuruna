@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42d3e6a1-9b74-4c25-8f30-1a2b3c4d5e6f
+.VERSION 2026.08.19
+.GUID 42bd51d4-c3b9-4fa3-ae75-af2ab0905275
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna lint pssa
@@ -52,7 +52,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) {
-    Write-Error "PSScriptAnalyzer is not installed. Install-Module PSScriptAnalyzer -Scope CurrentUser"
+    Write-Error "PSScriptAnalyzer is not installed. Install-Module PSScriptAnalyzer -Scope CurrentUser" -ErrorAction Continue
     exit 2
 }
 Import-Module PSScriptAnalyzer

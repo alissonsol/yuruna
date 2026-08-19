@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42b6c7d8-e9f0-4a12-8b34-5c6d7e8f9a01
+.VERSION 2026.08.19
+.GUID 42541303-69a5-4838-b859-71ad4fcefc3e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test service lifecycle pid pester
@@ -59,7 +59,7 @@ $testDir = Split-Path -Parent $here   # .../test
 $script:startHostConfig = Join-Path $testDir 'service/Start-ConfigService.ps1'
 $script:startStash      = Join-Path $testDir 'service/Start-StashServiceVM.ps1'
 
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 function Get-ScriptAst {
     param([string]$Path)

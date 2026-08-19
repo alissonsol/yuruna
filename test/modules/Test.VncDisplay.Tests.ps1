@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42c1f70a-8d35-4e63-9a27-5b48c1e07d92
+.VERSION 2026.08.19
+.GUID 429793e2-063a-4471-aed6-44421c62b4e4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test vnc display port collision utm pester
@@ -45,11 +45,7 @@ if ($VncIsMac) {
     Import-Module (Join-Path $VncRepoRoot 'host/macos.utm/modules/Yuruna.Host.psm1') -Force -DisableNameChecking -Global -WarningAction SilentlyContinue
 }
 
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
-function Assert-Equal {
-    param($Expected, $Actual, [string]$Because = '')
-    if ("$Expected" -ne "$Actual") { throw "Expected '$Expected' but got '$Actual'. $Because" }
-}
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # A bundle is just a directory with a config.plist, so a fixture needs no
 # disk image and no UTM. $PID keeps the path stable across the discovery
@@ -100,8 +96,8 @@ Describe 'VNC display allocation (host.macos.utm)' {
         try {
             $null = New-VncFixture -VMName 'fixture-vm' -Display 47
             Set-Variable -Name HOME -Value $VncTestHome -Scope Global -Force
-            Assert-Equal 47 (Get-VncDisplayFromBundle -VMName 'fixture-vm') -Because 'reads the recorded display'
-            Assert-Equal 5947 (Get-VncPortForVm -VMName 'fixture-vm') -Because 'port comes from the bundle'
+            Assert-StringEqual 47 (Get-VncDisplayFromBundle -VMName 'fixture-vm') -Because 'reads the recorded display'
+            Assert-StringEqual 5947 (Get-VncPortForVm -VMName 'fixture-vm') -Because 'port comes from the bundle'
             $hashPort = 5900 + (Get-VncDisplayForVm -VMName 'fixture-vm')
             Assert-True ($hashPort -ne 5947) 'the fixture pins a display the hash would not choose, so this proves the source'
         } finally { Set-Variable -Name HOME -Value $prev -Scope Global -Force }
@@ -112,7 +108,7 @@ Describe 'VNC display allocation (host.macos.utm)' {
         $prev = $HOME
         try {
             Set-Variable -Name HOME -Value $VncTestHome -Scope Global -Force
-            Assert-Equal (-1) (Get-VncDisplayFromBundle -VMName 'no-such-vm-here')
+            Assert-StringEqual (-1) (Get-VncDisplayFromBundle -VMName 'no-such-vm-here')
             # The port helper still answers, from the hash.
             Assert-True ((Get-VncPortForVm -VMName 'no-such-vm-here') -ge 5910) 'falls back to the name-derived port'
         } finally { Set-Variable -Name HOME -Value $prev -Scope Global -Force }
@@ -128,7 +124,7 @@ Describe 'VNC display allocation (host.macos.utm)' {
             $bundle = New-VncFixture -VMName 'rewrite-vm' -Display 47
             Set-Variable -Name HOME -Value $VncTestHome -Scope Global -Force
             Assert-True (Set-VncDisplayInBundle -VMName 'rewrite-vm' -Display 25 -Confirm:$false) 'rewrite reports success'
-            Assert-Equal 25 (Get-VncDisplayFromBundle -VMName 'rewrite-vm') -Because 'the new display is persisted'
+            Assert-StringEqual 25 (Get-VncDisplayFromBundle -VMName 'rewrite-vm') -Because 'the new display is persisted'
             $raw = Get-Content -Raw (Join-Path $bundle 'config.plist')
             Assert-True ($raw -match '127\.0\.0\.1:25,share=force-shared') 'suffix preserved'
         } finally { Set-Variable -Name HOME -Value $prev -Scope Global -Force }
@@ -157,7 +153,7 @@ Describe 'VNC display allocation (host.macos.utm)' {
             Assert-True ($chosen -ne $preferred) 'the occupied preference is not returned'
             Assert-True ($chosen -ge 10 -and $chosen -le 89) "chosen display $chosen is inside 10..89"
         } finally { $listener.Stop() }
-        Assert-Equal $preferred (Find-FreeVncDisplay -Preferred $preferred) -Because 'a free preference is honoured'
+        Assert-StringEqual $preferred (Find-FreeVncDisplay -Preferred $preferred) -Because 'a free preference is honoured'
     }
 
     It 'refuses a display another bundle already claims, even though its port binds free' {

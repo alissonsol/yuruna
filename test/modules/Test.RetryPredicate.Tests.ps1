@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a9f0c3-5d7e-4b81-9c2a-6f3e8d1b40a7
+.VERSION 2026.08.19
+.GUID 426e19c5-9718-4a13-b5d3-7b13bd7d1d65
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test retry predicate resilience pester
@@ -42,8 +42,7 @@ $here       = Split-Path -Parent $PSCommandPath
 $repoRoot   = Split-Path -Parent (Split-Path -Parent $here)
 $modulePath = Join-Path (Join-Path $repoRoot 'automation') 'Yuruna.Retry.psm1'
 
-function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 Import-Module $modulePath -Force -DisableNameChecking -ErrorAction SilentlyContinue
 

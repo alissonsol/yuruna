@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42f1c8d3-5b6a-4e07-9d24-8c3b71a0f5e6
+.VERSION 2026.08.19
+.GUID 426d4c3d-0ae7-41c9-8bac-5f42f9255e5b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna kvm libvirt rail guest-to-guest addressing

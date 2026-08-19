@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 4267af85-3ccc-4ef7-a368-55560cfd0f65
+.VERSION 2026.08.19
+.GUID 427f1267-e087-42e4-ad77-aab3e3216101
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test transcript loglevel pester
@@ -66,8 +66,7 @@ if (-not (Get-Command -Name Describe -ErrorAction SilentlyContinue)) {
 $here             = Split-Path -Parent $PSCommandPath
 $script:LogModule = Join-Path $here 'Test.LogLevel.psm1'
 
-function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # Fixtures at FILE scope: a Describe body runs during discovery and its
 # variables and functions are discarded before any It executes.

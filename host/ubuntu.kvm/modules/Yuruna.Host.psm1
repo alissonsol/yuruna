@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e8f
+.VERSION 2026.08.19
+.GUID 42539052-a22b-452d-ad7f-0bbf053904ff
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna host kvm libvirt
@@ -617,7 +617,7 @@ function Save-VMDiskSnapshot {
 .SYNOPSIS
     Returns $true when snapshot $Id is present on $VMName, $false
     otherwise (including when the domain does not exist). Used by
-    Invoke-TestSequence.ps1's requiresSnapshot warm-path probe before
+    Debug-TestSequence.ps1's requiresSnapshot warm-path probe before
     deciding whether to walk the baseline chain.
 #>
 function Test-VMDiskSnapshot {

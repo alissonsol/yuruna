@@ -16,7 +16,7 @@ import (
 
 // Regression for the NAS-offline lockout: when the share is offline at
 // startup (cifs mount failed), the host key cannot be written to the share,
-// but the daemon must still start (§8.4) using a VM-local fallback key —
+// but the daemon must still start (section 8.4) using a VM-local fallback key --
 // rather than crash-looping and taking SSH + the UI down with it.
 func TestNewStartsWhenShareUnwritable(t *testing.T) {
 	tmp := t.TempDir()
@@ -56,7 +56,7 @@ func TestNewStartsWhenShareUnwritable(t *testing.T) {
 	}
 }
 
-// A PRESENT-but-corrupt share host key must NOT be silently overwritten — the
+// A PRESENT-but-corrupt share host key must NOT be silently overwritten -- the
 // daemon must fail loud so systemd retries, preserving the durable key
 // (regression guard: a transient cifs read must not rotate the host key).
 func TestHostKeyFailLoudOnCorruptShareKey(t *testing.T) {
@@ -80,7 +80,7 @@ func TestHostKeyFailLoudOnCorruptShareKey(t *testing.T) {
 
 // An offline-first key living only in the VM-local fallback must be PROMOTED
 // to the share once the share is reachable + keyless, so a later reimage does
-// not mint a new key and break client trust (§4.4).
+// not mint a new key and break client trust (section 4.4).
 func TestHostKeyPromotedFromFallback(t *testing.T) {
 	tmp := t.TempDir()
 	// Generate a valid key by writing one to a throwaway "primary".

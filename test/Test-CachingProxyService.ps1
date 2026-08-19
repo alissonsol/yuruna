@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a1b2c3-d4e5-4f67-8901-bc012345674a
+.VERSION 2026.08.19
+.GUID 429d2507-81f3-45bf-89aa-1a0471f4641c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
@@ -18,10 +18,10 @@
 
 <#
 .SYNOPSIS
-    Smoke-tests a caching-proxy-service (local or remote) before Invoke-TestRunner.
+    Smoke-tests a caching-proxy-service (local or remote) before Start-TestRunner.
     Probes :3128, :3129, :80, :3000 and GETs /yuruna-squid-ca.crt, PASS/
     FAIL/WARN per check. See the operator reference in docs/caching.md for the full story.
-    Resolves the cache in the SAME order Invoke-TestRunner does at cycle
+    Resolves the cache in the SAME order Start-TestRunner does at cycle
     start: vmStart.cachingProxyIp (test.config.yml) first, then
     $Env:YURUNA_CACHING_PROXY_SERVICE_IP, then local discovery -- so the IP this
     script probes is the IP the runner will actually pick.
@@ -76,13 +76,13 @@ function Write-Fail { param([string]$msg) Write-Output "  [FAIL] $msg"; $script:
 function Write-Warn { param([string]$msg) Write-Output "  [WARN] $msg"; $script:WarnCount++ }
 
 # --- REGION: Resolve the cache IP
-# Priority mirrors Invoke-TestRunner's cycle-start resolution:
+# Priority mirrors Start-TestRunner's cycle-start resolution:
 #   -CacheIp parameter            (explicit override, this script only)
 #   vmStart.cachingProxyIp        (test/test.config.yml, probed first)
 #   $Env:YURUNA_CACHING_PROXY_SERVICE_IP  (probed when config absent/unreachable)
 #   local discovery via Test-CachingProxyServiceAvailable
 # The config/env legs run through Resolve-CachingProxyServiceEndpoint -- the SAME
-# resolver Invoke-TestRunnerInnerLoop.ps1 and Invoke-TestSequence.ps1 use -- so the
+# resolver Invoke-TestRunnerInnerLoop.ps1 and Debug-TestSequence.ps1 use -- so the
 # acceptance policy (first source whose HTTP proxy port answers) cannot
 # drift from the runner's. Two differences, both deliberate: this
 # diagnostic never publishes the winner into $env:YURUNA_CACHING_PROXY_SERVICE_IP
@@ -139,7 +139,7 @@ if ($CacheIp) {
                 "`$Env:YURUNA_CACHING_PROXY_SERVICE_IP"
             }
         } else {
-            Write-Warn "Configured cache source(s) rejected (no reachable HTTP proxy port; see probe above) -- falling back to local discovery, as Invoke-TestRunner would."
+            Write-Warn "Configured cache source(s) rejected (no reachable HTTP proxy port; see probe above) -- falling back to local discovery, as Start-TestRunner would."
         }
     }
     if (-not $resolvedIp) {
@@ -199,7 +199,7 @@ $httpPort  = $probe.HttpPort
 # --- REGION: Host system-proxy check
 # A stale system proxy (e.g. a previous -SetHostProxy promotion
 # against an IP that has since moved) will silently redirect every
-# Invoke-WebRequest / curl in Invoke-TestRunner. .NET on macOS reads
+# Invoke-WebRequest / curl in Start-TestRunner. .NET on macOS reads
 # networksetup; .NET on Windows reads WinINet per-user (what the
 # driver's Set-WindowsHostProxy writes) and WinHTTP machine-wide. Env vars are
 # only consulted as a fallback, which is why a stale system setting
@@ -250,7 +250,7 @@ if ($IsMacOS) {
 # despite the underlying state being correct.
 #
 # Reading env vars directly reflects what NEW child processes will
-# inherit (Invoke-TestRunner spawns fresh pwsh per cycle on Windows;
+# inherit (Start-TestRunner spawns fresh pwsh per cycle on Windows;
 # child gets the parent's process env block at fork time, builds its
 # own DefaultWebProxy from THOSE values). $env: hits the live process
 # env block on every read.
@@ -290,7 +290,7 @@ if (-not $effHost) {
 } elseif ($effHost -eq $resolvedIp -and $effPort -eq $httpPort) {
     Write-Pass "Process env routes external requests via ${effHost}:${effPort} (matches probe target)"
 } else {
-    Write-Warn "Process env HTTP(S)_PROXY routes external requests via ${effHost}:${effPort} but the caching-proxy service under test is ${resolvedIp}:${httpPort} -- Invoke-TestRunner downloads (Get-Image.ps1, guest package fetches) will tunnel through ${effHost}:${effPort}, not the proxy you're testing. Stale env from before the most recent -SetHostProxy."
+    Write-Warn "Process env HTTP(S)_PROXY routes external requests via ${effHost}:${effPort} but the caching-proxy service under test is ${resolvedIp}:${httpPort} -- Start-TestRunner downloads (Get-Image.ps1, guest package fetches) will tunnel through ${effHost}:${effPort}, not the proxy you're testing. Stale env from before the most recent -SetHostProxy."
     Write-Output ""
     if ($SetHostProxy) {
         # The promotion below wipes process env (Remove-HostProxy) and
@@ -317,7 +317,7 @@ Write-Output "== Summary: $script:PassCount PASS, $script:WarnCount WARN, $scrip
 
 if ($script:FailCount -gt 0) {
     Write-Output ""
-    Write-Output "One or more required ports did not answer. Invoke-TestRunner would treat this cache as broken."
+    Write-Output "One or more required ports did not answer. Start-TestRunner would treat this cache as broken."
     exit 1
 }
 

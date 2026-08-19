@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e91
+.VERSION 2026.08.19
+.GUID 42bd906d-30b3-44f2-9020-fea9dbf0805f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna host macos utm
@@ -348,7 +348,7 @@ function Start-CachingProxyServiceForwarder {
     # If the privileged forwarder is already running (root-owned, started by
     # Start-CachingProxyServiceVM.ps1 which called `sudo -v` first), leave it alone.
     # Killing a root process requires sudo credentials that the caller
-    # (e.g. Invoke-TestRunner) may not have cached -- and the correct CacheIp
+    # (e.g. Start-TestRunner) may not have cached -- and the correct CacheIp
     # is already baked into the running process. Only restart if crashed.
     if ($needsSudo -and (Get-CachingProxyServiceForwarder -Port $Port)) {
         Write-Information "  Port ${Port} forwarder already running (root-owned); skipping restart." -InformationAction Continue
@@ -1291,7 +1291,7 @@ function Test-UtmctlResponsive {
     gateway, so the cloud-init host-proxy URL baked into seed.iso (from the
     first bridge's host IP) becomes unreachable and the cycle fails at its
     first fetch-and-execute step with "Connection timed out". This helper
-    is invoked at cycle start (Invoke-TestSequence.ps1 and Invoke-TestRunnerInnerLoop.ps1)
+    is invoked at cycle start (Debug-TestSequence.ps1 and Invoke-TestRunnerInnerLoop.ps1)
     to refuse the cycle before any test bundle is created, so the operator
     can stop the offender(s) and re-run.
 
@@ -1305,7 +1305,7 @@ function Test-UtmctlResponsive {
         192.168.64.x IP; the build uploads to the stash service; the intent store
         is served by pool-control. A running service is a dependency, not an
         offender, and refusing over one blocks the cycle on something it needs.
-      * $ExceptVmName -- the dev-loop case where Invoke-TestSequence is re-invoked
+      * $ExceptVmName -- the dev-loop case where Debug-TestSequence is re-invoked
         against a VM the operator left running for inspection.
 
 .PARAMETER ExceptVmName
@@ -2860,7 +2860,7 @@ function Save-VMDiskSnapshot {
 .SYNOPSIS
     Returns $true when snapshot $Id is present on every qcow2 disk of
     the UTM bundle for $VMName. False on missing bundle, missing
-    qemu-img, or any disk lacking the snapshot. Used by Invoke-TestSequence's
+    qemu-img, or any disk lacking the snapshot. Used by Debug-TestSequence's
     requiresSnapshot warm-path probe before deciding whether to walk
     the baseline chain.
 #>

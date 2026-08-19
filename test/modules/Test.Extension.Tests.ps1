@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 426deb9b-03d2-46c7-b22f-02548f71a328
+.VERSION 2026.08.19
+.GUID 423477ea-a0ec-419b-b7b3-939dd00dc84a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test extension loader contract pester
@@ -47,8 +47,7 @@ $here = Split-Path -Parent $PSCommandPath
 Import-Module powershell-yaml -Force -ErrorAction Stop
 Import-Module (Join-Path $here 'Test.Extension.psm1') -Force -DisableNameChecking
 
-function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # Fixtures and helpers at FILE scope, above the first Describe: a Describe body
 # runs during discovery and its variables/functions are discarded before any It

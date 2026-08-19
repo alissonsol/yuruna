@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.16
+# Version: 2026.08.19
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -88,9 +88,20 @@ EOF
 
 # --- REGION: https://yuruna.link/memory#why-the-k8s-guest-configures-the-docker-registry-mirror-before-installing-docker-ce
 # CACHE_HOST is parsed from $http_proxy (set system-wide by the
-# guest's cloud-init late-commands). Fallback: the well-known cache
-# VM hostname, resolvable on the LAN where Start-CachingProxyServiceVM ran.
+# guest's cloud-init late-commands).
+#
+# Fallbacks in order of how much they can be trusted. $http_proxy is absent
+# whenever this runs in a shell that did not inherit the system environment
+# (sudo without -E, a non-login shell), which is not rare and is not an error.
+# /etc/yuruna/host.env carries the proxy's ADDRESS, seeded at build time and
+# refreshed by yuruna-host-locate.timer, so it needs no name resolution at all.
+# The bare hostname is last because it needs working DNS for a name the lab's
+# resolver may not serve: when it fails, the error is "could not resolve host",
+# which reads as a broken proxy and sends the reader to the wrong machine.
 CACHE_HOST=$(echo "${http_proxy:-}" | sed -E 's|^https?://([^:/]+).*|\1|')
+if [ -z "$CACHE_HOST" ] && [ -r /etc/yuruna/host.env ]; then
+    CACHE_HOST=$(sed -nE 's/^YURUNA_CACHING_PROXY_SERVICE_IP=([^[:space:]]+).*/\1/p' /etc/yuruna/host.env | head -n1)
+fi
 [ -z "$CACHE_HOST" ] && CACHE_HOST="yuruna-caching-proxy-service"
 sudo install -d -m 0755 /etc/docker
 sudo tee /etc/docker/daemon.json >/dev/null <<EOF
@@ -173,23 +184,23 @@ done
 
 if [ "$DOCKER_READY" = false ]; then
     echo ""
-    echo -e "\e[1;31m╔════════════════════════════════════════════════════════════════════╗\e[0m"
-    echo -e "\e[1;31m║  ERROR: Docker daemon is not responding after ${DOCKER_WAIT_SECONDS}s               ║\e[0m"
-    echo -e "\e[1;31m╠════════════════════════════════════════════════════════════════════╣\e[0m"
-    echo -e "\e[1;31m║  Kubernetes requires Docker to be running. Try the following:      ║\e[0m"
-    echo -e "\e[1;31m║                                                                    ║\e[0m"
-    echo -e "\e[1;31m║  1. Start Docker manually:                                         ║\e[0m"
-    echo -e "\e[1;31m║     sudo systemctl start docker                                    ║\e[0m"
-    echo -e "\e[1;31m║                                                                    ║\e[0m"
-    echo -e "\e[1;31m║  2. Check Docker status and logs:                                  ║\e[0m"
-    echo -e "\e[1;31m║     sudo systemctl status docker                                   ║\e[0m"
-    echo -e "\e[1;31m║     sudo journalctl -xeu docker.service                            ║\e[0m"
-    echo -e "\e[1;31m║                                                                    ║\e[0m"
-    echo -e "\e[1;31m║  3. If systemd is not available (e.g. WSL), start dockerd:         ║\e[0m"
-    echo -e "\e[1;31m║     sudo dockerd &                                                 ║\e[0m"
-    echo -e "\e[1;31m║                                                                    ║\e[0m"
-    echo -e "\e[1;31m║  Once Docker is running, re-run this script to continue setup.     ║\e[0m"
-    echo -e "\e[1;31m╚════════════════════════════════════════════════════════════════════╝\e[0m"
+    echo -e "\e[1;31m+====================================================================+\e[0m"
+    echo -e "\e[1;31m|  ERROR: Docker daemon is not responding after ${DOCKER_WAIT_SECONDS}s               |\e[0m"
+    echo -e "\e[1;31m+====================================================================+\e[0m"
+    echo -e "\e[1;31m|  Kubernetes requires Docker to be running. Try the following:      |\e[0m"
+    echo -e "\e[1;31m|                                                                    |\e[0m"
+    echo -e "\e[1;31m|  1. Start Docker manually:                                         |\e[0m"
+    echo -e "\e[1;31m|     sudo systemctl start docker                                    |\e[0m"
+    echo -e "\e[1;31m|                                                                    |\e[0m"
+    echo -e "\e[1;31m|  2. Check Docker status and logs:                                  |\e[0m"
+    echo -e "\e[1;31m|     sudo systemctl status docker                                   |\e[0m"
+    echo -e "\e[1;31m|     sudo journalctl -xeu docker.service                            |\e[0m"
+    echo -e "\e[1;31m|                                                                    |\e[0m"
+    echo -e "\e[1;31m|  3. If systemd is not available (e.g. WSL), start dockerd:         |\e[0m"
+    echo -e "\e[1;31m|     sudo dockerd &                                                 |\e[0m"
+    echo -e "\e[1;31m|                                                                    |\e[0m"
+    echo -e "\e[1;31m|  Once Docker is running, re-run this script to continue setup.     |\e[0m"
+    echo -e "\e[1;31m+====================================================================+\e[0m"
     echo ""
     exit 1
 fi
@@ -286,14 +297,34 @@ HOSTSEOF
 # progress cap below bounds a genuine wedge. A cache that is DOWN is now
 # terminal for image pulls, since nothing else serves them, so surface that
 # here rather than letting it read as a mystery ImagePullBackOff later.
-if ! curl -fsS --max-time 15 -o /dev/null "http://${CACHE_HOST}:5000/v2/"; then
-    echo "ERROR: the caching proxy's registry did not answer at ${CACHE_HOST}:5000." >&2
-    echo "       containerd is configured to pull only from it -- reaching the" >&2
-    echo "       upstreams directly from a guest is rate limited and fails anyway." >&2
-    echo "       Check that the caching proxy VM is up and zot is serving:" >&2
-    echo "           curl -fsS http://${CACHE_HOST}:5000/v2/" >&2
-    exit 1
-fi
+# A cache being REBUILT is neither: it refuses connections for as long as the
+# replacement VM takes to boot zot and then serves normally, so a single-shot
+# probe reads a recoverable window as a dead cache. Wait that window out before
+# calling it down -- on the liveness endpoint only, which costs nothing from the
+# lab's shared pull budget.
+cache_wait="${YURUNA_CACHE_WAIT_SECONDS:-180}"
+cache_started=$SECONDS
+cache_err=""
+# Each waiting line carries its own elapsed count rather than repeating one
+# fixed string. This runs on the VM console, where the host's OCR watcher reads
+# a screen dominated by one identical line as a wedged guest -- and a bounded
+# wait that is working looks exactly like that unless the lines differ. curl's
+# own stderr is held back for the same reason and replayed once if the wait is
+# ultimately lost, where it is the part worth reading.
+until cache_err=$(curl -fsS --max-time 15 -o /dev/null "http://${CACHE_HOST}:5000/v2/" 2>&1); do
+    cache_elapsed=$(( SECONDS - cache_started ))
+    if [ "$cache_elapsed" -ge "$cache_wait" ]; then
+        echo "ERROR: the caching proxy's registry did not answer at ${CACHE_HOST}:5000" >&2
+        echo "       within ${cache_wait}s: ${cache_err}" >&2
+        echo "       containerd is configured to pull only from it -- reaching the" >&2
+        echo "       upstreams directly from a guest is rate limited and fails anyway." >&2
+        echo "       Check that the caching proxy VM is up and zot is serving:" >&2
+        echo "           curl -fsS http://${CACHE_HOST}:5000/v2/" >&2
+        exit 1
+    fi
+    echo "  ${CACHE_HOST}:5000 not answering after ${cache_elapsed}s; it may be restarting (waiting up to ${cache_wait}s)"
+    sleep 15
+done
 # --- REGION: https://yuruna.link/caching#warm-sets-and-the-cold-sync-reading
 # Read the cache's published reading rather than measuring from here: measuring
 # would spend a pull from the budget the whole lab shares, every run. Advisory,
@@ -653,15 +684,15 @@ echo "== Optional Steps =="
 echo "Current hostname: $(hostnamectl hostname)"
 echo "1. Change hostname: sudo hostnamectl set-hostname [desired-hostname]"
 echo ""
-echo -e "\e[1;33m╔════════════════════════════════════════════════════════════════════╗\e[0m"
-echo -e "\e[1;33m║  IMPORTANT: Docker group permissions                               ║\e[0m"
-echo -e "\e[1;33m║                                                                    ║\e[0m"
-echo -e "\e[1;33m║  Your user was added to the 'docker' group, but the current shell  ║\e[0m"
-echo -e "\e[1;33m║  does not have the updated group membership yet.                   ║\e[0m"
-echo -e "\e[1;33m║                                                                    ║\e[0m"
-echo -e "\e[1;33m║  To enable docker commands in this terminal, run:                  ║\e[0m"
-echo -e "\e[1;33m║      newgrp docker                                                 ║\e[0m"
-echo -e "\e[1;33m║                                                                    ║\e[0m"
-echo -e "\e[1;33m║  New terminals will activate the docker group automatically        ║\e[0m"
-echo -e "\e[1;33m║  via the .bashrc snippet. A full logout/login also works.          ║\e[0m"
-echo -e "\e[1;33m╚════════════════════════════════════════════════════════════════════╝\e[0m"
+echo -e "\e[1;33m+====================================================================+\e[0m"
+echo -e "\e[1;33m|  IMPORTANT: Docker group permissions                               |\e[0m"
+echo -e "\e[1;33m|                                                                    |\e[0m"
+echo -e "\e[1;33m|  Your user was added to the 'docker' group, but the current shell  |\e[0m"
+echo -e "\e[1;33m|  does not have the updated group membership yet.                   |\e[0m"
+echo -e "\e[1;33m|                                                                    |\e[0m"
+echo -e "\e[1;33m|  To enable docker commands in this terminal, run:                  |\e[0m"
+echo -e "\e[1;33m|      newgrp docker                                                 |\e[0m"
+echo -e "\e[1;33m|                                                                    |\e[0m"
+echo -e "\e[1;33m|  New terminals will activate the docker group automatically        |\e[0m"
+echo -e "\e[1;33m|  via the .bashrc snippet. A full logout/login also works.          |\e[0m"
+echo -e "\e[1;33m+====================================================================+\e[0m"

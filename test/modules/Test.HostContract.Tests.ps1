@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42b03f81-d5c7-4c8e-bea6-7a081b3285e2
+.VERSION 2026.08.19
+.GUID 423dd1b8-e8b5-4131-80dc-f7bed94cafae
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test host contract facade pester
@@ -22,7 +22,7 @@
     import out into the four Test.Host* siblings.
 .DESCRIPTION
     The facade's whole job is reachability: a caller that only knows the
-    facade (the runner, Invoke-TestSequence.ps1, sequence extensions) must get the
+    facade (the runner, Debug-TestSequence.ps1, sequence extensions) must get the
     entire Test.Host* surface from one Import-Module. So the tests assert
     behavior, not shape: all four siblings load, every function name the
     facade names in its Export-ModuleMember list actually resolves and comes
@@ -40,8 +40,7 @@ $here         = Split-Path -Parent $PSCommandPath
 $contractPath = Join-Path $here 'Test.HostContract.psm1'
 Import-Module $contractPath -Force -DisableNameChecking
 
-function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # The four siblings the facade promises to pull in.
 $siblingModule = @('Test.HostDetection', 'Test.HostCondition', 'Test.HostGit', 'Test.HostBootstrap')

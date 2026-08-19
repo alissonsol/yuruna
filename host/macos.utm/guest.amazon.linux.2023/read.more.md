@@ -1,6 +1,6 @@
 # Amazon Linux 2023 guest on macOS UTM host — Nerd-Level Details
 
-See [Hosts — ...](../../README.md) for host prerequisites, VM sizing,
+See [Hosts -- ...](../../README.md) for host prerequisites, VM sizing,
 and connectivity. macOS counterpart of
 [Hyper-V version](../../windows.hyper-v/guest.amazon.linux.2023/).
 Tested with Amazon Linux 2023 (not AL1/AL2). AWS
@@ -24,7 +24,7 @@ pwsh ./Get-Image.ps1
 `~/yuruna/guest.nosync/`. Copies the qcow2 directly (the QEMU backend
 reads it natively; no raw conversion), resizes to 128 GB (thin),
 generates a cloud-init `seed.iso`, and writes `config.plist` from
-[`config.plist.template`](./config.plist.template) — QEMU (HVF)
+[`config.plist.template`](./config.plist.template) -- QEMU (HVF)
 ARM64, core-count-policy vCPUs (min 4), 12 GB RAM, UEFI, shared NAT,
 clipboard.
 
@@ -40,7 +40,7 @@ Install the GUI with `sudo dnf groupinstall -y "Desktop"`.
 
 ## Key differences from the Hyper-V version
 
-- Amazon Linux ships pre-built qcow2 KVM ARM64 images — no installer
+- Amazon Linux ships pre-built qcow2 KVM ARM64 images -- no installer
   ISO; the VM boots straight from the copied disk.
 - `seed.iso` uses cloud-init (not autoinstall).
 - `hdiutil makehybrid` replaces `Oscdimg.exe`.
@@ -51,6 +51,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../../../README.md)

@@ -2,7 +2,7 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!-- LICENSEURI https://yuruna.link/license -->
 <!-- Copyright (c) 2019-2026 by Alisson Sol et al. -->
-<!-- Yuruna VM config · https://yuruna.link/vmconfig -->
+<!-- Yuruna VM config - https://yuruna.link/vmconfig -->
 <!-- QEMU backend (not Apple Virtualization) so we can pass -vnc to QEMU.
      QEMU's built-in RFB server gives the test harness focus-independent
      screen capture (Get-VncScreenshot) AND keystroke injection
@@ -69,7 +69,7 @@
 		     SCHEMA: Display.Hardware must be virtio-gpu-pci (NOT
 		     virtio-ramfb-gl, NOT virtio-ramfb). The -gl variant aborts
 		     QEMU at start ("The console requires a GL context"); the
-		     plain ramfb is too minimal — UEFI EDK2 never publishes a
+		     plain ramfb is too minimal -- UEFI EDK2 never publishes a
 		     Graphics Output Protocol for it, so GRUB / early kernel
 		     never paint, and capture stays stuck on QEMU's "Display
 		     output is not active" stub.
@@ -113,7 +113,7 @@
 		<key>UEFIBoot</key>
 		<true/>
 	</dict>
-	<!-- Display: Fixed 1920x1080 via virtio-gpu-pci (QEMU, non-GL — see
+	<!-- Display: Fixed 1920x1080 via virtio-gpu-pci (QEMU, non-GL -- see
 	     the AdditionalArguments comment above for the device-choice
 	     rationale; the -vnc/-gl conflict and the UEFI GOP problem both
 	     point at virtio-gpu-pci as the only working option here).
@@ -142,14 +142,14 @@
 		</dict>
 	</array>
 	<!-- Three drives:
-	       Disk (VirtIO)   — BootIndex 0 (UEFI tries this first)
-	       Installer ISO   — BootIndex 1 (only when disk has no boot loader)
-	       cidata seed ISO — unindexed, just mounted for autoinstall
+	       Disk (VirtIO)   -- BootIndex 0 (UEFI tries this first)
+	       Installer ISO   -- BootIndex 1 (only when disk has no boot loader)
+	       cidata seed ISO -- unindexed, just mounted for autoinstall
 	     UTM emits the BootIndex value verbatim as QEMU's `bootindex=` per-
 	     device hint, which seeds the initial UEFI BootOrder. After the
 	     first successful subiquity install, efibootmgr writes an
 	     `ubuntu` entry to /boot/efi pointing at shimaa64.efi and pushes
-	     that ahead of the firmware default order — the explicit
+	     that ahead of the firmware default order -- the explicit
 	     BootIndex below just covers the gap *before* that efibootmgr
 	     write lands. Without it the installer ISO sits ahead of the
 	     disk and every post-install reboot re-runs subiquity, looping

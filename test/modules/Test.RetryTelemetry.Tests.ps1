@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 421a7f92-3c68-4b05-9e27-8a0f5d2c6b13
+.VERSION 2026.08.19
+.GUID 429c8653-8e15-44cd-9478-80a69f7afe99
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test retry telemetry ndjson pester
@@ -50,8 +50,7 @@ $fnAst  = $modAst.Find({ param($n) ($n -is [System.Management.Automation.Languag
 if (-not $fnAst) { throw 'Publish-GuestRetryMarker not found in Test.SequenceHandler.psm1' }
 . ([scriptblock]::Create($fnAst.Extent.Text))
 
-function Assert-Equal { param($Actual, $Expected, [string]$Because = '') if ("$Actual" -ne "$Expected") { throw "Expected '$Expected', got '$Actual'. $Because" } }
-function Assert-True  { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 }
 
@@ -61,17 +60,17 @@ Describe 'Yuruna.Retry structured telemetry' {
         function global:Send-CycleEventSafely { param($EventRecord) $global:__RetryEv += , $EventRecord }
         try {
             $r = Invoke-WithYurunaRetry -Label 'unit-test' -MaxAttempts 2 -InitialDelaySeconds 1 -ScriptBlock { $global:LASTEXITCODE = 7; 'boom' }
-            Assert-Equal -Actual $r.Success -Expected $false -Because 'the scriptblock always exits 7'
-            Assert-Equal -Actual $global:__RetryEv.Count -Expected 2 -Because 'one retry_attempt + one retry_exhausted'
-            Assert-Equal -Actual $global:__RetryEv[0].event -Expected 'retry_attempt'
-            Assert-Equal -Actual $global:__RetryEv[0].attempt -Expected 1
-            Assert-Equal -Actual $global:__RetryEv[0].exitCode -Expected 7
-            Assert-Equal -Actual $global:__RetryEv[0].stack -Expected 'pwsh'
-            Assert-Equal -Actual $global:__RetryEv[1].event -Expected 'retry_exhausted'
-            Assert-Equal -Actual $global:__RetryEv[1].permanent -Expected $false
+            Assert-StringEqual -Actual $r.Success -Expected $false -Because 'the scriptblock always exits 7'
+            Assert-StringEqual -Actual $global:__RetryEv.Count -Expected 2 -Because 'one retry_attempt + one retry_exhausted'
+            Assert-StringEqual -Actual $global:__RetryEv[0].event -Expected 'retry_attempt'
+            Assert-StringEqual -Actual $global:__RetryEv[0].attempt -Expected 1
+            Assert-StringEqual -Actual $global:__RetryEv[0].exitCode -Expected 7
+            Assert-StringEqual -Actual $global:__RetryEv[0].stack -Expected 'pwsh'
+            Assert-StringEqual -Actual $global:__RetryEv[1].event -Expected 'retry_exhausted'
+            Assert-StringEqual -Actual $global:__RetryEv[1].permanent -Expected $false
             foreach ($ev in $global:__RetryEv) {
                 $v = @(Test-CycleEventSchema -Record ([hashtable]$ev))
-                Assert-Equal -Actual $v.Count -Expected 0 -Because "schema violations on $($ev.event): $($v -join '; ')"
+                Assert-StringEqual -Actual $v.Count -Expected 0 -Because "schema violations on $($ev.event): $($v -join '; ')"
             }
         } finally {
             Remove-Item Function:\Send-CycleEventSafely -ErrorAction SilentlyContinue
@@ -84,9 +83,9 @@ Describe 'Yuruna.Retry structured telemetry' {
         try {
             $null = Invoke-WithYurunaRetry -Label 'perm' -MaxAttempts 5 -InitialDelaySeconds 1 `
                 -ScriptBlock { $global:LASTEXITCODE = 22; 'nope' } -ShouldRetry { param($x) $null = $x; $false }
-            Assert-Equal -Actual $global:__RetryEv.Count -Expected 1 -Because 'fail-fast emits exactly one terminal event'
-            Assert-Equal -Actual $global:__RetryEv[0].event -Expected 'retry_exhausted'
-            Assert-Equal -Actual $global:__RetryEv[0].permanent -Expected $true
+            Assert-StringEqual -Actual $global:__RetryEv.Count -Expected 1 -Because 'fail-fast emits exactly one terminal event'
+            Assert-StringEqual -Actual $global:__RetryEv[0].event -Expected 'retry_exhausted'
+            Assert-StringEqual -Actual $global:__RetryEv[0].permanent -Expected $true
         } finally {
             Remove-Item Function:\Send-CycleEventSafely -ErrorAction SilentlyContinue
             Remove-Variable -Name __RetryEv -Scope Global -ErrorAction SilentlyContinue
@@ -108,17 +107,17 @@ Describe 'Publish-GuestRetryMarker (guest bash marker -> NDJSON)' {
                 '  YURUNA_RETRY {"stack":"bash","label":"curl_retry","attempt":3,"maxAttempts":5,"rc":6,"permanent":true}'
             )
             $n = Publish-GuestRetryMarker -Output $out -GuestKey 'guest.ubuntu.server.26' -VmName 'test-a'
-            Assert-Equal -Actual $n -Expected 3 -Because 'three well-formed markers; the malformed line is skipped'
-            Assert-Equal -Actual $global:__RetryEv.Count -Expected 3
-            Assert-Equal -Actual $global:__RetryEv[0].event -Expected 'retry_attempt'
-            Assert-Equal -Actual $global:__RetryEv[0].stack -Expected 'bash'
-            Assert-Equal -Actual $global:__RetryEv[0].description -Expected 'curl_retry'
-            Assert-Equal -Actual $global:__RetryEv[0].exitCode -Expected 22
-            Assert-Equal -Actual $global:__RetryEv[0].guestKey -Expected 'guest.ubuntu.server.26'
-            Assert-Equal -Actual $global:__RetryEv[2].permanent -Expected $true
+            Assert-StringEqual -Actual $n -Expected 3 -Because 'three well-formed markers; the malformed line is skipped'
+            Assert-StringEqual -Actual $global:__RetryEv.Count -Expected 3
+            Assert-StringEqual -Actual $global:__RetryEv[0].event -Expected 'retry_attempt'
+            Assert-StringEqual -Actual $global:__RetryEv[0].stack -Expected 'bash'
+            Assert-StringEqual -Actual $global:__RetryEv[0].description -Expected 'curl_retry'
+            Assert-StringEqual -Actual $global:__RetryEv[0].exitCode -Expected 22
+            Assert-StringEqual -Actual $global:__RetryEv[0].guestKey -Expected 'guest.ubuntu.server.26'
+            Assert-StringEqual -Actual $global:__RetryEv[2].permanent -Expected $true
             foreach ($ev in $global:__RetryEv) {
                 $v = @(Test-CycleEventSchema -Record ([hashtable]$ev))
-                Assert-Equal -Actual $v.Count -Expected 0 -Because "schema violations: $($v -join '; ')"
+                Assert-StringEqual -Actual $v.Count -Expected 0 -Because "schema violations: $($v -join '; ')"
             }
         } finally {
             Remove-Item Function:\Send-CycleEventSafely -ErrorAction SilentlyContinue
@@ -127,7 +126,7 @@ Describe 'Publish-GuestRetryMarker (guest bash marker -> NDJSON)' {
     }
     It 'returns 0 for null output' {
         function global:Send-CycleEventSafely { param($EventRecord) $null = $EventRecord }
-        try { Assert-Equal -Actual (Publish-GuestRetryMarker -Output $null) -Expected 0 }
+        try { Assert-StringEqual -Actual (Publish-GuestRetryMarker -Output $null) -Expected 0 }
         finally { Remove-Item Function:\Send-CycleEventSafely -ErrorAction SilentlyContinue }
     }
 }

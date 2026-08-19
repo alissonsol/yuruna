@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 4293f9e7-91cd-495d-aafa-68e31b1cda6a
+.VERSION 2026.08.19
+.GUID 42b9fcf3-37e5-4fd0-a90c-1f76b45c64a3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test pool control table sort counter column pester
@@ -47,12 +47,7 @@ $here = Split-Path -Parent $PSCommandPath
 $repo = Split-Path -Parent (Split-Path -Parent $here)
 $web = Join-Path $repo 'test/extension/pool-control-service/server/internal/httpsrv/web'
 
-function Assert-Equal { param($Expected, $Actual, [string]$Because = '') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
-function Assert-NoFinding {
-    param([string[]]$Findings, [string]$Because = '')
-    if ($Findings.Count -gt 0) { throw ("$Because`n  " + ($Findings -join "`n  ")) }
-}
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # One entry per page that carries a sortable table, with the script that builds
 # its rows. Hosts sorts from its own comparator (hardware columns are numbers

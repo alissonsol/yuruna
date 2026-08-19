@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42b6a17d-3c48-4e90-9f2b-5d81c4e73a06
+.VERSION 2026.08.19
+.GUID 42393379-b183-472a-aafb-3e90a62215aa
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test stash dhcp lease address pester
@@ -52,11 +52,7 @@ $StashRepoRoot = Split-Path -Parent (Split-Path -Parent $here)
 Import-Module (Join-Path $StashRepoRoot 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking -Global
 Import-Module (Join-Path $StashRepoRoot 'test/modules/Test.VMUtility.psm1') -Force -DisableNameChecking -Global -WarningAction SilentlyContinue
 
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
-function Assert-Equal {
-    param($Expected, $Actual, [string]$Because = '')
-    if ("$Expected" -ne "$Actual") { throw "Expected '$Expected' but got '$Actual'. $Because" }
-}
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 $StashTestHome = Join-Path ([System.IO.Path]::GetTempPath()) "yrn-stash-$PID"
 function New-MarkerDir {
@@ -201,8 +197,8 @@ Describe 'An address is confirmed before it is advertised' {
         Set-StashDiscovery -IpAnswer @('192.168.64.11', '192.168.64.11', '192.168.64.5') -Healthy @('192.168.64.5')
         $dir = New-MarkerDir
         $url = Update-StashServiceMarkerAddress -RuntimeDir $dir -TimeoutSeconds 60 -PoolSegment (New-PoolSegment '192.168.64.1')
-        Assert-Equal -Expected 'http://192.168.64.5' -Actual $url -Because 'the confirmed address is the one returned'
-        Assert-Equal -Expected 'http://192.168.64.5' -Actual (Get-MarkerUrl $dir) -Because 'and the one written to the marker'
+        Assert-StringEqual -Expected 'http://192.168.64.5' -Actual $url -Because 'the confirmed address is the one returned'
+        Assert-StringEqual -Expected 'http://192.168.64.5' -Actual (Get-MarkerUrl $dir) -Because 'and the one written to the marker'
         Assert-True ((Get-StashDiscoveryCallCount) -gt 1) 'the poll did not stop on the first reply'
     }
 
@@ -213,7 +209,7 @@ Describe 'An address is confirmed before it is advertised' {
         Set-StashDiscovery -IpAnswer @('192.168.64.5') -Healthy @()
         $dir = New-MarkerDir
         $url = Update-StashServiceMarkerAddress -RuntimeDir $dir -TimeoutSeconds 0 -PoolSegment (New-PoolSegment '192.168.64.1') -WarningVariable warned -WarningAction SilentlyContinue
-        Assert-Equal -Expected 'http://192.168.64.5' -Actual $url -Because 'a correct address is not thrown away'
+        Assert-StringEqual -Expected 'http://192.168.64.5' -Actual $url -Because 'a correct address is not thrown away'
         Assert-True ($warned.Count -gt 0) 'and publishing it unconfirmed is said out loud'
     }
 
@@ -221,7 +217,7 @@ Describe 'An address is confirmed before it is advertised' {
         Set-StashDiscovery -IpAnswer @('192.168.64.5') -Healthy @('192.168.64.5')
         $dir = New-MarkerDir -Json '{"active":false,"vmName":"yuruna-stash-service"}'
         Assert-True ($null -eq (Update-StashServiceMarkerAddress -RuntimeDir $dir)) 'an inactive marker resolves nothing'
-        Assert-Equal -Expected 0 -Actual (Get-StashDiscoveryCallCount) -Because 'a torn-down marker is not even resolved'
+        Assert-StringEqual -Expected 0 -Actual (Get-StashDiscoveryCallCount) -Because 'a torn-down marker is not even resolved'
     }
 
     It 'is a no-op when there is no marker' {
@@ -267,7 +263,7 @@ Describe 'Only an address the rest of the lab can reach is advertised' {
             -WarningAction SilentlyContinue
         Assert-True ([string]::IsNullOrEmpty((Get-MarkerUrl $dir))) 'the stale advertisement is withdrawn'
         $kept = Get-Content -Raw -LiteralPath (Join-Path $dir 'stash-service.json') | ConvertFrom-Json
-        Assert-Equal -Expected 'yuruna-stash-service' -Actual $kept.vmName -Because 'and the rest of the marker survives'
+        Assert-StringEqual -Expected 'yuruna-stash-service' -Actual $kept.vmName -Because 'and the rest of the marker survives'
     }
 
     It 'publishes when the pool-facing segment cannot be determined' {
@@ -277,7 +273,7 @@ Describe 'Only an address the rest of the lab can reach is advertised' {
         Set-StashDiscovery -IpAnswer @('192.168.64.5') -Healthy @('192.168.64.5')
         $dir = New-MarkerDir
         $url = Update-StashServiceMarkerAddress -RuntimeDir $dir -PoolSegment $null
-        Assert-Equal -Expected 'http://192.168.64.5' -Actual $url -Because 'an undetermined segment does not refuse'
+        Assert-StringEqual -Expected 'http://192.168.64.5' -Actual $url -Because 'an undetermined segment does not refuse'
     }
 }
 
@@ -285,8 +281,8 @@ Describe 'Superseded lease blocks are selected, and only those' {
 
     It 'keeps the largest expiry of a name and selects the rest' {
         $stale = @(Select-StaleDhcpLeaseBlock -LeaseText $script:StaleLeaseText -InUseVerdict { 'unknown' })
-        Assert-Equal -Expected 1 -Actual $stale.Count -Because 'only the superseded block is selected'
-        Assert-Equal -Expected '192.168.64.11' -Actual $stale[0].IpAddress -Because 'the older expiry is the superseded one'
+        Assert-StringEqual -Expected 1 -Actual $stale.Count -Because 'only the superseded block is selected'
+        Assert-StringEqual -Expected '192.168.64.11' -Actual $stale[0].IpAddress -Because 'the older expiry is the superseded one'
     }
 
     It 'agrees with the resolver about which block is live' {
@@ -307,30 +303,30 @@ Describe 'Superseded lease blocks are selected, and only those' {
     It 'lets a responding address veto its own removal' {
         # An observation outranks an expiry heuristic: something is using it.
         $stale = @(Select-StaleDhcpLeaseBlock -LeaseText $script:StaleLeaseText -InUseVerdict { 'inuse' })
-        Assert-Equal -Expected 0 -Actual $stale.Count -Because 'nothing that answers is removed'
+        Assert-StringEqual -Expected 0 -Actual $stale.Count -Because 'nothing that answers is removed'
     }
 
     It 'does not treat an unrunnable probe as a veto' {
         # 'unknown' means the probe could not be run. Reading that as in-use
         # would select nothing at all on a host where probing is unavailable.
         $stale = @(Select-StaleDhcpLeaseBlock -LeaseText $script:StaleLeaseText -InUseVerdict { 'unknown' })
-        Assert-Equal -Expected 1 -Actual $stale.Count -Because 'an unknown verdict still allows selection'
+        Assert-StringEqual -Expected 1 -Actual $stale.Count -Because 'an unknown verdict still allows selection'
     }
 
     It 'keeps both blocks of a tie' {
         $tied = $script:StaleLeaseText -replace '0x6a6c58b9', '0x6a6c5940'
         $stale = @(Select-StaleDhcpLeaseBlock -LeaseText $tied -InUseVerdict { 'unknown' })
-        Assert-Equal -Expected 0 -Actual $stale.Count -Because 'two blocks with one expiry cannot be told apart'
+        Assert-StringEqual -Expected 0 -Actual $stale.Count -Because 'two blocks with one expiry cannot be told apart'
     }
 
     It 'honours a name scope' {
         $stale = @(Select-StaleDhcpLeaseBlock -LeaseText $script:StaleLeaseText -Name @('lonely-guest') -InUseVerdict { 'unknown' })
-        Assert-Equal -Expected 0 -Actual $stale.Count -Because 'a scoped run considers only the names given'
+        Assert-StringEqual -Expected 0 -Actual $stale.Count -Because 'a scoped run considers only the names given'
     }
 
     It 'returns nothing for empty or absent text' {
-        Assert-Equal -Expected 0 -Actual @(Select-StaleDhcpLeaseBlock -LeaseText '' -InUseVerdict { 'unknown' }).Count
-        Assert-Equal -Expected 0 -Actual @(Select-StaleDhcpLeaseBlock -LeaseText $null -InUseVerdict { 'unknown' }).Count
+        Assert-StringEqual -Expected 0 -Actual @(Select-StaleDhcpLeaseBlock -LeaseText '' -InUseVerdict { 'unknown' }).Count
+        Assert-StringEqual -Expected 0 -Actual @(Select-StaleDhcpLeaseBlock -LeaseText $null -InUseVerdict { 'unknown' }).Count
     }
 }
 
@@ -342,14 +338,14 @@ Describe 'Removal cuts whole blocks and nothing else' {
         Assert-True ($after -notmatch '192\.168\.64\.11') 'the superseded block is gone'
         Assert-True ($after -match '192\.168\.64\.5')  'the live block survives'
         Assert-True ($after -match '192\.168\.64\.77') 'the unrelated name survives'
-        Assert-Equal -Expected 2 -Actual ([regex]::Matches($after, '\{[^}]*\}')).Count -Because 'exactly one block was cut'
+        Assert-StringEqual -Expected 2 -Actual ([regex]::Matches($after, '\{[^}]*\}')).Count -Because 'exactly one block was cut'
     }
 
     It 'still resolves the live guest afterwards' {
         $stale = @(Select-StaleDhcpLeaseBlock -LeaseText $script:StaleLeaseText -InUseVerdict { 'unknown' })
         $after = Remove-DhcpLeaseBlockText -LeaseText $script:StaleLeaseText -Block $stale
         $live = Select-DhcpLeaseIpAddress -LeaseText $after -Name @('yuruna-stash-service') -OnLinkVerdict { 'unknown' }
-        Assert-Equal -Expected '192.168.64.5' -Actual $live -Because 'pruning does not disturb resolution'
+        Assert-StringEqual -Expected '192.168.64.5' -Actual $live -Because 'pruning does not disturb resolution'
     }
 
     It 'leaves no run of blank lines behind' {
@@ -363,19 +359,19 @@ Describe 'Removal cuts whole blocks and nothing else' {
     It 'is idempotent' {
         $stale = @(Select-StaleDhcpLeaseBlock -LeaseText $script:StaleLeaseText -InUseVerdict { 'unknown' })
         $after = Remove-DhcpLeaseBlockText -LeaseText $script:StaleLeaseText -Block $stale
-        Assert-Equal -Expected 0 -Actual @(Select-StaleDhcpLeaseBlock -LeaseText $after -InUseVerdict { 'unknown' }).Count -Because 'a second pass finds nothing'
-        Assert-Equal -Expected $after -Actual (Remove-DhcpLeaseBlockText -LeaseText $after -Block $stale) -Because 'removing an absent block changes nothing'
+        Assert-StringEqual -Expected 0 -Actual @(Select-StaleDhcpLeaseBlock -LeaseText $after -InUseVerdict { 'unknown' }).Count -Because 'a second pass finds nothing'
+        Assert-StringEqual -Expected $after -Actual (Remove-DhcpLeaseBlockText -LeaseText $after -Block $stale) -Because 'removing an absent block changes nothing'
     }
 
     It 'ignores a block that is no longer in the text' {
         # The DHCP server rewrites this file whenever a lease moves; a block
         # that vanished under us is already gone, not an error.
         $ghost = [pscustomobject]@{ Text = "{`n`tname=ghost`n`tip_address=192.168.64.200`n`tlease=0x1`n}" }
-        Assert-Equal -Expected $script:StaleLeaseText -Actual (Remove-DhcpLeaseBlockText -LeaseText $script:StaleLeaseText -Block @($ghost))
+        Assert-StringEqual -Expected $script:StaleLeaseText -Actual (Remove-DhcpLeaseBlockText -LeaseText $script:StaleLeaseText -Block @($ghost))
     }
 
     It 'accepts an empty removal set' {
-        Assert-Equal -Expected $script:StaleLeaseText -Actual (Remove-DhcpLeaseBlockText -LeaseText $script:StaleLeaseText -Block @())
+        Assert-StringEqual -Expected $script:StaleLeaseText -Actual (Remove-DhcpLeaseBlockText -LeaseText $script:StaleLeaseText -Block @())
     }
 }
 

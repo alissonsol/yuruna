@@ -32,7 +32,7 @@ Three properties shape everything else:
   destroys it, and starting it rebuilds from the base image. Everything
   downloaded lives on the pool share and is adopted again by the rebuilt agent.
 
-Every host-side `Get-Image.ps1` asks the agent before it contacts a publisher —
+Every host-side `Get-Image.ps1` asks the agent before it contacts a publisher --
 the Ubuntu Server ISOs, the shared extension cloud image, Amazon Linux 2023,
 virtio-win, and (best effort) the Windows 11 media. What each script does with
 the answer is in
@@ -334,7 +334,7 @@ address), so the trail shows who opened the board as well as what they changed.
 
 ## Diagnostics
 
-The **Diagnostics** page (menu → Diagnostics, or `/diagnostics`) answers
+The **Diagnostics** page (menu -> Diagnostics, or `/diagnostics`) answers
 the question the pool table cannot: *why* does a best-effort family not work on
 this agent. The table collapses every resolver failure into one `absent` row --
 deliberately, so hosts have one behavior -- which leaves nothing to act on when
@@ -372,7 +372,7 @@ without waiting out the TTL or rebuilding.
 ## Unlocking the actions
 
 **Usually there is nothing to unlock.** Open the Download pool from the *Yuruna
-hosts* dashboard — the *Extension hosts* table, `Download-agent service` — and it
+hosts* dashboard -- the *Extension hosts* table, `Download-agent service` -- and it
 arrives already unlocked. That link goes through the aggregator's `/go/stash`
 redirect, which hands the page a short-lived control proof in the URL fragment
 (never sent to a server, never in an access log); the page exchanges it for a
@@ -511,7 +511,7 @@ held only live credentials.
 | Start script prints a `go build` or `apt` error | Package or source problem in the guest | The log tail names the line; fix and rebuild with Stop then Start |
 | Daemon serves, UI says `poolAvailable:false` | The pool share did not mount in the guest | Check the NAS credential (`Set-Password` the `poolStorageNetworkUser`) and that the share is reachable, then rebuild. The daemon deliberately keeps serving; every `ensure` answers `pool-unavailable` and hosts fall back |
 | "the daemon IS serving in-guest but this host cannot connect" | The address is not reachable from here | A stale DHCP lease (compare the guest console's own `eth0` line), a guest firewall dropping `:80`, or a bridged-mode address being probed on a Shared-NAT host. Waiting cannot help -- the daemon is already up |
-| No Extension hosts row | The host status service is not serving `host.registration.json`, or the marker says `active:false` | Run `test/Start-StatusService.ps1`; check `runtime/download-agent-service.json`. The beacon alone still paints a row, minus the status baseUrl link |
+| No Extension hosts row | The host status service is not serving `host.registration.json`, or the marker says `active:false` | Run `test/service/Start-StatusService.ps1`; check `runtime/download-agent-service.json`. The beacon alone still paints a row, minus the status baseUrl link |
 | Row appears but the deep-link is dead from other machines | Shared-NAT Mac whose `:8082` forward did not install | Re-run the start script once the VM has an address; prefer a bridged host for the agent |
 | Unlock says `503 lab-token-unavailable` | The daemon could not reach the aggregator to check the code, so it refused rather than guessing | Check the caching-proxy VM and the aggregator (`journalctl -u pool-aggregator-service`). Until it answers, drive the agent with the `Authorization: Bearer <lab-auth-token>` API routes |
 | Unlock refuses a code you just read | The code rotated more than about three minutes ago, or the tile is stale | Re-read the tile and retry. If the tile itself reads "collector down", fix the aggregator first |
@@ -546,6 +546,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../README.md)

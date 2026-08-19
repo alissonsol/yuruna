@@ -13,10 +13,10 @@ lands at Setup Assistant.
 * macOS **15** Sequoia or later (host).
 * Apple Silicon **M4** or later. M1/M2/M3 are explicitly rejected.
 * UTM **v4.6** or later (Apple backend, `ConfigurationVersion 4`).
-* Xcode command line tools — `swift` is on PATH; the embedded VZ
+* Xcode command line tools -- `swift` is on PATH; the embedded VZ
   helpers in `Get-Image.ps1` / `New-VM.ps1` need it.
 
-Cross-host concepts: [Hosts — ...](../../README.md).
+Cross-host concepts: [Hosts -- ...](../../README.md).
 
 ## One-time
 
@@ -60,7 +60,7 @@ must be driven by hand. Treat this guest as "scaffolding-ready,
 sequence-pending".
 
 That sequence will follow the same contract as
-`start.guest.ubuntu.server.24.yml` — the GUI steps that walk Setup
+`start.guest.ubuntu.server.24.yml` -- the GUI steps that walk Setup
 Assistant to a logged-in desktop and rotate the operator-chosen
 initial password.
 
@@ -70,6 +70,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../../../README.md)

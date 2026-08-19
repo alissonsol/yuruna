@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42e4a5b6-7c81-4d92-a3b4-5c6d7e8f9a0b
+.VERSION 2026.08.19
+.GUID 42bc0769-be96-4f3c-b97b-00bf8860751f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test config hash pester
@@ -43,7 +43,7 @@ $configPath = Join-Path $modulesDir 'Test.Config.psm1'
 $script:perfPath   = Join-Path $modulesDir 'Test.Perf.psm1'
 $script:ocrPath    = Join-Path $modulesDir 'Test.OcrEngine.psm1'
 
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 function Get-ModuleAst {
     [CmdletBinding()]

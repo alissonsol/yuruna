@@ -1976,11 +1976,25 @@ write_files:
         },
         "panels": [
           {
+            "id": 18,
+            "type": "stat",
+            "title": "Lab token",
+            "description": "The lab connection token and the collector's health. Blue when enrollment is open: a joining host redeems the 6-character code (pwsh test/lab/Set-LabToken.ps1 -LabToken CODE); codes rotate every minute -- read right before enrolling. Red when the collector behind this dashboard has stopped: every panel may be stale; the tile links to the fix. Grey when the token exchange is off. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+            "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
+            "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
+            "targets": [
+              { "refId": "A", "expr": "yuruna_pool_lab_token{pool=~\".+\"}", "instant": true, "legendFormat": "{{token}}", "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } },
+              { "refId": "B", "expr": "absent(yuruna_pool_collector_up) * 0", "instant": true, "legendFormat": "Collector down", "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
+            ],
+            "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "background", "graphMode": "none", "textMode": "name" },
+            "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "noValue": "off", "thresholds": { "mode": "absolute", "steps": [ { "color": "#6b7280", "value": null }, { "color": "red", "value": 0 }, { "color": "blue", "value": 1 } ] }, "links": [ { "title": "Collector down -- how to fix", "url": "https://yuruna.link/collector-down", "targetBlank": true } ] }, "overrides": [] }
+          },
+          {
             "id": 2,
             "type": "stat",
             "title": "Hosts total",
-            "description": "Distinct pool hosts seen within the aggregator's host TTL (24h by default, -host-ttl), keyed on the stable hostId (reachable or not). Driven by yuruna_pool_hosts_total from the pool-aggregator-service.",
-            "gridPos": { "h": 4, "w": 5, "x": 0, "y": 0 },
+            "description": "Distinct pool hosts seen within the aggregator's host TTL (24h by default, -host-ttl), keyed on the stable hostId (reachable or not). Driven by yuruna_pool_hosts_total from the pool-aggregator-service. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+            "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
             "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
             "targets": [
               { "refId": "A", "expr": "sum(yuruna_pool_hosts_total) or vector(0)", "instant": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
@@ -1992,8 +2006,8 @@ write_files:
             "id": 19,
             "type": "stat",
             "title": "Success%",
-            "description": "Share of terminal cycles across the whole LAB that finished 'pass', within the dashboard's selected time range (top-right): 100 * Pass / (Pass + Fail) over the same Loki transition log the table's Pass and Fail columns are counted from, so this tile and those columns can never disagree. The numerator carries the table's per-host zero baseline, so a pool where every cycle failed reads 0.00% rather than going blank. With NO terminal cycle in range the whole expression is empty and the tile shows 'n/a' -- deliberately not 100%, so an idle or freshly built pool cannot read as healthy. Red below 95%, amber below 100%, green at exactly 100%.",
-            "gridPos": { "h": 4, "w": 5, "x": 5, "y": 0 },
+            "description": "Share of terminal cycles lab-wide that passed, within the selected time range (top-right). Counted from the same log as the Pool hosts table's Pass and Fail columns, so they cannot disagree. Shows 'n/a' when no cycle finished in range -- deliberately not 100%, so an idle pool cannot look healthy. Red below 95%, amber below 100%, green at 100%. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+            "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
             "datasource": { "type": "loki", "uid": "yuruna-loki" },
             "targets": [
               { "refId": "A", "expr": "100 * ((sum(count_over_time({pool=~\".+\"} | json | overallStatus=\"pass\" [$__range])) or (sum(count_over_time({pool=~\".+\"} | json | overallStatus=~\"pass|fail\" [$__range])) * 0)) / sum(count_over_time({pool=~\".+\"} | json | overallStatus=~\"pass|fail\" [$__range])))", "instant": true, "datasource": { "type": "loki", "uid": "yuruna-loki" } }
@@ -2005,8 +2019,8 @@ write_files:
             "id": 4,
             "type": "stat",
             "title": "Failed cycles",
-            "description": "Cycles that finished 'fail' across the whole LAB within the dashboard's selected time range (top-right) -- the sum of the table's Fail column. Counted from the Loki transition log (exact; reaches back to Loki retention, unlike a Prometheus counter window). Green when zero; red when any.",
-            "gridPos": { "h": 4, "w": 5, "x": 10, "y": 0 },
+            "description": "Cycles that finished 'fail' across the whole LAB within the dashboard's selected time range (top-right) -- the sum of the table's Fail column. Counted from the Loki transition log (exact; reaches back to Loki retention, unlike a Prometheus counter window). Green when zero; red when any. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+            "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
             "datasource": { "type": "loki", "uid": "yuruna-loki" },
             "targets": [
               { "refId": "A", "expr": "sum(count_over_time({pool=~\".+\"} | json | overallStatus=\"fail\" [$__range]))", "instant": true, "datasource": { "type": "loki", "uid": "yuruna-loki" } }
@@ -2018,8 +2032,8 @@ write_files:
             "id": 20,
             "type": "stat",
             "title": "Total cycles",
-            "description": "Terminal cycles across the whole LAB within the dashboard's selected time range (top-right) -- the sum of the table's Pass AND Fail columns, i.e. the denominator behind Success%. Counted from the Loki transition log (exact; reaches back to Loki retention, unlike a Prometheus counter window). Only pass and fail are counted: a cycle still running has no terminal status yet and is not in scope. This dashboard is LAB-WIDE: the pool filter is a match-all, so these numbers cover every pool. Per-pool figures live on the pool-control board, which joins the same counts onto pools.yml members[].",
-            "gridPos": { "h": 4, "w": 5, "x": 15, "y": 0 },
+            "description": "Terminal cycles lab-wide within the selected time range: the table's Pass plus Fail, and the denominator behind Success%. A still-running cycle has no terminal status and is not counted. The dashboard is lab-wide -- per-pool figures live on the pool-control board. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+            "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
             "datasource": { "type": "loki", "uid": "yuruna-loki" },
             "targets": [
               { "refId": "A", "expr": "sum(count_over_time({pool=~\".+\"} | json | overallStatus=~\"pass|fail\" [$__range]))", "instant": true, "datasource": { "type": "loki", "uid": "yuruna-loki" } }
@@ -2028,24 +2042,23 @@ write_files:
             "fieldConfig": { "defaults": { "decimals": 0, "noValue": "0" }, "overrides": [] }
           },
           {
-            "id": 18,
+            "id": 21,
             "type": "stat",
-            "title": "Lab token",
-            "description": "The lab connection token AND the collector's health, in one tile. Blue = the 6-character code a joining host redeems for the shared lab-auth-token (pwsh test/lab/Set-LabToken.ps1 -LabToken <code>). It rotates every minute (aggregator -lab-token-rotate); a displayed code stays redeemable for about three, so read it right before enrolling. Driven by yuruna_pool_lab_token (the code rides as the 'token' label). Red 'Collector down' = the pool-aggregator-service -- the service on this proxy that polls every host and feeds this whole dashboard -- has stopped reporting: no code can be minted, and every other panel here may be stale. The tile links to the fix. Detected as absent(yuruna_pool_collector_up): the collector exports that gauge as a constant 1, so its disappearance from a scrape IS the outage, and exactly one of the two queries ever returns a series. Grey 'off' = the collector is up but the exchange is disabled: the aggregator holds no lab-auth-token, or rotation is off (-lab-token-rotate 0).",
+            "title": "Addresses in use",
+            "description": "MEASURED count of IPv4 addresses the lab holds now: the proxy's observed clients plus registered hosts' addresses, deduplicated. A FLOOR, not a ceiling -- whatever is invisible to both sources is not counted. It says nothing about the DHCP pool: scope size and free leases live on the DHCP server; read those before concluding exhaustion. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
             "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
             "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
             "targets": [
-              { "refId": "A", "expr": "yuruna_pool_lab_token{pool=~\".+\"}", "instant": true, "legendFormat": "{{token}}", "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } },
-              { "refId": "B", "expr": "absent(yuruna_pool_collector_up) * 0", "instant": true, "legendFormat": "Collector down", "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
+              { "refId": "A", "expr": "yuruna_pool_lab_addresses_in_use", "instant": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
             ],
-            "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "background", "graphMode": "none", "textMode": "name" },
-            "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "noValue": "off", "thresholds": { "mode": "absolute", "steps": [ { "color": "#6b7280", "value": null }, { "color": "red", "value": 0 }, { "color": "blue", "value": 1 } ] }, "links": [ { "title": "Collector down -- how to fix", "url": "https://yuruna.link/collector-down", "targetBlank": true } ] }, "overrides": [] }
+            "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "none", "graphMode": "none", "textMode": "value" },
+            "fieldConfig": { "defaults": { "decimals": 0, "noValue": "n/a" }, "overrides": [] }
           },
           {
             "id": 17,
             "type": "table",
             "title": "Extension hosts",
-            "description": "Hosts running an extension function, learned from each host's registration record (activeExtensions) -- the same opaque Host ID namespace as the Pool hosts table, so a host that both runs cycles and hosts a stash service shows the same Host ID in both. No ystash-nas mount or config service: a host self-reports the service it runs and the aggregator already polls its registration. Driven by yuruna_pool_host_extension. Host ID shows the first 8 characters, which is what tells a dozen near-identical 42-prefixed ids apart at a glance; clicking the cell opens a menu whose FIRST entry is that host's full id, GUID-formatted (8-4-4-4-12) so it is checkable by eye and copyable into a command -- it names the host and navigates nowhere. The menu's other entry is the same extension link the Extension column carries, because /go/host cannot serve this table: a host can run an extension service without running cycles, and such a host has no status page for that redirect to resolve -- it would answer 'host not known to the pool'. Open a host from the Pool hosts table instead: its rows are exactly the hosts that have a status page, and that Host ID link carries the short-lived control token. Extension names the function (e.g. Stash service) and links to that service's UI via the aggregator's /go/stash redirect, which resolves the host-advertised address server-side and hands the browser the same short-lived control token the Pool hosts link carries -- so a service UI opened from here arrives with its actions already unlocked, and only falls back to asking for the Lab token when the proxy mints no token at all. Panel height tracks the extension-host count (yuruna-fit-pool-dashboard.timer) -- gridPos.h below is only the pre-collector default.",
+            "description": "Hosts self-reporting an extension function (e.g. stash, pool-control, download-agent) -- the same Host ID namespace as Pool hosts. The Extension link opens that service's UI, already unlocked unless the proxy mints no token. Extension-only hosts have no status page: open hosts from the Pool hosts table instead. Click a Host ID for its full GUID form. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
             "gridPos": { "h": 4, "w": 24, "x": 0, "y": 22 },
             "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
             "targets": [
@@ -2096,7 +2109,7 @@ write_files:
             "id": 6,
             "type": "table",
             "title": "Pool hosts",
-            "description": "One row per discovered host, identified by its opaque Host ID (the stable per-host UUID, shown as its first 8 characters) -- no hostname is disclosed, so this summary stays safe to expose unauthenticated. Status folds in reachability, whether anything is still driving the host, and its pause state -- the same ladder the host's own status banner shows. 'runner stopped' means the host answers but its test runner is verifiably gone, so the cycle result below it is a record of what ran, not of what is running; it outranks every other reading for exactly that reason. 'paused' is a host that has actually stopped, while 'pausing (after cycle/step)' is one an operator has armed to stop but that is still executing -- reported as such rather than as a plain 'running' that would hide the pending stop. Pass/Fail count terminal cycles within the dashboard's selected time range (top-right) -- e.g. Last 3h shows only cycles finished in the last 3h -- counted from the Loki transition log (exact; reaches back to Loki retention), with a per-host zero baseline so they always show (0 included). Control is the host link AND says up front whether following it will let you drive the host: 'remote' = this host holds the same lab-auth-token the proxy mints proofs from, so its Pause/Continue buttons will work; 'onsite' = they will 403 and the host can only be driven from its own console (amber when the cause is a mismatched token or a skewed clock rather than no token at all); 'unknown' = the host has not answered /control/control-status, which an older framework build does not serve. The link itself works in every state -- it opens the host's status page read-only -- and routes through the aggregator's /go/host redirect, which resolves the host's CURRENT IP server-side and hands the browser the short-lived control token. Host ID opens a menu whose FIRST entry is that host's full id, GUID-formatted (8-4-4-4-12) so it is checkable against another screen and copyable into a pool-admin command, which accepts that form as pasted -- the entry names the host and navigates nowhere. Its second entry is the same host link; Control remains the cell that says up front whether following it will let you drive the host. Last cycle links to the cycle folder. Artifacts are served from the generating host and are never copied into this dashboard; the one way they travel is an operator using Share cycle results on the timeline below, which packs one cycle folder for that operator to mail on. Panel height tracks the host count (yuruna-fit-pool-dashboard.timer) so the table never scrolls -- gridPos.h below is only the pre-collector default.",
+            "description": "One row per discovered host, named only by its opaque Host ID -- hostname-free, safe to expose unauthenticated. Watch Status first: 'runner stopped' means the results below are a record, not a live reading. Control says whether the host link will let you drive the host ('remote' works; 'onsite' will 403); the link always opens read-only. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
             "gridPos": { "h": 9, "w": 24, "x": 0, "y": 13 },
             "datasource": { "type": "datasource", "uid": "-- Mixed --" },
             "targets": [
@@ -2262,8 +2275,8 @@ write_files:
           {
             "id": 7,
             "type": "state-timeline",
-            "title": "Cycle outcome over time (host × UTC time)",
-            "description": "Each row is a host, labelled with the first 8 characters of its Host ID; color is the cycle status the pool-aggregator-service observed at that time. Times are UTC (dashboard timezone), so a block lines up with the UTC log times below. Click a block: the menu's FIRST entry is that host's full id, GUID-formatted (8-4-4-4-12) so it is checkable by eye and copyable into a command -- it names the host and navigates nowhere. The rest are the row's actions. Open cycle results gives that host's cycle results: the link resolves the host's CURRENT IP server-side (it survives a host IP change) and the cycle covering that time. Cycle results that a host has archived to the pool share are served from the share by the collector, so these links keep resolving after a host has moved its logs off local disk -- or has been switched off entirely. Share cycle results resolves the same cycle and lands on the host's own share page, which packs the whole results folder into one <short host id>.<UTC start>.tar.gz and hands it to your mail client -- the archive is built on the host and is not uploaded anywhere by that page. Selects the hostname-free series (hostname=\"\") so a host shows ONE row -- a legacy hostname-bearing series, retained until it ages out, would otherwise add a duplicate row for the same Host ID. Panel height tracks the host count (yuruna-fit-pool-dashboard.timer) so rows keep a legible height instead of being squeezed -- gridPos.h below is only the pre-collector default.",
+            "title": "Cycle outcome over time (host x UTC time)",
+            "description": "One row per host, one color per observed cycle status; times are UTC. Click a block for that host's actions: its full GUID id, 'open cycle results' (follows the host's current address, and still works after logs moved to the share), 'share cycle results' (packs the cycle into a tar.gz on the host to mail -- that page uploads nothing). Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
             "gridPos": { "h": 9, "w": 24, "x": 0, "y": 4 },
             "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
             "targets": [
@@ -2326,7 +2339,7 @@ write_files:
                 "id": 13,
                 "type": "logs",
                 "title": "Incidents (open / resolved)",
-                "description": "Incident lifecycle: a host opens an incident at >= N failed cycles within the trailing M-minute window (default 3 in 2h) and resolves once that window clears. Each line carries incidentId, host, failCount and (on resolve) peakFails + durationSeconds, plus the incident's failure class ON the object: per-host dominantClass + classHistogram, and the pinned same-class on pool-wide incidents (a cross-host incident requires the SAME class). Driven by the pool-aggregator-service's incident correlation; src=incident in Loki.",
+                "description": "Incident lifecycle: a host opens an incident at N or more failed cycles within a trailing window (default 3 in 2h) and resolves once the window clears. Each line carries the incident's failure class; a cross-host incident requires the same class on every host. From the aggregator's incident correlation (src=incident in Loki). Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
                 "gridPos": { "h": 8, "w": 24, "x": 0, "y": 24 },
                 "datasource": { "type": "loki", "uid": "yuruna-loki" },
                 "targets": [
@@ -2338,7 +2351,7 @@ write_files:
                 "id": 15,
                 "type": "table",
                 "title": "Failures by class & severity (window)",
-                "description": "The failure-class histogram: step_failure events over the dashboard time range, grouped by failureClass + severity. Driven by the per-step NDJSON tailed into Loki (src=event, event=step_failure). Sorted by count -- the dominant failure modes across the pool.",
+                "description": "The failure-class histogram: step_failure events over the dashboard time range, grouped by failureClass + severity. Driven by the per-step NDJSON tailed into Loki (src=event, event=step_failure). Sorted by count -- the dominant failure modes across the pool. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
                 "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 },
                 "datasource": { "type": "loki", "uid": "yuruna-loki" },
                 "targets": [
@@ -2353,7 +2366,7 @@ write_files:
                 "id": 10,
                 "type": "logs",
                 "title": "Recent step failures across the pool (which step failed)",
-                "description": "step_failure events tailed from each host's per-cycle NDJSON: the failing step's action, number, failure class, severity and reason, per host/cycle. Expand a line for full detail; the table's deep-links open that host's full cycle artifacts.",
+                "description": "step_failure events tailed from each host's per-cycle NDJSON: the failing step's action, number, failure class, severity and reason, per host/cycle. Expand a line for full detail; the table's deep-links open that host's full cycle artifacts. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
                 "gridPos": { "h": 9, "w": 24, "x": 0, "y": 40 },
                 "datasource": { "type": "loki", "uid": "yuruna-loki" },
                 "targets": [
@@ -2365,7 +2378,7 @@ write_files:
                 "id": 11,
                 "type": "logs",
                 "title": "Cycle event stream across the pool (all steps)",
-                "description": "Every per-cycle NDJSON event (cycle_start / step_end / step_failure / typed sub-events) tailed from each host. Use the Grafana log search to filter, e.g. cycleStartUtc=... or event=step_end.",
+                "description": "Every per-cycle NDJSON event (cycle_start / step_end / step_failure / typed sub-events) tailed from each host. Use the Grafana log search to filter, e.g. cycleStartUtc=... or event=step_end. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
                 "gridPos": { "h": 10, "w": 24, "x": 0, "y": 49 },
                 "datasource": { "type": "loki", "uid": "yuruna-loki" },
                 "targets": [
@@ -2377,7 +2390,7 @@ write_files:
                 "id": 9,
                 "type": "logs",
                 "title": "Cycle status transitions across the pool (24h)",
-                "description": "One line each time a host's cycle changes state (running -> pass/fail), from the status.json poll: hostId, cycleStartUtc, overallStatus and a baseUrl for drill-down. The cycle-level audit trail behind the table and timeline above.",
+                "description": "One line each time a host's cycle changes state (running -> pass/fail), from the status.json poll: hostId, cycleStartUtc, overallStatus and a baseUrl for drill-down. The cycle-level audit trail behind the table and timeline above. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
                 "gridPos": { "h": 9, "w": 24, "x": 0, "y": 59 },
                 "datasource": { "type": "loki", "uid": "yuruna-loki" },
                 "targets": [
@@ -2389,7 +2402,7 @@ write_files:
                 "id": 16,
                 "type": "table",
                 "title": "Incidents by failure class (window)",
-                "description": "Per-host incidents over the dashboard time range, grouped by the dominant failure class carried ON the incident object (dominantClass on the src=incident open line). Distinct from 'Failures by class & severity' above, which counts step_failure events regardless of whether they formed an incident -- this counts the incidents themselves. Sorted by count.",
+                "description": "Per-host incidents over the dashboard time range, grouped by the dominant failure class carried ON the incident object (dominantClass on the src=incident open line). Distinct from 'Failures by class & severity' above, which counts step_failure events regardless of whether they formed an incident -- this counts the incidents themselves. Sorted by count. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
                 "gridPos": { "h": 8, "w": 24, "x": 0, "y": 68 },
                 "datasource": { "type": "loki", "uid": "yuruna-loki" },
                 "targets": [
@@ -2937,7 +2950,7 @@ write_files:
             "id": 1,
             "type": "stat",
             "title": "Manifest latency (canary)",
-            "description": "Time for a HEAD of the canary tag through this cache, which re-runs the on-demand upstream sync. Red starts at 30s because dockerd abandons a pull whose response headers have not arrived by roughly then -- a cache can sit green on every liveness check and still be past this line.",
+            "description": "Time for a HEAD of the canary tag through this cache, which re-runs the on-demand upstream sync. Amber from 5s; red from 30s, because dockerd abandons a pull whose response headers have not arrived by roughly then -- a cache can sit green on every liveness check and still be past this line. Details: <a href=\"https://yuruna.link/cache-health-dashboard\" target=\"_blank\" rel=\"noopener\">Cache health dashboard</a> guide.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
             "options": {
@@ -2966,7 +2979,7 @@ write_files:
             "id": 11,
             "type": "stat",
             "title": "Manifest path fast enough for a real pull?",
-            "description": "Whether the canary beside this one answered inside the response-header deadline a client applies -- yuruna_zot_manifest_client_patience_seconds, 30s for dockerd. zot sends no headers until its on-demand sync resolves, so a manifest that eventually returns 200 at 55s is one every pull against it abandons. The latency stat measures the stall; this says whether what it measured is survivable.",
+            "description": "Whether the canary beside this one answered inside the deadline a real client applies (30s for dockerd). Green 'pull-viable' when it did; red 'PULLS FAILING' when it did not -- zot sends no headers until its upstream sync resolves, so a manifest that returns 200 at 55s is one every pull abandons. Details: <a href=\"https://yuruna.link/cache-health-dashboard\" target=\"_blank\" rel=\"noopener\">Cache health dashboard</a> guide.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
             "options": {
@@ -2996,7 +3009,7 @@ write_files:
             "id": 2,
             "type": "stat",
             "title": "Upstream pull budget left",
-            "description": "Anonymous pulls remaining in the current window for this egress IP, shared by every guest in the lab. Exhausting it does not reach a guest as a clean 429 -- the pull-through retries upstream first, and the guest only sees a cache that stopped answering in time. Gated on the probe gauge: the exporter reports an unread budget as zero, so an ungated panel paints an auth or egress failure in the same red as a genuine exhaustion. No data here means the budget was not read.",
+            "description": "Anonymous pulls remaining in the current window for this egress IP, shared by the whole lab. Green at 25 or more, amber from 10, red below. Exhaustion never reaches a guest as a clean 429 -- the guest just sees a cache that stopped answering in time. 'No data' means the budget was not read, deliberately not painted as zero. Details: <a href=\"https://yuruna.link/cache-health-dashboard\" target=\"_blank\" rel=\"noopener\">Cache health dashboard</a> guide.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
             "options": {
@@ -3025,7 +3038,7 @@ write_files:
             "id": 3,
             "type": "stat",
             "title": "zot /v2/ liveness",
-            "description": "The check every client-side gate performs today. Kept beside the canary on purpose: it answers in milliseconds throughout a manifest stall, so agreement between the two is the point -- 'up' here with a red canary beside it is the fault signature.",
+            "description": "The check every client-side gate performs today. Green 'up' when the endpoint answers; red 'DOWN' otherwise. Kept beside the canary on purpose: it answers in milliseconds throughout a manifest stall, so agreement between the two is the point -- 'up' here with a red canary beside it is the fault signature. Details: <a href=\"https://yuruna.link/cache-health-dashboard\" target=\"_blank\" rel=\"noopener\">Cache health dashboard</a> guide.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
             "options": {
@@ -3049,7 +3062,7 @@ write_files:
             "id": 4,
             "type": "timeseries",
             "title": "Manifest path latency: canary vs what clients actually got",
-            "description": "The canary (one probe every 10 minutes) against the quantiles of every HEAD zot served. The quantiles come from zot's own histogram, so they include the guests' pulls; when they climb together the cache is the cause, when only the guests' climb the load is.",
+            "description": "The canary (one probe every 10 minutes) against the quantiles of every HEAD zot served. The quantiles come from zot's own histogram, so they include the guests' pulls; when they climb together the cache is the cause, when only the guests' climb the load is. Details: <a href=\"https://yuruna.link/cache-health-dashboard\" target=\"_blank\" rel=\"noopener\">Cache health dashboard</a> guide.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 0, "y": 4, "w": 24, "h": 8},
             "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
@@ -3064,7 +3077,7 @@ write_files:
             "id": 5,
             "type": "timeseries",
             "title": "Upstream registries: round trip from this VM",
-            "description": "Unauthenticated GET /v2/ per configured sync upstream, which spends no pull budget. This is the leg zot depends on: flat here while the canary above climbs means the stall is inside the cache, not on the way out of it.",
+            "description": "Unauthenticated GET /v2/ per configured sync upstream, which spends no pull budget. This is the leg zot depends on: flat here while the canary above climbs means the stall is inside the cache, not on the way out of it. Details: <a href=\"https://yuruna.link/cache-health-dashboard\" target=\"_blank\" rel=\"noopener\">Cache health dashboard</a> guide.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 0, "y": 12, "w": 12, "h": 8},
             "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
@@ -3076,7 +3089,7 @@ write_files:
             "id": 6,
             "type": "timeseries",
             "title": "Upstream pull budget over time",
-            "description": "Budget remaining across the window. A sawtooth that reaches zero names rate limiting as the trigger for a cluster of slow-manifest failures. The remaining series is gated on the probe gauge so a window the exporter could not read breaks the line instead of drawing a floor at zero, which would read as the exhaustion this panel exists to spot.",
+            "description": "Budget remaining across the window. A sawtooth that reaches zero names rate limiting as the trigger for a cluster of slow-manifest failures. The remaining series is gated on the probe gauge so a window the exporter could not read breaks the line instead of drawing a floor at zero, which would read as the exhaustion this panel exists to spot. Details: <a href=\"https://yuruna.link/cache-health-dashboard\" target=\"_blank\" rel=\"noopener\">Cache health dashboard</a> guide.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 12, "y": 12, "w": 12, "h": 8},
             "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
@@ -3089,7 +3102,7 @@ write_files:
             "id": 7,
             "type": "timeseries",
             "title": "Cache VM: CPU busy %",
-            "description": "Host-level load for the VM every service here runs on -- the discriminator between a starved box and a service blocked on something remote.",
+            "description": "Host-level load for the VM every service here runs on -- the discriminator between a starved box and a service blocked on something remote. Details: <a href=\"https://yuruna.link/cache-health-dashboard\" target=\"_blank\" rel=\"noopener\">Cache health dashboard</a> guide.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 0, "y": 20, "w": 12, "h": 6},
             "fieldConfig": {"defaults": {"unit": "percent", "max": 100, "min": 0}, "overrides": []},
@@ -3101,7 +3114,7 @@ write_files:
             "id": 8,
             "type": "timeseries",
             "title": "Cache VM: memory available / cache disk free",
-            "description": "Memory headroom and free space under the squid cache_dir and /var/lib/zot. Swap is masked on this VM, so memory exhaustion presents as the OOM killer rather than as slowdown.",
+            "description": "Memory headroom and free space under the squid cache_dir and /var/lib/zot. Swap is masked on this VM, so memory exhaustion presents as the OOM killer rather than as slowdown. Details: <a href=\"https://yuruna.link/cache-health-dashboard\" target=\"_blank\" rel=\"noopener\">Cache health dashboard</a> guide.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 12, "y": 20, "w": 12, "h": 6},
             "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []},
@@ -3115,7 +3128,7 @@ write_files:
             "id": 9,
             "type": "logs",
             "title": "Registry requests slower than 10s",
-            "description": "zot's own request log filtered to slow answers. These return 200 -- they are not errors anywhere else in the stack, which is why a slow cache reads as a healthy one until this panel is consulted.",
+            "description": "zot's own request log filtered to slow answers. These return 200 -- they are not errors anywhere else in the stack, which is why a slow cache reads as a healthy one until this panel is consulted. Details: <a href=\"https://yuruna.link/cache-health-dashboard\" target=\"_blank\" rel=\"noopener\">Cache health dashboard</a> guide.",
             "datasource": {"type": "loki", "uid": "yuruna-loki"},
             "gridPos": {"x": 0, "y": 26, "w": 24, "h": 10},
             "options": {
@@ -3140,7 +3153,7 @@ write_files:
             "id": 10,
             "type": "logs",
             "title": "Sync / upstream lines (no HTTP request attached)",
-            "description": "zot lines that belong to the sync extension rather than to a client request -- the upstream retry and failure record behind a slow manifest. Empty is the normal state; entries here explain the latency the panels above only measure.",
+            "description": "zot lines that belong to the sync extension rather than to a client request -- the upstream retry and failure record behind a slow manifest. Empty is the normal state; entries here explain the latency the panels above only measure. Details: <a href=\"https://yuruna.link/cache-health-dashboard\" target=\"_blank\" rel=\"noopener\">Cache health dashboard</a> guide.",
             "datasource": {"type": "loki", "uid": "yuruna-loki"},
             "gridPos": {"x": 0, "y": 36, "w": 24, "h": 8},
             "options": {
@@ -3176,7 +3189,7 @@ write_files:
             "id": 6,
             "type": "timeseries",
             "title": "Client HTTP(S) data served (kB/s): total vs cached",
-            "description": "Throughput delivered to clients over a 5-minute window: 'Total' (yellow) is every response, 'Cached' (green) is the subset answered from cache. The gap = upstream bandwidth needed.",
+            "description": "Throughput delivered to clients over a 5-minute window: 'Total' (yellow) is every response, 'Cached' (green) is the subset answered from cache. The gap = upstream bandwidth needed. Details: <a href=\"https://yuruna.link/caching-proxy-dashboard\" target=\"_blank\" rel=\"noopener\">Caching-proxy dashboard</a> guide.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 0, "y": 0, "w": 24, "h": 8},
             "fieldConfig": {
@@ -3201,7 +3214,7 @@ write_files:
             "id": 7,
             "type": "logs",
             "title": "Recent 100 requests (client IP / status / size / method / URL / User-Agent)",
-            "description": "Last 100 client requests pulled from /var/log/squid/yuruna_access.log via Loki. Columns: client IP, status code, response bytes, HTTP method, URL, and User-Agent.",
+            "description": "The last 100 client requests through the proxy -- the per-request forensic view behind the throughput panel above, pulled from squid's access log via Loki. Details: <a href=\"https://yuruna.link/caching-proxy-dashboard\" target=\"_blank\" rel=\"noopener\">Caching-proxy dashboard</a> guide.",
             "datasource": {"type": "loki", "uid": "yuruna-loki"},
             "gridPos": {"x": 0, "y": 16, "w": 24, "h": 12},
             "options": {
@@ -3226,7 +3239,7 @@ write_files:
             "id": 8,
             "type": "stat",
             "title": "Served (7 days)",
-            "description": "Total bytes squid served to clients over the last 7 days, from cache OR fetched from origin on a miss. Driven by squid_client_http_kbytes_out_kbytes_total from squid-exporter.",
+            "description": "Total bytes squid served to clients over the last 7 days, from cache OR fetched from origin on a miss. Driven by squid_client_http_kbytes_out_kbytes_total from squid-exporter. Details: <a href=\"https://yuruna.link/caching-proxy-dashboard\" target=\"_blank\" rel=\"noopener\">Caching-proxy dashboard</a> guide.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 0, "y": 8, "w": 6, "h": 4},
             "options": {
@@ -3249,7 +3262,7 @@ write_files:
             "id": 9,
             "type": "stat",
             "title": "From cache (7 days)",
-            "description": "Bytes served from cache hits over the last 7 days -- memory (TCP_MEM_HIT) and disk (TCP_HIT). Driven by squid_client_http_hit_kbytes_out_bytes_total from squid-exporter.",
+            "description": "Bytes served from cache hits over the last 7 days -- memory (TCP_MEM_HIT) and disk (TCP_HIT). Driven by squid_client_http_hit_kbytes_out_bytes_total from squid-exporter. Details: <a href=\"https://yuruna.link/caching-proxy-dashboard\" target=\"_blank\" rel=\"noopener\">Caching-proxy dashboard</a> guide.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 6, "y": 8, "w": 6, "h": 4},
             "options": {
@@ -3272,7 +3285,7 @@ write_files:
             "id": 10,
             "type": "stat",
             "title": "Served (24 hours)",
-            "description": "Total bytes squid served to clients over the last 24 hours, from cache OR fetched from origin on a miss. Driven by squid_client_http_kbytes_out_kbytes_total from squid-exporter.",
+            "description": "Total bytes squid served to clients over the last 24 hours, from cache OR fetched from origin on a miss. Driven by squid_client_http_kbytes_out_kbytes_total from squid-exporter. Details: <a href=\"https://yuruna.link/caching-proxy-dashboard\" target=\"_blank\" rel=\"noopener\">Caching-proxy dashboard</a> guide.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 12, "y": 8, "w": 6, "h": 4},
             "options": {
@@ -3295,7 +3308,7 @@ write_files:
             "id": 11,
             "type": "stat",
             "title": "From cache (24 hours)",
-            "description": "Bytes served from cache hits over the last 24 hours -- memory (TCP_MEM_HIT) and disk (TCP_HIT). Driven by squid_client_http_hit_kbytes_out_bytes_total from squid-exporter.",
+            "description": "Bytes served from cache hits over the last 24 hours -- memory (TCP_MEM_HIT) and disk (TCP_HIT). Driven by squid_client_http_hit_kbytes_out_bytes_total from squid-exporter. Details: <a href=\"https://yuruna.link/caching-proxy-dashboard\" target=\"_blank\" rel=\"noopener\">Caching-proxy dashboard</a> guide.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 18, "y": 8, "w": 6, "h": 4},
             "options": {
@@ -3318,7 +3331,7 @@ write_files:
             "id": 12,
             "type": "stat",
             "title": "Internet connectivity",
-            "description": "1 = the cache VM can reach the upstream internet (HTTPS GET https://www.google.com/generate_204 succeeds within 5s, no proxy). 0 = upstream unreachable. Driven by squid_internet_reachable from squid-meta-exporter.sh.",
+            "description": "Whether the cache VM can reach the upstream internet. Green 'On' when a direct no-proxy HTTPS probe succeeds within 5s; red 'Off' when upstream is unreachable, so cache misses cannot be fetched -- what still gets served depends on Offline mode beside this. 'Unknown' means the probe has not reported. Details: <a href=\"https://yuruna.link/caching-proxy-dashboard\" target=\"_blank\" rel=\"noopener\">Caching-proxy dashboard</a> guide.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 0, "y": 12, "w": 6, "h": 4},
             "options": {
@@ -3344,7 +3357,7 @@ write_files:
             "id": 13,
             "type": "stat",
             "title": "Offline mode support",
-            "description": "1 = squid's runtime config has `offline_mode on` (cache HITS served unconditionally on upstream 5xx). 0 = otherwise. Queried live from /squid-internal-mgr/config -- reflects what the daemon is actually applying.",
+            "description": "Whether squid will keep serving cache hits when upstream fails. Green 'On' when the running config has offline_mode on: cache hits are served unconditionally on upstream 5xx. Red 'Off' otherwise. Queried live from the daemon's own config, so it reflects what is actually applied; 'Unknown' means that query has not answered. Details: <a href=\"https://yuruna.link/caching-proxy-dashboard\" target=\"_blank\" rel=\"noopener\">Caching-proxy dashboard</a> guide.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 6, "y": 12, "w": 6, "h": 4},
             "options": {
@@ -3370,7 +3383,7 @@ write_files:
             "id": 14,
             "type": "stat",
             "title": "Cached (Mem)",
-            "description": "Currently cached content in memory ready to be served. Driven by squid_info_Storage_Mem_size (KB) from squid-exporter; converted to bytes for display.",
+            "description": "Currently cached content in memory ready to be served. Driven by squid_info_Storage_Mem_size (KB) from squid-exporter; converted to bytes for display. Details: <a href=\"https://yuruna.link/caching-proxy-dashboard\" target=\"_blank\" rel=\"noopener\">Caching-proxy dashboard</a> guide.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 12, "y": 12, "w": 6, "h": 4},
             "options": {
@@ -3393,7 +3406,7 @@ write_files:
             "id": 15,
             "type": "stat",
             "title": "Cached (Disk)",
-            "description": "Currently cached content on disk ready to be served. Driven by squid_info_Storage_Swap_size (KB) from squid-exporter; converted to bytes for display.",
+            "description": "Currently cached content on disk ready to be served. Driven by squid_info_Storage_Swap_size (KB) from squid-exporter; converted to bytes for display. Details: <a href=\"https://yuruna.link/caching-proxy-dashboard\" target=\"_blank\" rel=\"noopener\">Caching-proxy dashboard</a> guide.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 18, "y": 12, "w": 6, "h": 4},
             "options": {

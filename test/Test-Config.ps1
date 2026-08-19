@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a1b2c3-d4e5-4f67-8901-bc0123456709
+.VERSION 2026.08.19
+.GUID 4210d385-d4df-4f13-9344-d649676c6dc4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
@@ -1877,7 +1877,14 @@ if (-not (Test-Path -LiteralPath $asciiGate)) {
     Write-Info "Test-AsciiNoBom.ps1 not found at ${asciiGate}; encoding gate skipped."
 } else {
     $asciiPwsh = Get-PwshExePath
-    $asciiOut  = & $asciiPwsh -NoProfile -ExecutionPolicy Bypass -File $asciiGate -Quiet 2>&1
+    # -Bootstrap, not the gate's default. The default is deliberately wider --
+    # every file type that is ASCII by policy -- because a developer or a merge
+    # check wants drift surfaced anywhere it lands. This call is different: it
+    # decides whether a runner may START, so its scope stays the set where a
+    # stray byte genuinely breaks first-install on a fresh host. Widening it
+    # here would let one character in any stylesheet or YAML file stop every
+    # runner in the pool, a blast radius the defect does not warrant.
+    $asciiOut  = & $asciiPwsh -NoProfile -ExecutionPolicy Bypass -File $asciiGate -Quiet -Bootstrap 2>&1
     if ($LASTEXITCODE -eq 0) {
         Write-Pass "irm|iex installer and guest scripts are BOM-less 7-bit ASCII."
     } else {

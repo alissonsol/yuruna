@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a1b2c3-d4e5-4f67-8901-bc0123456706
+.VERSION 2026.08.19
+.GUID 42b44044-9076-41c3-a573-d5fa643cd35e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
@@ -149,7 +149,7 @@ $StatusFile = Join-Path $env:YURUNA_RUNTIME_DIR "status.json"
 $TemplatePath = Join-Path $TestRoot "test.config.yml.template"
 
 # --- REGION: Single-instance guard
-# Defensive: if another Invoke-TestRunner.ps1 (the outer) is running,
+# Defensive: if another Start-TestRunner.ps1 (the outer) is running,
 # stop it and wipe stranded test VMs. The normal call path is the
 # outer spawning THIS inner with YURUNA_RUNNER_RELAUNCH=1 -- in which
 # case this whole block is skipped (the outer owns the pidfile). This
@@ -159,16 +159,16 @@ $TemplatePath = Join-Path $TestRoot "test.config.yml.template"
 # for when they do).
 # Shared implementation in Test.SingleInstance.psm1 -- same identity-
 # probe logic as outer, with the inner-specific cmdline pattern below
-# (matches only Invoke-TestRunner.ps1, never a sibling inner). Imported
+# (matches only Start-TestRunner.ps1, never a sibling inner). Imported
 # by the Inner kind at file top.
 $RunnerPidFile = Join-Path $env:YURUNA_RUNTIME_DIR "runner.pid"
 if ($env:YURUNA_RUNNER_RELAUNCH -ne '1') {
-    $priorRunner = Get-RunnerInstanceState -RunnerPidFile $RunnerPidFile -CmdLinePattern 'Invoke-TestRunner\.ps1'
+    $priorRunner = Get-RunnerInstanceState -RunnerPidFile $RunnerPidFile -CmdLinePattern 'Start-TestRunner\.ps1'
     switch ($priorRunner.status) {
         'OtherRunner' {
             Write-Output ""
             Write-Output "============================================="
-            Write-Output "  Another Invoke-TestRunner.ps1 is running"
+            Write-Output "  Another Start-TestRunner.ps1 is running"
             Write-Output "  PID:     $($priorRunner.pid)"
             Write-Output "  Action:  stopping it and running"
             Write-Output "           Remove-TestVMFiles.ps1 before start"
@@ -181,14 +181,14 @@ if ($env:YURUNA_RUNNER_RELAUNCH -ne '1') {
         }
         'Stale' {
             if ($priorRunner.pid -gt 0) {
-                Write-Warning "Stale runner.pid: PID $($priorRunner.pid) is not an Invoke-TestRunner.ps1 process. Ignoring."
+                Write-Warning "Stale runner.pid: PID $($priorRunner.pid) is not a Start-TestRunner.ps1 process. Ignoring."
             }
         }
         default { } # 'None' / 'Self' -- nothing to do
     }
     Remove-Item -LiteralPath $RunnerPidFile -Force -ErrorAction SilentlyContinue
 }
-# When the outer Invoke-TestRunner.ps1 spawned us (YURUNA_RUNNER_RELAUNCH=1),
+# When the outer Start-TestRunner.ps1 spawned us (YURUNA_RUNNER_RELAUNCH=1),
 # leave the pidfile alone -- the outer owns the lock for the whole run.
 # Standalone (direct) invocation owns its own pidfile (no StartTime
 # sidecar -- the outer publishes that).
@@ -762,7 +762,7 @@ if ($Config.vmStart -is [System.Collections.IDictionary] -and $Config.vmStart.Co
     $configCacheIp = "$($Config.vmStart.cachingProxyIp)".Trim()
 }
 if ($envCacheIp -or $configCacheIp) {
-    # Shared probe-and-clear (Test.CachingProxyService) so Invoke-TestSequence applies
+    # Shared probe-and-clear (Test.CachingProxyService) so Debug-TestSequence applies
     # the identical acceptance policy, not a weaker Test-IpAddress-only
     # promotion. Emits the console lines here (the resolver returns them so
     # it stays side-effect-free apart from the env write below).
@@ -802,7 +802,7 @@ if (-not $cpPortLock.Acquired) {
     try {
 # There is deliberately NO sudo prime here any more. Elevation for an
 # unattended host is a launch-time concern (Assert-RunnerElevation, run once by
-# Invoke-TestRunner.ps1 before the loop) or an /etc/sudoers.d drop-in -- never
+# Start-TestRunner.ps1 before the loop) or an /etc/sudoers.d drop-in -- never
 # mid-cycle, where nobody is at the console to answer.
 #
 # The prime that used to sit here also gated on Test-CacheVMOnExternalNetwork,
@@ -929,7 +929,7 @@ Write-Debug "OCR engines: $($activeEngines -join ', ') | combine: $combineMode"
 if (-not (Assert-TesseractInstalled)) { exit $ExitFailure }
 
 Write-RunnerPhase -Phase 'status-service'
-$startScript = Join-Path $TestRoot "Start-StatusService.ps1"
+$startScript = Join-Path $TestRoot "service/Start-StatusService.ps1"
 # Startup: no -Restart -- Start-YurunaStatusServiceIfEnabled lets the server
 # compare-and-skip the relaunch when its in-memory code is still current (zero
 # downtime on the common no-change cycle). The shared gate (Test.Prelude) keeps
@@ -1025,7 +1025,7 @@ try {
     }
 } catch { $null = $_ }
 
-# Outer (Invoke-TestRunner.ps1) owns the runner.pid file across our
+# Outer (Start-TestRunner.ps1) owns the runner.pid file across our
 # single-cycle lifetime; only release it if the inner was invoked
 # directly (no YURUNA_RUNNER_RELAUNCH=1 from the outer).
 if ($env:YURUNA_RUNNER_RELAUNCH -ne '1') {
@@ -1071,7 +1071,7 @@ if (-not $OverallPassed -and $FailedGuest) {
     Write-Output "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
     Write-Output ""
     Write-Output "To reproduce with full diagnostics:"
-    Write-Output "  pwsh test/Invoke-TestRunner.ps1 -NoGitPull -logLevel Debug"
+    Write-Output "  pwsh test/Start-TestRunner.ps1 -NoGitPull -logLevel Debug"
 
     if ($AlertArmed -and $ConsecutiveFailures -ge $FailuresBeforeAlert) {
         # EventData: post-loop alert (stopOnFailure path). Same

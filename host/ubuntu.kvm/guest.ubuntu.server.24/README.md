@@ -10,7 +10,7 @@ GRUB -> "Continue with autoinstall?" -> unattended install -> reboot
 -> text-mode login at `yuuser24` / `<vault-managed>` (password expired on
 first login). Architecture (amd64 / arm64) is picked from the host.
 
-Cross-host concepts: [Hosts — ...](../../README.md).
+Cross-host concepts: [Hosts -- ...](../../README.md).
 
 ## One-time
 
@@ -26,35 +26,16 @@ pwsh ./New-VM.ps1 -VMName myhost            # custom name
 pwsh ./New-VM.ps1 -CachingProxyServiceUrl http://192.168.122.10:3128
 ```
 
-`New-VM.ps1`:
-
-1. Renders the shared `host/vmconfig/ubuntu.server.base.user-data` (+ KVM overlay)
-   and `host/vmconfig/ubuntu.server.meta-data` with hostname,
-   harness SSH public key (auto-generated under
-   `test/status/ssh/yuruna_ed25519` if missing), password hash, optional
-   `CachingProxyServiceUrl`, and the host's coordinates for the dev iteration
-   loop.
-2. Builds a CIDATA seed ISO with `genisoimage`.
-3. Creates an empty 64 G qcow2 install target.
-4. Defines + starts the VM via `virt-install` against `qemu:///system`,
-   booting from the live-server ISO with the seed CD attached. After
-   subiquity finishes, the VM reboots to the text-mode login prompt.
-
-## Defaults
-
-| Knob | Default | Override |
-|------|---------|----------|
-| Name | `ubuntu-server01` | `-VMName` |
-| RAM  | 8 GiB | (edit script) |
-| vCPU | min(host threads − 1, max(2, host threads ÷ 2)) | (edit script) |
-| Disk | 64 G qcow2 (empty install target) | (edit script) |
-| User | `yuuser24` / `<vault-managed>` | `-Username` / `$env:YURUNA_GUEST_PASSWORD` |
-| Net  | libvirt `default` (NAT 192.168.122.0/24) | (edit script) |
+`New-VM.ps1` renders the shared cloud-init base and overlay, builds a
+CIDATA seed ISO, creates the install target, and defines the domain via
+`virt-install`. Read the script for the steps and the defaults it applies:
+restating them here only guarantees they drift, and the overrides that are
+not parameters cannot be documented as anything but "edit the script".
 
 The first-boot password is managed by the authentication extension
 (code at [`test/extension/authentication/`](../../../test/extension/authentication/),
 per-cycle vault.yml at `test/status/extension/authentication/vault.yml`;
-see [Test Runner — Nerd-Level Details](../../../test/read.more.md) for the
+see [Test Runner -- Nerd-Level Details](../../../test/read.more.md) for the
 model). The autoinstall late-commands expire it, so the first
 interactive login asks for current/new/retype before yielding a shell.
 For ad-hoc dev runs outside a cycle, set `$env:YURUNA_GUEST_PASSWORD`
@@ -75,6 +56,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../../../README.md)

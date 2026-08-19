@@ -16,7 +16,7 @@
   // running a CLI on the server, which is not instant.
   async function load(opts) {
     const quiet = !!(opts && opts.quiet);
-    const done = quiet ? function () { } : Y.busy(document.getElementById('ts-rows'), 'Loading test sets…');
+    const done = quiet ? function () { } : Y.busy(document.getElementById('ts-rows'), 'Loading test sets...');
     chrome.busy(true);
     try {
       await renderSets();

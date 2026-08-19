@@ -7,23 +7,23 @@ architecture and [Yuruna Test ...](../test/README.md) for operator usage.
 
 | Script | Purpose |
 |--------|---------|
-| `Invoke-TestRunner.ps1`                            | Continuous test loop (the daily driver) |
+| `Start-TestRunner.ps1`                             | Continuous test loop (the daily driver) |
 | `New-LocalTestUser.ps1`                            | Create a local OS user (Windows / macOS / Ubuntu), optionally with a password and machine-administrator rights, and register it in the default authentication `users.yml` |
 | `Remove-TestVMFiles.ps1`                           | Purge test VMs and per-VM artifacts |
 | `service/Repair-CachingProxyServiceForwarder.ps1`  | macOS/UTM: verify the caching-proxy-service VM is reachable on the LAN and refresh the `yuruna-caching-proxy-service` state file |
 | `service/Start-CachingProxyServiceVM.ps1` / `service/Stop-CachingProxyServiceVM.ps1` | Expose the Squid VM to remote clients |
-| `Start-StatusService.ps1` / `service/Stop-StatusService.ps1` | Detached HTTP status UI |
+| `service/Start-StatusService.ps1` / `service/Stop-StatusService.ps1` | Detached HTTP status UI |
 | `Test-CachingProxyService.ps1`                            | Preflight a local or remote cache |
 | `Test-Config.ps1`                                  | Validate `test.config.yml` + optional notification send |
 | `Invoke-TestProject.ps1`                                 | One-shot variant: wipe + re-clone `<RepoRoot>/project`, run a single cycle |
-| `Invoke-TestSequence.ps1`                                | Dev helper: single sequence, any start/stop step |
+| `Debug-TestSequence.ps1`                                 | Dev helper: single sequence, any start/stop step |
 | `check/Test-TesseractOcr.ps1`                      | OCR sanity check via Tesseract (open-source; independent of WinRT) |
-| `check/Test-WinRtOcr.ps1`                          | OCR sanity check via WinRT — also demonstrates the modern-pwsh "closed access" issue |
+| `check/Test-WinRtOcr.ps1`                          | OCR sanity check via WinRT -- also demonstrates the modern-pwsh "closed access" issue |
 
-`test/` itself holds the eight entry points an operator reaches for daily. The
+`test/` itself holds the seven entry points an operator reaches for daily. The
 rest are grouped by what they act on: `test/lab/` (standing a lab up on this
-host — the four host-neutral entry points, lab creation, local storage, token
-enrolment), `test/pool/` (the pool-admin CLI and the sample intent files),
+host -- the four host-neutral entry points, lab creation, local storage, token
+enrollment), `test/pool/` (the pool-admin CLI and the sample intent files),
 `test/service/` (service VM and host-service lifecycle, plus the caching-proxy
 operations), `test/check/` (standalone sanity checks), `test/modules/` (harness
 internals, not invoked directly). The repo-wide encoding gate lives at
@@ -31,16 +31,16 @@ internals, not invoked directly). The repo-wide encoding gate lives at
 
 ## Cycle
 
-Each iteration of `Invoke-TestRunner.ps1`:
+Each iteration of `Start-TestRunner.ps1`:
 
 1. `git pull`, then re-read `test.config.yml`.
 2. Every 24h (configurable): refresh base images via `Get-Image.ps1`.
 3. For each entry in `guestSequence`:
-   - Verify `host/<short-host>/<guestKey>/` exists — missing folder is a
+   - Verify `host/<short-host>/<guestKey>/` exists -- missing folder is a
      per-guest failure; other guests still run unless `testCycle.stopOnFailure`.
    - Clean the previous test VM.
-   - `New-VM.ps1` → `Start-VM` → poll until running → screenshot
-     checkpoints → YAML sequences dispatched via the cycle planner.
+   - `New-VM.ps1` -> `Start-VM` -> poll until running -> screenshot
+     checkpoints -> YAML sequences dispatched via the cycle planner.
 4. On first failure: leave the VM, send a Resend notification, exit.
 
 ## Modes
@@ -48,8 +48,8 @@ Each iteration of `Invoke-TestRunner.ps1`:
 Each sequence declares its own `keystrokeMechanism` (gui|ssh, default
 gui), selecting how the harness drives the guest:
 
-- `gui` — keystroke injection (Hyper-V scancodes, UTM VNC/CGEvent).
-- `ssh` — routes workloads over SSH using a per-host key under
+- `gui` -- keystroke injection (Hyper-V scancodes, UTM VNC/CGEvent).
+- `ssh` -- routes workloads over SSH using a per-host key under
   `test/status/ssh/` that cloud-init injects into each guest.
 
 Sequences live flat under `sequences/<name>.yml`; an SSH variant is a
@@ -59,34 +59,153 @@ distinct `<name>.ssh.yml` selected by its own name.
 
 Cross-host harness modules live in `test/modules/`. All host-specific
 code (VM lifecycle, image fetch, screenshots, port maps, host proxy)
-is delegated to a per-host driver module — see [Yuruna.Host
+is delegated to a per-host driver module -- see [Yuruna.Host
 contract](#yurunahost-contract).
+
+Every module in `test/modules/` appears below, grouped by the question it
+answers, so a new function can be placed without grepping the tree. Where a
+family has one sibling per host or per platform, the siblings share a row: they
+hold no logic beyond wiring their platform into the family's registry, so they
+are never the right home for anything new.
+
+**Sequence engine and cycle planning** -- what a step is, and which steps a
+cycle runs:
 
 | Module | Purpose |
 |--------|---------|
-| `Test.HostContract`    | Platform detection, git, host-condition guards, `Initialize-YurunaHost` dispatcher |
-| `Test.HostIO`          | Per-host I/O provider registry for `Send-Key` / `Send-Text` / `Send-Click` — see [Host I/O registry](host-io.md) |
-| `Test.SequenceAction`  | Per-verb metadata registry (FailureLabel + capability requirements) consumed by the engine and the capability gate |
-| `Test.SequenceHandler` | Catalog of built-in verb Handler scriptblocks — see [Sequence engine layering](#sequence-engine-layering) |
-| `Test.HostCondition`   | Cross-platform facade over `Test.HostCondition.{Mac,Windows,Linux}.psm1` — see [Host-condition registry](#host-condition-registry) |
+| `Test.SequenceEngine`  | Engine driver: the step loop, `Wait-ForText`, and the two stateful verbs (`retry`, `recoverFromSnapshot`) -- see [Sequence engine layering](#sequence-engine-layering) |
+| `Test.SequenceHandler` | Catalog of built-in verb Handler scriptblocks |
+| `Test.SequenceAction`  | Per-verb metadata registry (FailureLabel, capability requirements, engine-behavior flags) consumed by the engine and the capability gate |
+| `Test.SequenceVariable`| `${var}` and `${ext:area.Method(...)}` substitution in step text |
+| `Test.SequenceResolve` | Parses a sequence YAML and resolves a sequence name to a file across the flat search path |
+| `Test.SequencePlanner` | Builds the per-cycle plan from `test.runner.yml` plus each sequence's `resource` chain |
+| `Test.SequenceRunner`  | Chain planning + chain execution helpers for `Debug-TestSequence.ps1` |
+| `Test.SequenceFailureState` | The single `$global:`-anchored failure-slot store that the engine and the handler catalog both read and write |
+| `Test.Orchestrator`    | Runs an orchestration sequence's inner sequences in-process under one `status.json` cycle |
+| `Test.Start-GuestOS` / `Test.Start-GuestWorkload` | The two runner tiles: `start.*` sequences first, everything else after |
 | `Test.Capability`      | [Capability matrix](#capability-matrix-and-cycle-plan-gate) and cycle-plan gate (refuses cycles whose sequences need an unwired host I/O backend) |
-| `Test.Config`          | Cached YAML reader (`Read-TestConfig`, `Get-TestConfigValue`) used by every runner / entry-point |
-| `Test.ConfigPreflight` | `Invoke-ConfigGate` — pre-cycle `Test-Config.ps1` gate shared by every entry point |
-| `Test.LogLevel`        | Canonical log-level cascade (`Resolve-LogLevel`, `Use-LogLevelFromEnv`) — see [Log-level cascade](loglevels.md) |
-| `Test.InnerSpawn`      | `New-InnerRunnerArgList` — type-preserving pwsh -Command argv builder for the outer→inner spawn and `Invoke-TestProject` |
-| `Test.Output`          | `Write-Pass`/`Fail`/`Warn`/`Section`/`Summary` + counters; reused across `Test-Config` and other check scripts |
-| `Test.ConfigValidator` | `Test-AgainstSchema`, `Test-IsSet`, `Test-RepoFreshness` — pieces of `Test-Config.ps1` reusable by future check scripts |
-| `Test.PortOwner`       | `Get-PortListenerPid` (Windows HTTP.sys + Unix lsof) + `Resolve-PortOrphan` for the status-service port |
-| `Test.Status`          | `status.json` lifecycle |
-| `Test.Extension`       | Loader for the pluggable extension areas under `test/extension/<area>/` (authentication, notification), plus `Get-ExtensionHostAddress` — where a service area (stash, pool-control service) is reachable for this host — see [Extensions API](extensions-api.md) |
-| `Test.Notify`          | Thin dispatcher to the active notification extension(s) (`Send-Notification -EventCode -EventMessage -EventNote`); default extension delivers email via Resend |
-| `Test.Log` / `Test.YurunaDir` | Transcript and state directories |
-| `Test.Start-GuestOS`        | Start-GuestOS tile: start.guest.* sequence orchestration |
-| `Test.Start-GuestWorkload`  | Start-GuestWorkload tile: post-OS workload sequence orchestration |
-| `Test.OcrEngine` / `Test.Tesseract` | Pluggable [OCR providers](ocr.md) |
-| `Test.Ssh`             | Per-guest SSH keys + `ssh`/`scp` helpers |
-| `Test.Provenance`      | Artifact provenance metadata |
+| `Test.WarmResume`      | Which failure classes an in-place resume is sound for, plus the checkpoint that says which step to resume at |
+| `Test.Backoff`         | Shared poll-delay math (exponential, jittered) for every filesystem-state wait loop |
+
+**Driving and perceiving the guest** -- keyboard, mouse, screen, OCR, SSH:
+
+| Module | Purpose |
+|--------|---------|
+| `Test.HostIO`          | Per-host I/O provider registry for `Send-Key` / `Send-Text` / `Send-Click` -- see [Host I/O registry](host-io.md) |
+| `Test.HostIO.{HyperV,Kvm,Utm}` | Registration-only wiring: bind each host type to its backends. No logic |
+| `Test.Transport`       | The backend bodies themselves -- PS/2 scancodes, VNC/RFB, AppleScript/CGEvent -- and the settle windows they need |
+| `Test.KeyCodeRegistry` | Per-transport key-code and character tables the transports look up |
+| `Test.VncProvider`     | VNC connection registry + `Repair-VncConnection`, which forces the next call to re-handshake after a cached handle goes stale |
+| `Test.ScreenshotProvider` | Screenshot-capture provider registry + `Repair-ScreenshotRing` |
+| `Test.OcrEngine` / `Test.Tesseract` | Pluggable [OCR providers](ocr.md) and the Tesseract locate / install / invoke helpers |
+| `Test.OcrMatch`        | OCR-tolerant normalization and matching (confusion groups) + the multi-engine combiner |
+| `Test.Ssh`             | Per-guest SSH keys, the mandatory host-key options, and the `ssh` / `scp` helpers |
+
+**Host platform** -- what this machine is, and what it must be for a cycle to run:
+
+| Module | Purpose |
+|--------|---------|
+| `Test.HostContract`    | Thin facade re-exporting the four `Test.Host*` siblings; new code imports the sibling directly |
+| `Test.HostDetection`   | Host-type discovery, host-folder mapping, test VM-name derivation, minimum-requirement checks |
+| `Test.HostBootstrap`   | `Initialize-YurunaHost` -- imports the matching `Yuruna.Host` driver into the runner's session |
+| `Test.HostCondition` (+ `.Mac`, `.Windows`, `.Linux`) | Facade + per-platform Set/Assert/AssertMinimum triplets -- see [Host-condition registry](#host-condition-registry) |
+| `Test.HostGit`         | Framework `git pull`, HEAD reporting, project wipe-and-re-clone, and the on-demand PSGallery installs pwsh does not ship |
+| `Test.HostAutomationState` | Records each host knob's prior value before `Enable-TestAutomation` writes it, so `Disable` can restore rather than guess |
+| `Test.HostFacts`       | The machine's own hardware facts in the shape `/control/host-facts` serves them, including the storage-counting rules |
+| `Test.HostIdentity`    | Hardware fingerprint + the operator-confirmed uuid reclaim that keeps a reimaged host's pool history from forking |
+| `Test.HostAddressBeacon` | Push half of address discovery: re-announces this host when its address changes instead of waiting for the aggregator's pull |
 | `Test.VMUtility`       | Cross-host VM helpers shared by every Yuruna.Host driver |
+| `Test.ServiceVm`       | Service-VM roster and the reachability probe that brings them back after a host reboot |
+| `Test.StatusFirewall`  | Per-OS allow rule that makes the status-service port reachable from the LAN |
+| `Test.RootArtifact`    | Finds and clears the root-owned state a `sudo` run of an entry point leaves behind (Unix only) |
+
+**Runner lifecycle** -- starting, supervising and recovering the loop:
+
+| Module | Purpose |
+|--------|---------|
+| `Test.Prelude`         | The canonical path bundle, module-set bootstrap and exit-code contract every entry point starts from |
+| `Test.RunnerOuterLoop` | The eternal loop -- see [Runner outer loop](runner-outer-loop.md) |
+| `Test.RunnerInnerLoop` | Per-cycle helpers threaded through one cycle by the inner runner |
+| `Test.RunnerWatchdog`  | Out-of-process step-heartbeat watchdog; kills a wedged inner |
+| `Test.RunnerHeartbeat` | Threadpool-timer process heartbeat, which keeps ticking while the runspace blocks |
+| `Test.RunnerState`     | Explicit outer-runner state machine with persisted state + NDJSON transition events |
+| `Test.RunnerElevation` | Launch-time elevation contract: resolve it once while an operator is present, or refuse to start |
+| `Test.SingleInstance`  | Pidfile guard shared by the runner trio (`Get-RunnerInstanceState`, `Stop-StaleRunner`) |
+| `Test.InnerSpawn`      | `New-InnerRunnerArgList` -- type-preserving `pwsh -Command` argv builder for the outer->inner spawn and `Invoke-TestProject` |
+| `Test.Recovery`        | Boot-time sweep that detects and archives every stale state class a crashed cycle left behind |
+
+**Configuration**:
+
+| Module | Purpose |
+|--------|---------|
+| `Test.Config`          | Cached YAML reader (`Read-TestConfig`, `Get-TestConfigValue`) used by every runner / entry point |
+| `Test.ConfigValidator` | `Test-AgainstSchema`, `Test-IsSet`, `Test-RepoFreshness` -- the rules layer, reusable by any check script |
+| `Test.ConfigPreflight` | `Invoke-ConfigGate` -- pre-cycle `Test-Config.ps1` gate shared by every entry point |
+| `Test.ConfigSync`      | Live `test.config.yml` <-> shipped-template reconciliation at cycle start |
+| `Test.ConfigNaming`    | The retired-key table: old dotted path -> new path + unit factor, shared by the validator and the rewriter |
+| `Test.ConfigServiceSync` | Copies a reference pool host's configuration onto this host, converting the host-type-specific values |
+| `Test.ConfigServiceCA` | Per-host Config CA (mTLS) backing the config service: one server leaf, one client leaf per VM |
+| `Test.LogLevel`        | Canonical log-level cascade (`Resolve-LogLevel`, `Use-LogLevelFromEnv`) -- see [Log-level cascade](loglevels.md) |
+
+**Logging, status and telemetry**:
+
+| Module | Purpose |
+|--------|---------|
+| `Test.Log`             | Cycle-filesystem owner: cycle folder, per-guest subfolders, `cycle.events.ndjson`, `manifest.json` |
+| `Test.Output`          | Per-script PASS/FAIL/WARN tally + `Write-Summary` banner, reused across `Test-Config` and the check scripts |
+| `Test.LogRotation`     | Byte-bounded N-file rotation for the cycle-independent append-only files |
+| `Test.YurunaDir`       | Resolves and creates `$env:YURUNA_LOG_DIR` / `$env:YURUNA_RUNTIME_DIR` |
+| `Test.Status`          | `status.json` lifecycle, including the nested-cycle lock |
+| `Test.EventSchema`     | Validates every NDJSON record at the emit site, so a field typo is caught before it lands on disk |
+| `Test.Perf`            | One JSONL perf row per step execution, one file per cycle |
+| `Test.Provenance`      | Reads the base-image provenance sidecar `Get-Image.ps1` writes |
+| `Test.FrameworkSource` | Which framework snapshot a service VM was built from, and whether the guest fell back to the public mirror |
+| `Test.PortOwner`       | `Get-PortListenerPid` (Windows HTTP.sys + Unix lsof) + `Resolve-PortOrphan` for the status-service port |
+| `Test.Notify`          | Thin dispatcher to the active notification extension(s) (`Send-Notification -EventCode -EventMessage -EventNote`); the default extension delivers email via Resend |
+
+**Failure classification and recovery**:
+
+| Module | Purpose |
+|--------|---------|
+| `Test.FailureTaxonomy` | Canonical `FailureClass` / `Severity` arrays; a leaf module every other consumer reads from |
+| `Test.Remediation`     | Failure-class -> recovery dispatcher (`Register-RecoveryHandler`) -- see [Failure schema](failure-schema.md) |
+| `Test.GuestQuarantine` | Per-guest circuit breaker: N same-class failures quarantine that guest, with host-scoped classes excluded |
+| `Test.Diagnostic`      | Post-failure guest capture and its strategy chain -- see [Per-cycle diagnostic capture](#per-cycle-diagnostic-capture) |
+| `Test.SnapshotManifest`| Snapshot sidecars, so a restore can refuse a snapshot it does not recognize |
+| `Test.CredentialProvider` | Test-only inspection / repair helpers over the [component-login registry](authentication.md#component-registry-login) |
+
+**Pool and lab** -- everything that is only meaningful with more than one machine:
+
+| Module | Purpose |
+|--------|---------|
+| `Test.PoolSync`        | Pulls the pool intent (membership + desiredState) and reconciles it into the outer loop |
+| `Test.PoolPlanner`     | Turns the pool's assigned test-sets into the subset of guests this host can actually run |
+| `Test.PoolAdmin`       | Helpers behind the pool-admin CLI; every change is schema-validated before it is committed |
+| `Test.PoolStorage`     | Optional SMB3 share as the durable tier for cycle output, plus the drain that commits and reclaims |
+| `Test.PoolPush`        | Pushes a cycle's NDJSON to the aggregator over CA-pinned HTTPS, closing the between-poll gap |
+| `Test.PoolNotifier`    | Delivers the aggregator's pool-degraded alerts through the notification extension, spooled on the share |
+| `Test.PoolWorker`      | Converting a standalone host into a pool worker, and retiring the local services that would otherwise win the lookup |
+| `Test.Lab`             | Lab-vault format and the machine-credential lookup; read-only, and never mints a credential |
+| `Test.LocalLabStorage` | Turns one machine into its own SMB pool/stash server so a single-host lab exercises the network path |
+
+**Extensions and service VMs**:
+
+| Module | Purpose |
+|--------|---------|
+| `Test.Extension`       | Loader for the pluggable extension areas under `test/extension/<area>/`, plus `Get-ExtensionHostAddress` -- where a service area is reachable for this host -- see [Extensions API](extensions-api.md) |
+| `Test.ExtensionService`| The `service:` manifest an area declares about itself, and the runtime marker saying this host runs it |
+| `Test.DownloadAgentService` | Host-side download-agent lifecycle: the marker, the readiness probe, the published address |
+| `Test.CachingProxyService` | Cross-cycle state for the caching-proxy VM (admin password + IP) -- see [Caching proxy](caching.md) |
+| `Test.CachingProxyServiceLock` | The serialization lock around caching-proxy rebuild / port-map writes, and the adopt-if-healthy decision |
+
+**Shared primitives** -- leaf modules with no harness dependencies:
+
+| Module | Purpose |
+|--------|---------|
+| `Test.Registry`        | `New-YurunaRegistry` -- the closure-bundle + global-anchor primitive every registry above is built on |
+| `Test.StateFile`       | Atomic sidecar writer -- see [State sidecars](#state-sidecars) |
+| `Test.Hash`            | Byte array -> lowercase hex, so every hashing caller shares one encoding |
+| `Test.Assert`          | The suite assertion vocabulary and test scaffolds -- see [One assertion vocabulary](#one-assertion-vocabulary). Imported by suites only, never by harness code |
 
 ### Test.Config* role pyramid
 
@@ -139,36 +258,36 @@ per-OS `.ps1` glue is required. Full architecture:
 
 ```
 test/
-├── sequences/
-│   ├── actions.yml             Action catalog (YAML, machine-readable)
-│   ├── _snippets.yml           Shared step snippets
-│   └── <name>[.ssh].yml        Flat sequence files (SSH variant = .ssh.yml suffix)
-├── schemas/                    JSON Schema files (YAML-encoded) for extension/* configs + vault
-├── extension/                  Pluggable extension areas (Test.Extension loader; committed code only)
-│   ├── authentication/         default.psm1, authentication.config.yml
-│   ├── notification/           default.psm1, notification.config.yml, transports.yml.template
-│   └── …                       7 areas total — see [extensions-api.md](extensions-api.md)
-├── screenshots/<guestKey>/     [Optional — operator-populated; absent by default]
-│   ├── schedule.json           Capture checkpoints + thresholds (create if using screenshot validation)
-│   └── reference/*.png         Trained reference screenshots (commit manually per checkpoint)
-└── status/                     Status dashboard + ALL harness runtime state
-    ├── index.html, diagnostics.html, config.html, yuruna.common.{css,js},
-    │                           status.json.template     (committed UI)
-    ├── runtime/                $env:YURUNA_RUNTIME_DIR -- pids,
-    │                           status.json, control flags, ipaddresses.txt,
-    │                           caching-proxy-service.txt, server.err, host.uuid,
-    │                           yuruna-caching-proxy-service.yml, .status-service.ps1
-    ├── log/                    $env:YURUNA_LOG_DIR -- HTML transcripts,
-    │                           OCR debug, failure screenshots
-    ├── perf/                   JSONL perf rows + content-addressed
-    │                           host/guest dumps
-    ├── extension/
-    │   ├── authentication/     vault.yml, vault.lock, events.log (plaintext by design — ephemeral test-VM credentials only; threat model: docs/authentication.md)
-    │   └── notification/       transports.yml (Resend API key)
-    ├── captures/
-    │   ├── sequences/          takeScreenshot debug PNGs
-    │   └── training/           per-cycle training captures, guest-prefixed
-    └── ssh/                    yuruna_ed25519(.pub) -- generated per host
++-- sequences/
+|   +-- actions.yml             Action catalog (YAML, machine-readable)
+|   +-- _snippets.yml           Shared step snippets
+|   +-- <name>[.ssh].yml        Flat sequence files (SSH variant = .ssh.yml suffix)
++-- schemas/                    JSON Schema files (YAML-encoded) for extension/* configs + vault
++-- extension/                  Pluggable extension areas (Test.Extension loader; committed code only)
+|   +-- authentication/         default.psm1, authentication.config.yml
+|   +-- notification/           default.psm1, notification.config.yml, transports.yml.template
+|   +-- ...                       7 areas total -- see [extensions-api.md](extensions-api.md)
++-- screenshots/<guestKey>/     [Optional -- operator-populated; absent by default]
+|   +-- schedule.json           Capture checkpoints + thresholds (create if using screenshot validation)
+|   +-- reference/*.png         Trained reference screenshots (commit manually per checkpoint)
++-- status/                     Status dashboard + ALL harness runtime state
+    +-- index.html, diagnostics.html, config.html, yuruna.common.{css,js},
+    |                           status.json.template     (committed UI)
+    +-- runtime/                $env:YURUNA_RUNTIME_DIR -- pids,
+    |                           status.json, control flags, ipaddresses.txt,
+    |                           caching-proxy-service.txt, server.err, host.uuid,
+    |                           yuruna-caching-proxy-service.yml, .status-service.ps1
+    +-- log/                    $env:YURUNA_LOG_DIR -- HTML transcripts,
+    |                           OCR debug, failure screenshots
+    +-- perf/                   JSONL perf rows + content-addressed
+    |                           host/guest dumps
+    +-- extension/
+    |   +-- authentication/     vault.yml, vault.lock, events.log (plaintext by design -- ephemeral test-VM credentials only; threat model: docs/authentication.md)
+    |   +-- notification/       transports.yml (Resend API key)
+    +-- captures/
+    |   +-- sequences/          takeScreenshot debug PNGs
+    |   +-- training/           per-cycle training captures, guest-prefixed
+    +-- ssh/                    yuruna_ed25519(.pub) -- generated per host
 ```
 
 Per-action reference (verb-by-verb behavior and per-host contract
@@ -182,7 +301,7 @@ Each area under `test/extension/<area>/` ships a committed
 list). To override, drop a sibling `<name>.psm1` next to
 `default.psm1` and edit the area's `<area>.config.yml`.
 
-- **authentication** — credential vault simulating an external auth
+- **authentication** -- credential vault simulating an external auth
   provider. The default extension's vault.yml persists across cycles
   (Initialize-VaultConnection is a no-op when the file already
   exists); the "fake" behavior is the lazy-create branch in
@@ -193,7 +312,7 @@ list). To override, drop a sibling `<name>.psm1` next to
   `${ext:authentication.NewRandomPassword()}` substitutions; commits go
   through the `callExtension` action verb (`authentication.SetPassword`). A
   named system mutex serializes read-modify-write across parallel guests.
-- **notification** — per-event-code dispatch (`cycle.failure`,
+- **notification** -- per-event-code dispatch (`cycle.failure`,
   `config.smoke`). Subscribers and transport credentials live in
   `test/status/extension/notification/transports.yml` (gitignored
   runtime state); template (`transports.yml.template`) ships in-tree
@@ -210,7 +329,7 @@ A suite that stands up a throwaway `$env:YURUNA_RUNTIME_DIR` names it from
 file-scope variable. Both details are load-bearing, and both failures are
 silent:
 
-- The file's body is executed during Pester's DISCOVERY pass — and, when the
+- The file's body is executed during Pester's DISCOVERY pass -- and, when the
   file is run as the entry script, once more before that.
   `$env:YURUNA_RUNTIME_DIR` is process-global, so the last body execution wins,
   while the `It` blocks read the name captured by the first. A per-execution
@@ -227,11 +346,62 @@ file-level code runs during discovery, BEFORE any `It`, so a trailing
 `Remove-Item` deletes the directory the tests are about to mint into rather than
 cleaning up after them.
 
-Helper FUNCTIONS are the opposite case and stay at file scope, above the first
-`Describe`: function lookup walks the scope chain, so an `It` resolves them,
-while a `Describe` body's functions are discarded before any `It` runs. See
-[Pester file-scope fixtures](memory.md#pester-file-scope-fixtures) for that rule
-and what must stay out of the file body.
+Fixtures and helper functions belong in a `BeforeAll` -- the scope Pester shares
+with every `It`. A file-scope assignment resolves under `pwsh -File <suite>` and
+binds as EMPTY under `Invoke-Pester -Path <suite>`, so a suite written that way
+reports green one way and red the other. See
+[Pester file-scope fixtures](memory.md#pester-file-scope-fixtures) for the full
+rule, including the three placements that look like the trap and are correct.
+`Test.SuiteHelperAdoption.Tests.ps1` fails any suite that declares no
+`BeforeAll`.
+
+## Running the suites
+
+The suites are **not** part of a test cycle. They run beside the harness:
+
+```
+pwsh -NoProfile -File tools/Invoke-TestSuite.ps1            # everything
+pwsh -NoProfile -File tools/Invoke-TestSuite.ps1 -Filter 'Test.Pool*'
+pwsh -NoProfile -File tools/Invoke-TestSuite.ps1 -ListOnly  # discovery only
+```
+
+One process per suite, so one suite's imports, global state or crash cannot
+color another's result. Each child sets a `PesterConfiguration` and then invokes
+the suite with the call operator rather than `Invoke-Pester -Path`, which is
+what keeps the file-scope-fixture suites working while still emitting NUnit XML.
+
+**The exit code of a single suite is not a pass/fail signal.** Pester's
+standalone path does not propagate a failing run through the call operator: a
+suite whose tests fail still returns 0, and one that discovers nothing returns 0
+with zero tests. The runner therefore reads the result file and fails on five
+conditions -- no result file (crash, parse error, timeout), failures or errors,
+zero tests, a suite in the baseline missing from the run, or a suite's test
+count below its baseline. The last two are what catch SILENT test loss: a
+deleted suite and a `Describe` that quietly stopped discovering half its cases.
+
+`test/modules/suite-baseline.json` is that reference and is tracked. Re-record
+it with `-UpdateBaseline` only as a deliberate, reviewed change -- it is the only
+thing standing between the suite set and a slow leak of coverage.
+
+`tools/Invoke-GoTest.ps1` is the same idea for the extension services: `go
+build`, `go vet` and `go test` per module, discovered by walking for `go.mod`.
+
+## One assertion vocabulary
+
+Suites import [`Test.Assert.psm1`](../test/modules/Test.Assert.psm1) rather than
+declaring their own helpers -- `Assert-True/False/Equal/StringEqual/NotEqual/
+Null/NotNull/Match/Throw/NoFinding`, plus `Get-YurunaTestRepoRoot`,
+`New-YurunaTestTempDir` and the AST loaders. `Test.SuiteHelperAdoption.Tests.ps1`
+fails a suite that redeclares any of them; without that guard the count grew from
+234 to 296 hand-rolled definitions, in three mutually incompatible meanings for
+`Assert-Equal`.
+
+`Assert-Equal` compares **by value**; `Assert-StringEqual` compares string
+renderings. They are separate exports because they genuinely differ -- on leading
+zeros, whitespace, float rendering, `$null` against an empty string, and, most
+sharply, on arrays, where `-ne` filters element-wise instead of comparing and so
+REJECTS two identical arrays. They are NOT separated by type strictness:
+`1 -ne '1'` is false in both.
 
 ## Self-healing extension points
 
@@ -246,12 +416,12 @@ eviction-safe global-anchor pattern but is hand-rolled in
 [`automation/Yuruna.CredentialProvider.psm1`](../automation/Yuruna.CredentialProvider.psm1)
 (so it stays out of `test/` and is not in `Get-YurunaRegistryDirectory`):
 
-- [OCR providers](ocr.md) — `Register-OcrProvider`
-- [Host I/O registry](host-io.md) — `Register-HostIOProvider`
-- Sequence actions — `Register-SequenceAction` (see
+- [OCR providers](ocr.md) -- `Register-OcrProvider`
+- [Host I/O registry](host-io.md) -- `Register-HostIOProvider`
+- Sequence actions -- `Register-SequenceAction` (see
   [`Test.SequenceAction.psm1`](../test/modules/Test.SequenceAction.psm1))
-- [Component registry login](authentication.md#component-registry-login) — `Register-CredentialProvider`
-- [Host-condition registry](#host-condition-registry) — `Register-HostConditionProvider`
+- [Component registry login](authentication.md#component-registry-login) -- `Register-CredentialProvider`
+- [Host-condition registry](#host-condition-registry) -- `Register-HostConditionProvider`
 
 Plus the [remediation dispatcher](failure-schema.md#remediation-dispatcher) (`Register-RecoveryHandler`,
 failure-class to recommendation), and the file-based
@@ -268,21 +438,21 @@ into [Test.RunnerOuterLoop](runner-outer-loop.md) and
 independently of the entry-point script.
 
 Cloud-init seed rendering goes through the
-[cloud-init template pipeline](vmconfig.md#how-user-data-is-rendered) — shared base
+[cloud-init template pipeline](vmconfig.md#how-user-data-is-rendered) -- shared base
 + per-host overlay + placeholder safety net.
 
 ## Sequence engine layering
 
 Three modules share the sequence-engine surface:
 
-- `Test.SequenceAction.psm1` — the registry primitive
+- `Test.SequenceAction.psm1` -- the registry primitive
   (`Register-SequenceAction`, per-verb FailureLabel + capability metadata).
-- `Test.SequenceHandler.psm1` — the catalog of built-in verb Handler
+- `Test.SequenceHandler.psm1` -- the catalog of built-in verb Handler
   scriptblocks. Adding a verb is a local edit here, not a merge-conflict
   magnet on the engine. Every handler in this module talks to the
   engine purely through the `$Context` hashtable and the standard
   `Yuruna.Host` / `Test.Ssh` / `Test.Extension` / `Test.Log` exports.
-- `Test.SequenceEngine.psm1` — the engine driver. Two stateful verbs
+- `Test.SequenceEngine.psm1` -- the engine driver. Two stateful verbs
   (`retry` and `recoverFromSnapshot`) deliberately stay here because
   they coordinate the engine's `$script:LastFailure*` state with the
   recursive `$invokeStepBlock` dispatch. Lifting that state into a
@@ -292,13 +462,13 @@ Three modules share the sequence-engine surface:
 ## Capability matrix and cycle-plan gate
 
 At every cycle start the inner runner publishes a single banner naming
-what the harness can do on the current host — which OCR engines are
+what the harness can do on the current host -- which OCR engines are
 available, which host I/O actions are wired, which extensions are
 active in each area. The same matrix is cross-referenced against the
 per-cycle sequence plan: cycles that reference an unimplemented host
 I/O action fail before any VM is touched, with a message naming the
 missing backend instead of failing late inside a step with
-"Unknown host: …".
+"Unknown host: ...".
 
 Implementation:
 [`test/modules/Test.Capability.psm1`](../test/modules/Test.Capability.psm1).
@@ -310,9 +480,9 @@ Surfaces three underlying registries:
 ### The banner
 
 ```
-─────────────────────────────────────────────────────────
+---------------------------------------------------------
 Yuruna capability matrix (host.windows.hyper-v)
-─────────────────────────────────────────────────────────
+---------------------------------------------------------
   Host I/O:   Send-Click, Send-Key, Send-Text
   OCR:        winrt, tesseract
   Recovery:   VNC reconnect (built-in (clear cached handle)), screenshot (legacy capture)
@@ -320,7 +490,7 @@ Yuruna capability matrix (host.windows.hyper-v)
     authentication         default
     caching-proxy-parser-service   default
     notification           default
-─────────────────────────────────────────────────────────
+---------------------------------------------------------
 ```
 
 Printed once per cycle, right after `Resolve-CyclePlan` succeeds. Lands
@@ -335,7 +505,7 @@ After printing the banner the inner calls
 1. Walks every sequence in the cycle plan (including nested `retry`
    blocks) and collects the action verbs used.
 2. For each verb, looks up its requirements via
-   [`Test.SequenceAction\Get-SequenceActionRequirementMap`](../test/modules/Test.SequenceAction.psm1) —
+   [`Test.SequenceAction\Get-SequenceActionRequirementMap`](../test/modules/Test.SequenceAction.psm1) --
    each verb declares which host I/O actions it needs and whether OCR
    is required.
 3. Cross-references the requirements against the live
@@ -397,7 +567,7 @@ Today (see the `Register-SequenceAction` calls in
 | `saveDiskSnapshot` / `loadDiskSnapshot` / `saveSystemDiagnostic` / `takeScreenshot` / `break` / `callExtension` / `recoverFromSnapshot` / `retry` / `waitForSeconds` | _(none)_ | no |
 
 Adding a new verb means one `Register-SequenceAction` call that
-declares its capabilities — the gate picks it up on the next cycle.
+declares its capabilities -- the gate picks it up on the next cycle.
 
 ### Guest coverage caveats
 
@@ -431,12 +601,12 @@ Used by future health-checks, CI smoke tests, and the upcoming
 Each supported host platform (Windows Hyper-V, macOS UTM, Ubuntu KVM)
 exposes the same three-method contract:
 
-- `Set-<Platform>HostConditionSet` — apply settings the unattended
+- `Set-<Platform>HostConditionSet` -- apply settings the unattended
   runner needs (display timeout, screen lock, sudo cache, libvirt
   group membership, ...). Called by `Enable-TestAutomation.ps1`.
-- `Assert-<Platform>HostConditionSet` — gate every test cycle on
+- `Assert-<Platform>HostConditionSet` -- gate every test cycle on
   those settings still being in effect.
-- `Test-<Platform>HostMinimum` — quick check for one-off operator
+- `Test-<Platform>HostMinimum` -- quick check for one-off operator
   helpers (`Remove-TestVMFiles.ps1`, `Remove-OrphanedVMFiles.ps1`,
   ...) where the full Assert would be a false positive during
   interactive maintenance.
@@ -468,9 +638,9 @@ one `Register-HostConditionProvider` call. Callers keep
 | `Clear-HostConditionProvider` | Tests only |
 | `Assert-HostConditionSet -HostType` | Outer runner per-cycle gate |
 | `Get-HostClockSkew` / `Get-HostClockSkewLimit` | Host-clock measurement (direct NTP over UDP) |
-| `Write-HostClockDriftWarning -HostType` | Every platform's `Assert` — measures once per process and warns |
+| `Write-HostClockDriftWarning -HostType` | Every platform's `Assert` -- measures once per process and warns |
 | `Reset-HostClockReport` | Tests only (re-arms the once-per-process latch) |
-| `Sync-HostClock -HostType` | `Test-Config` fix offer; `Enable-TestAutomation.ps1` — never a running cycle |
+| `Sync-HostClock -HostType` | `Test-Config` fix offer; `Enable-TestAutomation.ps1` -- never a running cycle |
 | `Test-ElevationRequired -HostType` | Cleanup helpers ([`Test.HostDetection`](../test/modules/Test.HostDetection.psm1)) |
 | `Test-HostRequirement -HostType [-Quiet]` | One-off operator helpers ([`Test.HostDetection`](../test/modules/Test.HostDetection.psm1)) |
 
@@ -500,11 +670,11 @@ cleanup helpers that legitimately run during interactive maintenance.
 
 | HostType | RequiresElevation | What `Assert` gates on | `ClockSync` |
 |---|---|---|---|
-| `host.windows.hyper-v` | `$true` | Administrator elevation, vmms service, display timeout, lock screen | W32Time → Automatic + started + `w32tm /resync /force` |
+| `host.windows.hyper-v` | `$true` | Administrator elevation, vmms service, display timeout, lock screen | W32Time -> Automatic + started + `w32tm /resync /force` |
 | `host.macos.utm` | `$false` | Accessibility + Screen Recording TCC grants, display sleep, screen lock | `systemsetup -setusingnetworktime on` + `sntp -sS` |
 | `host.ubuntu.kvm` | `$false` | `/dev/kvm` present, libvirtd active, virsh round-trip, current shell's group set includes `libvirt` | `timedatectl set-ntp true` + step the active daemon |
 
-Every `Assert` also reports the host clock, but never gates on it —
+Every `Assert` also reports the host clock, but never gates on it --
 see below.
 
 The Linux `Assert` diagnostic distinguishes "kvm missing" from
@@ -515,7 +685,7 @@ all" so the operator gets actionable steps, not a generic
 ### The host clock
 
 Every hypervisor here seeds a guest's clock from the host at
-power-on, so a host that has drifted starts every VM equally wrong —
+power-on, so a host that has drifted starts every VM equally wrong --
 and the guest's own NTP client steps it to real time seconds into the
 boot, landing in the middle of whatever that guest is bringing up. A
 Kubernetes guest survives that step looking healthy from every angle
@@ -526,21 +696,21 @@ while a `curl` straight at the pod IP answers `200`. Nothing in that
 picture points back at a clock.
 
 A cycle reports the clock; only an operator repairs it. Every
-platform's fix is a privileged call — Administrator, or a sudo
-credential nobody is present to type — so an unattended loop can
+platform's fix is a privileged call -- Administrator, or a sudo
+credential nobody is present to type -- so an unattended loop can
 neither perform it nor stop to ask, and a host that refused cycles
 over a clock would run none until someone noticed.
 
 | Level | What happens |
 |-------|--------------|
-| `Write-HostClockDriftWarning`, in every platform's `Assert` | Measures **once per process** (a fresh process runs each cycle, so once per cycle) and warns past `Get-HostClockSkewLimit` (120s) with the symptom spelled out. The cycle continues. An **unmeasurable** clock says nothing — an isolated lab has no route to a time server and is a normal deployment. |
-| `Test-Config.ps1` | Reports the skew, then offers the repair — only to a console that can answer. Accepting primes the sudo credential cache (`Initialize-SudoCache`) before `Sync-HostClock`, because every platform's sync is `sudo -n` and would otherwise fail on the answer just given. |
+| `Write-HostClockDriftWarning`, in every platform's `Assert` | Measures **once per process** (a fresh process runs each cycle, so once per cycle) and warns past `Get-HostClockSkewLimit` (120s) with the symptom spelled out. The cycle continues. An **unmeasurable** clock says nothing -- an isolated lab has no route to a time server and is a normal deployment. |
+| `Test-Config.ps1` | Reports the skew, then offers the repair -- only to a console that can answer. Accepting primes the sudo credential cache (`Initialize-SudoCache`) before `Sync-HostClock`, because every platform's sync is `sudo -n` and would otherwise fail on the answer just given. |
 | `Set-*HostConditionSet` / `Enable-TestAutomation.ps1` | The durable fix: enable the platform's time service so it stays disciplined. |
 
 `Get-HostClockSkew` speaks NTP directly over UDP rather than shelling
 out to the platform's time client: on a drifting host that client is
 usually broken or absent, its output is localized, and its timeouts
-are not ours to choose. It returns `$null` — never `0` — when nothing
+are not ours to choose. It returns `$null` -- never `0` -- when nothing
 answers, so "unreachable network" can never be mistaken for
 "disciplined clock".
 
@@ -552,7 +722,7 @@ The facade calls
 and exposes thin wrappers around `Register` / `Get` / `GetMatrix` /
 `Clear`. The provider entries survive `-Force` re-imports of the
 facade because the backing store is anchored under
-`$global:YurunaHostConditionProviders` — the same eviction-safety
+`$global:YurunaHostConditionProviders` -- the same eviction-safety
 pattern `Test.HostIO`, `Test.SequenceAction`, and `Test.CredentialProvider`
 use. `Assert-HostConditionSet`, `Test-ElevationRequired`, and
 `Test-HostRequirement` are therefore pure registry lookups.
@@ -569,7 +739,7 @@ use. `Assert-HostConditionSet`, `Test-ElevationRequired`, and
    `Register-IfAvailable` line listing the new HostType + function
    names + `RequiresElevation`. Add `-ClockSyncFn` pointing at a
    `Sync-<Platform>HostClock` that returns `@{ Succeeded; Message }`
-   — without it the platform reports a drifted clock but offers the
+   -- without it the platform reports a drifted clock but offers the
    operator no way to fix it.
 4. Add the matching `HostType` token to
    [`Test.HostDetection`](../test/modules/Test.HostDetection.psm1)'s
@@ -582,8 +752,8 @@ use. `Assert-HostConditionSet`, `Test-ElevationRequired`, and
    automatically.
 
 Related registries: [Component registry login](authentication.md#component-registry-login)
-— same eviction-safe global-anchor pattern, hand-rolled rather than
-built on `New-YurunaRegistry`; [Host I/O registry](host-io.md) — the older
+-- same eviction-safe global-anchor pattern, hand-rolled rather than
+built on `New-YurunaRegistry`; [Host I/O registry](host-io.md) -- the older
 two-level registry that established the pattern. Per-platform deep
 dives: [macOS host](host-macos.md), [Hyper-V host](host-hyperv.md).
 
@@ -597,14 +767,14 @@ through the atomic writer in
 1. Write payload to `<Path>.<PID>-<GUID>.tmp` as UTF-8 (no BOM by
    default; `-WithBom` for PowerShell scripts that must satisfy
    `PSUseBOMForUnicodeEncodedFile`).
-2. `Move-Item -Force` into `<Path>` — atomic on same-volume NTFS / ext4
+2. `Move-Item -Force` into `<Path>` -- atomic on same-volume NTFS / ext4
    / APFS, a single rename syscall.
 3. Return `$true` on success, `$false` on failure. The helper itself is
-   silent — high-frequency callers do not flood `Verbose`. Callers log
+   silent -- high-frequency callers do not flood `Verbose`. Callers log
    the specific reason at the call site if they need to.
 
 A concurrent reader sees either the prior file (if any) or the new
-file in full — never a partial write, so the boot-recovery sweep can
+file in full -- never a partial write, so the boot-recovery sweep can
 trust every sidecar it finds on disk.
 
 **Per-writer unique temp name.** A fixed `$Path.tmp` lets two processes
@@ -617,19 +787,19 @@ cleanup/ignore rules still match.
 ## Single-instance locks
 
 Several harness processes must have at most one instance per runtime directory
-— the host-address beacon, the pool push forwarder, and the pool-storage drain.
+-- the host-address beacon, the pool push forwarder, and the pool-storage drain.
 Two lock shapes are in use, and every detail of both closes a failure that was
 otherwise silent.
 
 **An OS-held handle, where the kernel can be the lock.** The beacon opens its
 lock file with `FileShare::None` and keeps the handle open for the whole run: a
 second beacon simply cannot open it, and the kernel releases it when the process
-dies — including on a kill, where no cleanup code would have run. Nothing parses
+dies -- including on a kill, where no cleanup code would have run. Nothing parses
 the file; its contents are diagnostics only.
 
 **A PID record, where a stale lock has to be reclaimable.** The forwarder and
-the drain create the file with `[System.IO.File]::Open` in `CreateNew` mode — an
-OS create-if-not-exists — and record the holder's PID together with its process
+the drain create the file with `[System.IO.File]::Open` in `CreateNew` mode -- an
+OS create-if-not-exists -- and record the holder's PID together with its process
 start time. Acquisition being atomic is what makes concurrent starters safe: a
 check-then-write loses to a starter that reads the zero-byte file the winner has
 created but not yet filled, fails to parse it, concludes the lock is stale, and
@@ -637,7 +807,7 @@ reclaims it.
 
 **Identity is PID AND start time.** The liveness check requires both a live PID
 and a matching start time, so OS PID reuse after a crash cannot let a stale lock
-masquerade as a running holder — which would break the guarded work forever
+masquerade as a running holder -- which would break the guarded work forever
 without ever saying so.
 
 **Start time is recorded as ticks, never as a formatted timestamp.**
@@ -655,7 +825,7 @@ before either had written anything.
 
 **Where the lock lives is part of the design.** The pool-storage lock is held by
 the orchestrator rather than by the detached wrapper script, because move mode
-calls the function directly and in-process — a lock held only by the script
+calls the function directly and in-process -- a lock held only by the script
 would leave the synchronous mover free to race a detached drain still working
 through an earlier backlog, one deleting local folders the other is mid-copy
 from.
@@ -686,7 +856,7 @@ Per-guest value shape (backward-compatible):
 The dashboard reads `.status` off the object form and falls back to
 the whole value as a string, so both shapes still render.
 
-Each history entry also carries a `sequenceSummary` array —
+Each history entry also carries a `sequenceSummary` array --
 `[{ name, status, folderUrl }]`, one element per test.runner.yml
 sequence the cycle ran, in runner-list order. The dashboard's "Recent
 Cycles" table renders one button per element, linking `folderUrl` to
@@ -726,7 +896,7 @@ silently breaking the dashboard's Pause / Cycle buttons.
 with a throwaway `HttpListener`. If that succeeds the detached
 launch will too. If not, it resolves the real owner via OS tools
 (`netstat`/`Get-NetTCPConnection` on Windows HTTP.sys, `lsof` on
-Unix) and stops it — **only** if it is a `pwsh` process plausibly
+Unix) and stops it -- **only** if it is a `pwsh` process plausibly
 ours. Unknown owners (dev server, another tool) get a clear error
 and the launch bails. Keeping the helper in `Test.PortOwner.psm1`
 makes the dispatch reusable by future callers (health-check,
@@ -737,7 +907,7 @@ status service's full module.
 
 `Start-StatusService` binds `http://*:<port>/` (every interface), but a
 host firewall silently DROPs inbound TCP on non-loopback interfaces
-unless an allow rule exists — so localhost answers while a LAN client
+unless an allow rule exists -- so localhost answers while a LAN client
 (the pool-aggregator service, an operator's browser) times out. One host with
 this gap disappears from the pool dashboard and drops its extension-host
 deep-link. `Test.StatusFirewall.psm1` centralizes the per-OS allow-rule
@@ -746,14 +916,14 @@ logic used by BOTH the one-time elevated host setup
 and the best-effort self-heal at every status-service start. Managed:
 Windows Defender Firewall (`New-NetFirewallRule`) and Linux ufw.
 Reported but never touched: nftables/iptables without ufw, and the macOS
-application firewall (application-scoped, not port-scoped — the port is
+application firewall (application-scoped, not port-scoped -- the port is
 not blocked by default).
 
 ## Per-cycle diagnostic capture
 
 `Save-GuestDiagnostic` (Test.Diagnostic.psm1) runs at end-of-cycle to
 pull a guest snapshot to the host. It uses a three-rung strategy
-chain: **keyed SSH → password SSH → console**. SSH is the default
+chain: **keyed SSH -> password SSH -> console**. SSH is the default
 because it works the same on every host (Linux / macOS / Windows)
 without a per-host keyboard injector, a guest-reachable status
 service, or an interactive shell on `tty1`. The console rung is the
@@ -762,7 +932,7 @@ mismatch, auth failure); when SSH is healthy the diagnostic ships
 immediately, skipping console-typing latency and keystroke corruption
 (character-table misses, host-specific Shift handling).
 
-Earlier rungs' text output is not discarded — `$lastResult` keeps the
+Earlier rungs' text output is not discarded -- `$lastResult` keeps the
 most informative one, so a partial-and-failed earlier capture is still
 written when every later rung ends up empty.
 
@@ -771,7 +941,7 @@ VM", so the guest may be mid-reboot when `Save-GuestDiagnostic` runs.
 Without a real-handshake gate, the call would either bail at
 `Get-GuestAddress` (empty per-guest folder) or write a near-useless
 file whose body is just the SSH connection error (a port-22-open but
-sshd-still-binding "half-up sshd" race — see
+sshd-still-binding "half-up sshd" race -- see
 `feedback_save_diag_post_reboot.md`). `Wait-SshReady` polls a real
 `echo yuruna-ssh-ready` handshake and re-resolves `Get-GuestAddress`
 each iteration, so a late-binding KVP entry on the Hyper-V External
@@ -804,6 +974,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../README.md)

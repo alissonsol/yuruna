@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42c9d0e1-f2a3-4b45-9789-ac0d1e2f3a41
+.VERSION 2026.08.19
+.GUID 42c9925e-2253-438b-b583-954a89683f39
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test diagnostic fallback pester

@@ -70,6 +70,7 @@ test/Start-StashServiceVM.ps1|test/service/Start-StashServiceVM.ps1
 test/Stop-StashServiceVM.ps1|test/service/Stop-StashServiceVM.ps1
 test/Start-ConfigService.ps1|test/service/Start-ConfigService.ps1
 test/Stop-ConfigService.ps1|test/service/Stop-ConfigService.ps1
+test/Start-StatusService.ps1|test/service/Start-StatusService.ps1
 test/Stop-StatusService.ps1|test/service/Stop-StatusService.ps1
 test/Set-PoolDesiredState.ps1|test/pool/Set-PoolDesiredState.ps1
 test/Set-PoolTestSet.ps1|test/pool/Set-PoolTestSet.ps1
@@ -99,7 +100,9 @@ test/Remove-OrphanedVMFiles.ps1|test/lab/Remove-OrphanedVMFiles.ps1
 status server|status service
 stash appliance|stash service
 HostConfigService|ConfigService
-Test-Sequence.ps1|Invoke-TestSequence.ps1
+Test-Sequence.ps1|Debug-TestSequence.ps1
+Invoke-TestSequence.ps1|Debug-TestSequence.ps1
+Invoke-TestRunner.ps1|Start-TestRunner.ps1
 Invoke-TestInnerRunner|Invoke-TestRunnerInnerLoop
 stepTimeoutMinutes|stepTimeoutSeconds
 refreshHours|refreshSeconds

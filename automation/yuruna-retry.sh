@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.16
+# Version: 2026.08.19
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -167,30 +167,106 @@ _yuruna_http_status_class() {
     return 0
 }
 
-# curl transient/permanent classifier: network / SSL / timeout codes are
-# transient (retry); a malformed URL or bad usage is permanent; an HTTP-error
-# exit (22) re-probes the status. Any unclassified code falls through to retry.
+# --- REGION: https://yuruna.link/network#caching-proxy-service-ca-cert-rc60-gate
+# Does bumped HTTPS verify from here? One spider request through whatever proxy
+# env this shell carries; the URL is overridable so a lab with no reachable
+# github.com can point it at something its cache does serve.
+_yuruna_bump_trusted() {
+    wget -q --spider --timeout="${YURUNA_CA_PROBE_TIMEOUT:-15}" --tries=1 \
+        "${YURUNA_CA_PROBE_URL:-https://github.com/}" 2>/dev/null
+}
+
+# --- REGION: https://yuruna.link/network#caching-proxy-service-ca-cert-rc60-gate
+# The ssl-bump CA is a trust anchor this guest holds a COPY of, and the copy is
+# only as current as the cache that minted it: a cache rebuilt from a blank disk
+# mints a fresh CA, after which every bumped HTTPS from here fails certificate
+# verification and no re-run of the same bytes can recover it. The repair is to
+# re-fetch the current CA from the host status service, which is reached over
+# the RFC1918 plain-HTTP path the bump is not in front of.
+#
+# Three-way exit code, because the callers have to tell these apart:
+#   0 -- repaired: the trust store changed and bumped HTTPS now verifies, so a
+#        retry of whatever just failed is worth spending.
+#   1 -- nothing to repair: no bump in front of this guest, or it already
+#        verifies. A cert failure here is the far end's certificate, not ours.
+#   2 -- tried and still untrusted: no coordinates, no usable CA served, or a
+#        CA that does not match the bump.
+# Diagnostics go to stderr: stdout stays clean for the `... | bash` install
+# pipelines that source this lib.
+yuruna_ca_selfheal() {
+    # Guard on the bump port with a boundary so a no-cache/direct guest (empty
+    # https_proxy) or a proxy on some other port is a hard no-op.
+    printf '%s' "${https_proxy:-}" | grep -qE ':3129/?($|[^0-9])' || return 1
+    _yuruna_bump_trusted && return 1
+    if [ -r /etc/yuruna/host.env ]; then
+        # shellcheck disable=SC1091
+        . /etc/yuruna/host.env
+    fi
+    if [ -z "${YURUNA_STATUS_SERVICE_IP:-}" ] || [ -z "${YURUNA_STATUS_SERVICE_PORT:-}" ]; then
+        echo "CA self-heal: bump HTTPS untrusted and no host.env coordinates; cannot recover CA." >&2
+        return 2
+    fi
+    echo "CA self-heal: bump HTTPS untrusted; fetching CA from host status service ..." >&2
+    local ca_tmp rc=2
+    ca_tmp=$(mktemp) || return 2
+    if wget --no-proxy --timeout=10 --tries=2 -qO "$ca_tmp" \
+            "http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/ca.crt" \
+       && [ -s "$ca_tmp" ] && grep -q 'BEGIN CERTIFICATE' "$ca_tmp"; then
+        sudo install -m 0644 "$ca_tmp" /usr/local/share/ca-certificates/yuruna-squid-ca.crt || true
+        sudo update-ca-certificates >/dev/null 2>&1 || true
+        if _yuruna_bump_trusted; then
+            echo "CA self-heal: OK -- bump HTTPS now trusted." >&2
+            rc=0
+        else
+            echo "CA self-heal: CA installed but bump still untrusted (stale/wrong CA, or cache unreachable); HTTPS through the bump will still fail." >&2
+        fi
+    else
+        echo "CA self-heal: host status service served no usable CA (cache may still be unreachable); HTTPS through the bump will still fail." >&2
+    fi
+    rm -f "$ca_tmp"
+    return "$rc"
+}
+
+# curl transient/permanent classifier: network / timeout codes are transient
+# (retry); a malformed URL or bad usage is permanent; a certificate that will
+# not verify (60) re-anchors the bump CA; an HTTP-error exit (22) re-probes the
+# status. Any unclassified code falls through to retry.
 _yuruna_classify_curl() {
     local rc="$1"
     case "$rc" in
         3|43) return 1 ;;                              # malformed URL / bad usage -> permanent
-        5|6|7|16|18|28|35|52|55|56|60|92) return 0 ;;  # DNS/connect/timeout/SSL/recv/http2 -> transient
+        5|6|7|16|18|28|35|52|55|56|92) return 0 ;;     # DNS/connect/timeout/recv/http2 -> transient
     esac
+    # A peer certificate that will not verify is a trust-anchor mismatch, and
+    # re-running the identical fetch cannot change the anchor -- the ladder can
+    # only spend its whole budget arriving back here. The one thing that CAN
+    # change it is replacing this guest's stale copy of the ssl-bump CA, so try
+    # that once and let the outcome decide: a retry is worth spending only when
+    # the copy actually changed.
+    if [ "$rc" -eq 60 ]; then
+        if yuruna_ca_selfheal; then return 0; fi
+        return 1
+    fi
     if [ "$rc" -eq 22 ]; then _yuruna_http_status_class "${YURUNA_RETRY_CURL_URL:-}"; return $?; fi
     return 0
 }
 
 # wget classifier, the exact analog of the curl one. wget has per-class exit
-# codes: 2 (command-line/parse) and 6 (authentication) are permanent; 3/4/5/7
-# (file I/O, network, SSL, protocol) are transient; 8 ("server issued an error
-# response") is the HTTP-error analog of curl's 22 and re-probes the status.
-# 1 (generic) and anything else fall through to retry.
+# codes: 2 (command-line/parse) and 6 (authentication) are permanent; 3/4/7
+# (file I/O, network, protocol) are transient; 5 (SSL verification) re-anchors
+# the bump CA exactly as curl's 60 does; 8 ("server issued an error response")
+# is the HTTP-error analog of curl's 22 and re-probes the status. 1 (generic)
+# and anything else fall through to retry.
 _yuruna_classify_wget() {
     local rc="$1"
     case "$rc" in
         2|6) return 1 ;;                               # command-line/parse, auth -> permanent
-        3|4|5|7) return 0 ;;                           # file I/O, network, SSL, protocol -> transient
+        3|4|7) return 0 ;;                             # file I/O, network, protocol -> transient
     esac
+    if [ "$rc" -eq 5 ]; then
+        if yuruna_ca_selfheal; then return 0; fi
+        return 1
+    fi
     if [ "$rc" -eq 8 ]; then _yuruna_http_status_class "${YURUNA_RETRY_WGET_URL:-}"; return $?; fi
     return 0
 }

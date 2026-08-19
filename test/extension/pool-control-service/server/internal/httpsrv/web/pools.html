@@ -36,12 +36,9 @@
   </header>
   <main>
     <h1>Pools</h1>
-    <p class="muted">A pool groups hosts and carries a stable Pool ID (GUID). A host belongs to at most one pool.
-      <strong>Pool Status</strong> drives every member the way its own status page would: it reads what the
-      members are doing now, and choosing a value applies it to each of them.
-      Any column header sorts the table; clicking the sorted one reverses it, and
-      <strong>Members</strong> sorts by how many there are. The leading number counts the
-      rows as they are shown, so it stays 1&hellip;n whatever the order.</p>
+    <p class="muted">A pool groups hosts under a stable Pool ID (GUID); a host belongs to at most one pool.
+      <strong>Pool Status</strong> reads what the members are doing now &mdash; choosing a
+      value applies it to every member.</p>
     <div id="notice" class="notice"></div>
     <div class="row">
       <input id="new-poolid" placeholder="pool-id (lowercase, dns-safe)" size="26">
@@ -64,8 +61,8 @@
     </table>
   </main>
   <footer id="footer-bar">
-    <span id="footer-ips"><span class="label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-label="Server IP addresses">—</textarea></span>
-    <span>Loaded: <span id="last-loaded">—</span><span id="footer-busy" aria-hidden="true" hidden></span></span>
+    <span id="footer-ips"><span class="label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-label="Server IP addresses">--</textarea></span>
+    <span>Loaded: <span id="last-loaded">--</span><span id="footer-busy" aria-hidden="true" hidden></span></span>
     <span><a id="footer-refresh" href="#">Refresh</a>: <span id="countdown">60</span>s</span>
   </footer>
   <script src="/assets/common.js"></script>

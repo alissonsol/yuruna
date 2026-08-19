@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42b0c62a-e89b-4a4d-88a0-ec973bcf58f3
+.VERSION 2026.08.19
+.GUID 42fe4c73-e319-458f-b4f5-d66b50142f3e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test poolstorage mount parse pester
@@ -36,7 +36,7 @@ BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 $script:src  = Get-Content (Join-Path $here 'Test.PoolStorage.psm1') -Raw
 
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # The source text of ONE top-level function, from its 'function' line to the start
 # of the next top-level function or of that function's doc-comment block. Lets a

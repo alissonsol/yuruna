@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 422a71b9-84cf-4d16-a903-1b7e6c05d284
+.VERSION 2026.08.19
+.GUID 42d0dcad-5f1c-4177-8e40-8f43c9920e55
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test host macos utm disable-test-automation
@@ -268,8 +268,8 @@ Restore-Knob -Name 'networktime' -Description 'Network time' -Apply {
 # --- REGION: Services (opt-in)
 if ($StopServices) {
     foreach ($svc in @('CachingProxyService', 'StashService', 'PoolControlService', 'DownloadAgentService')) {
-        $script = Join-Path $RepoRoot "test/Stop-${svc}VM.ps1"
-        if (-not (Test-Path -LiteralPath $script)) { $skipped.Add("test/Stop-${svc}VM.ps1 not found"); continue }
+        $script = Join-Path $RepoRoot "test/service/Stop-${svc}VM.ps1"
+        if (-not (Test-Path -LiteralPath $script)) { $skipped.Add("test/service/Stop-${svc}VM.ps1 not found"); continue }
         if ($PSCmdlet.ShouldProcess("$svc VM", 'Stop')) {
             & pwsh -NoProfile -File $script
             $restored.Add("$svc VM stopped")

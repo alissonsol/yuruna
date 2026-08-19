@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42f0a1b2-c3d4-4e56-9788-9a0b1c2d3e4f
+.VERSION 2026.08.19
+.GUID 4277ce69-f7e3-434d-85c2-cf1468b28b01
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna pool host identity fingerprint reclaim reimage

@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42b7e419-3c86-4d52-9af1-6d20e5c73b48
+.VERSION 2026.08.19
+.GUID 42765a89-9026-4dfc-bda8-481ccd6555ce
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna extension service framework source version preflight
@@ -517,7 +517,7 @@ Right now: $($result.Summary).
             "or pin the address the seed bakes with `$env:YURUNA_GUEST_REACHABLE_HOST_IP."
         }
         default {
-            "Start it with test/Start-StatusService.ps1 and confirm http://127.0.0.1:$($result.Port)/yuruna-archive.tar.gz answers, then re-run."
+            "Start it with test/service/Start-StatusService.ps1 and confirm http://127.0.0.1:$($result.Port)/yuruna-archive.tar.gz answers, then re-run."
         }
     }
     Write-Information "" -InformationAction Continue

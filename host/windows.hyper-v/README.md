@@ -2,7 +2,7 @@
 
 One-time setup for a Windows host with Hyper-V. Cross-host concepts
 (install-one-liner convention, post-install steps, optional Squid cache
-VM, guest workload pattern) live in [Hosts — ...](../README.md).
+VM, guest workload pattern) live in [Hosts -- ...](../README.md).
 
 ## Quick install (one line)
 
@@ -19,12 +19,12 @@ Installs PowerShell 7, Git, Windows ADK Deployment Tools (for
 enables **Microsoft-Hyper-V-All** via `dism.exe`; clones the repo to
 `%USERPROFILE%\git\yuruna`; seeds `test\test.config.yml`. Idempotent;
 elevation requested once. Disabling display timeout and screen lock
-for unattended runs is a separate opt-in step — run
+for unattended runs is a separate opt-in step -- run
 [`Enable-TestAutomation.ps1`](Enable-TestAutomation.ps1) manually
 after install, or let `pwsh install/setup.ps1` do it as one step of a
 guided [standalone-host or lab setup](../../install/README.md#guided-setup).
 
-Then follow [Hosts — ...](../README.md#install-one-liner-convention). On
+Then follow [Hosts -- ...](../README.md#install-one-liner-convention). On
 Windows: step 2's reboot applies only when Hyper-V was just enabled;
 step 4's hypervisor UI is Hyper-V Manager:
 
@@ -40,7 +40,7 @@ Manual walk-through: [Windows Hyper-V Host Setup - Nerd-Level Details](read.more
 
 ## Optional: Squid cache VM
 
-See [Hosts — ...](../README.md#optional-squid-cache-vm) and
+See [Hosts -- ...](../README.md#optional-squid-cache-vm) and
 [Caching](../../docs/caching.md). Once `caching-proxy-service` is
 running, the Ubuntu Server `New-VM.ps1` scripts auto-detect it and
 inject the proxy URL into the seed ISO.
@@ -60,6 +60,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../../README.md)

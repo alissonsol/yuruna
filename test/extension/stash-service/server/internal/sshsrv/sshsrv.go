@@ -2,7 +2,7 @@
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
 // Package sshsrv hosts the crypto/ssh server and the per-connection
-// SCP session dispatch loop. Authentication is the §4.3 pass-through
+// SCP session dispatch loop. Authentication is the section 4.3 pass-through
 // pattern, realized as the SSH "none" method: the daemon accepts the
 // connection with NO credentials so a standard scp/sftp client connects
 // with zero prompts. Public-key auth is intentionally NOT advertised --
@@ -51,7 +51,7 @@ type Server struct {
 	listener net.Listener
 
 	// ShareOnline reports whether the share is a live, writable network
-	// mount (§8.4). Injectable so tests can drive the buffer/flush paths
+	// mount (section 8.4). Injectable so tests can drive the buffer/flush paths
 	// without a real cifs mount.
 	ShareOnline func() bool
 	// flushTrigger nudges the flush worker after a buffered upload; a
@@ -77,8 +77,8 @@ type Server struct {
 }
 
 // New wires everything up. The host key is loaded from
-// <StashFolder>/hostkey/ (durable, §4.4); if the share is offline at startup
-// it falls back to a VM-local key so the daemon still comes up (§8.4).
+// <StashFolder>/hostkey/ (durable, section 4.4); if the share is offline at startup
+// it falls back to a VM-local key so the daemon still comes up (section 8.4).
 func New(s *store.Store, buffer *store.Store, m *meta.Store, ids *id.Allocator) (*Server, error) {
 	localHostKey := filepath.Join(buffer.Folder, config.HostKeyDirName, config.HostKeyFileName)
 	hostKey, err := loadOrGenerateHostKey(s.HostKeyPath(), localHostKey)
@@ -86,7 +86,7 @@ func New(s *store.Store, buffer *store.Store, m *meta.Store, ids *id.Allocator) 
 		return nil, fmt.Errorf("host key: %w", err)
 	}
 	cfg := &ssh.ServerConfig{
-		// §4.3: accept with NO credentials (SSH "none") so scp/sftp connect
+		// section 4.3: accept with NO credentials (SSH "none") so scp/sftp connect
 		// prompt-free; still capture the username as metadata.
 		NoClientAuth: true,
 		NoClientAuthCallback: func(conn ssh.ConnMetadata) (*ssh.Permissions, error) {
@@ -228,7 +228,7 @@ func (s *Server) handleSession(ch ssh.Channel, reqs <-chan *ssh.Request, usernam
 			writeExit(ch, 1)
 			return
 		case "pty-req", "shell":
-			// §4.2: no GUI / interactive shell. Reject cleanly so a stray
+			// section 4.2: no GUI / interactive shell. Reject cleanly so a stray
 			// `ssh` (no scp) gets a useful error instead of hanging.
 			_ = req.Reply(false, nil)
 			fmt.Fprintln(ch.Stderr(), "stash-service: only scp / sftp are supported (interactive shell rejected).")
@@ -247,7 +247,7 @@ func (s *Server) runCommand(ch ssh.Channel, rawCmd, username, remote string) {
 		writeExit(ch, 1)
 		return
 	}
-	// §7: allocate ID before file content streams; §9: emit
+	// section 7: allocate ID before file content streams; section 9: emit
 	// YURUNA-STASH-ID to stderr at the start of the SCP exchange so
 	// the client's terminal shows it even on a failed transfer.
 	now := time.Now().UTC()
@@ -260,7 +260,7 @@ func (s *Server) runCommand(ch ssh.Channel, rawCmd, username, remote string) {
 	}
 	fmt.Fprintf(ch.Stderr(), config.StderrIDFormat, allocated)
 
-	// §8.4: stage on the share when it is a live writable network mount;
+	// section 8.4: stage on the share when it is a live writable network mount;
 	// otherwise fall back to the VM-local buffer and flush later. The
 	// target store is fixed before any bytes stream so a single upload
 	// never straddles the two.
@@ -286,7 +286,7 @@ func (s *Server) runCommand(ch ssh.Channel, rawCmd, username, remote string) {
 		return
 	}
 
-	// §8.2 step 2: pending record up front. storedPath and
+	// section 8.2 step 2: pending record up front. storedPath and
 	// originalFilename are placeholder until FinalizeStaging produces
 	// the real values.
 	clientIP := hostOnly(remote)
@@ -318,7 +318,7 @@ func (s *Server) runCommand(ch ssh.Channel, rawCmd, username, remote string) {
 		return
 	}
 	if len(res.FileNames) == 0 && res.FirstDirName == "" {
-		// §5.5: empty filename only — nothing stored, no record kept.
+		// section 5.5: empty filename only -- nothing stored, no record kept.
 		if delErr := s.Meta.Delete(allocated); delErr != nil {
 			log.Printf("delete empty-name pending row id=%s: %v", allocated, delErr)
 		}
@@ -349,14 +349,14 @@ func (s *Server) runCommand(ch ssh.Channel, rawCmd, username, remote string) {
 }
 
 // errBufferFull signals the VM-local buffer is at its ceiling while the
-// share is offline (§8.4) — the upload must be rejected.
+// share is offline (section 8.4) -- the upload must be rejected.
 var errBufferFull = errors.New("local buffer full")
 
 // chooseTarget returns the store an upload should stage into: the share
 // when it is a live writable network mount, else the VM-local buffer
 // (unless the buffer is at its ceiling, then errBufferFull). Shared by the
 // legacy SCP and SFTP ingest paths so the share/buffer policy stays in one
-// place (§8.4).
+// place (section 8.4).
 func (s *Server) chooseTarget(id string) (target *store.Store, buffered bool, err error) {
 	if s.ShareOnline() {
 		return s.Store, false, nil
@@ -371,9 +371,9 @@ func (s *Server) chooseTarget(id string) (target *store.Store, buffered bool, er
 }
 
 // commit writes the terminal metadata row and, for a share-side artifact,
-// the durable sidecar LAST (§8.5); for a buffered artifact it nudges the
+// the durable sidecar LAST (section 8.5); for a buffered artifact it nudges the
 // flush worker instead (the sidecar lands on the share at flush time,
-// §8.4). Shared by the legacy SCP and SFTP ingest paths.
+// section 8.4). Shared by the legacy SCP and SFTP ingest paths.
 func (s *Server) commit(id, status string, final *store.FinalizeResult, buffered bool, username string) error {
 	if err := s.Meta.UpdateOnComplete(id, final.StoredPath, final.OriginalFilename, final.IsArchive, status, final.SizeBytes, time.Now().UTC()); err != nil {
 		return err
@@ -392,7 +392,7 @@ func (s *Server) commit(id, status string, final *store.FinalizeResult, buffered
 			return fmt.Errorf("sidecar: load record id=%s: %w", id, gerr)
 		} else if serr := writeSidecarWithRetry(rec); serr != nil {
 			log.Printf("sidecar: write id=%s failed after retries: %v", id, serr)
-			// The sidecar IS the reimage-rebuild guarantee (§8.5), so a failure
+			// The sidecar IS the reimage-rebuild guarantee (section 8.5), so a failure
 			// surviving the retries is returned rather than logged-and-swallowed
 			// -- otherwise the client/operator see a clean success while the
 			// artifact is un-reconstructable. The artifact itself is already
@@ -412,7 +412,7 @@ const (
 
 // writeSidecarWithRetry writes the durable on-share sidecar with a short
 // bounded backoff so a transient share blip during the write does not silently
-// lose the reimage-rebuild record (§8.5). Returns the last error if every
+// lose the reimage-rebuild record (section 8.5). Returns the last error if every
 // attempt fails.
 func writeSidecarWithRetry(rec *meta.Record) error {
 	var err error
@@ -427,10 +427,10 @@ func writeSidecarWithRetry(rec *meta.Record) error {
 	return err
 }
 
-// detectAndStore classifies final's artifact and writes the §10 type fields
+// detectAndStore classifies final's artifact and writes the section 10 type fields
 // onto the row. An archive (our own ZIP) is classed directly without running
 // the detector; everything else goes through the configured Detector. A
-// detection or DB error is logged, not fatal — the upload still succeeds
+// detection or DB error is logged, not fatal -- the upload still succeeds
 // (the UI just shows it as unclassified until a later backfill).
 func (s *Server) detectAndStore(id string, final *store.FinalizeResult) {
 	if final.IsArchive {
@@ -472,7 +472,7 @@ func parseSCPCommand(cmd string) (SCPCommand, bool) {
 				case 't':
 					sinkSeen = true
 				case 'f':
-					// Source mode — we only implement sink.
+					// Source mode -- we only implement sink.
 					return SCPCommand{}, false
 				}
 				// Other flags (d, p, q, v, ...) are accepted silently.
@@ -508,12 +508,12 @@ func writeExit(ch ssh.Channel, code int) {
 	_, _ = ch.SendRequest("exit-status", false, payload)
 }
 
-// loadOrGenerateHostKey returns the persistent SSH signer (§4.4).
+// loadOrGenerateHostKey returns the persistent SSH signer (section 4.4).
 //
 //   - If the durable SHARE key (primary) is PRESENT it must be usable: a
 //     transient/corrupt read must NOT silently rotate the durable key, so
 //     fail loud and let systemd retry (the daemon's original contract).
-//   - If the share key is absent or the share is offline/unreachable (§8.4),
+//   - If the share key is absent or the share is offline/unreachable (section 8.4),
 //     prefer an existing VM-local fallback key and PROMOTE it to the share as
 //     soon as the share is back (so an offline-first key becomes durable and
 //     a later reimage doesn't mint a new one, breaking client trust).
@@ -531,7 +531,7 @@ func loadOrGenerateHostKey(primary, fallback string) (ssh.Signer, error) {
 		}
 		return signer, nil
 	}
-	// Primary absent or unreachable — try the VM-local fallback.
+	// Primary absent or unreachable -- try the VM-local fallback.
 	if data, rerr := os.ReadFile(fallback); rerr == nil {
 		if signer, perr := ssh.ParsePrivateKey(data); perr == nil {
 			promoteHostKey(primary, data)
@@ -559,7 +559,7 @@ func loadOrGenerateHostKey(primary, fallback string) (ssh.Signer, error) {
 
 // promoteHostKey best-effort writes the VM-local key to the durable share path
 // once the share is reachable AND still keyless, so an offline-first key
-// becomes durable on the first restart with the share back (§4.4). It never
+// becomes durable on the first restart with the share back (section 4.4). It never
 // overwrites an existing share key, and is a silent no-op while the share is
 // still offline (retried on the next restart).
 func promoteHostKey(primary string, pemBytes []byte) {

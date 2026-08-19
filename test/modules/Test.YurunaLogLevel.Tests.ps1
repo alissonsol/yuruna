@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42b4d8d1-37cf-4d00-a46b-5ef05b3f5c62
+.VERSION 2026.08.19
+.GUID 42bcb817-e682-432d-ac46-31486e3944be
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test automation loglevel pester
@@ -46,7 +46,7 @@ $script:testCascade = Join-Path $here 'Test.LogLevel.psm1'
 $script:entrypoints = 'yuruna','Set-Component','Set-Resource','Set-Workload','Invoke-Clear',
                'Test-Configuration','Test-Requirement','Test-Runtime','Get-SystemDiagnostic'
 
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # Extract the log-level rank table (name -> integer) from a module's source by
 # AST -- the one hashtable whose keys are exactly the five level names. Reading

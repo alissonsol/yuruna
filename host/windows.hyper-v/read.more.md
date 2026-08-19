@@ -30,14 +30,14 @@ winget install --id Git.Git --exact --silent `
 The harness uses `oscdimg.exe` (from the Windows ADK **Deployment
 Tools** feature) to build unattended-install seed ISOs.
 
-Option A — `winget`:
+Option A -- `winget`:
 
 ```
 winget install --id Microsoft.WindowsADK --exact --silent `
     --accept-package-agreements --accept-source-agreements
 ```
 
-Option B — run the
+Option B -- run the
 [Windows ADK installer](https://learn.microsoft.com/en-us/windows-hardware/get-started/adk-install)
 and select only **Deployment Tools**.
 
@@ -67,7 +67,7 @@ Enable-WindowsOptionalFeature -Online `
     -FeatureName Microsoft-Hyper-V-All -NoRestart
 ```
 
-If Hyper-V was just enabled, **restart Windows** before continuing —
+If Hyper-V was just enabled, **restart Windows** before continuing --
 `Get-VM`/`New-VM` and friends fail until the reboot completes.
 `Microsoft-Hyper-V-All` is unavailable on Windows Home; the harness
 requires Pro, Enterprise, or Education.
@@ -126,13 +126,13 @@ Start-Process virtmgmt.msc      # registers with the user profile
 
 ## 12) Optional: Squid cache VM
 
-See [Hosts — ...](../README.md#optional-squid-cache-vm) and
+See [Hosts -- ...](../README.md#optional-squid-cache-vm) and
 [Caching](../../docs/caching.md).
 
 ## 13) Run the Test Harness
 
 ```
-pwsh $HOME\git\yuruna\test\Invoke-TestRunner.ps1
+pwsh $HOME\git\yuruna\test\Start-TestRunner.ps1
 ```
 
 ---
@@ -141,6 +141,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../../README.md)

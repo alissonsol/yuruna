@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 429bbdcc-9f46-47af-ab9b-b756158fc1f7
+.VERSION 2026.08.19
+.GUID 42cf1a35-c982-4816-bdc9-94893388e752
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test storage smb takeover nas local pester
@@ -48,9 +48,7 @@ $repoRoot = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChil
 Import-Module (Join-Path $here 'Test.PoolStorage.psm1')    -Force -DisableNameChecking
 Import-Module (Join-Path $here 'Test.LocalLabStorage.psm1') -Force -DisableNameChecking
 
-function Assert-True  { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
-function Assert-False { param($Condition, [string]$Because = '') if ($Condition) { throw "Expected false. $Because" } }
-function Assert-Equal { param($Expected, $Actual, [string]$Because = '') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # Pester is not installed on every host that runs this repo's scripts, and the
 # assertions here are plain throws, so the harness the file needs is three

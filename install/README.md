@@ -10,7 +10,7 @@ the framework every test cycle**. To freeze a host at a fixed release, see
 
 Enabling the host as a Yuruna test host (display sleep / screen lock /
 storage-pool tweaks) is intentionally NOT done automatically. Run
-[setup.ps1](setup.ps1) after install — see **Guided setup** below — or, for the
+[setup.ps1](setup.ps1) after install -- see **Guided setup** below -- or, for the
 host settings alone, `host/<platform>/Enable-TestAutomation.ps1`.
 
 | Host | Installer | Setup notes |
@@ -22,7 +22,7 @@ host settings alone, `host/<platform>/Enable-TestAutomation.ps1`.
 ## Guided setup
 
 The installer above puts packages and the repo on the machine. [setup.ps1](setup.ps1)
-takes it the rest of the way — to a working **Standalone host** or **Lab** —
+takes it the rest of the way -- to a working **Standalone host** or **Lab** --
 asking only what it cannot infer:
 
 ```
@@ -39,10 +39,10 @@ pwsh install/setup.ps1 -logLevel Debug    # everything the run and its children 
 
 Storage is one of the questions, not an assumption: **this machine** (local SMB
 shares, the default for standalone), **an existing NAS share** (mounted, never
-created — set up the share and `networkStorage.*` first), or **none**, which is
+created -- set up the share and `networkStorage.*` first), or **none**, which is
 standalone-only and skips shared storage and the stash service.
 
-It installs nothing and clones nothing — it orchestrates the scripts that already
+It installs nothing and clones nothing -- it orchestrates the scripts that already
 do each job. Storage is configured **before** the service VMs in both modes,
 because the stash service exits 1 without it and the caching proxy bakes storage
 into its guest seed at build time.
@@ -52,7 +52,7 @@ interrupted halfway is resumed by running it again. On Windows the whole run
 elevates once, up front. A guided run ends by writing the answer file it used, so
 the next machine can be set up the same way.
 
-Every run — previews included — is recorded in
+Every run -- previews included -- is recorded in
 `test/status/log/setup.<yyyy.MM.dd.HH.mm>.log`: each question, the answer taken
 and whether anyone chose it, each step and its outcome, each child script's
 command line and exit code, and the closing report. The setup names the file at
@@ -60,11 +60,11 @@ start and at end. The child scripts keep printing to the console rather than the
 log, so their prompts stay visible; on Windows the elevated relaunch continues
 the same file.
 
-The log gets all of that whatever `-logLevel` says — the level decides how much
+The log gets all of that whatever `-logLevel` says -- the level decides how much
 also reaches the terminal, and how much the child scripts say there. It is the
 [shared cascade](../docs/loglevels.md): `Error` through `Debug`, taken from
 `logLevel:` in `test/test.config.yml` when the switch is omitted, and passed down
-to every script the run starts — including the per-guest image and VM builders —
+to every script the run starts -- including the per-guest image and VM builders --
 so `-logLevel Debug` is the setting for a bring-up that failed somewhere inside
 a child.
 
@@ -84,9 +84,9 @@ pwsh test/lab/Disable-TestAutomation.ps1 -StopServices  # also stop the service 
 
 It reverses settings only. Packages, PSGallery modules, macOS TCC grants, the
 credential vault, cloned repos and images, and everything the storage
-questionnaire wrote are **reported, mostly with the command to run** rather than removed —
+questionnaire wrote are **reported, mostly with the command to run** rather than removed --
 tearing those down on a "disable settings" is a surprise. On a host enabled by a
-build that predates the capture, only what is provably ours is removed — the status-port
+build that predates the capture, only what is provably ours is removed -- the status-port
 firewall rule and the Yuruna ICMP rule on Windows, the `ufw` status-port rule on
 Ubuntu, and **nothing at all on macOS**, which adds no objects of its own. Every
 other setting is left alone and reported, because restoring a guessed default is
@@ -180,17 +180,17 @@ pass the tag directly: `-YurunaBranch 2026.06.20` /
 ## Verified install (signed release)
 
 > Available for published release **tags**. The signing artifacts
-> (`install.sha256.sig`, `install/keys/`) first ship in release `2026.08.16`;
+> (`install.sha256.sig`, `install/keys/`) first ship in release `2026.08.19`;
 > until that tag is cut, use the convenience one-liners above.
 
 A tagged release publishes, next to each installer:
 
-- `install/install.sha256` — SHA-256 of the three installers, and
-- `install/install.sha256.sig` — a detached RSA signature of that manifest,
+- `install/install.sha256` -- SHA-256 of the three installers, and
+- `install/install.sha256.sig` -- a detached RSA signature of that manifest,
 
 verifiable against the bundled public key `install/keys/yuruna-release-signing.pub`
 (`.pem` for `openssl`, `.xml` for Windows PowerShell). This defends against a
-compromised CDN/mirror or a moved ref — not just same-channel corruption. **First
+compromised CDN/mirror or a moved ref -- not just same-channel corruption. **First
 confirm the key fingerprint out-of-band** (see [install/keys/README.md](keys/README.md)):
 
 ```
@@ -200,7 +200,7 @@ SHA-256(DER public key) = 14fce044df5de1ebbac6fdeae8d4f87abac618393f06e32748b7ef
 **Windows Hyper-V** (PowerShell 5.1+; uses .NET, no extra tooling):
 
 ```
-$base='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.08.16'; $t=Join-Path $env:TEMP 'yuruna-install'; New-Item -ItemType Directory -Force $t|Out-Null
+$base='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.08.19'; $t=Join-Path $env:TEMP 'yuruna-install'; New-Item -ItemType Directory -Force $t|Out-Null
 'install/windows.hyper-v.ps1','install/install.sha256','install/install.sha256.sig','install/keys/yuruna-release-signing.pub.xml'|%{ irm "$base/$_" -OutFile (Join-Path $t (Split-Path $_ -Leaf)) }
 $k=New-Object System.Security.Cryptography.RSACryptoServiceProvider; $k.FromXmlString((Get-Content "$t\yuruna-release-signing.pub.xml" -Raw))
 if(-not $k.VerifyData([IO.File]::ReadAllBytes("$t\install.sha256"),'SHA256',[IO.File]::ReadAllBytes("$t\install.sha256.sig"))){throw 'SIGNATURE INVALID -- do not run'}
@@ -211,7 +211,7 @@ $h=(Get-FileHash "$t\windows.hyper-v.ps1" -Algorithm SHA256).Hash.ToLower(); if(
 **macOS UTM / Ubuntu KVM** (uses `openssl`, present on both):
 
 ```
-BASE='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.08.16'; S=install/macos.utm.sh   # or install/ubuntu.kvm.sh
+BASE='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.08.19'; S=install/macos.utm.sh   # or install/ubuntu.kvm.sh
 t=$(mktemp -d); for f in "$S" install/install.sha256 install/install.sha256.sig install/keys/yuruna-release-signing.pub.pem; do curl -fsSL "$BASE/$f" -o "$t/$(basename "$f")"; done
 openssl dgst -sha256 -verify "$t/yuruna-release-signing.pub.pem" -signature "$t/install.sha256.sig" "$t/install.sha256" || { echo 'SIGNATURE INVALID -- do not run'; exit 1; }
 grep -qF "$(sha256sum "$t/$(basename "$S")" | cut -d' ' -f1)" "$t/install.sha256" || { echo 'INSTALLER HASH MISMATCH -- do not run'; exit 1; }
@@ -244,6 +244,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../README.md)

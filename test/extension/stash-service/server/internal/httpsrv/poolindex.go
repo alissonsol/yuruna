@@ -3,7 +3,7 @@
 
 // Pool-wide aggregation. The local host's stashes come from its SQLite index
 // (live, including pending/buffered); every OTHER host's come from its
-// on-share sidecars. To keep memory bounded as the pool ages (§3.2), the
+// on-share sidecars. To keep memory bounded as the pool ages (section 3.2), the
 // in-memory pool index holds only the last windowDays of remote sidecars,
 // refreshed periodically; queries reaching older dates do an on-demand
 // date-pruned deep scan instead.
@@ -24,7 +24,7 @@ import (
 )
 
 // defaultPoolRefreshInterval is the cadence of the background rescan that
-// picks up other hosts' new sidecars (§3.2). Overridable per instance.
+// picks up other hosts' new sidecars (section 3.2). Overridable per instance.
 const defaultPoolRefreshInterval = 60 * time.Second
 
 // Item is one remote-host stash discovered from a sidecar.
@@ -67,7 +67,7 @@ func NewPoolIndex(stashRoot, localHostID string, windowDays int, refresh time.Du
 // learn the same thing twice buys nothing.
 func (p *PoolIndex) RefreshInterval() time.Duration { return p.refreshInterval }
 
-// windowCutoffUTC is midnight UTC windowDays ago — the oldest day the cache
+// windowCutoffUTC is midnight UTC windowDays ago -- the oldest day the cache
 // holds.
 func (p *PoolIndex) windowCutoffUTC() time.Time {
 	y, m, d := time.Now().UTC().Date()
@@ -117,7 +117,7 @@ func (p *PoolIndex) Evict(hostID, id string) {
 
 // DeepScan reads remote sidecars whose day is within [from,to], bypassing
 // the cache. Used when a query's date range predates the in-memory window
-// (§3.2). from/to are inclusive day bounds; a zero from means "no lower
+// (section 3.2). from/to are inclusive day bounds; a zero from means "no lower
 // bound" and a zero to means "up to today". The bool return is true when the
 // walk could not read every directory it should have, so the caller can flag
 // a partial result instead of trusting a short/empty list.
@@ -146,8 +146,8 @@ func (p *PoolIndex) scan(accept func(day time.Time) bool) ([]Item, bool, int) {
 	hosts, err := os.ReadDir(p.stashRoot)
 	if err != nil {
 		// stashRoot unavailable (share offline/unmounted, or not yet created)
-		// just means there are no remote stashes to show right now — graceful
-		// degradation (§8.4), not a hard error. The common offline case is
+		// just means there are no remote stashes to show right now -- graceful
+		// degradation (section 8.4), not a hard error. The common offline case is
 		// ErrNotExist (silent); a genuinely broken mount (EIO/EACCES/ESTALE)
 		// is logged ONCE per state change so it stays diagnosable without
 		// spamming every rescan.
@@ -158,8 +158,8 @@ func (p *PoolIndex) scan(accept func(day time.Time) bool) ([]Item, bool, int) {
 
 	// errReads counts directories the walk should have been able to read but
 	// could not for a reason OTHER than absence (EACCES/EIO/ESTALE). An absent
-	// path (ErrNotExist) is ordinary — a host with no files/ yet, or a folder
-	// that vanished between listing and descent — and is not counted. A
+	// path (ErrNotExist) is ordinary -- a host with no files/ yet, or a folder
+	// that vanished between listing and descent -- and is not counted. A
 	// non-zero count means the resulting item set is short, so the caller must
 	// treat it as a partial pool view rather than an authoritative one.
 	var items []Item
@@ -238,8 +238,8 @@ func (p *PoolIndex) scan(accept func(day time.Time) bool) ([]Item, bool, int) {
 }
 
 // noteScanError logs a stashRoot-unreadable warning at most once per distinct
-// error (and clears on recovery). ErrNotExist — the ordinary share-offline
-// case — is treated as "no error" so it never logs.
+// error (and clears on recovery). ErrNotExist -- the ordinary share-offline
+// case -- is treated as "no error" so it never logs.
 func (p *PoolIndex) noteScanError(err error) {
 	var s string
 	if err != nil && !os.IsNotExist(err) {
@@ -257,8 +257,8 @@ func (p *PoolIndex) noteScanError(err error) {
 // notePartialScan logs, at most once per transition into a partial state,
 // that the walk skipped one or more directories it should have been able to
 // read (a real read error, not an absent path). Only the steady periodic
-// refresh drives this dedup — a sporadic on-demand DeepScan surfaces its own
-// partiality to its caller instead — so the warning stays quiet while the
+// refresh drives this dedup -- a sporadic on-demand DeepScan surfaces its own
+// partiality to its caller instead -- so the warning stays quiet while the
 // condition persists and re-arms once a refresh reads everything, keeping a
 // broken mount diagnosable without spamming every rescan.
 func (p *PoolIndex) notePartialScan(partial bool, errReads int) {
@@ -304,7 +304,7 @@ func appendDaySidecars(items []Item, dir, hostID string) ([]Item, bool) {
 }
 
 // looksLikeHostID accepts only hostId-shaped directory names (hex, length
-// >= 16 — the runtime/host.uuid format). This keeps the dev/local-fallback
+// >= 16 -- the runtime/host.uuid format). This keeps the dev/local-fallback
 // case (siblings like buffer/, metadata/) from being mis-scanned as hosts.
 func looksLikeHostID(name string) bool {
 	if len(name) < 16 {
@@ -413,7 +413,7 @@ func containsFold(haystack, needle string) bool {
 }
 
 // fromBeforeWindow reports whether the query's lower bound reaches before the
-// cached window, requiring a deep scan (§3.2).
+// cached window, requiring a deep scan (section 3.2).
 func (p *PoolIndex) fromBeforeWindow(from time.Time) bool {
 	return !from.IsZero() && from.Before(p.windowCutoffUTC())
 }
@@ -456,7 +456,7 @@ func sortColumn(col string) string {
 }
 
 // sortViews orders views by one column. Ascending when asc; the default view
-// (newest first) is sortCreated descending (§4.1).
+// (newest first) is sortCreated descending (section 4.1).
 //
 // Every ordering is TOTAL, not merely sorted: ties break on created-then-id, in
 // a fixed direction, so two stashes of the same size (or the same status, which

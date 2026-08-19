@@ -16,7 +16,7 @@ const testHostID = "42512149deadbeef"
 
 // TestHostInfo covers the chrome's host-facts endpoint: ok=true, the local
 // hostId, the daemon version, and a serverIps STRING (newline-separated lines,
-// possibly empty in a sandboxed CI with no non-loopback interface — the contract
+// possibly empty in a sandboxed CI with no non-loopback interface -- the contract
 // is the shape, not a specific address).
 func TestHostInfo(t *testing.T) {
 	srv, _ := newServer(t, Options{HostID: testHostID})
@@ -35,7 +35,7 @@ func TestHostInfo(t *testing.T) {
 	if err := json.Unmarshal(b, &info); err != nil {
 		t.Fatalf("hostinfo: %v (body %s)", err, b)
 	}
-	if !info.OK || info.LocalHostID != testHostID || info.Version != "2026.08.16" {
+	if !info.OK || info.LocalHostID != testHostID || info.Version != "2026.08.19" {
 		t.Fatalf("hostinfo should carry the host id and version; got %+v", info)
 	}
 	// Every reported line must be a comma-list of parseable IPs (no stray
@@ -56,7 +56,7 @@ func TestHostInfo(t *testing.T) {
 }
 
 // TestPageServesChrome verifies the page carries the shared header and footer
-// markup and that the module driving it ships in common.js — i.e. the chrome is
+// markup and that the module driving it ships in common.js -- i.e. the chrome is
 // wired end-to-end, not just defined.
 func TestPageServesChrome(t *testing.T) {
 	srv, _ := newServer(t, Options{})

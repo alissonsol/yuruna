@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42b90938-32c4-4c5c-91d0-c52eb3049b5d
+.VERSION 2026.08.19
+.GUID 4218f53d-2ce9-4dd2-9793-e239cc92136d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test sequence planner cascade variables pester
@@ -35,7 +35,7 @@ BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 $script:src  = Get-Content (Join-Path $here 'Test.SequencePlanner.psm1') -Raw
 
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 }
 

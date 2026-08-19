@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42b1c2d3-e4f5-4a67-8b90-1c2d3e4f5a6b
+.VERSION 2026.08.19
+.GUID 4238dc49-0c94-4ba6-a7be-b24343a6ca42
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna pool intent sync git desired-state
@@ -360,22 +360,22 @@ function Write-YurunaPoolManifest {
         [Parameter()][AllowNull()]$Pool,
         # autoEnrollment.targetPoolId from the intent doc, when the store
         # declares one. Supplied by the caller because only it has read the
-        # document; empty on every store that has not opted into auto-enrolment,
+        # document; empty on every store that has not opted into auto-enrollment,
         # which makes the guard below inert.
-        [Parameter()][AllowEmptyString()][string]$AutoEnrolTargetPoolId = ''
+        [Parameter()][AllowEmptyString()][string]$AutoEnrollTargetPoolId = ''
     )
     $runtimeDir = $env:YURUNA_RUNTIME_DIR
     if ([string]::IsNullOrWhiteSpace($runtimeDir)) { return $false }
     $path = Join-Path $runtimeDir 'pool.manifest.json'
     $testSet = if ($Pool -is [System.Collections.IDictionary]) { $Pool['testSet'] } else { $null }
     # Defence in depth for the target-pool rule. Test-PoolIntent and
-    # Set-PoolTestSet both refuse a testSet on the auto-enrolment target pool,
+    # Set-PoolTestSet both refuse a testSet on the auto-enrollment target pool,
     # but neither runs on this host: a hand-edited store, or one written before
     # the rule existed, would otherwise reach here and repoint the host. Ignore
     # it loudly rather than obey it -- a host that lands in the target pool
     # automatically must keep running its own project.
-    if ($testSet -and $AutoEnrolTargetPoolId -and ([string]$Pool['poolId'] -eq $AutoEnrolTargetPoolId)) {
-        Write-Warning "Pool '$($Pool['poolId'])' is the auto-enrolment target pool and must not carry a testSet; ignoring it and keeping this host's own repositories. Fix the intent store (Test-PoolIntent.ps1 reports this)."
+    if ($testSet -and $AutoEnrollTargetPoolId -and ([string]$Pool['poolId'] -eq $AutoEnrollTargetPoolId)) {
+        Write-Warning "Pool '$($Pool['poolId'])' is the auto-enrollment target pool and must not carry a testSet; ignoring it and keeping this host's own repositories. Fix the intent store (Test-PoolIntent.ps1 reports this)."
         $testSet = $null
     }
     $hasTriple = ($testSet -is [System.Collections.IDictionary]) -and $testSet.Contains('frameworkUrl') -and $testSet.Contains('projectUrl')
@@ -522,7 +522,7 @@ function Sync-YurunaPoolIntent {
     # writer can refuse a testSet on it (defence in depth -- neither the admin
     # CLI nor Test-PoolIntent runs on this host).
     $autoTarget = if (($intent -is [System.Collections.IDictionary]) -and $intent['autoEnrollment']) { [string]$intent['autoEnrollment']['targetPoolId'] } else { '' }
-    $null = Write-YurunaPoolManifest -Pool $pool -AutoEnrolTargetPoolId $autoTarget -Confirm:$false
+    $null = Write-YurunaPoolManifest -Pool $pool -AutoEnrollTargetPoolId $autoTarget -Confirm:$false
     return $pool
 }
 

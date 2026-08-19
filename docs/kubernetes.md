@@ -5,7 +5,7 @@ and AWS with a single workflow (GCP is planned, not yet available). Write
 the configuration once; switch target clouds by changing a parameter.
 
 See [Yuruna Architecture](architecture.md) for the three-phase model
-(Resources→Components→Workloads), the CLI entry points, and the project
+(Resources->Components->Workloads), the CLI entry points, and the project
 layout. This doc is the user-facing quick start for Kubernetes.
 
 Prerequisites are in [Preflight dependencies](operator.md#b2-preflight-dependencies).
@@ -79,7 +79,7 @@ globalVariables:
 ```
 
 It wires to EKS `endpoint_public_access_cidrs` and AKS
-`api_server_access_profile.authorized_ip_ranges`. There is **no default** —
+`api_server_access_profile.authorized_ip_ranges`. There is **no default** --
 omitting it fails at `tofu plan` (fail-closed) rather than silently exposing
 `0.0.0.0/0`. EKS keeps private endpoint access on for in-VPC node/pod
 traffic; the external `kubectl`/`helm` deploy uses the allow-list. For a
@@ -117,7 +117,7 @@ Invoke-Clear.ps1 website azure
 ```
 
 You can also delete resources directly from the folder holding the initial
-deployment files (`.yuruna/$config_subfolder/resources/$resourceName` — e.g.
+deployment files (`.yuruna/$config_subfolder/resources/$resourceName` -- e.g.
 `.yuruna/azure/resources/website-cluster` for `Invoke-Clear.ps1 website azure`):
 
 ```
@@ -125,7 +125,7 @@ tofu destroy -auto-approve -refresh=false
 ```
 
 This needs the created `.terraform` folder to still be available; without it you
-will see `0 destroyed` — follow the manual cleanup below instead.
+will see `0 destroyed` -- follow the manual cleanup below instead.
 
 Don't forget to delete the cluster context from `[user]/.kube/config`. The
 [Visual Studio Code](https://code.visualstudio.com/)
@@ -135,15 +135,15 @@ can both do this.
 
 ### Manual cleanup per cloud
 
-- **AWS** — from the [AWS Management Console](https://console.aws.amazon.com/),
+- **AWS** -- from the [AWS Management Console](https://console.aws.amazon.com/),
   delete clusters, registries, VPCs, IPs and other resources.
-- **Azure** — from the [Azure Portal](https://portal.azure.com), delete the
+- **Azure** -- from the [Azure Portal](https://portal.azure.com), delete the
   Azure Resource Groups created; deleting a resource group deletes all
   associated resources. There is a global resource for registry and clusters,
   and each Kubernetes cluster has a corresponding AKS node resource group
   (see [AKS FAQ](https://learn.microsoft.com/en-us/azure/aks/faq)) named with
   the suffix `_nodes`.
-- **GCP** — from the [GCP Console](https://console.cloud.google.com/), delete any
+- **GCP** -- from the [GCP Console](https://console.cloud.google.com/), delete any
   resources previously created.
 
 ## Guest-side prerequisites
@@ -158,9 +158,9 @@ workload pattern: [Yuruna Architecture](architecture.md).
 |---|---|
 | **Ubuntu Server 24.04** | `/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.k8s.sh` |
 | **Ubuntu Server 26.04** | `/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.26/ubuntu.server.26.k8s.sh` |
-| **Windows 11** | `irm "…/guest/windows.11/windows.11.k8s.ps1$nc" \| iex` (see [Windows 11 ...](../guest/windows.11/README.md)) |
+| **Windows 11** | `irm ".../guest/windows.11/windows.11.k8s.ps1$nc" \| iex` (see [Windows 11 ...](../guest/windows.11/README.md)) |
 
-**Ubuntu — optional after:** change hostname with
+**Ubuntu -- optional after:** change hostname with
 `sudo hostnamectl set-hostname <name>`; a terminal restart may be
 needed for new group permissions.
 
@@ -188,7 +188,7 @@ kubectl wait --for=condition=available deployment/website -n website --timeout=2
 Checking `endpoints/website-service` would be wrong on two counts:
 
 1. **Wrong name.** The helm chart's Service is `website`, not
-   `website-service` — that name is on the standalone manifest in
+   `website-service` -- that name is on the standalone manifest in
    `components/frontend/website/` used for ad-hoc `kubectl apply`, not
    in-cluster.
 2. **Wrong signal.** It reported `NotFound` instantly when the
@@ -208,11 +208,11 @@ disk that was enough to trip kubelet's 85% ephemeral-storage watermark,
 get the workload + nginx-ingress pods Evicted, and leave their
 replacements stuck on the disk-pressure taint. The workload scripts
 prune both caches before the cluster deploys; failure there is
-non-fatal — only the side effect matters.
+non-fatal -- only the side effect matters.
 
 ## See also
 
-- [Yuruna Architecture](architecture.md#cli-entry-points) — CLI reference for the three phases
+- [Yuruna Architecture](architecture.md#cli-entry-points) -- CLI reference for the three phases
 - [Yuruna Workarounds and FAQ](workarounds.md)
 - [Yuruna Website example](https://github.com/alissonsol/yuruna-project/tree/main/example/website), [Further reading](README.md#further-reading)
 
@@ -222,6 +222,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../README.md)

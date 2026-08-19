@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42b6c7d8-e9a0-4b12-8c34-5d6e7f8a9b03
+.VERSION 2026.08.19
+.GUID 4296f1a1-76e4-44f9-8c28-9bc89641228f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test registry comparer case-sensitivity pester

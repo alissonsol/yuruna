@@ -2,7 +2,7 @@
 
 This file collects the rationale behind every non-trivial line in the
 per-guest `vmconfig/` artifacts (`user-data`, `meta-data`,
-`autounattend.xml`). The user-data files stay short — each topic
+`autounattend.xml`). The user-data files stay short -- each topic
 collapses to one line:
 
 ```
@@ -11,7 +11,7 @@ collapses to one line:
 
 The fragment resolves to a `### <topic name>` heading here. Slugs follow
 the GitHub Markdown rule: lowercase the heading text, strip everything
-that isn't `[a-z0-9_ -]`, then replace spaces with hyphens — so
+that isn't `[a-z0-9_ -]`, then replace spaces with hyphens -- so
 `### Disable swap` becomes `#disable-swap`.
 
 Topics are generic (one explanation covers every guest on every host);
@@ -36,11 +36,11 @@ per-cycle replacement table. The rendering pipeline lives in
 [`automation/Yuruna.CloudInitTemplate.psm1`](../automation/Yuruna.CloudInitTemplate.psm1).
 
 Without the pipeline, each of the six `New-VM.ps1` scripts
-(3 platforms × {Ubuntu Server 24, Ubuntu Server 26}) would carry a
+(3 platforms x {Ubuntu Server 24, Ubuntu Server 26}) would carry a
 near-identical `vmconfig/user-data` file (~240 lines each), a
 600-character `.Replace(...).Replace(...)...` chain across 11
 placeholders, and a base64 dance per guest-side helper script. A fix
-landing in one copy leaves the other five drifted — the "three parallel
+landing in one copy leaves the other five drifted -- the "three parallel
 user-data copies" trap class in the workspace's contributor memory.
 
 Each `host/<host>/guest.<guest>/New-VM.ps1` merges the shared
@@ -58,8 +58,8 @@ handing the result to `genisoimage` (KVM), `hdiutil makehybrid`
 | `PLAINTEXT_PASSWORD_PLACEHOLDER` | Same as above (AL2023 path) | Used inside `chpasswd:` for AL2023, where the cloud-init module accepts the plaintext form and force-expires it on first login (chpasswd default `expire: true`). |
 | `SSH_AUTHORIZED_KEY_PLACEHOLDER` | `test/status/ssh/yuruna_ed25519.pub` (auto-generated if missing) via `Test.Ssh\Get-YurunaSshPublicKey` | Single ed25519 line; placed under autoinstall.ssh.authorized-keys (Ubuntu) and the cloud-init `users:` block for the test user (AL2023). Same key the post-failure diagnostics path (`Test.Diagnostic\Invoke-RemoteDiagnosticsKeySsh`) authenticates with -- per-host key files would silently break it. |
 | `APT_PROXY_BLOCK_PLACEHOLDER` | Built per-host by New-VM.ps1 | Multi-line `apt:` block. Substring-replaced (not token-aware), so the literal string MUST NOT appear anywhere else in the file. |
-| `CACHING_PROXY_URL_PLACEHOLDER` | `-CachingProxyServiceUrl` parameter | Empty string when no caching-proxy-service is reachable; the `if [ -n … ]` blocks in user-data are no-ops in that case. |
-| `CA_CERT_BASE64_PLACEHOLDER` | macos.utm only — host-fetched CA, base64-embedded | Empty when CA fetch failed; HTTPS apt then bypasses the cache. |
+| `CACHING_PROXY_URL_PLACEHOLDER` | `-CachingProxyServiceUrl` parameter | Empty string when no caching-proxy-service is reachable; the `if [ -n ... ]` blocks in user-data are no-ops in that case. |
+| `CA_CERT_BASE64_PLACEHOLDER` | macos.utm only -- host-fetched CA, base64-embedded | Empty when CA fetch failed; HTTPS apt then bypasses the cache. |
 | `YURUNA_STATUS_SERVICE_IP_PLACEHOLDER` | Best-effort host IP discovery | Becomes `/etc/yuruna/host.env` and the `yuruna-host` `/etc/hosts` entry. |
 | `YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER` | `test/test.config.yml:statusService.port` (default 8080) | Same. |
 | `YURUNA_RETRY_LIB_BASE64_PLACEHOLDER` / `YURUNA_VERSIONS_BASE64_PLACEHOLDER` / `YURUNA_FAE_BASE64_PLACEHOLDER` / `YURUNA_NETWORK_BASE64_PLACEHOLDER` / `YURUNA_HOST_LOCATE_BASE64_PLACEHOLDER` | Auto-populated from `Get-YurunaGuestScriptBase64` | The five `automation/*.sh` guest helpers, embedded as base64 `write_files` entries. |
@@ -80,7 +80,7 @@ value the module would have resolved.
 | 3. **Resolve** | `Resolve-CloudInitPlaceholder` | Merged template + replacement hashtable | Final user-data string |
 
 `New-CloudInitUserData` is the wrapper every per-guest `New-VM.ps1`
-calls — it chains the three stages, auto-populates the guest-script
+calls -- it chains the three stages, auto-populates the guest-script
 base64 entries plus the host-identity and GitHub-source entries listed
 above, and optionally writes the result to `-OutputPath` (see "Output
 encoding" below).
@@ -92,8 +92,8 @@ applies `.Replace(name, value)` for each entry. After substitution it
 scans the result for any remaining `<NAME>_PLACEHOLDER` token and throws
 with the offending names.
 
-This catches typos at New-VM time — a forgotten entry in the caller's
-hashtable, or a new placeholder no caller supplies a value for — instead
+This catches typos at New-VM time -- a forgotten entry in the caller's
+hashtable, or a new placeholder no caller supplies a value for -- instead
 of letting a literal placeholder ship to the guest and fail
 mid-autoinstall with a confusing diagnostic.
 
@@ -101,7 +101,7 @@ mid-autoinstall with a confusing diagnostic.
 
 | File | Role |
 |---|---|
-| `host/vmconfig/ubuntu.server.base.user-data` | The shared base — same for Ubuntu Server 24 and 26. Contains anchor lines like `# === YURUNA_OVERLAY_NETWORK ===` that the merger replaces. |
+| `host/vmconfig/ubuntu.server.base.user-data` | The shared base -- same for Ubuntu Server 24 and 26. Contains anchor lines like `# === YURUNA_OVERLAY_NETWORK ===` that the merger replaces. |
 | `host/vmconfig/ubuntu.server.hyperv.overlay.yml` | Per-host overlay: `hv_balloon` denylist + `hyperv_fb` framebuffer pin. |
 | `host/vmconfig/ubuntu.server.kvm.overlay.yml` | Per-host overlay: VT-blanking early-command + `consoleblank=0` + fb-safe GRUB cmdline. |
 | `host/vmconfig/ubuntu.server.utm.overlay.yml` | Per-host overlay: `network:` block pinning IPv4 DHCP and refusing IPv6 RA. |
@@ -117,7 +117,7 @@ Each anchor line in the base reads
 `# === YURUNA_OVERLAY_<NAME> ===`. The anchor set differs by guest type
 (autoinstall vs prebuilt-image `runcmd:`):
 
-**Ubuntu Server** — four anchors:
+**Ubuntu Server** -- four anchors:
 
 | Anchor | Purpose | Used by overlays |
 |---|---|---|
@@ -126,7 +126,7 @@ Each anchor line in the base reads
 | `GRUB_PRE_CONSOLE_QUIET` | Kernel quirks before `console-quiet` block | Hyper-V (`hv_balloon`+`hyperv_fb`), KVM (`consoleblank`) |
 | `GRUB_POST_CONSOLE_QUIET` | Kernel quirks after `console-quiet` block | KVM only (`nomodeset` fb-safe) |
 
-**Amazon Linux 2023** — three anchors:
+**Amazon Linux 2023** -- three anchors:
 
 | Anchor | Purpose | Used by overlays |
 |---|---|---|
@@ -139,7 +139,7 @@ headers; the lines
 between one header and the next (or end of file) are the substitution
 payload. An empty payload deletes the anchor line outright.
 
-Anchors not represented in the overlay are a hard error — a silent miss
+Anchors not represented in the overlay are a hard error -- a silent miss
 would leak the literal marker into the final user-data and confuse
 cloud-init.
 
@@ -159,10 +159,10 @@ order below respects three real dependencies; everything else is a
 convention so the three host variants of each guest stay diff-friendly:
 
 1. `wget no_proxy` MUST precede the fetch-and-execute download and the
-   timezone wget — both go through `/etc/wgetrc`.
+   timezone wget -- both go through `/etc/wgetrc`.
 2. `update-grub` MUST come after every `99-yuruna-*.cfg` drop-in.
 3. `umount /cdrom` + `losetup -D` MUST be the final late-commands
-   (ubuntu.server.24 only — see "Quiet post-install reboot teardown" below).
+   (ubuntu.server.24 only -- see "Quiet post-install reboot teardown" below).
 
 Recommended order (a guest may omit topics that don't apply):
 
@@ -193,7 +193,7 @@ Recommended order (a guest may omit topics that don't apply):
 
 ### apt proxy block
 
-`apt.proxy` (scoped — not top-level `proxy:`) routes only `apt`/`apt-get`
+`apt.proxy` (scoped -- not top-level `proxy:`) routes only `apt`/`apt-get`
 through the local caching-proxy-service. Scope matters: top-level `proxy:` also
 exports `http_proxy`/`https_proxy` into late-commands' env, which breaks
 `wget https://...` against proxies that refuse CONNECT and would route
@@ -247,7 +247,7 @@ sequence then loops on a wrong-password dialog. The deprecation warning
 is cosmetic. Cloud-init's default `chpasswd.expire: true` applies, so
 the first-login current/new/retype dialog still fires.
 
-Do NOT add spaces after `ec2-user:` — they become part of the password.
+Do NOT add spaces after `ec2-user:` -- they become part of the password.
 
 ### Unlocked account needs plain_text_passwd
 
@@ -336,7 +336,7 @@ inherits the kernel default (`consoleblank=600` = 10 min). Any quiet
 phase >10 min during apt fetch / partitioning blanks the VGA
 framebuffer mid-install; `virt-viewer` renders black AND
 `virsh screenshot` (QMP screendump) returns black PPMs that tesseract
-can't OCR — the harness's "wait for ${vmName} login:" step then cannot
+can't OCR -- the harness's "wait for ${vmName} login:" step then cannot
 tell the install from a hang. `early-commands` run "as soon as the
 installer starts, before probing for block and network devices" (Ubuntu
 autoinstall reference), so this fires before any 10-min quiet window can
@@ -354,7 +354,7 @@ The `if`-block also opts into HTTPS caching by trusting the squid CA
 and pointing `Acquire::https::Proxy` at the `:3129` ssl-bump listener:
 
 - **Hyper-V / KVM:** the installer fetches the CA in-band via
-  `wget http://${CACHE_HOST}/yuruna-squid-ca.crt` — guests reach the
+  `wget http://${CACHE_HOST}/yuruna-squid-ca.crt` -- guests reach the
   cache VM directly on the (Default Switch / libvirt 'default') NAT.
   Failure leaves the plain-HTTP proxy in place; HTTPS apt goes direct.
 - **macos.utm:** Apple VZ shared-NAT isolates guests from each other,
@@ -370,7 +370,7 @@ iptables REJECT on direct 80/443 to catch apps that ignore
 `http_proxy` (snap, some Go binaries, browser auto-updaters). RFC1918
 and link-local stay reachable so the cache, yuruna-host status service,
 and LAN services keep working. Conditional on a non-empty
-`CACHING_PROXY_URL_PLACEHOLDER` — without a cache the rules are
+`CACHING_PROXY_URL_PLACEHOLDER` -- without a cache the rules are
 skipped and traffic flows direct.
 
 The three env-var sinks each serve a different reader: `/etc/environment`
@@ -400,7 +400,7 @@ The autoinstall `network:` block in the shared
 the primary NIC (`match: name: "en*"`) to `dhcp4: true; dhcp6: false;
 accept-ra: false`. The glob (rather than a literal `enp0s1`) survives
 the 26.04 guest's NIC model switch from `virtio-net-pci` (`enp0s1`)
-to `e1000` (`ens1`) — see the comment on the `Network` array in the
+to `e1000` (`ens1`) -- see the comment on the `Network` array in the
 guest's `config.plist.template`.
 
 Only the macOS QEMU backend needs this: on
@@ -408,7 +408,7 @@ QEMU + `-netdev vmnet-shared`, the host's VMnet stub sends IPv6
 router advertisements that `systemd-networkd` interprets as interface
 CHANGE events. Subiquity's `NetworkController` treats each CHANGE as
 a model update, fires `_send_update`, and never proceeds past network
-detection — the install wedges with the framebuffer scrolling:
+detection -- the install wedges with the framebuffer scrolling:
 
 ```
 start:  subiquity/Network/_send_update: CHANGE enp0s1
@@ -429,13 +429,13 @@ ExecStart=/lib/systemd/systemd-networkd-wait-online --any --timeout=15
 
 Ubuntu 24.04's `networkd-wait-online` defaults to "wait for ALL
 interfaces routable, no timeout." `--any --timeout=15` means "ANY
-interface routable OR 15s, whichever first" — what the harness needs.
+interface routable OR 15s, whichever first" -- what the harness needs.
 Cloud-init's first-boot run transitively depends on
 `network-online.target`, so a stuck wait-online cascades into a
 cloud-init failure or minutes of delay before login.
 
 - **Hyper-V Default Switch:** the IPv6 path eventually resolves but
-  slowly — visible as
+  slowly -- visible as
   `Job systemd-networkd-wait-online.service/start running ([TIME] / no limit)`.
 - **Apple VZ shared NAT (UTM):** the IPv6 RAs the tracker expects never
   arrive; without the cap the service blocks forever.
@@ -473,7 +473,7 @@ The same trap applies to any caller that passes vault plaintext to a
 command-line tool. Either:
 
 - Pass plaintext AFTER `--` (e.g. `chpasswd -- "$user:$pw"`, though
-  chpasswd's stdin form `echo "$user:$pw" | chpasswd` is preferable —
+  chpasswd's stdin form `echo "$user:$pw" | chpasswd` is preferable --
   it also keeps plaintext out of argv); or
 - Pass plaintext via stdin (`-stdin` on openssl, the default on
   chpasswd, `SSHPASS`/`-e` on sshpass).
@@ -514,7 +514,7 @@ sed -i -E "/^[#[:space:]]*LOGIN_TIMEOUT/d" /etc/login.defs && echo "LOGIN_TIMEOU
 (initial `Password:` plus Current/New/Retype on an expired account).
 At the default 60s, the OCR-driven harness can run out of budget on a
 busy host: each prompt costs 1 screenshot + tesseract pass + virsh
-send-key chain, ~10s/step across 4 prompts plus margin. 180s gives ~3×
+send-key chain, ~10s/step across 4 prompts plus margin. 180s gives ~3x
 headroom. The `sed` strips any existing entry (commented or not) before
 the append, so the change is idempotent.
 
@@ -565,7 +565,7 @@ curtin in-target --target=/target -- systemctl mask snapd.seeded.service
 
 `snapd.seeded.service` runs `snap wait system seed.loaded` and is
 `WantedBy=multi-user.target`, so the getty login prompt cannot appear
-until snapd finishes initializing its seed — even when zero snaps are
+until snapd finishes initializing its seed -- even when zero snaps are
 installed. Measured cost on a fresh ubuntu.server.24 cycle:
 
 ```
@@ -611,7 +611,7 @@ blacklist hv_balloon
 The synthetic balloon driver's memory-pressure notifications spam the
 console and pollute OCR. The
 file is inert on KVM/QEMU and macOS UTM, where `hv_balloon` never
-loads — kept for cross-host symmetry of the runcmd / write_files
+loads -- kept for cross-host symmetry of the runcmd / write_files
 shape.
 
 ### hyperv_fb framebuffer pin
@@ -633,13 +633,13 @@ near-zero framebuffer size. Pinning a fixed resolution makes the
 in-guest driver use it regardless of host display state.
 
 - **Ubuntu Server 24.04:** drop-in under `/etc/default/grub.d/` is additive
-  — stacks with the `consoleblank` and `console-quiet` drop-ins
+  -- stacks with the `consoleblank` and `console-quiet` drop-ins
   without clobbering them.
 - **AL2023:** ships grub2 with no `update-grub` wrapper; `grubby`
   writes `/boot/grub2/grub.cfg` directly and is the AL2023 idiom. The
   flag list is deduplicated, so re-running with the same arg is a
   no-op. AL2023 is a pre-built cloud image (no installer reboot), so
-  the running kernel still has the OLD cmdline here — see the
+  the running kernel still has the OLD cmdline here -- see the
   "Headless host reboot" topic for the conditional reboot that applies
   the new arg.
 
@@ -680,7 +680,7 @@ never sees a `login:` prompt. The fix:
    painted).
 3. `setterm --blank 0 --powersave off` keeps the framebuffer alive
    DURING the current cloud-init session (one-shot, per-VT escape
-   sequence — does NOT survive a getty respawn or a `chvt` away and
+   sequence -- does NOT survive a getty respawn or a `chvt` away and
    back).
 4. *(KVM only)* `grubby --args="consoleblank=0"` makes that no-blank
    policy authoritative at the kernel level for every subsequent boot.
@@ -728,7 +728,7 @@ GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} consoleblank=0"
 The kernel default `consoleblank=600` (10 min) blanks the VGA
 framebuffer on idle. Symptom: `virt-viewer`'s window stops updating
 ("looks like the VNC connection dropped"), AND `virsh screenshot` (QMP
-screendump — independent of the VNC client) starts producing black
+screendump -- independent of the VNC client) starts producing black
 PPMs. Both fall together because the guest's VGA framebuffer feeds
 both. Pin `consoleblank=0` at the kernel cmdline so EVERY boot (and
 every VT) inherits no-blank, regardless of which userspace `setterm`
@@ -749,7 +749,7 @@ GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} quiet loglevel=3 syste
 `passwd`'s `Current password:` prompt parks the cursor at end-of-line
 with no trailing newline. On first boot, late-finishing units (snapd
 seed, `cloud-final`, etc.) and `KERN_INFO`/`NOTICE` printk messages
-keep writing `[ OK ] …` lines to `/dev/console`, overwriting the parked
+keep writing `[ OK ] ...` lines to `/dev/console`, overwriting the parked
 prompt before the OCR snapshot fires; the harness then sees the status
 line and never matches `Current password:`.
 
@@ -757,9 +757,9 @@ line and never matches `Current password:`.
   default 4 (`KERN_WARNING`) to 3 (`KERN_ERR`), suppressing routine boot
   chatter; errors still surface.
 - `systemd.show_status=no rd.systemd.show_status=no` mute systemd's
-  `[ OK ] Started …` / `[FAILED]` banners in both the initrd and the
+  `[ OK ] Started ...` / `[FAILED]` banners in both the initrd and the
   main system.
-- `quiet` is usually already in the default cmdline — both
+- `quiet` is usually already in the default cmdline -- both
   `update-grub` and `grubby` deduplicate, so the repeat is a no-op.
 
 <a id="console-fb-safe"></a>
@@ -812,7 +812,7 @@ ExecStartPre=-/usr/bin/cloud-init status --wait
 
 cloud-init's `running 'modules: final'` / `finished` lifecycle banners
 reach the console via `/dev/kmsg` (kernel-style
-`[ 44.688245] cloud-init[1065]:` timestamps) unconditionally — unlike
+`[ 44.688245] cloud-init[1065]:` timestamps) unconditionally -- unlike
 the `cc_keys_to_console`/`cc_ssh_authkey_fingerprints` pair, no
 cloud-config knob silences them. On first boot those banners land AFTER
 getty has drawn `login:`, so the typed username and `login(1)`'s
@@ -846,16 +846,16 @@ grep -q yuruna-host /etc/hosts || echo "YURUNA_STATUS_SERVICE_IP_PLACEHOLDER yur
 
 Two artifacts written for the dev iteration loop:
 
-- `/etc/yuruna/host.env` — guest scripts source this to prefer the
+- `/etc/yuruna/host.env` -- guest scripts source this to prefer the
   local status service over GitHub. `Test-YurunaHost.ps1` is the
   in-guest probe that verifies these coordinates are still valid.
-- `/etc/hosts` `yuruna-host` entry — a stable name that survives DHCP
+- `/etc/hosts` `yuruna-host` entry -- a stable name that survives DHCP
   renumbering inside the guest's session.
 
 - **Hyper-V Default Switch:** the host IP changes across host reboots.
   Rebuild the guest if `Test-YurunaHost.ps1` fails after a host reboot.
 - **libvirt 'default' (KVM):** the gateway is stable at
-  `192.168.122.1` — no rebuild needed.
+  `192.168.122.1` -- no rebuild needed.
 
 ### Host address refresh timer
 
@@ -881,8 +881,8 @@ nothing in the guest re-resolves them. `fetch-and-execute.sh` repairs the
 address at the top of each step, which leaves one window open: a step that
 runs for many minutes can watch the host renumber underneath it and has no
 way back. The timer closes that window for everything that never passes
-through the fetch path at all — the project's own scripts, the perf
-checkpoints, the log uploads — all of which read the same `host.env`.
+through the fetch path at all -- the project's own scripts, the perf
+checkpoints, the log uploads -- all of which read the same `host.env`.
 
 The service VMs (`pool-control-service`, `download-agent-service`,
 `stash-service`, `caching-proxy-service`) need it hardest: they are
@@ -892,7 +892,7 @@ guest rebuilt every cycle never sees, and nobody is typing into them.
 Affordable at a one-minute cadence because `yuruna-host-locate` probes the
 coordinate the guest already holds before it consults the pool directory:
 while the address is still good the tick costs one LAN round trip and no
-writes. A `oneshot` rather than a daemon — no state carries between ticks,
+writes. A `oneshot` rather than a daemon -- no state carries between ticks,
 and a oneshot cannot wedge. `TimeoutStartSec=30` is the backstop for the day
 one of the resolver's own wall-clock caps stops holding, so a resolver that
 cannot finish never holds the boot open.
@@ -900,7 +900,7 @@ cannot finish never holds the boot open.
 The unit is ordered *into* the `network-online.target` barrier rather than
 after it. Anything in the guest that needs the host waits on that target, so
 finishing before it is what guarantees those consumers never read a stale
-address — without this unit naming a single one of them, which is the whole
+address -- without this unit naming a single one of them, which is the whole
 point of the indirection. The `After=` line lists both wait-online
 implementations because ordering against an absent unit is a no-op, so one
 line covers whichever the image ships and still runs with an address in hand
@@ -948,22 +948,22 @@ write_files:
 All five `automation/*.sh` helpers land in the canonical
 `/usr/local/lib/yuruna/` directory on every supported guest:
 
-- `yuruna-retry.sh` — sourced by every guest provisioning script for
+- `yuruna-retry.sh` -- sourced by every guest provisioning script for
   `apt_retry` / `dnf_retry` / `curl_retry`. See
   [Defining yuruna retry lib](https://yuruna.link/network#defining-yuruna-retry-lib).
-- `yuruna-versions.sh` — the pinned dependency versions, sourced in turn
+- `yuruna-versions.sh` -- the pinned dependency versions, sourced in turn
   by `yuruna-retry.sh`.
-- `fetch-and-execute.sh` — the harness's invocation point; the
+- `fetch-and-execute.sh` -- the harness's invocation point; the
   test-sequence YAMLs call it as
   `/usr/local/lib/yuruna/fetch-and-execute.sh <relative/path/script.sh>`.
-- `yuruna-network.sh` — guest network diagnostics and DHCP lease
+- `yuruna-network.sh` -- guest network diagnostics and DHCP lease
   release.
-- `yuruna-host-locate.sh` — re-resolves the host's status-service
+- `yuruna-host-locate.sh` -- re-resolves the host's status-service
   address. Seeded rather than fetched because it is what decides where
   the guest fetches code from.
 
 They are read at seed-build time by the host-side `New-VM.ps1`,
-base64-encoded, and embedded as cloud-init `write_files:` content —
+base64-encoded, and embedded as cloud-init `write_files:` content --
 baked into the seed rather than fetched, so they are on disk before any
 provisioning script runs. Single source of truth: `automation/` in the
 framework repo.
@@ -996,7 +996,7 @@ with UTC.
 subiquity holds `/cdrom` (autoinstall ISO) and snapd holds the squashfs
 loops; `systemd-shutdown` can't detach them in time and logs cosmetic
 `[FAILED] Failed unmounting cdrom` + `Could not detach loopback
-/dev/loopN` messages on the install→reboot edge. Running these from
+/dev/loopN` messages on the install->reboot edge. Running these from
 the installer (last late-command, against `/cdrom` NOT
 `/target/cdrom`) drops the references before reboot.
 
@@ -1069,7 +1069,7 @@ is not an oversight.
 
 **A `packages:` retrieval failure is fatal.** curtin reports
 `system-install --download-only` exit 100, subiquity aborts, and the guest never
-reaches a login prompt — the whole build is lost over a package that is usually
+reaches a login prompt -- the whole build is lost over a package that is usually
 an optimization (`qemu-guest-agent` improves address discovery; the guest still
 provisions without it). A late-command that fails is tolerated with `|| true`,
 so the build completes and the capability degrades instead.
@@ -1304,7 +1304,7 @@ inactivity-based and resets on every packet received, so a slow-but-moving
 large object is never cut off; only a genuinely silent upstream is.
 
 Squid's two minutes deliberately OUTLASTS the guests' `Acquire::http::Timeout`
-(30 s, up to three attempts — see `New-AptProxyBlock`). The guest gives up on a
+(30 s, up to three attempts -- see `New-AptProxyBlock`). The guest gives up on a
 stalled index first so the failure lands inside the sequence step's budget
 while there is still time to report it, and `quick_abort_min -1 KB` above means
 that giving up does not cancel the fetch: squid keeps pulling the object for
@@ -1341,8 +1341,8 @@ manager` ACL in squid.conf keeps the dump off the LAN.
 ### GitHub release and Helm chart pinning
 
 **GitHub release assets** (kubectl, helm, gh, jq, terraform-provider-*,
-tofu, …) live at `github.com/<owner>/<repo>/releases/download/<tag>/<asset>`,
-which 302-redirects to `objects.githubusercontent.com/<token>/…`. Both
+tofu, ...) live at `github.com/<owner>/<repo>/releases/download/<tag>/<asset>`,
+which 302-redirects to `objects.githubusercontent.com/<token>/...`. Both
 URLs are content-addressed by tag plus asset name -- release assets are
 immutable in GitHub's data model -- so both get the full-year pin. The
 rule matches the whole host rather than just terraform-provider assets,
@@ -1454,11 +1454,11 @@ Only a successful read is persisted. Caching a failure would republish it for th
 
 ### zot prewarm
 
-`zot-prewarm.sh`, driven by `zot-prewarm.timer`, keeps the image sets a Kubernetes guest pulls resident in this cache and times every fetch, so the health page can report the path a real pull walks. Operator-facing detail — the resolved sets, the published reading, and the cold-sync watermark — is in [caching.md](caching.md#warm-sets-and-the-cold-sync-reading); what follows is why the unit is shaped this way.
+`zot-prewarm.sh`, driven by `zot-prewarm.timer`, keeps the image sets a Kubernetes guest pulls resident in this cache and times every fetch, so the health page can report the path a real pull walks. Operator-facing detail -- the resolved sets, the published reading, and the cold-sync watermark -- is in [caching.md](caching.md#warm-sets-and-the-cold-sync-reading); what follows is why the unit is shaped this way.
 
 **Why warm at all.** zot resolves a TAG by re-running the on-demand upstream sync BEFORE any local-storage check, and when the content is not already held that sync copies the whole multi-arch index before the manifest request is answered. A guest meeting that cold pays minutes per image inside a step budget sized for a warm cache. Warming on a timer moves the cost off the path a guest is waiting on; it does not remove it.
 
-**Why the timing lives here.** This is the only reading that can show the cold path. A tag that a scheduled poll keeps resident answers from local storage in milliseconds however badly a cold sync is behaving, so a canary pinned to such a tag reports green by construction — it measures the upstream leg and nothing about how long an image the lab does not hold takes to arrive. The prewarm run is fetching content that is genuinely absent, so its own elapsed time is the honest number.
+**Why the timing lives here.** This is the only reading that can show the cold path. A tag that a scheduled poll keeps resident answers from local storage in milliseconds however badly a cold sync is behaving, so a canary pinned to such a tag reports green by construction -- it measures the upstream leg and nothing about how long an image the lab does not hold takes to arrive. The prewarm run is fetching content that is genuinely absent, so its own elapsed time is the honest number.
 
 **`PREWARM_MAX` (900s) is a ceiling, not an expectation.** It exists to stop a wedged upstream pinning the unit forever, not to express what is acceptable: a cold multi-arch control-plane image legitimately takes minutes, and cutting it short would abandon a sync the next run then has to start over.
 
@@ -1466,7 +1466,7 @@ Only a successful read is persisted. Caching a failure would republish it for th
 
 **`Accept:` is spelled out** for the same reason the canary exporter spells it out: a manifest request stating no preference gets the registry's default, which for a multi-arch tag is not the index a real pull resolves.
 
-**Runs are serialized with `flock`.** Two overlapping runs would race on the state files under `/var/lib/yuruna` and double the upstream work for no benefit — and a long cold run overlapping the next timer tick is the normal case here, not an exceptional one. A tick that finds the lock held skips rather than queues.
+**Runs are serialized with `flock`.** Two overlapping runs would race on the state files under `/var/lib/yuruna` and double the upstream work for no benefit -- and a long cold run overlapping the next timer tick is the normal case here, not an exceptional one. A tick that finds the lock held skips rather than queues.
 
 **The warm set is resolved, never pinned in the seed.** Every input is read from the same source the guest reads, so the warm set cannot drift from the set a guest pulls; naming versions in this file would create a second pin that goes stale silently, and the staleness would surface only as a cold cache during a provisioning run. Those resolution fetches go direct: routing them through this VM's own ssl-bump listener would make a source fetch depend on the proxy it is meant to keep stocked.
 
@@ -1883,7 +1883,7 @@ The destination must stay one of the paths the daemon searches when `--fido-scri
 
 - New topics: add a `### <topic name>` section here, then in user-data
   emit a single line `# --- REGION: https://yuruna.link/vmconfig#<topic-slug>`.
-  Pick heading text whose GitHub-slug is readable — avoid `=`, `/`, `:`,
+  Pick heading text whose GitHub-slug is readable -- avoid `=`, `/`, `:`,
   `(`, `)` and other punctuation that the slugifier strips silently
   (those make slugs like `console-quiet-quietloglevel3show_statusno`).
 - Removed topics: drop the section here AND the one-line reference in
@@ -1925,7 +1925,7 @@ The destination must stay one of the paths the daemon searches when `--fido-scri
    use).
 2. Add a `New-VM.ps1` under `host/<platform>/guest.ubuntu.server.{24,26}/`
    that calls `New-CloudInitUserData` with the new overlay path.
-3. The merger validates anchor coverage at merge time — a missing anchor
+3. The merger validates anchor coverage at merge time -- a missing anchor
    in the overlay raises.
 
 ---
@@ -1936,7 +1936,7 @@ Rationale for the `Get-Image.ps1` / `New-VM.ps1` image pipeline that is
 shared across hosts but too long to keep inline. (The download
 skip-if-same-source guard and the image sentinel's Last-Modified capture
 live in
-[guest-image-setup.md → Skip-if-same-source guard](guest-image-setup.md#skip-if-same-source-guard).)
+[guest-image-setup.md -> Skip-if-same-source guard](guest-image-setup.md#skip-if-same-source-guard).)
 
 ### macOS UTM qcow2 punchhole alignment
 
@@ -1945,7 +1945,7 @@ The macOS UTM infra `Get-Image.ps1` scripts (`guest.caching-proxy-service`,
 converting to raw:
 
 - UTM's QEMU backend boots qcow2 natively, so no raw conversion is needed.
-  (Hyper-V converts to VHDX because it cannot boot qcow2 — a genuine
+  (Hyper-V converts to VHDX because it cannot boot qcow2 -- a genuine
   hypervisor difference, not drift.)
 - qcow2 is also **required for correctness** on macOS: UTM attaches
   read-write disks with `discard=unmap,detect-zeroes=unmap`, and QEMU's
@@ -1986,7 +1986,7 @@ even when PowerShell is elevated (Run as Administrator)**.
 #### Root cause: the ISO's ACL is full, not a permissions problem
 
 The wording is misleading. This is neither an elevation problem nor a
-"grant the service account access" problem — the file's **DACL has grown
+"grant the service account access" problem -- the file's **DACL has grown
 until Windows can no longer add another entry**.
 
 Every time `Add-VMDvdDrive -Path <baseImage>` runs, Hyper-V grants the new
@@ -1994,11 +1994,11 @@ VM read access by **appending an explicit ACE** to the file for that VM's
 per-machine virtual account:
 
 - displayed as `NT VIRTUAL MACHINE\<VM-GUID>:(R)` (name form), or
-- as a raw SID `S-1-5-83-1-…:(R)` once the VM is gone (both are the same
+- as a raw SID `S-1-5-83-1-...:(R)` once the VM is gone (both are the same
   `S-1-5-83-1` per-VM account family).
 
-The same grant happens for **any** file a VM attaches — an ISO via
-`Add-VMDvdDrive`, a directly-attached VHDX — so the pruning helper below
+The same grant happens for **any** file a VM attaches -- an ISO via
+`Add-VMDvdDrive`, a directly-attached VHDX -- so the pruning helper below
 takes an arbitrary file path.
 
 Two facts combine into the failure:
@@ -2006,20 +2006,20 @@ Two facts combine into the failure:
 1. **`Remove-VM` never removes that ACE.** Cleanup deletes the VM and its
    per-VM disk, but the grant on the *shared* base image stays.
 2. **The base image is downloaded once and reused for every VM.** So those
-   ACEs accumulate — one per VM ever created — without bound.
+   ACEs accumulate -- one per VM ever created -- without bound.
 
 A Windows security descriptor's DACL is capped at **~64 KB**. Once the base
 image's DACL nears that ceiling, `SetNamedSecurityInfo` can no longer build
-a larger ACL for the next VM's ACE → **`0x8007053C`
+a larger ACL for the next VM's ACE -> **`0x8007053C`
 (ERROR_INVALID_INHERITANCE_ACL)**. Because that ACE is never written, the
-VM worker account can't open the file → **`0x80070005`
+VM worker account can't open the file -> **`0x80070005`
 (Access denied)**.
 
 ##### Why elevation is irrelevant
 
 Your admin token authorizes *you* to call `Add-VMDvdDrive`. The operations
 that fail are (1) Hyper-V/VMMS writing the new ACE into the file and (2) the
-VM's virtual account (`NT VIRTUAL MACHINE\<guid>`) opening the file — both
+VM's virtual account (`NT VIRTUAL MACHINE\<guid>`) opening the file -- both
 gated by the **file's ACL**, which is full. Elevation can't shrink an
 oversized ACL.
 
@@ -2027,10 +2027,10 @@ oversized ACL.
 
 | File | Shared? | Accumulates? |
 |---|---|---|
-| Base install ISO (`…guest.windows.11.iso`, `…ubuntu.server.24/26.iso`) | reused for every VM | **yes** — one ACE per VM, forever |
-| Per-VM seed ISO (`seed.iso` in the per-VM folder) | one VM | no — at most one ACE |
+| Base install ISO (`...guest.windows.11.iso`, `...ubuntu.server.24/26.iso`) | reused for every VM | **yes** -- one ACE per VM, forever |
+| Per-VM seed ISO (`seed.iso` in the per-VM folder) | one VM | no -- at most one ACE |
 | Per-VM disk (`<VMName>.vhdx`) | one VM | no |
-| Base VHDX (`…guest.amazon.linux.2023.vhdx`, `…caching-proxy-service.vhdx`) | copied per-VM, **never attached directly** | no |
+| Base VHDX (`...guest.amazon.linux.2023.vhdx`, `...caching-proxy-service.vhdx`) | copied per-VM, **never attached directly** | no |
 
 Measured on a developer host after many cycles: the
 Windows 11 base ISO already carried **1,412 ACEs** (1,020 raw-SID +
@@ -2054,12 +2054,12 @@ removing a live VM's access.
 
 Two call sites keep the DACL bounded:
 
-- **(A) Before each attach** — `New-VM.ps1` for `guest.windows.11`,
+- **(A) Before each attach** -- `New-VM.ps1` for `guest.windows.11`,
   `guest.ubuntu.server.24`, and `guest.ubuntu.server.26` prunes the base
   image immediately before `Add-VMDvdDrive`. By then the VM being created is
   live, so its (not-yet-added) ACE is safe; all earlier VMs' ACEs are gone,
   bounding the DACL to roughly *(live VMs + 1)*.
-- **(B) During cleanup** — `Remove-OrphanedVMFiles.ps1` prunes every kept
+- **(B) During cleanup** -- `Remove-OrphanedVMFiles.ps1` prunes every kept
   base image on each run (a no-op on the base VHDX images, which are copied
   per-VM and never attached directly, so they accumulate nothing), reclaiming
   ACL space even when no VM is being created. It runs before the deletion
@@ -2068,14 +2068,14 @@ Two call sites keep the DACL bounded:
 
 ##### Manual remediation (already-failing host)
 
-Run elevated. Either prune just the dead VMs (preferred — keeps live VMs):
+Run elevated. Either prune just the dead VMs (preferred -- keeps live VMs):
 
 ```powershell
 Import-Module .\host\windows.hyper-v\modules\Yuruna.Host.psm1 -Force
 Remove-OrphanedVMFileAccess -Path "C:\ProgramData\Microsoft\Windows\Virtual Hard Disks\host.windows.hyper-v.guest.windows.11.iso"
 ```
 
-…or, if no VM currently needs the image, reset its ACL entirely (succeeds
+...or, if no VM currently needs the image, reset its ACL entirely (succeeds
 even at the limit, because it *replaces* rather than grows the descriptor):
 
 ```powershell
@@ -2083,7 +2083,7 @@ icacls "C:\ProgramData\Microsoft\Windows\Virtual Hard Disks\host.windows.hyper-v
 ```
 
 The next `Add-VMDvdDrive` re-adds just the current VM's ACE. Do the same for
-the `…ubuntu.server.24/26.iso` base images.
+the `...ubuntu.server.24/26.iso` base images.
 
 ##### Diagnostics
 
@@ -2091,12 +2091,12 @@ the `…ubuntu.server.24/26.iso` base images.
 $iso = "C:\ProgramData\Microsoft\Windows\Virtual Hard Disks\host.windows.hyper-v.guest.windows.11.iso"
 $acl = Get-Acl $iso
 $acl.Access.Count                                        # total ACEs
-$acl.GetSecurityDescriptorBinaryForm().Length            # bytes — approaching 65535 is the cause
+$acl.GetSecurityDescriptorBinaryForm().Length            # bytes -- approaching 65535 is the cause
 ```
 
 #### Scope
 
-Hyper-V-specific — it stems from Hyper-V's per-VM virtual-account ACE model.
+Hyper-V-specific -- it stems from Hyper-V's per-VM virtual-account ACE model.
 KVM and macOS/UTM grant guest file access differently and accumulate no
 per-VM ACEs on shared images.
 
@@ -2106,6 +2106,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../README.md)

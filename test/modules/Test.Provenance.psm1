@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a1b2c3-d4e5-4f67-8901-bc0123456782
+.VERSION 2026.08.19
+.GUID 42abeebb-d197-4906-b1e6-91cfd0f2576a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
@@ -27,7 +27,7 @@
       * New-VM.ps1 -- emits a Provenance: line (or a warning) right after
         "Creating VM '...' using image: ..." so the transcript carries an
         audit-trail hint about where the ISO came from.
-      * Invoke-TestRunner -- seeds each guest entry in status.json with
+      * Start-TestRunner -- seeds each guest entry in status.json with
         provenance{Filename,Url}, letting the UI swap the card title from
         the generic "guest.ubuntu.server.24" to the actual ISO filename.
     The sidecar path is computed by swapping the image extension for .txt.

@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42c0ffee-a0de-4e1f-a2b3-c4d5e6f7aa02
+.VERSION 2026.08.19
+.GUID 42a69299-ddc0-4dba-a6ac-a1103140522a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna host macos utm caching-proxy forwarder

@@ -65,6 +65,13 @@ const (
 	poolStatsCacheTTL = 30 * time.Second
 	maxProbe          = 8          // bounded concurrent probes per tick
 	logTailBytes      = 512 * 1024 // bytes scanned from EOF for recent client IPs
+	// The lab-wide address scan reads a day of log rather than a fixed tail, so
+	// it is far more expensive than discovery's and must not run every poll.
+	// Five minutes is well inside any useful reaction time for a pool that
+	// takes hours to drain, and the answer barely moves between scans.
+	addrScanWindow   = 24 * time.Hour
+	addrScanInterval = 5 * time.Minute
+	addrScanMaxBytes = 64 << 20 // 64 MiB: a day of lab squid traffic with headroom
 	// How long the per-cycle dedup set (seen/seenAt/counted, keyed hostId|cycleStartUtc)
 	// is kept past the host row it belongs to. A host that is reaped and then
 	// re-appears -- a reboot, a flapping probe -- would otherwise re-report a
@@ -484,6 +491,25 @@ type eventCursor struct {
 	offset        int64 // bytes of the events file already shipped
 }
 
+// addressFootprintView is one host's latest answer to "is your address use
+// bounded by identity, or by elapsed time?".
+//
+// Verdict and pin are kept SEPARATE because together they name four different
+// faults with different owners, and either one alone is ambiguous: a pin the
+// DHCP server ignores looks identical to no pin from the address log, and
+// identical to a working pin from the configuration. Only the pair separates
+// "nobody pinned it" (fixable on the host) from "it is pinned and the server
+// does not care" (fixable only with a reservation).
+type addressFootprintView struct {
+	verdict  string // stable | moved | renewal-churn | unknown
+	severity string // ok | advisory | warning
+	changes  int    // address changes in the lookback window; -1 = not measurable
+	distinct int    // distinct addresses this host held in that window
+	pinned   int    // 1 pinned, 0 not pinned, -1 could not be read
+	backend  string // networkmanager | networkd | unknown
+	observed time.Time
+}
+
 // presenceTarget is one host whose last-known address pollOnce beacons to Loki
 // (src=presence) this tick because it was newly discovered or changed IP. Captured
 // under s.mu (with its pool label) and pushed after the unlock, so a slow Loki
@@ -604,6 +630,31 @@ type poolState struct {
 	labCodes    []string               // newest first: the current code, then up to labKeepCodes-1 predecessors
 	labFails    map[string][]time.Time // source IP -> recent failed exchange attempts (throttle input)
 	labExchange map[string]int64       // exchange outcome ("ok"/"refused"/"throttled") -> count
+	// footprint is the latest host_address_footprint event seen per host: how
+	// many addresses that host is spending and whether its DHCP identity is
+	// pinned. Kept as state rather than left in the log because the question it
+	// answers -- is this lab's address use bounded? -- has to be answerable
+	// BEFORE the pool runs dry, and a log line is only ever read afterwards.
+	// mu-guarded: written by the poll goroutine, read by the metrics handler.
+	footprint map[string]*addressFootprintView // keyed by hostId
+	// The lab-wide distinct-address count from the squid log, refreshed on the
+	// poll goroutine at addrScanInterval and read by the metrics handler.
+	// addrComplete is carried beside it because a scan that did not reach the
+	// far end of the window returns a floor, and a floor exported as a
+	// measurement is how a draining pool reads as a healthy one.
+	addrDistinct int
+	addrComplete bool
+	addrScanAt   time.Time
+	// addrInUse is the MEASURED count of addresses the lab is holding: the
+	// proxy's observed clients UNION every host's current address. The union
+	// matters in both directions -- a host that never proxies (a static address
+	// answers no DHCP and appears in no lease table) is invisible to the log,
+	// and a host that does proxy appears in both, so adding the two counts
+	// would invent addresses. addrInUseHosts carries the host-only half so the
+	// dashboard can show how much of the total came from a source that does not
+	// depend on the proxy being up.
+	addrInUse      int
+	addrInUseHosts int
 	// eventCur is touched ONLY by the single poll goroutine (in tailEvents and
 	// the post-unlock prune below), never by the HTTP handlers, so it needs no
 	// lock -- unlike the fields above, which mu guards against handler reads.
@@ -640,7 +691,8 @@ func newPoolState(pool string, statusPort int) *poolState {
 		extHealth: map[string]*extHealthView{},
 		hostTtl:   defaultHostTtl,
 		labFails:  map[string][]time.Time{}, labExchange: map[string]int64{},
-		eventCur: map[string]*eventCursor{},
+		eventCur:  map[string]*eventCursor{},
+		footprint: map[string]*addressFootprintView{},
 	}
 }
 
@@ -805,6 +857,83 @@ func recentClientIPs(logPath string, window time.Duration, now time.Time) []stri
 	return sortedKeys(set)
 }
 
+// distinctClientIPs returns the DIFFERENT addresses seen over a window, and
+// reports whether the whole window was actually covered.
+//
+// A count of addresses OBSERVED, and deliberately nothing more. Turning it into
+// a statement about the pool would need the lease period and the scope size,
+// and this service is handed neither -- both live on the DHCP server. The same
+// count is unremarkable under a short lease and alarming under a long one, so
+// the reading is left to whoever can see those numbers.
+//
+// Returns the set rather than its size so callers can UNION it with addresses
+// learned elsewhere (host records) without double-counting the overlap: a host
+// that also talks to the proxy appears in both, and adding two counts would
+// invent addresses that do not exist.
+//
+// Separate from recentClientIPs rather than a parameter on it, because the two
+// want opposite tradeoffs: discovery wants the cheap fixed tail of a 35-minute
+// window, and this wants a day, which does not fit in that tail. Reusing it
+// would have silently answered for whatever fraction of the day fitted in
+// 512 KB -- a number that looks like a measurement and is not one.
+//
+// The second return is that honesty: false means the scan cannot vouch for the
+// whole window, so the count is a FLOOR. A truncated read reported as complete
+// would understate use at exactly the moment use is the thing being watched.
+//
+// Two ways to be complete, and the second is not a shortcut. Reaching a line
+// older than the cutoff proves the scan spans the window. Reading the file from
+// byte 0 without seeking proves there is nothing older in it to miss -- which
+// is the ordinary case for a young lab or a freshly rotated log, and treating
+// it as incomplete would disclaim the measurement permanently on exactly the
+// labs whose logs are small enough to read in full. The residual caveat is
+// rotation: entries aged out into access.log.1 are not consulted either way.
+func distinctClientIPs(logPath string, window time.Duration, now time.Time, maxBytes int64) (map[string]bool, bool) {
+	f, err := os.Open(logPath)
+	if err != nil {
+		return nil, false
+	}
+	defer f.Close()
+	skipPartial := false
+	truncated := false
+	if fi, statErr := f.Stat(); statErr == nil && fi.Size() > maxBytes {
+		if _, err := f.Seek(fi.Size()-maxBytes, io.SeekStart); err == nil {
+			skipPartial = true
+			truncated = true
+		}
+	}
+	cutoff := float64(now.Add(-window).Unix())
+	set := map[string]bool{}
+	reachedCutoff := false
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for sc.Scan() {
+		if skipPartial {
+			skipPartial = false
+			continue
+		}
+		m := clientIPRE.FindStringSubmatch(sc.Text())
+		if m == nil {
+			continue
+		}
+		ts, tsErr := strconv.ParseFloat(m[1], 64)
+		if tsErr != nil {
+			continue
+		}
+		if ts < cutoff {
+			// A line older than the window proves the scan spans it. Keep
+			// going: squid appends in rough time order but not strictly, and
+			// stopping on the first old line would drop the rest.
+			reachedCutoff = true
+			continue
+		}
+		if net.ParseIP(m[2]) != nil {
+			set[m[2]] = true
+		}
+	}
+	return set, reachedCutoff || !truncated
+}
+
 // pollOnce discovers + refreshes the pool. Candidate IPs = recent squid-log
 // client IPs UNION the last-known IP of every host already in the view (so an
 // idle host stays live). Each candidate is probed for /runtime/status.json;
@@ -814,6 +943,34 @@ func (s *poolState) pollOnce(client *http.Client, squidLog, lokiURL string, now 
 	cand := map[string]bool{}
 	for _, ip := range recentClientIPs(squidLog, defaultDiscoverWin, now) {
 		cand[ip] = true
+	}
+	// Throttled here rather than in the metrics handler: a Prometheus scrape
+	// must never be the thing that reads a day of log off disk, and the poll
+	// goroutine is already the one that owns squid-log reads.
+	s.mu.Lock()
+	dueForScan := s.addrScanAt.IsZero() || now.Sub(s.addrScanAt) >= addrScanInterval
+	s.mu.Unlock()
+	if dueForScan {
+		seen, complete := distinctClientIPs(squidLog, addrScanWindow, now, addrScanMaxBytes)
+		s.mu.Lock()
+		// Union under the same lock that owns s.hosts, so the host half and the
+		// log half describe one instant. Counting them in two passes would let a
+		// host register between them and be counted twice.
+		inUse := make(map[string]bool, len(seen)+len(s.hosts))
+		for ip := range seen {
+			inUse[ip] = true
+		}
+		hostOnly := 0
+		for _, h := range s.hosts {
+			if h.CurrentIP == "" {
+				continue
+			}
+			hostOnly++
+			inUse[h.CurrentIP] = true
+		}
+		s.addrDistinct, s.addrComplete, s.addrScanAt = len(seen), complete, now
+		s.addrInUse, s.addrInUseHosts = len(inUse), hostOnly
+		s.mu.Unlock()
 	}
 	s.mu.Lock()
 	for _, h := range s.hosts {
@@ -1128,24 +1285,49 @@ func newInternalHTTPClient(timeout time.Duration) *http.Client {
 	}
 }
 
-func fetchStatus(client *http.Client, base string) (*hostStatus, error) {
+// probeGet is the bounded GET that every host probe below shares: one
+// probeTimeout, one request, and a size-capped read so a host serving an
+// unbounded body cannot exhaust this process.
+//
+// It returns the STATUS alongside the body rather than deciding on it, because
+// the callers genuinely disagree and must keep disagreeing: runner-status,
+// current-action and control-status treat 404 as "this host's build predates
+// the route and has nothing to say", while status.json, VERSION and the
+// registration treat the same code as a real failure. Folding that choice in
+// here would silently flip three of them.
+//
+// The body is read only on 200, matching what each caller did inline -- an
+// error response's body is never inspected, so reading it would be work done
+// for nothing.
+func probeGet(client *http.Client, base, path string, limit int64) (int, []byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/runtime/status.json", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+path, nil)
 	if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return 0, nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("status.json HTTP %d", resp.StatusCode)
+		return resp.StatusCode, nil, nil
 	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, limit))
+	if err != nil {
+		return resp.StatusCode, nil, err
+	}
+	return resp.StatusCode, body, nil
+}
+
+func fetchStatus(client *http.Client, base string) (*hostStatus, error) {
+	status, body, err := probeGet(client, base, "/runtime/status.json", 1<<20)
 	if err != nil {
 		return nil, err
+	}
+	if status != http.StatusOK {
+		return nil, fmt.Errorf("status.json HTTP %d", status)
 	}
 	var st hostStatus
 	if err := json.Unmarshal(body, &st); err != nil {
@@ -1165,26 +1347,15 @@ func fetchStatus(client *http.Client, base string) (*hostStatus, error) {
 // blank every host's real status the moment the route moved or was renamed. A
 // transport failure returns the error so the caller can keep what it last knew.
 func fetchRunnerStopped(client *http.Client, base string) (bool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/control/runner-status", nil)
+	status, body, err := probeGet(client, base, "/control/runner-status", 64<<10)
 	if err != nil {
 		return false, err
 	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return false, err
+	if status == http.StatusNotFound {
+		return false, nil
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusNotFound {
-		return false, nil // answered, but predates the route: not evidence of a stopped runner
-	}
-	if resp.StatusCode != http.StatusOK {
-		return false, fmt.Errorf("runner-status HTTP %d", resp.StatusCode)
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-	if err != nil {
-		return false, err
+	if status != http.StatusOK {
+		return false, fmt.Errorf("runner-status HTTP %d", status)
 	}
 	// A pointer, so an answer that omits the field is told apart from one that says
 	// false -- the difference between "cannot tell" and "the runner is gone".
@@ -1212,26 +1383,15 @@ const stepPauseMarker = "Paused (waiting for resume)"
 // cycle) is a definite "not parked" rather than an error, so a host whose flag is
 // armed between sequences reports "pausing" instead of inheriting a stale reading.
 func fetchCurrentAction(client *http.Client, base string) (bool, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/runtime/current-action.json", nil)
+	status, body, err := probeGet(client, base, "/runtime/current-action.json", 64<<10)
 	if err != nil {
 		return false, err
 	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return false, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusNotFound {
+	if status == http.StatusNotFound {
 		return false, nil
 	}
-	if resp.StatusCode != http.StatusOK {
-		return false, fmt.Errorf("current-action.json HTTP %d", resp.StatusCode)
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
-	if err != nil {
-		return false, err
+	if status != http.StatusOK {
+		return false, fmt.Errorf("current-action.json HTTP %d", status)
 	}
 	var doc struct {
 		Line string `json:"line"`
@@ -1246,29 +1406,18 @@ func fetchCurrentAction(client *http.Client, base string) (bool, error) {
 // served by the status service at /yuruna-repo/VERSION -- the SAME source the
 // host's own status pages read for their header (their getHostInfo() fetches
 // yuruna-repo/VERSION via JS, so the version is not embedded in the HTML). A tiny
-// plain-text file (one CalVer line, e.g. "2026.08.16"), so it is lighter than any
+// plain-text file (one CalVer line, e.g. "2026.08.19"), so it is lighter than any
 // status HTML page and fetchable server-side without a JS engine. Returns
 // ("", err) on any failure; the caller keeps the prior version on a transient
 // miss (the version is stable across polls). The value is capped + first-line
 // only so a garbage/oversized file can't bloat the metric label.
 func fetchVersion(client *http.Client, base string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/yuruna-repo/VERSION", nil)
+	status, body, err := probeGet(client, base, "/yuruna-repo/VERSION", 4096)
 	if err != nil {
 		return "", err
 	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("VERSION HTTP %d", resp.StatusCode)
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	if err != nil {
-		return "", err
+	if status != http.StatusOK {
+		return "", fmt.Errorf("VERSION HTTP %d", status)
 	}
 	v := strings.TrimSpace(string(body))
 	if i := strings.IndexAny(v, "\r\n"); i >= 0 { // first line only
@@ -1303,26 +1452,15 @@ type controlStatus struct {
 // instead of inheriting a stale verdict forever. A transport failure returns the
 // error so the caller can keep what it last knew.
 func fetchControlStatus(client *http.Client, base string) (controlStatus, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/control/control-status", nil)
+	status, body, err := probeGet(client, base, "/control/control-status", 4096)
 	if err != nil {
 		return controlStatus{}, err
 	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return controlStatus{}, err
+	if status == http.StatusNotFound {
+		return controlStatus{}, nil
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode == http.StatusNotFound {
-		return controlStatus{}, nil // route absent: answered, but has nothing to say
-	}
-	if resp.StatusCode != http.StatusOK {
-		return controlStatus{}, fmt.Errorf("control-status HTTP %d", resp.StatusCode)
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 4096))
-	if err != nil {
-		return controlStatus{}, err
+	if status != http.StatusOK {
+		return controlStatus{}, fmt.Errorf("control-status HTTP %d", status)
 	}
 	var cs struct {
 		TokenConfigured bool   `json:"tokenConfigured"`
@@ -1352,23 +1490,12 @@ func fetchControlStatus(client *http.Client, base string) (controlStatus, error)
 // is observed via gauges but never paged); a partial block is completed with the
 // schema defaults.
 func fetchRegistration(client *http.Client, base string) (string, string, *gatingPolicy, []string, map[string]string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, base+"/runtime/host.registration.json", nil)
+	status, body, err := probeGet(client, base, "/runtime/host.registration.json", 1<<20)
 	if err != nil {
 		return "", "", nil, nil, nil, err
 	}
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", "", nil, nil, nil, err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return "", "", nil, nil, nil, fmt.Errorf("host.registration.json HTTP %d", resp.StatusCode)
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	if err != nil {
-		return "", "", nil, nil, nil, err
+	if status != http.StatusOK {
+		return "", "", nil, nil, nil, fmt.Errorf("host.registration.json HTTP %d", status)
 	}
 	// Pointers distinguish "field absent" from "authored as zero" so a partial
 	// gating block fills only the missing knobs from the defaults. activeExtensions
@@ -2321,8 +2448,62 @@ func (s *poolState) tailEvents(client *http.Client, lokiURL, poolLabel, hostID, 
 	if len(lines) == 0 {
 		return
 	}
+	s.applyFootprintLines(hostID, lines, now)
 	pushEvents(client, lokiURL, poolLabel, hostID, lines, now)
 	cur.offset += int64(consumed)
+}
+
+// applyFootprintLines picks this host's address-footprint verdict out of the
+// event lines already being forwarded, so the reading costs one extra pass over
+// bytes that were fetched anyway rather than a second request per host.
+//
+// Last line wins: the cycle emits one of these at close, so within a chunk the
+// newest is the current answer. Takes s.mu.
+func (s *poolState) applyFootprintLines(hostID string, lines []string, now time.Time) {
+	var latest *addressFootprintView
+	for _, ln := range lines {
+		var e struct {
+			Event    string `json:"event"`
+			Verdict  string `json:"verdict"`
+			Severity string `json:"severity"`
+			Changes  *int   `json:"changes"`
+			Distinct *int   `json:"distinctAddresses"`
+			Backend  string `json:"identityBackend"`
+			// Pointer, so the tri-state survives the wire: absent/null is "the
+			// bridge could not be read", which is a different fact from false
+			// and picks a different remedy. A plain bool would silently fold
+			// the unreadable case onto "not pinned" and send an operator to fix
+			// something that may already be correct.
+			Pinned *bool `json:"identityPinned"`
+		}
+		if json.Unmarshal([]byte(ln), &e) != nil || e.Event != "host_address_footprint" {
+			continue
+		}
+		v := &addressFootprintView{
+			verdict: e.Verdict, severity: e.Severity, backend: e.Backend,
+			changes: -1, distinct: 0, pinned: -1, observed: now,
+		}
+		if e.Changes != nil {
+			v.changes = *e.Changes
+		}
+		if e.Distinct != nil {
+			v.distinct = *e.Distinct
+		}
+		if e.Pinned != nil {
+			if *e.Pinned {
+				v.pinned = 1
+			} else {
+				v.pinned = 0
+			}
+		}
+		latest = v
+	}
+	if latest == nil {
+		return
+	}
+	s.mu.Lock()
+	s.footprint[hostID] = latest
+	s.mu.Unlock()
 }
 
 // pushEvents ships NDJSON event lines for one host to Loki under
@@ -4597,6 +4778,74 @@ func (s *poolState) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 		}
 		fmt.Fprintf(&b, "yuruna_pool_host_last_seen_seconds{pool=%q,hostId=%q} %d\n", s.poolFor(h), h, hv.LastSeenUnixMs/1000)
 	}
+
+	// Address footprint: how fast the lab is spending the LAN's DHCP pool, and
+	// whether each host's identity is pinned. Exported as numbers rather than
+	// left to the log because exhaustion is a threshold event -- everything
+	// works until nothing does -- so the only useful time to read this is while
+	// the pool still has room, which means it has to be graphable.
+	//
+	// -1 is preserved rather than folded to 0 on both gauges below. Zero
+	// changes is a MEANINGFUL answer here (this host is bounded), so a host
+	// nothing is watching must not be able to report it.
+	b.WriteString("# HELP yuruna_pool_host_address_changes Address changes this host recorded in its beacon lookback window (-1 = no record; the beacon is not running there).\n# TYPE yuruna_pool_host_address_changes gauge\n")
+	for _, h := range ids {
+		if fp := s.footprint[h]; fp != nil {
+			fmt.Fprintf(&b, "yuruna_pool_host_address_changes{pool=%q,hostId=%q,hostIdDashed=%q} %d\n", s.poolFor(h), h, dashedHostID(h), fp.changes)
+		}
+	}
+	b.WriteString("# HELP yuruna_pool_host_address_distinct Distinct addresses this host held in its beacon lookback window; 1 is a bounded host.\n# TYPE yuruna_pool_host_address_distinct gauge\n")
+	for _, h := range ids {
+		if fp := s.footprint[h]; fp != nil {
+			fmt.Fprintf(&b, "yuruna_pool_host_address_distinct{pool=%q,hostId=%q,hostIdDashed=%q} %d\n", s.poolFor(h), h, dashedHostID(h), fp.distinct)
+		}
+	}
+	// The verdict rides as a LABEL rather than an encoded number: its four
+	// values name four different faults, and an operator reading a panel should
+	// not have to hold a code table to tell "renewal-churn" from "stable".
+	b.WriteString("# HELP yuruna_pool_host_address_footprint Per-host address-footprint verdict and DHCP identity pin (value always 1).\n# TYPE yuruna_pool_host_address_footprint gauge\n")
+	for _, h := range ids {
+		fp := s.footprint[h]
+		if fp == nil {
+			continue
+		}
+		pinned := "unknown"
+		switch fp.pinned {
+		case 1:
+			pinned = "yes"
+		case 0:
+			pinned = "no"
+		}
+		fmt.Fprintf(&b, "yuruna_pool_host_address_footprint{pool=%q,hostId=%q,hostIdDashed=%q,verdict=%q,severity=%q,pinned=%q,backend=%q} 1\n",
+			s.poolFor(h), h, dashedHostID(h), fp.verdict, fp.severity, pinned, fp.backend)
+	}
+	// The lab-wide number, and the one that actually predicts exhaustion: a
+	// per-host count can look healthy on every host while the fleet still
+	// drains the pool, because what runs out is shared. Summed over the hosts
+	// that HAVE a reading -- a host with none is unmeasured, and adding a zero
+	// for it would understate the total in the one direction that matters.
+	labDistinct, measured := 0, 0
+	for _, h := range ids {
+		if fp := s.footprint[h]; fp != nil {
+			labDistinct += fp.distinct
+			measured++
+		}
+	}
+	fmt.Fprintf(&b, "# HELP yuruna_pool_address_distinct_total Distinct addresses held across all reporting hosts in their beacon lookback windows.\n# TYPE yuruna_pool_address_distinct_total gauge\nyuruna_pool_address_distinct_total %d\n", labDistinct)
+	fmt.Fprintf(&b, "# HELP yuruna_pool_address_hosts_measured Hosts reporting an address footprint; below hosts_total, the lab-wide figure understates the truth.\n# TYPE yuruna_pool_address_hosts_measured gauge\nyuruna_pool_address_hosts_measured %d\n", measured)
+	// The one that predicts exhaustion. Every guest reaches the internet through
+	// this proxy, so its client addresses ARE the lab's address consumption --
+	// hosts, service VMs and the guest fleet together, which no host-reported
+	// figure covers. Multiply by the lease in days to get the pool size this
+	// lab needs; if that exceeds the scope, it runs dry on a schedule.
+	scanComplete := 0
+	if s.addrComplete {
+		scanComplete = 1
+	}
+	fmt.Fprintf(&b, "# HELP yuruna_pool_lab_addresses_in_use Measured count of addresses the lab is holding: caching-proxy clients seen in the scan window UNION every known host's current address (deduplicated). A floor, not a ceiling -- anything that neither proxies nor registers as a host is invisible here. Says nothing about the DHCP pool: free leases and scope size live on the server.\n# TYPE yuruna_pool_lab_addresses_in_use gauge\nyuruna_pool_lab_addresses_in_use %d\n", s.addrInUse)
+	fmt.Fprintf(&b, "# HELP yuruna_pool_lab_addresses_in_use_hosts The host-record half of yuruna_pool_lab_addresses_in_use -- addresses known from host registrations rather than from the proxy log, so this half survives the proxy being down and covers statically-addressed hosts that hold no lease at all.\n# TYPE yuruna_pool_lab_addresses_in_use_hosts gauge\nyuruna_pool_lab_addresses_in_use_hosts %d\n", s.addrInUseHosts)
+	fmt.Fprintf(&b, "# HELP yuruna_pool_lab_distinct_addresses_24h Distinct client addresses seen by the caching proxy in the scan window. A rate of address use, NOT a pool forecast: converting it into one needs the lease period and scope size, which this service is not given.\n# TYPE yuruna_pool_lab_distinct_addresses_24h gauge\nyuruna_pool_lab_distinct_addresses_24h %d\n", s.addrDistinct)
+	fmt.Fprintf(&b, "# HELP yuruna_pool_lab_distinct_addresses_complete 1 when the 24h scan reached the far end of its window; 0 means the count above is a floor, not a measurement.\n# TYPE yuruna_pool_lab_distinct_addresses_complete gauge\nyuruna_pool_lab_distinct_addresses_complete %d\n", scanComplete)
 
 	// Extension hosts: hosts ACTIVELY running an extension function (e.g. a
 	// stash-service VM), learned from TWO sources sharing the pool table's hostId

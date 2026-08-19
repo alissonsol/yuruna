@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a8b3c4-d5e6-4f78-9a0b-1c2d3e4f5a6b
+.VERSION 2026.08.19
+.GUID 42a337f9-dcb7-4dfa-9c51-9ddba462035e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
@@ -16,7 +16,7 @@
 
 #requires -version 7
 
-# Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+# Honor logLevel from Start-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
 if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
 
@@ -76,7 +76,7 @@ if (Test-Path -LiteralPath $defaultBaseFile) {
 # don't have it, the only way forward is a manual download -- print the
 # fallback instructions instead of a terse "please run as admin" so the
 # operator sees the same guidance whether called directly or from
-# Invoke-TestRunner (which runs the script non-elevated and forwards its
+# Start-TestRunner (which runs the script non-elevated and forwards its
 # exit code up).
 Write-Output "This script requires elevation (Run as Administrator)."
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {

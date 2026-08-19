@@ -13,33 +13,33 @@ import (
 	"pool-control-service/internal/yex/pool"
 )
 
-// The auto-enrolment sweep: a host that has enrolled its lab token, and is in no
+// The auto-enrollment sweep: a host that has enrolled its lab token, and is in no
 // pool at all, joins the target pool automatically.
 //
-// SHIPPED OFF (--auto-enrol). Turn it on once the pieces it depends on are
+// SHIPPED OFF (--auto-enroll). Turn it on once the pieces it depends on are
 // observed working.
 //
-// --- REGION: https://yuruna.link/pool-admin#auto-enrolment
+// --- REGION: https://yuruna.link/pool-admin#auto-enrollment
 //
 // Two invariants the `inAPool || excluded` skip below encodes: a host already
 // in a pool is never touched, which keeps "a host belongs to at most one pool"
 // true by construction; and a host an operator removed from the target pool is
 // never re-added, or the operator and a 60-second timer would fight forever.
 
-// AutoEnrolOptions configures the sweep.
-type AutoEnrolOptions struct {
+// AutoEnrollOptions configures the sweep.
+type AutoEnrollOptions struct {
 	Enabled  bool
 	Interval time.Duration
 }
 
-// RunAutoEnrolment sweeps until ctx is done. Safe to call when disabled: it
+// RunAutoEnrollment sweeps until ctx is done. Safe to call when disabled: it
 // returns immediately.
 //
 // Runs on its OWN ticker, started unconditionally by the caller, rather than
 // riding the monitor goroutine -- that one is gated on --state-dir and simply
 // does not run on the host-side launcher, which would make the sweep silently
 // absent there.
-func (s *Server) RunAutoEnrolment(ctx context.Context, opts AutoEnrolOptions) {
+func (s *Server) RunAutoEnrollment(ctx context.Context, opts AutoEnrollOptions) {
 	if !opts.Enabled || opts.Interval <= 0 {
 		return
 	}
@@ -63,18 +63,18 @@ func (s *Server) sweepOnce(ctx context.Context) {
 	}
 	status, err := s.pool.Status(ctx)
 	if err != nil {
-		log.Printf("auto-enrolment: aggregator unreachable (%v); skipping this tick", err)
+		log.Printf("auto-enrollment: aggregator unreachable (%v); skipping this tick", err)
 		return
 	}
 
 	res := s.intent.State(ctx)
 	if !res.OK {
-		log.Printf("auto-enrolment: intent unreadable (%s); skipping this tick", firstNonEmpty(res.Error, res.Stderr, "unknown"))
+		log.Printf("auto-enrollment: intent unreadable (%s); skipping this tick", firstNonEmpty(res.Error, res.Stderr, "unknown"))
 		return
 	}
 	var doc intentDoc
 	if err := json.Unmarshal([]byte(strings.TrimSpace(res.Stdout)), &doc); err != nil {
-		log.Printf("auto-enrolment: could not parse intent (%v); skipping this tick", err)
+		log.Printf("auto-enrollment: could not parse intent (%v); skipping this tick", err)
 		return
 	}
 	target := strings.TrimSpace(doc.AutoEnrollment.TargetPoolID)
@@ -119,17 +119,17 @@ func (s *Server) sweepOnce(ctx context.Context) {
 	if len(toAdd) == 0 {
 		// Logged even when empty: this line is how "the predicate is broken" is
 		// told apart from "everything is already enrolled".
-		log.Printf("auto-enrolment: %d ready host(s), 0 to add", candidates)
+		log.Printf("auto-enrollment: %d ready host(s), 0 to add", candidates)
 		return
 	}
 
 	if !targetExists {
 		r := s.intent.NewPool(ctx, target, "", "")
 		if !r.OK {
-			log.Printf("auto-enrolment: could not create target pool %q (%s); skipping", target, firstNonEmpty(r.Error, r.Stderr, "unknown"))
+			log.Printf("auto-enrollment: could not create target pool %q (%s); skipping", target, firstNonEmpty(r.Error, r.Stderr, "unknown"))
 			return
 		}
-		log.Printf("auto-enrolment: created target pool %q", target)
+		log.Printf("auto-enrollment: created target pool %q", target)
 	}
 
 	added := 0
@@ -137,12 +137,12 @@ func (s *Server) sweepOnce(ctx context.Context) {
 		r := s.intent.AddHost(ctx, target, hid)
 		if !r.OK {
 			// Bounded, not atomic: stop here and let the next tick resume.
-			// Enrolment is idempotent, so the hosts already added stay added.
-			log.Printf("auto-enrolment: adding %s to %q failed (%s); %d added this tick, retrying next tick",
+			// Enrollment is idempotent, so the hosts already added stay added.
+			log.Printf("auto-enrollment: adding %s to %q failed (%s); %d added this tick, retrying next tick",
 				hid, target, firstNonEmpty(r.Error, r.Stderr, "unknown"), added)
 			return
 		}
 		added++
 	}
-	log.Printf("auto-enrolment: %d ready host(s), added %d to %q", candidates, added, target)
+	log.Printf("auto-enrollment: %d ready host(s), added %d to %q", candidates, added, target)
 }

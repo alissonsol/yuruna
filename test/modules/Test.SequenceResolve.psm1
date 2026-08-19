@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42c7d3a9-5e1b-4f80-9a2c-6d8e3f1b0a47
+.VERSION 2026.08.19
+.GUID 42eb20ad-6a27-430a-ba01-796c50a077ed
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
@@ -72,7 +72,7 @@ function Read-SequenceFile {
         Parses a YAML sequence file into an OrderedDictionary.
     .DESCRIPTION
         Centralizes the powershell-yaml dependency for every sequence reader
-        (Invoke-Sequence, Test.SequencePlanner, Invoke-TestSequence). Uses
+        (Invoke-Sequence, Test.SequencePlanner, Debug-TestSequence). Uses
         -Ordered so the steps array and the variables map preserve their
         on-disk order. The returned object is an [OrderedDictionary]; callers
         must use .Keys / .Contains() rather than .PSObject.Properties, since

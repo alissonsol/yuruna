@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42e0f1a2-b3c4-4d56-e789-0f1a2b3c4d56
+.VERSION 2026.08.19
+.GUID 42f81a2e-d65b-4d01-a8b1-3eb5638207d8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
@@ -27,7 +27,7 @@ param(
     [string]$Hostname = ''
 )
 
-# Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+# Honor logLevel from Start-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
 if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
 
@@ -176,6 +176,28 @@ $UserData = New-CloudInitUserData `
 
 Set-Content -Path "$SeedDir/meta-data" -Value $MetaData -NoNewline
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
+# --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+# Amazon Linux deliberately does NOT receive the shared seed network-config the
+# netplan guests get. Two facts combine badly here:
+#
+#   * Supplying network-config REPLACES cloud-init's own fallback rather than
+#     adding to it, so a config that matches no interface is not neutral. It
+#     leaves the guest with no network configuration at all -- strictly worse
+#     than shipping no file.
+#   * Whether a given match form resolves under this guest's live renderer is
+#     not decidable by reading the parser -- only a lab cycle settles it --
+#     and the failure shape is total: nothing claims the NIC, it stays with
+#     IFF_UP clear, carrier cannot even be read, DHCP is never attempted, and
+#     the only way into the guest is the console it just lost.
+#
+# The client-id pin for this guest rides its user-data instead. The image's
+# live renderer is systemd-networkd, whose DHCP identity is a DUID from the
+# per-build /etc/machine-id, so the pin is a [DHCPv4] ClientIdentifier=mac
+# drop-in installed beside cloud-init's fallback profile, backed by a 98-
+# fallback .network profile for the boot where that fallback claims nothing,
+# with a best-effort nmcli pin kept for a NetworkManager-managed build. None
+# of these is a seed network-config, so cloud-init's fallback generation
+# stays intact.
 
 $SeedIso = "$DataDir/seed.iso"
 Write-Verbose "Generating seed.iso with cloud-init configuration..."

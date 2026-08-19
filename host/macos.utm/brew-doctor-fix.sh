@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.16
+# Version: 2026.08.19
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # brew-doctor-fix.sh -- fixes common `brew doctor` issues on Apple Silicon:
@@ -10,7 +10,7 @@
 
 set -euo pipefail
 
-# ── Colors ──────────────────────────────────────────────────────────────────
+# -- Colors ------------------------------------------------------------------
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -22,7 +22,7 @@ warn()  { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 ok()    { echo -e "${GREEN}[ OK ]${NC}  $*"; }
 err()   { echo -e "${RED}[ERR]${NC}   $*"; }
 
-# ── Preflight checks ───────────────────────────────────────────────────────
+# -- Preflight checks -------------------------------------------------------
 if [[ "$(uname -s)" != "Darwin" ]]; then
     err "This script is intended for macOS only."
     exit 1
@@ -44,7 +44,7 @@ fi
 info "Homebrew prefix: ${BREW_PREFIX}"
 echo ""
 
-# ── Step 1: Fix PATH in ~/.zshrc ──────────────────────────────────────────
+# -- Step 1: Fix PATH in ~/.zshrc ------------------------------------------
 ZSHRC="$HOME/.zshrc"
 PATH_BLOCK_START="# >>> brew-doctor-fix PATH >>>"
 PATH_BLOCK_END="# <<< brew-doctor-fix PATH <<<"
@@ -86,7 +86,7 @@ BLOCK
 
 fix_path_in_zshrc
 
-# ── Step 2: Shadow removal ────────────────────────────────────────────────
+# -- Step 2: Shadow removal ------------------------------------------------
 # /usr/bin and /usr/sbin are SIP-protected, so we can't (and shouldn't)
 # remove system binaries. Instead we verify PATH order makes the Homebrew
 # copy win for every tool present in both places.
@@ -120,7 +120,7 @@ if [[ ${#SHADOWED_TOOLS[@]} -gt 0 ]]; then
         if [[ "$resolved" == "${BREW_BIN}/${tool}" || "$resolved" == "${BREW_SBIN}/${tool}" ]]; then
             ok "${tool} -> ${resolved} (Homebrew)"
         else
-            warn "${tool} -> ${resolved} (NOT Homebrew — may need manual fix)"
+            warn "${tool} -> ${resolved} (NOT Homebrew -- may need manual fix)"
             ALL_RESOLVED=false
         fi
     done
@@ -137,13 +137,13 @@ else
 fi
 echo ""
 
-# ── Step 3: Re-run brew doctor ─────────────────────────────────────────────
+# -- Step 3: Re-run brew doctor ---------------------------------------------
 info "Running 'brew doctor' to verify fixes ..."
-echo "────────────────────────────────────────"
+echo "----------------------------------------"
 
 DOCTOR_OUTPUT="$(brew doctor 2>&1 || true)"
 echo "$DOCTOR_OUTPUT"
-echo "────────────────────────────────────────"
+echo "----------------------------------------"
 echo ""
 
 if echo "$DOCTOR_OUTPUT" | grep -qi "Your system is ready to brew"; then

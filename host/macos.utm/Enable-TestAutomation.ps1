@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a1b2c3-d4e5-4f67-8901-bc0123456754
+.VERSION 2026.08.19
+.GUID 42ff1bc2-5f12-4c34-8a53-a45f6186f94f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test host macos utm enable-test-automation
@@ -47,7 +47,7 @@
     Manual one-time step (intentionally NOT scripted -- Dock plist editing
     is fragile): right-click UTM in the Dock -> Options -> Assign To -> All
     Desktops. With this and AppleSpacesSwitchOnActivation off, you can
-    leave a long Invoke-TestRunner cycle running in its own Space and
+    leave a long Start-TestRunner cycle running in its own Space and
     debug in VS Code on another Space without disruption.
     Requires sudo (pmset, defaults write /Library/Preferences, sysadminctl).
     Every elevated write goes out as `sudo -n` after probing that root is
@@ -60,7 +60,7 @@
     person can type, an MDM profile enforcing a lock). Re-running does not clear
     a 2, which is why it is not reported as an outright failure.
 
-    Run this before Invoke-TestRunner.ps1. Assert-HostConditionSet gates
+    Run this before Start-TestRunner.ps1. Assert-HostConditionSet gates
     every subsequent cycle on both permissions and on screen-lock /
     display-sleep settings.
 

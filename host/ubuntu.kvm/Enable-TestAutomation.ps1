@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a2b3c4-d5e6-4f78-9012-3a4b5c6d7e93
+.VERSION 2026.08.19
+.GUID 4202d0ff-c419-4c17-bf82-ec1f841f72c7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test host ubuntu kvm enable-test-automation
@@ -35,7 +35,7 @@
     then runs `sudo -n`, so a host that cannot elevate names the command to run
     instead of raising a prompt on a terminal nobody is watching.
 
-    Run this before Invoke-TestRunner.ps1. Idempotent -- safe to re-run.
+    Run this before Start-TestRunner.ps1. Idempotent -- safe to re-run.
 
     Exits 0 when every condition is in place and 2 when configuration was
     applied but something still needs an operator (root this process cannot

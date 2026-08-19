@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42d7c1e9-8b04-4a3f-9c62-7e15b0d4a933
+.VERSION 2026.08.19
+.GUID 42a24e8a-bb70-4de1-b78f-9bbdd82d9ea7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test service readiness verdict progress diagnostics pester
@@ -57,8 +57,7 @@ Import-Module (Join-Path $here 'Test.Ssh.psm1')       -Force -DisableNameCheckin
 Import-Module (Join-Path $here 'Test.Prelude.psm1')   -Force -DisableNameChecking
 Import-Module (Join-Path $here 'Test.ServiceVm.psm1') -Force -DisableNameChecking
 
-function Assert-True  { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
-function Assert-Equal { param($Expected, $Actual, [string]$Because = '') if ("$Expected" -ne "$Actual") { throw "Expected [$Expected] got [$Actual]. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # Pester is not installed on every host that runs this repo's scripts, and the
 # assertions here are plain throws, so the harness the file needs is three
@@ -166,7 +165,7 @@ Describe 'A readiness timeout is a failure, not a pass' {
 
     It 'fails when the budget ran out with the daemon unbound and the guest silent' {
         $verdict = Get-ServiceVmReadinessVerdict -Endpoint $script:TimedOutEndpoint
-        Assert-Equal -Expected 'NotServing' -Actual $verdict.Outcome
+        Assert-StringEqual -Expected 'NotServing' -Actual $verdict.Outcome
         Assert-True $verdict.IsFailure 'a run that records PASS here reports a service that does not exist.'
     }
 
@@ -174,7 +173,7 @@ Describe 'A readiness timeout is a failure, not a pass' {
         # A verdict that was never taken is not a pass: nothing confirmed the
         # daemon, so nothing may claim it.
         $verdict = Get-ServiceVmReadinessVerdict -Endpoint $null
-        Assert-Equal -Expected 'NotServing' -Actual $verdict.Outcome
+        Assert-StringEqual -Expected 'NotServing' -Actual $verdict.Outcome
         Assert-True $verdict.IsFailure 'skipping the check is not evidence the daemon is up.'
     }
 
@@ -182,25 +181,25 @@ Describe 'A readiness timeout is a failure, not a pass' {
         # The service is running and reaches the pool through its own announce;
         # only this host's direct path is missing.
         $verdict = Get-ServiceVmReadinessVerdict -Endpoint $script:UnreachableEndpoint
-        Assert-Equal -Expected 'Unreachable' -Actual $verdict.Outcome
+        Assert-StringEqual -Expected 'Unreachable' -Actual $verdict.Outcome
         Assert-True (-not $verdict.IsFailure) 'a local networking gap is not a failed bring-up.'
     }
 
     It 'does NOT fail while the guest reports cloud-init is still running' {
         $verdict = Get-ServiceVmReadinessVerdict -Endpoint $script:BuildingEndpoint
-        Assert-Equal -Expected 'StillBuilding' -Actual $verdict.Outcome
+        Assert-StringEqual -Expected 'StillBuilding' -Actual $verdict.Outcome
         Assert-True (-not $verdict.IsFailure) 'the build finishes on its own; "not yet" is not "broken".'
     }
 
     It 'passes when the daemon answered' {
         $verdict = Get-ServiceVmReadinessVerdict -Endpoint $script:ReadyEndpoint
-        Assert-Equal -Expected 'Ready' -Actual $verdict.Outcome
+        Assert-StringEqual -Expected 'Ready' -Actual $verdict.Outcome
         Assert-True (-not $verdict.IsFailure)
     }
 
     It 'routes the failure to a NON-ZERO exit code' {
         Assert-True ((Get-EntryPointExitCode -Outcome Failure) -ne 0) 'the installer reads the exit code and nothing else.'
-        Assert-Equal -Expected 0 -Actual (Get-EntryPointExitCode -Outcome Ok)
+        Assert-StringEqual -Expected 0 -Actual (Get-EntryPointExitCode -Outcome Ok)
     }
 }
 
@@ -216,7 +215,7 @@ Describe 'Start-StashServiceVM reports the verdict it reached' {
     It 'prints no "complete" banner on any path that did not complete' {
         $complete = $script:StashSource.IndexOf('== stash-service start: complete ==')
         Assert-True ($complete -ge 0) 'a successful bring-up still says so.'
-        Assert-Equal -Expected 1 -Actual ([regex]::Matches($script:StashSource, [regex]::Escape('== stash-service start: complete ==')).Count) `
+        Assert-StringEqual -Expected 1 -Actual ([regex]::Matches($script:StashSource, [regex]::Escape('== stash-service start: complete ==')).Count) `
             'one banner, on one path -- a second copy is how a failing path grows one.'
 
         $failBanner = $script:StashSource.IndexOf('== stash-service start: FAILED')
@@ -232,7 +231,7 @@ Describe 'Start-StashServiceVM reports the verdict it reached' {
 
     It 'never hardcodes a zero exit' {
         $bare = [regex]::Matches($script:StashSource, '(?m)^\s*exit\s+0\s*$').Count
-        Assert-Equal -Expected 0 -Actual $bare 'the outcome-to-code mapping is centralized so it can be changed in one place.'
+        Assert-StringEqual -Expected 0 -Actual $bare 'the outcome-to-code mapping is centralized so it can be changed in one place.'
     }
 
     It 'hands its ssh guidance through the formatter rather than interpolating an address' {
@@ -295,8 +294,8 @@ Describe 'The progress line states what was observed, never what was assumed' {
         Assert-True ($script:SeededGuest.Lines -notmatch 'no guest address') 'a probe IS running, against an address this host holds.'
         Assert-True ($script:SeededGuest.Lines -match '10\.44\.7\.9') 'name the address the probe is aimed at.'
         Assert-True ($script:SeededGuest.Lines -match 'not accepting :22') 'the seeded address is probed, so reachability is measurable.'
-        Assert-Equal -Expected '10.44.7.9' -Actual $script:SeededGuest.Record.Address 'the seed is what the wait carried out.'
-        Assert-Equal -Expected 'unreachable' -Actual $script:SeededGuest.Record.Reachability `
+        Assert-StringEqual -Expected '10.44.7.9' -Actual $script:SeededGuest.Record.Address 'the seed is what the wait carried out.'
+        Assert-StringEqual -Expected 'unreachable' -Actual $script:SeededGuest.Record.Reachability `
             'reachability is the only thing separating "guest up, daemon not ready" from "guest answering nothing".'
     }
 
@@ -331,7 +330,7 @@ Describe 'Diagnostics an operator can actually run' {
 
     It 'gives a runnable command the moment an address is known' {
         $hint = Format-GuestSshDiagnosticHint -User 'stash-admin' -Address '192.168.7.234' -VMName 'yuruna-stash-service' -Command 'sudo tail -n 120 /var/log/cloud-init-output.log'
-        Assert-Equal -Expected "ssh stash-admin@192.168.7.234 'sudo tail -n 120 /var/log/cloud-init-output.log'" -Actual $hint
+        Assert-StringEqual -Expected "ssh stash-admin@192.168.7.234 'sudo tail -n 120 /var/log/cloud-init-output.log'" -Actual $hint
     }
 
     It 'sends the in-guest capture to the address it just located' {
@@ -365,8 +364,8 @@ Describe 'A service that is merely powered on is not a service' {
         Install-FakeVMDriver -State 'running'
         try {
             $r = @(Restore-YurunaServiceVM -Key 'stash' -Confirm:$false) | Select-Object -First 1
-            Assert-Equal -Expected 'running' -Actual $r.Outcome
-            Assert-Equal -Expected 0 -Actual $FakeVm.IpCalls 'the sweep stays one state query per service.'
+            Assert-StringEqual -Expected 'running' -Actual $r.Outcome
+            Assert-StringEqual -Expected 0 -Actual $FakeVm.IpCalls 'the sweep stays one state query per service.'
         } finally { Uninstall-FakeVMDriver }
     }
 
@@ -376,7 +375,7 @@ Describe 'A service that is merely powered on is not a service' {
         Install-FakeVMDriver -State 'running' -Address '127.0.0.1'
         try {
             $r = @(Restore-YurunaServiceVM -Key 'stash' -ProbeRunning -Confirm:$false) | Select-Object -First 1
-            Assert-Equal -Expected 'running' -Actual $r.Outcome 'the state reading is unchanged; only the verdict about it is new.'
+            Assert-StringEqual -Expected 'running' -Actual $r.Outcome 'the state reading is unchanged; only the verdict about it is new.'
             Assert-True (-not $r.Healthy) 'powered on with nothing answering is not a running service.'
             Assert-True ($r.Message -match '80') 'the message has to name the port that did not answer.'
             Assert-True ($FakeVm.IpCalls -ge 1) 'the port cannot be probed without resolving where to probe it.'
@@ -446,7 +445,7 @@ Describe 'A wait that is throttled into a log still says what changed' {
                     ForEach-Object { $emitted.Add("$_") }
             }
         } finally { $InformationPreference = $saved }
-        Assert-Equal -Expected 1 -Actual $emitted.Count 'the state did not change, so the clock alone earns nothing.'
+        Assert-StringEqual -Expected 1 -Actual $emitted.Count 'the state did not change, so the clock alone earns nothing.'
     }
 
     It 'emits at once when the state behind the line changes' {
@@ -463,7 +462,7 @@ Describe 'A wait that is throttled into a log still says what changed' {
                 -RedirectedEverySeconds 300 -IdentityKey 'vm|1|cloud-init is running' 6>&1 |
                 ForEach-Object { $emitted.Add("$_") }
         } finally { $InformationPreference = $saved }
-        Assert-Equal -Expected 2 -Actual $emitted.Count 'a change in what is being reported is exactly what a log entry is for.'
+        Assert-StringEqual -Expected 2 -Actual $emitted.Count 'a change in what is being reported is exactly what a log entry is for.'
     }
 
     It 'does not silence a later wait that opens where an earlier one ended' {
@@ -483,7 +482,7 @@ Describe 'A wait that is throttled into a log still says what changed' {
                 -RedirectedEverySeconds 300 -IdentityKey 'vm|200|not accepting :22' 6>&1 |
                 ForEach-Object { $emitted.Add("$_") }
         } finally { $InformationPreference = $saved }
-        Assert-Equal -Expected 2 -Actual $emitted.Count 'a new wait is a new line, whatever the previous one last said.'
+        Assert-StringEqual -Expected 2 -Actual $emitted.Count 'a new wait is a new line, whatever the previous one last said.'
     }
 
     It 'is what the service-VM wait actually passes' {

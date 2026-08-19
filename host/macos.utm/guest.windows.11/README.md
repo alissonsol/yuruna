@@ -3,10 +3,10 @@
 > Common setup pattern: see [Guest Image Setup](../../../docs/guest-image-setup.md).
 > This file documents only what's HOST/GUEST-specific.
 
-Minimal commands. Walk-through: [Windows 11 guest on macOS UTM host — Nerd-Level Details](read.more.md). Cross-host
-concepts: [Hosts — ...](../../README.md).
+Minimal commands. Walk-through: [Windows 11 guest on macOS UTM host -- Nerd-Level Details](read.more.md). Cross-host
+concepts: [Hosts -- ...](../../README.md).
 
-**Requirements**: macOS 12+, Apple Silicon (M1+), UTM v4.0+ — verified
+**Requirements**: macOS 12+, Apple Silicon (M1+), UTM v4.0+ -- verified
 by `New-VM.ps1`.
 
 ## One-time
@@ -19,7 +19,7 @@ pwsh ./Get-Image.ps1
 
 Downloads the Windows 11 ARM64 ISO and UTM Guest Tools (SPICE + VirtIO)
 into `~/yuruna/image/windows.env/`. Prints manual instructions for ISOs it
-can't fetch — see [Windows 11 guest on macOS UTM host — Nerd-Level Details](read.more.md).
+can't fetch -- see [Windows 11 guest on macOS UTM host -- Nerd-Level Details](read.more.md).
 
 ## For each VM
 
@@ -34,14 +34,14 @@ Installer runs unattended (~15 min).
 
 After install:
 
-1. Stop the VM. In UTM → Drives, remove `HOSTNAME.iso` and `seed.iso`.
+1. Stop the VM. In UTM -> Drives, remove `HOSTNAME.iso` and `seed.iso`.
 2. Add a USB CD drive for
    `~/yuruna/image/windows.env/host.macos.utm.guest.windows.11.spice.iso`.
-3. Start, open File Explorer → CD, run **UTM Guest Tools** (SPICE +
-   VirtIO network — no network before now).
+3. Start, open File Explorer -> CD, run **UTM Guest Tools** (SPICE +
+   VirtIO network -- no network before now).
 4. After reboot: stop, remove the `spice.iso` drive, start.
 
-> SPICE ISO must **not** be attached during the initial install — its
+> SPICE ISO must **not** be attached during the initial install -- its
 > own `autounattend.xml` interrupts unattended setup.
 
 ## Update
@@ -62,7 +62,7 @@ Restart-Computer
 
 [Windows 11 workloads](../../../guest/windows.11/README.md)
 
-Read more: [Windows 11 guest on macOS UTM host — Nerd-Level Details](read.more.md).
+Read more: [Windows 11 guest on macOS UTM host -- Nerd-Level Details](read.more.md).
 
 ---
 
@@ -70,6 +70,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../../../README.md)

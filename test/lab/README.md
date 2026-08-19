@@ -25,7 +25,7 @@ which owns the behavior and documents it:
 PowerShell.
 
 These four reach `automation/Yuruna.HostRedirect.psm1` through
-`Split-Path -Parent (Split-Path -Parent $PSScriptRoot)` — two levels up,
+`Split-Path -Parent (Split-Path -Parent $PSScriptRoot)` -- two levels up,
 because they sit one below `test/`. The redirect module resolves the
 per-host script from its own location, so it is unaffected by where the
 dispatcher lives.
@@ -41,7 +41,7 @@ stop and unregister the test VMs *and* sweep, use
 | `New-Lab.ps1` | create a lab: its storage layout, config and identity |
 | `New-LocalLabStorage.ps1` | publish this machine's own pool/stash SMB shares and the accounts scoped to them |
 | `Clear-LocalLabStorage.ps1` | withdraw those shares and accounts (leaves the data) |
-| `Set-LabToken.ps1` | enrol this host: redeem the dashboard's 6-character Lab token for the shared lab-auth-token |
+| `Set-LabToken.ps1` | enroll this host: redeem the dashboard's 6-character Lab token for the shared lab-auth-token |
 
 ```
 pwsh test/lab/Set-LabToken.ps1 -LabToken <code from the dashboard's Lab token tile>

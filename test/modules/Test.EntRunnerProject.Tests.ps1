@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42d8e9f0-a1b2-4c34-9d56-7e8f9a0b1c25
+.VERSION 2026.08.19
+.GUID 42bf30ec-9436-488d-ba38-a0e6ffd6d33f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test runner outer-loop powershell-yaml preflight pester
@@ -22,7 +22,7 @@
     routing the reason through Write-OuterLog, so it does not spin an eternal loop of
     silently-degraded cycles (the cycle planner cannot parse test.runner.yml without it).
 .DESCRIPTION
-    Invoke-TestRunner.ps1's powershell-yaml pre-flight is a top-level block that exits
+    Start-TestRunner.ps1's powershell-yaml pre-flight is a top-level block that exits
     the process, so it is guarded structurally: the pre-flight's IfStatement body must
     contain an exit statement (the bounded, non-interactive refuse-to-start) and a
     Write-OuterLog call (so the reason lands in outer.log, not only the console Warning
@@ -31,13 +31,13 @@
 
 BeforeAll {
 $here       = Split-Path -Parent $PSCommandPath
-$scriptPath = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath 'Invoke-TestRunner.ps1')).Path
+$scriptPath = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath 'Start-TestRunner.ps1')).Path
 # The AST is an unqualified file-scope variable: inside an It block a $script: reference
 # resolves to the test runner's own script scope, not this file's, so a $script:-qualified
 # fixture reaches the assertions as $null.
 $errs = $null
 $script:runnerAst = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$errs)
-if ($errs) { throw "Parse errors in Invoke-TestRunner.ps1: $($errs[0].Message)" }
+if ($errs) { throw "Parse errors in Start-TestRunner.ps1: $($errs[0].Message)" }
 
 function Get-YamlPreflightIf {
     # The IfStatement whose CONDITION probes powershell-yaml availability via Get-Module.

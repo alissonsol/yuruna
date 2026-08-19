@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42f0a1b2-3c4d-4e5f-8a6b-7c8d9e0f1a2b
+.VERSION 2026.08.19
+.GUID 42a01488-6192-430c-bb0f-bb8548599156
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test sequence resolve pester
@@ -39,7 +39,7 @@ $planner = Get-Content (Join-Path $here 'Test.SequencePlanner.psm1') -Raw
 $script:all     = $resolve + "`n" + $invoke + "`n" + $planner
 $script:oneLiner = 'ForEach-Object { "    $_" }'
 
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 }
 

@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42ab19c1-07c0-4d84-be69-80c4f1c780a8
+.VERSION 2026.08.19
+.GUID 421b40b9-fcaf-4a1a-bb31-9464b1ad442a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
@@ -19,8 +19,8 @@
 # Cross-entry-point prelude. One function returns the canonical path
 # bundle every entry-point script needs ($TestRoot, $RepoRoot,
 # $ModulesDir, $SequencesDir, $StatusDir, $ConfigPath), so the four
-# entry points (Invoke-TestRunner, Invoke-TestRunnerInnerLoop,
-# Invoke-TestSequence, Invoke-TestProject) can never drift.
+# entry points (Start-TestRunner, Invoke-TestRunnerInnerLoop,
+# Debug-TestSequence, Invoke-TestProject) can never drift.
 #
 # Centralizes the path-bundle computation that every entry point
 # needs, so a new entry point ("Test-DockerCycle.ps1",
@@ -104,9 +104,9 @@ function Initialize-YurunaEntryPointModuleSet {
     .SYNOPSIS
         Import the canonical module set for an entry-point kind.
     .DESCRIPTION
-        Each of the four entry points (Outer = Invoke-TestRunner.ps1,
+        Each of the four entry points (Outer = Start-TestRunner.ps1,
         Inner = Invoke-TestRunnerInnerLoop.ps1, Project = Invoke-TestProject.ps1,
-        Sequence = Invoke-TestSequence.ps1) would otherwise hand-roll its own
+        Sequence = Debug-TestSequence.ps1) would otherwise hand-roll its own
         Import-Module sequence (6-13 lines per script), which drifts
         whenever a new module lands. Centralizing the lists here makes
         adding a new shared module one edit, not four.
@@ -158,7 +158,7 @@ function Initialize-YurunaEntryPointModuleSet {
             'Test.Log.psm1', 'Test.Recovery.psm1', 'Test.RunnerState.psm1',
             # Watchdog + outer-loop body live in their own modules so
             # the Start-Job heartbeat watcher and the cycle dispatcher
-            # are unit-testable independent of Invoke-TestRunner.ps1.
+            # are unit-testable independent of Start-TestRunner.ps1.
             # Test.RunnerWatchdog before Test.RunnerOuterLoop because
             # Invoke-RunnerOuterLoop calls Start-Watchdog / Stop-Watchdog
             # at the cycle boundary.
@@ -227,7 +227,7 @@ function Initialize-YurunaEntryPointModuleSet {
             'Test.SequencePlanner.psm1',
             # Test.SequenceRunner: chain planning + execution (Resolve-TestSequencePlan,
             # Invoke-TestSequenceChain). Test.Orchestrator calls both, so it must load
-            # first. Standalone Invoke-TestSequence.ps1 imports it explicitly; the Inner path
+            # first. Standalone Debug-TestSequence.ps1 imports it explicitly; the Inner path
             # relies on this set, so omitting it fails the orchestrator's guest run.
             'Test.SequenceRunner.psm1',
             # Test.Orchestrator: runs an orchestration top-level (InvokeTestSequence
@@ -259,12 +259,12 @@ function Initialize-YurunaEntryPointModuleSet {
             'Test.Config.psm1', 'Test.YurunaDir.psm1',
             'Test.ConfigPreflight.psm1', 'Test.HostContract.psm1', 'Test.InnerSpawn.psm1',
             # Test.SingleInstance lets Assert-NoOtherRunner see runner.pid so
-            # an Invoke-TestProject run refuses to race a live Invoke-TestRunner
+            # an Invoke-TestProject run refuses to race a live Start-TestRunner
             # instead of silently overlapping it on the same runtime dir.
             'Test.SingleInstance.psm1',
             # Test.Recovery is loaded so Invoke-TestProject can archive any stale
-            # break-active.json left over from a prior Invoke-TestSequence /
-            # Invoke-TestRunner that crashed mid-break. Without this sweep,
+            # break-active.json left over from a prior Debug-TestSequence /
+            # Start-TestRunner that crashed mid-break. Without this sweep,
             # the inner runner inherits the parked breakpoint state and the
             # status UI shows a "Continue" button for the previous cycle.
             # Test.Recovery's Send-CycleEventSafely / Write-YurunaStateFileJson
@@ -278,7 +278,7 @@ function Initialize-YurunaEntryPointModuleSet {
             'Test.HostIO.psm1', 'Test.HostContract.psm1',
             # Test.SingleInstance is loaded so Assert-NoOtherRunner can read
             # runner.pid + runner.start and refuse the run if a real
-            # Invoke-TestRunner already owns the runtime dir. Outer-runner
+            # Start-TestRunner already owns the runtime dir. Outer-runner
             # takeover semantics live in the caller; this entry point only
             # uses the read side of the contract.
             'Test.SingleInstance.psm1',
@@ -286,13 +286,13 @@ function Initialize-YurunaEntryPointModuleSet {
             'Test.Log.psm1', 'Test.Remediation.psm1',
             'Test.SnapshotManifest.psm1', 'Test.LogRotation.psm1',
             'Test.Backoff.psm1',
-            # Test.Status is loaded so Invoke-TestSequence can register the run
+            # Test.Status is loaded so Debug-TestSequence can register the run
             # as its own cycle in status.json (otherwise the dashboard's
-            # cycle history skips Invoke-TestSequence runs and break-active.json
+            # cycle history skips Debug-TestSequence runs and break-active.json
             # has no live cycle to anchor the Continue button to).
             'Test.Status.psm1',
             # Test.Recovery archives any stale break-active.json left
-            # behind by a prior Invoke-TestSequence / Invoke-TestRunner that
+            # behind by a prior Debug-TestSequence / Start-TestRunner that
             # crashed mid-break. Without this sweep, the new run inherits
             # the parked breakpoint state and the status UI keeps showing
             # the stale Continue button.
@@ -300,7 +300,7 @@ function Initialize-YurunaEntryPointModuleSet {
             # Test.Perf must be loaded wherever Invoke-Sequence runs: its
             # perf calls are Get-Command-guarded, so an absent module is not
             # an error, it is a silently unmeasured run. That covers both
-            # shapes of an Invoke-TestSequence process -- a standalone run opening
+            # shapes of a Debug-TestSequence process -- a standalone run opening
             # its own perf cycle, and a nested one (a host action re-entering
             # us in a child pwsh) adopting the owner's published cycle handle.
             'Test.Perf.psm1',
@@ -450,7 +450,7 @@ function Initialize-SequenceEngineRegistry {
         Reset the per-shell sequence-action + host-I/O registries and
         repopulate the action registry from Test.SequenceEngine.psm1.
     .DESCRIPTION
-        Invoke-TestSequence is the only entry point that can be re-invoked
+        Debug-TestSequence is the only entry point that can be re-invoked
         inside the same shell. The `$global:` registry anchors that
         protect built-in handlers from `-Force` re-imports also keep
         stale extension registrations alive across runs, so a renamed
@@ -488,13 +488,13 @@ function Initialize-SequenceEngineRegistry {
 function Assert-NoOtherRunner {
     <#
     .SYNOPSIS
-        Return $false (and emit a banner) when a live Invoke-TestRunner
+        Return $false (and emit a banner) when a live Start-TestRunner
         already owns runner.pid in the given runtime dir.
     .DESCRIPTION
-        Invoke-TestRunner ([test/Invoke-TestRunner.ps1](../Invoke-TestRunner.ps1))
+        Start-TestRunner ([test/Start-TestRunner.ps1](../Start-TestRunner.ps1))
         owns runner.pid for its whole lifetime and takes over an
         OtherRunner via Stop-StaleRunner. The dev / project entry
-        points (Invoke-TestSequence, Invoke-TestProject) need the opposite
+        points (Debug-TestSequence, Invoke-TestProject) need the opposite
         contract: refuse to start so they do not interfere with a
         cycle in progress.
         Surfaces a banner naming the live runner's PID and the
@@ -520,7 +520,7 @@ function Assert-NoOtherRunner {
     if ($state.status -ne 'OtherRunner') { return $true }
     Write-Output ''
     Write-Output '============================================='
-    Write-Output '  Another Invoke-TestRunner is already running'
+    Write-Output '  Another Start-TestRunner is already running'
     Write-Output "  PID:    $($state.pid)"
     Write-Output "  Caller: $CallerName refuses to interfere"
     Write-Output '  Action: stop the existing runner first, or run'
@@ -535,7 +535,7 @@ function Register-EntryPointCancelHandler {
         Register a CancelKeyPress handler that flips a shared shutdown
         flag instead of letting Ctrl+C tear down the runspace mid-step.
     .DESCRIPTION
-        Same shape as Invoke-TestRunner.ps1's handler -- callers poll
+        Same shape as Start-TestRunner.ps1's handler -- callers poll
         the returned hashtable['Requested'] at safe points (end of
         step, finally block) and surrender voluntarily.
         Register-ObjectEvent is used (not a raw .NET delegate) because
@@ -601,7 +601,7 @@ function Resolve-StatusServiceStart {
         caller's -NoStatusService switch.
     .DESCRIPTION
         Pure decision: the single source of the gating + port-resolution rules
-        the entry points share (the inner runner, Invoke-TestSequence, Invoke-TestProject).
+        the entry points share (the inner runner, Debug-TestSequence, Invoke-TestProject).
         Keeping it separate from the invocation makes the gate unit-testable.
     .OUTPUTS
         [hashtable] @{ ShouldStart = [bool]; Port = [int] }
@@ -626,7 +626,7 @@ function Start-YurunaStatusServiceIfEnabled {
         so they honor enabled, -NoStatusService, the port, and the restart policy
         identically.
     .DESCRIPTION
-        -Restart forces a kill+relaunch (Invoke-TestSequence and the inner runner's
+        -Restart forces a kill+relaunch (Debug-TestSequence and the inner runner's
         per-cycle refresh, which must pick up file/config changes). Omitting it
         lets Start-StatusService.ps1 compare the running server's persisted
         server.sha against the current framework HEAD and skip the relaunch when
@@ -655,7 +655,7 @@ function Start-YurunaStatusServiceIfEnabled {
             # (port owned by another user / another checkout) so the cycle can
             # refuse instead of running blind without its dashboard + breakpoint
             # controls. The banner is already printed there; exit terminates the
-            # calling entry point (Invoke-TestSequence, the inner runner,
+            # calling entry point (Debug-TestSequence, the inner runner,
             # Start-CachingProxyServiceVM) the same way Assert-NoOtherRunner's refusal
             # does -- no stack trace. Re-throw anything that is not this tag.
             if ($_.Exception.Data -and $_.Exception.Data['YurunaPortConflict']) {

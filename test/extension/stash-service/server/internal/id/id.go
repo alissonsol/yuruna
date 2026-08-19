@@ -2,10 +2,10 @@
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
 // Package id implements the per-day 4-character unique-ID allocator
-// defined in §7 of the stash service spec.
+// defined in section 7 of the stash service spec.
 //
 // Uniqueness scope: per UTC day, i.e. unique within one yyyy/mm/dd
-// folder. Cross-day collisions are intentional (§12) and require no
+// folder. Cross-day collisions are intentional (section 12) and require no
 // special handling.
 //
 // On first allocation for a day, the allocator scans the corresponding
@@ -27,7 +27,7 @@ import (
 	"stash-service/internal/config"
 )
 
-// Allocator is the §5.6 mutex-protected ID generator. Safe for use
+// Allocator is the section 5.6 mutex-protected ID generator. Safe for use
 // from multiple goroutines.
 type Allocator struct {
 	mu         sync.Mutex
@@ -39,7 +39,7 @@ type Allocator struct {
 // New returns an allocator that scans for existing IDs under each of the
 // given files roots. Pass the share's <StashFolder>/files/ AND the
 // VM-local buffer's files/ so a daemon restart mid-outage cannot reissue
-// an ID a not-yet-flushed buffered artifact already claims (§7, §8.4).
+// an ID a not-yet-flushed buffered artifact already claims (section 7, section 8.4).
 func New(filesRoots ...string) *Allocator {
 	return &Allocator{
 		rng:        rand.New(rand.NewSource(time.Now().UnixNano())),
@@ -96,7 +96,7 @@ func (a *Allocator) populateFromDisk(filesRoot string, t time.Time, seen map[str
 	entries, err := os.ReadDir(dayDir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// Day folder doesn't exist yet — fine. First allocation creates it via
+			// Day folder doesn't exist yet -- fine. First allocation creates it via
 			// Store.DayDir; the seen set starts empty.
 			return nil
 		}

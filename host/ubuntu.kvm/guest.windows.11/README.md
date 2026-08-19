@@ -7,7 +7,7 @@ Boots Windows 11 Pro (multi-edition x64) unattended on KVM/QEMU with
 TPM 2.0 emulation, OVMF Secure Boot, and virtio-scsi/virtio-net for
 performance.
 
-Cross-host concepts: [Hosts — ...](../../README.md).
+Cross-host concepts: [Hosts -- ...](../../README.md).
 
 ## One-time
 
@@ -53,7 +53,7 @@ see the qcow2 disk.
 |--------|---------|
 | Name   | `windows-11-01` |
 | RAM    | 8 GiB |
-| vCPU   | min(host threads − 1, max(2, host threads ÷ 2)) |
+| vCPU   | min(host threads - 1, max(2, host threads / 2)) |
 | Disk   | 64 G qcow2 |
 | User   | `ywuser1` / `password` (auto-logon on first boot) |
 | Net    | libvirt `default` (NAT 192.168.122.0/24) |
@@ -91,6 +91,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../../../README.md)

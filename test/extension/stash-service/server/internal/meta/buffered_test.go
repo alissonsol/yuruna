@@ -10,7 +10,7 @@ import (
 )
 
 // TestBufferedLifecycle walks an upload that lands in the offline buffer
-// (§8.4): pending(buffered) -> complete(still buffered) -> flushed. It
+// (section 8.4): pending(buffered) -> complete(still buffered) -> flushed. It
 // guards the easy-to-miss invariant that UpdateOnComplete must NOT clear
 // locallyBuffered, and that ListBuffered tracks the flag both ways.
 func TestBufferedLifecycle(t *testing.T) {
@@ -22,7 +22,7 @@ func TestBufferedLifecycle(t *testing.T) {
 
 	now := time.Date(2026, 6, 14, 16, 0, 0, 0, time.UTC)
 
-	// A normal (on-share) upload — must never appear in ListBuffered.
+	// A normal (on-share) upload -- must never appear in ListBuffered.
 	if err := m.InsertPending(&Record{ID: "shr1", Username: "u", CreatedAt: now, Status: StatusPending}); err != nil {
 		t.Fatalf("insert on-share pending: %v", err)
 	}
@@ -31,7 +31,7 @@ func TestBufferedLifecycle(t *testing.T) {
 		t.Fatalf("insert buffered pending: %v", err)
 	}
 
-	// Complete the buffered one — the flag must survive.
+	// Complete the buffered one -- the flag must survive.
 	if err := m.UpdateOnComplete("buf1", "/var/lib/stash-service/buffer/files/2026/06/14/buf1.txt", "note.txt", false, StatusComplete, 12, now.Add(time.Second)); err != nil {
 		t.Fatalf("UpdateOnComplete: %v", err)
 	}

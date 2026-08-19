@@ -1,7 +1,7 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 // Create page: paste text or upload file(s). Both post to /api/stashes and
-// redirect to the new stash on success (§5.4).
+// redirect to the new stash on success (section 5.4).
 
 (function () {
   const $ = (id) => document.getElementById(id);
@@ -33,7 +33,7 @@
 
   $('form-text').addEventListener('submit', (ev) => {
     ev.preventDefault();
-    if (!$('text').value) { msg('warn', 'Nothing to store — paste some content first.'); return; }
+    if (!$('text').value) { msg('warn', 'Nothing to store -- paste some content first.'); return; }
     submitCreate($('form-text'), ev.submitter || $('form-text').querySelector('button'));
   });
 

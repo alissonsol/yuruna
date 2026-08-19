@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 429ebfcd-3e45-4b08-a1ee-faef5b1735e2
+.VERSION 2026.08.19
+.GUID 42c57683-d950-42e5-b4d6-4ab0ea4adc92
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test automation result pester
@@ -36,7 +36,7 @@ $autoDir  = Join-Path $repoRoot 'automation'
 $script:resultMod = Join-Path $autoDir 'Yuruna.Result.psm1'
 $script:entrypoints = 'Set-Component','Set-Resource','Set-Workload'
 
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 }
 

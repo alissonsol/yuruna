@@ -1,30 +1,30 @@
 # Hosts — Nerd-Level Details
 
-The crisp version lives in [Hosts — ...](README.md); this file covers
+The crisp version lives in [Hosts -- ...](README.md); this file covers
 macOS TCC grants, VM resizing, and IP discovery.
 
 ## macOS TCC grants
 
 The harness needs **both** TCC (Transparency, Consent, and Control)
 permissions on macOS, granted to the terminal app at
-**System Settings → Privacy & Security**:
+**System Settings -> Privacy & Security**:
 
-- **Accessibility** — keystroke injection to UTM VMs.
-- **Screen Recording** — window enumeration
+- **Accessibility** -- keystroke injection to UTM VMs.
+- **Screen Recording** -- window enumeration
   (`CGWindowListCopyWindowInfo` returns titles only to callers holding
   this grant) and per-window capture. Without it,
   `tapOn` loops on "UTM window for `<vm>` not found".
 
 `Enable-TestAutomation.ps1` fires the consent dialog for each, but TCC
 forbids automating the toggle itself. Dismissed a dialog? Toggle it
-manually, then **fully quit and relaunch the terminal** — TCC grants
+manually, then **fully quit and relaunch the terminal** -- TCC grants
 don't apply to the running process.
 
 ## VM sizing and connectivity
 
 Most VMs are **12 GB RAM, 4 vCPU**; disks are dynamic/thin and vary by
 guest (64 GB for the Ubuntu Server guests, up to 512 GB for
-Windows 11 — see [README.md](README.md));
+Windows 11 -- see [README.md](README.md));
 the stash-service, pool-control-service and download-agent-service
 guests are smaller (2 GB), and caching-proxy-service stays at 12 GB
 because squid's `cache_mem` is budgeted against it; the KVM guests are
@@ -41,7 +41,7 @@ Set-VM  -Name "<vm>" -MemoryStartupBytes 32768MB -MemoryMinimumBytes 32768MB -Me
 Start-VM -Name "<vm>"
 ```
 
-UTM: VM settings → **System** → **Memory**.
+UTM: VM settings -> **System** -> **Memory**.
 
 Find the guest IP:
 
@@ -64,6 +64,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../README.md)

@@ -3,7 +3,7 @@
 One-time setup for an Ubuntu host running KVM via libvirt. Cross-host
 concepts (install-one-liner convention, post-install steps, optional
 Squid cache VM, guest workload pattern) live in
-[Hosts — ...](../README.md).
+[Hosts -- ...](../README.md).
 
 ## Quick install (one line)
 
@@ -31,7 +31,7 @@ After the group membership change, log out and back in (or
 `newgrp libvirt`) before `virsh` and `virt-install` work without sudo.
 
 Disabling display sleep / screen lock for unattended runs is a
-separate opt-in step — run
+separate opt-in step -- run
 [`Enable-TestAutomation.ps1`](Enable-TestAutomation.ps1) manually after
 install, or let `pwsh install/setup.ps1` do it as one step of a guided
 [standalone-host or lab setup](../../install/README.md#guided-setup).
@@ -74,6 +74,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../../README.md)

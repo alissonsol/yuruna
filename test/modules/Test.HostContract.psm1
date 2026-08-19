@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a1b2c3-d4e5-4f67-8901-bc0123456701
+.VERSION 2026.08.19
+.GUID 42a04c70-e7da-4354-977e-5dd4778e74a0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
@@ -20,7 +20,7 @@
 # split into four siblings along feature boundaries (detection,
 # condition-set, git/project, host-driver bootstrap). Importing this
 # file imports all four siblings with -Global so callers that only
-# know the facade -- the runner, Invoke-TestSequence.ps1, sequence
+# know the facade -- the runner, Debug-TestSequence.ps1, sequence
 # extensions -- get every export reachable. New code should import
 # the matching sibling directly.
 # Aligned with host/Yuruna.Host.Contract.psm1: the test-harness side

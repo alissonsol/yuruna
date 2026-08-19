@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a7c8d9-0e1f-4a2b-9c3d-4e5f6a7b8c9d
+.VERSION 2026.08.19
+.GUID 4231033c-3449-4a83-a666-6bdfc1b63f62
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test sequence variable pester
@@ -35,7 +35,7 @@ $repoRoot   = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalCh
 $modulePath = Join-Path $repoRoot 'test/modules/Test.SequenceVariable.psm1'
 $script:varPattern = '\$\{([^}]+)\}'
 
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 function Get-ModuleAst {
     [CmdletBinding()]

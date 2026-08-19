@@ -1,14 +1,14 @@
 # Per-step perf log
 
 Append-only structured log of every step execution, designed for
-cross-host / cross-cycle analytics — "did this commit slow down step
+cross-host / cross-cycle analytics -- "did this commit slow down step
 X?", "is sequence Y faster on macos.utm than ubuntu.kvm?", "should we
 invest more in host platform Z?". One JSONL file per cycle, one JSON
 row per step execution.
 
 The goal is **facts, not classification**: each row records what
 happened. "Yellow tile" / regression detection is a *read-time*
-computation against a rolling baseline — never baked into the log.
+computation against a rolling baseline -- never baked into the log.
 
 Source: [`test/modules/Test.Perf.psm1`](../test/modules/Test.Perf.psm1).
 
@@ -63,21 +63,24 @@ regardless of history depth.
 | Host          | `hostUuid` (stable per machine) + `hostPlatform` enum       | UUID survives rename; platform is the cardinality knob (`host.macos.utm`, `host.ubuntu.kvm`, `host.windows.hyper-v`). |
 | Guest         | `guestKey` (e.g. `guest.amazon.linux.2023`)                 | Already stable in the repo. |
 | Code state    | `harnessCommit` + `projectCommit`                           | Two SHAs = the two repos that influence behavior. |
-| Host capture  | `hostInfoHash` → content-addressed sidecar                  | Dedupes across hundreds of cycles. |
-| Guest capture | `guestInfoHash` → content-addressed sidecar                 | Same. |
+| Host capture  | `hostInfoHash` -> content-addressed sidecar                  | Dedupes across hundreds of cycles. |
+| Guest capture | `guestInfoHash` -> content-addressed sidecar                 | Same. |
 
 ### Why a `42`-prefixed sequence GUID, but no step GUID
 
 A sequence is a stable user-facing concept that occasionally gets
 renamed. A GUID rescues you from that one rename. Steps don't deserve
-the same treatment — renames are rare, and you accept the
+the same treatment -- renames are rare, and you accept the
 discontinuity.
 
-GUID shape: `42xxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` — first two hex
+GUID shape: `42xxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` -- first two hex
 chars are the literal `42` (a visual filter in mixed-source logs),
-remaining 30 hex chars give ≈ 120 bits of randomness, collision-free
-at any realistic scale. Not a strict RFC-4122 UUIDv4 (the variant
-nibble can be anything), but no consumer cares.
+remaining 30 hex chars give ~ 120 bits of randomness, collision-free
+at any realistic scale. Nothing reads the version or variant nibbles, so
+neither is part of the contract -- uniqueness and the `42` prefix are.
+The recipe below rewrites only `time_low`, leaving both nibbles as
+`NewGuid` set them, so what it mints is also a well-formed RFC-4122
+UUIDv4. Every identity GUID in the tree is minted this way.
 
 Mint a fresh one with PowerShell:
 
@@ -115,7 +118,7 @@ mint a fresh GUID for the new file.
 ### Step naming
 
 `stepName` is the **raw, pre-expansion** `description:` string from
-the YAML — variables like `${vmName}` are intentionally NOT expanded
+the YAML -- variables like `${vmName}` are intentionally NOT expanded
 so the value is stable across cycles. Falls back to `step.action` when
 no description is set.
 
@@ -124,7 +127,7 @@ appears more than once in one sequence run (handles loops, repeated
 prompts).
 
 `stepOrdinal` is the step's position in the executing `steps:` array
-at the time it ran — a snapshot. If a step is inserted at position
+at the time it ran -- a snapshot. If a step is inserted at position
 5, old position-5 rows keep their ordinal; new rows show ordinal 6.
 **Cross-cycle joins go on `stepName`, never on `stepOrdinal`.**
 
@@ -209,9 +212,9 @@ Field reference:
 | `parentAction` | string | `"retry"` when inside a retry block; `""` otherwise. |
 | `startedAtUtc` | string | ISO-8601-Z UTC start. |
 | `endedAtUtc` | string | ISO-8601-Z UTC end. |
-| `durationMs` | int | Explicit even though derivable — saves every consumer from parsing two timestamps. |
+| `durationMs` | int | Explicit even though derivable -- saves every consumer from parsing two timestamps. |
 | `outcome` | enum | `pass`, `fail`, `skipped`, `timeout`. |
-| `attempts` | int | Number of attempts this row represents (≥1). |
+| `attempts` | int | Number of attempts this row represents (>=1). |
 | `retryCount` | int | Number of failures before the recorded outcome. |
 
 What is **not** in the row (intentional):
@@ -247,7 +250,7 @@ cycle files at query time (`JOIN` on hash, render once), honoring
 
 ## Query model
 
-JSONL files are queryable straight from DuckDB — no ETL needed:
+JSONL files are queryable straight from DuckDB -- no ETL needed:
 
 ```
 -- Is step [seqX][passwdPrompt] faster on macos.utm than ubuntu.kvm?
@@ -297,7 +300,7 @@ WHERE  ABS((r.durationMs - b.mu) / NULLIF(b.sigma,0)) > 2;
 ```
 
 A cycle tile turns yellow when `|z| > 2` on any passing step. Today
-the dashboard only renders green / red — this is the data plumbing
+the dashboard only renders green / red -- this is the data plumbing
 for tomorrow's yellow tier.
 
 ---
@@ -325,16 +328,16 @@ for tomorrow's yellow tier.
 The emitter is wired into the runner at three points:
 
 1. **`Test.RunnerInnerLoop.psm1`** calls `Start-PerfCycle` once per
-   cycle, right after the cycle-start host diagnostic is captured —
+   cycle, right after the cycle-start host diagnostic is captured --
    hash-stores the diagnostic, opens the cycle's JSONL file, stamps
    the two commit SHAs.
 2. **`Test.SequenceEngine.psm1`** calls `Set-PerfSequenceContext` +
    `Set-PerfGuestContext` once per sequence after `Read-SequenceFile`
-   — snapshots the YAML body and pins guest identity for the rows
+   -- snapshots the YAML body and pins guest identity for the rows
    that follow.
 3. **`Test.SequenceEngine.psm1`**, inside `$invokeStepBlock`, calls
    `Write-PerfStepRow` at the end of every non-retry step iteration
-   — one atomic `AppendAllText` per step.
+   -- one atomic `AppendAllText` per step.
 
 Every entry point is defensive: a missing module, missing
 `YURUNA_RUNTIME_DIR`, or a sequence with no frontmatter all degrade to
@@ -357,10 +360,10 @@ Every entry point is defensive: a missing module, missing
 
 ## Explicit non-goals
 
-- **Not** extending `status.json` — rewritten on every step write, so piling history on it makes that cost worse.
+- **Not** extending `status.json` -- rewritten on every step write, so piling history on it makes that cost worse.
 - **Not** Prometheus / Loki for the canonical store. Prometheus is for
   high-frequency gauges; perf-step durations are sparse rich events.
-  (Promtail still tails `outer.log` for human debugging — orthogonal.)
+  (Promtail still tails `outer.log` for human debugging -- orthogonal.)
 - **No daemon or DB process.** Append-only files only.
 
 ---
@@ -369,6 +372,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../README.md)

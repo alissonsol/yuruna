@@ -1,6 +1,6 @@
 <#PSScriptInfo
 .VERSION 2026.07.15
-.GUID 42e8f0a1-b2c3-4d45-9678-0a1b2c3d4e5f
+.GUID 42164e74-5d7b-4c0c-b125-3cd662a1a7ed
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna caching-proxy-service squid migration

@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a1b2c3-d4e5-4f67-8901-bc0123456790
+.VERSION 2026.08.19
+.GUID 429770ab-d272-43a0-985e-672863545e2c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
@@ -36,7 +36,7 @@ param()
 # Per-runner-process correlation ID. Generated once at module load and
 # reused for the life of the process; a -Force re-import preserves the
 # existing GUID so a mid-run `git pull` reload doesn't split one cycle's
-# stream across two runIds. New outer / inner / Invoke-TestSequence processes
+# stream across two runIds. New outer / inner / Debug-TestSequence processes
 # get their own GUIDs because each starts with a fresh global scope.
 if (-not (Get-Variable -Name '__YurunaRunId' -Scope Global -ErrorAction SilentlyContinue) -or
     -not $global:__YurunaRunId) {
@@ -111,7 +111,7 @@ function Format-CycleFolderBaseName {
     $padded = '{0:D6}' -f $CycleNumber
     # CycleStartUtc is "2026-05-11T16:24:39Z" -- index 0..9 is the date,
     # index 11..18 is HH:mm:ss. Defensive .Length checks so a caller
-    # passing a non-ISO timestamp (Invoke-TestSequence.ps1 one-shots) still
+    # passing a non-ISO timestamp (Debug-TestSequence.ps1 one-shots) still
     # yields a usable folder name with whatever the substring produces.
     $cycleDate = if ($CycleStartUtc.Length -ge 10) { $CycleStartUtc.Substring(0,10) } else { 'unknown-date' }
     $cycleTime = if ($CycleStartUtc.Length -ge 19) { ($CycleStartUtc.Substring(11,8) -replace ':','-') } else { 'unknown-time' }
@@ -280,7 +280,7 @@ function Start-LogFile {
         [Parameter(Mandatory)] [string]$CycleStartUtc,
         [Parameter(Mandatory)] [string]$Hostname,
         # Monotonic cycle counter (1, 2, 3, ...). Defaults to 0 for
-        # callers without cycle context (Invoke-TestSequence.ps1); the
+        # callers without cycle context (Debug-TestSequence.ps1); the
         # resulting folder is 000000.YYYY-MM-DD.HH-mm-ss.HOSTID which
         # is still unique-per-invocation thanks to the timestamp.
         [int]$CycleNumber = 0
@@ -441,7 +441,7 @@ function Get-CycleScreenDir {
         cycle that produced it -- the next cycle gets its own folder
         and can't overwrite earlier captures.
         Falls back to {YURUNA_LOG_DIR}/screens_{VMName}/ when no cycle
-        folder is established (Invoke-TestSequence.ps1 normally calls
+        folder is established (Debug-TestSequence.ps1 normally calls
         Start-LogFile, but defensive in case future drivers don't).
     #>
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
@@ -686,6 +686,39 @@ function Stop-LogFile {
             } elseif ($Outcome -eq 'pass') {
                 Write-Information "Cycle passed with $addressChanges host address change(s) inside it." -InformationAction Continue
             }
+            # --- REGION: https://yuruna.link/network#why-a-cycle-records-the-churn-it-met
+            # The count above says what this ONE cycle met. The verdict says
+            # whether the host is bounded at all, which is the question a
+            # week-long lease makes urgent and which no single cycle can answer.
+            # Emitted as its own event so it reaches the same log the dashboard
+            # already reads: the periodicity verdict existed for a while with no
+            # route off the host, which made it detection nobody could act on.
+            # Best-effort and never fatal -- a cycle must still close if the
+            # bridge cannot be interrogated.
+            if (Get-Command Get-HostAddressStabilityReport -ErrorAction SilentlyContinue) {
+                try {
+                    $footprint = Get-HostAddressStabilityReport -RuntimeDir $runtimeDir
+                    Write-CycleNdjsonEvent -EventRecord @{
+                        timestamp             = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                        event                 = 'host_address_footprint'
+                        verdict               = [string]$footprint.verdict
+                        severity              = [string]$footprint.severity
+                        changes               = [int]$footprint.churn.changes
+                        distinctAddresses     = [int]$footprint.churn.distinctAddresses
+                        medianIntervalMinutes = [double]$footprint.churn.medianIntervalMinutes
+                        lookbackHours         = [int]$footprint.churn.lookbackHours
+                        identityBackend       = [string]$footprint.identity.backend
+                        # Tri-state on purpose: $null is 'could not read the
+                        # bridge', which is a different fact from 'not pinned'
+                        # and picks a different remedy.
+                        identityPinned        = $footprint.identity.pinned
+                        message               = [string]$footprint.message
+                        remedy                = [string]$footprint.remedy
+                    }
+                } catch {
+                    Write-Verbose "Stop-LogFile: host address footprint unavailable -- $($_.Exception.Message)"
+                }
+            }
         }
         if ($global:__YurunaLogFile) {
             "</pre></body></html>" | Microsoft.PowerShell.Utility\Out-File -FilePath $global:__YurunaLogFile -Append -Encoding utf8 -ErrorAction SilentlyContinue
@@ -770,7 +803,7 @@ function Stop-LogFile {
                         # Update cycleFolderUrl now that the on-disk
                         # name has changed. Soft import + soft call:
                         # Test.Status is not loaded in every caller
-                        # (Invoke-TestSequence.ps1 drives Stop-LogFile too).
+                        # (Debug-TestSequence.ps1 drives Stop-LogFile too).
                         if (Get-Command Set-CycleFolderUrl -ErrorAction SilentlyContinue) {
                             $finalLeaf = Split-Path -Leaf $final
                             Set-CycleFolderUrl -RelativeUrl "log/$finalLeaf/" -ErrorAction SilentlyContinue
@@ -794,7 +827,7 @@ function Start-NestedLogFile {
         without consuming a top-level cycle number or touching the owner's cycle
         document.
     .DESCRIPTION
-        A nested Invoke-TestSequence (a host-action stage re-entering Invoke-TestSequence.ps1
+        A nested Debug-TestSequence (a host-action stage re-entering Debug-TestSequence.ps1
         in a child pwsh) writes its detailed transcript to
         <rootCycleFolder>/nested/<safeNodeId>/<safeNodeId>.html and sets the same
         $global:__YurunaLogFile / __YurunaCycleFolder / __YurunaCycleStartUtc handles
@@ -842,7 +875,7 @@ function Start-NestedLogFile {
         # The Yuruna.Log proxy tees Write-* to whatever these handles point at;
         # aiming them at the nested transcript is what routes this child's output
         # into its own sub-log instead of a fresh top-level cycle. The proxy is
-        # already imported by the child's Invoke-TestSequence entry point.
+        # already imported by the child's Debug-TestSequence entry point.
         $global:__YurunaLogFile     = $logFile
         $global:__YurunaCycleFolder = $nestedFolder
         $global:__YurunaCycleStartUtc     = [string]$CycleStartUtc
@@ -934,7 +967,7 @@ function Write-CycleNdjsonEvent {
     # (hostId, runId, cycleStartUtc) a pool consumer joins events to a cycle on a
     # specific host without trusting hostname uniqueness. Set on $global at the
     # process entry point (Get-YurunaHostId), so this mirrors the runId stamp:
-    # conditional, and a no-op when unset (standalone Invoke-TestSequence, tests).
+    # conditional, and a no-op when unset (standalone Debug-TestSequence, tests).
     if (-not $EventRecord.Contains('hostId') -and $global:__YurunaHostId) {
         $EventRecord['hostId'] = [string]$global:__YurunaHostId
     }

@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42334b95-2008-4677-826c-ab608200e5bf
+.VERSION 2026.08.19
+.GUID 420935c1-4b35-484c-b68d-3295385f8efd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test automation teardown pester
@@ -45,7 +45,7 @@ $autoDir  = Join-Path $repoRoot 'automation'
 Import-Module (Join-Path $autoDir 'Import.Yaml.psm1') -Force
 Import-Module (Join-Path $autoDir 'Yuruna.Clear.psm1') -Force
 
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # Build a project whose resources.output.yml matches what Set-Resource emits.
 function New-ResourceOutputFixture {

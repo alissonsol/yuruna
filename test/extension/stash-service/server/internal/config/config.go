@@ -2,7 +2,7 @@
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
 // Package config holds the spec-frozen constants for the Stash
-// Service daemon. Everything in §10 "Constants in code" lives here so
+// Service daemon. Everything in section 10 "Constants in code" lives here so
 // a single edit covers the spec-driven values.
 package config
 
@@ -41,7 +41,7 @@ const (
 	MaxUploadFiles = 64
 )
 
-// Presence beacon (§4.7). The daemon self-announces to the pool-aggregator-service
+// Presence beacon (section 4.7). The daemon self-announces to the pool-aggregator-service
 // so the dashboard's Extension hosts row exists without depending on the
 // owning host's status service being up; the area is the extension-area name
 // the pool dashboard groups rows by.
@@ -62,7 +62,7 @@ const (
 )
 
 // Stash creation source: SCP/SFTP ingest versus the browser UI. Both flow
-// through the same storage pipeline (a stash is a stash, §1).
+// through the same storage pipeline (a stash is a stash, section 1).
 const (
 	SourceSCP = "scp"
 	SourceUI  = "ui"
@@ -86,32 +86,32 @@ const (
 	IDLength   = 4
 )
 
-// Extension extraction (§6.3).
+// Extension extraction (section 6.3).
 const (
 	ExtensionMaxLength = 32
 )
 
-// Archive name for multi / recursive uploads (§6.3, §10).
+// Archive name for multi / recursive uploads (section 6.3, section 10).
 const (
 	ArchiveExtension = ".yuruna.archive.zip"
 )
 
 // Sidecar record written next to each committed artifact on the share so
-// the rich metadata survives a VM reimage (§8.5). The naming constant
+// the rich metadata survives a VM reimage (section 8.5). The naming constant
 // lives here with the other extensions; meta.WriteSidecar produces it.
 const (
 	SidecarExtension = ".yuruna.meta.json"
 )
 
-// Stderr ID marker (§9, §10).
+// Stderr ID marker (section 9, section 10).
 const (
 	StderrIDFormat = "YURUNA-STASH-ID: %s\n"
 )
 
-// On-disk layout under the share-side StashFolder (§6.2). Only hostkey/
+// On-disk layout under the share-side StashFolder (section 6.2). Only hostkey/
 // and files/ live on the stash share; the metadata index and the offline
 // buffer are VM-local (DefaultMetadataDir / DefaultBufferDir below),
-// because SQLite locking is unreliable over SMB/CIFS (§6.1, §8).
+// because SQLite locking is unreliable over SMB/CIFS (section 6.1, section 8).
 const (
 	HostKeyDirName   = "hostkey"
 	FilesDirName     = "files"
@@ -119,7 +119,7 @@ const (
 	HostKeyFileName  = "stash_host_ed25519"
 )
 
-// VM-local directories (§6.1, §8, §8.4). The metadata index and the
+// VM-local directories (section 6.1, section 8, section 8.4). The metadata index and the
 // NAS-offline buffer live on the VM's local disk, not on the share.
 // Provisioning (the bring-up step) creates these owned by the service
 // user; for local runs override with --metadata-dir / --buffer-dir.
@@ -128,7 +128,7 @@ const (
 	DefaultBufferDir   = "/var/lib/stash-service/buffer"
 )
 
-// Local buffer ceiling (§8.4, §10): once the VM-local buffer reaches this
+// Local buffer ceiling (section 8.4, section 10): once the VM-local buffer reaches this
 // size, uploads are rejected rather than filling the VM disk (enforced in
 // sshsrv.chooseTarget); the limit lives here with the other size constants.
 const (

@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42f6a7b8-c9d0-4e13-9456-7f8a9b0c1d2e
+.VERSION 2026.08.19
+.GUID 42a8a29c-b477-4fc9-8825-b4aabcec2cc6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test runner inner prelude pester

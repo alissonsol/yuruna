@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42b8e6a4-3d17-4c92-8f05-6a1b9d2e7c40
+.VERSION 2026.08.19
+.GUID 429be071-3a67-44e5-91dc-fd9c3fe536b4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna host provisioning new-vm get-image
@@ -495,7 +495,7 @@ function Invoke-CachingProxyServiceAvailableProbe {
     # warns loudly because the inner runner's bootstrap detection runs ONCE per
     # cycle: a silently-failed probe sends the whole cycle's guests direct to the
     # internet under a bare "Caching-proxy service: not detected" headline in
-    # Invoke-TestRunner output, with no "why" beside it.
+    # Start-TestRunner output, with no "why" beside it.
     $stateIp = (Read-CachingProxyServiceState).ipAddress
     if (-not $stateIp -or -not (Test-IpAddress $stateIp)) {
         & $reportNoCache "Test-CachingProxyServiceAvailable: state.ipAddress is empty -- no locally-owned cache. Set `$Env:YURUNA_CACHING_PROXY_SERVICE_IP to point at a remote cache, or run Start-CachingProxyServiceVM.ps1."

@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42d15e27-b2c3-4d4e-9f50-6b7c8d9e0f1a
+.VERSION 2026.08.19
+.GUID 42479415-ffbe-4fef-9daa-15edda547208
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test runner inner-loop
@@ -617,6 +617,24 @@ function Copy-FailureArtifactsToStatusLog {
             Write-Warning "  Host diagnostics capture skipped: $($_.Exception.Message)"
         }
 
+        # DHCP wire capture (drivers that arm one at Start-VM). The guest-side
+        # network diagnostic can only say "no lease"; whether the DISCOVER
+        # never left the guest, died crossing the vSwitch or uplink, or went
+        # out unanswered is only visible on the host's packet path, and each
+        # of those shapes indicts a different machine. Guarded by Get-Command
+        # because only some host drivers implement it, and soft-failing like
+        # its neighbours: a diagnostic must never turn a failed step into a
+        # failed collection.
+        try {
+            if (Get-Command Save-VMDhcpCapture -ErrorAction SilentlyContinue) {
+                if (Save-VMDhcpCapture -VMName $VMName -OutputDirectory $destSeqDir) {
+                    Write-Output "  DHCP capture saved: ./status/log/$cycleBase/$destSeqName/dhcp.capture.txt"
+                }
+            }
+        } catch {
+            Write-Warning "  DHCP capture collection skipped: $($_.Exception.Message)"
+        }
+
         # Cycle-log inline link. Label adapts to which artifact dominates so
         # the operator gets a useful description without having to open the
         # folder first. Href is relative to the log file's directory, which
@@ -897,8 +915,40 @@ function Complete-CycleRun {
         [Parameter(Mandatory)][bool]$OverallPassed,
         [AllowNull()]$Config,
         [AllowNull()][string]$FailedGuest,
-        [AllowNull()][string]$FailedStep
+        [AllowNull()][string]$FailedStep,
+        [string]$HostType = ''
     )
+    # --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+    # A guest that was rebuilt under its own identity and came back on a
+    # different address has broken the one property that makes a long lease
+    # survivable, and it has already spent the address by the time anyone could
+    # look. Folded in HERE, at the single point that decides pass/fail, because
+    # a cycle whose guests each took a fresh lease is not a cycle that passed --
+    # it is one that worked while draining the pool it needs next time.
+    #
+    # A cycle already failing keeps the failure it has: the earlier one is the
+    # richer record and the one that names a step, and Write-CycleInfraFailure
+    # will not clobber it in any case. This only ever turns a pass into a fail.
+    if ($OverallPassed -and (Get-Command Get-GuestAddressFootprintTally -ErrorAction SilentlyContinue)) {
+        $footprint = Get-GuestAddressFootprintTally
+        if ($footprint.unbounded -gt 0) {
+            $first = @($footprint.moves)[0]
+            $detail = "$($footprint.unbounded) of $($footprint.checked) checked guest(s) were rebuilt under their own identity and were handed a different address"
+            if ($first) { $detail += " (e.g. '$($first.identity)': $($first.previous) -> $($first.current))" }
+            $detail += '. Each address they left behind stays allocated for the whole lease, so the pool drains at a rate the lease time sets rather than the machine count.'
+            Write-Warning $detail
+            $OverallPassed = $false
+            if (-not $FailedGuest) {
+                $FailedGuest = if ($first) { [string]$first.identity } else { '(guest addressing)' }
+                $FailedStep  = 'guest-address-bound'
+            }
+            if ($HostType -and (Get-Command Write-CycleInfraFailure -ErrorAction SilentlyContinue)) {
+                Write-CycleInfraFailure -Stage 'GuestAddressBound' -HostType $HostType -FailureClass 'dhcp_identity_unbounded' `
+                    -Severity 'hard' -GuestKey '(guest addressing)' `
+                    -VMName ($first ? [string]$first.vmName : '') -ErrorMessage $detail
+            }
+        }
+    }
     $FinalStatus = $OverallPassed ? "pass" : "fail"
 
     # Vault is persisted across cycles to simulate an external auth
@@ -920,7 +970,7 @@ function Resolve-CycleVmNamingStrategy {
     .DESCRIPTION
         Naming and sweeping are deliberately separate values. Composing a VM name
         takes exactly ONE prefix (vmStart.testVmNamePrefix, the same source
-        Invoke-TestSequence and the orchestrator compose from, so all three agree on
+        Debug-TestSequence and the orchestrator compose from, so all three agree on
         the name); the sweep matches MANY, because a project VM promoted out of the
         test namespace (its name becomes a snapshot id) still has to be removed or it
         survives teardown and blocks the next cycle's start. Feeding the multi-entry
@@ -1046,6 +1096,9 @@ function Remove-CycleStartOrphanVM {
     if (Get-Command Reset-GuestDhcpReleaseTally -ErrorAction SilentlyContinue) {
         Reset-GuestDhcpReleaseTally -Confirm:$false
     }
+    if (Get-Command Reset-GuestAddressFootprintTally -ErrorAction SilentlyContinue) {
+        Reset-GuestAddressFootprintTally -Confirm:$false
+    }
     # -Quiet suppresses the per-VM Stopping/Removed chatter + the Remove-
     # OrphanedVMFiles dump. Only a single line --
     #   "Running orphaned VM file cleanup: <path>"
@@ -1106,6 +1159,26 @@ function Remove-CycleTeardownOrphanVM {
                 "$($releaseTally.succeeded)/$($releaseTally.attempted) guests asked.$note")
         } else {
             Write-Output "  DHCP leases released before teardown: no guest was asked this cycle."
+        }
+    }
+
+    # --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+    # Stated every cycle, like the release line above and for the same reason:
+    # "checked nine, all bounded" and "could check none" are wildly different
+    # facts, and a line that appears only on violation reports them identically
+    # by saying nothing. The count of guests CHECKED is printed first because it
+    # is the one that says how much the verdict is worth.
+    if (Get-Command Get-GuestAddressFootprintTally -ErrorAction SilentlyContinue) {
+        $addressTally = Get-GuestAddressFootprintTally
+        if ($addressTally.checked -gt 0) {
+            Write-Output ("  Guest addresses bounded by identity: " +
+                "$($addressTally.checked - $addressTally.unbounded)/$($addressTally.checked) guests checked.")
+            foreach ($move in @($addressTally.moves)) {
+                Write-Output ("    '$($move.identity)' was rebuilt and came back on a different address: " +
+                    "$($move.previous) -> $($move.current).")
+            }
+        } else {
+            Write-Output "  Guest addresses bounded by identity: no guest could be checked this cycle."
         }
     }
 
@@ -1886,7 +1959,7 @@ $GatingFile           = $gatingState.GatingFile
 $OverallPassed        = $true
 $MaxConsecutiveCrashes = 3
 
-# Run-once scope: per-cycle iteration is owned by the outer Invoke-TestRunner.ps1,
+# Run-once scope: per-cycle iteration is owned by the outer Start-TestRunner.ps1,
 # so this body executes exactly once. do/while($false) states that single pass
 # explicitly; the body's early-exit `break`s each funnel to the post-loop $State
 # copy below, and no `continue` re-runs the scope.
@@ -2257,7 +2330,7 @@ do {
     # --- REGION: Restart status service to pick up any file/config changes
     # -Restart forces a relaunch so a mid-cycle git pull / config edit is
     # reflected; the shared gate honors enabled / -NoStatusService / port identically
-    # to the startup path and Invoke-TestSequence.
+    # to the startup path and Debug-TestSequence.
     $null = Start-YurunaStatusServiceIfEnabled -Config $Config -StartScript $startScript -NoStatusService:$NoStatusService -Restart
 
     # The config service is intentionally NOT ensured here: it is a
@@ -2295,7 +2368,7 @@ do {
         # This branch edits the runner's central plan resolution, so it stays
         # inert unless a pool explicitly opts in. The two-phase schema rollout
         # that governs when a store may emit testSet.sequences[] is recorded in
-        # dev-only/design/default-pool-auto-enrolment-and-test-sets.md (4.6).
+        # dev-only/design/default-pool-auto-enrollment-and-test-sets.md (4.6).
         #
         # An assigned testSet may name a SUBSET of the project's top-level
         # sequences. Absent or empty -> $script:PoolSubset stays empty and the
@@ -2356,7 +2429,7 @@ do {
     # baseline; steps are InvokeTestSequence). It contributes no per-guest plan
     # entries, so it owns the whole cycle via Invoke-OrchestrationSequence
     # (Test.Orchestrator) -- Reset/Initialize/Start-Log, one dashboard row per
-    # inner sequence, Complete/seal -- exactly as a standalone `Invoke-TestSequence
+    # inner sequence, Complete/seal -- exactly as a standalone `Debug-TestSequence
     # <orch>` run does. The runner delegates to it below instead of the per-guest
     # VM lifecycle, and forces GuestList empty so the empty-plan fallback to the
     # legacy guestSequence does NOT bring up a phantom guest.
@@ -2746,7 +2819,7 @@ do {
         # Delegate the whole cycle to the orchestration runner: it owns Reset/
         # Initialize/Start-Log, walks the InvokeTestSequence steps (one dashboard
         # row per inner sequence), and Completes + seals the transcript itself --
-        # the same path a standalone `Invoke-TestSequence <orch>` takes. So we do NOT
+        # the same path a standalone `Debug-TestSequence <orch>` takes. So we do NOT
         # call Complete-CycleRun here; we only map its exit code to the cycle
         # result the gating/notification tail below reads.
         Write-Output ""
@@ -2763,7 +2836,7 @@ do {
         }
         $FinalStatus = if ($OverallPassed) { 'pass' } else { 'fail' }
     } else {
-        $FinalStatus = Complete-CycleRun -OverallPassed $OverallPassed -Config $Config -FailedGuest $FailedGuest -FailedStep $FailedStep
+        $FinalStatus = Complete-CycleRun -OverallPassed $OverallPassed -Config $Config -FailedGuest $FailedGuest -FailedStep $FailedStep -HostType $HostType
     }
     $script:CycleFinalized = $true
 
@@ -3045,7 +3118,7 @@ do {
     # sees the countdown in the same console as the cycle's own output.
     # Outer is intentionally dumb: it spawns us, waits, and either
     # respawns immediately (success) or enters its failure-pause (non-
-    # zero exit). Putting the delay here means an "Invoke-TestRunner is
+    # zero exit). Putting the delay here means an "Start-TestRunner is
     # idle for 30s between cycles" period is observable on the runner
     # host -- with the delay in the outer, Windows hosts in particular go
     # dark between cycles, since the outer's Write-Output can be swallowed
@@ -3114,7 +3187,7 @@ do {
     }
 
     # Single-cycle runner: the per-cycle pwsh respawn lives in the outer
-    # Invoke-TestRunner.ps1. Outer's job is intentionally minimal -- it
+    # Start-TestRunner.ps1. Outer's job is intentionally minimal -- it
     # waits for our exit and either respawns us immediately (success) or
     # enters its failure-pause (non-zero). All cycle bookkeeping (work,
     # cleanup, inter-cycle delay) happens here so the operator sees the

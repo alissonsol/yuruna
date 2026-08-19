@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 428a1d5f-7c92-4b40-a6e1-9d2f4c8b0a63
+.VERSION 2026.08.19
+.GUID 42ea34d8-15ca-4975-b90d-c0c44c40017d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna runner warm-resume checkpoint resilience

@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 422aa14c-4ea9-404d-a5eb-6069c11a61fe
+.VERSION 2026.08.19
+.GUID 42645f00-faa2-428e-bbc3-6249194cf5b0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test runner pidfile single-instance pester
@@ -37,8 +37,7 @@ BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.SingleInstance.psm1') -Force -DisableNameChecking
 
-function Assert-Equal { param($Expected, $Actual, [string]$Because = '') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # --- REGION: https://yuruna.link/memory#pester-file-scope-fixtures
 
@@ -195,7 +194,7 @@ Describe 'Get-RunnerInstanceState' {
         }
     }
     It 'takes over a stranded inner runner with the default identity regex' {
-        # The default regex matches Invoke-TestRunner.ps1 AND
+        # The default regex matches Start-TestRunner.ps1 AND
         # Invoke-TestRunnerInnerLoop.ps1, so an orphaned inner is reclaimed too.
         $inner = Start-TestChildProcess -Command 'Start-Sleep -Seconds 90 # Invoke-TestRunnerInnerLoop.ps1'
         try {

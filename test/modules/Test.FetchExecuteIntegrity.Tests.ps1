@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 424f932a-5ed9-4dec-8a02-8f7c8aa9234b
+.VERSION 2026.08.19
+.GUID 425ba29c-8d06-4e43-bef3-ad4d3ee670fd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test fetch-execute integrity pester
@@ -45,8 +45,7 @@ $repoRoot = Split-Path -Parent (Split-Path -Parent $here)
 $modPath  = Join-Path $here 'Test.SequenceHandler.psm1'
 $script:faePath  = Join-Path $repoRoot 'automation/fetch-and-execute.sh'
 
-function Assert-True  { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
-function Assert-Equal { param($Actual, $Expected, [string]$Because = '') if ("$Actual" -ne "$Expected") { throw "Expected '$Expected', got '$Actual'. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 function Get-GitHubSourceFixture {
     <#
@@ -121,21 +120,21 @@ Describe 'Get-FetchExecuteEnvPrefix (host-side digest injection)' {
     }
     It 'fails closed (require, no digest) for a traversal path' {
         $p = Get-FetchExecuteEnvPrefix -CommandLine 'fetch-and-execute.sh ../../etc/passwd' -RepoRoot $repoRoot -WarningAction SilentlyContinue
-        Assert-Equal -Actual $p -Expected 'EXEC_REQUIRE_SHA256=1 ' -Because 'traversal -> require, no digest'
+        Assert-StringEqual -Actual $p -Expected 'EXEC_REQUIRE_SHA256=1 ' -Because 'traversal -> require, no digest'
     }
     It 'fails closed (require, no digest) for an absolute path' {
         $p = Get-FetchExecuteEnvPrefix -CommandLine 'fetch-and-execute.sh /etc/passwd' -RepoRoot $repoRoot -WarningAction SilentlyContinue
-        Assert-Equal -Actual $p -Expected 'EXEC_REQUIRE_SHA256=1 ' -Because 'absolute -> require, no digest'
+        Assert-StringEqual -Actual $p -Expected 'EXEC_REQUIRE_SHA256=1 ' -Because 'absolute -> require, no digest'
     }
     It 'fails closed (require, no digest) for a missing file' {
         $p = Get-FetchExecuteEnvPrefix -CommandLine 'fetch-and-execute.sh guest/does-not-exist.sh' -RepoRoot $repoRoot -WarningAction SilentlyContinue
-        Assert-Equal -Actual $p -Expected 'EXEC_REQUIRE_SHA256=1 ' -Because 'missing file -> require, no digest'
+        Assert-StringEqual -Actual $p -Expected 'EXEC_REQUIRE_SHA256=1 ' -Because 'missing file -> require, no digest'
     }
     It 'returns empty for a non-fetch-and-execute command' {
-        Assert-Equal -Actual (Get-FetchExecuteEnvPrefix -CommandLine 'whoami && hostname' -RepoRoot $repoRoot) -Expected '' -Because 'non-fetch -> empty'
+        Assert-StringEqual -Actual (Get-FetchExecuteEnvPrefix -CommandLine 'whoami && hostname' -RepoRoot $repoRoot) -Expected '' -Because 'non-fetch -> empty'
     }
     It 'returns empty when RepoRoot is unset (code-regression safety valve, not a runtime state)' {
-        Assert-Equal -Actual (Get-FetchExecuteEnvPrefix -CommandLine 'fetch-and-execute.sh guest/x.sh' -RepoRoot '') -Expected '' -Because 'no RepoRoot -> empty'
+        Assert-StringEqual -Actual (Get-FetchExecuteEnvPrefix -CommandLine 'fetch-and-execute.sh guest/x.sh' -RepoRoot '') -Expected '' -Because 'no RepoRoot -> empty'
     }
 
     # The GitHub fallback must name THIS repository at an EXACT commit. A moving
@@ -167,14 +166,14 @@ Describe 'Get-FetchExecuteEnvPrefix (host-side digest injection)' {
 
 Describe 'Get-YurunaGitHubSource / ConvertTo-GitHubRepoSlug' {
     It 'reduces every remote-URL shape to owner/repo' {
-        Assert-Equal (ConvertTo-GitHubRepoSlug 'https://github.com/o/r')        'o/r'
-        Assert-Equal (ConvertTo-GitHubRepoSlug 'https://github.com/o/r.git')    'o/r'
-        Assert-Equal (ConvertTo-GitHubRepoSlug 'git@github.com:o/r.git')        'o/r'
-        Assert-Equal (ConvertTo-GitHubRepoSlug 'ssh://git@github.com/o/r')      'o/r'
+        Assert-StringEqual -Actual (ConvertTo-GitHubRepoSlug 'https://github.com/o/r') -Expected 'o/r'
+        Assert-StringEqual -Actual (ConvertTo-GitHubRepoSlug 'https://github.com/o/r.git') -Expected 'o/r'
+        Assert-StringEqual -Actual (ConvertTo-GitHubRepoSlug 'git@github.com:o/r.git') -Expected 'o/r'
+        Assert-StringEqual -Actual (ConvertTo-GitHubRepoSlug 'ssh://git@github.com/o/r') -Expected 'o/r'
     }
     It 'returns empty for a non-GitHub URL, so no fallback is attempted' {
-        Assert-Equal (ConvertTo-GitHubRepoSlug 'https://gitlab.com/o/r') ''
-        Assert-Equal (ConvertTo-GitHubRepoSlug '')                       ''
+        Assert-StringEqual -Actual (ConvertTo-GitHubRepoSlug 'https://gitlab.com/o/r') -Expected ''
+        Assert-StringEqual -Actual (ConvertTo-GitHubRepoSlug '') -Expected ''
     }
     It 'resolves this repo to a slug and a 40-char commit' {
         $s = Get-YurunaGitHubSource -RepoRoot $repoRoot
@@ -191,8 +190,8 @@ Describe 'Get-YurunaGitHubSource / ConvertTo-GitHubRepoSlug' {
                                        -FrameworkUrl 'https://github.com/owner/configured-repo'
         try {
             $s = Get-YurunaGitHubSource -RepoRoot $dir -WarningAction SilentlyContinue
-            Assert-Equal $s.Repo 'owner/checkout-repo' -Because 'the slug must name the repository the commit came from'
-            Assert-Equal $s.Ref (& git -C $dir rev-parse HEAD).Trim() -Because 'the ref is still this checkout HEAD'
+            Assert-StringEqual -Actual $s.Repo -Expected 'owner/checkout-repo' -Because 'the slug must name the repository the commit came from'
+            Assert-StringEqual -Actual $s.Ref -Expected (& git -C $dir rev-parse HEAD).Trim() -Because 'the ref is still this checkout HEAD'
         } finally { Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue }
     }
 
@@ -214,8 +213,8 @@ Describe 'Get-YurunaGitHubSource / ConvertTo-GitHubRepoSlug' {
         try {
             $w = @()
             $s = Get-YurunaGitHubSource -RepoRoot $dir -WarningVariable w -WarningAction SilentlyContinue
-            Assert-Equal $s.Repo 'owner/same-repo' -Because 'the agreed slug is used'
-            Assert-Equal $w.Count 0 -Because 'agreement is not worth a warning'
+            Assert-StringEqual -Actual $s.Repo -Expected 'owner/same-repo' -Because 'the agreed slug is used'
+            Assert-StringEqual -Actual $w.Count -Expected 0 -Because 'agreement is not worth a warning'
         } finally { Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue }
     }
 
@@ -228,7 +227,7 @@ Describe 'Get-YurunaGitHubSource / ConvertTo-GitHubRepoSlug' {
         try {
             $w = @()
             $s = Get-YurunaGitHubSource -RepoRoot $dir -WarningVariable w -WarningAction SilentlyContinue
-            Assert-Equal $s.Repo 'owner/configured-repo' -Because 'with no remote, the configured URL is all there is'
+            Assert-StringEqual -Actual $s.Repo -Expected 'owner/configured-repo' -Because 'with no remote, the configured URL is all there is'
             Assert-True ($w.Count -gt 0) 'the unproven pairing must be reported'
         } finally { Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue }
     }
@@ -241,7 +240,7 @@ Describe 'Get-YurunaGitHubSource / ConvertTo-GitHubRepoSlug' {
                                        -FrameworkUrl 'https://github.com/owner/configured-repo'
         try {
             $s = Get-YurunaGitHubSource -RepoRoot $dir -WarningAction SilentlyContinue
-            Assert-Equal $s.FrameworkUrl 'https://github.com/owner/configured-repo' -Because 'the clone URL still comes from config'
+            Assert-StringEqual -Actual $s.FrameworkUrl -Expected 'https://github.com/owner/configured-repo' -Because 'the clone URL still comes from config'
         } finally { Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue }
     }
 
@@ -250,8 +249,8 @@ Describe 'Get-YurunaGitHubSource / ConvertTo-GitHubRepoSlug' {
                                        -FrameworkUrl 'https://github.com/owner/configured-repo'
         try {
             $s = Get-YurunaGitHubSource -RepoRoot $dir -WarningAction SilentlyContinue
-            Assert-Equal (Get-YurunaCheckoutRemoteUrl -RepoRoot $dir) '' -Because 'a non-GitHub remote cannot serve raw content'
-            Assert-Equal $s.Repo 'owner/configured-repo' -Because 'so the configured URL answers instead'
+            Assert-StringEqual -Actual (Get-YurunaCheckoutRemoteUrl -RepoRoot $dir) -Expected '' -Because 'a non-GitHub remote cannot serve raw content'
+            Assert-StringEqual -Actual $s.Repo -Expected 'owner/configured-repo' -Because 'so the configured URL answers instead'
         } finally { Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue }
     }
 }
@@ -259,7 +258,7 @@ Describe 'Get-YurunaGitHubSource / ConvertTo-GitHubRepoSlug' {
 Describe 'verify_sha256 (guest-side gate)' {
     It 'returns 0 match / 1 mismatch / 0 empty-unenforced / 1 empty-enforced' {
         $bash = Get-Command bash -ErrorAction SilentlyContinue
-        if (-not $bash) { Assert-True $true 'bash unavailable -- skipping shell check'; return }
+        if (-not $bash) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
         $fae   = Get-Content -Raw -LiteralPath $script:faePath
         $vf    = [regex]::Match($fae, '(?ms)^verify_sha256\(\)\s*\{.*?^\}')
         Assert-True $vf.Success 'verify_sha256 found in fetch-and-execute.sh'
@@ -282,7 +281,7 @@ echo "$m $x $e $r"
         # Drop stderr (the deliberate integrity warnings) so only the result line
         # is captured.
         $out = ($script | & $bash.Source 2>$null | Select-Object -Last 1 | Out-String).Trim()
-        Assert-Equal -Actual $out -Expected '0 1 0 1' -Because "verify_sha256 rc[match mismatch empty require]=$out"
+        Assert-StringEqual -Actual $out -Expected '0 1 0 1' -Because "verify_sha256 rc[match mismatch empty require]=$out"
     }
 }
 
@@ -295,11 +294,11 @@ Describe 'envelope name compatibility (guest side)' {
     # EXEC_REQUIRE_SHA256 above keeps fail-closed.)
     It 'resolves E_FB_REPO/REF first, then EXEC_FALLBACK_*, then host.env' {
         $bash = Get-Command bash -ErrorAction SilentlyContinue
-        if (-not $bash) { Assert-True $true 'bash unavailable -- skipping shell check'; return }
+        if (-not $bash) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
         # resolve_fetch_source sources /etc/yuruna/host.env when present, which
         # would supply its own YURUNA_GITHUB_* and mask the third level. That
         # file is a guest artifact; a machine that has one is not a test host.
-        if (Test-Path -LiteralPath '/etc/yuruna/host.env') { Assert-True $true 'guest-shaped machine -- skipping'; return }
+        if (Test-Path -LiteralPath '/etc/yuruna/host.env') { Set-ItResult -Skipped -Because 'this host is guest-shaped (/etc/yuruna/host.env present)'; return }
         $fae = Get-Content -Raw -LiteralPath $script:faePath
         $fn  = [regex]::Match($fae, '(?ms)^resolve_fetch_source\(\)\s*\{.*?^\}')
         Assert-True $fn.Success 'resolve_fetch_source found in fetch-and-execute.sh'
@@ -315,7 +314,7 @@ resolve_fetch_source; printf '%s:%s\n' "$GH_REPO" "$GH_REF"
 '@
         $script = $fn.Value + "`n" + $driver
         $out = ($script | & $bash.Source 2>$null | Select-Object -Last 1 | Out-String).Trim()
-        Assert-Equal -Actual $out -Expected 'short/repo:aaa legacy/repo:bbb baked/repo:ccc' -Because "fallback name precedence, got '$out'"
+        Assert-StringEqual -Actual $out -Expected 'short/repo:aaa legacy/repo:bbb baked/repo:ccc' -Because "fallback name precedence, got '$out'"
     }
 
     # The two digests are read at file scope, not inside an extractable

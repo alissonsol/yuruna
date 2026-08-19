@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42b7c4d9-5e10-4a83-9f26-71c40ad5e309
+.VERSION 2026.08.19
+.GUID 421515d9-998d-47b9-b11f-50e818571262
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna extension sdk mirror go
@@ -84,7 +84,13 @@ if (-not (Test-Path -LiteralPath $sdkRoot)) {
 # SDK root. go.mod is deliberately NOT mirrored -- the copy lives inside the
 # consuming service's module and must not declare a second one.
 $canonical = [ordered]@{}
-foreach ($file in (Get-ChildItem -LiteralPath $sdkRoot -Recurse -File -Filter '*.go' | Sort-Object FullName)) {
+# *_test.go is excluded: `go build` never compiles it, so only the SOURCE mirror
+# is load-bearing for a daemon built inside its own VM. Mirroring the tests as
+# well duplicated 3,603 lines whose only effect was to give drift somewhere to
+# hide -- and byte-identity to the canonical SDK, whose own tests DO cover this
+# code, is already enforced by this script's -Verify mode.
+foreach ($file in (Get-ChildItem -LiteralPath $sdkRoot -Recurse -File -Filter '*.go' |
+        Where-Object { $_.Name -notlike '*_test.go' } | Sort-Object FullName)) {
     $relative = [System.IO.Path]::GetRelativePath($sdkRoot, $file.FullName).Replace('\', '/')
     $canonical[$relative] = [pscustomobject]@{
         Path = $file.FullName

@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42f9c2b8-3d47-4e51-8a09-b6e7d1c40f52
+.VERSION 2026.08.19
+.GUID 4208c0a7-cacd-4e3f-a54a-dc38c6dcd0b3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna lab vault credential storage

@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a1b2c3-d4e5-4f67-8901-bc0123456821
+.VERSION 2026.08.19
+.GUID 422ef01b-468d-4c38-ab4c-8337b8a3ccd5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
@@ -477,7 +477,22 @@ function Wait-CachingProxyServiceSettled {
         [Parameter(Mandatory)][int]$Port,
         [int]$RequiredConsecutive = 3,
         [int]$IntervalSeconds = 2,
-        [int]$TimeoutSeconds = 120
+        [int]$TimeoutSeconds = 120,
+        # The container registry the cache fronts. Guests that build Kubernetes
+        # pull every image through it, and it comes up AFTER squid on a rebuild
+        # -- so a cycle gated on the proxy port alone starts while the registry
+        # is still absent, and the guest is the thing that discovers it. That
+        # discovery costs the guest its whole step budget and then fails the
+        # cycle; waiting here costs the preamble and fails nothing.
+        [int]$RegistryPort = 5000,
+        # Budget for the registry leg, and OFF by default. It has to be opt-in
+        # because absence and restarting look identical from a probe: a cache
+        # that fronts no registry never answers on this port, and a cache whose
+        # registry is still provisioning does not answer either. Defaulting it
+        # on would charge every registry-less lab the full budget on every
+        # cycle, to wait for something that is never coming. The caller that
+        # knows the lab builds Kubernetes guests is the one that can say.
+        [int]$RegistryTimeoutSeconds = 0
     )
     $lines       = [System.Collections.Generic.List[string]]::new()
     $consecutive = 0
@@ -519,7 +534,45 @@ function Wait-CachingProxyServiceSettled {
     } elseif (-not $settled) {
         $lines.Add("  Cache at ${CacheIp}:${Port} never accepted $RequiredConsecutive probes in a row within ${TimeoutSeconds}s (last: $lastReason). Proceeding anyway -- guests fall back to direct downloads whenever it refuses.")
     }
-    return @{ Settled = $settled; Consecutive = $consecutive; Lines = $lines.ToArray() }
+
+    # Registry leg. Only attempted once the proxy itself is up: if squid never
+    # settled the cache is not ready in any sense, and spending a second budget
+    # to confirm that twice just delays the cycle.
+    $registrySettled = $null
+    if ($settled -and $RegistryPort -gt 0 -and $RegistryTimeoutSeconds -gt 0) {
+        $regDeadline = (Get-Date).AddSeconds($RegistryTimeoutSeconds)
+        $regConsec = 0; $regProbes = 0; $regReason = ''; $regAnnounced = $false
+        while ($true) {
+            if ($regProbes -gt 0) { Start-Sleep -Seconds $IntervalSeconds }
+            $regProbes++
+            if ($classify) {
+                $o = & $classify -IpAddress $CacheIp -Port $RegistryPort -TimeoutMs 3000
+                $regOk = [bool]$o.Reachable
+                if (-not $regOk) { $regReason = "$($o.Outcome) after $($o.ElapsedMs) ms" }
+            } else {
+                $regOk = Test-TcpPortReachable -TargetHost $CacheIp -Port $RegistryPort -Attempts 1 -TimeoutMs 3000
+                if (-not $regOk) { $regReason = 'no connect' }
+            }
+            if ($regOk) {
+                $regConsec++
+                if ($regConsec -ge $RequiredConsecutive) { break }
+            } else {
+                $regConsec = 0
+                if (-not $regAnnounced) {
+                    $lines.Add("  Cache registry at ${CacheIp}:${RegistryPort} is not up yet ($regReason) -- waiting up to ${RegistryTimeoutSeconds}s. A guest that starts before it is ready spends its whole step budget discovering that and then fails the cycle.")
+                    $regAnnounced = $true
+                }
+            }
+            if ((Get-Date) -ge $regDeadline) { break }
+        }
+        $registrySettled = ($regConsec -ge $RequiredConsecutive)
+        if ($registrySettled -and $regAnnounced) {
+            $lines.Add("  Cache registry settled after $regProbes probe(s); continuing.")
+        } elseif (-not $registrySettled) {
+            $lines.Add("  Cache registry at ${CacheIp}:${RegistryPort} never accepted $RequiredConsecutive probes in a row within ${RegistryTimeoutSeconds}s (last: $regReason). Proceeding anyway -- a guest that needs it will report it against its own step.")
+        }
+    }
+    return @{ Settled = $settled; Consecutive = $consecutive; RegistrySettled = $registrySettled; Lines = $lines.ToArray() }
 }
 
 function Resolve-CachingProxyServiceEndpoint {
@@ -549,7 +602,7 @@ function Resolve-CachingProxyServiceEndpoint {
         When sources are set but none has a reachable :3128, EffectiveIp
         is '' too, so the caller clears the env var and the same local-
         discovery fallback applies. This "probe and clear" is the policy
-        the inner runner and Invoke-TestSequence must share so a syntactically
+        the inner runner and Debug-TestSequence must share so a syntactically
         valid but dead IP can't survive into guest cidata.
     .PARAMETER EnvIp
         Value of $env:YURUNA_CACHING_PROXY_SERVICE_IP (or ''), second priority:

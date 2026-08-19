@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42970ec1-329c-40bb-8c37-f071deec7518
+.VERSION 2026.08.19
+.GUID 42fd17d5-cc0b-4b81-94e7-4b54d311a679
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test image checksum sha256 decode pester
@@ -53,16 +53,13 @@ if (-not (Get-Command -Name Describe -ErrorAction SilentlyContinue)) {
     Pester 5+. Run: Invoke-Pester -Path host/modules/Yuruna.Image.Tests.ps1
 #>
 
+BeforeAll {
 $here          = Split-Path -Parent $PSCommandPath
 $ImageRepoRoot = Split-Path -Parent (Split-Path -Parent $here)
 
 Import-Module (Join-Path $ImageRepoRoot 'host/modules/Yuruna.Image.psm1') -Force -DisableNameChecking -Global
 
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
-function Assert-Equal {
-    param($Expected, $Actual, [string]$Because = '')
-    if ("$Expected" -ne "$Actual") { throw "Expected '$Expected' but got '$Actual'. $Because" }
-}
+Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))) 'test/modules/Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # A real SHA256SUMS body: publisher shape (`<sha256> *<filename>`, the asterisk
 # being the binary-mode marker), LF line endings, trailing newline.
@@ -72,9 +69,9 @@ $ImageSumsBody = @(
     'b5b2cf1d0a4c4f0dd5b1f0e0a6a6e0f2fd1a2f7f6c3ff0a1a2d3c4b5a6978869 *resolute-server-cloudimg-amd64.img'
 ) -join "`n"
 $ImageSumsBody += "`n"
-$ImageTargetName = 'resolute-server-cloudimg-arm64.img'
-$ImageTargetHash = '3e113fdd41f39e13729375173bb2ae793f87dc6db4294e5251ff2476971788ba'
-$ImageSumsBytes  = [System.Text.Encoding]::UTF8.GetBytes($ImageSumsBody)
+$script:ImageTargetName = 'resolute-server-cloudimg-arm64.img'
+$script:ImageTargetHash = '3e113fdd41f39e13729375173bb2ae793f87dc6db4294e5251ff2476971788ba'
+$script:ImageSumsBytes  = [System.Text.Encoding]::UTF8.GetBytes($ImageSumsBody)
 
 # One-shot HTTP responder on loopback. A raw TcpListener rather than
 # HttpListener: HttpListener needs a URL ACL (or Administrator) to bind, which
@@ -143,6 +140,7 @@ function New-ImageTestDirectory {
     New-Item -ItemType Directory -Path $path -Force | Out-Null
     return $path
 }
+}
 
 Describe 'A published checksum body is decoded, never coerced' {
 
@@ -150,43 +148,43 @@ Describe 'A published checksum body is decoded, never coerced' {
         # A Byte[] is exactly what a Content-Type-less response produces, and
         # coercing it instead of decoding it makes every lookup answer "no entry".
         $r = Get-ImageChecksumLine -ChecksumUrl 'https://example.invalid/SHA256SUMS' `
-            -TargetFileName $ImageTargetName -ChecksumBody $ImageSumsBytes
-        Assert-Equal -Expected 'found' -Actual $r.State
-        Assert-Equal -Expected $ImageTargetHash -Actual $r.Hash
+            -TargetFileName $script:ImageTargetName -ChecksumBody $script:ImageSumsBytes
+        Assert-StringEqual -Expected 'found' -Actual $r.State
+        Assert-StringEqual -Expected $script:ImageTargetHash -Actual $r.Hash
     }
 
     It 'finds the same hash when the body arrived as text' {
         $r = Get-ImageChecksumLine -ChecksumUrl 'https://example.invalid/SHA256SUMS' `
-            -TargetFileName $ImageTargetName -ChecksumBody $ImageSumsBody
-        Assert-Equal -Expected 'found' -Actual $r.State
-        Assert-Equal -Expected $ImageTargetHash -Actual $r.Hash
+            -TargetFileName $script:ImageTargetName -ChecksumBody $ImageSumsBody
+        Assert-StringEqual -Expected 'found' -Actual $r.State
+        Assert-StringEqual -Expected $script:ImageTargetHash -Actual $r.Hash
     }
 
     It 'finds the same hash when a pipeline unrolled the bytes into an object[]' {
         # A retry wrapper that captures `& $ScriptBlock 2>&1` unrolls a Byte[]
         # through the pipeline into individual bytes, so a `-is [byte[]]` guard
         # is FALSE for the very body that needs decoding.
-        $unrolled = @($ImageSumsBytes | ForEach-Object { $_ })
+        $unrolled = @($script:ImageSumsBytes | ForEach-Object { $_ })
         Assert-True ($unrolled -isnot [byte[]]) 'the fixture reproduces the unrolled shape'
         $r = Get-ImageChecksumLine -ChecksumUrl 'https://example.invalid/SHA256SUMS' `
-            -TargetFileName $ImageTargetName -ChecksumBody $unrolled
-        Assert-Equal -Expected 'found' -Actual $r.State
-        Assert-Equal -Expected $ImageTargetHash -Actual $r.Hash
+            -TargetFileName $script:ImageTargetName -ChecksumBody $unrolled
+        Assert-StringEqual -Expected 'found' -Actual $r.State
+        Assert-StringEqual -Expected $script:ImageTargetHash -Actual $r.Hash
     }
 
     It 'ignores a byte-order mark at the head of the body' {
-        $withBom = [byte[]](@(0xEF, 0xBB, 0xBF) + $ImageSumsBytes)
+        $withBom = [byte[]](@(0xEF, 0xBB, 0xBF) + $script:ImageSumsBytes)
         $r = Get-ImageChecksumLine -ChecksumUrl 'https://example.invalid/SHA256SUMS' `
             -TargetFileName 'resolute-server-cloudimg-arm64.manifest' -ChecksumBody $withBom
-        Assert-Equal -Expected 'found' -Actual $r.State
-        Assert-Equal -Expected '2889120db0432e8029f8f01622efb40ce964e434ba2c81e98937ad1e2616e4f5' -Actual $r.Hash
+        Assert-StringEqual -Expected 'found' -Actual $r.State
+        Assert-StringEqual -Expected '2889120db0432e8029f8f01622efb40ce964e434ba2c81e98937ad1e2616e4f5' -Actual $r.Hash
     }
 
     It 'shows why coercing the bytes to a string could never match' {
         # Guards the class rather than the instance: if someone reintroduces a
         # bare [string] cast, this is the shape they would be matching against.
-        $coerced = [string]$ImageSumsBytes
-        Assert-True ($coerced -notmatch [regex]::Escape($ImageTargetName)) 'the coerced form carries no filename'
+        $coerced = [string]$script:ImageSumsBytes
+        Assert-True ($coerced -notmatch [regex]::Escape($script:ImageTargetName)) 'the coerced form carries no filename'
         Assert-True ($coerced -match '^\d+ \d+ ') 'it is the space-joined decimal value of every byte'
     }
 }
@@ -196,8 +194,8 @@ Describe 'A missing entry and an unreachable publisher are different answers' {
     It 'reports absent, naming the file, when the list has no line for it' {
         $r = Get-ImageChecksumLine -ChecksumUrl 'https://example.invalid/SHA256SUMS' `
             -TargetFileName 'not-published.img' -ChecksumBody $ImageSumsBody
-        Assert-Equal -Expected 'absent' -Actual $r.State
-        Assert-Equal -Expected '' -Actual $r.Hash
+        Assert-StringEqual -Expected 'absent' -Actual $r.State
+        Assert-StringEqual -Expected '' -Actual $r.Hash
         Assert-True ($r.Detail -match 'not-published\.img') "the detail names the file, got '$($r.Detail)'"
     }
 
@@ -206,9 +204,9 @@ Describe 'A missing entry and an unreachable publisher are different answers' {
         $job   = Get-ChecksumResponderJob -Listener $bound.Listener -SumsStatus 404 -SumsBody 'not here'
         try {
             $r = Get-ImageChecksumLine -ChecksumUrl "$($bound.BaseUrl)/SHA256SUMS" `
-                -TargetFileName $ImageTargetName -WarningAction SilentlyContinue
-            Assert-Equal -Expected 'absent' -Actual $r.State
-            Assert-Equal -Expected 404 -Actual $r.Status
+                -TargetFileName $script:ImageTargetName -WarningAction SilentlyContinue
+            Assert-StringEqual -Expected 'absent' -Actual $r.State
+            Assert-StringEqual -Expected 404 -Actual $r.Status
         } finally { $job | Remove-Job -Force -ErrorAction SilentlyContinue }
     }
 
@@ -222,7 +220,7 @@ Describe 'A missing entry and an unreachable publisher are different answers' {
         try {
             $r = Get-PublishedChecksumBody -ChecksumUrl "http://127.0.0.1:$port/SHA256SUMS" `
                 -DestinationPath (Join-Path $dir 'SHA256SUMS') -MaxAttempts 1 -TimeoutSec 5
-            Assert-Equal -Expected 'unreachable' -Actual $r.State
+            Assert-StringEqual -Expected 'unreachable' -Actual $r.State
             Assert-True ($r.Status -eq 0) 'a refused connection carries no HTTP status'
             Assert-True ($r.Detail -ne '') 'and the reason survives into the result'
         } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }
@@ -234,9 +232,9 @@ Describe 'A missing entry and an unreachable publisher are different answers' {
         $bound = Get-LoopbackChecksumListener
         $job   = Get-ChecksumResponderJob -Listener $bound.Listener -SumsBody $ImageSumsBody
         try {
-            $r = Get-ImageChecksumLine -ChecksumUrl "$($bound.BaseUrl)/SHA256SUMS" -TargetFileName $ImageTargetName
-            Assert-Equal -Expected 'found' -Actual $r.State
-            Assert-Equal -Expected $ImageTargetHash -Actual $r.Hash
+            $r = Get-ImageChecksumLine -ChecksumUrl "$($bound.BaseUrl)/SHA256SUMS" -TargetFileName $script:ImageTargetName
+            Assert-StringEqual -Expected 'found' -Actual $r.State
+            Assert-StringEqual -Expected $script:ImageTargetHash -Actual $r.Hash
         } finally { $job | Remove-Job -Force -ErrorAction SilentlyContinue }
     }
 }
@@ -248,15 +246,15 @@ Describe 'The filename match is anchored to a whole checksum line' {
         # artifact, which then reads as a mismatch against a perfectly good file.
         $body = 'aa11bb22cc33dd44ee55ff6677889900aabbccddeeff00112233445566778899 *resolute-server-cloudimg-arm64.img.torrent' + "`n"
         $r = Get-ImageChecksumLine -ChecksumUrl 'https://example.invalid/SHA256SUMS' `
-            -TargetFileName $ImageTargetName -ChecksumBody $body
-        Assert-Equal -Expected 'absent' -Actual $r.State
+            -TargetFileName $script:ImageTargetName -ChecksumBody $body
+        Assert-StringEqual -Expected 'absent' -Actual $r.State
     }
 
     It 'does not accept a line whose leading token is not a hash' {
         $body = "# resolute-server-cloudimg-arm64.img is published separately`n"
         $r = Get-ImageChecksumLine -ChecksumUrl 'https://example.invalid/SHA256SUMS' `
-            -TargetFileName $ImageTargetName -ChecksumBody $body
-        Assert-Equal -Expected 'absent' -Actual $r.State
+            -TargetFileName $script:ImageTargetName -ChecksumBody $body
+        Assert-StringEqual -Expected 'absent' -Actual $r.State
     }
 }
 
@@ -379,7 +377,7 @@ Describe 'The download policy is permissive by default and strict only on reques
         $dest = Join-Path $dir 'image.img'
         try {
             $ok = Save-ImageWithChecksum -SourceUrl "$($bound.BaseUrl)/image.img" -DestPath $dest `
-                -ExpectedSha256 $ImageTargetHash -ChecksumUrl "$($bound.BaseUrl)/SHA256SUMS" `
+                -ExpectedSha256 $script:ImageTargetHash -ChecksumUrl "$($bound.BaseUrl)/SHA256SUMS" `
                 -VerifyUbuntuSignature -OnMismatch 'WarnAndDelete' -RetryBudgetSeconds 0 `
                 -Confirm:$false -WarningAction SilentlyContinue -InformationAction SilentlyContinue
             Assert-True (-not $ok) 'the supplied hash is compared, and it does not match'

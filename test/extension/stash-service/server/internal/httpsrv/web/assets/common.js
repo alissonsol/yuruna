@@ -1,7 +1,7 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 // Shared helpers for the stash UI. Vanilla JS, no framework. Untrusted stash
-// content is ALWAYS placed via textContent / safe DOM APIs, never innerHTML (§7.4).
+// content is ALWAYS placed via textContent / safe DOM APIs, never innerHTML (section 7.4).
 
 // Backs Y.hostInfo below: one in-flight/settled promise for the life of the
 // page, so the header and the footer cost one request between them.
@@ -165,7 +165,7 @@ const Y = {
   // Y.block raises a barrier over the whole page and returns the function that
   // takes it down.
   //
-  //   const done = Y.block('Deleting…');
+  //   const done = Y.block('Deleting...');
   //   try { ...work... } finally { done(); }
   //
   // It exists for destructive work, where the page on screen is about to stop
@@ -191,7 +191,7 @@ const Y = {
       // aria-live, so a screen reader announces the wait it cannot see. The
       // text is the element's whole content, so polite is enough -- there is
       // nothing here to interrupt.
-      Y.el('span', { class: 'blocking-text', role: 'status', 'aria-live': 'polite', text: message || 'Working…' }));
+      Y.el('span', { class: 'blocking-text', role: 'status', 'aria-live': 'polite', text: message || 'Working...' }));
     const overlay = Y.el('div', { class: 'blocking', 'aria-busy': 'true' }, box);
     document.body.append(overlay);
 
@@ -240,14 +240,14 @@ const Y = {
     const $ = (id) => document.getElementById(id);
     let countdown = interval;
 
-    // Render IPs into the readonly textarea, sized to 1–2 rows (one per
+    // Render IPs into the readonly textarea, sized to 1-2 rows (one per
     // address family). These are the daemon's own IPs, but use .value (never
-    // innerHTML) anyway per §7.4. Em dash (—) is the empty placeholder.
+    // innerHTML) anyway per section 7.4. Em dash (--) is the empty placeholder.
     const renderIps = (text) => {
       const el = $('footer-ip-list');
       if (!el) return;
       const v = (text || '').replace(/\s+$/, '');
-      el.value = v || '—';
+      el.value = v || '--';
       el.rows = Math.min(2, Math.max(1, el.value.split('\n').length));
     };
     const stamp = () => {
@@ -270,7 +270,7 @@ const Y = {
     if (link) link.addEventListener('click', (e) => { e.preventDefault(); location.reload(); });
 
     // One-second tick. A hidden tab parks the countdown ('...') and never
-    // refreshes (a backgrounded page must not poll, §4.1); returning to the
+    // refreshes (a backgrounded page must not poll, section 4.1); returning to the
     // foreground forces a refresh on the next tick (countdown driven to 0).
     if ($('countdown')) {
       setInterval(() => {

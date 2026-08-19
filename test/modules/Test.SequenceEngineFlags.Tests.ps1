@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42e6a1d3-9b74-4c28-8f10-6a5b4c3d2e1f
+.VERSION 2026.08.19
+.GUID 422650f8-dbc0-42cf-8dcf-e365f9c7de11
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test sequence engine registry pester
@@ -50,8 +50,7 @@ Import-Module $handlerPsm -Force -DisableNameChecking -Global -ErrorAction Silen
 # retryability that the allow-list rejects yields a suggestion nothing acts on.
 Import-Module (Join-Path $here 'Test.WarmResume.psm1') -Force -DisableNameChecking -Global -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
 
-function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # Every fixture below lives at file scope: a Describe body is evaluated during
 # the discovery pass and its scope is torn down before any It runs, so a variable

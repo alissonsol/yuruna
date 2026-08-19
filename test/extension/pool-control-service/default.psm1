@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42c8e5f1-9b30-4d27-8a64-3e1f70b2c5da
+.VERSION 2026.08.19
+.GUID 42ef1927-b8ef-4eaa-b7e6-2dd5a5a5af5f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna pool control service extension service

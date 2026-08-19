@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 426d4f21-8a35-49be-b7e0-3d18f52a9c6b
+.VERSION 2026.08.19
+.GUID 42801635-2de0-4574-8b48-dbac5d2347c2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna install setup standalone lab
@@ -92,7 +92,7 @@
     'default' pool: the run inspects the pool storage it just configured and
     creates the pool in that intent store when it carries none, leaving an
     existing pool of that name untouched. A lab without a pool is a lab nothing
-    can enrol into, so declining it only ever produced a beacon that looked
+    can enroll into, so declining it only ever produced a beacon that looked
     finished. The key is warned about and ignored if an older answer file
     still carries it.
 
@@ -3335,8 +3335,8 @@ if (-not $downloadAgentEnabled) {
 # --- REGION: 10-13. Lab only
 $intentGitUrl = ''
 if ($isLab) {
-    [void](Invoke-SetupStep -Name 'Enrol this machine into its own lab (Set-LabToken)' -Action {
-        if (-not $proxyIp) { throw 'no caching-proxy address is known, so there is nothing to enrol against' }
+    [void](Invoke-SetupStep -Name 'Enroll this machine into its own lab (Set-LabToken)' -Action {
+        if (-not $proxyIp) { throw 'no caching-proxy address is known, so there is nothing to enroll against' }
         # The 6-char code rotates about once a minute, so it is read here rather
         # than asked for -- an operator could not type one fast enough to still
         # be valid. /metrics is open by design (the dashboard shows the same
@@ -3394,7 +3394,7 @@ if ($isLab) {
     # /pool-intent.git route at it as it comes up, so a bring-up ordered ahead of
     # New-Pool builds a UI against a store that is not there yet and publishes an
     # alias to nothing. It is also the longest step by far -- the daemon is
-    # compiled inside the guest -- so putting the quick, always-needed enrolment
+    # compiled inside the guest -- so putting the quick, always-needed enrollment
     # and pool steps ahead of it means a run that dies here still leaves a lab
     # that is joinable and has its pool.
     Invoke-ServiceVMEnsure -Service 'pool-control service' -RosterKey 'pool-control' `
@@ -3509,9 +3509,9 @@ if ($isLab) {
         Write-SetupMessage 'Moving to a NAS later is a re-run of the storage step, not a rebuild.'
     }
     Write-SetupMessage ''
-    Write-SetupMessage 'The auto-enrolment sweep is NOT on. Two steps turn it on when you want it:'
+    Write-SetupMessage 'The auto-enrollment sweep is NOT on. Two steps turn it on when you want it:'
     Write-SetupMessage '  1. add autoEnrollment: { enabled: true, targetPoolId: default } to pools.yml in the intent store'
-    Write-SetupMessage '  2. start the pool-control daemon with --auto-enrol'
+    Write-SetupMessage '  2. start the pool-control daemon with --auto-enroll'
     Write-SetupMessage "Until (1) is written, the 'target pool carries no test-set' guard is not armed for"
     Write-SetupMessage "a pool merely NAMED default -- the guard binds to autoEnrollment.targetPoolId."
 } else {
@@ -3519,7 +3519,7 @@ if ($isLab) {
     if (-not $hadFailures) {
         Write-SetupMessage ''
         Write-SetupMessage 'Next:'
-        Write-SetupMessage '  pwsh test/Invoke-TestRunner.ps1'
+        Write-SetupMessage '  pwsh test/Start-TestRunner.ps1'
     }
 }
 Write-DashboardHint -ProxyIp $proxyIp -AliasName $(

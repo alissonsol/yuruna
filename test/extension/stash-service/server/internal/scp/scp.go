@@ -2,7 +2,7 @@
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
 // Package scp implements just enough of OpenSSH's SCP sink-mode wire
-// protocol (§5) to receive files from a standard `scp` client.
+// protocol (section 5) to receive files from a standard `scp` client.
 //
 // Wire protocol summary (binaries-only path; T<time> lines are
 // accepted and ignored):
@@ -21,7 +21,7 @@
 // place each C under it.
 //
 // Path safety: client-supplied names are stripped of slashes and
-// .. components before joining. The trusted-network posture in §11
+// .. components before joining. The trusted-network posture in section 11
 // makes hostile clients out of scope, but path-traversal hygiene is
 // cheap and worth keeping.
 package scp
@@ -41,7 +41,7 @@ import (
 // Result is what the SCP receive returned to the caller (sshsrv).
 // FileNames lists the basenames received in order; FirstDirName is
 // the first D-line dirname (used as originalFilename for recursive
-// uploads per §8.1). Truncated is true if any file hit the 100 MB cap.
+// uploads per section 8.1). Truncated is true if any file hit the 100 MB cap.
 // TotalBytes counts EVERY byte written to disk across the session
 // (post-truncation), which feeds the sizeBytes field on partial /
 // truncated outcomes.
@@ -57,13 +57,13 @@ type Result struct {
 // protocol error occurs, or when the underlying connection breaks.
 //
 // Returns the Result so the caller can finalize. A non-nil error
-// indicates the transfer ended abnormally (partial outcome per §8.2
+// indicates the transfer ended abnormally (partial outcome per section 8.2
 // step 5). The caller still gets the partial Result populated up to
 // the point of failure.
 func Receive(in io.Reader, out io.Writer, stagingDir string) (*Result, error) {
 	br := bufio.NewReader(in)
 	res := &Result{}
-	// Server-ready signal (§5 wire protocol).
+	// Server-ready signal (section 5 wire protocol).
 	if _, err := out.Write([]byte{0}); err != nil {
 		return res, fmt.Errorf("write ready: %w", err)
 	}
@@ -99,10 +99,10 @@ func Receive(in io.Reader, out io.Writer, stagingDir string) (*Result, error) {
 			if err != nil {
 				return res, fmt.Errorf("parse C: %w", err)
 			}
-			_ = mode // discarded — we always create 0o600
+			_ = mode // discarded -- we always create 0o600
 			safeName := sanitizeName(name)
 			if safeName == "" {
-				// §5.5 empty-filename: ignored. Still must drain the
+				// section 5.5 empty-filename: ignored. Still must drain the
 				// payload (size bytes + trailing \x00) so the protocol
 				// stays in sync, but skip the disk write + the file-
 				// name listing.
@@ -132,7 +132,7 @@ func Receive(in io.Reader, out io.Writer, stagingDir string) (*Result, error) {
 			}
 			res.FileNames = append(res.FileNames, safeName)
 			// Read the trailing \x00 from the client (end-of-file
-			// marker on the wire — distinct from EOF on the stream).
+			// marker on the wire -- distinct from EOF on the stream).
 			eof := make([]byte, 1)
 			if _, err := io.ReadFull(br, eof); err != nil {
 				return res, fmt.Errorf("read EOF marker: %w", err)
@@ -254,7 +254,7 @@ func drainPayload(br *bufio.Reader, n int64) error {
 }
 
 // sanitizeName strips any path separators and "..", then trims. An
-// empty result tells the caller to treat this as the §5.5 empty-
+// empty result tells the caller to treat this as the section 5.5 empty-
 // filename case (skip).
 func sanitizeName(raw string) string {
 	clean := strings.TrimSpace(raw)

@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42b1f7c4-3a8e-4d52-9c61-0e7a2b3c4d5f
+.VERSION 2026.08.19
+.GUID 42da4d2b-cbcd-4c6d-b4e8-973686da3b1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test telemetry failure pester
@@ -35,9 +35,7 @@ $evtPath    = Join-Path $here 'Test.EventSchema.psm1'
 Import-Module $modulePath -Force -DisableNameChecking -ErrorAction SilentlyContinue
 Import-Module $evtPath    -Force -DisableNameChecking -ErrorAction SilentlyContinue
 
-function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
-function Assert-Match { param([string]$Pattern, [string]$Actual, [string]$Because='') if ($Actual -notmatch $Pattern) { throw "Expected /$Pattern/ to match [$Actual]. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # Deterministic verb registry: waitForText resolves, anything else is unknown.
 # Dot-sourced into the module under test rather than defined globally: the
@@ -73,6 +71,10 @@ function Reset-FailState {
     $f.WaitForTextMatchedFailurePattern = $null
     $f.WaitForTextOcrTail = $null
     $f.WaitForTextPatternsSought = [string[]]@()
+    # Cleared here too, or a test that sets it leaves every later test in this
+    # file reclassified as a flooded console -- the failure mode this baseline
+    # exists to prevent.
+    $f.WaitForTextConsoleFlood = $null
     return $f
 }
 
@@ -96,12 +98,12 @@ Describe 'New-SequenceFailureRecord actionability enrichment (step)' {
         Assert-Equal -Expected 'ocr_timeout' -Actual $r.File.failureClass -Because 'class from stubbed registry'
         Assert-True ($null -ne $r.File.repro) 'repro block present'
         Assert-Equal -Expected 3 -Actual $r.File.repro.resumeFromStep -Because 'resumeFromStep = file-local failing step'
-        Assert-Equal -Expected 'Invoke-TestSequence' -Actual $r.File.repro.entrypoint -Because 'entrypoint'
+        Assert-Equal -Expected 'Debug-TestSequence' -Actual $r.File.repro.entrypoint -Because 'entrypoint'
     }
     It 'builds a repro command that omits -StartStep (chain-global vs file-local trap)' {
         [void](Reset-FailState)
         $r = New-SequenceFailureRecord -Reason step -VMName 'vm1' -GuestKey 'guest.ubuntu.server.24' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 11
-        Assert-Match -Pattern 'Invoke-TestSequence\.ps1' -Actual $r.File.repro.command -Because 'command runs Invoke-TestSequence'
+        Assert-Match -Pattern 'Debug-TestSequence\.ps1' -Actual $r.File.repro.command -Because 'command runs Debug-TestSequence'
         Assert-Match -Pattern '-SequenceName "workload\.guest\.ubuntu\.server\.24\.k8s\.text-to-sql\.test"' -Actual $r.File.repro.command -Because 'names the failing sequence'
         Assert-True ($r.File.repro.command -notmatch '-StartStep') 'command must NOT contain -StartStep'
     }
@@ -162,6 +164,45 @@ Describe 'New-SequenceFailureRecord classificationSource discrimination' {
         Assert-Equal -Expected 1 -Actual $sugg.Count -Because "expected only pause_and_inspect; got: $($sugg -join ', ')"
         Assert-Equal -Expected 'pause_and_inspect' -Actual $sugg[0]
     }
+    It 'reclassifies a flooded console instead of calling it a missing pattern' {
+        # ocr_timeout's recoveries assume the pattern never printed, so they
+        # restart the guest and wait again -- which reruns whatever was filling
+        # the console. The two failures have different owners: a missing pattern
+        # points at the guest script that should have printed it, a flooded
+        # console points at whatever is overwriting the surface it would have
+        # been read from.
+        $f = Reset-FailState
+        $f.WaitForTextConsoleFlood = "console filled with a repeating line while seeking 'Continue with autoinstall?'"
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        Assert-Equal -Expected 'console_flooded' -Actual $r.File.failureClass -Because 'a flood is not an absent pattern'
+        $sugg = @($r.File.suggestedRecoveries)
+        Assert-Equal -Expected 1 -Actual $sugg.Count -Because "expected only pause_and_inspect; got: $($sugg -join ', ')"
+        Assert-Equal -Expected 'pause_and_inspect' -Actual $sugg[0]
+        Assert-True ($r.File.context.causeDetail.consoleFlood -like '*repeating line*') `
+            'the evidence has to ride along, or the class is an assertion the artifact cannot support'
+    }
+
+    It 'ranks a matched failure pattern above a flooded console' {
+        # A guest that announced its own failure in words outranks an inference
+        # drawn from the shape of the screen -- the words are direct evidence and
+        # the shape is circumstantial.
+        $f = Reset-FailState
+        $f.WaitForTextMatchedFailurePattern = 'NONZERO SCRIPT EXIT:'
+        $f.WaitForTextConsoleFlood = 'console filled with a repeating line'
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        Assert-Equal -Expected 'pattern_matched_failure' -Actual $r.File.failureClass
+    }
+
+    It 'leaves the flood field empty, not absent, on an ordinary failure' {
+        # A consumer must never have to tell "not flooded" from "this record
+        # predates the check".
+        $null = Reset-FailState
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        Assert-True ($r.File.context.causeDetail.Contains('consoleFlood')) 'the field must always be present'
+        Assert-Equal -Expected '' -Actual $r.File.context.causeDetail.consoleFlood
+        Assert-Equal -Expected 'ocr_timeout' -Actual $r.File.failureClass -Because 'no flood means no reclassification'
+    }
+
     It 'keeps the registry recovery hint when no pattern matched' {
         # The counterpart: with no failure pattern, nothing is reclassified and
         # the verb's own hint must survive untouched. Without this, a swap that

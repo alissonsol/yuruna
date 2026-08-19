@@ -10,7 +10,7 @@ indicate trouble.
 
 The script's help block (`.SYNOPSIS` / `.DESCRIPTION` / per-parameter
 help) lists what each section reports. This document covers the
-**why** — the incident classes each section catches, and the patterns
+**why** -- the incident classes each section catches, and the patterns
 the script uses to stay bounded when the underlying daemons are wedged.
 
 > Side-effect-free: nothing is started, stopped, or modified.
@@ -44,18 +44,18 @@ timeout, returns `@{ TimedOut = $true; Output = $null; ExitCode = -1 }`.
 Tool-level flags cap per-call waits **before** the wrapper budget
 fires:
 
-- `kubectl --request-timeout=5s` — caps every apiserver roundtrip;
+- `kubectl --request-timeout=5s` -- caps every apiserver roundtrip;
   without it a stale kubeconfig pointing at a torn-down VIP blocks
   for the full client default (~30 s) per probe and starves later
   sections of their wall budget.
 - `docker --version` (local, no daemon roundtrip) instead of
-  `docker version -f json` from `Yuruna.Requirement.yml` — the
+  `docker version -f json` from `Yuruna.Requirement.yml` -- the
   JSON form hangs ~30 s when dockerd is unreachable.
 - `docker info` invocations wrapped in `Invoke-WithDeadline -TimeoutSeconds 5`.
 - `gcloud -v 2>$null` (NOT `2>&1`) so a broken bundled-python install
   produces "(not installed)" rather than dumping a Python traceback
   into the table.
-- `kubectl version --client --request-timeout=5s` — `--client`
+- `kubectl version --client --request-timeout=5s` -- `--client`
   suppresses the apiserver roundtrip but kubectl still resolves
   kubeconfig; `--request-timeout` caps the fallback for unreachable
   clusters with broken contexts.
@@ -68,7 +68,7 @@ typically REJECTed by the same egress firewall. Connectivity probes
 detect the env-configured proxy and report end-to-end round-trip via
 HTTP CONNECT (single TCP to proxy + tunnel-setup reply from the
 upstream target). The reply timing approximates
-`client → proxy + proxy → target` without a full TLS handshake,
+`client -> proxy + proxy -> target` without a full TLS handshake,
 which would skew the number with crypto cost.
 
 The CONNECT matrix proves the tunnel path at most. Package managers
@@ -83,7 +83,7 @@ upstream fetch instead of a cache hit. A healthy CONNECT column plus
 failures on this probe isolates the wedge to the GET/cache path.
 
 The object it fetches is the suite `InRelease` for the guest's own
-`VERSION_CODENAME` — the exact URL apt blocks on — not a `dists/`
+`VERSION_CODENAME` -- the exact URL apt blocks on -- not a `dists/`
 directory index. An index is small and rarely revalidated, so a cache
 answers it in single-digit milliseconds while the `InRelease` beside it
 stalls; probing the index reports the path healthy during the outage
@@ -94,7 +94,7 @@ Two things are reported that a plain pass/fail would hide. Squid's
 `X-Cache` header is printed when present: a HIT means the upstream was
 never contacted, so the timing is not evidence about origin health.
 And a fetch that succeeds but takes longer than 5 s is flagged `SLOW`
-and raises a problem — apt blocks on these fetches, so an origin
+and raises a problem -- apt blocks on these fetches, so an origin
 answering in tens of seconds exhausts a step's timeout exactly as an
 unreachable one does.
 
@@ -108,14 +108,14 @@ This earns its own probe because the obvious check is blind here.
 `GET /v2/` is answered out of the registry's own process and comes back in
 single-digit milliseconds no matter how badly the pull-through behind it is
 stalled; a MANIFEST request is what re-runs the upstream sync, so it is the only
-request shaped like the pull it stands in for. A tag, not a digest — digests are
+request shaped like the pull it stands in for. A tag, not a digest -- digests are
 immutable and answered locally, so they stay fast through an outage. The
 `Accept:` header is spelled out because a registry answers a manifest
 request that states no preference with whatever it considers the default, which
 for a multi-arch tag is not the index a pull resolves.
 
 Both probes are sent with `-NoProxy`: the runtime pulls straight at the cache, so
-a probe routed through the proxy would time a path no pull takes — and the proxy
+a probe routed through the proxy would time a path no pull takes -- and the proxy
 refuses CONNECT to this port anyway, which would read as a dead cache.
 
 The cap is deliberately below the patience a container runtime shows. This
@@ -126,7 +126,7 @@ evidence the upstream leg is being walked, since a warm cache answers in well
 under a second.
 
 For the manifest reading itself the diagnostic prefers the cache's own published
-`/cache-health` page over measuring directly — and not to save a few seconds. A
+`/cache-health` page over measuring directly -- and not to save a few seconds. A
 manifest request walks the upstream sync, which spends one pull from a
 per-egress-IP budget the whole lab shares and exhausts routinely. This capture
 runs several times per cycle per machine, so measuring directly every time would
@@ -146,7 +146,7 @@ plus tools common in the codebase (>10 mentions) but absent from the
 YAML: `git`, `python3`, `node`/`npm`, `containerd`, `curl`,
 `tesseract`, `qemu-img`. Each entry is resilient to the tool being
 absent OR present-but-broken (e.g. Windows App Execution Alias for
-`python3` that resolves via `Get-Command` but refuses to execute) —
+`python3` that resolves via `Get-Command` but refuses to execute) --
 a failure renders as `"(not installed)"` rather than aborting the
 whole HOST section.
 
@@ -187,7 +187,7 @@ whether cloud-init / systemd-networkd hit retries, and what the
 install boot's journal looked like.
 
 **Motivating case:** the `subiquity/Network/_send_update: CHANGE
-eth0` loop on `host/windows.hyper-v/` — the discriminating signal
+eth0` loop on `host/windows.hyper-v/` -- the discriminating signal
 (RAs vs. apt mirror retries vs. `hv_netvsc` VF flap) only exists in
 `/var/log/installer/subiquity-server-debug.log` and the previous
 boot's journal, neither of which section 11 collects.
@@ -196,7 +196,7 @@ boot's journal, neither of which section 11 collects.
 
 Cross-section sanity checks. Each catches a silent-failure mode
 where one phase wrote its artifacts but a downstream phase produced
-nothing — the kind of incident where every section above looks fine
+nothing -- the kind of incident where every section above looks fine
 in isolation but the cluster ended up empty.
 
 Runs AFTER YURUNA PROJECT so it shares the same `projectRoot`
@@ -239,7 +239,7 @@ If `Set-Component` pushed an image to the `localhost:5000` registry
 and nothing in the cluster is pulling it, either the workloads
 phase didn't run (covered by 1/3) or it ran but the chart's image
 ref doesn't match what was pushed (e.g. `registryLocation` rendered
-empty — the "InvalidImageName" failure mode the chart template's
+empty -- the "InvalidImageName" failure mode the chart template's
 `required` guardrail catches). Either way, surfacing the mismatch
 narrows the diagnosis.
 
@@ -255,6 +255,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../README.md)

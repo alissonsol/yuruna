@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42d7b5c1-8293-44a5-9fb6-2b3c4d5e6f70
+.VERSION 2026.08.19
+.GUID 42b8bc4c-f5b0-463b-9fd9-76f8a65ee16f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test sequence chain pester
@@ -20,7 +20,7 @@
 .SYNOPSIS
     Pester coverage for the chain-convergence seams in Test.SequenceEngine.psm1:
     Select-SequenceStepWindow (the in-memory -StartStep/-StopStep slice, so
-    Invoke-TestSequence needs no temp-YAML step files) and Get-SequenceFinishedVMName
+    Debug-TestSequence needs no temp-YAML step files) and Get-SequenceFinishedVMName
     (the shared mid-chain rename surface both chain paths read).
 .DESCRIPTION
     Throw-based assertions for OS-bundled Pester 3.4 / Pester 5+ compatibility.
@@ -34,8 +34,7 @@ BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.SequenceEngine.psm1') -Force -DisableNameChecking -ErrorAction SilentlyContinue
 
-function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 function New-StepList {
     [CmdletBinding()]
@@ -44,6 +43,49 @@ function New-StepList {
         Justification = 'Test helper: builds an in-memory step array; changes no state.')]
     param([int]$Count)
     return @(1..$Count | ForEach-Object { @{ action = "step$_" } })
+}
+
+# A flooded console as it actually appears: a repeating start/finish PAIR,
+# further split into fragments by OCR of a framebuffer, so the most common
+# single line covers only a third of the screen. Any rule requiring ONE line to
+# dominate misses precisely this shape. Defined here and not in the Describe
+# body for the discovery-scope reason noted below.
+function Get-FloodText {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([int]$Pairs = 33)
+    return ((1..$Pairs | ForEach-Object {
+        @('start: subiquity/Network/_send_update: CHANGE etho',
+          'finish: subiquity/Network/_send_updete: CHANGE etho',
+          'sub iquitg/Netl_uork/ _send_update:',
+          'CHANGE etho') -join "`n"
+    }) -join "`n")
+}
+
+# Lines that stay distinct AFTER normalization. Digits are folded to '#' before
+# counting, so varying only a number produces one shape, not many -- a fixture
+# built that way would be uniform while looking varied and would assert the
+# opposite of what it reads like.
+function Get-DistinctLineSet {
+    [CmdletBinding()]
+    [OutputType([object[]])]
+    param([int]$Count)
+    $words = @(
+        'unpacking base system into target', 'configuring apt package manager',
+        'installing kernel linux generic', 'writing partition table to vda',
+        'mounting target boot efi partition', 'downloading security updates now',
+        'running curtin extract stage', 'setting up grub efi amd',
+        'generating locales en us utf', 'final system configuration stage',
+        'acquiring packages from archive mirror', 'creating logical volume group',
+        'formatting filesystem as ext', 'copying installer log to target',
+        'enabling openssh server unit', 'importing authorized keys for user',
+        'updating initramfs for all kernels', 'probing block devices for layout',
+        'applying netplan configuration now', 'starting subiquity server process',
+        'reading autoinstall from seed volume', 'validating storage layout request',
+        'calculating package dependency set', 'unmounting target filesystems',
+        'writing machine identity file'
+    )
+    return @($words | Select-Object -First $Count)
 }
 
 # The Export-ModuleMember statement text the export guard matches against, read at
@@ -147,6 +189,96 @@ Describe 'Get-OcrDegradationGrace' {
     }
 }
 
+Describe 'Get-ConsoleFloodVerdict' {
+    # The third content state a poll can be in, and the one both existing
+    # self-heals are blind to. A blank capture is caught by the no-text counter;
+    # a capture that stopped changing is caught by the frame-hash freeze check. A
+    # console scrolling one repeating line is neither -- the feed is live and the
+    # screen is full -- yet the pattern being sought has been pushed off the
+    # surface and cannot return while the flood lasts. Told apart from an
+    # ordinary "pattern never printed", it names the guest as the owner; left
+    # together, the record sends the reader to a script that was never reached.
+
+    It 'calls a repeating pair a flood even though no single line dominates' {
+        $v = Get-ConsoleFloodVerdict -Text (Get-FloodText)
+        Assert-True $v.Flooded 'a surface carrying nothing but a repeating unit is unreadable for a pattern'
+        Assert-True ($v.DominantCount -lt ($v.TotalLines / 2)) `
+            'the fixture must keep its most common line under half the screen, or it is not testing the real shape'
+        Assert-True ($v.DistinctLines -le 5) 'the whole screen is a handful of shapes'
+    }
+
+    It 'does not call a busy installer screen a flood' {
+        # Many different lines means the installer is still printing, and the
+        # pattern may yet arrive. Firing here would abandon healthy waits.
+        $busy = @(
+            'Starting subiquity server process', 'configuring apt package manager',
+            'installing kernel linux-generic', 'writing partition table to /dev/vda',
+            'mounting /target/boot/efi', 'downloading security updates',
+            'curtin command install', 'running curtin extract',
+            'acquiring 4 packages from archive.ubuntu.com', 'unpacking base system',
+            'setting up grub-efi-amd64', 'Continue with autoinstall? (yes/no)',
+            'generating locales en_US.UTF-8', 'final system configuration'
+        ) -join "`n"
+        $v = Get-ConsoleFloodVerdict -Text $busy
+        Assert-True (-not $v.Flooded) 'a screen of distinct lines is progress, not repetition'
+    }
+
+    It 'does not fire on a screen that is merely half repetition' {
+        # A guest printing a repeating line WHILE other output continues is still
+        # producing information. The verdict has to need near-total repetition.
+        $mixed = (((1..7 | ForEach-Object { 'start: subiquity/Network/_send_update: CHANGE eth0' }) + @(
+            'installing kernel linux-generic', 'writing partition table', 'mounting /target',
+            'Continue with autoinstall? (yes/no)', 'running curtin extract', 'setting up grub',
+            'generating locales', 'final configuration step')) -join "`n")
+        $v = Get-ConsoleFloodVerdict -Text $mixed
+        Assert-True (-not $v.Flooded) 'half a screen of real output is not a flooded console'
+    }
+
+    It 'sees through a counter or timestamp on the repeating line' {
+        # The repeating line usually carries a tick, and OCR of a framebuffer
+        # misreads characters differently in each frame. Comparing raw text would
+        # find variety that is only noise.
+        $counted = (1..20 | ForEach-Object { "[   $_.$($_)0123] cloud-init[2263]: waiting for network configuration" }) -join "`n"
+        $v = Get-ConsoleFloodVerdict -Text $counted
+        Assert-True $v.Flooded 'digits are normalized away, so a ticking counter does not disguise a flood'
+        Assert-Equal 1 $v.DistinctLines
+    }
+
+    It 'never calls a nearly-empty screen a flood' {
+        # Two lines, both a prompt, is the screen every login wait starts on.
+        # Without a floor on line count it would read as perfect repetition.
+        $v = Get-ConsoleFloodVerdict -Text ("ch01host1 login:`nPassword:")
+        Assert-True (-not $v.Flooded) 'a sparse screen has no evidence either way'
+    }
+
+    It 'is safe on empty and whitespace input' {
+        foreach ($t in @('', '   ', "`n`n`n")) {
+            $v = Get-ConsoleFloodVerdict -Text $t
+            Assert-True (-not $v.Flooded) 'no text is not a flood'
+            Assert-Equal 0 $v.TotalLines
+        }
+    }
+
+    It 'scales its diversity threshold with how much evidence the screen holds' {
+        # A 200-line screen may carry a couple of dozen shapes and still be
+        # repeating; a 12-line one must be almost uniform before the same claim
+        # is safe. A fixed distinct-line threshold would be wrong at one end or
+        # the other.
+        $wide = (@(Get-DistinctLineSet -Count 24) +
+                 (1..176 | ForEach-Object { 'start: subiquity/Network/_send_update: CHANGE eth0' })) -join "`n"
+        $wideVerdict = Get-ConsoleFloodVerdict -Text $wide
+        Assert-Equal 25 $wideVerdict.DistinctLines
+        Assert-True $wideVerdict.Flooded `
+            '25 shapes in 200 lines is still a screen overwriting itself'
+        $narrow = (@(Get-DistinctLineSet -Count 6) +
+                   (1..6 | ForEach-Object { 'start: subiquity/Network/_send_update: CHANGE eth0' })) -join "`n"
+        $narrowVerdict = Get-ConsoleFloodVerdict -Text $narrow
+        Assert-Equal 7 $narrowVerdict.DistinctLines
+        Assert-True (-not $narrowVerdict.Flooded) `
+            'half of twelve lines is not enough evidence to abandon the pattern'
+    }
+}
+
 Describe 'Module export surface' {
     # Assert against the Export-ModuleMember statement text, not ExportedFunctions:
     # Get-PollDelay is defined in Test.Backoff (never in this module), so PowerShell
@@ -159,7 +291,7 @@ Describe 'Module export surface' {
     }
     It 'still exports the core dispatch surface and pure helpers' {
         $exported = (Get-Module Test.SequenceEngine).ExportedFunctions.Keys
-        foreach ($fn in 'Invoke-Sequence', 'Invoke-SequenceByName', 'Wait-ForText', 'Select-SequenceStepWindow', 'Get-OcrDegradationGrace') {
+        foreach ($fn in 'Invoke-Sequence', 'Invoke-SequenceByName', 'Wait-ForText', 'Select-SequenceStepWindow', 'Get-OcrDegradationGrace', 'Get-ConsoleFloodVerdict') {
             Assert-True ($exported -contains $fn) "expected export missing: $fn"
         }
     }

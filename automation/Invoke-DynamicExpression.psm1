@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42d4e5f6-a7b8-4c90-d1e2-3f4a5b6c7d8e
+.VERSION 2026.08.19
+.GUID 4287f46e-5ba2-4906-90c2-0552b5108eec
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS Invoke-DynamicExpression

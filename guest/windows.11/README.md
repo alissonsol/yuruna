@@ -1,17 +1,17 @@
 # Windows 11 Guest - Workloads
 
-See [Guests — ...](../README.md) for the guest workload pattern (one-liner
+See [Guests -- ...](../README.md) for the guest workload pattern (one-liner
 convention, `YurunaCacheContent`).
 
 Create the guest VM first:
-[macOS UTM](../../host/macos.utm/guest.windows.11/README.md) ·
-[Windows Hyper-V](../../host/windows.hyper-v/guest.windows.11/README.md) ·
+[macOS UTM](../../host/macos.utm/guest.windows.11/README.md) -
+[Windows Hyper-V](../../host/windows.hyper-v/guest.windows.11/README.md) -
 [Ubuntu KVM](../../host/ubuntu.kvm/guest.windows.11/README.md).
 
 ## Post-install setup
 
 Open an **elevated PowerShell terminal** in the guest. The one-liner is
-the same shape for every workload — only the script name changes:
+the same shape for every workload -- only the script name changes:
 
 ```
 $nc = if ($env:YurunaCacheContent) { "?nocache=$env:YurunaCacheContent" } else { "" }
@@ -20,7 +20,7 @@ irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/guest/w
 
 Run `windows.11.update.ps1` first. After the initial update the
 [latest stable PowerShell](https://aka.ms/powershell-release?tag=stable)
-is installed — open a new elevated console to guarantee compatibility
+is installed -- open a new elevated console to guarantee compatibility
 before running other workloads.
 
 ### Available workloads
@@ -46,6 +46,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../../README.md)

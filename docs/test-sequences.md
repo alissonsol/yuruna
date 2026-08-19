@@ -28,7 +28,7 @@ failure (with retry-wrapping as documented under `retry`).
 
 | Name | Value |
 |---|---|
-| `${vmName}` | Current VM name. Updated mid-sequence by `saveDiskSnapshot` after a successful rename — see [saveDiskSnapshot](#savedisksnapshot). |
+| `${vmName}` | Current VM name. Updated mid-sequence by `saveDiskSnapshot` after a successful rename -- see [saveDiskSnapshot](#savedisksnapshot). |
 | `${hostType}` | `host.windows.hyper-v` / `host.macos.utm` / `host.ubuntu.kvm`. |
 | `${guestKey}` | `guest.<os>` key the sequence is bound to. |
 
@@ -38,7 +38,7 @@ failure (with retry-wrapping as documented under `retry`).
   at sequence start. Each entry can reference any variable declared
   above it plus the built-ins; the resolved value is stored and reused
   on every later `${name}` reference. This is the "stable value across
-  multiple steps" path — when a "New password:" must be typed, then
+  multiple steps" path -- when a "New password:" must be typed, then
   re-typed at "Retype:", assign the `${ext:...}` call to a sequence
   variable so both prompts see the same string.
 - **Inline `${ext:area.Method(args)}` references in a step's args** are
@@ -52,10 +52,10 @@ failure (with retry-wrapping as documented under `retry`).
   value into every sequence in its dependency chain, so a baseline
   `start.*.yml` still declaring `username: yuuser26` silently runs with
   `webuser` whenever the workload is the cycle's top-level. Sequence
-  YAML stays self-contained — the local `variables:` block remains the
-  standalone-invocation fallback for `Invoke-TestSequence.ps1` runs with no
+  YAML stays self-contained -- the local `variables:` block remains the
+  standalone-invocation fallback for `Debug-TestSequence.ps1` runs with no
   cascade context.
-- **`${hostname}` defaults to the VM name** — that is what the guest is
+- **`${hostname}` defaults to the VM name** -- that is what the guest is
   called when nothing pins it (`New-VM` falls back to
   `-VMName` for cloud-init's `local-hostname`), so a sequence can match
   the shell prompt on `${hostname}` unconditionally; the sequence's own
@@ -65,7 +65,7 @@ failure (with retry-wrapping as documented under `retry`).
 ### New-VM-consumed variables (`username`, `hostname`, `memoryStartupBytes`, `cores`)
 
 Four sequence `variables:` are also forwarded to the per-guest `New-VM.ps1`
-when it declares the matching parameter (a "declare-or-drop" rule — a guest
+when it declares the matching parameter (a "declare-or-drop" rule -- a guest
 that does not take the parameter ignores it, logged on the Verbose
 stream). They cascade top-down like any other variable, so a top-level
 sequence sets the value for its whole chain:
@@ -78,7 +78,7 @@ sequence sets the value for its whole chain:
 | `cores` | `-Cores` | vCPU count (overrules the host/2 default) | `max(4, host/2)` (Hyper-V / UTM), `min(host-1, max(2, host/2))` (KVM) |
 
 `memoryStartupBytes` accepts a raw byte count or a binary `KB`/`MB`/`GB`/`TB`
-suffix (`34359738368`, `32768MB`, and `32GB` are equivalent) — normalized by
+suffix (`34359738368`, `32768MB`, and `32GB` are equivalent) -- normalized by
 `ConvertTo-MemoryStartupBytes` in `automation/Yuruna.Common.psm1`. `cores` is a
 positive integer, clamped to the host's physical core count. Both are honored
 by the `guest.ubuntu.server.24` scripts on all three hosts; other guests adopt
@@ -101,7 +101,7 @@ log directory (`$env:YURUNA_LOG_DIR`):
 | `failure_screenshot_<VM>.png` | Last VM screenshot at failure time. Present for every failing step that has a host-IO backend. |
 | `failure_ocr_<VM>.txt` | Last OCR text. Written only by `waitForText` family failures. |
 
-The per-cycle `manifest.json` ([`Stop-LogFile`](../test/modules/Test.Log.psm1)) enumerates every artifact in the cycle folder with `kind`, `sizeBytes`, `sha256`, and `modifiedUtc` — a single well-known entry point for autonomous remediators.
+The per-cycle `manifest.json` ([`Stop-LogFile`](../test/modules/Test.Log.psm1)) enumerates every artifact in the cycle folder with `kind`, `sizeBytes`, `sha256`, and `modifiedUtc` -- a single well-known entry point for autonomous remediators.
 
 ---
 
@@ -121,7 +121,7 @@ The runner uses it for two decisions:
 
 1. **VM-name override.** The runtime VM name becomes `id` (instead of
    the default `test-<guestKey>`). Because [`saveDiskSnapshot`](#savedisksnapshot)
-   already renames `test-*` → `id`, pre-naming the VM as `id` on the
+   already renames `test-*` -> `id`, pre-naming the VM as `id` on the
    warm path lets the runner target the persisted VM directly; on the
    cold path the chain still creates `test-<guestKey>` first and the
    rename happens at `saveDiskSnapshot` time, with the runner detecting
@@ -135,9 +135,9 @@ The runner uses it for two decisions:
 
 | Parameter | Type | Notes |
 |---|---|---|
-| `id` | string | Required. Must match exactly the [`saveDiskSnapshot`](#savedisksnapshot) `id` produced by the chain's terminal snapshot step — the runner uses this both as the snapshot lookup key AND as the persisted VM name. |
+| `id` | string | Required. Must match exactly the [`saveDiskSnapshot`](#savedisksnapshot) `id` produced by the chain's terminal snapshot step -- the runner uses this both as the snapshot lookup key AND as the persisted VM name. |
 
-**Operator's responsibility — on-disk state must match.** The snapshot
+**Operator's responsibility -- on-disk state must match.** The snapshot
 freezes whatever is on disk at capture time. Any `variables:` entry
 that influences what gets baked into the VM (`username`, hostname,
 anything templated into cloud-init / `/etc/passwd` / ssh keys) MUST
@@ -154,7 +154,7 @@ variable, delete the persisted VM + snapshot to force a cold rebuild.
 ## Snippets (reusable step lists)
 
 A **snippet** is a named, reusable list of steps spliced into a sequence
-wherever a `snippet:` step appears — so a common preamble lives in one
+wherever a `snippet:` step appears -- so a common preamble lives in one
 place instead of being copied across every sequence. The classic case is
 the cold-agetty login prime (see [`firstLoginPrime`](#firstloginprime)
 below), shared by the Linux `workload.guest.*` gui sequences.
@@ -175,11 +175,11 @@ steps:
 
 ### Where snippets live
 
-Snippets are defined in a `_snippets.yml` library — a map of
-`name → [steps]` — beside the sequences:
+Snippets are defined in a `_snippets.yml` library -- a map of
+`name -> [steps]` -- beside the sequences:
 
 - **Framework:** `test/sequences/_snippets.yml`
-- **Project:** `project/<…>/test/_snippets.yml` (any example's test tree)
+- **Project:** `project/<...>/test/_snippets.yml` (any example's test tree)
 
 ```yaml
 # test/sequences/_snippets.yml
@@ -198,7 +198,7 @@ Schema: [`test/schemas/snippets.schema.yml`](../test/schemas/snippets.schema.yml
 ### Resolution and rules
 
 - **Project overrides framework.** A snippet name defined in a project
-  `_snippets.yml` wins over the same name in the framework library —
+  `_snippets.yml` wins over the same name in the framework library --
   mirroring how a project sequence overrides a framework sequence of the
   same name. Defining the same name in **two project** libraries is a
   fatal ambiguity (the cycle aborts before any guest runs).
@@ -209,7 +209,7 @@ Schema: [`test/schemas/snippets.schema.yml`](../test/schemas/snippets.schema.yml
   a reference cycle is a fatal error.
 - **Expansion is invisible downstream.** Splicing happens at file-read
   time, so step windows (`-StartStep`/`-StopStep`), perf step rows, and
-  the executor all see the already-expanded steps — identical to writing
+  the executor all see the already-expanded steps -- identical to writing
   the steps inline.
 - An **unknown snippet name** is a fatal error listing the available
   names, so a typo fails fast instead of silently dropping steps.
@@ -245,17 +245,17 @@ Writes `.yuruna-break-<NNN>.lock` under the per-guest
 `cycleGuestDataFolder` and busy-waits for one of two resume signals.
 
 By default a `break` is a plain breakpoint: on either resume signal the
-sequence picks up at the next step **in place** — no snapshot restore,
+sequence picks up at the next step **in place** -- no snapshot restore,
 no VM restart. The `id` field is a label only (shown in the marker file
 and the status UI); it does NOT trigger a restore, even when it matches
 a real snapshot name such as the workload's `requiresSnapshot` /
 [`loadDiskSnapshot`](#loaddisksnapshot) `id`.
 
-- **Manual** — operator deletes the marker file. Always resumes in
+- **Manual** -- operator deletes the marker file. Always resumes in
   place. The VM stays as it was when the break fired, so the
   operator's mid-pause edits carry forward. Use it to inspect or fix
   the live guest before continuing.
-- **UI Continue** — operator clicks the **Continue** button on
+- **UI Continue** -- operator clicks the **Continue** button on
   the status page (`http://localhost:8080/status/`) for the running
   guest's card. The button POSTs to `/control/break-continue`; the
   action consumes the flag and resumes. By default this also resumes in
@@ -268,20 +268,20 @@ a real snapshot name such as the workload's `requiresSnapshot` /
 #### restoreOnContinue (opt-in rewind)
 
 Set `restoreOnContinue: true` on a `break` to rewind the disk to
-`break.id` and restart the VM on UI Continue — the
+`break.id` and restart the VM on UI Continue -- the
 **resume-from-known-good-state** case, where you iterate on the steps
 after a checkpoint (pair it with a prior
 [`saveDiskSnapshot`](#savedisksnapshot) `-Id <same>`). Marker-delete
 always resumes in place regardless of this flag.
 
 The Continue button is driven by `/runtime/break-active.json`, a sidecar
-the action writes on entry and removes on exit. Not a failure — the
+the action writes on entry and removes on exit. Not a failure -- the
 step succeeds either way. `YURUNA_BREAK_DISABLED=1` turns the action
 into a no-op for unattended runs.
 
 #### Programmatic Continue (matches the UI button)
 
-The UI button has a one-to-one programmatic equivalent — useful for CI
+The UI button has a one-to-one programmatic equivalent -- useful for CI
 hooks, scripted iteration loops, or remote-debug sessions with no
 browser handy. All three paths produce the same on-disk state
 (`<runtimeDir>/control.break-continue` exists), which the running
@@ -307,7 +307,7 @@ same way: in place by default, snapshot-restore + `Start-VM` only when
 the step opted in.
 
 Login after a snapshot-restore is **the sequence author's
-responsibility** — the guest boots fresh from the snapshot disk and
+responsibility** -- the guest boots fresh from the snapshot disk and
 sits at the login prompt, so place
 [`passwdPrompt`](#passwdprompt) / [`sshWaitReady`](#sshwaitready) /
 similar steps after the break.
@@ -325,7 +325,7 @@ similar steps after the break.
 > [`saveDiskSnapshot`](#savedisksnapshot)) is the author's explicit
 > assertion that "resumption here is well-defined", which is also what
 > snapshot-restore + Start-VM materializes at runtime. For ad-hoc dev
-> iteration on a specific step, [`Invoke-TestSequence.ps1`](../test/Invoke-TestSequence.ps1)
+> iteration on a specific step, [`Debug-TestSequence.ps1`](../test/Debug-TestSequence.ps1)
 > takes `-StartStep` / `-StopStep` and indexes into the concatenated
 > baseline chain.
 
@@ -356,16 +356,16 @@ Type a command + Enter, then wait for `waitPattern` to appear on screen
 
 ### The fetchAndExecute typing length budget
 
-`fetchAndExecute` does not pipe its command anywhere — it TYPES it into the
+`fetchAndExecute` does not pipe its command anywhere -- it TYPES it into the
 guest console, one key event per character, and the whole line has to land
 intact. Long lines have been observed to corrupt mid-send on `host.macos.utm`
-(RFB → QEMU → guest): characters are silently dropped, and then a key is left
+(RFB -> QEMU -> guest): characters are silently dropped, and then a key is left
 held down that the guest kernel auto-repeats at the console default of
 ~30 chars/sec, filling the screen until the VM is rebuilt. A 557-character send
 has been lost repeatedly, degrading around character ~416, while the 370- and
 410-character sends in the same sequence were unaffected.
 
-A step whose console-typed length exceeds 400 characters is therefore flagged —
+A step whose console-typed length exceeds 400 characters is therefore flagged --
 just under the longest length observed to survive. It is a WARNING, not a cap:
 the fix for a long step is to move the work into the fetched script, where it
 costs no keystrokes, never to raise the number.
@@ -404,7 +404,7 @@ Revert the VM to a previously saved disk-only snapshot via the
 the VM so the next step interacts with a live guest. The host driver
 stops the VM first if running, restores the disk, and the sequence
 engine then calls [`Start-VM`](#other-contract-surface) (Hyper-V / KVM / UTM all
-implement the contract). No RAM state is restored — guest boots fresh
+implement the contract). No RAM state is restored -- guest boots fresh
 from the snapshot disk, so re-DHCP and SSH re-handshake are expected
 (gate downstream consumers on `sshWaitReady`, and on-screen consumers
 on `waitForText` for the login prompt).
@@ -430,7 +430,7 @@ Windows.11 is a no-op reminder (TODO). Uses the `Send-Text` and
 
 ### passwdPrompt
 
-Like `waitForAndEnter`, but `text` is always treated as sensitive — for
+Like `waitForAndEnter`, but `text` is always treated as sensitive -- for
 PAM prompts (`Current password:`, `Retype new password:`) whose
 non-newline-terminated lines get overwritten on the framebuffer by late
 console messages. Parameters are the same as
@@ -460,7 +460,7 @@ downstream steps see the prior-failure markers untouched.
 ### pressKey
 
 Send a single keystroke. Supported names: `Enter`, `Tab`, `Space`,
-`Escape`, `Up`, `Down`, `Left`, `Right`, `F1`–`F12`.
+`Escape`, `Up`, `Down`, `Left`, `Right`, `F1`-`F12`.
 
 | Parameter | Type | Notes |
 |---|---|---|
@@ -486,18 +486,18 @@ Disk-only snapshot of the sequence's VM via the
 [`Save-VMDiskSnapshot`](#save-vmdisksnapshot--rename-vm) contract. Then
 RENAMES the VM (and relocates its storage, where supported) to the
 snapshot id so the next cycle's
-[`Remove-TestVMFiles.ps1`](../test/Remove-TestVMFiles.ps1) — which sweeps
-every VM whose name matches the `test-*` prefix — leaves the persisted
+[`Remove-TestVMFiles.ps1`](../test/Remove-TestVMFiles.ps1) -- which sweeps
+every VM whose name matches the `test-*` prefix -- leaves the persisted
 VM alone. After a successful rename the engine updates its internal
 `$VMName` to the snapshot id, so subsequent steps target the persisted
 VM transparently.
 
 | Parameter | Type | Notes |
 |---|---|---|
-| `id` | string | Required. **Snapshot name AND the new VM name** — must be valid as a VM name on every host you target. Dots, dashes, underscores, alphanumerics are safe; `/`, `:`, embedded `"` are not. |
+| `id` | string | Required. **Snapshot name AND the new VM name** -- must be valid as a VM name on every host you target. Dots, dashes, underscores, alphanumerics are safe; `/`, `:`, embedded `"` are not. |
 
-VM is stopped before the snapshot (graceful → `Stop-VMForce` fallback)
-and left stopped — a sequence wanting to keep going must explicitly
+VM is stopped before the snapshot (graceful -> `Stop-VMForce` fallback)
+and left stopped -- a sequence wanting to keep going must explicitly
 start the VM. Pre-existing snapshots with the same id are overwritten.
 
 Per-host backend and rename support: see
@@ -508,7 +508,7 @@ Per-host backend and rename support: see
 Mid-sequence checkpoint dump. SSHes into the guest, runs
 `automation/Get-SystemDiagnostic.ps1`, writes the captured text to
 `<cycleGuestDataFolder>/yyyy-MM-dd.HH-mm.system.diagnostic.<id>.txt`.
-Soft-failing — unreachable guest or missing pwsh does not break the
+Soft-failing -- unreachable guest or missing pwsh does not break the
 sequence. Capture is opt-in; the runner does not auto-invoke it.
 
 | Parameter | Type | Notes |
@@ -526,13 +526,13 @@ unless `allowFailure=true`.
 | `timeoutSeconds` | number | Default `vmCommunication.timeoutSeconds`. |
 | `allowFailure` | boolean | If true, non-zero exit logs a warning instead of failing. |
 | `sensitive` | boolean | Masks command in logs. |
-| `detach` | boolean | Default **false** here. See [Surviving a dropped session](#surviving-a-dropped-session). Off by default for this verb because it runs whatever the YAML names, and a detached run stages that command to a file on the guest — which the deploy sequence's password piping must not do. |
+| `detach` | boolean | Default **false** here. See [Surviving a dropped session](#surviving-a-dropped-session). Off by default for this verb because it runs whatever the YAML names, and a detached run stages that command to a file on the guest -- which the deploy sequence's password piping must not do. |
 | `transportRetries` | number | Default `0`. Reconnects to spend when the session dies mid-command. Only consulted when the step is not detached. Raise it only for a command that is safe to run twice. |
 
 ### sshFetchAndExecute
 
 Long-lived command over SSH (SSH counterpart to `fetchAndExecute`). No
-OCR polling, no password-prompt handling — sudo must be passwordless or
+OCR polling, no password-prompt handling -- sudo must be passwordless or
 the command handles its own auth.
 
 | Parameter | Type | Notes |
@@ -540,7 +540,7 @@ the command handles its own auth.
 | `command` | string | |
 | `timeoutSeconds` | number | Default `vmCommunication.timeoutSeconds`. |
 | `detach` | boolean | Default **true** here. See [Surviving a dropped session](#surviving-a-dropped-session). Set `false` to run in a plain session instead. |
-| `transportRetries` | number | Default `0`, and ignored while `detach` is true — a detached step re-attaches rather than re-running, which needs no judgement about whether the payload is safe to repeat. |
+| `transportRetries` | number | Default `0`, and ignored while `detach` is true -- a detached step re-attaches rather than re-running, which needs no judgement about whether the payload is safe to repeat. |
 
 ### Surviving a dropped session
 
@@ -550,7 +550,7 @@ things follow from that, and they are separate.
 
 The harness can tell a dropped transport from a command that failed. `ssh`
 reports its own faults as exit 255 and passes anything else through as the
-remote command's status, so 255 alone proves nothing — an authentication
+remote command's status, so 255 alone proves nothing -- an authentication
 refusal and a rejected host key are 255 too. When the stderr says the transport
 died, the step is reported as `network_timeout` rather than `script_error`,
 which is both the honest description and the class warm resume acts on.
@@ -570,7 +570,7 @@ host address changes that fell inside a cycle is recorded on its `cycle_end`.
 
 ### sshWaitReady
 
-Wait until the guest accepts SSH with the yuruna harness key —
+Wait until the guest accepts SSH with the yuruna harness key --
 handshakes to an authenticated shell, not just TCP/22. Use after a
 reboot or a snapshot restore before any consumer that talks SSH.
 
@@ -620,7 +620,7 @@ Wait a fixed number of seconds.
 Capture + OCR the VM screen until `pattern` appears. `freshMatch=true`
 waits for the pattern to clear first if already on screen (avoids
 matching the previous step's residue). `failurePatterns` short-circuits
-the wait if an anti-pattern matches — canonical use: subiquity's
+the wait if an anti-pattern matches -- canonical use: subiquity's
 `install_fail.crash` / `Press enter to start a shell` so an installer
 crash fails the cycle in ~20s instead of waiting the full
 `timeoutSeconds` for a login prompt that will never come.
@@ -647,16 +647,16 @@ name via `Register-SequenceAction`. When the engine hits a step with
 `action: <verb>` it looks the verb up in
 `$global:YurunaSequenceActions` and dispatches through
 `Invoke-SequenceActionHandler`. A registration without a Handler is a
-hard step failure — the engine warns "Unknown action" and fails the
+hard step failure -- the engine warns "Unknown action" and fails the
 step.
 
 Two modules carry the contract:
 
-- **[`Test.SequenceAction.psm1`](../test/modules/Test.SequenceAction.psm1)** —
+- **[`Test.SequenceAction.psm1`](../test/modules/Test.SequenceAction.psm1)** --
   registry primitives (`Register-`, `Get-`, `Invoke-`,
   `Test-...HasHandler`, `Clear-`). Owns the field shape and the
   `FailureClass` / `Severity` / `SuggestedRecoveries` value sets.
-- **[`Test.SequenceHandler.psm1`](../test/modules/Test.SequenceHandler.psm1)** —
+- **[`Test.SequenceHandler.psm1`](../test/modules/Test.SequenceHandler.psm1)** --
   the Handler bodies for built-in verbs. Adding a new verb is a local
   edit here, not a merge-conflict magnet on the engine.
 
@@ -699,12 +699,12 @@ screenshot/log directories (side-effect writes are expected).
 
 A Handler returns `[bool]`:
 
-- `$true` — the step succeeded. The engine moves on.
-- `$false` — the step failed, but in an *expected*, well-modeled way.
+- `$true` -- the step succeeded. The engine moves on.
+- `$false` -- the step failed, but in an *expected*, well-modeled way.
   The engine consults `FailureLabel`, `FailureClass`, `Severity`, and
   `SuggestedRecoveries` to fill out `last_failure.json` and routes to
   `retry` / `recoverFromSnapshot` if those wrap the failing step.
-- **Throw** — the engine treats it as an unexpected handler bug. The
+- **Throw** -- the engine treats it as an unexpected handler bug. The
   exception message is captured in the failure record with
   `FailureClass = 'script_error'` regardless of the registered class.
 
@@ -715,15 +715,26 @@ A bare `return` (no value) is coerced to `$false`. Always be explicit.
 | Parameter            | Type / values                                                                                                                                                                                                                                                                                  | Notes                                                                                                                                                       |
 |----------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | `Name`               | `[string]` (mandatory)                                                                                                                                                                                                                                                                         | Verb as it appears in YAML `action:` fields. Case-sensitive on read, OrdinalIgnoreCase on registry lookup.                                                  |
-| `FailureLabel`       | `[scriptblock]` `param($Context)` → `[string]`                                                                                                                                                                                                                                                 | Builds the human-readable failure label. Defaults to the verb name when omitted.                                                                            |
+| `FailureLabel`       | `[scriptblock]` `param($Context)` -> `[string]`                                                                                                                                                                                                                                                 | Builds the human-readable failure label. Defaults to the verb name when omitted.                                                                            |
 | `HostIORequirement`  | `[string[]]` from `Send-Key`, `Send-Text`, `Send-Click`                                                                                                                                                                                                                                        | Consumed by `Test-CyclePlanCapability` to refuse cycles on hosts that can't drive the needed I/O.                                                           |
 | `OcrRequired`        | `[bool]`                                                                                                                                                                                                                                                                                       | `$true` when the verb needs at least one enabled OCR provider.                                                                                              |
-| `Description`        | `[string]`                                                                                                                                                                                                                                                                                     | Free-form note. Surfaces in the capability matrix.                                                                                                          |
+| `Description`        | `[string]`                                                                                                                                                                                                                                                                                     | Free-form note carried on the entry. Nothing in the engine reads it; it is there for `Get-SequenceAction` consumers (matrix dumps, docs generators).         |
 | `Aliases`            | `[string[]]`                                                                                                                                                                                                                                                                                   | Alternate YAML names that resolve to the same entry (legacy renames).                                                                                       |
-| `Handler`            | `[scriptblock]` `param([hashtable]$c)` → `[bool]`                                                                                                                                                                                                                                              | The body that runs when the verb dispatches.                                                                                                                |
-| `FailureClass`       | `ValidateSet`: `ocr_timeout`, `network_timeout`, `credential_expired`, `host_io_blocked`, `pattern_matched_failure`, `retry_exhausted`, `snapshot_restore_failed`, `script_error`, `wait_timeout`, `extension_error`, `instrumentation_failure`, `provisioning_failure`, `bootstrap_sync`, `plan_invalid`, `elevation_required`, `project_access_denied`, `host_network_degraded`, `ip_not_discovered`, `payload_unavailable`, `pool_storage_full`, `unknown`                                       | Machine-readable failure category for downstream routing (no regex-on-label needed).                                                                        |
+| `Handler`            | `[scriptblock]` `param([hashtable]$c)` -> `[bool]`                                                                                                                                                                                                                                              | The body that runs when the verb dispatches.                                                                                                                |
+| `FailureClass`       | `ValidateSet`: `ocr_timeout`, `network_timeout`, `credential_expired`, `host_io_blocked`, `pattern_matched_failure`, `retry_exhausted`, `snapshot_restore_failed`, `script_error`, `wait_timeout`, `extension_error`, `instrumentation_failure`, `provisioning_failure`, `bootstrap_sync`, `plan_invalid`, `elevation_required`, `project_access_denied`, `host_network_degraded`, `ip_not_discovered`, `payload_unavailable`, `pool_storage_full`, `dhcp_identity_unbounded`, `unknown`                                       | Machine-readable failure category for downstream routing (no regex-on-label needed). The canonical list lives in `Test.FailureTaxonomy.psm1`; the ValidateSet is a literal copy because an attribute argument must be a constant expression, and `Assert-FailureTaxonomyInSync` at module load catches the two drifting apart. |
 | `Severity`           | `ValidateSet`: `hard`, `soft`, `unknown`                                                                                                                                                                                                                                                       | `soft` = retry is plausible; `hard` = retry won't help (e.g. snapshot restore failed); `unknown` = no claim either way.                                     |
-| `SuggestedRecoveries`| `[string[]]` — free-form, ordered                                                                                                                                                                                                                                                              | Hints for an autonomous remediation loop. Common values: `retry_immediately`, `wait_and_retry`, `restore_snapshot`, `notify_operator`. A token outside the remediation dispatcher's vocabulary warns at registration. |
+| `SuggestedRecoveries`| `[string[]]` -- free-form, ordered                                                                                                                                                                                                                                                              | Hints for an autonomous remediation loop. Common values: `retry_immediately`, `wait_and_retry`, `restore_snapshot`, `notify_operator`. A token outside the remediation dispatcher's vocabulary warns at registration. |
+| `UsesWaitSignals`    | `[bool]`                                                                                                                                                                                                                                                                                       | **Changes engine behavior.** `$true` lets the engine append `-- matched failurePattern "..."` to the step's failure label when the verb short-circuited on an anti-pattern. Set it on any verb that writes that signal: without it the step is labelled as a plain "pattern not found within Ns" timeout, so the ERROR banner and `last_failure.json` both hide the real cause -- a guest process that crashed and printed why. |
+| `CapturesOwnFailureScreenshot` | `[bool]`                                                                                                                                                                                                                                                                             | **Changes engine behavior.** `$true` suppresses the engine's generic post-failure `Get-VMScreenshot`. Set it on a verb that already writes `failure_screenshot_<vm>.png` from inside its own failure path: that frame was captured at the moment of failure, and the engine's later capture would overwrite it with whatever the screen shows once the step has given up. |
+
+Both flags are registry entries rather than verb-name lists inside the engine
+because the engine's two decision sites would otherwise each carry a literal
+list that silently goes stale the moment a verb is added -- a new wait verb would
+lose its annotation, and a new self-capturing verb would have its frame
+overwritten, with nothing failing. Today `waitForText`, `waitForAndEnter` and
+`passwdPrompt` set both; `sshWaitReady` sets only `UsesWaitSignals`;
+`fetchAndExecute` sets only `CapturesOwnFailureScreenshot`.
+`Test.SequenceEngineFlags.Tests.ps1` pins those sets.
 
 ### Example registrations
 
@@ -767,7 +778,7 @@ Register-SequenceAction -Name 'pressKey' `
 ```
 
 The `Test.SequenceEngine\Send-Key` qualified call is mandatory, not
-stylistic — see [Naming collisions to watch](#naming-collisions-to-watch).
+stylistic -- see [Naming collisions to watch](#naming-collisions-to-watch).
 
 ### How a new verb gets added
 
@@ -776,7 +787,7 @@ stylistic — see [Naming collisions to watch](#naming-collisions-to-watch).
    no host I/O).
 2. Add a `Register-SequenceAction ...` block to
    [`Test.SequenceHandler.psm1`](../test/modules/Test.SequenceHandler.psm1).
-3. Fill in the metadata: `FailureClass` (pick from the ValidateSet —
+3. Fill in the metadata: `FailureClass` (pick from the ValidateSet --
    if none fits, prefer `unknown` over inventing a new class without
    updating the ValidateSet in `Test.SequenceAction.psm1`), `Severity`,
    ordered `SuggestedRecoveries`.
@@ -787,8 +798,12 @@ stylistic — see [Naming collisions to watch](#naming-collisions-to-watch).
    names the target), add a `FailureLabel` scriptblock.
 6. If the verb replaces a deprecated verb name, add the old name to
    `Aliases` so existing sequences keep resolving.
+7. If the verb waits on text, or saves its own failure screenshot, set the
+   matching engine flag (`UsesWaitSignals` / `CapturesOwnFailureScreenshot`).
+   Both default to `$false`, and a verb that needs one but omits it still
+   passes and still fails -- it just loses the annotation or the frame.
 
-No edit to `Test.SequenceEngine.psm1` is required for the registry path —
+No edit to `Test.SequenceEngine.psm1` is required for the registry path --
 the engine discovers the registration via `$global:YurunaSequenceActions`.
 
 ---
@@ -796,15 +811,15 @@ the engine discovers the registration via `$global:YurunaSequenceActions`.
 ## Yuruna.Host contract
 
 Actions that touch the VM lifecycle, snapshots, screen I/O, networking,
-or proxy plumbing don't talk to Hyper-V / virsh / utmctl directly —
+or proxy plumbing don't talk to Hyper-V / virsh / utmctl directly --
 they go through a per-host driver under
 [`host/<short-host>/modules/Yuruna.Host.psm1`](../host). The driver
 exports a fixed surface; the engine resolves the active driver via
 `Initialize-YurunaHost` (in [`Test.HostContract`](../test/modules/Test.HostContract.psm1)).
-See [Test harness — architecture](test-harness.md#yurunahost-contract) for the full list.
+See [Test harness -- architecture](test-harness.md#yurunahost-contract) for the full list.
 
 Below are the contract functions whose **per-host behavior diverges in
-operationally significant ways** — where a sequence author needs to
+operationally significant ways** -- where a sequence author needs to
 know what happens on each host.
 
 ### `Save-VMDiskSnapshot` + `Rename-VM`
@@ -812,7 +827,7 @@ know what happens on each host.
 Backs the [`saveDiskSnapshot`](#savedisksnapshot) action. Two
 operations run in sequence: capture a disk-only point, then move
 the VM out of the `test-*` namespace so it survives the next cycle's
-cleanup sweep. The rename is **part of the contract** — calling the
+cleanup sweep. The rename is **part of the contract** -- calling the
 contract function commits to both legs and returns `$false` if either
 fails.
 
@@ -825,7 +840,7 @@ fails.
   pair is effectively a disk-only point.
 - **Rename:** `Hyper-V\Rename-VM -Name <old> -NewName <id>` followed by
   `Hyper-V\Move-VMStorage -DestinationStoragePath
-  <VirtualHardDiskPath>\<id>\`. The storage move is essential —
+  <VirtualHardDiskPath>\<id>\`. The storage move is essential --
   Hyper-V's rename only touches the registry, leaving VHDX files at the
   old path. Without the move,
   [`Remove-OrphanedVMFiles.ps1`](../host/windows.hyper-v/Remove-OrphanedVMFiles.ps1)
@@ -837,9 +852,9 @@ fails.
 - **Snapshot:** stop VM, drop any prior snapshot with the same name,
   `virsh snapshot-create-as --atomic --domain <vm> --name <id>` on the
   offline domain. `--atomic` rolls back partial snapshots on failure.
-- **Rename:** `virsh domrename <old> <new>` (libvirt ≥ 1.2.19;
+- **Rename:** `virsh domrename <old> <new>` (libvirt >= 1.2.19;
   available on the Ubuntu baseline). Followed by:
-  - `Rename-Item ~/yuruna/vms/<old>/` → `<new>/`
+  - `Rename-Item ~/yuruna/vms/<old>/` -> `<new>/`
   - Per-file rename for files whose basename starts with `<old>`
     (qcow2, seed.iso, autounattend.iso, nvram), so `ls` is
     self-consistent.
@@ -890,14 +905,14 @@ Backs the [`loadDiskSnapshot`](#loaddisksnapshot) action.
 | KVM | Verifies snapshot via `virsh snapshot-info`, stops domain, `virsh snapshot-revert`. |
 | UTM | For each `*.qcow2` in the bundle's `Data/`: `qemu-img snapshot -a <id>`. |
 
-All three leave the VM stopped on return — callers must explicitly
+All three leave the VM stopped on return -- callers must explicitly
 start the VM again, and gate any SSH/console step on
 [`sshWaitReady`](#sshwaitready) because a fresh-from-snapshot boot
 re-DHCPs and re-handshakes SSH.
 
 ### `Test-VMDiskSnapshot`
 
-Probe used by Invoke-TestSequence's [`requiresSnapshot`](#requiressnapshot)
+Probe used by Debug-TestSequence's [`requiresSnapshot`](#requiressnapshot)
 warm-path detection: returns `$true` when snapshot `Id` is present on
 VM `VMName`, `$false` otherwise (including when the VM does not exist).
 Pure read; never stops the VM, never mutates state.
@@ -928,7 +943,7 @@ For VM lifecycle (`New-VM`, `Start-VM`, `Stop-VM`, `Remove-VM`,
 `Get-VMState`), image fetch (`Get-Image`, `Get-ImagePath`),
 discovery (`Wait-VMIp`, `Get-VMIp`, `Get-VMMac`), networking,
 caching-proxy-service port maps, and host-side proxy:
-see [Test harness — Yuruna.Host contract](test-harness.md#yurunahost-contract) for the per-function
+see [Test harness -- Yuruna.Host contract](test-harness.md#yurunahost-contract) for the per-function
 summary, and each driver's source under
 [`host/<short-host>/modules/Yuruna.Host.psm1`](../host) for the
 canonical signatures.
@@ -938,7 +953,7 @@ canonical signatures.
 ## Naming collisions to watch
 
 `Yuruna.Host` exports `New-VM`, `Start-VM`, `Stop-VM`, `Remove-VM`,
-`Rename-VM` — every one of these is also a cmdlet name in Windows'
+`Rename-VM` -- every one of these is also a cmdlet name in Windows'
 `Hyper-V` module. Per-guest scripts under
 [`host/windows.hyper-v/`](../host/windows.hyper-v) that import
 `Yuruna.Host.psm1` AND call those cmdlets directly to drive Hyper-V
@@ -959,6 +974,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../README.md)

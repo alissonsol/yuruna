@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42d6f5e4-b3a2-4c91-8076-2e3f4a5b6c92
+.VERSION 2026.08.19
+.GUID 42bd6583-4d45-42df-b3b7-3411df4c5af9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna remediation autonomous failure-class
@@ -81,6 +81,60 @@ $script:RecommendationEnum = @(
     'operator_intervention_required',
     'escalate'
 )
+
+# --- REGION: Auto-remediation policy
+#
+# WHICH failures the runner may retry without an operator, and HOW MANY times.
+# The list lives here, beside the registry that classifies failures, because
+# the outer loop previously carried its own four-class literal -- so the set
+# that CLASSIFIES a failure and the set that may ACT on one could drift, and
+# had: the literal omitted three classes whose handlers already recommend a
+# retry, and nothing reconciled them.
+#
+# A class earns a place here only when retrying is the whole repair and a
+# repeat is harmless. Everything else -- a bad plan, a missing payload, an
+# expired vault, a full disk -- stays advisory, because retrying it either
+# cannot help or destroys the evidence an operator needs.
+$script:AutoRemediationAllowList = [ordered]@{
+    # The transient four: the condition is external and usually gone by the
+    # next attempt, so the retry IS the repair.
+    'wait_timeout'           = 'a step exceeded its budget; the next attempt starts from a clean cycle'
+    'network_timeout'        = 'a transport stall, not a wrong answer'
+    'ip_not_discovered'      = 'the guest had no lease YET; a later cycle usually finds one'
+    'host_network_degraded'  = 'the host lost its own path; nothing in the cycle can fix it, and it recovers'
+    # Backed by a Repair-* primitive that is safe to run twice.
+    'instrumentation_failure' = 'Repair-ScreenshotRing restores capture; a repeat is idempotent'
+    'host_io_blocked'         = 'Repair-VncConnection reconnects the console; reconnecting twice is harmless'
+    'credential_expired'      = 'Repair-Credential re-authenticates; the vault, not the cycle, holds the state'
+}
+
+function Get-AutoRemediationAllowList {
+    <#
+    .SYNOPSIS
+        The failure classes the runner may retry unattended, each with the
+        reason it qualifies.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param()
+    return $script:AutoRemediationAllowList
+}
+
+function Test-AutoRemediationAllowed {
+    <#
+    .SYNOPSIS
+        Whether this failure class may be retried without an operator.
+    .DESCRIPTION
+        The single question the outer loop asks before ending a failure pause
+        early. An unknown or unregistered class answers $false: a class nobody
+        has classified is exactly the one that should stop and be looked at.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$FailureClass)
+    if ([string]::IsNullOrWhiteSpace($FailureClass)) { return $false }
+    return $script:AutoRemediationAllowList.Contains($FailureClass)
+}
 
 function Register-RecoveryHandler {
     <#
@@ -477,6 +531,28 @@ function Register-BuiltinRecoveryHandler {
         }
     }
 
+    # Deliberately NOT restart_from_snapshot, which is what ocr_timeout above
+    # recommends. The two look alike in the record -- a wait that ended without
+    # its pattern -- but the assumption behind replaying from a snapshot is that
+    # the screen diverged from the recorded path and a clean run will follow it
+    # again. Here the screen never became readable: something filled the console
+    # faster than the pattern could be matched off it, and a replay reproduces
+    # that at the same rate. The console content is the evidence and a person has
+    # to read it, so this class stops rather than spending another full timeout.
+    Register-RecoveryHandler -FailureClass 'console_flooded' -Handler {
+        param([hashtable]$c)
+        return @{
+            Recommendation = 'pause_and_inspect'
+            Rationale      = "console_flooded on $($c.Context.vmName): the wait ran its full budget against a console that was overwriting itself with one repeating line, so the pattern could not be read off it whether or not the guest ever printed it. This is not a guest that failed to reach the expected state -- it is a screen that could not be read, and replaying it floods the same screen again. What is repeating names the cause: a link or DHCP event churning the installer's network model, a service restart loop, or a kernel message storm."
+            Actions        = @(
+                'Read causeDetail.consoleFlood in last_failure.json for the dominant line and its share of the screen',
+                'Fix what is repeating rather than re-running the wait -- a longer timeout cannot make a self-overwriting surface readable',
+                'Where the flood is installer-phase network churn, confirm the guest is getting a DHCP lease at all',
+                'Only then re-run the sequence from the failing step'
+            )
+        }
+    }
+
     Register-RecoveryHandler -FailureClass 'network_timeout' -Handler {
         param([hashtable]$c)
         return @{
@@ -677,7 +753,7 @@ function Register-BuiltinRecoveryHandler {
             Actions        = @(
                 'On the console, install the runner drop-in: the failure message carries the exact /etc/sudoers.d/yuruna-runner rule',
                 'Validate it with visudo -cf before relying on it -- an invalid drop-in breaks sudo for every command',
-                'Re-launch test/Invoke-TestRunner.ps1; its startup elevation gate confirms the host before the first cycle'
+                'Re-launch test/Start-TestRunner.ps1; its startup elevation gate confirms the host before the first cycle'
             )
         }
     }
@@ -719,6 +795,26 @@ function Register-BuiltinRecoveryHandler {
                 "On the host console, inspect $switchText ($verdictText): Get-VMSwitch, then Get-NetAdapter for the description it names",
                 "Restore the binding the verdict points at -- Set-VMSwitch -Name <switch> -NetAdapterName <nic> for a lost uplink, or -AllowManagementOS `$true for a missing management vNIC -- knowing it briefly interrupts the host's own network",
                 'Until it is restored, guests keep provisioning on the NAT fallback switch and reach the host only through its port-forwarders'
+            )
+        }
+    }
+
+    Register-RecoveryHandler -FailureClass 'dhcp_identity_unbounded' -Handler {
+        param([hashtable]$c)
+        # The record carries the two addresses; quoting them is what turns this
+        # from a claim into something an operator can check against the server's
+        # own lease table without reproducing anything.
+        $rec = if ($c.Failure -is [System.Collections.IDictionary]) { $c.Failure } else { @{} }
+        $prev = if ($rec.Contains('previousAddress')) { [string]$rec['previousAddress'] } else { '' }
+        $cur  = if ($rec.Contains('currentAddress'))  { [string]$rec['currentAddress'] }  else { '' }
+        $move = if ($prev -and $cur) { " It moved $prev -> $cur." } else { '' }
+        return @{
+            Recommendation = 'operator_intervention_required'
+            Rationale      = "dhcp_identity_unbounded on $($c.Context.vmName): this guest was rebuilt under the identity it is supposed to keep, and the DHCP server handed it a DIFFERENT address anyway.$move A guest whose address is not a function of its identity spends one address per build, and every abandoned one stays allocated for the whole lease -- so the pool drains at a rate set by the lease time rather than by how many machines exist, and guests eventually boot with no IPv4 at all. Retrying cannot help: the next build asks the same question and gets another new address, so this never enters the transient retry allow-lists."
+            Actions        = @(
+                'Confirm the seed carried the pin: network-config on the cidata seed must reach the guest, since a pin applied after boot is a lease too late',
+                "Check the server's lease table for this guest's MAC -- two live leases on one MAC means it is keying on a client-id the guest is still varying",
+                'If the pin is present and the address still moves, the server is not keying on client-id: give this guest a reservation, or shorten the lease so the waste recycles'
             )
         }
     }
@@ -767,4 +863,4 @@ function Register-BuiltinRecoveryHandler {
 # registry primitive's Register being a last-writer-wins map.
 Register-BuiltinRecoveryHandler -Confirm:$false
 
-Export-ModuleMember -Function Register-RecoveryHandler, Get-RecoveryHandler, Get-RegisteredFailureClass, Clear-RecoveryHandler, Invoke-Remediation, Register-BuiltinRecoveryHandler, Get-RecoveryRecommendationName
+Export-ModuleMember -Function Get-AutoRemediationAllowList, Test-AutoRemediationAllowed, Register-RecoveryHandler, Get-RecoveryHandler, Get-RegisteredFailureClass, Clear-RecoveryHandler, Invoke-Remediation, Register-BuiltinRecoveryHandler, Get-RecoveryRecommendationName

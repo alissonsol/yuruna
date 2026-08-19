@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a7b8c9-d0e1-4f23-9567-8a9b0c1d2e3f
+.VERSION 2026.08.19
+.GUID 42e861b5-08b7-414a-a164-c414c541a30d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test portowner perf pester

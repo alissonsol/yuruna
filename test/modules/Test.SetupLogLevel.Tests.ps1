@@ -1,6 +1,6 @@
 <#PSScriptInfo
 .VERSION 2026.08.03
-.GUID 42661f19-ab56-40f2-a9f7-2065d442903c
+.GUID 42bd03c8-a33c-4517-9a8b-e97307c8b49f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test setup loglevel pester
@@ -45,7 +45,7 @@ $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = (Resolve-Path (Join-Path -Path $here -ChildPath '..' -AdditionalChildPath '..')).Path
 $setup    = Join-Path $repoRoot 'install/setup.ps1'
 
-function Assert-True { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 function Get-ScriptAst {
     [CmdletBinding()]

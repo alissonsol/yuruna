@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a4b5c6-d7e8-4f90-8a12-4b5c6d7e8f90
+.VERSION 2026.08.19
+.GUID 42c869eb-bcb1-4640-9d26-b9f3f7fbc926
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna pool admin
@@ -80,7 +80,7 @@ $doc  = Read-YurunaPoolsDoc -IntentDir $t.IntentDir
 $pool = Get-YurunaPoolFromDoc -Doc $doc -PoolId $PoolId
 if (-not $pool) { Write-Error "Pool '$PoolId' not found. Create it first: ./New-Pool.ps1 -PoolId $PoolId" -ErrorAction Continue; exit $ExitFailure }
 
-# The auto-enrolment target pool can NEVER carry a test-set. Hosts arrive there
+# The auto-enrollment target pool can NEVER carry a test-set. Hosts arrive there
 # automatically, without anyone choosing it for them, so assigning a project
 # here would silently repoint every auto-enrolled host in the lab on its next
 # cycle -- the single largest blast radius in the whole pool layer.
@@ -92,7 +92,7 @@ if (-not $pool) { Write-Error "Pool '$PoolId' not found. Create it first: ./New-
 $targetPoolId = if ($doc -is [System.Collections.IDictionary] -and $doc['autoEnrollment']) { [string]$doc['autoEnrollment']['targetPoolId'] } else { '' }
 if ($targetPoolId -and $PoolId -eq $targetPoolId) {
     Write-Error @"
-'$PoolId' is the auto-enrolment target pool and cannot carry a test-set.
+'$PoolId' is the auto-enrollment target pool and cannot carry a test-set.
   Hosts land there automatically and keep running their own projectUrl; assigning one
   here would silently repoint every auto-enrolled host in the lab.
   To give these hosts a project, create another pool and assign the hosts to it:

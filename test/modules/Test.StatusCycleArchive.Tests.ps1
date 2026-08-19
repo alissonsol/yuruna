@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42b7d914-3c60-4a18-9f52-6d0e8b47c913
+.VERSION 2026.08.19
+.GUID 4225e4e5-9e96-476f-b10c-41d45c8308df
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test status-service archive share-cycle pester
@@ -53,15 +53,10 @@
 BeforeAll {
 $here      = Split-Path -Parent $PSCommandPath
 $repoRoot  = Split-Path -Parent (Split-Path -Parent $here)
-$svcPath   = Join-Path $repoRoot 'test/Start-StatusService.ps1'
+$svcPath   = Join-Path $repoRoot 'test/service/Start-StatusService.ps1'
 $statusDir = Join-Path $repoRoot 'test/status'
 
-function Assert-Equal { param($Expected, $Actual, [string]$Because = '') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
-function Assert-NoFinding {
-    param([string[]]$Findings, [string]$Because = '')
-    if ($Findings.Count -gt 0) { throw ("$Because`n  " + ($Findings -join "`n  ")) }
-}
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # File scope, above the first Describe: a Describe body is evaluated during
 # discovery and its variables are gone before any It runs.

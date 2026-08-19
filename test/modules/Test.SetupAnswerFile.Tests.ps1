@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42ad2307-9a03-4f84-a1e4-d45e7d08db4d
+.VERSION 2026.08.19
+.GUID 427bf883-f57a-449e-98af-a9cec3b9704c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna setup answer-file round-trip pester
@@ -51,8 +51,7 @@ $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = Split-Path -Parent (Split-Path -Parent $here)
 $setupPs1 = Join-Path $repoRoot 'install/setup.ps1'
 
-function Assert-Equal { param($Expected, $Actual, [string]$Because='') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-True  { param($Condition, [string]$Because='') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # The script's own definitions, dot-sourced into this session. Anything that
 # drifts in setup.ps1 drifts here on the next run, which is the point.
@@ -118,7 +117,7 @@ Describe 'the answer document the writer emits' {
             -NetworkUser 'yuruna-pool' -OnFailure 'local' -LabName 'workshop'
         $written = @(Get-DocumentKeyPath -Document $doc) | Sort-Object
         $read    = @(Get-ReaderKeyPath -Ast $setupAst | Where-Object { $_ -notin $script:obsoleteReaderKey }) | Sort-Object
-        Assert-Equal ($read -join ', ') ($written -join ', ') 'the writer and the reader must agree on the key set'
+        Assert-Equal -Expected ($read -join ', ') -Actual ($written -join ', ') -Because 'the writer and the reader must agree on the key set'
     }
     It 'omits the lab section for a standalone setup' {
         $doc = New-SetupAnswerDocument -SetupType 'standalone' -RunTests $false -StorageKind 'local' `
@@ -151,7 +150,7 @@ Describe 'a document the writer emits is one the validator accepts' {
                 -LocalRoot $doc.storage.localRoot -NetworkPath $doc.storage.networkPath `
                 -NetworkUser $doc.storage.networkUser -OnFailure $doc.storage.onFailure `
                 -LabName $(if ($doc.Contains('lab')) { $doc.lab.name } else { '' }))
-            Assert-Equal 0 $problems.Count ("the writer emitted a document its own reader rejects for " +
+            Assert-Equal -Expected 0 -Actual $problems.Count -Because ("the writer emitted a document its own reader rejects for " +
                 "$($case.Type)/$($case.Kind)/onFailure $($case.OnFailure): $($problems -join '; ')")
         }
     }
@@ -168,7 +167,7 @@ Describe 'the validator refuses what an unattended run cannot finish' {
             -LocalRoot '' -OnFailure 'stop'
         $problems = @(Test-SetupAnswerSet -SetupType $doc.setup.type -StorageKind $doc.storage.kind `
             -LocalRoot $doc.storage.localRoot -OnFailure $doc.storage.onFailure)
-        Assert-Equal 1 $problems.Count 'exactly one problem, naming storage.localRoot'
+        Assert-Equal -Expected 1 -Actual $problems.Count -Because 'exactly one problem, naming storage.localRoot'
         Assert-True ($problems[0] -like '*storage.localRoot*') "the message must name the key: $($problems[0])"
     }
     It 'rejects a lab with no storage' {
@@ -186,7 +185,7 @@ Describe 'the validator refuses what an unattended run cannot finish' {
     }
     It 'rejects unknown kind and onFailure values, naming each key' {
         $problems = @(Test-SetupAnswerSet -SetupType 'standalone' -StorageKind 'cloud' -OnFailure 'maybe')
-        Assert-Equal 2 $problems.Count 'one problem per bad key'
+        Assert-Equal -Expected 2 -Actual $problems.Count -Because 'one problem per bad key'
         Assert-True (@($problems | Where-Object { $_ -like '*storage.kind*' }).Count -eq 1) 'names storage.kind'
         Assert-True (@($problems | Where-Object { $_ -like '*storage.onFailure*' }).Count -eq 1) 'names storage.onFailure'
     }
@@ -195,7 +194,7 @@ Describe 'the validator refuses what an unattended run cannot finish' {
         # refuse a run that was going to be fine.
         $problems = @(Test-SetupAnswerSet -SetupType 'standalone' -StorageKind 'nas' `
             -NetworkPath '//ypool-nas/work/yuruna.pool' -NetworkUser 'yuruna-pool' -OnFailure 'local')
-        Assert-Equal 0 $problems.Count 'the fallback carries its own check at the point it is reached'
+        Assert-Equal -Expected 0 -Actual $problems.Count -Because 'the fallback carries its own check at the point it is reached'
     }
 }
 

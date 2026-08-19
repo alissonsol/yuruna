@@ -3,8 +3,8 @@
 
 // Package httpsrv serves the browser UI and JSON API for the stash service. It
 // runs as a second listener inside the same Go daemon as the SCP/SFTP sink
-// (§2.1), sharing the ID allocator, storage pipeline, and local index. It
-// presents a POOL-WIDE view (§3): this host's live local index merged with
+// (section 2.1), sharing the ID allocator, storage pipeline, and local index. It
+// presents a POOL-WIDE view (section 3): this host's live local index merged with
 // every other host's on-share sidecars. Writes (create) go through the shared
 // ingest pipeline; delete carries the lab-token gate (gate.go) and reaches any
 // host's stash, because the stash share is mounted with write access to all of
@@ -65,7 +65,7 @@ type Options struct {
 // New builds the UI server. stashRoot and localHostID are derived from the
 // daemon's share folder (<mount>/stash/<hostId>): the parent holds every
 // host's stash, the base is this host's id. aggregatorURL is the optional
-// pool-aggregator-service base for hostId→stash-URL resolution (§3.4); empty
+// pool-aggregator-service base for hostId->stash-URL resolution (section 3.4); empty
 // disables it (best-effort, never a hard dependency).
 func New(sshServer *sshsrv.Server, opts Options) *Server {
 	shareFolder := sshServer.Store.Folder
@@ -119,7 +119,7 @@ func (s *Server) buffer() *store.Store      { return s.ssh.Buffer }
 func (s *Server) detector() detect.Detector { return s.ssh.Detector }
 
 // ListenAndServe runs the HTTP server until ctx is canceled, and kicks off the
-// background share scans (§3.2, reconcile.go). Returns nil on graceful
+// background share scans (section 3.2, reconcile.go). Returns nil on graceful
 // shutdown.
 func (s *Server) ListenAndServe(ctx context.Context) error {
 	go s.runShareScans(ctx)
@@ -137,7 +137,7 @@ func (s *Server) ListenAndServe(ctx context.Context) error {
 
 // StashView is the JSON shape the UI consumes for a list row or the detail
 // view. It is built from a local meta.Record or a remote sidecar; hostId
-// and Local distinguish the two (§3.3).
+// and Local distinguish the two (section 3.3).
 type StashView struct {
 	ID               string     `json:"id"`
 	HostID           string     `json:"hostId"`
@@ -160,8 +160,8 @@ type StashView struct {
 	Source           string     `json:"source"`
 	Permalink        string     `json:"permalink"`
 	// RemoteStashURL is the absolute deep-link to the OWNING host's stash UI
-	// for a remote stash (§8.3), resolved best-effort via the pool-aggregator-service
-	// (§3.4). Empty for local stashes or when resolution is unavailable. Set
+	// for a remote stash (section 8.3), resolved best-effort via the pool-aggregator-service
+	// (section 3.4). Empty for local stashes or when resolution is unavailable. Set
 	// only on the single-stash detail response, not in list rows (which would
 	// fan out one aggregator call per row).
 	RemoteStashURL string `json:"remoteStashUrl,omitempty"`

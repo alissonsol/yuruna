@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.08.16
+  Version: 2026.08.19
 
   Shared helpers for the Yuruna status pages. Mounted on window.Yuruna.
   --- REGION: https://yuruna.link/definition#defining-the-status-page-browser-baseline
@@ -10,7 +10,7 @@
 (function() {
   'use strict';
 
-  var VERSION = '2026.08.16';
+  var VERSION = '2026.08.19';
 
   // --- REGION: https://yuruna.link/control-proof
   // A Grafana deep-link routes through the caching-proxy service's /go/host, which appends a
@@ -1640,7 +1640,7 @@
           '— drawn as a single gray bar. ' +
           'This usually means the detached status-service process predates the ' +
           'per-step timing in <code>/control/perf-aggregates</code>. Restart it with: ' +
-          '<code>pwsh test/service/Stop-StatusService.ps1 ; pwsh test/Start-StatusService.ps1</code>' +
+          '<code>pwsh test/service/Stop-StatusService.ps1 ; pwsh test/service/Start-StatusService.ps1</code>' +
           ', then reload this page.';
         body.insertBefore(warn, body.firstChild);
       }
@@ -2175,7 +2175,7 @@
         envInput.setAttribute('autocapitalize', 'off');
         envInput.tabIndex = -1;
         envInput.value = '(loading…)';
-        envInput.title = 'Process-environment value the status service inherited at startup. Read-only here; fallback source only: at cycle start the vmStart.cachingProxyIp field above is probed first and wins when its :3128 answers. Export this in the shell that launches Invoke-TestRunner.ps1 for hosts whose config field is empty.';
+        envInput.title = 'Process-environment value the status service inherited at startup. Read-only here; fallback source only: at cycle start the vmStart.cachingProxyIp field above is probed first and wins when its :3128 answers. Export this in the shell that launches Start-TestRunner.ps1 for hosts whose config field is empty.';
         var envMark = buildCacheIpMark();
         envRow.appendChild(envLabel);
         envRow.appendChild(envInput);

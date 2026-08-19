@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42e0a5c9-71b4-4d38-a6f2-90c3d5e81b47
+.VERSION 2026.08.19
+.GUID 42dda961-f475-4e81-85a3-3bc00118dd2d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test lab storage smb share pester
@@ -33,9 +33,7 @@ Import-Module $modulePath -Force -DisableNameChecking -ErrorAction SilentlyConti
 # Helpers sit at file scope, above the first Describe: a Describe body runs during
 # the discovery pass and everything it declares is discarded before the first It,
 # so a helper defined inside one surfaces as CommandNotFoundException.
-function Assert-Equal { param($Expected, $Actual, [string]$Because = '') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-Null { param($Actual, [string]$Because = '') if ($null -ne $Actual) { throw "Expected null got [$Actual]. $Because" } }
-function Assert-Match { param([string]$Pattern, [string]$Actual, [string]$Because = '') if ($Actual -notmatch $Pattern) { throw "Expected to match [$Pattern] in [$Actual]. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 function Get-TestTier {
     param([string]$Platform = 'linux', [string]$Root = '/srv/yuruna', [string]$DriveLetter = 'y:')

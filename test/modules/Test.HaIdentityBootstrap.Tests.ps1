@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42f0a1b2-c3d4-4e56-9f78-9a0b1c2d3e47
+.VERSION 2026.08.19
+.GUID 42b0a145-9469-4519-979e-1183431dba3c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test host identity fingerprint sysctl macos pester

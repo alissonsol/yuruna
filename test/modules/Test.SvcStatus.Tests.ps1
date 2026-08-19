@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a1b2c3-d4e5-4f67-8901-bd0e1f2a3b63
+.VERSION 2026.08.19
+.GUID 4285ea0b-cf26-4402-b8af-aa598d20d4c0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test status-service statusjson encoding bom pester
@@ -36,7 +36,7 @@ $here = Split-Path -Parent $PSCommandPath
 # unqualified file-level variable but not a $script:-qualified one: the run pass
 # re-enters the file in a fresh scope, so $script: writes land in a script scope
 # the It bodies never see, and the path would arrive at the AST guard as $null.
-$script:sss = Join-Path (Split-Path -Parent $here) 'Start-StatusService.ps1'
+$script:sss = Join-Path (Split-Path -Parent $here) 'service/Start-StatusService.ps1'
 
 function Get-StatusFileWriteEncoding {
     <# Describes the encoding of the [IO.File]::WriteAllText call whose first argument

@@ -1,8 +1,8 @@
 # Amazon Linux 2023 guest on Windows Hyper-V host — Nerd-Level Details
 
-See [Hosts — ...](../../README.md) for host prerequisites (Hyper-V, ADK
+See [Hosts -- ...](../../README.md) for host prerequisites (Hyper-V, ADK
 Deployment Tools for `oscdimg.exe`), VM sizing, and connectivity.
-Amazon Linux 2023 —
+Amazon Linux 2023 --
 [AL supported configurations](https://docs.aws.amazon.com/linux/al2023/ug/hyperv-supported-configurations.html).
 
 ## 1) Get the image
@@ -28,7 +28,7 @@ folder under the Hyper-V default VHDX path (`(Get-VMHost).VirtualHardDiskPath`),
 and places seed + VHDX there.
 
 - Start from Hyper-V Manager. Log in as the per-guest test user
-  (default `yauser1`; vault-managed password, expired on first login —
+  (default `yauser1`; vault-managed password, expired on first login --
   see [README.md](README.md)). `ec2-user` stays SSH-key-only; both are
   seeded by
   [host/vmconfig/amazon.linux.2023.base.user-data](../../vmconfig/amazon.linux.2023.base.user-data).
@@ -36,7 +36,7 @@ and places seed + VHDX there.
 - `/usr/local/lib/yuruna/fetch-and-execute.sh guest/amazon.linux.2023/amazon.linux.2023.update.sh`
   installs the GUI and tools (cloud-init seeded `fetch-and-execute.sh`
   into `/usr/local/lib/yuruna/`; workloads pull from GitHub on demand).
-- `sudo reboot now` — boots into the GUI.
+- `sudo reboot now` -- boots into the GUI.
 
 **CHECKPOINT**: good moment for a Hyper-V checkpoint
 named `VM Configured`. Optional: `sudo dnf install powershell -y`.
@@ -46,7 +46,7 @@ named `VM Configured`. Optional: `sudo dnf install powershell -y`.
 Contribution opportunity. The
 [AL2023 TigerVNC tutorial](https://docs.aws.amazon.com/linux/al2023/ug/vnc-configuration-al2023.html)
 path was tested (with the [TightVNC](https://www.tightvnc.com/download.php)
-client) but 1920×1080 settings produced 1024×768.
+client) but 1920x1080 settings produced 1024x768.
 
 ---
 
@@ -54,6 +54,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../../../README.md)

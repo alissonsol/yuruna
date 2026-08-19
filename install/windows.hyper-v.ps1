@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42c2a1aa-2e97-414a-9393-0d097d2e2a2c
+.VERSION 2026.08.19
+.GUID 425b1941-f370-4155-9842-47cbe6837b47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
@@ -525,7 +525,7 @@ function Stop-YurunaProcess {
     }
 
     # (2) Command-line pattern match.
-    $patterns = @('Invoke-TestRunner.ps1','Invoke-TestRunnerInnerLoop.ps1','Invoke-TestSequence.ps1','Start-StatusService.ps1','.status-service.ps1')
+    $patterns = @('Start-TestRunner.ps1','Invoke-TestRunnerInnerLoop.ps1','Debug-TestSequence.ps1','Start-StatusService.ps1','.status-service.ps1')
     foreach ($pat in $patterns) {
         $procs = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
             Where-Object { $_.CommandLine -and $_.CommandLine -like "*$pat*" }
@@ -936,7 +936,7 @@ reached here only because preflight was skipped or the edition was unrecognized.
         $enableOut  = & $dismExe /English /Online /Enable-Feature /FeatureName:Microsoft-Hyper-V-All /All /NoRestart /Quiet 2>&1
         $enableExit = $LASTEXITCODE
         if ($enableExit -eq 0 -or $enableExit -eq 3010) {
-            Write-Warn 'Hyper-V was just enabled -- a RESTART is required before Invoke-TestRunner will work.'
+            Write-Warn 'Hyper-V was just enabled -- a RESTART is required before Start-TestRunner will work.'
             $script:RestartNeeded = $true
         } else {
             Write-Die "dism.exe /Enable-Feature exited $enableExit. Output:`n$($enableOut -join [Environment]::NewLine)"
@@ -1373,7 +1373,7 @@ $script:InstallSucceeded = $true
         $null = $lines.Add("Write-Host '    and screen lock off so Hyper-V screen captures stay readable):' -ForegroundColor Cyan")
         $null = $lines.Add("Write-Host '      pwsh ..\host\windows.hyper-v\Enable-TestAutomation.ps1' -ForegroundColor Cyan")
         $null = $lines.Add("Write-Host '  * Run the test harness from THIS window:' -ForegroundColor Cyan")
-        $null = $lines.Add("Write-Host '      pwsh .\Invoke-TestRunner.ps1' -ForegroundColor Cyan")
+        $null = $lines.Add("Write-Host '      pwsh .\Start-TestRunner.ps1' -ForegroundColor Cyan")
         $null = $lines.Add("Write-Host '  * Authenticate the GitHub CLI (one-time, optional):' -ForegroundColor Cyan")
         $null = $lines.Add("Write-Host '      gh auth login' -ForegroundColor Cyan")
         $null = $lines.Add("Write-Host ''")
@@ -1433,7 +1433,7 @@ $script:InstallSucceeded = $true
             Write-Output ("       pwsh `"" + (Join-Path $YurunaDir 'host\windows.hyper-v\Enable-TestAutomation.ps1') + "`"")
             Write-Output '   * Open a new pwsh window, then run:'
             Write-Output ("       cd `"$testDirFinal`"")
-            Write-Output  '       pwsh .\Invoke-TestRunner.ps1'
+            Write-Output  '       pwsh .\Start-TestRunner.ps1'
             Write-Output '   * Authenticate the GitHub CLI (one-time, optional):'
             Write-Output '       gh auth login'
             Write-Output '================================================================'

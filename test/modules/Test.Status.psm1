@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a1b2c3-d4e5-4f67-8901-bc0123456702
+.VERSION 2026.08.19
+.GUID 42994da6-e051-4570-a609-afe6e87fdcf8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
@@ -154,7 +154,7 @@ function Reset-StatusDocumentForCycleStart {
         # is empty).
         sequences      = @()
         # Nested-run subtree (nodeId -> node), authored ONLY by nested
-        # Invoke-TestSequence child processes via the RMW helpers below. Reset to
+        # Debug-TestSequence child processes via the RMW helpers below. Reset to
         # empty here (the cycle owner's authoritative wipe) BEFORE any child
         # can spawn; the owner's later flushes preserve whatever children add.
         nested         = [ordered]@{}
@@ -248,7 +248,7 @@ function Initialize-StatusDocument {
             [ordered]@{ name=$sn; status="pending"; startedAt=$null; finishedAt=$null; skipped=$false; errorMessage=$null }
         }
         # provenanceFilename / provenanceUrl are populated later via
-        # Set-GuestProvenance (called by Invoke-TestRunner once per cycle
+        # Set-GuestProvenance (called by Start-TestRunner once per cycle
         # after the status doc is initialized). Both default to empty so
         # a cycle with missing sidecars still serializes cleanly -- the UI
         # falls back to `guestKey` for the card title when
@@ -871,9 +871,9 @@ function Get-GuestProvenance {
 }
 
 # --- REGION: Nested-cycle support
-# An Invoke-TestSequence run either OWNS status.json (standalone, or the outermost
+# A Debug-TestSequence run either OWNS status.json (standalone, or the outermost
 # orchestration) or runs NESTED inside another run's process tree -- a
-# host-action step that re-enters Invoke-TestSequence.ps1 in a child pwsh (e.g.
+# host-action step that re-enters Debug-TestSequence.ps1 in a child pwsh (e.g.
 # Set-Resource.ps1 fanning out per-stage guest builds). Exactly ONE process --
 # the outermost -- owns the top-level document (guests[]/sequences[]/history +
 # Reset/Initialize/Complete-Run). A nested run NEVER resets the doc: it attaches

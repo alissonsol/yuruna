@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42c1a9b8-7d6e-4f52-90a3-1b2c3d4e5f61
+.VERSION 2026.08.19
+.GUID 42e5fde7-cab7-4b20-91da-c9100d967e2d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test automation result failure-taxonomy pester
@@ -37,8 +37,7 @@ Import-Module (Join-Path $autoDir 'Yuruna.Result.psm1')      -Force -DisableName
 Import-Module (Join-Path $here   'Test.FailureTaxonomy.psm1') -Force -DisableNameChecking -Global -ErrorAction SilentlyContinue
 Import-Module (Join-Path $here   'Test.Remediation.psm1')     -Force -DisableNameChecking -Global -ErrorAction SilentlyContinue
 
-function Assert-Equal { param($Expected, $Actual, [string]$Because = '') if ($Expected -ne $Actual) { throw "Expected [$Expected] got [$Actual]. $Because" } }
-function Assert-True  { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # The automation-domain failureClass vocabulary (the ValidateSet in
 # New-YurunaResultManifest). 'ok' is the non-failure member.

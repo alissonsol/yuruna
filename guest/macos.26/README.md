@@ -1,25 +1,25 @@
 # macOS 26 Guest - Workloads
 
-See [Guests — ...](../README.md) for the guest workload pattern.
+See [Guests -- ...](../README.md) for the guest workload pattern.
 
 Create the guest VM first:
 [macOS UTM](../../host/macos.utm/guest.macos.26/README.md).
 
 Generic, host-agnostic scripts for a macOS 26 guest. Only
 [host.macos.utm](../../host/macos.utm/guest.macos.26/) ships an
-implementation so far — macOS guests on Apple Silicon require the Apple
+implementation so far -- macOS guests on Apple Silicon require the Apple
 Virtualization framework, so Hyper-V (Windows) and KVM (Linux) hosts
 cannot run them.
 
 Hardware floor (enforced by `host/macos.utm/guest.macos.26/New-VM.ps1`):
 
 * Host macOS 15 Sequoia or later (Virtualization.framework macOS-guest
-  surface keeps moving — pinning to 15 keeps this script aligned with
+  surface keeps moving -- pinning to 15 keeps this script aligned with
   the same `VZMacOSRestoreImage` / `VZMacOSInstaller` API the other
   guests' host scripts already depend on).
 * Apple Silicon **M4** or later. macOS guests technically run on M1+,
   but Yuruna pins to M4+ for one chip floor across the macos.utm guest
-  set — `guest.ubuntu.server.24` and friends already require M3+ for
+  set -- `guest.ubuntu.server.24` and friends already require M3+ for
   nested virt, and M4+ avoids "works for OS guest X but not OS guest Y
   on the same host" support matrices.
 * UTM 4.6 or later (Apple backend, `ConfigurationVersion 4`).
@@ -30,14 +30,14 @@ macOS has no cloud-init/autoinstall equivalent. After
 `New-VM.ps1` restores the IPSW the first boot lands in Setup
 Assistant (region, keyboard, Wi-Fi, Apple ID, etc.). Driving that
 flow from the test harness needs OCR templates and a sequence under
-`test/sequences/start.guest.macos.26.yml` — neither exists yet.
+`test/sequences/start.guest.macos.26.yml` -- neither exists yet.
 
 The supported workflow is:
 
 1. `pwsh host/macos.utm/guest.macos.26/Get-Image.ps1` (downloads the
    latest macOS 26 IPSW once).
 2. `pwsh host/macos.utm/guest.macos.26/New-VM.ps1` (creates a UTM
-   bundle and restores the IPSW into it — ~15-25 min).
+   bundle and restores the IPSW into it -- ~15-25 min).
 3. Open `~/yuruna/guest.nosync/<VMName>.utm` in UTM, walk through
    Setup Assistant manually.
 
@@ -61,6 +61,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19
 
 Back to [Yuruna](../../README.md)

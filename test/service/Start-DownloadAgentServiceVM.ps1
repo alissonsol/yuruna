@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42f3caf7-8560-4882-9123-5ffeec757e6c
+.VERSION 2026.08.19
+.GUID 42f17d0e-cf42-4655-b11b-a34a4a0b449c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna download agent service extension service
@@ -216,7 +216,7 @@ if (-not (Test-Path -LiteralPath $newVm)) {
 # that started the server.
 $statusDecision = $null
 try {
-    $statusScript = Join-Path $repoRoot 'test/Start-StatusService.ps1'
+    $statusScript = Join-Path $repoRoot 'test/service/Start-StatusService.ps1'
     if ($tc -and (Test-Path -LiteralPath $statusScript)) {
         $statusResult = Start-YurunaStatusServiceIfEnabled -Config $tc -StartScript $statusScript
         $statusDecision = @($statusResult | Where-Object { $_ -is [System.Collections.IDictionary] }) | Select-Object -Last 1

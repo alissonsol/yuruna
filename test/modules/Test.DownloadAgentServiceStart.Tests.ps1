@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 4286c42a-cb68-48ff-84e9-b41d354f419b
+.VERSION 2026.08.19
+.GUID 424573db-29bc-4e57-8b79-371b47df0dd3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna download agent service extension service ast pester
@@ -62,7 +62,7 @@ $testDir = Split-Path -Parent $here   # .../test
 $startAgent = Join-Path $testDir 'service/Start-DownloadAgentServiceVM.ps1'
 $stopAgent  = Join-Path $testDir 'service/Stop-DownloadAgentServiceVM.ps1'
 
-function Assert-True { param($Condition, [string]$Because = '') if (-not $Condition) { throw "Expected true. $Because" } }
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 function Get-ScriptAst {
     param([string]$Path)

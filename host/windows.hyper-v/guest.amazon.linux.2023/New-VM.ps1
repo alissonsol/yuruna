@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42e9f0a1-b2c3-4d45-e678-9f0a1b2c3d45
+.VERSION 2026.08.19
+.GUID 4209caff-b7ce-46f6-896a-1d6710c120e8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
@@ -41,7 +41,7 @@ $GuestHostname = if ($Hostname) { $Hostname } else { $VMName }
 
 $global:ProgressPreference = "SilentlyContinue"
 
-# Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+# Honor logLevel from Start-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
 if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
 
@@ -254,6 +254,28 @@ $UserData = New-CloudInitUserData `
         YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER   = $YurunaHostPort
     } -Confirm:$false
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
+# --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+# Amazon Linux deliberately does NOT receive the shared seed network-config the
+# netplan guests get. Two facts combine badly here:
+#
+#   * Supplying network-config REPLACES cloud-init's own fallback rather than
+#     adding to it, so a config that matches no interface is not neutral. It
+#     leaves the guest with no network configuration at all -- strictly worse
+#     than shipping no file.
+#   * Whether a given match form resolves under this guest's live renderer is
+#     not decidable by reading the parser -- only a lab cycle settles it --
+#     and the failure shape is total: nothing claims the NIC, it stays with
+#     IFF_UP clear, carrier cannot even be read, DHCP is never attempted, and
+#     the only way into the guest is the console it just lost.
+#
+# The client-id pin for this guest rides its user-data instead. The image's
+# live renderer is systemd-networkd, whose DHCP identity is a DUID from the
+# per-build /etc/machine-id, so the pin is a [DHCPv4] ClientIdentifier=mac
+# drop-in installed beside cloud-init's fallback profile, backed by a 98-
+# fallback .network profile for the boot where that fallback claims nothing,
+# with a best-effort nmcli pin kept for a NetworkManager-managed build. None
+# of these is a seed network-config, so cloud-init's fallback generation
+# stays intact.
 
 $SeedIso = Join-Path $vmDir "seed.iso"
 $VolumeId = "cidata"

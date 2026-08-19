@@ -1,7 +1,7 @@
 # Naming conventions
 
-> One sentence: the rules every Yuruna name follows — components, config keys,
-> durations, booleans, acronyms, PowerShell verbs, and pages — plus the foreign
+> One sentence: the rules every Yuruna name follows -- components, config keys,
+> durations, booleans, acronyms, PowerShell verbs, and pages -- plus the foreign
 > contracts that are deliberately exempt.
 
 A name is read far more often than it is written, and a name that disagrees
@@ -37,15 +37,15 @@ Grafana, while `index.html` is **the status page**.
 no `Minutes`, `Hours`, `Sec`, `Millis`, or unsuffixed duration. Environment
 variables follow with `YURUNA_*_SECONDS` / `YURUNA_*_MS`.
 
-A value carried in a **type that already names its unit** — .NET `TimeSpan`,
-Go `time.Duration` — takes no suffix: `hostTtl`, `pushTimeout`,
+A value carried in a **type that already names its unit** -- .NET `TimeSpan`,
+Go `time.Duration` -- takes no suffix: `hostTtl`, `pushTimeout`,
 `$sw.Elapsed`. The suffix exists to disambiguate a bare number, and there is
 nothing bare about `2 * time.Hour`.
 
 ## Booleans: a bare adjective or verb phrase
 
 `enabled`, `stopOnFailure`, `moveLogsToPoolStorage`, `alwaysRedownload`. No `is` or
-`should` prefix, and no `Enabled` suffix on a compound — nest it instead:
+`should` prefix, and no `Enabled` suffix on a compound -- nest it instead:
 
 ```yaml
 autoRemediation:
@@ -58,7 +58,7 @@ PowerShell locals are the exception that proves the rule: `$isRunning` /
 
 ## Acronyms are words in camelCase
 
-`Ip`, `Url`, `Vm`, `Ca`, `Ocr`, `Ttl` — so `cachingProxyIp`, `ghToken`,
+`Ip`, `Url`, `Vm`, `Ca`, `Ocr`, `Ttl` -- so `cachingProxyIp`, `ghToken`,
 `Get-CachingProxyServiceVmIp`, `announceTtl`. SCREAMING_SNAKE is for
 environment variables only; a YAML key is never SCREAMING_SNAKE.
 
@@ -74,9 +74,14 @@ outside it follows the rule.
 
 - `Test-` is a **validation predicate** and nothing else: it answers a
   question, it does not run work. `Test-Config.ps1` validates; the thing that
-  *runs* a sequence is `Invoke-TestSequence.ps1`.
-- `Invoke-` runs something to completion; `Start-` launches a daemon that
-  outlives the call.
+  *runs* a sequence is `Debug-TestSequence.ps1`.
+- `Invoke-` runs something to completion and returns; `Start-` launches a
+  long-running process that owns the host until it is stopped -- whether it
+  detaches (`Start-StatusService.ps1`) or holds the terminal until Ctrl+C
+  (`Start-TestRunner.ps1`); `Debug-` also runs to completion but is built for
+  a human in the loop -- it reuses existing state and takes a step window so a
+  failure can be re-entered, which is why the sequence dev helper is
+  `Debug-TestSequence.ps1`.
 - Module namespaces: `Test.*` is the test harness, `Yuruna.*` is product
   automation and the host drivers.
 
@@ -97,21 +102,21 @@ which is what both of those read.
 ## Test-VM names
 
 `<testVmNamePrefix><guestKey>[-<hostId8>]-<NN>`, with the guest key **verbatim**
-— `test-guest.ubuntu.server.24-01`. See
+-- `test-guest.ubuntu.server.24-01`. See
 [host/README.md](../../host/README.md) for what a host implementation may
 assume about it.
 
 ## Host ids: one key, two renderings
 
 The host id is `42` plus 30 hex, and the **undashed 32-hex** form is the only one
-that is ever a key — `runtime/host.uuid`, `POOL.members`, every telemetry label.
+that is ever a key -- `runtime/host.uuid`, `POOL.members`, every telemetry label.
 Two renderings exist and neither may be written back to a store:
 
 | Form | Where | Produced by |
 | --- | --- | --- |
-| `42a1b2c3d4e5…` (32 hex) | every store, join and label | `Get-YurunaHostId` |
-| `42a1b2c3-d4e5-…` (8-4-4-4-12) | any surface showing an operator a **full** id | `Format-YurunaHostId`, JS `guid` |
-| `42a1b2c3` (first 8) | dense surfaces — dashboard columns, `<hostId8>` in a VM name | JS `Y.shortHost` |
+| `42a1b2c3d4e5...` (32 hex) | every store, join and label | `Get-YurunaHostId` |
+| `42a1b2c3-d4e5-...` (8-4-4-4-12) | any surface showing an operator a **full** id | `Format-YurunaHostId`, JS `guid` |
+| `42a1b2c3` (first 8) | dense surfaces -- dashboard columns, `<hostId8>` in a VM name | JS `Y.shortHost` |
 
 The dashes are not decoration: a lab holds a dozen ids that share the `42`
 prefix, and 32 undifferentiated hex characters cannot be checked against another
@@ -144,7 +149,7 @@ schema, and "fixing" them breaks the contract:
 | `ypool-nas`, `ystash-nas` | external NAS hostnames |
 | `RestartSec`, `OnBootSec`, `OnUnitActiveSec`, `AccuracySec` | systemd unit/timer directives |
 | `-TimeoutSec` as a cmdlet **argument** | PowerShell (`Invoke-WebRequest`); our own parameters are `-TimeoutSeconds` |
-| `New-VM`, `Get-VMIp`, `Remove-VM`, … | the host-contract verbs that mirror Hyper-V (see above) |
+| `New-VM`, `Get-VMIp`, `Remove-VM`, ... | the host-contract verbs that mirror Hyper-V (see above) |
 | `TEST-NET-1/2/3` | RFC 5737 documentation ranges |
 
 Cycle-artifact files under `status/log/` and the entries in the changelog
@@ -157,4 +162,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.16
+Last review: 2026.08.19

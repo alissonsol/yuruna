@@ -2,8 +2,8 @@
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
 // Package store owns the filesystem side of the stash service: path
-// resolution under the StashFolder (§6), per-day file directories,
-// extension extraction (§6.3), and the staging-to-final move/zip step
+// resolution under the StashFolder (section 6), per-day file directories,
+// extension extraction (section 6.3), and the staging-to-final move/zip step
 // invoked by sshsrv after the SCP wire protocol completes.
 package store
 
@@ -32,12 +32,12 @@ type Store struct {
 
 // New returns a Store rooted at the share folder and BEST-EFFORT pre-creates
 // the share-side layout (hostkey/, files/). Pre-creation failure is NOT
-// fatal: at startup the share may be offline/unmounted (§8.4), in which case
+// fatal: at startup the share may be offline/unmounted (section 8.4), in which case
 // folder is the unmounted, root-owned mountpoint and these mkdirs fail with
-// EACCES — the daemon must still come up and buffer locally, creating the
+// EACCES -- the daemon must still come up and buffer locally, creating the
 // share dirs lazily (DayDir / the flush worker) once the share is writable.
-// metadata/ is intentionally NOT created here — the SQLite index lives on the
-// VM's local disk (§6.1, §8).
+// metadata/ is intentionally NOT created here -- the SQLite index lives on the
+// VM's local disk (section 6.1, section 8).
 func New(folder string) (*Store, error) {
 	for _, sub := range []string{config.HostKeyDirName, config.FilesDirName} {
 		_ = os.MkdirAll(filepath.Join(folder, sub), 0o700) // best-effort; see doc
@@ -45,8 +45,8 @@ func New(folder string) (*Store, error) {
 	return &Store{Folder: folder}, nil
 }
 
-// NewFilesOnly returns a Store rooted at folder with only files/ created —
-// used for the VM-local NAS-offline buffer (§8.4), which mirrors the
+// NewFilesOnly returns a Store rooted at folder with only files/ created --
+// used for the VM-local NAS-offline buffer (section 8.4), which mirrors the
 // share's files/yyyy/mm/dd layout (so a flush is a same-relative-path
 // copy) but has no hostkey/ of its own.
 func NewFilesOnly(folder string) (*Store, error) {
@@ -98,8 +98,8 @@ func (s *Store) StagingDir(t time.Time, id string) (string, error) {
 	return dir, nil
 }
 
-// ExtractExtension implements §6.3's extension-extraction rules with
-// the §13 decision (option c: discard the whole extension on any
+// ExtractExtension implements section 6.3's extension-extraction rules with
+// the section 13 decision (option c: discard the whole extension on any
 // disallowed character). Returns the leading-dot extension lowercased,
 // or the empty string when the filename has none / is a dotfile /
 // contains a disallowed char.
@@ -119,7 +119,7 @@ func ExtractExtension(filename string) string {
 	if len(ext) > config.ExtensionMaxLength {
 		ext = ext[:config.ExtensionMaxLength]
 	}
-	// Rule 5: charset check. §13 decision is option (c): discard.
+	// Rule 5: charset check. section 13 decision is option (c): discard.
 	for _, r := range ext {
 		if !isAllowedExtensionRune(r) {
 			return ""
@@ -158,9 +158,9 @@ type FinalizeResult struct {
 //   - Recursive flag set on the SCP command, OR more than one file, OR
 //     any directory entry: zip the whole tree into <id>.yuruna.archive.zip.
 //   - Exactly one file at the root and no directory entry: rename it
-//     to <id>[.ext] (extension extracted from its filename per §6.3).
+//     to <id>[.ext] (extension extracted from its filename per section 6.3).
 //
-// The OriginalFilename returned mirrors §8.1:
+// The OriginalFilename returned mirrors section 8.1:
 //   - Single file: the client-supplied filename, original case.
 //   - Recursive: the top-level directory name received.
 //   - Multi-file: the first filename received (informative for the
@@ -289,7 +289,7 @@ func zipDir(srcDir, dstZip string) error {
 }
 
 // ShareOnline reports whether the share-side StashFolder is backed by a
-// live network mount AND is writable (§8.4). The network-mount check is
+// live network mount AND is writable (section 8.4). The network-mount check is
 // essential: with cifs `nofail`, an unmounted share leaves a writable
 // LOCAL mountpoint dir, so a write probe alone would silently store
 // "on the share" on local disk and lose the data on reimage. Requiring
@@ -300,7 +300,7 @@ func ShareOnline(shareFolder string) bool {
 
 // IsNetworkMount reports whether shareFolder sits on a cifs/smb mount,
 // per /proc/self/mountinfo (Linux). On a non-Linux host or an unreadable
-// mountinfo it returns false (treated as offline → uploads buffer).
+// mountinfo it returns false (treated as offline -> uploads buffer).
 func IsNetworkMount(shareFolder string) bool {
 	data, err := os.ReadFile("/proc/self/mountinfo")
 	if err != nil {
@@ -375,7 +375,7 @@ func probeWritable(dir string) bool {
 }
 
 // DirSize sums the bytes of regular files under root (the buffer-ceiling
-// check, §8.4). A missing root is size 0, not an error.
+// check, section 8.4). A missing root is size 0, not an error.
 func DirSize(root string) (int64, error) {
 	var total int64
 	err := filepath.WalkDir(root, func(_ string, d fs.DirEntry, err error) error {
@@ -400,7 +400,7 @@ func DirSize(root string) (int64, error) {
 
 // AtomicCopyFile copies src to dst via a temp file in dst's directory plus
 // fsync + rename, so a reader (or a crash) never sees a partial artifact
-// on the share. Used by the flush worker (§8.4).
+// on the share. Used by the flush worker (section 8.4).
 func AtomicCopyFile(src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {

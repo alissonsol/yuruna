@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42fa7b6c-d5e4-4a83-9170-2f3a4b5c6d94
+.VERSION 2026.08.19
+.GUID 42961225-d68b-4663-995b-dff524fe4af1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna recovery boot-sweep stale-state

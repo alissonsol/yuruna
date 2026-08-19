@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42d4e5f6-a7b8-4c90-1d23-4e5f6a7b8c91
+.VERSION 2026.08.19
+.GUID 42838215-f18d-437d-93b0-d343742cd5d5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
@@ -76,7 +76,7 @@ function Show-Remediation {
     Write-Output '    pwsh host\windows.hyper-v\<guest>\New-VM.ps1'
     Write-Output ''
     Write-Output 'Make sure the status service is running on the host first:'
-    Write-Output '    pwsh test/Start-StatusService.ps1'
+    Write-Output '    pwsh test/service/Start-StatusService.ps1'
     Write-Output ''
     Write-Output 'Until the rebuild lands, fetch-and-execute.sh will silently fall'
     Write-Output 'back to https://raw.githubusercontent.com/alissonsol/yuruna/... -- i.e.'

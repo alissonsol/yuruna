@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42c1d2e3-f4a5-4678-9012-3c4d5e6f7a8b
+.VERSION 2026.08.19
+.GUID 421a3ad9-47a5-43ef-9657-b42cdf21c528
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS Yuruna.VariableExpansion

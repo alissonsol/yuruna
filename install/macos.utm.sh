@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.16
+# Version: 2026.08.19
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Yuruna macOS UTM bootstrap installer.
@@ -312,9 +312,9 @@ stop_yuruna_processes() {
 
   # (2) Command-line pattern match.
   local -a patterns=(
-    "Invoke-TestRunner.ps1"
+    "Start-TestRunner.ps1"
     "Invoke-TestRunnerInnerLoop.ps1"
-    "Invoke-TestSequence.ps1"
+    "Debug-TestSequence.ps1"
     "Start-StatusService.ps1"
     ".status-service.ps1"
   )
@@ -808,11 +808,11 @@ Next steps (in order):
 
   5. (Optional) Enable this machine as a test host -- disables display sleep,
      auto-logout, and screen lock so VM screen captures stay readable. NOT
-     run automatically; opt in only if this Mac will run Invoke-TestRunner:
+     run automatically; opt in only if this Mac will run Start-TestRunner:
        pwsh $YURUNA_DIR/host/macos.utm/Enable-TestAutomation.ps1
 
   6. Run the test runner:
-       cd $TEST_DIR && pwsh ./Invoke-TestRunner.ps1
+       cd $TEST_DIR && pwsh ./Start-TestRunner.ps1
 
   7. (Optional, one-time) Authenticate the GitHub CLI so 'gh' can act on
      your behalf -- the installer installs the binary, but authentication

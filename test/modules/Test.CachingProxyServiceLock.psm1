@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 424c2b1a-6d93-4e57-b8a0-3c1f9d2e7b64
+.VERSION 2026.08.19
+.GUID 42c6a229-b03a-4ffe-979e-1360be03ef47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna caching-proxy-service lock adopt drain

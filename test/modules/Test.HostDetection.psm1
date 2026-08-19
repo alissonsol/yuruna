@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 42a7b8c9-d0e1-4f23-9456-7e8f9a0b1c20
+.VERSION 2026.08.19
+.GUID 42a15892-c9f1-4438-9c35-d19e6ba7c2cc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test host
@@ -117,7 +117,7 @@ function Invoke-LibvirtGroupReExecIfNeeded {
     /var/run/libvirt/libvirt-sock. `sg libvirt -c "..."` spawns a
     subshell that calls initgroups() fresh -- libvirt is then in the
     effective set, and any pwsh child processes (Start-Process pwsh in
-    Invoke-TestRunner, virt-install in New-VM, etc.) inherit it
+    Start-TestRunner, virt-install in New-VM, etc.) inherit it
     naturally. install/ubuntu.kvm.sh uses the same trick when invoking
     Remove-TestVMFiles.ps1 from the installer; this function brings
     the same recovery to standalone operator invocations of every
@@ -328,7 +328,7 @@ function Assert-Elevation {
     if (-not (Test-ElevationRequired -HostType $HostType)) { return $true }
     $isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]"Administrator")
     if (-not $isAdmin) {
-        Write-Error "host.windows.hyper-v requires elevation. Re-run Invoke-TestRunner.ps1 as Administrator."
+        Write-Error "host.windows.hyper-v requires elevation. Re-run Start-TestRunner.ps1 as Administrator."
         return $false
     }
     return $true

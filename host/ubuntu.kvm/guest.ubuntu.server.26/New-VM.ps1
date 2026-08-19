@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.16
-.GUID 4214c5d6-e7f8-4a91-b234-5c6d7e8f9a03
+.VERSION 2026.08.19
+.GUID 42d0182d-73ed-4bbd-ba70-035faed23f01
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS
@@ -71,7 +71,7 @@ param(
     [string]$Cores = ''
 )
 
-# Honor logLevel from Invoke-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+# Honor logLevel from Start-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
 if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
 
@@ -293,11 +293,25 @@ $seedDir = Join-Path $vmDir 'seed.src'
 New-Item -ItemType Directory -Force -Path $seedDir | Out-Null
 Set-Content -LiteralPath (Join-Path $seedDir 'user-data') -Value $userData -NoNewline
 Set-Content -LiteralPath (Join-Path $seedDir 'meta-data') -Value $metaData -NoNewline
+# --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+# Governs the INSTALLER's own DHCP request, and subiquity carries the network
+# config it installed with into the target -- so the pin is present from the
+# very first lease this guest ever asks for. The late-command in the
+# autoinstall user-data patches the same key into the installed netplan and
+# stays as the belt to this braces; it cannot replace this, because by the time
+# a late-command runs the installer has already taken a lease under the default
+# machine-id identity, and on a long lease that address is spent for a week.
+# Matching en*/eth* mirrors cloud-init's own fallback, so a guest whose
+# interface matches neither is no worse off than with no file here -- the
+# property that makes this safe to apply during an install.
+Copy-Item -LiteralPath (Join-Path $hostVmConfigDir 'guest-dhcp.network-config') `
+    -Destination (Join-Path $seedDir 'network-config') -Force
 
 # --- REGION: Generate cloud-init seed ISO
 # CIDATA volume label is what cloud-init's NoCloud datasource scans for.
 & genisoimage -output $seedImg -volid cidata -joliet -rock `
-    (Join-Path $seedDir 'user-data') (Join-Path $seedDir 'meta-data') 2>&1 | Out-Null
+    (Join-Path $seedDir 'user-data') (Join-Path $seedDir 'meta-data') `
+    (Join-Path $seedDir 'network-config') 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) {
     Write-Error "genisoimage failed (exit $LASTEXITCODE)"
     exit 1

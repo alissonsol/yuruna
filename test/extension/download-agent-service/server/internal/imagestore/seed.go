@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"download-agent-service/internal/config"
-	"download-agent-service/internal/yex/pool"
+	"yuruna.com/test/extension/extension-sdk/pool"
 )
 
 // SeedFamilies are the stable families the auto-seed pass pre-downloads for

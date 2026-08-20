@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.19
+.VERSION 2026.08.20
 .GUID 42f8395b-50cf-4a59-bfc3-49af26e60079
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -126,25 +126,7 @@ if (Get-Command -Name 'setfacl' -ErrorAction SilentlyContinue) {
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.Image.psm1') -Force
 $baseImageFile = (Get-UbuntuExtensionImageInfo -HostType 'ubuntu.kvm').BaseImageFile
 
-# Auto-run Get-Image.ps1 once if the base image is missing; recheck and
-# only error out when it's still missing afterward.
-if (-not (Test-Path -LiteralPath $baseImageFile)) {
-    $getImageScript = Join-Path $PSScriptRoot 'Get-Image.ps1'
-    if (Test-Path -LiteralPath $getImageScript) {
-        Write-Output "Base image missing: $baseImageFile"
-        Write-Output "Auto-running $getImageScript to fetch it..."
-        & pwsh -NoProfile -File $getImageScript
-        $getImageExit = $LASTEXITCODE
-        if ($getImageExit -ne 0) {
-            Write-Error "Auto Get-Image.ps1 exited $getImageExit. Cannot create VM."
-            exit 1
-        }
-    }
-    if (-not (Test-Path -LiteralPath $baseImageFile)) {
-        Write-Error "Base image not found at '$baseImageFile' after auto Get-Image. Run Get-Image.ps1 manually."
-        exit 1
-    }
-}
+if (-not (Assert-YurunaBaseImage -BaseImageFile $baseImageFile -GuestFolder $PSScriptRoot)) { exit 1 }
 
 Write-Output "Creating VM '$VMName' using image: $baseImageFile"
 # Provenance side-channel for operators reading the transcript. Emits
@@ -264,15 +246,10 @@ Import-Module (Join-Path $repoRoot 'host/ubuntu.kvm/modules/Yuruna.Host.psm1') -
 $guestBinding = Resolve-GuestHostBinding
 $networkName  = $guestBinding.NetworkName
 $YurunaHostIp = $guestBinding.HostIp
-$YurunaHostPort = '8080'
-$YurunaTestConfig = Join-Path $repoRoot 'test/test.config.yml'
-$tc = $null
-if (Test-Path $YurunaTestConfig) {
-    try {
-        $tc = Get-Content -Raw $YurunaTestConfig | ConvertFrom-Yaml -Ordered
-        if ($tc.statusService.port) { $YurunaHostPort = "$($tc.statusService.port)" }
-    } catch { Write-Verbose "test.config.yml parse failed: $_" }
-}
+Import-Module (Join-Path $repoRoot 'test/modules/Test.Config.psm1') -Global -Force
+$_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $repoRoot
+$YurunaHostPort = $_statusSeed.Port
+$tc = $_statusSeed.Config
 
 # --- REGION: networkStorage pool (ypool-nas) service replication
 # --- REGION: https://yuruna.link/caching-proxy-service#cache-vm-nas-and-config-service
@@ -590,8 +567,10 @@ if ($LASTEXITCODE -eq 0) {
 }
 
 # --- REGION: https://yuruna.link/caching-proxy-service#cache-vm-sizing
-# 12 GB RAM, 4 vCPU on all three hosts, budgeted around squid's cache_mem;
-# swap is masked, so undersizing is an unrecoverable OOM.
+# RAM comes from the caller, paired with squid's cache_mem by
+# Get-CachingProxyMemoryProfile -- the two are budgeted against each other
+# and swap is masked, so undersizing is an unrecoverable OOM. The default
+# below is the beacon pairing, matched across all three hosts. 4 vCPU.
 # --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
 $hostCores = [int](& nproc --all)
 if ($hostCores -lt 4) {

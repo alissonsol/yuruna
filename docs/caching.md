@@ -59,7 +59,8 @@ Works identically on Windows Hyper-V, macOS UTM, and Ubuntu KVM/libvirt.
 
 ### What it does
 
-Ubuntu Server VM (12 GB RAM with 7 GB `cache_mem`, 4 vCPU, 512 GB disk
+Ubuntu Server VM (8 GB RAM with 3 GB `cache_mem`, 12 GB / 7 GB on a lab
+beacon -- see [Cache VM sizing](#cache-vm-sizing); 4 vCPU, 512 GB disk
 with a 384 GB `cache_dir`) on `:3128`, transparently caching every
 cacheable response (`.deb` packages, ISO metadata, firmware blobs,
 anything fetched over plain HTTP). This is a *dedicated* VM -- the
@@ -1466,21 +1467,43 @@ host-networking impact and rollback recipe.
 
 ### Cache VM sizing
 
-Every host's caching-proxy-service `New-VM.ps1` creates the cache VM with **12 GB
-RAM, 4 vCPU** -- matched explicitly across Hyper-V, macOS UTM, and Ubuntu
-KVM so a cache rebuilt on any host has the same headroom.
+The cache VM is built with **8 GB RAM, 4 vCPU** by default, and with **12 GB**
+on a lab beacon (`Start-CachingProxyServiceVM.ps1 -Lab`, which `setup.ps1`
+passes for a `lab` setup type). The sizes are matched explicitly across
+Hyper-V, macOS UTM, and Ubuntu KVM, so a cache rebuilt on any host has the
+same headroom.
+
+The default is the smaller pairing because the ordinary host runs this VM
+beside the stash, the download agent and its own test guests, and every
+gigabyte here is one those guests cannot have. A beacon's cache answers every
+machine in the pool, so its hot set is worth more of the host. Being wrong in
+the beacon direction costs the guests under test their memory; being wrong in
+the other direction only shrinks the in-RAM hot set, and the on-disk
+`cache_dir` is untouched, so a memory miss still lands on local disk instead
+of the network.
+
+RAM and `cache_mem` are one inseparable pair, resolved together by
+`Get-CachingProxyMemoryProfile` and passed to the builder together. Swap is
+masked in the guest, so an over-subscribed `cache_mem` is an unrecoverable OOM
+rather than a slowdown -- moving one without the other is the failure this
+pairing exists to prevent.
 
 This is a DEDICATED cache VM (squid and the zot OCI pull-through registry
 are its only top-priority workloads), so the memory budget is sized around
 those two rather than the other way around. Per the
-`host/vmconfig/caching-proxy-service.base.user-data` tuning, squid's `cache_mem` is
-**7 GB** (58 % of the VM's 12 GB), leaving 2 GB for zot -- which handles the
-Docker Hub manifest HEADs squid cannot. Empirically squid's RSS runs ~1 GB
-above `cache_mem` (sslcrtd children + connection buffers + in-RAM hot
-objects), so 7 GB implies ~8 GB squid RSS; zot peaks at ~500 MB during heavy
-parallel pulls. That leaves ~2 GB for the rest of the stack (apache, grafana,
-prometheus, loki, promtail, squid-exporter, caching-proxy-parser-service, kernel,
-page cache).
+`host/vmconfig/caching-proxy-service.base.user-data` tuning, squid's `cache_mem`
+is **3 GB** by default and **7 GB** on a beacon. Empirically squid's RSS runs
+~1 GB above `cache_mem` (sslcrtd children + connection buffers + in-RAM hot
+objects), so those imply ~4 GB and ~8 GB of squid RSS respectively.
+
+What the two pairings hold constant is the headroom above that resident set,
+not a proportion of the VM: both leave **4 GB** -- 2 GB for zot, which handles
+the Docker Hub manifest HEADs squid cannot and peaks at ~500 MB during heavy
+parallel pulls, and ~2 GB for the rest of the stack (apache, grafana,
+prometheus, loki, promtail, squid-exporter, caching-proxy-parser-service,
+kernel, page cache). 3 GB in 8 GB and 7 GB in 12 GB are 37 % and 58 % of their
+VMs, so a third pairing has to satisfy the headroom arithmetic rather than
+carry a percentage across.
 
 4 vCPU stays -- caching is I/O- and memory-bound, not CPU-bound; raising
 the vCPU count without raising RAM wouldn't help. Swap is masked in
@@ -2109,6 +2132,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.19
+Last review: 2026.08.20
 
 Back to [Yuruna](../README.md)

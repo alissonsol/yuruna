@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.19
+.VERSION 2026.08.20
 .GUID 42801635-2de0-4574-8b48-dbac5d2347c2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1070,13 +1070,12 @@ function Write-SetupMemoryHeadroom {
         $planned = @(foreach ($key in $keys) {
             $mb = Get-ServiceVmMemoryMb -RepoRoot $RepoRoot -HostFolder $HostFolderName -Key $key
             # The cache VM is the one service whose size this run chooses rather
-            # than inherits: a standalone host carries it beside the stash and
-            # its test guests, so it is built from the smaller profile. Reading
-            # the builder's default here instead would warn about memory the run
-            # is not going to spend, which is the fastest way to teach an
-            # operator to ignore this warning.
-            if ($key -eq 'caching-proxy' -and -not $Lab) {
-                $mb = (Get-CachingProxyMemoryProfile -Standalone).VmMemoryMb
+            # than inherits, so the profile it will be built from is what the
+            # forecast has to read. Taking the builder's default here instead
+            # would warn about memory the run is not going to spend, which is
+            # the fastest way to teach an operator to ignore this warning.
+            if ($key -eq 'caching-proxy') {
+                $mb = (Get-CachingProxyMemoryProfile -Lab:$Lab).VmMemoryMb
             }
             [pscustomobject]@{ Name = $key; MemoryMb = $mb }
         })
@@ -2411,7 +2410,7 @@ if ($IsWindows) {
                 Write-SetupLogLine -Level 'NOTE' -Message 'the elevated run''s record is the block above, in this same file'
                 Exit-Setup ([int]$proc.ExitCode)
             } catch {
-                Write-SetupError "Could not relaunch elevated ($($_.Exception.Message)). Start an Administrator PowerShell and run: pwsh $PSCommandPath"
+                Write-SetupError "Could not relaunch elevated ($($_.Exception.Message)). This account may not be a local administrator; add it from one that is, sign back in, and re-run: pwsh $PSCommandPath"
                 Exit-Setup 1
             }
         }
@@ -3183,12 +3182,13 @@ Invoke-ServiceVMEnsure -Service 'caching-proxy service' -RosterKey 'caching-prox
     -StopScript 'Stop-CachingProxyServiceVM.ps1' -StartScript 'Start-CachingProxyServiceVM.ps1' `
     -StartArguments @(
         if ($Script:Rebuild) { '-ForceRebuild' }
-        # A standalone host runs the cache beside the stash and the download
-        # agent, so it gets the smaller cache profile. Derived from the setup
-        # type rather than remembered, so a rebuild on a machine that later
-        # became a lab beacon resizes with it instead of keeping whatever the
-        # first run happened to choose.
-        if (-not $isLab) { '-Standalone' }
+        # A beacon's cache answers the whole pool, so it gets the larger cache
+        # profile; every other host builds the default, sized to leave its own
+        # test guests their memory. Derived from the setup type rather than
+        # remembered, so a rebuild on a machine that later became a lab beacon
+        # resizes with it instead of keeping whatever the first run happened to
+        # choose.
+        if ($isLab) { '-Lab' }
     )
 if (-not $WhatIfPreference) {
     Import-SetupModule (Join-Path $TestRoot 'modules/Test.CachingProxyService.psm1')

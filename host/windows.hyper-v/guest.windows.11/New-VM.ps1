@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.19
+.VERSION 2026.08.20
 .GUID 427027e4-02aa-49bd-8f50-95db47263320
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -70,23 +70,8 @@ if (!(Test-Path -Path $downloadDir)) {
 # below surfaces the actionable next step.
 $baseImageName = "host.windows.hyper-v.guest.windows.11"
 $baseImageFile = Join-Path $downloadDir "$baseImageName.iso"
-if (!(Test-Path -Path $baseImageFile)) {
-    $getImageScript = Join-Path $PSScriptRoot 'Get-Image.ps1'
-    if (Test-Path -LiteralPath $getImageScript) {
-        Write-Output "Base image missing: $baseImageFile"
-        Write-Output "Auto-running $getImageScript to fetch it..."
-        & pwsh -NoProfile -File $getImageScript
-        $getImageExit = $LASTEXITCODE
-        if ($getImageExit -ne 0) {
-            Write-Error "Auto Get-Image.ps1 exited $getImageExit. Cannot create VM."
-            exit 1
-        }
-    }
-    if (!(Test-Path -Path $baseImageFile)) {
-        Write-Error "Base image not found at '$baseImageFile' after auto Get-Image. Run Get-Image.ps1 manually and follow its instructions."
-        exit 1
-    }
-}
+Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.Image.psm1') -Force
+if (-not (Assert-YurunaBaseImage -BaseImageFile $baseImageFile -GuestFolder $PSScriptRoot -ManualHint 'Run Get-Image.ps1 manually and follow its instructions.')) { exit 1 }
 
 Write-Verbose "Creating VM '$VMName' using image: $baseImageFile"
 # Provenance side-channel for operators reading the transcript. Emits
@@ -193,14 +178,8 @@ $YurunaHostIp = Get-GuestReachableHostIp -SwitchName $switchName
 if (-not $YurunaHostIp) { $YurunaHostIp = '' }
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Config.psm1') -Global -Force
 Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
-$YurunaHostPort = '8080'
-$YurunaTestConfig = Join-Path $repoRoot 'test/test.config.yml'
-if (Test-Path -LiteralPath $YurunaTestConfig) {
-    try {
-        $tc = Read-TestConfig -Path $YurunaTestConfig
-        if ($tc -and $tc.statusService -and $tc.statusService.port) { $YurunaHostPort = "$($tc.statusService.port)" }
-    } catch { Write-Verbose "test.config.yml read: $($_.Exception.Message)" }
-}
+$_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $repoRoot
+$YurunaHostPort = $_statusSeed.Port
 $YurunaHostId = ''
 if ($env:YURUNA_RUNTIME_DIR) {
     $uuidPath = Join-Path $env:YURUNA_RUNTIME_DIR 'host.uuid'

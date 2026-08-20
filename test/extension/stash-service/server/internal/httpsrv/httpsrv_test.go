@@ -24,7 +24,7 @@ import (
 	"stash-service/internal/meta"
 	"stash-service/internal/sshsrv"
 	"stash-service/internal/store"
-	"stash-service/internal/yex/labgate"
+	"yuruna.com/test/extension/extension-sdk/labgate"
 )
 
 const testHostID = "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 32 hex, hostId-shaped

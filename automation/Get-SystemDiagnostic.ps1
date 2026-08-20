@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.19
+.VERSION 2026.08.20
 .GUID 420783b4-e34a-4b51-b88e-e01fa3738a91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -964,7 +964,13 @@ try {
         # One df snapshot serves both the rendered table and the >=90%-full
         # parse: invoking df twice would compare a figure the reader never sees
         # against a table from a different, non-atomic snapshot.
-        $dfArgs = if ($IsMacOS) { @('-Pl') } else { @('-Pl','-x','tmpfs','-x','devtmpfs','-x','squashfs','-x','overlay') }
+        # A single-element array falls out of an if-expression as a bare
+        # String, and splatting a String enumerates its characters: the macOS
+        # branch would invoke `df - P l` and collect three "No such file or
+        # directory" lines instead of a table, taking the >=90%-full parse
+        # below down with it silently. The cast holds the one-element branch
+        # to an array so both branches splat as arguments.
+        [string[]]$dfArgs = if ($IsMacOS) { @('-Pl') } else { @('-Pl','-x','tmpfs','-x','devtmpfs','-x','squashfs','-x','overlay') }
         $dfBin = if ($IsMacOS) { '/bin/df' } else { 'df' }
         $dfOut = @(& $dfBin @dfArgs 2>$null | ForEach-Object { $_.ToString() })
         $dfOut | ForEach-Object { Write-Output $_ }

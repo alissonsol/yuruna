@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.19
+.VERSION 2026.08.20
 .GUID 4242f187-1ce6-46a5-a5a4-7c2435ed1ac1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -119,25 +119,7 @@ Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScript
 $downloadDir = (Get-VMHost).VirtualHardDiskPath
 $baseImageFile = (Get-UbuntuExtensionImageInfo -HostType 'windows.hyper-v').BaseImageFile
 
-# Auto-run Get-Image.ps1 once if the base image is missing; recheck and
-# only error out when it's still missing afterward.
-if (!(Test-Path -Path $baseImageFile)) {
-    $getImageScript = Join-Path $PSScriptRoot 'Get-Image.ps1'
-    if (Test-Path -LiteralPath $getImageScript) {
-        Write-Output "Base image missing: $baseImageFile"
-        Write-Output "Auto-running $getImageScript to fetch it..."
-        & pwsh -NoProfile -File $getImageScript
-        $getImageExit = $LASTEXITCODE
-        if ($getImageExit -ne 0) {
-            Write-Error "Auto Get-Image.ps1 exited $getImageExit. Cannot create VM."
-            exit 1
-        }
-    }
-    if (!(Test-Path -Path $baseImageFile)) {
-        Write-Error "Base image not found at '$baseImageFile' after auto Get-Image. Run Get-Image.ps1 manually."
-        exit 1
-    }
-}
+if (-not (Assert-YurunaBaseImage -BaseImageFile $baseImageFile -GuestFolder $PSScriptRoot)) { exit 1 }
 
 # --- REGION: Remove existing VM
 # Runs AFTER the base image is confirmed so a failed image fetch never
@@ -268,15 +250,10 @@ if (-not $switchName) {
 # Hyper-V: the host IP comes from the vSwitch picked above (Get-GuestReachableHostIp -SwitchName); empty -> github fallback.
 $YurunaHostIp = Get-GuestReachableHostIp -SwitchName $switchName
 if (-not $YurunaHostIp) { $YurunaHostIp = '' }
-$YurunaHostPort = '8080'
-$YurunaTestConfig = Join-Path $_repoRootForExt 'test/test.config.yml'
-$tc = $null
-if (Test-Path $YurunaTestConfig) {
-    try {
-        $tc = Get-Content -Raw $YurunaTestConfig | ConvertFrom-Yaml -Ordered
-        if ($tc.statusService.port) { $YurunaHostPort = "$($tc.statusService.port)" }
-    } catch { Write-Verbose "test.config.yml parse failed: $_" }
-}
+Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.Config.psm1') -Global -Force
+$_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $_repoRootForExt
+$YurunaHostPort = $_statusSeed.Port
+$tc = $_statusSeed.Config
 
 # --- REGION: networkStorage pool (ypool-nas) service replication
 # --- REGION: https://yuruna.link/caching-proxy-service#cache-vm-nas-and-config-service
@@ -494,8 +471,10 @@ Write-Output ""
 
 # --- REGION: Create and configure the Hyper-V VM
 # --- REGION: https://yuruna.link/caching-proxy-service#cache-vm-sizing
-# 12 GB RAM, 4 vCPU on all three hosts, budgeted around squid's cache_mem;
-# swap is masked, so undersizing is an unrecoverable OOM.
+# RAM comes from the caller, paired with squid's cache_mem by
+# Get-CachingProxyMemoryProfile -- the two are budgeted against each other
+# and swap is masked, so undersizing is an unrecoverable OOM. The default
+# below is the beacon pairing, matched across all three hosts. 4 vCPU.
 Write-Output "Creating new VM '$VMName' on switch '$switchName'..."
 Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes ($MemoryMb * 1MB) -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.19
+# Version: 2026.08.20
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Yuruna macOS UTM bootstrap installer.
@@ -59,6 +59,30 @@ fi
 # --- REGION: Preflight: macOS only
 [[ "$(uname -s)" == "Darwin" ]] || die "This installer only supports macOS."
 [[ $EUID -ne 0 ]] || die "Do not run as root. The script will call sudo when needed."
+
+# --- REGION: Preflight: this account can elevate
+# Everything below eventually needs root, and the sudo prompt is 70 lines on,
+# past the requirements gate and its question. An account that cannot elevate
+# otherwise answers all of that, types a password, and is then refused with no
+# message at all -- the EXIT trap that reports a failure is not installed yet at
+# that point. macOS grants root through the 'admin' group, so ask the group list
+# and read an EXIT CODE: sudo's refusal wording differs between the C sudo and
+# the Rust rewrite, and a message matcher silently stops matching.
+# The group list is read WITHOUT a username argument on purpose. With one, id
+# queries the name service and reports the on-disk grant; sudo authorizes
+# against the group token this session was started with, so the bare form is the
+# one that agrees with what sudo will actually do here.
+_yuruna_whoami="${USER:-$(id -un)}"
+if ! sudo -n -v 2>/dev/null && ! id -Gn | tr ' ' '\n' | grep -qx admin; then
+  die "$_yuruna_whoami cannot elevate: this session is not in the 'admin' group, so sudo will refuse and the installer cannot continue.
+
+   From an account that IS an administrator, run:
+       sudo dseditgroup -o edit -a $_yuruna_whoami -t user admin
+
+   Then sign $_yuruna_whoami out and back in -- the group list is fixed when a
+   session starts, so an already-open one stays refused -- and start the
+   installer again."
+fi
 
 # --- REGION: Preflight: Apple Silicon required (HARD gate)
 # Architecture is a hard incompatibility, not a tunable performance baseline:
@@ -132,7 +156,7 @@ cat <<'SUDO_NOTICE'
   +---------------------------------------------------------------+
 
 SUDO_NOTICE
-sudo -v
+sudo -v || die "sudo did not authorize this run; the installer needs root for the Homebrew install and the cask post-install scripts."
 export YURUNA_SUDO_PRIMED=1
 ( while true; do sudo -n true 2>/dev/null || true; sleep 30; kill -0 "$$" 2>/dev/null || exit; done ) &
 SUDO_KEEPALIVE_PID=$!

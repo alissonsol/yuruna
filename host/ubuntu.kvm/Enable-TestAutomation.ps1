@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.19
+.VERSION 2026.08.20
 .GUID 4202d0ff-c419-4c17-bf82-ec1f841f72c7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -375,8 +375,8 @@ Invoke-Step -Description "Allow inbound TCP :$statusPort (status service) throug
 # whatever that guest is bringing up. On a Kubernetes guest that leaves
 # pods Running but never Ready and every NodePort refusing, with nothing
 # in the picture pointing back at a clock. The Windows and macOS paths do
-# this inside their Set-*HostConditionSet; this host's setup script does
-# not route through Set-LinuxHostConditionSet, so the same call lands here.
+# this inside their Set-*HostConditionSet; this host has no equivalent, so
+# the same call lands here.
 Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostCondition.psm1') -Force -DisableNameChecking
 Invoke-Step -Description 'Put the host clock under NTP discipline (timedatectl set-ntp true)' -Action {
     $clockResult = Sync-LinuxHostClock

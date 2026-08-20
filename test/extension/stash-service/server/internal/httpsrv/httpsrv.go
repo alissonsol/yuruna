@@ -24,10 +24,10 @@ import (
 	"stash-service/internal/meta"
 	"stash-service/internal/sshsrv"
 	"stash-service/internal/store"
-	"stash-service/internal/yex/labgate"
+	"yuruna.com/test/extension/extension-sdk/labgate"
 	// Aliased: this package already calls the ARTIFACT index "pool", and the two
 	// meanings must not read as one.
-	poolapi "stash-service/internal/yex/pool"
+	poolapi "yuruna.com/test/extension/extension-sdk/pool"
 )
 
 // hostResolutionTTL bounds how long one pool snapshot backs the hostId->stash-UI

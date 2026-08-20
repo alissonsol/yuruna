@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"pool-control-service/internal/intent"
-	"pool-control-service/internal/yex/labgate"
+	"yuruna.com/test/extension/extension-sdk/labgate"
 )
 
 // The board's server side. The properties worth defending are the ones a wrong

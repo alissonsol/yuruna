@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.19
+.VERSION 2026.08.20
 .GUID 4210ad59-ce3d-4890-bc1a-eb6a22a42087
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -74,26 +74,8 @@ $downloadDir   = "$HOME/yuruna/image/windows.11"
 $baseImageName = "host.ubuntu.kvm.guest.windows.11"
 $winIso    = Join-Path $downloadDir "$baseImageName.iso"
 $virtioIso = Join-Path $downloadDir 'virtio-win.iso'
-$requiredImages = @($winIso, $virtioIso)
-$missingImages  = @($requiredImages | Where-Object { -not (Test-Path -LiteralPath $_) })
-if ($missingImages.Count -gt 0) {
-    $getImageScript = Join-Path $ScriptDir 'Get-Image.ps1'
-    if (Test-Path -LiteralPath $getImageScript) {
-        Write-Output "Required image(s) missing: $($missingImages -join ', ')"
-        Write-Output "Auto-running $getImageScript to fetch them..."
-        & pwsh -NoProfile -File $getImageScript
-        $getImageExit = $LASTEXITCODE
-        if ($getImageExit -ne 0) {
-            Write-Error "Auto Get-Image.ps1 exited $getImageExit. Cannot create VM."
-            exit 1
-        }
-        $missingImages = @($requiredImages | Where-Object { -not (Test-Path -LiteralPath $_) })
-    }
-    if ($missingImages.Count -gt 0) {
-        Write-Error "Missing required image(s) after auto Get-Image: $($missingImages -join ', '). Run Get-Image.ps1 manually and follow its instructions."
-        exit 1
-    }
-}
+Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $ScriptDir)) 'modules/Yuruna.Image.psm1') -Force
+if (-not (Assert-YurunaBaseImage -BaseImageFile @($winIso, $virtioIso) -GuestFolder $ScriptDir -ArtifactLabel 'Required image(s)' -ManualHint 'Run Get-Image.ps1 manually and follow its instructions.')) { exit 1 }
 
 Write-Verbose "Creating VM '$VMName' using image: $winIso"
 # Provenance side-channel for operators reading the transcript. Emits
@@ -134,14 +116,8 @@ Import-Module (Join-Path $_kvmRepoRoot 'test/modules/Test.Config.psm1') -Global 
 Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
 $YurunaHostIp = Get-GuestReachableHostIp
 if (-not $YurunaHostIp) { $YurunaHostIp = '' }
-$YurunaHostPort = '8080'
-$_kvmTestConfig = Join-Path $_kvmRepoRoot 'test/test.config.yml'
-if (Test-Path -LiteralPath $_kvmTestConfig) {
-    try {
-        $_kvmTc = Read-TestConfig -Path $_kvmTestConfig
-        if ($_kvmTc -and $_kvmTc.statusService -and $_kvmTc.statusService.port) { $YurunaHostPort = "$($_kvmTc.statusService.port)" }
-    } catch { Write-Verbose "test.config.yml read: $($_.Exception.Message)" }
-}
+$_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $_kvmRepoRoot
+$YurunaHostPort = $_statusSeed.Port
 $_kvmBootstrapB64 = New-WindowsGuestBootstrap -RepoRoot $_kvmRepoRoot `
     -StatusServiceIp $YurunaHostIp -StatusServicePort $YurunaHostPort `
     -GhToken (Get-YurunaGitHubSource -RepoRoot $_kvmRepoRoot).Token

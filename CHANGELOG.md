@@ -4,6 +4,11 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.08.20
+
+- **Fix executable attributes.** Eliminates the need to manually run
+  `chmod` on scripts.
+
 ## 2026.08.19
 
 - **Guests keep their address across a rebuild.** A guest's MAC now comes from
@@ -438,6 +443,6 @@ LICENSEURI <https://yuruna.link/license>
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.19
+Last review: 2026.08.20
 
 Back to [Yuruna](README.md)

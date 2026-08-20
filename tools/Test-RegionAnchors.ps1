@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.19
+.VERSION 2026.08.20
 .GUID 427a25a9-d3c8-4ce6-b877-b396666875b0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -162,7 +162,7 @@ foreach ($rel in $tracked) {
     # preserve anchor names as they were at the time -- both would report
     # states this gate is not meant to police.
     if ($rel -like 'test/status/*') { continue }
-    if ($rel -like 'dev-only/review.history/*' -or $rel -like 'dev-only/simplification/*') { continue }
+    if ($rel -like 'dev-only/review.history/*') { continue }
     if (-not ($roots | Where-Object { $full.StartsWith($_, [StringComparison]::Ordinal) })) { continue }
 
     $bytes = [System.IO.File]::ReadAllBytes($full)

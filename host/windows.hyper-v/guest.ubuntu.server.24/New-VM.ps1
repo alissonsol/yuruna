@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.19
+.VERSION 2026.08.20
 .GUID 42303d37-2208-46b9-ad37-c8c5638af258
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -115,23 +115,8 @@ if (!(Test-Path -Path $downloadDir)) {
 # only error out when it's still missing afterward.
 $baseImageName = "host.windows.hyper-v.guest.ubuntu.server.24"
 $baseImageFile = Join-Path $downloadDir "$baseImageName.iso"
-if (!(Test-Path -Path $baseImageFile)) {
-    $getImageScript = Join-Path $PSScriptRoot 'Get-Image.ps1'
-    if (Test-Path -LiteralPath $getImageScript) {
-        Write-Output "Base image missing: $baseImageFile"
-        Write-Output "Auto-running $getImageScript to fetch it..."
-        & pwsh -NoProfile -File $getImageScript
-        $getImageExit = $LASTEXITCODE
-        if ($getImageExit -ne 0) {
-            Write-Error "Auto Get-Image.ps1 exited $getImageExit. Cannot create VM."
-            exit 1
-        }
-    }
-    if (!(Test-Path -Path $baseImageFile)) {
-        Write-Error "Base image not found at '$baseImageFile' after auto Get-Image. Run Get-Image.ps1 manually."
-        exit 1
-    }
-}
+Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.Image.psm1') -Force
+if (-not (Assert-YurunaBaseImage -BaseImageFile $baseImageFile -GuestFolder $PSScriptRoot)) { exit 1 }
 
 # Resolve the autoinstall password from the per-cycle authentication
 # vault. Get-Password returns the stored value if present, else
@@ -366,13 +351,8 @@ if (-not $switchName) {
 $YurunaHostIp = Get-GuestReachableHostIp -SwitchName $switchName
 if (-not $YurunaHostIp) { $YurunaHostIp = '' }
 Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.Config.psm1') -Global -Force
-$YurunaHostPort = '8080'
-$YurunaTestConfig = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/test.config.yml'
-$tc = $null
-if (Test-Path -LiteralPath $YurunaTestConfig) {
-    try { $tc = Read-TestConfig -Path $YurunaTestConfig } catch { Write-Verbose "test.config.yml read: $($_.Exception.Message)" }
-    if ($tc -and $tc.statusService -and $tc.statusService.port) { $YurunaHostPort = "$($tc.statusService.port)" }
-}
+$_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)))
+$YurunaHostPort = $_statusSeed.Port
 
 # --- REGION: Fetch caching-proxy-service CA cert (base64-embedded in seed)
 # --- REGION: https://yuruna.link/network#caching-proxy-service-ca-cert-rc60-gate

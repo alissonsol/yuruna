@@ -17,7 +17,7 @@ import (
 
 	"download-agent-service/internal/imagestore"
 	"download-agent-service/internal/state"
-	"download-agent-service/internal/yex/labgate"
+	"yuruna.com/test/extension/extension-sdk/labgate"
 )
 
 // ImageAPI is the pool surface the handlers call; imagestore.Agent satisfies it

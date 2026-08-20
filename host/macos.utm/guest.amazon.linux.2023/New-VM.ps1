@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.19
+.VERSION 2026.08.20
 .GUID 42f81a2e-d65b-4d01-a8b1-3eb5638207d8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,23 +54,8 @@ $downloadDir = "$HOME/yuruna/image/amazon.linux.2023"
 # only error out when it's still missing afterward.
 $baseImageName = "host.macos.utm.guest.amazon.linux.2023"
 $baseImageFile = Join-Path $downloadDir "$baseImageName.qcow2"
-if (-not (Test-Path $baseImageFile)) {
-    $getImageScript = Join-Path $PSScriptRoot 'Get-Image.ps1'
-    if (Test-Path -LiteralPath $getImageScript) {
-        Write-Output "Base image missing: $baseImageFile"
-        Write-Output "Auto-running $getImageScript to fetch it..."
-        & pwsh -NoProfile -File $getImageScript
-        $getImageExit = $LASTEXITCODE
-        if ($getImageExit -ne 0) {
-            Write-Error "Auto Get-Image.ps1 exited $getImageExit. Cannot create VM."
-            exit 1
-        }
-    }
-    if (-not (Test-Path $baseImageFile)) {
-        Write-Error "Base image not found at '$baseImageFile' after auto Get-Image. Run Get-Image.ps1 manually."
-        exit 1
-    }
-}
+Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.Image.psm1') -Force
+if (-not (Assert-YurunaBaseImage -BaseImageFile $baseImageFile -GuestFolder $PSScriptRoot)) { exit 1 }
 
 Write-Verbose "Creating VM '$VMName' using image: $baseImageFile"
 # Provenance side-channel for operators reading the transcript. Emits
@@ -150,14 +135,9 @@ Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentica
 Import-Module (Join-Path (Split-Path -Parent $ScriptDir) "modules/Yuruna.Host.psm1") -Force
 Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
 $YurunaHostIp = Get-GuestReachableHostIp
-$YurunaHostPort = '8080'
-$YurunaTestConfig = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) 'test/test.config.yml'
-if (Test-Path $YurunaTestConfig) {
-    try {
-        $tc = Get-Content -Raw $YurunaTestConfig | ConvertFrom-Yaml -Ordered
-        if ($tc.statusService.port) { $YurunaHostPort = "$($tc.statusService.port)" }
-    } catch { Write-Verbose "test.config.yml parse failed: $_" }
-}
+Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) 'test/modules/Test.Config.psm1') -Global -Force
+$_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir)))
+$YurunaHostPort = $_statusSeed.Port
 
 # New-CloudInitUserData merges base+overlay, auto-bakes yuruna-retry.sh /
 # fetch-and-execute.sh / yuruna-network.sh from $repoRoot/automation/ as base64

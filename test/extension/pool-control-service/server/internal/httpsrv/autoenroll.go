@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"pool-control-service/internal/yex/pool"
+	"yuruna.com/test/extension/extension-sdk/pool"
 )
 
 // The auto-enrollment sweep: a host that has enrolled its lab token, and is in no

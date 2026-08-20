@@ -22,7 +22,7 @@ import (
 	"time"
 
 	"download-agent-service/internal/config"
-	"download-agent-service/internal/yex/pool"
+	"yuruna.com/test/extension/extension-sdk/pool"
 )
 
 // Entry states surfaced to the UI and to ensure clients.

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.19
+.VERSION 2026.08.20
 .GUID 4292f906-bf44-485f-9134-f35f5dced880
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -866,8 +866,98 @@ function Write-DisableManualStep {
     foreach ($c in $Command) { Write-Output "      $c" }
 }
 
+function Stop-YurunaServiceVMSet {
+<#
+.SYNOPSIS
+    Stop the four extension-service VMs, reporting each into the caller's
+    restored/skipped lists.
+.DESCRIPTION
+    Every host's Disable-TestAutomation.ps1 stops the same four service VMs
+    the same way, and the roster is the part that drifts: a service added to
+    the pool has to be added to three copies of this loop or it silently keeps
+    running after a teardown the operator believes finished.
+
+    A missing Stop script is reported as skipped rather than thrown. Teardown
+    runs on hosts in unknown states, and a host that never provisioned one of
+    these services must still be able to disable the rest.
+.PARAMETER Cmdlet
+    The CALLING SCRIPT's $PSCmdlet, so -WhatIf previews the stops instead of
+    performing them.
+.PARAMETER Restored
+    List collecting what was stopped, for the closing report.
+.PARAMETER Skipped
+    List collecting what could not be stopped, for the same report.
+#>
+    # SupportsShouldProcess here would add a second, independent gate that the
+    # operator's -WhatIf does not reach.
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSShouldProcess', '',
+        Justification = 'ShouldProcess is invoked on the caller-supplied $PSCmdlet so -WhatIf belongs to the invoked script.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'The stop is gated by the caller-supplied $PSCmdlet; a local ShouldProcess would gate it twice.')]
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)]$Cmdlet,
+        # AllowEmptyCollection: both lists are empty on the first call, and a
+        # Mandatory collection parameter rejects an empty one -- which would
+        # throw partway through a teardown rather than at its start.
+        [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Generic.List[string]]$Restored,
+        [Parameter(Mandatory)][AllowEmptyCollection()][System.Collections.Generic.List[string]]$Skipped
+    )
+    foreach ($svc in @('CachingProxyService', 'StashService', 'PoolControlService', 'DownloadAgentService')) {
+        $relative = "test/service/Stop-${svc}VM.ps1"
+        $script   = Join-Path $RepoRoot $relative
+        if (-not (Test-Path -LiteralPath $script)) { $Skipped.Add("$relative not found"); continue }
+        if ($Cmdlet.ShouldProcess("$svc VM", 'Stop')) {
+            & pwsh -NoProfile -File $script
+            $Restored.Add("$svc VM stopped")
+        }
+    }
+}
+
+function Write-DisableCommonEpilogue {
+<#
+.SYNOPSIS
+    Close the Disable report with the parts that are the same on every host:
+    the vault, the service VMs, and where the capture was left.
+.DESCRIPTION
+    These trail every platform's own manual-step list, and being identical is
+    the point -- an operator who tears down a mixed pool should not have to
+    notice that one host mentioned the vault and another did not.
+
+    Nothing here removes the vault, and that is stated plainly rather than
+    offered as a switch: a flag that only silenced the line would advertise a
+    removal that never happened.
+.PARAMETER StateCaptured
+    Whether a pre-automation capture was read. The capture note is worth
+    printing only when there is one to keep.
+.PARAMETER StopServices
+    Whether the caller was asked to stop the service VMs. When it was not, the
+    VMs are still running and the operator is told how to ask.
+#>
+    [CmdletBinding()]
+    param(
+        [bool]$StateCaptured,
+        [bool]$StopServices
+    )
+    Write-DisableManualStep -What 'The Yuruna credential vault -- it holds credentials that are painful to recreate, so it is never removed automatically' -Command @(
+        'Get-SecretVault                     # find the Yuruna vault',
+        'Unregister-SecretVault -Name <name> # then delete its store on disk'
+    )
+    if (-not $StopServices) {
+        Write-DisableManualStep -What 'The caching-proxy / stash / pool-control / download-agent VMs (re-run with -StopServices to stop them)'
+    }
+
+    $capturePath = Get-HostAutomationStatePath
+    if ($StateCaptured -and (Test-Path -LiteralPath $capturePath)) {
+        Write-Output ''
+        Write-Output "The capture is kept at $capturePath so this can be re-run; delete it once the host is where you want it."
+    }
+}
+
 Export-ModuleMember -Function Get-HostAutomationStatePath, Get-HostAutomationStateSchemaVersion,
     Test-HostRestorePreviewOnly, Read-HostAutomationState, Save-HostAutomationState,
     Get-LinuxPreAutomationState, Get-MacPreAutomationState, Get-WindowsPreAutomationState,
     Get-HostAutomationKnob, Assert-SafeToDisable, Write-DisableManualStep,
-    Invoke-HostKnobRestore, Write-DisableReport, Get-PoolStorageManualTeardown
+    Invoke-HostKnobRestore, Write-DisableReport, Get-PoolStorageManualTeardown,
+    Stop-YurunaServiceVMSet, Write-DisableCommonEpilogue

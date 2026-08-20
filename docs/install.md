@@ -90,7 +90,7 @@ would stall waiting for GitHub credentials this run doesn't have.
 
 ### Release pinning + signed integrity
 
-`VERSION` (bare CalVer, e.g. `2026.08.19`) is the source of truth for releases.
+`VERSION` (bare CalVer, e.g. `2026.08.20`) is the source of truth for releases.
 At release time `tools/Update-YurunaReleasePins.ps1` regenerates
 `install/install.sha256`, signs it (`install/install.sha256.sig`, RSA-4096),
 runs the ASCII/no-BOM gate as a hard precondition, and bumps the one tag still
@@ -954,6 +954,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.19
+Last review: 2026.08.20
 
 Back to [Yuruna](../README.md)

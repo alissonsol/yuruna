@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.19
+.VERSION 2026.08.20
 .GUID 42c1e552-e3c2-4c54-b73a-ac2577a100fc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -448,4 +448,59 @@ function Resolve-CleanupVmNamePrefix {
     return $ordered.ToArray()
 }
 
-Export-ModuleMember -Function Read-TestConfig, Clear-TestConfigCache, Get-TestConfigValue, Get-TestConfigSnapshotPath, Publish-TestConfigSnapshot, Read-TestConfigOrSnapshot, Get-TestConfigFreshnessTriple, Resolve-CleanupVmNamePrefix
+function Get-YurunaStatusServiceSeed {
+    <#
+    .SYNOPSIS
+        Status-service port for a guest seed, plus the parsed config the
+        caller almost always needs next.
+    .DESCRIPTION
+        Every New-VM.ps1 bakes the host status-service address into its guest
+        seed, and every one of them resolved the port the same way: default to
+        8080, read test/test.config.yml, take statusService.port if it is
+        there. The copies drifted along four axes -- which variable held the
+        result, which held the path, whether the existence test honoured
+        -LiteralPath, and, the one that mattered, whether the file was read
+        through Read-TestConfig or parsed raw. The raw readers bypassed the
+        mtime-and-hash cache and re-parsed the file on every build.
+
+        Config is returned alongside Port because the caller that needs the
+        port usually needs the document too -- pool storage, brand identity
+        and the config-service port all read it. Returning only the port would
+        have left those callers parsing the same file a second time, which is
+        the duplication this removes rather than a smaller version of it.
+
+        A missing or unparseable config yields DefaultPort and a $null Config.
+        That is deliberate: a guest that cannot read the config still boots and
+        self-heals its host coordinates, so refusing to build here would turn a
+        recoverable condition into a failed cycle.
+    .PARAMETER RepoRoot
+        Framework repo root. The config is read from test/test.config.yml
+        beneath it.
+    .PARAMETER DefaultPort
+        Port to use when the config is absent, unparseable, or silent about
+        statusService.port. Matches the status service's own default.
+    .OUTPUTS
+        [hashtable] Port (string), Config (IDictionary or $null), ConfigPath.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [string]$DefaultPort = '8080'
+    )
+
+    $configPath = Join-Path $RepoRoot 'test/test.config.yml'
+    # Read-TestConfig already tests for the file and returns $null when it is
+    # missing or does not parse, so no separate existence guard is needed.
+    $config = Read-TestConfig -Path $configPath
+
+    $port = $DefaultPort
+    if ($config -and $config.statusService -and $config.statusService.port) {
+        $port = "$($config.statusService.port)"
+    }
+
+    return @{ Port = $port; Config = $config; ConfigPath = $configPath }
+}
+
+Export-ModuleMember -Function Read-TestConfig, Clear-TestConfigCache, Get-TestConfigValue, Get-TestConfigSnapshotPath, Publish-TestConfigSnapshot, Read-TestConfigOrSnapshot, Get-TestConfigFreshnessTriple, Resolve-CleanupVmNamePrefix, `
+    Get-YurunaStatusServiceSeed

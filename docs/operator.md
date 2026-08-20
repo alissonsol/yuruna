@@ -85,6 +85,10 @@ Elevated ([B.4](#b4-create-the-yuruna-test-user)):
 pwsh test/New-LocalTestUser.ps1 -Admin
 ```
 
+Keep `-Admin`: without it the account cannot elevate, and the
+installer stops before it starts. See [B.4](#b4-create-the-yuruna-test-user)
+to repair an account created without it.
+
 **Sign in as the new account (default `yurunatest`) for everything
 that follows**, and repeat the [A.1](#a1-install-the-framework)
 one-liner in that session -- the clone is per-user, and the second run
@@ -482,8 +486,15 @@ pwsh test/New-LocalTestUser.ps1 -Admin
 Elevated (Administrator / sudo). Creates a dedicated local OS account
 (default `yurunatest`) that owns test operation, so the harness never
 runs under your personal profile. `-Admin` makes it a local
-administrator -- required, because later steps elevate. The password is
-asked interactively (twice) and is immediately usable; add
+administrator -- required, because later steps elevate. Created
+without it, the account cannot elevate and the installer refuses; the
+script cannot repair an account that already exists, so grant the
+rights from an administrator account -- `sudo dseditgroup -o edit -a
+yurunatest -t user admin` (macOS), `sudo usermod -aG sudo yurunatest`
+(Ubuntu), or `Add-LocalGroupMember` on the S-1-5-32-544 group
+(Windows) -- then sign that account out and back in, because a session
+keeps the group list it started with. The password is asked
+interactively (twice) and is immediately usable; add
 `-ForcePasswordChange` for a one-shot initial credential instead. The
 account is also registered under the default Yuruna authentication
 extension. Cross-platform; details in `test/New-LocalTestUser.ps1`
@@ -786,6 +797,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.19
+Last review: 2026.08.20
 
 Back to [Yuruna](../README.md)

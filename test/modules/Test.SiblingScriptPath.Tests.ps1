@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.19
+.VERSION 2026.08.20
 .GUID 42d59e0e-8323-436b-9a13-dede2f134739
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -52,10 +52,12 @@ BeforeAll {
     # Scripts that compose sibling paths out of a repo-relative string. Kept as
     # an explicit list because the pattern is a string literal, not a call site
     # any parser can enumerate reliably.
+    # One entry, and that is the point: the three per-host Disable scripts used
+    # to compose these paths themselves, so a service moved on disk had to be
+    # corrected in three places. They now call Stop-YurunaServiceVMSet, which
+    # composes them once.
     $script:Composers = @(
-        'host/ubuntu.kvm/Disable-TestAutomation.ps1'
-        'host/macos.utm/Disable-TestAutomation.ps1'
-        'host/windows.hyper-v/Disable-TestAutomation.ps1'
+        'test/modules/Test.HostAutomationState.psm1'
     )
 
     # Pull every "<dir>/<literal>${svc}<literal>.ps1" shape out of a file and

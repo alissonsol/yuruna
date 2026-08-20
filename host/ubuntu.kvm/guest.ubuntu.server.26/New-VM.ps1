@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.19
+.VERSION 2026.08.20
 .GUID 42d0182d-73ed-4bbd-ba70-035faed23f01
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -123,26 +123,8 @@ switch ($arch) {
 $downloadDir   = "$HOME/yuruna/image/ubuntu.env"
 $baseImageName = "host.ubuntu.kvm.guest.ubuntu.server.26"
 $baseImageFile = Join-Path $downloadDir "$baseImageName.iso"
-# Auto-run Get-Image.ps1 once if the base image is missing; recheck and
-# only error out when it's still missing afterward. Saves a round-trip
-# when the operator forgot to run Get-Image and let New-VM run anyway.
-if (-not (Test-Path -LiteralPath $baseImageFile)) {
-    $getImageScript = Join-Path $PSScriptRoot 'Get-Image.ps1'
-    if (Test-Path -LiteralPath $getImageScript) {
-        Write-Output "Base image missing: $baseImageFile"
-        Write-Output "Auto-running $getImageScript to fetch it..."
-        & pwsh -NoProfile -File $getImageScript
-        $getImageExit = $LASTEXITCODE
-        if ($getImageExit -ne 0) {
-            Write-Error "Auto Get-Image.ps1 exited $getImageExit. Cannot create VM."
-            exit 1
-        }
-    }
-    if (-not (Test-Path -LiteralPath $baseImageFile)) {
-        Write-Error "Base image not found at '$baseImageFile' after auto Get-Image. Run Get-Image.ps1 manually."
-        exit 1
-    }
-}
+Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.Image.psm1') -Force
+if (-not (Assert-YurunaBaseImage -BaseImageFile $baseImageFile -GuestFolder $PSScriptRoot)) { exit 1 }
 
 # --- REGION: Create copies and files for VM
 $vmDir   = Join-Path $HOME "yuruna/vms/$VMName"
@@ -211,13 +193,8 @@ $guestBinding = Resolve-GuestHostBinding
 $networkName  = $guestBinding.NetworkName
 $hostIp       = $guestBinding.HostIp
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Config.psm1') -Global -Force
-$hostPort = '8080'
-$cfg = Join-Path $repoRoot 'test/test.config.yml'
-$j = $null
-if (Test-Path -LiteralPath $cfg) {
-    try { $j = Read-TestConfig -Path $cfg } catch { Write-Verbose "test.config.yml unparseable; using port $hostPort" }
-    if ($j -and $j.statusService -and $j.statusService.port) { $hostPort = "$($j.statusService.port)" }
-}
+$_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $repoRoot
+$hostPort = $_statusSeed.Port
 
 # --- REGION: Build the autoinstall apt block
 # --- REGION: https://yuruna.link/vmconfig#apt-proxy-block

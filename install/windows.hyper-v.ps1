@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.19
+.VERSION 2026.08.20
 .GUID 425b1941-f370-4155-9842-47cbe6837b47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -393,7 +393,20 @@ if (-not $isAdmin) {
     Write-Step "    $LogPath"
     Write-Step 'If that window closes before finishing, open that file to see where it stopped.'
     Write-Step ''
-    Start-Process -FilePath $currentShellExe -Verb RunAs -ArgumentList $argList
+    try {
+        Start-Process -FilePath $currentShellExe -Verb RunAs -ArgumentList $argList
+    } catch {
+        # A standard user gets a credential prompt here rather than a consent
+        # prompt, and dismissing it lands as a Win32 exception whose text names
+        # neither the account nor the right it is missing.
+        Write-Step ''
+        Write-Step "Could not start the elevated window: $($_.Exception.Message)"
+        Write-Step "$env:USERNAME is not a local administrator, or the prompt was dismissed."
+        Write-Step 'From an account that is one, add it and sign back in:'
+        Write-Step "  Add-LocalGroupMember -Member '$env:USERNAME' ``"
+        Write-Step "    -Group (Get-LocalGroup | Where-Object { `$_.SID.Value -eq 'S-1-5-32-544' }).Name"
+        exit 1
+    }
     return
 }
 

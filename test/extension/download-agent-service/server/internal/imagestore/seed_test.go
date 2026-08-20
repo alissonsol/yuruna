@@ -11,7 +11,7 @@ import (
 	"reflect"
 	"testing"
 
-	"download-agent-service/internal/yex/pool"
+	"yuruna.com/test/extension/extension-sdk/pool"
 )
 
 // poolStatusFixture is the aggregator's real serialization shape: hosts carry a

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.19
+.VERSION 2026.08.20
 .GUID 4264541c-67da-418e-bf26-a11eb9662af8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -58,58 +58,6 @@ function Get-LibvirtGroupState {
     return @{
         ActiveGroups   = $activeGroups
         LibvirtMembers = @($libvirtMembers)
-    }
-}
-
-function Set-LinuxHostConditionSet {
-    <#
-    .SYNOPSIS
-        Configures Linux/KVM host settings needed for unattended VM
-        testing. Today a thin stub that delegates to the operator-
-        facing host/ubuntu.kvm/Enable-TestAutomation.ps1 (display-
-        blanking, sudoer cache, libvirt group membership).
-    .DESCRIPTION
-        Kept as a symmetric peer to Set-MacHostConditionSet and
-        Set-WindowsHostConditionSet so the registry dispatcher in
-        Test.HostCondition has a uniform Set callback across all
-        three supported hosts.
-    .EXAMPLE
-        Set-LinuxHostConditionSet          # apply all settings
-        Set-LinuxHostConditionSet -WhatIf  # show what would change without applying
-    #>
-    [CmdletBinding(SupportsShouldProcess)]
-    param([string]$HostType)
-    if (-not $IsLinux) {
-        Write-Warning "Set-LinuxHostConditionSet is only supported on Linux."
-        return
-    }
-    # No host-side mutations performed at runtime today: the persistent
-    # install-time work (libvirt group membership, polkit rules, kernel
-    # module load) lives in install/ubuntu.kvm.sh and the operator-
-    # facing host/ubuntu.kvm/Enable-TestAutomation.ps1. The runtime
-    # readiness checks live in Assert-LinuxHostConditionSet (kvm device
-    # + libvirtd active + virsh round-trip + group set). Future Linux-
-    # side mutations (turn off gnome screen blanking on a GUI host,
-    # register a polkit override) land here, each gated by a nested
-    # ShouldProcess call mirroring Set-MacHostConditionSet's per-
-    # mutation pattern.
-    $null = $HostType
-    if ($PSCmdlet.ShouldProcess('host.ubuntu.kvm', 'Apply Linux host condition set')) {
-        Write-Verbose "Set-LinuxHostConditionSet: no runtime mutations required beyond the clock (host/ubuntu.kvm/Enable-TestAutomation.ps1 owns install-time setup)."
-    }
-
-    # --- REGION: Host clock
-    # Host clock -> under NTP discipline. Guests inherit it at power-on;
-    # see Sync-LinuxHostClock for what a drifting one does to them. This is
-    # the mutation that has to happen on every host, and it happens here
-    # because here an operator is present to authorize it: a cycle can only
-    # report the drift, and the fault it causes is invisible until it has
-    # cost a whole cycle.
-    $clock = Sync-LinuxHostClock
-    if ($clock.Succeeded) {
-        Write-Information "Host clock: $($clock.Message)"
-    } else {
-        Write-Warning "Host clock not disciplined: $($clock.Message)"
     }
 }
 
@@ -293,4 +241,4 @@ function Test-LinuxHostMinimum {
     return $ok
 }
 
-Export-ModuleMember -Function Get-LibvirtGroupState, Set-LinuxHostConditionSet, Assert-LinuxHostConditionSet, Test-LinuxHostMinimum, Sync-LinuxHostClock
+Export-ModuleMember -Function Get-LibvirtGroupState, Assert-LinuxHostConditionSet, Test-LinuxHostMinimum, Sync-LinuxHostClock

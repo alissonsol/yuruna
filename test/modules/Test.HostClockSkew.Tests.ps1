@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.19
+.VERSION 2026.08.20
 .GUID 42c5e353-0701-44d3-9ece-c8318df10ad6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -140,19 +140,26 @@ function Get-LoopbackUdpListener {
 # scope before the first It runs.
 $discoveryHere = Split-Path -Parent $PSCommandPath
 
+$discoveryRepoRoot = Split-Path -Parent (Split-Path -Parent $discoveryHere)
 $hostClockCases = @(
-    @{ HostType = 'host.windows.hyper-v'
-       Path     = (Join-Path $discoveryHere 'Test.HostCondition.Windows.psm1')
-       AssertFn = 'Assert-WindowsHostConditionSet'
-       SyncFn   = 'Sync-WindowsHostClock' },
-    @{ HostType = 'host.macos.utm'
-       Path     = (Join-Path $discoveryHere 'Test.HostCondition.Mac.psm1')
-       AssertFn = 'Assert-MacHostConditionSet'
-       SyncFn   = 'Sync-MacHostClock' },
-    @{ HostType = 'host.ubuntu.kvm'
-       Path     = (Join-Path $discoveryHere 'Test.HostCondition.Linux.psm1')
-       AssertFn = 'Assert-LinuxHostConditionSet'
-       SyncFn   = 'Sync-LinuxHostClock' }
+    @{ HostType   = 'host.windows.hyper-v'
+       Path       = (Join-Path $discoveryHere 'Test.HostCondition.Windows.psm1')
+       EnablePath = (Join-Path $discoveryRepoRoot 'host/windows.hyper-v/Enable-TestAutomation.ps1')
+       AssertFn   = 'Assert-WindowsHostConditionSet'
+       SetFn      = 'Set-WindowsHostConditionSet'
+       SyncFn     = 'Sync-WindowsHostClock' },
+    @{ HostType   = 'host.macos.utm'
+       Path       = (Join-Path $discoveryHere 'Test.HostCondition.Mac.psm1')
+       EnablePath = (Join-Path $discoveryRepoRoot 'host/macos.utm/Enable-TestAutomation.ps1')
+       AssertFn   = 'Assert-MacHostConditionSet'
+       SetFn      = 'Set-MacHostConditionSet'
+       SyncFn     = 'Sync-MacHostClock' },
+    @{ HostType   = 'host.ubuntu.kvm'
+       Path       = (Join-Path $discoveryHere 'Test.HostCondition.Linux.psm1')
+       EnablePath = (Join-Path $discoveryRepoRoot 'host/ubuntu.kvm/Enable-TestAutomation.ps1')
+       AssertFn   = 'Assert-LinuxHostConditionSet'
+       SetFn      = 'Set-LinuxHostConditionSet'
+       SyncFn     = 'Sync-LinuxHostClock' }
 )
 
 # A renamed or moved host-condition module must fail the file loudly here rather
@@ -160,6 +167,9 @@ $hostClockCases = @(
 foreach ($hostClockCase in $hostClockCases) {
     if (-not (Test-Path -LiteralPath $hostClockCase.Path)) {
         throw "Host condition module not found for $($hostClockCase.HostType): $($hostClockCase.Path)"
+    }
+    if (-not (Test-Path -LiteralPath $hostClockCase.EnablePath)) {
+        throw "Enable-TestAutomation.ps1 not found for $($hostClockCase.HostType): $($hostClockCase.EnablePath)"
     }
 }
 
@@ -399,23 +409,40 @@ Describe 'host-clock-skew repair where a console can answer' {
 
     foreach ($case in $hostClockCases) {
         It "keeps the durable fix on the operator-facing host-prep path: $($case.HostType)" -TestCases @(@{
-            Path = $case.Path; AssertFn = $case.AssertFn; SyncFn = $case.SyncFn
+            Path = $case.Path; EnablePath = $case.EnablePath; SetFn = $case.SetFn; SyncFn = $case.SyncFn
         }) {
-            param([string]$Path, [string]$AssertFn, [string]$SyncFn)
-            $setFn = $AssertFn -replace '^Assert-', 'Set-'
-            $fn = Get-FunctionAst -Path $Path -Name $setFn
-            Assert-True ($null -ne $fn) "$setFn must exist"
-            # Bind to a local so the parameter is referenced in the body itself:
-            # the predicate below captures it, but PSReviewUnusedParameter cannot
-            # see a use that only occurs inside a scriptblock handed to FindAll.
-            $wanted = $SyncFn
-            $calls = @($fn.FindAll({
-                param($n)
-                $n -is [System.Management.Automation.Language.CommandAst] -and
-                $n.GetCommandName() -eq $wanted
-            }, $true))
-            Assert-True ($calls.Count -ge 1) `
-                "$setFn (reached from Enable-TestAutomation.ps1) must still discipline the clock"
+            param([string]$Path, [string]$EnablePath, [string]$SetFn, [string]$SyncFn)
+            # What has to hold is that running Enable-TestAutomation.ps1
+            # disciplines the clock. Two shapes do that: the host's
+            # Set-*HostConditionSet calls the sync and the script calls that
+            # function, or the script calls the sync itself. Requiring only the
+            # first shape let one host keep its clock fix inside a function no
+            # script ever called -- green, and protecting nothing.
+            #
+            # Bind to locals so the parameters are referenced in the body:
+            # the predicates below capture them, but PSReviewUnusedParameter
+            # cannot see a use that occurs only inside a FindAll scriptblock.
+            $wantedSync = $SyncFn
+            $wantedSet  = $SetFn
+            $isCallTo = {
+                param($node, $name)
+                $node -is [System.Management.Automation.Language.CommandAst] -and
+                $node.GetCommandName() -eq $name
+            }
+            $enable = Get-FileAst -Path $EnablePath
+            $viaSet = @($enable.FindAll({ param($n) & $isCallTo $n $wantedSet }, $true))
+            if ($viaSet.Count -ge 1) {
+                $fn = Get-FunctionAst -Path $Path -Name $wantedSet
+                Assert-True ($null -ne $fn) `
+                    "$EnablePath calls $SetFn, so $SetFn must exist"
+                $calls = @($fn.FindAll({ param($n) & $isCallTo $n $wantedSync }, $true))
+                Assert-True ($calls.Count -ge 1) `
+                    "$SetFn is the host-prep path for this host, so it must discipline the clock"
+            } else {
+                $direct = @($enable.FindAll({ param($n) & $isCallTo $n $wantedSync }, $true))
+                Assert-True ($direct.Count -ge 1) `
+                    "no $SetFn call in $EnablePath, so it must call $SyncFn itself"
+            }
         }
     }
 }

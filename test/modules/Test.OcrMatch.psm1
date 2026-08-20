@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.19
+.VERSION 2026.08.20
 .GUID 42623d37-5542-4fd6-8bd7-fcd92f20175d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -63,7 +63,7 @@ $script:OCRConfusionGroups = @(
 # OCR text that reads '@' as '@' OR as '0' -- both canonicalize the same.
 $script:OCRStripChars = [System.Collections.Generic.HashSet[char]]::new(
     [char[]]@(
-        '-', [char]0x2014, [char]0x2013, [char]0x2012,  # -, --, -, -
+        '-', [char]0x2014, [char]0x2013, [char]0x2012,  # hyphen, em dash, en dash, figure dash
         '[', ']', '$', '~', '"', '`'                    # terminal prompt chars frequently dropped by OCR
     )
 )

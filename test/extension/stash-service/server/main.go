@@ -28,7 +28,7 @@ import (
 	"stash-service/internal/meta"
 	"stash-service/internal/sshsrv"
 	"stash-service/internal/store"
-	"stash-service/internal/yex/beacon"
+	"yuruna.com/test/extension/extension-sdk/beacon"
 )
 
 // version is the framework version shown in the UI header. The bring-up

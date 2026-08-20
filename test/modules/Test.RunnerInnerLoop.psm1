@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.19
+.VERSION 2026.08.20
 .GUID 42479415-ffbe-4fef-9daa-15edda547208
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -2368,7 +2368,7 @@ do {
         # This branch edits the runner's central plan resolution, so it stays
         # inert unless a pool explicitly opts in. The two-phase schema rollout
         # that governs when a store may emit testSet.sequences[] is recorded in
-        # dev-only/design/default-pool-auto-enrollment-and-test-sets.md (4.6).
+        # dev-only/design/default-pool-auto-enrolment-and-test-sets.md (4.6).
         #
         # An assigned testSet may name a SUBSET of the project's top-level
         # sequences. Absent or empty -> $script:PoolSubset stays empty and the

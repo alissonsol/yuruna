@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.19
+.VERSION 2026.08.20
 .GUID 4271255a-d0dd-4c45-8932-15f35ae51cf4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -350,7 +350,13 @@ if ($WhatIfPreference) {
     }
     & sudo -v
     if ($LASTEXITCODE -ne 0) {
-        throw "sudo authentication failed (exit $LASTEXITCODE). Make sure $invokingUser is an admin (dseditgroup -o checkmember -m $invokingUser admin) and re-run."
+        # The check to suggest is OS-specific: dseditgroup does not exist on Ubuntu.
+        $checkHint = if ($IsMacOS) {
+            "dseditgroup -o checkmember -m $invokingUser admin"
+        } else {
+            "id -nG | tr ' ' '\n' | grep -qxE 'sudo|wheel'"
+        }
+        throw "sudo authentication failed (exit $LASTEXITCODE). Confirm $invokingUser can elevate ($checkHint) and re-run. A session opened before the group was granted keeps the group list it started with, so sign out and back in first."
     }
 } else {
     throw "Unsupported OS. This script supports Windows, macOS, and Ubuntu."
@@ -703,11 +709,35 @@ if ($Admin) {
     if ($IsWindows) {
         Write-Information "     member of the built-in Administrators group (S-1-5-32-544)."
     } elseif ($IsMacOS) {
-        Write-Information "     member of the 'admin' group; sudo works after first login."
+        Write-Information "     member of the 'admin' group, which is what grants sudo."
+        Write-Information "     The group list is fixed when a session starts, so it takes"
+        Write-Information "     effect on the account's next sign-in."
     } elseif ($IsLinux) {
         Write-Information "     member of the 'sudo' group. Group membership is read at login,"
         Write-Information "     so it takes effect on the account's next sign-in."
     }
+    Write-Information ""
+    $step++
+} else {
+    Write-Information "  $step. The account is NOT a local machine administrator."
+    Write-Information "     It cannot run the host installer or Enable-TestAutomation:"
+    Write-Information "     both need root / Administrator and will refuse. Grant the"
+    Write-Information "     rights from an account that already has them:"
+    if ($IsWindows) {
+        # The group's NAME is localized, so the guidance resolves it by SID for
+        # the same reason New-WindowsLocalUser does.
+        Write-Information "       Add-LocalGroupMember -Member $AccountName ``"
+        Write-Information "         -Group (Get-LocalGroup | Where-Object { `$_.SID.Value -eq 'S-1-5-32-544' }).Name"
+    } elseif ($IsMacOS) {
+        Write-Information "       sudo dseditgroup -o edit -a $AccountName -t user admin"
+    } elseif ($IsLinux) {
+        Write-Information "       sudo usermod -aG sudo $AccountName"
+    }
+    Write-Information "     The group list is fixed when a session starts, so sign"
+    Write-Information "     '$AccountName' out and back in before retrying -- a session"
+    Write-Information "     opened before the grant keeps the list it started with."
+    Write-Information "     Re-running this script cannot repair it; it refuses accounts"
+    Write-Information "     that already exist."
     Write-Information ""
     $step++
 }

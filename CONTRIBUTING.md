@@ -77,8 +77,8 @@ Likely the best path for command-line use and environments like Linux.
     ```
 
   - Go to the `install` folder and run the script for your host type:
-    - For macOS, run under a Bash shell: `macos.utm.sh`
-    - For Ubuntu, run under a Bash shell: `ubuntu.kvm.sh`
+    - For macOS, run under a Bash shell: `bash macos.utm.sh`
+    - For Ubuntu, run under a Bash shell: `bash ubuntu.kvm.sh`
     - For Windows, run under PowerShell: `windows.hyper-v.ps1`
 
   - Other scripts for convenience.
@@ -361,6 +361,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.19
+Last review: 2026.08.20
 
 Back to [Yuruna](README.md)

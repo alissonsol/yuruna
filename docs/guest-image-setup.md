@@ -427,7 +427,12 @@ Canonical documentation per service:
 The `guest.caching-proxy-service` folders keep their own READMEs: that service
 is not a plain consumer of this pattern -- it is the machine the pool services
 run on, and its notes carry network-selection, bridging and `cache_mem` sizing
-rationale that is not recoverable from the scripts.
+rationale that is not recoverable from the scripts. Read them per host:
+[ubuntu.kvm](../host/ubuntu.kvm/guest.caching-proxy-service/README.md),
+[macos.utm](../host/macos.utm/guest.caching-proxy-service/README.md),
+[windows.hyper-v](../host/windows.hyper-v/guest.caching-proxy-service/README.md).
+The parser that reads its access log has its own notes:
+[caching-proxy-parser-service](../test/extension/caching-proxy-parser-service/README.md).
 
 ## Shared host-driver modules
 
@@ -549,6 +554,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.19
+Last review: 2026.08.20
 
 Back to [Yuruna](../README.md)

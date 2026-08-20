@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.19
+.VERSION 2026.08.20
 .GUID 4264b221-526c-4487-9f9f-8d58b28b11dd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -83,25 +83,8 @@ $arch = (& uname -m).Trim()
 $downloadDir   = "$HOME/yuruna/image/amazon.linux.2023"
 $baseImageName = "host.ubuntu.kvm.guest.amazon.linux.2023"
 $baseImageFile = Join-Path $downloadDir "$baseImageName.qcow2"
-# Auto-run Get-Image.ps1 once if the base image is missing; recheck and
-# only error out when it's still missing afterward.
-if (-not (Test-Path -LiteralPath $baseImageFile)) {
-    $getImageScript = Join-Path $PSScriptRoot 'Get-Image.ps1'
-    if (Test-Path -LiteralPath $getImageScript) {
-        Write-Output "Base image missing: $baseImageFile"
-        Write-Output "Auto-running $getImageScript to fetch it..."
-        & pwsh -NoProfile -File $getImageScript
-        $getImageExit = $LASTEXITCODE
-        if ($getImageExit -ne 0) {
-            Write-Error "Auto Get-Image.ps1 exited $getImageExit. Cannot create VM."
-            exit 1
-        }
-    }
-    if (-not (Test-Path -LiteralPath $baseImageFile)) {
-        Write-Error "Base image not found at '$baseImageFile' after auto Get-Image. Run Get-Image.ps1 manually."
-        exit 1
-    }
-}
+Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.Image.psm1') -Force
+if (-not (Assert-YurunaBaseImage -BaseImageFile $baseImageFile -GuestFolder $PSScriptRoot)) { exit 1 }
 
 # --- REGION: Create copies and files for VM
 $vmDir   = Join-Path $HOME "yuruna/vms/$VMName"
@@ -131,14 +114,9 @@ Import-Module (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.Host.ps
 $guestBinding = Resolve-GuestHostBinding
 $networkName  = $guestBinding.NetworkName
 $hostIp       = $guestBinding.HostIp
-$hostPort = '8080'
-$cfg = Join-Path $repoRoot 'test/test.config.yml'
-if (Test-Path -LiteralPath $cfg) {
-    try {
-        $j = Get-Content -Raw -LiteralPath $cfg | ConvertFrom-Yaml -Ordered
-        if ($j.statusService.port) { $hostPort = "$($j.statusService.port)" }
-    } catch { Write-Verbose "test.config.yml unparseable; using port $hostPort" }
-}
+Import-Module (Join-Path $repoRoot 'test/modules/Test.Config.psm1') -Global -Force
+$_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $repoRoot
+$hostPort = $_statusSeed.Port
 
 # user-data AND meta-data are shared under host/vmconfig/ (the meta-data is
 # byte-identical across the three host platforms). Anchor contract:

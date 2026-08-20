@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.19
+.VERSION 2026.08.20
 .GUID 42bd906d-30b3-44f2-9020-fea9dbf0805f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -3203,6 +3203,157 @@ function Get-VMConsoleHandle {
     return $proc.Id
 }
 
+<#
+.SYNOPSIS
+    Return the pid of the QEMU process serving the named VM, or 0 when it
+    cannot be identified.
+.DESCRIPTION
+    UTM runs every VM in its own QEMULauncher process and publishes no
+    name-to-pid mapping, so the emulator has to be recognized by something
+    only that VM owns. The VNC display in the bundle is exactly that:
+    Find-FreeVncDisplay refuses to hand one display to two bundles, so
+    whoever holds that listening port is that VM's emulator. Matching on
+    the process name instead would be ambiguous the moment two VMs run at
+    once -- the normal case for a cycle that keeps the service VMs up.
+#>
+function Get-UtmVMProcessId {
+    [CmdletBinding()]
+    [OutputType([int])]
+    param([Parameter(Mandatory)][string]$VMName)
+    if (-not (Get-Command lsof -ErrorAction SilentlyContinue)) { return 0 }
+    $port = Get-VncPortForVm -VMName $VMName
+    if ($port -le 0) { return 0 }
+    $listenerPid = & lsof -nP "-iTCP:$port" -sTCP:LISTEN -t 2>$null
+    foreach ($line in @($listenerPid)) {
+        $candidate = 0
+        if ([int]::TryParse("$line".Trim(), [ref]$candidate) -and $candidate -gt 0) { return $candidate }
+    }
+    return 0
+}
+
+<#
+.SYNOPSIS
+    Say whether a console that never changed was the guest's doing or the
+    capture path's.
+.DESCRIPTION
+    A wait that exhausts its console-reconnect repairs ends on one
+    ambiguous fact: every captured frame was byte-identical. That has two
+    causes with opposite owners -- a guest that stopped drawing, and a
+    capture path that lost the live feed while the guest kept drawing.
+
+    Here the two are separated by reading the emulator rather than the
+    screen. Get-VncScreenshot dials QEMU's own VNC server on a fresh
+    connection and asks for a non-incremental full-frame update, so it
+    holds nothing that could go stale; Get-UtmScreenshot's screencapture
+    fallback, which serves whatever the UTM window last painted, can. A
+    pair of direct VNC reads that differ therefore means the guest is
+    drawing and the wait's frames came from that fallback.
+
+    A matching pair leaves the guest side, and the emulator's CPU time
+    then says which kind: a halted guest consumes almost nothing, while
+    one wedged mid-boot keeps burning cores against a screen that never
+    advances. Those need opposite responses -- restart the VM versus
+    capture the guest's state before anything clears it -- so they are
+    reported as separate verdicts instead of one 'static'.
+
+    A blinking cursor makes an idle console differ frame to frame, so a
+    matching pair is reported as what was observed, never as proof the
+    guest is dead.
+.OUTPUTS
+    [pscustomobject] Verdict 'guest-static' | 'guest-wedged' | 'guest-live'
+    | 'unavailable', Detail.
+#>
+function Get-VMConsoleSecondOpinion {
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [int]$IntervalSeconds = 5
+    )
+    # Percent of one core, sustained across the sample window, that counts
+    # as "still executing". An idle QEMU answering VNC polls sits in low
+    # single digits; a guest spinning on a wedged boot holds a core or more,
+    # so anything in between is read as executing rather than halted.
+    $executingPercent = 25
+    try {
+        $state = Get-VMState -VMName $VMName
+        if ($state -eq 'absent' -or $state -eq 'unknown') {
+            return [pscustomobject]@{ Verdict = 'unavailable'; Detail = "utmctl reports '$state' for '$VMName'" }
+        }
+        if ($state -ne 'running') {
+            return [pscustomobject]@{
+                Verdict = 'guest-static'
+                Detail  = "utmctl reports the VM '$state': nothing was executing to draw with, so the capture pipeline is not the fault"
+            }
+        }
+
+        $qemuPid = Get-UtmVMProcessId -VMName $VMName
+        $port    = Get-VncPortForVm -VMName $VMName
+        $readFrame = {
+            $tmp = Join-Path ([System.IO.Path]::GetTempPath()) "yrn-second-opinion-$PID-$([guid]::NewGuid().ToString('N')).png"
+            try {
+                if (-not (Get-VncScreenshot -OutputPath $tmp -Port $port)) { return $null }
+                return (Get-FileHash -LiteralPath $tmp -Algorithm SHA256).Hash
+            } catch {
+                Write-Debug "Get-VMConsoleSecondOpinion: direct VNC read on $port failed: $($_.Exception.Message)"
+                return $null
+            } finally {
+                Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue
+            }
+        }
+        $readCpu = {
+            if ($qemuPid -le 0) { return $null }
+            $proc = Get-Process -Id $qemuPid -ErrorAction SilentlyContinue
+            if (-not $proc) { return $null }
+            return [double]$proc.CPU
+        }
+
+        # Frame first, then CPU, so the CPU window is the sleep alone and the
+        # percentage is not diluted by the time a framebuffer read costs.
+        $firstFrame = & $readFrame
+        $firstCpu   = & $readCpu
+        Start-Sleep -Seconds $IntervalSeconds
+        $secondCpu   = & $readCpu
+        $secondFrame = & $readFrame
+
+        $cpuPercent = $null
+        $cpuText    = 'the emulator CPU was unreadable'
+        if ($null -ne $firstCpu -and $null -ne $secondCpu -and $IntervalSeconds -gt 0) {
+            # A pid reused inside the window reads as a negative delta. Drop
+            # it rather than publish a percentage taken from two processes.
+            $delta = $secondCpu - $firstCpu
+            if ($delta -ge 0) {
+                $cpuPercent = [math]::Round(($delta / $IntervalSeconds) * 100, 1)
+                $cpuText    = "the emulator burned ${cpuPercent}% of one core across the same window"
+            }
+        }
+
+        if ($firstFrame -and $secondFrame -and $firstFrame -ne $secondFrame) {
+            return [pscustomobject]@{
+                Verdict = 'guest-live'
+                Detail  = "direct VNC reads on port $port ${IntervalSeconds}s apart differ and $cpuText -- the guest is still drawing, so suspect the capture path"
+            }
+        }
+        $frameText = if ($firstFrame -and $secondFrame) {
+            "direct VNC reads on port $port ${IntervalSeconds}s apart are byte-identical"
+        } else {
+            "direct VNC reads on port $port were unavailable"
+        }
+        if ($null -ne $cpuPercent -and $cpuPercent -ge $executingPercent) {
+            return [pscustomobject]@{
+                Verdict = 'guest-wedged'
+                Detail  = "$frameText and $cpuText -- the guest is executing but no longer drawing, so the capture pipeline is not the fault; capture the guest's state before anything restarts it"
+            }
+        }
+        return [pscustomobject]@{
+            Verdict = 'guest-static'
+            Detail  = "$frameText and $cpuText -- the guest side is static too, so the capture pipeline is not the fault"
+        }
+    } catch {
+        return [pscustomobject]@{ Verdict = 'unavailable'; Detail = $_.Exception.Message }
+    }
+}
+
 # --- REGION: Discovery
 
 <#
@@ -4342,7 +4493,7 @@ Export-ModuleMember -Function `
     Save-VMDiskSnapshot, Restore-VMDiskSnapshot, Test-VMDiskSnapshot, `
     Test-VMConsoleOpen, Restart-VMConsole, `
     Get-Image, Get-ImagePath, `
-    Send-Text, Send-Key, Send-Click, Get-VMScreenshot, Get-VMConsoleHandle, `
+    Send-Text, Send-Key, Send-Click, Get-VMScreenshot, Get-VMConsoleHandle, Get-VMConsoleSecondOpinion, `
     Wait-VMIp, Get-VMIp, Get-VMMac, Update-GuestNeighborCache, Resolve-UtmGuestIpByMac, `
     Get-ExternalNetwork, New-ExternalNetwork, Test-CacheVMOnExternalNetwork, `
     Add-PortMap, Remove-PortMap, Get-BestHostIp, Get-GuestReachableHostIp, `
@@ -4360,7 +4511,7 @@ Export-ModuleMember -Function `
     Invoke-MacElevationIfNeeded, Invoke-MacNetworksetup, `
     Set-MacHostProxy, Restore-MacHostProxy, Disable-MacHostProxy, Remove-MacHostProxy, `
     Get-UtmNetworkModeFromBundle, Restore-SudoUserOwnership, `
-    Get-VncDisplayForVm, Get-VncPortForVm, Get-VncDisplayFromBundle, Set-VncDisplayInBundle, Test-VncPortFree, Find-FreeVncDisplay, Get-ClaimedVncDisplay, Get-VncScreenshot, Get-UtmScreenshot, Get-UtmWindowScreenshot, `
+    Get-VncDisplayForVm, Get-VncPortForVm, Get-VncDisplayFromBundle, Set-VncDisplayInBundle, Test-VncPortFree, Find-FreeVncDisplay, Get-ClaimedVncDisplay, Get-VncScreenshot, Get-UtmScreenshot, Get-UtmWindowScreenshot, Get-UtmVMProcessId, `
     Set-GuestMacInBundle
 
 # Contract-coverage assertion: warns at load time if the export block

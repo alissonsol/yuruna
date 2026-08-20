@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.19
+.VERSION 2026.08.20
 .GUID 42e5dbd9-8c32-496e-ab48-855a0584ae9c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -198,3 +198,76 @@ Describe 'the capture file contract' {
         { [datetime]::Parse($state.capturedUtc) } | Should -Not -Throw
     }
 }
+
+Describe 'the teardown steps every host shares' {
+    BeforeAll {
+        Import-Module (Join-Path $PSScriptRoot 'Test.HostAutomationState.psm1') -Force -DisableNameChecking
+        $script:RepoRootForStop = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+        # Stands in for the calling script's $PSCmdlet. $true approves every
+        # action, $false is what -WhatIf produces.
+        function Get-StubCmdlet {
+            param([bool]$Approve)
+            $stub = [pscustomobject]@{}
+            $stub | Add-Member ScriptMethod ShouldProcess ([scriptblock]::Create("param(`$a,`$b) `$$Approve"))
+            $stub
+        }
+    }
+
+    It 'accepts the empty lists a teardown starts with' {
+        # Both lists are empty on the first call, and a Mandatory collection
+        # parameter rejects an empty one -- which would throw partway through a
+        # teardown instead of at its start.
+        $restored = [System.Collections.Generic.List[string]]::new()
+        $skipped  = [System.Collections.Generic.List[string]]::new()
+        {
+            Stop-YurunaServiceVMSet -RepoRoot $script:RepoRootForStop `
+                -Cmdlet (Get-StubCmdlet -Approve $false) -Restored $restored -Skipped $skipped
+        } | Should -Not -Throw
+    }
+
+    It 'reports a missing stop script as skipped rather than throwing' {
+        # Teardown runs on hosts in unknown states; one service that was never
+        # provisioned must not stop the operator disabling the rest.
+        $restored = [System.Collections.Generic.List[string]]::new()
+        $skipped  = [System.Collections.Generic.List[string]]::new()
+        $absent   = Join-Path ([IO.Path]::GetTempPath()) ("yuruna-no-repo-" + [guid]::NewGuid())
+        Stop-YurunaServiceVMSet -RepoRoot $absent -Cmdlet (Get-StubCmdlet -Approve $true) `
+            -Restored $restored -Skipped $skipped
+        $skipped.Count  | Should -Be 4 -Because 'all four service stop scripts are absent there'
+        $restored.Count | Should -Be 0
+    }
+
+    It 'runs nothing when the caller declines the action' {
+        $restored = [System.Collections.Generic.List[string]]::new()
+        $skipped  = [System.Collections.Generic.List[string]]::new()
+        Stop-YurunaServiceVMSet -RepoRoot $script:RepoRootForStop `
+            -Cmdlet (Get-StubCmdlet -Approve $false) -Restored $restored -Skipped $skipped
+        $restored.Count | Should -Be 0 -Because 'a declined action must not stop a VM'
+    }
+
+    It 'always names the vault as something it did not remove' {
+        $out = Write-DisableCommonEpilogue -StateCaptured $false -StopServices $true | Out-String
+        $out | Should -Match 'credential vault'
+        $out | Should -Match 'Unregister-SecretVault'
+    }
+
+    It 'names the service VMs only when it was not asked to stop them' {
+        $left = Write-DisableCommonEpilogue -StateCaptured $false -StopServices $false | Out-String
+        $left | Should -Match 'caching-proxy'
+        $done = Write-DisableCommonEpilogue -StateCaptured $false -StopServices $true | Out-String
+        $done | Should -Not -Match 'caching-proxy' -Because 'they were stopped, so they are not a manual step'
+    }
+
+    It 'is the only place the three hosts spell the shared teardown out' {
+        # The value of the extraction is that a service added to the roster is
+        # added once. Three copies of the loop meant a service could keep
+        # running after a teardown the operator believed had finished.
+        $root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+        foreach ($platform in @('ubuntu.kvm', 'windows.hyper-v', 'macos.utm')) {
+            $text = Get-Content -LiteralPath (Join-Path $root "host/$platform/Disable-TestAutomation.ps1") -Raw
+            $text | Should -Not -Match 'CachingProxyService' -Because "$platform must call Stop-YurunaServiceVMSet"
+            $text | Should -Not -Match 'Unregister-SecretVault' -Because "$platform must call Write-DisableCommonEpilogue"
+        }
+    }
+}
+

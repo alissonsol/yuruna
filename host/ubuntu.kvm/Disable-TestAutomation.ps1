@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.19
+.VERSION 2026.08.20
 .GUID 427d85b1-fda1-4ae0-9a2f-5a950d4da265
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -221,14 +221,7 @@ if (-not $ufwCmd) {
 
 # --- REGION: Services (opt-in)
 if ($StopServices) {
-    foreach ($svc in @('CachingProxyService', 'StashService', 'PoolControlService', 'DownloadAgentService')) {
-        $script = Join-Path $RepoRoot "test/service/Stop-${svc}VM.ps1"
-        if (-not (Test-Path -LiteralPath $script)) { $skipped.Add("test/service/Stop-${svc}VM.ps1 not found"); continue }
-        if ($PSCmdlet.ShouldProcess("$svc VM", 'Stop')) {
-            & pwsh -NoProfile -File $script
-            $restored.Add("$svc VM stopped")
-        }
-    }
+    Stop-YurunaServiceVMSet -RepoRoot $RepoRoot -Cmdlet $PSCmdlet -Restored $restored -Skipped $skipped
 }
 
 # --- REGION: Report
@@ -249,19 +242,4 @@ Write-DisableManualStep -What 'networkStorage configuration, the vaulted credent
 Write-DisableManualStep -What 'The pool-storage sudoers drop-in, if one was installed' -Command @(
     'sudo ls /etc/sudoers.d/ | grep -i yuruna'
 )
-# Stated plainly rather than offered as a switch: nothing here removes the
-# vault, and a -IncludeVault flag that only silenced this line would advertise a
-# removal that never happened.
-Write-DisableManualStep -What 'The Yuruna credential vault -- it holds credentials that are painful to recreate, so it is never removed automatically' -Command @(
-    'Get-SecretVault                     # find the Yuruna vault',
-    'Unregister-SecretVault -Name <name> # then delete its store on disk'
-)
-if (-not $StopServices) {
-    Write-DisableManualStep -What 'The caching-proxy / stash / pool-control / download-agent VMs (re-run with -StopServices to stop them)'
-}
-
-$capturePath = Get-HostAutomationStatePath
-if ($state -and (Test-Path -LiteralPath $capturePath)) {
-    Write-Output ''
-    Write-Output "The capture is kept at $capturePath so this can be re-run; delete it once the host is where you want it."
-}
+Write-DisableCommonEpilogue -StateCaptured ([bool]$state) -StopServices ([bool]$StopServices)

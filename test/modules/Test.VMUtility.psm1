@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.19
+.VERSION 2026.08.20
 .GUID 42cfa437-bd81-47fb-8d48-e2ca1335fa07
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1062,6 +1062,7 @@ function Wait-YurunaServiceVmEndpoint {
     $unreachable     = $false
     $stillBuilding   = $false
     $cloudInitStatus = ''
+    $cloudInitErrored = $false
     $lastProgress    = ''
     $extendedSeconds = 0
     $nextTick        = 30
@@ -1135,7 +1136,18 @@ function Wait-YurunaServiceVmEndpoint {
                 $inGuest = & $InvokeInGuest $VMName $GuestKey $User (@(
                     "ss -ltn 2>/dev/null | grep -qE '(^|[^0-9]):$Port\b' && echo YURUNA_LISTENING || echo YURUNA_NOT_LISTENING",
                     'echo "YURUNA_CLOUDINIT=$(cloud-init status 2>/dev/null | head -n 1 | sed -e "s/^status: //")"',
-                    'echo "YURUNA_PROGRESS=$(sudo tail -n 1 /var/log/cloud-init-output.log 2>/dev/null | tr -d "\r")"'
+                    # The LAST MEANINGFUL line, not simply the last one. A bare
+                    # tail -n 1 reports whatever happened to be printed last, and
+                    # cloud-init ends by generating host keys -- so a failed
+                    # build showed the operator the top border of an SSH
+                    # randomart box for the whole wait while the real error sat
+                    # a few lines above. Drop blanks and lines made only of the
+                    # box-drawing and randomart glyphs, then take the last.
+                    ('echo "YURUNA_PROGRESS=$(sudo tail -n 60 /var/log/cloud-init-output.log 2>/dev/null' +
+                     ' | tr -d "\r"' +
+                     ' | grep -vE "^[[:space:]]*$"' +
+                     ' | grep -vE "^[[:space:]]*[+|][-+| .oOE=*@%&#SB^~:]*[+|]?[[:space:]]*$"' +
+                     ' | tail -n 1)"')
                 ) -join "`n")
             } catch { Write-Verbose "Wait-YurunaServiceVmEndpoint: in-guest probe: $($_.Exception.Message)" }
             if ($inGuest -and "$($inGuest.output)" -match 'YURUNA_(NOT_)?LISTENING') {
@@ -1180,6 +1192,19 @@ function Wait-YurunaServiceVmEndpoint {
                 # the budget was simply too small for this host. Any other status
                 # means the build is over and a missing daemon is a real failure,
                 # which must not be papered over by waiting longer.
+                # cloud-init ERROR is terminal, so stop rather than serve out
+                # the budget. Nothing re-runs cloud-init on this boot: every
+                # remaining poll asks a question already answered, and the
+                # operator watches a progress bar for up to 45 more minutes
+                # before being told what the guest knew at minute two. 'done'
+                # deliberately keeps waiting -- the daemon can still be binding
+                # its port in the seconds after cloud-init finishes.
+                if ($cloudInitStatus -match '^error$') {
+                    Close-YurunaWaitProgress
+                    Write-Information "  cloud-init on '$VMName' ERRORED and :$Port is not bound -- ending the wait; more time cannot help." -InformationAction Continue
+                    $cloudInitErrored = $true
+                    break
+                }
                 if ($cloudInitStatus -match '^(running|not started)$' -and (Get-Date) -lt $hardDeadline) {
                     $grow = [Math]::Max(1, $InGuestCheckEverySeconds) * 2
                     $wanted = $deadline.AddSeconds($grow)
@@ -1213,6 +1238,7 @@ function Wait-YurunaServiceVmEndpoint {
         ListeningInGuest = $listeningInGuest
         StillBuilding    = $stillBuilding
         CloudInitStatus  = $cloudInitStatus
+        CloudInitErrored = $cloudInitErrored
         LastProgress     = $lastProgress
         ExtendedSeconds  = $extendedSeconds
         AddressChanges   = $addressChanges

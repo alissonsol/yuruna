@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.19
+.VERSION 2026.08.20
 .GUID 421a21ac-638b-4121-a908-7c26df6a9e86
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -133,7 +133,7 @@ if (-not $HostSideProof) {
 
     $HostType = Get-HostType
     if (-not $HostType) { exit $ExitFailure }
-    Write-Information "Host type: $HostType" -InformationAction Continue
+    Write-Verbose "Host type: $HostType"
     [void](Initialize-YurunaHost -RepoRoot $repoRoot -HostType $HostType)
 
     # --- REGION: Pool storage pre-flight
@@ -182,7 +182,7 @@ See docs/test-config.md (networkStorage credentials).
     # pool share. WARNING, not a hard stop: the daemon degrades to no persistence
     # when the share is offline, and the NAS may merely be transiently unreachable.
     if (Connect-YurunaPoolStorage -Config $poolCfg -Confirm:$false) {
-        Write-Information "pool storage pre-flight OK (networkUser='$($poolCfg.NetworkUser)'; credential authenticates)." -InformationAction Continue
+        Write-Verbose "pool storage pre-flight OK (networkUser='$($poolCfg.NetworkUser)'; credential authenticates)."
     } else {
         # Report the reason the mount RECORDED, and prescribe from it. A mount
         # that sudo refused never reaches the NAS, so naming the credential there
@@ -267,7 +267,7 @@ $remedy
             Write-Error "UTM bundle missing at $UtmDir after New-VM."
             exit $ExitFailure
         }
-        Write-Information "Starting '$VMName'..." -InformationAction Continue
+        Write-Verbose "Starting '$VMName'..."
         $startResult = Start-VM -VMName $VMName -Confirm:$false
         if (-not $startResult.success) {
             Write-Error "Could not start '$VMName': $($startResult.errorMessage)"
@@ -386,15 +386,15 @@ $remedy
     # worse than one that is down, because callers hang for a full timeout
     # instead of failing fast.
     if ($vmIp) {
-        Write-Information "VM '$VMName' is at $vmIp. Waiting up to $readyTimeoutMinutes min for the pool-control-service daemon to serve on :80 (first boot builds it in-guest)." -InformationAction Continue
-        Write-Information "  The wait extends itself while the guest reports it is still building; progress is printed as it happens." -InformationAction Continue
-        Write-Information "  Override the budget with YURUNA_POOL_CONTROL_SERVICE_READY_TIMEOUT_SECONDS." -InformationAction Continue
+        Write-Verbose "VM '$VMName' is at $vmIp. Waiting up to $readyTimeoutMinutes min for the pool-control-service daemon to serve on :80 (first boot builds it in-guest)."
+        Write-Verbose "  The wait extends itself while the guest reports it is still building; progress is printed as it happens."
+        Write-Verbose "  Override the budget with YURUNA_POOL_CONTROL_SERVICE_READY_TIMEOUT_SECONDS."
         $repointForwarder = {
             param($newAddress)
             $script:vmIp = $newAddress
             if ($HostType -eq 'host.macos.utm' -and $bundleMode -eq 'Shared') {
                 if (Add-PortMap -VMIp $newAddress -Port @() -PortRemap @{ 8081 = 80 } -Confirm:$false) {
-                    Write-Information "  Re-pointed host :8081 -> ${newAddress}:80." -InformationAction Continue
+                    Write-Verbose "  Re-pointed host :8081 -> ${newAddress}:80."
                 }
             }
         }
@@ -411,7 +411,7 @@ $remedy
             -OnAddressChanged $repointForwarder
         if ($endpoint.Address) { $vmIp = $endpoint.Address }
         if ($endpoint.ExtendedSeconds -gt 0) {
-            Write-Information ("  Waited $([int]($endpoint.WaitedSeconds / 60)) min in total -- the budget was extended by " +
+            Write-Verbose ("  Waited $([int]($endpoint.WaitedSeconds / 60)) min in total -- the budget was extended by " +
                                "$([int]($endpoint.ExtendedSeconds / 60)) min because the guest reported it was still building.") -InformationAction Continue
         }
     } else {
@@ -484,7 +484,7 @@ $remedy
                 }
             }
             if ($daemonReady) {
-                Write-Information "  The daemon IS serving at ${recoveredIp}:80 -- the wait was probing an address this guest never had." -InformationAction Continue
+                Write-Verbose "  The daemon IS serving at ${recoveredIp}:80 -- the wait was probing an address this guest never had."
                 $vmIp = $recoveredIp
                 # Re-decided through the same helper rather than set by hand:
                 # two ways of producing a verdict are two verdicts that can
@@ -509,7 +509,7 @@ $remedy
                 # strictly worse than no forwarder at all.
                 if ($HostType -eq 'host.macos.utm' -and $bundleMode -eq 'Shared') {
                     if (Add-PortMap -VMIp $recoveredIp -Port @() -PortRemap @{ 8081 = 80 } -Confirm:$false) {
-                        Write-Information "  Re-pointed host :8081 -> ${recoveredIp}:80." -InformationAction Continue
+                        Write-Verbose "  Re-pointed host :8081 -> ${recoveredIp}:80."
                     }
                 }
             } else {
@@ -601,18 +601,18 @@ To hold this script longer next time:
     } catch { Write-Verbose "registration refresh: $($_.Exception.Message)" }
 
     if ($stillBuilding) {
-        Write-Information "" -InformationAction Continue
+        Write-Verbose ""
         Write-Information "== pool-control-service is STILL BUILDING (VM up, daemon not serving yet) ==" -InformationAction Continue
-        Write-Information "  VM:   $VMName ($HostType)" -InformationAction Continue
-        Write-Information "  Watch the build finish:" -InformationAction Continue
+        Write-Verbose "  VM:   $VMName ($HostType)"
+        Write-Verbose "  Watch the build finish:"
         # Never an ssh line with a hole where the host should be: an address this
         # host never learned makes the command unrunnable AND hides the fact that
         # is actually blocking the reader.
         foreach ($hintLine in ((Format-GuestSshDiagnosticHint -User 'pool-control-service-admin' -Address ([string]$vmIp) -VMName $VMName `
                     -Command 'sudo tail -f /var/log/cloud-init-output.log') -split "`r?`n")) {
-            Write-Information "  $hintLine" -InformationAction Continue
+            Write-Verbose "  $hintLine"
         }
-        Write-Information "  Then:  test/service/Start-PoolControlServiceVM.ps1   (adopts it once it serves)" -InformationAction Continue
+        Write-Verbose "  Then:  test/service/Start-PoolControlServiceVM.ps1   (adopts it once it serves)"
         exit $ExitOk
     }
 
@@ -629,11 +629,11 @@ To hold this script longer next time:
                     -GuestKey 'guest.pool-control-service' -User 'pool-control-service-admin' `
                     -Expected $frameworkExpected -ServiceLabel 'pool-control-service' `
                     -AllowMirrorSource:$AllowMirrorSource)) {
-            Write-Information "" -InformationAction Continue
-            Write-Information "== pool-control-service start: FAILED (deployed an obsolete framework snapshot) ==" -InformationAction Continue
-            Write-Information "  VM:   $VMName ($HostType)" -InformationAction Continue
+            Write-Verbose ""
+            Write-Verbose "== pool-control-service start: FAILED (deployed an obsolete framework snapshot) =="
+            Write-Verbose "  VM:   $VMName ($HostType)"
             Write-Information "  The VM is up and the daemon is serving -- it is running the WRONG BUILD, not nothing." -InformationAction Continue
-            Write-Information "  Stop: test/service/Stop-PoolControlServiceVM.ps1" -InformationAction Continue
+            Write-Verbose "  Stop: test/service/Stop-PoolControlServiceVM.ps1"
             exit $ExitFailure
         }
 
@@ -648,7 +648,7 @@ To hold this script longer next time:
             Import-Module (Join-Path $ModulesDir 'Test.CachingProxyService.psm1') -Global -Force
             $aliasSync = Sync-PoolIntentAliasOnProxy -Confirm:$false
             if ($aliasSync.Changed) {
-                Write-Information "  Proxy: /pool-intent.git now serves the pool NAS store (runners pull what this UI writes)." -InformationAction Continue
+                Write-Verbose "  Proxy: /pool-intent.git now serves the pool NAS store (runners pull what this UI writes)."
             } elseif (-not $aliasSync.Ok) {
                 Write-Warning "pool-intent alias not reconciled on the caching-proxy service: $($aliasSync.Message). Runners may still pull the proxy's older local store; the pool-control service UI is unaffected."
             } else {
@@ -656,21 +656,21 @@ To hold this script longer next time:
             }
         } catch { Write-Verbose "pool-intent alias sync: $($_.Exception.Message)" }
 
-        Write-Information "" -InformationAction Continue
+        Write-Verbose ""
         if ($listeningButUnreachable) {
-            Write-Information "== pool-control-service is RUNNING (daemon serving on :80 in-guest; not reachable from this host) ==" -InformationAction Continue
+            Write-Verbose "== pool-control-service is RUNNING (daemon serving on :80 in-guest; not reachable from this host) =="
         } else {
-            Write-Information "== pool-control-service is READY (daemon serving on :80) ==" -InformationAction Continue
+            Write-Verbose "== pool-control-service is READY (daemon serving on :80) =="
         }
-        Write-Information "  VM:   $VMName ($HostType)" -InformationAction Continue
+        Write-Verbose "  VM:   $VMName ($HostType)"
         if ($poolControlServiceBaseUrl) {
-            Write-Information "  UI:   $poolControlServiceBaseUrl  (Assign / Pools / Test sets)" -InformationAction Continue
+            Write-Verbose "  UI:   $poolControlServiceBaseUrl  (Assign / Pools / Test sets)"
         } else {
-            Write-Information "  UI:   not published -- this host cannot reach the daemon, so no URL is advertised. The pool still" -InformationAction Continue
-            Write-Information "        resolves the service from its own announce; the Yuruna hosts dashboard links it there." -InformationAction Continue
+            Write-Verbose "  UI:   not published -- this host cannot reach the daemon, so no URL is advertised. The pool still"
+            Write-Verbose "        resolves the service from its own announce; the Yuruna hosts dashboard links it there."
         }
         if ($vmIp) { Write-Information "  SSH:  ssh pool-control-service-admin@$vmIp  (harness key authorized)" -InformationAction Continue }
-        Write-Information "  Stop: test/service/Stop-PoolControlServiceVM.ps1" -InformationAction Continue
+        Write-Verbose "  Stop: test/service/Stop-PoolControlServiceVM.ps1"
         exit $ExitOk
     }
 
@@ -708,7 +708,7 @@ To hold this script longer next time:
             # Get-VMScreenshot can report truthy without writing the file, so the
             # path is advertised only once it is on disk.
             if ($captured -and (Test-Path -LiteralPath $consolePng)) {
-                Write-Information "  Guest console captured: $consolePng" -InformationAction Continue
+                Write-Verbose "  Guest console captured: $consolePng"
             } else {
                 Write-Information "  Guest console could not be captured (the hypervisor returned no frame)." -InformationAction Continue
             }
@@ -741,12 +741,12 @@ To hold this script longer next time:
         try { $diag = Invoke-GuestSsh -VMName $sshTarget -GuestKey 'guest.pool-control-service' -User 'pool-control-service-admin' -Command $diagCmd -TimeoutSeconds 120 }
         catch { Write-Verbose "guest diagnostics ssh: $($_.Exception.Message)" }
     }
-    Write-Information "" -InformationAction Continue
+    Write-Verbose ""
     Write-Information "================= pool-control-service guest diagnostics =================" -InformationAction Continue
     if ($diag -and -not [string]::IsNullOrWhiteSpace([string]$diag.output)) {
         foreach ($line in ([string]$diag.output -split "`r?`n")) { Write-Information "  $line" -InformationAction Continue }
         if (-not $diag.success) {
-            Write-Information "  (ssh ended with exit=$($diag.exitCode); the capture above is what completed before it did)" -InformationAction Continue
+            Write-Verbose "  (ssh ended with exit=$($diag.exitCode); the capture above is what completed before it did)"
         }
     } else {
         Write-Information "  Could not reach the VM over SSH (sshd may still be starting, or networking is broken)." -InformationAction Continue
@@ -755,25 +755,25 @@ To hold this script longer next time:
         # is actually blocking the reader.
         foreach ($hintLine in ((Format-GuestSshDiagnosticHint -User 'pool-control-service-admin' -Address $diagIp -VMName $VMName `
                     -Command 'sudo tail -n 120 /var/log/cloud-init-output.log') -split "`r?`n")) {
-            Write-Information "  $hintLine" -InformationAction Continue
+            Write-Verbose "  $hintLine"
         }
     }
-    Write-Information "==================================================================" -InformationAction Continue
-    Write-Information "" -InformationAction Continue
+    Write-Verbose "=================================================================="
+    Write-Verbose ""
     Write-Information "The pool-control-service daemon did not come up on :80. Reading the capture above:" -InformationAction Continue
     Write-Information "  * cloud-init status 'running'  -> the in-guest build (go/pwsh) is still going; wait, then" -InformationAction Continue
-    Write-Information "                                    re-run to re-check (or raise YURUNA_POOL_CONTROL_SERVICE_READY_TIMEOUT_SECONDS)." -InformationAction Continue
+    Write-Verbose "                                    re-run to re-check (or raise YURUNA_POOL_CONTROL_SERVICE_READY_TIMEOUT_SECONDS)."
     Write-Information "  * 'cifs_mount failed' / -111   -> the pool NAS did not mount, so cloud-init stopped before the daemon" -InformationAction Continue
-    Write-Information "                                    was ever built. The console capture above shows this when SSH cannot." -InformationAction Continue
+    Write-Verbose "                                    was ever built. The console capture above shows this when SSH cannot."
     Write-Information "  * a 'go build' / apt error     -> a package or source problem; the log tail shows the line." -InformationAction Continue
     Write-Information "  * 'NAS mount failed'           -> pool NAS unreachable; re-check the pool storage credential." -InformationAction Continue
     Write-Information "  * nothing at all over SSH      -> the console capture above is the remaining evidence." -InformationAction Continue
-    Write-Information "See https://yuruna.link/pool-control-service." -InformationAction Continue
-    Write-Information "" -InformationAction Continue
-    Write-Information "== pool-control-service start: FAILED (the daemon never served on :80) ==" -InformationAction Continue
-    Write-Information "  VM:   $VMName" -InformationAction Continue
-    Write-Information "  Host: $HostType" -InformationAction Continue
-    Write-Information "  Stop: test/service/Stop-PoolControlServiceVM.ps1" -InformationAction Continue
+    Write-Verbose "See https://yuruna.link/pool-control-service."
+    Write-Verbose ""
+    Write-Verbose "== pool-control-service start: FAILED (the daemon never served on :80) =="
+    Write-Verbose "  VM:   $VMName"
+    Write-Verbose "  Host: $HostType"
+    Write-Verbose "  Stop: test/service/Stop-PoolControlServiceVM.ps1"
     exit $ExitFailure
 }
 
@@ -825,6 +825,6 @@ if ($PSCmdlet.ShouldProcess($binPath, "launch pool-control-service on :$Port")) 
     if (Get-Command Write-HostRegistrationRecord -ErrorAction SilentlyContinue) {
         try { Write-HostRegistrationRecord -HostType (Get-HostType) | Out-Null } catch { Write-Verbose "registration refresh: $($_.Exception.Message)" }
     }
-    Write-Information "Pool-control service running (pid $($proc.Id)) at http://${localIp}:$Port/  (UI: /, /pools, /test-sets)." -InformationAction Continue
+    Write-Verbose "Pool-control service running (pid $($proc.Id)) at http://${localIp}:$Port/  (UI: /, /pools, /test-sets)."
 }
 exit $ExitOk

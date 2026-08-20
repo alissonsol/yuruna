@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.19
+.VERSION 2026.08.20
 .GUID 42639d1d-6649-49d9-82a8-a37f8410ebbc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -231,14 +231,7 @@ Restore-Knob -Name 'service/W32Time' -Description 'Windows Time service (W32Time
 
 # --- REGION: Services (opt-in)
 if ($StopServices) {
-    foreach ($svc in @('CachingProxyService', 'StashService', 'PoolControlService', 'DownloadAgentService')) {
-        $script = Join-Path $RepoRoot "test/service/Stop-${svc}VM.ps1"
-        if (-not (Test-Path -LiteralPath $script)) { $skipped.Add("test/service/Stop-${svc}VM.ps1 not found"); continue }
-        if ($PSCmdlet.ShouldProcess("$svc VM", 'Stop')) {
-            & pwsh -NoProfile -File $script
-            $restored.Add("$svc VM stopped")
-        }
-    }
+    Stop-YurunaServiceVMSet -RepoRoot $RepoRoot -Cmdlet $PSCmdlet -Restored $restored -Skipped $skipped
 }
 
 # --- REGION: Report
@@ -253,19 +246,4 @@ Write-DisableManualStep -What 'Hyper-V and vmms service state (the bootstrapper 
 Write-DisableManualStep -What 'Cloned repos, VM images and run history under ~/yuruna'
 Write-DisableManualStep -What 'networkStorage configuration, the vaulted credential and any mounts' `
     -Command (Get-PoolStorageManualTeardown -RepoRoot $RepoRoot)
-# Stated plainly rather than offered as a switch: nothing here removes the
-# vault, and a -IncludeVault flag that only silenced this line would advertise a
-# removal that never happened.
-Write-DisableManualStep -What 'The Yuruna credential vault -- it holds credentials that are painful to recreate, so it is never removed automatically' -Command @(
-    'Get-SecretVault                     # find the Yuruna vault',
-    'Unregister-SecretVault -Name <name> # then delete its store on disk'
-)
-if (-not $StopServices) {
-    Write-DisableManualStep -What 'The caching-proxy / stash / pool-control / download-agent VMs (re-run with -StopServices to stop them)'
-}
-
-$capturePath = Get-HostAutomationStatePath
-if ($state -and (Test-Path -LiteralPath $capturePath)) {
-    Write-Output ''
-    Write-Output "The capture is kept at $capturePath so this can be re-run; delete it once the host is where you want it."
-}
+Write-DisableCommonEpilogue -StateCaptured ([bool]$state) -StopServices ([bool]$StopServices)

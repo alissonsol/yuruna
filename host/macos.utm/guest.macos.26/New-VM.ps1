@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.19
+.VERSION 2026.08.20
 .GUID 42f70b5c-df30-487c-a638-ea7b52866f97
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -163,22 +163,8 @@ Write-Output ""
 # only error out when it's still missing afterward.
 $baseImageName = "host.macos.utm.guest.macos.26"
 $baseImageFile = Join-Path $downloadDir "$baseImageName.ipsw"
-if (-not (Test-Path $baseImageFile)) {
-    $getImageScript = Join-Path $PSScriptRoot 'Get-Image.ps1'
-    if (Test-Path -LiteralPath $getImageScript) {
-        Write-Output "Base IPSW missing: $baseImageFile"
-        Write-Output "Auto-running $getImageScript to fetch it..."
-        & pwsh -NoProfile -File $getImageScript
-        if ($LASTEXITCODE -ne 0) {
-            Write-Error "Auto Get-Image.ps1 exited $LASTEXITCODE. Cannot create VM."
-            exit 1
-        }
-    }
-    if (-not (Test-Path $baseImageFile)) {
-        Write-Error "Base IPSW not found at '$baseImageFile' after auto Get-Image. Run Get-Image.ps1 manually."
-        exit 1
-    }
-}
+Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.Image.psm1') -Force
+if (-not (Assert-YurunaBaseImage -BaseImageFile $baseImageFile -GuestFolder $PSScriptRoot -ArtifactLabel 'Base IPSW')) { exit 1 }
 
 Write-Verbose "Creating VM '$VMName' from IPSW: $baseImageFile"
 # Provenance side-channel for operators reading the transcript. Emits

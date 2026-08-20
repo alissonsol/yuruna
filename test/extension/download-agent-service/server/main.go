@@ -26,7 +26,7 @@ import (
 	"download-agent-service/internal/httpsrv"
 	"download-agent-service/internal/imagestore"
 	"download-agent-service/internal/state"
-	"download-agent-service/internal/yex/beacon"
+	"yuruna.com/test/extension/extension-sdk/beacon"
 )
 
 var version = "dev"

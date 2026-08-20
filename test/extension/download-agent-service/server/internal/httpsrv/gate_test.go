@@ -20,7 +20,7 @@ import (
 	"time"
 
 	"download-agent-service/internal/state"
-	"download-agent-service/internal/yex/labgate"
+	"yuruna.com/test/extension/extension-sdk/labgate"
 )
 
 // The gate's own semantics -- sessions, throttling, the bearer compare, the

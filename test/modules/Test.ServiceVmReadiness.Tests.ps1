@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.19
+.VERSION 2026.08.20
 .GUID 42a24e8a-bb70-4de1-b78f-9bbdd82d9ea7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -213,9 +213,13 @@ Describe 'Start-StashServiceVM reports the verdict it reached' {
     }
 
     It 'prints no "complete" banner on any path that did not complete' {
-        $complete = $script:StashSource.IndexOf('== stash-service start: complete ==')
+        # Matched on the prefix, not the whole banner: the suffix carries the VM
+        # name and host, which is what an operator needs when several service VMs
+        # are being brought up. The invariant is ONE completion banner on ONE
+        # path, not its exact wording.
+        $complete = $script:StashSource.IndexOf('== stash-service start: complete')
         Assert-True ($complete -ge 0) 'a successful bring-up still says so.'
-        Assert-StringEqual -Expected 1 -Actual ([regex]::Matches($script:StashSource, [regex]::Escape('== stash-service start: complete ==')).Count) `
+        Assert-StringEqual -Expected 1 -Actual ([regex]::Matches($script:StashSource, [regex]::Escape('== stash-service start: complete')).Count) `
             'one banner, on one path -- a second copy is how a failing path grows one.'
 
         $failBanner = $script:StashSource.IndexOf('== stash-service start: FAILED')
@@ -495,5 +499,49 @@ Describe 'A wait that is throttled into a log still says what changed' {
         $vmUtility = Get-Content -Raw -LiteralPath (Join-Path $here 'Test.VMUtility.psm1')
         Assert-True ($vmUtility -match '-IdentityKey "\$VMName\|\$\(\$probeStart\.Ticks\)') `
             'the wait''s own progress line carries the same guarantee for callers that use its label.'
+    }
+}
+
+Describe 'the readiness wait reports what the guest actually said' {
+
+    It 'skips decorative lines when picking the last cloud-init step' {
+        # A bare `tail -n 1` reports whatever was printed last. cloud-init ends
+        # by generating host keys, so a FAILED build showed the operator the top
+        # border of an SSH randomart box -- "+----[SHA256]-----+" -- for the
+        # whole wait, while the real error sat a few lines above it.
+        $here     = Split-Path -Parent $PSCommandPath
+        $repoRoot = Get-YurunaTestRepoRoot -SuiteDirectory $here
+        $src      = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'test/modules/Test.VMUtility.psm1')
+        $probe    = [regex]::Match($src, 'YURUNA_PROGRESS=[^\n]*(\n[^\n]*){0,6}')
+        Assert-True $probe.Success 'the in-guest progress probe must exist'
+        Assert-True ($probe.Value -notmatch 'tail -n 1 /var/log') `
+            'taking only the final line is what reported randomart instead of the error'
+        Assert-Match -Pattern 'grep -vE' -Actual $probe.Value `
+            -Because 'blank and box-drawing lines must be filtered before the last line is taken'
+    }
+
+    It 'ends the wait when cloud-init has errored rather than serving out the budget' {
+        # Nothing re-runs cloud-init on this boot, so every further poll asks a
+        # question already answered. The observed cost was 45 minutes of progress
+        # bar after the guest had reported ERRORED at minute two.
+        $here     = Split-Path -Parent $PSCommandPath
+        $repoRoot = Get-YurunaTestRepoRoot -SuiteDirectory $here
+        $src      = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'test/modules/Test.VMUtility.psm1')
+        Assert-Match -Pattern "cloudInitStatus -match '\^error\$'" -Actual $src `
+            -Because 'a terminal cloud-init error must end the wait'
+        $errBranch = $src.IndexOf("cloudInitStatus -match '^error$'")
+        $nextBreak = $src.IndexOf('break', $errBranch)
+        Assert-True (($nextBreak -gt $errBranch) -and (($nextBreak - $errBranch) -lt 600)) `
+            'the error branch must leave the poll loop, not merely log'
+    }
+
+    It 'keeps waiting on done, where the daemon may still be binding' {
+        # The distinction that makes the early exit safe: cloud-init finishing is
+        # not the daemon having failed, so 'done' must NOT short-circuit.
+        $here     = Split-Path -Parent $PSCommandPath
+        $repoRoot = Get-YurunaTestRepoRoot -SuiteDirectory $here
+        $src      = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'test/modules/Test.VMUtility.psm1')
+        Assert-True ($src -notmatch "cloudInitStatus -match '\^\(error\|done\)") `
+            'done must not be treated as terminal'
     }
 }

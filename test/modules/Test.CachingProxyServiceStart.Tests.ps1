@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.19
+.VERSION 2026.08.20
 .GUID 4264d5c7-e082-4c67-a5f9-915f2f84141e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -287,5 +287,47 @@ Describe 'ConvertTo-YurunaMacAddress normalizes and validates (Yuruna.Common)' {
         $out = ConvertTo-YurunaMacAddress '08:00:27:AA:BB:CC' -WarningAction SilentlyContinue -WarningVariable macWarn
         Assert-True ($out -eq '08:00:27:AA:BB:CC') 'value still accepted'
         Assert-True (@($macWarn).Count -ge 1) 'a locally-administered-bit warning is emitted'
+    }
+}
+
+Describe 'the cache VM RAM and squid cache_mem are chosen as one pair' {
+    BeforeAll {
+        Import-Module (Join-Path $script:repoRoot 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking
+    }
+
+    # The pairing is the whole point of the function: swap is masked in the
+    # guest, so a cache_mem raised without the RAM under it is an unrecoverable
+    # OOM rather than a slowdown. Pinning both numbers of both pairings is what
+    # makes one of them impossible to move alone.
+    It 'defaults to the pairing sized for a host that also runs test guests' {
+        $p = Get-CachingProxyMemoryProfile
+        Assert-Equal 8192  $p.VmMemoryMb    -Because 'a host running its own guests cannot spare a beacon-sized cache'
+        Assert-Equal '3 GB' $p.SquidCacheMem
+    }
+    It 'gives a lab beacon the larger pairing' {
+        $p = Get-CachingProxyMemoryProfile -Lab
+        Assert-Equal 12288 $p.VmMemoryMb
+        Assert-Equal '7 GB' $p.SquidCacheMem
+    }
+    # squid's resident set runs about a gigabyte above cache_mem, and what is
+    # left over has to carry zot (2 GB) and the rest of the stack (~2 GB). That
+    # headroom -- not a percentage of the VM -- is what both pairings hold
+    # constant, so it is the arithmetic a third pairing has to satisfy.
+    It 'leaves the same 4 GB above squid in both pairings' {
+        foreach ($pair in @((Get-CachingProxyMemoryProfile), (Get-CachingProxyMemoryProfile -Lab))) {
+            $cacheMemGb = [int]($pair.SquidCacheMem -replace '\D', '')
+            $headroomGb = ($pair.VmMemoryMb / 1024) - ($cacheMemGb + 1)
+            Assert-Equal 4 $headroomGb `
+                -Because "cache_mem $cacheMemGb GB in $($pair.VmMemoryMb / 1024) GB leaves $headroomGb GB for zot and the rest of the stack, not 4"
+        }
+    }
+    # The switch names the exception, so the size a host gets is the safe one
+    # unless something says otherwise. A run that has to opt IN to the smaller
+    # pairing gives a beacon-sized cache to every host whose operator did not
+    # know to ask.
+    It 'names the exception, so the default needs no argument' {
+        $declared = Get-ScriptParameterName -Ast (Get-Ast $script:startCp)
+        Assert-True ($declared -contains 'Lab') 'the launcher takes -Lab'
+        Assert-True ($declared -notcontains 'Standalone') 'and no longer asks the ordinary host to opt in'
     }
 }

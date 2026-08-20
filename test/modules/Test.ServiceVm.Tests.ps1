@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.19
+.VERSION 2026.08.20
 .GUID 4244dbae-a452-49ac-b6cb-0ab2d797bde7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -173,5 +173,40 @@ Describe 'Write-YurunaServiceVmRestoreReport' {
     It 'tolerates an empty or null result set' {
         Assert-Equal 0 @(Write-YurunaServiceVmRestoreReport -Result @() 3>&1 6>&1).Count
         Assert-Equal 0 @(Write-YurunaServiceVmRestoreReport -Result $null 3>&1 6>&1).Count
+    }
+}
+
+Describe 'the service-VM launchers are quiet by default' {
+
+    It 'keeps default-level output to outcomes, not narration' {
+        # An operator running one of these with no flags wants to know what is
+        # being brought up, whether it worked, and where it landed. Everything
+        # else -- image provenance, login hints, wait-budget explanations, the
+        # watch-progress commands -- is diagnostic and belongs behind -Verbose.
+        # These scripts had 60-178 default-level writes each; a genuine failure
+        # scrolled past unread among them.
+        $here     = Split-Path -Parent $PSCommandPath
+        $repoRoot = Get-YurunaTestRepoRoot -SuiteDirectory $here
+        $svcDir   = Join-Path $repoRoot 'test/service'
+        $loud = [Collections.Generic.List[string]]::new()
+        foreach ($s in (Get-ChildItem -LiteralPath $svcDir -File -Filter 'Start-*ServiceVM.ps1')) {
+            $n = @([regex]::Matches((Get-Content -Raw -LiteralPath $s.FullName),
+                    '(?m)^\s*Write-(Output|Information)\b')).Count
+            if ($n -gt 30) { $loud.Add("$($s.Name): $n default-level writes") }
+        }
+        Assert-NoFinding -Finding $loud -Because 'move narration to Write-Verbose; keep outcomes at the default level'
+    }
+
+    It 'still announces success and the address it landed on' {
+        # The opposite failure, and the one a demotion sweep causes: a launcher
+        # so quiet that a successful run prints nothing an operator can act on.
+        $here     = Split-Path -Parent $PSCommandPath
+        $repoRoot = Get-YurunaTestRepoRoot -SuiteDirectory $here
+        $svcDir   = Join-Path $repoRoot 'test/service'
+        foreach ($s in (Get-ChildItem -LiteralPath $svcDir -File -Filter 'Start-*ServiceVM.ps1')) {
+            $text = Get-Content -Raw -LiteralPath $s.FullName
+            $outcome = [regex]::Matches($text, '(?m)^\s*Write-(Output|Information)[^\n]*(complete|READY|ADOPTED|is serving)')
+            Assert-True ($outcome.Count -gt 0) "$($s.Name) reports no success outcome at the default level"
+        }
     }
 }

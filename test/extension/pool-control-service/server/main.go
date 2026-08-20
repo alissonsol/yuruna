@@ -25,7 +25,7 @@ import (
 	"pool-control-service/internal/httpsrv"
 	"pool-control-service/internal/intent"
 	"pool-control-service/internal/state"
-	"pool-control-service/internal/yex/beacon"
+	"yuruna.com/test/extension/extension-sdk/beacon"
 )
 
 var version = "dev"

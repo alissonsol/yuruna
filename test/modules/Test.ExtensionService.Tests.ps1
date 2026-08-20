@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.19
+.VERSION 2026.08.20
 .GUID 42b86905-6f08-4020-9f8c-68c7b31b76ef
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -217,23 +217,71 @@ Describe 'Get-ActiveExtensionService' {
     }
 }
 
-Describe 'the Go SDK mirrors' {
-    It 'are byte-identical to the canonical extension-sdk' {
-        # One SDK, copied into each service module because each daemon is built
-        # inside its own VM from a copy of <area>/server/ alone. The copy is
-        # generated (tools/Sync-ExtensionSdk.ps1); this is what keeps it honest.
-        $sync = Join-Path $script:RepoRoot 'tools/Sync-ExtensionSdk.ps1'
-        Assert-True (Test-Path -LiteralPath $sync) 'the sync script exists'
-        & pwsh -NoProfile -File $sync -RepoRoot $script:RepoRoot -Verify 2>&1 | Out-Null
-        Assert-Equal 0 $LASTEXITCODE -Because 'run: pwsh -NoProfile -File tools/Sync-ExtensionSdk.ps1'
-    }
-    It 'reach every service that builds a Go daemon' {
-        $sdk = Join-Path $script:RepoRoot 'test/extension/extension-sdk'
-        Assert-True (Test-Path -LiteralPath $sdk) 'the canonical SDK exists'
+Describe 'the Go SDK is shared, not mirrored' {
+
+    It 'leaves no copy of the SDK inside any service module' {
+        # The SDK used to be mirrored into <service>/server/internal/yex so each
+        # daemon could build from a copy of server/ alone -- 4,290 duplicated
+        # lines whose only guard was a byte-identity check. It is now staged
+        # beside server/ as the separate module it always was.
         foreach ($goMod in (Get-ChildItem -LiteralPath (Join-Path $script:RepoRoot 'test/extension') -Directory |
                 ForEach-Object { Join-Path $_.FullName 'server/go.mod' } | Where-Object { Test-Path -LiteralPath $_ })) {
             $mirror = Join-Path (Split-Path -Parent $goMod) 'internal/yex'
-            Assert-True (Test-Path -LiteralPath $mirror) "$mirror carries the SDK mirror"
+            Assert-True (-not (Test-Path -LiteralPath $mirror)) "$mirror is a reintroduced SDK mirror; stage the module instead"
+        }
+    }
+
+    It 'wires every Go service to the SDK module by path, not by copy' {
+        # The three pieces that make the shared module resolve. A service with
+        # the require but no replace builds only where the module is published;
+        # one with neither silently falls back to looking for a directory that
+        # is no longer there.
+        $sdkPath = 'yuruna.com/test/extension/extension-sdk'
+        $wired = 0
+        foreach ($goMod in (Get-ChildItem -LiteralPath (Join-Path $script:RepoRoot 'test/extension') -Directory |
+                ForEach-Object { Join-Path $_.FullName 'server/go.mod' } | Where-Object { Test-Path -LiteralPath $_ })) {
+            $text = Get-Content -Raw -LiteralPath $goMod
+            $dir  = Split-Path -Parent $goMod
+            $usesSdk = @(Get-ChildItem -LiteralPath $dir -Recurse -File -Filter '*.go' -ErrorAction SilentlyContinue |
+                    Where-Object { (Get-Content -Raw -LiteralPath $_.FullName) -match [regex]::Escape($sdkPath) })
+            if ($usesSdk.Count -eq 0) { continue }
+            $wired++
+            Assert-Match -Pattern ([regex]::Escape($sdkPath)) -Actual $text -Because "$goMod imports the SDK but does not require it"
+            Assert-Match -Pattern 'replace\s+yuruna\.com/test/extension/extension-sdk\s*=>\s*\.\./extension-sdk' -Actual $text `
+                -Because "$goMod must resolve the SDK from the sibling the guest stages"
+        }
+        Assert-True ($wired -ge 3) "expected at least three services wired to the SDK, found $wired"
+    }
+
+    It 'installs the binary from the directory it built in' {
+        # The bug this caught, in the only place it could be caught: moving the
+        # build into $BUILD/server left `install "$BUILD/<name>"` pointing at the
+        # old layout. go build succeeded, the binary existed, and the bring-up
+        # died one line later with "install: No such file or directory" -- on the
+        # guest, minutes into a VM boot. Build dir and install source must agree.
+        $guestDir = Join-Path $script:RepoRoot 'guest/ubuntu.server.26'
+        foreach ($s in (Get-ChildItem -LiteralPath $guestDir -File -Filter '*-service.sh' -ErrorAction SilentlyContinue)) {
+            $text = Get-Content -Raw -LiteralPath $s.FullName
+            if ($text -notmatch '\$BUILD/server') { continue }
+            foreach ($m in [regex]::Matches($text, 'install[^\n]*?"(\$BUILD[^"]*)"')) {
+                Assert-Match -Pattern '^\$BUILD/server/' -Actual $m.Groups[1].Value `
+                    -Because "$($s.Name) builds in `$BUILD/server but installs from $($m.Groups[1].Value)"
+            }
+        }
+    }
+
+    It 'stages the SDK beside server in every guest bring-up' {
+        # The replace directive points at ../extension-sdk, so the build dir must
+        # hold BOTH. A bring-up that copies only server/ would fail to resolve
+        # the module -- and would do so on the guest, long after the change.
+        $guestDir = Join-Path $script:RepoRoot 'guest/ubuntu.server.26'
+        $scripts  = @(Get-ChildItem -LiteralPath $guestDir -File -Filter '*-service.sh' -ErrorAction SilentlyContinue)
+        Assert-True ($scripts.Count -ge 3) "expected the service bring-up scripts, found $($scripts.Count)"
+        foreach ($s in $scripts) {
+            $text = Get-Content -Raw -LiteralPath $s.FullName
+            Assert-Match -Pattern 'SDK_DIR'                 -Actual $text -Because "$($s.Name) must locate the SDK"
+            Assert-Match -Pattern '\$BUILD/extension-sdk'   -Actual $text -Because "$($s.Name) must stage the SDK beside server/"
+            Assert-Match -Pattern '\$BUILD/server'          -Actual $text -Because "$($s.Name) must build from \$BUILD/server"
         }
     }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.19
+.VERSION 2026.08.20
 .GUID 421a49fd-aa32-431c-979f-99704a673b48
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -45,15 +45,11 @@ $script:HostConditionRegistry = New-YurunaRegistry `
 function Register-HostConditionProvider {
     <#
     .SYNOPSIS
-        Bind a (Set, Assert, AssertMinimum, RequiresElevation) record
+        Bind an (Assert, AssertMinimum, RequiresElevation) record
         to $HostType in the host-condition registry.
     .PARAMETER HostType
         Stable host identifier ('host.windows.hyper-v', 'host.macos.utm',
         'host.ubuntu.kvm', or a future plugin's identifier).
-    .PARAMETER Set
-        Scriptblock invoked by the operator-facing Enable-TestAutomation
-        path. Signature: `param([string]$HostType)`. May mutate host
-        state; should honor -WhatIf via its own ShouldProcess.
     .PARAMETER Assert
         Scriptblock invoked by Assert-HostConditionSet at runtime.
         Signature: `param([string]$HostType)`. Must return [bool]
@@ -74,7 +70,6 @@ function Register-HostConditionProvider {
         Justification = 'Parameters are stored in the registry, not used by this function body.')]
     param(
         [Parameter(Mandatory)][string]$HostType,
-        [Parameter(Mandatory)][scriptblock]$Set,
         [Parameter(Mandatory)][scriptblock]$Assert,
         [Parameter(Mandatory)][scriptblock]$AssertMinimum,
         [bool]$RequiresElevation = $false,
@@ -107,7 +102,6 @@ function Register-HostConditionProvider {
     )
     & $script:HostConditionRegistry.Register $HostType ([ordered]@{
         HostType          = $HostType
-        Set               = $Set
         Assert            = $Assert
         AssertMinimum     = $AssertMinimum
         RequiresElevation = $RequiresElevation
@@ -427,7 +421,6 @@ function script:Register-IfAvailable {
         Justification = 'Helper drives Register-HostConditionProvider; the wrapper carries ShouldProcess-equivalent intent at module load.')]
     param(
         [Parameter(Mandatory)][string]$HostType,
-        [Parameter(Mandatory)][string]$SetFn,
         [Parameter(Mandatory)][string]$AssertFn,
         [Parameter(Mandatory)][string]$MinimumFn,
         [bool]$RequiresElevation,
@@ -447,7 +440,7 @@ function script:Register-IfAvailable {
         [string]$NetworkHealthFn
     )
     $missing = @()
-    foreach ($fn in @($SetFn, $AssertFn, $MinimumFn)) {
+    foreach ($fn in @($AssertFn, $MinimumFn)) {
         if (-not (Get-Command -Name $fn -ErrorAction SilentlyContinue)) { $missing += $fn }
     }
     if ($missing.Count -gt 0) {
@@ -482,7 +475,6 @@ function script:Register-IfAvailable {
         else { Write-Verbose "Test.HostCondition: $HostType guest-network probe '$NetworkHealthFn' not found; skipping that capability." }
     }
     Register-HostConditionProvider -HostType $HostType `
-        -Set             (Get-Command $SetFn).ScriptBlock `
         -Assert          (Get-Command $AssertFn).ScriptBlock `
         -AssertMinimum   (Get-Command $MinimumFn).ScriptBlock `
         -RequiresElevation $RequiresElevation `
@@ -492,17 +484,17 @@ function script:Register-IfAvailable {
         -NetworkHealth   $networkBlock
 }
 Register-IfAvailable -HostType 'host.windows.hyper-v' `
-    -SetFn 'Set-WindowsHostConditionSet' -AssertFn 'Assert-WindowsHostConditionSet' -MinimumFn 'Test-WindowsHostMinimum' `
+    -AssertFn 'Assert-WindowsHostConditionSet' -MinimumFn 'Test-WindowsHostMinimum' `
     -DisplayFn 'Install-YurunaVirtualDisplay' -TeardownFn 'Remove-YurunaVirtualDisplay' `
     -ClockSyncFn 'Sync-WindowsHostClock' `
     -NetworkHealthFn 'Test-WindowsGuestNetworkHealth' `
     -RequiresElevation $true
 Register-IfAvailable -HostType 'host.macos.utm' `
-    -SetFn 'Set-MacHostConditionSet'     -AssertFn 'Assert-MacHostConditionSet'     -MinimumFn 'Test-MacHostMinimum' `
+    -AssertFn 'Assert-MacHostConditionSet' -MinimumFn 'Test-MacHostMinimum' `
     -ClockSyncFn 'Sync-MacHostClock' `
     -RequiresElevation $false
 Register-IfAvailable -HostType 'host.ubuntu.kvm' `
-    -SetFn 'Set-LinuxHostConditionSet'   -AssertFn 'Assert-LinuxHostConditionSet'   -MinimumFn 'Test-LinuxHostMinimum' `
+    -AssertFn 'Assert-LinuxHostConditionSet' -MinimumFn 'Test-LinuxHostMinimum' `
     -ClockSyncFn 'Sync-LinuxHostClock' `
     -RequiresElevation $false
 
@@ -664,4 +656,4 @@ Export-ModuleMember -Function `
     Assert-ScreenLock, Initialize-SudoCache, `
     Get-MacPmsetGuardList, Set-MacHostConditionSet, Assert-Accessibility, Assert-ScreenRecording, Assert-MacHostConditionSet, Test-MacHostMinimum, Sync-MacHostClock, `
     Set-WindowsHostConditionSet, Assert-WindowsHostConditionSet, Test-WindowsHostMinimum, Test-WindowsGuestNetworkHealth, Sync-WindowsHostClock, `
-    Set-LinuxHostConditionSet, Assert-LinuxHostConditionSet, Test-LinuxHostMinimum, Sync-LinuxHostClock
+    Assert-LinuxHostConditionSet, Test-LinuxHostMinimum, Sync-LinuxHostClock

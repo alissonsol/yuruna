@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.19
+.VERSION 2026.08.20
 .GUID 42fcd8c5-0a6a-4e17-b89b-9c4d030faa8e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1848,23 +1848,36 @@ function Get-CachingProxyMemoryProfile {
     cache_mem for sslcrtd children, connection buffers and in-RAM hot objects.
     Returning them together is what stops one being tuned without the other.
 
-    The lab profile is the load-bearing default: 7 GB cache_mem inside 12 GB
-    leaves roughly 2 GB for the zot registry and 2 GB for the rest of the stack.
-    The standalone profile keeps that same proportion in a smaller VM, because a
-    standalone host runs the cache beside the stash and the download agent and
-    every gigabyte here is one the test guests on the same machine cannot have.
-    Only the in-RAM hot set shrinks -- the on-disk cache_dir is untouched, so a
-    memory miss still lands on local disk instead of the network.
-.PARAMETER Standalone
-    Size for a host that runs the whole lab by itself.
+    The smaller pairing is the default, because the host that runs the cache
+    beside the stash, the download agent and its own test guests is the ordinary
+    case, and every gigabyte here is one those guests cannot have. It is also
+    the safer direction to be wrong in: a cache sized for a shared beacon on a
+    machine that is not one takes memory from the guests under test, while a
+    beacon sized as an ordinary host only shrinks its in-RAM hot set -- the
+    on-disk cache_dir is untouched, so a memory miss still lands on local disk
+    instead of the network.
+
+    What both pairings hold constant is the headroom above squid, not a
+    proportion of the VM: cache_mem + the ~1 GB of resident set above it leaves
+    4 GB either way, which is the 2 GB zot needs plus 2 GB for the rest of the
+    stack. That is the arithmetic a third pairing has to satisfy -- 3 GB in
+    8 GB and 7 GB in 12 GB are 37 % and 58 % of their VMs, so a proportion
+    carried across would land in the wrong place.
+
+    -Lab opts into the larger pairing, for a beacon whose cache answers every
+    machine in the pool and whose hot set is therefore worth more of the host:
+    7 GB cache_mem inside 12 GB leaves roughly 2 GB for the zot registry and
+    2 GB for the rest of the stack.
+.PARAMETER Lab
+    Size for a shared lab beacon rather than a host that runs tests itself.
 .OUTPUTS
     [hashtable] VmMemoryMb, SquidCacheMem (a squid size string).
 #>
     [CmdletBinding()]
     [OutputType([hashtable])]
-    param([switch]$Standalone)
-    if ($Standalone) { return @{ VmMemoryMb = 8192;  SquidCacheMem = '3 GB' } }
-    return @{ VmMemoryMb = 12288; SquidCacheMem = '7 GB' }
+    param([switch]$Lab)
+    if ($Lab) { return @{ VmMemoryMb = 12288; SquidCacheMem = '7 GB' } }
+    return @{ VmMemoryMb = 8192;  SquidCacheMem = '3 GB' }
 }
 
 function Get-ServiceVmMemoryMb {

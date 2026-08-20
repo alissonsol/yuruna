@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.19
+.VERSION 2026.08.20
 .GUID 4209caff-b7ce-46f6-896a-1d6710c120e8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,24 +18,24 @@
 
 # The default VMName must not collide with the base image name.
 param(
-	[Parameter(Position = 0)]
-	[string]$VMName = "amazon-linux01",
-	# Greppable test user added on top of ec2-user; force-expired by
-	# cloud-init chpasswd default so the rotation flow runs.
-	[string]$Username = 'yauser1',
-	# cloud-init local-hostname for the guest. Empty means "follow the VM
-	# name", which keeps host-side lookups that assume hostname == VM name
-	# working for every caller that does not ask for a specific hostname.
-	[string]$Hostname = ''
+    [Parameter(Position = 0)]
+    [string]$VMName = "amazon-linux01",
+    # Greppable test user added on top of ec2-user; force-expired by
+    # cloud-init chpasswd default so the rotation flow runs.
+    [string]$Username = 'yauser1',
+    # cloud-init local-hostname for the guest. Empty means "follow the VM
+    # name", which keeps host-side lookups that assume hostname == VM name
+    # working for every caller that does not ask for a specific hostname.
+    [string]$Hostname = ''
 )
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
-	Write-Output "Invalid VMName '$VMName'. Only alphanumeric characters, dots, hyphens, and underscores are allowed."
-	exit 1
+    Write-Output "Invalid VMName '$VMName'. Only alphanumeric characters, dots, hyphens, and underscores are allowed."
+    exit 1
 }
 if ($Hostname -and $Hostname -notmatch '^[a-zA-Z0-9.-]+$') {
-	Write-Output "Invalid Hostname '$Hostname'. Only alphanumeric characters, dots, and hyphens are allowed."
-	exit 1
+    Write-Output "Invalid Hostname '$Hostname'. Only alphanumeric characters, dots, and hyphens are allowed."
+    exit 1
 }
 $GuestHostname = if ($Hostname) { $Hostname } else { $VMName }
 
@@ -50,9 +50,9 @@ Import-Module -Name $commonModulePath -Force
 
 Write-Verbose "This script requires elevation (Run as Administrator)."
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-	Write-Output "Please run this script as Administrator."
-	Write-Output "Be careful."
-	exit 1
+    Write-Output "Please run this script as Administrator."
+    Write-Output "Be careful."
+    exit 1
 }
 
 # Check Hyper-V. Assert-HyperVEnabled (Yuruna.Host.psm1) calls dism.exe
@@ -60,8 +60,8 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 # "Class not registered" COM failure that breaks the first post-install
 # run on a fresh Windows 11 machine.
 if (-not (Assert-HyperVEnabled)) {
-	Write-Output "Instructions: https://learn.microsoft.com/en-us/virtualization/hyper-v-on-windows/quick-start/enable-hyper-v"
-	exit 1
+    Write-Output "Instructions: https://learn.microsoft.com/en-us/virtualization/hyper-v-on-windows/quick-start/enable-hyper-v"
+    exit 1
 }
 
 # --- REGION: Seek the base image
@@ -71,54 +71,37 @@ $baseImageFile = Join-Path $downloadDir "$baseImageName.vhdx"
 
 Write-Verbose "Hyper-V default VHDX folder: $downloadDir"
 if (!(Test-Path -Path $downloadDir)) {
-	Write-Output "The Hyper-V default VHDX folder does not exist: $downloadDir"
-	exit 1
+    Write-Output "The Hyper-V default VHDX folder does not exist: $downloadDir"
+    exit 1
 }
 
-# Auto-run Get-Image.ps1 once if the base image is missing; recheck and
-# only error out when it's still missing afterward.
-if (!(Test-Path -Path $baseImageFile)) {
-    $getImageScript = Join-Path $PSScriptRoot 'Get-Image.ps1'
-    if (Test-Path -LiteralPath $getImageScript) {
-        Write-Output "Base image missing: $baseImageFile"
-        Write-Output "Auto-running $getImageScript to fetch it..."
-        & pwsh -NoProfile -File $getImageScript
-        $getImageExit = $LASTEXITCODE
-        if ($getImageExit -ne 0) {
-            Write-Error "Auto Get-Image.ps1 exited $getImageExit. Cannot create VM."
-            exit 1
-        }
-    }
-    if (!(Test-Path -Path $baseImageFile)) {
-        Write-Error "Base image not found at '$baseImageFile' after auto Get-Image. Run Get-Image.ps1 manually."
-        exit 1
-    }
-}
+Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.Image.psm1') -Force
+if (-not (Assert-YurunaBaseImage -BaseImageFile $baseImageFile -GuestFolder $PSScriptRoot)) { exit 1 }
 
 # --- REGION: Remove existing VM
 # Runs AFTER the base image is confirmed so a failed image fetch never
 # destroys a working VM.
 $existingVM = Get-VM -Name $VMName -ErrorAction SilentlyContinue
 if ($existingVM) {
-	Write-Output "VM '$VMName' exists. Deleting..."
-	Hyper-V\Stop-VM -Name $VMName -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
-	try {
-		Hyper-V\Remove-VM -Name $VMName -Force -ErrorAction Stop
-	} catch {
-		# A half-removed VM (locked vhdx, permission, etc.) would trip
-		# the next New-VM call with "already exists" and the outer loop
-		# has no signal to recover. Dump live Hyper-V state so the
-		# operator can clean orphan disks before retrying.
-		$diag = Get-VM -Name $VMName -ErrorAction SilentlyContinue |
-			Format-List Name, State, Status, Generation, Path | Out-String
-		throw "Hyper-V\Remove-VM failed for '$VMName': $($_.Exception.Message)`nLive Hyper-V state:`n$diag"
-	}
-	# Hyper-V can return Remove-VM success while leaving a ghost entry;
-	# a second Get-VM is the only reliable post-condition.
-	if (Get-VM -Name $VMName -ErrorAction SilentlyContinue) {
-		throw "Hyper-V\Remove-VM returned success for '$VMName' but Get-VM still finds it; aborting before re-creation."
-	}
-	Write-Output "VM '$VMName' deleted."
+    Write-Output "VM '$VMName' exists. Deleting..."
+    Hyper-V\Stop-VM -Name $VMName -Force -ErrorAction SilentlyContinue -WarningAction SilentlyContinue
+    try {
+        Hyper-V\Remove-VM -Name $VMName -Force -ErrorAction Stop
+    } catch {
+        # A half-removed VM (locked vhdx, permission, etc.) would trip
+        # the next New-VM call with "already exists" and the outer loop
+        # has no signal to recover. Dump live Hyper-V state so the
+        # operator can clean orphan disks before retrying.
+        $diag = Get-VM -Name $VMName -ErrorAction SilentlyContinue |
+            Format-List Name, State, Status, Generation, Path | Out-String
+        throw "Hyper-V\Remove-VM failed for '$VMName': $($_.Exception.Message)`nLive Hyper-V state:`n$diag"
+    }
+    # Hyper-V can return Remove-VM success while leaving a ghost entry;
+    # a second Get-VM is the only reliable post-condition.
+    if (Get-VM -Name $VMName -ErrorAction SilentlyContinue) {
+        throw "Hyper-V\Remove-VM returned success for '$VMName' but Get-VM still finds it; aborting before re-creation."
+    }
+    Write-Output "VM '$VMName' deleted."
 }
 
 Write-Verbose "Creating VM '$VMName' using image: $baseImageFile"
@@ -131,15 +114,15 @@ Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
 $vmDir = Join-Path $downloadDir $VMName
 if (-not (Test-Path -Path $vmDir)) {
-	New-Item -ItemType Directory -Path $vmDir -Force | Out-Null
+    New-Item -ItemType Directory -Path $vmDir -Force | Out-Null
 }
 $vhdxFile = Join-Path $vmDir "$VMName.vhdx"
 if (!(Test-Path -Path $vhdxFile)) {
-	Write-Verbose "Creating VHDX for '$VMName' by copying base image..."
-	Copy-Item -Path $baseImageFile -Destination $vhdxFile -Force
-	Write-Verbose "Copied '$baseImageFile' -> '$vhdxFile'."
+    Write-Verbose "Creating VHDX for '$VMName' by copying base image..."
+    Copy-Item -Path $baseImageFile -Destination $vhdxFile -Force
+    Write-Verbose "Copied '$baseImageFile' -> '$vhdxFile'."
 } else {
-	Write-Verbose "Target VHDX already exists: $vhdxFile -- leaving as is."
+    Write-Verbose "Target VHDX already exists: $vhdxFile -- leaving as is."
 }
 
 # user-data AND meta-data are shared under host/vmconfig/ (the meta-data is
@@ -168,8 +151,8 @@ if (Test-Path -LiteralPath $SeedDir) { Remove-Item -LiteralPath $SeedDir -Recurs
 New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 
 $MetaData = (Get-Content -Raw $MetaDataTemplate) `
-	-replace 'INSTANCE_ID_PLACEHOLDER', $VMName `
-	-replace 'HOSTNAME_PLACEHOLDER', $GuestHostname
+    -replace 'INSTANCE_ID_PLACEHOLDER', $VMName `
+    -replace 'HOSTNAME_PLACEHOLDER', $GuestHostname
 Set-Content -Path "$SeedDir/meta-data" -Value $MetaData -NoNewline
 
 # Load the SSH public key used by the test harness to drive the VM over SSH.
@@ -230,14 +213,9 @@ if (-not $switchName) {
 # Test-YurunaHost.ps1 for the in-guest probe.
 $YurunaHostIp = Get-GuestReachableHostIp -SwitchName $switchName
 if (-not $YurunaHostIp) { $YurunaHostIp = '' }
-$YurunaHostPort = '8080'
-$YurunaTestConfig = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/test.config.yml'
-if (Test-Path $YurunaTestConfig) {
-    try {
-        $tc = Get-Content -Raw $YurunaTestConfig | ConvertFrom-Yaml -Ordered
-        if ($tc.statusService.port) { $YurunaHostPort = "$($tc.statusService.port)" }
-    } catch { Write-Verbose "test.config.yml parse failed: $_" }
-}
+Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.Config.psm1') -Global -Force
+$_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)))
+$YurunaHostPort = $_statusSeed.Port
 
 # New-CloudInitUserData merges base+overlay, auto-bakes yuruna-retry.sh /
 # fetch-and-execute.sh / yuruna-network.sh from $repoRoot/automation/ as base64

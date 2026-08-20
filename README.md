@@ -84,6 +84,7 @@ After the guest OS is up, test workloads:
 - [Requirements](docs/operator.md#b2-preflight-dependencies) - [Workarounds & FAQ](docs/workarounds.md) - [Roadmap](docs/opportunities.md#roadmap)
 - Machine [operator](docs/operator.md) and [lab operator](docs/lab-operator.md) guides
 - [Contributing](CONTRIBUTING.md) - [Contributors](CONTRIBUTING.md#contributors) - [Opportunities](docs/opportunities.md)
+- [Changelog](CHANGELOG.md) - [Security policy](SECURITY.md) - [License](LICENSE.md)
 
 **Cost warning**: Cloud resources incur charges. Always clean up
 [Yuruna Resources ...](docs/kubernetes.md#cleaning-up-cloud-resources) you're not using.
@@ -94,4 +95,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.19
+Last review: 2026.08.20

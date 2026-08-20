@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.19
+.VERSION 2026.08.20
 .GUID 42f7b3b7-64ca-41c6-96ad-88a15026c482
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -35,9 +35,9 @@ if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-L
 
 Write-Output "This script requires elevation (Run as Administrator)."
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
-	Write-Output "Please run this script as Administrator."
-	Write-Output "Be careful."
-	exit 1
+    Write-Output "Please run this script as Administrator."
+    Write-Output "Be careful."
+    exit 1
 }
 
 # --- REGION: Configuration
@@ -181,21 +181,21 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 $zip = [System.IO.Compression.ZipFile]::OpenRead($downloadFile)
 $entry = $zip.Entries | Where-Object { $_.Name -match "\.vhdx$" }
 if ($entry) {
-	$stream = $entry.Open()
-	try {
-		$outStream = [System.IO.File]::Open($extractedFile, [System.IO.FileMode]::Create)
-		try {
-			$stream.CopyTo($outStream)
-		} finally {
-			$outStream.Close()
-		}
-	} finally {
-		$stream.Close()
-	}
+    $stream = $entry.Open()
+    try {
+        $outStream = [System.IO.File]::Open($extractedFile, [System.IO.FileMode]::Create)
+        try {
+            $stream.CopyTo($outStream)
+        } finally {
+            $outStream.Close()
+        }
+    } finally {
+        $stream.Close()
+    }
 } else {
-	Write-Error "No .vhdx file found inside the downloaded zip."
-	$zip.Dispose()
-	exit 1
+    Write-Error "No .vhdx file found inside the downloaded zip."
+    $zip.Dispose()
+    exit 1
 }
 $zip.Dispose()
 
@@ -203,8 +203,8 @@ $zip.Dispose()
 $previousFile = Join-Path $downloadDir "$baseImageName.previous.vhdx"
 Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
 if (Test-Path $baseImageFile) {
-	Move-Item -Path $baseImageFile -Destination $previousFile
-	Write-Output "Previous image preserved as: $previousFile"
+    Move-Item -Path $baseImageFile -Destination $previousFile
+    Write-Output "Previous image preserved as: $previousFile"
 }
 Move-Item -Path $extractedFile -Destination $baseImageFile
 

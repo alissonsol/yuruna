@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.19
+.VERSION 2026.08.20
 .GUID 42536ec8-4d7e-4727-b52e-55f7f0ca8688
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -104,7 +104,7 @@ function Invoke-Brander {
     param(
         [Parameter(Mandatory)][string]$DashboardDir,
         [string]$Name = 'Yurunadev',
-        [string]$Version = '2026.08.19',
+        [string]$Version = '2026.08.20',
         [switch]$NoEnvFile
     )
     $envFile = Join-Path $DashboardDir '..' | Join-Path -ChildPath 'brand.env'
@@ -263,7 +263,7 @@ Describe 'the brand tile is safe to re-run' {
         if (-not $script:Python) { Set-ItResult -Skipped -Because 'python3 is not installed on this host'; return }
 
         $dir = Get-DashboardFixture -Dashboard $script:RealDashboards
-        Invoke-Brander -DashboardDir $dir -Name 'Yurunadev' -Version '2026.08.19' | Out-Null
+        Invoke-Brander -DashboardDir $dir -Name 'Yurunadev' -Version '2026.08.20' | Out-Null
         $doc = Get-Content -Raw (Join-Path $dir 'pool.json') | ConvertFrom-Json
         $geometry = @(Get-TopRow -Dashboard $doc | ForEach-Object { "$($_.gridPos.x),$($_.gridPos.w)" }) -join '|'
 

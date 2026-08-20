@@ -18,8 +18,8 @@ import (
 	"pool-control-service/internal/hostctl"
 	"pool-control-service/internal/intent"
 	"pool-control-service/internal/state"
-	"pool-control-service/internal/yex/labgate"
-	"pool-control-service/internal/yex/pool"
+	"yuruna.com/test/extension/extension-sdk/labgate"
+	"yuruna.com/test/extension/extension-sdk/pool"
 )
 
 // aggregatorTimeout bounds one aggregator read. The board holds a browser

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.19
+.VERSION 2026.08.20
 .GUID 42d0ee91-af77-4d3c-9e22-94d5edbc7661
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -67,23 +67,7 @@ if (-not (Test-Path $utmPlist)) {
 # its own copy below (host/modules/Yuruna.Image.psm1).
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.Image.psm1') -Force
 $baseImageFile = (Get-UbuntuExtensionImageInfo -HostType 'macos.utm').BaseImageFile
-if (-not (Test-Path $baseImageFile)) {
-    $getImageScript = Join-Path $PSScriptRoot 'Get-Image.ps1'
-    if (Test-Path -LiteralPath $getImageScript) {
-        Write-Output "Base image missing: $baseImageFile"
-        Write-Output "Auto-running $getImageScript to fetch it..."
-        & pwsh -NoProfile -File $getImageScript
-        $getImageExit = $LASTEXITCODE
-        if ($getImageExit -ne 0) {
-            Write-Error "Auto Get-Image.ps1 exited $getImageExit. Cannot create VM."
-            exit 1
-        }
-    }
-    if (-not (Test-Path $baseImageFile)) {
-        Write-Error "Base image not found at '$baseImageFile' after auto Get-Image. Run Get-Image.ps1 manually."
-        exit 1
-    }
-}
+if (-not (Assert-YurunaBaseImage -BaseImageFile $baseImageFile -GuestFolder $PSScriptRoot)) { exit 1 }
 
 Write-Output "Creating VM '$VMName' using image: $baseImageFile"
 $_repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
@@ -162,13 +146,9 @@ if ($env:YURUNA_GUEST_REACHABLE_HOST_IP) {
     $YurunaHostIp = Get-GuestReachableHostIp -NetworkMode $NetworkMode
 }
 if (-not $YurunaHostIp) { $YurunaHostIp = '' }
-$YurunaHostPort = '8080'
-$YurunaTestConfig = Join-Path $_repoRoot 'test/test.config.yml'
-$tc = $null
-if (Test-Path -LiteralPath $YurunaTestConfig) {
-    try { $tc = Read-TestConfig -Path $YurunaTestConfig } catch { Write-Verbose "test.config.yml read: $($_.Exception.Message)" }
-    if ($tc -and $tc.statusService -and $tc.statusService.port) { $YurunaHostPort = "$($tc.statusService.port)" }
-}
+$_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $_repoRoot
+$YurunaHostPort = $_statusSeed.Port
+$tc = $_statusSeed.Config
 $poolNas = Get-YurunaPoolSeedValue -Config $tc -GuestReachableAddress $YurunaHostIp
 # Pool-aggregator service base URL for the daemon's presence beacon + remote-host
 # resolution; '' (no caching-proxy service known) leaves those features off in-guest.

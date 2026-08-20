@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.19
+.VERSION 2026.08.20
 .GUID 42b38afa-a30f-4806-9948-a381706b1765
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1110,8 +1110,88 @@ function Expand-ExtensionVmDisk {
     return $true
 }
 
+function Assert-YurunaBaseImage {
+    <#
+    .SYNOPSIS
+        Confirm the base image a New-VM.ps1 is about to clone is on disk,
+        fetching it once through the guest's own Get-Image.ps1 if it is not.
+    .DESCRIPTION
+        A New-VM.ps1 needs its base artifact present before it touches the
+        hypervisor. Operators reach New-VM without having run Get-Image often
+        enough that refusing outright just costs a round trip, so this makes
+        exactly one fetch attempt and rechecks; still missing means the caller
+        genuinely cannot proceed.
+
+        The fetch runs in a child pwsh rather than being dot-sourced. A
+        Get-Image.ps1 that calls exit would otherwise terminate the New-VM.ps1
+        that invoked it, and its exit code would be unreadable.
+
+        Failure returns $false instead of throwing. Guests set
+        $ErrorActionPreference inconsistently and a module function does not
+        see a caller's script-scope value, so a throw here would be a
+        terminating error in some guests and a non-terminating one in others.
+        Returning a value keeps the exit decision beside the rest of that
+        script's failure handling, where its exit code is the one that runs.
+
+        Operator progress goes to the information stream: the success stream
+        carries this function's return value, and text written there would be
+        collected into it.
+    .PARAMETER BaseImageFile
+        Full path to each artifact the guest needs present. Most guests pass
+        one; a guest that boots from several (an installer ISO plus a driver
+        ISO) passes them together, because a single Get-Image.ps1 run fetches
+        the whole set and checking them one at a time would re-run it per
+        missing file. Matched literally -- base image names are fixed stems,
+        never patterns, so a bracket in an operator's image directory must not
+        be read as a character class.
+    .PARAMETER GuestFolder
+        Directory holding the guest's Get-Image.ps1, i.e. $PSScriptRoot at the
+        call site. It cannot be inferred here: $PSScriptRoot inside a module
+        resolves to the module's own directory, not the caller's.
+    .PARAMETER ArtifactLabel
+        Noun for the artifact in operator-facing text. An IPSW restore bundle
+        is not a "base image" to whoever is watching the download.
+    .PARAMETER ManualHint
+        Closing sentence of the not-found message. Guests whose artifact
+        cannot be fetched unattended send the operator to the instructions
+        Get-Image.ps1 prints rather than asking them to just run it again.
+    .OUTPUTS
+        [bool] $true when the artifact is present and the caller may proceed.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string[]]$BaseImageFile,
+        [Parameter(Mandatory)][string]$GuestFolder,
+        [string]$ArtifactLabel = 'Base image',
+        [string]$ManualHint = 'Run Get-Image.ps1 manually.'
+    )
+
+    $missing = @($BaseImageFile | Where-Object { -not (Test-Path -LiteralPath $_) })
+    if ($missing.Count -eq 0) { return $true }
+
+    $getImageScript = Join-Path $GuestFolder 'Get-Image.ps1'
+    if (Test-Path -LiteralPath $getImageScript) {
+        Write-Information "$ArtifactLabel missing: $($missing -join ', ')" -InformationAction Continue
+        Write-Information "Auto-running $getImageScript to fetch it..." -InformationAction Continue
+        & pwsh -NoProfile -File $getImageScript
+        $getImageExit = $LASTEXITCODE
+        if ($getImageExit -ne 0) {
+            Write-Error "Auto Get-Image.ps1 exited $getImageExit. Cannot create VM."
+            return $false
+        }
+        $missing = @($BaseImageFile | Where-Object { -not (Test-Path -LiteralPath $_) })
+    }
+
+    if ($missing.Count -eq 0) { return $true }
+
+    Write-Error "$ArtifactLabel not found after auto Get-Image: $($missing -join ', '). $ManualHint"
+    return $false
+}
+
 # --- REGION: Exports
 
 Export-ModuleMember -Function Save-ImageWithChecksum, Get-ImageChecksumLine, Get-PublishedChecksumBody, ConvertTo-ChecksumText, `
     Convert-Qcow2ToVhdx, Test-PublishedChecksumSignature, `
-    Resolve-QemuImgCommand, Get-UbuntuExtensionImageBaseName, Get-UbuntuExtensionImageInfo, Save-UbuntuExtensionImage, Expand-ExtensionVmDisk
+    Resolve-QemuImgCommand, Get-UbuntuExtensionImageBaseName, Get-UbuntuExtensionImageInfo, Save-UbuntuExtensionImage, Expand-ExtensionVmDisk, `
+    Assert-YurunaBaseImage

@@ -1,180 +1,190 @@
-# Context and components
+# Context and Components
 
-> One sentence: the seven top-level building blocks Yuruna is made of and the
-> edges between them, each one a placeholder opened up in the breakdown doc.
+> One sentence: the seven level-1 blocks Yuruna is built from, where each one lives on disk, and which calls actually cross the boundaries between them.
 
 See [Design overview](00-index.md) - [Component breakdown](02-component-breakdown.md) -
 [Yuruna Architecture](../architecture.md).
 
-Derived from the repository layout -- `automation/`, `global/`, `guest/`,
-`host/`, `install/`, `test/`, `tools/` in **yuruna**, plus the **yuruna-project**
-data repo (`book/`, `example/`, `template/`, `test/`). The two remaining tracked
-roots, `docs/` and `dev-only/`, hold documentation and maintainer tooling rather
-than system components, and `project/` is gitignored (`.gitignore:376`) because
-the harness re-creates it every cycle.
+## Where the blocks come from
+
+The blocks below are not an invented taxonomy. They are the tracked top-level
+directories of the two repositories, read with `git ls-tree --name-only HEAD`.
+
+`yuruna` tracks nine directories: `automation/`, `dev-only/`, `docs/`, `global/`,
+`guest/`, `host/`, `install/`, `test/`, `tools/`. `yuruna-project` tracks four:
+`book/`, `example/`, `template/`, `test/`.
+
+Three exclusions and two merges turn that listing into seven blocks:
+
+- **`docs/` and `dev-only/` are excluded.** They are documentation and maintainer
+  trees. No runtime path reads them, and this file lives inside one of them.
+- **`project/` is excluded.** It exists in a working tree but is gitignored at
+  `.gitignore:376`, because `Update-ProjectClone`
+  (`test/modules/Test.HostGit.psm1:785`) deletes and re-clones it at the start of
+  every cycle so the previous cycle's output cannot leak forward.
+- **Root files are excluded** (`README.md`, `VERSION`, `PSScriptAnalyzerSettings.psd1`,
+  and so on). They are repository furniture, not system parts.
+- **`global/` and the whole `yuruna-project` repository merge into one block.**
+  A resource template is resolved project-first and global-second by the same two
+  lines of the same function, so the two roots are one namespace rather than two
+  components (see the boundary notes below).
+- **`install/` and `tools/` merge into one block.** Both exist to get a machine to
+  the point where a cycle can run, and `tools/Update-YurunaReleasePins.ps1`
+  regenerates the manifest the installers are verified against.
+
+One block, External Services, owns no directory at all. It is declared last for
+that reason; every other block is declared in repository directory order.
 
 ## The seven blocks
 
-Each `subgraph` is a placeholder wrapping one node; [doc 2](02-component-breakdown.md)
-opens each one into at most seven real children. Seven blocks, no more.
-Declaration order follows the repository's own directory order, with the block
-that owns no directory last.
-
 ```mermaid
 flowchart TD
-    subgraph automation[Deploy Engine]
-        deploy-engine[automation/]
-    end
-    subgraph project-global["Project & Global Data"]
-        project-data[global/, yuruna-project/]
-    end
-    subgraph guest[Guest Workloads]
-        guest-workloads[guest/]
-    end
-    subgraph host[Host Provisioning]
-        host-provisioning[host/]
-    end
-    subgraph install[Installers]
-        installers[install/, tools/]
-    end
-    subgraph test[Test Harness]
-        test-harness[test/]
-    end
-    subgraph external[External Services]
-        external-services[clouds, registries, GitHub, OCR]
-    end
+  subgraph deploy-engine["Deploy Engine"]
+    automation["automation/"]
+  end
+  subgraph project-data["Project & Global Data"]
+    project-trees["global/ + project repo"]
+  end
+  subgraph guest-workloads["Guest Workloads"]
+    guest-scripts["guest/"]
+  end
+  subgraph host-provisioning["Host Provisioning"]
+    host-drivers["host/"]
+  end
+  subgraph installers["Installers"]
+    install-tools["install/ + tools/"]
+  end
+  subgraph test-harness["Test Harness"]
+    test-tree["test/"]
+  end
+  subgraph external-services["External Services"]
+    external-endpoints["clouds, registries, GitHub"]
+  end
 
-    installers -->|bootstrap host| host-provisioning
-    installers -->|packages, git clone| external-services
-    test-harness -->|import driver, call verbs| host-provisioning
-    test-harness -->|clone, read plan| project-data
-    test-harness -->|git pull, OCR, email| external-services
-    host-provisioning -->|create VM, seed| guest-workloads
-    host-provisioning -->|guest images| external-services
-    guest-workloads -->|fetch scripts| test-harness
-    guest-workloads -->|install engine toolchain| deploy-engine
-    guest-workloads -->|apt, dnf, images| external-services
-    project-data -->|in-guest script spawns pwsh| deploy-engine
-    deploy-engine -->|read YAML| project-data
-    deploy-engine -->|tofu, docker, helm| external-services
+  install-tools -->|"installs host prerequisites"| host-drivers
+  install-tools -->|"runs setup steps"| test-tree
+  test-tree -->|"loads host driver"| host-drivers
+  test-tree -->|"re-clones project repo"| project-trees
+  test-tree -->|"types fetch command"| automation
+  test-tree -->|"git pull, email"| external-endpoints
+  host-drivers -->|"imports shared modules"| automation
+  host-drivers -->|"cloud-init runs script"| guest-scripts
+  automation -->|"fetches, verifies, runs"| guest-scripts
+  automation -->|"reads config, templates"| project-trees
+  project-trees -->|"invokes phase scripts"| automation
+  automation -->|"tofu, docker, helm"| external-endpoints
+  guest-scripts -->|"package upstreams"| external-endpoints
 ```
+
+Seven boxes, one per block, nothing folded into an aggregate. Each edge names a
+call that exists in a file:
+
+- `install-tools -> host-drivers`: `install/ubuntu.kvm.sh:914` installs
+  `host/ubuntu.kvm/yuruna-bridge-pin.sudoers`, and `:1137` points the operator at
+  `host/ubuntu.kvm/Enable-TestAutomation.ps1`.
+- `install-tools -> test-tree`: `install/setup.ps1:3355` runs
+  `test/lab/Set-LabToken.ps1`; the same script drives `test/service/*` and
+  `test/pool/*`.
+- `test-tree -> host-drivers`: `test/modules/Test.HostBootstrap.psm1:79` resolves
+  `host/<type>/modules/Yuruna.Host.psm1` and imports it, throwing when it is absent.
+- `test-tree -> project-trees`: `Update-ProjectClone`
+  (`test/modules/Test.HostGit.psm1:785`) re-clones the project repository.
+- `test-tree -> automation`: `test/sequences/start.guest.ubuntu.server.24.yml:99`
+  types `/usr/local/lib/yuruna/fetch-and-execute.sh` into the guest console; that
+  binary is `automation/fetch-and-execute.sh`, seeded into the guest.
+- `test-tree -> external-endpoints`: `Invoke-GitPull`
+  (`test/modules/Test.HostGit.psm1:349`) and the Resend call at
+  `test/extension/notification/default.psm1:91`.
+- `host-drivers -> automation`: `host/ubuntu.kvm/modules/Yuruna.Host.psm1:94`
+  imports `automation/Yuruna.Common.psm1`; every per-guest builder calls
+  `New-CloudInitUserData` (`host/windows.hyper-v/guest.stash-service/New-VM.ps1:213`).
+- `host-drivers -> guest-scripts`: the seed at
+  `host/vmconfig/stash-service.base.user-data:186` runs
+  `guest/ubuntu.server.26/ubuntu.server.26.stash-service.sh` by absolute path.
+- `automation -> guest-scripts`: `automation/fetch-and-execute.sh` fetches a
+  `guest/**` path, gates it on a SHA-256 digest, and executes it.
+- `automation -> project-trees`: `automation/Yuruna.Resource.psm1:105` falls back
+  to `global/resources/<template>`; the phase scripts read
+  `<project_root>/config/<sub>/*.yml`.
+- `project-trees -> automation`: the project's own guest script calls the phase
+  entry points, e.g.
+  `yuruna-project/example/website/test/ubuntu.server.24/ubuntu.server.24.workload.k8s.website.sh:263`.
+- `automation -> external-endpoints`: `tofu init` / `apply`
+  (`automation/Yuruna.Resource.psm1:240`), docker build and push, and the five
+  registry logins registered in `automation/Yuruna.CredentialProvider.psm1`.
+- `guest-scripts -> external-endpoints`: every family's `update.sh` and workload
+  script installs from upstream package repositories.
+
+## What each block is
 
 | Component | Root | Responsibility |
 |---|---|---|
-| Deploy Engine | `automation/` | Three-phase Resources->Components->Workloads (15 `.ps1`, 22 `.psm1`), the `Confirm-*` validators each phase re-runs, and the six-file guest-side shell runtime (`fetch-and-execute.sh`, `yuruna-retry.sh`, `yuruna-run.sh`, `yuruna-network.sh`, `yuruna-host-locate.sh`, `yuruna-versions.sh`). |
-| Project & Global Data | `global/`, `yuruna-project/` | Per-project YAML, Dockerfiles, Helm charts, OpenTofu templates, sequences, the cycle plan, and the in-guest workload scripts under each project's `test/<guest>/`. |
-| Guest Workloads | `guest/` | Scripts that run **inside** a booted guest -- five families (`amazon.linux.2023`, `ubuntu.server.24`, `ubuntu.server.26`, `windows.11`, `macos.26`). |
-| Host Provisioning | `host/` | Create/start/stop VMs on Hyper-V, KVM and UTM behind one 38-verb contract, acquire and verify guest images, and merge the cloud-init seeds. |
-| Installers | `install/`, `tools/` | One-shot per-host bootstrap (`irm\|iex`, `curl\|bash`), the guided `setup.ps1`, plus release-pin signing, SDK mirroring and lint gates. |
-| Test Harness | `test/` | Continuous VM create + validate loop, status service, extension services, pool and lab admin. |
-| External Services | -- | Clouds, container registries, Kubernetes, GitHub, upstream mirrors, OCR engines, email (`api.resend.com`). |
-
-Nothing in this diagram is planned or config-gated, so no edge is dashed. The
-one planned item in this area has no block: `global/config/` holds `gcp` with a
-credential stub only, and `global/resources/` has `aws`, `azure` and `localhost`
-but no `gcp` templates.
+| Deploy Engine | `automation/` | 44 files: 22 `.psm1` (20 of them `Yuruna.*`), 15 `.ps1`, 6 guest shell scripts, and `Yuruna.Requirement.yml`. Three phase entry points -- `Set-Resource.ps1`, `Set-Component.ps1`, `Set-Workload.ps1` -- drive OpenTofu, Docker and helm/kubectl. `fetch-and-execute.sh`, `yuruna-retry.sh`, `yuruna-network.sh`, `yuruna-host-locate.sh`, `yuruna-run.sh` and `yuruna-versions.sh` are seeded into guests and run there. |
+| Project & Global Data | `global/`, `yuruna-project/` | 51 files under `global/`, including 10 OpenTofu templates across 3 clouds (`aws`, `azure`, `localhost`); `global/components/` and `global/workloads/` hold only `placeholder`. 116 tracked files in `yuruna-project`: `template/` (scaffold, `localhost` only), `example/website` (the only project with `aws`, `azure` and `localhost`), `example/text-to-sql`, `example/nested.host` (sequences, no deploy tree), and `book/`. |
+| Guest Workloads | `guest/` | 30 files, 24 of them scripts, in 5 families: `amazon.linux.2023`, `macos.26`, `ubuntu.server.24`, `ubuntu.server.26`, `windows.11`. Workload names are `update`, `code`, `k8s`, `n8n`, `openclaw`, `postgresql`, plus the three `ubuntu.server.26`-only service builders (`stash-service`, `download-agent-service`, `pool-control-service`). |
+| Host Provisioning | `host/` | 150 files. Three `modules/Yuruna.Host.psm1` drivers -- `windows.hyper-v`, `ubuntu.kvm`, `macos.utm` -- all implementing the 38 verbs declared in `Yuruna.Host.Contract.psm1`. 25 `guest.*` builder directories, 6 shared modules under `host/modules/`, and 31 cloud-init seed files under `vmconfig/`. |
+| Installers | `install/`, `tools/` | 10 tracked files in `install/`: three bootstrappers (`windows.hyper-v.ps1`, `ubuntu.kvm.sh`, `macos.utm.sh`), the guided `setup.ps1`, and the `install.sha256` manifest with its detached signature and public keys. 11 files in `tools/`: the CI gates (`Test-AsciiNoBom.ps1`, `Test-RegionAnchors.ps1`, `Invoke-Lint.ps1`, `Invoke-ShellCheck.ps1`, `Invoke-GoTest.ps1`, `Invoke-JsTest.ps1`, `Invoke-TestSuite.ps1`), `Update-YurunaReleasePins.ps1`, and `githooks/pre-commit`. |
+| Test Harness | `test/` | 591 tracked files: 95 `.psm1` under `test/modules/`, 19 files in `test/sequences/`, 13 JSON Schemas in `test/schemas/`, 14 lifecycle scripts in `test/service/`, 13 pool-admin scripts in `test/pool/`, and 8 areas under `test/extension/`. |
+| External Services | (no directory) | Cloud control planes reached through OpenTofu providers; container registries behind the five credential providers (`azurecr`, `ecr`, `gar`, `dockerhub`, `docker-generic`); GitHub, via `api.github.com` and `raw.githubusercontent.com` in `automation/fetch-and-execute.sh:168` and via `git pull`; upstream package repositories; and Resend for e-mail. |
 
 ## Edges that are easy to misread
 
-- **`project-data --> deploy-engine`** -- the deploy engine is normally exercised
-  *inside* a guest, by a script from the **project** repo rather than by the
-  harness. No file under `test/` invokes `Set-Resource.ps1` /
-  `Set-Component.ps1` / `Set-Workload.ps1`; the eight `test/` files that mention
-  those names carry only comments (`test/Debug-TestSequence.ps1:156`,
-  `test/modules/Test.Orchestrator.psm1:84`), Pester structural guards that list
-  the entry points as data (`test/modules/Test.AuEntry.Tests.ps1:39`), and two
-  references to an unrelated `project/test/Set-Resource.ps1`. The real
-  caller is
-  `yuruna-project/example/website/test/ubuntu.server.26/ubuntu.server.26.workload.k8s.website.sh`,
-  which does `cd "$REAL_HOME/yuruna/project/example"` and then
-  `pwsh ../../automation/Set-Resource.ps1 website localhost` (line 236),
-  `Set-Component.ps1` (417) and `Set-Workload.ps1` (420). The operator running
-  the phases by hand is the other entry point.
-- **`guest-workloads --> deploy-engine`** -- this is a **toolchain** edge, not a
-  call. `guest/ubuntu.server.26/ubuntu.server.26.k8s.sh` installs Docker,
-  Kubernetes, Helm, OpenTofu and mkcert, and says so in its own failure text:
-  "downstream chart-based workloads ... will fail at Set-Workload" (`:565`) and
-  "Downstream Set-Resource steps rely on 'tofu'" (`:581`). No script under
-  `guest/` invokes a phase script.
-- **`guest-workloads --> test-harness`** -- the guest pulls its scripts back from
-  the runner host's status service, so a `guest/` script and a project script
-  arrive by the same route. `automation/fetch-and-execute.sh` probes
-  `http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/livecheck`
-  (`:107`) and then sets
-  `HOST_BASE="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/yuruna-repo/"`
-  (`:100`, `:109`). Flow C in [03-data-flows.md](03-data-flows.md) has the
-  detail.
-- **`test-harness --> host-provisioning`** -- an import, not a spawn.
-  `Initialize-YurunaHost` (`test/modules/Test.HostBootstrap.psm1:41`) resolves
-  `host/<host type>/modules/Yuruna.Host.psm1` and imports it
-  `-Force -DisableNameChecking -Global`, so the contract verbs resolve directly
-  in the runner's own session and the driver's `New-VM` / `Start-VM` shadow the
-  Hyper-V cmdlets of the same name on purpose. The exception is the per-host
-  operator scripts, which do run in a child `pwsh` rooted in the host folder.
-- **`installers --> host-provisioning`** -- the arrow crosses two other blocks'
-  files on the way. `install/setup.ps1:2913` calls
-  `test/lab/Enable-TestAutomation.ps1`, which imports
-  `automation/Yuruna.HostRedirect.psm1` and dispatches to
-  `host/<short>/Enable-TestAutomation.ps1`. The bootstrappers themselves stop
-  after installing packages and cloning; they never call `setup.ps1`.
-- **`host-provisioning --> external-services`** --
-  `host/<provider>/guest.<key>/Get-Image.ps1` reaches the publisher origin
-  directly. When a download-agent service answers the discovery ladder in
-  `host/modules/Yuruna.DownloadAgent.psm1`, that same call is served off the LAN
-  instead; flow E in [03-data-flows.md](03-data-flows.md) shows both.
-
-One edge is absent on purpose. **Host Provisioning reads no project YAML**: the
-image and VM-shape inputs a `Get-Image.ps1` / `New-VM.ps1` pair consumes come
-from `test/test.config.yml`, `host/vmconfig/` and the download-agent service --
-never from `yuruna-project`. A grep for `resources.yml`, `components.yml`,
-`workloads.yml` or `yuruna-project` across `host/` returns one comment and no
-code. Project data reaches a guest only after boot, over the Guest Workloads
-edge.
+- **Nothing in `test/` ever calls a phase entry point.** The deploy engine is
+  driven from inside the guest, by a script the *project* ships: the harness types
+  `fetch-and-execute.sh guest/.../update.sh`, the guest later runs the project's own
+  workload script, and that script calls
+  `pwsh ../../automation/Set-Resource.ps1 website localhost`
+  (`yuruna-project/example/website/test/ubuntu.server.24/ubuntu.server.24.workload.k8s.website.sh:263`).
+  Grepping `test/` for `Set-Resource.ps1` returns comments only.
+- **The arrow from Project & Global Data into the Deploy Engine is not backwards.**
+  Data repositories usually do not call code, but this one ships the shell script
+  that invokes all three phases (same citation as above). That is why the block is
+  a source of an edge and not only a target.
+- **`automation/` is not a leaf library.** It is imported by `host/` and `test/`, as
+  expected, but it also reaches back: `automation/Yuruna.HostRedirect.psm1:127`
+  loads `test/modules/Test.HostDetection.psm1` on demand. The dependency between
+  the Deploy Engine and the Test Harness runs in both directions.
+- **Service VMs never touch the harness.** `guest/ubuntu.server.26/*-service.sh`
+  runs from cloud-init by absolute path
+  (`host/vmconfig/stash-service.base.user-data:186`), not through
+  `fetch-and-execute.sh` and not through any sequence. A service VM builds itself.
+- **The installers stop short of provisioning.** `install/ubuntu.kvm.sh:1137` prints
+  the `Enable-TestAutomation.ps1` command rather than running it, so the arrow into
+  Host Provisioning is a handoff, not an invocation.
 
 ## Where the block boundaries do not match the directories
 
-- **`automation/` is a shared library root, not only the Deploy Engine.** Five
-  of its modules exist for other blocks: `Yuruna.CloudInitTemplate.psm1` is
-  imported by 21 `host/*/guest.*/New-VM.ps1` scripts and `Yuruna.GuestSeed.psm1`
-  by 9 of them, `Yuruna.HostSetup.psm1` by all six
-  `Enable-TestAutomation.ps1` / `Sync-HostConfiguration.ps1` host scripts,
-  `Yuruna.HostRedirect.psm1` by `install/setup.ps1` and `test/lab/`, and
-  `Yuruna.GitHubSource.psm1` by both the seed builder and the harness. Thirteen
-  non-test files under `test/` import `automation/Yuruna.Common.psm1`, and
-  `Yuruna.Log.psm1` has **no** importer under `automation/` at all -- its three
-  consumers are all in `test/`. Drawing those as block edges would claim "Host
-  Provisioning depends on the Deploy Engine", which is not what is happening.
-- **The Project Data block has a third root that is in neither repo.**
-  `Update-ProjectClone` (`test/modules/Test.HostGit.psm1:785`) wipes and
-  re-clones `repositories.projectUrl` into `<RepoRoot>/project/` at every cycle
-  start, so previous cycle output cannot leak forward. That clone is what the
-  harness reads the cycle plan from (`Get-CycleConfigPath` returns
-  `project/test/test.runner.yml`, `test/modules/Test.SequencePlanner.psm1:58`)
-  and what the sequences name in their fetch paths
-  (`project/example/website/test/ubuntu.server.26/...`). So the Test Harness
-  writes into the Project Data block's root once per cycle -- that is the
-  `clone, read plan` edge.
-- **`tools/`** is drawn inside **Installers** because the signed integrity
-  artifacts under `install/` are its output -- `Update-YurunaReleasePins.ps1`
-  regenerates and signs `install/install.sha256`, gated by
-  `Test-AsciiNoBom.ps1`. Its remaining entries (the linter, the SDK mirror, the
-  config migrator, the pre-commit hook) are development gates, not shipped
-  artifacts.
-- **`global/`** is drawn with **yuruna-project** rather than with the engine:
-  `global/resources/<template>` is the fallback a project's `resources/` folder
-  resolves to, so the two are one data plane with two roots.
-- **Part of the Test Harness block does not run on the harness host.** The Go
-  daemons under `test/extension/*/server/` are compiled and run *inside* service
-  VMs, and `test/extension/pool-aggregator-service/` runs inside the
-  caching-proxy VM. By directory they belong here; by deployment they are their
-  own nodes in [06-deployment.md](06-deployment.md).
-- **External Services** owns no directory. It exists so the edges that leave the
-  machine are visible instead of implied.
-
----
-
-LICENSEURI https://yuruna.link/license
-
-Copyright (c) 2019-2026 by Alisson Sol et al.
-
-Last review: 2026.08.19
+- **`automation/` is a shared library root, not just the Deploy Engine.** 28 files
+  under `test/` import an `automation/Yuruna.*` module -- for example
+  `test/Test-Config.ps1:124` (`Yuruna.Common.psm1`) and
+  `test/modules/Test.CachingProxyService.psm1:1302` (`Yuruna.Retry.psm1`). Several
+  modules in the directory (`Yuruna.CloudInitTemplate`, `Yuruna.GuestSeed`,
+  `Yuruna.GitHubSource`, `Yuruna.HostRedirect`, `Yuruna.HostSetup`, `Yuruna.Log`)
+  are never on a deploy path at all.
+- **`global/` and a separate repository are one block.**
+  `automation/Yuruna.Resource.psm1:105` resolves `<project_root>/resources/<t>`
+  first and `<yuruna_root>/global/resources/<t>` second, with the same fallback
+  duplicated in the validator at `automation/Yuruna.Validation.psm1:140`. The two
+  roots are one template namespace with project-first precedence. The fallback is
+  resources-only: `global/components/` and `global/workloads/` contain nothing but
+  a `placeholder` file and no code path consults them.
+- **`project/` is a directory but not a block.** It is gitignored
+  (`.gitignore:376`) and re-created every cycle by `Update-ProjectClone`
+  (`test/modules/Test.HostGit.psm1:785`), which deletes the tree before cloning.
+  Its contents belong to Project & Global Data; its lifecycle belongs to the Test
+  Harness.
+- **`host/vmconfig/` is data, not code.** All 31 files are cloud-init seeds: 6
+  `*.base.user-data`, 6 `*.meta-data`, 18 `*.overlay.yml`, and one shared
+  `guest-dhcp.network-config`. There is no script in the directory. The merge logic
+  that turns a base plus an overlay into a seed lives in the Deploy Engine, at
+  `automation/Yuruna.CloudInitTemplate.psm1`.
+- **`test/extension/` is mostly Go, not PowerShell.** Six `go.mod` modules live
+  there -- `caching-proxy-parser-service`, `download-agent-service/server`,
+  `extension-sdk`, `pool-aggregator-service`, `pool-control-service/server`,
+  `stash-service/server` -- and the daemons they build run inside VMs, not in the
+  runner process. The `.psm1` files beside them are metadata stubs and host-side
+  clients.
+- **`tools/` ships no installer.** It is grouped with `install/` because
+  `tools/Update-YurunaReleasePins.ps1` regenerates `install/install.sha256` and
+  signs it, making the two roots one release path; the rest of `tools/` is CI gates
+  that run against every other block.

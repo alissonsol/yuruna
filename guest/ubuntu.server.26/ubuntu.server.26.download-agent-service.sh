@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Version: 2026.08.19
+# Version: 2026.08.20
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -147,7 +147,16 @@ VERSION_STR="$(cat "$REPO_DIR/VERSION" 2>/dev/null || echo dev)"
 echo ""
 echo -e "\e[1;36m==== Building download-agent-service ($VERSION_STR) from $SERVER_DIR ====\e[0m"
 BUILD=/tmp/download-agent-service-build
-rm -rf "$BUILD"; cp -r "$SERVER_DIR" "$BUILD"
+rm -rf "$BUILD"; mkdir -p "$BUILD"; cp -r "$SERVER_DIR" "$BUILD/server"
+# The SDK is a SEPARATE Go module, staged as a sibling of server/ because
+# go.mod resolves it with `replace ... => ../extension-sdk`. It used to be
+# mirrored INTO server/internal/yex, which meant thousands of duplicated
+# lines and a copy that could silently fork. A workspace file cannot replace
+# this: go.work does not rewrite import paths, and the imports name the SDK's
+# module path rather than a directory inside this one.
+SDK_DIR="$(cd "$SERVER_DIR/../.." && pwd)/extension-sdk"
+[ -f "$SDK_DIR/go.mod" ] || { echo "Could not find the extension SDK at $SDK_DIR." >&2; exit 1; }
+cp -r "$SDK_DIR" "$BUILD/extension-sdk"
 # go.sum is committed, so DO NOT run `go mod tidy` (it needs the network to
 # recompute the graph); `go build` verifies against go.sum and fetches missing
 # modules through the caching-proxy service. Retry: a cache miss the proxy cannot
@@ -155,7 +164,7 @@ rm -rf "$BUILD"; cp -r "$SERVER_DIR" "$BUILD"
 attempts=3
 delay=10
 for try in $(seq 1 "$attempts"); do
-  if ( cd "$BUILD" && go build -ldflags "-X main.version=$VERSION_STR" -o download-agent-service . ); then
+  if ( cd "$BUILD/server" && go build -ldflags "-X main.version=$VERSION_STR" -o download-agent-service . ); then
     break
   fi
   if [ "$try" -ge "$attempts" ]; then
@@ -168,7 +177,7 @@ for try in $(seq 1 "$attempts"); do
 done
 
 # --- REGION: Install the binary
-sudo install -m 0755 -o root -g root "$BUILD/download-agent-service" /usr/local/bin/download-agent-service
+sudo install -m 0755 -o root -g root "$BUILD/server/download-agent-service" /usr/local/bin/download-agent-service
 # Fallback for a DIRECT (non-systemd) launch only: under the unit's
 # NoNewPrivileges=true the grant that reaches the daemon is AmbientCapabilities,
 # so a failure here is not fatal.

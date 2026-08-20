@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.19
+# Version: 2026.08.20
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -155,6 +155,13 @@ SERVER_DIR=$(locate_server_dir) || {
   exit 1
 }
 echo "Daemon source: $SERVER_DIR"
+# <enlistment>/test/extension/extension-sdk -- three levels up from server/.
+SDK_DIR="$(cd "$SERVER_DIR/../.." && pwd)/extension-sdk"
+[ -f "$SDK_DIR/go.mod" ] || {
+  echo "Could not find the extension SDK at $SDK_DIR (expected beside stash-service/)." >&2
+  exit 1
+}
+echo "SDK source:    $SDK_DIR"
 
 # Framework version (repo root is four levels above server/) -- stamped into
 # the binary so the UI header shows it (stash-guide / status pages style).
@@ -184,11 +191,19 @@ BUILD=/tmp/stash-build
 echo ""
 echo -e "\e[1;36m==== Staging source to $BUILD ====\e[0m"
 sudo rm -rf "$BUILD"
-sudo cp -r "$SERVER_DIR" "$BUILD"
+sudo mkdir -p "$BUILD"
+sudo cp -r "$SERVER_DIR" "$BUILD/server"
+# The SDK is a SEPARATE Go module, staged as a sibling of server/ because
+# go.mod resolves it with `replace ... => ../extension-sdk`. It used to be
+# mirrored INTO server/internal/yex instead, which meant 4,290 duplicated
+# lines and a copy that could silently fork from the original. A workspace
+# file cannot replace this: go.work does not rewrite import paths, and the
+# imports name the SDK's module path, not a directory inside this one.
+sudo cp -r "$SDK_DIR" "$BUILD/extension-sdk"
 sudo chown -R "$(id -un):$(id -gn)" "$BUILD"
 echo ""
 echo -e "\e[1;36m==== stash-service ====\e[0m"
-cd "$BUILD"
+cd "$BUILD/server"
 attempts=3
 delay=10
 for try in $(seq 1 "$attempts"); do
@@ -207,7 +222,7 @@ done
 # --- REGION: Install the binary
 echo ""
 echo -e "\e[1;36m==== /usr/local/bin/stash-service ====\e[0m"
-sudo install -m 0755 -o root -g root "$BUILD/stash-service" /usr/local/bin/stash-service
+sudo install -m 0755 -o root -g root "$BUILD/server/stash-service" /usr/local/bin/stash-service
 # Fallback for a DIRECT (non-systemd) launch of this binary, which still has to
 # bind :22 (SCP/SFTP sink) and :80 (UI/API); under the unit's
 # NoNewPrivileges=true the grant that reaches the daemon is AmbientCapabilities,

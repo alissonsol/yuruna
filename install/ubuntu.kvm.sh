@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.19
+# Version: 2026.08.20
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Yuruna Ubuntu KVM/libvirt bootstrap installer.
@@ -109,6 +109,26 @@ trap _yuruna_on_err ERR
 . /etc/os-release
 [[ $EUID -ne 0 ]] || die "Do not run as root. The script will call sudo when needed."
 
+# --- REGION: Preflight: this account can elevate
+# Same reasoning as the macOS installer: the sudo call is 80 lines on, and a
+# refusal there arrives through the ERR trap naming the previous step rather
+# than the elevation. Bare `id -nG` (no username) reports THIS session's group
+# token, which is what sudo authorizes against -- with a username, id queries the
+# name service and reports a grant the running session does not yet carry.
+# Exit codes only: sudo's refusal wording differs between the C sudo and the Rust
+# rewrite, so a message matcher silently stops matching.
+_yuruna_whoami="${USER:-$(id -un)}"
+if ! sudo -n -v 2>/dev/null && ! id -nG | tr ' ' '\n' | grep -qxE 'sudo|wheel'; then
+  die "$_yuruna_whoami cannot elevate: this session is in neither the 'sudo' nor the 'wheel' group, so sudo will refuse and the installer cannot continue.
+
+   From an account that can already elevate, run:
+       sudo usermod -aG sudo $_yuruna_whoami
+
+   Then sign $_yuruna_whoami out and back in -- the group list is fixed when a
+   session starts, so an already-open one stays refused -- and start the
+   installer again."
+fi
+
 ARCH="$(uname -m)"
 
 log "Yuruna Ubuntu KVM installer starting"
@@ -187,7 +207,7 @@ cat <<'SUDO_NOTICE'
   +---------------------------------------------------------------+
 
 SUDO_NOTICE
-sudo -v
+sudo -v || die "sudo did not authorize this run; the installer needs root for apt-get, usermod and the libvirt services."
 export YURUNA_SUDO_PRIMED=1
 ( while true; do sudo -n true 2>/dev/null || true; sleep 30; kill -0 "$$" 2>/dev/null || exit; done ) &
 SUDO_KEEPALIVE_PID=$!

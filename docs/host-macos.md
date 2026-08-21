@@ -8,6 +8,119 @@
 - Different install methods can shadow each other via PATH order.
 - For most cases, use `brew-doctor-fix.sh`; occasionally you'll need manual steps like `brew uninstall powershell && brew install powershell`.
 
+## The unified screen lock asks for your account password, not sudo's
+
+`sysadminctl -screenLock` is backed by a secure-keyring entry, so it wants the
+**macOS account password** on top of sudo. `Enable-TestAutomation.ps1` asks for
+it separately from the sudo prompt, and it is masked.
+
+Do **not** run the shape that looks obvious:
+
+```
+sudo sysadminctl -screenLock off -password -     # DON'T
+```
+
+`-password -` makes sysadminctl read the password from stdin with a plain
+stream read — it never turns terminal echo off, so every character you type
+appears on screen and stays in the scrollback. Passing `-password <plaintext>`
+is worse: `ps` shows it to every account on the machine while the call runs.
+
+To set it by hand, pipe a silently-read password in (works in both zsh and
+bash — `read -p` is bash-only and means something else in zsh):
+
+```
+printf 'macOS account password: ' && read -rs YPW && echo && \
+  printf '%s\n' "$YPW" | sudo sysadminctl -screenLock off -password -; unset YPW
+```
+
+The state is persistent across reboots, so this is a one-time step. The same
+command with a number instead of `off` restores a delay in seconds — which is
+what `Disable-TestAutomation.ps1` does from the captured pre-automation state.
+
+## The permissions only a person can give (and why no password replaces them)
+
+Three macOS privacy grants gate the harness. They are held by the **terminal
+application**, not by `pwsh`:
+
+| Grant | Pane | Needed for |
+| --- | --- | --- |
+| Accessibility | Privacy & Security > Accessibility | posting keystrokes into UTM guest windows without holding focus |
+| Screen Recording | Privacy & Security > Screen Recording | window **titles** from `CGWindowList` and `screencapture -l <windowId>` |
+| Automation → UTM | Privacy & Security > Automation | `utmctl`, which drives UTM over Apple Events |
+
+**No script can grant these, with or without an administrator password.** macOS
+keeps them in the TCC databases; System Integrity Protection guards those
+against every writer including root, and `tccutil` can only *reset* a decision,
+never make one. The only supported way to pre-authorize them is a **Privacy
+Preferences Policy Control (PPPC) payload delivered by an MDM server** the Mac
+is enrolled with — a profile installed by hand is not honored for PPPC. On a
+fleet, that is the route: ship a PPPC profile that grants
+`kTCCServiceAccessibility`, `kTCCServiceScreenCapture` and
+`kTCCServiceAppleEvents` (target `com.utmapp.UTM`) to your terminal's bundle id.
+Anything short of MDM means a human clicks once per grant per machine.
+
+So the harness does everything short of that:
+
+- **Detection without prompting.** `AXIsProcessTrusted` and
+  `CGPreflightScreenCaptureAccess` read the current state and never raise a
+  dialog, so the pre-cycle gate can report them.
+- **`Enable-TestAutomation.ps1` raises each dialog, opens the exact pane, and
+  then waits and re-reads**, so the run confirms the grant rather than telling
+  you to re-run and find out.
+- **One registry, one wording.** Detection and instructions live in
+  `Get-MacOperatorGrant` (`test/modules/Test.HostCondition.Mac.psm1`). Both
+  `Test-Config.ps1` and the per-cycle `Assert-HostConditionSet` render from it,
+  so the gate and the runner cannot describe the same permission differently.
+  Adding a fourth grant is one entry in that registry and nothing else.
+
+Automation → UTM is the one exception to "the gate reports it": macOS offers no
+way to *read* that grant that does not itself raise the dialog, and a gate that
+pops a modal before every cycle would hang an unattended host on a question
+nobody is there to answer. `Test-Config.ps1` lists it so the prompt is expected;
+`Enable-TestAutomation.ps1` triggers it while you are at the machine.
+
+If a grant is toggled ON and the check still refuses, the usual causes are: the
+entry is for `pwsh` rather than the terminal app; Screen Recording was granted
+without fully quitting the terminal afterwards; or the check is running in an
+SSH session, which cannot hold these grants at all (the gate says so instead of
+failing, since it is describing the wrong session).
+
+## `utmctl missing on PATH` — the gate fails on a Mac where UTM is installed
+
+`Test-Config.ps1` reports `[PASS] UTM.app installed.` and, one line later,
+`[FAIL] utmctl missing on PATH`; `Start-TestRunner.ps1` then refuses with
+**Pre-cycle config gate FAILED**. Nothing is broken about the UTM install —
+UTM keeps its command line **inside the app bundle**, at
+`/Applications/UTM.app/Contents/MacOS/utmctl`, and no UTM installer puts that
+directory on anyone's `PATH`. Every VM operation in the harness shells out to
+`utmctl`, so the gate is right to refuse.
+
+Either repair works:
+
+```
+pwsh host/macos.utm/Enable-TestAutomation.ps1
+```
+
+or, for a session that already has a warm `sudo` timestamp:
+
+```
+sudo mkdir -p /usr/local/bin && sudo ln -sfn /Applications/UTM.app/Contents/MacOS/utmctl /usr/local/bin/utmctl
+```
+
+`install/macos.utm.sh` creates this link and refuses to report success without
+it, so a host installed with the current bootstrapper never reaches this state.
+A host provisioned before that, or one where UTM was installed by hand from the
+`.dmg`, needs one of the two commands above.
+
+`/usr/local/bin` and not Homebrew's `bin`: the stock `/etc/paths` lists
+`/usr/local/bin`, so a login shell, a LaunchAgent and an `ssh host command` all
+see it. Homebrew's `bin` only reaches shells that ran `brew shellenv`, which the
+status service and the runner's own children do not.
+
+If the link is in place and `utmctl` *still* does not resolve, the shell profile
+on this account is replacing `PATH` rather than adding to it — check
+`~/.zprofile` and `~/.zshrc` for a bare `export PATH=...`.
+
 ## PowerShell, .NET, and nested `sudo pwsh`
 
 `install/macos.utm.sh` prefers the Homebrew **formula** for PowerShell, which is
@@ -359,6 +472,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.20
+Last review: 2026.08.21
 
 Back to [Yuruna](../README.md)

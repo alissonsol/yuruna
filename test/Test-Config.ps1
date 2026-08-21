@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.20
+.VERSION 2026.08.21
 .GUID 4210d385-d4df-4f13-9344-d649676c6dc4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -431,7 +431,7 @@ if (-not $HostType) {
                 Write-Warn "Host clock still off after the sync attempt. Check the host's time source before starting a cycle."
             }
         } else {
-            Write-Info "  Fix with: pwsh host/$($HostType -replace '^host\.', '')/Enable-TestAutomation.ps1  (elevated / with sudo)"
+            Write-Info "  Fix with: pwsh test/lab/Enable-TestAutomation.ps1  (elevated / with sudo)"
         }
     }
 }
@@ -549,13 +549,106 @@ switch ($HostType) {
         if (Test-Path '/Applications/UTM.app') {
             Write-Pass "UTM.app installed."
         } else {
-            Write-Fail "UTM.app missing -- install from https://mac.getutm.app"
+            Write-Fail "UTM.app missing -- install it: brew install --cask utm (or https://mac.getutm.app)"
         }
         if (Get-Command utmctl -ErrorAction SilentlyContinue) {
             Write-Pass "utmctl reachable on PATH."
         } else {
-            Write-Fail "utmctl missing on PATH -- symlink from /Applications/UTM.app/Contents/MacOS/utmctl"
+            # UTM installs correctly and still leaves this failing: the CLI lives
+            # inside the app bundle and nothing puts that directory on PATH. Both
+            # repairs are printed because they are not interchangeable -- the
+            # first also applies the rest of the host settings and needs an
+            # interactive sudo, the second is one line an operator can paste into
+            # a session that already has a warm sudo timestamp.
+            $utmctlFix = if (Get-Command Get-MacUtmctlRemediation -ErrorAction SilentlyContinue) {
+                Get-MacUtmctlRemediation
+            } else {
+                'sudo mkdir -p /usr/local/bin && sudo ln -sfn /Applications/UTM.app/Contents/MacOS/utmctl /usr/local/bin/utmctl'
+            }
+            Write-Fail "utmctl missing on PATH -- UTM keeps it inside the app bundle. Fix with either: pwsh test/lab/Enable-TestAutomation.ps1  --  or  --  $utmctlFix"
         }
+    }
+}
+
+# --- REGION: Section 5a: macOS permissions only a person can give
+# Checked HERE and not only inside the cycle. This script IS the pre-cycle gate,
+# so a host it passes and Assert-HostConditionSet then refuses has learned
+# nothing from the gate: the operator finds out one entry point later, with a
+# runner already waiting, from a message the gate never showed them.
+#
+# Detection and every word of the repair come from the operator-grant registry
+# that the per-cycle assertion uses, so the two cannot describe the same
+# permission differently -- which is the failure mode that costs an operator
+# most, because following one set of instructions and being refused by the other
+# gives no way to tell which is stale.
+#
+# None of these can be granted by a script, with or without a password: macOS
+# keeps them in SIP-protected TCC databases and only an MDM-delivered PPPC
+# profile can pre-authorize one. The gate does what is left -- name the exact
+# grant, the exact pane, and the exact application to enable.
+
+if ($HostType -eq 'host.macos.utm' -and (Get-Command Get-MacOperatorGrantState -ErrorAction SilentlyContinue)) {
+    Write-Section "macOS permissions (operator grants)"
+
+    $grantSession = Get-MacSessionKind
+    $grantSubject = Get-MacTccSubjectName
+    if ($grantSession -eq 'Remote') {
+        Write-Warn "This is a remote session, which cannot hold these grants whatever the desktop session was given. The states below describe this session, not the one that runs the harness -- re-run from the desktop to get a real answer."
+    }
+
+    foreach ($grantState in Get-MacOperatorGrantState) {
+        $compactFix = (Get-MacOperatorGrantInstruction -Grant $grantState.Grant -Compact)[0]
+        switch ($grantState.State) {
+            'granted' {
+                Write-Pass "$($grantState.Title): granted to $grantSubject."
+            }
+            'overridden' {
+                Write-Warn "$($grantState.Title): reads as not granted, but $($grantState.Grant.SkipEnvVar)=1 forces it through. The cycle will run and may fail on it."
+            }
+            'unprobed' {
+                # No probe exists that does not itself raise the dialog, and a
+                # gate that pops a modal before every cycle hangs an unattended
+                # host. Listed so the prompt is expected rather than a surprise
+                # mid-cycle; Enable-TestAutomation triggers and confirms it.
+                Write-Info "$($grantState.Title): not testable from here without raising its dialog. $($grantState.Grant.Pane) -- macOS asks $grantSubject once, at the first UTM operation."
+            }
+            default {
+                $stateNote = if ($grantState.State -eq 'unknown') {
+                    "The $($grantState.Title) probe returned no usable answer, which the cycle gate treats as not granted. "
+                } else { '' }
+                if ($grantSession -eq 'Remote' -or -not $grantState.Blocking) {
+                    Write-Warn "$stateNote$compactFix"
+                } else {
+                    Write-Fail "$stateNote$compactFix"
+                    foreach ($line in (Get-MacOperatorGrantInstruction -Grant $grantState.Grant)) { Write-Info $line }
+                }
+            }
+        }
+    }
+}
+
+# --- REGION: Section 5a2: macOS screen lock / display sleep
+# Checked here for the same reason the operator grants above are: this script IS
+# the pre-cycle gate, and the per-cycle assertion refuses a cycle on exactly
+# these settings. A host this report passes and the runner then stops teaches
+# the operator nothing -- they meet the refusal one entry point later, with a
+# runner already waiting, in a warning this report never showed them.
+#
+# The findings come from Get-MacScreenLockIssue, which is also what the
+# per-cycle assertion prints, so the report and the gate cannot describe the
+# same host differently. FAIL rather than WARN: every line it returns is one the
+# gate refuses to start a cycle on.
+
+if ($HostType -eq 'host.macos.utm' -and (Get-Command Get-MacScreenLockIssue -ErrorAction SilentlyContinue)) {
+    Write-Section "macOS screen lock / display sleep"
+
+    $screenLockIssues = @(Get-MacScreenLockIssue)
+    if ($screenLockIssues.Count -eq 0) {
+        Write-Pass "Screen saver, screen lock and sleep settings will not blank the VM display."
+    } else {
+        foreach ($screenLockIssue in $screenLockIssues) { Write-Fail $screenLockIssue }
+        Write-Info "When the display blanks, UTM screen captures return a black image and OCR-based waitForText steps time out."
+        Write-Info "Fix with: pwsh test/lab/Enable-TestAutomation.ps1  (asks for sudo)"
     }
 }
 
@@ -814,13 +907,19 @@ if ($Config.Contains('secrets') -and $Config.secrets -is [System.Collections.IDi
 
 Write-Section "Extension configs"
 
-Test-AgainstSchema -Label "authentication/authentication.config.yml" `
-    -YamlPath   (Join-Path $ExtensionRoot "authentication/authentication.config.yml") `
-    -SchemaPath (Join-Path $SchemasRoot   "extension-config.schema.yml")
-
-Test-AgainstSchema -Label "notification/notification.config.yml" `
-    -YamlPath   (Join-Path $ExtensionRoot "notification/notification.config.yml") `
-    -SchemaPath (Join-Path $SchemasRoot   "extension-config.schema.yml")
+# Enumerated, not listed: an area is anything under test/extension/ that
+# carries its own <area>.config.yml, which is the same rule the loader
+# discovers by. Naming two of them here left the service areas -- the ones
+# whose `service:` blocks feed the VM roster -- validated by nothing, so a
+# mistyped key reached a bring-up instead of this report.
+$ExtensionSchema = Join-Path $SchemasRoot "extension-config.schema.yml"
+foreach ($AreaDir in (Get-ChildItem -LiteralPath $ExtensionRoot -Directory -ErrorAction SilentlyContinue | Sort-Object Name)) {
+    $AreaConfig = Join-Path $AreaDir.FullName "$($AreaDir.Name).config.yml"
+    if (-not (Test-Path -LiteralPath $AreaConfig)) { continue }
+    Test-AgainstSchema -Label "$($AreaDir.Name)/$($AreaDir.Name).config.yml" `
+        -YamlPath   $AreaConfig `
+        -SchemaPath $ExtensionSchema
+}
 
 if (-not (Test-Path $NotificationCfgPath)) {
     if (Test-Path $NotificationTmplPath) {

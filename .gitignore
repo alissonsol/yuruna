@@ -454,6 +454,7 @@ out.txt
 **/yuruna-archive.tar.gz
 test/extension/pool-aggregator/pool-aggregator.exe
 test/extension/caching-proxy-parser-service/caching-proxy-parser-service
+test/extension/caching-proxy-service/caching-proxy-service
 
 # Local test-suite run output (tools/Invoke-TestSuite.ps1); the tracked
 # reference is test/modules/suite-baseline.json.

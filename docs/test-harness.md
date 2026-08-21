@@ -43,6 +43,13 @@ Each iteration of `Start-TestRunner.ps1`:
      checkpoints -> YAML sequences dispatched via the cycle planner.
 4. On first failure: leave the VM, send a Resend notification, exit.
 
+Ahead of each chain entry and each sequence step the
+[lab-health gate](failure-schema.md#the-lab-health-gate-lab_health_-events) checks
+the lab's declared services and **holds** the cycle -- the same parked state the
+*Pause* button produces -- while one that was answering is away, resuming when it
+returns. A service this host has never reached never holds, so a host with no
+stash still fails fast rather than parking.
+
 ## Modes
 
 Each sequence declares its own `keystrokeMechanism` (gui|ssh, default
@@ -266,7 +273,7 @@ test/
 +-- extension/                  Pluggable extension areas (Test.Extension loader; committed code only)
 |   +-- authentication/         default.psm1, authentication.config.yml
 |   +-- notification/           default.psm1, notification.config.yml, transports.yml.template
-|   +-- ...                       7 areas total -- see [extensions-api.md](extensions-api.md)
+|   +-- ...                       8 areas total -- see [extensions-api.md](extensions-api.md)
 +-- screenshots/<guestKey>/     [Optional -- operator-populated; absent by default]
 |   +-- schedule.json           Capture checkpoints + thresholds (create if using screenshot validation)
 |   +-- reference/*.png         Trained reference screenshots (commit manually per checkpoint)
@@ -410,7 +417,15 @@ or a future recovery loop can extend without forking the framework.
 Each is enumerated at startup by the [capability matrix](#capability-matrix-and-cycle-plan-gate);
 four of the five share the
 [`New-YurunaRegistry`](../test/modules/Test.Registry.psm1) primitive
-and surface through `Get-YurunaRegistryDirectory`. The exception is the
+and surface through `Get-YurunaRegistryDirectory`.
+`New-YurunaRegistry -Name '<DomainName>'` returns a closure-bundle
+hashtable (`Register` / `Get` / `Has` / `GetMatrix` / `Clear`
+scriptblocks) closing over a shared backing store anchored under
+`$global:__YurunaRegistry__<DomainName>`, so a `-Force` re-import of
+the calling module does not evict already-registered entries. Domain
+modules wrap the bundle with their own `Register-*`/`Get-*` names; the
+primitive itself stays generic so future per-cycle registries can
+reuse it. The exception is the
 component-login credential-provider registry, which uses the same
 eviction-safe global-anchor pattern but is hand-rolled in
 [`automation/Yuruna.CredentialProvider.psm1`](../automation/Yuruna.CredentialProvider.psm1)
@@ -428,6 +443,11 @@ failure-class to recommendation), and the file-based
 [Extensions API](extensions-api.md) under
 `test/extension/<area>/` for authentication, notification transports,
 and caching-proxy-service log parsing.
+
+Lab availability is its own extension point in practice, though it registers
+nothing: [`Test.LabHealth.psm1`](../test/modules/Test.LabHealth.psm1) derives what
+to probe from the `service:` manifests under `test/extension/<area>/`, so an area
+that declares a `healthPort` is gated with no framework edit at all.
 
 The runner lifecycle is observable through the
 [runner state machine](runner-outer-loop.md#runner-state-machine) (`Set-RunnerState` at every
@@ -974,6 +994,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.20
+Last review: 2026.08.21
 
 Back to [Yuruna](../README.md)

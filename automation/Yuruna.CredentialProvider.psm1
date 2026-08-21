@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.20
+.VERSION 2026.08.21
 .GUID 42ef082c-e8a7-4b9b-a65e-775dd8f26574
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,14 +16,8 @@
 
 #requires -version 7
 
-# Container-registry / cloud-credential refresh registry: a first-match-wins
-# map from hostname pattern to { Authenticator ; LoginCommand }. The runtime
-# component-push pipeline ([Yuruna.Component.Registry]) and the self-heal path
-# after a 401/403 both need the same answer to "what is the login command for
-# <registry>?", so the providers live in this neutral automation-layer module
-# and both surfaces import it. Supporting a new registry kind (ECR / GAR /
-# Docker Hub / Harbor / ...) is a single Register-CredentialProvider call --
-# no change to any consumer.
+# First-match-wins registry mapping a registry hostname to its login
+# Authenticator/LoginCommand -- see docs/authentication.md#component-registry-login.
 
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
     Justification = 'Cross-module-eviction-safe anchor.')]

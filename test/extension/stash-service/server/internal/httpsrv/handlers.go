@@ -35,6 +35,10 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/refresh", s.handleRefresh)
 	mux.HandleFunc("GET /api/host", s.handleHostResolve)
 	mux.HandleFunc("GET /api/hostinfo", s.handleHostInfo)
+	// MCP over the same surface. A literal /mcp beats the catch-all
+	// `GET /{id}` short-redirect below on specificity, so the short URLs are
+	// untouched -- see the mount test.
+	mux.HandleFunc("POST /mcp", s.mcpServer().Handler())
 	mux.HandleFunc("GET /api/stashes/{hostId}/{year}/{month}/{day}/{id}", s.handleGetMeta)
 	mux.HandleFunc("GET /api/stashes/{hostId}/{year}/{month}/{day}/{id}/archive", s.handleArchive)
 	mux.HandleFunc("GET /raw/{hostId}/{year}/{month}/{day}/{id}", s.handleRaw)

@@ -269,6 +269,25 @@ table's deep-link or directly at the base URL the marker publishes. Reads are
 open on the LAN; the page polls the same `GET /api/v1/images` that automation
 uses, so the UI has no private endpoints.
 
+### The per-image API
+
+Beyond the pool-wide `GET /api/v1/images` above, every image is addressable on
+its own by the `{hostType}/{imageKey}` pair the pool catalog names it with:
+
+| Method | Path | Auth | Purpose |
+|---|---|---|---|
+| GET | `/api/v1/status` | none | agent-level state: pool availability, lease holder, scanner cadence, last and next scan |
+| GET | `/api/v1/images/{hostType}/{imageKey}` | none | one image's catalog entry -- its generations, freshness and current verdict |
+| GET | `/api/v1/images/{hostType}/{imageKey}/file/{generation}` | none | the artifact bytes for one generation, which is how a host fetches an image rather than downloading it from upstream |
+| POST | `/api/v1/images/{hostType}/{imageKey}/ensure` | none | make sure this generation is present, downloading it if it is not. **Deliberately ungated**: it is the call a host makes for itself on the read path, and gating it would mean a host could not fetch an image without an operator credential. It creates no new artifact an unauthenticated caller could not already request |
+| POST | `/api/v1/images/{hostType}/{imageKey}/refresh` | lab-token | re-check this one image upstream now |
+| POST | `/api/v1/images/{hostType}/{imageKey}/delete` | lab-token | delete a generation |
+| POST | `/api/v1/images/{hostType}/{imageKey}/prune` | lab-token | drop the superseded generations of this image |
+
+`POST /api/v1/refresh` (below) is the pool-wide counterpart to the per-image
+`refresh`, and is the one route gated by the shared **bearer** token rather
+than a UI session -- it is meant for automation, not a button.
+
 ### What you can see
 
 **Agent header** -- daemon version; pool availability; lease state (holder, or
@@ -546,6 +565,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.20
+Last review: 2026.08.21
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.20
+.VERSION 2026.08.21
 .GUID 42ed1667-e5c7-4bea-b28b-0e6c1706de72
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -117,6 +117,66 @@ function Get-MacPmsetGuardPending {
         }
     }
     return @($pending)
+}
+
+function Get-MacPmsetKeyValue {
+    <#
+    .SYNOPSIS
+    Every value `pmset -g custom` reports for one key, in the order the blocks
+    are printed.
+    .DESCRIPTION
+    `pmset -g custom` prints one block per power source this Mac has (Battery
+    Power, AC Power, UPS Power) and the same key carries an INDEPENDENT value in
+    each. A first-match read therefore answers for whichever block macOS happens
+    to print first -- a laptop whose battery block reads 0 and whose AC block
+    reads 10 looks compliant to the reader and blanks the display the moment it
+    is plugged in. Callers that decide anything about a key have to see every
+    value it holds, which is what this returns.
+    .PARAMETER PmsetCustom
+    The lines of `pmset -g custom`.
+    .PARAMETER Key
+    The pmset key to read, e.g. 'displaysleep'.
+    .OUTPUTS
+    [string[]] the values found, empty when this macOS does not list the key.
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [string[]]$PmsetCustom,
+        [Parameter(Mandatory)][string]$Key
+    )
+    return @($PmsetCustom |
+        Select-String -Pattern ('^\s*' + [regex]::Escape($Key) + '\s+(\d+)') |
+        ForEach-Object { $_.Matches[0].Groups[1].Value })
+}
+
+function Get-MacSleepGuardList {
+    <#
+    .SYNOPSIS
+    The system-sleep guards (key + wanted value) shared by
+    Set-MacHostConditionSet and Assert-ScreenLock, so the applied set is exactly
+    the asserted set.
+    .DESCRIPTION
+    Separate from Get-MacPmsetGuardList because the two are captured
+    differently: Get-MacPreAutomationState records these per power source
+    (`pmset/<scope>/<key>`, since `-c` and `-b` hold different values and a Mac
+    restored to one value on both has lost its battery policy), while the
+    extended guards are captured once from the AC block. A key listed in both
+    places would be captured twice and restored from the wrong half.
+
+    Each key stands on its own: `sleep` and `disksleep` drift independently, so
+    they are evaluated and written independently. Deciding both from a single
+    read of `sleep` leaves a host with sleep=0 and disksleep=10 reporting
+    "already Never" on every apply while the gate refuses it on every cycle --
+    a loop no amount of re-running the setup script can break.
+    #>
+    [CmdletBinding()]
+    [OutputType([object[]])]
+    param()
+    return @(
+        @{ Key = 'sleep'     ; Want = 0 }
+        @{ Key = 'disksleep' ; Want = 0 }
+    )
 }
 
 function Get-MacDefaultsCommandArgument {
@@ -275,26 +335,34 @@ function Get-MacScreenLockDisabled {
     }
 }
 
-function Assert-ScreenLock {
+function Get-MacScreenLockIssue {
     <#
     .SYNOPSIS
-    macOS: verify screen saver lock and display sleep won't blank the
-    screen during long-running VM tests. Returns $true if settings are
-    acceptable (or not on macOS). Prints instructions and returns $false
-    otherwise.
+    Every screen-lock / sleep setting on THIS Mac that would blank the VM
+    display mid-cycle, as one operator-readable line each.
+    .DESCRIPTION
+    The probing half of Assert-ScreenLock, split out so the same findings can be
+    reported by a health report that describes a host without refusing it and by
+    the gate that refuses it. Two probes worded differently for the same setting
+    is the failure an operator pays for most: the report passes, the gate stops
+    the cycle, and nothing they read tells them which of the two is stale.
+    .OUTPUTS
+    [string[]] one line per issue; empty when the host is ready.
     #>
-    param([string]$HostType)
-    if ($HostType -ne "host.macos.utm") { return $true }
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param()
 
     $issues = @()
 
     # 1. Display sleep idle time (pmset -g custom -> displaysleep).
-    #    0 = never sleep (good); > 0 means display will blank.
+    #    0 = never sleep (good); > 0 means display will blank. Every power
+    #    block counts -- see Get-MacPmsetKeyValue.
     try {
-        $pmsetLine = & pmset -g custom 2>$null | Select-String '^\s*displaysleep\s+(\d+)' | Select-Object -First 1
-        if ($pmsetLine -and $pmsetLine.Matches[0].Groups[1].Value -ne "0") {
-            $sleepMinutes = $pmsetLine.Matches[0].Groups[1].Value
-            $issues += "Display sleep is set to $sleepMinutes minute(s)."
+        $displayValues = @(Get-MacPmsetKeyValue -PmsetCustom (& pmset -g custom 2>$null) -Key 'displaysleep' |
+            Where-Object { [int]$_ -ne 0 })
+        if ($displayValues.Count -gt 0) {
+            $issues += "Display sleep is set to $(($displayValues | Sort-Object -Unique) -join '/') minute(s)."
         }
     } catch {
         Write-Debug "pmset check failed: $_"
@@ -434,22 +502,41 @@ function Assert-ScreenLock {
     #    A laptop that drifts back to 0 does list the key, so it still fails here.
     try {
         $pmCustom = & pmset -g custom 2>$null
-        foreach ($k in @('sleep', 'disksleep')) {
-            $line = $pmCustom | Select-String -Pattern ('^\s*' + $k + '\s+(\d+)') | Select-Object -First 1
-            if ($line -and [int]$line.Matches[0].Groups[1].Value -ne 0) {
-                $issues += "$k is set to $($line.Matches[0].Groups[1].Value) minute(s) -- a wake re-locks the screen (should be 0 / Never)."
+        foreach ($g in (Get-MacSleepGuardList)) {
+            # Per key, and across every power block: sleep and disksleep drift
+            # independently, and so do the AC and battery copies of each.
+            $bad = @(Get-MacPmsetKeyValue -PmsetCustom $pmCustom -Key $g.Key |
+                Where-Object { [int]$_ -ne $g.Want })
+            if ($bad.Count -gt 0) {
+                $issues += "$($g.Key) is set to $(($bad | Sort-Object -Unique) -join '/') minute(s) -- a wake re-locks the screen (should be 0 / Never)."
             }
         }
         foreach ($g in (Get-MacPmsetGuardList)) {
-            $gLine = $pmCustom | Select-String -Pattern ('^\s*' + [regex]::Escape($g.Key) + '\s+(\d+)') | Select-Object -First 1
-            if ($gLine -and [int]$gLine.Matches[0].Groups[1].Value -ne $g.Want) {
-                $issues += "pmset $($g.Key) is $($gLine.Matches[0].Groups[1].Value) (should be $($g.Want))."
+            $gBad = @(Get-MacPmsetKeyValue -PmsetCustom $pmCustom -Key $g.Key |
+                Where-Object { [int]$_ -ne $g.Want })
+            if ($gBad.Count -gt 0) {
+                $issues += "pmset $($g.Key) is $(($gBad | Sort-Object -Unique) -join '/') (should be $($g.Want))."
             }
         }
     } catch {
         Write-Debug "pmset system-sleep / extended-guard check failed: $_"
     }
 
+    return @($issues)
+}
+
+function Assert-ScreenLock {
+    <#
+    .SYNOPSIS
+    macOS: verify screen saver lock and display sleep won't blank the
+    screen during long-running VM tests. Returns $true if settings are
+    acceptable (or not on macOS). Prints instructions and returns $false
+    otherwise.
+    #>
+    param([string]$HostType)
+    if ($HostType -ne "host.macos.utm") { return $true }
+
+    $issues = @(Get-MacScreenLockIssue)
     if ($issues.Count -eq 0) { return $true }
 
     Write-Warning "==================================================================="
@@ -462,8 +549,12 @@ function Assert-ScreenLock {
     Write-Warning " When the display blanks, UTM screen captures return a black"
     Write-Warning " image and OCR-based waitForText steps will time out."
     Write-Warning ""
+    # The host-neutral entry point, not host/macos.utm/: it detects the host and
+    # runs that host's script, so the same line stays correct on every host and
+    # an operator who has it in their notes cannot carry a path that only worked
+    # on the machine they first read it from.
     Write-Warning " Quick fix -- run from the repo root:"
-    Write-Warning "   pwsh ./host/macos.utm/Enable-TestAutomation.ps1"
+    Write-Warning "   pwsh test/lab/Enable-TestAutomation.ps1"
     Write-Warning ""
     Write-Warning " Or manually in System Settings:"
     Write-Warning "   1. Displays > Advanced > Prevent automatic sleeping when"
@@ -675,6 +766,227 @@ function Invoke-MacPrivilegedSetting {
     return $false
 }
 
+# --- REGION: utmctl on PATH
+# UTM ships its command-line interface INSIDE the app bundle, and no installer
+# -- neither the cask nor the .dmg -- puts that directory on anyone's PATH.
+# Every VM operation the harness performs shells out to `utmctl`, so a host with
+# UTM.app correctly installed still cannot start a single cycle until the binary
+# is reachable by name. The link goes in /usr/local/bin because that directory is
+# listed in the stock /etc/paths, which means a login shell, a LaunchAgent and an
+# `ssh host command` all see it; Homebrew's bin only reaches shells that ran
+# `brew shellenv`.
+$script:MacUtmAppPath        = '/Applications/UTM.app'
+$script:MacUtmctlBundlePath  = '/Applications/UTM.app/Contents/MacOS/utmctl'
+# Written out rather than derived with Split-Path: these are POSIX paths, and
+# Split-Path renders a parent with the SEPARATOR OF THE RUNNING HOST -- so the
+# repair command this module hands an operator comes out with backslashes in it
+# whenever the string is produced anywhere but a Mac.
+$script:MacUtmctlLinkDir     = '/usr/local/bin'
+$script:MacUtmctlLinkPath    = '/usr/local/bin/utmctl'
+
+function Get-MacScreenLockManualCommand {
+    <#
+    .SYNOPSIS
+    The one-liner an operator can run by hand to set the unified screen lock
+    without their password appearing on screen.
+    .DESCRIPTION
+    The obvious command to print -- `sudo sysadminctl -screenLock off -password -`
+    -- is the one that misbehaves: sysadminctl reads that password from stdin
+    with a plain stream read and never turns terminal echo off, so the operator
+    watches their own password appear and leaves it in the scrollback. Advice
+    that does that is worse than no advice, because it is followed.
+
+    `read -rs` reads it invisibly and the pipe hands it over, so the value
+    reaches neither the screen nor argv (where `ps` would show it). The variable
+    is unset on the way out; shells do not record `read` input in history.
+
+    The prompt is a separate `printf` rather than `read -p`, because the default
+    shell on macOS is zsh, where `-p` means "read from the coprocess" instead of
+    "prompt" -- the bash-shaped one-liner does not fail there, it silently reads
+    the wrong thing. `printf` + `read -rs` behaves identically in both shells.
+    .OUTPUTS
+    [string]
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([string]$State = 'off')
+    return "printf 'macOS account password: ' && read -rs YPW && echo && printf '%s\n' `"`$YPW`" | sudo sysadminctl -screenLock $State -password -; unset YPW"
+}
+
+function Set-MacScreenLockState {
+    <#
+    .SYNOPSIS
+    Run `sysadminctl -screenLock <state>` with the account password read
+    invisibly. Returns what the attempt did.
+    .DESCRIPTION
+    This is the one host setting root cannot apply: the unified lock is backed
+    by a secure-keyring entry, so sysadminctl wants the ACCOUNT password on top
+    of sudo.
+
+    `-password -` makes it read that password from STDIN as a plain stream read.
+    It never calls tcsetattr, so nothing turns the terminal's echo off, and a
+    person typing at the prompt watches their password appear in the clear and
+    stay in the scrollback and in any transcript of the run.
+
+    The fix is to stop a human from typing at that prompt at all: PowerShell
+    reads the password masked and feeds it down the pipe sysadminctl is already
+    reading. The value never reaches argv either, which rules out the other
+    obvious shape, `-password <plaintext>`, where `ps` would show it to every
+    account on the machine.
+
+    Echo is disabled around the call as well, and restored in a finally. The
+    pipe is the fix; the echo guard covers a macOS release that decides to read
+    /dev/tty instead of the stdin it was handed, which would put the visible
+    prompt straight back. A terminal left with echo off outlives the script, so
+    it is only turned off once `stty` has confirmed it is talking to a terminal.
+    .PARAMETER State
+    What to pass to -screenLock: 'off', or a delay in seconds.
+    .PARAMETER Reason
+    Filled into the password prompt so the operator knows what is asking.
+    .OUTPUTS
+    [hashtable] @{ Attempted; ExitCode; Output }. Attempted is $false when
+    nothing could ask for the password, which is a different outcome from a
+    refused one and needs a different message.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$State,
+        [string]$Reason = 'change the unified screen lock'
+    )
+
+    if (-not (Test-YurunaCanPrompt)) {
+        return @{ Attempted = $false; ExitCode = -1; Output = 'the account password can only come from a person, and nothing in this run can ask one' }
+    }
+    if (-not $PSCmdlet.ShouldProcess("sysadminctl -screenLock $State", 'Run with the macOS account password')) {
+        return @{ Attempted = $false; ExitCode = 0; Output = 'preview only' }
+    }
+
+    $account = if ($env:USER) { $env:USER } else { "$(& id -un)" }
+    $secure = Read-Host -Prompt "macOS account password for $account (sysadminctl needs it to $Reason; typing is hidden)" -AsSecureString
+    if (-not $secure -or $secure.Length -eq 0) {
+        return @{ Attempted = $false; ExitCode = -1; Output = 'no password entered' }
+    }
+
+    # Pinned locally: sudo and sysadminctl both report through exit codes this
+    # function returns to its caller, and a terminating error would replace that
+    # with a generic native-command failure.
+    $PSNativeCommandUseErrorActionPreference = $false
+    $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+    $echoOff = $false
+    try {
+        $plain = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+        & stty -echo 2>$null
+        if ($LASTEXITCODE -eq 0) { $echoOff = $true }
+        $raw = $plain | & sudo -n sysadminctl -screenLock $State -password - 2>&1
+        $rc = $LASTEXITCODE
+        return @{
+            Attempted = $true
+            ExitCode  = $rc
+            Output    = ((@($raw) | ForEach-Object { "$_" }) -join "`n").Trim()
+        }
+    } finally {
+        # The unmanaged copy is wiped here. The managed one lives until the GC
+        # collects it -- unavoidable for a value that has to be handed to a
+        # child process, and still far better than the screen.
+        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+        $plain = $null
+        $secure.Dispose()
+        if ($echoOff) { & stty echo 2>$null }
+    }
+}
+
+function Get-MacUtmctlRemediation {
+    <#
+    .SYNOPSIS
+    The exact shell command that puts `utmctl` on PATH.
+    .DESCRIPTION
+    One string, three consumers -- Set-MacUtmctlLink's failure warning,
+    Test-MacHostMinimum's warning and Test-Config's failure line. An operator
+    who is told to fix this reads whichever of the three their entry point
+    prints, and a command that differs between them is one they have to
+    reconcile before they can trust any of it.
+    .OUTPUTS
+    [string]
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    return "sudo mkdir -p $script:MacUtmctlLinkDir && sudo ln -sfn $script:MacUtmctlBundlePath $script:MacUtmctlLinkPath"
+}
+
+function Set-MacUtmctlLink {
+    <#
+    .SYNOPSIS
+    Makes `utmctl` resolvable by name, linking /usr/local/bin/utmctl to the copy
+    inside UTM.app when it is not. Idempotent; returns $true when the host ends
+    the call with utmctl on PATH.
+    .DESCRIPTION
+    Reports through the return value and a warning naming the exact command,
+    never through a throw: this runs inside the host-settings sweep, where one
+    unavailable knob must not abandon the remaining ones.
+
+    Three distinguishable failures, because the operator's next move differs for
+    each: UTM is not installed (install it), root is not reachable without a
+    password (run the printed command by hand), or the link exists but the
+    directory holding it is not on this session's PATH (an edited PATH, which no
+    amount of re-linking fixes).
+    .OUTPUTS
+    [bool] $true when utmctl resolves on PATH after this call.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param()
+
+    if (-not $IsMacOS) { return $true }
+
+    if (Get-Command utmctl -ErrorAction SilentlyContinue) {
+        Write-Information "utmctl is already on PATH."
+        return $true
+    }
+
+    if (-not (Test-Path -LiteralPath $script:MacUtmctlBundlePath)) {
+        if (Test-Path -LiteralPath $script:MacUtmAppPath) {
+            Write-Warning "UTM is installed at $script:MacUtmAppPath but does not carry $script:MacUtmctlBundlePath -- the bundle is incomplete. Reinstall it: brew reinstall --cask utm"
+        } else {
+            Write-Warning "UTM is not installed at $script:MacUtmAppPath, so there is no utmctl to link. Install it: brew install --cask utm (or https://mac.getutm.app)."
+        }
+        return $false
+    }
+
+    if (-not (Test-MacSudoAvailable)) {
+        Write-Warning "utmctl is not on PATH and root is not reachable without a password. Run: $(Get-MacUtmctlRemediation)"
+        return $false
+    }
+
+    if (-not $PSCmdlet.ShouldProcess($script:MacUtmctlLinkPath, "Link to $script:MacUtmctlBundlePath so utmctl is on PATH")) {
+        return $true
+    }
+
+    Write-Information "Linking $script:MacUtmctlLinkPath -> $script:MacUtmctlBundlePath so utmctl is on PATH..."
+    # -sfn, not -sf: with a plain -sf, a target that is already a symlink to a
+    # DIRECTORY makes ln create the new link inside it instead of replacing it.
+    $ok = Invoke-MacPrivilegedSetting -Argument @('mkdir', '-p', $script:MacUtmctlLinkDir)
+    if ($ok) {
+        $ok = Invoke-MacPrivilegedSetting -Argument @('ln', '-sfn', $script:MacUtmctlBundlePath, $script:MacUtmctlLinkPath)
+    }
+    if (-not $ok) {
+        Write-Warning "Could not link utmctl. Run: $(Get-MacUtmctlRemediation)"
+        return $false
+    }
+
+    # PATH is read here rather than trusting Get-Command a second time: this
+    # process resolved utmctl as missing moments ago and PowerShell may still be
+    # answering from that lookup, so a re-probe can report a failure the next
+    # process will not see. The directory membership is the durable fact.
+    $onPath = @(("$env:PATH" -split ':') | Where-Object { $_ -eq $script:MacUtmctlLinkDir }).Count -gt 0
+    if (-not $onPath) {
+        Write-Warning "Linked $script:MacUtmctlLinkPath, but $script:MacUtmctlLinkDir is not in PATH for this session, so utmctl still will not resolve by name. Add it (it is in the stock /etc/paths, so an edited PATH or a shell profile is dropping it) and start a new shell."
+        return $false
+    }
+    return $true
+}
+
 function Set-MacHostConditionSet {
     <#
     .SYNOPSIS
@@ -725,8 +1037,16 @@ function Set-MacHostConditionSet {
     [void](Initialize-SudoCache -Reasons @(
         'pmset (display sleep, system sleep, power-nap, hibernation)',
         'defaults write /Library/Preferences (auto-logout delay)',
-        'sysadminctl -screenLock off (Sonoma+ unified screen lock)'
+        'sysadminctl -screenLock off (Sonoma+ unified screen lock)',
+        'ln -s into /usr/local/bin (utmctl, the UTM command line, on PATH)'
     ))
+
+    # --- REGION: utmctl on PATH
+    # Required, and first: every later VM operation shells out to utmctl, and
+    # both the cycle gate and Test-Config refuse a host without it. Doing it
+    # here is what makes the remediation those two print -- "rerun
+    # Enable-TestAutomation.ps1" -- true.
+    if (-not (Set-MacUtmctlLink)) { $unmet.Add('utmctl on PATH') }
 
     # --- REGION: Display sleep -> Never (requires sudo)
     # `pmset -g custom` reports the active profile; the writes below cover
@@ -740,11 +1060,16 @@ function Set-MacHostConditionSet {
     # run -- so the power sources this machine actually has decide what is
     # required of it.
     $hasBattery = [bool](@($pmCustomLines | Select-String -Pattern '^\s*Battery Power:').Count)
-    $currentSleep = "unknown"
-    $pmLine = $pmCustomLines | Select-String '^\s*displaysleep\s+(\d+)' | Select-Object -First 1
-    if ($pmLine) { $currentSleep = $pmLine.Matches[0].Groups[1].Value }
+    # Every block, because the writes below cover every block: a Mac whose
+    # battery profile reads 0 and whose AC profile reads 10 needs the write and
+    # a first-match read would report it as already done. Assert-ScreenLock
+    # refuses that host, so "already set" here would be a run that changes
+    # nothing followed by a cycle that will not start.
+    $displaySleepBad = @(Get-MacPmsetKeyValue -PmsetCustom $pmCustomLines -Key 'displaysleep' |
+        Where-Object { [int]$_ -ne 0 })
+    $currentSleep = if ($displaySleepBad.Count -gt 0) { ($displaySleepBad | Sort-Object -Unique) -join '/' } else { "0" }
 
-    if ($currentSleep -ne "0") {
+    if ($displaySleepBad.Count -gt 0) {
         # Required: Assert-ScreenLock refuses a host whose displaysleep is not 0,
         # so leaving it is a cycle that cannot start rather than a cosmetic gap.
         if (-not (Test-MacSudoAvailable)) {
@@ -853,31 +1178,40 @@ function Set-MacHostConditionSet {
         }
     }
 
-    # --- REGION: System sleep -> Never (requires sudo)
+    # --- REGION: System sleep + disk sleep -> Never (requires sudo)
     # Display-sleep alone isn't enough: system sleep -> display locks on
-    # wake regardless of screensaver settings.
-    $currentSysSleep = "unknown"
-    $sysLine = & pmset -g custom 2>$null | Select-String '^\s*[^d]\s*sleep\s+(\d+)' | Select-Object -First 1
-    if ($sysLine) { $currentSysSleep = $sysLine.Matches[0].Groups[1].Value }
+    # wake regardless of screensaver settings. Disk sleep is the same story --
+    # its wake re-checks lock state and on Ventura+ can engage the unified
+    # screen lock even with askForPassword=0.
+    #
+    # Each key is decided on its own value, through the same helper that decides
+    # the extended guards, because the two drift apart: a host holding sleep=0
+    # and disksleep=10 is exactly what the gate refuses, and one shared decision
+    # read from `sleep` would report "already Never" and write nothing on every
+    # single run -- leaving the operator re-running a setup script that cannot
+    # reach the setting the gate is stopping on.
+    $sleepGuards  = Get-MacSleepGuardList
+    $sleepPending = @(Get-MacPmsetGuardPending -PmsetCustom (& pmset -g custom 2>$null) -Guard $sleepGuards)
 
-    if ($currentSysSleep -ne "0") {
+    if ($sleepPending.Count -gt 0) {
+        $pendingNames = ($sleepPending | ForEach-Object { $_.Key }) -join ', '
         # Required for the same reason as display sleep: Assert-ScreenLock
         # refuses a host whose sleep / disksleep are non-zero.
         if (-not (Test-MacSudoAvailable)) {
-            Write-Warning "System sleep is '$currentSysSleep' (expected 0) and root is not reachable without a password. Run 'sudo pmset -a sleep 0 disksleep 0' to fix."
+            Write-Warning "Still non-zero: $pendingNames (expected 0 / Never), and root is not reachable without a password. Run '$(($sleepPending | ForEach-Object { "sudo pmset -a $($_.Key) $($_.Want)" }) -join '; ')' to fix."
             $unmet.Add('system sleep')
-        } elseif ($PSCmdlet.ShouldProcess("System sleep (currently $currentSysSleep min)", "Set to 0 (Never) via sudo pmset")) {
-            Write-Information "Setting system sleep to Never (all power sources)..."
-            # -a covers AC + battery + UPS. Setting disksleep only on
-            # -c leaves laptops on battery with disksleep=10; disk-sleep
-            # wake re-checks lock state and on Ventura+ can trigger the
-            # unified screen lock even with askForPassword=0.
-            $sysOk  = Invoke-MacPrivilegedSetting -Argument @('pmset', '-a', 'sleep', '0')
-            $diskOk = Invoke-MacPrivilegedSetting -Argument @('pmset', '-a', 'disksleep', '0')
-            if ($sysOk -and $diskOk) { $changed = $true } else { $unmet.Add('system sleep') }
+        } elseif ($PSCmdlet.ShouldProcess("System sleep ($pendingNames)", "Set to 0 (Never) via sudo pmset")) {
+            Write-Information "Setting $pendingNames to Never (all power sources)..."
+            # -a covers AC + battery + UPS. Writing only -c leaves a laptop on
+            # battery with the setting it had.
+            $sleepOkAll = $true
+            foreach ($g in $sleepPending) {
+                if (-not (Invoke-MacPrivilegedSetting -Argument @('pmset', '-a', "$($g.Key)", "$($g.Want)"))) { $sleepOkAll = $false }
+            }
+            if ($sleepOkAll) { $changed = $true } else { $unmet.Add('system sleep') }
         }
     } else {
-        Write-Information "System sleep is already set to Never."
+        Write-Information "System sleep and disk sleep are already set to Never."
     }
 
     # --- REGION: Extended pmset guards
@@ -1071,24 +1405,25 @@ function Set-MacHostConditionSet {
             Write-Warning ""
             Write-Warning " Run this ONE-TIME command yourself before starting tests:"
             Write-Warning ""
-            Write-Warning "   sudo sysadminctl -screenLock off -password -"
+            Write-Warning "   $(Get-MacScreenLockManualCommand -State 'off')"
             Write-Warning ""
-            Write-Warning " sysadminctl asks for your account password from stdin in addition"
-            Write-Warning " to sudo's prompt. State is persistent across reboots, so this"
-            Write-Warning " warning will not reappear once it succeeds."
+            Write-Warning " sysadminctl wants your ACCOUNT password, not sudo's, and reads it"
+            Write-Warning " from stdin without turning terminal echo off -- so it is piped in"
+            Write-Warning " above rather than typed at its prompt, where it would be visible."
+            Write-Warning " State is persistent across reboots, so this warning will not"
+            Write-Warning " reappear once it succeeds."
             Write-Warning "==================================================================="
             # Required: Assert-ScreenLock refuses a host whose unified lock is
             # active, and that lock overrides every legacy key above it.
             $unmet.Add('sysadminctl unified screen lock')
         } elseif ($PSCmdlet.ShouldProcess("sysadminctl $slStatus", "Disable (sysadminctl -screenLock off)")) {
-            Write-Information "Disabling sysadminctl unified screen lock (you may be prompted for your account password)..."
-            # 2>&1 so "password:" prompt and diagnostics both land on
-            # the tty where the user expects them. -n on sudo, because only
-            # sysadminctl's own account-password prompt belongs on that tty.
-            # Out-Host rather than an uncaptured statement: this function
-            # returns a count, and a merged stream left on the success stream
-            # would arrive at the caller as part of it.
-            & sudo -n sysadminctl -screenLock off -password - 2>&1 | Out-Host
+            Write-Information "Disabling sysadminctl unified screen lock (it needs your macOS ACCOUNT password, which sudo cannot supply)..."
+            # Through the shared helper, which reads that password masked and
+            # pipes it in. Typing it at sysadminctl's own prompt puts it on the
+            # screen in the clear: that prompt is a plain stdin read with no
+            # tcsetattr behind it, so nothing turns the terminal's echo off.
+            $slRun = Set-MacScreenLockState -State 'off' -Reason 'turn the unified screen lock off'
+            if ($slRun.Output) { Write-Information "  sysadminctl: $($slRun.Output)" }
             # Re-check: if we couldn't disable (wrong password, policy
             # override, MDM), surface the state so the user knows legacy
             # keys won't save them.
@@ -1195,68 +1530,13 @@ function Set-MacHostConditionSet {
         Write-Debug "profiles list failed: $_"
     }
 
-    # --- REGION: Accessibility -- trigger the system prompt if not granted
-    try {
-        $jxa = "ObjC.import('ApplicationServices'); $.AXIsProcessTrusted();"
-        $axResult = & osascript -l JavaScript -e $jxa 2>&1
-        if ("$axResult" -eq "true") {
-            Write-Information "Accessibility permission is already granted."
-        } else {
-            Write-Information "Requesting Accessibility permission (a system dialog should appear)..."
-            # AXIsProcessTrustedWithOptions + kAXTrustedCheckOptionPrompt=true
-            # triggers the macOS consent dialog.
-            $jxaPrompt = @"
-ObjC.import('CoreFoundation');
-ObjC.import('ApplicationServices');
-var opts = $.CFDictionaryCreateMutable(null, 1,
-    $.kCFTypeDictionaryKeyCallBacks, $.kCFTypeDictionaryValueCallBacks);
-var key = $.CFStringCreateWithCString(null, 'AXTrustedCheckOptionPrompt', 0);
-$.CFDictionarySetValue(opts, key, $.kCFBooleanTrue);
-$.AXIsProcessTrustedWithOptions(opts);
-"@
-            & osascript -l JavaScript -e $jxaPrompt 2>&1 | Out-Null
-            Write-Information "  -> Grant access in the dialog, then re-run the test."
-        }
-    } catch {
-        Write-Debug "Accessibility prompt failed: $_"
-        Write-Warning "Could not check Accessibility status. Grant it manually in System Settings."
-    }
-
-    # --- REGION: Screen Recording -- pre-flight + first-run prompt
-    # Separate TCC bucket from Accessibility. Needed so
-    # CGWindowListCopyWindowInfo returns window titles (the harness matches
-    # UTM's per-VM window by title) and so `screencapture -l <windowId>`
-    # works. Without it, tapOn loops on "UTM window for
-    # <vm> not found". CGRequestScreenCaptureAccess prompts only on the
-    # FIRST call per process; subsequent denied states need the user to
-    # toggle System Settings manually and relaunch the terminal.
-    #
-    # ObjC.bindFunction is REQUIRED on some macOS releases -- without it,
-    # $.CGPreflightScreenCaptureAccess() returns `undefined` (read as
-    # "not granted") even when the grant is in place, misreporting state.
-    try {
-        $jxa = @"
-ObjC.import('CoreGraphics');
-try { ObjC.bindFunction('CGPreflightScreenCaptureAccess', ['bool', []]); } catch (e) {}
-try { ObjC.bindFunction('CGRequestScreenCaptureAccess',  ['bool', []]); } catch (e) {}
-var granted = $.CGPreflightScreenCaptureAccess();
-if (!granted) { $.CGRequestScreenCaptureAccess(); }
-(granted === true || granted === 1) ? 'true' : 'false'
-"@
-        $srResult = (& osascript -l JavaScript -e $jxa 2>&1 | Out-String).Trim()
-        if ($srResult -eq 'true') {
-            Write-Information "Screen Recording permission is already granted."
-        } else {
-            Write-Information "Requesting Screen Recording permission (a system dialog may appear)..."
-            Write-Information "  -> If no dialog appears, macOS already remembered a previous denial."
-            Write-Information "    Open System Settings > Privacy & Security > Screen Recording,"
-            Write-Information "    enable your terminal app (Terminal.app, iTerm2, Ghostty, etc.),"
-            Write-Information "    then FULLY QUIT and relaunch it before re-running the test."
-        }
-    } catch {
-        Write-Debug "Screen Recording prompt failed: $_"
-        Write-Warning "Could not check Screen Recording status. Grant it manually in System Settings."
-    }
+    # --- REGION: Operator grants (Accessibility, Screen Recording, Automation)
+    # Everything macOS allows a script to do about them: raise each consent
+    # dialog, open the pane it belongs to, and -- with an operator present --
+    # wait and re-read so the outcome is confirmed. What is still missing after
+    # that is an unmet condition, which is what makes this script's exit 2 mean
+    # "a person has to click something" rather than "look through the log".
+    foreach ($grantId in @(Invoke-MacOperatorGrantAssist)) { $unmet.Add("$grantId permission") }
 
     # --- REGION: Host clock
     # Guests inherit this clock at power-on; see Sync-MacHostClock for what
@@ -1291,98 +1571,168 @@ if (!granted) { $.CGRequestScreenCaptureAccess(); }
     return $unmet.Count
 }
 
-function Assert-Accessibility {
+# --- REGION: Operator grants (macOS privacy permissions)
+# Permissions the harness cannot run without and that NO amount of root can
+# supply. macOS keeps them in the TCC databases, System Integrity Protection
+# guards those against every writer including root, `tccutil` can only RESET a
+# decision and never grant one, and the single supported way to pre-authorize
+# any of them is a Privacy Preferences Policy Control payload delivered by an
+# MDM server the Mac is enrolled with. An administrator password buys nothing
+# here, so no amount of elevation turns this into an unattended step.
+#
+# What IS possible, and what this region does: detect each grant WITHOUT raising
+# a dialog, raise the system dialog and open the exact settings pane while an
+# operator is present, name the application they actually have to enable, and
+# wait for them to do it so the answer is confirmed rather than assumed.
+#
+# One registry, because the same grants are reported from two places -- the
+# pre-cycle config gate and the per-cycle assertion. Instructions maintained
+# twice drift, and an operator who follows one set and is then refused by the
+# other has no way to tell which of the two is the stale one.
+
+function Get-MacSessionKind {
     <#
     .SYNOPSIS
-    macOS: verify the terminal has Accessibility permission (needed
-    for AXUIElementPostKeyboardEvent). Returns $true if granted (or
-    not on macOS). Prints setup instructions and returns $false on
-    missing permission.
+    Which kind of login session this process belongs to: 'Aqua', 'Remote' or
+    'Unknown'.
+    .DESCRIPTION
+    A TCC grant belongs to a GUI login session. A process in an SSH session
+    cannot hold Accessibility or Screen Recording no matter what the desktop
+    session was granted, so the probe that correctly refuses the runner is a
+    false alarm when an operator is merely reading a health report over SSH.
+    The two are only distinguishable by asking which session manager owns this
+    process, which is what `launchctl managername` answers.
+    .OUTPUTS
+    [string] 'Aqua' | 'Remote' | 'Unknown'
     #>
-    param([string]$HostType)
-    if ($HostType -ne "host.macos.utm") { return $true }
-
-    # AXIsProcessTrusted() true when the process has Accessibility access.
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    if (-not $IsMacOS) { return 'Unknown' }
     try {
-        $jxa = "ObjC.import('ApplicationServices'); $.AXIsProcessTrusted();"
-        $result = & osascript -l JavaScript -e $jxa 2>&1
-        if ("$result" -eq "true") { return $true }
+        # Pinned locally: a non-zero exit here is an answer to read, not a
+        # reason to abandon the caller's health report.
+        $PSNativeCommandUseErrorActionPreference = $false
+        $name = ("$(& launchctl managername 2>$null)").Trim()
+        if ($LASTEXITCODE -eq 0 -and $name) {
+            if ($name -eq 'Aqua') { return 'Aqua' }
+            return 'Remote'
+        }
     } catch {
-        Write-Debug "Accessibility check failed: $_"
+        Write-Debug "launchctl managername failed: $_"
     }
-
-    Write-Warning "==================================================================="
-    Write-Warning " Accessibility permission is NOT granted for this terminal."
-    Write-Warning ""
-    Write-Warning " The test harness needs Accessibility access to send keystrokes"
-    Write-Warning " to UTM VMs without requiring window focus."
-    Write-Warning ""
-    Write-Warning " To fix:"
-    Write-Warning "   1. Open System Settings > Privacy & Security > Accessibility"
-    Write-Warning "   2. Click the + button and add your terminal app"
-    Write-Warning "      (Terminal.app, iTerm2, or whichever you use)"
-    Write-Warning "   3. Ensure the toggle is ON"
-    Write-Warning "   4. Restart the terminal and re-run the test"
-    Write-Warning ""
-    Write-Warning " Without this permission, keystrokes require UTM to stay focused"
-    Write-Warning " and any window change will cause missed input."
-    Write-Warning "==================================================================="
-    return $false
+    if ($env:SSH_CONNECTION -or $env:SSH_TTY) { return 'Remote' }
+    return 'Unknown'
 }
 
-function Assert-ScreenRecording {
+function Get-MacTccSubjectName {
     <#
     .SYNOPSIS
-    macOS: verify the terminal has Screen Recording permission (needed
-    for CGWindowListCopyWindowInfo to include window titles -- the
-    harness matches UTM's per-VM window by title -- and for
-    `screencapture -l <windowId>`). Returns $true if granted (or not on
-    macOS). Prints setup instructions and returns $false on missing
-    permission.
+    The application an operator has to enable in the privacy pane.
+    .DESCRIPTION
+    Not pwsh. macOS attributes a privacy request to the RESPONSIBLE process --
+    the terminal application that started the shell -- so a list entry for
+    `pwsh` grants nothing, and the operator is left toggling something that
+    never changes the answer. TERM_PROGRAM is what the terminal publishes about
+    itself.
+    .OUTPUTS
+    [string]
     #>
-    param([string]$HostType)
-    if ($HostType -ne "host.macos.utm") { return $true }
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    switch ($env:TERM_PROGRAM) {
+        'Apple_Terminal' { return 'Terminal.app' }
+        'iTerm.app'      { return 'iTerm.app' }
+        'vscode'         { return 'Visual Studio Code' }
+        'ghostty'        { return 'Ghostty' }
+        'WarpTerminal'   { return 'Warp' }
+        'WezTerm'        { return 'WezTerm' }
+        'Hyper'          { return 'Hyper' }
+        'Tabby'          { return 'Tabby' }
+        default {
+            if ($env:TERM_PROGRAM) { return $env:TERM_PROGRAM }
+            return 'your terminal app'
+        }
+    }
+}
 
-    # Primary check: CGPreflightScreenCaptureAccess is the canonical
-    # TCC query -- it reads the Screen Recording grant directly and is
-    # the same call the OS uses internally. JavaScriptCore's $. bridge
-    # needs a registered signature for C functions not shipped in its
-    # built-in header set; AX* functions ship with signatures but
-    # CGPreflight/CGRequest do not in every release. ObjC.bindFunction
-    # registers the signature explicitly so the return type is correct.
+function Test-MacAccessibilityGrant {
+    <#
+    .SYNOPSIS
+    'granted' / 'denied' / 'unknown' for Accessibility, without prompting.
+    .DESCRIPTION
+    AXIsProcessTrusted is the read-only half of the API pair: it reports the
+    current answer and never raises the consent dialog. Its prompting sibling,
+    AXIsProcessTrustedWithOptions, belongs in the assist path where somebody is
+    present to answer.
+    .OUTPUTS
+    [string]
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    if (-not $IsMacOS) { return 'unknown' }
+    try {
+        $jxa = "ObjC.import('ApplicationServices'); $.AXIsProcessTrusted();"
+        $result = ("$(& osascript -l JavaScript -e $jxa 2>&1)").Trim()
+        if ($result -eq 'true')  { return 'granted' }
+        if ($result -eq 'false') { return 'denied' }
+        Write-Debug "AXIsProcessTrusted returned '$result'"
+    } catch {
+        Write-Debug "Accessibility probe failed: $_"
+    }
+    return 'unknown'
+}
+
+function Test-MacScreenRecordingGrant {
+    <#
+    .SYNOPSIS
+    'granted' / 'denied' for Screen Recording, without prompting.
+    .DESCRIPTION
+    CGPreflightScreenCaptureAccess is the canonical read and never prompts.
+    ObjC.bindFunction is REQUIRED on some macOS releases -- without it the call
+    returns `undefined`, which reads as "not granted" on a host where the grant
+    is in place.
+
+    The window-enumeration fallback runs only when the preflight gives no usable
+    answer. It requires titles from at least TWO foreign owners: a single
+    permissive-NSWindowSharingType window is visible to every process, so one
+    hit would claim a grant that is not there.
+    .OUTPUTS
+    [string]
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    if (-not $IsMacOS) { return 'unknown' }
     $jxaPre = @"
 ObjC.import('CoreGraphics');
 try { ObjC.bindFunction('CGPreflightScreenCaptureAccess', ['bool', []]); } catch (e) {}
-var r = $.CGPreflightScreenCaptureAccess();
+var r = `$.CGPreflightScreenCaptureAccess();
 (r === true || r === 1) ? 'true' : 'false'
 "@
     try {
         $result = (& osascript -l JavaScript -e $jxaPre 2>&1 | Out-String).Trim()
-        Write-Debug "Assert-ScreenRecording: CGPreflight returned '$result'"
-        if ($result -eq 'true') { return $true }
+        Write-Debug "Test-MacScreenRecordingGrant: CGPreflight returned '$result'"
+        if ($result -eq 'true') { return 'granted' }
     } catch {
         Write-Debug "CGPreflight check failed: $_"
     }
 
-    # Fallback: enumerate on-screen windows and require at least TWO
-    # foreign windows with non-empty kCGWindowName. Used only when
-    # CGPreflight is unavailable/broken (old macOS, custom JXA build).
-    # Requiring two owners avoids false positives from a single
-    # permissive-NSWindowSharingType window that would otherwise claim
-    # the grant is in place when it isn't.
     $jxa = @"
 ObjC.import('CoreGraphics');
-var list = $.CGWindowListCopyWindowInfo((1 << 0) | (1 << 4), 0);
+var list = `$.CGWindowListCopyWindowInfo((1 << 0) | (1 << 4), 0);
 if (!list) { 'false' } else {
-    var n = $.CFArrayGetCount(list);
-    var nameKey  = $.CFStringCreateWithCString(null, 'kCGWindowName', 0);
-    var ownerKey = $.CFStringCreateWithCString(null, 'kCGWindowOwnerName', 0);
+    var n = `$.CFArrayGetCount(list);
+    var nameKey  = `$.CFStringCreateWithCString(null, 'kCGWindowName', 0);
+    var ownerKey = `$.CFStringCreateWithCString(null, 'kCGWindowOwnerName', 0);
     var owners = {};
     for (var i = 0; i < n; i++) {
-        var d = $.CFArrayGetValueAtIndex(list, i);
-        var nm = $.CFDictionaryGetValue(d, nameKey);
-        if (!nm || $.CFStringGetLength(nm) === 0) continue;
-        var ow = $.CFDictionaryGetValue(d, ownerKey);
+        var d = `$.CFArrayGetValueAtIndex(list, i);
+        var nm = `$.CFDictionaryGetValue(d, nameKey);
+        if (!nm || `$.CFStringGetLength(nm) === 0) continue;
+        var ow = `$.CFDictionaryGetValue(d, ownerKey);
         var owStr = ow ? ObjC.unwrap(ow) : '';
         if (owStr) owners[owStr] = true;
     }
@@ -1391,47 +1741,370 @@ if (!list) { 'false' } else {
 "@
     try {
         $result = (& osascript -l JavaScript -e $jxa 2>&1 | Out-String).Trim()
-        Write-Debug "Assert-ScreenRecording: enumeration fallback returned '$result'"
-        if ($result -eq 'true') { return $true }
+        Write-Debug "Test-MacScreenRecordingGrant: enumeration fallback returned '$result'"
+        if ($result -eq 'true') { return 'granted' }
     } catch {
         Write-Debug "Window-title enumeration failed: $_"
     }
+    return 'denied'
+}
 
-    Write-Warning "==================================================================="
-    Write-Warning " Screen Recording permission does NOT appear granted for this"
-    Write-Warning " terminal. The harness needs it to enumerate UTM's windows --"
-    Write-Warning " CGWindowList only returns titles to processes with this"
-    Write-Warning " permission -- and to capture a specific VM window via"
-    Write-Warning " screencapture -l <windowId>. Without it, tapOn"
-    Write-Warning " loops on 'UTM window for <vm> not found'."
-    Write-Warning ""
-    Write-Warning " To fix:"
-    Write-Warning "   1. Open System Settings > Privacy & Security > Screen Recording"
-    Write-Warning "   2. Click + and add your terminal app"
-    Write-Warning "      (Terminal.app, iTerm2, Ghostty, or whichever you use)"
-    Write-Warning "   3. Ensure the toggle is ON"
-    Write-Warning "   4. FULLY QUIT the terminal (Cmd-Q or killall) and relaunch it"
-    Write-Warning "      -- macOS will NOT honor the grant in the running process."
-    Write-Warning "   5. Re-run the test harness from the new terminal."
-    Write-Warning ""
-    Write-Warning " If the toggle IS on and you already relaunched the terminal,"
-    Write-Warning " run this diagnostic and report the output:"
-    Write-Warning ""
-    Write-Warning "   osascript -l JavaScript -e 'ObjC.import(\"CoreGraphics\");"
-    Write-Warning "     ObjC.bindFunction(\"CGPreflightScreenCaptureAccess\","
-    Write-Warning "     [\"bool\",[]]); `$.CGPreflightScreenCaptureAccess();'"
-    Write-Warning ""
-    Write-Warning " If that prints 'true', override this check with"
-    Write-Warning "   `$Env:YURUNA_SKIP_SCREEN_RECORDING_CHECK = '1'"
-    Write-Warning " and re-run -- then please file an issue with the diagnostic"
-    Write-Warning " output so the probe can be tuned for your macOS version."
-    Write-Warning "==================================================================="
+function Get-MacOperatorGrant {
+    <#
+    .SYNOPSIS
+    Every macOS permission the harness needs that only a person can give.
+    .DESCRIPTION
+    Data, not behavior, so the config gate and the per-cycle assertion render
+    the SAME sentences from the SAME fields, and a fourth consumer needs no new
+    code. Adding a grant here is the whole change.
 
-    if ($env:YURUNA_SKIP_SCREEN_RECORDING_CHECK -eq '1') {
-        Write-Warning "YURUNA_SKIP_SCREEN_RECORDING_CHECK=1 -- proceeding anyway."
+    Fields:
+      Id          stable key, used by callers and reported in unmet counts
+      Title       the name the privacy pane uses
+      Pane        where it lives, spelled the way System Settings spells it
+      DeepLink    URL that opens exactly that pane
+      Why         what the harness cannot do without it
+      Blocking    $true when a cycle genuinely cannot run without it
+      Probe       reads the current state WITHOUT prompting; $null when macOS
+                  offers no way to ask that does not raise a dialog
+      Prompt      raises the system consent dialog; run only with an operator
+      Relaunch    'always' when macOS refuses to honor a fresh grant in an
+                  already-running process, 'if-still-denied' otherwise
+      SkipEnvVar  environment variable that forces the check to pass
+      Diagnostic  extra lines printed with the instructions
+    .OUTPUTS
+    [pscustomobject[]]
+    #>
+    [CmdletBinding()]
+    [OutputType([object[]])]
+    param([string]$Id)
+
+    $all = @(
+        [pscustomobject]@{
+            Id         = 'Accessibility'
+            Title      = 'Accessibility'
+            Pane       = 'System Settings > Privacy & Security > Accessibility'
+            DeepLink   = 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility'
+            Why        = 'the harness posts keystrokes into UTM guest windows without holding focus. Without it every keystroke step needs UTM frontmost, and any window change loses input mid-sequence.'
+            Blocking   = $true
+            Probe      = { Test-MacAccessibilityGrant }
+            Prompt     = {
+                # AXIsProcessTrustedWithOptions with kAXTrustedCheckOptionPrompt
+                # is the only supported way to make the dialog appear.
+                $jxaPrompt = @"
+ObjC.import('CoreFoundation');
+ObjC.import('ApplicationServices');
+var opts = `$.CFDictionaryCreateMutable(null, 1,
+    `$.kCFTypeDictionaryKeyCallBacks, `$.kCFTypeDictionaryValueCallBacks);
+var key = `$.CFStringCreateWithCString(null, 'AXTrustedCheckOptionPrompt', 0);
+`$.CFDictionarySetValue(opts, key, `$.kCFBooleanTrue);
+`$.AXIsProcessTrustedWithOptions(opts);
+"@
+                & osascript -l JavaScript -e $jxaPrompt 2>&1 | Out-Null
+            }
+            EnableStep = 'Add and enable {0} -- NOT pwsh: macOS attributes the request to the terminal application, so an entry for the shell grants nothing'
+            Relaunch   = 'if-still-denied'
+            SkipEnvVar = $null
+            Diagnostic = @()
+        },
+        [pscustomobject]@{
+            Id         = 'ScreenRecording'
+            Title      = 'Screen Recording'
+            Pane       = 'System Settings > Privacy & Security > Screen Recording'
+            DeepLink   = 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'
+            Why        = 'CGWindowList returns window TITLES only to a process holding this grant, and the harness finds UTM''s per-VM window by title before capturing it with screencapture -l. Without it, tapOn loops on "UTM window for <vm> not found".'
+            Blocking   = $true
+            Probe      = { Test-MacScreenRecordingGrant }
+            Prompt     = {
+                $jxa = @"
+ObjC.import('CoreGraphics');
+try { ObjC.bindFunction('CGRequestScreenCaptureAccess', ['bool', []]); } catch (e) {}
+`$.CGRequestScreenCaptureAccess();
+"@
+                & osascript -l JavaScript -e $jxa 2>&1 | Out-Null
+            }
+            EnableStep = 'Add and enable {0} -- NOT pwsh: macOS attributes the request to the terminal application, so an entry for the shell grants nothing'
+            Relaunch   = 'always'
+            SkipEnvVar = 'YURUNA_SKIP_SCREEN_RECORDING_CHECK'
+            Diagnostic = @(
+                'If the toggle IS on and the terminal was relaunched, run this and report the output:',
+                '  osascript -l JavaScript -e ''ObjC.import("CoreGraphics"); ObjC.bindFunction("CGPreflightScreenCaptureAccess", ["bool",[]]); $.CGPreflightScreenCaptureAccess();'''
+            )
+        },
+        [pscustomobject]@{
+            Id         = 'AutomationUtm'
+            Title      = 'Automation -> UTM'
+            Pane       = 'System Settings > Privacy & Security > Automation'
+            DeepLink   = 'x-apple.systempreferences:com.apple.preference.security?Privacy_Automation'
+            Why        = 'utmctl drives UTM over Apple Events. Without it every VM operation fails with OSStatus -1743, which reads as a broken UTM rather than as a missing permission.'
+            # Not blocking, and deliberately not probed: macOS offers no way to
+            # READ this grant that does not itself raise the dialog, and a gate
+            # that pops a modal before every cycle would hang an unattended host
+            # on a question nobody is there to answer. The assist path triggers
+            # and confirms it while an operator is present; the gate lists it so
+            # the prompt is expected rather than a surprise mid-cycle.
+            Blocking   = $false
+            Probe      = $null
+            Prompt     = {
+                # The first Apple Event to UTM is what raises the dialog.
+                if (Get-Command utmctl -ErrorAction SilentlyContinue) {
+                    & utmctl list 2>&1 | Out-Null
+                }
+            }
+            EnableStep = 'Find {0} in the list and turn ON the UTM row underneath it. This pane has no + button -- an application appears in it only after it has asked once, which is exactly what the first utmctl call does.'
+            Relaunch   = 'if-still-denied'
+            SkipEnvVar = $null
+            Diagnostic = @(
+                'macOS asks for this the first time utmctl talks to UTM. Answer OK, not "Don''t Allow" -- a refusal is remembered, and only this pane can undo it.'
+            )
+        }
+    )
+
+    if ($Id) { return @($all | Where-Object { $_.Id -eq $Id }) }
+    return $all
+}
+
+function Get-MacOperatorGrantState {
+    <#
+    .SYNOPSIS
+    Each grant paired with what this host currently reports for it.
+    .DESCRIPTION
+    Callers read State rather than invoking Probe themselves: the probes are
+    module-private, and running them here is what keeps a consumer from having
+    to know that a skip variable can override a denial.
+    .OUTPUTS
+    [pscustomobject[]] Id, Title, Blocking, State, Grant. State is one of:
+    granted, denied, unknown, unprobed, overridden.
+    #>
+    [CmdletBinding()]
+    [OutputType([object[]])]
+    param([string]$Id)
+
+    $out = foreach ($g in (Get-MacOperatorGrant -Id $Id)) {
+        $state = if (-not $g.Probe) { 'unprobed' } else { & $g.Probe }
+        if ($state -ne 'granted' -and $g.SkipEnvVar) {
+            if ([Environment]::GetEnvironmentVariable($g.SkipEnvVar) -eq '1') { $state = 'overridden' }
+        }
+        [pscustomobject]@{
+            Id       = $g.Id
+            Title    = $g.Title
+            Blocking = $g.Blocking
+            State    = $state
+            Grant    = $g
+        }
+    }
+    return @($out)
+}
+
+function Get-MacOperatorGrantInstruction {
+    <#
+    .SYNOPSIS
+    The instructions for one grant, rendered from its registry entry.
+    .DESCRIPTION
+    THE one renderer. Every consumer prints what this returns; none writes its
+    own wording. -Compact collapses the repair into a single line for a caller
+    whose failure channel carries one string (the config gate's FAIL rows) --
+    which is why the compact form still names the pane and the application
+    rather than pointing at the long form.
+    .OUTPUTS
+    [string[]]
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [Parameter(Mandatory)]$Grant,
+        [switch]$Compact
+    )
+    $app = Get-MacTccSubjectName
+    $relaunch = if ($Grant.Relaunch -eq 'always') {
+        'then FULLY QUIT the terminal (Cmd-Q) and relaunch it -- macOS does not honor this grant in an already-running process'
+    } else {
+        'then re-run; if it still reports denied, quit and relaunch the terminal'
+    }
+    # An entry with no probe was never read, so a headline asserting it is
+    # missing would be a claim this code cannot support. Derived rather than
+    # stored: the presence of a probe already IS the distinction.
+    $headline = if ($Grant.Probe) {
+        "$($Grant.Title) is NOT granted to $app."
+    } else {
+        "$($Grant.Title) cannot be read without raising its own dialog, so it is reported here rather than tested. macOS asks $app for it once, at the first UTM operation."
+    }
+
+    if ($Compact) {
+        return [string[]]@("$headline Open '$($Grant.Pane)' (shortcut: open '$($Grant.DeepLink)'), enable $app, $relaunch. Or run: pwsh host/macos.utm/Enable-TestAutomation.ps1 -- it opens the pane and waits for the toggle.")
+    }
+
+    $lines = [System.Collections.Generic.List[string]]::new()
+    $lines.Add($headline)
+    $lines.Add("Needed because $($Grant.Why)")
+    $lines.Add('To fix:')
+    $lines.Add("  1. Open $($Grant.Pane)")
+    $lines.Add("     shortcut: open '$($Grant.DeepLink)'")
+    $lines.Add("  2. $($Grant.EnableStep -f $app)")
+    $lines.Add("  3. $($relaunch.Substring(0, 1).ToUpperInvariant())$($relaunch.Substring(1))")
+    $lines.Add('  4. Re-check with: pwsh test/Test-Config.ps1')
+    foreach ($d in @($Grant.Diagnostic)) { $lines.Add($d) }
+    if ($Grant.SkipEnvVar) {
+        $lines.Add("Override, last resort and only after confirming the grant really is in place: `$Env:$($Grant.SkipEnvVar) = '1'")
+    }
+    return [string[]]$lines.ToArray()
+}
+
+function Assert-MacOperatorGrant {
+    <#
+    .SYNOPSIS
+    Gate on one operator grant: $true when the host may proceed, $false with the
+    shared instructions on the warning stream when it may not.
+    .DESCRIPTION
+    A probe that could not answer counts as denied for a blocking grant. The
+    alternative -- proceeding on "unknown" -- spends a whole cycle discovering
+    the same thing and reports it as a guest failure rather than a host one.
+
+    A session that cannot hold the grant at all (an SSH login reading a health
+    report) is reported and allowed through. Refusing there would blame the
+    reader's session for the desktop session's state.
+    .OUTPUTS
+    [bool]
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$Id)
+
+    $s = @(Get-MacOperatorGrantState -Id $Id) | Select-Object -First 1
+    if (-not $s) { return $true }
+
+    switch ($s.State) {
+        'granted'    { return $true }
+        'unprobed'   { return $true }
+        'overridden' {
+            Write-Warning "$($s.Grant.SkipEnvVar)=1 -- $($s.Title) reads as not granted; proceeding anyway."
+            return $true
+        }
+    }
+    if (-not $s.Blocking) { return $true }
+
+    if ((Get-MacSessionKind) -eq 'Remote') {
+        Write-Warning "$($s.Title) cannot be held by a remote session, so this process cannot confirm it. Run from the desktop session that runs the harness to get a real answer."
         return $true
     }
+
+    Write-Warning '==================================================================='
+    foreach ($line in (Get-MacOperatorGrantInstruction -Grant $s.Grant)) { Write-Warning " $line" }
+    Write-Warning '==================================================================='
     return $false
+}
+
+function Invoke-MacOperatorGrantAssist {
+    <#
+    .SYNOPSIS
+    Do everything macOS permits toward getting the grants in place, and return
+    the Ids still missing afterwards.
+    .DESCRIPTION
+    As far as automation reaches here: raise the consent dialog, open the exact
+    pane, print the instructions, and -- when somebody is there to click -- wait
+    and re-probe, so the run CONFIRMS the grant instead of telling the operator
+    to run something again to find out whether their click worked.
+
+    The waiting is gated on Test-YurunaCanPrompt rather than on a timeout alone:
+    an unattended install would otherwise stall the full wait per grant on a
+    host where nobody is going to click anything.
+    .OUTPUTS
+    [string[]] Ids that are still not granted.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([string[]])]
+    param([int]$WaitSeconds = 120)
+
+    $pending = [System.Collections.Generic.List[string]]::new()
+    $canPrompt = Test-YurunaCanPrompt
+    $session = Get-MacSessionKind
+
+    foreach ($s in (Get-MacOperatorGrantState)) {
+        if ($s.State -eq 'granted') {
+            Write-Information "$($s.Title): already granted."
+            continue
+        }
+        if ($s.State -eq 'overridden') {
+            Write-Warning "$($s.Title): not granted, but $($s.Grant.SkipEnvVar)=1 is forcing it through."
+            continue
+        }
+        if ($session -eq 'Remote') {
+            Write-Warning "$($s.Title): a remote session can neither hold this grant nor raise its dialog. Run this from the desktop session."
+            if ($s.Blocking) { $pending.Add($s.Id) }
+            continue
+        }
+        if (-not $PSCmdlet.ShouldProcess($s.Title, 'Request the macOS privacy grant')) { continue }
+
+        if ($s.Grant.Prompt) {
+            Write-Information "Requesting $($s.Title) (a system dialog should appear)..."
+            try { & $s.Grant.Prompt } catch { Write-Debug "$($s.Id) prompt failed: $_" }
+        }
+        if ($canPrompt) {
+            # Opening the pane is the difference between "go find this setting"
+            # and a window already showing the row to toggle.
+            try { & open $s.Grant.DeepLink 2>&1 | Out-Null } catch { Write-Debug "open $($s.Grant.DeepLink) failed: $_" }
+        }
+        foreach ($line in (Get-MacOperatorGrantInstruction -Grant $s.Grant)) { Write-Information "  $line" }
+
+        if (-not $s.Grant.Probe) {
+            Write-Information "  $($s.Title): macOS offers no way to read this grant without raising its dialog, so it cannot be confirmed from here. It is answered once, at the first UTM operation."
+            continue
+        }
+        if (-not $canPrompt) {
+            if ($s.Blocking) { $pending.Add($s.Id) }
+            continue
+        }
+
+        Write-Information "  Waiting up to $WaitSeconds s for $($s.Title) to be granted..."
+        $deadline = (Get-Date).AddSeconds($WaitSeconds)
+        $granted = $false
+        while ((Get-Date) -lt $deadline) {
+            Start-Sleep -Seconds 3
+            if ((& $s.Grant.Probe) -eq 'granted') { $granted = $true; break }
+        }
+        if ($granted) {
+            Write-Information "  $($s.Title): granted."
+        } else {
+            Write-Warning "$($s.Title) is still not granted. $((Get-MacOperatorGrantInstruction -Grant $s.Grant -Compact)[0])"
+            if ($s.Blocking) { $pending.Add($s.Id) }
+        }
+    }
+    return $pending.ToArray()
+}
+
+function Assert-Accessibility {
+    <#
+    .SYNOPSIS
+    macOS: gate on the Accessibility grant. $true when granted (or not on
+    host.macos.utm); $false with the shared instructions otherwise.
+    .DESCRIPTION
+    Kept as a named function because the host-condition provider registry and
+    Assert-MacHostConditionSet address the gates by name. The detection and the
+    wording both live in the operator-grant registry, so this and the config
+    gate cannot describe the same permission differently.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([string]$HostType)
+    if ($HostType -ne "host.macos.utm") { return $true }
+    return (Assert-MacOperatorGrant -Id 'Accessibility')
+}
+
+function Assert-ScreenRecording {
+    <#
+    .SYNOPSIS
+    macOS: gate on the Screen Recording grant. $true when granted (or not on
+    host.macos.utm); $false with the shared instructions otherwise.
+    .DESCRIPTION
+    A separate TCC bucket from Accessibility, and separately gated: the harness
+    needs window TITLES from CGWindowListCopyWindowInfo to find UTM's per-VM
+    window, and `screencapture -l <windowId>` to photograph it.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([string]$HostType)
+    if ($HostType -ne "host.macos.utm") { return $true }
+    return (Assert-MacOperatorGrant -Id 'ScreenRecording')
 }
 
 function Sync-MacHostClock {
@@ -1533,15 +2206,15 @@ function Test-MacHostMinimum {
     [OutputType([bool])]
     param()
     $ok = $true
-    if (-not (Test-Path '/Applications/UTM.app')) {
-        Write-Warning "/Applications/UTM.app not found. Install UTM from https://mac.getutm.app."
+    if (-not (Test-Path -LiteralPath $script:MacUtmAppPath)) {
+        Write-Warning "$script:MacUtmAppPath not found. Install UTM: brew install --cask utm (or https://mac.getutm.app)."
         $ok = $false
     }
     if (-not (Get-Command utmctl -ErrorAction SilentlyContinue)) {
-        Write-Warning "utmctl not found on PATH. The UTM.app bundle ships it at /Applications/UTM.app/Contents/MacOS/utmctl -- symlink it into /usr/local/bin or rerun host/macos.utm/Enable-TestAutomation.ps1."
+        Write-Warning "utmctl not found on PATH. UTM keeps it inside the app bundle, which is on nobody's PATH. Fix it with either of: pwsh test/lab/Enable-TestAutomation.ps1  --  or  --  $(Get-MacUtmctlRemediation)"
         $ok = $false
     }
     return $ok
 }
 
-Export-ModuleMember -Function Assert-ScreenLock, Initialize-SudoCache, Test-MacSudoAvailable, Get-MacPmsetGuardList, Get-MacDefaultsCommandArgument, Set-MacHostConditionSet, Assert-Accessibility, Assert-ScreenRecording, Assert-MacHostConditionSet, Test-MacHostMinimum, Sync-MacHostClock
+Export-ModuleMember -Function Assert-ScreenLock, Get-MacScreenLockIssue, Initialize-SudoCache, Test-MacSudoAvailable, Get-MacPmsetGuardList, Get-MacDefaultsCommandArgument, Set-MacHostConditionSet, Set-MacUtmctlLink, Get-MacUtmctlRemediation, Set-MacScreenLockState, Get-MacScreenLockManualCommand, Get-MacSessionKind, Get-MacTccSubjectName, Get-MacOperatorGrant, Get-MacOperatorGrantState, Get-MacOperatorGrantInstruction, Assert-MacOperatorGrant, Invoke-MacOperatorGrantAssist, Assert-Accessibility, Assert-ScreenRecording, Assert-MacHostConditionSet, Test-MacHostMinimum, Sync-MacHostClock

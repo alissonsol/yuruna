@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.20
+# Version: 2026.08.21
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Yuruna macOS UTM bootstrap installer.
@@ -22,9 +22,26 @@ for _yuruna_arg in "$@"; do
 done
 YURUNA_DIR="${YURUNA_DIR:-$HOME/git/yuruna}"
 
+# Where a tool is linked when it has to be reachable by name from the whole
+# machine rather than from a shell that ran `brew shellenv`: the stock
+# /etc/paths lists this directory, so a login shell, a LaunchAgent and an
+# `ssh host command` all resolve what is linked here. utmctl lands in it, and so
+# does any tool whose newest copy has to be put in front of an older one.
+PATH_LINK_DIR="/usr/local/bin"
+
 log()  { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!! \033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31mXX \033[0m %s\n' "$*" >&2; exit 1; }
+
+# --- REGION: Deferred issues
+# Every non-fatal problem is recorded here as well as printed where it happens.
+# An installer prints hundreds of lines; a package that failed to upgrade
+# scrolls past long before the operator reads the closing instructions, and the
+# only thing that survives to the end is a summary. Nothing here stops the run:
+# the operator is mid-install, and a package-manager hiccup should not end it --
+# but it must not pass unmentioned either.
+YURUNA_ISSUES=()
+note_issue() { YURUNA_ISSUES+=("$*"); warn "$*"; }
 
 # --- REGION: https://yuruna.link/install/explained#install-log
 if [[ -z "${YURUNA_INSTALL_LOG:-}" ]]; then
@@ -458,6 +475,18 @@ is_service_vm_running() {
     fi
   fi
 
+  # utmctl reaches UTM over Apple Events, so it answers for a host where UTM is
+  # RUNNING and misreports one where it is not: on a Mac that has never granted
+  # Automation to this terminal the call comes back -1743, which the caution arm
+  # below reads as "cannot confirm" and turns into a permanent skip of the UTM
+  # upgrade. No VM executes without UTM, so an absent UTM process settles the
+  # question before Apple Events are involved. Only a pgrep that RAN and said no
+  # short-circuits; where pgrep is unavailable the probe below still decides.
+  if command -v pgrep >/dev/null 2>&1 && ! pgrep -x UTM >/dev/null 2>&1; then
+    SERVICE_VM_DETECT_REASON=""
+    return 1
+  fi
+
   command -v utmctl >/dev/null 2>&1 || { SERVICE_VM_DETECT_REASON=""; return 1; }
   local vm status
   for vm in "${YURUNA_SERVICE_VM_NAME[@]}"; do
@@ -499,22 +528,63 @@ if [[ $PRESERVE_SERVICE_VM -eq 0 ]]; then
 fi
 
 # --- REGION: Install platform packages
+# `brew ... | grep -v <noise>` reports GREP's exit status, not brew's, and grep
+# exits 1 when it filters away every line -- so the `|| true` that keeps a
+# fully-filtered SUCCESS from killing the script under `set -e` also discards
+# brew's verdict and brew's error text along with it. A cask that failed then
+# reads in the terminal and in the install log exactly like one that worked.
+# Capture instead: brew's status is read directly, and its output is replayed in
+# full when it fails and filtered only when it did not.
+brew_run() {
+  local what="$1"; shift
+  local out status=0
+  out="$(brew "$@" 2>&1)" || status=$?
+  if (( status != 0 )); then
+    warn "brew $* failed (exit $status) while $what:"
+    [[ -n "$out" ]] && printf '%s\n' "$out" | sed 's/^/     /' >&2
+    return "$status"
+  fi
+  # `|| true` here discards GREP's verdict only -- brew's is already captured
+  # and acted on above. It is still needed: grep exits 1 when every line it was
+  # given is noise, which under `set -e` would kill the installer on the most
+  # ordinary outcome there is, an up-to-date package.
+  if [[ -n "$out" ]]; then
+    printf '%s\n' "$out" | grep -vE "already installed|up-to-date" || true
+  fi
+  return 0
+}
+
 brew_ensure_formula() {
   local name="$1"
   if brew list --formula --versions "$name" >/dev/null 2>&1; then
     log "  upgrading $name (formula, if outdated)"
-    brew upgrade --formula "$name" 2>&1 | grep -vE "already installed|up-to-date" || true
+    # A failed UPGRADE is reported but not fatal: the installed version is still
+    # on the box, and everything this script hard-requires is verified below by
+    # running the tool rather than by trusting the package manager.
+    brew_run "upgrading the $name formula" upgrade --formula "$name" \
+      || note_issue "Homebrew could not upgrade the '$name' formula; the version already on this machine is what the rest of the install used."
   else
     log "  installing $name (formula)"
-    brew install --formula "$name"
+    brew_run "installing the $name formula" install --formula "$name"
   fi
 }
 
 brew_ensure_cask() {
   local name="$1" appPath="${2:-}"
   if brew list --cask --versions "$name" >/dev/null 2>&1; then
+    # A brew receipt is not an app. An operator who dragged the bundle to the
+    # Trash, or an upgrade that died between removing the old bundle and
+    # unpacking the new one, leaves the receipt behind -- and `brew upgrade` on
+    # a cask brew already believes is current then does nothing at all, so the
+    # step "succeeds" against an application that is not on the disk.
+    if [[ -n "$appPath" && ! -d "$appPath" ]]; then
+      warn "  $name is recorded as installed but $appPath is missing -- reinstalling the cask"
+      brew_run "reinstalling the $name cask" reinstall --cask "$name"
+      return
+    fi
     log "  upgrading $name (cask, if outdated)"
-    brew upgrade --cask "$name" 2>&1 | grep -vE "already installed|up-to-date" || true
+    brew_run "upgrading the $name cask" upgrade --cask "$name" \
+      || note_issue "Homebrew could not upgrade the '$name' cask; the version already on this machine is what the rest of the install used."
     return 0
   fi
   if [[ -n "$appPath" && -d "$appPath" ]]; then
@@ -522,7 +592,7 @@ brew_ensure_cask() {
     return 0
   fi
   log "  installing $name (cask)"
-  brew install --cask "$name"
+  brew_run "installing the $name cask" install --cask "$name"
 }
 
 log "Installing / upgrading required formulae"
@@ -538,7 +608,10 @@ log "Installing / upgrading required casks"
 if [[ ${PRESERVE_SERVICE_VM:-0} -eq 1 ]]; then
   log "  skipping UTM cask upgrade -- a service VM is running, UTM cannot be quit"
 else
-  brew_ensure_cask utm "/Applications/UTM.app"
+  # Not fatal here on purpose: the UTM verification region below decides, and it
+  # can say what is actually wrong with the end state instead of relaying a
+  # package-manager exit code. brew_run has already printed brew's own output.
+  brew_ensure_cask utm "/Applications/UTM.app" || note_issue "The UTM cask step did not succeed -- the verification below says whether the installed UTM is still usable."
 fi
 
 if ! command -v pwsh >/dev/null 2>&1; then
@@ -570,7 +643,49 @@ brew cleanup --quiet || true
 
 command -v pwsh >/dev/null 2>&1 || die "pwsh not found after install."
 command -v git  >/dev/null 2>&1 || die "git not found after install."
-[[ -d /Applications/UTM.app ]]  || warn "UTM.app not found under /Applications -- test runner will warn."
+
+# --- REGION: UTM verification + utmctl on PATH
+# UTM ships its command line INSIDE the app bundle, and neither the cask nor the
+# .dmg puts that directory on anyone's PATH. Every VM operation in the harness
+# shells out to `utmctl`, so without the link a perfectly correct UTM install
+# finishes clean here and the FIRST test cycle refuses to start on a config
+# gate -- with the failure pointing at the harness rather than at the install
+# that left the binary unreachable.
+#
+# PATH_LINK_DIR is the target because the stock /etc/paths lists it, so a login
+# shell, a LaunchAgent and an `ssh host command` all see it. Homebrew's bin only
+# reaches shells that ran `brew shellenv`, which the status service and the
+# runner's own children do not.
+UTM_APP="/Applications/UTM.app"
+UTMCTL_BUNDLE="$UTM_APP/Contents/MacOS/utmctl"
+UTMCTL_LINK="$PATH_LINK_DIR/utmctl"
+UTMCTL_LINK_DIR="$PATH_LINK_DIR"
+
+[[ -d "$UTM_APP" ]] || die "UTM is not installed at $UTM_APP -- every VM operation needs it, so this install is not usable.
+   Look for a 'brew ... failed' block earlier in this run (also in $YURUNA_INSTALL_LOG), then:
+       brew install --cask utm
+   or install it from https://mac.getutm.app. Re-run this installer afterwards."
+
+[[ -x "$UTMCTL_BUNDLE" ]] || die "UTM is installed at $UTM_APP but the bundle does not carry $UTMCTL_BUNDLE, so the install is incomplete.
+   Repair it with:
+       brew reinstall --cask utm
+   then re-run this installer."
+
+if [[ "$(readlink "$UTMCTL_LINK" 2>/dev/null || true)" == "$UTMCTL_BUNDLE" ]]; then
+  log "utmctl already on PATH: $UTMCTL_LINK -> $UTMCTL_BUNDLE"
+else
+  log "Linking utmctl onto PATH: $UTMCTL_LINK -> $UTMCTL_BUNDLE"
+  # -sfn, not -sf: with a plain -sf, a target that is already a symlink to a
+  # DIRECTORY makes ln create the new link INSIDE it rather than replacing it.
+  sudo mkdir -p "$UTMCTL_LINK_DIR" && sudo ln -sfn "$UTMCTL_BUNDLE" "$UTMCTL_LINK" \
+    || die "Could not create $UTMCTL_LINK. Run it by hand and re-run this installer:
+       sudo mkdir -p $UTMCTL_LINK_DIR && sudo ln -sfn $UTMCTL_BUNDLE $UTMCTL_LINK"
+fi
+
+hash -r 2>/dev/null || true
+command -v utmctl >/dev/null 2>&1 || die "$UTMCTL_LINK exists, but 'utmctl' still does not resolve by name -- $UTMCTL_LINK_DIR is not on this shell's PATH.
+   The stock macOS /etc/paths lists that directory, so a shell profile here is REPLACING PATH instead of adding to it. Fix the profile, open a new terminal, and re-run this installer.
+   PATH seen by this run: $PATH"
 
 # --- REGION: PowerShell modules
 log "Installing required PowerShell modules"
@@ -588,7 +703,7 @@ pwsh -NoProfile -Command '
             exit 1
         }
     }
-' || warn "powershell-yaml install reported an error -- see above. Continuing install."
+' || note_issue "Installing the powershell-yaml module reported an error; the harness needs it to read any YAML config. Retry with: pwsh -Command 'Install-Module powershell-yaml -Scope CurrentUser'"
 
 # --- REGION: Preserve test/status runtime state
 TEST_STATUS_SUBDIRS=(runtime perf log extension captures ssh)
@@ -793,11 +908,286 @@ else
   warn "Remove-TestVMFiles.ps1 not found at $REMOVE_TEST_VMS -- skipping test-VM cleanup."
 fi
 
+# --- REGION: Version floors: bring the managed tools up to them
+# The floors live in automation/Yuruna.Requirement.yml -- the same file the
+# requirement report and the diagnostic read, so a floor is written down once.
+# Only the tools this script is responsible for are checked; reporting on a
+# cloud CLI the bootstrapper never touches would bury a real problem in a dozen
+# expected absences.
+#
+# Repaired here, not merely reported. An operator who is asked to fix a version
+# by hand at the end of an installer that had root for the whole run is being
+# asked to do the installer's job, and the two things that put a Mac below a
+# floor are both mechanical:
+#
+#   * Homebrew keeps some formulae keg-only (curl among them) -- installed under
+#     $(brew --prefix <formula>) and deliberately NOT linked, so the name keeps
+#     resolving to Apple's copy, which never advances past what shipped with the
+#     OS. `brew install curl` alone changes nothing that `curl --version` says.
+#   * A tool installed twice (Microsoft's PowerShell .pkg or cask alongside the
+#     Homebrew formula) resolves to whichever directory comes first on PATH, and
+#     that can be the older of the two. `brew upgrade` then reports success, run
+#     after run, on a keg nothing actually runs.
+#
+# Every floor is judged on what the tool prints when it is invoked BY NAME, so
+# both shapes are repaired the same way: find the newest copy this Mac carries
+# and make the name resolve to it, through PATH_LINK_DIR for the reason utmctl
+# uses it -- the stock /etc/paths lists that directory, so the runner, the
+# status service and an `ssh host command` all see the same tool, where
+# $(brew --prefix)/bin reaches only shells that ran `brew shellenv`.
+#
+# Never fatal: a machine that is merely behind still installs, and the closing
+# summary carries whatever the repair passes could not reach. What must not
+# happen is finishing SILENTLY below a floor -- that is how a host ran for weeks
+# on a PowerShell too old to do the crypto every lab enrollment needs, and
+# surfaced it as a rejected Lab token.
+FLOOR_TOOL_LIST="PowerShell,git,qemu-img,wget,tesseract,curl"
+
+# The version a binary reports when asked directly. Every managed tool answers
+# `--version` within its first lines and the first dotted number token is the
+# version. A binary that cannot run -- a framework-dependent pwsh with no .NET
+# runtime, a half-removed keg -- prints nothing, and that empty answer is what
+# keeps it from being promoted below.
+tool_version() {
+  local bin="$1"
+  [[ -n "$bin" && -x "$bin" ]] || return 1
+  "$bin" --version 2>/dev/null | head -3 | grep -oE '[0-9]+(\.[0-9]+){1,3}' | head -1
+}
+
+# A >= B, field by field as numbers. 8.21.0 is newer than 8.7.1, which both a
+# string compare and a float compare get backwards -- and that pair is exactly
+# the curl floor this installer is judged on.
+version_ge() {
+  [[ -n "$1" ]] || return 1
+  [[ -n "$2" ]] || return 0
+  [[ "$(printf '%s\n%s\n' "$1" "$2" | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n | head -1)" == "$2" ]]
+}
+
+# The binary a Homebrew formula provides, whether or not brew linked it: a
+# keg-only formula is installed and unlinked BY DESIGN, so `command -v` is not
+# the question to ask about it.
+brew_formula_binary() {
+  local formula="$1" cmd="$2" prefix
+  prefix="$(brew --prefix --installed "$formula" 2>/dev/null || true)"
+  [[ -n "$prefix" && -x "$prefix/bin/$cmd" ]] || return 1
+  printf '%s\n' "$prefix/bin/$cmd"
+}
+
+# A pin is a deliberate "hold this version", and it is also the one state in
+# which `brew upgrade` reports success while changing nothing. Lifted only for a
+# formula whose version is already failing a floor, and said out loud.
+brew_unpin_if_pinned() {
+  local formula="$1"
+  brew list --pinned 2>/dev/null | grep -qx "$formula" || return 0
+  log "  unpinning the '$formula' formula -- a pin is why 'brew upgrade' left it where it was"
+  brew unpin "$formula" >/dev/null 2>&1 || warn "  could not unpin '$formula'"
+}
+
+# Make `<cmd>` resolve to the newest copy this Mac carries. Extra arguments are
+# install locations no package manager reports (Microsoft's PowerShell .pkg
+# lands outside every Homebrew prefix).
+prefer_newest_binary() {
+  local cmd="$1" formula="$2"; shift 2
+  local link="$PATH_LINK_DIR/$cmd"
+  local current="" current_ver="" best="" best_ver="" cand cand_ver
+  local brew_bin="" brew_link keep now now_ver
+
+  current="$(command -v "$cmd" 2>/dev/null || true)"
+  brew_bin="$(brew_formula_binary "$formula" "$cmd" || true)"
+  [[ -n "$current" ]] && current_ver="$(tool_version "$current" || true)"
+
+  for cand in "$current" "$brew_bin" "$link" "$@"; do
+    [[ -n "$cand" ]] || continue
+    cand_ver="$(tool_version "$cand" || true)"
+    [[ -n "$cand_ver" ]] || continue
+    if [[ -z "$best_ver" ]] || ! version_ge "$best_ver" "$cand_ver"; then
+      best="$cand"; best_ver="$cand_ver"
+    fi
+  done
+  if [[ -z "$best" ]]; then
+    warn "  no runnable '$cmd' to promote -- nothing on this Mac answers --version"
+    return 1
+  fi
+  if [[ -n "$current_ver" ]] && version_ge "$current_ver" "$best_ver"; then
+    log "  '$cmd' already resolves to the newest copy here: $current_ver ($current)"
+    return 0
+  fi
+
+  log "  '$cmd' resolves to ${current_ver:-nothing} (${current:-not on PATH}); this Mac carries $best_ver at $best"
+  if [[ "$best" != "$link" && "$(readlink "$link" 2>/dev/null || true)" != "$best" ]]; then
+    if [[ -e "$link" && ! -L "$link" ]]; then
+      # A real binary someone put there is not this installer's to delete, and
+      # a timestamped neighbour is a state the operator can walk back from.
+      keep="$link.pre-yuruna.$(date +%Y%m%d-%H%M%S)"
+      warn "  $link is a real file rather than a link -- keeping it as $keep"
+      sudo mv "$link" "$keep" \
+        || { note_issue "Could not move $link aside, so '$cmd' still resolves to ${current_ver:-nothing}. Move it by hand and re-run this installer."; return 1; }
+    fi
+    log "  linking $cmd $best_ver onto PATH: $link -> $best"
+    # -sfn, not -sf: with a plain -sf, a target that is already a symlink to a
+    # DIRECTORY makes ln create the new link INSIDE it rather than replacing it.
+    sudo mkdir -p "$PATH_LINK_DIR" && sudo ln -sfn "$best" "$link" \
+      || { note_issue "Could not create $link, so '$cmd' still resolves to ${current_ver:-nothing}. Run 'sudo ln -sfn $best $link' and re-run this installer."; return 1; }
+  fi
+
+  # A Homebrew-linked copy that is OLDER than the best one keeps winning
+  # whatever the link above says: `brew shellenv` puts $(brew --prefix)/bin
+  # ahead of /usr/local/bin. Unlinking leaves the keg installed -- `brew link`
+  # puts it back -- and is the only way the newer copy becomes reachable by name
+  # in this shell as well as in the ones that never ran shellenv.
+  if [[ -n "$brew_bin" && "$brew_bin" != "$best" ]]; then
+    brew_link="$(brew --prefix)/bin/$cmd"
+    if [[ -e "$brew_link" || -L "$brew_link" ]]; then
+      log "  unlinking Homebrew's '$formula': its $cmd is older than $best_ver and sits ahead of $link on PATH"
+      brew unlink "$formula" >/dev/null 2>&1 || warn "  could not unlink '$formula'"
+    fi
+  fi
+
+  hash -r 2>/dev/null || true
+  now="$(command -v "$cmd" 2>/dev/null || true)"
+  now_ver=""
+  [[ -n "$now" ]] && now_ver="$(tool_version "$now" || true)"
+  log "  '$cmd' now resolves to ${now_ver:-nothing} (${now:-not on PATH})"
+}
+
+repair_brew_tool() {
+  local cmd="$1" formula="$2"
+  log "  repairing '$cmd' through the '$formula' formula"
+  brew_unpin_if_pinned "$formula"
+  brew_ensure_formula "$formula"
+  prefer_newest_binary "$cmd" "$formula"
+}
+
+# PowerShell ships two ways and they advance independently: the Homebrew formula
+# (framework-dependent, built on brew's dotnet) and Microsoft's own build, which
+# Homebrew delivers as a cask. Whichever is installed gets upgraded first; if
+# that still leaves this Mac short, the other one is added on the second pass.
+# Both may end up installed -- harmless, because the promotion decides which one
+# the NAME resolves to, and that is the only copy anything here runs.
+repair_powershell() {
+  local round="$1" have_formula=0
+  if brew list --formula --versions powershell >/dev/null 2>&1; then have_formula=1; fi
+  log "  repairing 'pwsh' (Homebrew formula installed: $have_formula, repair pass $round)"
+  brew_unpin_if_pinned powershell
+  if (( have_formula )); then
+    brew_ensure_formula powershell
+  fi
+  if (( round >= 2 )) || (( have_formula == 0 )); then
+    brew_ensure_cask powershell
+  fi
+  # Microsoft's .pkg installs outside every Homebrew prefix and is invisible to
+  # `brew --prefix`, so its location is named here.
+  prefer_newest_binary pwsh powershell /usr/local/microsoft/powershell/7/pwsh
+}
+
+# Which repair a requirement line asks for. The report names the tool first.
+# AES-GCM is a property of the PowerShell runtime rather than a tool of its own,
+# so it repairs as PowerShell -- and disappears with it.
+requirement_repair_key() {
+  case "$1" in
+    PowerShell*|AES-GCM*) printf 'powershell\n' ;;
+    curl*)                printf 'curl\n' ;;
+    git*)                 printf 'git\n' ;;
+    wget*)                printf 'wget\n' ;;
+    tesseract*)           printf 'tesseract\n' ;;
+    qemu-img*)            printf 'qemu-img\n' ;;
+    *) return 1 ;;
+  esac
+}
+
+# The command name a repair key is judged on, for the closing report.
+requirement_key_command() {
+  case "$1" in
+    powershell) printf 'pwsh\n' ;;
+    *)          printf '%s\n' "$1" ;;
+  esac
+}
+
+run_requirement_repair() {
+  local key="$1" round="$2"
+  case "$key" in
+    powershell) repair_powershell "$round" ;;
+    curl)       repair_brew_tool curl curl ;;
+    git)        repair_brew_tool git git ;;
+    wget)       repair_brew_tool wget wget ;;
+    tesseract)  repair_brew_tool tesseract tesseract ;;
+    qemu-img)   repair_brew_tool qemu-img qemu ;;
+    *) return 1 ;;
+  esac
+}
+
+requirement_issue_line() {
+  pwsh -NoProfile -File "$YURUNA_DIR/automation/Test-Requirement.ps1" \
+       -Tool "$FLOOR_TOOL_LIST" -WarnOnly 2>/dev/null \
+    | sed -n 's/^REQUIREMENT-ISSUE: //p'
+}
+
+# Check, repair, check again. Arrays stay global rather than `local`: the bash
+# macOS ships as /bin/bash is 3.2, where a local array declaration is a syntax
+# error, and this function is called once.
+bring_tools_to_required_versions() {
+  log "Checking installed versions against the required floors"
+  floor_round=0
+  floor_issues=()
+  # Two repair passes, then report. The second exists for the one escalation
+  # that needs a first attempt to have failed (adding the other PowerShell
+  # build); a third would only repeat the second against a floor no build on
+  # this Mac can reach, which is the operator's to decide about, not this
+  # script's to loop on.
+  while :; do
+    floor_issues=()
+    while IFS= read -r floor_line; do
+      [[ -n "$floor_line" ]] && floor_issues+=("$floor_line")
+    done < <(requirement_issue_line)
+    if (( ${#floor_issues[@]} == 0 )); then
+      log "  every managed tool meets its required version"
+      break
+    fi
+    if (( floor_round >= 2 )); then break; fi
+    floor_round=$(( floor_round + 1 ))
+    log "Bringing ${#floor_issues[@]} tool(s) up to the required versions (pass $floor_round)"
+    floor_keys=()
+    for floor_line in "${floor_issues[@]}"; do
+      floor_key="$(requirement_repair_key "$floor_line" || true)"
+      [[ -n "$floor_key" ]] || continue
+      case " ${floor_keys[*]:-} " in *" $floor_key "*) continue ;; esac
+      floor_keys+=("$floor_key")
+    done
+    if (( ${#floor_keys[@]} == 0 )); then break; fi
+    for floor_key in "${floor_keys[@]}"; do
+      run_requirement_repair "$floor_key" "$floor_round" || true
+    done
+    hash -r 2>/dev/null || true
+  done
+  # What survived two repair passes. The binary each name resolves to is named
+  # with it: a floor no package on this Mac can reach and a newer copy that
+  # something ahead on PATH is hiding read identically without it.
+  if (( ${#floor_issues[@]} > 0 )); then
+    for floor_line in "${floor_issues[@]}"; do
+      floor_key="$(requirement_repair_key "$floor_line" || true)"
+      floor_note=""
+      if [[ -n "$floor_key" ]]; then
+        floor_cmd="$(requirement_key_command "$floor_key")"
+        floor_bin="$(command -v "$floor_cmd" 2>/dev/null || true)"
+        if [[ -n "$floor_bin" ]]; then
+          floor_note=" ('$floor_cmd' resolves to $floor_bin after the repair passes)"
+        fi
+      fi
+      note_issue "$floor_line$floor_note"
+    done
+  fi
+}
+
+if command -v pwsh >/dev/null 2>&1 && [[ -f "$YURUNA_DIR/automation/Test-Requirement.ps1" ]]; then
+  bring_tools_to_required_versions
+fi
+
 # --- REGION: Enable-TestAutomation.ps1 hint
 HOST_SETUP="$YURUNA_DIR/host/macos.utm/Enable-TestAutomation.ps1"
 log ""
-log "Host configuration (test-host setup) is NOT auto-applied."
-log "To enable this machine as a test host, run:"
+log "Host configuration (test-host setup) is NOT auto-applied. It is REQUIRED"
+log "before Start-TestRunner: the pre-cycle gate refuses a host whose display"
+log "sleep, screen lock or TCC grants are not in place. Run:"
 log "    pwsh '$HOST_SETUP'"
 
 # --- REGION: Done summary
@@ -830,18 +1220,32 @@ Next steps (in order):
        System Settings > Privacy & Security > Accessibility
        -> add and enable Terminal.app (or iTerm2, Ghostty, ...)
 
-  5. (Optional) Enable this machine as a test host -- disables display sleep,
-     auto-logout, and screen lock so VM screen captures stay readable. NOT
-     run automatically; opt in only if this Mac will run Start-TestRunner:
+  5. Enable this machine as a test host. REQUIRED before step 6 if this Mac
+     will run Start-TestRunner -- it disables display sleep, auto-logout and
+     screen lock (so VM screen captures stay readable), keeps utmctl on PATH,
+     and requests the TCC grants. The cycle gate refuses to start without it.
+     Skip it only on a Mac that will never run the runner:
        pwsh $YURUNA_DIR/host/macos.utm/Enable-TestAutomation.ps1
 
-  6. Run the test runner:
+  6. Confirm the host is ready. This is the same gate Start-TestRunner runs
+     before every cycle, and it names each thing that is missing plus the
+     command that fixes it:
+       pwsh $TEST_DIR/Test-Config.ps1
+
+  7. Run the test runner:
        cd $TEST_DIR && pwsh ./Start-TestRunner.ps1
 
-  7. (Optional, one-time) Authenticate the GitHub CLI so 'gh' can act on
+  8. (Optional, one-time) Authenticate the GitHub CLI so 'gh' can act on
      your behalf -- the installer installs the binary, but authentication
      requires an interactive web-or-token flow you have to drive:
        gh auth login
+
+If Start-TestRunner reports "Pre-cycle config gate FAILED", run step 6: every
+FAILURE it prints carries its own remediation command. The two that block a
+fresh Mac most often are utmctl not being on PATH (this installer linked
+$UTMCTL_LINK; re-create it with
+'sudo mkdir -p $UTMCTL_LINK_DIR && sudo ln -sfn $UTMCTL_BUNDLE $UTMCTL_LINK')
+and the host settings from step 5 not having been applied.
 
 Re-running this installer is safe; it will update Homebrew packages and
 fast-forward the Yuruna checkout when possible.
@@ -860,4 +1264,24 @@ if [[ -n "$YURUNA_BACKUP_CREATED" ]]; then
   warn "When you no longer need it, delete it manually:"
   warn "  rm -rf '$YURUNA_BACKUP_CREATED'"
   warn "============================================================"
+fi
+
+# --- REGION: Install summary
+# The last thing printed. Everything above scrolls; this does not.
+if [[ ${#YURUNA_ISSUES[@]} -gt 0 ]]; then
+  warn ""
+  warn "============================================================"
+  warn "INSTALL FINISHED WITH ${#YURUNA_ISSUES[@]} ISSUE(S)"
+  warn ""
+  for issue in "${YURUNA_ISSUES[@]}"; do
+    warn "  - $issue"
+  done
+  warn ""
+  warn "The install completed and the machine is usable. Each line above is"
+  warn "something that did not happen as intended -- re-running this installer"
+  warn "is safe and retries every one of them."
+  warn "============================================================"
+else
+  log ""
+  log "Install finished with no issues."
 fi

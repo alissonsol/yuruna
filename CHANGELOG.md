@@ -4,6 +4,11 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.08.21
+
+- **Requirements check.** Brings the tools up to the required versions and
+  lists what it could not reach.
+
 ## 2026.08.20
 
 - **Fix executable attributes.** Eliminates the need to manually run
@@ -443,6 +448,6 @@ LICENSEURI <https://yuruna.link/license>
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.20
+Last review: 2026.08.21
 
 Back to [Yuruna](README.md)

@@ -90,7 +90,7 @@ would stall waiting for GitHub credentials this run doesn't have.
 
 ### Release pinning + signed integrity
 
-`VERSION` (bare CalVer, e.g. `2026.08.20`) is the source of truth for releases.
+`VERSION` (bare CalVer, e.g. `2026.08.21`) is the source of truth for releases.
 At release time `tools/Update-YurunaReleasePins.ps1` regenerates
 `install/install.sha256`, signs it (`install/install.sha256.sig`, RSA-4096),
 runs the ASCII/no-BOM gate as a hard precondition, and bumps the one tag still
@@ -751,6 +751,48 @@ The installer tries the formula first via `brew_ensure_formula
 powershell`; if that fails it falls back to `brew_ensure_cask
 powershell`. Either path leaves `pwsh` on PATH for subsequent steps.
 
+### Version floors are repaired, not reported
+
+`automation/Yuruna.Requirement.yml` holds the floor for every tool the
+installer manages. The run checks the tools against it, repairs what is
+below, and checks again -- twice -- before anything reaches the closing
+summary. An operator asked to fix a version by hand at the end of an
+installer that held root for the whole run is being asked to do the
+installer's job.
+
+Two shapes account for nearly every Mac that finishes below a floor, and
+neither is visible in what `brew upgrade` prints:
+
+- **keg-only formulae.** Homebrew installs `curl` under
+  `$(brew --prefix curl)` and deliberately does not link it, so the name
+  keeps resolving to Apple's copy -- which never advances past what
+  shipped with the OS. `brew install curl` alone changes nothing that
+  `curl --version` says.
+- **a tool installed twice.** Microsoft's PowerShell build (the cask)
+  and the Homebrew formula advance independently, and `pwsh` resolves to
+  whichever directory comes first on PATH. `brew upgrade` then succeeds,
+  run after run, against a keg nothing actually runs.
+
+A floor is judged on what the tool prints when it is invoked BY NAME, so
+both are repaired the same way: find the newest copy this Mac carries
+and make the name resolve to it. The link goes into `PATH_LINK_DIR`
+(`/usr/local/bin`) for the reason `utmctl` does -- the stock
+`/etc/paths` lists it, so the runner, the status service and an
+`ssh host command` all see the same tool. A Homebrew-linked copy that is
+older than the best one is unlinked (`brew unlink`; the keg stays
+installed), because `brew shellenv` puts brew's bin ahead of
+`/usr/local/bin` and it would otherwise keep winning. A pin is lifted
+only for a formula already failing a floor. A real file occupying the
+link path is moved aside with a timestamp, never deleted.
+
+The second pass exists for the one escalation that needs a first attempt
+to have failed: adding the PowerShell build that is not installed yet.
+AES-GCM is a property of the runtime rather than a tool of its own, so
+it repairs as PowerShell and clears with it. Whatever two passes cannot
+reach is reported WITH the binary the name resolves to -- a floor no
+build can reach and a newer copy hidden behind an older one on PATH read
+identically without it.
+
 ### TCC permissions stay manual
 
 macOS TCC (Privacy & Security -> Accessibility, Screen Recording)
@@ -954,6 +996,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.20
+Last review: 2026.08.21
 
 Back to [Yuruna](../README.md)

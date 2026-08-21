@@ -24,7 +24,7 @@ anyone on the LAN, `status.json` is served, and the config-sync read
 
 | Route | Gated |
 | --- | --- |
-| `control/start-cycle`, `control/cycle-pause`, `control/cycle-resume`, `control/step-pause`, `control/step-resume`, `control/break-continue`, `control/test-caching-proxy-service`, `control/host-diagnostic` | always |
+| `control/start-cycle`, `control/cycle-pause`, `control/cycle-resume`, `control/step-pause`, `control/step-resume`, `control/lab-hold-release`, `control/break-continue`, `control/test-caching-proxy-service`, `control/host-diagnostic` | always |
 | `control/test-config`, `control/perf-aggregates` | on `POST`/`PUT` -- their read path stays open |
 | `control/runner-status`, `control/control-status`, `control/host-facts` | never -- read-only, and pool services read them |
 
@@ -164,6 +164,27 @@ as the *Lab token* tile above it.
 The *Extension hosts* table has no Control cell: its rows include hosts running only an
 extension service, which have no status page to open -- use their *Pool hosts* row when
 they have one.
+
+## Releasing a lab hold
+
+`control/lab-hold-release` is the one control route that ends a state the host
+put itself into. When a lab service that this host had been reaching stops
+answering, the cycle **holds** at its next step boundary and re-probes on backoff
+until the service returns ([failure-schema.md](failure-schema.md#the-lab-health-gate-lab_health_-events)).
+The status page's banner names what it is waiting for.
+
+Nothing has to be done about a hold: a service that comes back releases it, and
+one that does not ends the cycle on its own after the ceiling. The route is for
+the operator who already knows the outage is permanent -- the VM is not being
+rebuilt, it is gone -- and would rather have the cycle fail now than at the end
+of the wait. The gate consumes the request, drops the hold, and lets the step run
+so it fails on its own terms.
+
+It is refused with `409` when no hold is up. A release written against no hold
+would sit on disk and silently end the *next* one -- a hold nobody has looked at
+-- which is the opposite of an operator decision. `control/start-cycle` clears a
+hold as part of its normal un-pause, so restarting the cycle needs no separate
+release.
 
 ## What works with no setup
 
@@ -467,6 +488,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.20
+Last review: 2026.08.21
 
 Back to [Yuruna](../README.md)

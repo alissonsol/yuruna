@@ -1738,6 +1738,16 @@ Reclaim ~400 MB: the Go toolchain is only needed for the builds above, and both 
 
 daemon-reload picks up the squid-exporter unit + grafana-server drop-in written via write_files. Grafana is restarted (not just enabled) so the anonymous-Viewer env vars take effect even if the deb postinst already started it.
 
+### Start the caching proxy management service
+
+`caching-proxy-service` is the management plane for this VM: a read surface over
+squid, zot and the two operator switches, and the beacon that puts the proxy in
+the pool's **Extension hosts** row like every other service. Enabled with
+`|| true`, the same as the two Go services beside it -- a management plane that
+fails to start must not fail the boot of the VM whose traffic it does not carry.
+The proxy keeps serving either way; what is lost is the ability to ask this VM
+about itself, and the offline / no-upstream switches go back to being SSH-only.
+
 ### Enable squid metadata exporter timer
 
 Squid meta exporter: timer drives a oneshot that writes /var/www/html/squid-meta every 30s. Started AFTER apache2 (already active by the packages phase) so the first scrape doesn't 404.
@@ -2106,6 +2116,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.20
+Last review: 2026.08.21
 
 Back to [Yuruna](../README.md)

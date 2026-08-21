@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.20
+.VERSION 2026.08.21
 .GUID 42cccee0-5874-465b-83ed-85e8f9c9e9d3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -59,6 +59,11 @@ function Get-PoolAggregatorServiceManifest {
             'pool-aggregator-service.service'
         )
         ListenPort  = 9400
+        # The daemon registers these same five paths as named constants
+        # (main.go routeHealth..routeLabToken). The two sides are wired
+        # independently, so a rename on one alone answers 404 to a host asking
+        # the right question; route_names_test.go and
+        # Test.ExtensionArea.Tests.ps1 fail the pair apart.
         Endpoints   = @{
             Health = '/healthz'
             Metrics = '/metrics'
@@ -184,7 +189,10 @@ function Get-PoolExtensionHostFrom {
         [int]$TimeoutSeconds = 5
     )
 
-    $uri = "$($BaseUrl.TrimEnd('/'))/api/v1/extension-hosts?area=$([uri]::EscapeDataString($Area))"
+    # Route from the manifest, not a second literal: a copy here is a copy that
+    # keeps answering the old path after the map is corrected.
+    $route = (Get-PoolAggregatorServiceManifest).Endpoints.ExtensionHosts
+    $uri = "$($BaseUrl.TrimEnd('/'))$route`?area=$([uri]::EscapeDataString($Area))"
     try {
         # 404 is the documented "no live host for this area" answer, not a
         # transport failure, so it must not throw its way into the catch and be

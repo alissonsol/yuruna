@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.20
+.VERSION 2026.08.21
 .GUID 420753a0-884d-4f10-bd0f-fb04fea52a79
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,24 +16,8 @@
 
 #requires -version 7
 
-# Generic registry primitive shared by Test.SequenceAction and
-# Test.HostIO. Each domain calls New-YurunaRegistry once at module
-# load and receives a closure-bundle hashtable:
-#
-#     $reg = New-YurunaRegistry -Name '<DomainName>'
-#     # $reg is @{
-#     #   Register    = { param($name, $value) ... }  scriptblock
-#     #   Get         = { param($name) ... }
-#     #   GetMatrix   = { }
-#     #   Clear       = { }
-#     #   Has         = { param($name) ... }
-#     # }
-#
-# The closures share a script-scope hashtable anchored under
-# $global:__YurunaRegistry__<DomainName> so a `-Force` re-import of
-# Test.Registry does not blow away the live entries.
-# Wrappers expose domain-specific Register-*/Get-* names; this module
-# stays generic so future per-cycle registries can reuse it.
+# Closure-bundle registry primitive shared by every self-healing registry
+# in the harness -- see docs/test-harness.md#self-healing-extension-points.
 
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
     Justification = 'Cross-module-eviction-safe anchor; the only reliable way to keep registry entries across -Force re-imports.')]

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.20
+.VERSION 2026.08.21
 .GUID 42994da6-e051-4570-a609-afe6e87fdcf8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -137,6 +137,12 @@ function Reset-StatusDocumentForCycleStart {
         overallStatus  = "running"
         stepPaused     = $false
         cyclePaused    = $false
+        # Machine-initiated hold, distinct from the two operator pauses above:
+        # the gate raises it when a lab service the host had been reaching stops
+        # answering, and clears it when the service returns. Kept separate so
+        # the auto-release cannot delete a pause the operator set.
+        labHold        = $false
+        labHoldAreas   = @()
         # gitCommits is empty until Initialize-StatusDocument runs; the
         # dashboard renders an em-dash for the commit cell in that
         # ~seconds-long window between Reset and Initialize.
@@ -303,6 +309,12 @@ function Initialize-StatusDocument {
         overallStatus  = "running"
         stepPaused     = $false
         cyclePaused    = $false
+        # Machine-initiated hold, distinct from the two operator pauses above:
+        # the gate raises it when a lab service the host had been reaching stops
+        # answering, and clears it when the service returns. Kept separate so
+        # the auto-release cannot delete a pause the operator set.
+        labHold        = $false
+        labHoldAreas   = @()
         # `gitCommits` is the source of truth. `repoUrl` (top-level) is
         # kept as the framework URL for legacy-dashboard compat and as the
         # source Start-StatusService.ps1 reads when seeding a fresh
@@ -637,6 +649,20 @@ function Write-StatusJson {
     $cyclePauseFlag = Join-Path $runtimeDir 'control.cycle-pause'
     $script:Doc.stepPaused  = (Test-Path $stepPauseFlag)
     $script:Doc.cyclePaused = (Test-Path $cyclePauseFlag)
+    # The lab hold mirrors the same way and for the same reason: the gate writes
+    # the flag from the cycle process while this document is flushed from both
+    # the runner and the status service, so re-reading the file here is what
+    # stops one writer's periodic flush from clobbering the other's value. The
+    # area list comes off the flag itself (a comma-joined list the gate writes),
+    # not the sidecar, so a torn sidecar read cannot blank the banner.
+    $labHoldFlag = Join-Path $runtimeDir 'control.lab-hold'
+    $script:Doc.labHold = (Test-Path $labHoldFlag)
+    $script:Doc.labHoldAreas = if ($script:Doc.labHold) {
+        try {
+            @(([string](Get-Content -LiteralPath $labHoldFlag -Raw -ErrorAction Stop)).Split(',') |
+                ForEach-Object { $_.Trim() } | Where-Object { $_ })
+        } catch { @() }
+    } else { @() }
     # Per-writer unique temp name: the runner and the status-service
     # process both flush status.json, so a shared fixed "$File.tmp"
     # lets one process's Move-Item rename the other's half-written temp.

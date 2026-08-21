@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.20
+.VERSION 2026.08.21
 .GUID 424ac6f6-cc32-4fff-beb1-ec808f35ab29
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,16 +16,9 @@
 
 #requires -version 7
 
-# Test-only recovery / inspection helpers over the container-registry
-# credential-provider registry.
-#
-# The registry itself (a first-match-wins map of hostname patterns to
-# { Authenticator ; LoginCommand } pairs) lives in the neutral
-# automation-layer module and is imported below. This module keeps only the
-# helpers that no runtime path needs: Repair-Credential (self-heal after a
-# 401/403 -- look up the matching provider, invoke its Authenticator, caller
-# retries the push), Get-CredentialProviderMatrix (capability-matrix
-# snapshot), and Clear-CredentialProvider (reset the registry between tests).
+# Test-only Repair-Credential / matrix / reset helpers over the
+# credential-provider registry in automation/Yuruna.CredentialProvider.psm1 --
+# see docs/authentication.md#component-registry-login.
 
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
     Justification = 'Cross-module-eviction-safe anchor.')]

@@ -96,8 +96,14 @@ const (
 	defaultCrossWin     = 15 * time.Minute      // window for cross-host "failing together" correlation
 	// Extension-presence announce (POST /announce): a service VM (e.g. the
 	// stash service) self-reports the extension it runs, independent of the
-	// owning host's status service. The TTL tolerates two missed beacons of the
-	// stash service's default 15-minute period before the row is reaped.
+	// owning host's status service.
+	//
+	// The TTL is a reaping horizon, deliberately many beacon periods long
+	// rather than a tight multiple of one. Refusal, not reaping, is what stops
+	// an unreachable address being handed out (see extensionHealthGrace); the
+	// row that outlives the failure is what still names the address that
+	// stopped answering, so reaping it promptly would replace "advertised at X,
+	// which does not answer" with silence.
 	defaultAnnounceTtl = 45 * time.Minute
 	maxAnnounce        = 512     // distinct (hostId,area) announce entries kept in memory
 	maxAnnounceBody    = 4 << 10 // bytes read from one announce POST
@@ -137,6 +143,19 @@ const (
 	// the coordinate lookup a host uses to find a service it does not run
 	// itself.
 	poolControlServiceArea = "pool-control-service"
+	// Routes the PowerShell side of this area calls by name. Its client
+	// (default.psm1, Get-PoolAggregatorServiceManifest's Endpoints map) carries
+	// the same five literals, and the two sides are wired independently: a
+	// rename here answers 404 to a host that is asking the right question, and
+	// nothing fails until a cycle cannot find the service it needs. Named
+	// constants so the rename has one place to start, pinned on both sides --
+	// the shape the control-proof vectors already use. Change one and
+	// route_names_test.go plus Test.ExtensionArea.Tests.ps1 both fail.
+	routeHealth         = "/healthz"
+	routeMetrics        = "/metrics"
+	routePoolStatus     = "/api/v1/pool-status"
+	routeExtensionHosts = "/api/v1/extension-hosts"
+	routeLabToken       = "/api/v1/lab-token"
 	// Pool gating defaults (mirror test/schemas/pools.schema.yml gating.*): the
 	// advisory degraded/alert policy a pool inherits when it authors a partial (or
 	// no) gating block. degradedAfter is the sustained-below-threshold window;
@@ -419,7 +438,7 @@ func (hv *hostView) controlLabel() string {
 // aggregator has -- first-hand, and about the address the service is actually
 // reachable at. It therefore outranks the registration path (activeExtensions,
 // read through the owning host's status service) when the two disagree, and
-// carries the row on its own when that status server is down -- the state a
+// carries the row on its own when that status service is down -- the state a
 // host reboot routinely leaves behind. See extensionSourceRank. Entries are reaped
 // after announceTtl without a refresh, or immediately on an active=false
 // goodbye. Serialized into /api/v1/pool-status (announcedExtensions);
@@ -1406,7 +1425,7 @@ func fetchCurrentAction(client *http.Client, base string) (bool, error) {
 // served by the status service at /yuruna-repo/VERSION -- the SAME source the
 // host's own status pages read for their header (their getHostInfo() fetches
 // yuruna-repo/VERSION via JS, so the version is not embedded in the HTML). A tiny
-// plain-text file (one CalVer line, e.g. "2026.08.20"), so it is lighter than any
+// plain-text file (one CalVer line, e.g. "2026.08.21"), so it is lighter than any
 // status HTML page and fetchable server-side without a JS engine. Returns
 // ("", err) on any failure; the caller keeps the prior version on a transient
 // miss (the version is stable across polls). The value is capped + first-line
@@ -4302,7 +4321,7 @@ func (s *poolState) handleGoStash(w http.ResponseWriter, r *http.Request) {
 	// service reached us from that address) outranks the owning host's
 	// registration, which lags a cycle behind its own service; the registration
 	// answers whenever nothing is announcing, including when the service's
-	// status server is down and the announce is all there is.
+	// status service is down and the announce is all there is.
 	s.mu.Lock()
 	target := s.extensionTargetForLocked(hostID, area, time.Now())
 	s.mu.Unlock()
@@ -5594,6 +5613,12 @@ func (s *poolState) handleAnnounce(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// version is overwritten at link time with -X main.version=<framework version>,
+// the same way every other extension daemon is stamped. A build that loses the
+// flag still runs and reports "dev", which is what the hostinfo assertions in
+// the sibling suites exist to catch.
+var version = "dev"
+
 func main() {
 	addr := flag.String("listen", defaultListenAddr, "address to listen on")
 	squidLog := flag.String("squid-log", defaultSquidLog, "squid access log to discover pool client IPs from")
@@ -5704,14 +5729,14 @@ func main() {
 	}()
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", state.handleHealth)
-	mux.HandleFunc("/metrics", state.handleMetrics)
-	mux.HandleFunc("/api/v1/pool-status", state.handlePoolStatus)
+	mux.HandleFunc(routeHealth, state.handleHealth)
+	mux.HandleFunc(routeMetrics, state.handleMetrics)
+	mux.HandleFunc(routePoolStatus, state.handlePoolStatus)
 	// /api/v1/extension-hosts: "where is area X served in this pool?" -- the
 	// coordinate lookup that lets a host find the stash / pool-control service
 	// knowing only the caching-proxy-service address it already has. Read-only and open,
 	// the same posture as /api/v1/pool-status.
-	mux.HandleFunc("/api/v1/extension-hosts", state.handleExtensionHosts)
+	mux.HandleFunc(routeExtensionHosts, state.handleExtensionHosts)
 	// /api/v1/pool-stats: per-HOST terminal-cycle counts over a preset window,
 	// the numbers behind the pool-control board's cards. Per-host, not per-pool,
 	// because membership lives in the intent store this service never reads --
@@ -5771,7 +5796,10 @@ func main() {
 	// enrollment call). Open with knowledge-of-the-code as the credential,
 	// per-IP throttled + audited -- see handleLabToken; self-gates on
 	// -lab-token-rotate and on a configured token (503 otherwise).
-	mux.HandleFunc("/api/v1/lab-token", state.handleLabToken)
+	// MCP over the read surface above. Not gated: every tool it serves is
+	// read-only and carries exactly the exposure of the open route it wraps.
+	mux.HandleFunc("POST /mcp", state.mcpServer(version).Handler())
+	mux.HandleFunc(routeLabToken, state.handleLabToken)
 	// /api/v1/control-proof: "was this proof minted from the pool's lab-auth-token,
 	// and is it still live?" -- asked by an extension service that holds no token of
 	// its own and so cannot check the proof the /go/stash redirect handed its UI.

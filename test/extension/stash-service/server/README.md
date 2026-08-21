@@ -153,13 +153,16 @@ view, delete). The JSON API it consumes:
 | POST | `/api/refresh` | force a pool-index rescan |
 | GET | `/api/host?host=<id>` | best-effort hostId->stash-UI resolution (pool-aggregator-service) |
 | GET | `/api/hostinfo` | host id, version, this daemon's own IPs |
+| GET | `/v/{id}` | short URL: 302 to the canonical `/s/{hostId}/{y}/{m}/{d}/{id}` permalink |
+| GET | `/{id}` | the same redirect without the prefix, so `http://stash-service/h775` opens the stash. A single-segment wildcard and the catch-all of last resort: every literal route above is more specific and still wins, and a segment that is not an id simply 404s |
 
 Flags (defaults): `--http-addr` (`0.0.0.0:80`, empty disables the UI),
 `--pool-window-days` (`30`), `--pool-refresh-secs` (`60`),
 `--list-default-limit` (`50`), `--aggregator-url` (empty), `--listen-addr`
 (`0.0.0.0:22`, dev override when the OS sshd holds :22), `--host-id` (empty)
-and `--presence-interval` (`2m`, `0` disables; the bring-up passes `15m`) for the
-presence beacon (section 4.7).
+and `--presence-interval` (`2m`, `0` disables) for the presence beacon
+(section 4.7). It must stay under the aggregator's five-minute extension health
+grace: a re-announce is also how a renumbered service reports its new address.
 
 **Delete authorization.** Reads and creates are open on the LAN; `DELETE` needs
 a session, unlocked either with the dashboard's rotating Lab token or with the
@@ -235,11 +238,11 @@ Coverage focuses on the spec-driven pure-logic bits:
   truncation, offline buffering, section 4.1).
 - `internal/detect/` -- heuristic classification (extension/sniff/text,
   SVG+HTML->download-only) (ui section 6.1, section 7.4).
-- `internal/yex/` -- the shared extension SDK, mirrored from
-  [`test/extension/extension-sdk/`](../../extension-sdk/) and never edited
-  here. `beacon` covers the hello/periodic/goodbye lifecycle, catch-up retry
-  until the first success, and the https->http downgrade only on transport
-  errors (section 4.7); `pool` is the aggregator read behind the remote-stash
+- [`extension-sdk`](../../extension-sdk/) -- the shared SDK, resolved as a
+  sibling module rather than copied in here, so its suite is the one that runs:
+  `beacon` covers the hello/periodic/goodbye lifecycle, catch-up retry until the
+  first success, and the https->http downgrade only on transport errors
+  (section 4.7); `pool` is the aggregator read behind the remote-stash
   deep-link (section 3.4).
 - `internal/httpsrv/` -- create->list->get->raw->delete round-trip, the delete
   gate (locked/unlocked/unconfigured), cross-host delete on the share, bulk
@@ -287,6 +290,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.20
+Last review: 2026.08.21
 
 Back to [Yuruna](../../../../README.md)

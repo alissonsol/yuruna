@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.08.20
+  Version: 2026.08.21
 
   Framework-free checks for test/status/yuruna.common.js. Run: node yuruna.common.test.js
   (exit 0 = pass). No package.json / test runner in the repo, so this uses the Node
@@ -151,4 +151,29 @@ assert.strictEqual(idx['p'][0].name, 'a', 'children sort by startedAt (a before 
 assert.strictEqual(idx['p/a'][0].id, 'p/a/deep', 'a deeper node groups under its own parent id');
 assert.strictEqual(idx['p/a'][0].id && idx['p/a'][0].name, 'deep', 'missing id is backfilled from the map key');
 
-console.log('PASS: yuruna.common.js -- 19 assertions');
+// (7) Lab-health hold banner. The gate raises control.lab-hold from the cycle
+//     process while a service the host had been reaching is away; status.json
+//     mirrors it as labHold/labHoldAreas. Two properties matter and both are
+//     silent when they break: the hold must NAME the service (a generic
+//     "paused" sends an operator hunting for whoever pressed pause, when the
+//     fix is a VM somewhere else), and an operator pause must still win over it.
+var pbt = Y.pauseBannerText;
+assert.strictEqual(pbt(false, false, 'running', null, false, []), null,
+  'no pause and no hold leaves the banner to the run status');
+assert.strictEqual(pbt(false, false, 'running', null, true, ['stash-service']),
+  'Lab hold -- waiting for stash-service',
+  'a hold names the area it is waiting for');
+assert.strictEqual(pbt(false, false, 'running', null, true, ['stash-service', 'download-agent-service']),
+  'Lab hold -- waiting for stash-service, download-agent-service',
+  'multiple held areas are listed');
+assert.strictEqual(pbt(false, false, 'running', null, true, []),
+  'Lab hold -- waiting for a lab service',
+  'a hold with no area list still reads as a hold, not as nothing');
+assert.strictEqual(pbt(true, false, 'running', null, true, ['stash-service']),
+  'Test pausing (after step)',
+  'the operator pause outranks the hold: they are present and did not cause it');
+assert.strictEqual(pbt(false, true, 'pass', null, true, ['stash-service']),
+  'Test paused',
+  'an effective cycle-pause also outranks the hold');
+
+console.log('PASS: yuruna.common.js -- 25 assertions');

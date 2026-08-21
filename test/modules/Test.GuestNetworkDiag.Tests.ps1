@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.20
+.VERSION 2026.08.21
 .GUID 4204dc0d-3f1d-4015-b639-9480d7186c23
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -70,18 +70,28 @@ function Get-ShellFunctionText {
 # link from one that lost carrier, so the helper has to be extracted with it.
 # Left out, the call is a "command not found" -- which reads as false and lands
 # every down link on the carrier verdict, so the suite would pass while testing
-# only half the branch. Asserted directly in the fail-safe case below.
+# only half the branch. Asserted directly in the fail-safe case below. The
+# client-state pair is extracted for the same reason: absent, the probe is a
+# silent no-op and every assertion about what the report contains would be
+# measuring a report that never ran it.
 function Get-DiagFunctionText {
-    return (Get-ShellFunctionText -Path $script:netLib -Name '_yuruna_net_admin_down', 'network_diag')
+    return (Get-ShellFunctionText -Path $script:netLib -Name `
+        '_yuruna_net_admin_down', '_yuruna_net_journal_slice', '_yuruna_net_client_state', 'network_diag')
 }
 
 # Runs an extracted shell function under a driver that builds its own fixture
 # tree, so nothing depends on a Windows path surviving translation into bash.
+#
+# The journal command the client-state probe runs is pinned to one that prints
+# nothing, so a suite running on a machine whose journal happens to hold DHCP
+# lines measures the same report as one running where it does not. A test that
+# wants journal content passes its own on the command line, which overrides
+# this default for that call only.
 function Invoke-ShellDriver {
     param([string]$FunctionText, [string]$Driver)
     $bash = Get-Command bash -ErrorAction SilentlyContinue
     if (-not $bash) { return $null }
-    $script = $FunctionText + "`n" + $Driver
+    $script = ": `"`${YURUNA_NET_JOURNAL:=true}`"`nexport YURUNA_NET_JOURNAL`n" + $FunctionText + "`n" + $Driver
     return ($script | & $bash.Source 2>$null | Out-String)
 }
 
@@ -316,13 +326,138 @@ Describe 'guest-network-diag: the report stays inside the captured frame' {
     }
 }
 
+Describe 'guest-network-diag: the client is asked, not merely recommended' {
+
+    # The verdict block bottoms out at "no address", which cannot separate a
+    # lease that is late from a client that stopped asking -- and those two
+    # indict different machines. The answer is in the client's own state, on a
+    # guest destroyed at cleanup minutes later, so a report that only tells the
+    # reader which command to run is a report of a question nobody can ask.
+    It 'runs the client-state probe from the report itself' {
+        $fn = Get-ShellFunctionText -Path $script:netLib -Name 'network_diag'
+        Assert-True ($fn -match '_yuruna_net_client_state "\$\{probe_ifc:-\$probe_admin\}"') `
+            'the probe must run inside the report, on the interface the verdict just named'
+        Assert-True ($fn -notmatch "Ask the client") `
+            'the text must not send the reader after state that will not exist by the time they read it'
+    }
+
+    It 'prints what the client is doing for an address-less interface' {
+        $driver = @'
+
+stub=$(mktemp)
+printf '#!/bin/bash\nprintf "%%s\\n" "enp1s0: DHCPv4 client: Sending DISCOVER" "enp1s0: DHCPv4 client: Sending DISCOVER"\n' > "$stub"
+chmod +x "$stub"
+root=$(mktemp -d)
+mkdir -p "$root/yurunatest0"
+echo up > "$root/yurunatest0/operstate"
+echo 1  > "$root/yurunatest0/carrier"
+YURUNA_NET_SYSFS="$root" YURUNA_NET_JOURNAL="$stub" network_diag
+rm -rf "$root" "$stub"
+'@
+        $out = Invoke-ShellDriver -FunctionText (Get-DiagFunctionText) -Driver $driver
+        if ($null -eq $out) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
+        Assert-True ($out -match 'DHCP client state \(yurunatest0\)') "the probe must name the interface it asked about; output was:`n$out"
+        Assert-True ($out -match 'Sending DISCOVER') 'a client still soliciting must be visible in the report'
+    }
+
+    It 'says so when the client has nothing to say, instead of printing an empty block' {
+        $driver = @'
+
+root=$(mktemp -d)
+mkdir -p "$root/yurunatest0"
+echo up > "$root/yurunatest0/operstate"
+echo 1  > "$root/yurunatest0/carrier"
+YURUNA_NET_SYSFS="$root" network_diag
+rm -rf "$root"
+'@
+        $out = Invoke-ShellDriver -FunctionText (Get-DiagFunctionText) -Driver $driver
+        if ($null -eq $out) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
+        Assert-True ($out -match 'no DHCP line in the client journal') `
+            "a silent journal is itself the finding and must be stated; output was:`n$out"
+    }
+
+    It 'asks about one interface however many are address-less' {
+        # The probe is the only unbounded thing in the report: each block is
+        # several lines of another program's output, and the marker the host
+        # matches sits just below it.
+        $driver = @'
+
+root=$(mktemp -d)
+i=0
+while [ $i -lt 6 ]; do
+    mkdir -p "$root/yurunatest$i"
+    echo up > "$root/yurunatest$i/operstate"
+    echo 1  > "$root/yurunatest$i/carrier"
+    i=$((i + 1))
+done
+YURUNA_NET_SYSFS="$root" network_diag
+rm -rf "$root"
+'@
+        $out = Invoke-ShellDriver -FunctionText (Get-DiagFunctionText) -Driver $driver
+        if ($null -eq $out) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
+        $blocks = ([regex]::Matches($out, 'DHCP client state \(')).Count
+        Assert-StringEqual -Expected 1 -Actual $blocks 'exactly one client-state block may print, whatever the interface count'
+    }
+
+    It 'prints nothing at all when no interface needs explaining' {
+        $out = Invoke-ShellDriver -FunctionText (Get-DiagFunctionText) -Driver (Get-DownLinkDriver -Count 2)
+        if ($null -eq $out) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
+        Assert-True ($out -notmatch 'DHCP client state') `
+            'a link with no carrier never reached DHCP, so its client state explains nothing'
+    }
+
+    It 'caps the journal slice rather than printing the unit log' {
+        $driver = @'
+
+stub=$(mktemp)
+cat > "$stub" <<'STUB'
+#!/bin/bash
+i=0
+while [ $i -lt 40 ]; do echo "enp1s0: DHCPv4 client: Sending DISCOVER $i"; i=$((i + 1)); done
+STUB
+chmod +x "$stub"
+YURUNA_NET_JOURNAL="$stub" _yuruna_net_client_state yurunatest0 | grep -c 'Sending DISCOVER'
+rm -f "$stub"
+'@
+        $out = Invoke-ShellDriver -FunctionText (Get-DiagFunctionText) -Driver $driver
+        if ($null -eq $out) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
+        Assert-True ([int]$out.Trim() -le 4) "the slice must stay bounded; printed $($out.Trim()) lines"
+        Assert-True ([int]$out.Trim() -gt 0) 'the slice must actually print what it found'
+    }
+
+    It 'keeps the lines the client volunteers about which profile claimed the NIC' {
+        # A NIC no profile matched reports "Network File: n/a", and that is the
+        # shape where DHCP is never attempted at all -- a different fault from a
+        # lease that did not come, with a different repair.
+        $fn = Get-ShellFunctionText -Path $script:netLib -Name '_yuruna_net_client_state'
+        Assert-True ($fn -match 'Network File') 'the claiming profile is the evidence for the never-attempted shape'
+        Assert-True ($fn -match 'DHCP4 Client ID') 'the identity in use is what a lease keyed on client-id turns on'
+    }
+
+    It 'never parks a console at a password prompt nobody can answer' {
+        $fn = Get-ShellFunctionText -Path $script:netLib -Name '_yuruna_net_journal_slice', '_yuruna_net_client_state'
+        Assert-True ($fn -notmatch '(?m)(^|[^-\w])sudo\s+(?!-n)') `
+            'every elevation in a console-only diagnostic must be non-interactive'
+    }
+
+    It 'reads unprivileged first and elevates only if that came back empty' {
+        # Elevation is the fallback, not the default: most guests let the login
+        # user read the system journal, and a run that always shells out to sudo
+        # pays for it on every failing step.
+        $fn = Get-ShellFunctionText -Path $script:netLib -Name '_yuruna_net_client_state'
+        $plain = $fn.IndexOf('out=$(_yuruna_net_journal_slice)')
+        $sudo  = $fn.IndexOf('_yuruna_net_journal_slice sudo -n')
+        Assert-True ($plain -ge 0 -and $sudo -gt $plain) 'the unprivileged read must come first'
+    }
+}
+
 Describe 'guest-network-diag: OCR-safe wording' {
 
     # The console frame is matched against the echoed command line to detect a
     # failing run. The words 'fetch' and 'execute' fuzzy-match that line, so
     # either one inside diagnostic output would fail a HEALTHY run in seconds.
     It 'network_diag prints neither of the words that fuzzy-match the command line' {
-        $fn = Get-ShellFunctionText -Path $script:netLib -Name 'network_diag'
+        $fn = Get-ShellFunctionText -Path $script:netLib -Name 'network_diag', '_yuruna_net_client_state'
         $echoed = @([regex]::Matches($fn, '(?m)^\s*echo\s+.*$') | ForEach-Object { $_.Value }) -join "`n"
         Assert-True ($echoed.Length -gt 0) 'the diagnostic must print something'
         Assert-True ($echoed -notmatch '(?i)fetch')   'no "fetch" in diagnostic output'

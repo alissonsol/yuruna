@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.20
+.VERSION 2026.08.21
 .GUID 424a2e17-dfe4-4ca3-ae90-6837265945f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -606,5 +606,42 @@ Describe 'Resolve-ConfigSyncAliasResponse (alias response verdict)' {
         $r = Resolve-ConfigSyncAliasResponse -StatusCode 503 -Doc $null -ReferenceHost 'ref'
         Assert-True ($null -eq $r.Map) 'no map on a non-200'
         Assert-True ($r.Warning -match 'HTTP 503') 'falls back to the status code when there is no server error text'
+    }
+}
+
+Describe 'the AES-GCM capability gate' {
+    It 'passes a runtime that reports the algorithm, and one too old to be asked' {
+        # $null means the runtime does not expose IsSupported. That is not
+        # evidence the algorithm is absent, and failing a working host on an
+        # unanswerable question is worse than missing a broken one.
+        foreach ($probe in @($true, $null)) {
+            $verdict = Get-ConfigSyncEnvelopeSupport -IsSupported $probe
+            Assert-True $verdict.Supported "probe '$probe' must be treated as supported"
+            Assert-Equal '' $verdict.Reason
+        }
+    }
+
+    It 'refuses a runtime without the algorithm, and says what actually breaks' {
+        # The message is the whole point of this gate. The failure it replaces
+        # read as a wrong Lab token, which sent an operator back to the
+        # dashboard for a fresh code that could not work either.
+        $verdict = Get-ConfigSyncEnvelopeSupport -IsSupported $false
+        Assert-False $verdict.Supported
+        Assert-Match 'AES-GCM' $verdict.Reason 'the reason names the algorithm'
+        Assert-Match 'upgraded' $verdict.Reason 'the reason names the fix'
+        Assert-Match 'Lab token enrollment and every config-sync' $verdict.Reason `
+            'the reason names BOTH surfaces this breaks, not just the one the operator hit'
+        Assert-Match 'Nothing about the code, the proxy or the vault' $verdict.Reason `
+            'the reason rules out the things the old message wrongly blamed'
+    }
+
+    It 'reports what this host actually has, without throwing' {
+        # The live probe. Whatever it says, it must answer rather than fail:
+        # a capability check that throws is one nobody can run.
+        $live = Test-ConfigSyncEnvelopeSupport
+        Assert-True ($live.Supported -is [bool]) 'the probe answers with a verdict'
+        if (-not $live.Supported) {
+            Assert-True ($live.Reason.Length -gt 0) 'an unsupported runtime must say so'
+        }
     }
 }

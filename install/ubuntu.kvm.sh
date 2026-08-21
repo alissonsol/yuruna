@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.20
+# Version: 2026.08.21
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Yuruna Ubuntu KVM/libvirt bootstrap installer.
@@ -35,6 +35,15 @@ _yuruna_step="<starting up>"
 log()  { _yuruna_step="$*"; printf '\033[1;34m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m!! \033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31mXX \033[0m %s\n' "$*" >&2; exit 1; }
+
+# --- REGION: Deferred issues
+# Every non-fatal problem is recorded here as well as printed where it happens.
+# An installer prints hundreds of lines; a package that failed scrolls past long
+# before the operator reads the closing instructions, and the only thing that
+# survives to the end is a summary. Nothing here stops the run: a package-manager
+# hiccup mid-install should not end it, but it must not pass unmentioned either.
+YURUNA_ISSUES=()
+note_issue() { YURUNA_ISSUES+=("$*"); warn "$*"; }
 
 # --- REGION: https://yuruna.link/install/explained#install-log
 if [[ -z "${YURUNA_INSTALL_LOG:-}" ]]; then
@@ -434,7 +443,7 @@ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends "
 # Enable-TestAutomation.ps1 reports it as an optional gap on the next run.
 log "Installing virt-manager (with recommends, so its console works)"
 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y virt-manager \
-  || warn "virt-manager install failed; guest consoles remain available through virt-viewer."
+  || note_issue "Installing virt-manager failed; guest consoles remain available through virt-viewer."
 
 # --- REGION: osinfo-db refresh
 osinfo_has_variant() {
@@ -1148,6 +1157,26 @@ Re-running this installer is safe; it will refresh apt packages and
 fast-forward the Yuruna checkout when possible.
 EOF
 
+# --- REGION: Version floor check
+# The tools this installer manages, checked against the floors in
+# automation/Yuruna.Requirement.yml -- the same file the requirement report and
+# the diagnostic read, so a floor is written down once.
+#
+# Only what this script installs: reporting on a cloud CLI the bootstrapper
+# never touches would bury the one real problem in a dozen expected absences.
+#
+# Warn, never fail. Finishing SILENTLY below a floor is the failure mode this
+# closes -- that is how a host ran for weeks on a PowerShell too old to do the
+# crypto every lab enrollment needs, and surfaced it as a rejected Lab token.
+if command -v pwsh >/dev/null 2>&1 && [[ -f "$YURUNA_DIR/automation/Test-Requirement.ps1" ]]; then
+  log "Checking installed versions against the required floors"
+  while IFS= read -r issue_line; do
+    note_issue "${issue_line#REQUIREMENT-ISSUE: }"
+  done < <(pwsh -NoProfile -File "$YURUNA_DIR/automation/Test-Requirement.ps1" \
+             -Tool "PowerShell,git,qemu-img,wget,tesseract,curl,python3" -WarnOnly 2>/dev/null \
+           | grep '^REQUIREMENT-ISSUE: ' || true)
+fi
+
 # --- REGION: Backup notice
 if [[ -n "$YURUNA_BACKUP_CREATED" ]]; then
   warn ""
@@ -1161,4 +1190,24 @@ if [[ -n "$YURUNA_BACKUP_CREATED" ]]; then
   warn "When you no longer need it, delete it manually:"
   warn "  rm -rf '$YURUNA_BACKUP_CREATED'"
   warn "============================================================"
+fi
+
+# --- REGION: Install summary
+# The last thing printed. Everything above scrolls; this does not.
+if [[ ${#YURUNA_ISSUES[@]} -gt 0 ]]; then
+  warn ""
+  warn "============================================================"
+  warn "INSTALL FINISHED WITH ${#YURUNA_ISSUES[@]} ISSUE(S)"
+  warn ""
+  for issue in "${YURUNA_ISSUES[@]}"; do
+    warn "  - $issue"
+  done
+  warn ""
+  warn "The install completed and the machine is usable. Each line above is"
+  warn "something that did not happen as intended -- re-running this installer"
+  warn "is safe and retries every one of them."
+  warn "============================================================"
+else
+  log ""
+  log "Install finished with no issues."
 fi

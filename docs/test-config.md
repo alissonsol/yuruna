@@ -379,6 +379,47 @@ consecutive-failure streak (`maxAttemptsPerCycle`) so a deterministic failure
 still escalates to the normal wait-for-human pause after that many auto-retries.
 A pool may override the whole block through its `config.testCycle`.
 
+## testCycle.labHealth — hold the cycle while a lab service is away
+
+```yaml
+testCycle:
+  labHealth:
+    enabled: true
+    minIntervalSeconds: 30
+    discoveryIntervalSeconds: 600
+    armWindowHours: 24
+    maxHoldAttempts: 999
+    require: []
+```
+
+Ahead of each chain entry and each sequence step, check the services this lab
+declares; when one that **was** answering stops answering, park the cycle the way
+the operator's *Pause after the next step* parks it, re-probe on backoff, and
+resume when it returns. What a rebuilt service VM would otherwise cost is a
+failed cycle for a condition that cured itself.
+
+**Nothing lists the services here.** The probe set is derived from every
+extension area's declared `healthPort`, so an area that ships tomorrow is covered
+without a config edit.
+
+`armWindowHours` is the knob that decides what counts as a change of condition: a
+service this host last reached longer ago than this can no longer hold the cycle,
+because gone for a week is the lab's new normal and holding every cycle would
+hide that. A service this host has **never** reached never holds at all.
+
+`minIntervalSeconds` is how long a watched service's verdict is reused before it
+is asked again -- the reason the gate can run at every step boundary.
+`discoveryIntervalSeconds` is the far slower cadence for a service the gate is
+not watching, whose lookup is the expensive one.
+
+`maxHoldAttempts` is clamped to a compiled **999**, which at the backoff cap is
+about sixteen hours; past it the cycle records `lab_dependency_down`. `require`
+names extra areas to probe even where this host has never seen them healthy.
+
+`enabled: false` opts the host out entirely. The full mechanism, its events and
+its `status.json` fields:
+[failure-schema.md](failure-schema.md#the-lab-health-gate-lab_health_-events).
+
 ## vmStart.cachingProxyIp — external cache source (probed first)
 
 Names the external caching-proxy service this host should route guest installs
@@ -419,6 +460,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.20
+Last review: 2026.08.21
 
 Back to [Yuruna](../README.md)

@@ -26,7 +26,6 @@ stateDiagram-v2
     state "paused" as paused
 
     [*] --> idle
-    idle --> fault : stale prior state at boot
     fault --> idle : boot recovery resolved
     idle --> cycle_start : cycle N starting
     cycle_start --> paused : pool desiredState=paused
@@ -59,6 +58,16 @@ all run here. Three exits, all in `Invoke-RunnerOuterCycle`: a pulled
 armed and the state becomes `in-cycle` immediately before the call-operator
 spawn of the inner.
 
+Three outcomes leave without a transition at all. `pull-error` and `drain` both
+return straight out of `Invoke-RunnerOuterCycle` after the `cycle-start` write, so
+the state file stays on `cycle-start` -- for the 30-second hold in the
+`pull-error` case, permanently in the `drain` case. The retried cycle then writes
+`cycle-start` on top of `cycle-start`, an unmapped edge that logs the same drift
+warning as `fault -> fault`. The third is the `spawn-failed` raised inside the
+cycle child: it returns after `in-cycle` has already been written, stranding the
+file there, and the retry's `in-cycle -> cycle-start` is unmapped for the same
+reason.
+
 **`in-cycle`.** The inner runner owns the machine. The outer is blocked in the
 call operator (in the cycle child) while the resident parent polls the child
 process. Nothing writes state here; the exit is decided by the exit code the
@@ -82,12 +91,18 @@ iteration. The failure pause sits here for up to an hour and exits to `idle`
 through the loop's `finally`. Both edges are in the adjacency map precisely so
 the healthy hold does not log two drift warnings per poll.
 
-Two mapped edges have no live `Set-RunnerState` call site. `idle -> fault` and
-`fault -> idle` are the boot-recovery pair: `Initialize-RunnerState` writes them
-directly as two synthetic NDJSON `runner_state_transition` events (reasons
+`fault -> idle` and `idle -> fault` are the two mapped edges with no live
+`Set-RunnerState` call site. `Initialize-RunnerState` writes the boot-recovery pair directly as two
+synthetic NDJSON `runner_state_transition` events (reasons
 `boot_recovery_detected_stale_state` and `boot_recovery_resolved`) and seeds them
 as the first two `history` entries, because the crash they describe is
-unobservable after the fact.
+unobservable after the fact. The first of the pair is not drawn as
+`idle -> fault`: it is emitted only when the prior state was *not* idle, and its
+`fromState` is whatever stale state the crashed runner left behind. The rule is
+simply "prior state is not `idle`", so the synthetic edge can start from any of the
+other five -- `fault -> fault` included, because a runner killed between the
+`fault` write and the pause that follows it leaves `fault` on disk. `idle -> fault`
+stays in the adjacency map with no producer anywhere in the tree.
 
 The validator never rejects. An unrecognized target name warns and skips the
 write; a recognized target on an unmapped edge warns
@@ -102,7 +117,13 @@ State lands in `$env:YURUNA_RUNTIME_DIR/runner.state.json`
 `$env:TEMP` is null off Windows), written by `Write-YurunaStateFileJson` in
 `test/modules/Test.StateFile.psm1` as a temp file plus an atomic
 `[System.IO.File]::Move(..., $true)`. Shape: `current`, `since`, `runId`,
-`writerPid`, and a `history` array capped at 20 entries.
+`writerPid`, a `history` array capped at 20 entries, plus one optional
+cycle-context field: `lastCycleStartUtc`, refreshed by a `cycle-start` transition
+when the caller has already set `$global:__YurunaCycleStartUtc` and carried forward
+otherwise, so one read of the file has the latest cycle start without joining to
+the manifest. `Set-RunnerState` carries a second slot, `lastCycleNumber`, forward
+in the same loop -- but nothing in either repository ever writes it, so it never
+appears on a real state file.
 
 ### The watchdog path into `fault`
 
@@ -112,7 +133,7 @@ child is blocked inside the call operator and an in-runspace monitor cannot pump
 while that wait is outstanding. `Start-Watchdog` is called just before the inner
 spawn; `Stop-Watchdog` runs in a `finally`.
 
-It watches four files in the runtime dir. `runner.stepHeartbeat` is the staleness
+It reads three files in the runtime dir and writes two more. `runner.stepHeartbeat` is the staleness
 signal, touched from the runspace at the top of each step by `Invoke-Sequence`
 (`test/modules/Test.SequenceEngine.psm1`) -- deliberately not
 `runner.heartbeat`, which a `System.Threading.Timer` on a threadpool thread keeps
@@ -189,7 +210,7 @@ either never ran or ran and produced nothing to judge:
 | Outcome | What happened | What the loop does |
 |---|---|---|
 | `pull-error` | the outer's own git pull failed | hold `OuterPullErrorSleepSeconds` (30 s), `continue` |
-| `spawn-failed` | `Start-Process` on the cycle child itself failed | hold `InnerSpawnErrorSleepSeconds` (30 s), `continue` |
+| `spawn-failed` | either spawn threw -- `Start-Process` on the cycle child in `Invoke-OuterCycleDispatch`, or the call-operator invocation of the inner inside the cycle child | hold `InnerSpawnErrorSleepSeconds` (30 s), `continue` |
 | `cycle-aborted` | no outcome file, non-zero exit, and the child ran under 30 s | hold 30 s, `continue` |
 | `paused` | pool intent says hold | hold 30 s, `continue` |
 | `drain` | pool intent says stop at the boundary | set shutdown requested, `break` |
@@ -284,19 +305,32 @@ Seven boxes. Two are aggregates: `New-VM, Start-VM` folds the two provisioning
 steps (`New-VM` through the Yuruna.Host driver, then `Start-VM` followed by
 `Update-GuestNeighborCache` and `Wait-VMIp -TimeoutSeconds 30`), and
 `Screenshots, Start-GuestWorkload` folds the optional screenshot step
-(`Invoke-ScreenshotTest`, present only when the guest declares screenshots) with
-the workload step. `[*]` is the guest-loop entry and exit, not a state.
+(`Invoke-ScreenshotTest`) with the workload step. "Optional" is per cycle rather
+than per guest: `$hasScreenshots` is one cycle-wide OR computed in
+`Get-StepDerivation` and passed to every guest, so if any guest in the list
+declares a schedule the step runs for all of them, and a guest without one reports
+`skipped` rather than not having the step. `[*]` is the guest-loop entry and exit, not a state.
 
-The step names in the diagram are the literal `-StepName` values passed to
-`Set-StepStatus`, which is what the dashboard and the failure record carry.
+Four of the boxes -- `New-VM, Start-VM`, `Start-GuestOS`, `New-VM.Resource`,
+`Screenshots, Start-GuestWorkload` -- carry the literal `-StepName` values passed
+to `Set-StepStatus`, which is what the dashboard renders as tiles. `Cleanup` is
+not one of them: it appears only as the `FailedStep` on `$IterState` and as
+`Write-CycleInfraFailure -Stage 'Cleanup'`, so a teardown failure reaches the
+failure record without ever having had a tile. `quarantine gate` and `guest fail`
+are control-flow boxes rather than step names.
 
 **quarantine gate.** `Invoke-GuestQuarantineGate`
 (`test/modules/Test.GuestQuarantine.psm1`), consulted only when
 `testCycle.guestQuarantine.enabled` is on (code default true, shipped false). A
-skip sets the guest status to `skipped`, marks it quarantined on the dashboard,
-and continues to the next guest. Before the gate runs, the iteration also checks
-whether shutdown was requested (`Control = 'break'`) and whether this guest key
-already failed this cycle (`Control = 'continue'`).
+skip sets the guest status to `skipped`, marks it quarantined on the dashboard
+with the current framework commit, and `continue`s to the next guest. It is
+consulted in `Invoke-RunnerInnerCycle`'s guest `foreach` *before* the iteration
+helper is called (`test/modules/Test.RunnerInnerLoop.psm1:2744-2753`), so its skip
+is a bare `continue` in that loop rather than an `$IterState.Control` signal --
+the one gate that never enters the helper. The shutdown check
+(`Control = 'break'`) and the already-failed-this-cycle check
+(`Control = 'continue'`) are the first two blocks *inside* the iteration, and so
+run after it.
 
 **`New-VM` / `Start-VM`.** `New-VM` cascades `Username`, `Hostname`,
 `MemoryStartupBytes` and `Cores` from the plan and forwards the runner-detected
@@ -336,11 +370,85 @@ picked up.
 Every failure edge does the same work before it branches: `Set-StepStatus` to
 `fail`, `Set-GuestStatus` to `fail`, populate the four `$IterState` failure
 fields, and `Copy-FailureArtifactsToStatusLog` -- placed before the branch so
-both paths get the debug folder. Then `StopOnFailure` decides:
-`Control = 'break'` leaves the VM running for investigation on `Start-GuestOS`,
-`New-VM.Resource`, `Screenshots` and `Start-GuestWorkload`, but tears it down on
-`New-VM` and `Start-VM` to free the memory reservation; otherwise
-`Remove-GuestVMQuietly` runs and `Control = 'continue'`.
+both paths get the debug folder. Then `StopOnFailure` decides. The `Cleanup` edge
+is the exception to all of it: a teardown that leaves the VM running sets the four
+`$IterState` fields and writes `Write-CycleInfraFailure -Stage 'Cleanup'`, then
+breaks regardless of `StopOnFailure` -- with no `Set-StepStatus`, no
+`Set-GuestStatus` and no artifact copy, so the guest keeps the `pass` the teardown
+region already wrote. `true` means
+`Control = 'break'` with the VM left exactly as it is on all six steps --
+`Start-GuestOS`, `New-VM.Resource`, `Screenshots` and `Start-GuestWorkload` say so
+on the console ("left running for investigation"), while `New-VM` and `Start-VM`
+break silently. `false` means `Remove-GuestVMQuietly` runs and
+`Control = 'continue'`, which is where the memory reservation is actually
+released so the next guest does not cold-start against it.
+
+### Holding for a lab service that went away
+
+Ahead of every sequence step and every orchestration chain entry, the cycle asks
+whether the services this lab declares are answering, and parks itself while one
+that *had* been answering is away. This is not a seventh runner state -- the enum
+and its schema mirror are still exactly the six above -- but it is a state machine
+with its own flags, its own break-out and its own terminal failure class.
+
+```mermaid
+stateDiagram-v2
+    state "lab verdict ok" as lab_ok
+    state "confirmation re-probe" as lab_confirm
+    state "hold and re-probe" as lab_hold
+    state "service answered" as lab_recovered
+    state "operator released" as lab_released
+    state "lab_dependency_down" as lab_exhausted
+
+    [*] --> lab_ok
+    lab_ok --> lab_confirm : verdict down
+    lab_confirm --> lab_ok : was a blip
+    lab_confirm --> lab_hold : still down
+    lab_hold --> lab_recovered : probe answered
+    lab_hold --> lab_released : release flag set
+    lab_hold --> lab_exhausted : ceiling reached
+    lab_recovered --> lab_ok : step proceeds
+    lab_released --> lab_ok : step proceeds
+```
+
+Six boxes, no fold. `Invoke-LabHealthGate`
+(`test/modules/Test.LabHealth.psm1`) is entered from
+`test/modules/Test.SequenceEngine.psm1:1809` and `:1873` and from
+`test/modules/Test.Orchestrator.psm1:552`.
+
+**Armed, not configured.** The probe set is derived from every extension area
+that declares a health surface, and a hold requires a change of condition: an
+area this host reached inside the arming window and can no longer reach. A
+service that was never reachable from here is never held for -- which is what
+keeps a standalone host from parking on a pool service it does not have -- unless
+the operator names it in `testCycle.labHealth.require` (shipped empty), which
+forces a `down` verdict for an unarmed area
+(`test/modules/Test.LabHealth.psm1:484`, `:527`).
+
+**`lab-confirm`.** `Wait-LabHealthy` is entered only on a verdict of `down`, and
+re-probes with `-Force` first so the freshness cache cannot answer for it. The
+loop re-asks discovery on every attempt rather than replaying a candidate list,
+because a rebuilt service normally comes back on a different address.
+
+**Three ways out.** `recovered` when a probe answers, `released` when the
+operator drops `control.lab-hold-release`, `exhausted` at
+`testCycle.labHealth.maxHoldAttempts` -- shipped 999, clamped to a compiled
+ceiling of 999 and a floor of 1 -- at up to 59 s per re-probe, so roughly sixteen
+hours at the shipped value. Only the third is a
+failure: it writes a `lab_dependency_down` / hard record through
+`Write-CycleInfraFailure` and throws a tagged marker. Each outcome emits its own
+NDJSON event (`lab_health_change`, `lab_health_released`, `lab_health_exhausted`).
+
+**It stays interruptible.** Every iteration runs the caller's abort check, so a
+cycle restart aborts a held cycle exactly as it aborts a running one, and yields
+to the caller's pause wait, so an operator pausing on top of a hold stops the
+re-probing rather than racing it.
+
+**The watchdog does not know it is holding.** Nothing in the hold path refreshes
+`runner.stepHeartbeat`, and the gate runs ahead of the per-step refresh, so a held
+step ages against the ordinary step bound while it waits. Whichever ceiling comes
+first ends the hold: the watchdog's `testCycle.stepTimeoutSeconds` (2700 s by
+default) or the gate's own `maxHoldAttempts`.
 
 ## Warm resume
 
@@ -421,8 +529,9 @@ report that instead of the transient.
 carrying `checkpointStep` whenever it differs from the step actually resumed, so
 a rewind is visible rather than inferred.
 
-**Fallback.** Exhausted attempts, or any decline, leaves the original result in
-place. That flows into the normal `Start-GuestWorkload` fail branch, teardown,
+**Fallback.** A decline before any attempt leaves the original result in place;
+once an attempt has run, `$r` has been reassigned, so what reaches the fail branch
+is the last attempt's result rather than the original failure. That flows into the normal `Start-GuestWorkload` fail branch, teardown,
 and a cold re-provision on the next cycle. The teardown firing only on the final
 result is exactly what keeps the VM alive across attempts.
 
@@ -449,12 +558,26 @@ runner behavior is the gated auto-remediation break-out, which is drawn as
 trigger 5.
 
 **Boot recovery's own sequence.** `Invoke-YurunaBootRecovery` sweeps stale
-pidfiles, a stale `break-active.json`, stale pause flags and orphan `.incomplete`
-cycle folders. It runs once, before the state machine is initialized, and is
+pidfiles, a stale `break-active.json`, stale pause flags -- now including the lab
+hold's `control.lab-hold`, `lab-hold.json` and `control.lab-hold-release`, while
+`lab-health.json` is deliberately left standing because it is what arms the gate
+-- and orphan `.incomplete` cycle folders. It runs once, before the state machine is initialized, and is
 strictly ordered rather than branching, so it is a data flow rather than a
 lifecycle.
 
-**Host and service-VM lifecycles.** The caching-proxy, stash, pool-control and
-download-agent VMs each have their own start/health/stop shape driven from
-`test/service/`. They live outside the cycle: the runner gates on their
-readiness during the preamble but does not own their transitions.
+**The MCP endpoints, the requirement version floors and the Lab token
+diagnostic.** They landed alongside this work and carry no runner state at all:
+the per-daemon MCP surfaces belong to the daemons in
+[Deployment topology](06-deployment.md), the version floors run inside an
+installer, and `test/lab/Lab-Diag.ps1` is a read-only probe that stores nothing.
+Nothing here transitions.
+
+**Host and service-VM lifecycles, except one transition.** The caching-proxy,
+stash, pool-control and download-agent VMs each have their own start, health and
+stop shape driven from `test/service/`, and it is out of frame here. One edge is
+not: once per cycle the `service-vm-restore` preamble phase sweeps the roster and
+powers on every service VM that is registered but stopped
+(`test/modules/Invoke-TestRunnerInnerLoop.ps1:669-694`), because a host reboot
+leaves them all registered and off and nothing else in the cycle turns them back
+on. That off-to-running edge is the only service-VM transition the runner owns; it
+never builds one and never stops one.

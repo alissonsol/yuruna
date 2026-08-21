@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Version: 2026.08.20
+# Version: 2026.08.21
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -56,7 +56,11 @@ echo "Service user: $SERVICE_USER"
 
 # --- REGION: Service tunables
 HTTP_ADDR="${POOL_CONTROL_HTTP_ADDR:-0.0.0.0:80}"
-PRESENCE_INTERVAL="${POOL_CONTROL_PRESENCE_INTERVAL:-15m}"
+# The presence interval must stay SHORTER than the aggregator's extension
+# health grace: a re-announce is also how a renumbered service reports its new
+# address, so a cadence slower than the grace leaves the area unresolvable
+# between the refusal of the old address and the next announce.
+PRESENCE_INTERVAL="${POOL_CONTROL_PRESENCE_INTERVAL:-2m}"
 # The lab-auth token opens the bearer path on the routes that change pool
 # configuration, for automation. Absent file => bearer disabled; an operator
 # unlocking with the dashboard's Lab token is then the only way in, and a change
@@ -223,7 +227,8 @@ REPO_DIR="$(locate_repo_dir)" || {
   exit 1
 }
 SERVER_DIR="$REPO_DIR/test/extension/pool-control-service/server"
-VERSION_STR="$(cat "$REPO_DIR/VERSION" 2>/dev/null || echo dev)"
+VERSION_STR=$(cat "$REPO_DIR/VERSION" 2>/dev/null | head -n1 | tr -d '[:space:]' || true)
+[ -n "$VERSION_STR" ] || VERSION_STR=dev
 
 # --- REGION: Build
 echo ""
@@ -233,16 +238,18 @@ rm -rf "$BUILD"; mkdir -p "$BUILD"; cp -r "$SERVER_DIR" "$BUILD/server"
 # The SDK is a SEPARATE Go module, staged as a sibling of server/ because
 # go.mod resolves it with `replace ... => ../extension-sdk`. It used to be
 # mirrored INTO server/internal/yex, which meant thousands of duplicated
-# lines and a copy that could silently fork. A workspace file cannot replace
-# this: go.work does not rewrite import paths, and the imports name the SDK's
-# module path rather than a directory inside this one.
+# lines and a copy that could silently fork. A go.work file is no substitute
+# HERE: only the two directories staged below are copied into the build dir,
+# so a workspace file living in the enlistment never reaches this build.
 SDK_DIR="$(cd "$SERVER_DIR/../.." && pwd)/extension-sdk"
 [ -f "$SDK_DIR/go.mod" ] || { echo "Could not find the extension SDK at $SDK_DIR." >&2; exit 1; }
 cp -r "$SDK_DIR" "$BUILD/extension-sdk"
-# go.sum is committed, so DO NOT run `go mod tidy` (it needs the network to
-# recompute the graph); `go build` verifies against go.sum and fetches missing
-# modules through the caching-proxy service. Retry: a cache miss the proxy cannot
-# relay surfaces as a transient fetch failure that clears once it has the object.
+# No go.sum here: this module needs only the standard library and the SDK
+# staged beside it, so there is no dependency graph to verify and `go mod
+# tidy` -- which reaches the network to recompute one -- must not run. The
+# retry stands for whatever the build still fetches on a fresh guest: a miss
+# the caching-proxy service cannot relay surfaces as a transient failure that
+# clears once it holds the object.
 attempts=3
 delay=10
 for try in $(seq 1 "$attempts"); do

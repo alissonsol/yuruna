@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.20
+.VERSION 2026.08.21
 .GUID 421185fc-300c-4e42-9cb0-2d84ae9be9cc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -81,6 +81,31 @@ $script:freshLaptop  = Get-CompliantGuardBlock -Header 'Battery Power:' -Omit @(
 # Fully compliant, both power blocks.
 $script:compliant    = (Get-CompliantGuardBlock -Header 'Battery Power:') + (Get-CompliantGuardBlock -Header 'AC Power:')
 
+function Get-SleepPendingKey {
+    param([string[]]$PmsetCustom)
+    $pending = & $macModule { param($p) Get-MacPmsetGuardPending -PmsetCustom $p -Guard (Get-MacSleepGuardList) } $PmsetCustom
+    return @(@($pending) | ForEach-Object { $_.Key })
+}
+function Get-KeyValue {
+    param([string[]]$PmsetCustom, [string]$Key)
+    return @(& $macModule { param($p, $k) Get-MacPmsetKeyValue -PmsetCustom $p -Key $k } $PmsetCustom $Key)
+}
+
+# A Mac that has already had system sleep disabled and still sleeps its disk.
+# Every value here is one an operator would read as healthy except the one that
+# matters, which is why the gate and the apply path have to agree on it.
+$script:diskSleepOnly = @(
+    'Battery Power:',
+    ' sleep                0',
+    ' disksleep            10',
+    ' displaysleep         0',
+    '',
+    'AC Power:',
+    ' sleep                0',
+    ' disksleep            10',
+    ' displaysleep         0'
+)
+
 }
 
 Describe 'Get-MacPmsetGuardList' {
@@ -153,7 +178,71 @@ Describe 'Get-MacPmsetGuardPending' {
     }
 }
 
+Describe 'Get-MacPmsetKeyValue' {
+    It 'reports the value every power block holds for a key' {
+        # One value per block, in block order. A caller that sees only the first
+        # cannot tell a host that is compliant everywhere from one that is
+        # compliant on battery and blanks the display the moment it is plugged in.
+        Assert-Equal -Expected '10,0' -Actual ((Get-KeyValue -PmsetCustom @(
+            'Battery Power:', ' disksleep            10',
+            'AC Power:',      ' disksleep            0') -Key 'disksleep') -join ',')
+    }
+    It 'does not read disksleep or displaysleep as sleep' {
+        # Three keys end in "sleep" and hold unrelated values; matching loosely
+        # would drive a decision about one of them from another's number.
+        # Two blocks, so two zeroes -- and neither of the 10s that disksleep
+        # holds in the same fixture.
+        Assert-Equal -Expected '0,0' -Actual ((Get-KeyValue -PmsetCustom $script:diskSleepOnly -Key 'sleep') -join ',') `
+            'only the sleep lines may answer for sleep'
+    }
+    It 'returns nothing for a key this macOS does not list' {
+        Assert-Equal -Expected 0 -Actual (Get-KeyValue -PmsetCustom $script:diskSleepOnly -Key 'lowpowermode').Count
+    }
+}
+
+Describe 'Get-MacSleepGuardList' {
+    It 'drives sleep and disksleep to 0' {
+        $sleepGuards = @(& $macModule { Get-MacSleepGuardList })
+        Assert-Equal -Expected 'sleep,disksleep' -Actual (($sleepGuards | ForEach-Object { $_.Key }) -join ',')
+        foreach ($g in $sleepGuards) { Assert-Equal -Expected 0 -Actual $g.Want "guard '$($g.Key)' must be driven to 0 (Never)" }
+    }
+    It 'writes disksleep on a host whose system sleep is already 0' {
+        # The regression this list exists for: one decision read from `sleep`
+        # reported "already Never" and wrote nothing, on the exact host the gate
+        # then refused -- a loop that re-running the setup script cannot break.
+        Assert-Equal -Expected 'disksleep' -Actual ((Get-SleepPendingKey -PmsetCustom $script:diskSleepOnly) -join ',')
+    }
+    It 'asks for nothing when both keys are already 0' {
+        $bothOff = @($script:diskSleepOnly -replace '^(\s*disksleep\s+)10$', '${1}0')
+        Assert-Equal -Expected '' -Actual ((Get-SleepPendingKey -PmsetCustom $bothOff) -join ',') `
+            'a compliant host must not be charged a sudo prompt'
+    }
+    It 'catches disksleep left behind in one power block' {
+        $batteryOnly = @(
+            'Battery Power:', ' sleep                0', ' disksleep            10',
+            'AC Power:',      ' sleep                0', ' disksleep            0')
+        Assert-Equal -Expected 'disksleep' -Actual ((Get-SleepPendingKey -PmsetCustom $batteryOnly) -join ',') `
+            'the writes go out with -a, so one drifted block is still drift'
+    }
+}
+
 Describe 'Set-MacHostConditionSet wiring' {
+    It 'decides the sleep writes from the shared sleep guard list' {
+        # Both halves have to read the same list, or the apply path can call a
+        # host ready that the gate refuses. Pinned in the AST because neither
+        # half can be exercised off a Mac.
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($macModulePath, [ref]$null, [ref]$null)
+        foreach ($fnName in @('Set-MacHostConditionSet', 'Get-MacScreenLockIssue')) {
+            $fn = $ast.FindAll({ param($n)
+                $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+                $n.Name -eq $fnName }, $true)
+            Assert-Equal -Expected 1 -Actual @($fn).Count "$fnName must be defined once"
+            $calls = $fn[0].Body.FindAll({ param($n)
+                $n -is [System.Management.Automation.Language.CommandAst] -and
+                $n.GetCommandName() -eq 'Get-MacSleepGuardList' }, $true)
+            Assert-True (@($calls).Count -ge 1) "$fnName must read the sleep guards from Get-MacSleepGuardList"
+        }
+    }
     It 'decides the pmset writes through Get-MacPmsetGuardPending' {
         # Pins the absence rule to the apply path: an inline "no listed mismatch
         # -> skip" loop here is what left disablesleep unwritten.

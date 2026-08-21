@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.20
+# Version: 2026.08.21
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -109,8 +109,12 @@ fi
 # Extension hosts row exists without the owning host's status service. The
 # announce runs under the HOST's identity (HOST_ID, extracted above from the
 # stash storage env, or /etc/yuruna/host.env when that carries none); with
-# neither the beacon is off.
-PRESENCE_INTERVAL="${STASH_PRESENCE_INTERVAL:-15m}"
+# neither the beacon is off. The interval must stay SHORTER than the
+# aggregator's extension health grace: a re-announce is also how a renumbered
+# service reports its new address, so a cadence slower than the grace leaves
+# the area unresolvable between the refusal of the old address and the next
+# announce.
+PRESENCE_INTERVAL="${STASH_PRESENCE_INTERVAL:-2m}"
 # STASH_BUILD_TAGS lets the VM image opt into the magika detection backend
 # (`-tags magika`); that build also needs ONNX Runtime + the model assets
 # vendored. Default empty = pure-Go heuristic.
@@ -196,9 +200,10 @@ sudo cp -r "$SERVER_DIR" "$BUILD/server"
 # The SDK is a SEPARATE Go module, staged as a sibling of server/ because
 # go.mod resolves it with `replace ... => ../extension-sdk`. It used to be
 # mirrored INTO server/internal/yex instead, which meant 4,290 duplicated
-# lines and a copy that could silently fork from the original. A workspace
-# file cannot replace this: go.work does not rewrite import paths, and the
-# imports name the SDK's module path, not a directory inside this one.
+# lines and a copy that could silently fork from the original. A go.work file
+# is no substitute HERE: only the two directories staged into $BUILD are
+# copied, so a workspace file living in the enlistment never reaches this
+# build.
 sudo cp -r "$SDK_DIR" "$BUILD/extension-sdk"
 sudo chown -R "$(id -un):$(id -gn)" "$BUILD"
 echo ""

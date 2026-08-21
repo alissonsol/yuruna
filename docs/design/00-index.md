@@ -15,7 +15,7 @@ they visualize what the code does rather than restate what that page says; where
 diagram needs a concept from it, it links. A diagram that disagrees with
 `../architecture.md` means one of the two has drifted.
 
-Twenty-eight diagrams across six documents. Every one obeys the same acceptance
+Twenty-nine diagrams across six documents. Every one obeys the same acceptance
 rule: no diagram holds more than seven top-level boxes or subgraphs, and no single
 parent subgraph's child set holds more than seven children. Where reality holds more, siblings are folded into a named aggregate and the
 fold is spelled out in the prose under the diagram; the
@@ -27,12 +27,12 @@ without opening all six files.
 
 | Document | What it shows | Diagram type(s) |
 |---|---|---|
-| [Context and Components](01-context-and-components.md) | The seven level-1 blocks, where each lives on disk, the thirteen calls that cross between them, the edges that are easy to misread, and the places where a block boundary does not match a directory. | flowchart x1 (7 boxes in 7 subgraphs) |
+| [Context and Components](01-context-and-components.md) | The seven level-1 blocks, where each lives on disk, the nineteen calls that cross between them, the edges that are easy to misread, and the places where a block boundary does not match a directory. | flowchart x1 (7 boxes in 7 subgraphs) |
 | [Component breakdown](02-component-breakdown.md) | Each of the seven blocks opened into at most seven children, every aggregate followed by its exact file list and count. | flowchart x7 (7 boxes each) |
 | [Data flows](03-data-flows.md) | Three-phase deployment with its retry gating and `.stderr.log` / `.rc` sidecar contract, one test cycle over one guest, the guest fetch path through the host and squid, failure to taxonomy to alert, agent-first image acquisition, and the layout of the two shares. | sequenceDiagram x5 (7, 7, 6, 7, 7 participants), flowchart x1 (7 boxes) |
-| [Lifecycle state](04-lifecycle-state.md) | The outer runner's six-state enum with the watchdog path into `fault` and the pause break-out triggers, the per-guest step lifecycle, and the warm-resume retry. | stateDiagram-v2 x3 (6, 7, 7 states) |
-| [Configuration data model](05-data-model.md) | Project deploy YAML and its generated outputs, the cycle plan and sequence files, host config and runtime state and per-cycle results, and the pool intent store with host identity and vaults -- each view with a relationships table and a fields table. | erDiagram x10 (7, 6, 7, 6, 7, 7, 7, 7, 7, 7 entities) |
-| [Deployment topology](06-deployment.md) | Where every process runs once a lab is deployed, the real port on each of the twenty-nine links, which fourteen of them are config-gated, and what a standalone host keeps when the pool tier is off. | flowchart x1 (7 subgraphs, 26 boxes, largest child set 7) |
+| [Lifecycle state](04-lifecycle-state.md) | The outer runner's six-state enum with the watchdog path into `fault` and the pause break-out triggers, the per-guest step lifecycle, the hold on a lab service that went away, and the warm-resume retry. | stateDiagram-v2 x4 (6, 7, 6, 7 states) |
+| [Configuration data model](05-data-model.md) | Project deploy YAML and its generated outputs, the host-tool version floors, the cycle plan and sequence files, host config and runtime state and per-cycle results, and the pool intent store with host identity and vaults -- each view with a relationships table and a fields table. | erDiagram x10 (7, 6, 7, 6, 7, 7, 7, 7, 7, 7 entities) |
+| [Deployment topology](06-deployment.md) | Where every process runs once a lab is deployed, the real port on all but one of the thirty-four links (the kube context endpoint is provider-defined and left unpinned), which eighteen of them are conditional, and what a standalone host keeps when the pool tier is off. | flowchart x1 (7 subgraphs, 27 boxes, largest child set 7) |
 | [Naming conventions](naming.md) | The rules every component, config key, duration, boolean, acronym, PowerShell verb and page name follows, and the foreign contracts deliberately exempt. | prose (no diagram) |
 
 ## How they relate
@@ -55,8 +55,9 @@ happens when I run this*, or when tracing an artifact -- a planfile, a screensho
 failure record, an image -- from the process that writes it to the one that reads it.
 
 **Doc 4 shows the states each long-lived thing passes through.** The runner's own
-six-state machine, the per-guest step sequence inside one cycle, and the warm-resume
-loop nested inside the workload step. Read it when the question is *why is it in
+six-state machine, the per-guest step sequence inside one cycle, the hold on a lab
+service that stopped answering, and the warm-resume loop nested inside the workload
+step. Read it when the question is *why is it in
 this state, and what gets it out* -- a wedged cycle, a pause that will not end, a
 guest that keeps being skipped.
 
@@ -81,12 +82,12 @@ Paths are repo-relative to `yuruna` except where prefixed `yuruna-project/`.
 
 | Document | Derived from |
 |---|---|
-| [Context and Components](01-context-and-components.md) | `git ls-tree --name-only HEAD` in both repositories, and `.gitignore`; the cross-boundary call sites in `install/setup.ps1`, `install/ubuntu.kvm.sh`, `tools/Update-YurunaReleasePins.ps1`, `test/modules/Test.HostBootstrap.psm1`, `test/modules/Test.HostGit.psm1`, `test/sequences/`, `host/Yuruna.Host.Contract.psm1`, `host/vmconfig/`, `automation/fetch-and-execute.sh`, `automation/Yuruna.Resource.psm1`, `automation/Yuruna.Validation.psm1`, `automation/Yuruna.HostRedirect.psm1`, `automation/Yuruna.CredentialProvider.psm1`, and `yuruna-project/example/website/test/`. |
-| [Component breakdown](02-component-breakdown.md) | The tracked file listing of every block root -- `automation/`, `global/`, `yuruna-project/`, `guest/`, `host/`, `install/`, `tools/`, `test/` -- read against the dispatchers that group them: `automation/yuruna.ps1`, `automation/Yuruna.CloudInitTemplate.psm1`, `host/Yuruna.Host.Contract.psm1`, `host/modules/Yuruna.HostProvision.psm1` and `tools/Invoke-TestSuite.ps1`. |
-| [Data flows](03-data-flows.md) | `automation/Set-Resource.ps1`, `automation/Set-Component.ps1`, `automation/Set-Workload.ps1` and the `automation/Yuruna.{Resource,Component,Workload,Retry,DeploymentKind,Result}.psm1` modules behind them; `automation/Get-SystemDiagnostic.ps1`; `automation/fetch-and-execute.sh` with `automation/yuruna-retry.sh` and `automation/yuruna-host-locate.sh`; `test/modules/Test.{RunnerOuterLoop,RunnerInnerLoop,SequenceEngine,SequenceHandler,SequenceFailureState,GuestQuarantine,Remediation,Notify,PoolStorage,HostIdentity}.psm1`; `host/modules/Yuruna.{DownloadAgent,UbuntuImage,HostDownload,HostProvision}.psm1`; `host/vmconfig/ubuntu.server.base.user-data` and `host/vmconfig/caching-proxy-service.base.user-data`; and the Go packages `test/extension/download-agent-service/server/internal/config/`, `test/extension/download-agent-service/server/internal/state/` and `test/extension/stash-service/server/internal/config/`. |
-| [Lifecycle state](04-lifecycle-state.md) | `test/modules/Test.RunnerState.psm1` for the enum and the validator, `test/modules/Test.RunnerOuterLoop.psm1` for every product `Set-RunnerState` call site, `test/modules/Test.RunnerWatchdog.psm1`, `test/modules/Test.RunnerInnerLoop.psm1` and `test/modules/Test.WarmResume.psm1`, with the bounds and phases in `test/Start-TestRunner.ps1`, `test/modules/Test.RunnerHeartbeat.psm1`, `test/modules/Invoke-TestRunnerInnerLoop.ps1` and the atomic writer `test/modules/Test.StateFile.psm1`. |
-| [Configuration data model](05-data-model.md) | The parsers `automation/Yuruna.Resource.psm1`, `automation/Yuruna.Component.psm1`, `automation/Yuruna.Workload.psm1`, `automation/Yuruna.Validation.psm1`, `automation/Yuruna.DeploymentKind.psm1` and `automation/Yuruna.VariableExpansion.psm1`; the project trees under `yuruna-project/`; `test/test.config.yml.template` with its reader `test/modules/Test.Config.psm1`; the plan and sequence readers `test/modules/Test.SequencePlanner.psm1` and `test/modules/Test.SequenceResolve.psm1`; the runtime writers `test/modules/Test.RunnerState.psm1`, `test/modules/Test.SequenceFailureState.psm1`, `test/modules/Test.Perf.psm1`, `test/modules/Test.Log.psm1` and `test/modules/Test.Capability.psm1`; and the thirteen JSON Schemas under `test/schemas/`. |
-| [Deployment topology](06-deployment.md) | The service start scripts under `test/service/`, the cloud-init seeds under `host/vmconfig/`, the Go daemons under `test/extension/`, `test/modules/Test.PoolStorage.psm1` and `test/modules/Test.PoolSync.psm1`, the provider drivers `host/<platform>/modules/Yuruna.Host.psm1`, and the deploy entry points `automation/Set-Resource.ps1`, `automation/Set-Component.ps1` and `automation/Set-Workload.ps1`. Every port was re-read from the source that opens or dials it. |
+| [Context and Components](01-context-and-components.md) | `git ls-tree --name-only HEAD` in both repositories, and `.gitignore`; the cross-boundary call sites in `install/setup.ps1`, `install/ubuntu.kvm.sh`, `tools/Update-YurunaReleasePins.ps1`, `test/modules/Test.HostBootstrap.psm1`, `test/modules/Test.HostGit.psm1`, `test/sequences/`, `host/Yuruna.Host.Contract.psm1`, `host/vmconfig/`, `automation/fetch-and-execute.sh`, `automation/Yuruna.Resource.psm1`, `automation/Yuruna.Validation.psm1`, `automation/Yuruna.HostRedirect.psm1`, `automation/Yuruna.CredentialProvider.psm1`, `automation/Test-Requirement.ps1`, `test/service/Start-McpServer.ps1`, and `yuruna-project/example/website/test/`. |
+| [Component breakdown](02-component-breakdown.md) | The tracked file listing of every block root -- `automation/`, `global/`, `yuruna-project/`, `guest/`, `host/`, `install/`, `tools/`, `test/` -- read against the dispatchers that group them: `automation/yuruna.ps1`, `automation/Yuruna.CloudInitTemplate.psm1`, `host/Yuruna.Host.Contract.psm1`, `host/modules/Yuruna.HostProvision.psm1`, `tools/Invoke-TestSuite.ps1` and `tools/Invoke-GoTest.ps1`; plus the extension contract pair `<area>.contract.yml` / `<area>.config.yml` and the shared Go library `test/extension/extension-sdk/`. |
+| [Data flows](03-data-flows.md) | `automation/Set-Resource.ps1`, `automation/Set-Component.ps1`, `automation/Set-Workload.ps1` and the `automation/Yuruna.{Resource,Component,Workload,Retry,DeploymentKind,Result}.psm1` modules behind them; `automation/Get-SystemDiagnostic.ps1`; `automation/fetch-and-execute.sh` with `automation/yuruna-retry.sh` and `automation/yuruna-host-locate.sh`; `test/modules/Test.{RunnerOuterLoop,RunnerInnerLoop,SequenceEngine,SequenceHandler,SequenceFailureState,GuestQuarantine,Remediation,Notify,PoolStorage,HostIdentity}.psm1`; `host/modules/Yuruna.{DownloadAgent,UbuntuImage,HostDownload,HostProvision}.psm1`; `host/vmconfig/ubuntu.server.base.user-data` and `host/vmconfig/caching-proxy-service.base.user-data`; `test/modules/Test.LabHealth.psm1`; and the Go packages `test/extension/download-agent-service/server/internal/config/`, `test/extension/download-agent-service/server/internal/state/` and `test/extension/stash-service/server/internal/config/`. |
+| [Lifecycle state](04-lifecycle-state.md) | `test/modules/Test.RunnerState.psm1` for the enum and the validator, `test/modules/Test.RunnerOuterLoop.psm1` for every product `Set-RunnerState` call site, `test/modules/Test.RunnerWatchdog.psm1`, `test/modules/Test.RunnerInnerLoop.psm1` and `test/modules/Test.WarmResume.psm1`, with the bounds and phases in `test/Start-TestRunner.ps1`, `test/modules/Test.RunnerHeartbeat.psm1`, `test/modules/Invoke-TestRunnerInnerLoop.ps1` and the atomic writer `test/modules/Test.StateFile.psm1`; the hold lifecycle from `test/modules/Test.LabHealth.psm1` with its call sites in `test/modules/Test.SequenceEngine.psm1` and `test/modules/Test.Orchestrator.psm1`. |
+| [Configuration data model](05-data-model.md) | The parsers `automation/Yuruna.Resource.psm1`, `automation/Yuruna.Component.psm1`, `automation/Yuruna.Workload.psm1`, `automation/Yuruna.Validation.psm1`, `automation/Yuruna.DeploymentKind.psm1` and `automation/Yuruna.VariableExpansion.psm1`; the project trees under `yuruna-project/`; `test/test.config.yml.template` with its reader `test/modules/Test.Config.psm1`; the plan and sequence readers `test/modules/Test.SequencePlanner.psm1` and `test/modules/Test.SequenceResolve.psm1`; the runtime writers `test/modules/Test.RunnerState.psm1`, `test/modules/Test.SequenceFailureState.psm1`, `test/modules/Test.Perf.psm1`, `test/modules/Test.Log.psm1` and `test/modules/Test.Capability.psm1`; `automation/Yuruna.Requirement.psm1` with `automation/Yuruna.Requirement.yml`; `test/modules/Test.LabHealth.psm1` and `test/modules/Test.ConfigNaming.psm1`; and the thirteen JSON Schemas under `test/schemas/`. |
+| [Deployment topology](06-deployment.md) | The service start scripts under `test/service/`, the cloud-init seeds under `host/vmconfig/`, the Go daemons under `test/extension/`, `test/modules/Test.PoolStorage.psm1` and `test/modules/Test.PoolSync.psm1`, the provider drivers `host/<platform>/modules/Yuruna.Host.psm1`, the MCP mounts in `test/extension/extension-sdk/mcp/` and each daemon's `mcp.go`, and the deploy entry points `automation/Set-Resource.ps1`, `automation/Set-Component.ps1` and `automation/Set-Workload.ps1`. Every port was re-read from the source that opens or dials it. |
 
 ## The <=7 rule -- grouping decisions
 
@@ -102,13 +103,13 @@ one level up, when the directory listing was reduced to those blocks.
 |---|---|
 | `global/ + project repo` is one box | `global/` (51 files) plus the whole `yuruna-project` repository (116 tracked files). A `template:` value resolves against the project's own `resources/` first and `global/resources/` second, in the same two lines of `automation/Yuruna.Resource.psm1`, so the two roots are one namespace. |
 | `install/ + tools/` is one box | `install/` (10 files) plus `tools/` (11 files). `tools/Update-YurunaReleasePins.ps1` writes and signs `install/install.sha256`, which makes the two roots one release path. |
-| `clouds, registries, GitHub` is one box | The External Services block owns no directory: cloud control planes, the five credential providers' registries, GitHub over both the Contents API and `git pull`, upstream package repositories, the OCR engines, and Resend. |
+| `clouds, registries, upstreams` is one box | The External Services block owns no directory: cloud control planes and the cluster API, the five credential providers' registries, GitHub over both the Contents API and `git pull`, upstream package, toolchain and OS-image publishers, and Resend. The OCR engines are deliberately not in it -- they are local binaries that cross no network boundary. |
 | Excluded from the block set | `docs/` and `dev-only/` (documentation and maintainer trees), the untracked `project/` clone, and root files such as `README.md` and `VERSION`. |
 
 ### Doc 2 -- Component breakdown
 
 Every one of the seven diagrams runs at exactly seven boxes, so almost every box is
-an aggregate. Excluded throughout: the 194 `test/modules/*.Tests.ps1` Pester suites,
+an aggregate. Excluded throughout: the 205 `test/modules/*.Tests.ps1` Pester suites,
 which mirror the modules they cover and are driven as one set by
 `tools/Invoke-TestSuite.ps1`.
 
@@ -138,18 +139,20 @@ which mirror the modules they cover and are driven as one set by
 | Installers (21 files) | `signed-manifest` | 4 -- `install.sha256`, its `.sig`, and the two public key encodings |
 | | `repo-gates` | 9 -- the seven `tools/Invoke-*` and `tools/Test-*` gates, `tools/_InvokeOneSuite.ps1`, and `tools/Update-TestConfigNaming.ps1` |
 | | the three bootstrappers, `setup.ps1`, `pre-commit` | not folds -- one file each (`setup.ps1` carries its sample answer file) |
-| Test Harness (95 modules, partitioned with none counted twice) | `configuration` | 15 modules, plus `test/Test-Config.ps1`, the config template and the 13 schemas |
+| Test Harness (96 modules, partitioned with none counted twice) | `configuration` | 15 modules, plus `test/Test-Config.ps1`, the config template and the 13 schemas |
 | | `runner` | 22 modules, plus the three entry points and `test/Invoke-TestProject.ps1` |
 | | `sequence-engine` | 26 modules -- 14 engine modules and the 12 guest-I/O and OCR modules that exist only to serve sequence verbs -- plus the 19 files under `test/sequences/` and the OCR probes in `test/check/` |
 | | `host-adapters` | 16 modules, plus `Invoke-HostAddressBeacon.ps1`, `Remove-TestVMFiles.ps1` and `New-LocalTestUser.ps1` |
-| | `host-services` | 5 modules, plus the 14 lifecycle scripts in `test/service/` and the served `test/status/` tree |
-| | `extensions` | 2 modules over 8 extension areas |
-| | `pool-lab` | 9 modules, plus two detached workers and the 13 + 9 operator CLIs in `test/pool/` and `test/lab/` |
+| | `host-services` | 6 modules, plus the six `Start-`/`Stop-` pairs and three other scripts in `test/service/` (15 in all, `Start-McpServer.ps1` among them) and the served `test/status/` tree |
+| | `extensions` | 2 modules over 8 contract-bearing areas, plus the shared Go library `test/extension/extension-sdk/` (beacon, labgate, pool, mcp) |
+| | `pool-lab` | 9 modules, plus two detached workers and the 13 + 10 operator CLIs in `test/pool/` and `test/lab/` |
 | External Services | all seven boxes | each stands for a set of endpoints rather than a file: `package-origins` alone folds distro archives, vendor repositories, toolchain publishers and OS image publishers, and `github` folds three distinct uses of one host |
 
-Two dashed edges in this document are `%% planned` markers rather than folds:
-`global-placeholders -.-> project-trees` (no global fallback exists for components or
-workloads) and `guest-readme -.-> macos-26` (no host seeds a macOS guest).
+Two dashed edges in this document are annotation markers rather than folds:
+`global-placeholders -.-> project-trees` is `%% planned` (no global fallback exists
+for components or workloads), and `guest-readme -.-> macos-26` is `%% manual` (the
+VM is built, but first boot stops at Setup Assistant and nothing installs
+`fetch-and-execute.sh` on a macOS guest).
 
 ### Doc 3 -- Data flows
 
@@ -169,6 +172,7 @@ workloads) and `guest-readme -.-> macos-26` (no host seeds a macOS guest).
 |---|---|---|
 | Outer runner | 6 | none -- `$script:StateEnum` has exactly six members and the diagram uses them verbatim |
 | Per-guest step lifecycle | 7 | two: `New-VM, Start-VM` folds the two provisioning steps with `Update-GuestNeighborCache` and `Wait-VMIp`; `Screenshots, Start-GuestWorkload` folds the optional screenshot step with the workload step |
+| Lab-service hold | 6 | none -- probe, confirmation, hold, and the three ways out |
 | Warm resume | 7 | none |
 
 ### Doc 5 -- Configuration data model
@@ -180,26 +184,29 @@ workloads) and `guest-readme -.-> macos-26` (no host seeds a macOS guest).
 | | `vm_and_guest_keys` | 5 keys -- `vmCommunication`, `vmImage`, `vmStart`, the legacy `guestSequence` list, and the scalar `logLevel` |
 | | (both together) | the template's thirteen top-level keys drawn as six boxes |
 | Runtime state | (files dropped) | the drain ledger `poolstorage.state.json` and the pid, heartbeat, phase, watchdog, outcome, break and `control.*` files -- process liveness rather than configuration, listed under the diagram |
-| Per-cycle results | `CycleManifest` | the 15-value `kind` vocabulary, from `transcript` and `ndjson` through the screenshot, OCR, diagnostic and perf kinds to `other`, which is what carries the per-VM subfolders and the delivery ledger |
+| Per-cycle results | `CycleManifest` | the 18-value `kind` vocabulary, from `transcript` and `ndjson` through the screenshot, OCR, diagnostic and perf kinds to `other`, which is what carries the per-VM subfolders and the delivery ledger |
 
 ### Doc 6 -- Deployment topology
 
-Seven top-level subgraphs holding 26 boxes; the largest child set is the caching-proxy
-VM at exactly 7.
+Seven top-level subgraphs holding 27 boxes; the largest child sets are the
+Hypervisor Host and the caching-proxy VM, each at exactly 7. The proxy VM's seven
+LAN-facing processes plus the loopback aggregate would need eight boxes, so one
+fold is forced there: `Proxy management daemons` is `caching-proxy-parser-service`
+on `9302` beside `caching-proxy-service` on `9310`.
 
 | Subgraph | Children | Aggregate inside it |
 |---|---|---|
 | Operator Workstation | 2 | -- |
-| Hypervisor Host | 6 | -- |
+| Hypervisor Host | 7 | -- |
 | Test Guest VMs | 3 | `Disposable guest VM` stands for whatever guest the plan names -- `guest.ubuntu.server.24`, `.26`, `guest.amazon.linux.2023`, `guest.windows.11` -- all built by the same per-guest script pair |
-| Caching Proxy VM | 7 | `Prometheus, Loki, exporters` folds the four processes that bind `127.0.0.1` only and therefore have no LAN link: Prometheus 9090, Loki 3100, node exporter 9100, squid exporter 9301 |
+| Caching Proxy VM | 7 | Two folds. `Prometheus, Loki, exporters` folds the five processes that bind `127.0.0.1` only and therefore have no LAN link -- Prometheus 9090, Loki 3100, node exporter 9100, squid exporter 9301, promtail 9080 -- and `Proxy management daemons` folds the parser (9302) with the caching-proxy daemon (9310) |
 | Extension Service VMs | 3 | -- |
 | Network Shares | 3 | -- |
 | Deploy Targets | 2 | -- |
 
-Fourteen of the twenty-nine edges are dashed, each one a config gate rather than a
-planned feature; the gate, its default and the file that reads it are tabulated in
-that document.
+Eighteen of the thirty-four edges are dashed, each one conditional rather than
+planned; the seven gate classes behind them, with each default and the file that
+reads it, are tabulated in that document.
 
 ## What is deliberately not drawn
 
@@ -213,7 +220,7 @@ runtime path reads them.
 contents belong to Project & Global Data and its lifecycle to the Test Harness, so it
 is drawn as neither.
 
-**The Pester suites.** All 194 `test/modules/*.Tests.ps1` files are excluded from
+**The Pester suites.** All 205 `test/modules/*.Tests.ps1` files are excluded from
 every count in doc 2. They mirror the modules they cover, so drawing them would double
 the file list without adding a component.
 
@@ -240,15 +247,26 @@ is drawn.
 initialized, and is strictly ordered rather than branching, which makes it a data flow
 rather than a lifecycle.
 
-**Host and service-VM lifecycles.** The caching-proxy, stash, pool-control and
-download-agent VMs each have their own start, health and stop shape driven from
-`test/service/`. The runner gates on their readiness during the preamble but does not
-own their transitions, so doc 6 places those VMs without drawing how they come up.
+**Host and service-VM lifecycles, except one transition.** The caching-proxy,
+stash, pool-control and download-agent VMs each have their own start, health and
+stop shape driven from `test/service/`, and doc 6 places those VMs without drawing
+how they come up. Two qualifications: once per cycle the `service-vm-restore`
+preamble powers on any service VM that is registered but stopped -- the one
+transition the runner owns -- and the cycle re-checks their readiness at every
+sequence step and chain entry, parking itself while one that had been answering is
+away. Both are covered in [Lifecycle state](04-lifecycle-state.md), not here.
+
+**The MCP endpoints.** Five daemons mount `POST /mcp` on the port they already
+serve and the framework serves MCP over stdio, so the protocol adds no node, no
+port and no link -- it is named where the daemons are, in doc 2 and doc 6, and
+drawn nowhere.
 
 **Secret values.** Doc 5 carries field names only. No value from a live vault,
 transports file or secrets folder appears in any diagram or table.
 
 **Ports Yuruna does not own.** The kube context endpoint and the container registry
 address are provider-defined: the engine selects a context and reads a
-`registryLocation` output, and never pins either address. Doc 6 marks both links
-without a port number rather than inventing one.
+`registryLocation` output, and never pins either address. Doc 6 leaves the kube
+link without a port; the registry link keeps `TCP 5000`, which is the
+`global/resources/localhost/registry` case rather than a general truth, and the
+prose beside it says so.

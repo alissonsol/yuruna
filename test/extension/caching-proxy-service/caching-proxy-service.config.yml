@@ -1,0 +1,28 @@
+# yaml-language-server: $schema=../../schemas/extension-config.schema.yml
+
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+# Active provider for the caching-proxy-service extension. Single-provider area.
+# The Go daemon beside this file is fetched + built into the caching-proxy VM by
+# that VM's cloud-init user-data, the same way its two sibling services there are.
+active:
+  - default
+service:
+  displayName: Caching-proxy service
+  vmName: yuruna-caching-proxy-service
+  # 3128 is squid, and squid is what a consumer connects to -- this port is the
+  # host-side answer to "is that VM serving its purpose", which is what the
+  # reboot sweep and the setup adopt check probe. The management daemon listens
+  # somewhere else (9310, see default.psm1) and reports its own liveness to the
+  # pool through the beacon, so moving this key to the daemon's port would trade
+  # a signal every proxy VM can answer for one that only a rebuilt VM can.
+  healthPort: 3128
+  # No healthPath: nothing reads it, and naming one here would claim squid
+  # answers it. The daemon's own /healthz is declared in default.psm1.
+  startScript: Start-CachingProxyServiceVM.ps1
+  stopScript: Stop-CachingProxyServiceVM.ps1
+  markerBaseUrlKey: cachingProxyServiceBaseUrl
+  beaconInterval: 2m
+  # The daemon flips squid's offline and no-upstream switches, which is host
+  # configuration; the reads beside them stay open like every other service's.
+  writeGate: lab-token

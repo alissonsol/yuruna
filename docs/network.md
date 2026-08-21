@@ -532,13 +532,69 @@ Read it in this order:
    re-addresses, and no amount of guest-side evidence substitutes for reading
    it. Check the server before acting on a pool theory.
 
-The measurement that separates these is packet capture on the host bridge --
-`tcpdump -i <bridge> -n 'port 67 or port 68'` while a failing guest boots --
-read against the DHCP server's log for that guest's MAC. It distinguishes
-"never asked", "asked and got no answer", and "was answered and did not take
-it", which have three different fixes. Inside the guest, `networkctl status
-<if>` and `nmcli device show <if>` report the client's own view; `ip addr`
-alone cannot tell a client that gave up from one still trying.
+The measurement that separates these reads the client's own state against the
+server's record for that guest's MAC. It distinguishes "never asked", "asked and
+got no answer", and "was answered and did not take it", which have three
+different fixes -- and `ip addr` alone tells none of them apart, because it
+cannot show a client that gave up as different from one still trying.
+
+A failing run leaves both halves without anyone being at the console:
+
+* **The guest half** is the `DHCP client state` block at the end of the console
+  diagnostic -- which profile claimed the NIC, the link state, the client
+  identity in use, and the last DHCP lines the client logged. See
+  [Defining network diag](#defining-network-diag).
+* **The host half**, where libvirt runs the guest network, is
+  `dhcp.capture.txt` beside the failure diagnostics. See
+  [Reading the DHCP server a libvirt host runs](#reading-the-dhcp-server-a-libvirt-host-runs).
+
+By hand on a live guest the same questions are `networkctl status <if>` and
+`nmcli device show <if>`; on the host, `tcpdump -i <bridge> -n 'port 67 or port
+68'` while a failing guest boots.
+
+### Reading the DHCP server a libvirt host runs
+
+Where guests sit on a libvirt network, the host **is** the DHCP server they
+talk to, and none of its own address, route and socket dumps say anything about
+that service. Two artifacts close the gap, and both exist because the guest is
+destroyed at cleanup minutes after it fails -- with it goes the mapping from VM
+name to MAC and bridge that the server's log has to be read through.
+
+**`dhcp.capture.txt`, beside the failure diagnostics.** The window opens at
+`Start-VM` -- the guest's first `DISCOVER` lands seconds after firmware, so no
+later hook could contain it -- and it opens at an *instant*, not a duration,
+because a duration drifts with how long the failing step took and either misses
+that first ask or drags in the previous guest's. Arming costs a timestamp and
+two lookups: there is no capture session to collide with another guest's and
+nothing to leak if a flow never tears one down, which is what lets every start
+arm one. The file carries the guest's MAC, bridge and network, the dnsmasq
+transactions logged inside the window, and the lease table as it stands at save
+time. It is written only on the failure path; a clean teardown discards the
+window, and only for the VM that owns it (the cycle-start sweep removes leftover
+VMs by prefix, and an unowned discard would throw away the window of the guest
+actually under test).
+
+**The wire capture is the optional half.** It answers the one question the
+server's log cannot -- whether a frame the server never logged reached the
+bridge at all -- and it runs only where `tcpdump` can open the bridge WITHOUT
+privilege. Nothing elevates to capture: a root `tcpdump` started by the runner
+could not be stopped by it afterwards, and a passwordless grant for a program
+that writes files and runs commands as root is a larger hole than the evidence
+is worth. Grant the capability instead, per host:
+
+```bash
+sudo setcap cap_net_raw,cap_net_admin=eip "$(command -v tcpdump)"
+```
+
+Without it the journal half still lands and `dhcp.capture.txt` records why
+there is no `dhcp.capture.pcap` next to it -- a capture that did not run must
+say so, or its absence reads as silence on the wire.
+
+**The host diagnostic asks libvirt directly** as well: domains, per-domain MAC
+and bridge, each network's bridge, forward mode and DHCP range, its lease
+table, and the last 30 minutes of dnsmasq transactions. That section is
+read-only by construction -- a diagnostic that could define, start or destroy a
+network could cause the outage it was run to explain.
 
 ### Defining lease release on teardown
 
@@ -648,6 +704,20 @@ command line and would close a healthy run's OCR wait early.
 in tests; production behavior with the variable unset is unchanged. It
 covers only the sysfs reads -- the `ip` invocations are live.
 
+**The client is asked, not recommended.** Every verdict above bottoms out at
+"no address", which cannot separate a lease that is late from a client that
+stopped asking -- and those two indict different machines. The report therefore
+ends with a `DHCP client state` block for the one interface the verdict named:
+the `Network File` that claimed it (`n/a` is the shape where DHCP is never
+attempted), its state, the DHCP client identity in use, and the last few DHCP
+lines from the client's own journal. The journal is read unprivileged first and
+only then through `sudo -n`, which never prompts -- a console nobody is watching
+must not be parked at a password prompt. Exactly one interface is asked, and
+each probe is capped, for the same reason the verdict block is bounded. A silent
+journal is itself reported: an empty block would read as a probe that did not
+run. `YURUNA_NET_JOURNAL` overrides the journal command for tests, the same way
+`YURUNA_NET_SYSFS` overrides the walk.
+
 ### Defining network release
 
 `network_release` releases DHCP leases (and any other transient network
@@ -725,7 +795,7 @@ relaxing egress (`project_sslbump_ca_gating_durable_fix`):
   needs the trust anchor.
 - **Guest CA self-heal.** `yuruna_ca_selfheal` (in `automation/yuruna-retry.sh`,
   so every fetched script has it) detects an untrusted bump and re-fetches the
-  CA from the host status server's `/ca.crt` endpoint over the
+  CA from the host status service's `/ca.crt` endpoint over the
   RFC1918-permitted plain-HTTP path (`wget --no-proxy`), then
   `update-ca-certificates` and re-probe. The
   endpoint **live-reads the current cache** (never a stale cached CA),
@@ -2387,6 +2457,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.20
+Last review: 2026.08.21
 
 Back to [Yuruna](../README.md)

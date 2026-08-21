@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.20
+.VERSION 2026.08.21
 .GUID 42d0dcad-5f1c-4177-8e40-8f43c9920e55
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -244,7 +244,13 @@ Restore-Knob -Name 'sysadminctl/screenLock' -Description 'sysadminctl unified sc
     } else {
         throw "the captured status '$text' does not name an interval to restore"
     }
-    $r = Invoke-YurunaSudo -Argument @('sysadminctl', '-screenLock', $target, '-password', '-') -TolerateBlocked
+    # Not Invoke-YurunaSudo: `-password -` leaves sysadminctl reading the
+    # ACCOUNT password off whatever stdin it inherits, and it does that with a
+    # plain read that never turns terminal echo off -- so an operator typing at
+    # its prompt watches their password appear in the clear. The shared helper
+    # reads it masked and pipes it in, which is also what keeps it out of argv.
+    $r = Set-MacScreenLockState -State $target -Reason "restore the unified screen lock to '$target'"
+    if (-not $r.Attempted) { throw "sysadminctl -screenLock $target needs the account password: $($r.Output). Run it by hand: $(Get-MacScreenLockManualCommand -State $target)" }
     if ($r.ExitCode -ne 0) { throw "sysadminctl -screenLock $target failed: $($r.Output)" }
 }
 

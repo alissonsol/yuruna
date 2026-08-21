@@ -70,6 +70,32 @@ testCycle:
     enabled: true
     failuresToQuarantine: 3
     skipCycles: 5
+  # Lab-health gate: hold the cycle at the next step boundary when a lab service
+  # that WAS answering stops answering, and resume on its own when it returns.
+  # The probe set is derived from every extension area's declared healthPort, so
+  # nothing is listed here. A service this host has never reached never holds --
+  # that is not a change of condition, and the caller's own pre-flight gives a
+  # faster answer about a service that was never there.
+  labHealth:
+    enabled: true
+    # Verdict freshness for a service the gate is watching. Below this age the
+    # per-step gate reuses the cached verdict instead of probing, so the gate
+    # costs nothing on a fast sequence.
+    minIntervalSeconds: 30
+    # Re-probe cadence for a service the gate is NOT watching. Its lookup is the
+    # expensive one (a pool round-trip that has to time out) and its answer is
+    # the one that almost never changes, so it is asked far less often.
+    discoveryIntervalSeconds: 600
+    # A service last reached longer ago than this can no longer hold the cycle:
+    # gone for a week is the lab's new normal, and holding every cycle would
+    # hide that behind a host that never reports anything at all.
+    armWindowHours: 24
+    # Ceiling on hold re-probes. Clamped to the compiled 999, which at up to 59 s
+    # per attempt is about sixteen hours before the cycle gives up and records a
+    # lab_dependency_down failure.
+    maxHoldAttempts: 999
+    # Extra areas to probe even where this host has never seen them healthy.
+    require: []
   # Per-step performance log: one JSONL row per step under status/perf/cycles/,
   # which is what the status page's Perf chart renders. Collection is automatic;
   # this knob only turns it off for a host. Deliberately host-level, not per

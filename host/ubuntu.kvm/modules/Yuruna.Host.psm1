@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.20
+.VERSION 2026.08.21
 .GUID 42539052-a22b-452d-ad7f-0bbf053904ff
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -203,6 +203,19 @@ function Start-VM {
     if ($LASTEXITCODE -ne 0) {
         return @{ success = $false; errorMessage = "virsh start failed: $($output -join '; ')" }
     }
+    # Arm the DHCP evidence window here and only here: the guest's first
+    # DISCOVER lands seconds after firmware, before any sequence step runs, so
+    # nothing later could open a window that contains it. The already-running
+    # path above deliberately does not arm -- that transaction is already in
+    # the past, and a window opened after it would show an empty slice for a
+    # guest that did ask, which reads as the opposite of what happened.
+    #
+    # The start's exit code is put back afterwards: arming runs virsh lookups
+    # of its own, and a caller that reads $LASTEXITCODE after this function
+    # would otherwise be reading the diagnostic's result as the start's.
+    $startExitCode = $LASTEXITCODE
+    [void](Start-VMDhcpCapture -VMName $VMName)
+    if ($null -ne $startExitCode) { $global:LASTEXITCODE = $startExitCode }
     return @{ success = $true; errorMessage = $null }
 }
 
@@ -280,6 +293,15 @@ function Remove-VM {
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$VMName)
     if (-not $PSCmdlet.ShouldProcess($VMName, 'Remove VM')) { return $false }
+
+    # Discard only a window this VM owns: the cycle-start sweep removes
+    # leftover VMs by prefix, and an unowned discard there would throw away the
+    # evidence just armed for the guest actually under test. A failure path
+    # saves (and clears) the window before removal, so this fires only on the
+    # teardown that had nothing to explain.
+    if ($script:YurunaDhcpCapture -and $script:YurunaDhcpCapture.VMName -eq $VMName) {
+        [void](Stop-VMDhcpCapture)
+    }
 
     # Force-stop first; ignore errors (VM may be absent or already stopped).
     Invoke-Virsh -VirshArgs @('destroy', $VMName) | Out-Null
@@ -3474,6 +3496,301 @@ function Assert-Virtualization {
     return $true
 }
 
+# --- REGION: DHCP evidence capture
+# A guest that comes up with no address can only report "no lease". From
+# inside it there is no way to separate a DISCOVER that was never sent from
+# one that was sent and never answered, and those two indict different
+# machines. On this host libvirt runs the dnsmasq that answers, so the
+# server's half of the conversation is already being written to the journal.
+# What is missing is a mark on the timeline saying which lines belong to THIS
+# boot of THIS guest, and a copy taken while the domain still exists: the
+# failure path undefines it within minutes, and with it goes the only mapping
+# from VM name to MAC and bridge that the journal can be read through.
+#
+# Arming therefore costs a timestamp and two lookups. There is no capture
+# session to collide with another guest's, and nothing to leak if a flow never
+# tears one down -- which is what lets it be armed on every start, since
+# whether this boot's lease goes wrong is not knowable in advance.
+#
+# The wire capture is the optional half. It answers the one question the
+# journal cannot -- whether a frame the server never logged reached the bridge
+# at all -- and it is taken only where tcpdump can open the bridge WITHOUT
+# privilege. Nothing here elevates to capture: a root tcpdump started by the
+# runner could not be stopped by it afterwards, and a passwordless grant for a
+# program that writes files and runs commands as root is a larger hole than the
+# evidence is worth. Where the capability is absent the reason is recorded
+# beside the journal slice, so the reader learns the capture is off rather than
+# wondering whether it saw nothing.
+
+# The one armed capture, if any. Session state, not durable state: it says only
+# that THIS process armed a window for that VM.
+$script:YurunaDhcpCapture = $null
+
+# tcpdump needs CAP_NET_RAW to open a bridge. The grant is per-binary and
+# survives upgrades of nothing, so it is named here rather than assumed.
+$script:YurunaDhcpCaptureGrant = 'sudo setcap cap_net_raw,cap_net_admin=eip $(command -v tcpdump)'
+
+# Why the refusal is remembered: whether this account may open a bridge does not
+# change inside one runner process, and finding out costs a spawn and a settle
+# on every VM start. Remembered as the REASON, so the artifact still explains
+# itself on the guest that fails rather than only on the first guest of the run.
+$script:YurunaDhcpWireRefusal = ''
+
+<#
+.SYNOPSIS
+    Resolve the bridge (and libvirt network, if any) a domain's NIC attaches to.
+.DESCRIPTION
+    domiflist reports the SOURCE, which is a network name for a NAT/routed
+    guest and a bridge name for a bridged one. Only the bridge can be captured
+    on, so a network source is resolved one step further through net-info.
+#>
+function Get-YurunaGuestBridge {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][string]$VMName)
+    $found = @{ Bridge = ''; Network = '' }
+    $rows = Invoke-Virsh -VirshArgs @('domiflist', $VMName)
+    if ($LASTEXITCODE -ne 0) { return $found }
+    foreach ($row in @($rows)) {
+        # Interface Type Source Model MAC. The header and its underline carry
+        # no MAC, so requiring one is what skips them without matching on the
+        # column titles, which are localized.
+        if ("$row" -match '^\s*\S+\s+(network|bridge)\s+(\S+)\s+\S+\s+[0-9a-fA-F:]{17}') {
+            if ($Matches[1] -eq 'bridge') { $found.Bridge = $Matches[2]; break }
+            $found.Network = $Matches[2]
+            foreach ($line in @(Invoke-Virsh -VirshArgs @('net-info', $found.Network))) {
+                if ("$line" -match '^\s*Bridge:\s*(\S+)') { $found.Bridge = $Matches[1] }
+            }
+            break
+        }
+    }
+    return $found
+}
+
+<#
+.SYNOPSIS
+    Read the dnsmasq DHCP journal from an armed instant, or explain why not.
+.DESCRIPTION
+    Unprivileged first: a journal read works for any member of 'adm' or
+    'systemd-journal', which is the common case here. Elevation is the
+    fallback and is non-interactive, so a runner cycle can never be parked at
+    a password prompt. The window opens at the armed instant rather than at a
+    duration, because a duration drifts with how long the failing step took
+    and would either miss the first transaction or drag in the previous guest's.
+#>
+function Get-YurunaDnsmasqJournal {
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param([Parameter(Mandatory)][long]$SinceEpochSecond)
+    if (-not (Get-Command journalctl -ErrorAction SilentlyContinue)) {
+        return [string[]]@('(journalctl is not present on this host)')
+    }
+    $journalArg = @('-t', 'dnsmasq-dhcp', '-t', 'dnsmasq', '--since', "@$SinceEpochSecond", '--no-pager')
+    # journalctl answers an empty window with a placeholder line rather than
+    # with nothing, and a placeholder counts as a read that found nothing --
+    # otherwise the elevated retry never runs and the caller reports "the
+    # server logged this much" while showing the marker for having logged none.
+    $out = @(& journalctl @journalArg 2>$null | ForEach-Object { "$_" } | Where-Object { $_ -notmatch '^-- No entries --' })
+    if ($out.Count -eq 0) {
+        $out = @(& sudo -n journalctl @journalArg 2>$null | ForEach-Object { "$_" } | Where-Object { $_ -notmatch '^-- No entries --' })
+    }
+    if ($out.Count -eq 0) {
+        return [string[]]@('(no dnsmasq entries in the window -- no guest asked for a lease here,',
+                           ' dnsmasq does not log to this journal, or this account cannot read it)')
+    }
+    return [string[]]$out
+}
+
+<#
+.SYNOPSIS
+    Arm a DHCP evidence window for one guest VM.
+.OUTPUTS
+    [bool] $true when a window is armed (with or without a wire capture).
+#>
+function Start-VMDhcpCapture {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Diagnostic capture: records a timestamp and reads packets, changes no durable system state, and must never prompt inside a runner cycle.')]
+    param([Parameter(Mandatory)][string]$VMName)
+    try {
+        # One window at a time. A start that inherits a live capture from the
+        # previous guest would leave that guest's tcpdump running against a
+        # bridge nobody is collecting from, and its temp file behind it.
+        if ($script:YurunaDhcpCapture) { [void](Stop-VMDhcpCapture) }
+        # Stamped before anything else is looked up: a DISCOVER sent while this
+        # is still resolving the bridge has to fall inside the window, and one
+        # second of slack absorbs the journal's own clock rounding.
+        $armed = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - 1
+        $iface = Get-YurunaGuestBridge -VMName $VMName
+        $mac = $null
+        try { $mac = Get-VMMac -VMName $VMName } catch { $mac = $null }
+        $capture = @{
+            VMName    = $VMName
+            ArmedUtc  = $armed
+            Mac       = $mac
+            Bridge    = $iface.Bridge
+            Network   = $iface.Network
+            PcapPath  = ''
+            Process   = $null
+            WireNote  = ''
+        }
+        if (-not $iface.Bridge) {
+            $capture.WireNote = 'no bridge resolved for this domain; wire capture not started'
+        } elseif (-not (Get-Command tcpdump -ErrorAction SilentlyContinue)) {
+            $capture.WireNote = 'tcpdump is not installed; journal evidence only'
+        } elseif ($script:YurunaDhcpWireRefusal) {
+            $capture.WireNote = $script:YurunaDhcpWireRefusal
+        } else {
+            $pcap = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-dhcp-{0}.pcap" -f $VMName)
+            $errPath = "$pcap.err"
+            Remove-Item -LiteralPath $pcap -Force -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $errPath -Force -ErrorAction SilentlyContinue
+            # Packet-count bound rather than a file-size one: -C renames the
+            # output behind our back, while a count keeps one predictable path
+            # and 500 DHCP frames is far more than one cycle of one guest.
+            $tcpdumpArg = @('-i', $iface.Bridge, '-n', '-s', '0', '-U', '-c', '500',
+                            '-w', $pcap, 'port', '67', 'or', 'port', '68')
+            $proc = Start-Process -FilePath 'tcpdump' -ArgumentList $tcpdumpArg -PassThru -NoNewWindow `
+                -RedirectStandardError $errPath -ErrorAction SilentlyContinue
+            # tcpdump reports a refused capture and exits immediately, so a
+            # short settle separates "running" from "already dead" without
+            # polling. Reported either way: a capture believed to be running
+            # that never was is worse than none.
+            Start-Sleep -Milliseconds 400
+            if ($proc -and -not $proc.HasExited) {
+                $capture.PcapPath = $pcap
+                $capture.Process  = $proc
+                $capture.WireNote = "tcpdump running on $($iface.Bridge)"
+            } else {
+                $why = ''
+                if (Test-Path -LiteralPath $errPath) {
+                    $why = (@(Get-Content -LiteralPath $errPath -ErrorAction SilentlyContinue) |
+                        Where-Object { $_ } | Select-Object -First 1)
+                }
+                if (-not $why) { $why = 'tcpdump exited immediately' }
+                $script:YurunaDhcpWireRefusal = "no wire capture: $why -- enable with: $script:YurunaDhcpCaptureGrant"
+                $capture.WireNote = $script:YurunaDhcpWireRefusal
+                Remove-Item -LiteralPath $pcap -Force -ErrorAction SilentlyContinue
+            }
+            Remove-Item -LiteralPath $errPath -Force -ErrorAction SilentlyContinue
+        }
+        $script:YurunaDhcpCapture = $capture
+        Write-Verbose "DHCP evidence armed for '$VMName' at @$armed ($($capture.WireNote))."
+        return $true
+    } catch {
+        Write-Verbose "Start-VMDhcpCapture failed: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+<#
+.SYNOPSIS
+    Drop the armed window and any wire capture with it (the no-failure path).
+.OUTPUTS
+    [bool] $true when nothing is left running or on disk.
+#>
+function Stop-VMDhcpCapture {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Diagnostic teardown: stops a packet capture and deletes its temp file; must never prompt inside a runner cycle.')]
+    param()
+    try {
+        $capture = $script:YurunaDhcpCapture
+        $script:YurunaDhcpCapture = $null
+        if (-not $capture) { return $true }
+        if ($capture.Process -and -not $capture.Process.HasExited) {
+            Stop-Process -Id $capture.Process.Id -Force -ErrorAction SilentlyContinue
+        }
+        if ($capture.PcapPath) {
+            Remove-Item -LiteralPath $capture.PcapPath -Force -ErrorAction SilentlyContinue
+        }
+        return $true
+    } catch {
+        Write-Verbose "Stop-VMDhcpCapture failed: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+<#
+.SYNOPSIS
+    Land the DHCP evidence for one guest beside its failure diagnostics.
+.DESCRIPTION
+    Written as text because the useful part is a correlation a reader makes by
+    eye: the guest's MAC, the window its boot occupies, what the server logged
+    inside that window, and what the lease table holds now. The pcap is copied
+    beside it when one was taken; it carries the payloads (client identity,
+    transaction id) for the same packets.
+.OUTPUTS
+    [bool] $true when the evidence file landed in OutputDirectory.
+#>
+function Save-VMDhcpCapture {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Diagnostic collection: stops a packet capture and copies artifacts; must never prompt inside a runner cycle.')]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$OutputDirectory
+    )
+    try {
+        $capture = $script:YurunaDhcpCapture
+        if (-not $capture -or $capture.VMName -ne $VMName) {
+            Write-Verbose "no armed DHCP window belongs to '$VMName'; nothing to save."
+            return $false
+        }
+        $script:YurunaDhcpCapture = $null
+        if ($capture.Process -and -not $capture.Process.HasExited) {
+            Stop-Process -Id $capture.Process.Id -Force -ErrorAction SilentlyContinue
+            # tcpdump flushes on SIGTERM; without a moment to do it the file is
+            # truncated at whatever was still buffered.
+            Start-Sleep -Milliseconds 300
+        }
+        if (-not (Test-Path -LiteralPath $OutputDirectory)) {
+            New-Item -ItemType Directory -Force -Path $OutputDirectory | Out-Null
+        }
+        $armedText = [DateTimeOffset]::FromUnixTimeSeconds($capture.ArmedUtc).UtcDateTime.ToString('yyyy-MM-ddTHH:mm:ssZ')
+        $body = [System.Collections.Generic.List[string]]::new()
+        $body.Add("vmName:   $VMName")
+        $body.Add("guestMac: $(if ($capture.Mac) { $capture.Mac } else { '(unresolved)' })")
+        $body.Add("bridge:   $(if ($capture.Bridge) { $capture.Bridge } else { '(unresolved)' })")
+        $body.Add("network:  $(if ($capture.Network) { $capture.Network } else { '(not a libvirt-managed network)' })")
+        $body.Add("armedUtc: $armedText")
+        $body.Add("savedUtc: $([DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ'))")
+        $body.Add("wire:     $($capture.WireNote)")
+        $body.Add('')
+        $body.Add('reading:  a DISCOVER from the MAC above with an OFFER after it means the')
+        $body.Add('          server answered and the guest did not take it up; a DISCOVER with')
+        $body.Add('          nothing after it means the server saw the ask and would not answer')
+        $body.Add('          it; no line at all for that MAC means the ask never reached the')
+        $body.Add('          server, and the guest-side client state in the console capture is')
+        $body.Add('          where that is settled. The client identity dnsmasq keys the lease')
+        $body.Add('          on is the last column of the lease table below.')
+        $body.Add('')
+        $body.Add('--- dnsmasq DHCP transactions since this guest was started ---')
+        foreach ($line in @(Get-YurunaDnsmasqJournal -SinceEpochSecond $capture.ArmedUtc)) { $body.Add([string]$line) }
+        if ($capture.Network) {
+            $body.Add('')
+            $body.Add("--- leases held by network '$($capture.Network)' now ---")
+            foreach ($line in @(Invoke-Virsh -VirshArgs @('net-dhcp-leases', $capture.Network))) { $body.Add([string]$line) }
+        }
+        $target = Join-Path $OutputDirectory 'dhcp.capture.txt'
+        Set-Content -LiteralPath $target -Encoding utf8NoBOM -Value $body
+        if ($capture.PcapPath -and (Test-Path -LiteralPath $capture.PcapPath)) {
+            $pcapItem = Get-Item -LiteralPath $capture.PcapPath -ErrorAction SilentlyContinue
+            if ($pcapItem -and $pcapItem.Length -gt 0) {
+                Copy-Item -LiteralPath $capture.PcapPath -Destination (Join-Path $OutputDirectory 'dhcp.capture.pcap') -Force
+            }
+            Remove-Item -LiteralPath $capture.PcapPath -Force -ErrorAction SilentlyContinue
+        }
+        return $true
+    } catch {
+        Write-Verbose "Save-VMDhcpCapture failed: $($_.Exception.Message)"
+        return $false
+    }
+}
+
 # --- REGION: Exports
 
 Export-ModuleMember -Function `
@@ -3482,6 +3799,7 @@ Export-ModuleMember -Function `
     Test-VMConsoleOpen, Restart-VMConsole, `
     Get-Image, Get-ImagePath, `
     Send-Text, Send-Key, Send-Click, Get-VMScreenshot, Get-VMConsoleHandle, `
+    Start-VMDhcpCapture, Save-VMDhcpCapture, Stop-VMDhcpCapture, `
     Wait-VMIp, Get-VMIp, Get-VMMac, Update-GuestNeighborCache, `
     Get-ExternalNetwork, New-ExternalNetwork, New-YurunaExternalNetwork, Get-YurunaExternalNetworkPlan, Test-CacheVMOnExternalNetwork, `
     Add-PortMap, Remove-PortMap, Get-BestHostIp, Get-GuestReachableHostIp, Resolve-GuestHostBinding, `

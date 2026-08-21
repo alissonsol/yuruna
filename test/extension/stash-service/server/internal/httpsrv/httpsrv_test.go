@@ -29,6 +29,11 @@ import (
 
 const testHostID = "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 32 hex, hostId-shaped
 
+// testVersion stands in for the framework version the guest build stamps in
+// through -ldflags. A daemon that loses that wiring reports the zero value and
+// the UI footer shows nothing, which no other assertion here would notice.
+const testVersion = "2026.08.21"
+
 func newTestUI(t *testing.T) (*httptest.Server, *Server, string) {
 	return newTestUIHost(t, testHostID)
 }
@@ -68,7 +73,7 @@ func newTestUIWith(t *testing.T, hostID, aggregatorURL string) (*httptest.Server
 		t.Fatalf("sshsrv.New: %v", err)
 	}
 	ssh.ShareOnline = func() bool { return true } // force the share path in tests
-	ui := New(ssh, Options{Addr: "127.0.0.1:0", PoolWindowDays: 30, AggregatorURL: aggregatorURL})
+	ui := New(ssh, Options{Addr: "127.0.0.1:0", Version: testVersion, PoolWindowDays: 30, AggregatorURL: aggregatorURL})
 	ts := httptest.NewServer(ui.routes())
 	t.Cleanup(ts.Close)
 	return ts, ui, stashRoot
@@ -793,20 +798,22 @@ func postFile(t *testing.T, base, name, body string) string {
 }
 
 // TestHostInfo covers the footer's host-facts endpoint: ok=true, the local
-// hostId, and a serverIps STRING (newline-separated lines, possibly empty in a
-// sandboxed CI with no non-loopback interface -- the contract is the shape, not
-// a specific address). What this browser may DO is deliberately not here; that
-// is /api/session's answer, and it changes under a page these facts do not.
+// hostId, the daemon version, and a serverIps STRING (newline-separated lines,
+// possibly empty in a sandboxed CI with no non-loopback interface -- the
+// contract is the shape, not a specific address). What this browser may DO is
+// deliberately not here; that is /api/session's answer, and it changes under a
+// page these facts do not.
 func TestHostInfo(t *testing.T) {
 	ts, _, _ := newTestUI(t)
 	var info struct {
 		OK          bool   `json:"ok"`
 		LocalHostID string `json:"localHostId"`
+		Version     string `json:"version"`
 		ServerIps   string `json:"serverIps"`
 	}
 	getJSON(t, ts.URL+"/api/hostinfo", &info)
-	if !info.OK || info.LocalHostID != testHostID {
-		t.Fatalf("hostinfo: %+v", info)
+	if !info.OK || info.LocalHostID != testHostID || info.Version != testVersion {
+		t.Fatalf("hostinfo should carry the host id and version; got %+v", info)
 	}
 	// Every reported line must be a comma-list of parseable IPs (no stray
 	// whitespace, no link-local/loopback leaking through).

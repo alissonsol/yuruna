@@ -145,7 +145,7 @@
             "matcher": { "id": "byName", "options": "Extension" },
             "properties": [
               { "id": "custom.width", "value": 240 },
-              { "id": "mappings", "value": [ { "type": "value", "options": { "stash-service": { "text": "Stash service", "index": 0 }, "pool-control-service": { "text": "Pool-control service", "index": 1 }, "download-agent-service": { "text": "Download-agent service", "index": 2 } } } ] },
+              { "id": "mappings", "value": [ { "type": "value", "options": { "stash-service": { "text": "Stash service", "index": 0 }, "pool-control-service": { "text": "Pool-control service", "index": 1 }, "download-agent-service": { "text": "Download-agent service", "index": 2 }, "caching-proxy-service": { "text": "Caching-proxy service", "index": 3 } } } ] },
               { "id": "links", "value": [ { "title": "Open extension service UI", "url": "${aggregator}${__data.fields.goPath}", "targetBlank": true } ] }
             ]
           },

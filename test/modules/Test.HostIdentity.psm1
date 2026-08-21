@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.20
+.VERSION 2026.08.21
 .GUID 4277ce69-f7e3-434d-85c2-cf1468b28b01
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -791,6 +791,49 @@ function Initialize-HostIdentityDependency {
 
 <#
 .SYNOPSIS
+Whether this host's poolStorage is already set up, partly set up, or absent.
+.DESCRIPTION
+Pure so the policy is unit-testable without a console or a vault, and separate
+from the questionnaire because the questionnaire is the expensive branch: it is
+the only path to the mount and the identity reclaim, so a host that answers
+'configured' must reach those WITHOUT being asked to retype what it already has.
+
+A stored credential counts toward completeness. Config without it is a mount
+that cannot authenticate, and treating that as done would hand the operator a
+green setup and a failing first archive.
+.OUTPUTS
+[hashtable] @{ Action = 'configured' | 'partial' | 'absent'; Gap = <string> }
+#>
+function Get-PoolStorageSetupDecision {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter()][AllowNull()][string]$NetworkPath,
+        [Parameter()][AllowNull()][string]$NetworkUser,
+        [Parameter()][AllowNull()][string]$LocalPath,
+        [switch]$HasSecret
+    )
+    $missing = [System.Collections.Generic.List[string]]::new()
+    if ([string]::IsNullOrWhiteSpace($NetworkPath)) { [void]$missing.Add('networkPath') }
+    if ([string]::IsNullOrWhiteSpace($NetworkUser)) { [void]$missing.Add('networkUser') }
+    if ([string]::IsNullOrWhiteSpace($LocalPath))   { [void]$missing.Add('localPath') }
+    if ($missing.Count -eq 0 -and -not $HasSecret) {
+        [void]$missing.Add("a vault credential for '$NetworkUser'")
+    }
+    if ($missing.Count -eq 0) { return @{ Action = 'configured'; Gap = '' } }
+    # 'absent' only when NOTHING is set. Anything else is 'partial', which is
+    # what distinguishes a host that has never been configured from one whose
+    # sync landed the config but not the credential -- the second needs one
+    # answer, not the whole questionnaire.
+    $anySet = -not ([string]::IsNullOrWhiteSpace($NetworkPath) -and
+                    [string]::IsNullOrWhiteSpace($NetworkUser) -and
+                    [string]::IsNullOrWhiteSpace($LocalPath))
+    $action = if ($anySet) { 'partial' } else { 'absent' }
+    return @{ Action = $action; Gap = ($missing -join ', ') }
+}
+
+<#
+.SYNOPSIS
 Interactive setup step that offers to configure poolStorage (config + vault, replication, mount) and, on a host with no local uuid, reclaim a prior identity from the NAS host registry.
 .DESCRIPTION
 Lets a reimaged box keep its pool history. Degrades to a warned no-op when run non-interactively. Never throws.
@@ -843,66 +886,95 @@ function Invoke-PoolStorageSetupAndReclaim {
     } else {
         Write-HostIdentityLine "  This host has NO pool identity yet. Configuring poolStorage now lets it scan the NAS for a prior identity and RECLAIM its uuid (e.g. after a reimage)."
     }
-    if (-not (Read-HostIdentityConfirm -Prompt 'Configure poolStorage now?' -DefaultYes:$false)) {
-        if ($runtimeResolved -and -not $uuidExists) {
-            Write-Warning "Skipped. A NEW host.uuid will be minted on the first cycle; reconnecting this host's pool history later (after a reimage) is harder once a fresh uuid is in use."
-        }
-        return
+    # --- REGION: Already configured -- ask nothing
+    # A config sync from a reference host writes all three pool values and
+    # stores the matching vault credential. Asking for them again after that is
+    # not a harmless confirmation: the questionnaire is the ONLY way this
+    # function reaches the mount and the identity reclaim below, so the operator
+    # has to retype -- by hand, from the reference host -- values the sync
+    # already fetched, and a typo silently replaces a working configuration.
+    #
+    # Completeness is judged on the config AND the credential, because either
+    # alone still leaves a mount that cannot work. Changing a configured host is
+    # the sync's job (or an edit to test.config.yml); this path exists to
+    # configure one that is not.
+    $curVaultKey = if ($curUser) { Get-HostIdentityVaultKey -User $curUser } else { '' }
+    $curHasSecret = $false
+    if ($curVaultKey -and (Get-Command Test-VaultEntry -ErrorAction SilentlyContinue)) {
+        try { $curHasSecret = [bool](Test-VaultEntry -VaultKey $curVaultKey) } catch { $curHasSecret = $false }
     }
+    $setup = Get-PoolStorageSetupDecision -NetworkPath $curPath -NetworkUser $curUser `
+        -LocalPath $curLocal -HasSecret:$curHasSecret
 
-    $networkPath = Read-Host "  networkPath (SMB share, e.g. //server.local/work)$(if ($curPath){" [$curPath]"})"
-    if ([string]::IsNullOrWhiteSpace($networkPath)) { $networkPath = $curPath }
-    $networkUser = Read-Host "  networkUser (storage-only NAS account)$(if ($curUser){" [$curUser]"})"
-    if ([string]::IsNullOrWhiteSpace($networkUser)) { $networkUser = $curUser }
-    $localPath = Read-Host "  localPath (local mount point, e.g. /mnt/ypool-nas or 'y:')$(if ($curLocal){" [$curLocal]"})"
-    if ([string]::IsNullOrWhiteSpace($localPath)) { $localPath = $curLocal }
-
-    # Archiving is on either way once the paths are set; this only picks the mode.
-    # Stated plainly because move mode makes the NAS the ONLY copy of a cycle's
-    # results, which is a durability decision, not a preference.
-    Write-HostIdentityLine "  Finished cycle results are archived to the share. Move mode ALSO deletes each cycle's local folder once the copy is verified, so the NAS holds the only copy and this host's disk stops accumulating results."
-    $moveLogs = Read-HostIdentityConfirm -Prompt '  Move logs to pool storage (delete the local folder after archiving)?' -DefaultYes:$curMove
-
-    if ([string]::IsNullOrWhiteSpace($networkPath) -or [string]::IsNullOrWhiteSpace($networkUser) -or [string]::IsNullOrWhiteSpace($localPath)) {
-        Write-Warning "poolStorage setup: networkPath, networkUser, and localPath are all required. Nothing written."
-        return
-    }
-    if (($networkPath -match "'") -or ($networkUser -match "'")) {
-        Write-Warning "poolStorage setup: networkPath/networkUser must not contain a single quote (it would break the guest seed). Nothing written."
-        return
-    }
-
-    $secure = Read-Host "  SMB password for '$networkUser'" -AsSecureString
-    $plain = ''
-    try { $plain = [System.Net.NetworkCredential]::new('', $secure).Password } catch { $plain = '' }
-    if ([string]::IsNullOrEmpty($plain)) {
-        Write-Warning "poolStorage setup: empty password; nothing written (an empty SMB credential is rejected by the NAS)."
-        return
-    }
-
-    # Seed test.config.yml from the template when the operator has not created it
-    # yet, so we EXTEND a complete config rather than writing a poolStorage-only
-    # file that drops every other setting.
-    if (-not (Test-Path -LiteralPath $cfgPath)) {
-        $tmpl = Join-Path $RepoRoot 'test/test.config.yml.template'
-        if (Test-Path -LiteralPath $tmpl) {
-            try { Copy-Item -LiteralPath $tmpl -Destination $cfgPath -Force; Write-HostIdentityLine "  Created test.config.yml from the template." }
-            catch { Write-Warning "poolStorage setup: could not create test.config.yml from the template ($($_.Exception.Message))." }
-        }
-    }
-
-    if (-not (Set-PoolStorageConfigValue -ConfigPath $cfgPath -NetworkPath $networkPath -NetworkUser $networkUser -LocalPath $localPath -MoveLogs:$moveLogs -Confirm:$false)) {
-        return
-    }
-    $modeWord = if ($moveLogs) { 'move -- finished cycles are deleted locally once archived' } else { 'copy -- local folders are kept' }
-    Write-HostIdentityLine "  Wrote poolStorage config ($modeWord) to $cfgPath"
-
-    if (Get-Command Set-Password -ErrorAction SilentlyContinue) {
-        $vaultKey = Get-HostIdentityVaultKey -User $networkUser
-        try { Set-Password -Username $vaultKey -NewPassword $plain; Write-HostIdentityLine "  Stored the SMB credential in the vault under '$vaultKey'." }
-        catch { Write-Warning "poolStorage setup: Set-Password failed ($($_.Exception.Message)). Set it manually before the first cycle archives." }
+    if ($setup.Action -eq 'configured') {
+        Write-HostIdentityLine "  Already configured -- nothing to ask:"
+        Write-HostIdentityLine "    $curPath as '$curUser' at $curLocal (credential stored under '$curVaultKey')"
+        Write-HostIdentityLine "    To change it, sync from a reference host (pwsh test/lab/Sync-HostConfiguration.ps1 -ReferenceHost <host>) or edit test/test.config.yml."
     } else {
-        Write-Warning "poolStorage setup: authentication extension not loaded; could not store the SMB password. Set it manually."
+        if ($setup.Action -eq 'partial') {
+            Write-HostIdentityLine "  Partially configured ($($setup.Gap)); completing it below."
+        }
+        if (-not (Read-HostIdentityConfirm -Prompt 'Configure poolStorage now?' -DefaultYes:$false)) {
+            if ($runtimeResolved -and -not $uuidExists) {
+                Write-Warning "Skipped. A NEW host.uuid will be minted on the first cycle; reconnecting this host's pool history later (after a reimage) is harder once a fresh uuid is in use."
+            }
+            return
+        }
+
+        $networkPath = Read-Host "  networkPath (SMB share, e.g. //server.local/work)$(if ($curPath){" [$curPath]"})"
+        if ([string]::IsNullOrWhiteSpace($networkPath)) { $networkPath = $curPath }
+        $networkUser = Read-Host "  networkUser (storage-only NAS account)$(if ($curUser){" [$curUser]"})"
+        if ([string]::IsNullOrWhiteSpace($networkUser)) { $networkUser = $curUser }
+        $localPath = Read-Host "  localPath (local mount point, e.g. /mnt/ypool-nas or 'y:')$(if ($curLocal){" [$curLocal]"})"
+        if ([string]::IsNullOrWhiteSpace($localPath)) { $localPath = $curLocal }
+
+        # Archiving is on either way once the paths are set; this only picks the mode.
+        # Stated plainly because move mode makes the NAS the ONLY copy of a cycle's
+        # results, which is a durability decision, not a preference.
+        Write-HostIdentityLine "  Finished cycle results are archived to the share. Move mode ALSO deletes each cycle's local folder once the copy is verified, so the NAS holds the only copy and this host's disk stops accumulating results."
+        $moveLogs = Read-HostIdentityConfirm -Prompt '  Move logs to pool storage (delete the local folder after archiving)?' -DefaultYes:$curMove
+
+        if ([string]::IsNullOrWhiteSpace($networkPath) -or [string]::IsNullOrWhiteSpace($networkUser) -or [string]::IsNullOrWhiteSpace($localPath)) {
+            Write-Warning "poolStorage setup: networkPath, networkUser, and localPath are all required. Nothing written."
+            return
+        }
+        if (($networkPath -match "'") -or ($networkUser -match "'")) {
+            Write-Warning "poolStorage setup: networkPath/networkUser must not contain a single quote (it would break the guest seed). Nothing written."
+            return
+        }
+
+        $secure = Read-Host "  SMB password for '$networkUser'" -AsSecureString
+        $plain = ''
+        try { $plain = [System.Net.NetworkCredential]::new('', $secure).Password } catch { $plain = '' }
+        if ([string]::IsNullOrEmpty($plain)) {
+            Write-Warning "poolStorage setup: empty password; nothing written (an empty SMB credential is rejected by the NAS)."
+            return
+        }
+
+        # Seed test.config.yml from the template when the operator has not created it
+        # yet, so we EXTEND a complete config rather than writing a poolStorage-only
+        # file that drops every other setting.
+        if (-not (Test-Path -LiteralPath $cfgPath)) {
+            $tmpl = Join-Path $RepoRoot 'test/test.config.yml.template'
+            if (Test-Path -LiteralPath $tmpl) {
+                try { Copy-Item -LiteralPath $tmpl -Destination $cfgPath -Force; Write-HostIdentityLine "  Created test.config.yml from the template." }
+                catch { Write-Warning "poolStorage setup: could not create test.config.yml from the template ($($_.Exception.Message))." }
+            }
+        }
+
+        if (-not (Set-PoolStorageConfigValue -ConfigPath $cfgPath -NetworkPath $networkPath -NetworkUser $networkUser -LocalPath $localPath -MoveLogs:$moveLogs -Confirm:$false)) {
+            return
+        }
+        $modeWord = if ($moveLogs) { 'move -- finished cycles are deleted locally once archived' } else { 'copy -- local folders are kept' }
+        Write-HostIdentityLine "  Wrote poolStorage config ($modeWord) to $cfgPath"
+
+        if (Get-Command Set-Password -ErrorAction SilentlyContinue) {
+            $vaultKey = Get-HostIdentityVaultKey -User $networkUser
+            try { Set-Password -Username $vaultKey -NewPassword $plain; Write-HostIdentityLine "  Stored the SMB credential in the vault under '$vaultKey'." }
+            catch { Write-Warning "poolStorage setup: Set-Password failed ($($_.Exception.Message)). Set it manually before the first cycle archives." }
+        } else {
+            Write-Warning "poolStorage setup: authentication extension not loaded; could not store the SMB password. Set it manually."
+        }
     }
 
     # Mount now so reclaim can read the NAS host registry, and so the operator
@@ -1039,4 +1111,4 @@ Export-ModuleMember -Function `
     Get-HostIdentityMatchScore, Get-HostIdentityReclaimDecision, New-HostInfoRecordObject, ConvertFrom-HostInfoRecord, `
     Get-HostHardwareFingerprint, Get-CachedHostHardwareFingerprint, `
     Write-HostInfoRecord, Find-PriorHostIdentity, `
-    Invoke-PoolStorageSetupAndReclaim, Set-ReclaimedHostUuid
+    Get-PoolStorageSetupDecision, Invoke-PoolStorageSetupAndReclaim, Set-ReclaimedHostUuid

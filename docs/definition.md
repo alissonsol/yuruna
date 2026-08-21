@@ -480,10 +480,15 @@ scheme so framework + project URLs are NOT duplicated across them:
 4. **Framework**: prefer the host's `/yuruna-archive.tar.gz` (committed
    working tree, no `.git/`), fall back to `git clone $FRAMEWORK_URL`
    with retries.
-5. **Project**: `git clone $PROJECT_URL` into
-   `$REAL_HOME/yuruna/project`. Skipped silently when
-   `repositories.projectUrl` is empty (in-tree `project/` stop-gap path
-   used by older configs).
+5. **Project**: prefer the host's `/yuruna-project-archive.tar.gz` --
+   the symmetric counterpart to step 4, serving `<repoRoot>/project/`,
+   which `Update-ProjectClone` refreshes from
+   `repositories.projectUrl` each cycle -- then fall back to
+   `git clone $PROJECT_URL` into `$REAL_HOME/yuruna/project`. The route
+   answers **404** when the host has no `project/` git repo, and the
+   guest bootstrap reads that 404 as "clone instead": it is the
+   in-tree stop-gap path, not an error. Skipped silently when
+   `repositories.projectUrl` is empty.
 
 **Private repositories: `repositories.ghToken`.** git does **not** read
 `GH_TOKEN` -- that name is a `gh(1)` convention, not a git one. A bare
@@ -1791,7 +1796,8 @@ enums in [Test.SequenceAction.psm1](../test/modules/Test.SequenceAction.psm1):
   snapshot_restore_failed, script_error, wait_timeout,
   extension_error, instrumentation_failure, provisioning_failure,
   bootstrap_sync, plan_invalid, elevation_required,
-  project_access_denied, host_network_degraded, pool_storage_full, unknown.
+  project_access_denied, host_network_degraded, pool_storage_full,
+  lab_dependency_down, unknown.
 * **severity**: hard, soft, unknown.
 
 `actionVerb`, `action`, `description`, `sequencePath`, `vmName`,
@@ -2138,6 +2144,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.20
+Last review: 2026.08.21
 
 Back to [Yuruna](../README.md)

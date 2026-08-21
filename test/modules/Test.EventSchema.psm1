@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.20
+.VERSION 2026.08.21
 .GUID 42d40efa-2d27-4f91-93ff-3707aaa44c6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -122,6 +122,16 @@ $script:TypedField = @{
     permanent           = 'bool'
     sleepSeconds        = 'int-or-null'
     exitCode            = 'int'
+    # Lab-health gate. `areas` is the list of extension areas the record is
+    # about; `armed` says the gate had seen them healthy, which is what
+    # separates a hold from a service that was never there.
+    fromVerdict         = 'string'
+    toVerdict           = 'string'
+    areas               = 'array'
+    armed               = 'bool'
+    attempts            = 'int'
+    heldSeconds         = 'int'
+    releasedBy          = 'string'
 }
 
 # FailureClass / Severity enums, sourced from the canonical Test.FailureTaxonomy

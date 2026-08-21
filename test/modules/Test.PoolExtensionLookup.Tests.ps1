@@ -158,8 +158,16 @@ Describe 'pool-extension-lookup' {
     }
 
     It 'asks for the area it was given' {
+        # The route itself is NOT a literal here: it comes from the manifest's
+        # Endpoints map, which the daemon's own route constants are pinned
+        # against. A second literal in this function would be one that kept
+        # answering the old path after the map was corrected. So what is pinned
+        # here is the query -- that the area is asked for, and escaped -- while
+        # the path is pinned cross-language in Test.ExtensionArea.Tests.ps1.
         $fn = Get-FunctionAst -Path $aggregatorPsm -Name 'Get-PoolExtensionHostFrom'
-        Assert-True ($fn.Extent.Text -match '/api/v1/extension-hosts\?area=') 'must query the aggregator by area'
+        Assert-True ($fn.Extent.Text -match 'Endpoints\.ExtensionHosts') 'must take the route from the manifest, not a second literal'
+        Assert-False ($fn.Extent.Text -match '/api/v1/') 'must not restate the route path'
+        Assert-True ($fn.Extent.Text -match '\?area=') 'must query the aggregator by area'
         Assert-True ($fn.Extent.Text -match 'EscapeDataString') 'must escape the area into the query string'
     }
 }

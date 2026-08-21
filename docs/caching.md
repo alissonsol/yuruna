@@ -1236,6 +1236,36 @@ sudo systemctl start squid
 - Reload config: `sudo squid -k reconfigure` inside the VM.
 - Watch hits/misses: `sudo tail -f /var/log/squid/access.log`.
 
+### The management service (`:9310`)
+
+Since the VM became the `caching-proxy-service` extension area it runs a small
+management daemon beside squid, and most of what used to need an SSH session is
+a request:
+
+```
+curl -s http://<cache-ip>:9310/api/status     # squid summary, both switches, zot
+curl -s http://<cache-ip>:9310/api/switches   # just the switch state
+```
+
+Reads are open on the trusted LAN, like every other Yuruna service's read
+surface. The two switches are the write surface and take the lab token:
+
+```
+curl -s -X POST http://<cache-ip>:9310/api/switches/offline \
+  -H "Authorization: Bearer $(sudo cat /etc/yuruna/lab-auth.token)" \
+  -H 'Content-Type: application/json' -d '{"on":true}'
+```
+
+The daemon writes the same `conf.d` drop-in and runs the same
+`squid -k reconfigure` an operator would, so a switch flipped through it and one
+flipped by hand are the same change -- there is no second state to reconcile.
+It also beacons, which is what puts the proxy in the dashboard's **Extension
+hosts** row rather than being the one service the pool could not see.
+
+The daemon can also run on a different host in a read-only mode; see
+[Running the caching-proxy service from another host](extensions-api.md#running-the-caching-proxy-service-from-another-host)
+for what that costs and the one squid ACL it needs.
+
 ## HTTPS caching
 
 Shipped on Hyper-V, UTM, and Ubuntu KVM. A second squid listener on `:3129`
@@ -2132,6 +2162,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.20
+Last review: 2026.08.21
 
 Back to [Yuruna](../README.md)

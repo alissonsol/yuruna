@@ -204,10 +204,36 @@ Implementation:
 
 ---
 
+
+## MCP adds no credential kind
+
+Every Yuruna Go daemon and the core framework serve the Model Context Protocol
+(see [Extensions API -- MCP endpoints](extensions-api.md#mcp-endpoints)), and
+none of them introduces a new secret, session or trust boundary to do it.
+
+- A **mutating tool** passes the same lab-token gate its HTTP route passes, and
+  refuses with the same reason tokens: `auth-unconfigured` when the service has
+  no way in configured, `lab-token-unavailable` when the validator cannot be
+  reached. There is one answer per service to "may this caller change
+  something", and MCP asks it rather than answering it.
+- A **read-only tool** carries exactly the exposure of the route it wraps. Those
+  routes are open on the trusted LAN by design, so the tools are too.
+- The **rotating Lab token remains the human path**. Nothing about MCP mints,
+  stores or forwards one; a client that wants a mutating tool presents the same
+  shared lab-auth-token an automation caller presents to the route.
+- The **core framework's stdio server holds no credential at all**, because its
+  transport is the boundary: it has no listener, and a process reading one
+  operator's stdin can do exactly what that operator can already do by typing
+  the command themselves.
+
+The practical consequence is that revoking or rotating the lab-auth-token
+closes the MCP surface exactly as it closes the HTTP one -- there is no second
+place to look.
+
 LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.20
+Last review: 2026.08.21
 
 Back to [Yuruna](../README.md)

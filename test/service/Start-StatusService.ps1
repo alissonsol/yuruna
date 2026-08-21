@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.20
+.VERSION 2026.08.21
 .GUID 42fba995-7607-4a66-acfd-0149a2a9f06a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -695,6 +695,13 @@ Import-Module (Join-Path `$repoRoot 'test/modules/Test.HostFacts.psm1') -Force -
 `$secretNameShapes = @('*.snapshot.json', '*.snapshot.*.json', '*.backup', '*.bak', '*.tmp')
 `$stepPauseFile  = Join-Path `$runtimeDir 'control.step-pause'
 `$cyclePauseFile = Join-Path `$runtimeDir 'control.cycle-pause'
+# The lab hold is machine-initiated, not an operator pause: the cycle's
+# lab-health gate raises it while a service the host had been reaching is away.
+# The service only ever CLEARS it (start-cycle) or hands the gate a release
+# request; raising one from here would park a cycle on a verdict nothing probed.
+`$labHoldFile        = Join-Path `$runtimeDir 'control.lab-hold'
+`$labHoldSidecarFile = Join-Path `$runtimeDir 'lab-hold.json'
+`$labHoldReleaseFile = Join-Path `$runtimeDir 'control.lab-hold-release'
 `$statusJsonFile = Join-Path `$runtimeDir 'status.json'
 `$serverLogFile  = Join-Path `$runtimeDir 'server.err'
 # `$serverHostType is the parent-detected host type baked into the
@@ -1045,7 +1052,7 @@ try {
             `$csrfAlwaysProtected = @(
                 'control/start-cycle','control/break-continue','control/test-caching-proxy-service',
                 'control/host-diagnostic','control/step-pause','control/step-resume',
-                'control/cycle-pause','control/cycle-resume'
+                'control/cycle-pause','control/cycle-resume','control/lab-hold-release'
             )
             `$csrfWriteProtected = @('control/test-config','control/perf-aggregates')
             if ((`$csrfAlwaysProtected -contains `$path) -or (`$csrfWriteProtected -contains `$path)) {
@@ -2315,6 +2322,36 @@ try {
                 continue
             }
 
+            # --- REGION: /control/lab-hold-release: stop waiting on a lab service
+            # The cycle's lab-health gate holds while a service it had been
+            # reaching is away, re-probing on backoff. This is the operator
+            # saying the outage is not going to end: the gate consumes the flag,
+            # drops the hold, and lets the step run so it fails on its own terms.
+            #
+            # Refused when no hold is up. A flag written now would sit on disk
+            # and silently release the NEXT hold -- one nobody has looked at --
+            # which is the opposite of an operator decision.
+            if (`$path -eq 'control/lab-hold-release') {
+                if (`$req.HttpMethod -ne 'POST') {
+                    Send-JsonError -Response `$res -StatusCode 405 -Json '{"ok":false,"error":"POST required"}'
+                    continue
+                }
+                if (-not (Test-Path `$labHoldFile)) {
+                    Send-JsonError -Response `$res -StatusCode 409 -Json '{"ok":false,"error":"no lab hold is active"}'
+                    continue
+                }
+                try { Set-Content -Path `$labHoldReleaseFile -Value (Get-Date -Format o) -ErrorAction SilentlyContinue }
+                catch { Write-Debug `$_ }
+                `$res.ContentType = 'application/json; charset=utf-8'
+                `$res.Headers.Add('Cache-Control', 'no-store')
+                `$payload = '{"ok":true,"labHoldRelease":true}'
+                `$body = [System.Text.Encoding]::UTF8.GetBytes(`$payload)
+                `$res.ContentLength64 = `$body.Length
+                `$res.OutputStream.Write(`$body, 0, `$body.Length)
+                `$res.OutputStream.Close()
+                continue
+            }
+
             # --- REGION: /control/break-continue: Continue-from-break button
             # POST-only. Writes control.break-continue under runtimeDir;
             # the break action in Test.SequenceEngine.psm1 polls for this
@@ -2411,12 +2448,21 @@ try {
                     # 1. clear pause flags (start implies un-pause)
                     Remove-Item `$cyclePauseFile -Force -ErrorAction SilentlyContinue
                     Remove-Item `$stepPauseFile  -Force -ErrorAction SilentlyContinue
+                    # A restart re-probes the lab within a step of starting, so a
+                    # hold left by the cycle being replaced would only be
+                    # re-raised if it is still true -- and would otherwise park
+                    # the new cycle on the old one's verdict.
+                    Remove-Item `$labHoldFile        -Force -ErrorAction SilentlyContinue
+                    Remove-Item `$labHoldSidecarFile -Force -ErrorAction SilentlyContinue
+                    Remove-Item `$labHoldReleaseFile -Force -ErrorAction SilentlyContinue
                     try {
                         # Same RMW reasoning as the pause-control handler:
                         # cannot cache the parse without risking a clobber.
                         `$doc = [System.IO.File]::ReadAllText(`$statusJsonFile) | ConvertFrom-Json -AsHashtable
                         `$doc['cyclePaused'] = `$false
                         `$doc['stepPaused']  = `$false
+                        `$doc['labHold']      = `$false
+                        `$doc['labHoldAreas'] = @()
                         `$tmp = "`$statusJsonFile.`$PID-`$([guid]::NewGuid().ToString('N')).tmp"
                         `$doc | ConvertTo-Json -Depth 20 | Set-Content -Path `$tmp -Encoding utf8
                         [System.IO.File]::Move(`$tmp, `$statusJsonFile, `$true)

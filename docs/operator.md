@@ -487,17 +487,26 @@ Elevated (Administrator / sudo). Creates a dedicated local OS account
 (default `yurunatest`) that owns test operation, so the harness never
 runs under your personal profile. `-Admin` makes it a local
 administrator -- required, because later steps elevate. Created
-without it, the account cannot elevate and the installer refuses; the
-script cannot repair an account that already exists, so grant the
-rights from an administrator account -- `sudo dseditgroup -o edit -a
-yurunatest -t user admin` (macOS), `sudo usermod -aG sudo yurunatest`
-(Ubuntu), or `Add-LocalGroupMember` on the S-1-5-32-544 group
-(Windows) -- then sign that account out and back in, because a session
-keeps the group list it started with. The password is asked
-interactively (twice) and is immediately usable; add
-`-ForcePasswordChange` for a one-shot initial credential instead. The
-account is also registered under the default Yuruna authentication
-extension. Cross-platform; details in `test/New-LocalTestUser.ps1`
+without it, the account cannot elevate and the installer refuses. Two
+ways back: grant the rights from an administrator account -- `sudo
+dseditgroup -o edit -a yurunatest -t user admin` (macOS), `sudo
+usermod -aG sudo yurunatest` (Ubuntu), or `Add-LocalGroupMember` on
+the S-1-5-32-544 group (Windows) -- then sign that account out and
+back in, because a session keeps the group list it started with; or
+re-run with `-Admin -Force`, which deletes the account and its home
+directory and creates it again. `-Force` is the destructive path --
+preview it with `-Force -WhatIf` first, and note it refuses to delete
+the account you are running as, a system account, or an account with
+an open login session. The password is asked interactively (twice) and
+is immediately usable, unless the authentication vault already holds
+one for the account: that one is reused, so a re-created account still
+matches the credential Yuruna hands out (`-PromptForPassword` opts
+out). Add `-ForcePasswordChange` for a one-shot initial credential
+instead. The account is also registered under the default Yuruna
+authentication extension -- in the gitignored runtime `users.yml`,
+seeded from the committed template when the host has none yet; an
+entry that already declares the name is reused as-is, never
+overwritten. Cross-platform; details in `test/New-LocalTestUser.ps1`
 comment-based help.
 
 Sign in as this user for everything that follows, so the config,
@@ -797,6 +806,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.20
+Last review: 2026.08.21
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.20
+.VERSION 2026.08.21
 .GUID 42b86905-6f08-4020-9f8c-68c7b31b76ef
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,15 +22,17 @@
     the shared runtime marker, the derived VM roster, and the guard that keeps
     each service's mirrored copy of the Go SDK identical to the canonical one.
 .DESCRIPTION
-    Three properties carry the whole interface, and each of them is one wrong
+    Four properties carry the whole interface, and each of them is one wrong
     line away from failing silently:
 
       - the manifest reads WITHOUT a YAML parser, because the roster is imported
         on its own by the reboot sweep and by cleanup paths;
       - a marker advertises its address under both the uniform key and the
-        area's own, so a consumer written against either resolves it; and
+        area's own, so a consumer written against either resolves it;
       - the SDK mirrors are byte-identical to test/extension/extension-sdk/,
-        or three services quietly drift apart again.
+        or three services quietly drift apart again; and
+      - the presence beacon runs at one cadence, declared identically wherever
+        it is written down and bounded by the aggregator's health grace.
 
     Throw-based assertions (no Should), so the file runs standalone.
     Run: pwsh -NoProfile -File test/modules/Test.ExtensionService.Tests.ps1
@@ -43,6 +45,77 @@ $script:RepoRoot = Split-Path -Parent $TestRoot
 Import-Module (Join-Path $here 'Test.ExtensionService.psm1') -Force -DisableNameChecking
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+
+# Go duration literals, limited to the units the extension-config schema's
+# beaconInterval pattern admits.
+function ConvertFrom-GoDuration {
+    param(
+        [Parameter(Position = 0)][string]$Duration,
+        [Parameter(Position = 1)][string]$Site
+    )
+    if ($Duration -notmatch '^([0-9]+)(ns|us|ms|s|m|h)$') {
+        throw "$Site is not a Go duration literal: '$Duration'"
+    }
+    $count = [double]$Matches[1]
+    $unit  = $Matches[2]
+    $scale = @{ ns = 1e-9; us = 1e-6; ms = 1e-3; s = 1; m = 60; h = 3600 }
+    $count * $scale[$unit]
+}
+
+function ConvertFrom-GoConstDuration {
+    param(
+        [Parameter(Position = 0)][string]$Text,
+        [Parameter(Position = 1)][string]$Pattern,
+        [Parameter(Position = 2)][string]$Site
+    )
+    if ($Text -notmatch $Pattern) { throw "no $Site" }
+    $count = [double]$Matches[1]
+    $unit  = $Matches[2]
+    $scale = @{ Nanosecond = 1e-9; Microsecond = 1e-6; Millisecond = 1e-3; Second = 1; Minute = 60; Hour = 3600 }
+    if (-not $scale.ContainsKey($unit)) { throw "$Site names an unknown time unit '$unit'" }
+    $count * $scale[$unit]
+}
+
+# Every place the three beaconing services write their cadence down. The
+# aggregator is absent by design: it is the endpoint beacons are sent TO.
+function Get-BeaconCadenceSite {
+    param([Parameter(Position = 0)][string]$RepoRoot)
+
+    foreach ($area in @('stash-service', 'pool-control-service', 'download-agent-service')) {
+        $seed = [IO.Path]::Combine($RepoRoot, 'guest', 'ubuntu.server.26', "ubuntu.server.26.$area.sh")
+        $text = Get-Content -Raw -LiteralPath $seed
+        if ($text -notmatch 'PRESENCE_INTERVAL="\$\{[A-Z_]+:-([0-9a-z]+)\}"') {
+            throw "no PRESENCE_INTERVAL default in $seed"
+        }
+        $literal = $Matches[1]
+        [pscustomobject]@{
+            Site    = "$area bring-up PRESENCE_INTERVAL"
+            Literal = $literal
+            Seconds = ConvertFrom-GoDuration -Duration $literal -Site "$area bring-up PRESENCE_INTERVAL"
+        }
+
+        $configGo = [IO.Path]::Combine($RepoRoot, 'test', 'extension', $area, 'server', 'internal', 'config', 'config.go')
+        [pscustomobject]@{
+            Site    = "$area DefaultPresenceInterval"
+            Literal = 'the daemon constant'
+            Seconds = ConvertFrom-GoConstDuration -Text (Get-Content -Raw -LiteralPath $configGo) `
+                -Pattern 'DefaultPresenceInterval\s*=\s*([0-9]+)\s*\*\s*time\.([A-Za-z]+)' `
+                -Site "DefaultPresenceInterval in $configGo"
+        }
+
+        $manifest = [IO.Path]::Combine($RepoRoot, 'test', 'extension', $area, "$area.config.yml")
+        $text = Get-Content -Raw -LiteralPath $manifest
+        if ($text -notmatch '(?m)^\s*beaconInterval:\s*([0-9a-z]+)\s*$') {
+            throw "no beaconInterval in $manifest"
+        }
+        $literal = $Matches[1]
+        [pscustomobject]@{
+            Site    = "$area beaconInterval"
+            Literal = $literal
+            Seconds = ConvertFrom-GoDuration -Duration $literal -Site "$area beaconInterval"
+        }
+    }
+}
 
 }
 
@@ -283,5 +356,146 @@ Describe 'the Go SDK is shared, not mirrored' {
             Assert-Match -Pattern '\$BUILD/extension-sdk'   -Actual $text -Because "$($s.Name) must stage the SDK beside server/"
             Assert-Match -Pattern '\$BUILD/server'          -Actual $text -Because "$($s.Name) must build from \$BUILD/server"
         }
+    }
+}
+
+Describe 'the presence beacon cadence' {
+    It 'is one value across bring-up, daemon default and manifest' {
+        # Three kinds of file carry it and only two of them are code: the
+        # bring-up default is what ships, the daemon constant applies when the
+        # flag is absent, and the manifest value is read by nothing at runtime
+        # -- so a manifest that drifts stays invisible until someone trusts it.
+        $sites = @(Get-BeaconCadenceSite -RepoRoot $script:RepoRoot)
+        Assert-Equal 9 $sites.Count 'three beaconing services, three declarations each'
+        $spread = @($sites | ForEach-Object { $_.Seconds } | Sort-Object -Unique)
+        Assert-Equal 1 $spread.Count ('one cadence expected; found ' +
+            (($sites | ForEach-Object { "$($_.Site)=$($_.Seconds)s" }) -join ', '))
+    }
+
+    It 'stays under the aggregator extension health grace' {
+        # A re-announce is also how a renumbered service reports its new
+        # address. Beacon slower than the grace and the pool holds neither the
+        # refused old address nor the unannounced new one, for the difference --
+        # an area that resolves to nothing while the service is up the whole time.
+        $mainGo = [IO.Path]::Combine($script:RepoRoot, 'test', 'extension', 'pool-aggregator-service', 'main.go')
+        $grace = ConvertFrom-GoConstDuration -Text (Get-Content -Raw -LiteralPath $mainGo) `
+            -Pattern 'extensionHealthGrace\s*=\s*([0-9]+)\s*\*\s*time\.([A-Za-z]+)' `
+            -Site "extensionHealthGrace in $mainGo"
+        Assert-True ($grace -gt 0) 'the aggregator declares a health grace'
+        foreach ($site in (Get-BeaconCadenceSite -RepoRoot $script:RepoRoot)) {
+            Assert-True ($site.Seconds -lt $grace) `
+                "$($site.Site) is $($site.Seconds)s, not under the ${grace}s health grace"
+        }
+    }
+
+    It 'is not declared by the aggregator, which never beacons' {
+        # The aggregator links none of the beacon code, so a cadence in its
+        # manifest would describe behavior the service does not have.
+        $dir = [IO.Path]::Combine($script:RepoRoot, 'test', 'extension', 'pool-aggregator-service')
+        $manifest = Get-Content -Raw -LiteralPath (Join-Path $dir 'pool-aggregator-service.config.yml')
+        Assert-False ($manifest -match '(?m)^\s*beaconInterval:') 'the aggregator manifest declares no beaconInterval'
+        $beaconing = @(Get-ChildItem -LiteralPath $dir -File -Filter '*.go' |
+                Where-Object { (Get-Content -Raw -LiteralPath $_.FullName) -match 'extension-sdk/beacon' })
+        Assert-Equal 0 $beaconing.Count 'the aggregator imports no beacon package'
+    }
+}
+
+Describe 'the caching-proxy seed fetches the sources it builds' {
+    It 'names every Go file on disk, and none that is not' {
+        # The seed fetches a NAMED list of files, one wget each, then runs
+        # `go build .` over whatever landed. A source file added to -- or
+        # renamed in -- the repo and not added here is simply never fetched:
+        # the build fails on a 404-emptied file, the daemon is never installed,
+        # and the only symptom is the panel it feeds staying empty on a VM that
+        # otherwise came up clean.
+        $seed = [IO.Path]::Combine($script:RepoRoot, 'host', 'vmconfig', 'caching-proxy-service.base.user-data')
+        $text = Get-Content -Raw -LiteralPath $seed
+        $loops = [regex]::Matches($text,
+            'for f in (?<files>[^;]+); do\s+wget[^\n]*\$\{YR_BASE\}test/extension/(?<area>[A-Za-z0-9._-]+)/\$f')
+        Assert-True ($loops.Count -ge 2) "expected the seed's per-service fetch loops, found $($loops.Count)"
+
+        foreach ($loop in $loops) {
+            $area   = $loop.Groups['area'].Value
+            $listed = @($loop.Groups['files'].Value -split '\s+' | Where-Object { $_ })
+            $dir    = [IO.Path]::Combine($script:RepoRoot, 'test', 'extension', $area)
+            Assert-True (Test-Path -LiteralPath $dir) "the seed fetches from test/extension/$area, which exists"
+
+            foreach ($name in $listed) {
+                Assert-True (Test-Path -LiteralPath (Join-Path $dir $name)) `
+                    "$area : the seed fetches '$name', which is not in the repo"
+            }
+            # Test files are deliberately absent: `go build` never compiles
+            # them, and fetching them would only add wgets that can fail.
+            #
+            # A loop whose names carry a slash is fetching a package tree -- the
+            # shared SDK is fetched that way -- so the on-disk side has to walk
+            # the tree too. Checking only the root would pass an SDK loop
+            # vacuously, which is the shape of the bug this test exists for.
+            $nested  = @($listed | Where-Object { $_ -match '/' }).Count -gt 0
+            $params  = @{ LiteralPath = $dir; File = $true; Filter = '*.go'; ErrorAction = 'SilentlyContinue' }
+            if ($nested) { $params['Recurse'] = $true }
+            $sources = @(Get-ChildItem @params |
+                    Where-Object { $_.Name -notlike '*_test.go' } |
+                    ForEach-Object { ([IO.Path]::GetRelativePath($dir, $_.FullName)) -replace '\\', '/' })
+            foreach ($name in $sources) {
+                Assert-True ($listed -contains $name) `
+                    "$area : $name is part of the daemon but the seed never fetches it"
+            }
+        }
+    }
+}
+
+Describe 'the caching-proxy management daemon ships runnable' {
+    It 'permits the address family its own hostinfo route needs' {
+        # /api/hostinfo enumerates this host's addresses, and Go reads the
+        # interface table over a NETLINK socket. A unit that lists only
+        # AF_INET/AF_INET6/AF_UNIX makes net.Interfaces() fail with "address
+        # family not supported by protocol", and the daemon then reports no
+        # addresses at all -- silently, because the enumeration error is folded
+        # into an empty result by design. Its two neighbours in that VM never
+        # enumerate, which is why they can restrict harder.
+        $unit = [IO.Path]::Combine($script:RepoRoot, 'test', 'extension', 'caching-proxy-service', 'caching-proxy-service.service')
+        $text = Get-Content -Raw -LiteralPath $unit
+        if ($text -match '(?m)^RestrictAddressFamilies=(.*)$') {
+            $families = @($Matches[1] -split '\s+' | Where-Object { $_ })
+            Assert-True ($families -contains 'AF_NETLINK') `
+                "the unit restricts address families to '$($families -join ' ')' but the daemon enumerates interfaces"
+        }
+    }
+
+    It 'is told an aggregator it can actually announce to' {
+        # The caching-proxy VM has NO /etc/yuruna/pool.env -- that file is baked
+        # into the service VMs that must be told where the aggregator is, and
+        # this VM is where the aggregator runs. Reading it here yielded an empty
+        # URL, which disables the beacon, and the area then never appears in the
+        # pool at all while every endpoint still answers.
+        #
+        # Loopback is equally wrong and fails differently: the announce handler
+        # derives the advertised URL from the request's source address and
+        # refuses a loopback one, so the beacon would be sent and rejected.
+        $seed = [IO.Path]::Combine($script:RepoRoot, 'host', 'vmconfig', 'caching-proxy-service.base.user-data')
+        $text = Get-Content -Raw -LiteralPath $seed
+        Assert-True ($text -match '(?m)^\s*CPS_AGG=.*$') 'the seed sets an aggregator URL for the daemon'
+        Assert-False ($text -match 'CPS_AGG=[^\n]*pool\.env') `
+            'the caching-proxy VM has no pool.env; deriving the aggregator URL from it yields an empty value and kills the beacon'
+        Assert-False ($text -match 'CACHING_PROXY_AGGREGATOR_URL=[^\n]*127\.0\.0\.1') `
+            'the announce handler refuses a loopback source address, so a loopback aggregator URL beacons into a rejection'
+    }
+}
+
+Describe 'no built binary is tracked under test/extension' {
+    It 'keeps compiled output out of the repository' {
+        # The two area-ROOT Go modules build into a tracked directory, so
+        # `go build` in the enlistment drops a binary beside the source. Each
+        # needs its own .gitignore line; the module under server/ does not,
+        # which is why the omission is easy to make and invisible once made --
+        # nothing fails, the repository just grows by ten megabytes.
+        $tracked = @(git -C $script:RepoRoot ls-files 'test/extension' |
+                Where-Object { $_ -and $_ -notmatch '\.(go|mod|sum|yml|yaml|md|psm1|ps1|json|service|html|css|js|txt|template|png|svg|ico)$' })
+        $binaries = @($tracked | Where-Object {
+                $full = Join-Path $script:RepoRoot $_
+                (Test-Path -LiteralPath $full) -and ((Get-Item -LiteralPath $full).Length -gt 1MB)
+            })
+        Assert-Equal 0 $binaries.Count "these look like build output and are tracked: $($binaries -join ', ')"
     }
 }

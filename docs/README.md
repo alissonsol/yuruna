@@ -78,7 +78,7 @@ up a test machine.
   watchdog](runner-outer-loop.md#watchdog-and-heartbeat-protocol) that lets it
   survive guest, network, and host-OS failures, and the runner's six-state
   lifecycle machine.
-- **[extensions-api.md](extensions-api.md)** -- the seven classes of swappable
+- **[extensions-api.md](extensions-api.md)** -- the eight classes of swappable
   behavior under `test/extension/` and the contract each area implements.
 - **[ocr.md](ocr.md)** -- how the guest framebuffer is polled for text, and the
   three pluggable matching providers behind `waitForText` and friends.
@@ -128,12 +128,10 @@ up a test machine.
   [operator reference](caching.md#caching-proxy-service--test-harness-operator-reference):
   exposing the cache to remote clients, pointing a host at a remote
   cache, and preflighting.
-- **[cache-health-dashboard.md](cache-health-dashboard.md)** -- the cache VM's
-  registry-path Grafana dashboard: the zot pull-through's manifest latency canary,
-  upstream pull budget, and slow-request forensics. Its tooltips link here.
-- **[caching-proxy-dashboard.md](caching-proxy-dashboard.md)** -- the cache VM's
-  web-path Grafana dashboard: squid throughput, hit ratios, connectivity, and
-  offline mode. Its tooltips link here.
+- **[cache-health-dashboard.md](cache-health-dashboard.md)** -- the cache VM's two
+  Grafana dashboards: the zot registry-path manifest latency canary, upstream pull
+  budget, and slow-request forensics, plus the squid web-path throughput, hit
+  ratios, connectivity, and offline mode. Both dashboards' tooltips link here.
 - **[network.md](network.md)** -- rationale for network-related workarounds in the
   guest scripts and the host harness.
 - **[pool-storage.md](pool-storage.md)** -- the optional NAS-backed durable tier,
@@ -239,6 +237,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.20
+Last review: 2026.08.21
 
 Back to [Yuruna](../README.md)

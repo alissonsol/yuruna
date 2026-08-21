@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.20
+.VERSION 2026.08.21
 .GUID 424f40c7-7c46-41e1-bd5e-d9b72a02a026
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -153,7 +153,10 @@ function Test-StashServiceHost {
         may have a caching-proxy service in its environment that would neither reach
         it nor be meant to.
     .PARAMETER Address
-        Host name or IP literal of the stash service.
+        Host name, IP literal, or host:port authority of the stash service. A
+        bare address is probed on the daemon's default port (80); an authority
+        that already carries a port -- the UTM Shared-NAT forward, for
+        instance -- is used verbatim.
     .PARAMETER Attempts
         Number of probe attempts before reporting unreachable (>=1).
     .PARAMETER TimeoutSeconds
@@ -173,9 +176,13 @@ function Test-StashServiceHost {
     )
     $target = "$Address".Trim()
     if (-not $target) { return $false }
-    # An IPv6 literal has to be bracketed to be a legal URL authority; a name
-    # or IPv4 literal never contains a colon, so this only fires when needed.
-    if ($target.Contains(':') -and -not $target.StartsWith('[')) { $target = "[$target]" }
+    # An IPv6 literal has to be bracketed to be a legal URL authority. A name or
+    # IPv4 literal never contains a colon, and an already-bracketed authority
+    # (with or without a :port suffix) is left alone, so this only fires on a
+    # bare IPv6 literal.
+    if ($target.Contains(':') -and -not $target.StartsWith('[') -and ($target -split ':').Count -gt 2) {
+        $target = "[$target]"
+    }
     $url = "http://$target/healthz"
     for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
         if ($attempt -gt 1) { Start-Sleep -Milliseconds $BackoffMs }

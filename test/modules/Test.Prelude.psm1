@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.20
+.VERSION 2026.08.21
 .GUID 421b40b9-fcaf-4a1a-bb31-9464b1ad442a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -203,6 +203,12 @@ function Initialize-YurunaEntryPointModuleSet {
             # -Force re-import a no-op.
             'Test.RunnerHeartbeat.psm1',
             'Test.Extension.psm1', 'Test.HostContract.psm1', 'Test.Status.psm1',
+            # Test.ExtensionService + Test.LabHealth: the lab-health gate the
+            # orchestrator and the sequence engine hold on. The gate derives its
+            # probe set from every area's service manifest, so the manifest
+            # reader has to be loaded with it -- absent, the gate finds no areas
+            # and silently never holds.
+            'Test.ExtensionService.psm1', 'Test.LabHealth.psm1',
             'Test.Notify.psm1', 'Test.Provenance.psm1',
             'Test.Start-GuestOS.psm1', 'Test.Start-GuestWorkload.psm1',
             # Order: Test.EventSchema + Test.StateFile before Test.Log so
@@ -286,6 +292,12 @@ function Initialize-YurunaEntryPointModuleSet {
             'Test.Log.psm1', 'Test.Remediation.psm1',
             'Test.SnapshotManifest.psm1', 'Test.LogRotation.psm1',
             'Test.Backoff.psm1',
+            # The lab-health gate, with the manifest reader it derives its probe
+            # set from. Loaded here so a Debug-TestSequence run holds on a lab
+            # service the same way a runner cycle does -- an operator debugging
+            # a sequence is the person least helped by a step that fails on a
+            # service that is merely being rebuilt.
+            'Test.Extension.psm1', 'Test.ExtensionService.psm1', 'Test.LabHealth.psm1',
             # Test.Status is loaded so Debug-TestSequence can register the run
             # as its own cycle in status.json (otherwise the dashboard's
             # cycle history skips Debug-TestSequence runs and break-active.json

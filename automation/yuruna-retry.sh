@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.20
+# Version: 2026.08.21
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -133,11 +133,38 @@ _yuruna_retry() {
 # YURUNA_APT_STALL_TIMEOUT_SECONDS / YURUNA_DNF_STALL_TIMEOUT_SECONDS, seconds): wrapping
 # apt in timeout(1) is the wrapped-apt teardown-hang trap class, so the
 # mirror-stall exposure is bounded at the transfer layer instead.
+#
+# Every attempt is forced non-interactive HERE rather than by an ambient export
+# in the calling script, because an export does not survive the trip: sudo
+# resets the environment to whatever env_keep lists, and neither of these
+# variables is on that list, so `export DEBIAN_FRONTEND=noninteractive; sudo
+# apt-get ...` reaches apt with the frontend unset. What that costs is not a
+# visible error. These guests are driven by OCR of a console, so a debconf
+# question is a HANG: dpkg-preconfigure blocks on a read nothing will answer
+# while holding /var/lib/dpkg/lock-frontend, and because stdout here is a pipe
+# the question itself never flushes -- the console freezes on the last line
+# apt printed and the step spends its entire timeout with no prompt on screen
+# to explain why. Unbounded attempts (above) make that the full budget.
+#
+# `env` rather than a bare VAR=value word for two reasons: it sets the
+# variables in the child regardless of sudoers policy, and it stays a real
+# command, so the stall bound can still hoist timeout(1) inside sudo --
+# timeout execs its argument and cannot exec an assignment, while env execs
+# the tool in the same PID, leaving the signal target unchanged.
+# DEBIAN_PRIORITY is the belt to that brace, for a config script that consults
+# the priority directly instead of the frontend. The heal command gets the
+# same treatment: `dpkg --configure -a` runs the postinst scripts, so it can
+# block on the identical question it was invoked to clear.
 # --- REGION: https://yuruna.link/network#why-apt-and-dnf-attempts-run-unbounded-by-default
 apt_retry() {
+    local -a cmd=()
+    if [ "${1:-}" = "sudo" ]; then
+        cmd+=("$1"); shift
+    fi
+    cmd+=(env DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical "$@")
     YURUNA_RETRY_STALL_TIMEOUT_SECONDS="${YURUNA_APT_STALL_TIMEOUT_SECONDS:-0}" \
-    YURUNA_RETRY_HEAL='sudo dpkg --configure -a' \
-        _yuruna_retry apt_retry "$@"
+    YURUNA_RETRY_HEAL='sudo env DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical dpkg --configure -a' \
+        _yuruna_retry apt_retry "${cmd[@]}"
 }
 dnf_retry() {
     YURUNA_RETRY_STALL_TIMEOUT_SECONDS="${YURUNA_DNF_STALL_TIMEOUT_SECONDS:-0}" \

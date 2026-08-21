@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.20
+.VERSION 2026.08.21
 .GUID 42fb91f9-ac3c-48ec-849f-108167698afd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -490,6 +490,45 @@ function Invoke-OrchestrationSequence {
     $stopped = $false
     $overall = 'pass'
     $firstFailureReason = ''
+
+    # Entry-boundary control gates. The sequence engine gates every STEP on
+    # these flags, but a chain entry is not a step: a host action never reaches
+    # that engine at all, so between two entries the operator's Pause took
+    # effect only once the next entry had already started -- and a lab service
+    # that went away between them was not noticed until something downstream
+    # failed on it.
+    $orchRuntimeDir = if (Get-Command Initialize-YurunaRuntimeDir -ErrorAction SilentlyContinue) {
+        Initialize-YurunaRuntimeDir
+    } else { [string]$env:YURUNA_RUNTIME_DIR }
+    $orchStepPauseFlag   = if ($orchRuntimeDir) { Join-Path $orchRuntimeDir 'control.step-pause' }    else { '' }
+    $orchCycleRestartFlag = if ($orchRuntimeDir) { Join-Path $orchRuntimeDir 'control.cycle-restart' } else { '' }
+
+    $orchWaitWhilePaused = {
+        param([string]$Label)
+        if (-not $orchStepPauseFlag -or -not (Test-Path -LiteralPath $orchStepPauseFlag)) { return }
+        Write-OrchestratorLine "$Label paused (status-service request); waiting for resume."
+        $attempt = 1
+        while (Test-Path -LiteralPath $orchStepPauseFlag) {
+            $delay = if (Get-Command Get-PollDelay -ErrorAction SilentlyContinue) { Get-PollDelay -Attempt $attempt } else { 2000 }
+            Start-Sleep -Milliseconds $delay
+            $attempt++
+        }
+        Write-OrchestratorLine "$Label resumed."
+    }
+
+    # Same control-flow marker the sequence engine throws, carried both as an
+    # Exception.Data tag and as the message prefix, so a restart requested while
+    # an entry is held routes through the inner runner's cycle-catch instead of
+    # counting as a crash.
+    $orchCheckCycleRestart = {
+        param([string]$Label)
+        if (-not $orchCycleRestartFlag -or -not (Test-Path -LiteralPath $orchCycleRestartFlag)) { return }
+        Write-OrchestratorLine "$Label cycle-restart signal seen -- aborting current cycle."
+        $restart = [System.Management.Automation.RuntimeException]::new("YurunaCycleRestart: status-service /control/start-cycle requested mid-cycle abort at $Label")
+        $restart.Data['YurunaCycleRestart'] = $true
+        throw $restart
+    }
+
     try {
         foreach ($e in $entries) {
             if ($stopped) {
@@ -502,6 +541,33 @@ function Invoke-OrchestrationSequence {
             }
             Write-OrchestratorLine ""
             Write-OrchestratorLine "----- [$($e.index)/$($entries.Count)] $($e.name) -----"
+
+            # Operator pause wins over the lab hold: someone who has parked the
+            # cycle is present, and re-probing a lab nobody is watching achieves
+            # nothing. The lab gate is Get-Command-guarded so an entry point
+            # whose module set omits Test.LabHealth runs exactly as before.
+            $entryLabel = "[$($e.index)/$($entries.Count)] $($e.name)"
+            $labHoldReason = ''
+            & $orchWaitWhilePaused $entryLabel
+            if (Get-Command Invoke-LabHealthGate -ErrorAction SilentlyContinue) {
+                try {
+                    $null = Invoke-LabHealthGate -Label $entryLabel -Config $Config -HostType $HostType `
+                        -Stage $e.name -CheckAbort $orchCheckCycleRestart -WaitWhilePaused $orchWaitWhilePaused
+                } catch {
+                    # An exhausted hold fails THIS entry rather than escaping the
+                    # loop: the enclosing construct is try/finally with no catch,
+                    # so an escape would run the finalizer with $overall still
+                    # 'pass' and record a green cycle over a stopped lab. The
+                    # cycle-restart marker keeps escaping -- unwinding IS what it
+                    # asks for.
+                    if (($_.Exception.Data -and $_.Exception.Data['YurunaCycleRestart']) -or
+                        ($_.Exception.Message -like 'YurunaCycleRestart:*')) { throw }
+                    $labHoldReason = [string]$_.Exception.Message
+                    Write-OrchestratorLine "$entryLabel $labHoldReason"
+                }
+            }
+            & $orchCheckCycleRestart $entryLabel
+
             if (-not $orchNested) {
                 Set-GuestStatus -GuestKey $e.name -Status 'running' -Confirm:$false
                 Set-StepStatus -GuestKey $e.name -StepName 'Run' -Status 'running' -Confirm:$false
@@ -521,7 +587,14 @@ function Invoke-OrchestrationSequence {
             $reason = ''
             $entryVmName = ''
             try {
-                if ($e.kind -eq 'host') {
+                if ($labHoldReason) {
+                    # The gate already wrote a classified last_failure.json, and
+                    # the inherited-class read below picks it up, so this entry
+                    # only has to report the outcome -- running it would report
+                    # whatever unrelated symptom the missing service produces.
+                    $ok = $false
+                    $reason = $labHoldReason
+                } elseif ($e.kind -eq 'host') {
                     $exit = Invoke-OrchestratorHostAction -Sequence $e.sequence -SequencePath $e.path -Name $e.name
                     $ok = ($exit -eq 0)
                     if (-not $ok) { $reason = "host action '$($e.name)' exited $exit" }

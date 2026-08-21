@@ -59,6 +59,11 @@ func (s *Server) routes() http.Handler {
 	// than left open for anything on the LAN to poll.
 	mux.HandleFunc("POST /api/v1/diagnostics/fido-test", s.gate.Require(s.handleFidoTest))
 
+	// MCP over the same surface. Not wrapped in gate.Require: the protocol
+	// decides per TOOL, because its read-only tools carry exactly the
+	// exposure of the open routes they wrap.
+	mux.HandleFunc("POST /mcp", s.mcpServer().Handler())
+
 	mux.HandleFunc("GET /assets/", s.handleAsset)
 	// The page is served open; its DATA comes from the routes above and it
 	// renders its own lab-token prompt from /api/session. Gating the HTML would

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.20
+.VERSION 2026.08.21
 .GUID 42523d00-1e52-4f07-92e7-2f54c6fa62da
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -447,6 +447,66 @@ function Get-ConfigSyncEnvelopeKey {
         [System.Security.Cryptography.HashAlgorithmName]::SHA256, $ikm, 32, $Salt, $info)
 }
 
+<#
+.SYNOPSIS
+    Classifies an observed AES-GCM availability into an operator verdict.
+    Pure (no I/O); the probe below feeds it what the runtime reported.
+.DESCRIPTION
+    Split from the probe for the reason every classifier here is: the decision
+    has to be testable on a host where the algorithm IS present, which is every
+    host that would run the suite.
+
+    $null means the runtime does not expose IsSupported at all. That is
+    reported as supported, deliberately: absence of the property is not
+    evidence of absence of the algorithm, and blocking on a question this
+    cannot answer would fail hosts that work.
+.OUTPUTS
+    [hashtable] Supported [bool], Reason [string] -- Reason is operator-actionable.
+#>
+function Get-ConfigSyncEnvelopeSupport {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter()][AllowNull()]$IsSupported)
+    if ($null -eq $IsSupported -or [bool]$IsSupported) { return @{ Supported = $true; Reason = '' } }
+    return @{
+        Supported = $false
+        Reason    = ("This host's runtime has no AES-GCM (PowerShell $($PSVersionTable.PSVersion) on " +
+                     "$([System.Runtime.InteropServices.RuntimeInformation]::OSDescription.Trim())), so it can neither open a " +
+                     'credential envelope nor seal one. Every Lab token enrollment and every config-sync credential exchange ' +
+                     'fails here until PowerShell is upgraded. Nothing about the code, the proxy or the vault is at fault. ' +
+                     'Confirm with test/lab/Lab-Diag.ps1, whose AesGcm line reports the same thing.')
+    }
+}
+
+<#
+.SYNOPSIS
+    Whether this runtime can do the AES-GCM every credential envelope needs.
+.DESCRIPTION
+    Not every .NET build carries AES-GCM. A runtime without it fails at the
+    moment of USE -- deep inside a decrypt, with an exception the callers
+    historically folded into "the reply did not unseal", which reads as a wrong
+    code and sends the operator back to the dashboard for a fresh one that
+    cannot work either.
+
+    Asking first turns that into one sentence naming the runtime. Reported
+    rather than thrown so a caller can decide: a preflight lists it beside the
+    other requirements, while an exchange refuses before it burns a rotating
+    code and an audited attempt.
+.OUTPUTS
+    [hashtable] Supported [bool], Reason [string].
+#>
+function Test-ConfigSyncEnvelopeSupport {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param()
+    $probe = $null
+    try { $probe = [System.Security.Cryptography.AesGcm]::IsSupported }
+    catch {
+        Write-Verbose "AesGcm.IsSupported is not exposed by this runtime ($($_.Exception.Message)); assuming the algorithm is present."
+    }
+    return Get-ConfigSyncEnvelopeSupport -IsSupported $probe
+}
+
 function New-ConfigSyncAesGcm {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
         'PSUseShouldProcessForStateChangingFunctions', '',
@@ -454,6 +514,13 @@ function New-ConfigSyncAesGcm {
     [CmdletBinding()]
     [OutputType([System.Security.Cryptography.AesGcm])]
     param([Parameter(Mandatory)][byte[]]$Key)
+    # Ask before constructing. Without this the failure arrives as
+    # "Algorithm 'AesGcm' is not supported on this platform" from a constructor
+    # two frames below a catch that turns it into a wrong-code message.
+    $support = Test-ConfigSyncEnvelopeSupport
+    if (-not $support.Supported) {
+        throw [System.PlatformNotSupportedException]::new($support.Reason)
+    }
     # The (key, tagSize) constructor is the non-deprecated form on current
     # .NET; older runtimes only have the single-argument one.
     try { return [System.Security.Cryptography.AesGcm]::new($Key, 16) }
@@ -1306,6 +1373,36 @@ function Sync-HostConfiguration {
     Write-Information "Fetching test.config.yml from http://${ReferenceHost}:${StatusPort}/control/test-config ..." -InformationAction Continue
     $reference = Get-ConfigSyncReferenceConfig -ReferenceHost $ReferenceHost -Port $StatusPort
 
+    # --- REGION: Retired key spellings on the reference
+    # Rewrite them onto the current paths BEFORE anything reads the config.
+    # Every consumer downstream looks up current names only, so a value parked
+    # under a retired one is indistinguishable from a value that is not there --
+    # and "not there" is not inert: Convert-ConfigSyncNetworkStorage reads a
+    # missing poolStorageNetworkPath as "the reference has no pool storage" and
+    # CLEARS the tier, which takes the user names with it and leaves the
+    # credential sync iterating an empty list. A reference one rename behind
+    # would erase exactly the section it was fetched to supply.
+    #
+    # Ahead of the freshness gate, so a reference whose only drift is spelling
+    # syncs cleanly -- including unattended, where that gate is a hard failure.
+    # The operator is still told, because the fix belongs at the source: this
+    # rewrite is per-sync and the reference keeps serving the old names to
+    # everyone else until it is reconciled.
+    $namingModule = Join-Path $RepoRoot 'test/modules/Test.ConfigNaming.psm1'
+    if (Test-Path -LiteralPath $namingModule) {
+        Import-Module $namingModule -Force -DisableNameChecking
+        $migrated = @(Update-RetiredConfigKey -Config $reference -Confirm:$false)
+        if ($migrated.Count -gt 0) {
+            Write-Warning ("Reference host ${ReferenceHost} still uses $($migrated.Count) retired config key name(s). They were translated for this sync; fix them at the source with 'pwsh tools/Update-TestConfigNaming.ps1' on ${ReferenceHost} so every other consumer sees them too:")
+            foreach ($m in $migrated) {
+                $note = if ($m.Action -eq 'superseded') { ' (dropped -- the current spelling was already present)' }
+                        elseif ($m.Factor -ne 1)        { " (x$($m.Factor) -> $($m.Value))" }
+                        else                            { '' }
+                Write-Warning "  $($m.Old) -> $($m.New)$note"
+            }
+        }
+    }
+
     # --- REGION: Reference freshness gate
     # Copying from a host that is behind this checkout's schema silently lands a
     # half-migrated config here: keys the reference lacks fall back to template
@@ -1649,9 +1746,22 @@ function Unprotect-LabTokenEnvelope {
         [Parameter(Mandatory)][string]$LabToken,
         [Parameter(Mandatory)]$Envelope
     )
+    $support = Test-ConfigSyncEnvelopeSupport
+    if (-not $support.Supported) {
+        # A warning, not a verbose line: returning '' here is indistinguishable
+        # from a wrong code at the call site, and this is the one cause no
+        # amount of re-reading the dashboard can fix.
+        Write-Warning $support.Reason
+        return ''
+    }
     try {
         foreach ($field in @('salt', 'nonce', 'ciphertext', 'tag')) {
-            if (-not $Envelope[$field]) { return '' }
+            if (-not $Envelope[$field]) {
+                # Named, because a silent empty return here reads downstream as
+                # a failed decrypt -- a different fault with different advice.
+                Write-Warning "The lab-token reply carries no '$field'. The aggregator answered and sealed something, so this is a shape mismatch between that daemon and this client, not a wrong code."
+                return ''
+            }
         }
         $salt  = [Convert]::FromBase64String([string]$Envelope['salt'])
         $nonce = [Convert]::FromBase64String([string]$Envelope['nonce'])
@@ -1706,6 +1816,16 @@ function Request-LabTokenExchange {
         [Parameter()][int]$TimeoutSeconds = 15
     )
     $url = "$($AggregatorBaseUrl.TrimEnd('/'))/api/v1/lab-token"
+    # Ask before spending the code. The aggregator counts and audits every
+    # exchange, and the code rotates, so a host that cannot open the reply must
+    # not consume one to discover that -- and must not be told to fetch another.
+    # Status -1 marks a CLIENT precondition, distinct from 0 (no answer): the
+    # caller's scheme-fallback loop retries only on 0, which is right, because
+    # plain HTTP would fail here for exactly the same reason.
+    $support = Test-ConfigSyncEnvelopeSupport
+    if (-not $support.Supported) {
+        return @{ Ok = $false; Token = ''; Status = -1; Error = $support.Reason }
+    }
     $body = @{ labToken = $LabToken } | ConvertTo-Json -Compress
     try {
         $resp = Invoke-WebRequest -Uri $url -Method Post -Body $body -ContentType 'application/json' `
@@ -1829,4 +1949,5 @@ Export-ModuleMember -Function `
     Request-ConfigSyncVaultCredential, Test-ConfigSyncCredentialEndpoint, Get-ConfigSyncCredentialReadiness, `
     Sync-ConfigSyncVaultCredential, `
     Sync-HostConfiguration, Test-ConfigSyncReferenceFreshness, Set-LabAuthToken, Get-LabAuthTokenValue, `
-    Request-LabTokenExchange, Get-LabTokenExchangeVerdict, Unprotect-LabTokenEnvelope
+    Request-LabTokenExchange, Get-LabTokenExchangeVerdict, Unprotect-LabTokenEnvelope, `
+    Test-ConfigSyncEnvelopeSupport, Get-ConfigSyncEnvelopeSupport

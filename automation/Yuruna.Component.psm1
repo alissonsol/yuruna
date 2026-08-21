@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.20
+.VERSION 2026.08.21
 .GUID 42eaea7b-b54f-495c-bbdc-838c8758fced
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,13 +30,8 @@ Import-Module (Join-Path $PSScriptRoot 'Yuruna.Common.psm1') -Global -Force
 # interpolate against whatever happens to be in env at the moment,
 # which is exactly what the layered model is meant to avoid.
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.VariableExpansion.psm1') -Global -Force
-# Registry-login dispatcher. Yuruna.Component.Registry bridges to the
-# credential-provider registry in automation/Yuruna.CredentialProvider
-# so this pipeline's "registryLogin" phase and the test harness's
-# self-heal Repair-Credential path agree on what the login command is
-# for any given registry hostname. Adding a new registry kind (ECR,
-# GAR, Docker Hub, Harbor, ...) is one Register-CredentialProvider
-# call inside Yuruna.CredentialProvider; nothing to edit here.
+# Registry-login dispatch wiring for the component-push pipeline --
+# see docs/authentication.md#component-registry-login.
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.Component.Registry.psm1') -Global -Force
 Remove-Item Env:DOCKER_BUILDKIT -Force -ErrorAction SilentlyContinue
 

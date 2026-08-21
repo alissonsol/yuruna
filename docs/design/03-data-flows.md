@@ -13,9 +13,9 @@ modules behind them, `automation/Get-SystemDiagnostic.ps1`,
 `automation/fetch-and-execute.sh` with `automation/yuruna-{retry,host-locate}.sh`,
 `test/modules/Test.{RunnerOuterLoop,RunnerInnerLoop,SequenceEngine,SequenceHandler,SequenceFailureState,GuestQuarantine,Remediation,Notify,PoolStorage,HostIdentity}.psm1`,
 `host/modules/Yuruna.{DownloadAgent,UbuntuImage,HostDownload,HostProvision}.psm1`,
-`host/vmconfig/{ubuntu.server,caching-proxy-service}.base.user-data`, and the Go
-`internal/config` and `internal/state` packages of the download-agent and stash
-services.
+`host/vmconfig/{ubuntu.server,caching-proxy-service}.base.user-data`,
+`test/modules/Test.LabHealth.psm1`, and the Go `internal/config` packages of the
+download-agent and stash services plus the download-agent's `internal/state`.
 
 Every diagram carries only the actors that actually exchange a message, seven or
 fewer. Where reality has more, the fold is named in the prose directly under the
@@ -30,7 +30,7 @@ sequenceDiagram
     participant component as Set-Component.ps1
     participant workload as Set-Workload.ps1
     participant retry as Invoke-WithYurunaRetry
-    participant tool as tofu docker helm
+    participant tool as tofu docker helm kubectl
     participant sidecar as stderr.log and rc
     cli->>resource: resources
     resource->>retry: init, plan, apply planfile, output
@@ -54,12 +54,23 @@ scripts call them directly rather than through the dispatcher. All three share
 the same prelude -- `Set-YurunaLogLevel`, then `Resolve-YurunaRootSet` to publish
 `Env:yuruna_root` / `project_root` / `config_root`, then module eviction, then a
 `-Force` import of the phase module -- and all three end in
-`Complete-YurunaRun`, which is the only thing that turns a failure manifest into
-`exit 1`. `Set-Workload.ps1` adds one pre-flight the others do not have: it runs
+`Complete-YurunaRun` (`automation/Yuruna.Result.psm1`), which tests `.success`
+through `Test-YurunaResultManifestOk` and exits 1 on a failure manifest. A
+non-empty manifest hashtable coerces to `$true`, so a bare `if (-Not $result)`
+would take the success branch; `yuruna.ps1` reproduces that same tail inline
+rather than calling the helper. `Set-Workload.ps1` adds one pre-flight the others do not have: it runs
 `automation/Test-Runtime.ps1` and inspects the **last** element of its output,
 because the healthy path streams `docker images` tables ahead of the boolean.
 
-The `tofu docker helm` participant folds the three external CLIs into one lane;
+A third caller now exists beside `yuruna.ps1` and the project scripts, and it is
+not drawn because the diagram already carries seven participants:
+`test/service/Start-McpServer.ps1` serves MCP `2025-06-18` over stdio -- no
+listener, no port, no token, because a process reading one operator's stdin was
+started by that operator -- and its ten tools map onto the same entry points,
+`yuruna_set_resource` / `yuruna_set_component` / `yuruna_set_workload` among them.
+
+The `tofu docker helm kubectl` participant folds the four external CLIs into one
+lane;
 `az` / `aws` / `gcloud` / `docker login` sit behind it too, reached only through
 `Resolve-ComponentRegistryLogin` (`automation/Yuruna.Component.Registry.psm1`)
 resolving a provider out of `automation/Yuruna.CredentialProvider.psm1`.
@@ -218,10 +229,31 @@ workload sequence, so the dashboard renders exactly the tiles the cycle will run
 through an `IterState.Control` field of `proceed` / `continue` / `break` rather
 than a bare loop keyword.
 
-Three things happen around every step, not just the failing one:
-`Assert-CachingProxyServiceStillReachable` before it, `Set-StepStatus` on both
-sides of it, and `Sync-RunnerStepConfig` after it, which re-reads
-`StopOnFailure` and the two VM timeouts so an operator edit lands mid-cycle.
+Four things happen around every step, not just the failing one: the lab-health
+gate and `Assert-CachingProxyServiceStillReachable` before it, `Set-StepStatus` on
+both sides of it, and `Sync-RunnerStepConfig` after it, which re-reads the config
+through an mtime-keyed cache and lets the caller mirror `StopOnFailure`,
+`VmStartTimeoutSeconds` and `VmBootDelaySeconds` back off the shared bag, so an
+operator edit lands mid-cycle. A mid-write or corrupt file keeps the last known
+good values and, after three consecutive failures, warns once that the runner is
+coasting.
+
+The lab-health gate (`Invoke-LabHealthGate`, `test/modules/Test.LabHealth.psm1`)
+holds the cycle while a service this host HAD been reaching stops answering. Its
+probe set is derived rather than configured -- every extension area that declares
+a health surface is probed -- and it fires twice per sequence, once at sequence
+start and once per step (`test/modules/Test.SequenceEngine.psm1:1809`, `:1873`),
+plus at every orchestration chain entry (`test/modules/Test.Orchestrator.psm1:552`).
+A service that was never reachable from this host is never held for; the hold
+needs a change of condition. Its own lifecycle -- probe, hold, and the three ways
+out -- is drawn in [Lifecycle state](04-lifecycle-state.md).
+
+The cycle also re-checks the host condition set before any guest work, because
+settings revert between long-running cycles (an OS update, an operator at the
+console). A refusal is a failed cycle rather than a skipped one: it clears a stale
+`last_failure.json`, records `unknown` / hard so the outer loop cannot fast-retry
+a fault only a person can clear, and stops before the first guest
+(`test/modules/Test.RunnerInnerLoop.psm1:1973-2018`).
 
 Validation is one of two shapes and both funnel into the same pass/fail slot.
 The OCR shape is `Wait-ForText` in `test/modules/Test.SequenceEngine.psm1`,
@@ -311,6 +343,19 @@ service; it is a write sink reached over `scp`/`sftp` on port 22 from a LAN
 client, and it holds no pool data. It is drawn in section F instead, where its
 separate share is the point.
 
+### The leg that runs when the guest never finishes installing
+
+One artifact channel runs in the opposite direction from everything above and
+outside any sequence. When a guest's autoinstall dies, cloud-init's
+`error-commands` PUT the installer logs and a pre-captured network snapshot (`ip
+addr`, `ip route`, `resolv.conf`) to the host status service's
+`log-upload/<bucket>` route, with the bucket
+`installer-fail/<vm>/<stamp>` (`host/vmconfig/ubuntu.server.base.user-data:365-405`).
+The harness cannot observe that failure any other way: the guest never reaches the
+state where a sequence step could run. The uploads land at the log root rather
+than inside a cycle folder, so they are outside `manifest.json` and outside the
+per-cycle artifact model in [Configuration data model](05-data-model.md).
+
 ## D. Failure, taxonomy and alert
 
 ```mermaid
@@ -334,7 +379,7 @@ sequenceDiagram
     notify->>runner: delivery ledger outcome
 ```
 
-**Classification.** The vocabulary is the 23-value `$script:FailureClassEnum` in
+**Classification.** The vocabulary is the 24-value `$script:FailureClassEnum` in
 `test/modules/Test.FailureTaxonomy.psm1`, with severity `hard` / `soft` /
 `unknown`. Each verb declares its own class statically at registration -- for
 example `waitForText` is `ocr_timeout` / hard, `sshWaitReady` is
@@ -343,6 +388,15 @@ hard. `Test.SequenceAction.psm1` keeps a literal copy of the enum in a
 `ValidateSet` (an attribute argument must be a constant) and asserts it back
 against the taxonomy at module load, warn-only, so drift is visible without
 taking a cycle down.
+
+One class is produced by a wait rather than by a step. When the lab-health gate's
+hold reaches its compiled ceiling of 999 re-probes -- roughly sixteen hours --
+`Invoke-LabHealthGate` writes a `lab_dependency_down` / hard record through the
+same `Write-CycleInfraFailure` and then throws a tagged marker, so the record
+exists before anything unwinds. It is deliberately kept off the auto-remediation
+allow-list: the cycle already re-probed on backoff for most of a day before the
+record was written, and under a pool the service that stopped is usually a VM
+another machine owns.
 
 **The record.** The failure record is built once, by
 `New-SequenceFailureRecord` in `test/modules/Test.SequenceFailureState.psm1`,
@@ -368,13 +422,18 @@ budget.
 
 **Remediation is advisory.** `Invoke-Remediation`
 (`test/modules/Test.Remediation.psm1`) routes on `failureClass` through a
-registry of built-in handlers, preferring `innerFailureClass` when the record
-carries one and that class has its own handler -- otherwise an exhausted retry
+registry of built-in handlers, preferring `innerFailureClass` when the outer class
+is exactly `retry_exhausted`, the inner class differs from it, and that class has
+its own handler -- otherwise an exhausted retry
 would collapse every cause into `retry_exhausted`. It writes a durable
 `last_remediation.json` and emits `remediation_recommended`, and **performs
-nothing**. Actual automatic action happens in exactly one other place: the
-outer failure pause consults a separate allow-list and, when the class is on it
-and the per-cycle attempt cap has not been reached, ends the pause early.
+nothing**. Actual automatic action happens in exactly one other place, and it is
+opt-in: the outer failure pause's fifth trigger (default off, behind
+`testCycle.autoRemediation.enabled`) asks `Test-AutoRemediationAllowed`, whose
+allow-list ships in `Test.Remediation.psm1` beside the handlers rather than in the
+loop -- a literal in the loop could not stay in step with them. When the class is
+on the list and the attempt cap (`maxAttemptsPerCycle`, default 2, reset by a
+passing cycle rather than by the clock) is not spent, it ends the pause early.
 
 **The gate.** The latch is Armed -> N failures -> Fired -> M successes -> Armed,
 with the counters persisted to `runner.gating.json` so they survive the
@@ -435,10 +494,11 @@ string -- nothing in this module throws, because each call sits in front of a
 those three rungs.
 
 **Per image**, `Request-DownloadAgentImage` POSTs
-`/api/v1/images/{hostType}/{imageKey}/ensure` with a fingerprint of filename and
-byte count -- deliberately no hash, since hashing a multi-gigabyte local artifact
-would cost more than the transfer it saves, and the four-line sentinel supplies
-those two fields free. `localCurrent: true` returns `skipped` with no resolve, no
+`/api/v1/images/{hostType}/{imageKey}/ensure?arch=&variant=` with a three-field
+fingerprint -- filename, byte count, and a `sha256` that is normally empty, since
+hashing a multi-gigabyte local artifact would cost more than the transfer it
+saves and the four-line sentinel supplies the other two free. Filename plus byte
+count is exactly the agent's own fallback comparison. `localCurrent: true` returns `skipped` with no resolve, no
 HEAD and no transfer; `state: downloading` polls with backoff from 2 s to 30 s;
 `state: ready` yields metadata whose advertised `fileUrl` is used verbatim and
 resumed with `Range` requests across up to five attempts.

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.20
+.VERSION 2026.08.21
 .GUID 42961225-d68b-4663-995b-dff524fe4af1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -400,8 +400,8 @@ function Clear-StalePauseFlag {
     <#
     .SYNOPSIS
         Delete leftover control.step-pause / control.cycle-pause /
-        control.pause flags so a fresh runner launch never starts
-        paused.
+        control.pause flags, and any parked lab hold, so a fresh runner
+        launch never starts paused.
     .DESCRIPTION
         The status UI's pause endpoints write these flags into
         $RuntimeDir; the play endpoint deletes them. If the operator
@@ -411,6 +411,17 @@ function Clear-StalePauseFlag {
         never clicked pause on this fresh run. Entry-point scripts
         call this at startup to enforce the policy "a new command
         line never inherits a prior session's pause state".
+
+        The lab hold (control.lab-hold, its lab-hold.json sidecar and
+        control.lab-hold-release) is swept on the same policy: a runner
+        killed mid-hold would otherwise start the next session already
+        parked on a verdict nothing has re-checked. The gate re-probes
+        within a step of starting and re-raises the hold if the service
+        is still away, so nothing is lost by clearing it.
+
+        lab-health.json is deliberately NOT swept. It is the record of
+        what this host has reached, not parked state, and clearing it
+        would disarm the gate for a service the lab has been using.
     .PARAMETER RuntimeDir
         test/status/runtime/. Defaults to $env:YURUNA_RUNTIME_DIR.
     .OUTPUTS
@@ -423,7 +434,8 @@ function Clear-StalePauseFlag {
     if (-not $RuntimeDir -or -not (Test-Path -LiteralPath $RuntimeDir)) { return $null }
     if (-not $PSCmdlet.ShouldProcess($RuntimeDir, 'Clear stale pause flags')) { return $null }
     $cleared = @()
-    foreach ($flag in @('control.step-pause', 'control.cycle-pause', 'control.pause')) {
+    foreach ($flag in @('control.step-pause', 'control.cycle-pause', 'control.pause',
+                        'control.lab-hold', 'lab-hold.json', 'control.lab-hold-release')) {
         $path = Join-Path $RuntimeDir $flag
         if (Test-Path -LiteralPath $path) {
             try {
@@ -446,7 +458,8 @@ function Clear-StaleControlState {
     .DESCRIPTION
         The status service writes control flags into $RuntimeDir to steer
         a running cycle: control.cycle-restart (rewind to step 1),
-        control.step-pause / control.cycle-pause / control.pause (hold),
+        control.step-pause / control.cycle-pause / control.pause and the
+        lab hold (hold),
         and break-active.json (a parked breakpoint). A session killed
         before consuming a flag leaves it behind, and the NEXT session
         would then wake to a request the operator never made for it.

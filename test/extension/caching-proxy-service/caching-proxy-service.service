@@ -1,0 +1,56 @@
+# LICENSEURI https://yuruna.link/license
+# Copyright (c) 2019-2026 by Alisson Sol et al.
+[Unit]
+Description=Yuruna caching-proxy-service (management plane for the caching proxy)
+Documentation=https://yuruna.link/caching-proxy-service
+After=squid.service network-online.target
+# Wants, not Requires: the management plane answering that squid is DOWN is one
+# of the things it exists for, so it must survive squid failing to start.
+Wants=squid.service
+
+[Service]
+Type=simple
+User=root
+Group=root
+EnvironmentFile=-/etc/yuruna/caching-proxy-service.env
+ExecStart=/usr/local/bin/caching-proxy-service \
+  --http-addr=${CACHING_PROXY_HTTP_ADDR} \
+  --mode=${CACHING_PROXY_MODE} \
+  --squid-addr=${CACHING_PROXY_SQUID_ADDR} \
+  --registry-url=${CACHING_PROXY_REGISTRY_URL} \
+  --meta-url=${CACHING_PROXY_META_URL} \
+  --share-root=${CACHING_PROXY_SHARE_ROOT} \
+  --aggregator-url=${CACHING_PROXY_AGGREGATOR_URL} \
+  --host-id=${CACHING_PROXY_HOST_ID} \
+  --presence-interval=${CACHING_PROXY_PRESENCE_INTERVAL} \
+  --auth-token-file=${CACHING_PROXY_AUTH_TOKEN_FILE}
+Restart=on-failure
+RestartSec=5
+
+# Unlike its two neighbours in this VM, this service WRITES: the offline and
+# no-upstream switches are drop-ins under /etc/squid/conf.d, and applying one
+# means running `squid -k reconfigure`. That is why it runs as root with a
+# narrow write path rather than as the proxy user with none.
+ProtectSystem=strict
+ReadWritePaths=/etc/squid/conf.d
+ReadOnlyPaths=/var/lib/yuruna
+NoNewPrivileges=true
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+# AF_NETLINK is load-bearing, not padding: /api/hostinfo enumerates this
+# host's addresses, and Go reads the interface table over a netlink socket.
+# Without it net.Interfaces() fails with "address family not supported by
+# protocol" and the daemon reports no addresses at all -- silently, since
+# the enumeration error is folded into an empty result by design.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

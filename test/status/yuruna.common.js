@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.08.20
+  Version: 2026.08.21
 
   Shared helpers for the Yuruna status pages. Mounted on window.Yuruna.
   --- REGION: https://yuruna.link/definition#defining-the-status-page-browser-baseline
@@ -10,7 +10,7 @@
 (function() {
   'use strict';
 
-  var VERSION = '2026.08.20';
+  var VERSION = '2026.08.21';
 
   // --- REGION: https://yuruna.link/control-proof
   // A Grafana deep-link routes through the caching-proxy service's /go/host, which appends a
@@ -364,14 +364,25 @@
     if (el) el.textContent = text || '';
   }
 
-  function pauseBannerText(stepPaused, cyclePaused, status, actionData) {
+  function pauseBannerText(stepPaused, cyclePaused, status, actionData, labHold, labHoldAreas) {
     var stepEffective  = stepPaused &&
       !!(actionData && actionData.line && /Paused \(waiting for resume\)/.test(actionData.line));
     var cycleEffective = cyclePaused && status !== 'running';
+    // The operator's own pause reads first: they are present, they know why
+    // the cycle stopped, and telling them a service is away would describe
+    // something they did not do. The hold keeps re-probing underneath either
+    // way, so nothing is lost by naming it second.
     if (stepEffective)  return 'Test paused';
     if (stepPaused)     return 'Test pausing (after step)';
     if (cycleEffective) return 'Test paused';
     if (cyclePaused)    return 'Test pausing (after cycle)';
+    // Named, not generic: "paused" would send an operator looking for the
+    // person who pressed it, and the whole point of the hold is that the fix
+    // is a service somewhere else in the lab.
+    if (labHold) {
+      var areas = (labHoldAreas && labHoldAreas.length) ? labHoldAreas.join(', ') : 'a lab service';
+      return 'Lab hold -- waiting for ' + areas;
+    }
     return null;
   }
 
@@ -390,7 +401,8 @@
     var status      = data.overallStatus || 'idle';
     var stepPaused  = !!data.stepPaused;
     var cyclePaused = !!data.cyclePaused;
-    var pauseText   = pauseBannerText(stepPaused, cyclePaused, status, actionData);
+    var pauseText   = pauseBannerText(stepPaused, cyclePaused, status, actionData,
+                                      !!data.labHold, data.labHoldAreas);
     var anyPaused   = pauseText !== null;
     if (runnerStopped) {
       banner.className = 'stopped';
@@ -1066,7 +1078,8 @@
       var status = data.overallStatus || 'idle';
       var stepPaused  = !!data.stepPaused;
       var cyclePaused = !!data.cyclePaused;
-      var pauseText = pauseBannerText(stepPaused, cyclePaused, status, actionData);
+      var pauseText = pauseBannerText(stepPaused, cyclePaused, status, actionData,
+                                      !!data.labHold, data.labHoldAreas);
       var anyPaused = pauseText !== null;
       var effective = anyPaused ? 'paused' : cls(status);
       if (runnerStopped) {

@@ -68,6 +68,11 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/testset", s.gate.Require(s.handleSetTestSet))
 	mux.HandleFunc("DELETE /api/testset", s.gate.Require(s.handleDeleteTestSet))
 
+	// MCP over the same surface. Not wrapped in gate.Require: the protocol
+	// decides per TOOL, so read-only tools keep the exposure of the open
+	// routes they wrap.
+	mux.HandleFunc("POST /mcp", s.mcpServer().Handler())
+
 	mux.HandleFunc("GET /assets/", s.handleAsset)
 	// Pages are served open; each mutation is gated above, and the board renders
 	// its own lab-token prompt from /api/session. Gating the HTML too would mean

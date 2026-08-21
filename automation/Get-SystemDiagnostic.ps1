@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.20
+.VERSION 2026.08.21
 .GUID 420783b4-e34a-4b51-b88e-e01fa3738a91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -657,6 +657,75 @@ function Invoke-PrivProbe {
         return @(& $exe @rest 2>&1 | ForEach-Object { $_.ToString() })
     }
     return @(& $exe @rest 2>$null | ForEach-Object { $_.ToString() })
+}
+
+# --- REGION: Process subtree walk
+# Breadth-first walk of a process subtree: the root, then every descendant, in
+# discovery order. The process a package manager is blocked ON is generally not
+# the one whose name matched: apt-get forks `sh -c`, which forks the tool that
+# owns the blocking read, so a capture that stops at direct children names the
+# shell and never the leaf holding the fd -- and the fd is the whole point of
+# the capture. Two bounds so a fork-storm cannot turn one section into an
+# unbounded ps walk: MaxPids caps the total, and only pids reached through the
+# queue are visited, so a cycle in a doctored ppid chain terminates.
+function Get-ProcessDescendantPid {
+    [OutputType([int[]])]
+    param(
+        [Parameter(Mandatory)][int]$RootPid,
+        [int]$MaxPids = 40
+    )
+    $ordered = [System.Collections.Generic.List[int]]::new()
+    $seen    = [System.Collections.Generic.HashSet[int]]::new()
+    $queue   = [System.Collections.Generic.Queue[int]]::new()
+    $null = $seen.Add($RootPid)
+    $queue.Enqueue($RootPid)
+    while ($queue.Count -gt 0 -and $ordered.Count -lt $MaxPids) {
+        $current = $queue.Dequeue()
+        $ordered.Add($current)
+        foreach ($line in (Invoke-PrivProbe -Tool 'ps' -ToolArgs @('-o', 'pid=', '--ppid', "$current"))) {
+            $childPid = 0
+            if (-not [int]::TryParse($line.Trim(), [ref]$childPid)) { continue }
+            if ($seen.Add($childPid)) { $queue.Enqueue($childPid) }
+        }
+    }
+    return $ordered.ToArray()
+}
+
+# --- REGION: Journal self-noise
+# Lines this harness writes to the system journal simply by running. Each
+# arrives on a timer while a cycle is in flight -- one apparmor profile reload
+# per console frame captured, one libvirt agent-rung error per guest address
+# lookup on an image that ships no qemu-guest-agent, one compile record per
+# child pwsh -- so on a busy host they ARE the journal window, and every line
+# worth reading has aged out of it before anyone looks. They are dropped from
+# what is printed and from what is counted, and tallied by class instead, so
+# the fact that they happened survives in one line rather than a hundred.
+#
+# apparmor is matched on STATUS only: a profile load is bookkeeping, while a
+# DENIED line is a real fault and must never be filtered. A redacted
+# scriptblock record carries nothing at all -- it is this script being compiled,
+# named and blanked -- so it is dropped rather than printed blank. The IPC
+# listener pair is what a pwsh process logs as it starts and as it is torn
+# down, at error level for the teardown: a harness that forks a child pwsh per
+# step therefore reports a permanent error-rate that no operator can act on.
+function Get-JournalSelfNoiseClass {
+    [OutputType([string])]
+    param([string]$Line)
+    if ($Line -match 'apparmor="STATUS"') { return 'apparmor profile reloads' }
+    if ($Line -match 'Guest agent is not responding') { return 'guest-agent probes' }
+    if ($Line -match 'NamedPipeIPC_ServerListener(Error|Started)') { return 'PowerShell IPC listener records' }
+    if ($Line -match 'Creating Scriptblock text \(\d+ of \d+\)') { return 'script-compile records' }
+    return $null
+}
+
+# Render the tally as one trailing line, or '' when nothing was suppressed.
+function Format-JournalSelfNoiseNote {
+    [OutputType([string])]
+    param([System.Collections.Specialized.OrderedDictionary]$Tally)
+    if (-not $Tally -or $Tally.Count -eq 0) { return '' }
+    $parts = foreach ($k in $Tally.Keys) { "{0} {1}" -f $Tally[$k], $k }
+    return ("({0} line(s) suppressed -- this harness's own polling: {1})" -f
+        (($Tally.Keys | ForEach-Object { $Tally[$_] } | Measure-Object -Sum).Sum, ($parts -join ', ')))
 }
 
 function Format-ByteCount {
@@ -1725,7 +1794,16 @@ try {
             $count = ($jc | Measure-Object).Count
             if ($count -gt 0) {
                 $jc | ForEach-Object { Write-Output $_ }
-                if ($count -ge 10) { Add-Problem "EVENTS: $count journalctl error entries in the last hour." }
+                # Every line is printed, but only lines this harness did not
+                # write itself are counted. A host whose error journal is
+                # nothing but its own guest-address probes is a host with no
+                # problem, and reporting one there spends the operator's
+                # attention on the thing that is working.
+                $realCount = @($jc | Where-Object { -not (Get-JournalSelfNoiseClass -Line ([string]$_)) }).Count
+                if ($realCount -ge 10) { Add-Problem "EVENTS: $realCount journalctl error entries in the last hour." }
+                elseif ($count -ge 10) {
+                    Write-Output ("({0} of {1} error entries are this harness's own polling -- not counted as a problem)" -f ($count - $realCount), $count)
+                }
             } else { Write-Output "(no error entries in the last hour)" }
         } elseif (Test-Path '/var/log/syslog') {
             Write-Sub "tail /var/log/syslog (last 30 lines)"
@@ -2370,13 +2448,23 @@ try {
             Invoke-Tool -Tool 'ss' -ToolArgs @('-tnpo') -Privileged
         }
 
-        Write-Sub "Package-manager processes (state, wchan, children, fds)"
+        Write-Sub "Package-manager processes (state, wchan, descendants, fds)"
         # A package manager blocked at end-of-transaction looks healthy in
         # every aggregate view above (top-N shows it idle, ss shows no
         # sockets). The discriminating evidence is WHICH fd it is blocked
         # reading -- a pipe/socketpair fd points at a hook child, a ptmx fd
-        # at the dpkg-pty EOF drain -- plus the kernel wait channel and any
-        # surviving children (the wrapped-apt teardown-hang trap class).
+        # at the dpkg-pty EOF drain, a tty fd at a config script waiting on
+        # an answer -- plus the kernel wait channel and any surviving
+        # children (the wrapped-apt teardown-hang trap class).
+        #
+        # The whole subtree, not just direct children, and fds for every
+        # process in it: the blocked process is usually a grandchild of the
+        # one whose name matched (apt-get -> sh -c -> the tool that owns the
+        # read), so state and fds captured only for the matched pid describe
+        # a process that is merely waiting on the one that matters. pgrep -x
+        # cannot be widened to cover those leaves either -- it matches whole
+        # names, so a `dpkg` pattern never sees `dpkg-preconfigure` -- which
+        # is why they are reached by descent rather than by name.
         $pkgPids = @()
         foreach ($n in @('apt-get','apt','dpkg','dnf','yum','unattended-upgr')) {
             $found = & pgrep -x $n 2>$null
@@ -2386,13 +2474,28 @@ try {
         if ($pkgPids.Count -eq 0) {
             Write-Output "(no package-manager processes running)"
         } else {
+            $treeCap = 40
+            # A matched pid that already appeared inside an earlier root's
+            # subtree (apt-get spawning dpkg, both matched by name) would
+            # otherwise be reported twice -- once as a descendant and again
+            # as a root of its own.
+            $covered = [System.Collections.Generic.HashSet[int]]::new()
             foreach ($pkgPid in $pkgPids) {
-                Write-Output ("-- pid {0} and direct children --" -f $pkgPid)
-                Invoke-PrivProbe -Tool 'ps' -ToolArgs @('-o','pid,ppid,pgid,stat,wchan:30,etime,args','--pid',"$pkgPid",'--ppid',"$pkgPid") |
+                if ($covered.Contains($pkgPid)) { continue }
+                $tree = @(Get-ProcessDescendantPid -RootPid $pkgPid -MaxPids $treeCap)
+                foreach ($t in $tree) { $null = $covered.Add($t) }
+                Write-Output ("-- pid {0} and all descendants ({1} process(es)) --" -f $pkgPid, $tree.Count)
+                Invoke-PrivProbe -Tool 'ps' -ToolArgs @('-o','pid,ppid,pgid,stat,wchan:30,etime,args','--pid',($tree -join ',')) |
                     ForEach-Object { Write-Output $_ }
-                $fdLines = Invoke-PrivProbe -Tool 'ls' -ToolArgs @('-l',"/proc/$pkgPid/fd")
-                $fdLines | Select-Object -First 50 | ForEach-Object { Write-Output ("   " + $_) }
-                if ($fdLines.Count -gt 50) { Write-Output ("   (... {0} more fd lines omitted)" -f ($fdLines.Count - 50)) }
+                if ($tree.Count -ge $treeCap) {
+                    Write-Output ("   (descendant walk capped at {0} process(es); deeper children not shown)" -f $treeCap)
+                }
+                foreach ($t in $tree) {
+                    Write-Output ("   -- pid {0} fds --" -f $t)
+                    $fdLines = Invoke-PrivProbe -Tool 'ls' -ToolArgs @('-l',"/proc/$t/fd")
+                    $fdLines | Select-Object -First 50 | ForEach-Object { Write-Output ("   " + $_) }
+                    if ($fdLines.Count -gt 50) { Write-Output ("   (... {0} more fd lines omitted)" -f ($fdLines.Count - 50)) }
+                }
             }
             Write-Output ""
             Write-Output "-- full process forest (first 250 lines) --"
@@ -2473,22 +2576,114 @@ try {
             Write-Output "(lsmod not in PATH)"
         }
 
-        Write-Sub "journalctl -xe (last 100 lines, no-pager)"
+        # --- REGION: https://yuruna.link/system-diagnostic#11c-libvirt-guest-networks
+        # Where libvirt runs the guest network, this host IS the DHCP server
+        # its guests talk to, and nothing above says anything about it: the
+        # interface, route and socket dumps describe the host's own addressing,
+        # not the service answering the guests. A guest that comes up with no
+        # lease is otherwise a failure with no server-side record at all -- it
+        # is destroyed at cleanup minutes later, and the lease table and the
+        # dnsmasq window below are the only copies of what the server saw.
+        #
+        # Read-only throughout: nothing here defines, starts or edits anything.
+        Write-Sub "libvirt guest networks (leases, bridges, dnsmasq)"
+        if (Test-CommandAvailable 'virsh') {
+            # qemu:///system needs libvirt group membership. Where the account
+            # running this does not have it, the same question is asked again
+            # through the non-interactive sudo prefix rather than reported as
+            # "no libvirt on this host", which is the wrong answer and the one
+            # that stops the reader looking.
+            $virshRead = {
+                param([string[]]$VirshArgs)
+                $out = @(& virsh --connect qemu:///system @VirshArgs 2>$null | ForEach-Object { "$_" })
+                if ($LASTEXITCODE -ne 0 -and $script:LinuxPriv.Count -gt 0) {
+                    $out = @(Invoke-PrivProbe -Tool 'virsh' -ToolArgs (@('--connect', 'qemu:///system') + $VirshArgs))
+                }
+                return $out
+            }
+            $domainLine = @(& $virshRead @('list', '--all'))
+            if ($domainLine.Count -eq 0) {
+                Write-Output "(virsh is present but answered nothing -- no reachable qemu:///system)"
+            } else {
+                $domainLine | ForEach-Object { Write-Output $_ }
+                # MAC and bridge per running domain. Both are what a reader
+                # greps the dnsmasq window below with, and both are gone once
+                # the domain is undefined -- which the failure path does within
+                # minutes of this capture.
+                foreach ($dom in @(& $virshRead @('list', '--name') | Where-Object { $_ -and $_.Trim() })) {
+                    Write-Output "## interfaces of $dom"
+                    & $virshRead @('domiflist', $dom.Trim()) | ForEach-Object { Write-Output $_ }
+                }
+                foreach ($net in @(& $virshRead @('net-list', '--name') | Where-Object { $_ -and $_.Trim() })) {
+                    $netName = $net.Trim()
+                    Write-Output "## network $netName"
+                    # The definition lines a lease depends on: which bridge the
+                    # guests attach to, whether the network forwards or is
+                    # isolated, the address range that can be handed out, and
+                    # any fixed host reservations. The rest of the XML is
+                    # device plumbing that never explains a missing lease.
+                    & $virshRead @('net-dumpxml', $netName) |
+                        Where-Object { $_ -match '<(bridge|forward|ip |ip>|range|host )' } |
+                        ForEach-Object { Write-Output $_.Trim() }
+                    & $virshRead @('net-dhcp-leases', $netName) | ForEach-Object { Write-Output $_ }
+                }
+            }
+        } else {
+            Write-Output "(virsh not in PATH -- libvirt does not run the guest network here)"
+        }
+
+        # The server's own account of every transaction: which MAC asked, under
+        # which client identity, and whether it was offered anything. It is the
+        # half of a lease failure a guest can never see, and it separates "the
+        # client never asked" from "the client asked and was not answered" --
+        # which indict different machines.
+        Write-Sub "dnsmasq DHCP transactions (last 30 min)"
+        if ((Test-CommandAvailable 'journalctl') -and (Test-CommandAvailable 'virsh')) {
+            $dnsmasqLine = @(Invoke-PrivProbe -Tool 'journalctl' -ToolArgs @(
+                '-t', 'dnsmasq-dhcp', '-t', 'dnsmasq', '--since', '30 min ago', '-n', '60', '--no-pager'))
+            if ($dnsmasqLine.Count -gt 0 -and -not (($dnsmasqLine -join "`n") -match 'No entries')) {
+                $dnsmasqLine | ForEach-Object { Write-Output $_ }
+            } else {
+                Write-Output "(no dnsmasq entries in the window -- no guest asked for a lease, dnsmasq does not log here, or this account cannot read the system journal)"
+            }
+        } else {
+            Write-Output "(skipped: needs journalctl and a libvirt host)"
+        }
+
+        Write-Sub "journalctl -xe (last 100 lines after this harness's own polling is removed)"
         if (Test-CommandAvailable 'journalctl') {
-            $jxe = Invoke-PrivProbe -Tool 'journalctl' -ToolArgs @('-xe','-n','100','--no-pager') -KeepStderr
+            # Four times the window that gets printed is read, because the
+            # suppressed classes arrive on a timer: on a host mid-cycle a
+            # 100-line tail is entirely console-frame and address-lookup
+            # bookkeeping, and the boot, network and unit lines a reader came
+            # for aged out of it minutes earlier. Filter first, print the last
+            # 100 of what survives.
+            $jxe = Invoke-PrivProbe -Tool 'journalctl' -ToolArgs @('-xe','-n','400','--no-pager') -KeepStderr
             if ($jxe) {
+                $kept = [System.Collections.Generic.List[string]]::new()
+                $noiseTally = [ordered]@{}
                 $inScriptBlock = $false
                 foreach ($line in $jxe) {
                     $lineStr = [string]$line
-                    if ($lineStr -match 'Creating Scriptblock text \(\d+ of \d+\)') {
-                        Write-Output ($lineStr -replace '(Creating Scriptblock text \(\d+ of \d+\)):.*$', '$1: [Get-SystemDiagnostic.ps1 script redacted]')
-                        $inScriptBlock = $true
+                    $class = Get-JournalSelfNoiseClass -Line $lineStr
+                    # A compile record's continuation lines are indented and
+                    # belong to the same entry, so they follow it out.
+                    if ($class -eq 'script-compile records') { $inScriptBlock = $true }
+                    elseif ($inScriptBlock -and $lineStr -match '^\s') { $class = 'script-compile records' }
+                    else { $inScriptBlock = $false }
+                    if ($class) {
+                        if ($noiseTally.Contains($class)) { $noiseTally[$class] = [int]$noiseTally[$class] + 1 }
+                        else { $noiseTally[$class] = 1 }
                         continue
                     }
-                    if ($inScriptBlock -and $lineStr -match '^\s') { continue }
-                    $inScriptBlock = $false
-                    Write-Output $lineStr
+                    $kept.Add($lineStr)
                 }
+                $kept | Select-Object -Last 100 | ForEach-Object { Write-Output $_ }
+                if ($kept.Count -eq 0) {
+                    Write-Output "(the whole window is this harness's own polling -- nothing else was logged)"
+                }
+                $note = Format-JournalSelfNoiseNote -Tally $noiseTally
+                if ($note) { Write-Output $note }
             }
         } else {
             Write-Output "(journalctl not available)"

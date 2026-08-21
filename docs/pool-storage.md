@@ -493,6 +493,29 @@ from whichever of the two roots actually holds data; the proxy moves to the
 
 ## Syncing a new host's config from a reference host
 
+### A reference host on older key names
+
+The sync rewrites retired key spellings onto their current paths before it reads
+anything, so a reference host that has not been reconciled still hands over its
+configuration. This matters most for `networkStorage`: the converter reads a
+missing `poolStorageNetworkPath` as *"the reference has no pool storage"* and
+**clears the tier**, which also removes the user names, which leaves the
+credential sync with nothing to fetch. A reference one rename behind would
+therefore erase the section it was asked for, reporting only that the tier was
+being cleared.
+
+The renames it handles are in `Get-RetiredConfigKeyMap`
+(`test/modules/Test.ConfigNaming.psm1`) — including the six
+`networkStorage.pool*`/`stash*` → `*Storage*` moves and unit changes such as
+`testCycle.stepTimeoutMinutes` → `stepTimeoutSeconds` (×60).
+
+The translation is **per sync**. The reference keeps serving old names to
+everything else, so the sync warns and points at the permanent fix — run
+`pwsh tools/Update-TestConfigNaming.ps1` then `pwsh test/Test-Config.ps1` on the
+reference host.
+
+### The copy itself
+
 `host/<type>/Sync-HostConfiguration.ps1 -ReferenceHost <name-or-ip>` copies a
 working pool host's `test.config.yml` onto this host -- reference host of ANY
 host type -- so a new or reimaged host doesn't have to be configured by hand.
@@ -735,6 +758,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.20
+Last review: 2026.08.21
 
 Back to [Yuruna](../README.md)

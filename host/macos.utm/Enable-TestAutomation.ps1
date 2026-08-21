@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.20
+.VERSION 2026.08.21
 .GUID 42ff1bc2-5f12-4c34-8a53-a45f6186f94f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,6 +23,10 @@
 .DESCRIPTION
     Configures host-side settings needed for unattended, long-running test
     runs against UTM guest VMs:
+      * utmctl on PATH -- /usr/local/bin/utmctl linked to the copy UTM keeps
+        inside its app bundle, which no UTM installer puts on anyone's PATH.
+        Every VM operation in the harness shells out to it, so the cycle gate
+        refuses a host without it
       * display sleep, system sleep, disk sleep -> Never
       * screen saver idle time + password -> disabled (user + currentHost)
       * sysadminctl unified screen lock -> off (Ventura+)
@@ -40,9 +44,15 @@
         no longer yanks the operator off another macOS Space -- e.g. when
         debugging in VS Code on a different desktop while the runner is
         going through an AVF-guest keystroke step)
-      * Accessibility permission prompt (keystroke injection)
-      * Screen Recording permission prompt (window enumeration + per-window
-        screen capture -- a separate TCC bucket from Accessibility)
+      * the macOS privacy grants no script can give itself -- Accessibility
+        (keystroke injection), Screen Recording (window enumeration and
+        per-window capture, a separate TCC bucket), and Automation -> UTM
+        (utmctl drives UTM over Apple Events). For each one this raises the
+        system dialog, opens the exact settings pane, names the application
+        that has to be enabled, and then WAITS and re-reads, so the run
+        confirms the grant instead of telling you to run something again to
+        find out whether the click worked. The same registry backs the
+        pre-cycle gate, so both describe a grant identically
 
     Manual one-time step (intentionally NOT scripted -- Dock plist editing
     is fragile): right-click UTM in the Dock -> Options -> Assign To -> All
@@ -53,6 +63,12 @@
     Every elevated write goes out as `sudo -n` after probing that root is
     reachable, so a host that cannot elevate reports the exact command to run
     instead of raising a password prompt where nobody can answer it.
+
+    The unified screen lock additionally needs your macOS ACCOUNT password,
+    which sudo cannot supply: sysadminctl reads it from stdin with a plain
+    read that leaves terminal echo ON, so the harness reads it masked and
+    pipes it in rather than letting anyone type at that prompt. It is asked
+    for separately from the sudo prompt, and appears as nothing on screen.
     Idempotent -- safe to run multiple times.
 
     Exits 0 when every condition is in place and 2 when the settings were
@@ -64,11 +80,19 @@
     every subsequent cycle on both permissions and on screen-lock /
     display-sleep settings.
 
-    IMPORTANT: the Accessibility and Screen Recording prompts fire only on
-    the FIRST request per process. If you dismiss either one, macOS will
-    not ask again -- you must toggle it manually in System Settings and
-    FULLY QUIT / relaunch the terminal (TCC grants don't apply to the
-    already-running process).
+    IMPORTANT: the privacy prompts fire only on the FIRST request per process.
+    If you dismiss one, macOS will not ask again -- you must toggle it in the
+    settings pane this script opens for you, and for Screen Recording FULLY
+    QUIT / relaunch the terminal (that grant does not apply to the
+    already-running process). Enable the TERMINAL application, not pwsh:
+    macOS attributes a privacy request to the responsible process, so a list
+    entry for the shell grants nothing.
+
+    None of these can be granted from a script even as root. macOS keeps them
+    in TCC databases that System Integrity Protection guards against every
+    writer, `tccutil` can only reset a decision, and the one supported way to
+    pre-authorize them is an MDM-delivered Privacy Preferences Policy Control
+    profile. See docs/host-macos.md for the fleet-provisioning route.
 
 .PARAMETER WhatIf
     Shows what would change without applying any settings.
@@ -107,7 +131,8 @@ Initialize-HostSetupModule -RepoRoot $RepoRoot -BoundParameters $PSBoundParamete
     'pmset (display sleep, system sleep, power-nap, hibernation)',
     'defaults write /Library/Preferences (auto-logout delay)',
     'sysadminctl -screenLock off (Sonoma+ unified screen lock)',
-    'systemsetup -setusingnetworktime + sntp -sS (host clock discipline)'
+    'systemsetup -setusingnetworktime + sntp -sS (host clock discipline)',
+    'ln -s into /usr/local/bin (utmctl, the UTM command line, on PATH)'
 )
 
 # --- REGION: Pre-automation capture

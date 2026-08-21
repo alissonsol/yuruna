@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.20
+# Version: 2026.08.21
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -112,6 +112,65 @@ yuruna_wait_ipv4() {
     return 1
 }
 
+# --- REGION: https://yuruna.link/network#reading-a-guest-that-has-no-ipv4
+# The client's own journal is the only place that separates a client still
+# sending DISCOVERs from one that stopped asking -- and only the second is a
+# fault inside this guest. `-o cat` drops the timestamp and hostname prefix:
+# this lands on an 80-column console that is read back by OCR, where a wrapped
+# line costs two rows and reads as two facts.
+#
+# Unprivileged first, elevated only when that came back empty. Whether the
+# login user may read the system journal is a per-image fact, and `sudo -n`
+# never prompts, so a console nobody is watching cannot be parked at a password
+# prompt that no one can answer.
+#
+# The command name is a seam so a test can feed it fixture lines; unset, it is
+# the real journalctl. The leading "$@" is the optional elevation prefix.
+_yuruna_net_journal_slice() {
+    "$@" "${YURUNA_NET_JOURNAL:-journalctl}" -o cat --no-pager -n 80 \
+        -u systemd-networkd -u NetworkManager 2>/dev/null |
+        grep -iE 'dhcp|lease|carrier' | tail -4
+}
+
+# Ask the DHCP client what it is doing. Every verdict below bottoms out at "no
+# address", which cannot tell a lease that is late from a client that gave up,
+# and the two indict different machines. The answer lives in the client's own
+# state on a guest that is destroyed minutes later, so the failing run prints
+# it or nobody ever reads it. "Network File" is here for the same reason: a
+# NIC no profile claimed reports n/a, which is the shape where DHCP is never
+# attempted at all.
+#
+# One interface, capped output, no timestamps. This block lands immediately
+# above the marker the host matches on a failing run and the capture surface
+# freezes a bounded number of trailing lines, so a report that grows with what
+# it finds pushes the marker out of frame and turns a classified failure into
+# an unclassified timeout.
+_yuruna_net_client_state() {
+    local ifc="$1" out=""
+    [ -n "$ifc" ] || return 0
+    echo "--- DHCP client state ($ifc) ---"
+    if command -v networkctl >/dev/null 2>&1; then
+        out=$(networkctl status --no-pager "$ifc" 2>/dev/null |
+            grep -E '^ *(Network File|State|Online state|DHCP4 Client ID):' |
+            sed 's/^ *//' | head -4)
+    fi
+    if [ -z "$out" ] && command -v nmcli >/dev/null 2>&1; then
+        out=$(nmcli -t -f GENERAL.STATE,IP4.ADDRESS,DHCP4.OPTION device show "$ifc" 2>/dev/null | head -4)
+    fi
+    if [ -n "$out" ]; then
+        printf '%s\n' "$out"
+    else
+        echo "   (neither networkd nor NetworkManager answered for $ifc)"
+    fi
+    out=$(_yuruna_net_journal_slice)
+    [ -z "$out" ] && out=$(_yuruna_net_journal_slice sudo -n)
+    if [ -n "$out" ]; then
+        printf '%s\n' "$out"
+    else
+        echo "   (no DHCP line in the client journal, privileged or not)"
+    fi
+}
+
 network_diag() {
     # Interface enumeration root. Overridable so a test can walk a fixture
     # tree; unset, it is the real sysfs path and behavior is identical. The
@@ -146,6 +205,11 @@ network_diag() {
     # has to stay a fixed size no matter how many interfaces exist.
     local addrless="" downlinks="" downcount=0 adminlinks="" admincount=0
     local examined=0 ifc oper carrier flags v4 v6
+    # One interface is probed in depth at the end, and these hold the first
+    # candidate of each kind. Address-less wins over administratively-down:
+    # both are worth asking about, and asking twice is what the fixed-size
+    # budget cannot afford.
+    local probe_ifc="" probe_admin=""
     for ifc in "$sysfs"/*; do
         ifc=$(basename "$ifc")
         # An unmatched glob leaves the pattern itself as the only "entry".
@@ -160,6 +224,7 @@ network_diag() {
         if [ "$oper" != "up" ] && [ "$carrier" != "1" ]; then
             if _yuruna_net_admin_down "$flags"; then
                 admincount=$((admincount + 1))
+                [ -z "$probe_admin" ] && probe_admin="$ifc"
                 if [ "$admincount" -le 3 ]; then
                     adminlinks="$adminlinks $ifc(operstate=${oper:-unknown},flags=${flags:-unknown})"
                 fi
@@ -181,6 +246,7 @@ network_diag() {
                 echo "   $ifc: carrier up but NO IPv4 and NO IPv6 address"
             fi
             addrless="$addrless $ifc"
+            [ -z "$probe_ifc" ] && probe_ifc="$ifc"
         fi
     done
 
@@ -197,8 +263,8 @@ network_diag() {
         echo "!!   1. NOTHING CLAIMED IT -- no profile matched this device. A"
         echo "!!      seeded network config resolving to no interface does this,"
         echo "!!      and it REPLACES the default rather than adding to it, so a"
-        echo "!!      config matching nothing is worse than none. Check with"
-        echo "!!      'nmcli device status' / 'networkctl status <if>'."
+        echo "!!      config matching nothing is worse than none. The client"
+        echo "!!      state below reports n/a for a NIC nothing claimed."
         echo "!!   2. SOMETHING DOWNED IT and never restored it -- a lease"
         echo "!!      release, 'ip link set down', or 'nmcli networking off'"
         echo "!!      (persists in NetworkManager.state, outlives reboots)."
@@ -225,8 +291,8 @@ network_diag() {
             echo "!!   1. The lease has not landed YET. A lost DISCOVER puts the"
             echo "!!      client into backoff, and SLAAC keeps succeeding on its"
             echo "!!      own repeating RAs, so IPv6-only for minutes is normal"
-            echo "!!      here and is not evidence of a refusal. Ask the client:"
-            echo "!!      'networkctl status <if>' or 'nmcli device show <if>'."
+            echo "!!      here and is not evidence of a refusal. The client"
+            echo "!!      state below says which of the two this is."
             echo "!!   2. The request or its reply is not getting through: a"
             echo "!!      bridge port not forwarding yet, VLAN/cabling, or a"
             echo "!!      DHCP server that is down."
@@ -241,6 +307,7 @@ network_diag() {
             echo "   No non-loopback interface is carrier-up."
         fi
     fi
+    _yuruna_net_client_state "${probe_ifc:-$probe_admin}"
     echo "==== END NETWORK DIAGNOSTIC ===="
     echo ""
 }

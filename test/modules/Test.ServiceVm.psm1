@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.20
+.VERSION 2026.08.21
 .GUID 426c2f81-86df-422e-8db7-a94bd7ff61fe
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,17 +46,23 @@ function Get-YurunaServiceVmRoster {
         reboot sweep could not exist and no cleanup path could prove it would
         never sweep a service VM by prefix.
 
-        The extension services are DISCOVERED from their own area manifests
+        Every service VM here is DISCOVERED from its own area manifest
         (test/extension/<area>/<area>.config.yml, `service:` block), so a new one
-        joins the sweep by existing rather than by an edit here. The caching
-        proxy is listed inline because it is not an extension area: it is the
-        machine the pool services run ON.
+        joins the sweep by existing rather than by an edit here. That now
+        includes the caching proxy, which used to be listed inline on the
+        grounds that it was the machine the pool services run ON rather than an
+        area of its own -- true of the VM, but it left the one service nothing
+        could ask a manifest about.
 
         HealthPort is what a CONSUMER connects to, deliberately, rather than
         whatever the guest happens to also listen on: :3128 is the squid port
         guests proxy through, and :80 is the /healthz the stash pre-flight and
         the pool-control UI are gated on. A VM that is 'running' but not
-        answering that port is not yet a service.
+        answering that port is not yet a service. The caching proxy's
+        management daemon listens elsewhere and reports its own liveness to the
+        pool through its beacon, so this port stays squid's: it is the one a
+        proxy VM can answer whether or not it has been rebuilt since the daemon
+        was added.
     .PARAMETER Key
         Optional filter. Unknown keys yield nothing rather than throwing, so a
         caller can name a service this version does not have.
@@ -67,16 +73,7 @@ function Get-YurunaServiceVmRoster {
     [OutputType([pscustomobject[]])]
     param([string[]]$Key)
 
-    $all = @(
-        [pscustomobject]@{
-            Key         = 'caching-proxy'
-            VMName      = 'yuruna-caching-proxy-service'
-            DisplayName = 'caching-proxy service'
-            StartScript = 'Start-CachingProxyServiceVM.ps1'
-            HealthPort  = 3128
-        }
-    )
-    $all += @(Get-ExtensionServiceVmRoster)
+    $all = @(Get-ExtensionServiceVmRoster)
     if (-not $Key -or @($Key | Where-Object { $_ }).Count -eq 0) { return [pscustomobject[]]$all }
     $wanted = @($Key | Where-Object { $_ } | ForEach-Object { "$_".Trim() })
     return [pscustomobject[]]@($all | Where-Object { $wanted -contains $_.Key })

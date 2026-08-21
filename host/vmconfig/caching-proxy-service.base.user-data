@@ -2093,7 +2093,7 @@ write_files:
                   "matcher": { "id": "byName", "options": "Extension" },
                   "properties": [
                     { "id": "custom.width", "value": 240 },
-                    { "id": "mappings", "value": [ { "type": "value", "options": { "stash-service": { "text": "Stash service", "index": 0 }, "pool-control-service": { "text": "Pool-control service", "index": 1 }, "download-agent-service": { "text": "Download-agent service", "index": 2 } } } ] },
+                    { "id": "mappings", "value": [ { "type": "value", "options": { "stash-service": { "text": "Stash service", "index": 0 }, "pool-control-service": { "text": "Pool-control service", "index": 1 }, "download-agent-service": { "text": "Download-agent service", "index": 2 }, "caching-proxy-service": { "text": "Caching-proxy service", "index": 3 } } } ] },
                     { "id": "links", "value": [ { "title": "Open extension service UI", "url": "${aggregator}${__data.fields.goPath}", "targetBlank": true } ] }
                   ]
                 },
@@ -4001,7 +4001,7 @@ runcmd:
     mkdir -p /opt/caching-proxy-parser-service
     cd /opt/caching-proxy-parser-service
     CPP_OK=1
-    for f in main.go go.mod caching-proxy-parser-service.service; do
+    for f in parse.go main_linux.go main_other.go go.mod caching-proxy-parser-service.service; do
       wget $YR_FLAGS --no-cache --timeout=15 --tries=3 -q -O "$f" "${YR_BASE}test/extension/caching-proxy-parser-service/$f" || CPP_OK=0
       if [ ! -s "$f" ]; then CPP_OK=0; echo "== YURUNA: caching-proxy-parser-service source '$f' empty/missing from ${YR_BASE}test/extension/caching-proxy-parser-service/$f (source=${YR_SRC}) =="; fi
     done
@@ -4014,10 +4014,19 @@ runcmd:
     fi
     # pool-aggregator-service: read-only multi-host pool view. Source under
     # test/extension/pool-aggregator-service/ in the yuruna repo.
-    mkdir -p /opt/pool-aggregator-service
+    # The aggregator links the shared SDK for its MCP mount, so the SDK is
+    # staged one level up from its build dir -- the same relative position it
+    # holds in the enlistment, which is why the module also builds there
+    # untouched. Staged here rather than beside the caching-proxy build below
+    # because this block runs first.
+    mkdir -p /opt/pool-aggregator-service /opt/extension-sdk/beacon /opt/extension-sdk/labgate /opt/extension-sdk/pool /opt/extension-sdk/mcp
     cd /opt/pool-aggregator-service
     PA_OK=1
-    for f in main.go go.mod pool-aggregator-service.service; do
+    for f in go.mod beacon/beacon.go labgate/labgate.go pool/pool.go mcp/mcp.go; do
+      wget $YR_FLAGS --no-cache --timeout=15 --tries=3 -q -O "/opt/extension-sdk/$f" "${YR_BASE}test/extension/extension-sdk/$f" || PA_OK=0
+      if [ ! -s "/opt/extension-sdk/$f" ]; then PA_OK=0; echo "== YURUNA: extension-sdk source '$f' empty/missing from ${YR_BASE}test/extension/extension-sdk/$f (source=${YR_SRC}) =="; fi
+    done
+    for f in main.go mcp.go go.mod pool-aggregator-service.service; do
       wget $YR_FLAGS --no-cache --timeout=15 --tries=3 -q -O "$f" "${YR_BASE}test/extension/pool-aggregator-service/$f" || PA_OK=0
       # An empty file (404 from the chosen source, or a stale/incomplete mirror)
       # is caught here so the cause is obvious in /var/log/cloud-init-output.log
@@ -4027,15 +4036,82 @@ runcmd:
     # NOTE: the Yuruna hosts dashboard is NOT fetched here -- it ships inline via
     # write_files (/var/lib/grafana/dashboards/pool.json) so it deploys even if
     # this collector build fails or the host repo is unreachable.
-    if [ "$PA_OK" -eq 1 ] && /usr/bin/go build -o pool-aggregator-service . ; then
+    PA_VERSION="$(wget $YR_FLAGS --no-cache --timeout=15 --tries=3 -q -O - "${YR_BASE}VERSION" 2>/dev/null | head -n1 | tr -d '[:space:]' || true)"
+    [ -n "$PA_VERSION" ] || PA_VERSION=dev
+    if [ "$PA_OK" -eq 1 ] && /usr/bin/go build -ldflags "-X main.version=$PA_VERSION" -o pool-aggregator-service . ; then
         install -m 0755 pool-aggregator-service /usr/local/bin/pool-aggregator-service
         install -m 0644 pool-aggregator-service.service /etc/systemd/system/pool-aggregator-service.service
         echo "yuruna: pool-aggregator-service built and installed at /usr/local/bin/pool-aggregator-service"
     else
         echo "== YURUNA: pool-aggregator-service build failed -- pool COLLECTOR unavailable (the Yuruna hosts dashboard still deploys; it shows 'No data' until the collector is up). Source attempted: ${YR_SRC}. =="
     fi
+    # caching-proxy-service: the management plane for this VM -- a read surface
+    # over squid/zot state plus the two operator switches. Source under
+    # test/extension/caching-proxy-service/. Unlike its two neighbours it links
+    # the shared extension SDK, which is a SEPARATE Go module: go.mod resolves
+    # it with `replace ... => ../extension-sdk`, so the SDK is staged one level
+    # up from the daemon's build dir -- the same relative position it occupies
+    # in the enlistment, which is why the module also builds there untouched.
+    mkdir -p /opt/caching-proxy-service
+    cd /opt/caching-proxy-service
+    CPS_OK=1
+    for f in go.mod main.go squid.go switches.go registry.go mcp.go ui.go caching-proxy-service.service; do
+      wget $YR_FLAGS --no-cache --timeout=15 --tries=3 -q -O "$f" "${YR_BASE}test/extension/caching-proxy-service/$f" || CPS_OK=0
+      if [ ! -s "$f" ]; then CPS_OK=0; echo "== YURUNA: caching-proxy-service source '$f' empty/missing from ${YR_BASE}test/extension/caching-proxy-service/$f (source=${YR_SRC}) =="; fi
+    done
+    # The SDK was staged by the aggregator block above, which runs first.
+    for f in go.mod beacon/beacon.go labgate/labgate.go pool/pool.go mcp/mcp.go; do
+      if [ ! -s "/opt/extension-sdk/$f" ]; then CPS_OK=0; echo "== YURUNA: extension-sdk source '$f' was not staged; the aggregator block above should have fetched it =="; fi
+    done
+    # VERSION_STR the way every other service derives it: first line, whitespace
+    # stripped, "dev" when absent. A CRLF or a trailing newline would otherwise
+    # embed a control character in the linker flag.
+    CPS_VERSION="$(wget $YR_FLAGS --no-cache --timeout=15 --tries=3 -q -O - "${YR_BASE}VERSION" 2>/dev/null | head -n1 | tr -d '[:space:]' || true)"
+    [ -n "$CPS_VERSION" ] || CPS_VERSION=dev
+    if [ "$CPS_OK" -eq 1 ] && /usr/bin/go build -ldflags "-X main.version=$CPS_VERSION" -o caching-proxy-service . ; then
+        install -m 0755 caching-proxy-service /usr/local/bin/caching-proxy-service
+        install -m 0644 caching-proxy-service.service /etc/systemd/system/caching-proxy-service.service
+        # The unit reads every flag from here. Written as a file rather than
+        # baked into the unit so an operator can retarget one daemon -- most of
+        # all --mode -- without editing a unit an upgrade would replace.
+        # Values are sed-read, never sourced: pool.env and host.env are
+        # host-baked, but a sourced file turns one stray quote into a failed
+        # boot phase for the whole VM.
+        # The aggregator runs on THIS VM, and this VM has no pool.env -- that
+        # file is baked into the service VMs that must be TOLD where the
+        # aggregator is. Point at our own LAN address, not loopback: the
+        # announce handler derives the advertised URL from the request's source
+        # address and refuses a loopback one, so a beacon sent over 127.0.0.1
+        # would be rejected and this area would never appear in the pool.
+        # https first; the beacon downgrades to http by itself when the
+        # aggregator has no TLS leaf.
+        CPS_LAN_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+        CPS_AGG=""
+        [ -n "$CPS_LAN_IP" ] && CPS_AGG="https://${CPS_LAN_IP}:9400"
+        CPS_HOST_ID="$(sed -nE "s/^YURUNA_HOST_ID='?([^']*)'?$/\1/p" /etc/yuruna/host.env 2>/dev/null | head -1 || true)"
+        install -m 0644 /dev/null /etc/yuruna/caching-proxy-service.env
+        cat > /etc/yuruna/caching-proxy-service.env << EOF
+    # Written at bring-up. The daemon is LOCAL mode here: it runs on the box it
+    # reports on, so it reads squid over loopback and can apply the switches.
+    # Remote mode is the same binary with --mode=remote and a --squid-addr that
+    # is not loopback; see the runbook in dev-only/2026-08.extension-drift/.
+    CACHING_PROXY_HTTP_ADDR=0.0.0.0:9310
+    CACHING_PROXY_MODE=local
+    CACHING_PROXY_SQUID_ADDR=127.0.0.1:3128
+    CACHING_PROXY_REGISTRY_URL=http://127.0.0.1:5000
+    CACHING_PROXY_META_URL=http://127.0.0.1
+    CACHING_PROXY_SHARE_ROOT=/var/lib/yuruna
+    CACHING_PROXY_AGGREGATOR_URL=$CPS_AGG
+    CACHING_PROXY_HOST_ID=$CPS_HOST_ID
+    CACHING_PROXY_PRESENCE_INTERVAL=2m
+    CACHING_PROXY_AUTH_TOKEN_FILE=/etc/yuruna/lab-auth.token
+    EOF
+        echo "yuruna: caching-proxy-service ($CPS_VERSION) built and installed at /usr/local/bin/caching-proxy-service"
+    else
+        echo "== YURUNA: caching-proxy-service build failed -- the proxy still serves traffic, but the pool cannot ask this VM about itself and the offline / no-upstream switches stay SSH-only. Source attempted: ${YR_SRC}. =="
+    fi
     cd /
-    rm -rf /root/go /opt/caching-proxy-parser-service /opt/pool-aggregator-service
+    rm -rf /root/go /opt/caching-proxy-parser-service /opt/pool-aggregator-service /opt/caching-proxy-service /opt/extension-sdk
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#purge-go-toolchain-after-builds
   - DEBIAN_FRONTEND=noninteractive apt-get purge -y golang-go || true
   - DEBIAN_FRONTEND=noninteractive apt-get autoremove -y
@@ -4060,6 +4136,10 @@ runcmd:
   - systemctl enable --now caching-proxy-parser-service.service || true
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#enable-pool-aggregator-service
   - systemctl enable --now pool-aggregator-service.service || true
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#start-the-caching-proxy-management-service
+  # `|| true` like its two neighbours: a management plane that fails to start
+  # must not fail the boot of the VM whose traffic it does not carry.
+  - systemctl enable --now caching-proxy-service.service || true
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#pool-intent-store-seeding
   - |
     # Seed on the pool NAS, where the apache alias above points and where the

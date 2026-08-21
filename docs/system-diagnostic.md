@@ -192,6 +192,56 @@ eth0` loop on `host/windows.hyper-v/` -- the discriminating signal
 `/var/log/installer/subiquity-server-debug.log` and the previous
 boot's journal, neither of which section 11 collects.
 
+### 11c. LIBVIRT GUEST NETWORKS
+
+Where libvirt runs the guest network, the host **is** the DHCP server
+its guests talk to, and nothing else in this capture describes that
+service: the interface, route and socket dumps cover the host's own
+addressing. Without this section a guest that came up with no lease is
+a failure whose server side was never recorded -- it is destroyed at
+cleanup minutes later, and the lease table and dnsmasq window are the
+only surviving copies of what the server saw.
+
+Collects, per host: the domains, each running domain's NIC MAC and
+bridge (unresolvable once the domain is undefined), each network's
+bridge, forward mode and DHCP range, its lease table, and the last 30
+minutes of dnsmasq transactions.
+
+Read-only by construction -- a section that could define, start or
+destroy a network could cause the outage it was run to explain. It
+retries through the non-interactive sudo prefix when `virsh` cannot
+reach `qemu:///system`, because an account outside the `libvirt` group
+must not be reported as a host without libvirt: that is the wrong
+answer AND the one that stops the reader looking.
+
+Per-guest evidence with a window pinned to one boot lands separately,
+beside the failure diagnostics; see
+[Reading the DHCP server a libvirt host runs](https://yuruna.link/network#reading-the-dhcp-server-a-libvirt-host-runs).
+
+### Journal windows exclude this harness's own polling
+
+Both journal windows -- the error list in RECENT SYSTEM EVENTS and the
+`journalctl -xe` tail in HOST DETAIL -- are finite, and the harness
+writes to the journal on a timer whenever a cycle is running: an
+apparmor profile reload per console frame captured, a libvirt
+guest-agent error per guest address lookup on an image that ships no
+agent, a compile record per child `pwsh`, an IPC-listener record per
+`pwsh` teardown. Unfiltered, a 100-line tail of a busy host is entirely
+that bookkeeping and every line a reader came for aged out of it
+minutes earlier; the same lines counted as errors report a permanent
+problem no operator can act on.
+
+So the `-xe` window reads four times what it prints, drops those
+classes, prints the last 100 of what survives, and states how many
+lines of each class it removed. The error section prints every line it
+was given -- suppression is never for hiding what the journal said --
+but counts only the entries the harness did not write when deciding
+whether to raise a problem.
+
+apparmor is matched on `STATUS` only. A profile load is bookkeeping; a
+`DENIED` line is a fault, and is exactly what a reader of this section
+is looking for.
+
 ### 13. GAP HEURISTICS
 
 Cross-section sanity checks. Each catches a silent-failure mode
@@ -255,6 +305,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.20
+Last review: 2026.08.21
 
 Back to [Yuruna](../README.md)

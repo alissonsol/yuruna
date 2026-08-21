@@ -9,7 +9,8 @@ See [Design overview](00-index.md) - [Deployment topology](06-deployment.md) -
 Derived from the parsers in `automation/Yuruna.Resource.psm1`,
 `automation/Yuruna.Component.psm1`, `automation/Yuruna.Workload.psm1`,
 `automation/Yuruna.Validation.psm1`, `automation/Yuruna.DeploymentKind.psm1` and
-`automation/Yuruna.VariableExpansion.psm1`; the project trees under
+`automation/Yuruna.VariableExpansion.psm1` and `automation/Yuruna.Requirement.psm1`;
+the project trees under
 `yuruna-project/`; `test/test.config.yml.template` with its reader
 `test/modules/Test.Config.psm1`; the plan and sequence readers
 `test/modules/Test.SequencePlanner.psm1` and
@@ -157,7 +158,7 @@ install.
 | components_yml - Component | 1 to 0..N | A null `components` list is informational in the validator and returns a skipped manifest from `Publish-ComponentList`. Duplicate `project`, raw or expanded, is rejected: two components sharing that key build, tag and push to the same image identity, so the second silently overwrites the first. |
 | Component - ComponentBuildFolder | 1 to exactly 1 | `buildPath` defaults to `project` and resolves to `<project_root>/components/<buildPath>`; a missing folder is `config_error`. There is no global fallback here -- `global/components/` holds only a `placeholder` file and no code path reads it. |
 | workloads_yml - Workload | 1 to 0..N | A null `workloads` list is informational and returns skipped. Duplicate `context`, raw or expanded, is rejected: the publisher deletes and recreates `.yuruna/<cloud>/workloads/<context>` at the start of each workload, so the second would clobber the first's staged charts. |
-| Workload - Deployment | 1 to 0..N | An ordered list; each item carries exactly one kind and they run in file order. |
+| Workload - Deployment | 1 to 0..N | An ordered list that runs in file order. Each item names one kind by convention; nothing rejects a second, which is why the catalog defines a precedence (below). |
 | Deployment - Chart | N to 0..1 | Only the `chart` kind names a folder, `<project_root>/workloads/<chart>`; a missing folder is `config_error`. The pair `(context, expanded installName)` must be unique, since two chart deployments sharing both would upgrade one helm release instead of installing two workloads. As with components there is no global fallback: `global/workloads/` is a placeholder. |
 | Component - Chart | cross-store | The component's `tagCommand` and `pushCommand` and the chart's `image:` line build the same string from `Env:containerPrefix` and `Env:<registryName>.registryLocation`. Nothing validates the agreement ahead of time; `yuruna-project/example/website/workloads/frontend/website/templates/01-website.yml` uses helm's `required` so a value that never arrived fails at lint with a message naming the missing `resources.output.yml` block. |
 
@@ -190,7 +191,7 @@ then `component.variables`, then the injected `project`, `buildPath` and
 |---|---|---|
 | `workloads[].context` | **required** | Expanded into `Env:contextName`. Existence is probed non-mutatingly with `kubectl config get-contexts <name>` before `use-context`; failure at publish time is `cluster_unreachable`, and the original context is restored in a `finally`. |
 | `workloads[].variables` | optional | Expanded, pushed to `Env:`, merged into the deployment variable bag. |
-| `deployments[]` | optional | Each item carries exactly one of `chart`, `kubectl`, `helm` or `shell`. |
+| `deployments[]` | optional | Each item names one of `chart`, `kubectl`, `helm` or `shell`. `Confirm-WorkloadList` rejects an item with *no* kind; it does not reject one with two, so the precedence rule below is reachable. |
 | `deployments[].variables.installName` | **required for `chart`** | Expanded; becomes the helm release name and the `.yuruna/<cloud>/workloads/<context>/<installName>` folder. Every chart variable value must be non-empty. |
 
 The deployment kinds are a code catalog, not YAML:
@@ -215,6 +216,23 @@ per-deployment pass does not re-expand), then `workload.variables`, then
 Secrets validation (`Invoke-SecretFolderValidation`) reads each `*.txt` with
 `Get-Content -Raw`, marks it `git update-index --assume-unchanged`, and treats
 blank content as informational for resources but blocking for workloads.
+
+### Host tool floors -- `automation/Yuruna.Requirement.yml`
+
+One more configuration YAML belongs to the deploy engine rather than to a project:
+`automation/Yuruna.Requirement.yml`, the single source of host-tool version
+floors. A root `requirements[]` of 20 entries, each `{tool, command, version,
+releases}`, where `command` is a PowerShell expression that prints the installed
+version and `version` is the floor. `Confirm-RequirementList`
+(`automation/Yuruna.Requirement.psm1`) compares the first dotted-number token of
+each side and reports `MISSING` or `BELOW`, narrowable to a subset with `-Tool`,
+then appends a `Runtime capabilities` section that holds one row today: AES-GCM,
+because a runtime that meets the PowerShell floor can still lack the algorithm
+every Lab-token enrollment needs. It is not folded into any diagram above: it is
+read by `Confirm-RequirementList`, reached from `yuruna requirements`
+(`automation/yuruna.ps1:99`), from `Test-Requirement.ps1` -- which the three
+bootstrap installers shell out to rather than parsing the YAML themselves -- and
+from `Check-DependencyVersion.ps1`. None of those are project data.
 
 ## Project cycle plan and sequences
 
@@ -284,10 +302,10 @@ erDiagram
 | Sequence - ResourceChain | 1 to 1..N | `test/schemas/sequence.schema.yml` lists `resource` in the root `required` set with `minProperties: 1`: a mapping of guest OS key to an ordered list of prerequisite sequence names. |
 | ResourceChain - Sequence | N to 0..1 | Each entry is a bare file name, resolved the same way a plan entry is. The file name is the lookup key, not a label, so renaming a file breaks every chain that names it; `sequenceGuid` is the identifier that survives a rename for perf analytics. Zero when the chain names a sequence that does not resolve, which the planner reports as fatal. |
 | Sequence - Step | 1 to 0..N | The executed list is `component` concatenated with `workload`. Both keys are optional; `additionalProperties: false` at the root, and a legacy `baseline:` key or a flat top-level `steps:` is rejected at load with a migration error. |
-| Step - Snippet | N to 0..1 | A snippet step is `{ snippet: <name> }` and nothing else. Splicing happens inside `Read-SequenceFile`, including inside `retry.steps`, so every consumer sees already-spliced steps. |
+| Step - Snippet | N to 0..1 | A snippet step carries `snippet` plus an optional `description`, and no other key (`additionalProperties: false`). Splicing happens inside `Read-SequenceFile`, including inside `retry.steps`, so every consumer sees already-spliced steps. |
 | SnippetLibrary - Snippet | 1 to 1..N | `test/schemas/snippets.schema.yml` requires `minProperties: 1`, keys matching `^[A-Za-z][A-Za-z0-9_-]*$`, each mapping to a non-empty step array. Snippets may reference snippets. |
 | Step - GuestScript | N to 0..1 | Cross-store: a `fetchAndExecute` step names a path the guest pulls over HTTP and runs. The payloads live beside the sequences, for example `yuruna-project/example/website/test/ubuntu.server.24/ubuntu.server.24.workload.k8s.website.sh`, which in turn invokes `automation/Set-Resource.ps1` and its two siblings inside the guest. |
-| Step - ActionCatalog | N to 0..1 | Cross-store and documentation-only: `test/sequences/actions.yml`, shaped by `test/schemas/actions.schema.yml`, maps each of the 21 action names to prose. The runner never reads it -- the live action set is whatever `Register-SequenceAction` registers in `test/modules/Test.SequenceHandler.psm1`. |
+| Step - ActionCatalog | N to 0..1 | Cross-store and documentation-only: `test/sequences/actions.yml`, shaped by `test/schemas/actions.schema.yml`, maps 20 action names to prose. Three sets are close but not equal: the `action` enum in `sequence.schema.yml` holds 21 (those 20 plus the deprecated alias `typeAndEnter`), the catalog documents 20, and the 21 `Register-SequenceAction` calls in `test/modules/Test.SequenceHandler.psm1` drop `typeAndEnter` and add `recoverFromSnapshot`, which no schema names. The runner never reads the catalog -- the live action set is whatever `Register-SequenceAction` registers. |
 
 ### Fields
 
@@ -307,10 +325,13 @@ erDiagram
 
 A step is one of two shapes. A snippet step carries `snippet` and an optional
 `description`. An action step carries `action` from the enum plus per-action
-required fields expressed as `if`/`then` branches -- `callExtension` needs
-`method`, `fetchAndExecute` needs `text` and `waitPattern`, `pressKey` needs
-`name`, `retry` needs `steps`, `passwdPrompt` needs `pattern` and `text`,
-`sshExec` needs `command`, and the three snapshot and diagnostic verbs need `id`.
+required fields expressed as `if`/`then` branches -- seventeen of them. For
+example `callExtension` needs `method`, `fetchAndExecute` needs `text` and
+`waitPattern`, `pressKey` needs `name`, `retry` needs `steps`, `passwdPrompt`
+needs `pattern` and `text`, `sshExec` needs `command`, `waitForText` needs
+`pattern`, `waitForSeconds` needs `seconds`, `tapOn` needs `label`, the three
+`inputText` spellings need `text`, and the snapshot and diagnostic verbs need
+`id`.
 `additionalProperties` stays open on an action step so optional parameters pass.
 
 Resolution order is project-first, in `Resolve-SequencePath`
@@ -330,9 +351,22 @@ the same name, and two project libraries defining one name is a fatal ambiguity.
 
 ## Test-harness runtime data
 
-**Host configuration.** One file per machine, read only through
+**Host configuration.** One file per machine, normally read through
 `test/modules/Test.Config.psm1`, which caches by path plus mtime plus a
-64 KB SHA-256 and publishes a cross-process JSON snapshot.
+64 KB SHA-256 and publishes a cross-process JSON snapshot. A few call sites parse
+the YAML directly and bypass that cache -- `automation/Yuruna.GitHubSource.psm1`,
+`test/Remove-TestVMFiles.ps1` and `Test.Perf.psm1`'s fallback.
+
+It is not only read, either. The inner loop rewrites the operator's file at the
+start of every cycle, before the first read: `Update-TestConfigFromTemplate`
+(`test/modules/Test.ConfigSync.psm1:249`, called at
+`test/modules/Invoke-TestRunnerInnerLoop.ps1:352-356`) overlays the live file on
+`test/test.config.yml.template`, comments out every key the template no longer
+defines, canonicalises ordering, and rewrites the file atomically. The template is
+the schema source of truth, so a host that skipped releases picks up new keys
+without hand-editing; a nested-shape departure copies the file to
+`test.config.yml.backup` first and can stop the run. That is also why the retired
+keys below matter: the reconcile does not translate them, it drops them.
 
 ```mermaid
 erDiagram
@@ -354,7 +388,7 @@ keys of `test/test.config.yml.template`.
 
 | Edge | Cardinality | Why the code says so |
 |---|---|---|
-| TestConfig - every group | 1 to exactly 1 | The template is a single YAML document with thirteen top-level keys and no repetition. Every group is optional on disk: `Test.Config.psm1` supplies no defaults of its own, and each consuming call site carries its own fallback, so an absent block reads as "all defaults". |
+| TestConfig - every group | 1 to exactly 1 | The template is a single YAML document with thirteen top-level keys and no repetition. Every group is optional on disk: `Test.Config.psm1` supplies no defaults of its own, and each consuming call site carries its own fallback, so an absent block reads as "all defaults". That rule has a sharp edge: sixteen keys were renamed and `Read-TestConfig` does not migrate them, so a value under a retired spelling reads as absent and silently takes the default. `Get-RetiredConfigKeyMap` (`test/modules/Test.ConfigNaming.psm1`) is the old-to-new table, each entry carrying a `Factor` for the unit changes (`testCycle.stepTimeoutMinutes` x60 to `stepTimeoutSeconds`, `vmImage.refreshHours` x3600 to `refreshSeconds`), and `tools/Update-TestConfigNaming.ps1` is what rewrites a config with it. |
 
 Two resolvers in the reader do carry defaults -- `Resolve-CleanupVmNamePrefix`
 (`test-`, and the configured list extends rather than replaces it) and
@@ -369,7 +403,7 @@ intent.
 
 | Group | Keys |
 |---|---|
-| `testCycle` | `cycleDelaySeconds`, `stopOnFailure`, `stepTimeoutSeconds`, `preambleTimeoutSeconds` (0 is the meaningful opt-out), `recentDisplayCount`, `autoRemediation.{enabled,maxAttemptsPerCycle}`, `guestQuarantine.{enabled,failuresToQuarantine,skipCycles}`, `warmResume.{enabled,maxAttempts}`, `perfLog.enabled` |
+| `testCycle` | `cycleDelaySeconds`, `stopOnFailure`, `stepTimeoutSeconds`, `preambleTimeoutSeconds` (0 is the meaningful opt-out), `recentDisplayCount`, `autoRemediation.{enabled,maxAttemptsPerCycle}`, `guestQuarantine.{enabled,failuresToQuarantine,skipCycles}`, `warmResume.{enabled,maxAttempts}`, `perfLog.enabled`, `labHealth.{enabled,minIntervalSeconds,discoveryIntervalSeconds,armWindowHours,maxHoldAttempts,require[]}` |
 | `networkStorage` | `poolStorage{LocalPath,NetworkPath,NetworkUser}`, `stashStorage{LocalPath,NetworkPath,NetworkUser}`, `moveLogsToPoolStorage`. Each tier needs all three of its triple populated or it is a complete no-op. |
 | `pool` | `enabled`, `intentGitUrl`, `localClonePath`, `pullTimeoutSeconds` |
 | `repositories` | `frameworkUrl`, `projectUrl`, `ghToken` (host-local) |
@@ -420,15 +454,23 @@ liveness rather than configuration.
 | StatusDocument | `runtime/status.json`, template `test/status/status.json.template` | `schemaVersion`, `host`, `hostname`, `cycleStartUtc`, `startedAt`, `finishedAt`, `overallStatus`, `stepPaused`, `cyclePaused`, `gitCommits[]`, `lastGetImageAt`, `cycle`, `guests[]`, `nested{}`, `history[]`. |
 | GatingState | `runtime/runner.gating.json` | `consecutiveFailures`, `consecutiveSuccesses`, `consecutiveCrashes`, `alertArmed`, `savedAt`. |
 | QuarantineEntry | `runtime/runner.quarantine.json` | per guest key: `failureClass`, `consecutiveFailures`, `quarantined`, `quarantinedAtCommit`, `quarantinedAtProjectCommit`, `skipCyclesRemaining`, `quarantinedAtUtc`. |
-| HostRegistration | `runtime/host.registration.json` | required `[schemaVersion, hostId, hostType]`; `hostId` matches `^42[0-9a-fA-F]{30}$`; plus `hostname`, `hypervisor` in `{hyper-v, kvm, utm}`, nullable `poolId`/`poolGuid`, `gating`, `capabilities`, `runId`, `pid`, `statusPort`, `writtenAtUtc`, `supportedGuests[]`, and reserved null `capacity`/`ipPool`/`disk`. `additionalProperties: true`. |
-| PoolState | `runtime/pool.state.json` | derived `poolId`, `desiredState`, `gating`. Its sibling `pool.manifest.json` carries the test set's repo pair. |
+| HostRegistration | `runtime/host.registration.json` | required `[schemaVersion, hostId, hostType]`; `hostId` matches `^42[0-9a-fA-F]{30}$`; plus `hostname`, `hypervisor` in `{hyper-v, kvm, utm}`, nullable `poolId`/`poolGuid`, `gating`, `capabilities`, `runId`, `pid`, `statusPort`, `writtenAtUtc`, and reserved null `capacity`/`ipPool`/`disk`/`supportedGuests`. `additionalProperties: true` also carries what the writer emits and the schema never declared: `activeExtensions[]` and `extensionTargets{}` from the per-service markers, `projectUrl`/`projectCommit`, `testSets`, `projectAccess` and `network`. |
+| PoolState | `runtime/pool.state.json` (written by `Write-YurunaPoolState`, `test/modules/Test.PoolSync.psm1`) | derived `poolId` and `poolGuid`, `desiredState`, `intentOk` (did the pull succeed) and `gating`, stamped `lastSyncUtc`. Its sibling `pool.manifest.json` carries `poolId`, `poolGuid`, the test set's `{name, frameworkUrl, projectUrl}`, the pool's own `config` block and `writtenAtUtc`, plus `sequences[]` only when non-empty. |
+| LabHealthRecord | `runtime/lab-health.json` (written by `Save-LabHealthRecord`, `test/modules/Test.LabHealth.psm1`) | `schemaVersion` 1 and `areas.<area>{lastOkUtc, lastAddress, verdict}`. A `lastOkUtc` inside `armWindowHours` is what arms a hold, which is why boot recovery sweeps the hold flags but deliberately leaves this file standing: it is knowledge, not parked state. Folded out of the diagram, which already holds seven entities. |
 
 Also in the same directory, outside the diagram: `host.uuid` (the stable
 per-machine identity that `hostId` comes from), `runner.pid` with its
 `runner.start` StartTime sidecar, `inner.pid`, `runner.heartbeat`,
 `runner.stepHeartbeat`, `runner.phase`, `runner.watchdog.lapsed`,
 `runner.cycle.outcome.json`, `poolstorage.state.json` and its drain lock,
-`break-active.json`, and the `control.*` pause and restart flags.
+`break-active.json`, and the `control.*` pause and restart flags -- the lab
+hold's `control.lab-hold`, its `lab-hold.json` sidecar and
+`control.lab-hold-release` among them. Also there: the parsed-config snapshot
+`.test.config.snapshot.<tag>.json` that lets a child process skip the YAML parse,
+the two markers the registration record folds in (`project.access.json`,
+`host-network.json`), `host.pre-automation.json` from the automation
+enable/disable path, `current-action.json`, and one `<area>.json` per running
+extension service.
 
 **Per-cycle results.** Each cycle gets one folder under `$env:YURUNA_LOG_DIR`,
 named `<NNNNNN>.<YYYY-MM-DD>.<HH-mm-ss>.<HOSTID>` with a lifecycle suffix:
@@ -450,23 +492,31 @@ erDiagram
 
 | Edge | Cardinality | Why the code says so |
 |---|---|---|
-| CycleFolder - Transcript | 1 to 1 | `Start-LogFile` in `test/modules/Test.Log.psm1` creates one `<base>.html` per cycle and anchors the `Yuruna.Log` proxy module to it. There is no `Start-Transcript`. |
+| CycleFolder - Transcript | 1 to 1 | `Start-LogFile` in `test/modules/Test.Log.psm1` creates one `<base>.html` per cycle and anchors the `Yuruna.Log` proxy module to it. The cycle transcript is not a PowerShell transcript -- `Start-LogFile` renders the HTML itself. A separate `Start-Transcript` path does exist (`Start-YurunaChildTranscript`, `test/modules/Test.LogLevel.psm1`), writing one `<script>.<pid>.log` per child into `$env:YURUNA_CHILD_TRANSCRIPT_DIR`, but nothing in production sets that variable, so it produces nothing today. |
 | CycleFolder - EventStream | 1 to 1 | `cycle.events.ndjson`, one JSON object per line. Every event records the bare `<base>` as its `cycleFolder` regardless of the on-disk suffix, so consumers join across the closing rename. A failed write drops a `cycle.events.gaps` sentinel. |
 | CycleFolder - CycleManifest | 1 to 1 | `Write-CycleManifest` enumerates every file in the folder. It is written before the `.incomplete` marker is deleted, so a crash between the two reads as "ended ambiguously" rather than as a complete cycle with a missing index. |
 | CycleFolder - FailureRecord | 1 to 0..1 | `last_failure.json` is written at the log-directory root during the cycle and archived into the folder on close, so a passing cycle has none. |
 | CycleFolder - RemediationRecord | 1 to 0..1 | `last_remediation.json`, archived on close only when its `runId` matches this run. |
-| FailureRecord - RemediationRecord | 1 to 0..1 | `Invoke-Remediation` in `test/modules/Test.Remediation.psm1` picks a handler by `failureClass`, preferring `innerFailureClass` when that class has its own handler, and writes the recommendation beside the record. The dispatcher is advisory: it records what should happen and never performs it. |
+| FailureRecord - RemediationRecord | 1 to 0..1 | `Invoke-Remediation` in `test/modules/Test.Remediation.psm1` picks a handler by `failureClass`, preferring `innerFailureClass` only when the outer class is exactly `retry_exhausted`, the inner class differs from it, and that inner class has its own registered handler, and writes the recommendation beside the record. The dispatcher is advisory: it records what should happen and never performs it. |
 | CycleFolder - PerfRow | cross-store | Perf rows live outside the cycle folder, in `test/status/perf/cycles/` as JSONL, gated by `testCycle.perfLog.enabled` (an absent key reads as enabled). They join back on `cycleStartUtc` and `hostUuid`. |
 
 ### Fields
 
 `manifest.json` entries carry `path` (relative, forward-slash normalized),
-`kind`, `sizeBytes`, `sha256` (best-effort, null on a read failure) and
-`modifiedUtc`. The `kind` vocabulary is what folds the remaining artifacts into
+`kind`, `sizeBytes`, `sha256` and `modifiedUtc`, inside a `schemaVersion` 2
+envelope carrying `cycleFolder` (the bare `<base>`, so it joins across the closing
+rename), `writtenAtUtc`, `artifactCount` and a path-sorted `artifacts[]`. `sha256`
+is null in two cases: a read failure, and the four bulky ring-buffer kinds
+(`screenshot`, `screenshot-raw`, `ocr`, `ocr-raw`) it skips on purpose, because
+hashing hundreds of polling frames at cycle end costs seconds and tells an
+operator nothing. The `kind` vocabulary is what folds the remaining artifacts into
 the diagram's `CycleManifest` box: `transcript`, `ndjson`, `ndjson-gaps`,
 `failure`, `remediation`, `screenshot-failure`, `ocr-failure`,
 `diagnostic-host`, `diagnostic-guest`, `screenshot`, `ocr`, `screenshot-raw`,
-`ocr-raw`, `perf` and `other`. The per-VM subfolders, the pre-OCR screen ring,
+`ocr-raw`, `fetch-and-execute-log`, `fetch-and-execute-profile`,
+`notification-delivery`, `perf` and `other` -- eighteen in all. The two
+fetch-and-execute patterns carry a leading wildcard because both land in the
+per-guest subfolder rather than at the cycle root. The per-VM subfolders, the pre-OCR screen ring,
 `host.diagnostic.txt` and the JSON Lines delivery ledger
 `notification.delivery.json` all appear there.
 
@@ -476,15 +526,15 @@ for both the file and the matching NDJSON event so the two cannot drift):
 | Field | Meaning |
 |---|---|
 | `schemaVersion` | Always 2. |
-| `reason` | `step` or `crash`. |
+| `reason` | `step` or `crash` from the sequence engine, plus `infra` when the outer or inner loop wrote the record for a host-side stage (`New-InfraFailureRecord`). |
 | `stepNumber`, `totalSteps`, `action`, `description`, `actionVerb` | Where in the sequence it stopped and which verb failed. |
 | `vmName`, `guestKey`, `sequenceName`, `timestamp` | Identity. |
-| `failureClass`, `severity`, `classificationSource` | The verb's registered classification, or `synthetic` when the outer watchdog wrote the record after a kill left none. |
+| `failureClass`, `severity`, `classificationSource` | The verb's registered classification. `classificationSource` is one of six, so a consumer can tell a genuinely unknown cause from an unclassified verb: `crash`, `pattern-match`, `verb-registry` and `unresolved-verb` from the sequence engine, plus `infra-stage` and `synthetic` when the outer loop wrote the record after a watchdog kill left none. |
 | `suggestedRecoveries[]` | Always an array, never null. |
 | `repro` | Carries `resumeFromStep`, which warm resume reads. |
 | `lastSucceededStepNumber` | The replay boundary. |
 | `innerActionVerb`, `innerFailureClass`, `innerSeverity`, `innerSuggestedRecoveries[]` | The cause underneath an exhausted `retry`, so remediation routes on it instead of collapsing to `retry_exhausted`. |
-| `context` | `hostType`, `matchedFailurePattern`, `sequencePath`, and on a crash the error, origin and stack. |
+| `context` | Three shapes. A step or crash record carries `hostType`, `matchedFailurePattern` and `sequencePath`, then either `cycleFolder`, `failureScreenshotPath` and `failureOcrPath` (step) or the error, origin and stack (crash). An infra-stage record carries `hostType` and `stage` alone. |
 
 A perf row (`test/modules/Test.Perf.psm1`, `schema: 1`) carries the cycle
 identity (`cycleStartUtc`, `cycleStartedAtUtc`, `hostUuid`, `hostname`,
@@ -568,7 +618,7 @@ erDiagram
 | Edge | Cardinality | Why the code says so |
 |---|---|---|
 | Pool - Host | 1 to 0..N | Membership is the `members[]` array, operator-authored. The `poolId` echoed back in `host.registration.json` is derived from it, so the intent side is authoritative. |
-| Host - UsersMapping | 1 to 1 | `test/status/extension/authentication/users.yml`, seeded from the committed `test/extension/authentication/users.yml.template`. `test/schemas/users.schema.yml` requires `[users]`. |
+| Host - UsersMapping | 1 to 1 | `test/status/extension/authentication/users.yml`, bootstrapped from the committed `test/extension/authentication/users.yml.template` and then kept forward-compatible with it: `Merge-UsersTemplateEntry` appends any template entry the live file has never seen, so a host provisioned before a logical user existed learns the name instead of having strict mode refuse a cycle over it. Only credential-free entries merge. `test/schemas/users.schema.yml` requires `[users]`. |
 | Host - Vault | 1 to 1 | `test/status/extension/authentication/vault.yml`, required `[users]` and `additionalProperties: false` per `test/schemas/vault.schema.yml`. Read-modify-write is serialized by a named system mutex derived from the vault path, and writes are temp file plus force-move. |
 | Vault - VaultEntry | 1 to 0..N | Each key matches `^[A-Za-z0-9._-]+$` and maps to `{password, previousPassword, updatedUtc}` with `password` required and non-empty and `updatedUtc` a required date-time. |
 | UsersMapping - VaultEntry | N to N | Each logical user resolves to a vault key twice over, through `vaultKey` for the login password and through `localOsPasswordRef` for the local test-VM account password; either falls back to the logical name when empty. |
@@ -580,7 +630,8 @@ erDiagram
 | Entity | Path | Fields |
 |---|---|---|
 | UsersMapping | `test/status/extension/authentication/users.yml` | `strict` (boolean, default false) and `users.<logical>` with `localOsUser`, `corporate{domain, sam, upn}`, `vaultKey` and `localOsPasswordRef` -- all optional, each defaulting to the logical key when empty. |
-| Vault | `test/status/extension/authentication/vault.yml` | `users.<vaultKey>{password, previousPassword, updatedUtc}`. Written and read by `test/extension/authentication/default.psm1`, wiped on cycle success and deliberately left in place on cycle failure. |
+| Vault | `test/status/extension/authentication/vault.yml` | `users.<vaultKey>{password, previousPassword, updatedUtc}`. Written and read by `test/extension/authentication/default.psm1`. The schema calls it a per-cycle cache, but no code path removes it: `Initialize-VaultConnection` creates it only when absent and reuses whatever is there, so the service-VM administrator passwords and the lab bearer token persist across cycles. Its sibling `events.log` (byte-bounded rotation keeping ten archives, `events.log.1`..`.10`) is the vault audit trail. |
+| LabToken | `users.lab-auth-token` in `users.yml` plus its `vault.yml` entry | Not a login user: the pool-wide shared bearer that the `writeGate: lab-token` routes and the status service's control proofs verify against. An empty `vaultKey` means this host is un-enrolled. `test/lab/Set-LabToken.ps1` redeems a dashboard code and writes both halves in one step; `test/lab/Lab-Diag.ps1` prints every stage of that exchange read-only. |
 | LabVault | `test/status/extension/authentication/lab.<name>.vault.yml` | `schemaVersion`, `lab{name matching a DNS-label pattern, createdUtc, poolPath, stashPath, intentGitPath}` and the same `users` entry shape. Written once by `test/lab/New-Lab.ps1`; read by `test/modules/Test.Lab.psm1`, which infers the storage root from `lab.poolPath`. |
 | TransportsConfig | `test/status/extension/notification/transports.yml` | Required `[transports, subscribers]`, `additionalProperties: false`. `transports.resend{apiKey, fromEmail}` requires both when present; `subscribers.<eventCode>` is an array of `{transport, address}` with `transport` limited to `email`. |
 
@@ -597,4 +648,6 @@ declared per area in `test/extension/<area>/<area>.config.yml` against
 `.psm1` base names, plus an optional `service{displayName, vmName, hostedIn,
 healthPort, healthPath, startScript, stopScript, markerBaseUrlKey,
 beaconInterval, writeGate}` block. The notification area iterates its whole
-`active` list; the authentication area uses `active[0]` exactly.
+`active` list; the authentication area is imported with `-RequireSingle`, so a
+list holding anything other than exactly one entry throws and fails the config
+gate rather than being narrowed (`test/modules/Test.Extension.psm1:167-169`).

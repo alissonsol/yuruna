@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.20
+.VERSION 2026.08.21
 .GUID 421b43ea-86ef-4745-ba78-cc02250870e2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -106,6 +106,62 @@ echo "$r"
         $script = $lib + "`n" + $driver
         $out = ($script | & $bash.Source 2>$null | Select-Object -Last 1 | Out-String).Trim()
         Assert-StringEqual -Actual $out -Expected 'M B U' -Because "marker/wrap/no-wrap result was: '$out'"
+    }
+    It 'forces apt attempts non-interactive through sudo without breaking the stall hoist' {
+        # An exported DEBIAN_FRONTEND never reaches apt: sudo resets the
+        # environment to what env_keep lists, and that list has neither of
+        # these variables on it. Losing them is silent and costs a whole step
+        # -- dpkg-preconfigure blocks on a debconf question that an OCR-driven
+        # console cannot answer, and with stdout on a pipe the question does
+        # not even flush -- so the injection is asserted rather than assumed.
+        # `env` rather than a bare VAR=value word is what keeps the argument a
+        # real command: timeout(1) execs its argument and cannot exec an
+        # assignment, so the bare form would break the bounded shape below.
+        $bash = Get-Command bash -ErrorAction SilentlyContinue
+        if (-not $bash) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
+        $lib = Get-Content -Raw -LiteralPath $script:libPath
+        $driver = @'
+
+r=""
+pre="env DEBIAN_FRONTEND=noninteractive DEBIAN_PRIORITY=critical"
+# A real sudo/apt-get on PATH, not shell stubs: the stall hoist declines to
+# bound a shell function, so a stubbed sudo would quietly test the unbounded
+# path instead of the one under test. The fake sudo records argv and does NOT
+# exec, and the fake apt-get shadows the host's own so nothing is installed.
+d=$(mktemp -d) || { echo "no-tmpdir"; exit 0; }
+printf '#!/bin/sh\necho "SUDOARGS:$*"\n' > "$d/sudo"
+printf '#!/bin/sh\necho "APTENV:${DEBIAN_FRONTEND:-unset}/${DEBIAN_PRIORITY:-unset}"\n' > "$d/apt-get"
+chmod +x "$d/sudo" "$d/apt-get"
+PATH="$d:$PATH"
+
+# Unbounded (the dist-upgrade shape): the prefix lands directly after sudo.
+o=$(YURUNA_APT_STALL_TIMEOUT_SECONDS=0 apt_retry sudo apt-get dist-upgrade -y 2>&1)
+case "$o" in
+  *"SUDOARGS:$pre apt-get dist-upgrade -y"*) r="${r}N " ;;
+  *) r="${r}n($o) " ;;
+esac
+
+# Bounded: timeout must still hoist INSIDE sudo, with the prefix inside it.
+o=$(YURUNA_APT_STALL_TIMEOUT_SECONDS=300 apt_retry sudo apt-get update 2>&1)
+case "$o" in
+  *"SUDOARGS:timeout --foreground --kill-after=30 300 $pre apt-get update"*) r="${r}H " ;;
+  *) r="${r}h($o) " ;;
+esac
+
+# Already root, so no sudo token to insert after: the variables still have to
+# reach the tool, or a root-run guest keeps the hang the sudo path just lost.
+o=$(YURUNA_APT_STALL_TIMEOUT_SECONDS=0 apt_retry apt-get install -y git 2>&1)
+case "$o" in
+  *"APTENV:noninteractive/critical"*) r="${r}R" ;;
+  *) r="${r}r($o)" ;;
+esac
+
+rm -rf "$d"
+echo "$r"
+'@
+        $script = $lib + "`n" + $driver
+        $out = ($script | & $bash.Source 2>$null | Select-Object -Last 1 | Out-String).Trim()
+        Assert-StringEqual -Actual $out -Expected 'N H R' -Because "apt non-interactive/hoist result was: '$out'"
     }
     It 'classifies wget exit codes (incl. re-probe on exit 8) and emits one YURUNA_RETRY marker per failed attempt' {
         $bash = Get-Command bash -ErrorAction SilentlyContinue

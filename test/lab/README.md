@@ -42,6 +42,7 @@ stop and unregister the test VMs *and* sweep, use
 | `New-LocalLabStorage.ps1` | publish this machine's own pool/stash SMB shares and the accounts scoped to them |
 | `Clear-LocalLabStorage.ps1` | withdraw those shares and accounts (leaves the data) |
 | `Set-LabToken.ps1` | enroll this host: redeem the dashboard's 6-character Lab token for the shared lab-auth-token |
+| `Lab-Diag.ps1` | show where a Lab token exchange stops, step by step, when `Set-LabToken.ps1` fails |
 
 ```
 pwsh test/lab/Set-LabToken.ps1 -LabToken <code from the dashboard's Lab token tile>

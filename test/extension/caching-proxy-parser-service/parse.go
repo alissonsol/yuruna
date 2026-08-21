@@ -10,28 +10,22 @@
 //
 // Full design and operator guide: https://yuruna.link/caching-proxy-parser-service (README.md).
 //
-// Linux-only: inodeOf() uses syscall.Stat_t to detect logrotate. The
-// build tag keeps `go vet` happy on the harness-host Windows toolchain
-// while letting GOOS=linux builds compile cleanly.
-//go:build linux
-
+// This file holds the parts that depend on nothing but the standard library:
+// the logformat regex, the ring, the counters and the three handlers. They
+// carry no build constraint so they compile -- and are tested -- on every
+// harness host. Tailing the log needs syscall.Stat_t to see a logrotate, and
+// lives in main_linux.go beside the platform's main.
 package main
 
 import (
-	"bufio"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
-	"os"
 	"regexp"
 	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
-	"syscall"
 	"time"
 )
 
@@ -146,101 +140,22 @@ func parseLine(line string, s *stats) (Entry, bool) {
 	}, true
 }
 
-func inodeOf(fi os.FileInfo) uint64 {
-	if st, ok := fi.Sys().(*syscall.Stat_t); ok {
-		return st.Ino
+// recordLine folds one raw log line into the ring and the counters and reports
+// whether the caller should log it as a drift sample. The cap lives here, not
+// at the call site: a total logformat drift means EVERY line misses, and an
+// uncapped sample log would fill the journal with the same failure.
+func recordLine(line string, r *ring, s *stats) bool {
+	if e, ok := parseLine(line, s); ok {
+		s.parsed.Add(1)
+		r.push(e)
+		return false
 	}
-	return 0
-}
-
-// follow tails the squid log forever. On first open it seeds the ring
-// from the last ~64 KB of the file (so the panel is non-empty on cold
-// start). It detects logrotate by stat'ing the path and comparing
-// inodes; on rotation it closes the old fd and re-opens from byte 0.
-func follow(path string, r *ring, s *stats) {
-	var (
-		f         *os.File
-		rd        *bufio.Reader
-		seenInode uint64
-		firstOpen = true
-	)
-	for {
-		if f == nil {
-			fh, err := os.Open(path)
-			if err != nil {
-				s.lastOpenErr.Store(fmt.Sprintf("open %s: %v", path, err))
-				log.Printf("open %s: %v", path, err)
-				time.Sleep(time.Second)
-				continue
-			}
-			st, statErr := fh.Stat()
-			if statErr != nil {
-				// A stat failure must be surfaced, not silently retried: an
-				// unrecorded stat error is invisible on /healthz and
-				// indistinguishable there from a healthy tailer that is merely
-				// caught up. Record + log it like the open failure above.
-				s.lastOpenErr.Store(fmt.Sprintf("stat %s: %v", path, statErr))
-				log.Printf("stat %s: %v", path, statErr)
-				_ = fh.Close()
-				time.Sleep(time.Second)
-				continue
-			}
-			s.lastOpenErr.Store("") // open+stat succeeded; clear any prior failure
-			seenInode = inodeOf(st)
-			if firstOpen {
-				size := st.Size()
-				if size > backfillBytes {
-					_, _ = fh.Seek(size-backfillBytes, io.SeekStart)
-				}
-				br := bufio.NewReader(fh)
-				if size > backfillBytes {
-					// Skip the partial first line introduced by mid-line seek.
-					_, _ = br.ReadString('\n')
-				}
-				rd = br
-				firstOpen = false
-			} else {
-				rd = bufio.NewReader(fh)
-			}
-			f = fh
-		}
-		line, err := rd.ReadString('\n')
-		if err == nil {
-			s.lastReadUnixMs.Store(time.Now().UnixMilli())
-			line = strings.TrimRight(line, "\n")
-			if line == "" {
-				continue // a blank line is not logformat drift; don't count it as skipped
-			}
-			if e, ok := parseLine(line, s); ok {
-				s.parsed.Add(1)
-				r.push(e)
-			} else {
-				s.skipped.Add(1)
-				if s.logged.Load() < maxUnmatchedLogged {
-					s.logged.Add(1)
-					log.Printf("unmatched line (logformat drift?): %q", line)
-				}
-			}
-			continue
-		}
-		if err != io.EOF {
-			// A non-EOF read error (bad fd, underlying I/O error) will not clear by waiting, so
-			// close and force a reopen instead of spinning on / stalling behind a broken
-			// descriptor. Only io.EOF means "caught up -- wait for more data / check rotation".
-			_ = f.Close()
-			f, rd = nil, nil
-			continue
-		}
-		// io.EOF: caught up. If the file rotated (new inode) reopen; otherwise wait for new data.
-		// Keep rd so the next read resumes where bufio left off.
-		st, statErr := os.Stat(path)
-		if statErr == nil && inodeOf(st) != seenInode {
-			_ = f.Close()
-			f, rd = nil, nil
-			continue
-		}
-		time.Sleep(pollInterval)
+	s.skipped.Add(1)
+	if s.logged.Load() < maxUnmatchedLogged {
+		s.logged.Add(1)
+		return true
 	}
+	return false
 }
 
 // handleJSON returns the ring as a JSON array, newest first.
@@ -361,28 +276,21 @@ func handleHealth(s *stats) http.HandlerFunc {
 	}
 }
 
-func main() {
-	logPath := flag.String("log", defaultLogPath, "squid access log to tail")
-	addr := flag.String("listen", defaultListenAddr, "address to listen on")
-	flag.Parse()
-
-	r := &ring{}
+// newStats returns counters ready to read: lastOpenErr is an atomic.Value, so
+// it must be seeded with its concrete string type before any load, or the
+// first /healthz before the first open panics on the type assertion.
+func newStats() *stats {
 	s := &stats{}
-	s.lastOpenErr.Store("") // seed the atomic.Value with its concrete string type
-	go follow(*logPath, r, s)
+	s.lastOpenErr.Store("")
+	return s
+}
 
+// newMux wires the three served routes. Kept beside the handlers rather than
+// in main so a test can exercise the routing, not just the handler functions.
+func newMux(r *ring, s *stats) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/recent-requests", handleJSON(r))
 	mux.HandleFunc("/healthz", handleHealth(s))
 	mux.HandleFunc("/", handleHTML)
-
-	log.Printf("caching-proxy-parser-service listening on http://%s, tailing %s", *addr, *logPath)
-	srv := &http.Server{
-		Addr:         *addr,
-		Handler:      mux,
-		ReadTimeout:  5 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		IdleTimeout:  30 * time.Second,
-	}
-	log.Fatal(srv.ListenAndServe())
+	return mux
 }

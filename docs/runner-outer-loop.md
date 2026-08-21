@@ -86,7 +86,12 @@ the local machine.
     `-Password <value>` is the non-interactive equivalent for a scripted run,
     `-NoPassword` creates the account locked to have a password set out-of-band,
     and `-ForcePasswordChange` makes the password a one-shot credential that
-    must be changed at first login.
+    must be changed at first login. An account name the authentication vault
+    already holds a password for is re-created with that same password rather
+    than a new one, so Yuruna's copy keeps working; `-PromptForPassword` opts
+    out. If the OS account already exists, `-Force` deletes it -- home
+    directory included -- and creates it again; preview that with
+    `-Force -WhatIf` before running it.
   - **Do not leave the password in open text files and sticky notes.**
   - Log in using the test account.
   - Execute the install script one-liners for your host, per the [install](../install/README.md) instructions.
@@ -653,6 +658,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.20
+Last review: 2026.08.21
 
 Back to [Yuruna](../README.md)

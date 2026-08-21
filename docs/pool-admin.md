@@ -365,8 +365,26 @@ it landed.
 
 A small Go daemon (`test/extension/pool-control-service/server`, module `pool-control-service`) that:
 
-- Serves the embedded static pages + a JSON API (`/api/state`, `/api/pool`,
-  `/api/pool/testset`, `/api/testset`, ...). Strict page CSP; XSS-safe DOM.
+- Serves the embedded static pages + a JSON API. Strict page CSP; XSS-safe DOM.
+  The full surface, split by the gate each route sits behind:
+
+  | Auth | Routes |
+  |---|---|
+  | open (GET) | `/healthz`, `/api/hostinfo`, `/api/session`, `/api/board`, `/api/hosts`, `/api/hosts/facts`, `/api/state`, `/api/scan`, `/api/diagnostics`, `/api/pool/host-control` |
+  | open (POST) | `/api/login`, `/api/unlock-proof` -- the two ways INTO the gate |
+  | lab-token | `/api/pool` (POST, DELETE), `/api/pool/desired-state`, `/api/pool/host`  (POST, DELETE), `/api/pool/move-host`, `/api/pool/testset`, `/api/pool/host-control`, `/api/scan`, `/api/scan/forget`, `/api/testset` (POST, DELETE) |
+
+  Reads are open on the trusted LAN so a wall display needs no credential;
+  everything that rewrites pool configuration goes through `gate.Require`.
+- **Reads the aggregator's `GET /api/v1/pool-stats`** for the numbers on the
+  board's cards: per-**host** terminal-cycle counts over a preset window.
+  Per-host rather than per-pool because that route returns only what Loki can
+  answer, and pool membership lives in the intent store the aggregator has never
+  read -- its sole notion of a pool is the `poolId` a host self-advertises. The
+  control service owns the join, because it already reads `members[]`. That
+  split is what lets the board render a card for a pool whose hosts are all
+  silent (`0` reporting) instead of that pool vanishing because no Loki stream
+  happened to mention it. Read-only and open, like `pool-status`.
 - **Shells out to the PowerShell pool-admin CLIs** in `test/pool/` (`New-Pool.ps1`,
   `Set-PoolTestSet.ps1`, `Add-HostToPool.ps1`, `Remove-Pool.ps1`,
   `Set-PoolTestSetDefinition.ps1`, `Get-PoolIntent.ps1`) rather than reimplementing
@@ -682,6 +700,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.20
+Last review: 2026.08.21
 
 Back to [Yuruna](../README.md)

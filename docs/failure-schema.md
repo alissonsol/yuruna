@@ -189,6 +189,63 @@ flagged on `status.json` (`guests[].quarantined` +
 skip is loud, never a silent pass. The emit is best-effort
 (`Send-CycleEventSafely`) and never fails the cycle.
 
+## The lab-health gate (`lab_health_*` events)
+
+A cycle step needs the lab's services -- the stash it uploads binaries to, the
+caching proxy its guests fetch through -- and a service being rebuilt is away for
+minutes to tens of minutes. Long enough that the pre-flight retry windows sized
+for a DHCP renew cannot cover it, and short enough that failing the cycle throws
+away a pass for a condition that cures itself.
+
+So the gate (`Test.LabHealth.psm1`) **holds** instead. Ahead of each chain entry
+and each sequence step it checks the services this lab declares, and when one
+that *was* answering has stopped, the cycle parks exactly as the operator's
+*Pause after the next step* parks it -- re-probing on the same 59 s-capped
+backoff the pause loop polls with, and resuming on its own when the service
+returns.
+
+**The probe set is derived, never configured.** Every extension area already
+declares `healthPort`/`healthPath` in its `service:` block
+([extensions-api.md](extensions-api.md)), so an area that ships tomorrow is gated
+the day it lands. An area exporting the contract verb `Test-<Area>Host` is probed
+through it instead: the caching proxy's `healthPort` is squid's 3128 while its
+daemon answers `/healthz` on 9310, and a manifest-driven probe there would report
+a dead daemon on every healthy proxy in the lab.
+
+**A hold needs a change of condition, not an absent service.** An area arms only
+when this host reached it inside `testCycle.labHealth.armWindowHours` (default
+24), and that record -- `runtime/lab-health.json` -- is read **across cycles**. A
+service stopped for a rebuild is already gone when the next cycle starts, so a
+baseline captured at cycle start would never see the transition the gate exists
+to catch. A service this host has *never* reached is deliberately never a hold:
+holding would park a fresh host on its first cycle, where a pre-flight gives a
+faster and more accurate "there is no stash here".
+
+**Cost.** An armed area is probed at its last known address first, with no
+discovery at all -- one HTTP call per armed area, no pool round-trip -- and its
+verdict is reused for `minIntervalSeconds` (default 30). An area the gate is not
+watching is re-asked only every `discoveryIntervalSeconds` (default 600), because
+its lookup is the expensive one and its answer is the one that almost never
+changes.
+
+**Ending a hold.** Recovery clears it. `POST /control/lab-hold-release`
+([control-routes.md](control-routes.md)) is the operator judging the outage
+permanent: the gate drops the hold and lets the step run so it fails on its own
+terms. `/control/start-cycle` clears it too. And at `maxHoldAttempts` -- clamped
+to a compiled **999**, about sixteen hours at the backoff cap -- the gate records
+`lab_dependency_down` and the cycle ends the way any hard infra failure ends.
+
+Three events ride the NDJSON stream: `lab_health_change` (with `fromVerdict` /
+`toVerdict` / `areas` / `armed`, and `attempts` + `heldSeconds` on the way back
+up), `lab_health_released`, and `lab_health_exhausted`. `status.json` carries
+`labHold` and `labHoldAreas`, mirrored from the flag file on every flush, which
+is what the status page's banner renders.
+
+The hold's flag (`control.lab-hold`) is deliberately **not** the operator's
+`control.step-pause`. The auto-release deletes the flag it raised; if that were
+the operator's flag, a service coming back would un-pause a cycle its operator
+had parked and walked away from.
+
 ## `warm_resume` event (checkpoint resume)
 
 Warm-resume checkpointing (`Test.WarmResume.psm1`) turns a late-step transient
@@ -371,6 +428,21 @@ broke" from a distance -- so each one's reason is recorded here.
   and is handed another new address, so retrying spends more of the pool. A first
   sighting of an identity is never this class, and a guest whose address could
   not be resolved is recorded as unchecked rather than as passing.
+- **`lab_dependency_down`** -- a lab service this host had been reaching stopped
+  answering, and the cycle already **held** for it: the lab-health gate re-probed
+  on backoff for up to sixteen hours before recording this. That history is the
+  reason it is a class of its own. Automated retry has provably been tried at the
+  only scale that could have worked, so the class stays out of the transient
+  fast-retry allow-lists and out of auto-remediation's transient list, and routes
+  to `operator_intervention_required` -- the next cycle would spend the same
+  hours reaching the same answer. Distinct from `payload_unavailable`, where a
+  live guest cannot fetch from its host: here nothing is running yet and no
+  address for the service exists at all. Distinct from `network_timeout`, which
+  means an address WAS found and the path to it failed. And distinct from every
+  host-scoped class because the service need not live on this host -- under a
+  pool it is normally a VM somebody else owns, which is also why the recovery
+  text names the service and its last known address rather than sending the
+  reader to this host's own network.
 - **`console_flooded`** -- a wait spent its whole budget against a console that
   was overwriting itself with one repeating line, so the pattern could not be
   read off the screen whether or not it was ever printed. Its own class because
@@ -497,6 +569,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.20
+Last review: 2026.08.21
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.20
+.VERSION 2026.08.21
 .GUID 4210c3aa-ab5b-4b2b-9259-5c68ad1cb72e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1778,11 +1778,35 @@ function Invoke-Sequence {
         }
     }
 
+    # Lab-health gate: hold here while a lab service this host HAD been
+    # reaching has stopped answering, and resume when it returns. A service
+    # that was never reachable is deliberately not a hold -- see
+    # Test.LabHealth -- so a host with no stash still fails fast in the
+    # caller's own pre-flight rather than parking on its first cycle.
+    #
+    # Get-Command-guarded: an entry point whose module set omits Test.LabHealth
+    # runs ungated, which is the behavior every caller had before the gate and
+    # is a better failure mode than a step that cannot start.
+    $waitWhileLabHealthy = {
+        param([string]$Label)
+        if (-not (Get-Command Invoke-LabHealthGate -ErrorAction SilentlyContinue)) { return }
+        # Stage name derived here rather than read from $seqName: that variable
+        # is only assigned inside the perf-context block, so a run with
+        # Test.Perf absent would name the failure record after nothing.
+        $labStage = [System.IO.Path]::GetFileNameWithoutExtension($SequencePath)
+        $null = Invoke-LabHealthGate -Label $Label -HostType $HostType -Stage $labStage `
+            -WriteAction $writeCurrentAction -CheckAbort $checkCycleRestart -WaitWhilePaused $waitWhilePaused
+    }
+
     # Gate #1: sequence-level pause + cycle-restart check, before any per-
     # sequence work. Pause is checked first so an operator-initiated pause
     # that overlaps a restart click still resolves predictably (pause
-    # wins until released, then the restart flag is observed).
+    # wins until released, then the restart flag is observed). The lab-health
+    # hold sits between them: an operator who has parked the cycle is present
+    # and outranks a machine-initiated hold, and re-probing a lab nobody is
+    # watching achieves nothing.
     & $waitWhilePaused "[sequence start]"
+    & $waitWhileLabHealthy "[sequence start]"
     & $checkCycleRestart "[sequence start]"
 
     # HACK: Force vmconnect to repaint by reconnecting.
@@ -1816,7 +1840,8 @@ function Invoke-Sequence {
     # it on its inner `steps:` array, reusing the full per-step
     # infrastructure: pause checks, currentAction sidecar, progress ticks,
     # variable expansion, the action switch, PASS/FAIL logging. The block
-    # resolves $vars, $writeCurrentAction, $waitWhilePaused, $HostType,
+    # resolves $vars, $writeCurrentAction, $waitWhilePaused,
+    # $waitWhileLabHealthy, $HostType,
     # $VMName, $GuestKey, $logDir, $screenshotDir, $ShowSensitive, and the
     # $script:Default* defaults from the enclosing function scope via
     # PowerShell's dynamic-scoping read semantics; the param $Steps shadows
@@ -1845,6 +1870,7 @@ function Invoke-Sequence {
             # retry only catches $false returns, not exceptions) and bubbles
             # up to the cycle-level try/catch in Invoke-TestRunnerInnerLoop.
             & $waitWhilePaused "[$stepNum/$($Steps.Count)]"
+            & $waitWhileLabHealthy "[$stepNum/$($Steps.Count)]"
             & $checkCycleRestart "[$stepNum/$($Steps.Count)]"
             $desc = $step.description ? (Expand-Variable $step.description $vars) : $step.action
             & $writeCurrentAction "[$stepNum/$($Steps.Count)] $($step.action): $desc"
@@ -2184,6 +2210,18 @@ function Invoke-Sequence {
     # older throw path still re-throws instead of being counted as a crash.
     if (($_.Exception.Data -and $_.Exception.Data['YurunaCycleRestart']) -or
         ($_.Exception.Message -like 'YurunaCycleRestart:*')) { throw }
+    # An exhausted lab hold is a classified infra failure, not a crash. The gate
+    # has already written last_failure.json as 'lab_dependency_down' and the
+    # crash record below writes unconditionally -- reaching it would replace a
+    # record naming the missing service with a generic 'unknown' crash, at
+    # exactly the layer the remediation dispatcher routes on. Report and return
+    # $false so the sequence fails through the caller's ordinary path with the
+    # gate's record intact.
+    if (($_.Exception.Data -and $_.Exception.Data['YurunaLabDependencyDown']) -or
+        ($_.Exception.Message -like 'YurunaLabDependencyDown:*')) {
+        Write-Warning "    Sequence stopped: $($_.Exception.Message)"
+        return $false
+    }
     # Print the message AND the throwing-statement origin AND the
     # call stack. Without these the operator gets only the .Exception
     # text (e.g. 'Exception calling "Replace" with "3" argument(s)')

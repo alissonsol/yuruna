@@ -9,3 +9,4 @@
 area: download-agent-service
 requiredFunction:
   - Get-DownloadAgentServiceInfo
+  - Test-DownloadAgentServiceHost

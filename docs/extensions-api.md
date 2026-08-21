@@ -1,11 +1,11 @@
 # Extensions API
 
-The harness defers seven classes of swappable behavior to **extension
+The harness defers eight classes of swappable behavior to **extension
 areas** under [`test/extension/`](../test/extension/) -- authentication,
-notification transports, caching-proxy-service log parsing, host-side
-artifact stashing, multi-host pool aggregation, pool configuration, and
-pool-wide guest-image downloading. An area is a directory with one or more
-`.psm1` files plus a YAML config naming the active set.
+notification transports, caching-proxy-service log parsing, caching-proxy
+management, host-side artifact stashing, multi-host pool aggregation, pool
+configuration, and pool-wide guest-image downloading. An area is a directory
+with one or more `.psm1` files plus a YAML config naming the active set.
 
 Loader: [`test/modules/Test.Extension.psm1`](../test/modules/Test.Extension.psm1).
 
@@ -21,8 +21,9 @@ is discovered by existing; it adds no case to any list in the framework.
 | Area                   | Active default | What it controls |
 |------------------------|----------------|------------------|
 | `authentication`       | `default`      | `${ext:authentication.GetPassword(<user>)}` / `NewRandomPassword()` / `SetPassword()` -- vault read/write for sequences. The `default` extension stores per-cycle ephemeral test-VM passwords in plaintext YAML **by design**; see [Authentication -- Test-harness vault threat model](authentication.md#test-harness-vault--threat-model) for the trust boundary. Wire a different extension (DPAPI / keyring / external secret manager) before driving any production system from a sequence. |
-| `notification`         | `default`      | `Send-Notification -EventCode -EventMessage`; iterates configured transports (Resend, SMTP, etc.). |
-| `caching-proxy-parser-service` | `default`      | Maps a Squid access-log line to a structured record for the test/perf log. Ships a Go sidecar (`main.go` + `caching-proxy-parser-service.service`) for inside-the-VM parsing; the PowerShell `default.psm1` is the host-side wrapper. |
+| `notification`         | `default`      | `Send-Notification -EventCode -EventMessage`; iterates the subscriber list and delivers each one through its declared transport. The `default` extension implements exactly one, `email` via Resend; any other value in `transports.yml` warns `Unknown transport` and delivers nothing. Wire a new one by adding a branch here. |
+| `caching-proxy-parser-service` | `default`      | Tails the Squid access log into a 100-entry in-memory ring and serves it on `:9302` as JSON (`/recent-requests`) plus a self-contained HTML page -- the source behind the Grafana dashboard's **Recent 100 requests** panel, replacing loki + promtail for it. Ships a stdlib-only Go daemon (`parse.go` + `main_linux.go` + `caching-proxy-parser-service.service`) built into the proxy VM; the PowerShell `default.psm1` is the host-side wrapper, exporting `Get-CachingProxyParserServiceManifest`. Nothing is persisted: the ring is the retention policy. |
+| `caching-proxy-service` | `default`     | The **management plane** for the caching-proxy VM -- the area that made that VM self-describing instead of a hardcoded roster row. A stdlib+SDK Go daemon on `:9310` reports squid's runtime summary (via the manager API), the offline / no-upstream switch state, and zot's catalog, canary and prewarm records; it owns the two operator switches, which used to be SSH-only. Nothing that serves traffic moved: squid (`:3128`/`:3129`), zot (`:5000`), Grafana, Prometheus, Loki and the exporters are untouched. Runs either on the proxy VM (`--mode local`) or on another host that can reach those APIs (`--mode remote`, read-only -- see [below](#running-the-caching-proxy-service-from-another-host)). |
 | `stash-service`        | `default`      | Receives `scp`/`sftp`-uploaded artifacts (diagnostic bundles, screenshots) into a stash-storage-backed stash. Ships a Go daemon under [`server/`](../test/extension/stash-service/server/) (legacy SCP **and** SFTP, files on the ystash-nas share + VM-local SQLite index/sidecars) brought up by `Start-StashServiceVM` + cloud-init, plus the PowerShell wrapper `default.psm1`. |
 | `pool-aggregator-service`      | `default`      | Read-only multi-host **pool view** (`Get-PoolAggregatorServiceManifest`) plus the pool half of the service lookup below (`Get-PoolExtensionHost`). Ships a stdlib-only Go daemon that runs on the caching-proxy-service machine (pool services host): it auto-discovers pool members from the squid access log, probes each one's status service, identifies on the stable `hostId`, and pushes cycle-status transitions to Loki. See [`pool-aggregator-service/README.md`](../test/extension/pool-aggregator-service/README.md). |
 | `pool-control-service` | `default`      | The operator board for **pool configuration**: which pools exist, which hosts belong to them, which test set each one runs. Ships a stdlib-only Go daemon on its own `yuruna-pool-control-service` VM that drives the pool-intent git store by shelling out to the pool-admin CLIs, with a web UI whose mutating actions unlock with the dashboard's rotating Lab token. The PowerShell `default.psm1` is the host-side pair -- `Get-PoolControlServiceInfo` (status stub) and `Test-PoolControlServiceHost` (the `/healthz` pre-flight). See [pool-admin.md](pool-admin.md#pool-control-service). |
@@ -36,7 +37,8 @@ test/extension/
 |   +-- authentication.config.yml       # active: ['default']
 |   +-- authentication.contract.yml     # methods + parameter shape this area exports
 |   +-- users.yml.template              # vault seed: harness copies on first cycle
-|   +-- default.psm1                    # exports Get-Password / Set-Password / Initialize-VaultConnection
+|   +-- default.psm1                    # 11 exports: the vault read/write pair, the credential
+|                                       # resolvers, and the users.yml reader + its cache reset
 +-- notification/
 |   +-- notification.config.yml         # active: ['default']
 |   +-- notification.contract.yml       # methods this area exports
@@ -45,19 +47,40 @@ test/extension/
 +-- caching-proxy-parser-service/
 |   +-- caching-proxy-parser-service.config.yml # active: ['default']
 |   +-- caching-proxy-parser-service.contract.yml
-|   +-- caching-proxy-parser-service.service    # systemd unit for the in-VM Go sidecar
-|   +-- go.mod, main.go                 # Go sidecar source (built into the proxy VM)
+|   +-- caching-proxy-parser-service.service    # systemd unit for the in-VM Go daemon
+|   +-- go.mod                          # Go daemon source (built into the proxy VM)
+|   +-- parse.go                        # regex, ring, counters, handlers -- no build tag
+|   +-- main_linux.go                   # the tailer + main; needs syscall.Stat_t for logrotate
+|   +-- main_other.go                   # non-Linux entry point, so the module still builds
+|   +-- parse_test.go, main_linux_test.go
 |   +-- README.md
 |   +-- default.psm1                    # host-side wrapper
++-- caching-proxy-service/
+|   +-- caching-proxy-service.config.yml        # active: ['default'] + the service manifest
+|   +-- caching-proxy-service.contract.yml
+|   +-- caching-proxy-service.service   # systemd unit for the in-VM Go daemon
+|   +-- go.mod                          # flat module at the area root, like its two
+|   |                                   # neighbours in the proxy VM -- that VM has no
+|   |                                   # framework checkout, so cloud-init fetches the
+|   |                                   # sources file by file and builds them in place
+|   +-- main.go, squid.go, switches.go, registry.go
+|   +-- main_test.go, squid_test.go
+|   +-- default.psm1                    # host-side info stub + /healthz pre-flight
 +-- stash-service/
-|   +-- stash-service.config.yml        # active: ['default']
-|   +-- server/                         # Go daemon (main.go + internal/{...})
+|   +-- stash-service.config.yml        # active: ['default'] + the service manifest
+|   +-- stash-service.contract.yml      # requiredFunction: the info stub, Resolve-Host,
+|   |                                   # the /healthz pre-flight, the address publisher
+|   +-- server/                         # Go daemon: main.go + internal/{...}, go.mod + go.sum
+|   |                                   # (the one service module with third-party deps),
+|   |                                   # and its own README.md
 |   +-- default.psm1                    # host-side wrapper
 +-- pool-aggregator-service/
-|   +-- pool-aggregator-service.config.yml      # active: ['default']
+|   +-- pool-aggregator-service.config.yml      # active: ['default'] + the service manifest
+|   |                                   # (hostedIn, no vmName -- it runs in the proxy VM)
 |   +-- pool-aggregator-service.contract.yml    # requiredFunction: Get-PoolAggregatorServiceManifest
 |   +-- pool-aggregator-service.service         # systemd unit for the proxy-host Go daemon
-|   +-- go.mod, main.go, main_test.go   # stdlib-only Go daemon source
+|   +-- go.mod, main.go                 # stdlib-only Go daemon source, one file
+|   +-- *_test.go                       # 17 test files beside it
 |   +-- grafana-pool-dashboard.json     # companion Grafana dashboard
 |   +-- README.md
 |   +-- default.psm1                    # host-side wrapper
@@ -71,22 +94,27 @@ test/extension/
 |   +-- download-agent-service.contract.yml     # requiredFunction: Get-DownloadAgentServiceInfo
 |   +-- server/                         # Go daemon (main.go + internal/{...}, incl. imagestore)
 |   +-- default.psm1                    # host-side status stub + /healthz pre-flight
-+-- extension-sdk/                      # the shared Go SDK, mirrored into each server/
-    +-- go.mod, README.md
++-- extension-sdk/                      # the shared Go SDK, staged beside each server/
+    +-- go.mod, README.md               # at build time -- never copied into one
     +-- beacon/                         # POST /announce presence
     +-- pool/                           # the pool-aggregator read client
     +-- labgate/                        # the lab-token write gate
 ```
 
-Each `server/` additionally holds `internal/yex/` -- the generated,
-byte-identical copy of `extension-sdk/`, written by
-staging the shared module at bring-up, never by copying it into a service.
+No `server/` holds a copy of the SDK. Each one names it as a sibling module
+(`replace ... => ../extension-sdk`), and the guest bring-up puts it there while
+it builds. The extension-service suite fails if a service reintroduces a
+mirror, drops the `replace`, or stops staging the module.
 
-The `<area>.contract.yml` files declare the methods + parameter shape
-each area's PowerShell module must export. `Resolve-ExtensionMethod`
-does not enforce them (the contract is implicit in the callers);
-they are the durable source of truth for the JSON Schema
-follow-on noted in [Adding a new area](#adding-a-new-area).
+The `<area>.contract.yml` files declare the methods + parameter shape each
+area's PowerShell module must export, and `Import-Extension` checks them at
+load: a module missing a declared verb produces a warning naming the full
+delta, chosen over a throw so one stale area cannot take an unrelated cycle
+down. Because that leaves nothing failing,
+[`Test.ExtensionArea.Tests.ps1`](../test/modules/Test.ExtensionArea.Tests.ps1)
+runs every shipped area through the loader and treats the warning as the
+failure. `Resolve-ExtensionMethod`, by contrast, enforces nothing -- it resolves
+a name and throws only when neither form is exported.
 
 A service area additionally carries a `service:` block in its
 `<area>.config.yml` -- the manifest described
@@ -100,12 +128,15 @@ shipped.
 ## The loader API
 
 ```
-Resolve-ExtensionAreaDir   -Area
-Read-ExtensionConfig       -Area
-Get-ActiveExtensionName    -Area   # ALWAYS wrap in @(...) -- single-entry config unrolls to scalar
-Import-Extension           -Area [-RequireSingle]
-Resolve-ExtensionMethod    -Area -ExtensionName -Method
-Get-ExtensionHostAddress   -HostType [-VMName] [-AggregatorBaseUrl] [-TimeoutSeconds]
+Resolve-ExtensionAreaDir        -Area
+Read-ExtensionConfig            -Area
+Get-ActiveExtensionName         -Area   # ALWAYS wrap in @(...) -- single-entry config unrolls to scalar
+Get-ExtensionAreaName                   # every area on disk; directory + config.yml is the whole rule
+Import-Extension                -Area [-RequireSingle]
+Import-ConfiguredExtension              # all areas at once; per-area failure warns, never throws
+Assert-ExtensionContractCoverage -Area -ExtensionName -ExportedFunction
+Resolve-ExtensionMethod         -Area -ExtensionName -Method
+Get-ExtensionHostAddress        -HostType [-VMName] [-AggregatorBaseUrl] [-TimeoutSeconds]
 ```
 
 `Resolve-ExtensionMethod` powers the `${ext:area.Method(...)}`
@@ -137,6 +168,9 @@ active:
 service:
   displayName: Stash service          # the label the Extension hosts column shows
   vmName: yuruna-stash-service        # the VM this host creates; absent = hosted elsewhere
+  # hostedIn: caching-proxy-service   # instead of vmName, when the service runs
+  #                                   # inside another area's VM -- what the
+  #                                   # pool-aggregator manifest declares
   healthPort: 80                      # the port a CONSUMER connects to
   healthPath: /healthz
   startScript: Start-StashServiceVM.ps1   # a NAME; the harness resolves it under test/service/
@@ -149,9 +183,15 @@ service:
 That one block feeds the service-VM roster the reboot sweep and the cleanup
 guard read ([`Test.ServiceVm.psm1`](../test/modules/Test.ServiceVm.psm1)), the
 runtime marker's shape, and the write-gate posture. An area **without** the
-block is code the cycle loads (`authentication`, `notification`) or a sidecar
-inside another VM -- not something the pool can locate or restart, so returning
-nothing for those is the answer, not a failure.
+block is code the cycle loads (`authentication`, `notification`) -- not
+something the pool can locate or restart, so returning nothing for those is the
+answer, not a failure.
+
+Running inside another area's VM is a different thing from having no manifest.
+`pool-aggregator-service` lives in the caching-proxy VM and still declares a
+full block: `hostedIn` instead of `vmName`, which is what keeps it out of the
+service-VM roster while leaving it locatable, health-probed and gated like any
+other service. `-WithVMOnly` is the switch that separates the two.
 
 It is read by
 [`Test.ExtensionService.psm1`](../test/modules/Test.ExtensionService.psm1),
@@ -182,14 +222,15 @@ and a UI renders what it gets as a link; and an https->http fallback on a
 *transport* failure only, since an aggregator with no leaf answers `:9400` in
 the clear while a protocol answer is authoritative.
 
-Each service carries the byte-identical copy at `<area>/server/internal/yex/`
-because each daemon is its own module, built **inside its own VM** from a copy
-of `<area>/server/` alone -- a module outside that directory is not there when
-the compiler looks for it. Committing the mirror also keeps every service
-independently buildable and testable from a plain checkout. The mirrors are
-resolved from the shared module via a `replace` directive,
-never edited; the extension-service suite fails if one drifts.
-See [the SDK README](../test/extension/extension-sdk/README.md).
+Each daemon is its own module, built **inside its own VM** from a copy of
+`<area>/server/` alone -- a module outside that directory is not there when the
+compiler looks for it. So the bring-up copies `extension-sdk/` in beside
+`server/` and each `go.mod` resolves it as a sibling
+(`replace yuruna.com/test/extension/extension-sdk => ../extension-sdk`). One
+module, shared; no service holds a copy. In the enlistment the SDK sits one
+directory further out than that, which is why `tools/Invoke-GoTest.ps1` builds
+each service in a throwaway copy of the guest's layout instead of where the
+module lives. See [the SDK README](../test/extension/extension-sdk/README.md).
 
 ### 3. The host-side module — the runtime marker
 
@@ -302,9 +343,10 @@ telemetry-only ([below](#post-announce-pool-aggregator-service)).
    block), `<area>.contract.yml`, and `default.psm1` exporting at least a status
    stub and a `Test-<Name>Host` `/healthz` pre-flight.
 2. `server/` for the Go daemon. Import `beacon`, `pool` and `labgate` from
-   `<module>/internal/yex/...`; put every configuration write behind
-   `gate.Require`. The SDK is staged beside `server/` at bring-up and resolved
-   with `replace yuruna.com/test/extension/extension-sdk => ../extension-sdk`.
+   `yuruna.com/test/extension/extension-sdk/...`; put every configuration write
+   behind `gate.Require`. The SDK is staged beside `server/` at bring-up and
+   resolved with
+   `replace yuruna.com/test/extension/extension-sdk => ../extension-sdk`.
 3. `test/Start-<Name>VM.ps1` / `Stop-<Name>VM.ps1` calling
    `Write-ExtensionServiceMarker` / `Remove-ExtensionServiceMarker` with the
    readiness verdict.
@@ -372,6 +414,171 @@ address this host dialed, because the reader's next move is to check the guest's
 own address against them, and one left out of the line is one they cannot rule
 out.
 
+## Bring-up knobs
+
+Two sets, on opposite sides of the boundary.
+
+**In the guest**, each bring-up script reads its own `<SERVICE>_*` variables
+from the environment cloud-init runs it in, and every one has a working default
+-- an unset variable is the normal case, not a missing setting. What they
+configure ends up in the daemon's systemd unit, so a value only takes effect on
+the bring-up that bakes it.
+
+| Service | Variables |
+|---|---|
+| `stash-service` | `STASH_HTTP_ADDR` (`0.0.0.0:80`; set it EMPTY to disable the UI -- the script uses `-` rather than `:-` so an empty value survives), `STASH_AGGREGATOR_URL` (overrides the seeded `pool.env` value), `STASH_PRESENCE_INTERVAL`, `STASH_POOL_WINDOW_DAYS` (`30`), `STASH_BUILD_TAGS` (empty; `-tags magika` opts the image into the ONNX detection backend, which also needs the runtime and model assets vendored) |
+| `download-agent-service` | `DOWNLOAD_AGENT_HTTP_ADDR` (`0.0.0.0:80`), `DOWNLOAD_AGENT_PRESENCE_INTERVAL`, `DOWNLOAD_AGENT_AUTH_TOKEN_FILE` (`/etc/yuruna/lab-auth.token`; an absent file disables the bearer path rather than opening it) |
+| `pool-control-service` | `POOL_CONTROL_HTTP_ADDR` (`0.0.0.0:80`), `POOL_CONTROL_PRESENCE_INTERVAL`, `POOL_CONTROL_AUTH_TOKEN_FILE`, `POOL_CONTROL_SCAN_CIDR` (empty = derive the /24 around the daemon's own address), `POOL_CONTROL_SCAN_PORT` (`8080`), `POOL_CONTROL_SCAN_INTERVAL` (`15m`; empty disables the sweep, and is spelled `0` to the daemon because an empty duration is a flag parse error -- an operator's off switch must not become a service that will not start) |
+
+`<SERVICE>_PRESENCE_INTERVAL` is the beacon cadence and defaults to `2m` in all
+three. It must stay under the aggregator's five-minute health grace; see
+[the manifest](#1-the-manifest--what-the-area-declares).
+
+**On the host**, each `Start-<Service>VM.ps1` waits for the daemon to answer
+`:80`, and the wait is overridable because first boot builds the daemon inside
+the guest:
+
+- `YURUNA_STASH_SERVICE_READY_TIMEOUT_SECONDS`
+- `YURUNA_POOL_CONTROL_SERVICE_READY_TIMEOUT_SECONDS`
+- `YURUNA_DOWNLOAD_AGENT_SERVICE_READY_TIMEOUT_SECONDS`
+
+All three default to **2700** seconds and take a positive integer; anything
+else is ignored with a verbose note rather than failing the bring-up. The value
+is a floor, not a ceiling: the wait extends itself beyond it -- to at most twice
+the value -- for as long as the guest ITSELF answers over SSH that cloud-init is
+still running, so a slow host is not failed for a build that was progressing.
+The usual reason to set one is the opposite case: a short value for a quick
+re-check against a VM already up.
+
+## Running the caching-proxy service from another host
+
+The `caching-proxy-service` daemon is the one extension service written to run
+somewhere other than the VM it describes. Everything it reads is an API or a
+file on a share -- never a local socket, never a systemd call -- so the same
+binary answers from the proxy VM or from a machine that can reach it.
+
+**The data plane never moves.** Squid (`:3128`, `:3129`), zot (`:5000`),
+Grafana, Prometheus, Loki and the exporters stay on the caching-proxy VM in
+either mode. What relocates is the management plane: reading state and flipping
+switches. Moving it buys isolation -- a management plane that survives the box
+it reports on -- and costs a network hop per read.
+
+| | `--mode local` (default) | `--mode remote` |
+|---|---|---|
+| squid summary | manager pages over loopback | manager pages over the LAN, which needs the ACL below |
+| switch state | the `conf.d` drop-ins themselves | inferred from squid's running config, and says so |
+| switch changes | writes the drop-in, `squid -k reconfigure` | **501 `caching-proxy-remote-readonly`** |
+| zot catalog | zot's API over loopback | zot's API over the LAN |
+| canary verdict | `/zot-meta` over loopback | `/zot-meta` over the LAN |
+| prewarm record | `/var/lib/yuruna` on the box | absent unless the share is mounted |
+
+Remote mode is **read-only, and refuses rather than pretends**. Stock squid has
+no remote reconfigure: a change made off the box could be written but never
+loaded, so both switch routes answer `501` with reason
+`caching-proxy-remote-readonly` and name the mode that refused. That is a
+statement about squid, not about permissions -- which is why it is `501` and
+not `403`, and why an on-box agent is what would lift it.
+
+**The manager ACL is the one prerequisite, and it is not a drop-in.** Stock
+`squid.conf` runs `http_access deny manager` well before it includes
+`conf.d/*.conf`, and `http_access` is first-match-wins -- so an allow rule added
+in a drop-in is dead code. Opening the manager interface to a remote reader
+means editing `squid.conf` itself, above that deny, and pairing it with a
+`cachemgr_passwd`. Nothing in the shipped seed does this: local mode does not
+need it (loopback is already allowed by the stock `allow localhost manager`),
+and opening squid's manager interface to the LAN is a posture change no VM
+should get for a mode it is not running.
+
+## MCP endpoints
+
+Every Go daemon serves the Model Context Protocol at `POST /mcp` on the port it
+already listens on, and the core framework serves it on stdio. The rule the
+whole surface is built on is that **MCP adds a protocol, never a second
+truth**: a tool wraps a route or a script that already exists, and inherits the
+gate that route already declares.
+
+That is enforced structurally rather than by discipline. These daemons build
+their read payloads inside the handler, so a hand-written tool would mean the
+same shape maintained twice; instead `mcp.FromRoute` INVOKES the route handler
+in-process and returns what it wrote. One body, produced once, by one function
+-- a tool cannot answer differently from the route it wraps, and the per-daemon
+suites assert the two match.
+
+| Service | Endpoint | Tools |
+|---|---|---|
+| `pool-aggregator-service` | `POST :9400/mcp` | `pool_status`, `pool_extension_hosts`, `pool_stats` |
+| `caching-proxy-service` | `POST :9310/mcp` | `caching_proxy_status`, `caching_proxy_switches`, `caching_proxy_hostinfo`, and the gated `caching_proxy_set_offline` / `caching_proxy_set_no_upstream` |
+| `stash-service` | `POST :80/mcp` | `stash_list`, `stash_hostinfo`, `stash_session` |
+| `pool-control-service` | `POST :80/mcp` | `pool_control_board`, `pool_control_hosts`, `pool_control_host_facts`, `pool_control_state`, `pool_control_diagnostics`, `pool_control_hostinfo` |
+| `download-agent-service` | `POST :80/mcp` | `download_agent_status`, `download_agent_images`, `download_agent_diagnostics`, `download_agent_hostinfo` |
+| core framework | `test/service/Start-McpServer.ps1` (stdio) | the ten `automation/` entry points |
+
+`caching-proxy-parser-service` is deliberately absent: it has no auth story at
+all, so there is no gate for a mutating tool to inherit and nothing to make
+read-only tools a considered decision rather than a default.
+
+### What a tool may do, and who decides
+
+The annotation on each tool is the same claim its route makes:
+
+- **Read-only tools skip the gate** and carry exactly the exposure of the GET
+  route they wrap -- open on the trusted LAN, matching `pool-status`. Gating
+  them would make a credential a prerequisite for reading a board.
+- **Mutating tools pass the daemon's own labgate**, through the identical
+  three-way answer its HTTP routes give: `503` with reason `auth-unconfigured`
+  when the service has no way in configured at all, `401`-equivalent when the
+  gate exists and the caller has not passed it, and through otherwise.
+- **A domain refusal keeps its own token.** A caching-proxy daemon in remote
+  mode refuses `caching_proxy_set_offline` with
+  `caching-proxy-remote-readonly`, the same string its `501` body carries, so an
+  operator who knows one knows the other.
+
+Only four daemons mount a mutating tool at all, and three of them mount none.
+That is a decision per service rather than an oversight: the aggregator's
+mutations are a telemetry firehose and a route that deletes evidence an
+operator may be mid-way through reading; pool-control's each commit and push
+the pool intent store; stash's `DELETE` reaches every host's stash on the shared
+mount, not just its own; and the download agent's `ensure` route is
+**deliberately ungated** on the HTTP side, so a tool for it could not both
+mirror its route's gate and honour the rule that a mutating tool takes the lab
+token. Reconciling that contradiction comes before it gets a tool.
+
+### Why stdio for the core, and only stdio
+
+The core framework's entry points are scripts an operator runs on their own
+machine, so its server runs foreground on stdin/stdout with no listener, no
+token and no gate. The transport IS the trust model: a process reading one
+operator's stdin was started by that operator and can do exactly what they can
+already do by typing the same command. A credential there would protect nothing
+and imply a boundary that does not exist.
+
+That server also reads each entry point the way that entry point actually
+answers, because they are not uniform: `Test-Runtime` has no exit statement and
+reports its verdict as the last pipeline object; `Get-SystemDiagnostic` always
+exits 0, so a zero means the report was produced and never that the host is
+well; `Check-DependencyVersion` emits JSON natively and is passed through; and
+`Set-HostAlias` writes no transcript, so a thrown error is its only failure
+signal. Reading any of those by exit code alone reports the wrong thing.
+
+### Connecting a client
+
+```json
+{
+  "mcpServers": {
+    "yuruna-core": {
+      "command": "pwsh",
+      "args": ["-NoProfile", "-File", "test/service/Start-McpServer.ps1"]
+    },
+    "yuruna-pool": { "url": "http://<proxy>:9400/mcp" },
+    "yuruna-cache": { "url": "http://<proxy>:9310/mcp" }
+  }
+}
+```
+
+A JSON-RPC error is still HTTP `200`: the RPC layer answered, and a non-200
+would say the transport failed, which is a different fact and sends a reader
+looking in the wrong place. Notifications get `202` and no body.
+
 ## Which framework snapshot a service VM is built from
 
 The extension service daemons are Go binaries whose version is stamped at
@@ -379,6 +586,23 @@ COMPILE time, read from the `VERSION` file of whatever enlistment the guest
 fetched. Nothing re-reads it afterwards: the guest builds once, and the number
 it prints on its UI, in `/api/hostinfo` and in every diagnostics payload is
 frozen there for the life of the VM.
+
+The stamping is a linker flag, not a file the daemon opens. Each guest
+bring-up reads the enlistment's `VERSION`, keeps the first line with whitespace
+stripped (a trailing newline or a CRLF would otherwise become part of the
+version string), falls back to `dev` when the file is missing or empty, and
+compiles with:
+
+```
+go build -ldflags "-X main.version=$VERSION_STR" -o <daemon> .
+```
+
+Every daemon therefore declares a package-level `var version` that the linker
+overwrites. Lose the flag and the build still succeeds -- the variable keeps
+its zero value, the UI footer renders `dev` or nothing at all, and
+`Assert-ServiceVmFrameworkSource` can no longer tell which enlistment the VM
+came from. That is why each daemon's suite asserts the `version` field of
+`/api/hostinfo` rather than only its shape.
 
 That makes the fetch the whole story. The cloud-init seed pulls this host's
 enlistment from the host status service (`/yuruna-archive.tar.gz`, with the
@@ -484,6 +708,33 @@ rather than failing it.
 The stash extension's `Resolve-Host` (what
 `${ext:stash-service.ResolveHost(<vm>)}` expands to) consults it last,
 after the local VM and the address the cycle's pre-flight already verified.
+
+#### Asking the pool directly, and why an empty answer is not one answer
+
+Source 3 is the pool-aggregator area's own module, and a caller that wants only
+that source can use it directly:
+
+```powershell
+$address = Get-PoolExtensionHostFrom -BaseUrl $aggregatorUrl -Area 'stash-service'
+if (-not $address) {
+    $why = Get-PoolExtensionHostLastOutcome
+    # $why.Outcome: 'no-host' | 'http-error' | 'transport-error' | 'no-aggregator' | 'ok' | 'none'
+}
+```
+
+`Get-PoolExtensionHostFrom` returns a bare string so it can never throw into a
+cycle, which means every failure looks identical at the call site. Two of them
+are not remotely the same thing: **`no-host`** is a settled answer -- the pool
+says nobody serves this area -- while **`transport-error`** is a statement about
+the asker's own link, and usually cures itself. A caller that stops a cycle on
+the empty string reports the first when it saw the second, and sends an operator
+looking for a service that was running the whole time.
+
+`Get-PoolExtensionHostLastOutcome` is where the reason is kept: a hashtable of
+`Outcome`, `Detail` and `Uri`. It is **session-scoped and overwritten by every
+lookup**, so read it immediately after the call it belongs to. A transport
+failure also warns rather than logging verbosely, because it is the shape that
+stops cycles.
 
 ### Only an address the pool has reached is answered
 
@@ -681,6 +932,39 @@ Hosts themselves need neither: host-side consumers re-resolve the proxy on every
 run. Enrollment is separate -- a rebuilt proxy mints a new `lab-auth-token`, so
 each host stays *onsite* until `Set-LabToken.ps1` re-enrolls it
 ([control-routes.md](control-routes.md#enabling-remote-control-on-a-host)).
+
+## POST /api/v1/host-announce (pool-aggregator-service)
+
+The host-level counterpart to `/announce`: a **host** POSTs
+`{"hostId":"<42-hex>","statusPort":<port>}` when its address changes, when its
+status service starts, and on a periodic beacon.
+
+It exists because squid-log discovery is pull-only, and so lags exactly when it
+matters. A host enters the log only when it or its guests pull through the
+proxy, so between cycles the view ages out and the address it still holds is the
+one the host has just left -- and a guest resolving through that view gets an
+answer that is confidently wrong. This route moves a host's address inside the
+host view that `pool-status`, the `/go/*` redirects and the guest resolver all
+read. `/announce`, by contrast, is area-scoped *extension* presence.
+
+Containment mirrors `/announce`, with one gate deliberately stronger:
+
+1. **Self-identity bound.** The address is taken from the connection, never the
+   body, so an announcer can only advertise itself.
+2. **Confirmed, not believed -- on identity.** `/announce` probes `/healthz`;
+   this one fetches the announced address's own `/runtime/status.json` and
+   requires the `hostId` THERE to equal the claimed one. The claim being made is
+   an identity, so identity is what gets checked: a machine that cannot serve
+   that host's `status.json` cannot rename itself into that host's place.
+3. **Bounded.** Same body cap and hostId charset as `/announce`.
+4. **No bearer**, for the same reason `/announce` has none -- requiring the
+   shared lab token would kill the beacon in exactly the labs that need it. The
+   route relocates an existing identity and confers no control-plane capability.
+
+`400` covers a malformed body, a bad hostId or `statusPort`, an address the pool
+could not route to, an address that did not serve `status.json`, and an address
+that served a *different* hostId. `503` when `-announce-ttl` is `0`. As with
+`/announce`, a 2xx means **recorded**, not merely received.
 
 ## POST /api/v1/lab-token (pool-aggregator-service)
 

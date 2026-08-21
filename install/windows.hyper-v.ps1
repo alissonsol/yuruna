@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.20
+.VERSION 2026.08.21
 .GUID 425b1941-f370-4155-9842-47cbe6837b47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -58,6 +58,20 @@ $script:YurunaBranchExplicit = $PSBoundParameters.ContainsKey('YurunaBranch')
 
 function Write-Step { param([string]$m) Write-Output "==> $m" }
 function Write-Warn { param([string]$m) Write-Warning $m }
+
+# --- REGION: Deferred issues
+# Every non-fatal problem is recorded here as well as printed where it happens.
+# An installer prints hundreds of lines; a package that failed to upgrade
+# scrolls past long before the operator reads the closing instructions, and the
+# only thing that survives to the end is a summary. Nothing here stops the run:
+# a package-manager hiccup mid-install should not end it, but it must not pass
+# unmentioned either.
+$script:YurunaIssue = [System.Collections.Generic.List[string]]::new()
+function Add-InstallIssue {
+    param([Parameter(Mandatory)][string]$Message)
+    [void]$script:YurunaIssue.Add($Message)
+    Write-Warn $Message
+}
 function Write-Die  { param([string]$m) Write-Error $m }
 
 # Resolve -YurunaDir to a full path before anything reads it. Every later use is
@@ -854,11 +868,20 @@ function Install-WingetPackage {
             --disable-interactivity 2>&1 |
             Where-Object { $_ -notmatch 'No applicable upgrade|No installed package' } |
             ForEach-Object { Write-Output "     $_" }
+        # winget exits non-zero when nothing is outdated, which is a success
+        # here; the filter above already dropped those two messages, so only a
+        # real failure is worth recording.
+        if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne -1978335189) {
+            Add-InstallIssue "winget could not upgrade $FriendlyName (exit $LASTEXITCODE); the version already on this machine is what the rest of the install used."
+        }
     } else {
         Write-Step "  installing $FriendlyName"
         winget install --id $Id --exact --silent --source winget `
             --accept-package-agreements --accept-source-agreements `
             --disable-interactivity
+        if ($LASTEXITCODE -ne 0) {
+            Add-InstallIssue "winget could not install $FriendlyName (exit $LASTEXITCODE). Re-running this installer retries it."
+        }
     }
 }
 
@@ -872,6 +895,9 @@ Write-Step 'Installing / upgrading required packages via winget'
 # which runs under Windows PowerShell and is therefore safe to replace pwsh
 # from. An in-place upgrade of the live pwsh has to come from another process.
 if ($PSVersionTable.PSEdition -eq 'Core') {
+    # Not an error, but not nothing either: this run cannot raise the
+    # interpreter it is executing in, so if that interpreter is below the floor
+    # the version check at the end is the only thing that will say so.
     Write-Step "  PowerShell 7 is the running interpreter ($($PSVersionTable.PSVersion)) -- skipping its winget upgrade (would terminate this installer). Update it later from Windows PowerShell or a separate window: winget upgrade --id Microsoft.PowerShell"
 } else {
     Install-WingetPackage -Id 'Microsoft.PowerShell'          -FriendlyName 'PowerShell 7'
@@ -1468,6 +1494,51 @@ $script:InstallSucceeded = $true
             Start-Sleep -Seconds 60
         }
     }
+}
+
+# --- REGION: Version floor check
+# The tools this installer manages, checked against the floors in
+# automation/Yuruna.Requirement.yml -- the same file the requirement report and
+# the diagnostic read, so a floor is written down once.
+#
+# Only what this script installs: reporting on a cloud CLI the bootstrapper
+# never touches would bury the one real problem in a dozen expected absences.
+#
+# Warn, never fail. Finishing SILENTLY below a floor is the failure mode this
+# closes, and on Windows it is the likelier one: the PowerShell self-upgrade is
+# deliberately skipped when it IS the running interpreter, so a below-floor
+# pwsh survives the run by design and this check is the only thing that says so.
+$requirementScript = Join-Path $YurunaDir 'automation/Test-Requirement.ps1'
+if (Test-Path -LiteralPath $requirementScript) {
+    Write-Step 'Checking installed versions against the required floors'
+    try {
+        $reported = & pwsh -NoProfile -File $requirementScript `
+            -Tool 'PowerShell,git,qemu-img,curl' -WarnOnly 2>$null
+        foreach ($line in @($reported)) {
+            if ("$line" -match '^REQUIREMENT-ISSUE: (.+)$') { Add-InstallIssue $Matches[1] }
+        }
+    } catch {
+        Write-Warn "  the version check could not run ($($_.Exception.Message)); versions were not verified."
+    }
+}
+
+# --- REGION: Install summary
+# The last thing printed before the transcript closes. Everything above
+# scrolls; this does not.
+if ($script:YurunaIssue.Count -gt 0) {
+    Write-Output ''
+    Write-Output '================================================================'
+    Write-Output ("INSTALL FINISHED WITH {0} ISSUE(S)" -f $script:YurunaIssue.Count)
+    Write-Output ''
+    foreach ($issue in $script:YurunaIssue) { Write-Output "  - $issue" }
+    Write-Output ''
+    Write-Output 'The install completed and the machine is usable. Each line above is'
+    Write-Output 'something that did not happen as intended -- re-running this installer'
+    Write-Output 'is safe and retries every one of them.'
+    Write-Output '================================================================'
+} else {
+    Write-Output ''
+    Write-Output 'Install finished with no issues.'
 }
 
 # --- REGION: Clean up the single-fetch materialization temp

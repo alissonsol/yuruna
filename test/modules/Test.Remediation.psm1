@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.20
+.VERSION 2026.08.21
 .GUID 42bd6583-4d45-42df-b3b7-3411df4c5af9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -773,6 +773,26 @@ function Register-BuiltinRecoveryHandler {
                 'Retire dead hosts with test/pool/Remove-PoolHost.ps1, which also removes their archive root (including any pre-unification one)',
                 'Check what else shares the volume: the guest-image download pool under images/ is usually the largest tenant',
                 'The runner re-checks before each cycle and resumes on its own once there is room; a config edit or a new commit ends the pause immediately'
+            )
+        }
+    }
+
+    Register-RecoveryHandler -FailureClass 'lab_dependency_down' -Handler {
+        param([hashtable]$c)
+        # The record's description names which services, how long the runner
+        # waited, and where each was last seen answering. Quote it: the last-seen
+        # address is what tells the operator whether the service moved or died,
+        # and re-deriving it means repeating the whole hold by hand.
+        $detail = ''
+        if ($c.Failure -and $c.Failure.description) { $detail = " Reported: $($c.Failure.description)" }
+        return @{
+            Recommendation = 'operator_intervention_required'
+            Rationale      = "lab_dependency_down: a lab service this host had been reaching stopped answering, and the cycle already held for it -- re-probing on backoff for up to sixteen hours -- before recording this. So an automated retry has provably been tried at the only scale that could have worked, and the next cycle would spend the same hours to reach the same answer. The service also need not live on this host: under a pool it is normally a VM somebody else owns, which is why this is not a host fault and not a guest fault.$detail"
+            Actions        = @(
+                'Start the named service where it belongs: test/service/Start-<Service>VM.ps1 on its host, and confirm /healthz answers from there',
+                'A service that moved rather than died needs nothing here -- discovery re-asks every attempt, so the next cycle finds the new address on its own',
+                'To run without it, pin an address with $env:YURUNA_EXTENSION_HOST_<AREA>, or set testCycle.labHealth.enabled to false to stop holding for any service',
+                'The hold is not the cycle budget: an operator who knows the outage is permanent ends it from the status page rather than waiting it out'
             )
         }
     }

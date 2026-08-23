@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42c371c0-e0ee-4286-a715-488384b98c2a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -63,11 +63,6 @@ New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
 Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yuruna.Host.psm1") -Force
 
 # --- REGION: https://yuruna.link/guest-image-setup#agent-first-image-downloads
-# Ask the download agent before the origin listing is even read: when it
-# confirms the local copy IS the current artifact there is nothing to scrape,
-# HEAD-probe or transfer. Both the client module and a healthy agent are
-# feature-detected, so with no agent -- or an agent that is down, has no pool,
-# or errors mid-request -- everything below runs exactly as it always has.
 $agentServed = $false
 $agentLastModified = ''
 if ((Get-Command -Name Resolve-DownloadAgentEndpoint -ErrorAction SilentlyContinue) -and

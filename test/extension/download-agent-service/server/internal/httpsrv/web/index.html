@@ -52,7 +52,7 @@
                autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"
                placeholder="Lab token" aria-label="Six-character lab token from the dashboard">
         <button type="submit" class="primary">Unlock actions</button>
-        <span id="login-error" class="muted"></span>
+        <span id="login-error" role="alert" class="muted"></span>
       </form>
       <p class="muted">
         The 6-character code on the Yuruna hosts dashboard's <em>Lab token</em>
@@ -61,13 +61,13 @@
       </p>
     </section>
     <p id="gate-unconfigured" class="muted" hidden>
-      No aggregator URL and no lab auth token are configured, so Force refresh,
+      No aggregator URL and no internal authentication key are configured, so Force refresh,
       Delete and Prune are disabled. Set <code>--aggregator-url</code> (which
       lets the dashboard's Lab token unlock them) or
       <code>--auth-token-file</code> on the daemon to enable them.
     </p>
 
-    <div id="notice" class="notice"></div>
+    <div id="notice" role="alert" class="notice"></div>
 
     <!-- No Version tile: the daemon version is already in the header bar, under
          the service name, on every page of every Yuruna UI. -->
@@ -86,14 +86,15 @@
 
     <div class="row">
       <button id="refresh-view">Refresh view</button>
-      <span id="as-of" class="muted"></span>
+      <span id="as-of" role="status" class="muted"></span>
     </div>
 
     <!-- Every header but the counter and Actions sorts. The control inside each
          one is a real <button>, so Enter and Space activate it without this page
          reimplementing key handling, and aria-sort on the th itself is what a
          screen reader announces. -->
-    <table>
+    <div class="table-wrap" tabindex="0" role="region" aria-label="Download pool">
+      <table>
       <thead>
         <tr>
           <th class="rownum" aria-label="Row number">#</th>
@@ -110,15 +111,19 @@
       <tbody id="image-rows"></tbody>
       <tfoot id="image-totals"></tfoot>
     </table>
-    <p id="empty" class="muted" hidden>No pool entries yet. The scanner seeds the pool on its next pass, or use Force refresh on a row to start one now.</p>
+    </div>
+    <p id="empty" role="status" class="muted" hidden>No pool entries yet. The scanner seeds the pool on its next pass, or use Force refresh on a row to start one now.</p>
   </main>
 
   <footer id="footer-bar">
-    <span id="footer-ips"><span class="label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-label="Server IP addresses">--</textarea></span>
+    <span id="footer-ips"><span class="label" id="footer-ips-label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-labelledby="footer-ips-label">--</textarea></span>
     <span>Loaded: <span id="last-loaded">--</span></span>
-    <span><a id="footer-refresh" href="#">Refresh</a>: <span id="countdown">60</span>s</span>
+    <span><button type="button" id="footer-refresh" class="linkish">Refresh</button>: <span id="countdown">60</span>s <button type="button" id="footer-pause" class="linkish" aria-pressed="false">Pause</button></span>
   </footer>
 
+  <!-- The shared runtime first: it installs the baseline shims (fetch, KeyboardEvent.key)
+       and defines Y, which every script below extends rather than rebuilds. -->
+  <script src="/assets/yuruna.core.js"></script>
   <script src="/assets/common.js"></script>
   <script src="/assets/sort.js"></script>
   <script src="/assets/images.js"></script>

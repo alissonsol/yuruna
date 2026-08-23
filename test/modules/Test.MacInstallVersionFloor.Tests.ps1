@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 4207f1a4-6b1e-4c0a-9a05-9b2a1f6c3d77
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -256,7 +256,7 @@ prefer_newest_binary curl curl
     }
     It 'keeps a real file that occupies the link path' {
         # Something an operator installed by hand is not this installer's to
-        # delete; a timestamped neighbour is a state they can walk back from.
+        # delete; a timestamped neighbor is a state they can walk back from.
         $root = New-FloorSandbox
         try {
             New-FakeTool -Path "$root/sysbin/curl"            -VersionLine 'curl 8.7.1 (arm64) libcurl/8.7.1'

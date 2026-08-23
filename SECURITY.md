@@ -28,7 +28,7 @@ Include: affected files or scripts, host/guest platform
 [Ubuntu KVM/libvirt](host/ubuntu.kvm/README.md)),
 reproduction steps, and relevant logs from
 `automation/Get-SystemDiagnostic.ps1`. Expect an initial
-acknowledgement within a few working days.
+acknowledgment within a few working days.
 
 ## Scope
 
@@ -92,6 +92,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.21
+Last review: 2026.08.23
 
 Back to [Yuruna](README.md)

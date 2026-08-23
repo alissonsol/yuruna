@@ -243,7 +243,7 @@ func (s *Server) handleHostControlApply(w http.ResponseWriter, r *http.Request) 
 
 // controlProof obtains the proof this fan-out presents to each host.
 //
-// Two sources, in order. The lab-auth-token this service already holds needs no
+// Two sources, in order. The internal authentication key this service already holds needs no
 // round trip -- but it is opt-in on a service VM (nothing bakes that file into
 // the seed), so without it the aggregator is asked for one through /go/host:
 // the identical proof a browser gets by following a dashboard host link. That
@@ -255,7 +255,7 @@ func (s *Server) controlProof(ctx context.Context, members []string, addr map[st
 	}
 	base := s.pool.BaseURL()
 	if base == "" {
-		return "", fmt.Errorf("no control proof: this service holds no lab auth token (%s) and has no pool aggregator to ask for one", s.authTokenFile())
+		return "", fmt.Errorf("no control proof: this service holds no internal authentication key (%s) and has no pool aggregator to ask for one", s.authTokenFile())
 	}
 	// Only the aggregator's own token signs the proof, so any host it can
 	// resolve yields the same one; asking about a member it has never seen just
@@ -274,7 +274,7 @@ func (s *Server) controlProof(ctx context.Context, members []string, addr map[st
 		}
 		lastErr = err
 	}
-	return "", fmt.Errorf("no control proof: this service holds no lab auth token (%s) and the pool aggregator would not mint one (%v)", s.authTokenFile(), lastErr)
+	return "", fmt.Errorf("no control proof: this service holds no internal authentication key (%s) and the pool aggregator would not mint one (%v)", s.authTokenFile(), lastErr)
 }
 
 // proofAttemptLimit caps how many members are asked about before the aggregator

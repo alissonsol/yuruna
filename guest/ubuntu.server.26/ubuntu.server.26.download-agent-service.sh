@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Version: 2026.08.21
+# Version: 2026.08.23
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -64,11 +64,11 @@ HTTP_ADDR="${DOWNLOAD_AGENT_HTTP_ADDR:-0.0.0.0:80}"
 # address, so a cadence slower than the grace leaves the area unresolvable
 # between the refusal of the old address and the next announce.
 PRESENCE_INTERVAL="${DOWNLOAD_AGENT_PRESENCE_INTERVAL:-2m}"
-# The lab-auth token opens the bearer path on the mutating routes for
+# The internal authentication key opens the bearer path on the mutating routes for
 # automation. Absent file => bearer disabled; the UI's lab-token unlock (the
 # daemon redeems the typed code at the aggregator) is then the only way in, and
 # a mutation with neither is refused rather than running ungated.
-AUTH_TOKEN_FILE="${DOWNLOAD_AGENT_AUTH_TOKEN_FILE:-/etc/yuruna/lab-auth.token}"
+AUTH_TOKEN_FILE="${DOWNLOAD_AGENT_AUTH_TOKEN_FILE:-/etc/yuruna/internal-auth.key}"
 
 # Aggregator URL + host id from the shared env files (same as pool-control).
 AGGREGATOR_URL="$(sed -n 's/^YURUNA_AGGREGATOR_URL=//p' /etc/yuruna/pool.env 2>/dev/null | head -1 || true)"
@@ -154,8 +154,8 @@ echo -e "\e[1;36m==== Building download-agent-service ($VERSION_STR) from $SERVE
 BUILD=/tmp/download-agent-service-build
 rm -rf "$BUILD"; mkdir -p "$BUILD"; cp -r "$SERVER_DIR" "$BUILD/server"
 # The SDK is a SEPARATE Go module, staged as a sibling of server/ because
-# go.mod resolves it with `replace ... => ../extension-sdk`. It used to be
-# mirrored INTO server/internal/yex, which meant thousands of duplicated
+# go.mod resolves it with `replace ... => ../extension-sdk`. Mirroring it
+# INTO server/internal/yex instead would mean thousands of duplicated
 # lines and a copy that could silently fork. A go.work file is no substitute
 # HERE: only the two directories staged below are copied into the build dir,
 # so a workspace file living in the enlistment never reaches this build.

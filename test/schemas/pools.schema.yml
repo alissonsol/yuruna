@@ -147,7 +147,7 @@ $defs:
 
               Optional subset of the assigned project's top-level sequences to
               run. ABSENT or EMPTY means run the project's whole
-              test.runner.yml, which is the behaviour every existing store
+              test.runner.yml, which is the behavior every existing store
               relies on -- so an older runner that ignores this field runs a
               safe superset rather than nothing.
             items:

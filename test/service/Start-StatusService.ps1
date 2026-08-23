@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42fba995-7607-4a66-acfd-0149a2a9f06a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -573,8 +573,12 @@ try {
                         # live tail) comes from Get-CachingProxyServiceExposedPort so it
                         # cannot drift from Start-CachingProxyServiceVM's install list;
                         # Add-PortMap is clear-all-first, so a dropped port goes
-                        # dark on reinstall. macOS re-maps only Grafana.
-                        $squidPorts = if ($IsMacOS) { @(3000) } else { Get-CachingProxyServiceExposedPort -HttpPort $cacheHttpPort -HttpsPort $cacheHttpsPort }
+                        # dark on reinstall. macOS re-maps only the two ports an
+                        # operator opens by hand: Grafana, and 80 -- which is
+                        # where the caching-proxy VM's landing page lives, and
+                        # therefore where the Dashboards link below points.
+                        # Without 80 that link reaches nothing from a Mac host.
+                        $squidPorts = if ($IsMacOS) { @(80, 3000) } else { Get-CachingProxyServiceExposedPort -HttpPort $cacheHttpPort -HttpsPort $cacheHttpsPort }
                         if ($vmIp) {
                             $portMapArgs = @{
                                 VMIp = $vmIp
@@ -603,13 +607,16 @@ try {
                 $cachingProxyContent = 'Caching-proxy service: detected (port map owned by a bring-up)'
                 Write-Output "Caching-proxy service: detected, port map deferred -- written to $CachingProxyServiceFile"
             } elseif ($mapOk) {
-                $dashboardUrl = "http://${bestIp}:3000/dashboards?tag=yuruna"
-                # Escape & for strict HTML-attribute correctness -- we
-                # inject via .innerHTML so lenient parsers work either
-                # way, but strict ones trip on bare `&` next to
-                # entity-like sequences.
-                $hrefUrl = $dashboardUrl -replace '&', '&amp;'
-                $cachingProxyContent = 'Caching-proxy service: <a href="' + $hrefUrl + '" target="_blank">detected</a>'
+                # Port 80 on the caching-proxy VM, which serves that VM's landing
+                # page: an index of the Grafana dashboards and the extension
+                # services, each linked only where it is actually reachable.
+                # Deliberately NOT a deep link into Grafana -- that page is a
+                # single-page app, so an older browser that cannot run it lands
+                # on a blank screen with nothing to fall back to, while the
+                # landing page is plain server-rendered HTML that says what
+                # exists and lets the operator choose.
+                $dashboardUrl = "http://${bestIp}"
+                $cachingProxyContent = 'Caching-proxy service: <a href="' + $dashboardUrl + '" target="_blank">detected</a>'
                 Write-Output "Caching-proxy service: detected, port map OK, dashboard=$dashboardUrl -- written to $CachingProxyServiceFile"
             } else {
                 $cachingProxyContent = 'Caching-proxy service: detected (port map failed)'
@@ -1078,15 +1085,15 @@ try {
                 # A mutating control route additionally requires that the caller
                 # is either on the loopback interface (the on-host operator, who
                 # is implicitly trusted) or presents a valid, short-lived control
-                # proof. The proof is an HMAC over the shared lab-auth-token,
+                # proof. The proof is an HMAC over the internal authentication key,
                 # minted by the pool-aggregator service when the operator follows a
                 # Grafana deep-link and delivered to the page in a URL fragment
                 # (never sent to a server or written to an access log). A LAN peer
                 # or a guest VM reaches this listener over the network -- it can
                 # neither originate from loopback nor forge the HMAC without the
-                # shared token -- so control is fail-closed for them. With no
-                # lab-auth-token configured on this host the token reads empty
-                # and every non-loopback caller is rejected, i.e. control
+                # internal authentication key -- so control is fail-closed for
+                # them. With no such key configured on this host the token reads
+                # empty and every non-loopback caller is rejected, i.e. control
                 # collapses to loopback-only. Guards against the unauthenticated-
                 # remote-control regression class.
                 if (`$needsHeader) {
@@ -1104,13 +1111,13 @@ try {
                             if (Get-Command Import-Extension -ErrorAction SilentlyContinue) {
                                 try { `$null = Import-Extension -Area 'authentication' -RequireSingle } catch { `$null = `$_ }
                             }
-                            # 'lab-auth-token' first, then the legacy
-                            # 'pool-auth-token' name -- a host whose vault was
-                            # provisioned under the old logical user keeps
-                            # verifying proofs without re-enrollment (same
-                            # fallback order as Get-LabAuthTokenValue, inlined
-                            # because the module may not be loaded on this path).
-                            foreach (`$ctlName in @('lab-auth-token', 'pool-auth-token')) {
+                            # 'internal-auth-key' first, then the legacy
+                            # 'lab-auth-token' and 'pool-auth-token' names -- a
+                            # host whose vault was provisioned under an older
+                            # name keeps verifying proofs without re-enrollment
+                            # (same fallback order as Get-InternalAuthKeyValue,
+                            # inlined because the module may not be loaded here).
+                            foreach (`$ctlName in @('internal-auth-key', 'lab-auth-token', 'pool-auth-token')) {
                                 if (`$ctlToken) { break }
                                 `$ctlTm = if (Get-Command Get-EffectiveUser -ErrorAction SilentlyContinue) { Get-EffectiveUser -LogicalUser `$ctlName } else { `$null }
                                 if (`$ctlTm -and `$ctlTm.vaultKey -and (Get-Command Test-VaultEntry -ErrorAction SilentlyContinue) -and (Test-VaultEntry -VaultKey `$ctlTm.vaultKey)) {
@@ -2042,7 +2049,7 @@ try {
             # above: it changes nothing, and the pool-aggregator service must be
             # able to ask before it holds anything to authenticate with. Answers
             # { tokenConfigured, tokenTag, verifier, utcNow }: the tag is a
-            # non-secret HMAC naming WHICH lab-auth-token this host holds
+            # non-secret HMAC naming WHICH internal authentication key this host holds
             # (Get-YurunaControlTag), so the aggregator can compare it with the
             # token it mints proofs from and tell "enrolled here" from "enrolled
             # against a proxy that has since been rebuilt" -- the difference
@@ -2061,8 +2068,8 @@ try {
                     try { `$null = Import-Extension -Area 'authentication' -RequireSingle } catch { `$null = `$_ }
                 }
                 `$csTag = ''
-                if (Import-RouteModule -ModuleRelativePath 'test/modules/Test.ConfigServiceSync.psm1' -RequiredCommand 'Get-YurunaControlTag', 'Test-YurunaControlProof', 'Get-LabAuthTokenValue') {
-                    try { `$csToken = [string](Get-LabAuthTokenValue) } catch { `$csToken = '' }
+                if (Import-RouteModule -ModuleRelativePath 'test/modules/Test.ConfigServiceSync.psm1' -RequiredCommand 'Get-YurunaControlTag', 'Test-YurunaControlProof', 'Get-InternalAuthKeyValue') {
+                    try { `$csToken = [string](Get-InternalAuthKeyValue) } catch { `$csToken = '' }
                     try { `$csTag = [string](Get-YurunaControlTag -Token `$csToken) } catch { `$csTag = '' }
                 }
                 # Test-YurunaControlProof is required above alongside the tag
@@ -2188,7 +2195,7 @@ try {
             # GET ?user=<logicalUser>&nonce=<b64>&proof=<b64>. Serves ONE
             # vault password -- and only for a user this host's own
             # networkStorage config references -- to a peer that proves it
-            # holds the shared lab-auth-token (HMAC proof; the
+            # holds the internal authentication key (HMAC proof; the
             # token itself never crosses the wire). The response password is
             # AES-GCM encrypted with a key derived from token + user + the
             # client's nonce (Protect-ConfigSyncCredential), so the secret
@@ -2210,7 +2217,7 @@ try {
                     `$res.Headers.Add('Allow', 'GET')
                 } elseif (-not `$qUser -or -not `$qNonce -or -not `$qProof) {
                     `$vcStatus = 400; `$vcError = 'user, nonce and proof query parameters are required'
-                } elseif (-not (Import-RouteModule -ModuleRelativePath 'test/modules/Test.ConfigServiceSync.psm1' -RequiredCommand 'Test-ConfigSyncProof', 'Protect-ConfigSyncCredential', 'Get-LabAuthTokenValue') -or
+                } elseif (-not (Import-RouteModule -ModuleRelativePath 'test/modules/Test.ConfigServiceSync.psm1' -RequiredCommand 'Test-ConfigSyncProof', 'Protect-ConfigSyncCredential', 'Get-InternalAuthKeyValue') -or
                           -not (Import-RouteModule -ModuleRelativePath 'test/modules/Test.Config.psm1'        -RequiredCommand 'Read-TestConfig')) {
                     `$vcStatus = 500; `$vcError = 'Test.ConfigServiceSync / Test.Config could not be loaded in the server runspace (see runtime/server.err)'
                 }
@@ -2244,12 +2251,12 @@ try {
                         } else {
                             # Legacy-name fallback included: a host still holding
                             # its token under 'pool-auth-token' keeps serving peers.
-                            `$vcToken = Get-LabAuthTokenValue
+                            `$vcToken = Get-InternalAuthKeyValue
                             if (-not `$vcToken) {
-                                `$vcStatus = 503; `$vcError = 'shared lab-auth-token not configured on this host'
+                                `$vcStatus = 503; `$vcError = 'internal authentication key not configured on this host'
                             } else {
                                 if (-not (Test-ConfigSyncProof -Token `$vcToken -User `$qUser -Nonce `$qNonce -Proof `$qProof)) {
-                                    `$vcStatus = 403; `$vcError = 'proof mismatch (wrong or stale shared token)'
+                                    `$vcStatus = 403; `$vcError = 'proof mismatch (wrong or stale internal authentication key)'
                                 } else {
                                     `$um = Get-EffectiveUser -LogicalUser `$qUser
                                     `$vcKey = if (`$um.vaultKey) { `$um.vaultKey } else { [string]`$qUser }
@@ -2292,9 +2299,17 @@ try {
                 `$desiredPaused = (`$path -like 'control/*-pause')
                 `$targetFile = if (`$isCycle) { `$cyclePauseFile } else { `$stepPauseFile }
                 `$fieldName  = if (`$isCycle) { 'cyclePaused' } else { 'stepPaused' }
+                `$sinceField = if (`$isCycle) { 'cyclePausedSinceUtc' } else { 'stepPausedSinceUtc' }
+                # Stamped here as well as into the flag file, because the runner's
+                # own status write is what normally mirrors the two -- and during a
+                # hold there are no step boundaries to trigger one. Without this the
+                # dashboard would show a hold with no age for as long as it lasts,
+                # which is exactly the reading that matters on a step-pause.
+                `$sinceValue = ''
                 try {
                     if (`$desiredPaused) {
-                        Set-Content -Path `$targetFile -Value (Get-Date -Format o) -ErrorAction SilentlyContinue
+                        `$sinceValue = (Get-Date -Format o)
+                        Set-Content -Path `$targetFile -Value `$sinceValue -ErrorAction SilentlyContinue
                     } else {
                         Remove-Item `$targetFile -Force -ErrorAction SilentlyContinue
                     }
@@ -2307,6 +2322,7 @@ try {
                     # binding / encoding-sniff overhead.
                     `$doc = [System.IO.File]::ReadAllText(`$statusJsonFile) | ConvertFrom-Json -AsHashtable
                     `$doc[`$fieldName] = `$desiredPaused
+                    `$doc[`$sinceField] = `$sinceValue
                     `$tmp = "`$statusJsonFile.`$PID-`$([guid]::NewGuid().ToString('N')).tmp"
                     `$doc | ConvertTo-Json -Depth 20 | Set-Content -Path `$tmp -Encoding utf8
                     [System.IO.File]::Move(`$tmp, `$statusJsonFile, `$true)
@@ -2461,6 +2477,8 @@ try {
                         `$doc = [System.IO.File]::ReadAllText(`$statusJsonFile) | ConvertFrom-Json -AsHashtable
                         `$doc['cyclePaused'] = `$false
                         `$doc['stepPaused']  = `$false
+                        `$doc['cyclePausedSinceUtc'] = ''
+                        `$doc['stepPausedSinceUtc']  = ''
                         `$doc['labHold']      = `$false
                         `$doc['labHoldAreas'] = @()
                         `$tmp = "`$statusJsonFile.`$PID-`$([guid]::NewGuid().ToString('N')).tmp"
@@ -2965,7 +2983,7 @@ try {
             # --- REGION: https://yuruna.link/control-routes#sharing-one-cycle-archivecycle-folderzip-and-share-cyclehtml
             # Packs one cycle folder into a single .zip for share-cycle.html. The
             # leaf is matched against the cycle-folder grammar rather than
-            # sanitised, so no path separator survives and the archive cannot be
+            # sanitized, so no path separator survives and the archive cannot be
             # aimed anywhere else on disk.
             if (`$path -like 'archive/*') {
                 `$leaf = `$path.Substring(8)
@@ -2980,7 +2998,7 @@ try {
                 }
                 `$cycleFolder = `$Matches[1]
                 # Download name, derived here so a direct hit on this URL saves
-                # something an operator can recognise months later. The share
+                # something an operator can recognize months later. The share
                 # page builds the same name from the same folder for the mail
                 # attachment; both read it out of the folder, which already
                 # carries the UTC start (Format-CycleFolderBaseName) and the
@@ -3278,23 +3296,50 @@ try {
                 # the inner attribute quotes) and at deployed-parse
                 # time. `$titleEnc` is the only dynamic part, so a
                 # plain `+` keeps the rest literal.
-                [void]`$sb.AppendLine('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Index of ' + `$titleEnc + '</title><link rel="stylesheet" href="/yuruna.common.css"><style>body{margin:1.5em}h1{font-size:1.1em}table{border-collapse:collapse}td,th{padding:0.2em 1em;border-bottom:1px solid var(--border);font-family:var(--font-mono);text-align:left}th{background:var(--bg-hover)}</style></head><body>')
+                [void]`$sb.AppendLine('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Index of ' + `$titleEnc + '</title><link rel="stylesheet" href="/yuruna.common.css"><style>body{margin:1.5em}h1{font-size:1.1em}h1,caption{overflow-wrap:anywhere}table{border-collapse:collapse}td,th{padding:0.2em 1em;border-bottom:1px solid var(--border);font-family:var(--font-mono);text-align:left}th{background:var(--bg-hover)}caption{text-align:left;padding:0.2em 1em 0.6em;font-family:var(--font-mono)}.scroller{overflow-x:auto}</style></head><body>')
+                [void]`$sb.AppendLine('<main>')
                 [void]`$sb.AppendLine("<h1>Index of `$titleEnc</h1>")
-                [void]`$sb.AppendLine('<table><thead><tr><th>Name</th><th>Size</th><th>Modified (UTC)</th></tr></thead><tbody>')
+                # The table IS the page here. Without a caption and column scopes
+                # a reader landing in the middle of a thousand-row listing cannot
+                # learn which directory it is in or which column a cell belongs to.
+                # Cycle folder names run past sixty characters, so at a narrow
+                # viewport the horizontal scroll has to belong to the table.
+                # Left on the body it is a two-dimensional scroll of the page.
+                [void]`$sb.AppendLine('<div class="scroller">')
+                [void]`$sb.AppendLine('<table><caption>Contents of ' + `$titleEnc + '</caption><thead><tr><th scope="col">Name</th><th scope="col">Size</th><th scope="col">Modified (UTC)</th></tr></thead><tbody>')
                 if (`$origLocal -ne '/') {
-                    [void]`$sb.AppendLine('<tr><td><a href="../">../</a></td><td></td><td></td></tr>')
+                    # "../" is the entire accessible name of the only link out of a
+                    # directory. The visible text stays so a speech-input user can
+                    # still say what they see; the appended words are what a screen
+                    # reader announces.
+                    [void]`$sb.AppendLine('<tr><td><a href="../">../<span class="sr-only"> Parent directory</span></a></td><td></td><td></td></tr>')
                 }
                 foreach (`$e in `$entries) {
                     `$nameEnc = [System.Net.WebUtility]::HtmlEncode(`$e.Name)
                     `$hrefEnc = [Uri]::EscapeDataString(`$e.Name)
-                    `$mtime   = `$e.LastWriteTimeUtc.ToString('o')
+                    # A round-trip timestamp is a machine format on a page with no
+                    # machine consumers. The readable form is the text; the exact
+                    # value rides in the datetime attribute for anything that does
+                    # come to parse it.
+                    `$mtimeIso = `$e.LastWriteTimeUtc.ToString('o')
+                    `$mtime = '<time datetime="' + `$mtimeIso + '">' + `$e.LastWriteTimeUtc.ToString('yyyy-MM-dd HH:mm:ss') + '</time>'
                     if (`$e.PSIsContainer) {
                         [void]`$sb.Append('<tr><td><a href="').Append(`$hrefEnc).Append('/">').Append(`$nameEnc).Append('/</a></td><td></td><td>').Append(`$mtime).AppendLine('</td></tr>')
                     } else {
-                        [void]`$sb.Append('<tr><td><a href="').Append(`$hrefEnc).Append('">').Append(`$nameEnc).Append('</a></td><td>').Append(`$e.Length).Append('</td><td>').Append(`$mtime).AppendLine('</td></tr>')
+                        # Exact bytes stay reachable in the title; the cell shows the
+                        # magnitude, which is what a listing is read for.
+                        `$len = [long]`$e.Length
+                        `$sizeText =
+                            if (`$len -lt 1024) { "`$len B" }
+                            elseif (`$len -lt 1048576) { '{0:N1} KB' -f (`$len / 1024) }
+                            elseif (`$len -lt 1073741824) { '{0:N1} MB' -f (`$len / 1048576) }
+                            else { '{0:N1} GB' -f (`$len / 1073741824) }
+                        [void]`$sb.Append('<tr><td><a href="').Append(`$hrefEnc).Append('">').Append(`$nameEnc).Append('</a></td><td title="').Append(`$len).Append(' bytes">').Append(`$sizeText).Append('</td><td>').Append(`$mtime).AppendLine('</td></tr>')
                     }
                 }
-                [void]`$sb.AppendLine('</tbody></table></body></html>')
+                [void]`$sb.AppendLine('</tbody></table>')
+                [void]`$sb.AppendLine('</div>')
+                [void]`$sb.AppendLine('</main></body></html>')
                 `$bytes = [System.Text.Encoding]::UTF8.GetBytes(`$sb.ToString())
                 `$res.ContentType = 'text/html; charset=utf-8'
                 `$res.Headers.Add('Cache-Control', 'no-store, no-cache, must-revalidate')

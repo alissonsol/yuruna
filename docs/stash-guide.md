@@ -125,7 +125,7 @@ From the **Stashes** list you can also delete without opening anything:
 - Each row has its own **Delete** button. It deletes that stash
   **straight away, with no confirmation**, and the row disappears -- the
   rest of the page stays as it was.
-- Tick the checkboxes on the rows you want (or **All**, which ticks every
+- Check the boxes on the rows you want (or **All**, which checks every
   row on screen) and use **Delete selected** above the table. That one
   asks you to confirm, then deletes them all and reloads the list.
 
@@ -163,7 +163,7 @@ after a machine that is switched off or gone for good.
 
 The same catch-up covers stashes deleted **by hand on the NAS**: the row
 disappears from the listing once the service notices the files are gone. You
-should not need to do that any more, though -- that is what this page is for.
+should not need to do that anymore, though -- that is what this page is for.
 
 ---
 
@@ -182,6 +182,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.21
+Last review: 2026.08.23
 
 Back to [Yuruna](../README.md)

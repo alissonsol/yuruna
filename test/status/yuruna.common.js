@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.08.21
+  Version: 2026.08.23
 
   Shared helpers for the Yuruna status pages. Mounted on window.Yuruna.
   --- REGION: https://yuruna.link/definition#defining-the-status-page-browser-baseline
@@ -10,7 +10,7 @@
 (function() {
   'use strict';
 
-  var VERSION = '2026.08.21';
+  var VERSION = '2026.08.23';
 
   // --- REGION: https://yuruna.link/control-proof
   // A Grafana deep-link routes through the caching-proxy service's /go/host, which appends a
@@ -131,6 +131,55 @@
   }
 
   var STATUS_CLASSES = ['idle','running','pass','fail','skipped','pending','paused','stopped'];
+  // True when the caller should skip this repaint because focus is inside the
+  // region it would destroy; the repaint is re-run once focus leaves. The
+  // service UIs carry the same helper as Y.holdRepaint -- each surface embeds
+  // its own copy of the shared script, so the duplication is forced.
+  // 2.2.2 asks for a way to pause content that updates itself. The countdown
+  // was read-only and the footer Refresh only ever made the page update SOONER;
+  // nothing could make it stop. The choice persists, because a reader who needs
+  // the page to hold still needs it to hold still on the next page too.
+  function autoPaused() {
+    try { return localStorage.getItem('yuruna.autorefresh.paused') === '1'; } catch (e) { return false; }
+  }
+
+  function wirePause(onResume) {
+    var btn = document.getElementById('footer-pause');
+    if (!btn) { return; }
+    var paint = function() {
+      var p = autoPaused();
+      btn.setAttribute('aria-pressed', p ? 'true' : 'false');
+      btn.textContent = p ? 'Resume' : 'Pause';
+      var el = document.getElementById('countdown');
+      if (el && p) { el.textContent = 'paused'; }
+    };
+    btn.addEventListener('click', function() {
+      var next = !autoPaused();
+      try { localStorage.setItem('yuruna.autorefresh.paused', next ? '1' : '0'); } catch (e) { /* private mode */ }
+      paint();
+      if (!next && typeof onResume === 'function') { onResume(); }
+    });
+    paint();
+  }
+
+  function holdRepaint(region, rerun) {
+    if (!region || typeof rerun !== 'function') { return false; }
+    var active = document.activeElement;
+    if (!active || active === document.body || !region.contains(active)) { return false; }
+    if (region.getAttribute('data-repaint-held') === '1') { return true; }
+    region.setAttribute('data-repaint-held', '1');
+    var release = function(ev) {
+      // focusout also fires moving BETWEEN children; resume only once focus
+      // has genuinely left the region.
+      if (ev && ev.relatedTarget && region.contains(ev.relatedTarget)) { return; }
+      region.removeEventListener('focusout', release);
+      region.removeAttribute('data-repaint-held');
+      rerun();
+    };
+    region.addEventListener('focusout', release);
+    return true;
+  }
+
   function cls(status) {
     return STATUS_CLASSES.indexOf(status) !== -1 ? status : 'idle';
   }
@@ -140,7 +189,21 @@
     // whitelist; the visible text is caller-supplied (a status or a label that
     // can originate from guest output on error paths), so escape it for
     // defense-in-depth against HTML injection.
-    return '<span class="badge ' + cls(status) + '">' + escHtml(label || status) + '</span>';
+    // With no label the visible text IS the status word, so it needs no
+    // prefix. With one, the text becomes something else and the status would
+    // fall back to colour alone -- the hole every inline badge below fell into.
+    return '<span class="badge ' + cls(status) + '">' +
+      (label ? srStatus(status) : '') + escHtml(label || status) + '</span>';
+  }
+
+  // Several badges and pills put the status in the CLASS and something else in
+  // the TEXT -- a step name, a guest label, a cycle timestamp. Colour is then
+  // the only carrier of pass/fail, which fails 1.4.1 for a colour-blind reader
+  // and says nothing at all to a screen reader: the history table has no status
+  // column, so for a past cycle the verdict exists nowhere but the fill. This
+  // puts the word back without changing the layout the badge was drawn for.
+  function srStatus(status) {
+    return '<span class="sr-only">' + escHtml(String(status || 'unknown')) + ': </span>';
   }
 
   // ISO -> short localized date+time. Returns "—" for falsy/unparseable
@@ -364,17 +427,59 @@
     if (el) el.textContent = text || '';
   }
 
-  function pauseBannerText(stepPaused, cyclePaused, status, actionData, labHold, labHoldAreas) {
+  // Age of a hold, in buckets rather than live minutes. The banner is an
+  // aria-live region, so a counter that ticked every poll would re-announce
+  // itself to a screen reader once a minute for as long as the hold lasts;
+  // crossing a bucket is the only change worth interrupting anyone for.
+  // Returns '' below the first bucket, when a hold is too young to be news.
+  var PAUSE_AGE_BUCKETS = [2, 5, 10, 15, 30, 45, 60, 90, 120, 180, 240, 360, 480, 720, 1440];
+
+  function pauseAgeLabel(sinceUtc) {
+    if (!sinceUtc) return '';
+    var started = new Date(sinceUtc);
+    if (isNaN(started.getTime())) return '';
+    var mins = Math.floor((Date.now() - started.getTime()) / 60000);
+    if (mins < PAUSE_AGE_BUCKETS[0]) return '';
+    var bucket = PAUSE_AGE_BUCKETS[0];
+    for (var i = 0; i < PAUSE_AGE_BUCKETS.length; i++) {
+      if (mins >= PAUSE_AGE_BUCKETS[i]) bucket = PAUSE_AGE_BUCKETS[i];
+    }
+    if (bucket >= 60) {
+      var h = Math.floor(bucket / 60);
+      var m = bucket % 60;
+      return m ? (h + 'h ' + m + 'm+') : (h + 'h+');
+    }
+    return bucket + 'm+';
+  }
+
+  function pauseBannerText(stepPaused, cyclePaused, status, actionData, labHold, labHoldAreas,
+                           stepPausedSinceUtc, cyclePausedSinceUtc) {
     var stepEffective  = stepPaused &&
       !!(actionData && actionData.line && /Paused \(waiting for resume\)/.test(actionData.line));
     var cycleEffective = cyclePaused && status !== 'running';
+    // A step-pause holds the RUNNER, not the guest: the VM stays up and keeps
+    // printing, and a prompt it prints once can scroll away unanswered while
+    // nobody is driving. Naming the live guest alongside the hold's age is what
+    // tells the operator the hold is costing something, which "Test paused"
+    // alone never did.
+    var stepDetail = '';
+    if (stepEffective) {
+      var age = pauseAgeLabel(stepPausedSinceUtc);
+      if (age) stepDetail = ' -- ' + age;
+      if (actionData && actionData.vmName) {
+        stepDetail += (stepDetail ? ', ' : ' -- ') + 'guest ' + actionData.vmName + ' running';
+      }
+    }
     // The operator's own pause reads first: they are present, they know why
     // the cycle stopped, and telling them a service is away would describe
     // something they did not do. The hold keeps re-probing underneath either
     // way, so nothing is lost by naming it second.
-    if (stepEffective)  return 'Test paused';
+    if (stepEffective)  return 'Test paused' + stepDetail;
     if (stepPaused)     return 'Test pausing (after step)';
-    if (cycleEffective) return 'Test paused';
+    if (cycleEffective) {
+      var cycleAge = pauseAgeLabel(cyclePausedSinceUtc);
+      return 'Test paused' + (cycleAge ? ' -- ' + cycleAge : '');
+    }
     if (cyclePaused)    return 'Test pausing (after cycle)';
     // Named, not generic: "paused" would send an operator looking for the
     // person who pressed it, and the whole point of the hold is that the fix
@@ -402,7 +507,8 @@
     var stepPaused  = !!data.stepPaused;
     var cyclePaused = !!data.cyclePaused;
     var pauseText   = pauseBannerText(stepPaused, cyclePaused, status, actionData,
-                                      !!data.labHold, data.labHoldAreas);
+                                      !!data.labHold, data.labHoldAreas,
+                                      data.stepPausedSinceUtc, data.cyclePausedSinceUtc);
     var anyPaused   = pauseText !== null;
     if (runnerStopped) {
       banner.className = 'stopped';
@@ -681,7 +787,7 @@
       // quote or angle bracket cannot break out of either context.
       var err  = step.errorMessage ? ' title="' + escHtml(step.errorMessage) + '"' : '';
       var label = PILL_LABELS[step.name] || step.name;
-      return '<span class="step-pill ' + c + '"' + err + '>' + escHtml(label) + skip + '</span>';
+      return '<span class="step-pill ' + c + '"' + err + '>' + srStatus(step.status) + escHtml(label) + skip + '</span>';
     }
 
     var VM_PREP_STEPS = ['New-VM', 'Start-VM', 'New-VM.Resource'];
@@ -933,7 +1039,7 @@
           var status = (s && s.status) || '';
           var name   = (s && s.name) || '';
           var folder = safeUrl((s && s.folderUrl) || '');
-          var pill   = '<span class="badge ' + cls(status) + '">' + escHtml(name) + '</span>';
+          var pill   = '<span class="badge ' + cls(status) + '">' + srStatus(status) + escHtml(name) + '</span>';
           if (folder) {
             return '<a href="' + escHtml(folder) + '" target="_blank" title="Open results folder for ' + escHtml(name) + '" style="text-decoration:none">' + pill + '</a>';
           }
@@ -953,7 +1059,7 @@
         var debugUrl = safeUrl((typeof v === 'object' && v) ? v.failureArtifacts : '');
         var seqNames = guestToSeq && guestToSeq[k];
         var label    = (seqNames && seqNames.length) ? seqNames.join(' + ') : k.replace('guest.','');
-        var pillHtml = '<span class="badge ' + cls(status) + '">' + escHtml(label) + '</span>';
+        var pillHtml = '<span class="badge ' + cls(status) + '">' + srStatus(status) + escHtml(label) + '</span>';
         if (debugUrl) {
           return '<a href="' + escHtml(debugUrl) + '" target="_blank" title="Open results folder for ' + escHtml(label) + '" style="text-decoration:none">' + pillHtml + '</a>';
         }
@@ -1079,7 +1185,8 @@
       var stepPaused  = !!data.stepPaused;
       var cyclePaused = !!data.cyclePaused;
       var pauseText = pauseBannerText(stepPaused, cyclePaused, status, actionData,
-                                      !!data.labHold, data.labHoldAreas);
+                                      !!data.labHold, data.labHoldAreas,
+                                      data.stepPausedSinceUtc, data.cyclePausedSinceUtc);
       var anyPaused = pauseText !== null;
       var effective = anyPaused ? 'paused' : cls(status);
       if (runnerStopped) {
@@ -1110,7 +1217,7 @@
         var cycleCell = cycleLogUrl
           ? ('<a href="' + escHtml(cycleLogUrl) + '" target="_blank" style="color:inherit;text-decoration:underline dotted">' + cycleIdLabel + '</a>')
           : cycleIdLabel;
-        document.getElementById('cycle-timestamp').innerHTML = '<span class="badge ' + cls(status) + '">' + cycleCell + '</span>';
+        document.getElementById('cycle-timestamp').innerHTML = '<span class="badge ' + cls(status) + '">' + srStatus(status) + cycleCell + '</span>';
         document.getElementById('cycle-started').textContent  = fmtDate(data.startedAt);
         document.getElementById('cycle-images-refresh').textContent = data.lastGetImageAt ? fmtDate(data.lastGetImageAt) : 'never';
         // Classified failure cause for the live cycle (data.lastFailure), set by
@@ -1149,6 +1256,11 @@
       var ctx = { data: data, actionData: actionData, stepPaused: stepPaused, breakData: breakData };
       var secSeq  = document.getElementById('sec-sequences');
       var listSeq = document.getElementById('sequence-list');
+      // Rewriting these regions destroys whatever holds focus inside them --
+      // the results-folder links, the commit links, the break-continue button
+      // -- on a 60-second tick. Hold the repaint while someone is working in
+      // the region and let the next tick paint once they have left.
+      if (holdRepaint(listSeq, function () { renderStatus(data, actionData, breakData, runnerStatus); })) { return; }
       // Nested-run subtree, grafted under whichever tile a node's parentId names.
       var byParent = nestedChildrenIndex(data.nested);
       if (sequences.length) {
@@ -1207,7 +1319,9 @@
             if (guestToSeq[gk].indexOf(seq.name) === -1) { guestToSeq[gk].push(seq.name); }
           });
         });
-        document.getElementById('history-body').innerHTML = history.map(function(h) {
+        var histBody = document.getElementById('history-body');
+        if (holdRepaint(histBody, function () { renderStatus(data, actionData, breakData, runnerStatus); })) { return; }
+        histBody.innerHTML = history.map(function(h) {
           var summaryCell = historySummaryCell(h, guestToSeq);
           var hCycleStartUtc    = h.cycleStartUtc || h.runId;
           // Legacy entries (recorded before Complete-Run started
@@ -1225,7 +1339,7 @@
           var statusCls  = cls(h.overallStatus);
           var commitCell = renderCommitLinks(gitCommitsForRender(h, data.repoUrl));
           return '<tr>' +
-            '<td class="mono"><span class="badge ' + statusCls + '">' + hCycleCell + '</span></td>' +
+            '<td class="mono"><span class="badge ' + statusCls + '">' + srStatus(h.overallStatus) + hCycleCell + '</span></td>' +
             '<td>' + fmtDuration(h.startedAt, h.finishedAt) + '</td>' +
             '<td>' + summaryCell + '</td>' +
             '<td class="mono">' + commitCell + '</td>' +
@@ -1277,11 +1391,17 @@
         if (elH) elH.textContent = '...';
         return;
       }
+      if (autoPaused()) { return; }
       countdown = Math.max(0, countdown - 1);
       var el = document.getElementById('countdown');
       if (el) el.textContent = countdown;
       if (countdown === 0) poller.tick();
     }, 1000);
+    wirePause(function() {
+      countdown = 60;
+      var el = document.getElementById('countdown');
+      if (el) el.textContent = countdown;
+    });
 
     Yuruna.populateHeader();
     Yuruna.getHostInfo().then(function(info) { renderIpAddresses(info.ipAddresses); });
@@ -1289,12 +1409,13 @@
     loadHostNetworkText();
     loadStatus();
 
-    // Footer refresh link. Wired via addEventListener rather than an inline
-    // onclick attribute so the page stays CSP script-src 'self' compatible.
-    var refreshLink = document.getElementById('footer-refresh');
-    if (refreshLink) {
-      refreshLink.addEventListener('click', function(e) {
-        e.preventDefault();
+    // Footer refresh control. A <button>, not an <a href="#">: it never
+    // navigated, so announcing it as a link misdescribed it and it did not
+    // answer Space. Wired via addEventListener rather than an inline onclick
+    // attribute so the page stays CSP script-src 'self' compatible.
+    var refreshBtn = document.getElementById('footer-refresh');
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', function() {
         location.reload();
       });
     }
@@ -1867,6 +1988,33 @@
       window.location.replace('index.html');
     }
 
+    // Monotonic per-page counter for the config tree's key ids. The tree is
+    // rebuilt wholesale on load, so it never needs resetting -- ids only have
+    // to be unique within the document that is currently rendered.
+    var configKeyUid = 0;
+
+    // Names whatever control the builder produced after the visible key that
+    // labels it. Applied at the append site rather than inside each builder:
+    // there are six builders and they return three different shapes (a bare
+    // input, a wrapper around a checkbox, a div with role=combobox), so doing
+    // it once here is the only version that cannot fall out of step.
+    function nameControls(node, keyId) {
+      if (!node || !keyId) return node;
+      var SELECTOR = 'input, select, textarea, [role="combobox"], [role="switch"]';
+      var targets = [];
+      if (node.matches && node.matches(SELECTOR)) targets.push(node);
+      if (node.querySelectorAll) {
+        var found = node.querySelectorAll(SELECTOR);
+        for (var i = 0; i < found.length; i++) targets.push(found[i]);
+      }
+      for (var j = 0; j < targets.length; j++) {
+        var t = targets[j];
+        if (t.getAttribute('aria-label') || t.getAttribute('aria-labelledby')) continue;
+        t.setAttribute('aria-labelledby', keyId);
+      }
+      return node;
+    }
+
     function renderConfigNode(value, parent, keyOrIndex, arrayRerender) {
       var node = document.createElement('div');
       node.className = 'tree-node';
@@ -1882,6 +2030,13 @@
       var isRoot = (parent === null);
       var keyEl = document.createElement('span');
       keyEl.className = 'tree-key';
+      // The key is the only thing on the row that says what the control edits,
+      // and it is a sibling span rather than a <label>, so nothing associates
+      // the two. An id here is what nameControls() below points aria-labelledby
+      // at -- without it every control on this page announces as its role and
+      // nothing else ("edit text, blank"), fifty-odd times over a form whose
+      // Save rewrites test.config.yml and can abort a running cycle.
+      keyEl.id = 'cfg-key-' + (++configKeyUid);
       if (isRoot) {
         keyEl.textContent = 'test.config.yml';
       } else if (Array.isArray(parent)) {
@@ -2008,30 +2163,53 @@
           }
         }
 
+        // The glyph is a real button: a <span> with an onclick reaches the
+        // mouse and nothing else, and collapsing is the only way to make a tree
+        // this deep navigable -- which is precisely what a keyboard user needs
+        // most. The children container gets an id so aria-controls can name
+        // what the button expands, and the branch name goes in the button's
+        // accessible name so it does not announce as a bare triangle.
+        children.id = 'cfg-children-' + configKeyUid;
+        toggle.setAttribute('role', 'button');
+        toggle.tabIndex = 0;
+        toggle.setAttribute('aria-controls', children.id);
+        toggle.setAttribute('aria-label', (isRoot ? 'test.config.yml' : String(keyOrIndex)));
         var flip = function() {
           expanded = !expanded;
           toggle.textContent = expanded ? '▼' : '▶';
+          toggle.setAttribute('aria-expanded', String(expanded));
           children.classList.toggle('collapsed', !expanded);
         };
+        toggle.setAttribute('aria-expanded', String(expanded));
         toggle.onclick = flip;
+        // Enter and Space are what a button responds to; Space also scrolls the
+        // page by default, so it has to be claimed explicitly.
+        toggle.onkeydown = function (ev) {
+          if (ev.key === 'Enter' || ev.key === ' ' || ev.key === 'Spacebar') {
+            ev.preventDefault();
+            flip();
+          }
+        };
+        // The key text stays a pointer convenience, not a second tab stop:
+        // one control per disclosure is what a keyboard user expects.
         keyEl.onclick = flip;
         keyEl.style.cursor = 'pointer';
         return node;
       }
 
       if (type === 'boolean') {
-        row.appendChild(buildBoolInput(value, parent, keyOrIndex));
+        row.appendChild(nameControls(buildBoolInput(value, parent, keyOrIndex), keyEl.id));
       } else if (type === 'number') {
-        row.appendChild(buildNumberInput(value, parent, keyOrIndex));
+        row.appendChild(nameControls(buildNumberInput(value, parent, keyOrIndex), keyEl.id));
       } else if (type === 'string') {
         if (isguestSequenceArray(parent) && availableGuestFolders) {
-          row.appendChild(buildGuestSelect(value, parent, keyOrIndex, arrayRerender));
+          row.appendChild(nameControls(buildGuestSelect(value, parent, keyOrIndex, arrayRerender), keyEl.id));
         } else {
           var enums = enumOptions(parent, keyOrIndex);
           if (enums) {
-            row.appendChild(buildEnumInput(value, parent, keyOrIndex, enums));
+            row.appendChild(nameControls(buildEnumInput(value, parent, keyOrIndex, enums), keyEl.id));
           } else {
-            row.appendChild(buildStringInput(value, parent, keyOrIndex));
+            row.appendChild(nameControls(buildStringInput(value, parent, keyOrIndex), keyEl.id));
           }
         }
       } else if (type === 'null') {
@@ -2130,14 +2308,31 @@
         // url inputmode gives mobile keyboards the dot + digits row first,
         // matching the IPv4 / IPv6 / FQDN values this field accepts.
         input.inputMode = 'url';
+        // The state was carried by a border colour and a title attribute:
+        // colour-only for anyone who cannot see it, and hover-only for anyone
+        // without a pointer. aria-invalid puts it in the accessibility tree and
+        // the message becomes a real text node the field points at, so it is
+        // announced when the field is reached rather than discovered at Save.
+        var errId = 'cfg-invalid-' + (++configKeyUid);
+        var errEl = document.createElement('span');
+        errEl.className = 'tree-error';
+        errEl.id = errId;
+        errEl.hidden = true;
+        errEl.textContent = 'Not a valid IPv4 or IPv6 address. Save will be rejected.';
         refreshHint = function() {
           var v = input.value.trim();
           if (v === '' || isIpAddressLike(v)) {
             input.classList.remove('invalid-ip');
             input.removeAttribute('title');
+            input.removeAttribute('aria-invalid');
+            input.removeAttribute('aria-describedby');
+            errEl.hidden = true;
           } else {
             input.classList.add('invalid-ip');
-            input.title = 'Not a valid IPv4 or IPv6 address. Save will be rejected.';
+            input.title = errEl.textContent;
+            input.setAttribute('aria-invalid', 'true');
+            input.setAttribute('aria-describedby', errId);
+            errEl.hidden = false;
           }
         };
         refreshHint();
@@ -2158,6 +2353,10 @@
         var editMark = buildCacheIpMark();
         editRow.appendChild(editMark);
         wrap.appendChild(editRow);
+        // The message the field's aria-describedby points at. It has to be IN
+        // the document for the reference to resolve, so it ships hidden rather
+        // than being created when the value first goes bad.
+        wrap.appendChild(errEl);
 
         var editProbe = makeCacheIpProbeDriver(editMark);
         var originalOnInput = input.oninput;
@@ -2213,15 +2412,25 @@
 
     function buildCacheIpMark() {
       var mark = document.createElement('span');
+      // role="img" + aria-label: the glyph alone reads as a raw symbol name,
+      // and the explanatory text was in a title, which is mouse-hover only.
+      mark.setAttribute('role', 'img');
       mark.className = 'cache-ip-mark disabled';
-      mark.textContent = '✗';
+      // "disabled" and "fail" used the same glyph and differed only in colour,
+      // so the two states were indistinguishable without seeing the hue. An
+      // en-dash reads as "not applicable"; the cross is reserved for a probe
+      // that actually ran and failed.
+      mark.textContent = '–';
       mark.title = 'Enter a valid IP address to test caching-proxy-service connectivity from host.';
+      mark.setAttribute('aria-label', mark.title);
       mark.setCacheIpState = function(state, tooltip) {
         mark.className = 'cache-ip-mark ' + state;
         if (state === 'ok')           mark.textContent = '✓';
         else if (state === 'pending') mark.textContent = '⏳';
+        else if (state === 'disabled') mark.textContent = '–';
         else                          mark.textContent = '✗';
         mark.title = tooltip;
+        mark.setAttribute('aria-label', tooltip);
       };
       return mark;
     }
@@ -2358,8 +2567,10 @@
       wrap.appendChild(arrow);
 
       var menu = document.createElement('div');
+      menu.id = 'ydd-menu-' + (++configKeyUid);
       menu.className = 'ydd-menu';
       menu.setAttribute('role', 'listbox');
+      wrap.setAttribute('aria-controls', menu.id);
       menu.hidden = true;
       wrap.appendChild(menu);
 
@@ -2397,6 +2608,9 @@
       for (var i = 0; i < opts.options.length; i++) {
         (function (item, idx) {
           var el = document.createElement('div');
+          // aria-activedescendant can only point at an element with an id, so
+          // every option needs one before the highlight can be announced.
+          el.id = 'ydd-opt-' + (++configKeyUid) + '-' + idx;
           el.className = 'ydd-item';
           if (item.disabled) el.classList.add('is-disabled');
           el.setAttribute('role', 'option');
@@ -2432,6 +2646,14 @@
       }
 
       function updateActive() {
+        // DOM focus never leaves the combobox wrapper, so without
+        // aria-activedescendant an arrow key moves a background colour and
+        // announces nothing at all.
+        if (activeIndex >= 0 && optionEls[activeIndex]) {
+          wrap.setAttribute('aria-activedescendant', optionEls[activeIndex].id);
+        } else {
+          wrap.removeAttribute('aria-activedescendant');
+        }
         for (var i = 0; i < optionEls.length; i++) {
           optionEls[i].classList.toggle('is-active', i === activeIndex);
         }

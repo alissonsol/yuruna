@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42d40efa-2d27-4f91-93ff-3707aaa44c6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -118,6 +118,13 @@ $script:TypedField = @{
     resumeFromStep      = 'int'
     checkpointStep      = 'int'
     rewoundSteps        = 'int'
+    # Operator holds (sequence_paused / sequence_resumed, and the cycle-boundary
+    # pair). These share heldSeconds with the lab-health gate below -- both
+    # measure a hold, and one type for one name is what keeps a consumer's
+    # schema-on-read working across the two.
+    pauseScope          = 'string'
+    requestedAtUtc      = 'string'
+    label               = 'string'
     transient           = 'bool'
     permanent           = 'bool'
     sleepSeconds        = 'int-or-null'

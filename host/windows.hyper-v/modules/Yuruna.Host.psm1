@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 425e6973-60a5-43b1-90b8-194b4331c1f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -650,7 +650,7 @@ function Wait-ExternalSwitchHostIpv4 {
         if ((Get-Date) -ge $deadline) { return $null }
 
         # Re-checked one interval in rather than on the first pass, so a
-        # management vNIC that vmms is still materialising right after a
+        # management vNIC that vmms is still materializing right after a
         # bind is not mistaken for one that will never exist.
         if ($pass -ge 2 -and $SwitchName -and (Test-YurunaManagementVnicAbsent -SwitchName $SwitchName)) {
             Write-Verbose "vSwitch '$SwitchName' has no management-OS vNIC, so no address can appear on its segment$offSegment -- reporting no host IPv4 instead of waiting out the timeout."
@@ -3749,7 +3749,7 @@ function Send-Text {
         [switch]$Sensitive
     )
     # Sensitive is part of the contract for log redaction; current paths
-    # (SSH and the Invoke-Sequence GUI dispatcher) do not yet honour it.
+    # (SSH and the Invoke-Sequence GUI dispatcher) do not yet honor it.
     if ($Sensitive) { Write-Debug "Send-Text: -Sensitive set on '$VMName'; log redaction not yet implemented on Hyper-V." }
     if ($Mechanism -eq 'ssh') {
         if (-not $GuestKey) {
@@ -4145,7 +4145,7 @@ function Get-VMIp {
         # but fall back to a routable IPv6 if no v4 is available so v6-only
         # guests don't return $null. Loopback/link-local excluded.
         # v4-before-v6 and the loopback/link-local rejection are the shared
-        # selector's job, so KVP, the neighbour stage below, and the other two
+        # selector's job, so KVP, the neighbor stage below, and the other two
         # drivers cannot drift apart on what counts as a usable address.
         $ipv4 = Select-YurunaRoutableAddress -Address @($addrs | Where-Object { Test-Ipv4Address $_ })
         if ($ipv4) { return [string]$ipv4 }
@@ -4199,12 +4199,12 @@ function Get-VMMac {
 
 <#
 .SYNOPSIS
-    Refresh the host neighbour cache so a passive MAC lookup can succeed.
+    Refresh the host neighbor cache so a passive MAC lookup can succeed.
 .DESCRIPTION
     Contract verb; on this host it is the existing External-vSwitch ARP sweep
     under the shared name. Hyper-V's own discovery leans on KVP first, so the
     sweep is the second stage rather than the only one -- but a caller that
-    needs the neighbour cache warm should not have to know that.
+    needs the neighbor cache warm should not have to know that.
 .PARAMETER VMName
     Accepted for contract symmetry. The sweep covers the whole switch subnet,
     so it warms the cache for every guest at once rather than per VM.
@@ -4218,7 +4218,7 @@ function Update-GuestNeighborCache {
     )
     $null = $VMName
     $null = $CooldownSeconds
-    if (-not $PSCmdlet.ShouldProcess('Yuruna-External subnet', 'ICMP sweep to populate the neighbour cache')) {
+    if (-not $PSCmdlet.ShouldProcess('Yuruna-External subnet', 'ICMP sweep to populate the neighbor cache')) {
         return $false
     }
     Invoke-YurunaExternalArpProbe

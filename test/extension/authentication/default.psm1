@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 4236c7a4-0e24-4a2c-beef-a19ebb5235fa
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -66,7 +66,7 @@ function Get-VaultLogPath {
 # named EventName because $Event is a PowerShell automatic variable.
 function Write-VaultEvent {
     param(
-        [Parameter(Mandatory)][ValidateSet('init','get','generate','set','vaultkey')][string]$EventName,
+        [Parameter(Mandatory)][ValidateSet('init','get','generate','set','vaultkey','remove')][string]$EventName,
         [Parameter(Mandatory)][ValidateSet('hit','miss','ok','error')][string]$Outcome,
         [string]$Username,
         [string]$Detail
@@ -157,7 +157,7 @@ function Write-VaultUnlocked {
     empty localOsPasswordRef, empty corporate fields. Anything an operator
     could have curated is left alone, so this can neither overwrite a
     mapping nor introduce a secret -- an entry whose template default is
-    inert (lab-auth-token with no vaultKey names an un-enrolled host)
+    inert (internal-auth-key with no vaultKey names an un-enrolled host)
     arrives just as inert.
 
     The append is textual rather than a YAML round-trip because the runtime
@@ -670,7 +670,7 @@ function Test-VaultEntry {
     Import-Extension skips re-import once a module is loaded.
 
     A non-empty vaultKey is the switch that moves an operator-supplied
-    credential (e.g. lab-auth-token) off the auto-generate-junk path onto
+    credential (e.g. internal-auth-key) off the auto-generate-junk path onto
     the operator-owned path Get-Password/Test-VaultEntry require.
 #>
 function Set-UserVaultKey {
@@ -716,6 +716,88 @@ function Set-UserVaultKey {
     return $true
 }
 
+<#
+.SYNOPSIS
+    Delete a vault.yml entry outright. Returns $true when an entry was
+    removed, $false when there was nothing to remove (or under -WhatIf).
+.DESCRIPTION
+    The counterpart to Set-Password for a credential that must not merely be
+    overwritten but must stop existing -- a secret migrated to a new key name
+    leaves its old copy readable on disk, and two live copies of one secret is
+    one more than the vault should hold.
+
+    Removal is not the same as storing an empty password: Test-VaultEntry
+    reports $false for both, but an entry left present with an empty password
+    still shadows the auto-generate path, so the name resolves to a credential
+    that exists and cannot work. Deleting the key restores the honest answer.
+.OUTPUTS
+    [bool] $true when vault.yml changed.
+#>
+function Remove-VaultEntry {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$VaultKey)
+    # ShouldProcess is asked BEFORE the lock: a confirmation prompt waits on a
+    # human, and Invoke-WithVaultLock gives up on the named mutex after 30 s.
+    if (-not $PSCmdlet.ShouldProcess("vault entry '$VaultKey'", 'Remove')) { return $false }
+    # Copied out of the param block because the scriptblock below closes over
+    # the defining scope; static analysis does not follow that capture and
+    # reads $VaultKey as unused.
+    $key = $VaultKey
+    return (Invoke-WithVaultLock -Action {
+        $vault = Read-VaultUnlocked
+        if (-not $vault.Contains('users')) { return $false }
+        if (-not $vault.users.Contains($key)) { return $false }
+        $vault.users.Remove($key)
+        Write-VaultUnlocked -Vault $vault
+        $null = Write-VaultEvent -EventName 'remove' -Outcome 'ok' -Username $key
+        return $true
+    })
+}
+
+<#
+.SYNOPSIS
+    Delete a logical user from users.yml. Returns $true when the file changed.
+.DESCRIPTION
+    Retiring a logical name takes both this and Remove-VaultEntry: the vault
+    holds the secret, users.yml holds the name that resolves to it.
+
+    Blanking vaultKey is not a substitute. Get-Password treats an empty
+    vaultKey as permission to MINT a random credential under the logical name,
+    so a retired entry left behind at vaultKey: "" turns every later resolve of
+    that name into a silently auto-generated password -- the failure mode the
+    non-empty vaultKey exists to prevent.
+
+    A name still declared in users.yml.template comes back on the next
+    Read-UsersConfig, which merges template-declared entries the runtime file
+    has never seen. Retiring a name therefore means retiring it from the
+    template in the same change, or this write is undone by the next read.
+.OUTPUTS
+    [bool] $true when users.yml changed.
+#>
+function Remove-UserEntry {
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$LogicalUser)
+    # Bootstraps users.yml from the template when the runtime file is absent,
+    # so the parse below reads the same file the module resolves against.
+    $null = Read-UsersConfig
+    if (-not (Test-Path -LiteralPath $script:UsersPath)) { return $false }
+    $raw = Get-Content -Raw -LiteralPath $script:UsersPath
+    if (-not $raw -or -not $raw.Trim()) { return $false }
+    $doc = $raw | ConvertFrom-Yaml -Ordered
+    if (-not ($doc -is [System.Collections.IDictionary])) { return $false }
+    if (-not $doc.Contains('users') -or -not ($doc['users'] -is [System.Collections.IDictionary])) { return $false }
+    if (-not $doc['users'].Contains($LogicalUser)) { return $false }
+    if (-not $PSCmdlet.ShouldProcess("$script:UsersPath [$LogicalUser]", 'Remove')) { return $false }
+    $doc['users'].Remove($LogicalUser)
+    $yaml = ConvertTo-Yaml $doc
+    [System.IO.File]::WriteAllText($script:UsersPath, $yaml, [System.Text.UTF8Encoding]::new($false))
+    $null = Write-VaultEvent -EventName 'remove' -Outcome 'ok' -Username $LogicalUser -Detail 'users.yml entry'
+    Reset-UsersConfigCache -Confirm:$false
+    return $true
+}
+
 Export-ModuleMember -Function `
     Initialize-VaultConnection, `
     New-RandomPassword, `
@@ -727,4 +809,6 @@ Export-ModuleMember -Function `
     Read-UsersConfig, `
     Reset-UsersConfigCache, `
     Set-Password, `
-    Set-UserVaultKey
+    Set-UserVaultKey, `
+    Remove-VaultEntry, `
+    Remove-UserEntry

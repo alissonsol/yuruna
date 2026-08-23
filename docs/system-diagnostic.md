@@ -44,11 +44,11 @@ timeout, returns `@{ TimedOut = $true; Output = $null; ExitCode = -1 }`.
 Tool-level flags cap per-call waits **before** the wrapper budget
 fires:
 
-- `kubectl --request-timeout=5s` -- caps every apiserver roundtrip;
+- `kubectl --request-timeout=5s` -- caps every apiserver round trip;
   without it a stale kubeconfig pointing at a torn-down VIP blocks
   for the full client default (~30 s) per probe and starves later
   sections of their wall budget.
-- `docker --version` (local, no daemon roundtrip) instead of
+- `docker --version` (local, no daemon round trip) instead of
   `docker version -f json` from `Yuruna.Requirement.yml` -- the
   JSON form hangs ~30 s when dockerd is unreachable.
 - `docker info` invocations wrapped in `Invoke-WithDeadline -TimeoutSeconds 5`.
@@ -56,7 +56,7 @@ fires:
   produces "(not installed)" rather than dumping a Python traceback
   into the table.
 - `kubectl version --client --request-timeout=5s` -- `--client`
-  suppresses the apiserver roundtrip but kubectl still resolves
+  suppresses the apiserver round trip but kubectl still resolves
   kubeconfig; `--request-timeout` caps the fallback for unreachable
   clusters with broken contexts.
 
@@ -212,7 +212,7 @@ destroy a network could cause the outage it was run to explain. It
 retries through the non-interactive sudo prefix when `virsh` cannot
 reach `qemu:///system`, because an account outside the `libvirt` group
 must not be reported as a host without libvirt: that is the wrong
-answer AND the one that stops the reader looking.
+answer AND the one that stops the reader from looking.
 
 Per-guest evidence with a window pinned to one boot lands separately,
 beside the failure diagnostics; see
@@ -305,6 +305,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.21
+Last review: 2026.08.23
 
 Back to [Yuruna](../README.md)

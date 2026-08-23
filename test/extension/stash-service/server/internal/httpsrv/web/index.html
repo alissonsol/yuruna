@@ -33,7 +33,7 @@
     <h1>Stashes</h1>
     <div class="toolbar">
       <input type="search" id="q" placeholder="Search id, filename, user, path..." autocomplete="off">
-      <select id="class">
+      <select id="class" aria-label="Filter by content type">
         <option value="">All types</option>
         <option value="text">Text</option>
         <option value="image">Image</option>
@@ -43,7 +43,7 @@
         <option value="archive">Archive</option>
         <option value="other">Other</option>
       </select>
-      <select id="host">
+      <select id="host" aria-label="Filter by host">
         <option value="">All hosts</option>
       </select>
       <button class="btn" id="refresh" title="Rescan the stash share for other hosts' stashes">Refresh</button>
@@ -59,7 +59,7 @@
                autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"
                placeholder="Lab token" aria-label="Six-character lab token from the dashboard">
         <button type="submit" class="btn primary">Unlock actions</button>
-        <span id="login-error" class="muted"></span>
+        <span id="login-error" role="alert" class="muted"></span>
       </form>
       <p class="muted">
         The 6-character code on the Yuruna hosts dashboard's <em>Lab token</em>
@@ -82,13 +82,13 @@
       nothing here can be deleted. Set <code>--aggregator-url</code> on the
       daemon to enable it.
     </p>
-    <div id="msg"></div>
+    <div id="msg" role="alert"></div>
     <!-- Kept apart from #msg, which every load clears and every failure
          replaces: this note states a standing condition of the page, not the
          outcome of the last action. -->
-    <div id="delete-note"></div>
+    <div id="delete-note" role="status"></div>
     <div class="list-head">
-      <div id="status" class="muted"></div>
+      <div id="status" role="status" class="muted"></div>
       <button class="btn destructive list-action" id="delete-selected" disabled>Delete selected</button>
     </div>
     <div class="table-wrap">
@@ -122,10 +122,13 @@
     </div>
   </main>
   <footer class="app" id="footer-bar">
-    <span id="footer-ips"><span class="label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-label="Server IP addresses">--</textarea></span>
+    <span id="footer-ips"><span class="label" id="footer-ips-label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-labelledby="footer-ips-label">--</textarea></span>
     <span>Loaded: <span id="last-loaded">--</span></span>
-    <span><a id="footer-refresh" href="#">Refresh</a>: <span id="countdown">60</span>s</span>
+    <span><button type="button" id="footer-refresh" class="linkish">Refresh</button>: <span id="countdown">60</span>s <button type="button" id="footer-pause" class="linkish" aria-pressed="false">Pause</button></span>
   </footer>
+  <!-- The shared runtime first: it installs the baseline shims (fetch, KeyboardEvent.key)
+       and defines Y, which every script below extends rather than rebuilds. -->
+  <script src="/assets/yuruna.core.js"></script>
   <script src="/assets/common.js"></script>
   <script src="/assets/index.js"></script>
 </body>

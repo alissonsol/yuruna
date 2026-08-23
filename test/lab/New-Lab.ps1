@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 425d0d82-ebe2-4d28-90df-3b22ff1c2915
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -87,7 +87,7 @@
     # A second lab on a machine that already serves its storage: the root, the
     # folders, and both share credentials come from what is already here.
 .EXAMPLE
-    pwsh test/lab/New-Lab.ps1 -Name lab-a -Root /srv -User yuruna-pool,yuruna-stash,lab-auth-token
+    pwsh test/lab/New-Lab.ps1 -Name lab-a -Root /srv -User yuruna-pool,yuruna-stash,internal-auth-key
 #>
 
 param(
@@ -159,10 +159,10 @@ if ([string]::IsNullOrWhiteSpace($Root)) {
 }
 
 Write-Output ""
-Write-Output "============================================="
+Write-Output "========"
 Write-Output "  Creating lab '$Name'"
 Write-Output "  Root: $Root$(if ($rootReused) { ' (from a lab already on this machine)' })"
-Write-Output "============================================="
+Write-Output "========"
 
 function Test-DirectoryWritable {
     [CmdletBinding()]

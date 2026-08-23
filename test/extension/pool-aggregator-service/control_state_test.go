@@ -73,9 +73,9 @@ func TestClassifyControl(t *testing.T) {
 		{"different token", proxyTag, ok("OTHER-TAG", now), controlMismatch},
 		{"no clock reported", proxyTag, ok(proxyTag, time.Time{}), controlReady},
 		// Band edges: [-(MaxTTL-TTL), +TTL] == [-5m, +15m] around the proxy clock.
-		{"host trails by the whole surplus", proxyTag, ok(proxyTag, now.Add(-5 * time.Minute)), controlReady},
+		{"host trails by the whole surplus", proxyTag, ok(proxyTag, now.Add(-5*time.Minute)), controlReady},
 		{"host trails past the surplus", proxyTag, ok(proxyTag, now.Add(-5*time.Minute-time.Second)), controlSkew},
-		{"host leads by the whole mint", proxyTag, ok(proxyTag, now.Add(15 * time.Minute)), controlReady},
+		{"host leads by the whole mint", proxyTag, ok(proxyTag, now.Add(15*time.Minute)), controlReady},
 		{"host leads past the mint", proxyTag, ok(proxyTag, now.Add(15*time.Minute+time.Second)), controlSkew},
 	}
 	for _, c := range cases {
@@ -237,7 +237,7 @@ func TestHostInfoControlLabelNeverCarriesTheTag(t *testing.T) {
 	s.hosts["b0b0b0b0"] = &hostView{HostId: "b0b0b0b0", BaseURL: "http://192.168.7.14:8080"}
 
 	w := httptest.NewRecorder()
-	s.handleMetrics(w, httptest.NewRequest(http.MethodGet, "/metrics", nil))
+	s.handleMetrics(w, metricsRequest())
 	body := w.Body.String()
 
 	if !strings.Contains(body, `hostId="4253419c"`) || !strings.Contains(body, `control="ready"`) {

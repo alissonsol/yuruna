@@ -50,7 +50,7 @@
                autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"
                placeholder="Lab token" aria-label="Six-character lab token from the dashboard">
         <button type="submit" class="primary">Unlock actions</button>
-        <span id="login-error" class="muted"></span>
+        <span id="login-error" role="alert" class="muted"></span>
       </form>
       <p class="muted">
         The 6-character code on the Yuruna hosts dashboard's <em>Lab token</em>
@@ -59,12 +59,12 @@
       </p>
     </section>
     <p id="gate-unconfigured" class="muted" hidden>
-      No aggregator URL and no lab auth token are configured, so the resolver
+      No aggregator URL and no internal authentication key are configured, so the resolver
       test is disabled. Set <code>--aggregator-url</code> or
       <code>--auth-token-file</code> on the daemon to enable it.
     </p>
 
-    <div id="notice" class="notice"></div>
+    <div id="notice" role="alert" class="notice"></div>
 
     <section class="cards" id="diag-cards">
       <div class="card"><span class="card-label">Windows 11 family</span><span class="card-value" id="dg-family">&mdash;</span><span class="card-sub" id="dg-family-sub"></span></div>
@@ -77,7 +77,7 @@
 
     <div class="row">
       <button id="refresh-view">Refresh view</button>
-      <span id="as-of" class="muted"></span>
+      <span id="as-of" role="status" class="muted"></span>
     </div>
 
     <h2>Resolver test</h2>
@@ -91,9 +91,9 @@
     <div class="row">
       <button id="test-amd64" class="primary">Test amd64 resolve</button>
       <button id="test-arm64" class="primary">Test arm64 resolve</button>
-      <span id="test-running" class="muted" hidden>Running &mdash; a resolve can take up to 3 minutes&hellip;</span>
+      <span id="test-running" role="status" class="muted" hidden>Running &mdash; a resolve can take up to 3 minutes&hellip;</span>
     </div>
-    <div id="test-result"></div>
+    <div id="test-result" role="status"></div>
 
     <h2>Last resolver run</h2>
     <div id="attempt"></div>
@@ -103,19 +103,24 @@
       The last remembered refresh failure per pool entry, newest first. These
       are the errors behind a <em>failed</em> badge on the pool page.
     </p>
-    <table>
+    <div class="table-wrap" tabindex="0" role="region" aria-label="Recent errors">
+      <table>
       <thead><tr><th>Entry</th><th>Error</th><th>When</th></tr></thead>
       <tbody id="error-rows"></tbody>
     </table>
-    <p id="no-errors" class="muted" hidden>No remembered refresh errors.</p>
+    </div>
+    <p id="no-errors" role="status" class="muted" hidden>No remembered refresh errors.</p>
   </main>
 
   <footer id="footer-bar">
-    <span id="footer-ips"><span class="label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-label="Server IP addresses">--</textarea></span>
+    <span id="footer-ips"><span class="label" id="footer-ips-label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-labelledby="footer-ips-label">--</textarea></span>
     <span>Loaded: <span id="last-loaded">--</span></span>
-    <span><a id="footer-refresh" href="#">Refresh</a>: <span id="countdown">60</span>s</span>
+    <span><button type="button" id="footer-refresh" class="linkish">Refresh</button>: <span id="countdown">60</span>s <button type="button" id="footer-pause" class="linkish" aria-pressed="false">Pause</button></span>
   </footer>
 
+  <!-- The shared runtime first: it installs the baseline shims (fetch, KeyboardEvent.key)
+       and defines Y, which every script below extends rather than rebuilds. -->
+  <script src="/assets/yuruna.core.js"></script>
   <script src="/assets/common.js"></script>
   <script src="/assets/diagnostics.js"></script>
 </body>

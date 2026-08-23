@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 426aeda1-aa39-4af4-ab2d-2e9d00f2ca45
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,6 +42,10 @@ function Invoke-ConfigGate {
     .PARAMETER Skip
         If true, return passed=$true without running anything (caller
         passed -NoConfigGate or similar bypass).
+    .PARAMETER SkipReason
+        What to name as the bypass in the SKIPPED line, so a reader can tell an
+        operator's deliberate -NoConfigGate from a structural bypass such as a
+        nested run inheriting its owner's verdict. Ignored unless -Skip.
     .PARAMETER CallerName
         Short label used in the banner so the operator sees which entry
         point owned the gate failure ('Start-TestRunner', 'Debug-TestSequence',
@@ -53,7 +57,17 @@ function Invoke-ConfigGate {
         never asked for one. Only a caller that just tried to configure storage
         knows this, so it is passed in rather than inferred.
     .OUTPUTS
-        @{ passed = [bool]; exitCode = [int]; skipped = [bool]; lines = [string[]] }
+        @{ passed = [bool]; exitCode = [int]; skipped = [bool]; lines = [string[]]
+           failureLines = [string[]] }
+
+        `failureLines` is the FAILURES excerpt this function also writes to the
+        console, empty on every passing or skipped path. It is returned as well
+        as written because the console write goes out on the INFORMATION stream,
+        and a caller that redirects stream 6 -- as a runner that files each
+        step's narration into a log rather than onto the screen -- silently takes
+        this with it. Such a caller re-emits these lines on a stream it keeps, so
+        the operator still learns WHY the gate refused; without the field it
+        would have to re-parse the transcript to find out.
 
         `lines` is the child's full transcript, on every path INCLUDING success.
         This is the one step whose whole job is to describe the machine, and a
@@ -69,6 +83,7 @@ function Invoke-ConfigGate {
         [Parameter(Mandatory)][string]$TestRoot,
         [Parameter(Mandatory)][string]$ConfigPath,
         [switch]$Skip,
+        [string]$SkipReason = '-NoConfigGate',
         [string]$CallerName = 'Test',
         [switch]$ExpectStorageConfigured
     )
@@ -79,11 +94,11 @@ function Invoke-ConfigGate {
     $gateScript = Join-Path $TestRoot 'Test-Config.ps1'
     if (-not (Test-Path -LiteralPath $gateScript)) {
         Write-Warning "[$CallerName] Pre-cycle config gate skipped: $gateScript not found."
-        return @{ passed = $true; exitCode = 0; skipped = $true; lines = $capturedLines.ToArray() }
+        return @{ passed = $true; exitCode = 0; skipped = $true; lines = $capturedLines.ToArray(); failureLines = @() }
     }
     if ($Skip) {
-        Write-Information "[$CallerName] Pre-cycle config gate SKIPPED (-NoConfigGate)." -InformationAction Continue
-        return @{ passed = $true; exitCode = 0; skipped = $true; lines = $capturedLines.ToArray() }
+        Write-Information "[$CallerName] Pre-cycle config gate SKIPPED ($SkipReason)." -InformationAction Continue
+        return @{ passed = $true; exitCode = 0; skipped = $true; lines = $capturedLines.ToArray(); failureLines = @() }
     }
     # Hidden-mode invocation: Test-Config's ~80-line transcript is captured
     # silently and reaches the CONSOLE only when the gate fails (the failures
@@ -122,6 +137,9 @@ function Invoke-ConfigGate {
         # gate-failed banner. Test.Output's Write-Summary already includes
         # per-section WARN messages there, so this single excerpt carries
         # the full reason chain (FAIL + the warnings it pointed at).
+        # Collected as it is written so what the caller gets back and what the
+        # console showed cannot drift apart.
+        $failureLines = [System.Collections.Generic.List[string]]::new()
         $startIdx = -1
         $endIdx = -1
         for ($i = 0; $i -lt $capturedLines.Count; $i++) {
@@ -134,9 +152,9 @@ function Invoke-ConfigGate {
             }
         }
         Write-Warning ""
-        Write-Warning "============================================================"
+        Write-Warning "========"
         Write-Warning "  [$CallerName] Pre-cycle config gate FAILED (Test-Config.ps1 exit $gateExit)."
-        Write-Warning "============================================================"
+        Write-Warning "========"
         if ($startIdx -ge 0) {
             # If the closing footer was missed (truncated output, child
             # crash mid-print), surface from the header to the end of
@@ -145,6 +163,7 @@ function Invoke-ConfigGate {
             Write-Information "" -InformationAction Continue
             for ($i = $startIdx; $i -le $blockEnd; $i++) {
                 Write-Information $capturedLines[$i] -InformationAction Continue
+                [void]$failureLines.Add($capturedLines[$i])
             }
         } else {
             # Test-Config exited non-zero without producing a FAILURES
@@ -154,23 +173,28 @@ function Invoke-ConfigGate {
             $tail = $capturedLines | Select-Object -Last 20
             if ($tail.Count -gt 0) {
                 Write-Information "" -InformationAction Continue
-                Write-Information "Test-Config did not emit a FAILURES block. Last $($tail.Count) lines of its output:" -InformationAction Continue
-                foreach ($t in $tail) { Write-Information $t -InformationAction Continue }
+                $tailHeader = "Test-Config did not emit a FAILURES block. Last $($tail.Count) lines of its output:"
+                Write-Information $tailHeader -InformationAction Continue
+                [void]$failureLines.Add($tailHeader)
+                foreach ($t in $tail) {
+                    Write-Information $t -InformationAction Continue
+                    [void]$failureLines.Add($t)
+                }
             }
         }
         Write-Warning ""
-        Write-Warning "============================================================"
+        Write-Warning "========"
         Write-Warning "  Bypass for ad-hoc / in-progress edits: -NoConfigGate on the entry point."
         Write-Warning "  Re-validate directly:                  pwsh test/Test-Config.ps1"
-        Write-Warning "============================================================"
-        return @{ passed = $false; exitCode = $gateExit; skipped = $false; lines = $capturedLines.ToArray() }
+        Write-Warning "========"
+        return @{ passed = $false; exitCode = $gateExit; skipped = $false; lines = $capturedLines.ToArray(); failureLines = $failureLines.ToArray() }
     }
     # Silent on success -- the cycle/sequence flow that follows is the
     # operator's signal that the gate cleared. A "gate PASSED" line here
     # would just be noise stacked above the rest of the entry-point banner.
     # The transcript still goes back to the caller, which can file it somewhere
     # a reader will find it later without spending a line of console now.
-    return @{ passed = $true; exitCode = 0; skipped = $false; lines = $capturedLines.ToArray() }
+    return @{ passed = $true; exitCode = 0; skipped = $false; lines = $capturedLines.ToArray(); failureLines = @() }
 }
 
 Export-ModuleMember -Function Invoke-ConfigGate

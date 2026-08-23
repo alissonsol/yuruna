@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 421fc09f-36ed-4d1d-872e-0167bfb4583f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1121,9 +1121,63 @@ function Set-LocalLabStorageHostAlias {
 
 <#
 .SYNOPSIS
-Writes one hosts-file alias per name, all pointing at IPAddress, via automation/Set-HostAlias.ps1 and whatever elevation this platform's hosts file needs. Returns the number written.
+Waits, bounded, until every Name resolves to IPAddress on this machine. Returns the names that never did (empty when they all converged). Never throws.
+.DESCRIPTION
+A hosts-file write and a hosts-file OBSERVATION are two different events. The
+resolver answers from an in-memory cache and goes on serving a name's previous
+address after the line under it has changed; the writer flushes that cache, but
+the flush is a signal to a daemon, not a synchronous update, and the writer runs
+in a separate elevated process besides. So the only reliable way to know the new
+mapping is live is to ask the resolver until it agrees.
+
+Callers need this because the cost of skipping it is invisible: a name just
+repointed from a remote machine to this one still resolves to the remote one for
+a moment, and whatever dials it in that moment reaches the OLD server and fails
+there -- against a credential, a share, or a certificate that only exists
+locally -- while every visible detail of the attempt looks correct.
+
+Resolution goes through [System.Net.Dns], which delegates to the same system
+resolver the consumers use, so what this observes is what they will get. IPv6
+answers are tolerated: the question is whether the wanted address is among them,
+not whether it is the only one.
+#>
+function Wait-YurunaHostAliasResolution {
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [Parameter(Mandatory)][string[]]$Name,
+        [Parameter(Mandatory)][string]$IPAddress,
+        [Parameter()][int]$TimeoutSeconds = 15
+    )
+    $stale = [System.Collections.Generic.List[string]]::new()
+    foreach ($n in $Name) {
+        $deadline = (Get-Date).AddSeconds($TimeoutSeconds)
+        $resolved = $false
+        while (-not $resolved) {
+            try {
+                $addresses = @([System.Net.Dns]::GetHostAddresses($n) | ForEach-Object { $_.ToString() })
+                $resolved = $addresses -contains $IPAddress
+            } catch {
+                # A name that does not resolve at all is the same answer as one
+                # resolving elsewhere: not ready yet. Keep waiting.
+                Write-Verbose "Wait-YurunaHostAliasResolution($n): $($_.Exception.Message)"
+                $resolved = $false
+            }
+            if ($resolved -or (Get-Date) -ge $deadline) { break }
+            Start-Sleep -Milliseconds 250
+        }
+        if (-not $resolved) { $stale.Add($n) }
+    }
+    return $stale.ToArray()
+}
+
+<#
+.SYNOPSIS
+Writes one hosts-file alias per name, all pointing at IPAddress, via automation/Set-HostAlias.ps1 and whatever elevation this platform's hosts file needs, then waits until this machine actually resolves them that way. Returns the number written.
 .DESCRIPTION
 The hosts file is root-owned on macOS and Linux and needs an elevated session on Windows, so every writer in this repo needs the same platform dance and the same diagnosis when the nested pwsh cannot start. That belongs in one place: a second copy is a second thing to get right, and the failure it hides is a run that reports success while the hosts file never changed.
+
+Returning as soon as the file is written would hand back a promise the machine cannot yet keep, so the wait is part of the contract (see Wait-YurunaHostAliasResolution). Callers repoint a name and then immediately connect to it; without the wait, that connection is a coin flip between this machine and whatever the name meant before.
 #>
 function Set-YurunaHostAlias {
     [CmdletBinding(SupportsShouldProcess)]
@@ -1140,6 +1194,7 @@ function Set-YurunaHostAlias {
     }
     $address = $IPAddress
     $written = 0
+    $mapped = [System.Collections.Generic.List[string]]::new()
     foreach ($n in $Name) {
         if (-not $PSCmdlet.ShouldProcess($n, "Map to $address in the hosts file")) { continue }
         # The non-Windows arm below starts a whole nested pwsh under sudo, which
@@ -1166,7 +1221,20 @@ function Set-YurunaHostAlias {
                     "then re-run this script -- it is idempotent and will converge.")
             }
         }
+        $mapped.Add($n)
         $written++
+    }
+    if ($mapped.Count -gt 0) {
+        $stale = @(Wait-YurunaHostAliasResolution -Name $mapped.ToArray() -IPAddress $address)
+        if ($stale.Count -gt 0) {
+            # A warning rather than a throw: the hosts file IS correct, and the
+            # resolver converges on its own eventually. What the caller must not
+            # do is treat the name as usable right now, so say which names are
+            # not yet safe to dial and what dialing one of them would reach.
+            Write-Warning ("The hosts file maps $($stale -join ', ') to $address, but this machine's resolver is still answering with the previous address. " +
+                "Anything connecting to those names now reaches the server they used to mean, not this one. " +
+                "Flush the cache and retry (macOS: sudo dscacheutil -flushcache; sudo killall -HUP mDNSResponder).")
+        }
     }
     return $written
 }
@@ -1569,7 +1637,7 @@ Export-ModuleMember -Function `
     Add-LocalLabStorageSambaInclude, Merge-LocalLabStorageBackConnectionName, `
     Test-LocalLabStorageAccount, Set-LocalLabStorageAccount, Reset-LocalLabStorageAccount, Enable-LocalLabStorageServer, `
     Set-LocalLabStorageFolderAccess, New-LocalLabStorageShare, Set-LocalLabStorageLoopbackException, `
-    Set-LocalLabStorageLinkedConnection, Set-LocalLabStorageHostAlias, Set-YurunaHostAlias, Set-LocalLabStorageConfigValue, `
+    Set-LocalLabStorageLinkedConnection, Set-LocalLabStorageHostAlias, Set-YurunaHostAlias, Wait-YurunaHostAliasResolution, Set-LocalLabStorageConfigValue, `
     Remove-LocalLabStorageSambaInclude, Remove-LocalLabStorageBackConnectionName, Remove-LocalLabStorageShare, `
     Remove-LocalLabStorageAccount, Remove-LocalLabStorageLoopbackException, `
     Get-LocalLabStorageFolderReport, Format-LocalLabStorageSize

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.21
+# Version: 2026.08.23
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -29,6 +29,96 @@ esac
 # under a timeout(1) parent). Force unbounded until no image predates the
 # lib's unbounded default.
 export YURUNA_DNF_STALL_TIMEOUT_SECONDS=0
+
+# --- REGION: Point dnf at the caching proxy
+# --- REGION: https://yuruna.link/caching#amazon-linux-2023-picks-the-cache-up-at-run-time
+# The address is derived here rather than templated into cloud-init. This guest
+# boots a prebuilt cloud image, so a templated proxy would be written before
+# anything could confirm the address still answers, and a stale one strands
+# every dnf transaction with no way back. /etc/yuruna/host.env already carries
+# the address and yuruna-host-locate.timer keeps it current, so the guest can
+# ask at the moment it is about to spend it -- and probe before committing.
+#
+# Sources in order of how much they can be trusted, the same order the k8s
+# guests use: $http_proxy is absent in a shell that did not inherit the system
+# environment, and host.env needs no name resolution. The bare hostname is only
+# ever a candidate for the probe below, never an address taken on faith.
+CACHE_HOST=$(echo "${http_proxy:-}" | sed -E 's|^https?://([^:/]+).*|\1|')
+if [ -z "$CACHE_HOST" ] && [ -r /etc/yuruna/host.env ]; then
+    CACHE_HOST=$(sed -nE 's/^YURUNA_CACHING_PROXY_SERVICE_IP=([^[:space:]]+).*/\1/p' /etc/yuruna/host.env | head -n1)
+fi
+[ -z "$CACHE_HOST" ] && CACHE_HOST="yuruna-caching-proxy-service"
+# Every candidate is probed, including one that came off disk: an address that
+# was right when the seed was written is not evidence the cache is up now.
+# Deliberately no -f -- squid answers a bare GET with a 400, and the question
+# here is whether anything answers on the proxy port at all, not what it said.
+# Unlike the k8s guests' registry gate this is not fatal: nothing has been
+# configured to route exclusively through the cache yet, so a cache that is
+# absent or down simply means the upstreams serve this guest directly.
+if ! curl -s --max-time 10 -o /dev/null "http://${CACHE_HOST}:3128" 2>/dev/null; then
+    CACHE_HOST=""
+fi
+
+if [ -n "$CACHE_HOST" ]; then
+    echo "Caching proxy: ${CACHE_HOST} -- dnf and this script's downloads go through it."
+    # Inserted under [main] rather than appended: appending lands the key in
+    # whatever section happens to be last, and a proxy set under a repo section
+    # binds to that repo alone. Removed first so re-runs cannot stack copies.
+    sudo sed -i '/^proxy[[:space:]]*=/d' /etc/dnf/dnf.conf
+    sudo sed -i "/^\[main\]/a proxy=http://${CACHE_HOST}:3128" /etc/dnf/dnf.conf
+    # An insert whose address never matched writes nothing and reports success,
+    # so a dnf.conf that lost its [main] header would leave every transaction
+    # going direct while the lines above claim the cache is in use. Report only:
+    # the exports below still route this script's own fetches, and a cache is
+    # an optimization even when only half of it could be wired up.
+    if ! grep -q "^proxy=http://${CACHE_HOST}:3128\$" /etc/dnf/dnf.conf; then
+        echo "Note: /etc/dnf/dnf.conf has no [main] section to hold the proxy key; dnf reaches the upstreams directly."
+    fi
+    YURUNA_STATUS_SERVICE_IP="${YURUNA_STATUS_SERVICE_IP:-}"
+    if [ -r /etc/yuruna/host.env ]; then
+        YURUNA_STATUS_SERVICE_IP=$(sed -nE 's/^YURUNA_STATUS_SERVICE_IP=([^[:space:]]+).*/\1/p' /etc/yuruna/host.env | head -n1)
+    fi
+    NO_PROXY_LIST="localhost,127.0.0.1,${CACHE_HOST},10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,169.254.0.0/16,::1"
+    [ -n "$YURUNA_STATUS_SERVICE_IP" ] && NO_PROXY_LIST="${YURUNA_STATUS_SERVICE_IP},${NO_PROXY_LIST}"
+    export http_proxy="http://${CACHE_HOST}:3128/"
+    export https_proxy="http://${CACHE_HOST}:3129/"
+    export no_proxy="$NO_PROXY_LIST"
+    export HTTP_PROXY="$http_proxy" HTTPS_PROXY="$https_proxy" NO_PROXY="$no_proxy"
+    # HTTPS reaches the cache through squid's ssl-bump on 3129, which only
+    # verifies against a CA this guest holds a copy of. Nothing seeds that copy
+    # here, so it is fetched from the host status service over the plain-HTTP
+    # path the bump is not in front of. Exit 2 is the one outcome that means the
+    # bump will keep failing; the CONNECT port on 3128 tunnels HTTPS unbumped
+    # instead -- uncached, but working, which beats a guest that cannot fetch.
+    _ca_rc=0
+    yuruna_ca_selfheal || _ca_rc=$?
+    if [ "$_ca_rc" -eq 2 ]; then
+        echo "Caching proxy: bump CA unavailable -- tunneling HTTPS through the CONNECT port instead (uncached)."
+        export https_proxy="http://${CACHE_HOST}:3128/"
+        export HTTPS_PROXY="$https_proxy"
+    fi
+    # Read by the later workload scripts, which run in their own shells and
+    # inherit nothing from this one. dnf.conf already covers their package
+    # transactions; this covers the downloads they make with curl and wget.
+    sudo tee /etc/profile.d/yuruna-proxy.sh >/dev/null <<EOF
+export http_proxy="${http_proxy}"
+export https_proxy="${https_proxy}"
+export no_proxy="${no_proxy}"
+export HTTP_PROXY="${http_proxy}"
+export HTTPS_PROXY="${https_proxy}"
+export NO_PROXY="${no_proxy}"
+EOF
+    sudo chmod 0644 /etc/profile.d/yuruna-proxy.sh
+else
+    # Clearing is as load-bearing as setting. A guest provisioned against a
+    # cache that has since been rebuilt or moved would otherwise keep pointing
+    # dnf at a dead address forever, and the direct path it should have fallen
+    # back to is the one the stale config takes away.
+    echo "Caching proxy: none answering -- dnf and downloads go to the upstreams directly."
+    sudo sed -i '/^proxy[[:space:]]*=/d' /etc/dnf/dnf.conf
+    sudo rm -f /etc/profile.d/yuruna-proxy.sh
+    unset http_proxy https_proxy no_proxy HTTP_PROXY HTTPS_PROXY NO_PROXY
+fi
 
 # --- REGION: Ensure PowerShell is installed
 # --- REGION: https://yuruna.link/memory#why-ubuntu-guest-update-scripts-install-powershell-first
@@ -129,11 +219,15 @@ PSEOF
 pwsh_retry "$PWSH_YAML_LOG" <<'PSEOF'
 $ErrorActionPreference = 'Stop'
 "--- per-attempt probe @ {0} ---" -f ([DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"))
-try { Resolve-DnsName www.powershellgallery.com -Type A | Select-Object -First 3 Name,IPAddress | Format-Table -AutoSize | Out-String } catch { "DNS ERROR: $($_.Exception.Message)" }
+# [System.Net.Dns] rather than Resolve-DnsName: that cmdlet lives in the
+# Windows-only DnsClient module, so on Linux it can only ever error.
+try { "DNS: {0}" -f (([System.Net.Dns]::GetHostAddresses('www.powershellgallery.com') | Select-Object -First 3 | ForEach-Object { $_.IPAddressToString }) -join ' ') } catch { "DNS ERROR: $($_.Exception.Message)" }
+# GET, not HEAD: the gallery answers HEAD with 405 Method Not Allowed, so a
+# HEAD probe reads as an outage on every healthy run.
 try {
-    $head = Invoke-WebRequest -UseBasicParsing -Method Head -Uri 'https://www.powershellgallery.com/api/v2/' -TimeoutSec 10
-    "HEAD api/v2 status: {0}" -f $head.StatusCode
-} catch { "HEAD ERROR: $($_.Exception.Message)" }
+    $probe = Invoke-WebRequest -UseBasicParsing -Method Get -Uri 'https://www.powershellgallery.com/api/v2/' -TimeoutSec 10
+    "GET api/v2 status: {0}" -f $probe.StatusCode
+} catch { "PROBE ERROR: $($_.Exception.Message)" }
 
 "--- Install-Module powershell-yaml (Verbose) ---"
 try {
@@ -250,12 +344,6 @@ fi
 
 # --- REGION: Keep git non-interactive
 # --- REGION: https://yuruna.link/network#why-git-never-prompts-here
-# Belt to the seed's braces. These guests are driven by OCR of a console, so a
-# git credential prompt is a HANG rather than an error: the step spends its whole
-# timeout before anyone learns the clone could not authenticate. Set here as well
-# as in the image because this script runs under sudo and through non-login
-# shells, either of which drops an ambient export -- and because a guest built
-# from an older seed has no such export to drop.
 export GIT_TERMINAL_PROMPT=0
 if [ -x /usr/local/lib/yuruna/git-askpass.sh ]; then
     export GIT_ASKPASS=/usr/local/lib/yuruna/git-askpass.sh

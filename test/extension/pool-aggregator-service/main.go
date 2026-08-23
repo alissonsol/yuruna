@@ -154,6 +154,9 @@ const (
 	routeHealth         = "/healthz"
 	routeMetrics        = "/metrics"
 	routePoolStatus     = "/api/v1/pool-status"
+	routePoolIncidents  = "/api/v1/pool-incidents"
+	routePoolHealth     = "/api/v1/pool-health"
+	routePoolCycleLinks = "/api/v1/cycle-links"
 	routeExtensionHosts = "/api/v1/extension-hosts"
 	routeLabToken       = "/api/v1/lab-token"
 	// Pool gating defaults (mirror test/schemas/pools.schema.yml gating.*): the
@@ -166,7 +169,7 @@ const (
 	defaultDegradedAfter        = 1800 * time.Second
 	// Lab connection token: the 6-char enrollment code the dashboard's "Lab
 	// token" tile displays and POST /api/v1/lab-token exchanges for the shared
-	// lab-auth-token (so enrolling a host never needs SSH into the proxy).
+	// internal authentication key (so enrolling a host never needs SSH into the proxy).
 	defaultLabRotate = 60 * time.Second
 	labTokenLen      = 6
 	// The dashboard shows the code through a Prometheus scrape (15s) plus a
@@ -403,7 +406,7 @@ type hostView struct {
 	ExtensionTargets map[string]string `json:"extensionTargets,omitempty"`
 	// Control is whether the dashboard's Host link can actually DRIVE this host:
 	// one of the control* constants, from comparing the host's published
-	// lab-auth-token tag (/control/control-status) with this proxy's. "" until
+	// internal authentication key tag (/control/control-status) with this proxy's. "" until
 	// first learned; kept across a transient probe miss like Version, since the
 	// answer changes only on enrollment. Drives host_info's control label -> the
 	// dashboard's Control column.
@@ -767,7 +770,7 @@ func isTerminal(status string) bool { return status == "pass" || status == "fail
 //     an hour after the runner went away -- a green "pass" for a host that is not
 //     testing anything, which is the false-green the runner-status route exists to
 //     remove. It is resolved above everything: the last cycle's result, and any
-//     pause flag still armed on it, describe a runner no longer there to honour
+//     pause flag still armed on it, describe a runner no longer there to honor
 //     them.
 func (hv *hostView) statusLabel() string {
 	if hv == nil || !hv.Reachable {
@@ -1017,7 +1020,7 @@ func (s *poolState) pollOnce(client *http.Client, squidLog, lokiURL string, now 
 		runnerOK   bool              // runner-status answered this poll (false = keep the prior reading)
 	}
 	// This proxy's own token tag, computed once per poll: the value every host's
-	// published tag is compared against. "" when no lab-auth-token is configured,
+	// published tag is compared against. "" when no internal authentication key is configured,
 	// which classifyControl reads as "nothing to compare".
 	proxyTag := controlTagFor(s.authToken)
 	ips := sortedKeys(cand)
@@ -1396,7 +1399,7 @@ const stepPauseMarker = "Paused (waiting for resume)"
 // fetchCurrentAction reads /runtime/current-action.json and reports ONLY whether
 // the runner is parked at a step boundary. The sidecar also carries the in-progress
 // step's text and the guest VM name; neither is decoded into anything this process
-// stores or exports, because /metrics and /api/v1/pool-status are unauthenticated by
+// stores or exports, because /api/v1/pool-status is unauthenticated by
 // design and a step line is host detail -- the same deliberately narrow read as
 // hostStatus.LastFailure. A missing sidecar (404: no sequence has written one this
 // cycle) is a definite "not parked" rather than an error, so a host whose flag is
@@ -1425,7 +1428,7 @@ func fetchCurrentAction(client *http.Client, base string) (bool, error) {
 // served by the status service at /yuruna-repo/VERSION -- the SAME source the
 // host's own status pages read for their header (their getHostInfo() fetches
 // yuruna-repo/VERSION via JS, so the version is not embedded in the HTML). A tiny
-// plain-text file (one CalVer line, e.g. "2026.08.21"), so it is lighter than any
+// plain-text file (one CalVer line, e.g. "2026.08.23"), so it is lighter than any
 // status HTML page and fetchable server-side without a JS engine. Returns
 // ("", err) on any failure; the caller keeps the prior version on a transient
 // miss (the version is stable across polls). The value is capped + first-line
@@ -1449,7 +1452,7 @@ func fetchVersion(client *http.Client, base string) (string, error) {
 }
 
 // controlStatus is one host's answer to GET /control/control-status: whether it
-// can be driven remotely at all, and by WHICH lab-auth-token. TokenTag is
+// can be driven remotely at all, and by WHICH internal authentication key. TokenTag is
 // base64(HMAC-SHA256(token,"yuruna-control|tag|v1")) -- a non-secret name for
 // the token, never the token itself. Present is false when the route did not
 // answer usably, which is NOT the same as "no token": an older framework build
@@ -3811,10 +3814,10 @@ func (s *poolState) resolveHostBase(hostID, pool string) (base, resolvedPool str
 
 // controlProofFor is the deterministic core of the host-control proof: the exact wire
 // string "<expiry>.<base64 HMAC>" the host status service accepts on its mutating
-// /control/* routes, where HMAC = HMAC-SHA256(lab-auth-token, "yuruna-control|proof|
+// /control/* routes, where HMAC = HMAC-SHA256(internal authentication key, "yuruna-control|proof|
 // <expiry>"). It is byte-for-byte identical to Test.ConfigServiceSync\Get-YurunaControlProof
 // (PowerShell) -- same HMAC-SHA256, same std base64, same data string -- so a proof minted
-// here on the caching-proxy service validates on any pool host (the lab-auth-token is pool-wide).
+// here on the caching-proxy service validates on any pool host (the internal authentication key is pool-wide).
 // Verified by TestMintControlProofGolden against the shared golden vector.
 func controlProofFor(token string, expiry int64) string {
 	mac := hmac.New(sha256.New, []byte(token))
@@ -3823,7 +3826,7 @@ func controlProofFor(token string, expiry int64) string {
 }
 
 // mintControlProof mints a control proof valid for ttl from now, or "" when no
-// lab-auth-token is configured (the host then only accepts loopback control). The
+// internal authentication key is configured (the host then only accepts loopback control). The
 // operator reaches the host through Grafana -> /go/host, so this rides the proof to the
 // browser in the redirect fragment; the host revalidates it (expiry window + HMAC).
 func mintControlProof(token string, ttl time.Duration) string {
@@ -3865,11 +3868,11 @@ func verifyControlProof(token, wire string, now time.Time, maxTTL time.Duration)
 }
 
 // handleControlProof answers one question for an extension service: was this proof
-// minted from the pool's lab-auth-token, and is it still live?
+// minted from the pool's internal authentication key, and is it still live?
 //
-// An extension service VM is not given the lab-auth-token -- nothing bakes that file
+// An extension service VM is not given the internal authentication key -- nothing bakes that file
 // into its seed -- so it holds no key to check an arriving proof against, and a
-// service that cannot check one has no way to honour the dashboard's "open this UI
+// service that cannot check one has no way to honor the dashboard's "open this UI
 // with actions unlocked" hop. It asks here instead, exactly as it already asks
 // /api/v1/lab-token to judge a 6-character code: validation stays with the daemon
 // that owns the token, and no service keeps a copy to go stale.
@@ -3880,7 +3883,7 @@ func verifyControlProof(token, wire string, now time.Time, maxTTL time.Duration)
 // Self-gates on a configured token (503), because "no token" is not "not valid".
 func (s *poolState) handleControlProof(w http.ResponseWriter, r *http.Request) {
 	if s.authToken == "" {
-		http.Error(w, "control-proof verification disabled: this aggregator holds no lab auth token", http.StatusServiceUnavailable)
+		http.Error(w, "control-proof verification disabled: this aggregator holds no internal authentication key", http.StatusServiceUnavailable)
 		return
 	}
 	if r.Method != http.MethodPost {
@@ -3911,7 +3914,7 @@ func (s *poolState) handleControlProof(w http.ResponseWriter, r *http.Request) {
 }
 
 // controlTagFor is the Go twin of Test.ConfigServiceSync\Get-YurunaControlTag: a
-// non-secret name for a lab-auth-token, base64(HMAC-SHA256(token,
+// non-secret name for an internal authentication key, base64(HMAC-SHA256(token,
 // "yuruna-control|tag|v1")). Comparing this host's tag with the proxy's answers
 // "would a proof minted here verify there?" without either end disclosing the
 // token. The data string is FIXED and its label segment is "tag", never "proof",
@@ -3933,7 +3936,7 @@ func controlTagFor(token string) string {
 // docs/control-routes.md otherwise makes an operator discover by clicking.
 const (
 	controlReady    = "ready"    // host holds the same token this proxy mints with
-	controlNone     = "none"     // host holds no lab-auth-token: loopback control only
+	controlNone     = "none"     // host holds no internal authentication key: loopback control only
 	controlMismatch = "mismatch" // host holds a DIFFERENT token (enrolled against a rebuilt proxy)
 	controlSkew     = "skew"     // tokens agree but the clocks do not, so a fresh proof reads as expired
 	controlUnknown  = "unknown"  // not determinable: route absent (older build), never probed, or this proxy holds no token to compare
@@ -3969,18 +3972,32 @@ func classifyControl(proxyTag string, cs controlStatus, now time.Time) string {
 
 var labTokenRE = regexp.MustCompile(`^[a-z0-9]{6}$`)
 
-// newLabCode mints one 6-char lowercase [a-z0-9] lab connection token. Unbiased:
-// candidate bytes >= 252 (the largest multiple of 36 below 256) are discarded
-// rather than folded, so no code is likelier than another.
+// newLabCode mints one 6-char lab connection token.
+//
+// The charset deliberately omits i, l, o, 0 and 1. This code is READ off a
+// dashboard tile and retyped by hand, and those five are the pairs that get
+// read wrong -- which costs everyone, and costs most whoever is reading them
+// through a magnifier or hearing them spelled out. Dropping them leaves 31
+// characters and 31^6 = 887,503,681 codes, against a per-IP throttle of 10
+// attempts per 10 minutes: the guessing math is untouched and the reading is
+// materially easier.
+//
+// Unbiased: the rejection threshold is derived from the charset length rather
+// than hardcoded. The previous form (len*7) happened to be the right multiple
+// for 36 and would have silently skewed the distribution for any other size.
 func newLabCode() (string, error) {
-	const charset = "abcdefghijklmnopqrstuvwxyz0123456789"
+	const charset = "abcdefghjkmnpqrstuvwxyz23456789"
+	// Largest multiple of len(charset) that fits in a byte; candidates at or
+	// above it are discarded rather than folded, so no code is likelier than
+	// another.
+	limit := byte(256 - (256 % len(charset)))
 	out := make([]byte, 0, labTokenLen)
 	buf := make([]byte, 1)
 	for len(out) < labTokenLen {
 		if _, err := rand.Read(buf); err != nil {
 			return "", err
 		}
-		if buf[0] >= byte(len(charset))*7 {
+		if buf[0] >= limit {
 			continue
 		}
 		out = append(out, charset[buf[0]%byte(len(charset))])
@@ -4053,7 +4070,7 @@ func sealLabToken(code, token string) (map[string]string, error) {
 }
 
 // handleLabToken (POST /api/v1/lab-token) exchanges the dashboard-displayed lab
-// connection token for the shared lab-auth-token, so enrolling a host is "read
+// connection token for the internal authentication key, so enrolling a host is "read
 // the 6-char code off the Yuruna hosts dashboard, run test/lab/Set-LabToken.ps1"
 // instead of SSHing into the proxy for the secret. Posture: the route is open
 // -- the code IS the credential; whoever can view the dashboard may enroll a
@@ -4063,7 +4080,7 @@ func sealLabToken(code, token string) (map[string]string, error) {
 // caller's address. The answer is sealed under the redeemed code (sealLabToken),
 // so the shared token is never in the clear on the wire and only the redeemer
 // can open it -- the listener is plain HTTP whenever the proxy has no TLS leaf.
-// Self-disables (503) when rotation is off or no lab-auth-token is configured,
+// Self-disables (503) when rotation is off or no internal authentication key is configured,
 // mirroring /ingest.
 func (s *poolState) handleLabToken(w http.ResponseWriter, r *http.Request) {
 	if s.labRotate <= 0 || s.authToken == "" {
@@ -4556,18 +4573,38 @@ func (s *poolState) handleGoCycle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Cache-Control", "no-store")
+	hostID := normalizeHostID(strings.TrimSpace(r.URL.Query().Get("host")))
+	http.Redirect(w, r, s.cycleResultsTarget(hostID, base, folder), http.StatusFound)
+}
+
+// cycleResultsTarget is where a timeline click on this host at this cycle lands.
+// Factored out because the JSON route hands the same URL to a caller that cannot
+// see the timeline at all; sharing the body is what stops the link a tool
+// returns and the link a click follows from ever being different places.
+//
+// A leading "/" is deliberate and means the archive on this service.
+func (s *poolState) cycleResultsTarget(hostID, base, folder string) string {
 	if leaf := strings.Trim(folder, "/"); leaf != "" {
 		leaf = path.Base(leaf)
-		if hostID := strings.TrimSpace(r.URL.Query().Get("host")); s.archiveCommitted(hostID, leaf) {
-			http.Redirect(w, r, "/archive/"+hostID+"/test-cycles/"+leaf+"/", http.StatusFound)
-			return
+		if s.archiveCommitted(hostID, leaf) {
+			return "/archive/" + hostID + "/test-cycles/" + leaf + "/"
 		}
 	}
 	target := strings.TrimRight(base, "/")
 	if folder != "" {
 		target += "/" + strings.TrimLeft(folder, "/")
 	}
-	http.Redirect(w, r, target, http.StatusFound)
+	return target
+}
+
+// cycleShareTarget is the host's share page for one cycle, or "" when the folder
+// cannot name one -- the caller decides whether that is a 404 or an omitted field.
+func cycleShareTarget(base, folder string) string {
+	leaf := path.Base(strings.Trim(folder, "/"))
+	if leaf == "" || leaf == "." || leaf == "/" {
+		return ""
+	}
+	return strings.TrimRight(base, "/") + "/share-cycle.html?cycle=" + url.QueryEscape(leaf)
 }
 
 // handleGoCycleShare bridges a dashboard timeline click -> the host's own share
@@ -4597,13 +4634,12 @@ func (s *poolState) handleGoCycleShare(w http.ResponseWriter, r *http.Request) {
 	// archive is named from. Every producer here spells it "log/<leaf>/"
 	// (Set-CycleFolderUrl, the listing parser, and the Loki copy of the same
 	// value), so hand on the last segment rather than the path.
-	leaf := path.Base(strings.Trim(folder, "/"))
-	if leaf == "" || leaf == "." || leaf == "/" {
+	target := cycleShareTarget(base, folder)
+	if target == "" {
 		http.Error(w, "unusable cycle results folder for that host at that time", http.StatusNotFound)
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	target := strings.TrimRight(base, "/") + "/share-cycle.html?cycle=" + url.QueryEscape(leaf)
 	http.Redirect(w, r, target, http.StatusFound)
 }
 
@@ -4690,7 +4726,34 @@ func pickFolderFromListing(body, hostID string, t time.Time) string {
 	return "log/" + strings.TrimSuffix(best, "/") + "/"
 }
 
-func (s *poolState) handleMetrics(w http.ResponseWriter, _ *http.Request) {
+// isLoopbackSource reports whether a request came from this machine. Used to
+// scope /metrics: the exposition carries the live lab token as a label, and
+// anything that reads it holds the credential that unlocks every gated control
+// in the pool.
+func isLoopbackSource(r *http.Request) bool {
+	ip := net.ParseIP(requestSourceIP(r))
+	return ip != nil && ip.IsLoopback()
+}
+
+// handleMetrics serves the Prometheus exposition, to this machine only.
+//
+// The exposition includes yuruna_pool_lab_token{token="..."} -- the current
+// enrollment credential in plain text -- so serving it to the LAN handed the
+// credential to anyone who asked. Prometheus scrapes this daemon at
+// localhost:9400 (see the scrape config in the proxy VM's seed), so a loopback
+// bound is the whole of what the collector needs and none of what a LAN client
+// was getting. A remote caller is refused rather than served a redacted body:
+// a partial exposition would look like a working scrape and hide the refusal
+// from whoever set it up.
+func (s *poolState) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	if !isLoopbackSource(r) {
+		http.Error(w, "metrics are served to this host only", http.StatusForbidden)
+		return
+	}
+	s.handleMetricsBody(w)
+}
+
+func (s *poolState) handleMetricsBody(w http.ResponseWriter) {
 	s.mu.Lock()
 	total := len(s.hosts)
 	reachable := 0
@@ -4766,7 +4829,7 @@ func (s *poolState) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 		// commit id + repo URLs -- hostname-free, so they stay safe here too.
 		// control is the STATE NAME only (ready/none/mismatch/skew/unknown): the token
 		// tag it was derived from is compared inside this process and never exported,
-		// because /metrics is unauthenticated by design.
+		// because /metrics is served without a credential (to loopback only).
 		// hostIdDashed is the same id rendered 8-4-4-4-12: the table shows the short
 		// id and reveals the full one from this label, which it cannot derive from the
 		// shortened cell it displays.
@@ -5146,6 +5209,191 @@ func (s *poolState) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	_, _ = io.WriteString(w, out)
 }
 
+// writeJSONPayload sets the content type and encodes one map. The two routes
+// below are the only callers; every older route in this file inlines the pair,
+// and changing those is churn without a reason.
+func writeJSONPayload(w http.ResponseWriter, payload map[string]any) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(payload)
+}
+
+// --- REGION: incident and health as JSON -------------------------------------
+//
+// Both of these existed only as Prometheus exposition. A dashboard could show
+// them and an operator could read them off a panel; nothing could ASK for them.
+// That is the gap the MCP surface exists to close, and it is closed with routes
+// rather than with tools reading state directly, so the tool and the metric are
+// one body produced once -- the rule every mcp.go in this tree states.
+//
+// Read-only and ungated, matching /api/v1/pool-status: this is the same view
+// the dashboard already renders to anyone who can load it.
+
+// handlePoolIncidents answers which hosts are currently in an incident, what
+// class of failure opened it, and whether a pool-wide incident is running.
+func (s *poolState) handlePoolIncidents(w http.ResponseWriter, _ *http.Request) {
+	now := time.Now()
+	s.mu.Lock()
+	pool := s.pool
+	win := s.incidentWin
+	threshold := s.incidentN
+	hosts := make([]map[string]any, 0, len(s.incident))
+	for hostID, inc := range s.incident {
+		if inc == nil {
+			continue
+		}
+		// Recount the window here rather than trusting a stored total: the
+		// window ages continuously and a count captured at open would be stale
+		// the moment it was read.
+		recent := 0
+		for _, fr := range s.failWindow[hostID] {
+			if now.Sub(fr.t) <= win {
+				recent++
+			}
+		}
+		hosts = append(hosts, map[string]any{
+			"hostId":          hostID,
+			"incidentId":      inc.id,
+			"startedUtc":      inc.startedAt.UTC().Format(time.RFC3339),
+			"dominantClass":   inc.dominantClass,
+			"peakFailCount":   inc.peak,
+			"recentFailCount": recent,
+		})
+	}
+	var poolWide map[string]any
+	if s.poolIncident != nil {
+		poolWide = map[string]any{
+			"active":        true,
+			"incidentId":    s.poolIncident.id,
+			"startedUtc":    s.poolIncident.startedAt.UTC().Format(time.RFC3339),
+			"class":         s.poolIncident.class,
+			"peakHostCount": s.poolIncident.peakHosts,
+		}
+	} else {
+		poolWide = map[string]any{"active": false}
+	}
+	s.mu.Unlock()
+
+	sort.Slice(hosts, func(i, j int) bool {
+		return hosts[i]["hostId"].(string) < hosts[j]["hostId"].(string)
+	})
+	writeJSONPayload(w, map[string]any{
+		"ok":              true,
+		"pool":            pool,
+		"windowMinutes":   int(win.Minutes()),
+		"failsToOpen":     threshold,
+		"activeHostCount": len(hosts),
+		"hosts":           hosts,
+		"poolWide":        poolWide,
+		"asOfUtc":         now.UTC().Format(time.RFC3339),
+	})
+}
+
+// handlePoolHealth answers the pool health gate: what fraction of members are
+// healthy, the threshold that fraction is judged against, and whether the
+// advisory degraded/alert latch has fired.
+// handleCycleLinks answers the three navigating destinations the state-timeline
+// panel offers on a click, for a caller that cannot click.
+//
+// The timeline is a canvas: its blocks, its colors and its context menu reach a
+// screen reader as nothing at all, and two of its actions -- open the cycle
+// results, share them -- exist nowhere else in the UI. This route is their text
+// equivalent, and it resolves through resolveClickedCycle, the same body the
+// redirects use, so a link handed out here cannot point somewhere a click would
+// not go.
+//
+// hostStatusUrl deliberately carries NO control proof, unlike /go/host. That
+// fragment is a short-lived credential minted for a browser navigation; putting
+// one in a JSON body would move a credential onto an enumerable read surface to
+// no benefit, since a caller reading this cannot act on the host UI anyway.
+func (s *poolState) handleCycleLinks(w http.ResponseWriter, r *http.Request) {
+	base, folder, ok := s.resolveClickedCycle(w, r)
+	if !ok {
+		return
+	}
+	hostID := normalizeHostID(strings.TrimSpace(r.URL.Query().Get("host")))
+
+	// resolveClickedCycle answers the folder; the cycle's own start time comes
+	// from the in-memory view when the caller asked for the current cycle.
+	cycleStart := ""
+	s.mu.Lock()
+	if hv := s.hosts[hostID]; hv != nil && hv.Status != nil {
+		if path.Base(strings.Trim(hv.Status.CycleFolderUrl, "/")) == path.Base(strings.Trim(folder, "/")) {
+			cycleStart = hv.Status.StartedAt
+		}
+	}
+	s.mu.Unlock()
+
+	results := s.cycleResultsTarget(hostID, base, folder)
+	// The archive target is a path on this service. A caller that cannot see the
+	// address bar has nothing to resolve it against, so make it whole here.
+	if strings.HasPrefix(results, "/") {
+		scheme := "http"
+		if r.TLS != nil {
+			scheme = "https"
+		}
+		results = scheme + "://" + r.Host + results
+	}
+
+	payload := map[string]any{
+		"ok":            true,
+		"hostId":        hostID,
+		"resultsUrl":    results,
+		"hostStatusUrl": strings.TrimRight(base, "/"),
+	}
+	if cycleStart != "" {
+		payload["cycleStartUtc"] = cycleStart
+	}
+	if share := cycleShareTarget(base, folder); share != "" {
+		payload["shareUrl"] = share
+	}
+	writeJSONPayload(w, payload)
+}
+
+func (s *poolState) handlePoolHealth(w http.ResponseWriter, _ *http.Request) {
+	now := time.Now()
+	s.mu.Lock()
+	pool := s.pool
+	lastPoll := s.last
+	gate := s.poolGate[s.pool]
+	var payload map[string]any
+	if gate == nil {
+		// No poll has computed the latch yet. Say so rather than reporting a
+		// healthy pool nobody has looked at.
+		payload = map[string]any{"evaluated": false}
+	} else {
+		payload = map[string]any{
+			"evaluated":           true,
+			"membersHealthy":      gate.lastHealthy,
+			"membersTotal":        gate.lastTotal,
+			"healthyFraction":     gate.lastFraction,
+			"healthyThreshold":    gate.lastThreshold,
+			"degraded":            gate.degraded,
+			"alertActive":         gate.alertFired,
+			"authoredGating":      gate.authored,
+			"consecutiveDegraded": gate.consecDegraded,
+			"consecutiveHealthy":  gate.consecHealthy,
+		}
+		if !gate.belowSince.IsZero() {
+			payload["belowThresholdSinceUtc"] = gate.belowSince.UTC().Format(time.RFC3339)
+		}
+		if gate.alertFired && !gate.alertStartedAt.IsZero() {
+			payload["alertStartedUtc"] = gate.alertStartedAt.UTC().Format(time.RFC3339)
+			payload["alertId"] = gate.alertID
+		}
+	}
+	s.mu.Unlock()
+
+	payload["ok"] = true
+	payload["pool"] = pool
+	payload["asOfUtc"] = now.UTC().Format(time.RFC3339)
+	if !lastPoll.IsZero() {
+		payload["lastPollUtc"] = lastPoll.UTC().Format(time.RFC3339)
+	}
+	writeJSONPayload(w, payload)
+}
+
+// --- REGION: end incident and health as JSON ---------------------------------
+
 // requestSourceIP returns the connection's source IP (no port). RemoteAddr is the
 // real peer on the trusted LAN; X-Forwarded-For is deliberately NOT consulted (it is
 // client-settable and would let a member spoof another host's identity binding).
@@ -5343,8 +5591,8 @@ func pushHostAnnounce(client *http.Client, lokiURL, pool, hostID, baseURL string
 //     row: a machine that cannot serve that host's status.json cannot rename
 //     itself into that host's place.
 //  3. Bounded -- same body cap and hostId charset as /announce.
-//  4. No bearer, for the reason /announce has none: requiring the shared lab
-//     token would kill the beacon in exactly the labs that need it. The route
+//  4. No bearer, for the reason /announce has none: requiring the internal
+//     authentication key would kill the beacon in exactly the labs that need it. The route
 //     is telemetry-only; it relocates an existing identity and confers no
 //     control-plane capability.
 func (s *poolState) handleHostAnnounce(w http.ResponseWriter, r *http.Request) {
@@ -5742,6 +5990,9 @@ func main() {
 	// because membership lives in the intent store this service never reads --
 	// the control service does the join. Read-only and open, like pool-status.
 	mux.HandleFunc("/api/v1/pool-stats", state.handlePoolStats)
+	mux.HandleFunc(routePoolIncidents, state.handlePoolIncidents)
+	mux.HandleFunc(routePoolCycleLinks, state.handleCycleLinks)
+	mux.HandleFunc(routePoolHealth, state.handlePoolHealth)
 	// /archive/: archived cycle results served straight off the pool share. Registered
 	// only when a root is configured -- a proxy with no pool storage has nothing to
 	// serve, and an unregistered route is a cleaner 404 than a handler that always
@@ -5792,7 +6043,7 @@ func main() {
 	// handleHostAddress.
 	mux.HandleFunc("/api/v1/host-address", state.handleHostAddress)
 	// /api/v1/lab-token: exchanges the dashboard-displayed 6-char lab
-	// connection token for the shared lab-auth-token (the Set-LabToken.ps1
+	// connection token for the internal authentication key (the Set-LabToken.ps1
 	// enrollment call). Open with knowledge-of-the-code as the credential,
 	// per-IP throttled + audited -- see handleLabToken; self-gates on
 	// -lab-token-rotate and on a configured token (503 otherwise).
@@ -5800,7 +6051,7 @@ func main() {
 	// read-only and carries exactly the exposure of the open route it wraps.
 	mux.HandleFunc("POST /mcp", state.mcpServer(version).Handler())
 	mux.HandleFunc(routeLabToken, state.handleLabToken)
-	// /api/v1/control-proof: "was this proof minted from the pool's lab-auth-token,
+	// /api/v1/control-proof: "was this proof minted from the pool's internal authentication key,
 	// and is it still live?" -- asked by an extension service that holds no token of
 	// its own and so cannot check the proof the /go/stash redirect handed its UI.
 	// Open like the exchange above, and a verifier rather than a mint -- see

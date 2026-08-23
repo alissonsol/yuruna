@@ -41,6 +41,7 @@ import (
 
 	"yuruna.com/test/extension/extension-sdk/beacon"
 	"yuruna.com/test/extension/extension-sdk/labgate"
+	"yuruna.com/test/extension/extension-sdk/pool"
 )
 
 // presenceArea is the extension-area token this service announces to the pool
@@ -88,6 +89,17 @@ type daemon struct {
 	// squid's business.
 	run          func(name string, args ...string) (string, error)
 	readSwitches func() SwitchState
+	// parserURL is the sibling daemon on this VM that tails squid's access log.
+	// It is read over HTTP rather than imported: the parser holds a live ring in
+	// its own process, and it deliberately has no agent surface of its own.
+	parserURL string
+	// The three the landing page is built from. aggregatorURL and poolClient
+	// answer where each extension service is; grafanaURL answers which
+	// dashboards exist. All three are read over loopback at request time -- see
+	// landing.go for why nothing there is cached.
+	aggregatorURL string
+	grafanaURL    string
+	poolClient    *pool.Client
 }
 
 func main() {
@@ -101,8 +113,10 @@ func main() {
 	aggregatorURL := flag.String("aggregator-url", "", "pool-aggregator base URL, for the presence beacon and the lab-token gate")
 	hostID := flag.String("host-id", "", "this host's stable id; empty disables the beacon")
 	presenceInterval := flag.Duration("presence-interval", defaultPresenceInterval, "re-announce cadence; 0 disables the beacon")
-	authTokenFile := flag.String("auth-token-file", "", "file holding the shared lab auth token; absent disables the bearer path")
+	authTokenFile := flag.String("auth-token-file", "", "file holding the internal authentication key; absent disables the bearer path")
 	squidBinary := flag.String("squid-binary", "squid", "squid binary used for `-k reconfigure`")
+	parserURL := flag.String("parser-url", "http://127.0.0.1:9302", "base URL of the caching-proxy-parser-service on this VM, whose recent-request tail this service republishes; empty disables it")
+	grafanaURL := flag.String("grafana-url", "http://127.0.0.1:3000", "base URL of Grafana on this VM, asked which dashboards exist for the landing page; empty lists them all as unavailable")
 	flag.Parse()
 
 	d := &daemon{
@@ -113,7 +127,14 @@ func main() {
 		offlinePath:      offlineConfPath,
 		noUpstreamPath:   noUpstreamConfPath,
 		run:              runCommand,
+		parserURL:        strings.TrimRight(*parserURL, "/"),
+		aggregatorURL:    strings.TrimRight(*aggregatorURL, "/"),
+		grafanaURL:       strings.TrimRight(*grafanaURL, "/"),
 	}
+	// The same read client the other services use, so the landing page resolves
+	// an extension area exactly the way the dashboard's Extension hosts cell
+	// does rather than inventing a second answer to the same question.
+	d.poolClient = pool.New(pool.Options{BaseURL: *aggregatorURL})
 	if d.mode != modeLocal && d.mode != modeRemote {
 		log.Fatalf("--mode must be %q or %q, got %q", modeLocal, modeRemote, *mode)
 	}
@@ -199,6 +220,7 @@ func (d *daemon) routes() http.Handler {
 	mux.HandleFunc("GET /api/hostinfo", d.handleHostInfo)
 	mux.HandleFunc("GET /api/status", d.handleStatus)
 	mux.HandleFunc("GET /api/switches", d.handleSwitches)
+	mux.HandleFunc("GET "+routeRecentRequests, d.handleRecentRequests)
 
 	// Mutations: the lab-token gate, and in remote mode a 501 underneath it.
 	mux.HandleFunc("POST /api/switches/offline", d.gate.Require(d.handleSetOffline))
@@ -214,6 +236,12 @@ func (d *daemon) routes() http.Handler {
 	// act on, to an operator who clicked a link the dashboard offered them.
 	mux.HandleFunc("GET /{$}", handleIndex)
 	mux.HandleFunc("GET /index.html", handleIndex)
+	// The VM's landing page, which Apache proxies onto port 80 of this host --
+	// so it keeps a URL an operator can type, and this daemon's own port stays
+	// off the LAN. Distinct from the index above, which is this SERVICE's
+	// statistics page and is what the landing page's own Caching-proxy row
+	// links to.
+	mux.HandleFunc("GET /landing", d.handleLanding)
 
 	return mux
 }
@@ -295,7 +323,7 @@ func (d *daemon) handleSetNoUpstream(w http.ResponseWriter, r *http.Request) {
 
 // applySwitch is the one place a switch change is decoded, refused or applied,
 // so both switches answer identically -- including the remote refusal, which
-// an operator has to be able to recognise without reading two error strings.
+// an operator has to be able to recognize without reading two error strings.
 func (d *daemon) applySwitch(w http.ResponseWriter, r *http.Request, apply func(bool) error, what string) {
 	var body struct {
 		On *bool `json:"on"`
@@ -428,4 +456,80 @@ func sortStrings(s []string) {
 			s[j], s[j-1] = s[j-1], s[j]
 		}
 	}
+}
+
+// routeRecentRequests republishes the parser daemon's live tail of squid's
+// access log. It exists on THIS service, not on the parser, because the parser
+// is documented as having no agent surface and reversing that would contradict
+// two shipped documents for no gain: both daemons run on this VM, so the hop is
+// loopback, and this service already owns the caching_proxy_* namespace the data
+// belongs to.
+//
+// The rows carry attacker-controlled fields (request URL and User-Agent, per the
+// parser's own header comment) and are republished verbatim. That is not a new
+// exposure -- the parser already serves the identical JSON to the whole LAN on
+// its own port -- but it is a reason to treat the values as data, never as
+// markup, in anything that renders them.
+const routeRecentRequests = "/api/v1/recent-requests"
+
+// defaultRecentLimit matches the panel this route gives a text equivalent for,
+// which is titled "Recent 100 requests". A caller wanting less says so.
+const defaultRecentLimit = 100
+
+// handleRecentRequests proxies the parser's ring, newest first.
+//
+// A parser that is down is reported as a 503 naming it, not as an empty list: a
+// caller cannot tell "the proxy served nothing" from "nothing answered", and the
+// second is an operational fault worth surfacing rather than smoothing over.
+func (d *daemon) handleRecentRequests(w http.ResponseWriter, r *http.Request) {
+	if d.parserURL == "" {
+		http.Error(w, `{"ok":false,"error":"no parser configured"}`, http.StatusServiceUnavailable)
+		return
+	}
+	limit := defaultRecentLimit
+	if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 {
+			http.Error(w, `{"ok":false,"error":"limit must be a positive integer"}`, http.StatusBadRequest)
+			return
+		}
+		limit = n
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, d.parserURL+"/recent-requests", nil)
+	if err != nil {
+		http.Error(w, `{"ok":false,"error":"cannot address the parser"}`, http.StatusInternalServerError)
+		return
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		http.Error(w, `{"ok":false,"error":"caching-proxy-parser-service did not answer"}`, http.StatusServiceUnavailable)
+		return
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		http.Error(w, `{"ok":false,"error":"caching-proxy-parser-service answered `+strconv.Itoa(resp.StatusCode)+`"}`,
+			http.StatusBadGateway)
+		return
+	}
+
+	var rows []map[string]any
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(&rows); err != nil {
+		http.Error(w, `{"ok":false,"error":"caching-proxy-parser-service returned unreadable JSON"}`, http.StatusBadGateway)
+		return
+	}
+	if len(rows) > limit {
+		rows = rows[:limit]
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"ok":       true,
+		"count":    len(rows),
+		"limit":    limit,
+		"requests": rows,
+	})
 }

@@ -16,10 +16,24 @@ variables:
   newPassword: ${ext:authentication.NewRandomPassword()}
 
 component:
+  # subiquity asks this once and never asks again. It does not reprint on an
+  # empty line either -- only a literal yes or no moves it -- so the question can
+  # scroll out of the visible surface while the installer goes on waiting for an
+  # answer behind a screen that no longer shows what it wants. Its network
+  # controller writes a start:/finish: status pair per link event to the same
+  # console, which is what does the scrolling; anything that delays this step
+  # past the guest's own boot (an operator hold, a slow host) lands on that
+  # screen. The pattern is then unreadable and unrecoverable, but the prompt is
+  # still live, so blindAfterSeconds answers it and takes the console moving
+  # again as proof it was consumed. 120 s leaves the capture path's own repairs
+  # their chance first, so a stale viewer is fixed as a viewer rather than typed
+  # at. Note the contrast with the login: nudge below -- agetty redraws on a bare
+  # Enter and this prompt does not, so the same recovery does not serve both.
   - action: waitForAndEnter
     pattern: "Continue with autoinstall?"
     timeoutSeconds: 900
     text: "yes"
+    blindAfterSeconds: 120
     description: "OCR: Continue with autoinstall?"
 
   - action: retry

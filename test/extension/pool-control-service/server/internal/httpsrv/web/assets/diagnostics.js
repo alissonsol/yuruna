@@ -6,18 +6,21 @@
   // Deliberately NOT Y.api: that helper treats {ok:false} as a thrown error,
   // which is the normal payload here (a report of failing checks). Fetch the
   // JSON directly and let the table show the failures.
-  async function load() {
+  function load() {
     Y.clearNotice();
-    const res = await fetch('/api/diagnostics', { headers: { 'Accept': 'application/json' } });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    return res.json();
+    return window.fetch('/api/diagnostics', { headers: { 'Accept': 'application/json' } })
+      .then(function (res) {
+        if (!res.ok) { throw new Error('HTTP ' + res.status); }
+        return res.json();
+      });
   }
 
   function summary(d) {
-    const box = Y.el('div', { class: 'notice ' + (d.ok ? 'ok' : 'error') });
+    var box = Y.el('div', { class: 'notice ' + (d.ok ? 'ok' : 'error') });
+    var failing = (d.checks || []).filter(function (c) { return !c.ok; }).length;
     box.textContent = d.ok
       ? 'All checks passed. pool-control-service ' + d.version + ' (' + d.go + '), collected ' + d.collectedAt
-      : (d.checks.filter(c => !c.ok).length + ' of ' + d.checks.length + ' checks failing. pool-control-service '
+      : (failing + ' of ' + d.checks.length + ' checks failing. pool-control-service '
          + d.version + ' (' + d.go + '), collected ' + d.collectedAt);
     box.style.display = 'block';
     return box;
@@ -49,16 +52,18 @@
   }
 
   function render(d) {
-    const sum = document.getElementById('summary');
+    var sum = document.getElementById('summary');
     sum.textContent = '';
     sum.appendChild(summary(d));
 
-    const rows = document.getElementById('check-rows');
+    var rows = document.getElementById('check-rows');
+    if (Y.holdRepaint(rows, function () { render(d); })) { return; }
     rows.textContent = '';
-    for (const c of d.checks || []) rows.appendChild(checkRow(c));
+    var checks = d.checks || [];
+    for (var i = 0; i < checks.length; i++) { rows.appendChild(checkRow(checks[i])); }
 
-    const p = d.intentProbe || {};
-    const probe = document.getElementById('probe-rows');
+    var p = d.intentProbe || {};
+    var probe = document.getElementById('probe-rows');
     probe.textContent = '';
     probe.appendChild(streamRow('argv', (p.argv || []).join('  ')));
     probe.appendChild(envRow('exit code', p.exitCode));
@@ -66,8 +71,8 @@
     probe.appendChild(streamRow('stdout', p.stdout));
     probe.appendChild(streamRow('stderr', p.stderr));
 
-    const e = d.environment || {};
-    const env = document.getElementById('env-rows');
+    var e = d.environment || {};
+    var env = document.getElementById('env-rows');
     env.textContent = '';
     env.appendChild(envRow('pwsh (--pwsh flag)', e.pwshFlag));
     env.appendChild(envRow('pwsh (resolved)', e.pwshResolved));
@@ -82,8 +87,8 @@
     env.appendChild(envRow('PATH', e.path));
     env.appendChild(envRow('HOME', e.home));
 
-    const rt = d.runtime || {};
-    const rtRows = document.getElementById('runtime-rows');
+    var rt = d.runtime || {};
+    var rtRows = document.getElementById('runtime-rows');
     rtRows.textContent = '';
     rtRows.appendChild(envRow('version', d.version));
     rtRows.appendChild(envRow('go', d.go));
@@ -93,35 +98,33 @@
     rtRows.appendChild(envRow('started at', rt.startedAt));
     rtRows.appendChild(envRow('uptime', rt.uptime));
 
-    const health = document.getElementById('health');
+    var health = document.getElementById('health');
     health.textContent = d.health ? JSON.stringify(d.health, null, 2) : '(persistence disabled)';
   }
 
   // quiet marks the countdown's run, which keeps the last report on screen.
   // Every other run replaces it and says so: each check is a live probe of a
   // dependency, and the ones worth waiting for are the ones timing out.
-  async function refresh(opts) {
-    const quiet = !!(opts && opts.quiet);
-    const done = quiet ? function () { } : Y.busy(document.getElementById('check-rows'), 'Running checks...');
+  function refresh(opts) {
+    var quiet = !!(opts && opts.quiet);
+    var done = quiet ? function () { } : Y.busy(document.getElementById('check-rows'), 'Running checks...');
     chrome.busy(true);
-    try {
-      render(await load());
+    // Run on the failure path too: an indicator left turning over a probe that
+    // already failed claims progress that is not happening -- on the one page
+    // that has to stay readable during an outage.
+    var finish = function () { done(); chrome.busy(false); };
+    return load().then(function (d) {
+      render(d);
       chrome.markLoaded();
-    } catch (err) {
+    }, function (err) {
       Y.notice('error', 'Could not collect diagnostics: ' + err.message);
-    } finally {
-      // Also on the failure path: an indicator left turning over a probe that
-      // already failed claims progress that is not happening -- on the one page
-      // that has to stay readable during an outage.
-      done();
-      chrome.busy(false);
-    }
+    }).then(finish, finish);
   }
 
-  document.getElementById('refresh').addEventListener('click', function () { refresh(); });
   // Header version + host id and the footer bar. Re-running the checks is this
   // page's refresh -- it is the page an operator leaves open during an outage,
   // so the countdown re-probes rather than reloading.
-  const chrome = Y.initChrome({ refresh: function () { refresh({ quiet: true }); } });
+  var chrome = Y.initChrome({ refresh: function () { refresh({ quiet: true }); } });
+  document.getElementById('refresh').addEventListener('click', function () { refresh(); });
   refresh();
 })();

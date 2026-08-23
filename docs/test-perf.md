@@ -75,7 +75,7 @@ discontinuity.
 
 GUID shape: `42xxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx` -- first two hex
 chars are the literal `42` (a visual filter in mixed-source logs),
-remaining 30 hex chars give ~ 120 bits of randomness, collision-free
+remaining 30 hex chars give ~120 bits of randomness, collision-free
 at any realistic scale. Nothing reads the version or variant nibbles, so
 neither is part of the contract -- uniqueness and the `42` prefix are.
 The recipe below rewrites only `time_low`, leaving both nibbles as
@@ -223,7 +223,7 @@ What is **not** in the row (intentional):
   a rolling baseline keyed on
   `(sequenceName, stepName, hostPlatform, guestKey, sequenceRevision)`.
 - **No full host/guest dump text.** That's what the `*InfoHash` sidecars
-  exist for. 10 kB of diagnostic on every row of every cycle = a
+  exist for. 10 KB of diagnostic on every row of every cycle = a
   self-inflicted bandwidth wound.
 - **No human descriptions.** Belong in the sequence YAML (snapshotted
   under `perf/sequences/<hash>.yml`), not in every row.
@@ -372,6 +372,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.21
+Last review: 2026.08.23
 
 Back to [Yuruna](../README.md)

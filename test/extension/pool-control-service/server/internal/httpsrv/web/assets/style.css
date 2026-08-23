@@ -2,19 +2,39 @@
 /* Copyright (c) 2019-2026 by Alisson Sol et al. */
 
 /* Page tokens. The --chrome-* set is the shared one: see the page-chrome block
-   below for why it must not drift between services. */
+   below for why it must not drift between services.
+
+   --line and --control-edge are deliberately different values for the same
+   visual idea. --line draws dividers -- table rules, card edges -- which are
+   decorative, so a soft hairline is correct there. --control-edge draws the
+   boundary of a text input or a select, and for those the border is the ONLY
+   thing that says a control is present: their fill is --bg, the same value the
+   page behind them paints. That makes it a graphical object required to
+   identify a component, which must clear 3:1 against both surfaces it meets.
+   Raising --line to satisfy that would make every table rule shout.
+
+   --accent and --accent-fill split for the same reason: --accent is a
+   foreground (link text), and the dark theme lightens it so it reads on a dark
+   page. --accent-fill is a background under --accent-fill-fg, where lightening
+   moves the pair the wrong way. One value cannot serve both roles; when it did,
+   the dark-theme primary button was white on #74b8ff. */
 :root { color-scheme: light dark;
         --fg:#111827; --muted:#6b7280; --line:#e5e7eb; --accent:#2563eb; --bg:#fff; --err:#b00020; --ok:#1a7f37;
+        --control-edge:#6b7280;
+        --accent-fill:#2563eb; --accent-fill-fg:#ffffff;
         --btn-bg:#f6f8fa; --btn-hover:#eef1f4;
         --band-odd:#f6f8fa; --band-even:#ffffff;
         --ok-bg:#e8f5ec; --ok-line:#b7e0c2; --err-bg:#fde8ea; --err-line:#f3b6bd;
         --chrome-bg:#111827; --chrome-fg:#f9fafb; --chrome-muted:#9ca3af; --chrome-line:#374151;
         --chrome-raised:#1f2937; --chrome-hover:#374151; --chrome-input-bg:#0b1220;
+        --chrome-control-edge:#8b93a1;
         --touch-min: 2.75rem;
         --mono: ui-monospace, Menlo, Consolas, monospace; }
 
 @media (prefers-color-scheme: dark) {
   :root { --fg:#e5e7eb; --muted:#94a3b8; --line:#1f2937; --accent:#74b8ff; --bg:#0b1220; --err:#fca5a5; --ok:#4ade80;
+          --control-edge:#64748b;
+          --accent-fill:#1d4ed8;
           --btn-bg:#111827; --btn-hover:#1f2937;
           --band-odd:#111827; --band-even:#0b1220;
           --ok-bg:#14532d; --ok-line:#166534; --err-bg:#7f1d1d; --err-line:#991b1b;
@@ -34,7 +54,14 @@
    scroll themselves). Without this pin a table paints at a different size from
    the rest of the page. Prefixed form is the one Safari implements; the
    standard form covers the others. */
-html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
+       /* The footer bar is fixed at the bottom, so the browser's own
+          scroll-into-view can land a freshly focused control underneath it --
+          entirely hidden, for a one-line link inside a table row. Padding on
+          <main> reserves space past the LAST element only; scroll-padding is
+          what the focus scroll itself honors. */
+       scroll-padding-bottom: 3.5rem;
+       scroll-padding-bottom: calc(3.5rem + env(safe-area-inset-bottom)); }
 body { font: 15px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: var(--fg); background: var(--bg); margin: 0; }
 
 /* ===========================================================================
@@ -147,7 +174,7 @@ header.app .btn:not(.primary):hover { background: var(--chrome-raised); }
 textarea#footer-ip-list {
   flex: 1 1 auto; min-width: 0;
   font-family: var(--mono); font-size: .6875rem;
-  color: var(--chrome-muted); background: var(--chrome-input-bg); border: 1px solid var(--chrome-line);
+  color: var(--chrome-muted); background: var(--chrome-input-bg); border: 1px solid var(--chrome-control-edge);
   border-radius: 3px; padding: .15rem .35rem;
   resize: none; overflow: auto; white-space: pre;
   line-height: 1.25; vertical-align: middle;
@@ -195,6 +222,17 @@ footer.app a { color: var(--chrome-muted); }
   #footer-ips { flex-basis: 100%; max-width: 100%; }
   body.has-footer-bar main { padding-bottom: 4.5rem; padding-bottom: calc(4.5rem + env(safe-area-inset-bottom)); }
 }
+/* Footer controls that read as text. Both are real <button>s: the refresh was
+   an <a href="#"> that never navigated -- announced as a link, behaving as a
+   button, and silent to Space -- and the pause needs a pressed state, which
+   only a button has. */
+#footer-bar .linkish {
+  appearance: none; -webkit-appearance: none;
+  background: none; border: 0; padding: 0; margin: 0;
+  font: inherit; color: var(--chrome-muted);
+  text-decoration: underline; cursor: pointer;
+}
+#footer-bar .linkish[aria-pressed="true"] { color: var(--chrome-fg); font-weight: 600; }
 /* === end page chrome ====================================================== */
 
 /* Wider than the other Yuruna UIs on purpose. Every page here is a table whose
@@ -233,9 +271,9 @@ tbody tr:nth-child(even) { background: var(--band-even); }
 td.host-type { white-space: nowrap; }
 button { font: inherit; padding: .35rem .7rem; border: 1px solid var(--line); background: var(--btn-bg); color: var(--fg); border-radius: 5px; cursor: pointer; }
 button:hover { background: var(--btn-hover); }
-button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+button.primary { background: var(--accent-fill); color: var(--accent-fill-fg); border-color: var(--accent-fill); }
 button:disabled { opacity: .5; cursor: default; }
-input, select { font: inherit; padding: .35rem .5rem; border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 5px; }
+input, select, textarea { font: inherit; padding: .35rem .5rem; border: 1px solid var(--control-edge); background: var(--bg); color: var(--fg); border-radius: 5px; }
 .row { display: flex; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; }
 .row > * + * { margin-left: .5rem; }
 .hint { color: var(--muted); font-size: .82rem; margin-top: .25rem; font-family: var(--mono); }
@@ -275,6 +313,10 @@ th.rownum, td.rownum {
 .notice { display: none; padding: .6rem .8rem; border-radius: 6px; margin-bottom: 1rem; }
 .notice.ok { background: var(--ok-bg); color: var(--ok); border: 1px solid var(--ok-line); }
 .notice.error { background: var(--err-bg); color: var(--err); border: 1px solid var(--err-line); }
+/* hosts.js raises a 'warn' notice when the aggregator is unavailable. Without
+   this rule that message rendered as bare unframed text -- present, but not
+   reading as a notice at all. */
+.notice.warn { background: var(--ok-bg); color: var(--fg); border: 1px solid var(--line); }
 .muted { color: var(--muted); }
 h2 { font-size: 1rem; margin: 1.75rem 0 .25rem; }
 code { font-family: var(--mono); font-size: .85rem; word-break: break-all; }
@@ -288,10 +330,25 @@ pre.detail { font-family: var(--mono); font-size: .85rem; margin: 0; white-space
 
 /* The network field on the Scan page. The label sits above its input rather
    than beside it so the two stay together when the row wraps on a phone. */
-.scan-field { display: flex; flex-direction: column; gap: .15rem; }
+/* A visible label stacked over its control. .labeled-field is the general
+   form; .scan-field adds the monospace face and the width floor that a CIDR
+   field wants and a display name does not. Both exist because a placeholder is
+   only a name until the first keystroke -- after that the control is unlabeled
+   for anyone who was interrupted, is using voice input, or sees one row at a
+   time under magnification. */
+/* min-width:0 for the same reason the status board's grid items need it: a
+   flex item's min-width defaults to `auto`, i.e. its min-content width, so a
+   wrapper around a size="40" input refuses to shrink and takes the whole page
+   into a two-dimensional scroll on a phone. The width cap lets the input give
+   before the row does. */
+/* Margins, not `gap`: flex gap needs Safari 14.5, and below it the label would
+   sit against its input. */
+.scan-field, .labeled-field { display: flex; flex-direction: column; min-width: 0; }
+.scan-field > * + *, .labeled-field > * + * { margin-top: .15rem; }
+.labeled-field input { max-width: 100%; }
 .scan-label { color: var(--muted); font-size: .82rem; }
 .scan-field input { font-family: var(--mono); min-width: 14rem; }
-/* A field the daemon would refuse. Colour is not the only signal: the hint
+/* A field the daemon would refuse. Color is not the only signal: the hint
    under it says what is wrong in words, and the input carries aria-invalid. */
 input[aria-invalid="true"] { border-color: var(--err); }
 .hint.scan-invalid { color: var(--err); }
@@ -305,7 +362,10 @@ input[aria-invalid="true"] { border-color: var(--err); }
 progress { vertical-align: middle; width: 12rem; max-width: 40vw; }
 /* A host found by scanning, in the Hosts table's first column: id (when it gave
    one), address, and the marker, reading left to right in that order. */
-.discovered-host { display: inline-flex; flex-wrap: wrap; align-items: baseline; gap: .4rem; }
+.discovered-host { display: inline-flex; flex-wrap: wrap; align-items: baseline; }
+/* Margins, not `gap`, for the same reason: below Safari 14.5 the id, the
+   address and the marker would run together into one unreadable token. */
+.discovered-host > * + * { margin-left: .4rem; }
 .badge {
   font-size: .72rem; text-transform: uppercase; letter-spacing: .03em;
   padding: .05rem .35rem; border-radius: 4px; border: 1px solid var(--line); color: var(--muted);
@@ -339,7 +399,7 @@ progress { vertical-align: middle; width: 12rem; max-width: 40vw; }
    pending fetch away and starts the same wait over. */
 .loading { display: flex; align-items: center; justify-content: center; padding: 2rem 1rem; color: var(--muted); }
 .loading .loading-text { margin-left: .6rem; font-size: .95rem; }
-/* A ring with one coloured quarter: it is the rotation that reads as motion, so
+/* A ring with one colored quarter: it is the rotation that reads as motion, so
    the ring must be visibly incomplete. flex-shrink keeps it circular when the
    message beside it is long enough to compete for the row. */
 .spinner {
@@ -359,11 +419,13 @@ progress { vertical-align: middle; width: 12rem; max-width: 40vw; }
   animation: yuruna-spin .9s linear infinite;
 }
 /* Spinning is what this element says, so a reader who asked for no motion still
-   needs it to say something: it pulses in place instead of disappearing. */
+   needs it to say something -- but it has to say it without moving. A second
+   perpetual animation (an opacity throb) is not a reduction: it is the same
+   request denied in a quieter register. The ring holds still with its colored
+   quarter left in place, which reads as "busy" from shape alone. */
 @media (prefers-reduced-motion: reduce) {
-  .spinner, #footer-busy { animation: yuruna-throb 1.6s ease-in-out infinite; }
+  .spinner, #footer-busy { animation: none; }
 }
-@keyframes yuruna-throb { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
 
 /* The Lab-token prompt (Y.unlock in common.js). Built in code rather than
    marked up per page, so every page that changes pool configuration shows the
@@ -381,7 +443,7 @@ progress { vertical-align: middle; width: 12rem; max-width: 40vw; }
   border: 1px solid var(--line);
   border-radius: 16px; padding: 1.25rem;
 }
-.unlock-overlay .login h1 { font-size: 1.2rem; margin: 0 0 0.5rem; }
+.unlock-overlay .login h2 { font-size: 1.2rem; margin: 0 0 0.5rem; }
 .unlock-overlay .login-hint { font-size: 0.9rem; margin: 0 0 1rem; line-height: 1.4; }
 .unlock-overlay .login form { display: flex; flex-direction: column; }
 .unlock-overlay .login form > * + * { margin-top: 0.6rem; }
@@ -392,3 +454,12 @@ progress { vertical-align: middle; width: 12rem; max-width: 40vw; }
   text-align: center; letter-spacing: 0.2em; text-transform: lowercase;
 }
 .unlock-overlay .login-error { color: var(--err); font-size: 0.9rem; margin: 0.6rem 0 0; }
+
+/* Outcome of a per-row action, shown in the row that produced it. The banner
+   at the top of <main> stays -- this is the copy a magnifier user can actually
+   see, because at 400% zoom the banner and a row forty down are never on
+   screen together. */
+.row-feedback:empty { display: none; }
+.row-feedback { margin-top: .25rem; font-size: .8rem; }
+.row-feedback.ok { color: var(--ok); }
+.row-feedback.error { color: var(--err); }

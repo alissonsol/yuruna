@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42801635-2de0-4574-8b48-dbac5d2347c2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -436,7 +436,7 @@ function Initialize-SetupLog {
             ('machine     : {0}' -f [Environment]::MachineName)
             ('pwsh        : {0} on {1}' -f $PSVersionTable.PSVersion, [Environment]::OSVersion.VersionString)
             $(if ($WhatIfPreference) { 'mode        : -WhatIf preview -- nothing will be changed' })
-            '========================================================'
+            '========'
         ) | Where-Object { $null -ne $_ }
         Add-Content -LiteralPath $target -Value $header -Encoding utf8 -WhatIf:$false
         $Script:LogFile = $target
@@ -478,8 +478,8 @@ function Get-ChildTranscriptDirectory {
 
 # Terminal control sequences a child can emit even when nothing is watching.
 # Three classes, and all three are needed: OSC covers the hyperlinks PowerShell
-# 7.2+ can wrap a path in, CSI covers colour (ESC[33;1m), cursor hiding
-# (ESC[?25l) and everything else parameterised, and the two-character form covers
+# 7.2+ can wrap a path in, CSI covers color (ESC[33;1m), cursor hiding
+# (ESC[?25l) and everything else parameterized, and the two-character form covers
 # charset selects like ESC(B. A pattern narrowed to SGR leaves the rest in the
 # log as unreadable soup.
 #
@@ -500,7 +500,7 @@ function ConvertTo-PlainLogText {
     Shared by the child-sink reader and by any caller that hands us text a child
     already turned into an object -- a child spawned by a module never sees the
     NO_COLOR this script sets on the processes it starts itself, so its output
-    arrives coloured no matter what this process asked for.
+    arrives colored no matter what this process asked for.
 #>
     [CmdletBinding()]
     [OutputType([string])]
@@ -561,7 +561,7 @@ function Write-ChildOutputToLog {
     fifteen-minute VM build has several hundred lines of narration that belong in
     a file, not in front of someone waiting for the next step.
 
-    Two KINDS of sink, folded separately and labelled for what each one is. The
+    Two KINDS of sink, folded separately and labeled for what each one is. The
     transcripts are written by the child and every pwsh it starts, and carry
     every PowerShell stream. The pipe capture is what this process read off the
     child's stdout and stderr, and is the only sink that carries a NATIVE
@@ -783,7 +783,7 @@ function Write-StepOutcome {
         $suffix += ' ({0})' -f $(if ($Elapsed.TotalMinutes -ge 1) { '{0}m{1:00}s' -f [int][Math]::Floor($Elapsed.TotalMinutes), $Elapsed.Seconds } else { '{0}s' -f [int][Math]::Floor($Elapsed.TotalSeconds) })
     }
     $line = '  - [{0}]: {1}{2}' -f $Outcome, $Name, $suffix
-    # Write-Information, not Write-Host: it honours the -logLevel cascade, so
+    # Write-Information, not Write-Host: it honors the -logLevel cascade, so
     # -logLevel Error still silences the per-step feed for a scripted caller.
     Write-Information $line
     Write-SetupLogLine -Level $Outcome -Message "$Name$suffix"
@@ -1189,7 +1189,7 @@ function Initialize-SetupElevation {
     # wait here cannot be bounded or narrated from the outside.
     & sudo -v
     if ($LASTEXITCODE -ne 0) {
-        # Covers a wrong password, a cancelled prompt, and an account without
+        # Covers a wrong password, a canceled prompt, and an account without
         # sudo rights alike: sudo reports all three the same way, and what the
         # operator needs from this line is which steps will now fail, not which
         # of the three it was.
@@ -1398,7 +1398,7 @@ function Invoke-RepoScript {
     $startInfo.Environment['YURUNA_NONINTERACTIVE'] = '1'
     if ($Script:ElevationOk) { $startInfo.Environment['YURUNA_SUDO_PRIMED'] = '1' }
     # The child's stdout is a pipe into a file, and PowerShell on Unix emits VT
-    # colour unless it is given a DISABLING signal -- so without this the run log
+    # color unless it is given a DISABLING signal -- so without this the run log
     # fills with escape sequences wrapped around exactly the error text somebody
     # is trying to read. NO_COLOR and not TERM=dumb: TERM is inherited by ssh
     # (including `ssh -t`, which carries it into the guest), by curses tools and
@@ -1873,8 +1873,8 @@ function Get-LocalLabStorageArgument {
     they chose it, so the child re-asking is a second confirmation of the same
     decision, and it is one nobody can see.
 
-    The lab name is sanitised to the pool-id charset here. New-LocalLabStorage
-    only sanitises the name it invents for itself, so a machine whose hostname
+    The lab name is sanitized to the pool-id charset here. New-LocalLabStorage
+    only sanitizes the name it invents for itself, so a machine whose hostname
     carries an underscore would pass its own check by hand and fail through us.
 #>
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseOutputTypeCorrectly', '',
@@ -2311,7 +2311,7 @@ function Write-SetupReport {
         Write-SetupMessage 'Failed:'
         foreach ($f in $Script:Failed) { Write-SetupMessage "  - $f" }
     }
-    Write-SetupMessage '=============================================='
+    Write-SetupMessage '========'
     # Named on the console, not only in the file: the operator who needs the log
     # is the one whose run just failed, and they should not have to know where
     # this script keeps it.
@@ -2379,7 +2379,7 @@ if ($IsWindows) {
         if ($WhatIfPreference) {
             # A preview changes nothing, so it needs no elevation -- and
             # relaunching here would be worse than useless: Start-Process itself
-            # honours -WhatIf, so the elevated run would never start and this
+            # honors -WhatIf, so the elevated run would never start and this
             # script would exit 0 as though the preview had succeeded.
             Write-SetupWarning 'Not running as Administrator. This preview needs no elevation, but the real run does -- it will relaunch elevated.'
         } else {
@@ -2571,7 +2571,7 @@ if ($isLab) {
 # across every re-run.
 #
 # An older answer file may still carry lab.createDefaultPool. It is deliberately
-# not read: honouring 'false' would produce that same half-set-up lab, and
+# not read: honoring 'false' would produce that same half-set-up lab, and
 # silently ignoring a key the operator wrote is worse than saying so.
 if ($isLab -and $null -ne (Get-Answer 'lab.createDefaultPool')) {
     Write-SetupWarning ("lab.createDefaultPool in the answer file is obsolete and was ignored: the 'default' pool is now " +
@@ -3292,7 +3292,7 @@ if (-not $isLab) {
     #
     # Control sequences come off here too: this child is started by the gate
     # module, not by Invoke-RepoScript, so the NO_COLOR this script sets on its own
-    # children never reaches it and its output arrives coloured.
+    # children never reaches it and its output arrives colored.
     #
     # Tolerant of a gate that returns no transcript at all. Note @($null) is an
     # array of ONE null, not an empty one, so the emptiness test has to be on the
@@ -3302,7 +3302,24 @@ if (-not $isLab) {
         $plain = ConvertTo-PlainLogText -Text "$gateLine"
         if ($plain.Trim()) { Write-SetupLogLine -Level 'CHILD' -Message "  $plain" }
     }
-    if (-not $gate.passed) { throw "Test-Config reported failures (exit $($gate.exitCode)); the block above names them" }
+    # The gate writes its FAILURES excerpt to the console itself -- on the
+    # INFORMATION stream, which is exactly the stream Invoke-SetupStep redirects
+    # into this log so that a module's narration cannot land in the middle of the
+    # outcome list. The banner around it survives (warnings are never diverted)
+    # and the reason under it does not, which leaves the operator a heading
+    # pointing at nothing. Re-emitted here as warnings so the reason travels with
+    # it, and only on the failing path, where the lines earn their place on
+    # screen.
+    if (-not $gate.passed) {
+        foreach ($failLine in @($gate.failureLines)) {
+            $plainFail = ConvertTo-PlainLogText -Text "$failLine"
+            if ($plainFail.Trim()) { Write-SetupWarning "  $plainFail" }
+        }
+        # Names the log rather than "the block above": this text is also the
+        # step's one-line FAIL detail and the entry in the closing report, where
+        # there is nothing above it at all.
+        throw "Test-Config reported failures (exit $($gate.exitCode)) -- listed above, and in full in $Script:LogFile"
+    }
 })
 
 # --- REGION: 9b. Download-agent service

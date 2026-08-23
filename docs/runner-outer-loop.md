@@ -124,7 +124,7 @@ operator can do happen on that run:
   pre-accepted from a script.
 - **Seed the base-image cache.** The runner's image-refresh step
   downloads each guest's base image on first execution; subsequent
-  cycles re-use the cached copy and re-download only on the configured
+  cycles reuse the cached copy and re-download only on the configured
   refresh cadence. Pre-seeding lets the unattended loop recover from a
   later failure (or a step that needs manual intervention) without
   blocking on a multi-gigabyte download mid-cycle.
@@ -143,7 +143,7 @@ pwsh test/Start-TestRunner.ps1
 
 The script self-supervises: stale-heartbeat detection and the single-instance
 guard are described under
-[Watchdog](#watchdog-and-heartbeat-protocol), the back-off after a failed
+[Watchdog](#watchdog-and-heartbeat-protocol), the backoff after a failed
 cycle under
 [Failure-pause break-out triggers](#failure-pause-break-out-triggers).
 Per-step visibility is controlled by [Log levels](loglevels.md).
@@ -215,8 +215,19 @@ path is a smoke test for an operator-initiated run, not a cycle event;
 delivering an email on every outer relaunch would flood the
 `subscribers["config.smoke"]` list.
 
+It runs at two points, and only those two: once at outer startup, and once
+at the front of each cycle the inner runner opens. Startup alone would say
+nothing about hour nine of an eternal loop, where a credential expires or a
+config is edited mid-run. Re-checking any deeper would be worse than
+useless: the gate reaches the network, so a remote that stops answering
+between two stages of a running cycle would abort work that was succeeding
+and discard every stage already built. Nested `Debug-TestSequence` stages
+spawned by host actions therefore inherit the cycle's verdict rather than
+re-gating -- a standalone `Debug-TestSequence` still gates for itself.
+
 Bypass with `-NoConfigGate` for ad-hoc runs and dev iteration against
-an in-progress edit:
+an in-progress edit. It forwards from the outer runner to the cycle, so
+one switch covers both:
 
 ```
 pwsh test/Start-TestRunner.ps1 -NoConfigGate
@@ -229,11 +240,11 @@ path in the entry point: the exit surface is binary (0 = ran a cycle loop,
 
 `Invoke-ConfigGate` returns the child's whole transcript as `lines` on
 every path, including a green one. The console still sees nothing on a
-pass -- a green gate is silent, like every other pre-flight -- but a caller
+pass -- a green gate is silent, like every other preflight -- but a caller
 that keeps a run log can file it there. `install/setup.ps1` does exactly
 that, at `CHILD` level, so the warnings the gate raised about the machine
 (an unreachable server, a missing vault credential, a skipped active
-pre-flight) survive the terminal. A caller with nowhere to file a
+preflight) survive the terminal. A caller with nowhere to file a
 transcript simply ignores the field.
 
 `-ExpectStorageConfigured` is a caller telling the gate that shared
@@ -527,7 +538,7 @@ image-build step.
 ### Module: Test.RunnerWatchdog
 
 [`test/modules/Test.RunnerWatchdog.psm1`](../test/modules/Test.RunnerWatchdog.psm1)
-holds the arm/tear-down pair the cycle calls, plus the shared
+holds the arm/teardown pair the cycle calls, plus the shared
 armed-identity predicate. Keeping them in their own
 module -- rather than inline in
 [`test/Start-TestRunner.ps1`](../test/Start-TestRunner.ps1) --
@@ -658,6 +669,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.21
+Last review: 2026.08.23
 
 Back to [Yuruna](../README.md)

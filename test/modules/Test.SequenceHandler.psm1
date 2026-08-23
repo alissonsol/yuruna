@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 4232820e-f96a-47ea-863b-f94b73f9c76f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -83,6 +83,38 @@ function Test-GuestPayloadUnavailable {
     }
     return $false
 }
+
+# The shell's own refusal of the command line it was just handed. Unlike the
+# sentinel above -- which the wrapper prints, and which therefore proves the
+# wrapper RAN -- these come from bash before anything of ours executes: the
+# interpreter named on the line does not exist, so no script, no wrapper and no
+# sentinel will ever appear, and the completion marker is unreachable from the
+# first second onward.
+#
+# The way a console-typed command reaches that state is the keystroke
+# transport: the line is delivered one key event per character into a guest
+# whose input layer can drop and reorder them under load, and a command word
+# that loses four characters is a command word that does not resolve. Nothing
+# upstream can see that happen, and nothing downstream can distinguish it from
+# a payload that is merely slow, which is why the shell's answer is worth
+# reading directly.
+#
+# These are matched ONLY inside Wait-ForText's early window (see
+# $script:ShellRejectionWindowSeconds). Both strings are also routine output
+# from a healthy script -- probing for an optional binary prints one or the
+# other constantly -- so outside that window they carry no signal at all.
+$script:ShellRejectedCommandPattern = @(
+    'command not found',
+    'No such file or directory'
+)
+
+# How long after Enter the shell's refusal is still the only plausible source
+# of those strings. bash answers a command line it cannot resolve immediately;
+# this is sized to cover a handful of OCR polls rather than to bound the
+# shell, so a frame lost to a capture glitch still leaves later frames inside
+# the window. Beyond it the fetched script owns the console and the same
+# strings become its ordinary output.
+$script:ShellRejectionWindowSeconds = 20
 
 # --- REGION: https://yuruna.link/test/sequences#the-fetchandexecute-typing-length-budget
 # Console-typed length above which a fetchAndExecute step is flagged. A WARNING,
@@ -221,6 +253,100 @@ function Invoke-TypeDrainEnter {
     Write-ProgressTick -Activity $Activity -Completed
     Start-Sleep -Milliseconds 800
     return [bool](Test.SequenceEngine\Send-Key -HostType $Context.HostType -VMName $Context.VMName -KeyName 'Enter')
+}
+
+function Invoke-BlindAnswer {
+    <#
+    .SYNOPSIS
+        Send a waitForAndEnter step's answer to a console its pattern could not
+        be read off, when the screen says the guest is parked rather than busy.
+    .DESCRIPTION
+        A prompt printed once and never reprinted is a consumable: the guest goes
+        on waiting for input long after the question has scrolled out of the
+        visible surface, and no amount of further waiting brings it back. The
+        wait that just failed cannot tell that guest from one still working, but
+        its verdict can -- a parked guest prints nothing, so its console CONTENT
+        stops moving while a working one keeps changing.
+
+        Sending the answer is bounded by that evidence and by proof it landed:
+        the console content moving again IS the answer being consumed. Where a
+        step names `confirmPattern`, that is used instead, for guests whose next
+        screen is known. Without either, the step is left to fail exactly as it
+        would have.
+    .OUTPUTS
+        [bool] $true when the answer was sent AND confirmed; $false otherwise,
+        including when the screen gave no reason to send it.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][hashtable]$Context,
+        [Parameter(Mandatory)][string[]]$Patterns
+    )
+    $verdict = Get-LastWaitVerdict
+    $patternDisplay = $Patterns -join "' | '"
+    # A screen with no text is a capture problem, not a parked guest, and typing
+    # at one proves nothing. Wait-ForText's own no-text self-heal owns that case.
+    if (-not $verdict.ConsoleText) {
+        Write-Debug "      Blind answer skipped for '$patternDisplay': no text on screen."
+        return $false
+    }
+    # "Parked" means the content did not move for most of the window just spent.
+    # A guest still printing -- an install running, a service looping -- fails
+    # this and is left alone, which is what keeps the answer away from a console
+    # whose reader is no longer the prompt this step was written for.
+    $staticSecs = [int]$verdict.ConsoleStaticSeconds
+    $elapsed    = [int]$verdict.ElapsedSeconds
+    if ($staticSecs -le 0 -or ($staticSecs * 2) -lt $elapsed) {
+        Write-Debug "      Blind answer skipped for '$patternDisplay': console still moving (static ${staticSecs}s of ${elapsed}s)."
+        return $false
+    }
+    $text   = & $Context.ExpandVariable $Context.Step.text $Context.Vars
+    $masked = ($Context.Step.sensitive -and -not $Context.ShowSensitive) ? '***' : $text
+    Write-Warning "      '$patternDisplay' never appeared and the console has not changed for ${staticSecs}s of ${elapsed}s -- a prompt printed before this wait began would look exactly like this. Sending '$masked' to the console and watching for it to be consumed."
+    $baselineText = [string]$verdict.ConsoleText
+    Send-TabNavigation -Context $Context
+    $delaySeconds = $Context.Step.delaySeconds ? [double]$Context.Step.delaySeconds : 2
+    $charDelay    = $Context.Step.charDelayMs ? [int]$Context.Step.charDelayMs : $Context.DefaultCharDelayMs
+    if (-not (Invoke-TypeDrainEnter -Context $Context -Text $text -DelaySeconds $delaySeconds -CharDelayMs $charDelay -Activity 'waitForAndEnter' -ShellEscape)) {
+        Write-Warning "      Blind answer could not be typed; leaving the step to its own wait."
+        return $false
+    }
+    $confirmSeconds = $Context.Step.confirmSeconds ? [int]$Context.Step.confirmSeconds : 90
+    $rawConfirm = $Context.Step.confirmPattern
+    [string[]]$confirmPatterns = @()
+    if ($null -ne $rawConfirm) {
+        $confirmPatterns = if ($rawConfirm -is [System.Collections.IEnumerable] -and $rawConfirm -isnot [string]) {
+            @($rawConfirm | ForEach-Object { & $Context.ExpandVariable $_ $Context.Vars })
+        } else { @(& $Context.ExpandVariable $rawConfirm $Context.Vars) }
+    }
+    $confirmed = if ($confirmPatterns.Count -gt 0) {
+        [bool](Wait-ForText -HostType $Context.HostType -VMName $Context.VMName -Pattern $confirmPatterns `
+            -TimeoutSeconds $confirmSeconds -PollSeconds ($Context.Step.pollSeconds ? [int]$Context.Step.pollSeconds : $Context.DefaultPollSeconds))
+    } else {
+        [bool](Wait-ForConsoleChange -HostType $Context.HostType -VMName $Context.VMName `
+            -BaselineText $baselineText -TimeoutSeconds $confirmSeconds)
+    }
+    if ($confirmed) {
+        Write-Information "      Blind answer accepted: the console moved on after it was sent."
+        return $true
+    }
+    # "Nothing changed" is a claim about the guest, and the confirmation can only
+    # make it when it could read the console at all. A reader that came back
+    # empty on every frame observed nothing, and saying the answer was wrong
+    # there sends the reader of this log after the guest instead of after the
+    # capture path that actually failed. Guarded because the engine that
+    # publishes the verdict is imported alongside this module, not by it.
+    $changeVerdict = $null
+    if ($confirmPatterns.Count -eq 0 -and (Get-Command Get-LastConsoleChangeVerdict -ErrorAction SilentlyContinue)) {
+        $changeVerdict = Get-LastConsoleChangeVerdict
+    }
+    if ($changeVerdict -and $changeVerdict.Captures -gt 0 -and -not $changeVerdict.Readable) {
+        Write-Warning "      Blind answer sent but the console could not be read within ${confirmSeconds}s; whether it was consumed is unknown, and the step falls back to its own wait."
+        return $false
+    }
+    Write-Warning "      Blind answer sent but nothing on the console changed within ${confirmSeconds}s; it was not what the guest was waiting for."
+    return $false
 }
 
 Register-SequenceAction -Name 'waitForSeconds' -HostIORequirement @() -OcrRequired $false `
@@ -802,10 +928,31 @@ Register-SequenceAction -Name 'waitForAndEnter' -HostIORequirement @('Send-Text'
         param([hashtable]$c)
         $p = Resolve-WaitForTextStepParam -Context $c
         $patternDisplay = $p.patterns -join "' | '"
-        Write-Debug "      Watching screen for: '$patternDisplay' (timeout: $($p.timeout)s)"
+        $blindAfter = $c.Step.blindAfterSeconds ? [int]$c.Step.blindAfterSeconds : 0
+        # blindAfterSeconds splits the budget: the first window is an ordinary
+        # wait, and what it leaves behind decides whether the answer is worth
+        # sending to a screen the pattern cannot be read off. A value that does
+        # not leave a second window is the same as no value at all.
+        $useBlind = ($blindAfter -gt 0 -and $blindAfter -lt $p.timeout)
+        $firstWindow = $useBlind ? $blindAfter : $p.timeout
+        Write-Debug "      Watching screen for: '$patternDisplay' (timeout: $($p.timeout)s$(if ($useBlind) { ", blind answer after ${blindAfter}s" }))"
+        $waitStartUtc = [DateTime]::UtcNow
         $ok = Wait-ForText -HostType $c.HostType -VMName $c.VMName -Pattern $p.patterns `
-            -TimeoutSeconds $p.timeout -PollSeconds $p.poll -FreshMatch $p.fresh `
+            -TimeoutSeconds $firstWindow -PollSeconds $p.poll -FreshMatch $p.fresh `
             -FreshMatchTailLines $p.tailLines -FailurePattern $p.failurePatterns
+        if ($ok -eq $false -and $useBlind) {
+            if (Invoke-BlindAnswer -Context $c -Patterns $p.patterns) { return $true }
+            # The answer either was not warranted or did not land. Spend what is
+            # left of the configured budget on the wait that was asked for, so a
+            # guest that was merely slow still gets the time the step allows.
+            $remaining = $p.timeout - [int]([DateTime]::UtcNow - $waitStartUtc).TotalSeconds
+            if ($remaining -gt 0) {
+                Write-Debug "      Resuming the wait for '$patternDisplay' (${remaining}s left of $($p.timeout)s)"
+                $ok = Wait-ForText -HostType $c.HostType -VMName $c.VMName -Pattern $p.patterns `
+                    -TimeoutSeconds $remaining -PollSeconds $p.poll -FreshMatch $p.fresh `
+                    -FreshMatchTailLines $p.tailLines -FailurePattern $p.failurePatterns
+            }
+        }
         if ($ok -eq $false) { return $false }
         Send-TabNavigation -Context $c
         $text = & $c.ExpandVariable $c.Step.text $c.Vars
@@ -1015,8 +1162,16 @@ Register-SequenceAction -Name 'fetchAndExecute' -HostIORequirement @('Send-Text'
         $timeout = $c.Step.timeoutSeconds ? [int]$c.Step.timeoutSeconds : $c.DefaultTimeoutSeconds
         $poll    = $c.Step.pollSeconds    ? [int]$c.Step.pollSeconds    : $c.DefaultPollSeconds
         $failPatterns = @()
-        if ($c.Step.failPattern) {
-            $failPatterns = @(& $c.ExpandVariable $c.Step.failPattern $c.Vars)
+        $rawFail = $c.Step.failurePatterns
+        if ($null -ne $rawFail) {
+            # Same string-or-array shape every other pattern-bearing verb
+            # accepts, so `failurePatterns` means one thing across the schema
+            # rather than one thing here and another everywhere else.
+            $failPatterns = if ($rawFail -is [System.Collections.IEnumerable] -and $rawFail -isnot [string]) {
+                @($rawFail | ForEach-Object { & $c.ExpandVariable $_ $c.Vars })
+            } else {
+                @(& $c.ExpandVariable $rawFail $c.Vars)
+            }
         } else {
             # This IS the fetchAndExecute action, so its fetch-and-execute
             # contract (automation/fetch-and-execute.sh) always applies: the
@@ -1030,7 +1185,7 @@ Register-SequenceAction -Name 'fetchAndExecute' -HostIORequirement @('Send-Text'
             # (Test-OCRMatch is fuzzy and would otherwise match the echoed
             # 'fetch-and-execute.sh ...' command line on the first poll and fail
             # a healthy run in ~4 s); "NONZERO" cannot collide with a command or
-            # normal script output. A step can still override via failPattern.
+            # normal script output. A step can still override via failurePatterns.
             $failPatterns = @($script:NonzeroScriptExitSentinel)
         }
         # The window is the ONLY thing keeping a marker printed by an EARLIER
@@ -1051,10 +1206,17 @@ Register-SequenceAction -Name 'fetchAndExecute' -HostIORequirement @('Send-Text'
         # freshMatchTailLines as far as its own output needs. The near-miss
         # report at the wait's timeout names that knob and the value to use.
         $tailLines = $c.Step.freshMatchTailLines ? [int]$c.Step.freshMatchTailLines : 24
-        Write-Debug "      fetchAndExecute: waiting for '$waitPattern' (timeout: ${timeout}s, freshMatch, tail ${tailLines} lines); failurePatterns=$($failPatterns -join ', ')"
+        # The shell-rejection set is NOT part of $failPatterns and is not
+        # overridable with them: those describe how this step's PAYLOAD fails,
+        # and a step that wants to say something about its own script has no
+        # reason to also give up the harness reading whether the command line
+        # was accepted at all.
+        Write-Debug "      fetchAndExecute: waiting for '$waitPattern' (timeout: ${timeout}s, freshMatch, tail ${tailLines} lines); failurePatterns=$($failPatterns -join ', '); shell-rejection window=${script:ShellRejectionWindowSeconds}s"
         return [bool](Wait-ForText -HostType $c.HostType -VMName $c.VMName -Pattern @($waitPattern) `
             -TimeoutSeconds $timeout -PollSeconds $poll -FreshMatch $true `
-            -FreshMatchTailLines $tailLines -FailurePattern $failPatterns)
+            -FreshMatchTailLines $tailLines -FailurePattern $failPatterns `
+            -EarlyFailurePattern $script:ShellRejectedCommandPattern `
+            -EarlyFailureSeconds $script:ShellRejectionWindowSeconds)
     }
 
 Register-SequenceAction -Name 'sshWaitReady' -HostIORequirement @() -OcrRequired $false `

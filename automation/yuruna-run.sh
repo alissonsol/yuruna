@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.21
+# Version: 2026.08.23
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -76,7 +76,7 @@ if [ "$YR_CANCEL" = '1' ]; then
         [ -n "$yr_pgid" ] && kill -KILL "-${yr_pgid}" 2>/dev/null
     fi
     printf '%s' '143' > "${YR_STATUS}.tmp" 2>/dev/null && mv "${YR_STATUS}.tmp" "$YR_STATUS" 2>/dev/null
-    echo "YURUNA_RUN_CANCELLED token=${YR_TOKEN}" >&2
+    echo "YURUNA_RUN_CANCELED token=${YR_TOKEN}" >&2
     exit 0
 fi
 

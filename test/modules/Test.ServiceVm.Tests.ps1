@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 4244dbae-a452-49ac-b6cb-0ab2d797bde7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,7 +19,7 @@
 <#
 .SYNOPSIS
     Pester coverage for Test.ServiceVm.psm1: the roster, the port probe, and the
-    restore sweep's behaviour with and without a per-host VM contract loaded.
+    restore sweep's behavior with and without a per-host VM contract loaded.
 .DESCRIPTION
     The restore sweep's start path needs a real hypervisor, so what is asserted
     here is everything around it that a wrong answer would break silently: that
@@ -133,7 +133,7 @@ Describe 'Restore-YurunaServiceVM' {
             Assert-True ([bool]$x.Message) 'carries a reason'
         }
     }
-    It 'honours the key filter' {
+    It 'honors the key filter' {
         $r = @(Restore-YurunaServiceVM -Key 'stash' -Confirm:$false)
         Assert-Equal 1 $r.Count
         Assert-Equal 'stash' $r[0].Key

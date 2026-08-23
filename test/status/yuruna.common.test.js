@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.08.21
+  Version: 2026.08.23
 
   Framework-free checks for test/status/yuruna.common.js. Run: node yuruna.common.test.js
   (exit 0 = pass). No package.json / test runner in the repo, so this uses the Node
@@ -176,4 +176,31 @@ assert.strictEqual(pbt(false, true, 'pass', null, true, ['stash-service']),
   'Test paused',
   'an effective cycle-pause also outranks the hold');
 
-console.log('PASS: yuruna.common.js -- 25 assertions');
+// (8) A step-pause holds the runner while the guest keeps running, so the
+//     banner has to say more than that someone pressed pause: how long the hold
+//     has run, and that a guest is live under it. Both are what turn a hold that
+//     is quietly costing a boot-time prompt into something an operator can see.
+//     The age is bucketed on purpose -- the banner is an aria-live region, and a
+//     per-minute counter would re-announce itself for as long as the hold lasts.
+var pausedAction = { line: '[sequence start] Paused (waiting for resume)', vmName: 'test-guest.ubuntu.server.24-01' };
+var ageMinutes = function(m) { return new Date(Date.now() - m * 60000).toISOString(); };
+assert.strictEqual(pbt(true, false, 'running', { line: '[1/5] Paused (waiting for resume)' }, false, [], ageMinutes(0)),
+  'Test paused',
+  'a hold younger than the first bucket reads as a plain pause');
+assert.strictEqual(pbt(true, false, 'running', { line: '[1/5] Paused (waiting for resume)' }, false, [], ageMinutes(7)),
+  'Test paused -- 5m+',
+  'the age is reported at the bucket it has crossed, not to the minute');
+assert.strictEqual(pbt(true, false, 'running', pausedAction, false, [], ageMinutes(35)),
+  'Test paused -- 30m+, guest test-guest.ubuntu.server.24-01 running',
+  'a live guest under the hold is named alongside its age');
+assert.strictEqual(pbt(true, false, 'running', pausedAction, false, [], ageMinutes(150)),
+  'Test paused -- 2h+, guest test-guest.ubuntu.server.24-01 running',
+  'holds past an hour read in hours');
+assert.strictEqual(pbt(true, false, 'running', pausedAction, false, []),
+  'Test paused -- guest test-guest.ubuntu.server.24-01 running',
+  'a missing stamp still names the guest: the flag is the truth about the hold');
+assert.strictEqual(pbt(false, false, 'running', pausedAction, false, [], ageMinutes(35)),
+  null,
+  'no hold means no banner, whatever the stamps say');
+
+console.log('PASS: yuruna.common.js -- 31 assertions');

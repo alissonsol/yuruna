@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42d14c70-0d75-4092-84e4-29debef3a34b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -45,7 +45,7 @@
     Where a platform cannot say whether a device is internal, the volume is
     COUNTED rather than dropped. Over-reporting an exotic disk controller is a
     smaller lie than reporting a machine with no storage at all, and the
-    de-duplication -- which needs no such judgement -- still holds.
+    de-duplication -- which needs no such judgment -- still holds.
 
     Sizes come from [System.IO.DriveInfo] on all three platforms, so the free
     space reported is the space a filesystem would actually accept. The
@@ -573,7 +573,7 @@ function Test-PermanentLinuxDisk {
 
     .OUTPUTS
         [bool] permanent or not. True when sysfs does not describe the disk,
-        so an unrecognised controller reports its storage rather than losing it.
+        so an unrecognized controller reports its storage rather than losing it.
     #>
     [CmdletBinding()]
     [OutputType([bool])]

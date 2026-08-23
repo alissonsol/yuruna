@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 4246a89e-2ebb-49a1-87a4-31d719f44bf1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -173,7 +173,7 @@ $global:__YurunaHostId = Get-YurunaHostId
 # Boot-time recovery sweep. Resolves the stale-state classes a prior
 # crash left behind: orphan `.incomplete` cycle-folder markers,
 # stale inner.pid whose process is gone, a stale break-active.json
-# that no live runner is honouring, and leftover pause flags
+# that no live runner is honoring, and leftover pause flags
 # (control.step-pause / control.cycle-pause) so a fresh launch never
 # inherits a prior session's pause -- the same Clear-StalePauseFlag
 # policy Invoke-TestProject and Debug-TestSequence apply directly at their startup.
@@ -189,7 +189,7 @@ if (Get-Command Invoke-YurunaBootRecovery -ErrorAction SilentlyContinue) {
 # Runner state machine init. Reads runner.state.json; if the prior
 # state is not 'idle' AND the prior runId differs from ours, the
 # previous outer crashed mid-lifecycle -- Initialize-RunnerState
-# synthesises a <stale-state> -> fault -> idle pair on the NDJSON
+# synthesizes a <stale-state> -> fault -> idle pair on the NDJSON
 # stream so a downstream consumer sees the crash explicitly. Then
 # writes a fresh 'idle' state under our runId.
 if (Get-Command Initialize-RunnerState -ErrorAction SilentlyContinue) {
@@ -228,11 +228,11 @@ $priorRunner = Get-RunnerInstanceState -RunnerPidFile $RunnerPidFile -RunnerStar
 switch ($priorRunner.status) {
     'OtherRunner' {
         Write-Output ""
-        Write-Output "============================================="
+        Write-Output "========"
         Write-Output "  Another Start-TestRunner is running"
         Write-Output "  PID:    $($priorRunner.pid)"
         Write-Output "  Action: stopping it + Remove-TestVMFiles.ps1"
-        Write-Output "============================================="
+        Write-Output "========"
         Stop-StaleRunner -ProcessId $priorRunner.pid -TestRoot $TestRoot -Confirm:$false
     }
     'Stale' {
@@ -269,12 +269,11 @@ $script:ShutdownState = Register-EntryPointCancelHandler -ExitAfterLabel 'cycle'
 # -NoProfile, and single-quote escaping live in the helper, not here:
 # see test/modules/Test.InnerSpawn.psm1.
 $pwshExe = Get-PwshExePath
-# Outer-only switches that the inner does not accept. Filter so the
-# inner pwsh doesn't error with "A parameter cannot be found that
-# matches parameter name 'NoConfigGate'" when the operator passes it
-# to the outer.
-$script:OuterOnlyParams = @('NoConfigGate')
-$argList = New-InnerRunnerArgList -ScriptPath $InnerScript -Parameters $PSBoundParameters -ExcludeParameter $script:OuterOnlyParams
+# Every switch here forwards, -NoConfigGate included: the inner gates each
+# cycle it runs, so an operator who bypassed the startup gate for an
+# in-progress edit would otherwise be stopped by that same check one layer
+# down, on the very run they asked to bypass it for.
+$argList = New-InnerRunnerArgList -ScriptPath $InnerScript -Parameters $PSBoundParameters
 
 # --- REGION: Helpers
 # git / config / watchdog / Sync-ForwardEnv / Write-OuterLog helpers all
@@ -292,7 +291,7 @@ $argList = New-InnerRunnerArgList -ScriptPath $InnerScript -Parameters $PSBoundP
 # absence as evidence that Start-Process -Wait hung.
 Write-OuterLog "===== outer runner started (PID $PID) ====="
 Write-Output ""
-Write-Output "============================================="
+Write-Output "========"
 Write-Output "  Yuruna outer runner"
 Write-Output "  Inner:        $InnerScript"
 Write-Output "  Backoff cap:  $($script:FailurePauseMaxSeconds / 60) min"
@@ -310,7 +309,7 @@ if ($script:ForwardEnvSnapshot.Count -gt 0) {
     $namesList = $script:ForwardEnvNames -join ', '
     Write-Output "  Forwarded env: (none of $namesList set in launch shell)"
 }
-Write-Output "============================================="
+Write-Output "========"
 
 # Why a missing powershell-yaml is a hard stop rather than a warning:
 # docs/runner-outer-loop.md#powershell-yaml-must-be-installed
@@ -334,7 +333,7 @@ if (-not (Get-Module -ListAvailable -Name powershell-yaml -ErrorAction SilentlyC
 # host with a broken network. No-op on Windows/macOS and when already covered
 # by a drop-in, in which case nothing prints and nothing prompts.
 # Get-Command-guarded so a runner whose framework clone predates the module
-# degrades to the previous behaviour rather than failing to launch.
+# degrades to the previous behavior rather than failing to launch.
 $elevationHostType = Get-HostType
 if ($elevationHostType -and (Get-Command Assert-RunnerElevation -ErrorAction SilentlyContinue)) {
     if (-not (Assert-RunnerElevation -HostType $elevationHostType)) {

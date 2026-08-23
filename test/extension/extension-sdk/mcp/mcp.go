@@ -32,6 +32,7 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -76,6 +77,14 @@ type Tool struct {
 	// minimal -- it is what an agent reads to decide how to call, so a wrong
 	// one is worse than a sparse one.
 	InputSchema json.RawMessage
+
+	// OutputSchema is JSON Schema for the RESULT. Optional, and worth writing
+	// wherever a number carries a unit: the only thing naming a unit today is
+	// the spelling of a key (CacheSizeKB is kibibytes, LastSeenUnixMs is epoch
+	// milliseconds), which a consumer has to guess at. When set, the result
+	// carries structuredContent as well as the text block, and tools/list
+	// advertises the schema so an agent knows the shape before it calls.
+	OutputSchema json.RawMessage
 
 	// ReadOnly tools skip the gate. It is a claim about the handler, not a
 	// convenience: set it only when calling the tool changes nothing an
@@ -320,7 +329,7 @@ func (s *Server) dispatch(r *http.Request, req rpcRequest) rpcResponse {
 			if len(schema) == 0 {
 				schema = json.RawMessage(`{"type":"object","properties":{}}`)
 			}
-			out = append(out, map[string]any{
+			entry := map[string]any{
 				"name":        t.Name,
 				"description": t.Description,
 				"inputSchema": schema,
@@ -329,7 +338,14 @@ func (s *Server) dispatch(r *http.Request, req rpcRequest) rpcResponse {
 					"destructiveHint": t.Destructive,
 					"idempotentHint":  t.Idempotent,
 				},
-			})
+			}
+			// Omitted rather than sent empty: a client reads its presence as
+			// "this result has a declared shape", and an empty one would be a
+			// promise with nothing behind it.
+			if len(t.OutputSchema) > 0 {
+				entry["outputSchema"] = t.OutputSchema
+			}
+			out = append(out, entry)
 		}
 		return rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{"tools": out}}
 
@@ -390,13 +406,22 @@ func (s *Server) callTool(r *http.Request, req rpcRequest) rpcResponse {
 			"content": []map[string]any{{"type": "text", "text": err.Error()}},
 		}}
 	}
-	return rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: map[string]any{
+	payload := map[string]any{
 		"isError": false,
 		"content": []map[string]any{{"type": "text", "text": encodeResult(result)}},
-	}}
+	}
+	// Both members, not one: the text block is what a client that reads only
+	// text has always used, and structuredContent is the same value unrendered
+	// for one that can parse. The spec requires the two to agree, which
+	// returning the same object satisfies by construction. Only sent when the
+	// tool declares a schema, so nothing claims a shape it has not described.
+	if len(tool.OutputSchema) > 0 {
+		payload["structuredContent"] = result
+	}
+	return rpcResponse{JSONRPC: "2.0", ID: req.ID, Result: payload}
 }
 
-// Arguments normalises a missing or null arguments member to an empty object,
+// Arguments normalizes a missing or null arguments member to an empty object,
 // so every handler can unmarshal without first checking for absence.
 func (t Tool) Arguments(raw json.RawMessage) json.RawMessage {
 	if len(raw) == 0 || string(raw) == "null" {
@@ -461,23 +486,120 @@ func (rec *recorder) WriteHeader(code int) { rec.status = code }
 // The cost is a JSON round-trip in the same process, which is nothing next to
 // the reads themselves. A non-2xx from the handler becomes an error carrying
 // the body, so a route that refuses still refuses through the tool.
-func FromRoute(h http.HandlerFunc, method, target string) func(context.Context, json.RawMessage) (any, error) {
-	return func(ctx context.Context, _ json.RawMessage) (any, error) {
-		req, err := http.NewRequestWithContext(ctx, method, target, nil)
+// FromRouteWithArgs is FromRoute for a route that takes parameters. build turns
+// the tool's arguments into the final request target -- query string, path
+// segments, or both -- so the tool can reach everything the route can.
+//
+// FromRoute below is the NO-ARGUMENT form and discards args deliberately. That
+// is safe only when the route has nothing to vary; using it on a route that
+// does means the argument is silently swallowed and the caller gets an answer
+// to a question it did not ask. Reach for this one whenever the target is not
+// a constant.
+//
+// A build that rejects its input should return a *ReasonError with Reason
+// "invalid-arguments", so the refusal is machine-readable rather than arriving
+// as a generic failure.
+func FromRouteWithArgs(h http.HandlerFunc, method, target string, build func(json.RawMessage) (string, error)) func(context.Context, json.RawMessage) (any, error) {
+	return func(ctx context.Context, args json.RawMessage) (any, error) {
+		finalTarget := target
+		if build != nil {
+			built, err := build(args)
+			if err != nil {
+				return nil, err
+			}
+			if built != "" {
+				finalTarget = built
+			}
+		}
+		return callRoute(ctx, h, method, finalTarget)
+	}
+}
+
+// FromRouteWithBody is FromRouteWithArgs for a route that reads a JSON BODY --
+// which is every mutating route on these daemons. build turns the tool's
+// arguments into the request target AND the body bytes, so the tool sends what
+// the UI's fetch would send and the handler cannot tell the two apart.
+//
+// The gate is NOT this function's job and must not be wired into it. A mutating
+// tool passes s.Gate.Allow on the INCOMING MCP request before its handler is
+// reached, using the daemon's own Authed -- so "may an agent do this" and "may
+// a curl do this" resolve through one implementation. Wrapping the gated
+// handler here as well would check a synthesized request that carries no
+// credential and refuse everything.
+func FromRouteWithBody(h http.HandlerFunc, method, target string, build func(json.RawMessage) (string, []byte, error)) func(context.Context, json.RawMessage) (any, error) {
+	return func(ctx context.Context, args json.RawMessage) (any, error) {
+		finalTarget, body, err := build(args)
 		if err != nil {
 			return nil, err
 		}
-		rec := &recorder{status: http.StatusOK}
-		h(rec, req)
-		if rec.status < 200 || rec.status > 299 {
-			return nil, fmt.Errorf("%s %s answered %d: %s", method, target, rec.status, string(rec.body))
+		if finalTarget == "" {
+			finalTarget = target
 		}
-		var out any
-		if err := json.Unmarshal(rec.body, &out); err != nil {
-			// Not every route answers JSON -- /healthz writes plain text -- and
-			// the text is still the answer.
-			return string(rec.body), nil
-		}
-		return out, nil
+		return callRouteBody(ctx, h, method, finalTarget, body)
 	}
+}
+
+func FromRoute(h http.HandlerFunc, method, target string) func(context.Context, json.RawMessage) (any, error) {
+	return func(ctx context.Context, _ json.RawMessage) (any, error) {
+		return callRoute(ctx, h, method, target)
+	}
+}
+
+// FromPattern is the wrapper for a route whose target carries {placeholders}.
+//
+// Calling such a handler directly does NOT work, and fails quietly rather than
+// loudly: r.PathValue resolves only for a request that was ROUTED, so on a
+// synthesized one every placeholder reads as the empty string and the handler
+// answers "that argument is required" for an argument the caller supplied. The
+// request is therefore routed through a ServeMux registered with the route's
+// own pattern -- the same matching production uses, rather than a second
+// extraction to keep in step with it.
+//
+// pattern is the mux pattern including its method, e.g.
+// "GET /api/v1/images/{hostType}/{imageKey}". build returns the concrete target
+// and, for a mutating route, the body.
+func FromPattern(pattern string, h http.HandlerFunc, method string, build func(json.RawMessage) (string, []byte, error)) func(context.Context, json.RawMessage) (any, error) {
+	mux := http.NewServeMux()
+	mux.HandleFunc(pattern, h)
+	routed := http.HandlerFunc(mux.ServeHTTP)
+	return func(ctx context.Context, args json.RawMessage) (any, error) {
+		target, body, err := build(args)
+		if err != nil {
+			return nil, err
+		}
+		return callRouteBody(ctx, routed, method, target, body)
+	}
+}
+
+// callRoute drives one handler with a synthesized request and turns what it
+// wrote into the tool's return. Shared by every wrapper so a tool that takes
+// arguments and one that does not cannot answer in different shapes.
+func callRoute(ctx context.Context, h http.HandlerFunc, method, target string) (any, error) {
+	return callRouteBody(ctx, h, method, target, nil)
+}
+
+func callRouteBody(ctx context.Context, h http.HandlerFunc, method, target string, body []byte) (any, error) {
+	var rdr io.Reader
+	if len(body) > 0 {
+		rdr = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, target, rdr)
+	if err != nil {
+		return nil, err
+	}
+	if len(body) > 0 {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	rec := &recorder{status: http.StatusOK}
+	h(rec, req)
+	if rec.status < 200 || rec.status > 299 {
+		return nil, fmt.Errorf("%s %s answered %d: %s", method, target, rec.status, string(rec.body))
+	}
+	var out any
+	if err := json.Unmarshal(rec.body, &out); err != nil {
+		// Not every route answers JSON -- /healthz writes plain text -- and
+		// the text is still the answer.
+		return string(rec.body), nil
+	}
+	return out, nil
 }

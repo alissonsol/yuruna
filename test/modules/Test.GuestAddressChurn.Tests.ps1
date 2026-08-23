@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42089573-8998-4e24-a068-6a573905dd7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -87,7 +87,7 @@ Describe 'Invoke-WaitVmIp settle window' {
         Assert-StringEqual -Expected '10.0.0.5' -Actual $got
     }
 
-    It 'honours StableForSeconds 0 as the first-answer behaviour' {
+    It 'honors StableForSeconds 0 as the first-answer behavior' {
         $r = Get-SequenceResolver -Answer @('10.0.0.5', '10.0.0.9')
         $got = Invoke-WaitVmIp -VMName 'guest' -TimeoutSeconds 30 -PollSeconds 1 -StableForSeconds 0 -ResolveVmIp $r.Script
         Assert-StringEqual -Expected '10.0.0.5' -Actual $got -Because 'a caller that re-resolves on its own must be able to waive the wait.'

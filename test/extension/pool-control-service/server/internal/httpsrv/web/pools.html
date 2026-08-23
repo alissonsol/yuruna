@@ -39,10 +39,16 @@
     <p class="muted">A pool groups hosts under a stable Pool ID (GUID); a host belongs to at most one pool.
       <strong>Pool Status</strong> reads what the members are doing now &mdash; choosing a
       value applies it to every member.</p>
-    <div id="notice" class="notice"></div>
+    <div id="notice" role="alert" class="notice"></div>
     <div class="row">
-      <input id="new-poolid" placeholder="pool-id (lowercase, dns-safe)" size="26">
-      <input id="new-display" placeholder="display name (optional)" size="24">
+      <label class="labeled-field">
+        <span class="scan-label">Pool id</span>
+        <input id="new-poolid" placeholder="lowercase, dns-safe" size="26">
+      </label>
+      <label class="labeled-field">
+        <span class="scan-label">Display name</span>
+        <input id="new-display" placeholder="optional" size="24">
+      </label>
       <button id="create" class="primary">Create pool</button>
     </div>
     <table>
@@ -61,10 +67,13 @@
     </table>
   </main>
   <footer id="footer-bar">
-    <span id="footer-ips"><span class="label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-label="Server IP addresses">--</textarea></span>
+    <span id="footer-ips"><span class="label" id="footer-ips-label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-labelledby="footer-ips-label">--</textarea></span>
     <span>Loaded: <span id="last-loaded">--</span><span id="footer-busy" aria-hidden="true" hidden></span></span>
-    <span><a id="footer-refresh" href="#">Refresh</a>: <span id="countdown">60</span>s</span>
+    <span><button type="button" id="footer-refresh" class="linkish">Refresh</button>: <span id="countdown">60</span>s <button type="button" id="footer-pause" class="linkish" aria-pressed="false">Pause</button></span>
   </footer>
+  <!-- The shared runtime first: it installs the baseline shims (fetch, KeyboardEvent.key)
+       and defines Y, which every script below extends rather than rebuilds. -->
+  <script src="/assets/yuruna.core.js"></script>
   <script src="/assets/common.js"></script>
   <script src="/assets/pools.js"></script>
 </body>

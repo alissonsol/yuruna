@@ -83,7 +83,7 @@ func TestAddressMetricsDoNotClaimAPoolVerdict(t *testing.T) {
 	s := newPoolState("default", 8080)
 	s.addrInUse, s.addrInUseHosts, s.addrDistinct = 7, 3, 5
 	rec := httptest.NewRecorder()
-	s.handleMetrics(rec, httptest.NewRequest("GET", "/metrics", nil))
+	s.handleMetrics(rec, metricsRequest())
 	body := rec.Body.String()
 	for _, want := range []string{
 		"yuruna_pool_lab_addresses_in_use 7",

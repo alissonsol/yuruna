@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42d9232d-ca85-4467-9819-14ed428ab4b9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -329,7 +329,7 @@ Describe 'Get-YurunaMachineCredential' {
     It 'returns empty when the machine holds nothing for the user' {
         $script:StubVault = @{}
         $script:StubUserMap = @{}
-        Get-YurunaMachineCredential -LogicalUser 'lab-auth-token' | Should -Be ''
+        Get-YurunaMachineCredential -LogicalUser 'internal-auth-key' | Should -Be ''
     }
     It 'never reaches Get-Password when no entry exists, so nothing is auto-generated' {
         # Get-Password on a vaultKey-less user with no entry CREATES one as a side

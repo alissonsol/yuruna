@@ -18,7 +18,7 @@ service:
   # No beaconInterval: the aggregator is the thing beacons are sent TO, and it
   # links none of the beacon code. A cadence declared here would describe
   # behavior this service does not have.
-  # /ingest and /api/v1/forget-host take the shared lab-auth-token as a bearer.
+  # /ingest and /api/v1/forget-host take the internal authentication key as a bearer.
   # /announce is deliberately open -- requiring the token would kill the beacon
   # exactly where it is needed -- and is contained by self-identity binding, a
   # health probe, and being telemetry-only.

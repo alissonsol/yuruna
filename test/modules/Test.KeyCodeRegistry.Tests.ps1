@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42821010-17c8-4b94-8563-02ee4198d0ea
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,7 +27,7 @@
     break: the by-reference accessor contract Test.Transport's $script:*
     aliases depend on, case-sensitivity of the char maps, PS/2 make codes
     staying inside the range where `make -bor 0x80` is a valid break code,
-    X11 keysyms equalling the ASCII code point, an identical covered
+    X11 keysyms equaling the ASCII code point, an identical covered
     character set across UTM / PS2 / X11, and the documented keypad
     exception for UTM '*' and '+'.
 

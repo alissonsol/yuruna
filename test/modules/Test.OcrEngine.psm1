@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 425af8de-0326-440d-a6ef-cfcf1c3376cb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,6 +18,11 @@
 
 # ConvertTo-LowerHex (SHA-256 -> lowercase-hex) is the shared leaf converter.
 Import-Module (Join-Path $PSScriptRoot 'Test.Hash.psm1') -Global -Force
+
+# Resolve-OcrImagePath / Clear-OcrImagePath: WinRT's StorageFile rejects a path
+# past the Windows long-path ceiling, so the image goes through the shared leaf
+# helper before either the worker or the one-shot spawn sees it.
+Import-Module (Join-Path $PSScriptRoot 'Test.OcrPath.psm1') -Global -Force
 
 <#
 .SYNOPSIS
@@ -767,53 +772,73 @@ function Invoke-WinRtOcr {
     #>
     param([Parameter(Mandatory)] [string]$ImagePath)
 
-    $absPath = (Resolve-Path $ImagePath).Path
-
-    # Worker is on by default. Operator opt-out: YURUNA_OCR_WORKER=0.
-    # Any other value (including unset / empty / '1' / 'true') keeps
-    # the worker engaged.
-    if ($env:YURUNA_OCR_WORKER -ne '0') {
-        try {
-            return (Invoke-WinRtOcrViaWorker -ImagePath $absPath)
-        } catch {
-            $workerErr = $_
-            $script:WinRtOcrWorkerFallbackCount++
-            Write-Verbose "WinRT OCR worker failed ($($workerErr.Exception.Message)); falling back to one-shot spawn for this call."
-            # Structured, rate-limited fallback signal (first occurrence, then
-            # every 10th) so chronic worker breakage surfaces in the cycle event
-            # stream instead of only under -Verbose -- without one event per poll
-            # when the worker is permanently broken.
-            if (($script:WinRtOcrWorkerFallbackCount -eq 1) -or ($script:WinRtOcrWorkerFallbackCount % 10 -eq 0)) {
-                Send-SoftCycleEvent -EventName 'ocr_worker_fallback' -Fields @{
-                    fallbackCount = $script:WinRtOcrWorkerFallbackCount
-                    error         = $workerErr.Exception.Message
+    # StorageFile.GetFileFromPathAsync rejects a path past the Windows long-path
+    # ceiling, and does it identically in the worker and in the one-shot spawn.
+    # The handle is released in the finally so both the worker's early return and
+    # the one-shot path below give a temporary copy back.
+    $pathHandle = Resolve-OcrImagePath -ImagePath $ImagePath
+    $absPath = [string]$pathHandle.Path
+    try {
+        # Worker is on by default. Operator opt-out: YURUNA_OCR_WORKER=0.
+        # Any other value (including unset / empty / '1' / 'true') keeps
+        # the worker engaged.
+        if ($env:YURUNA_OCR_WORKER -ne '0') {
+            try {
+                return (Invoke-WinRtOcrViaWorker -ImagePath $absPath)
+            } catch {
+                $workerErr = $_
+                $script:WinRtOcrWorkerFallbackCount++
+                Write-Verbose "WinRT OCR worker failed ($($workerErr.Exception.Message)); falling back to one-shot spawn for this call."
+                # Structured, rate-limited fallback signal (first occurrence, then
+                # every 10th) so chronic worker breakage surfaces in the cycle event
+                # stream instead of only under -Verbose -- without one event per poll
+                # when the worker is permanently broken.
+                if (($script:WinRtOcrWorkerFallbackCount -eq 1) -or ($script:WinRtOcrWorkerFallbackCount % 10 -eq 0)) {
+                    Send-SoftCycleEvent -EventName 'ocr_worker_fallback' -Fields @{
+                        fallbackCount = $script:WinRtOcrWorkerFallbackCount
+                        error         = $workerErr.Exception.Message
+                    }
                 }
+                # fall through to the one-shot path
             }
-            # fall through to the one-shot path
         }
-    }
 
-    $scriptFile = Get-WinRtOcrScriptPath
-    # Pin the native-command EAP so a non-zero powershell.exe exit reaches the
-    # explicit branch below instead of throwing a bare NativeCommandExitException
-    # on PS 7.4+ under EAP=Stop (feedback_winget_self_upgrade_kills_running_pwsh
-    # class). $LASTEXITCODE survives the 2>&1 variable assignment (no pipeline)
-    # and is snapshotted immediately.
-    $PSNativeCommandUseErrorActionPreference = $false
-    $output = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $scriptFile $absPath 2>&1
-    $exitCode = $LASTEXITCODE
-    if ($exitCode -ne 0) {
-        # Include BOTH stderr (ErrorRecord) and stdout (string) lines: a failing
-        # powershell.exe commonly writes its diagnostic to stdout, so filtering
-        # to ErrorRecord alone can throw with an empty detail. Join whatever is
-        # present so the failure is always diagnosable.
+        $scriptFile = Get-WinRtOcrScriptPath
+        # Pin the native-command EAP so a non-zero powershell.exe exit reaches the
+        # explicit branch below instead of throwing a bare NativeCommandExitException
+        # on PS 7.4+ under EAP=Stop (feedback_winget_self_upgrade_kills_running_pwsh
+        # class). $LASTEXITCODE survives the 2>&1 variable assignment (no pipeline)
+        # and is snapshotted immediately.
+        $PSNativeCommandUseErrorActionPreference = $false
+        $output = & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $scriptFile $absPath 2>&1
+        $exitCode = $LASTEXITCODE
+        # Partitioned once: the exit-code branch and the empty-read branch below
+        # both need to know whether the helper wrote a diagnostic.
         $errText = (@($output | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] } | ForEach-Object { "$_" })) -join "`n"
-        $outText = (@($output | Where-Object { $_ -is [string] })) -join "`n"
-        $detail  = (@($errText, $outText) | Where-Object { $_ }) -join "`n"
-        throw "WinRT OCR failed (exit $exitCode): $detail"
+        $text    = (@($output | Where-Object { $_ -is [string] })) -join "`n"
+        if ($exitCode -ne 0) {
+            # Include BOTH stderr (ErrorRecord) and stdout (string) lines: a failing
+            # powershell.exe commonly writes its diagnostic to stdout, so filtering
+            # to ErrorRecord alone can throw with an empty detail. Join whatever is
+            # present so the failure is always diagnosable.
+            $detail  = (@($errText, $text) | Where-Object { $_ }) -join "`n"
+            throw "WinRT OCR failed (exit $exitCode): $detail"
+        }
+        # powershell.exe -File exits 0 even when the script it ran threw, so the
+        # exit code alone cannot separate a blank screen from a helper that never
+        # reached its OCR call. Stderr is what separates them: a screen with no
+        # text produces neither stdout nor stderr, so text-less output carrying a
+        # diagnostic is a failed read and must throw. Returning '' instead is the
+        # silent case -- the caller is told the console is empty, no warning and
+        # no ocr_provider_failed event is raised, and anything waiting for that
+        # console to change waits out its whole budget against a dead reader.
+        if (-not $text -and $errText) {
+            throw "WinRT OCR read no text and reported: $errText"
+        }
+        return $text
+    } finally {
+        Clear-OcrImagePath -Handle $pathHandle
     }
-    $text = ($output | Where-Object { $_ -is [string] }) -join "`n"
-    return $text
 }
 
 Register-OcrProvider -Name 'winrt' `
@@ -1044,12 +1069,59 @@ function Write-VisionOcrSlowPathEvent {
     # Latch the negative cache and emit a ONE-TIME structured event so a
     # remediator sees macOS OCR has dropped to the slow `swift script.swift`
     # interpreter path. Idempotent: the flag both suppresses repeat events and
-    # short-circuits future probes.
-    param([Parameter(Mandatory)][string]$Reason)
+    # short-circuits future probes. -Fields carries per-reason evidence (the
+    # compiler's own words, the on-disk transcript path) so the event is
+    # actionable on its own instead of just naming the fallback.
+    param(
+        [Parameter(Mandatory)][string]$Reason,
+        [hashtable]$Fields = @{}
+    )
     if ($script:VisionOcrBinaryProbeFailed) { return }
     $script:VisionOcrBinaryProbeFailed = $true
-    Send-SoftCycleEvent -EventName 'ocr_vision_slowpath' -Fields @{
-        reason = [string]$Reason
+    $eventFields = @{ reason = [string]$Reason }
+    foreach ($key in $Fields.Keys) { $eventFields[$key] = $Fields[$key] }
+    Send-SoftCycleEvent -EventName 'ocr_vision_slowpath' -Fields $eventFields
+}
+
+function Save-VisionOcrCompileDiagnostic {
+    # Persist the full swiftc transcript plus the toolchain facts needed to act
+    # on it (compiler path, active developer dir, swiftc --version). The
+    # structured event only carries a tail; the compiler's complete words --
+    # e.g. xcrun's "invalid active developer path" after an OS update removes
+    # the Command Line Tools -- are what turn the slow-path latch from a
+    # symptom into a fix. Returns the log path, or '' when even the write
+    # fails: a diagnostic must never fail its caller.
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$LogPath,
+        [Parameter(Mandatory)][int]$ExitCode,
+        [AllowEmptyCollection()][string[]]$CompileOutput = @()
+    )
+    try {
+        $lines = @(
+            "vision OCR helper compile failure"
+            "timestamp (UTC) : " + (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+            "swiftc exit code: $ExitCode"
+        )
+        $swiftcCmd = Get-Command swiftc -ErrorAction SilentlyContinue
+        if ($swiftcCmd -and $swiftcCmd.Source) { $lines += "swiftc path     : $($swiftcCmd.Source)" }
+        if (Get-Command xcode-select -ErrorAction SilentlyContinue) {
+            $devDir = @(& xcode-select -p 2>&1 | ForEach-Object { $_.ToString() }) -join ' '
+            $lines += "xcode-select -p : $devDir"
+        }
+        if ($swiftcCmd) {
+            $lines += "swiftc --version:"
+            $lines += @(& swiftc --version 2>&1 | ForEach-Object { "  $($_.ToString())" })
+        }
+        $lines += ""
+        $lines += "compiler output:"
+        $lines += @($CompileOutput | ForEach-Object { "  $_" })
+        Set-Content -LiteralPath $LogPath -Value ($lines -join [Environment]::NewLine) -Encoding utf8
+        return $LogPath
+    } catch {
+        Write-Verbose "Vision OCR compile-diagnostic write failed: $($_.Exception.Message)"
+        return ''
     }
 }
 
@@ -1096,11 +1168,22 @@ function Get-VisionOcrBinaryPath {
     $PSNativeCommandUseErrorActionPreference = $false
     try {
         $script:VisionOcrSwift | Set-Content -Path $swiftFile -Encoding UTF8
-        & swiftc -O $swiftFile -o $tmpBin 2>&1 | Out-Null
+        $compileOut = @(& swiftc -O $swiftFile -o $tmpBin 2>&1 | ForEach-Object { $_.ToString() })
         $swiftcExit = $LASTEXITCODE
         if ($swiftcExit -ne 0 -or -not (Test-Path $tmpBin)) {
             Write-Verbose "Vision OCR swiftc compile failed (exit $swiftcExit); falling back to 'swift script.swift' invocation path."
-            Write-VisionOcrSlowPathEvent -Reason 'swiftc_compile_failed'
+            # Keep the compiler's evidence: full transcript + toolchain state
+            # on disk (keyed like the binary, so the cycles sharing this
+            # source share one log), and a bounded tail on the event itself.
+            $compileLog = Save-VisionOcrCompileDiagnostic -LogPath "$binPath.compile-failure.log" `
+                -ExitCode $swiftcExit -CompileOutput $compileOut
+            $outputTail = (@($compileOut | Select-Object -Last 8) -join ' | ')
+            if ($outputTail.Length -gt 600) { $outputTail = $outputTail.Substring($outputTail.Length - 600) }
+            Write-VisionOcrSlowPathEvent -Reason 'swiftc_compile_failed' -Fields @{
+                swiftcExit         = [int]$swiftcExit
+                compilerOutputTail = [string]$outputTail
+                compileLogPath     = [string]$compileLog
+            }
             return $null
         }
         Move-Item -Path $tmpBin -Destination $binPath -Force
@@ -1108,7 +1191,9 @@ function Get-VisionOcrBinaryPath {
         return $binPath
     } catch {
         Write-Verbose "Vision OCR swiftc compile threw: $($_.Exception.Message); using script-path fallback."
-        Write-VisionOcrSlowPathEvent -Reason 'swiftc_compile_threw'
+        Write-VisionOcrSlowPathEvent -Reason 'swiftc_compile_threw' -Fields @{
+            detail = [string]$_.Exception.Message
+        }
         return $null
     } finally {
         if (Test-Path $swiftFile) { Remove-Item $swiftFile -Force -ErrorAction SilentlyContinue }

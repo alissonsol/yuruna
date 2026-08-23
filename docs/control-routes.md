@@ -30,7 +30,7 @@ anyone on the LAN, `status.json` is served, and the config-sync read
 
 ## Where the proof comes from
 
-The proof is an HMAC over the shared **`lab-auth-token`** -- the same token that gates the
+The proof is an HMAC over the shared **internal authentication key** -- the same key that gates the
 aggregator's push-ingest and the cross-host credential fetch, **not a new secret**. The
 token itself never travels in a URL.
 
@@ -45,16 +45,16 @@ so a host whose clock trails the proxy still accepts a freshly minted proof. The
 captured once on arrival and never refreshed, so the config page shows a countdown and warns
 before it lapses rather than letting a long edit fail at Save.
 
-A host with **no** `lab-auth-token` is not broken -- it accepts control from loopback only.
+A host with **no** internal authentication key is not broken -- it accepts control from loopback only.
 
 The **extension service UIs** are handed the same proof the same way. Opening one from the
 dashboard's *Extension hosts* table goes through `/go/stash`, which mints a proof and leaves
 it in the fragment; the page spends it on `POST /api/unlock-proof` and its actions are
-unlocked without copying the rotating code off a dashboard tile. A service VM normally holds no `lab-auth-token` of its own, so it asks the aggregator
+unlocked without copying the rotating code off a dashboard tile. A service VM normally holds no internal authentication key of its own, so it asks the aggregator
 (`POST /api/v1/control-proof`) whether the proof is genuine -- a verifier, not a mint. No
 proof, or an expired one, and the UI's ordinary Lab token prompt is still there.
 
-The **Pool control service** presents the same proof when its *Pool Status* column pauses or
+The **Pool-control service** presents the same proof when its *Pool Status* column pauses or
 continues every member of a pool at once ([pool-admin.md](pool-admin.md#pool-status--pausing-and-continuing-every-member-at-once)).
 It mints one from its own copy of the token when it has one, and otherwise reads the fragment
 off `/go/host` without following the redirect -- the same proof, obtained as a browser
@@ -63,15 +63,19 @@ decides whether pool-wide control reaches it, and the `reason` table below expla
 
 ## Enabling remote control on a host
 
-Every host **and** the caching-proxy service must hold the **same** token value: a proof
-minted by the proxy can only be verified by a host that shares its token. The token
+Every host **and** the caching-proxy service must hold the **same** internal authentication key: a proof
+minted by the proxy can only be verified by a host that shares that key. The key
 originates on the caching-proxy service -- building the proxy VM mints one automatically
 when the building host has none -- and every other host obtains it by **enrolling with the
-Lab token**; nobody ever reads or types the secret itself.
+Lab token**. The key itself is never displayed anywhere, and the ordinary paths
+never ask anyone to type it; the one escape hatch that takes it directly
+(`-InternalAuthKey`, for a lab whose aggregator is unreachable) is fed from an
+already-enrolled host's vault.
 
 **1. Read the Lab token off the dashboard.** Open the *Yuruna hosts* dashboard (Grafana on
 the caching-proxy service) and find the **Lab token** tile at the top left of the summary
-row: a 6-character code, the **lab connection token**. It rotates every minute (aggregator
+row: a 6-character code -- the one credential an operator ever reads or types. It
+rotates every minute (aggregator
 `-lab-token-rotate`) and a displayed code stays redeemable for about three minutes, so read
 it right before the next step. A tile showing `off` means the aggregator holds no token --
 see item 5 in the 403 table below.
@@ -83,7 +87,7 @@ pwsh test/lab/Set-LabToken.ps1 -LabToken <code> -BounceStatusService
 ```
 
 The script redeems the code at the aggregator's `POST /api/v1/lab-token` and stores the
-shared `lab-auth-token` in this host's vault. The reply is **sealed under the code you
+internal authentication key in this host's vault. The reply is **sealed under the code you
 typed**, so only this host can open it: an enrolling host cannot yet verify the proxy's
 TLS certificate (it is signed by the proxy's own CA), and the seal stops anything else on
 the network from answering the exchange and planting a token of its choosing. The exchange
@@ -125,8 +129,8 @@ pwsh test/lab/Set-LabToken.ps1 -LabToken <code> -CachingProxyService <proxy> -Bo
 pwsh test/lab/Sync-HostConfiguration.ps1 -ReferenceHost <host>
 ```
 
-(`Sync-HostConfiguration.ps1 -SharedToken '<raw-token>' -PersistSharedToken` is the
-host-to-host path for a lab whose aggregator is unreachable: it takes the raw shared token
+(`Sync-HostConfiguration.ps1 -InternalAuthKey '<raw-key>' -PersistInternalAuthKey` is the
+host-to-host path for a lab whose aggregator is unreachable: it takes the raw key
 from an operator who already holds it and stores it the same way.)
 
 **3. Drive the host from the dashboard.** Open the *Yuruna hosts* dashboard on the
@@ -138,7 +142,7 @@ its first entry is that row's full id, GUID-formatted, to read and copy. In *Poo
 its second entry repeats the host link, so two cells per row carry the proof -- but
 **Control** is still the one that tells you whether control is on offer.
 
-The Pool control service's own tables link host ids at the same redirect. **Every browser
+The Pool-control service's own tables link host ids at the same redirect. **Every browser
 link to `/go/*` is plain http, even where the aggregator has a TLS leaf** -- the redirect
 lands on a host's plain-http status page, so https protects nothing the next hop does not
 already carry in clear, while putting a proxy-CA interstitial in front of every host link
@@ -151,8 +155,8 @@ the pool-control daemon downgrades the configured URL before the UI builds a lin
 
 | Cell | Meaning |
 |---|---|
-| **remote** (green) | this host holds the same `lab-auth-token` the proxy mints with, so its control buttons will work |
-| **onsite** (grey) | the host holds no token -- item 3 below |
+| **remote** (green) | this host holds the same internal authentication key the proxy mints with, so its control buttons will work |
+| **onsite** (gray) | the host holds no token -- item 3 below |
 | **onsite** (amber) | the host holds a *different* token, or its clock is skewed far enough to expire a fresh proof -- items 4 and 6 |
 | **unknown** | the host has not answered `/control/control-status`; a framework build older than this route does not serve it |
 
@@ -210,7 +214,7 @@ message, and the status pages render it in place of a bare `HTTP 403`:
 
 | `reason` | Meaning |
 |---|---|
-| `host-token-missing` | This host holds no `lab-auth-token`, so no proof can ever be accepted (item 3). |
+| `host-token-missing` | This host holds no internal authentication key, so no proof can ever be accepted (item 3). |
 | `proof-missing` | The request carried no proof at all -- usually item 1 or 2. |
 | `proof-expired` | A well-formed proof whose expiry has passed (item 1). |
 | `proof-invalid` | A proof that does not verify against this host's token (item 4). |
@@ -225,7 +229,7 @@ message, and the status pages render it in place of a bare `HTTP 403`:
    tab's `sessionStorage` and is per-origin: arriving on one of the host's addresses and then
    switching to another loses it. Re-enter through the dashboard host link. A minted proof
    lasts about 15 minutes; the config page shows a countdown and warns before it lapses.
-3. **The host has no `lab-auth-token` vault entry** (or an empty vault key) -- non-loopback
+3. **The host has no `internal-auth-key` vault entry** (or an empty vault key) -- non-loopback
    control is refused by design until the host is enrolled. Read the current Lab token off
    the dashboard and run `pwsh test/lab/Set-LabToken.ps1 -LabToken <code> -BounceStatusService`
    ([Enabling remote control on a host](#enabling-remote-control-on-a-host) above).
@@ -238,7 +242,7 @@ message, and the status pages render it in place of a bare `HTTP 403`:
    `curl -sI '<aggregator>/go/host?host=<hostId>'` shows a `Location:` with **no `#yctl=`
    fragment**, and `curl -sk -X POST '<aggregator>/ingest'` answers `503 ingest disabled`.
    Fix by rebuilding the proxy VM (the build mints and stores a token when none exists), or
-   by writing the host's stored value into `/etc/yuruna/lab-auth.token` there. A stale
+   by writing the host's stored value into `/etc/yuruna/internal-auth.key` there. A stale
    aggregator build shows the same symptom
    ([caching.md](caching.md#migrating-to-a-replacement-cache-vm)).
 6. **The host clock is skewed** far enough that a fresh proof already looks expired. The
@@ -274,7 +278,44 @@ The four pause/resume routes flip one of two flag files, each mirrored into
   the run stops after the current cycle finishes cleanup.
 
 The parent-side `Write-StatusJson` keeps file and JSON in sync by re-reading
-the flag files on each write.
+the flag files on each write. Each flag file carries the moment it was armed,
+mirrored as `stepPausedSinceUtc` / `cyclePausedSinceUtc`, so the banner can
+report a hold's age and not just its existence.
+
+### Which pause to use
+
+The two are not the same tool, and the difference is what keeps running:
+
+| | `control.cycle-pause` ("Pause after cycle") | `control.step-pause` ("Pause after step") |
+|---|---|---|
+| Holds at | the cycle boundary, after cleanup | the next step boundary, and at sequence start |
+| Guests | torn down; nothing is running | **still running**, and still printing |
+| Safe to leave parked | indefinitely | only as long as no guest needs driving |
+| Use it to | stop the lab, walk away, work on the host | freeze a specific guest you are about to inspect |
+
+**A step-pause holds the runner, not the guest.** The gate also fires at
+`[sequence start]` -- which is *after* `New-VM` and `Start-VM` -- so arming a
+pause before a guest's sequence begins parks a machine that is already booting.
+The guest goes on booting, installing and printing for as long as the hold
+lasts, and anything it prints once and never reprints can scroll out of the
+visible console in the meantime. A boot-time confirmation prompt is the sharp
+case: it stays live and still reading input, but its text is gone from the
+screen the resumed step has to read it off, so the step waits out its budget for
+a question that was answered nowhere.
+
+Rules of thumb:
+
+- Reach for cycle-pause unless you specifically need a guest frozen mid-sequence.
+- With a step-pause on a guest still in its boot phase, resume within about a
+  minute, or expect to drive the guest by hand afterwards.
+- If a hold ran long and the resumed step is waiting on a prompt, look at the
+  console: a prompt that has scrolled away is still live. Typing the answer into
+  it (`yes` for Ubuntu's autoinstall confirmation) releases the install without a
+  restart.
+- Both ends of every hold are on the event stream as `sequence_paused` /
+  `sequence_resumed`, and a hold released just before a failing step is carried
+  into that step's record as `causeDetail.pauseBeforeStepSeconds`. See
+  [failure-schema.md](failure-schema.md).
 
 ## GET /control/runner-status
 
@@ -313,7 +354,7 @@ whose token?" -- the input behind the dashboard's **Control** column:
 { "ok": true, "tokenConfigured": true, "tokenTag": "<base64>", "utcNow": "2026-07-29T12:34:56Z" }
 ```
 
-`tokenTag` is `base64(HMAC-SHA256(lab-auth-token, "yuruna-control|tag|v1"))` -- a
+`tokenTag` is `base64(HMAC-SHA256(internal-auth-key, "yuruna-control|tag|v1"))` -- a
 non-secret **name** for the token, not the token and not a hash of it. The aggregator
 derives the same tag from its own copy and compares: equal means a proof it mints will
 verify here, unequal means this host was enrolled against a different (usually rebuilt)
@@ -471,12 +512,12 @@ behind it is refused without a word.
 
 The route is open, like the file tree it archives: every byte in that archive is
 already readable file by file from the same server, so gating the convenient
-form of a read that is otherwise ungated would only be theatre.
+form of a read that is otherwise ungated would only be theater.
 
 ## See also
 
 - [pool-admin.md](pool-admin.md) -- running a pool and the *Yuruna hosts* dashboard.
-- [pool-storage.md](pool-storage.md) -- the `lab-auth-token`-gated credential fetch used
+- [pool-storage.md](pool-storage.md) -- the `internal-auth-key`-gated credential fetch used
   when syncing a new host's config.
 - [caching.md](caching.md#caching-proxy-service--test-harness-operator-reference) -- the caching-proxy-service VM that hosts Grafana and the
   pool-aggregator service.
@@ -488,6 +529,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.21
+Last review: 2026.08.23
 
 Back to [Yuruna](../README.md)

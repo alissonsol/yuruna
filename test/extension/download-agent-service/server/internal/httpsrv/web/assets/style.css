@@ -2,20 +2,38 @@
 /* Copyright (c) 2019-2026 by Alisson Sol et al. */
 
 /* Page tokens. The --chrome-* set is the shared one: see the page-chrome block
-   below for why it must not drift between services. */
+   below for why it must not drift between services.
+
+   --line and --control-edge are deliberately different values for the same
+   visual idea. --line draws dividers -- table rules, card edges -- which are
+   decorative, so a soft hairline is correct there. --control-edge draws the
+   boundary of a text input, and for those the border is the ONLY thing that
+   says a control is present: their fill is --bg, the same value the page
+   behind them paints. That makes it a graphical object required to identify a
+   component, which must clear 3:1 against both surfaces it meets.
+
+   --accent and --accent-fill split for the same reason: --accent is a
+   foreground (link text), and the dark theme lightens it so it reads on a dark
+   page. --accent-fill is a background under --accent-fill-fg, where lightening
+   moves the pair the wrong way. */
 :root { color-scheme: light dark;
         --fg:#111827; --muted:#6b7280; --line:#e5e7eb; --accent:#2563eb; --bg:#fff; --err:#b00020; --ok:#1a7f37; --warn:#9a6700;
+        --control-edge:#6b7280; --accent-fill:#2563eb; --accent-fill-fg:#ffffff;
+        --badge-muted-fg:#5b6472;
         --btn-bg:#f6f8fa; --btn-hover:#eef1f4; --track:#eef1f4;
         --band-odd:#f6f8fa; --band-even:#ffffff;
         --ok-bg:#e8f5ec; --ok-line:#b7e0c2; --warn-bg:#fff8e1; --warn-line:#f0dca0;
         --err-bg:#fde8ea; --err-line:#f3b6bd; --info-bg:#e8f0fb; --info-line:#bcd3f0; --neutral-bg:#f3f4f6;
         --chrome-bg:#111827; --chrome-fg:#f9fafb; --chrome-muted:#9ca3af; --chrome-line:#374151;
         --chrome-raised:#1f2937; --chrome-hover:#374151; --chrome-input-bg:#0b1220;
+        --chrome-control-edge:#8b93a1;
         --touch-min: 2.75rem;
         --mono: ui-monospace, Menlo, Consolas, monospace; }
 
 @media (prefers-color-scheme: dark) {
   :root { --fg:#e5e7eb; --muted:#94a3b8; --line:#1f2937; --accent:#74b8ff; --bg:#0b1220; --err:#fca5a5; --ok:#4ade80; --warn:#fcd34d;
+          --control-edge:#64748b; --accent-fill:#1d4ed8;
+          --badge-muted-fg:var(--muted);
           --btn-bg:#111827; --btn-hover:#1f2937; --track:#1f2937;
           --band-odd:#111827; --band-even:#0b1220;
           --ok-bg:#14532d; --ok-line:#166534; --warn-bg:#78350f; --warn-line:#92400e;
@@ -35,7 +53,14 @@
    Without this pin the table paints at a different size from the rest of the
    page. Prefixed form is the one Safari implements; the standard form covers
    the others. */
-html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
+       /* The footer bar is fixed at the bottom, so the browser's own
+          scroll-into-view can land a freshly focused control underneath it --
+          entirely hidden, for the inline hint links inside table rows. Padding
+          on <main> reserves space past the LAST element only; scroll-padding
+          is what the focus scroll itself honors. */
+       scroll-padding-bottom: 3.5rem;
+       scroll-padding-bottom: calc(3.5rem + env(safe-area-inset-bottom)); }
 body { font: 15px/1.5 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: var(--fg); background: var(--bg); margin: 0; }
 
 /* ===========================================================================
@@ -148,7 +173,7 @@ header.app .btn:not(.primary):hover { background: var(--chrome-raised); }
 textarea#footer-ip-list {
   flex: 1 1 auto; min-width: 0;
   font-family: var(--mono); font-size: .6875rem;
-  color: var(--chrome-muted); background: var(--chrome-input-bg); border: 1px solid var(--chrome-line);
+  color: var(--chrome-muted); background: var(--chrome-input-bg); border: 1px solid var(--chrome-control-edge);
   border-radius: 3px; padding: .15rem .35rem;
   resize: none; overflow: auto; white-space: pre;
   line-height: 1.25; vertical-align: middle;
@@ -196,6 +221,17 @@ footer.app a { color: var(--chrome-muted); }
   #footer-ips { flex-basis: 100%; max-width: 100%; }
   body.has-footer-bar main { padding-bottom: 4.5rem; padding-bottom: calc(4.5rem + env(safe-area-inset-bottom)); }
 }
+/* Footer controls that read as text. Both are real <button>s: the refresh was
+   an <a href="#"> that never navigated -- announced as a link, behaving as a
+   button, and silent to Space -- and the pause needs a pressed state, which
+   only a button has. */
+#footer-bar .linkish {
+  appearance: none; -webkit-appearance: none;
+  background: none; border: 0; padding: 0; margin: 0;
+  font: inherit; color: var(--chrome-muted);
+  text-decoration: underline; cursor: pointer;
+}
+#footer-bar .linkish[aria-pressed="true"] { color: var(--chrome-fg); font-weight: 600; }
 /* === end page chrome ====================================================== */
 
 main {
@@ -206,7 +242,11 @@ main {
 h1 { font-size: 1.15rem; margin: 0 0 1rem; }
 table { border-collapse: collapse; width: 100%; margin-top: .5rem; }
 th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
-th { color: var(--muted); font-weight: 600; font-size: .82rem; text-transform: uppercase; letter-spacing: .03em; }
+/* Scoped to thead: the body now carries a <th scope="row"> per row so the
+   image key names its own row, and that cell is data, not a column heading --
+   it must not inherit the uppercase muted treatment. */
+thead th { color: var(--muted); font-weight: 600; font-size: .82rem; text-transform: uppercase; letter-spacing: .03em; }
+tbody th { font-weight: 400; }
 tfoot td { font-weight: 600; border-bottom: none; border-top: 2px solid var(--line); }
 /* The counter column (Y.numCell). It numbers positions on screen rather than
    rows of data, so it is furniture: muted, as narrow as its digits, and right
@@ -236,10 +276,10 @@ th button.th-sort:hover { color: var(--fg); background: none; }
 .sort-arrow { margin-left: .25rem; }
 button { font: inherit; padding: .35rem .7rem; border: 1px solid var(--line); background: var(--btn-bg); color: var(--fg); border-radius: 5px; cursor: pointer; }
 button:hover { background: var(--btn-hover); }
-button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+button.primary { background: var(--accent-fill); color: var(--accent-fill-fg); border-color: var(--accent-fill); }
 button.danger { color: var(--err); }
 button:disabled { opacity: .5; cursor: default; }
-input { font: inherit; padding: .35rem .5rem; border: 1px solid var(--line); background: var(--bg); color: var(--fg); border-radius: 5px; }
+input { font: inherit; padding: .35rem .5rem; border: 1px solid var(--control-edge); background: var(--bg); color: var(--fg); border-radius: 5px; }
 .row { display: flex; flex-wrap: wrap; align-items: center; margin-bottom: 1rem; }
 .row > * + * { margin-left: .5rem; }
 .muted { color: var(--muted); }
@@ -257,15 +297,15 @@ code { font-family: var(--mono); font-size: .85rem; word-break: break-all; }
 .card-value { font-size: 1.05rem; font-weight: 600; margin-top: .15rem; }
 .card-sub { color: var(--muted); font-size: .78rem; margin-top: .1rem; word-break: break-all; }
 
-/* State badges. The colour says how urgent, the word says what. */
+/* State badges. The color says how urgent, the word says what. */
 .badge { display: inline-block; padding: .1rem .45rem; border-radius: 999px; font-size: .75rem; font-weight: 600; text-transform: uppercase; letter-spacing: .03em; border: 1px solid transparent; }
 .badge.fresh { background: var(--ok-bg); color: var(--ok); border-color: var(--ok-line); }
 .badge.stale { background: var(--warn-bg); color: var(--warn); border-color: var(--warn-line); }
 .badge.downloading { background: var(--info-bg); color: var(--accent); border-color: var(--info-line); }
 .badge.failed { background: var(--err-bg); color: var(--err); border-color: var(--err-line); }
 .badge.deleting { background: var(--err-bg); color: var(--err); border-color: var(--err-line); }
-.badge.absent { background: var(--neutral-bg); color: var(--muted); border-color: var(--line); }
-.badge.unsupported { background: var(--neutral-bg); color: var(--muted); border-color: var(--line); }
+.badge.absent { background: var(--neutral-bg); color: var(--badge-muted-fg); border-color: var(--line); }
+.badge.unsupported { background: var(--neutral-bg); color: var(--badge-muted-fg); border-color: var(--line); }
 .badge.unavailable { background: var(--warn-bg); color: var(--warn); border-color: var(--warn-line); }
 
 .verdict-verified { color: var(--ok); font-weight: 600; }
@@ -277,16 +317,20 @@ code { font-family: var(--mono); font-size: .85rem; word-break: break-all; }
 .err-line { color: var(--err); font-size: .8rem; word-break: break-word; }
 /* Guidance that stands in for an error the operator cannot act on. Warn, not
    error: the row is not broken beyond repair, there is a way to fill it by
-   hand. The links inherit the colour so the sentence reads as one instruction
+   hand. The links inherit the color so the sentence reads as one instruction
    rather than as three interface elements. */
 .hint { color: var(--warn); font-size: .8rem; word-break: break-word; }
 .hint a { color: inherit; }
 .actions button { margin: 0 .25rem .25rem 0; }
 
+/* Horizontal-scroll container, the same idiom the stash UI uses. The wrapper
+   scrolls -- never the <table> itself: `display: block` on a table drops the
+   table role out of the accessibility tree, and with it every aria-sort header
+   this page went out of its way to provide. The wrapper is focusable and named
+   so a keyboard user can reach and scroll it. */
+.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
 @media (max-width: 700px) {
-  /* The 8-column table overflows a phone; scroll the table itself instead of
-     the whole page (the stash UI's .table-wrap idiom). */
-  table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
   /* iOS Safari zooms the viewport when a focused text control computes under
      16px and never zooms back out; keep desktop density, pay 16px on phones.
      min-height widens the tap targets toward the 44px touch minimum. */
@@ -299,8 +343,21 @@ code { font-family: var(--mono); font-size: .85rem; word-break: break-all; }
 
 /* Diagnostics: captured child-process output (argv, stdout, stderr). Wraps
    long lines and scrolls itself so a dump never widens the page. */
+/* tabindex="0" is set in the markup that builds these: an overflow container
+   with no focusable descendant is unreachable by keyboard in Safari, which this
+   UI still targets, and even where the browser focuses scrollers by default an
+   unnamed focus stop is a mystery rather than a region. */
 pre.console {
   font-family: var(--mono); font-size: .8rem;
   background: var(--neutral-bg); border: 1px solid var(--line); border-radius: 6px;
   padding: .5rem .75rem; overflow-x: auto; white-space: pre-wrap; word-break: break-word;
 }
+
+/* Outcome of a per-row action, shown in the row that produced it. The banner
+   at the top of <main> stays -- this is the copy a magnifier user can actually
+   see, because at 400% zoom the banner and a row forty down are never on
+   screen together. */
+.row-feedback:empty { display: none; }
+.row-feedback { margin-top: .25rem; font-size: .8rem; }
+.row-feedback.ok { color: var(--ok); }
+.row-feedback.error { color: var(--err); }

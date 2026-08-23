@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42fe0370-a18f-43cd-81a7-83529d1edc9d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -652,7 +652,7 @@ Describe 'A Shared-NAT guest is answered by the lease file, and only by it' {
 
     It 'returns the lease the shared-NAT server filed under its name' {
         Reset-DiscoveryModule
-        # The on-link judgement is pinned: whether 192.168.64.x is reachable
+        # The on-link judgment is pinned: whether 192.168.64.x is reachable
         # depends on the vmnet bridge existing on the machine running this,
         # and that is not what the case is about.
         $ip = Invoke-InModule -Body { param($n, $b, $t) Get-UtmSharedLeaseIp -VMName $n -BundleNetwork $b -LeaseText $t -OnLinkVerdict { 'onlink' } } `
@@ -671,7 +671,7 @@ Describe 'A Shared-NAT guest is answered by the lease file, and only by it' {
 
     It 'reads the live lease file when no text is supplied' {
         Reset-DiscoveryModule
-        # The seam replaces the source, not the behaviour: unbound, the rung
+        # The seam replaces the source, not the behavior: unbound, the rung
         # must still go to the file. A host with no shared-NAT guest history
         # has no file, and declining is the correct answer there too.
         $ip = Invoke-InModule -Body { param($n, $b) Get-UtmSharedLeaseIp -VMName $n -BundleNetwork $b } `
@@ -709,7 +709,7 @@ Describe 'The MAC needle matches the form macOS prints' {
         $lines = @('? (192.168.70.51) at e6:1:bc:6d:21:cd on en0 ifscope [ethernet]')
         $ip = Invoke-InModule -Body { param($a, $n, $p) Select-ArpIpByMac -ArpLine $a -MacNeedle $n -SubnetPrefix $p } `
             -ArgumentList @($lines, 'e6:1:bc:6d:21:cd', $script:LanPrefix)
-        Assert-Null $ip 'a neighbouring subnet is not this LAN'
+        Assert-Null $ip 'a neighboring subnet is not this LAN'
     }
 
     It 'returns nothing for an empty table' {

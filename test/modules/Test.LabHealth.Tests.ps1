@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 420cd1af-0555-401a-9098-1c8630bba45a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -58,7 +58,7 @@ Import-Module (Join-Path $here 'Test.LabHealth.psm1') -Force -DisableNameCheckin
 # What they collect is appended to files in the per-test runtime dir rather than
 # to a global variable: the collection then has the same lifetime as the
 # directory an It block already creates and deletes, so no state survives a test
-# to colour the next one.
+# to color the next one.
 function global:Send-CycleEventSafely {
     [CmdletBinding()]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',

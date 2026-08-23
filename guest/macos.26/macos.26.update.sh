@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.21
+# Version: 2026.08.23
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -170,12 +170,6 @@ fi
 
 # --- REGION: Keep git non-interactive
 # --- REGION: https://yuruna.link/network#why-git-never-prompts-here
-# Belt to the seed's braces. These guests are driven by OCR of a console, so a
-# git credential prompt is a HANG rather than an error: the step spends its whole
-# timeout before anyone learns the clone could not authenticate. Set here as well
-# as in the image because this script runs under sudo and through non-login
-# shells, either of which drops an ambient export -- and because a guest built
-# from an older seed has no such export to drop.
 export GIT_TERMINAL_PROMPT=0
 if [ -x /usr/local/lib/yuruna/git-askpass.sh ]; then
     export GIT_ASKPASS=/usr/local/lib/yuruna/git-askpass.sh

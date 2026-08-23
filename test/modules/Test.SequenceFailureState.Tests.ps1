@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42da4d2b-cbcd-4c6d-b4e8-973686da3b1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -75,6 +75,11 @@ function Reset-FailState {
     # file reclassified as a flooded console -- the failure mode this baseline
     # exists to prevent.
     $f.WaitForTextConsoleFlood = $null
+    # Same reasoning as the flood slot: a test that sets either of these would
+    # otherwise leave every later test in this file reporting a parked console or
+    # an operator hold it never had.
+    $f.WaitForTextConsoleStaticSeconds = 0
+    $f.LastPauseRelease = $null
     return $f
 }
 
@@ -180,6 +185,42 @@ Describe 'New-SequenceFailureRecord classificationSource discrimination' {
         Assert-Equal -Expected 'pause_and_inspect' -Actual $sugg[0]
         Assert-True ($r.File.context.causeDetail.consoleFlood -like '*repeating line*') `
             'the evidence has to ride along, or the class is an assertion the artifact cannot support'
+    }
+
+    It 'records how long the console content sat unchanged' {
+        # The flood detail alone cannot separate a console still filling from one
+        # frozen on text that scrolled by earlier -- repeats are counted within a
+        # single frame, so both read as a flood. Only the second is a guest parked
+        # on something, and only the second can be unblocked by answering it.
+        $f = Reset-FailState
+        $f.WaitForTextConsoleFlood = "console filled with a repeating line while seeking 'Continue with autoinstall?'"
+        $f.WaitForTextConsoleStaticSeconds = 840
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        Assert-Equal -Expected 840 -Actual $r.File.context.causeDetail.consoleStaticSeconds `
+            -Because 'a wall of text that stopped moving is the evidence that the guest is waiting, not working'
+    }
+
+    It 'carries an operator hold released before the failing step' {
+        # The pause gate holds the runner, not the guest: a VM keeps running and
+        # printing through a hold, so a prompt printed during one is gone from the
+        # screen the resumed step then has to read. A record that omits the hold
+        # sends the reader looking for a guest fault that never happened.
+        $f = Reset-FailState
+        $f.LastPauseRelease = @{ releasedAtUtc = '2026-08-22T10:56:48Z'; heldSeconds = 1650; label = '[sequence start]'; pauseScope = 'step' }
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        Assert-Equal -Expected 1650 -Actual $r.File.context.causeDetail.pauseBeforeStepSeconds -Because 'the hold is part of the cause'
+        Assert-Equal -Expected '2026-08-22T10:56:48Z' -Actual $r.File.context.causeDetail.pauseReleasedAtUtc -Because 'when it ended places it against the step'
+    }
+
+    It 'leaves the pause and static fields at zero, not absent, with no hold' {
+        # Same contract the flood field is held to: always present, so a consumer
+        # never has to tell "no hold" from "this record predates the gate".
+        $null = Reset-FailState
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        Assert-True ($r.File.context.causeDetail.Contains('pauseBeforeStepSeconds')) 'the field must always be present'
+        Assert-Equal -Expected 0 -Actual $r.File.context.causeDetail.pauseBeforeStepSeconds
+        Assert-Equal -Expected '' -Actual $r.File.context.causeDetail.pauseReleasedAtUtc
+        Assert-Equal -Expected 0 -Actual $r.File.context.causeDetail.consoleStaticSeconds
     }
 
     It 'ranks a matched failure pattern above a flooded console' {

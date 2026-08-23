@@ -24,6 +24,38 @@ calls) before dispatching to the per-action handler. A step succeeds
 when its handler returns `$true`; the sequence stops on the first
 failure (with retry-wrapping as documented under `retry`).
 
+### Pause gates and consumable prompts
+
+Two gates can hold a run inside `Invoke-Sequence`: one at `[sequence start]`,
+one at each step boundary. Both hold the **runner**. The guest VM is created and
+started before the sequence begins, so it keeps running -- and printing -- for
+as long as the hold lasts.
+
+That matters for any step whose pattern is printed once and never reprinted.
+Ubuntu Server's `Continue with autoinstall?` is the canonical one: subiquity
+asks it a few seconds into boot, does not re-ask on a bare Enter, and goes on
+waiting for input behind whatever the console prints next. A hold long enough
+for that text to scroll away leaves the resumed step waiting out its budget for
+a question it can no longer see -- while the installer waits, still answerable,
+on the other side.
+
+Handling, in order of preference:
+
+1. Give the step `blindAfterSeconds` (see `waitForAndEnter`). It answers a
+   console that has gone quiet and takes the console moving again as proof the
+   answer landed.
+2. Where the prompt reprints on any input -- `login:` from agetty does -- nudge
+   before the wait instead, as `start.guest.ubuntu.server.24` does for its login
+   block. The two recoveries are not interchangeable: one prompt redraws and the
+   other does not.
+3. Prefer `control.cycle-pause` over `control.step-pause` when nothing needs a
+   guest frozen mid-sequence. See
+   [control-routes.md](control-routes.md#pause-and-resume-the-flag-file-back-channel).
+
+A hold that ended just before a failing step is recorded on that step's failure
+as `causeDetail.pauseBeforeStepSeconds`, so the record says so rather than
+reading as a guest that never printed.
+
 ## Built-in variables
 
 | Name | Value |
@@ -540,7 +572,7 @@ the command handles its own auth.
 | `command` | string | |
 | `timeoutSeconds` | number | Default `vmCommunication.timeoutSeconds`. |
 | `detach` | boolean | Default **true** here. See [Surviving a dropped session](#surviving-a-dropped-session). Set `false` to run in a plain session instead. |
-| `transportRetries` | number | Default `0`, and ignored while `detach` is true -- a detached step re-attaches rather than re-running, which needs no judgement about whether the payload is safe to repeat. |
+| `transportRetries` | number | Default `0`, and ignored while `detach` is true -- a detached step re-attaches rather than re-running, which needs no judgment about whether the payload is safe to repeat. |
 
 ### Surviving a dropped session
 
@@ -605,7 +637,24 @@ at the label's center. Hyper-V uses `vmconnect` + SendInput
 
 Wait for a text pattern via OCR, then type a string + Enter. Parameters
 are `waitForText`'s set plus `text`, `sensitive`, `tabCount`,
-`charDelayMs`, `delaySeconds` (same defaults as `inputTextAndEnter`).
+`charDelayMs`, `delaySeconds` (same defaults as `inputTextAndEnter`),
+plus the blind-answer set below.
+
+| Parameter | Type | Notes |
+|---|---|---|
+| `blindAfterSeconds` | integer | Split the budget: wait this long normally, then, if the console has gone quiet, send `text` anyway and watch for it to be consumed. `0`/absent (default) keeps the plain one-window behavior. Ignored when it is not shorter than `timeoutSeconds`. |
+| `confirmPattern` | string/array | What proves the blind answer landed. Without it, the proof is the console content changing at all. |
+| `confirmSeconds` | integer | How long to wait for that proof (default `90`). |
+
+`blindAfterSeconds` exists for prompts that are printed once and never
+reprinted. Such a prompt outlives its own text on screen: the guest is still
+reading input, but the pattern that would have proved it is gone and no further
+waiting brings it back. The answer is sent only when the wait's own verdict says
+the guest is parked -- console content unchanged for most of the window just
+spent -- so a guest that is still printing, and whose console may be read by
+something other than this step's prompt, is left alone. If the answer is not
+warranted, or is sent and nothing changes, the step spends the rest of its
+budget on the wait it was asked for and fails on its own terms.
 
 ### waitForSeconds
 
@@ -724,7 +773,7 @@ A bare `return` (no value) is coerced to `$false`. Always be explicit.
 | `FailureClass`       | `ValidateSet`: `ocr_timeout`, `network_timeout`, `credential_expired`, `host_io_blocked`, `pattern_matched_failure`, `retry_exhausted`, `snapshot_restore_failed`, `script_error`, `wait_timeout`, `extension_error`, `instrumentation_failure`, `provisioning_failure`, `bootstrap_sync`, `plan_invalid`, `elevation_required`, `project_access_denied`, `host_network_degraded`, `ip_not_discovered`, `payload_unavailable`, `pool_storage_full`, `dhcp_identity_unbounded`, `lab_dependency_down`, `unknown`                                       | Machine-readable failure category for downstream routing (no regex-on-label needed). The canonical list lives in `Test.FailureTaxonomy.psm1`; the ValidateSet is a literal copy because an attribute argument must be a constant expression, and `Assert-FailureTaxonomyInSync` at module load catches the two drifting apart. |
 | `Severity`           | `ValidateSet`: `hard`, `soft`, `unknown`                                                                                                                                                                                                                                                       | `soft` = retry is plausible; `hard` = retry won't help (e.g. snapshot restore failed); `unknown` = no claim either way.                                     |
 | `SuggestedRecoveries`| `[string[]]` -- free-form, ordered                                                                                                                                                                                                                                                              | Hints for an autonomous remediation loop. Common values: `retry_immediately`, `wait_and_retry`, `restore_snapshot`, `notify_operator`. A token outside the remediation dispatcher's vocabulary warns at registration. |
-| `UsesWaitSignals`    | `[bool]`                                                                                                                                                                                                                                                                                       | **Changes engine behavior.** `$true` lets the engine append `-- matched failurePattern "..."` to the step's failure label when the verb short-circuited on an anti-pattern. Set it on any verb that writes that signal: without it the step is labelled as a plain "pattern not found within Ns" timeout, so the ERROR banner and `last_failure.json` both hide the real cause -- a guest process that crashed and printed why. |
+| `UsesWaitSignals`    | `[bool]`                                                                                                                                                                                                                                                                                       | **Changes engine behavior.** `$true` lets the engine append `-- matched failurePattern "..."` to the step's failure label when the verb short-circuited on an anti-pattern. Set it on any verb that writes that signal: without it the step is labeled as a plain "pattern not found within Ns" timeout, so the ERROR banner and `last_failure.json` both hide the real cause -- a guest process that crashed and printed why. |
 | `CapturesOwnFailureScreenshot` | `[bool]`                                                                                                                                                                                                                                                                             | **Changes engine behavior.** `$true` suppresses the engine's generic post-failure `Get-VMScreenshot`. Set it on a verb that already writes `failure_screenshot_<vm>.png` from inside its own failure path: that frame was captured at the moment of failure, and the engine's later capture would overwrite it with whatever the screen shows once the step has given up. |
 
 Both flags are registry entries rather than verb-name lists inside the engine
@@ -974,6 +1023,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.21
+Last review: 2026.08.23
 
 Back to [Yuruna](../README.md)

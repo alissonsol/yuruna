@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42dd28f9-7cee-4413-a3f4-cd86d58bb561
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,7 +34,7 @@
     adding them, distinct pools still add up (partitions of one disk are not
     one pool), the platform classifiers name the attached cases, and an
     unclassifiable device is COUNTED -- a host whose controller no platform
-    recognises must not report a machine with no storage.
+    recognizes must not report a machine with no storage.
 
     The throw-based Assert-* helpers live in the file's BeforeAll, which is the
     scope Pester 5 shares with the It blocks; defining them at script scope
@@ -371,7 +371,7 @@ Describe 'Linux device classification' -Skip:($IsWindows) {
     }
 
     It 'counts a disk sysfs cannot describe' {
-        Assert-True (Test-PermanentLinuxDisk -Disk 'unknown0' -SysRoot $script:SysRoot) 'an unrecognised controller must not zero a host'
+        Assert-True (Test-PermanentLinuxDisk -Disk 'unknown0' -SysRoot $script:SysRoot) 'an unrecognized controller must not zero a host'
         Assert-True (Test-PermanentLinuxDisk -Disk '' -SysRoot $script:SysRoot) ''
     }
 }

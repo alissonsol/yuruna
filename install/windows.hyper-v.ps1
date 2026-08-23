@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 425b1941-f370-4155-9842-47cbe6837b47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -236,7 +236,7 @@ function Test-SystemRequirement {
         return
     }
     Write-Warning ''
-    Write-Warning '============================================================'
+    Write-Warning '========'
     Write-Warning '  System does not meet Yuruna TESTED requirements:'
     foreach ($i in $issues) { Write-Warning "    - $i" }
     Write-Warning ''
@@ -246,7 +246,7 @@ function Test-SystemRequirement {
     Write-Warning ''
     Write-Warning '  Continuing is permitted but UNTESTED; the test harness may'
     Write-Warning '  fail in ways the core development team cannot reproduce.'
-    Write-Warning '============================================================'
+    Write-Warning '========'
     Write-Warning ''
     $ans = Read-Host 'Continue anyway? [y/N]'
     if ($ans -notmatch '^[Yy](es)?$') {
@@ -316,7 +316,7 @@ function Test-DisplayScaling {
     }
 
     Write-Warning ''
-    Write-Warning '============================================================'
+    Write-Warning '========'
     Write-Warning '  Display / text scaling is not 100%:'
     foreach ($i in $issues) { Write-Warning "    - $i" }
     Write-Warning ''
@@ -325,7 +325,7 @@ function Test-DisplayScaling {
     Write-Warning '  run Enable-TestAutomation.ps1 to reset display scale to 100%'
     Write-Warning '  (then sign out / back in for it to take effect):'
     Write-Warning "    pwsh `"$YurunaDir\host\windows.hyper-v\Enable-TestAutomation.ps1`""
-    Write-Warning '============================================================'
+    Write-Warning '========'
     Write-Warning ''
 }
 
@@ -786,7 +786,7 @@ function Assert-YurunaCheckoutMovable {
         $probeMoved = Move-YurunaDirectory -From $full -To $probe
     } catch {
         Write-Warn ''
-        Write-Warn '============================================================'
+        Write-Warn '========'
         Write-Warn "  The Yuruna checkout cannot be renamed right now:"
         Write-Warn "    $Dir"
         Write-Warn "    $($_.Exception.Message)"
@@ -799,7 +799,7 @@ function Assert-YurunaCheckoutMovable {
         Write-Warn '  To clear it: close any shell sitting inside the checkout'
         Write-Warn '  (cd elsewhere) and any editor (VS Code) or Explorer window'
         Write-Warn '  holding it open.'
-        Write-Warn '============================================================'
+        Write-Warn '========'
         Write-Warn ''
         return
     }
@@ -1107,7 +1107,7 @@ if (Test-Path (Join-Path $YurunaDir '.git')) {
         }
         if ($LASTEXITCODE -ne 0) {
             Write-Warn ''
-            Write-Warn '============================================================'
+            Write-Warn '========'
             Write-Warn "  $actualRemote requires GitHub authentication to pull, and"
             Write-Warn "  the current credentials don't grant access (or no credentials"
             Write-Warn '  are configured).'
@@ -1118,7 +1118,7 @@ if (Test-Path (Join-Path $YurunaDir '.git')) {
             Write-Warn ''
             Write-Warn "  Continuing this run WITHOUT updating $YurunaDir --"
             Write-Warn '  existing on-disk content will be used as-is.'
-            Write-Warn '============================================================'
+            Write-Warn '========'
             Write-Warn ''
             $skipPull = $true
         }
@@ -1295,13 +1295,13 @@ $script:InstallSucceeded = $true
     # --- REGION: Done summary
     # --- REGION: https://yuruna.link/install/explained#trycatchfinally-with-summary-banner
     Write-Output ''
-    Write-Output '================================================================'
+    Write-Output '========'
     if ($script:InstallSucceeded) {
         Write-Output '   INSTALL RESULT: SUCCESS'
     } else {
         Write-Output '   INSTALL RESULT: FAILED'
     }
-    Write-Output '================================================================'
+    Write-Output '========'
     Write-Output ''
 
     if (-not $script:InstallSucceeded) {
@@ -1319,7 +1319,7 @@ $script:InstallSucceeded = $true
         Write-Output ("Full log of this run: " + $LogPath)
         if ($script:YurunaBackupCreated) {
             Write-Output ''
-            Write-Output '================================================================'
+            Write-Output '========'
             Write-Output 'NOTE: a backup of your previous Yuruna checkout was created'
             Write-Output "  earlier in this run because 'git pull --ff-only' could"
             Write-Output '  not advance the local repo. The backup is on disk even'
@@ -1330,7 +1330,7 @@ $script:InstallSucceeded = $true
             Write-Output 'Review the backup for any local edits you want to preserve.'
             Write-Output 'When you no longer need it, delete it manually:'
             Write-Output ("  Remove-Item -Recurse -Force '" + $script:YurunaBackupCreated + "'")
-            Write-Output '================================================================'
+            Write-Output '========'
         }
     }
     elseif ($script:RestartNeeded) {
@@ -1344,7 +1344,7 @@ $script:InstallSucceeded = $true
         Write-Warning '  a pwsh prompt in the test directory.'
         if ($script:YurunaBackupCreated) {
             Write-Warning ''
-            Write-Warning '================================================================'
+            Write-Warning '========'
             Write-Warning 'NOTE: a backup of your previous Yuruna checkout was created'
             Write-Warning "  earlier in this run because 'git pull --ff-only' could"
             Write-Warning '  not advance the local repo.'
@@ -1354,7 +1354,7 @@ $script:InstallSucceeded = $true
             Write-Warning 'Review the backup for any local edits you want to preserve.'
             Write-Warning 'When you no longer need it, delete it manually:'
             Write-Warning ("  Remove-Item -Recurse -Force '" + $script:YurunaBackupCreated + "'")
-            Write-Warning '================================================================'
+            Write-Warning '========'
         }
     }
     else {
@@ -1395,9 +1395,9 @@ $script:InstallSucceeded = $true
         $lines = New-Object System.Collections.Generic.List[string]
         $null = $lines.Add("Set-Location -LiteralPath '$testDirForScript'")
         $null = $lines.Add("Write-Host ''")
-        $null = $lines.Add("Write-Host '================================================================' -ForegroundColor Cyan")
+        $null = $lines.Add("Write-Host '========' -ForegroundColor Cyan")
         $null = $lines.Add("Write-Host '  Yuruna installer finished -- continue working here.' -ForegroundColor Cyan")
-        $null = $lines.Add("Write-Host '================================================================' -ForegroundColor Cyan")
+        $null = $lines.Add("Write-Host '========' -ForegroundColor Cyan")
         $null = $lines.Add("Write-Host ''")
         $null = $lines.Add("Write-Host 'NEXT STEPS:' -ForegroundColor Cyan")
         if ($hypervOpened) {
@@ -1418,7 +1418,7 @@ $script:InstallSucceeded = $true
         $null = $lines.Add("Write-Host ''")
         if ($script:YurunaBackupCreated) {
             $backupForScript = $script:YurunaBackupCreated -replace "'", "''"
-            $null = $lines.Add("Write-Host '============================================================' -ForegroundColor Yellow")
+            $null = $lines.Add("Write-Host '========' -ForegroundColor Yellow")
             $null = $lines.Add("Write-Host 'IMPORTANT: a backup of your previous Yuruna checkout was created' -ForegroundColor Yellow")
             $null = $lines.Add('Write-Host "  because ''git pull --ff-only'' could not advance the local repo." -ForegroundColor Yellow')
             $null = $lines.Add("Write-Host ''")
@@ -1427,7 +1427,7 @@ $script:InstallSucceeded = $true
             $null = $lines.Add("Write-Host 'Review the backup for any local edits you want to preserve.' -ForegroundColor Yellow")
             $null = $lines.Add("Write-Host 'When you no longer need it, delete it manually:' -ForegroundColor Yellow")
             $null = $lines.Add("Write-Host '  Remove-Item -Recurse -Force ''$backupForScript''' -ForegroundColor Yellow")
-            $null = $lines.Add("Write-Host '============================================================' -ForegroundColor Yellow")
+            $null = $lines.Add("Write-Host '========' -ForegroundColor Yellow")
             $null = $lines.Add("Write-Host ''")
         }
         $null = $lines.Add("Write-Host 'Re-running the installer is safe; it upgrades winget packages' -ForegroundColor DarkGray")
@@ -1456,9 +1456,9 @@ $script:InstallSucceeded = $true
 
         if (-not $shellOpened) {
             Write-Output ''
-            Write-Output '================================================================'
+            Write-Output '========'
             Write-Output '   HANDOFF WINDOW DID NOT OPEN -- DO THIS MANUALLY:'
-            Write-Output '================================================================'
+            Write-Output '========'
             if ($hypervOpened) {
                 Write-Output '   * Hyper-V Manager is open -- dismiss the first-run dialog,'
                 Write-Output '     then close that window.'
@@ -1475,10 +1475,10 @@ $script:InstallSucceeded = $true
             Write-Output  '       pwsh .\Start-TestRunner.ps1'
             Write-Output '   * Authenticate the GitHub CLI (one-time, optional):'
             Write-Output '       gh auth login'
-            Write-Output '================================================================'
+            Write-Output '========'
             if ($script:YurunaBackupCreated) {
                 Write-Output ''
-                Write-Output '================================================================'
+                Write-Output '========'
                 Write-Output 'IMPORTANT: a backup of your previous Yuruna checkout was created'
                 Write-Output "  because 'git pull --ff-only' could not advance the local repo."
                 Write-Output ''
@@ -1487,7 +1487,7 @@ $script:InstallSucceeded = $true
                 Write-Output 'Review the backup for any local edits you want to preserve.'
                 Write-Output 'When you no longer need it, delete it manually:'
                 Write-Output ("  Remove-Item -Recurse -Force '" + $script:YurunaBackupCreated + "'")
-                Write-Output '================================================================'
+                Write-Output '========'
             }
             Write-Output ''
             Write-Output 'This window will close automatically in 60 seconds.'
@@ -1503,6 +1503,9 @@ $script:InstallSucceeded = $true
 #
 # Only what this script installs: reporting on a cloud CLI the bootstrapper
 # never touches would bury the one real problem in a dozen expected absences.
+# curl is deliberately absent for that reason -- on Windows the name resolves
+# to the in-box %WINDIR%\System32\curl.exe, which Windows Update services and
+# nothing here can advance, so a gap it reported would be one no re-run clears.
 #
 # Warn, never fail. Finishing SILENTLY below a floor is the failure mode this
 # closes, and on Windows it is the likelier one: the PowerShell self-upgrade is
@@ -1513,7 +1516,7 @@ if (Test-Path -LiteralPath $requirementScript) {
     Write-Step 'Checking installed versions against the required floors'
     try {
         $reported = & pwsh -NoProfile -File $requirementScript `
-            -Tool 'PowerShell,git,qemu-img,curl' -WarnOnly 2>$null
+            -Tool 'PowerShell,git,qemu-img' -WarnOnly 2>$null
         foreach ($line in @($reported)) {
             if ("$line" -match '^REQUIREMENT-ISSUE: (.+)$') { Add-InstallIssue $Matches[1] }
         }
@@ -1527,7 +1530,7 @@ if (Test-Path -LiteralPath $requirementScript) {
 # scrolls; this does not.
 if ($script:YurunaIssue.Count -gt 0) {
     Write-Output ''
-    Write-Output '================================================================'
+    Write-Output '========'
     Write-Output ("INSTALL FINISHED WITH {0} ISSUE(S)" -f $script:YurunaIssue.Count)
     Write-Output ''
     foreach ($issue in $script:YurunaIssue) { Write-Output "  - $issue" }
@@ -1535,7 +1538,7 @@ if ($script:YurunaIssue.Count -gt 0) {
     Write-Output 'The install completed and the machine is usable. Each line above is'
     Write-Output 'something that did not happen as intended -- re-running this installer'
     Write-Output 'is safe and retries every one of them.'
-    Write-Output '================================================================'
+    Write-Output '========'
 } else {
     Write-Output ''
     Write-Output 'Install finished with no issues.'

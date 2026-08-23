@@ -29,7 +29,7 @@
     name in UTM: it keeps answering `utmctl status`, so the sequence engine
     reads it as an existing VM, skips creation, and starts a VM with no disk.
 
-    The behavioural cases put a fake `utmctl` on PATH (a registry of marker
+    The behavioral cases put a fake `utmctl` on PATH (a registry of marker
     files plus the same exits-0-on-failure delete) and point $HOME at a
     throwaway tree, so nothing here touches UTM or a real VM. The structural
     cases parse the module instead, for the ordering that only matters when a
@@ -65,7 +65,7 @@ Describe 'A UTM registration whose bundle is gone (host.macos.utm)' {
 
         Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
-        # The fake reproduces the two behaviours of the real tool that the code
+        # The fake reproduces the two behaviors of the real tool that the code
         # under test exists for: `status` is the only trustworthy answer to "is
         # this name registered", and `delete` exits 0 whether or not it deleted
         # anything, printing the OSStatus -2700 notice when the bundle it wants

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.21
+# Version: 2026.08.23
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -220,6 +220,27 @@ _yuruna_bump_trusted() {
 #        CA that does not match the bump.
 # Diagnostics go to stderr: stdout stays clean for the `... | bash` install
 # pipelines that source this lib.
+# Add one PEM to the system trust store. This lib is sourced by guests of both
+# the Debian and the RHEL family, which take an extra anchor in different
+# directories AND re-hash the store with different commands. The two halves have
+# to be chosen together -- a Debian-layout drop on a RHEL guest leaves a file
+# nothing reads and reports success -- so the refresh command selects the pair.
+# The extension must stay .crt: update-ca-certificates ignores every other one.
+_yuruna_ca_trust() {
+    if command -v update-ca-certificates >/dev/null 2>&1; then
+        sudo install -d -m 0755 /usr/local/share/ca-certificates \
+            && sudo install -m 0644 "$1" /usr/local/share/ca-certificates/yuruna-squid-ca.crt \
+            && sudo update-ca-certificates >/dev/null 2>&1
+    elif command -v update-ca-trust >/dev/null 2>&1; then
+        sudo install -d -m 0755 /etc/pki/ca-trust/source/anchors \
+            && sudo install -m 0644 "$1" /etc/pki/ca-trust/source/anchors/yuruna-squid-ca.crt \
+            && sudo update-ca-trust extract >/dev/null 2>&1
+    else
+        echo "CA self-heal: no update-ca-certificates or update-ca-trust on PATH; cannot add a trust anchor here." >&2
+        return 1
+    fi
+}
+
 yuruna_ca_selfheal() {
     # Guard on the bump port with a boundary so a no-cache/direct guest (empty
     # https_proxy) or a proxy on some other port is a hard no-op.
@@ -239,8 +260,7 @@ yuruna_ca_selfheal() {
     if wget --no-proxy --timeout=10 --tries=2 -qO "$ca_tmp" \
             "http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/ca.crt" \
        && [ -s "$ca_tmp" ] && grep -q 'BEGIN CERTIFICATE' "$ca_tmp"; then
-        sudo install -m 0644 "$ca_tmp" /usr/local/share/ca-certificates/yuruna-squid-ca.crt || true
-        sudo update-ca-certificates >/dev/null 2>&1 || true
+        _yuruna_ca_trust "$ca_tmp" || true
         if _yuruna_bump_trusted; then
             echo "CA self-heal: OK -- bump HTTPS now trusted." >&2
             rc=0
@@ -349,22 +369,39 @@ pwsh_retry() {
 _yuruna_pwsh_attempt() {
     local log="$1"; shift
     local body="$*"
+    # The body must reach pwsh as a script FILE, never on stdin: piped
+    # into `pwsh -Command -`, stdin is read REPL-style, which silently
+    # stops executing at multi-line constructs it fails to assemble AND
+    # exits 0 regardless of the body's own `exit` code. Under that mode a
+    # verify block at the end of a body never runs, and a failing body
+    # can never engage the retry ladder -- the attempt always reports
+    # success. `-File` runs the body as one script and propagates its
+    # exit code. The rename after mktemp gives the file the .ps1
+    # extension: whether -File accepts an extensionless target varies
+    # across PowerShell versions, and .ps1 is the one name every
+    # version runs.
+    local rc=0 tmp script
+    tmp="$(mktemp /tmp/yuruna-pwsh-attempt.XXXXXX)" || return 1
+    script="${tmp}.ps1"
+    mv "$tmp" "$script" || { rm -f "$tmp"; return 1; }
+    printf '%s\n' "$body" >"$script"
     # The attempt is a shell function, so _yuruna_retry's generic stall
     # bound cannot wrap it; bound the inner exec here instead. Same
     # stalled-transfer exposure as the package managers (Install-Module
     # fetches from PSGallery), same sudo-hoist rationale: timeout must
-    # signal pwsh directly, not sudo. stdin passes through timeout
-    # untouched, so the heredoc body still reaches pwsh.
+    # signal pwsh directly, not sudo.
     local stall="${YURUNA_PWSH_STALL_TIMEOUT_SECONDS:-600}"
     {
         printf '\n===== %s sudo pwsh attempt =====\n' \
             "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
         if [ "$stall" -gt 0 ] 2>/dev/null && command -v timeout >/dev/null 2>&1; then
-            printf '%s' "$body" | sudo timeout --foreground --kill-after=30 "$stall" pwsh -NoProfile -Command -
+            sudo timeout --foreground --kill-after=30 "$stall" pwsh -NoProfile -File "$script"
         else
-            printf '%s' "$body" | sudo pwsh -NoProfile -Command -
+            sudo pwsh -NoProfile -File "$script"
         fi
-    } >>"$log" 2>&1
+    } >>"$log" 2>&1 || rc=$?
+    rm -f "$script"
+    return "$rc"
 }
 
 export -f _yuruna_retry apt_retry dnf_retry curl_retry wget_try pwsh_retry _yuruna_pwsh_attempt _yuruna_http_status_class _yuruna_classify_curl _yuruna_classify_wget

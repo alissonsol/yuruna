@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42305b75-dbdd-448e-8c59-ffaf93235629
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -224,7 +224,7 @@ Describe 'Get-OuterCycleSummaryLine (per-cycle console line + shareable transcri
 }
 
 Describe 'Get-OuterStatusBaseUrl (never localhost)' {
-    It 'honours an operator-published base URL and drops its trailing slash' {
+    It 'honors an operator-published base URL and drops its trailing slash' {
         $saved = $env:YURUNA_STATUS_PUBLIC_URL
         try {
             $env:YURUNA_STATUS_PUBLIC_URL = 'https://dash.example/yuruna/'

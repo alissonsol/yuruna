@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.21
+# Version: 2026.08.23
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -47,12 +47,6 @@ EOF
 
 # --- REGION: Re-read host coordinates per use
 # --- REGION: https://yuruna.link/network#why-host-coordinates-are-re-read-per-use
-# Read the host's coordinates immediately before each use, never once at the
-# top. yuruna-host-locate.timer refreshes /etc/yuruna/host.env every 60s, so the
-# current address is always on disk -- but a script that sources it once holds
-# whatever the address was when it started, and this one runs for minutes on a
-# host whose DHCP lease moves under it. Sourcing per use costs nothing and is
-# the difference between following the host and being stranded by it.
 yuruna_host_env() {
     [ -r /etc/yuruna/host.env ] || return 1
     # shellcheck disable=SC1091
@@ -177,11 +171,15 @@ PSEOF
 pwsh_retry "$PWSH_YAML_LOG" <<'PSEOF'
 $ErrorActionPreference = 'Stop'
 "--- per-attempt probe @ {0} ---" -f ([DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"))
-try { Resolve-DnsName www.powershellgallery.com -Type A | Select-Object -First 3 Name,IPAddress | Format-Table -AutoSize | Out-String } catch { "DNS ERROR: $($_.Exception.Message)" }
+# [System.Net.Dns] rather than Resolve-DnsName: that cmdlet lives in the
+# Windows-only DnsClient module, so on Linux it can only ever error.
+try { "DNS: {0}" -f (([System.Net.Dns]::GetHostAddresses('www.powershellgallery.com') | Select-Object -First 3 | ForEach-Object { $_.IPAddressToString }) -join ' ') } catch { "DNS ERROR: $($_.Exception.Message)" }
+# GET, not HEAD: the gallery answers HEAD with 405 Method Not Allowed, so a
+# HEAD probe reads as an outage on every healthy run.
 try {
-    $head = Invoke-WebRequest -UseBasicParsing -Method Head -Uri 'https://www.powershellgallery.com/api/v2/' -TimeoutSec 10
-    "HEAD api/v2 status: {0}" -f $head.StatusCode
-} catch { "HEAD ERROR: $($_.Exception.Message)" }
+    $probe = Invoke-WebRequest -UseBasicParsing -Method Get -Uri 'https://www.powershellgallery.com/api/v2/' -TimeoutSec 10
+    "GET api/v2 status: {0}" -f $probe.StatusCode
+} catch { "PROBE ERROR: $($_.Exception.Message)" }
 
 "--- Install-Module powershell-yaml (Verbose) ---"
 try {
@@ -328,12 +326,6 @@ fi
 
 # --- REGION: Keep git non-interactive
 # --- REGION: https://yuruna.link/network#why-git-never-prompts-here
-# Belt to the seed's braces. These guests are driven by OCR of a console, so a
-# git credential prompt is a HANG rather than an error: the step spends its whole
-# timeout before anyone learns the clone could not authenticate. Set here as well
-# as in the image because this script runs under sudo and through non-login
-# shells, either of which drops an ambient export -- and because a guest built
-# from an older seed has no such export to drop.
 export GIT_TERMINAL_PROMPT=0
 if [ -x /usr/local/lib/yuruna/git-askpass.sh ]; then
     export GIT_ASKPASS=/usr/local/lib/yuruna/git-askpass.sh

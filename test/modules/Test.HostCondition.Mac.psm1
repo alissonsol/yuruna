@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42ed1667-e5c7-4bea-b28b-0e6c1706de72
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,7 +44,7 @@ function Get-MacPmsetGuardList {
     surfaces it under that name" and is left alone. AlwaysApply marks the keys
     where absence proves nothing instead -- Set- writes those unconditionally.
 
-    AbsentEquivalent is the value whose BEHAVIOUR equals the key not being set,
+    AbsentEquivalent is the value whose BEHAVIOR equals the key not being set,
     and only AlwaysApply keys need one: they are the keys written on a host that
     had no prior value, and pmset has no delete, so without it Disable has
     nothing to put back and the guard outlives the automation that added it.
@@ -539,7 +539,7 @@ function Assert-ScreenLock {
     $issues = @(Get-MacScreenLockIssue)
     if ($issues.Count -eq 0) { return $true }
 
-    Write-Warning "==================================================================="
+    Write-Warning "========"
     Write-Warning " Screen lock / display sleep settings will blank the VM display."
     Write-Warning ""
     foreach ($issue in $issues) {
@@ -564,7 +564,7 @@ function Assert-ScreenLock {
     Write-Warning "   4. Energy > Turn display off -> Never  (or run:"
     Write-Warning "        sudo pmset -c displaysleep 0"
     Write-Warning "        sudo pmset -b displaysleep 0 )"
-    Write-Warning "==================================================================="
+    Write-Warning "========"
     return $false
 }
 
@@ -1352,7 +1352,7 @@ function Set-MacHostConditionSet {
     # dependencies offline and every guest that needs the proxy or the
     # stash then fails. Keeping the app resident removes the window-close
     # route into that state. UTM reads this at launch, so a UTM already
-    # running keeps its old behaviour until it is next started.
+    # running keeps its old behavior until it is next started.
     $keepRunningState = & defaults read $utmBundleId KeepRunningAfterLastWindowClosed 2>$null
     $keepRunningAlready = ($LASTEXITCODE -eq 0 -and "$keepRunningState".Trim() -eq '1')
     if (-not $keepRunningAlready) {
@@ -1399,7 +1399,7 @@ function Set-MacHostConditionSet {
         # attempt would be reported as a FAILED disable rather than one that was
         # never possible. Name the one-time command instead.
         if (-not ((Test-MacSudoAvailable) -and (Test-YurunaCanPrompt))) {
-            Write-Warning "==================================================================="
+            Write-Warning "========"
             Write-Warning " sysadminctl unified screen lock is NOT yet disabled (status:"
             Write-Warning "   $slStatus)"
             Write-Warning ""
@@ -1412,7 +1412,7 @@ function Set-MacHostConditionSet {
             Write-Warning " above rather than typed at its prompt, where it would be visible."
             Write-Warning " State is persistent across reboots, so this warning will not"
             Write-Warning " reappear once it succeeds."
-            Write-Warning "==================================================================="
+            Write-Warning "========"
             # Required: Assert-ScreenLock refuses a host whose unified lock is
             # active, and that lock overrides every legacy key above it.
             $unmet.Add('sysadminctl unified screen lock')
@@ -1516,7 +1516,7 @@ function Set-MacHostConditionSet {
         $profOutput = & profiles list 2>&1
         $hasProfiles = ($LASTEXITCODE -eq 0 -and "$profOutput" -notmatch 'no configuration profiles')
         if ($hasProfiles) {
-            Write-Warning "==================================================================="
+            Write-Warning "========"
             Write-Warning " Configuration Profile(s) detected on this Mac. If any profile"
             Write-Warning " enforces screen-lock / password / auto-logout policy, the settings"
             Write-Warning " applied by this script will be overridden. Inspect with:"
@@ -1524,7 +1524,7 @@ function Set-MacHostConditionSet {
             Write-Warning "   profiles show -type configuration"
             Write-Warning " Policy keys to look for: screenSaverPasswordDelay, askForPassword,"
             Write-Warning " loginWindowIdleTime, AutoLogOutDelay, forceLockOnSleep."
-            Write-Warning "==================================================================="
+            Write-Warning "========"
         }
     } catch {
         Write-Debug "profiles list failed: $_"
@@ -1988,9 +1988,9 @@ function Assert-MacOperatorGrant {
         return $true
     }
 
-    Write-Warning '==================================================================='
+    Write-Warning '========'
     foreach ($line in (Get-MacOperatorGrantInstruction -Grant $s.Grant)) { Write-Warning " $line" }
-    Write-Warning '==================================================================='
+    Write-Warning '========'
     return $false
 }
 

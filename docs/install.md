@@ -90,7 +90,7 @@ would stall waiting for GitHub credentials this run doesn't have.
 
 ### Release pinning + signed integrity
 
-`VERSION` (bare CalVer, e.g. `2026.08.21`) is the source of truth for releases.
+`VERSION` (bare CalVer, e.g. `2026.08.23`) is the source of truth for releases.
 At release time `tools/Update-YurunaReleasePins.ps1` regenerates
 `install/install.sha256`, signs it (`install/install.sha256.sig`, RSA-4096),
 runs the ASCII/no-BOM gate as a hard precondition, and bumps the one tag still
@@ -921,6 +921,38 @@ release), so aarch64 tracks the same current version the apt path
 installs; set `PWSH_VERSION` to pin a specific release for a
 reproducible or air-gapped build.
 
+Both of those paths run only when `pwsh` is ABSENT, because they run
+before the checkout exists and the floor to compare against lives in it.
+A pwsh that arrived some other way -- the Canonical `powershell` snap is
+the common one, a hand-unpacked tarball the other -- is therefore
+installed by nothing here, and presence is not the question a floor
+asks. Once the repo is on disk the run reads the PowerShell floor out of
+`automation/Yuruna.Requirement.yml` and raises the interpreter to it:
+snapd is asked to refresh a PowerShell it owns first, so a host keeps
+the provenance its operator chose, and only a channel that cannot reach
+the floor falls through to the apt and tarball sources above. Those land
+under `/usr/local/bin`, which the stock PATH puts ahead of `/snap/bin`,
+so the newer copy wins the name without the older one being removed. A
+source that gives up ends the upgrade attempt, not the install -- the
+host still has a working interpreter, and the closing summary carries
+the version it is stuck at.
+
+### Version floors on an Ubuntu host
+
+PowerShell is the only tool in the Ubuntu floor list whose sources lead
+the archive, and so the only one the installer can raise. git, python3,
+curl, tesseract and qemu-img reach the host through `apt` alone, whose
+ceiling is the archive Candidate: an LTS archive freezes its version
+numbers at release and afterwards carries only backported fixes, so
+`apt-get install` on an already-current package changes nothing and no
+re-run can change more. Their floors are therefore set to what that
+archive ships, per the selection rule recorded in
+`automation/Yuruna.Requirement.yml` -- a floor above it would report a
+defect on a correctly provisioned machine, every run, with nothing able
+to clear it. A floor here says the host is provisioned, not that it is
+current; Ubuntu also backports security fixes without moving the
+upstream number, so patch level is a separate question from this check.
+
 ### libvirt-qemu traverse ACL on $HOME
 
 Ubuntu 24.04 cloud images create `/home/<user>` at mode 0750, which
@@ -996,6 +1028,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.21
+Last review: 2026.08.23
 
 Back to [Yuruna](../README.md)

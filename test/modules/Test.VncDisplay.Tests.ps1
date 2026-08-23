@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 429793e2-063a-4471-aed6-44421c62b4e4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -153,7 +153,7 @@ Describe 'VNC display allocation (host.macos.utm)' {
             Assert-True ($chosen -ne $preferred) 'the occupied preference is not returned'
             Assert-True ($chosen -ge 10 -and $chosen -le 89) "chosen display $chosen is inside 10..89"
         } finally { $listener.Stop() }
-        Assert-StringEqual $preferred (Find-FreeVncDisplay -Preferred $preferred) -Because 'a free preference is honoured'
+        Assert-StringEqual $preferred (Find-FreeVncDisplay -Preferred $preferred) -Because 'a free preference is honored'
     }
 
     It 'refuses a display another bundle already claims, even though its port binds free' {
@@ -220,7 +220,7 @@ Describe 'A failed VM start is never reported as success' {
         $text = Get-Content -Raw (Join-Path $VncRepoRoot 'host/macos.utm/modules/Yuruna.Host.psm1')
         $classify = [regex]::Match($text, '(?ms)^function Get-UtmStartFailureKind\b.*?\n\}').Value
         Assert-True ($classify.Length -gt 0) 'the start-failure classifier is defined'
-        Assert-True ($classify -match 'QEMU exited from an error') 'the QEMU death notice is recognised'
+        Assert-True ($classify -match 'QEMU exited from an error') 'the QEMU death notice is recognized'
         $qemuAt  = $classify.IndexOf("'qemu'")
         $appleAt = $classify.IndexOf("'apple-event'")
         Assert-True ($qemuAt -ge 0 -and $appleAt -ge 0) 'the two failure classes are told apart'

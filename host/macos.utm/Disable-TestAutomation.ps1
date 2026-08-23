@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42d0dcad-5f1c-4177-8e40-8f43c9920e55
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,7 +39,7 @@
     explicitly did not) before automation, and is restored to exactly that.
 
     `pmset` has no delete, so a guard key the capture records as absent can only
-    be put back when the guard list names the value whose behaviour equals
+    be put back when the guard list names the value whose behavior equals
     absence. Enable writes no other absent key, so there is nothing else here to
     reverse -- and any guard this reports as left alone is one it did not add.
 
@@ -142,7 +142,7 @@ foreach ($guard in (Get-MacPmsetGuardList)) {
     # delete, and writing a value it never had would be an invention. The
     # exception is the AlwaysApply set, which Enable writes precisely BECAUSE
     # the key was absent: for those the guard list carries the value whose
-    # behaviour equals absence, so the host really does go back.
+    # behavior equals absence, so the host really does go back.
     $absentValue = if ($guard.ContainsKey('AbsentEquivalent')) { "$($guard.AbsentEquivalent)" } else { '' }
     $absentBlock = if ($absentValue) {
         {
@@ -223,7 +223,7 @@ foreach ($corner in @('tl', 'tr', 'bl', 'br')) {
 }
 if ($cornerChanged -and $PSCmdlet.ShouldProcess('Dock', 'Restart so the restored hot corners take effect')) {
     # The Dock caches hot-corner state; without this the plist is correct and
-    # the live behaviour is still the automation's until the next login.
+    # the live behavior is still the automation's until the next login.
     & killall Dock 2>$null
 }
 

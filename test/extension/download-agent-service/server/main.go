@@ -36,7 +36,7 @@ func main() {
 	aggregatorURL := flag.String("aggregator-url", "", "pool-aggregator service base URL for the presence beacon, the auto-seed roster and the UI's lab-token unlock (empty disables all three)")
 	hostID := flag.String("host-id", "", "this host's stable id for the beacon and the pool lease (empty disables the beacon)")
 	presenceInterval := flag.Duration("presence-interval", config.DefaultPresenceInterval, "beacon re-announce cadence")
-	authTokenFile := flag.String("auth-token-file", config.DefaultAuthTokenFile, "file holding the lab auth token accepted as a bearer on the gated routes (empty or missing disables bearer auth)")
+	authTokenFile := flag.String("auth-token-file", config.DefaultAuthTokenFile, "file holding the internal authentication key accepted as a bearer on the gated routes (empty or missing disables bearer auth)")
 	poolDir := flag.String("pool-dir", config.DefaultPoolDir, "pool share mount point; the Download pool lives under <pool-dir>/images")
 	poolNetworkPath := flag.String("pool-network-path", "", "the pool share as the rest of the lab reaches it, e.g. //nas/share/yuruna.pool; used only to name pool folders to an operator (empty names the local mount instead)")
 	stateDir := flag.String("state-dir", "", "directory (under the pool share) for audit.jsonl + status.json; empty disables persistence")
@@ -167,15 +167,24 @@ func waitBounded(grace time.Duration, chans ...chan struct{}) {
 	}
 }
 
-// readTokenFile loads the lab auth token; an absent or unreadable file leaves
-// bearer auth simply unconfigured rather than failing startup.
+// readTokenFile loads the internal authentication key; an absent or unreadable
+// file leaves bearer auth simply unconfigured rather than failing startup.
 func readTokenFile(path string) string {
 	if strings.TrimSpace(path) == "" {
 		return ""
 	}
 	b, err := os.ReadFile(path)
 	if err != nil {
-		log.Printf("download-agent-service: auth token file %s unreadable (%v); bearer auth disabled", path, err)
+		// Only the untouched default falls back. An operator who named a path
+		// meant that path, and quietly reading a different file would hand the
+		// service a bearer they never pointed it at.
+		if path == config.DefaultAuthTokenFile {
+			if lb, lerr := os.ReadFile(config.LegacyAuthTokenFile); lerr == nil {
+				log.Printf("download-agent-service: internal auth key read from %s; rebuild this VM to move it to %s", config.LegacyAuthTokenFile, config.DefaultAuthTokenFile)
+				return strings.TrimSpace(string(lb))
+			}
+		}
+		log.Printf("download-agent-service: internal auth key file %s unreadable (%v); bearer auth disabled", path, err)
 		return ""
 	}
 	return strings.TrimSpace(string(b))

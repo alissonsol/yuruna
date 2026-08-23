@@ -523,7 +523,7 @@ Read it in this order:
    attempt. IPv6 being up proves nothing here and is not a control: SLAAC rides
    unsolicited router advertisements that keep repeating, so it succeeds on its
    own schedule while DHCPv4 is still backing off. `fetch-and-execute.sh` waits
-   out this case before failing (`YURUNA_FETCH_IPV4_WAIT`, default 120s), and
+   out this case before failing (`YURUNA_FETCH_IPV4_WAIT`, default 180s), and
    says which way the wait ended.
 2. **The request or the reply may not be getting through** -- a bridge port not
    forwarding yet, a VLAN or cabling fault, a DHCP server that is down.
@@ -706,11 +706,18 @@ covers only the sysfs reads -- the `ip` invocations are live.
 
 **The client is asked, not recommended.** Every verdict above bottoms out at
 "no address", which cannot separate a lease that is late from a client that
-stopped asking -- and those two indict different machines. The report therefore
-ends with a `DHCP client state` block for the one interface the verdict named:
-the `Network File` that claimed it (`n/a` is the shape where DHCP is never
-attempted), its state, the DHCP client identity in use, and the last few DHCP
-lines from the client's own journal. The journal is read unprivileged first and
+stopped asking, or either of those from a lease the server granted and the
+client never installed -- and those three indict different machines. The report
+therefore ends with a `DHCP client state` block for the one interface the
+verdict named: the `Network File` that claimed it (`n/a` is the shape where DHCP
+is never attempted), its state, the DHCP client identity in use, and the last
+few lines from the client's own journal. Those lines carry a `HH:MM:SS.mmm`
+stamp and nothing else of the journal's prefix, because ordering is what tells
+the three shapes apart while a date, hostname and unit name would wrap the line
+on the console this is read back from. They reach past the DHCP words into the
+address plane as well: a lease that was acknowledged and never installed leaves
+its evidence in the refusal or error that stopped the address, not in any line
+mentioning DHCP. The journal is read unprivileged first and
 only then through `sudo -n`, which never prompts -- a console nobody is watching
 must not be parked at a password prompt. Exactly one interface is asked, and
 each probe is capped, for the same reason the verdict block is bounded. A silent
@@ -888,13 +895,20 @@ MAC pins both an address and a *name* that its dnsmasq answers for. So a guest
 given a second NIC there has a coordinate for its peers that does not depend on
 the site router, while its bridged NIC keeps carrying everything else.
 
+A consumer resolves the peer by name and tries the rail first: with both guests
+on it, libvirt's own resolver answers the peer's reserved name, so there is
+nothing to publish and nothing to go stale. The answer is accepted only when it
+falls inside the rail subnet, because these VM names also resolve on the site
+LAN, and that LAN answer is precisely the one that can be out of date. The
+published handoff file stays underneath as the fallback, unchanged.
+
 What this deliberately does **not** do: move host-to-guest traffic. The harness
 keeps reaching guests over the churning LAN, because surviving that is the
 property this lab exists to prove, and routing around it would retire the test.
 
 KVM-only by construction. The same workload runs on macOS/UTM and Hyper-V hosts
 that have no libvirt network at all, so every consumer must treat a rail address
-as an optimisation that may be absent, never as a dependency.
+as an optimization that may be absent, never as a dependency.
 
 ### Why the rail is not wired up
 
@@ -1468,12 +1482,12 @@ the transport. See
 [Surviving a dropped session](test-sequences.md#surviving-a-dropped-session).
 
 **Discovery answers from what is current.** A guest that renumbers leaves its old
-address in the host's neighbour table under the same MAC, aged to `STALE` but
+address in the host's neighbor table under the same MAC, aged to `STALE` but
 still present, so the table routinely holds two addresses for one guest.
 Candidates are ranked by how recently the kernel confirmed them; the guest agent,
 which reports what the guest holds now over a channel carrying no IP, is asked
 before the caches; and the address SSH last authenticated to is used as a last
-resort before dialing a bare VM name. The neighbour sweep also falls back to the
+resort before dialing a bare VM name. The neighbor sweep also falls back to the
 last prefix the host held, so it still works during the seconds between leases --
 which is exactly when it is needed.
 
@@ -1598,8 +1612,8 @@ on a guest with no tooling installed -- a bounded read keeps a pathological
 
 `__yhl_http_get` is one bounded, proxy-free GET to stdout, non-zero when the
 peer did not answer. `--no-proxy` / `--noproxy '*'` are load-bearing: the
-caching proxy and the host are both on the LAN and both already sit in the
-guest's `no_proxy` list, but a project script that exported its own
+caching-proxy service and the host are both on the LAN and both already sit
+in the guest's `no_proxy` list, but a project script that exported its own
 `http_proxy` would otherwise route this through squid and cache an address
 lookup. An address lookup is the one answer in this framework that must
 never be served from a cache -- the whole point is that it changes, which is
@@ -1896,7 +1910,7 @@ back forever by the complete-lines rule.
 ### Why a proven address is remembered
 
 Every rung of address discovery is a *report* about the guest -- the guest
-agent's, the lease database's, the kernel neighbour table's -- and each rung
+agent's, the lease database's, the kernel neighbor table's -- and each rung
 can decline. A proven address is different in kind: `ssh` completed a key
 exchange with the guest there, so it was true rather than reported. That is
 why the memo is the last word in discovery and not the first. It does not
@@ -1904,7 +1918,7 @@ prove the address is current, and it is consulted only after every rung has
 declined, where the alternative is dialing the bare VM name and failing
 inside `getaddrinfo` -- a resolver error that names nothing about the real
 fault, and one no guest-side change can fix. A renumbering host is exactly
-where the other rungs go quiet, because the neighbour sweep needs a host
+where the other rungs go quiet, because the neighbor sweep needs a host
 prefix the host is in the middle of changing.
 
 Three properties keep the memo honest. It is banked on any exit other than
@@ -1929,7 +1943,7 @@ because it starts the work over. An attach may not: the payload has been
 running on the guest the whole time the session was gone, and the step's
 budget has been draining with it. Giving each attach a fresh full budget
 would let a step declared at 1800 s occupy an hour and a half across three
-reconnects, and the cycle's own schedule has no defence against that.
+reconnects, and the cycle's own schedule has no defense against that.
 
 So the deadline is computed once when the call starts, and every attach is
 bounded by what is left of it rather than by a per-attempt figure. The
@@ -2010,14 +2024,14 @@ step on a guest that is still up attaches to work already in flight rather
 than restarting it.
 
 `transportRetries` is ignored while detached, since attaching needs no
-judgement about whether the payload is safe to repeat. `detach: false`
+judgment about whether the payload is safe to repeat. `detach: false`
 opts a step out.
 
 ## Finding a guest's address on KVM
 
-### Why neighbour entries are ranked, not taken in order
+### Why neighbor entries are ranked, not taken in order
 
-The host's neighbour table is not a map from MAC to address -- it is a
+The host's neighbor table is not a map from MAC to address -- it is a
 map from address to MAC, and nothing evicts the old row when a guest
 renumbers. The entry the guest has left ages to `STALE` and sits there
 alongside the new one, so `ip -4 neigh show` routinely holds two
@@ -2049,7 +2063,7 @@ its entry sits in `FAILED` or `INCOMPLETE`.
 
 ### Why the sweep remembers the last known prefix
 
-Both `--source arp` and the neighbour rung are passive reads of a cache
+Both `--source arp` and the neighbor rung are passive reads of a cache
 that decays, and nothing in a normal cycle makes a guest talk to this
 host often enough to keep its entry alive. `Update-GuestNeighborCache`
 is the active half: one bounded ICMP sweep of the host's own subnet,
@@ -2060,7 +2074,7 @@ The subnet to sweep comes from the host's own default-route IPv4, and a
 host between leases has none for a few seconds; `Get-HostIpv4Prefix`
 answers with nothing. Treating that as a reason to skip the sweep gets
 the timing exactly backwards: a host that just renumbered is precisely
-when the guest's neighbour entry has gone stale and a lookup is about to
+when the guest's neighbor entry has gone stale and a lookup is about to
 fail. The subnet does not move when the address within it does, so
 `$script:LastKnownHostPrefix` carries the last prefix this host held
 forward and the sweep runs against it, turning "no prefix, no sweep, no
@@ -2076,14 +2090,14 @@ a running-state check, so a stopped or absent domain never pays.
 
 ### Why the guest agent is asked first
 
-`Get-VMIp` runs an ordered ladder -- agent, lease, arp, neighbour table,
-neighbour table after an active refresh -- and the first rung to produce
+`Get-VMIp` runs an ordered ladder -- agent, lease, arp, neighbor table,
+neighbor table after an active refresh -- and the first rung to produce
 an address ends it. That first-answer-wins shape is what makes the order
 load-bearing: a rung that answers *wrongly* ends the ladder just as
 surely as one that answers correctly, so the rung most likely to be
 confidently wrong must not go first.
 
-The lease database and the ARP/neighbour table are both records of what
+The lease database and the ARP/neighbor table are both records of what
 was true earlier. On a guest that has just moved they do not fall silent
 -- they still hold the address it left, which is the worse failure,
 because it produces a plausible target that refuses connections instead
@@ -2100,7 +2114,7 @@ unchanged for that window. Which rungs can answer at all is a property
 of the host, not of this code: `lease` needs libvirt to be the DHCP
 server, so it is silent for a guest on a bridge-forward network with no
 `<dhcp>` element. Where both agent and lease are silent, the arp and
-neighbour rungs are the whole of discovery.
+neighbor rungs are the whole of discovery.
 
 ### Why a MAC sweep is spent only on a failed bring-up
 
@@ -2257,7 +2271,7 @@ no better answer.
 ### Why the single-VM fallback is gated
 
 The amisad fulfillment scenario resolves the edge VM's address -- the KVM
-`192.168.122.0/24` neighbour entry first, then the handoff file the host
+`192.168.122.0/24` neighbor entry first, then the handoff file the host
 status service publishes -- and deploys `slice-runtime` there. When no
 address resolves, the branch that follows can run the whole scenario
 against this one VM instead, then assert the full Target Verification
@@ -2457,6 +2471,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.21
+Last review: 2026.08.23
 
 Back to [Yuruna](../README.md)

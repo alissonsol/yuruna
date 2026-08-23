@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42d95a38-0ff3-43d7-99b3-685dafc66496
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -57,7 +57,7 @@
     (shellcheck's floor, so that number is all of them).
 
     TO TIGHTEN. Lowering the default to 'warning' means settling 8 findings,
-    each a judgement call about a script that runs on a live guest: `sudo cmd >>
+    each a judgment call about a script that runs on a live guest: `sudo cmd >>
     file`, where the redirection is the caller's and not root's (SC2024);
     variables set for an operator to read or override rather than for the script
     to consume (SC2034); a `local x=$(...)` that discards the command's status

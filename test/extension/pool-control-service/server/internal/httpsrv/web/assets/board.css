@@ -2,7 +2,7 @@
    Copyright (c) 2019-2026 by Alisson Sol et al.
 
    Operator board. Phone first: one column, >=44px targets, no horizontal
-   scroll at 320px. Honours the device's light/dark preference.
+   scroll at 320px. Honors the device's light/dark preference.
 
    Spacing between flex children is margins, never `gap`: flex `gap` needs
    Safari 14.1 / iOS 14.5 and Firefox 63, and it fails silently below those
@@ -20,6 +20,10 @@
    It parks at the very top because the page header scrolls away with the
    content -- the header is the shared one every page in this service carries,
    not a board-specific bar. */
+/* The board pads its children individually rather than padding <main>, so the
+   heading has to bring its own gutter to line up with the cards below it. */
+#board > h1 { margin: 0.75rem 1rem 0.25rem; }
+
 .periods {
   display: flex; padding: 0.75rem 1rem;
   position: sticky; top: 0; z-index: 1;
@@ -31,7 +35,7 @@
   font-size: 1rem; cursor: pointer;
 }
 .periods button + button { margin-left: 0.5rem; }
-.periods button.on { background: var(--accent, #0969da); color: #fff; border-color: transparent; }
+.periods button.on { background: var(--accent-fill, #1d4ed8); color: var(--accent-fill-fg, #fff); border-color: var(--accent-fill, #1d4ed8); font-weight: 700; }
 
 .stats-banner {
   margin: 0 1rem 0.75rem; padding: 0.6rem 0.8rem; border-radius: 8px;
@@ -53,7 +57,7 @@
 .hero.good .pct { color: #1a7f37; }
 .hero.warn .pct { color: #9a6700; }
 .hero.bad  .pct { color: #cf222e; }
-.hero.none .pct { color: inherit; opacity: 0.45; }
+.hero.none .pct { color: inherit; opacity: 0.55; }
 
 .counts { display: flex; text-align: center; margin-bottom: 0.9rem; }
 .counts div { flex: 1 1 0; }
@@ -66,7 +70,7 @@
 
 .card select {
   width: 100%; min-height: 44px; font-size: 1rem; padding: 0 0.6rem;
-  border-radius: 10px; border: 1px solid var(--line, #d0d7de);
+  border-radius: 10px; border: 1px solid var(--control-edge, #6b7280);
   background: var(--bg, #fff); color: inherit;
 }
 .card .locked { font-size: 0.9rem; opacity: 0.7; margin: 0; }
@@ -91,13 +95,25 @@
 @media (min-width: 46rem) {
   .sheet { align-items: center; justify-content: center; }
   .sheet-box { max-width: 26rem; border-radius: 16px; }
-  #cards {
-    display: grid; grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
-    grid-gap: 0 0.25rem; gap: 0 0.25rem;
+  /* Wrapped flex is the layout the browser baseline gets: below CSS Grid
+     (Safari 10.1) a grid rule degrades to block flow, which would show a single
+     column on a landscape tablet -- readable, but a quarter of the board.
+     Spacing is the cards' own margins, never `gap`, per the note at the top. */
+  #cards { display: flex; flex-wrap: wrap; align-items: flex-start; }
+  #cards > .card { flex: 1 1 20rem; }
+  /* The wait indicator is not a card: it spans the whole line so it sits under
+     the middle of the board rather than in the first column. */
+  #cards .loading { flex: 1 1 100%; }
+
+  /* Real tracks where they exist. Grid gaps are declared twice, `grid-gap`
+     first, which covers Safari 10.1-11.x. */
+  @supports (display: grid) {
+    #cards {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(20rem, 1fr));
+      grid-gap: 0 0.25rem; gap: 0 0.25rem;
+    }
+    #cards .loading { grid-column: 1 / -1; }
   }
-  /* The wait indicator is not a card: it spans the track, so it sits under the
-     middle of the board rather than in the first column. */
-  #cards .loading { grid-column: 1 / -1; }
 }
 
 /* The board is the one page with no notice area, so a read that failed has to
@@ -105,7 +121,7 @@
    page that looks exactly like the wait itself. */
 .load-error { padding: 2rem 1rem; text-align: center; }
 
-/* Only the colours with no token behind them are restated here. Everything
+/* Only the colors with no token behind them are restated here. Everything
    keyed off --bg / --line / --fg follows the scheme from style.css, which every
    page in this service now shares. */
 @media (prefers-color-scheme: dark) {

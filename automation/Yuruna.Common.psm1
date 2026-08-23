@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42fcd8c5-0a6a-4e17-b89b-9c4d030faa8e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -270,7 +270,7 @@ function Invoke-YurunaSudo {
     WHEN -n IS ADDED. Whenever $env:YURUNA_NONINTERACTIVE is '1' -- set by the
     outer runner around every inner spawn, and by the inner on itself. An
     operator running a host script by hand has no such variable, keeps the
-    interactive behaviour, and can still be prompted once, which is correct:
+    interactive behavior, and can still be prompted once, which is correct:
     they are watching.
 
     WHEN IT THROWS. If sudo reports that it needs a password (or a terminal, or
@@ -302,7 +302,7 @@ function Invoke-YurunaSudo {
     # the caller's preferences. A non-zero sudo is the NORMAL path here -- it is
     # what "the timestamp is cold" and "this account may not run that" both look
     # like -- and with $PSNativeCommandUseErrorActionPreference true it becomes a
-    # terminating error instead, thrown before the refusal below is recognised.
+    # terminating error instead, thrown before the refusal below is recognized.
     # The caller then gets "Program sudo ended with non-zero exit code" in place
     # of the /etc/sudoers.d rule that repairs the host.
     $PSNativeCommandUseErrorActionPreference = $false

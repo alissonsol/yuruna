@@ -43,6 +43,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -221,7 +222,7 @@ func (g *Gate) Configured() bool { return g.LabTokenEnabled() || g.BearerEnabled
 //
 // A session outlives the aggregator being reachable: it was granted on a check
 // that DID succeed, and re-prompting every operator because the validator
-// blinked would be a worse answer than honouring the cookie until it expires.
+// blinked would be a worse answer than honoring the cookie until it expires.
 func (g *Gate) Authed(r *http.Request) bool {
 	return g.bearerAuthed(r) || g.sessionAuthed(r)
 }
@@ -418,7 +419,7 @@ func verifyControlProof(token, wire string, now time.Time, maxTTL time.Duration)
 // is signed by that token or it is not, and a round trip could only disagree by
 // being wrong. A service VM is normally NOT given that token -- nothing bakes
 // the file into its seed -- and then the aggregator that minted the proof is
-// asked, which is the same division of labour the 6-character code already
+// asked, which is the same division of labor the 6-character code already
 // follows: validation stays with the daemon that owns the secret.
 func (g *Gate) verifyProof(ctx context.Context, wire string) (Verdict, string) {
 	if g.bearer != "" {
@@ -502,7 +503,7 @@ func (g *Gate) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	// of enrollment.
 	if g.throttled(ip) {
 		g.auditLogin(ip, "throttled", "")
-		writeErr(w, http.StatusTooManyRequests, "too many attempts; wait a few minutes")
+		writeErr(w, http.StatusTooManyRequests, fmt.Sprintf("too many attempts; wait %d minutes and try again", int(FailWindow.Minutes())))
 		return
 	}
 	var body struct {
@@ -513,7 +514,7 @@ func (g *Gate) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Case and stray whitespace come from reading a code off a screen, not from
-	// guessing one, so normalise before judging.
+	// guessing one, so normalize before judging.
 	code := strings.ToLower(strings.TrimSpace(body.LabToken))
 	if !labTokenRE.MatchString(code) {
 		// Not a failed guess: it never reached the aggregator, so it neither
@@ -580,7 +581,7 @@ func (g *Gate) HandleProofUnlock(w http.ResponseWriter, r *http.Request) {
 	// guesser a second allowance.
 	if g.throttled(ip) {
 		g.auditLogin(ip, "throttled", "control proof")
-		writeErr(w, http.StatusTooManyRequests, "too many attempts; wait a few minutes")
+		writeErr(w, http.StatusTooManyRequests, fmt.Sprintf("too many attempts; wait %d minutes and try again", int(FailWindow.Minutes())))
 		return
 	}
 	var body struct {

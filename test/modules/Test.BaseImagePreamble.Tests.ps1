@@ -34,7 +34,7 @@
     missing import fails at VM-creation time on a host that may be the only
     one exercising that guest.
 
-    The behaviour tests pin what the call sites depend on: a plain $true or
+    The behavior tests pin what the call sites depend on: a plain $true or
     $false, never a collection. The gate writes operator progress to the
     information stream for exactly this reason -- text written to the success
     stream would be collected into the return value, and a negation against a
@@ -93,7 +93,7 @@ Describe 'the base-image gate is the only fetch path' {
         }
         Assert-True ($offenders.Count -eq 0) @"
 these guests resolve Get-Image.ps1 themselves instead of calling
-Assert-YurunaBaseImage, so their fetch behaviour can drift from every
+Assert-YurunaBaseImage, so their fetch behavior can drift from every
 other guest:
 $($offenders -join "`n")
 "@

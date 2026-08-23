@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 4218aa1e-40ef-4c05-ae43-e48a889c70d1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,10 +21,10 @@
     Guards the Download pool table of the download-agent UI: the counter column,
     the headers that sort it, and the cell count the totals row has to reach.
 .DESCRIPTION
-    The page is a static <thead> in index.html paired with three scripts that
-    build everything under it -- common.js (Y.numCell), sort.js (the columns a
-    header may sort on) and images.js (the rows and the totals). The halves
-    agree on facts no runtime error reports:
+    The page is a static <thead> in index.html paired with the scripts that
+    build everything under it -- the SDK's shared runtime (Y.numCell), sort.js
+    (the columns a header may sort on) and images.js (the rows and the totals).
+    The halves agree on facts no runtime error reports:
 
       - a header sorts on a KEY, and the comparator has to know that key -- one
         it does not know sorts nothing, which looks like a table that refuses
@@ -37,10 +37,13 @@
         figure in it sits under the wrong heading.
 
     The page is served by //go:embed out of the daemon, so nothing here runs the
-    service: these are the source files it would embed. The counter column is
-    the pool-control UI's, ported into this service's own copies of common.js
-    and style.css, so the check that both still carry it is what keeps the two
-    services from drifting apart.
+    service: these are the source files it would embed. The counter column comes
+    from two places, and only one of them is shared: its helper is inherited
+    from the SDK runtime every page loads first, while its CSS rule still lives
+    in this service's own stylesheet, because //go:embed cannot reach outside a
+    module and no stylesheet is shared today. Re-adding the helper here would
+    override the shared one silently, so the check reads the runtime and this
+    service's layer together -- the way the browser does.
 
     Throw-based Assert-* helpers and every fixture are built in BeforeAll, the
     only scope an It can read: Pester 5 runs file scope and Describe bodies
@@ -56,7 +59,11 @@ $web = Join-Path $repo 'test/extension/download-agent-service/server/internal/ht
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 $script:html = Get-Content -Raw -LiteralPath (Join-Path $web 'index.html')
-$script:common = Get-Content -Raw -LiteralPath (Join-Path $web 'assets/common.js')
+# The scripts a page of this service runs, in load order: the SDK's shared
+# runtime (which holds the table furniture every service UI draws with) and then
+# this service's own layer. Read as one, because that is what the browser has.
+$script:common = (Get-Content -Raw -LiteralPath (Join-Path $repo 'test/extension/extension-sdk/webui/assets/yuruna.core.js')) +
+    "`n" + (Get-Content -Raw -LiteralPath (Join-Path $web 'assets/common.js'))
 $script:sortJs = Get-Content -Raw -LiteralPath (Join-Path $web 'assets/sort.js')
 $script:images = Get-Content -Raw -LiteralPath (Join-Path $web 'assets/images.js')
 $script:style = Get-Content -Raw -LiteralPath (Join-Path $web 'assets/style.css')
@@ -78,10 +85,16 @@ function Get-JsFunction {
 $script:rowEl = Get-JsFunction -Source $script:images -Name 'rowEl'
 $script:totals = Get-JsFunction -Source $script:images -Name 'renderTotals'
 
-# Cells a builder emits, counting a colspan as the columns it covers.
+# Cells a builder emits, counting a colspan as the columns it covers. A row's
+# identifying cell is a <th scope="row"> rather than a <td> -- it names the row
+# so a screen reader announces the image key alongside every other cell,
+# including the three action buttons that would otherwise be "Delete" repeated
+# down the table -- and it still occupies a column, so it counts here.
 function Measure-ColumnSpan {
     param([string]$Body)
-    $n = [regex]::Matches($Body, "Y\.el\('td'").Count + [regex]::Matches($Body, 'Y\.numCell\(').Count
+    $n = [regex]::Matches($Body, "Y\.el\('td'").Count +
+         [regex]::Matches($Body, "Y\.el\('th'").Count +
+         [regex]::Matches($Body, 'Y\.numCell\(').Count
     foreach ($m in [regex]::Matches($Body, "colspan:\s*'(\d+)'")) { $n += [int]$m.Groups[1].Value - 1 }
     return $n
 }
@@ -147,7 +160,10 @@ Describe 'download-agent Download pool table: sortable headers and a row counter
         # The counter is rebuilt from the painted order, so it reads 1..n down
         # the page whatever column the operator sorted by.
         Assert-True ($script:rowEl -match 'Y\.numCell\(') 'the row builder no longer emits a counter cell'
-        Assert-True ($script:images -match 'rowEl\(img,\s*i \+ 1\)') `
+        # The counter comes from the loop index, not from the row: matching only
+        # `i + 1` as the second argument leaves the first one free, so renaming
+        # the row variable does not read as the numbering having changed.
+        Assert-True ($script:images -match 'rowEl\([^,()]+,\s*i \+ 1\)') `
             'the rows are no longer numbered from their position in the sorted order'
     }
 
@@ -163,11 +179,12 @@ Describe 'download-agent Download pool table: sortable headers and a row counter
             'the totals row does not reach the last column'
     }
 
-    It 'keeps the counter column the pool-control UI defines' {
-        # Each daemon embeds its own assets (//go:embed cannot reach outside its
-        # module), so the helper and its rule are duplicated here and have to
-        # stay present rather than be inherited.
-        Assert-True ($script:common -match 'Y\.numCell\s*=') 'common.js no longer defines Y.numCell'
+    It 'keeps the counter column the shared runtime defines' {
+        # The helper is inherited: it lives once in the SDK runtime every page
+        # loads before its own scripts. Its CSS rule is not -- //go:embed cannot
+        # reach outside its module and no stylesheet is shared today, so each
+        # daemon still ships this rule in its own sheet and it has to stay there.
+        Assert-True ($script:common -match 'Y\.numCell\s*=') 'the runtime no longer defines Y.numCell'
         Assert-True ($script:style -match '(?m)^th\.rownum,\s*td\.rownum\s*\{') `
             'style.css no longer styles the counter column'
     }

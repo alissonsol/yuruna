@@ -11,7 +11,7 @@
 The lab connection token **and** the collector's health, in one tile.
 
 **Blue -- a 6-character code.** The code a joining host redeems for the shared
-`lab-auth-token`:
+internal authentication key:
 
 ```
 pwsh test/lab/Set-LabToken.ps1 -LabToken CODE
@@ -30,8 +30,8 @@ minted, and **every other panel here may be stale**. The tile links to
 its disappearance from a scrape *is* the outage, and exactly one of the tile's two
 queries ever returns a series.
 
-**Grey "off".** The collector is up but the exchange is disabled: the aggregator holds
-no `lab-auth-token`, or rotation is off (`-lab-token-rotate 0`).
+**Gray "off".** The collector is up but the exchange is disabled: the aggregator holds
+no internal authentication key, or rotation is off (`-lab-token-rotate 0`).
 
 ## Success%
 
@@ -50,11 +50,11 @@ Thresholds: red below 95%, amber below 100%, green at exactly 100%.
 
 ## Addresses in use
 
-A **measured** count of the IPv4 addresses the lab is currently holding: the caching
-proxy's observed clients UNION every registered host's current address, deduplicated so
-a host that also proxies is counted once. The host half matters on its own -- a
-statically addressed host answers no DHCP and appears in no lease table, yet still
-occupies an address in the subnet.
+A **measured** count of the IPv4 addresses the lab is currently holding: the
+caching-proxy service's observed clients UNION every registered host's current
+address, deduplicated so a host that also proxies is counted once. The host half
+matters on its own -- a statically addressed host answers no DHCP and appears in no
+lease table, yet still occupies an address in the subnet.
 
 The tile deliberately makes **no claim about the DHCP pool**. Judging the pool needs two
 numbers that live on the DHCP server and are not visible from the lab: the scope size
@@ -135,8 +135,8 @@ drive the host:
 
 | Cell | Meaning |
 |---|---|
-| **remote** (green) | the host holds the same `lab-auth-token` the proxy mints proofs from, so its Pause/Continue buttons will work |
-| **onsite** (grey) | the buttons will 403; the host holds no token and can only be driven from its own console |
+| **remote** (green) | the host holds the same internal authentication key the proxy mints proofs from, so its Pause/Continue buttons will work |
+| **onsite** (gray) | the buttons will 403; the host holds no token and can only be driven from its own console |
 | **onsite** (amber) | the buttons will 403 too, but the cause is a mismatched token or a clock skewed far enough to expire a fresh proof, rather than no token at all |
 | **unknown** | the host has not answered `/control/control-status`, which an older framework build does not serve |
 
@@ -249,6 +249,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.21
+Last review: 2026.08.23
 
 Back to [Yuruna](../README.md)

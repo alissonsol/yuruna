@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42b8bc4c-f5b0-463b-9fd9-76f8a65ee16f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -279,6 +279,74 @@ Describe 'Get-ConsoleFloodVerdict' {
     }
 }
 
+Describe 'Sequence-start pause gate reports the hold' {
+    # The gate holds the runner while the guest keeps running, so a hold is part
+    # of the cause of whatever the next step finds on screen. Behavior here needs
+    # a live sequence run, host contracts and a runtime dir, so this guards the
+    # wiring structurally: both ends on the event stream, and the release handed
+    # to the failure record. Losing any of the three puts a 30-minute hold back
+    # where it was -- in the human log only, invisible to every consumer that
+    # reads the failure.
+    BeforeAll {
+        $errs = $null
+        $moduleAst = [System.Management.Automation.Language.Parser]::ParseFile(
+            (Join-Path $here 'Test.SequenceEngine.psm1'), [ref]$null, [ref]$errs)
+        if ($errs) { throw "Parse errors in Test.SequenceEngine.psm1: $($errs[0].Message)" }
+        $assign = $moduleAst.FindAll({
+                param($n) $n -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+                          $n.Left.Extent.Text -eq '$waitWhilePaused'
+            }, $true)
+        if (-not $assign) { throw 'the $waitWhilePaused gate was not found in Test.SequenceEngine.psm1' }
+        $script:gateText = $assign[0].Right.Extent.Text
+    }
+
+    It 'emits both ends of the hold' {
+        Assert-Match -Pattern "event\s*=\s*'sequence_paused'"  -Actual $script:gateText `
+            -Because 'an open hold must be visible even if the runner never releases it'
+        Assert-Match -Pattern "event\s*=\s*'sequence_resumed'" -Actual $script:gateText `
+            -Because 'the release carries the duration a reader joins on'
+    }
+
+    It 'measures the hold and hands the release to the failure record' {
+        Assert-Match -Pattern 'heldSeconds' -Actual $script:gateText -Because 'a hold with no duration reports nothing useful'
+        Assert-Match -Pattern '\$script:Fail\.LastPauseRelease' -Actual $script:gateText `
+            -Because 'the failure record is where a hold stops looking like a guest that never printed'
+    }
+
+    It 'never lets telemetry block the gate' {
+        # A pause that cannot be emitted is still a pause; the operator's resume
+        # must not depend on an emitter being loaded.
+        Assert-Match -Pattern 'Get-Command Send-CycleEventSafely' -Actual $script:gateText `
+            -Because 'the emit is guarded, not assumed'
+    }
+}
+
+Describe 'Get-ConsoleTextSignature' {
+    # What makes "the console stopped moving" measurable at all. Raw captures of
+    # an unchanged screen are never equal -- a blinking cursor alone guarantees
+    # that -- which is exactly why the byte-hash freeze detector cannot see a
+    # guest parked on a prompt. Comparing normalized text can.
+
+    It 'reads two captures of an unchanged screen as the same screen' {
+        $a = "start: subiquity/Network/_send_update: CHANGE eth0`nfinish: subiquity/Network/_send_update: CHANGE eth0"
+        $b = "start:  subiquity/Network/_send_update: CHANGE eth0`r`nfinish: subiquity/Network/_send_update: CHANGE eth0  "
+        Assert-Equal -Expected (Get-ConsoleTextSignature -Text $a) -Actual (Get-ConsoleTextSignature -Text $b) `
+            -Because 'whitespace and line-ending jitter between captures is not the guest printing'
+    }
+
+    It 'still separates screens whose text actually differs' {
+        $a = Get-ConsoleTextSignature -Text 'Continue with autoinstall? (yes|no)'
+        $b = Get-ConsoleTextSignature -Text 'Installing system'
+        Assert-True ($a -ne $b) 'a screen that changed must not read as unchanged'
+    }
+
+    It 'answers empty for empty input rather than throwing' {
+        # An empty baseline is the one case where "changed" proves nothing, so
+        # the callers test for it -- which requires a value, not an exception.
+        Assert-Equal -Expected '' -Actual (Get-ConsoleTextSignature -Text '')
+    }
+}
+
 Describe 'Module export surface' {
     # Assert against the Export-ModuleMember statement text, not ExportedFunctions:
     # Get-PollDelay is defined in Test.Backoff (never in this module), so PowerShell
@@ -291,8 +359,110 @@ Describe 'Module export surface' {
     }
     It 'still exports the core dispatch surface and pure helpers' {
         $exported = (Get-Module Test.SequenceEngine).ExportedFunctions.Keys
-        foreach ($fn in 'Invoke-Sequence', 'Invoke-SequenceByName', 'Wait-ForText', 'Select-SequenceStepWindow', 'Get-OcrDegradationGrace', 'Get-ConsoleFloodVerdict') {
+        foreach ($fn in 'Invoke-Sequence', 'Invoke-SequenceByName', 'Wait-ForText', 'Select-SequenceStepWindow', 'Get-OcrDegradationGrace', 'Get-ConsoleFloodVerdict', 'Get-ConsoleTextSignature', 'Get-LastWaitVerdict', 'Wait-ForConsoleChange', 'Get-LastConsoleChangeVerdict') {
             Assert-True ($exported -contains $fn) "expected export missing: $fn"
         }
+    }
+}
+
+Describe 'Wait-ForConsoleChange separates a still console from an unreadable one' {
+    BeforeAll {
+        # Stubs live in the engine's own session state so the unqualified calls
+        # inside Wait-ForConsoleChange resolve to them, and their recording bag
+        # lives there too -- an It body holds a reference to the same object once
+        # the reset hands it back, so the assertions read what the stubs wrote.
+        . (Get-Module Test.SequenceEngine) {
+            function Get-CycleScreenDir {
+                # SupportsShouldProcess rather than a manual -WhatIf switch, because
+                # that is how the real helper takes the -WhatIf:$false the caller
+                # passes it; a hand-rolled switch would bind but diverge.
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                    Justification = 'Stub: the signature has to match the real helper so the caller binds.')]
+                [CmdletBinding(SupportsShouldProcess)]
+                param($VMName)
+                $null = $PSCmdlet.ShouldProcess($script:ProbeStub.ScreenDir, 'Ensure cycle screen dir exists')
+                return $script:ProbeStub.ScreenDir
+            }
+            function Get-VMScreenshot {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                    Justification = 'Stub: the signature has to match the real helper so the caller binds; only OutFile is recorded.')]
+                param($VMName, $OutFile, $HostType)
+                $script:ProbeStub.OutFiles += @([string]$OutFile)
+                Set-Content -LiteralPath $OutFile -Value 'png' -NoNewline
+                return $true
+            }
+            function Test-CombinedOcrMatch {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                    Justification = 'Stub: the signature has to match the real helper so the caller binds; the text is scripted.')]
+                param($ImagePath, $Pattern, $FreshMatchTailLines)
+                return @{ Match = $false; AnyText = [string]$script:ProbeStub.OcrText; EngineResults = @{} }
+            }
+            function Reset-ProbeStubState {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                    Justification = 'Test stub helper: reseeds an in-memory recording bag; no external state.')]
+                param([string]$ScreenDir)
+                $script:ProbeStub = @{
+                    ScreenDir = $ScreenDir
+                    OutFiles  = @()
+                    OcrText   = ''
+                }
+                return $script:ProbeStub
+            }
+        }
+    }
+
+    BeforeEach {
+        $script:probeDir = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-probe-{0}-{1}" -f $PID, [guid]::NewGuid().ToString('N').Substring(0, 8))
+        New-Item -ItemType Directory -Path $script:probeDir -Force | Out-Null
+        $script:probe = & (Get-Module Test.SequenceEngine) { param($d) Reset-ProbeStubState -ScreenDir $d } $script:probeDir
+    }
+
+    AfterEach {
+        Remove-Item -LiteralPath $script:probeDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'calls a console with no readable text unreadable, not unchanged' {
+        # The whole point of the verdict: an OCR surface that came back empty on
+        # every frame observed nothing about the guest, and a caller told only
+        # "false" would report the guest as having ignored what was sent to it.
+        $script:probe.OcrText = ''
+        $changed = Wait-ForConsoleChange -VMName 'vm-01' -BaselineText 'parked prompt' -TimeoutSeconds 2 -PollSeconds 1 -WarningAction SilentlyContinue
+        $v = Get-LastConsoleChangeVerdict
+        Assert-False $changed 'an unreadable console is not a changed console'
+        Assert-False ([bool]$v.Readable) 'no frame yielded text, so nothing was read'
+        Assert-True ($v.Captures -gt 0) 'frames were captured and confirmed present'
+        Assert-Equal -Expected 0 -Actual $v.Reads -Because 'not one of those captures produced text'
+    }
+
+    It 'reports a console that moved as changed and readable' {
+        $script:probe.OcrText = 'installing system'
+        $changed = Wait-ForConsoleChange -VMName 'vm-01' -BaselineText 'parked prompt' -TimeoutSeconds 2 -PollSeconds 1
+        $v = Get-LastConsoleChangeVerdict
+        Assert-True $changed 'content differing from the baseline is the answer being consumed'
+        Assert-True ([bool]$v.Readable) 'the frame was read'
+        Assert-True ([bool]$v.Changed) 'the verdict must agree with the return value'
+    }
+
+    It 'reports a readable console that held still as unchanged, not unreadable' {
+        $script:probe.OcrText = 'parked prompt'
+        $changed = Wait-ForConsoleChange -VMName 'vm-01' -BaselineText 'parked prompt' -TimeoutSeconds 2 -PollSeconds 1
+        $v = Get-LastConsoleChangeVerdict
+        Assert-False $changed 'the content never differed from the baseline'
+        Assert-True ([bool]$v.Readable) 'the reader worked; it is the guest that held still'
+        Assert-True ($v.Reads -gt 0) 'frames were read even though none differed'
+    }
+
+    It 'captures to a name short enough to leave the path under a native reader ceiling' {
+        # The probe file is the deepest artifact the harness writes: cycle folder,
+        # nested stage folder, per-VM screens folder, then this name. Spending the
+        # guest name here again -- the folder already carries it -- is what pushed
+        # the path past what the OCR engines can open, and an unopenable capture
+        # reads as a console with no text on it.
+        $script:probe.OcrText = 'parked prompt'
+        $null = Wait-ForConsoleChange -VMName 'test-guest.ubuntu.server.24-01' -BaselineText 'parked prompt' -TimeoutSeconds 2 -PollSeconds 1
+        Assert-True ($script:probe.OutFiles.Count -gt 0) 'the probe captured at least one frame'
+        $name = [System.IO.Path]::GetFileName($script:probe.OutFiles[0])
+        Assert-True ($name.Length -le 16) "probe file name '$name' must stay short; every character here comes off the path budget"
+        Assert-True ($name -notmatch 'test-guest') 'the per-VM directory already names the guest; repeating it only lengthens the path'
     }
 }

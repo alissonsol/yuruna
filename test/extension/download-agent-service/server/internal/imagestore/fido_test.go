@@ -92,7 +92,7 @@ func (s *fidoStub) setURL(t *testing.T, out string) {
 	}
 }
 
-// args is what the stub was actually invoked with, whitespace-normalised so the
+// args is what the stub was actually invoked with, whitespace-normalized so the
 // two platforms' recording formats compare the same.
 func (s *fidoStub) args(t *testing.T) []string {
 	t.Helper()
@@ -556,9 +556,9 @@ func TestBestEffortRowsExistWithoutConsumingSeedBandwidth(t *testing.T) {
 	for _, id := range SeedTargets(HostTypes) {
 		seeded[id.Key()] = true
 	}
-	catalogued := map[string]bool{}
+	cataloged := map[string]bool{}
 	for _, id := range CatalogTargets(HostTypes) {
-		catalogued[id.Key()] = true
+		cataloged[id.Key()] = true
 	}
 	want := []ImageID{
 		{HostTypeHyperV, KeyWindows11, ArchAMD64, VariantStable},
@@ -570,18 +570,18 @@ func TestBestEffortRowsExistWithoutConsumingSeedBandwidth(t *testing.T) {
 		if seeded[id.Key()] {
 			t.Errorf("%s is seeded; a multi-gigabyte artifact nobody asked for must stay demand-driven", id)
 		}
-		if !catalogued[id.Key()] {
+		if !cataloged[id.Key()] {
 			t.Errorf("%s has no catalog row, so an operator has nothing to act on", id)
 		}
 	}
 	// UTM runs arm64, where the driver bundle does not exist, so no row is
 	// offered rather than one that could only ever refuse.
-	if catalogued[(ImageID{HostTypeUTM, KeyVirtioWin, ArchARM64, VariantStable}).Key()] {
+	if cataloged[(ImageID{HostTypeUTM, KeyVirtioWin, ArchARM64, VariantStable}).Key()] {
 		t.Error("virtio-win must not appear for an arm64 host type")
 	}
 	for _, id := range BestEffortTargets(HostTypes) {
 		if !Supported(id) {
-			t.Errorf("catalogued %s is not supported, so its row could only ever refuse", id)
+			t.Errorf("cataloged %s is not supported, so its row could only ever refuse", id)
 		}
 	}
 }

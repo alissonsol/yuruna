@@ -27,7 +27,7 @@ Three properties shape everything else:
   fail a test cycle.
 - **Reads are open, writes are gated.** The UI, the catalog, the metadata, the
   bytes, and `/healthz` answer any client on the trusted LAN. Refresh, delete,
-  and prune require the dashboard's rotating Lab token or the lab-auth token.
+  and prune require the dashboard's rotating Lab token or the internal authentication key.
 - **The pool is the durable part.** The VM is disposable -- stopping the service
   destroys it, and starting it rebuilds from the base image. Everything
   downloaded lives on the pool share and is adopted again by the rebuilt agent.
@@ -349,7 +349,7 @@ address), so the trail shows who opened the board as well as what they changed.
 | **Prune previous** | Deletes only the previous generation. The current one stays servable throughout. | The share is filling up and you have accepted the current generation. Retention drops to one for that row until the next refresh creates a new previous. |
 
 `POST /api/v1/refresh` re-verifies the whole pool in one call. That one is
-**bearer-only** (the lab-auth token): an automation route, not a button.
+**bearer-only** (the internal authentication key): an automation route, not a button.
 
 ## Diagnostics
 
@@ -422,7 +422,7 @@ their rotation, and believes only a definite answer. Two consequences:
   unlocked** -- the answer is `503 {"reason":"lab-token-unavailable"}`, which is
   deliberately a different answer from "wrong code". The gate fails closed.
   Automation is unaffected:
-  `Authorization: Bearer <lab-auth-token>` still works, and is the way to drive
+  `Authorization: Bearer <internal-auth-key>` still works, and is the way to drive
   the agent when the aggregator is down.
 - With **neither** an aggregator to ask nor a token configured, the mutating
   routes answer `503 {"ok":false,"reason":"auth-unconfigured"}` -- never an
@@ -532,9 +532,9 @@ held only live credentials.
 | "the daemon IS serving in-guest but this host cannot connect" | The address is not reachable from here | A stale DHCP lease (compare the guest console's own `eth0` line), a guest firewall dropping `:80`, or a bridged-mode address being probed on a Shared-NAT host. Waiting cannot help -- the daemon is already up |
 | No Extension hosts row | The host status service is not serving `host.registration.json`, or the marker says `active:false` | Run `test/service/Start-StatusService.ps1`; check `runtime/download-agent-service.json`. The beacon alone still paints a row, minus the status baseUrl link |
 | Row appears but the deep-link is dead from other machines | Shared-NAT Mac whose `:8082` forward did not install | Re-run the start script once the VM has an address; prefer a bridged host for the agent |
-| Unlock says `503 lab-token-unavailable` | The daemon could not reach the aggregator to check the code, so it refused rather than guessing | Check the caching-proxy VM and the aggregator (`journalctl -u pool-aggregator-service`). Until it answers, drive the agent with the `Authorization: Bearer <lab-auth-token>` API routes |
+| Unlock says `503 lab-token-unavailable` | The daemon could not reach the aggregator to check the code, so it refused rather than guessing | Check the caching-proxy VM and the aggregator (`journalctl -u pool-aggregator-service`). Until it answers, drive the agent with the `Authorization: Bearer <internal-auth-key>` API routes |
 | Unlock refuses a code you just read | The code rotated more than about three minutes ago, or the tile is stale | Re-read the tile and retry. If the tile itself reads "collector down", fix the aggregator first |
-| UI actions return `503 auth-unconfigured` | The VM was built with no aggregator URL and no lab-auth token, so neither gate exists | Set a lab token with `test/lab/Set-LabToken.ps1`, then rebuild the agent VM so the seed carries the aggregator URL |
+| UI actions return `503 auth-unconfigured` | The VM was built with no aggregator URL and no internal authentication key, so neither gate exists | Enroll the host with `test/lab/Set-LabToken.ps1` so it stores the internal authentication key, then rebuild the agent VM so the seed carries the aggregator URL |
 | UI actions return "read-only" / show a `leaseHolder` | Another agent on the same NAS holds the lease | Expected. Use that agent's UI, or stop it -- the lease expires after three scan intervals |
 | An entry is stale and refuses to refresh | The origin is unreachable directly | The pool keeps serving the previous verified generation. Nothing to do but restore origin reachability; the next scan retries |
 | `guest.windows.11` never appears in the pool, or stays `absent` after a Force refresh | Best-effort family: no PowerShell, no Fido, or Fido could not mint a URL under Linux pwsh | Open the **Diagnostics** page: the family card carries the exact failure, the last resolver run shows both output streams, and the gated Resolver test reruns the resolve on demand. A VM built before this family (or before the platform-gate patch) needs a Stop/Start rebuild. Hosts are unaffected either way: Hyper-V and UTM run Fido themselves, KVM stays manual |
@@ -565,6 +565,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.21
+Last review: 2026.08.23
 
 Back to [Yuruna](../README.md)

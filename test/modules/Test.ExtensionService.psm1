@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42eeeb9d-fb5a-4c19-9424-9b112f3e3721
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -338,7 +338,7 @@ function Read-ExtensionServiceMarker {
 
 <#
 .SYNOPSIS
-    The base URL a marker advertises, honouring both the uniform key and the
+    The base URL a marker advertises, honoring both the uniform key and the
     area's own.
 .DESCRIPTION
     A marker written by an older framework carries only the per-service key

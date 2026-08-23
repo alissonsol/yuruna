@@ -307,8 +307,8 @@ storage:
 ```
 
 `sizing-policy: all` overrides subiquity's server default (`scaled`),
-which allocates only ~50 % of the PV to the root LV on <50 G disks and
-as little as ~12.5 % on >200 G disks. Without it the node
+which allocates only ~50% of the PV to the root LV on <50 G disks and
+as little as ~12.5% on >200 G disks. Without it the node
 ephemeral-storage filesystem on a 64 G qcow2 lands at ~14 GiB and trips
 kubelet's eviction watermark during the website test.
 
@@ -580,7 +580,7 @@ $ systemd-analyze
 Startup finished in 821ms (kernel) + 29.851s (userspace) = 30.672s
 ```
 
-83 % of userspace boot time, gone to a snapd bootstrap that nothing
+83% of userspace boot time, gone to a snapd bootstrap that nothing
 consumes. Mask only the seed-wait, NOT `snapd.service` / `snapd.socket`:
 that removes the boot-time gate while keeping on-demand `snap install`
 available to workload scripts via socket activation.
@@ -638,7 +638,7 @@ in-guest driver use it regardless of host display state.
 - **AL2023:** ships grub2 with no `update-grub` wrapper; `grubby`
   writes `/boot/grub2/grub.cfg` directly and is the AL2023 idiom. The
   flag list is deduplicated, so re-running with the same arg is a
-  no-op. AL2023 is a pre-built cloud image (no installer reboot), so
+  no-op. AL2023 is a prebuilt cloud image (no installer reboot), so
   the running kernel still has the OLD cmdline here -- see the
   "Headless host reboot" topic for the conditional reboot that applies
   the new arg.
@@ -1043,7 +1043,7 @@ power_state:
   condition: ["/bin/sh", "-c", "test -f /run/yuruna-needs-reboot"]
 ```
 
-AL2023 is a pre-built cloud image (no installer reboot), so after the
+AL2023 is a prebuilt cloud image (no installer reboot), so after the
 `grubby --args="video=hyperv_fb:1024x768"` step the running kernel still
 has the OLD cmdline: the first boot's framebuffer stays a tiny black
 rectangle and the OCR-driven test sequence sees nothing.
@@ -1247,8 +1247,8 @@ cached -- so the 1 GB headroom on top of 64 GB matters. Raising the
 ceiling allocates no disk; it only moves the rejection threshold.
 
 **Objects until near-full.** `cache_swap_high 99` / `cache_swap_low 98`:
-never release unless forced -- evict only when the disk is more than 99 %
-full, stopping at 98 %. The squid defaults (90/95) would start evicting
+never release unless forced -- evict only when the disk is more than 99%
+full, stopping at 98%. The squid defaults (90/95) would start evicting
 with ~5 GB still free, which is wrong for a sticky snapshot cache.
 
 **offline_mode replay.** `offline_mode on` serves cached objects without
@@ -1360,7 +1360,7 @@ immutable in helm's data model, so they get the same full-year pin as
 GitHub release assets.
 
 **Helm repo indexes** (`index.yaml`, fetched by `helm repo update`) are
-short-lived but cacheable: 60 minutes freshness with a 20 %
+short-lived but cacheable: 60 minutes freshness with a 20%
 last-modified factor, so back-to-back cycles inside an hour hit cache
 while new chart versions still land the same day. The rule is scoped to
 known helm-repo hosts so unrelated YAML is not over-cached.
@@ -1556,7 +1556,7 @@ The panel thresholds encode the point of the exporter. Manifest latency turns re
 
 ### zot systemd unit
 
-Systemd unit -- runs zot as an unprivileged service user with ProtectSystem=strict + ReadWritePaths confining writes to /var/lib/zot (blob store) and /var/log/zot. There is no apt package for zot on Resolute, so a binary install plus a hand-written systemd unit is the simplest path. The binary lands at /usr/local/bin/zot via runcmd.
+Runs zot as an unprivileged service user with ProtectSystem=strict + ReadWritePaths confining writes to /var/lib/zot (blob store) and /var/log/zot. There is no apt package for zot on Resolute, so a binary install plus a hand-written systemd unit is the simplest path. The binary lands at /usr/local/bin/zot via runcmd.
 
 ### NetworkStorage pool replication config
 
@@ -1624,9 +1624,9 @@ The stable TLS hostname (SAN) is mapped to the host's current IP via
 `curl --connect-to`, so a host DHCP change never invalidates the server
 leaf.
 
-### Lab auth token
+### Internal authentication key
 
-the shared lab-auth-token that gates remote control, the aggregator's POST /ingest push surface, and cross-host credential fetch. Baked into `/etc/yuruna/lab-auth.token` (the `LAB_AUTH_TOKEN_PLACEHOLDER` substitution) by New-VM from the building host's vault -- logical user `lab-auth-token`, with the legacy `pool-auth-token` vault entry accepted as a fallback so a host enrolled under that logical name keeps working. When the vault holds neither, New-VM mints a random lab-auth-token and stores it before baking, so a proxy is never built with an empty token; an empty-token proxy (mints no control proofs, /ingest answers 503, dashboard Lab token tile shows "off") is a diagnosable failure state, not a normal early one. The aggregator trims surrounding whitespace. Mode 0640 root:proxy: readable by the proxy-run aggregator, not world-readable.
+the internal authentication key that gates remote control, the aggregator's POST /ingest push surface, and cross-host credential fetch. Baked into `/etc/yuruna/internal-auth.key` (the `INTERNAL_AUTH_KEY_PLACEHOLDER` substitution) by New-VM from the building host's vault -- logical user `internal-auth-key`, with the older `lab-auth-token` and the legacy `pool-auth-token` vault entries accepted as fallbacks so a host enrolled under either logical name keeps working; the daemons reading the file fall back to the older `/etc/yuruna/lab-auth.token` path when the new one is absent, so a VM still carrying the older path keeps working until it is rebuilt. When the vault holds none of the three, New-VM mints a random internal authentication key and stores it before baking, so a proxy is never built with an empty key; an empty-key proxy (mints no control proofs, /ingest answers 503, dashboard Lab token tile shows "off") is a diagnosable failure state, not a normal early one. The aggregator trims surrounding whitespace. Mode 0640 root:proxy: readable by the proxy-run aggregator, not world-readable.
 
 ### runcmd errexit leaks across items
 
@@ -1768,7 +1768,7 @@ caching-proxy-parser-service fails closed (the binary may not be present if the 
 
 pool-aggregator-service: read-only pool view. Soft-fail like the parser -- the binary may be absent if the build above failed; prometheus already has the pool-aggregator-service scrape job (it just reads 'down' until the daemon is up).
 
-The unit's `ExecStart` carries `-auth-token-file /etc/yuruna/lab-auth.token -host-ttl 24h -lab-token-rotate 60s`. The token file is the shared lab-auth-token (see "Lab auth token" above). `-lab-token-rotate` drives the lab-token exchange: the aggregator mints a 6-character lab connection token (lowercase a-z0-9), rotates it on that interval, surfaces it on the dashboard's "Lab token" tile (via the `yuruna_pool_lab_token` info gauge), and serves the open endpoint `POST /api/v1/lab-token` on :9400 (body `{"labToken":"<code>"}` -> 200 with the shared lab-auth-token; 400 malformed, 403 unknown/expired code, 429 per-IP throttle, 503 exchange disabled). A displayed code stays redeemable for about three rotations; `0` disables the tile and the exchange. Exchanges are counted in `yuruna_pool_lab_token_exchanges_total` and every attempt is audited (aggregator log + Loki, label src="lab-token"). A host enrolls with `pwsh test/lab/Set-LabToken.ps1 -LabToken <code>`.
+The unit's `ExecStart` carries `-auth-token-file /etc/yuruna/internal-auth.key -host-ttl 24h -lab-token-rotate 60s`. The token file holds the internal authentication key (see "Internal authentication key" above); the daemon falls back to `/etc/yuruna/lab-auth.token` when that path is absent. `-lab-token-rotate` drives the lab-token exchange: the aggregator mints a 6-character lab connection token (lowercase a-z0-9), rotates it on that interval, surfaces it on the dashboard's "Lab token" tile (via the `yuruna_pool_lab_token` info gauge), and serves the open endpoint `POST /api/v1/lab-token` on :9400 (body `{"labToken":"<code>"}` -> 200 with the internal authentication key; 400 malformed, 403 unknown/expired code, 429 per-IP throttle, 503 exchange disabled). A displayed code stays redeemable for about three rotations; `0` disables the tile and the exchange. Exchanges are counted in `yuruna_pool_lab_token_exchanges_total` and every attempt is audited (aggregator log + Loki, label src="lab-token"). A host enrolls with `pwsh test/lab/Set-LabToken.ps1 -LabToken <code>`.
 
 How long a host stays in that view after its last contact is `-host-ttl` in the unit's `ExecStart` (default `24h`): change it and run `systemctl daemon-reload && systemctl restart pool-aggregator-service` -- no rebuild. The `daemon-reload` is load-bearing; without it systemd restarts from its cached copy of the unit and the old value silently stays in force (the same trap [caching.md](caching.md) documents for the squid units). A non-positive value falls back to 24h. A binary that predates the flag exits immediately on it and `Restart=on-failure` turns that into a crash loop, so re-provision such a proxy first.
 
@@ -2044,7 +2044,7 @@ oversized ACL.
 
 Measured on a developer host after many cycles: the
 Windows 11 base ISO already carried **1,412 ACEs** (1,020 raw-SID +
-387 name-form per-VM entries) totalling **~56.5 KB / 64 KB**, with **zero**
+387 name-form per-VM entries) totaling **~56.5 KB / 64 KB**, with **zero**
 live VMs on the host. The Linux base ISOs were accumulating the same way.
 
 #### Fix
@@ -2116,6 +2116,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.21
+Last review: 2026.08.23
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 420783b4-e34a-4b51-b88e-e01fa3738a91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -154,9 +154,9 @@ $script:ProblemRecords = [System.Collections.Generic.List[hashtable]]::new()
 function Write-Section {
     param([string]$Title)
     Write-Output ""
-    Write-Output "============================================================"
+    Write-Output "========"
     Write-Output "  $Title"
-    Write-Output "============================================================"
+    Write-Output "========"
 }
 function Write-Sub {
     param([string]$Title)
@@ -347,6 +347,17 @@ function Invoke-Tool {
         $ToolArgs = @($script:LinuxPriv | Select-Object -Skip 1) + @($Tool) + $ToolArgs
         $Tool = $script:LinuxPriv[0]
     }
+    # Runnable-target proof at the call site, mirroring Test-CommandAvailable's
+    # section guards: a target that is missing, a dangling symlink, or lost its
+    # execute bit would otherwise throw "Cannot run a document in the middle of
+    # a pipeline" here and abort the section mid-dump.
+    $resolved = @(Get-Command $Tool -ErrorAction SilentlyContinue) | Select-Object -First 1
+    if ($null -eq $resolved -or
+        (($resolved.CommandType -eq 'Application') -and -not (Test-ExecutableFile -Path $resolved.Source))) {
+        Write-Output "  ($Tool is not runnable -- missing, a dangling symlink, or not executable)"
+        if ($ProblemTag) { Add-Problem "$($ProblemTag): '$Tool' is not a runnable executable." }
+        return
+    }
     try {
         if ($TimeoutSeconds -gt 0) {
             $result = Invoke-WithDeadline -TimeoutSeconds $TimeoutSeconds -ArgumentList @($Tool, $ToolArgs) -ScriptBlock {
@@ -411,9 +422,43 @@ function Get-LocalRegistryCatalog {
     return , @($reposVal)
 }
 
+# $true only for an existing file (symlinks followed to their leaf) that the
+# current user can execute. The leaf's own .Exists is the dangling-symlink
+# test -- existence probes on the link path report the link, not the target
+# -- and the Unix mode check catches a real file whose execute bits were
+# stripped. Windows has no execute bit, so there existence is the whole test.
+function Test-ExecutableFile {
+    param([Parameter(Mandatory)][string]$Path)
+    try {
+        if ($IsWindows) { return [System.IO.File]::Exists($Path) }
+        $item = Get-Item -LiteralPath $Path -ErrorAction Stop
+        $leaf = $item.ResolveLinkTarget($true)
+        if ($leaf) { $item = $leaf }
+        if (-not $item.Exists) { return $false }
+        if ($item -isnot [System.IO.FileInfo]) { return $false }
+        $execBits = [System.IO.UnixFileMode]::UserExecute -bor
+                    [System.IO.UnixFileMode]::GroupExecute -bor
+                    [System.IO.UnixFileMode]::OtherExecute
+        return (($item.UnixFileMode -band $execBits) -ne 0)
+    } catch {
+        return $false
+    }
+}
+
+# Get-Command alone is not proof a tool can run: it happily returns an
+# Application entry for a dangling symlink or a mode-stripped file (a stale
+# /usr/local/bin shim left behind by an uninstalled app is the classic
+# shape), and invoking such a target throws "Cannot run a document in the
+# middle of a pipeline" -- which aborts the whole diagnostic section, not
+# just the one probe. For Application commands, prove the resolved target
+# is a real, executable file before reporting it available. Cmdlets,
+# functions, and aliases resolve to code, not files, so they pass as-is.
 function Test-CommandAvailable {
     param([Parameter(Mandatory)][string]$Name)
-    return ($null -ne (Get-Command $Name -ErrorAction SilentlyContinue))
+    $cmd = @(Get-Command $Name -ErrorAction SilentlyContinue) | Select-Object -First 1
+    if ($null -eq $cmd) { return $false }
+    if ($cmd.CommandType -ne 'Application') { return $true }
+    return (Test-ExecutableFile -Path $cmd.Source)
 }
 
 # --- REGION: Hyper-V virtual switch uplink fingerprint
@@ -859,8 +904,32 @@ try {
         }
     }
     Get-VersionLine 'tesseract' {
-        if (Get-Command tesseract -ErrorAction SilentlyContinue) {
-            & tesseract --version 2>&1 | Select-Object -First 1
+        # PATH alone under-reports this one. The OCR engine resolves tesseract by
+        # falling back to the platform's standard install directories when it is
+        # missing from PATH, so a PATH-only probe prints "(not installed)" for a
+        # host whose OCR is running fine -- and this report is read while triaging
+        # OCR failures, exactly where that disagreement sends the reader after a
+        # missing binary that is not missing. The directories below mirror
+        # Find-Tesseract in test/modules/Test.Tesseract.psm1 literal for literal;
+        # they have to stay the same set, or the report resumes disagreeing with
+        # the resolver it is describing.
+        $exe = (Get-Command tesseract -ErrorAction SilentlyContinue).Source
+        if (-not $exe) {
+            $candidates = if ($IsWindows) {
+                @(
+                    "C:\Program Files\Tesseract-OCR\tesseract.exe"
+                    "C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"
+                    "$env:LOCALAPPDATA\Programs\Tesseract-OCR\tesseract.exe"
+                )
+            } elseif ($IsMacOS) {
+                @('/usr/local/bin/tesseract', '/opt/homebrew/bin/tesseract')
+            } else {
+                @('/usr/bin/tesseract', '/usr/local/bin/tesseract', '/snap/bin/tesseract')
+            }
+            $exe = $candidates | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
+        }
+        if ($exe) {
+            & $exe --version 2>&1 | Select-Object -First 1
         }
     }
     Get-VersionLine 'qemu-img' {
@@ -1884,8 +1953,8 @@ try {
     if ($SkipDocker) {
         Write-Output "(skipped via -SkipDocker)"
     } elseif (-not (Test-CommandAvailable 'docker')) {
-        Write-Output "docker command not found in PATH."
-        Add-Problem "DOCKER: docker not installed (or not in PATH)."
+        Write-Output "docker command not found in PATH (or present but not executable)."
+        Add-Problem "DOCKER: docker not installed (or not in PATH / not executable)."
     } else {
         # --- REGION: https://yuruna.link/system-diagnostic#wedged-daemon-protection
         $probe = Invoke-WithDeadline -TimeoutSeconds 5 -ScriptBlock {
@@ -2025,8 +2094,8 @@ try {
     if ($SkipKube) {
         Write-Output "(skipped via -SkipKube)"
     } elseif (-not (Test-CommandAvailable 'kubectl')) {
-        Write-Output "kubectl command not found in PATH."
-        Add-Problem "KUBE: kubectl not installed (or not in PATH)."
+        Write-Output "kubectl command not found in PATH (or present but not executable -- e.g. a dangling /usr/local/bin symlink)."
+        Add-Problem "KUBE: kubectl not installed (or not in PATH / not executable)."
     } else {
         Write-Sub "kubectl version"
         # --- REGION: https://yuruna.link/system-diagnostic#per-tool-request-timeouts (kubectl --request-timeout)
@@ -2127,7 +2196,7 @@ try {
             }
         } else {
             Write-Output "(helm not in PATH -- chart-based workloads will not have been deployed)"
-            Add-Problem "HELM: helm not installed (or not in PATH)."
+            Add-Problem "HELM: helm not installed (or not in PATH / not executable)."
         }
 
         Write-Sub "Namespaces that exist but have no Pods/Deployments"
@@ -2375,6 +2444,46 @@ try {
                 & utmctl list 2>$null | ForEach-Object { Write-Output $_ }
             }
 
+            # OCR rides Apple Vision through a swiftc-compiled helper; when the
+            # compile breaks (Command Line Tools gone stale after an OS update,
+            # xcode-select pointing at a removed developer dir) every cycle
+            # emits ocr_vision_slowpath and OCR drops to the interpreter or
+            # tesseract. Reproduce the compile here so this report carries the
+            # actual compiler error next to the toolchain facts needed to fix it.
+            Write-Sub "Swift toolchain (Vision OCR fast path)"
+            foreach ($cmd in @('swiftc','swift','xcode-select','xcrun')) {
+                if (Test-CommandAvailable $cmd) {
+                    Write-Output ("  {0}: $(& which $cmd 2>$null)" -f $cmd)
+                } else {
+                    Write-Output ("  {0}: (not runnable -- missing, dangling symlink, or not executable)" -f $cmd)
+                }
+            }
+            if (Test-CommandAvailable 'xcode-select') {
+                Write-Output ("  active developer dir: " + (@(& xcode-select -p 2>&1 | ForEach-Object { $_.ToString() }) -join ' '))
+            }
+            if (Test-CommandAvailable 'swiftc') {
+                Invoke-Tool -Tool 'swiftc' -ToolArgs @('--version') -TimeoutSeconds 30 -ProblemTag 'SWIFT'
+                Write-Output "  compile probe:"
+                $probeDir = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-swiftc-probe-" + [guid]::NewGuid().ToString('N'))
+                try {
+                    New-Item -ItemType Directory -Path $probeDir -Force | Out-Null
+                    $probeSrc = Join-Path $probeDir 'probe.swift'
+                    $probeBin = Join-Path $probeDir 'probe'
+                    Set-Content -LiteralPath $probeSrc -Value 'print("swiftc-probe-ok")'
+                    Invoke-Tool -Tool 'swiftc' -ToolArgs @($probeSrc, '-o', $probeBin) -TimeoutSeconds 60 -ProblemTag 'SWIFT'
+                    if (Test-Path -LiteralPath $probeBin) {
+                        Write-Output "  compile probe: OK (binary produced; Vision OCR fast path can build)"
+                    } else {
+                        Write-Output "  compile probe: FAILED (no binary produced)"
+                        Add-Problem "SWIFT: swiftc cannot produce a binary -- the Vision OCR fast path is down (ocr_vision_slowpath). Usual fix: reinstall the Command Line Tools (xcode-select --install) or repoint them (sudo xcode-select -s <developer dir>)."
+                    }
+                } finally {
+                    Remove-Item -LiteralPath $probeDir -Recurse -Force -ErrorAction SilentlyContinue
+                }
+            } else {
+                Write-Output "  (swiftc not runnable -- Vision OCR fast path unavailable; OCR uses the interpreter/tesseract fallback)"
+            }
+
             Write-Sub "Kernel ring buffer (dmesg -- needs root; otherwise sudo log show)"
             if (Test-CommandAvailable 'log') {
                 # macOS unified log: pull errors/warnings from the last hour.
@@ -2516,18 +2625,29 @@ try {
             Write-Output "(ping not installed)"
         }
 
-        Write-Sub "Firewall (iptables -S, first 200 lines)"
-        if (Test-CommandAvailable 'iptables') {
-            $ipt = & iptables -S 2>&1
-            $iptExit = $LASTEXITCODE
-            if ($iptExit -ne 0) {
-                Write-Output ("(iptables -S returned exit {0}: {1})" -f $iptExit, (($ipt | Select-Object -First 1) -join ' '))
+        # Elevated, through the same prefix the process and journal probes use.
+        # Unprivileged, iptables answers "Permission denied (you must be root)"
+        # and nothing else, so the section costs a line and reports nothing --
+        # on a host where the sibling probes in this same run are elevated.
+        #
+        # The nat table, not just filter: a NodePort or a NAT guest network is
+        # DNAT, and `-S` alone shows the filter chains, which is the one table
+        # those rules are never in.
+        foreach ($iptTable in @('filter', 'nat')) {
+            Write-Sub "Firewall (iptables -t $iptTable -S, first 200 lines)"
+            if (Test-CommandAvailable 'iptables') {
+                $ipt = @(Invoke-PrivProbe -Tool 'iptables' -ToolArgs @('-t', $iptTable, '-S') -KeepStderr)
+                if (-not $ipt.Count) {
+                    Write-Output "(no rules reported, and no error text either)"
+                } elseif ($ipt[0] -match 'Permission denied|must be root|not permitted') {
+                    Write-Output ("({0})" -f $ipt[0])
+                } else {
+                    $ipt | Select-Object -First 200 | ForEach-Object { Write-Output $_ }
+                    if ($ipt.Count -gt 200) { Write-Output ("(... {0} more lines omitted)" -f ($ipt.Count - 200)) }
+                }
             } else {
-                $ipt | Select-Object -First 200 | ForEach-Object { Write-Output $_ }
-                if ($ipt.Count -gt 200) { Write-Output ("(... {0} more lines omitted)" -f ($ipt.Count - 200)) }
+                Write-Output "(iptables not in PATH)"
             }
-        } else {
-            Write-Output "(iptables not in PATH)"
         }
         if (Test-CommandAvailable 'ss') {
             Write-Sub "Listening sockets (ss -tuln, first 200 lines)"
@@ -2574,6 +2694,62 @@ try {
             }
         } else {
             Write-Output "(lsmod not in PATH)"
+        }
+
+        # An address a caller dialed can be one the guest has already left: the
+        # kernel keeps the old entry under the same MAC until it ages out, so a
+        # MAC-keyed lookup has two answers and a lease table cannot separate
+        # them. The NUD state is what does -- REACHABLE was confirmed within
+        # seconds, STALE only says it was true at some past point. The
+        # forwarding database answers the other half: whether that MAC is still
+        # seen on a bridge port at all, which separates a guest that went quiet
+        # from one that never reached the bridge. Both tables are host-local and
+        # both are gone minutes after the domain is undefined, so they belong
+        # here beside the lease table a reader correlates them against.
+        Write-Sub "IPv4 neighbor table (ip -4 neigh show)"
+        if (Test-CommandAvailable 'ip') {
+            $neighLine = @(& ip -4 neigh show 2>&1 | ForEach-Object { "$_" })
+            if ($LASTEXITCODE -ne 0) {
+                Write-Output ("(ip -4 neigh show returned exit {0}: {1})" -f $LASTEXITCODE, (($neighLine | Select-Object -First 1) -join ' '))
+            } elseif ($neighLine.Count -eq 0) {
+                Write-Output "(neighbor table is empty -- nothing has been resolved recently on any interface)"
+            } else {
+                $neighLine | Select-Object -First 200 | ForEach-Object { Write-Output $_ }
+                if ($neighLine.Count -gt 200) { Write-Output ("(... {0} more line(s) omitted)" -f ($neighLine.Count - 200)) }
+            }
+        } else {
+            Write-Output "(ip not in PATH -- install iproute2)"
+        }
+
+        # Every bridge rather than a fixed name: libvirt numbers its NAT bridges
+        # per network, and a host bridged onto the LAN carries its guests on an
+        # operator-named device instead.
+        Write-Sub "Bridge forwarding database (bridge fdb show br <bridge>)"
+        if (-not (Test-CommandAvailable 'bridge')) {
+            Write-Output "(bridge not in PATH -- iproute2's bridge utility is absent, or /usr/sbin is off this account's PATH)"
+        } elseif (-not (Test-CommandAvailable 'ip')) {
+            Write-Output "(ip not in PATH -- cannot enumerate bridge devices)"
+        } else {
+            $bridgeName = @()
+            foreach ($linkLine in @(& ip -o link show type bridge 2>$null)) {
+                if ("$linkLine" -match '^\s*\d+:\s+([^:@\s]+)') { $bridgeName += $Matches[1] }
+            }
+            if (-not $bridgeName.Count) {
+                Write-Output "(no bridge devices on this host)"
+            } else {
+                foreach ($br in $bridgeName) {
+                    Write-Output "--- $br ---"
+                    $fdbLine = @(& bridge fdb show br $br 2>&1 | ForEach-Object { "$_" })
+                    if ($LASTEXITCODE -ne 0) {
+                        Write-Output ("(bridge fdb show br {0} returned exit {1}: {2})" -f $br, $LASTEXITCODE, (($fdbLine | Select-Object -First 1) -join ' '))
+                    } elseif (-not $fdbLine.Count) {
+                        Write-Output "(no entries -- no guest MAC has been seen on this bridge)"
+                    } else {
+                        $fdbLine | Select-Object -First 60 | ForEach-Object { Write-Output $_ }
+                        if ($fdbLine.Count -gt 60) { Write-Output ("(... {0} more entry(ies) omitted)" -f ($fdbLine.Count - 60)) }
+                    }
+                }
+            }
         }
 
         # --- REGION: https://yuruna.link/system-diagnostic#11c-libvirt-guest-networks

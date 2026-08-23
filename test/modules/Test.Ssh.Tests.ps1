@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42539169-cf17-4eb5-b0d6-c972156d3841
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -76,12 +76,34 @@ Describe 'Get-SshReadinessFailureCause' {
         Assert-Equal 'ip_not_discovered' (Get-SshReadinessFailureCause -IpDiscovered $false -LastError 'probe timed out after 15s (ssh hung post-TCP; process killed)')
     }
 
-    It 'classifies an unreachable network path to a discovered IP' {
-        Assert-Equal 'network_unreachable' (Get-SshReadinessFailureCause -IpDiscovered $true -LastError 'connect to host 192.168.7.40 port 22: No route to host')
-        Assert-Equal 'network_unreachable' (Get-SshReadinessFailureCause -IpDiscovered $true -LastError 'connect to host 192.168.7.40 port 22: Connection timed out')
+    It 'classifies an unreachable path to an address that HAS answered before' {
+        # Something replied at this address earlier in the wait, so the address
+        # is owned by a live machine and the fault is the path to it.
+        Assert-Equal 'network_unreachable' (Get-SshReadinessFailureCause -IpDiscovered $true -IpAnswered $true -LastError 'connect to host 192.168.7.40 port 22: No route to host')
+        Assert-Equal 'network_unreachable' (Get-SshReadinessFailureCause -IpDiscovered $true -IpAnswered $true -LastError 'connect to host 192.168.7.40 port 22: Connection timed out')
+    }
+
+    It 'separates an address nothing ever answered from a path that broke' {
+        # A lease table can hold several addresses for one guest: a rebuilt
+        # guest takes a new one and the old rows stay until they expire, so an
+        # address can be discovered, unexpired, and belong to nothing. Calling
+        # that network_unreachable sends a reader to audit a network that is
+        # working, which is the wrong machine.
+        Assert-Equal 'ip_never_answered' (Get-SshReadinessFailureCause -IpDiscovered $true -IpAnswered $false -LastError 'connect to host 192.168.122.120 port 22: No route to host')
+        Assert-Equal 'ip_never_answered' (Get-SshReadinessFailureCause -IpDiscovered $true -IpAnswered $false -LastError 'connect to host 192.168.122.120 port 22: Connection timed out')
+    }
+
+    It 'ranks reached-sshd evidence above the never-answered signal' {
+        # A refusal or an auth denial IS an answer, so those causes must win
+        # even when the caller has not flagged the address as having answered.
+        Assert-Equal 'connection_refused' (Get-SshReadinessFailureCause -IpDiscovered $true -IpAnswered $false -LastError 'connect to host 10.0.0.5 port 22: Connection refused')
+        Assert-Equal 'auth_denied' (Get-SshReadinessFailureCause -IpDiscovered $true -IpAnswered $false -LastError 'Permission denied (publickey)')
     }
 
     It 'classifies an unresolved name against a discovered IP context' {
+        # Name resolution is decided before the never-answered split, so a
+        # resolver fault keeps its own cause whether or not anything answered.
+        Assert-Equal 'name_unresolved' (Get-SshReadinessFailureCause -IpDiscovered $true -IpAnswered $false -LastError 'ssh: Could not resolve hostname foo: Name or service not known')
         Assert-Equal 'name_unresolved' (Get-SshReadinessFailureCause -IpDiscovered $true -LastError 'ssh: Could not resolve hostname foo: Name or service not known')
     }
 
@@ -100,11 +122,11 @@ Describe 'Test-SshTransportLoss' {
     # real bug behind a retry, and calling a transport loss a guest failure sends
     # an operator to read a script that never ran.
 
-    It 'recognises the keepalive giving up on a peer that stopped answering' {
+    It 'recognizes the keepalive giving up on a peer that stopped answering' {
         Test-SshTransportLoss -ExitCode 255 -Output 'Timeout, server amisad-build-admin@192.168.7.165 not responding.' | Should -BeTrue
     }
 
-    It 'recognises the session dying mid-command' {
+    It 'recognizes the session dying mid-command' {
         foreach ($text in 'client_loop: send disconnect: Broken pipe',
                           'Connection to 192.168.7.165 closed by remote host.',
                           'Connection reset by peer',
@@ -113,7 +135,7 @@ Describe 'Test-SshTransportLoss' {
         }
     }
 
-    It 'recognises the route disappearing under an established session' {
+    It 'recognizes the route disappearing under an established session' {
         foreach ($text in 'ssh: connect to host 192.168.7.165 port 22: No route to host',
                           'ssh: connect to host 192.168.7.165 port 22: Network is unreachable') {
             Test-SshTransportLoss -ExitCode 255 -Output $text | Should -BeTrue -Because "route wording: $text"
@@ -245,7 +267,7 @@ Describe 'Test-DetachedRunInterrupted' {
         Test-DetachedRunInterrupted -ExitCode 255 -StdErr 'Permission denied (publickey).' | Should -BeFalse
     }
 
-    It 'still recognises a transport loss the client did explain' {
+    It 'still recognizes a transport loss the client did explain' {
         Test-DetachedRunInterrupted -ExitCode 255 -StdErr 'client_loop: send disconnect: Broken pipe' | Should -BeTrue
     }
 

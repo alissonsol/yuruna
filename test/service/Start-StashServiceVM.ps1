@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42d07272-8c12-4ba7-807e-c0b201076d87
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -522,7 +522,7 @@ if ($stashVerdict.IsFailure) {
     catch { Write-Verbose "stash guest diagnostics ssh: $($_.Exception.Message)" }
 
     Write-Verbose ""
-    Write-Output "==================== stash-service guest diagnostics ===================="
+    Write-Output "======== stash-service guest diagnostics ========"
     if ($stashDiag -and -not [string]::IsNullOrWhiteSpace([string]$stashDiag.output)) {
         foreach ($line in ([string]$stashDiag.output -split "`r?`n")) { Write-Output "  $line" }
         if (-not $stashDiag.success) {
@@ -538,7 +538,7 @@ if ($stashVerdict.IsFailure) {
             Write-Verbose "  $hintLine"
         }
     }
-    Write-Verbose "========================================================================"
+    Write-Verbose "========"
     Write-Verbose ""
     Write-Output "Reading the capture above:"
     Write-Output "  * cloud-init status 'running'   -> the in-guest build is still going; re-run this script to"

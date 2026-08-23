@@ -19,10 +19,10 @@ This document is the **architecture + operations** reference. For
 vault) see [test-config.md](test-config.md).
 
 **No NAS?** `pwsh test/lab/New-LocalLabStorage.ps1` turns the machine you are
-standing at into its own pool and stash server -- folders, storage accounts,
-shares, vault entries, mounts, and config, in one idempotent command on Windows,
-macOS, or Ubuntu. The shares are local but are consumed **as if they were
-remote** (a loopback host alias per tier, mounted over SMB by the same
+standing at into its own pool and stash storage server -- folders, storage
+accounts, shares, vault entries, mounts, and config, in one idempotent command on
+Windows, macOS, or Ubuntu. The shares are local but are consumed **as if they
+were remote** (a loopback host alias per tier, mounted over SMB by the same
 `Connect-YurunaPoolStorage` used below), so everything on this page applies
 unchanged and moving to real hardware later only changes what the alias
 resolves to. Later labs on that machine need only
@@ -505,12 +505,12 @@ therefore erase the section it was asked for, reporting only that the tier was
 being cleared.
 
 The renames it handles are in `Get-RetiredConfigKeyMap`
-(`test/modules/Test.ConfigNaming.psm1`) — including the six
-`networkStorage.pool*`/`stash*` → `*Storage*` moves and unit changes such as
-`testCycle.stepTimeoutMinutes` → `stepTimeoutSeconds` (×60).
+(`test/modules/Test.ConfigNaming.psm1`) -- including the six
+`networkStorage.pool*`/`stash*` -> `*Storage*` moves and unit changes such as
+`testCycle.stepTimeoutMinutes` -> `stepTimeoutSeconds` (x60).
 
 The translation is **per sync**. The reference keeps serving old names to
-everything else, so the sync warns and points at the permanent fix — run
+everything else, so the sync warns and points at the permanent fix -- run
 `pwsh tools/Update-TestConfigNaming.ps1` then `pwsh test/Test-Config.ps1` on the
 reference host.
 
@@ -560,13 +560,13 @@ What it does, in order:
    it on the reference) rather than silently dropping to a prompt.
 3. **Vault credential.** Each networkStorage user's credential is reconciled
    against the reference's `GET /control/vault-credential`. That route is
-   gated by the shared `lab-auth-token` (the same one that
+   gated by the internal authentication key (the same one that
    gates the aggregator's push ingest, and 503 until it is configured):
    the request proves token knowledge via an HMAC (the token never crosses
    the wire) and the response password is AES-GCM encrypted with a key
    derived from the token, so nothing crosses the plain-HTTP LAN in
-   cleartext. Because that gate is mandatory, **credentials sync only once a
-   `lab-auth-token` is provisioned on BOTH hosts** -- the reference (so it
+   cleartext. Because that gate is mandatory, **credentials sync only once an
+   internal authentication key is provisioned on BOTH hosts** -- the reference (so it
    will serve) and this host (so it can unlock). Before prompting, the sync
    probes the reference: one with no token of its own says so in one
    actionable line (naming
@@ -574,8 +574,8 @@ What it does, in order:
    password it could never have used. With the token in place a re-run
    **refreshes a rotated password** -- the fetched value is compared to the
    stored one and rewritten only when they differ. A user that already has a
-   local entry and no token available is kept as-is (pass `-SharedToken`, or
-   store a `lab-auth-token`, to have re-runs check it against the
+   local entry and no key available is kept as-is (pass `-InternalAuthKey`, or
+   store an `internal-auth-key`, to have re-runs check it against the
    reference). Values are stored with `Set-Password`; an operator prompt is
    the last resort, only for a missing entry the reference cannot serve.
 4. **Mount prerequisite (Linux).** Offers to install the passwordless-sudo
@@ -597,7 +597,7 @@ host.
 
 ## Operating & troubleshooting
 
-`pwsh test/Test-Config.ps1` is the pre-flight check -- it validates the
+`pwsh test/Test-Config.ps1` is the preflight check -- it validates the
 networkStorage pool block (all three pool paths set, a usable vault credential so
 the mount won't auto-generate a junk password, and SMB `:445` reachability) before
 a cycle runs. When the credential is configured **and** the server is reachable, it
@@ -672,7 +672,7 @@ Common findings:
   another `/etc/sudoers.d` file sorting **after** the poolStorage drop-in -- the
   last matching rule wins, so a later one re-requiring a password overrides it.
 - **The cycle won't start, gate FAILs on `poolStorageLocalPath / per-host folder
-  pre-flight FAILED`** -- `moveLogsToPoolStorage: true` and the active pre-flight could not
+  pre-flight FAILED`** -- `moveLogsToPoolStorage: true` and the active preflight could not
   mount the share or could not create `<poolStorageLocalPath>/hosts/<hostId>` on it. The FAIL line
   names the stage: a *mount* failure points at the password / share name / Linux
   sudo; a *folder* failure points at a read-only share or missing write
@@ -720,7 +720,7 @@ Common findings:
   unresolvable name fails in `mount.cifs` before the kernel is involved. Check
   from inside the guest with `getent hosts <server>` and `grep cifs /etc/fstab` --
   the `ip=` option should name an address the guest can route to. The host-side
-  pre-flight passes in this case, because on the host the alias is correct.
+  preflight passes in this case, because on the host the alias is correct.
 
 ## Security notes
 
@@ -758,6 +758,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.21
+Last review: 2026.08.23
 
 Back to [Yuruna](../README.md)

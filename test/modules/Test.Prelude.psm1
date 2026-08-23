@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 421b40b9-fcaf-4a1a-bb31-9464b1ad442a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -182,6 +182,10 @@ function Initialize-YurunaEntryPointModuleSet {
             # inline call sites so dependency edges (Test.HostContract depends on
             # Test.VMUtility, etc.) are preserved.
             'Test.SingleInstance.psm1', 'Test.YurunaDir.psm1', 'Test.Backoff.psm1',
+            # Test.ConfigPreflight owns the cycle-start gate. The inner runs the
+            # cycle's only Test-Config.ps1 preflight, so the module has to be in
+            # the bootstrap set rather than reached transitively.
+            'Test.ConfigPreflight.psm1',
             # Test.Config supplies the config readers plus
             # Resolve-CleanupVmNamePrefix, which the cycle-start and teardown
             # sweeps call to decide which VM names are disposable. The inner
@@ -531,13 +535,13 @@ function Assert-NoOtherRunner {
     $state = Get-RunnerInstanceState -RunnerPidFile $runnerPidFile -RunnerStartFile $runnerStartFile
     if ($state.status -ne 'OtherRunner') { return $true }
     Write-Output ''
-    Write-Output '============================================='
+    Write-Output '========'
     Write-Output '  Another Start-TestRunner is already running'
     Write-Output "  PID:    $($state.pid)"
     Write-Output "  Caller: $CallerName refuses to interfere"
     Write-Output '  Action: stop the existing runner first, or run'
     Write-Output '          this from a different YURUNA_RUNTIME_DIR.'
-    Write-Output '============================================='
+    Write-Output '========'
     return $false
 }
 

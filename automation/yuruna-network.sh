@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.21
+# Version: 2026.08.23
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -115,9 +115,18 @@ yuruna_wait_ipv4() {
 # --- REGION: https://yuruna.link/network#reading-a-guest-that-has-no-ipv4
 # The client's own journal is the only place that separates a client still
 # sending DISCOVERs from one that stopped asking -- and only the second is a
-# fault inside this guest. `-o cat` drops the timestamp and hostname prefix:
-# this lands on an 80-column console that is read back by OCR, where a wrapped
-# line costs two rows and reads as two facts.
+# fault inside this guest. A third shape needs the same lines to tell it apart:
+# a lease the server ACKED and the client never installed, which reads as an
+# `acquired` line with no address on the link. Ordering is what separates the
+# three, so the timestamp is kept -- but only HH:MM:SS.mmm of it. This lands on
+# a narrow console read back by OCR, where a wrapped line costs two rows and
+# reads as two facts, so the sed drops the date, hostname and unit prefix that
+# `-o short-precise` puts in front of every line. A line that does not carry
+# that prefix passes through untouched.
+#
+# The grep reaches past `dhcp|lease|carrier` into the address plane because the
+# third shape leaves its evidence only there: the refusal or the error that
+# stopped the address, neither of which mentions DHCP at all.
 #
 # Unprivileged first, elevated only when that came back empty. Whether the
 # login user may read the system journal is a per-image fact, and `sudo -n`
@@ -127,9 +136,11 @@ yuruna_wait_ipv4() {
 # The command name is a seam so a test can feed it fixture lines; unset, it is
 # the real journalctl. The leading "$@" is the optional elevation prefix.
 _yuruna_net_journal_slice() {
-    "$@" "${YURUNA_NET_JOURNAL:-journalctl}" -o cat --no-pager -n 80 \
+    "$@" "${YURUNA_NET_JOURNAL:-journalctl}" -o short-precise --no-pager -n 200 \
         -u systemd-networkd -u NetworkManager 2>/dev/null |
-        grep -iE 'dhcp|lease|carrier' | tail -4
+        grep -iE 'dhcp|lease|carrier|address|not ready|could not set|refuse to configure|EEXIST' |
+        sed -E 's/^([A-Za-z]{3}[ ]+[0-9]+[ ]+)?([0-9]{2}:[0-9]{2}:[0-9]{2})(\.[0-9]{3})[0-9]*[ ]+[^ ]+[ ]+[^:]+:[ ]/\2\3 /' |
+        tail -7
 }
 
 # Ask the DHCP client what it is doing. Every verdict below bottoms out at "no
@@ -243,7 +254,7 @@ network_diag() {
             if [ -n "$v6" ]; then
                 echo "   $ifc: carrier up, has IPv6 (SLAAC) but NO IPv4 (no DHCP lease / no static)"
             else
-                echo "   $ifc: carrier up but NO IPv4 and NO IPv6 address"
+                echo "   $ifc: carrier up, NO IPv4 and no global IPv6 (link-local may be above)"
             fi
             addrless="$addrless $ifc"
             [ -z "$probe_ifc" ] && probe_ifc="$ifc"
@@ -288,17 +299,14 @@ network_diag() {
             echo "!!   link is up, so the fault is between here and the DHCP"
             echo "!!   server -- which cannot be seen from inside this guest."
             echo "!!   Ordered by how often each is the answer, NOT by certainty:"
-            echo "!!   1. The lease has not landed YET. A lost DISCOVER puts the"
-            echo "!!      client into backoff, and SLAAC keeps succeeding on its"
-            echo "!!      own repeating RAs, so IPv6-only for minutes is normal"
-            echo "!!      here and is not evidence of a refusal. The client"
-            echo "!!      state below says which of the two this is."
-            echo "!!   2. The request or its reply is not getting through: a"
-            echo "!!      bridge port not forwarding yet, VLAN/cabling, or a"
-            echo "!!      DHCP server that is down."
-            echo "!!   3. The server had no free lease. ONLY the DHCP server can"
-            echo "!!      show this -- it is not observable from here. Read its"
-            echo "!!      free-lease count before concluding it."
+            echo "!!   1. The lease has not landed YET: a lost DISCOVER backs the"
+            echo "!!      client off while SLAAC keeps winning on its own RAs, so"
+            echo "!!      IPv6-only for minutes is normal and is not a refusal."
+            echo "!!   2. Request or reply not getting through: a bridge port not"
+            echo "!!      forwarding, VLAN/cabling, or a DHCP server that is down."
+            echo "!!   3. The server had no free lease -- not observable from here."
+            echo "!!   4. ACKed and never installed: an acquired line in the client"
+            echo "!!      state below, with no address here, is that shape."
         elif [ "$examined" -gt 0 ]; then
             echo ""
             echo "   All carrier-up interfaces hold an IPv4 address."
@@ -369,6 +377,16 @@ yuruna_net_repair_ipv4() {
             ifc=$(basename "$ifc")
             _yuruna_net_is_physical "$ifc" || continue
             [ -n "$(ip -4 -o address show dev "$ifc" scope global 2>/dev/null)" ] && continue
+            # What the client believed BEFORE the nudge, on the console, while
+            # it is still true. The reconfigure below restarts the client, so
+            # every field it would have answered with is gone a moment later --
+            # and the failing run reaches its own diagnostic minutes after that,
+            # by which time this sample exists nowhere else. Feature-detected
+            # because the repair is called from a guest that may carry an older
+            # network lib without this probe.
+            if command -v _yuruna_net_client_state >/dev/null 2>&1; then
+                _yuruna_net_client_state "$ifc"
+            fi
             if _yuruna_net_sudo networkctl reconfigure "$ifc" >/dev/null 2>&1; then
                 echo "   networkctl reconfigure $ifc"
             fi

@@ -172,6 +172,37 @@ proxy drop-in inside the installed target. Subiquity, cloud-init's
 first-boot `openssh-server` install, and every subsequent `apt-get` flow
 through the cache.
 
+### Amazon Linux 2023 picks the cache up at run time
+
+AL2023 takes the other route: its `New-VM.ps1` declares no
+`-CachingProxyServiceUrl` and its seed templates no proxy, because that
+guest boots a prebuilt cloud image rather than running an installer, so a
+templated address is written before anything can confirm it still answers
+-- and a stale one strands every `dnf` transaction with no way back.
+
+Instead `amazon.linux.2023.update.sh` derives the address when it runs,
+from `$http_proxy`, then `/etc/yuruna/host.env`, then the bare
+`yuruna-caching-proxy-service` name. Whichever it finds is a *candidate*
+until a probe of `:3128` answers -- including one read off disk, since an
+address that was right at seed time is no evidence the cache is up now. A
+cache that answers gets `proxy=` under `[main]` in `/etc/dnf/dnf.conf`
+plus `/etc/profile.d/yuruna-proxy.sh` for the workload scripts that follow
+in their own shells; one that does not answer clears both, so a guest whose
+cache was rebuilt or moved returns to the direct path instead of pointing
+at a dead address forever.
+
+HTTPS reaches the cache through squid's ssl-bump on `:3129`, which needs
+the bump CA in the guest's trust store. Nothing seeds it there, so the
+script calls `yuruna_ca_selfheal` to fetch it from the host status service
+over the plain-HTTP path the bump is not in front of. When that cannot be
+made to verify, HTTPS falls back to the CONNECT port on `:3128` --
+uncached, but working.
+
+Unlike the k8s guests' registry gate, none of this is fatal. That gate is
+terminal because containerd is configured to pull *only* from zot; here
+nothing routes exclusively through the cache, so its absence costs
+bandwidth rather than the run.
+
 ### Discovery
 
 | Host | Method |
@@ -658,7 +689,7 @@ test hosts simultaneously.
 **It does not apply a TTL to a tag.** A request naming a **digest** is
 answered from local storage without touching the network. A request
 naming a **tag** runs the on-demand sync *unconditionally* -- before any
-local-storage check, and whether or not the tag is already held -- because
+local-storage check, and whether the tag is already held -- because
 resolving a mutable tag means asking upstream which digest it points at
 now. There is no freshness window and no negative cache to shorten that,
 so **N pulls of a tag cost N upstream manifest fetches**, all of them
@@ -704,7 +735,7 @@ pulls -- those sets are kept warm by
 [the warm sets](#warm-sets-and-the-cold-sync-reading) instead, which can resolve
 the exact versions in use.
 
-That residency is also the reason the manifest canary is labelled
+That residency is also the reason the manifest canary is labeled
 **`zot resident-tag revalidation`** rather than as a reading about pulls. It
 times a tag the scheduled poll keeps resident, so it walks the upstream leg and
 returns in milliseconds -- including while an image the cache does *not* hold is
@@ -1248,11 +1279,12 @@ curl -s http://<cache-ip>:9310/api/switches   # just the switch state
 ```
 
 Reads are open on the trusted LAN, like every other Yuruna service's read
-surface. The two switches are the write surface and take the lab token:
+surface. The two switches are the write surface and take the internal
+authentication key as a bearer:
 
 ```
 curl -s -X POST http://<cache-ip>:9310/api/switches/offline \
-  -H "Authorization: Bearer $(sudo cat /etc/yuruna/lab-auth.token)" \
+  -H "Authorization: Bearer $(sudo cat /etc/yuruna/internal-auth.key)" \
   -H 'Content-Type: application/json' -d '{"on":true}'
 ```
 
@@ -1580,12 +1612,12 @@ into the seed, resolved on the host at VM-creation time:
   password reaches a running VM without a rebuild; the service's own
   vault gate returns 503 (no replication, self-healing) until the
   operator sets the password.
-- **Pool push-ingest shared bearer** -- the shared `lab-auth-token`
+- **Pool push-ingest shared bearer** -- the internal authentication key
   gating the aggregator's `POST /ingest`, baked to
-  `/etc/yuruna/lab-auth.token`. It is read from the vault's
-  `lab-auth-token` entry (a legacy `pool-auth-token` entry is also
+  `/etc/yuruna/internal-auth.key`. It is read from the vault's
+  `internal-auth-key` entry (the older `lab-auth-token` and the legacy `pool-auth-token` entries are also
   accepted, so hosts holding one keep working); when the building host's
-  vault has neither, `New-VM` mints and stores a random `lab-auth-token`
+  vault has none of the three, `New-VM` mints and stores a random `internal-auth-key`
   first, so a proxy is never built with an empty token. An empty-token
   proxy (no control proofs minted, `/ingest` refused with 503, "Lab
   token" tile "off") remains diagnosable but is a failure state, not a
@@ -1650,13 +1682,40 @@ let the packets through. Not an open internet proxy.
 
 ### The bare :80 redirect, and what must not be redirected
 
-`http://<cache>/` -- the address an operator types from memory -- redirects to
-the pool dashboard Grafana already serves. Unconfigured it answers with
-Ubuntu's stock apache2 placeholder, which says nothing about this VM.
+`http://<cache>/` -- the address an operator types from memory, and where every
+host status page's **Dashboards** link points -- serves this lab's landing page:
+an index of the Grafana dashboards and the extension services, each linked only
+where it is actually reachable. Unconfigured it answers with Ubuntu's stock
+apache2 placeholder, which says nothing about this VM.
 
-**Only the document root is redirected.** Every other published path on `:80`
+The page is built by the caching-proxy-service daemon
+([`landing.go`](../test/extension/caching-proxy-service/landing.go)), which is
+what lets a link's presence mean something: it asks Grafana which dashboards
+exist and the aggregator where each extension service is, and renders plain
+text plus "(unavailable)" for anything it cannot find. An operator hunting a
+service that is down is told it is down, rather than left to infer it from a
+missing row.
+
+**It proxies, it does not redirect** (`[P]`, not `[R=302]`). The daemon listens
+on `9310`, which is deliberately not in the host port-map set
+(`Get-CachingProxyServiceExposedPort`), so a redirect would hand the browser an
+address it cannot reach whenever this VM is behind a port map rather than
+bridged. Proxying keeps the operator on `:80`, which is mapped everywhere.
+`mod_proxy` and `mod_proxy_http` are enabled alongside `mod_rewrite` for this;
+without them the `[P]` rule parses and then fails every request at runtime.
+
+**The page carries no script.** What `:80` served before was a redirect straight
+into a Grafana dashboard, and Grafana is a single-page application: a browser
+too old to run it landed on a blank screen with nothing to say why. The landing
+page is server-rendered HTML held to the same
+[browser baseline](definition.md#defining-the-status-page-browser-baseline) as
+the rest of the UI, so it renders on anything and names the destinations rather
+than choosing one. "Yuruna cache health" is deliberately not among them -- it is
+a registry-path canary the alerting rules read, not a page anyone browses to.
+
+**Only the document root is proxied.** Every other published path on `:80`
 has a consumer that needs its actual content, and each of these breaks
-differently if it starts answering a 302:
+differently if it starts answering something else:
 
 | Path | Consumer |
 |---|---|
@@ -1674,11 +1733,21 @@ cleanly, passes `apache2ctl configtest`, and then silently never fires.
 vhost's own `DocumentRoot`. In that context the match is relative to the
 directory, which is why the empty string is the request for `/`.
 
-**The target is `%{SERVER_NAME}`, never a literal address.** This VM takes its
-IP from DHCP. Under the default `UseCanonicalName Off`, `%{SERVER_NAME}`
-resolves to the host the client actually used with the port stripped, so the
-redirect stays on the same box whether the cache was reached by IP, by name, or
-through a port-forward from the hypervisor host.
+**Every link the page emits is plain http**, whatever scheme the daemon was
+configured with. The aggregator answers both on one dual-protocol listener and
+its TLS leaf is signed by the squid CA -- which the VMs trust and an operator's
+browser does not -- so an https link raises a certificate warning in front of a
+redirect whose destination is a plain-http page anyway. The scheme is forced
+down for the browser only; this daemon still reads the pool over whatever
+`--aggregator-url` names. The dashboard's Extension hosts cell and the service
+UIs' `goBaseURL` make the same choice for the same reason.
+
+**`ProxyPreserveHost On`, so the page can build its own links.** This VM takes
+its IP from DHCP, and the operator may have reached it by IP, by name, or
+through a port-forward from the hypervisor host. Preserving the Host means the
+daemon behind the proxy sees the address the operator actually typed and builds
+every link from it; without it the backend would see `127.0.0.1` and publish a
+page of links that work only for a browser running on the VM itself.
 
 ### Pinning the cache VM's IP (stable MAC + DHCP reservation)
 
@@ -2162,6 +2231,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.21
+Last review: 2026.08.23
 
 Back to [Yuruna](../README.md)

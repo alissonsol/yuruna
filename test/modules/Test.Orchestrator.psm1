@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42fb91f9-ac3c-48ec-849f-108167698afd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -354,12 +354,12 @@ function Invoke-OrchestrationSequence {
     }
 
     Write-OrchestratorLine ""
-    Write-OrchestratorLine "============================================="
+    Write-OrchestratorLine "========"
     Write-OrchestratorLine "  Orchestration: $setName"
     Write-OrchestratorLine "  Sequence:      $SequencePath"
     Write-OrchestratorLine "  Steps:         $($entries.Count)"
     Write-OrchestratorLine "  On error:      $(if ($continueOnError) { 'continue (report all)' } else { 'stop at first failure' })"
-    Write-OrchestratorLine "============================================="
+    Write-OrchestratorLine "========"
 
     # --- REGION: Resolve the caching-proxy-service endpoint from config + env
     # Resolved ONCE and shared by every guest run,
@@ -699,12 +699,12 @@ function Invoke-OrchestrationSequence {
     $skipCount = @($results | Where-Object { $_.outcome -eq 'SKIPPED' }).Count
     $passCount = @($results | Where-Object { $_.outcome -eq 'PASS' }).Count
     Write-OrchestratorLine ""
-    Write-OrchestratorLine "============================================="
+    Write-OrchestratorLine "========"
     Write-OrchestratorLine "  Orchestration: $setName -- $passCount passed, $failCount failed, $skipCount skipped"
     foreach ($r in $results) {
         Write-OrchestratorLine ("  [{0}] {1,-8} {2} [{3}]" -f $r.index, $r.outcome, $r.name, $r.kind)
     }
-    Write-OrchestratorLine "============================================="
+    Write-OrchestratorLine "========"
 
     if ($failCount -eq 0 -and $skipCount -eq 0) { return 0 } else { return 1 }
 }

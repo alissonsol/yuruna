@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42218fa5-018e-4ea0-a6fe-a80cc7202613
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -136,7 +136,7 @@ Describe 'Get-HostAddressChangeCount' {
             # Truncated to the second, which is the precision a recorded row
             # carries. Comparing a second-precision row against a boundary that
             # still has sub-second parts would drop the row at the start edge,
-            # for reasons that have nothing to do with the behaviour under test.
+            # for reasons that have nothing to do with the behavior under test.
             $now   = [datetime]::UtcNow
             $end   = $now.AddTicks( - ($now.Ticks % [timespan]::TicksPerSecond))
             $start = $end.AddMinutes(-30)

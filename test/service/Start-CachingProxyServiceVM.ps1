@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42647c3a-19a7-4931-b638-07791d5f0b1b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -398,14 +398,14 @@ if (-not $ForceRebuild) {
         Import-Module (Join-Path $PSScriptRoot '../modules/Test.CachingProxyService.psm1') -Global -Force -Verbose:$false
         [void](Save-CachingProxyServiceState -IpAddress $cpAdopt.Ip -Confirm:$false)
         Write-Verbose ""
-        Write-Verbose "================================================================="
+        Write-Verbose "========"
         Write-Output "== caching-proxy-service ADOPTED (already healthy -- no rebuild) =="
-        Write-Verbose "================================================================="
+        Write-Verbose "========"
         Write-Verbose "  VM name:  $VMName"
         Write-Verbose "  VM IP:    $($cpAdopt.Ip)"
         Write-Verbose "  Detail:   verified healthy; skipped the ~15-min destroy/rebuild/discovery."
         Write-Verbose "            Pass -ForceRebuild to force a fresh build (e.g. after an image/config change)."
-        Write-Verbose "================================================================="
+        Write-Verbose "========"
         [void](Exit-CachingProxyServiceLock -Handle $cpLock)
         exit 0
     }
@@ -786,8 +786,23 @@ if ($IsMacOS) {
     # request is silently dropped -- the VM stays in 'stopped'. Verify the
     # transition by parsing `utmctl status` output and retry a few times.
     # `utmctl status` prints one of: started / paused / stopped / suspended.
+    #
+    # Matched as an ALLOW-list on the one state that means "running". A
+    # deny-list of the states known to be bad reads the same until UTM reports
+    # something the list does not mention, and then it reads that as success:
+    # 'suspended' is a VM whose RAM has been written to disk and whose CPU is
+    # not executing, which passes a "not stopped, not paused" test while being
+    # exactly as unusable as 'stopped'. Everything after this point -- a 15
+    # minute discovery sweep, then whatever waits on the service inside the
+    # guest -- then spends its whole budget on a VM that is not running.
+    #
+    # The two accepted words are the pair Confirm-UtmVMStarted accepts, so this
+    # check and the host contract's cannot disagree about what running means. A
+    # stricter list here would be its own hazard: a state the shared helper calls
+    # running and this one does not is a bring-up that fails while the VM is up.
     Write-Verbose "  Registered. Starting VM..."
     $started = $false
+    $lastState = ''
     for ($attempt = 1; $attempt -le 3 -and -not $started; $attempt++) {
         & utmctl start $VMName 2>&1 | Out-Null
         if ($LASTEXITCODE -ne 0) {
@@ -795,24 +810,47 @@ if ($IsMacOS) {
             Write-Error "'utmctl start $VMName' failed (exit $LASTEXITCODE)."
             exit 1
         }
-        # Poll up to 15 s (wall-clock) for the VM to leave 'stopped'. A state of
-        # 'started' (or any non-stopped/paused state) means the start actually took.
+        # Poll up to 15 s (wall-clock) for the VM to report itself running. Only
+        # 'started' counts; see the allow-list note above.
         $cpStartDeadline = [DateTime]::UtcNow.AddSeconds(15)
         while ([DateTime]::UtcNow -lt $cpStartDeadline) {
             Start-Sleep -Seconds 1
-            $state = (& utmctl status $VMName 2>&1 | Select-Object -First 1)
-            if ($LASTEXITCODE -eq 0 -and $state -and "$state".Trim() -notmatch '^(stopped|paused)\s*$') {
+            # Collected whole, and the exit code read before anything else runs.
+            # `| Select-Object -First 1` stops the upstream pipeline early, which
+            # leaves $LASTEXITCODE holding the value from the PREVIOUS native
+            # command -- here the `utmctl start` above, which succeeded. Every
+            # test against it then asks about the wrong command, and a refused
+            # status (Apple Events denied prints "Error from event: ... OSStatus
+            # error -1743" on stderr, which 2>&1 folds into the same stream) is
+            # read as though it were the VM's state.
+            $statusOut = @(& utmctl status $VMName 2>&1 | ForEach-Object { "$_".Trim() } | Where-Object { $_ })
+            $statusRc = $LASTEXITCODE
+            # Scanned across every line rather than taken from the first: utmctl
+            # puts its diagnostics ahead of its payload, so the state is not
+            # reliably line one. Confirm-UtmVMStarted reads it the same way.
+            if ($statusRc -eq 0 -and $statusOut.Count -gt 0) { $lastState = ($statusOut -join '; ') }
+            if ($statusRc -eq 0 -and @($statusOut | Where-Object { $_ -match '^(started|running)$' }).Count -gt 0) {
                 $started = $true
                 break
             }
         }
         if (-not $started) {
-            Write-Warning "  'utmctl start' attempt $attempt returned 0 but VM still reports '$state' -- retrying."
+            Write-Warning "  'utmctl start' attempt $attempt returned 0 but VM reports '$lastState' -- retrying."
         }
     }
     if (-not $started) {
         Stop-UtmDialogWatchdog
-        Write-Error "UTM did not transition '$VMName' out of 'stopped' after 3 start attempts. Open UTM manually and start the VM, then re-run."
+        # The observed state is named because the ones it can be need different
+        # things from the operator: 'stopped' is a start that never took,
+        # 'suspended' is a VM that started and was then saved to disk by
+        # something else on this machine, and 'paused' is one deliberately held.
+        # A status that never answered is its own fourth case -- utmctl reaches
+        # UTM over Apple Events, which a host that has not granted Automation
+        # denies outright -- so it is reported as silence rather than dressed up
+        # as a state UTM never named.
+        $observed = if ($lastState) { "it reports '$lastState'" } else { 'utmctl never returned a status for it' }
+        Write-Error ("UTM did not bring '$VMName' to 'started' after 3 attempts; $observed. " +
+            "Open UTM, bring the VM to a running state, then re-run.")
         exit 1
     }
     # VM is up; the launch-time custom-QEMU-args warning is past. Stop the
@@ -950,7 +988,13 @@ if ($IsMacOS) {
         Write-Warning "  * Wi-Fi AP filtering the cache's locally-administered MAC -- switch to Ethernet or allow the new MAC."
         Write-Warning "  * cloud-init still installing squid (rare on first run; check progress via UTM window)."
         Write-Warning "  * LAN is not a single /24 (the discovery sweep assumes one)."
-        Write-Warning "VM is still running -- log in through the UTM window (utmctl status $VMName) and run:"
+        # Asked for rather than asserted: this used to claim the VM was still
+        # running, which is one of the things that can be wrong here -- a VM
+        # stopped or suspended out from under the sweep looks identical to one
+        # that never got a DHCP lease, and sending the operator inside a guest
+        # that is not running costs them the whole diagnosis.
+        Write-Warning "First check the VM is still running:  utmctl status $VMName"
+        Write-Warning "If it reports 'started', log in through the UTM window and run:"
         Write-Warning "  sudo grep -E 'E:|429 |Hash Sum|Failed to fetch|Unable to locate|Exit code' /var/log/cloud-init-output.log | head -40"
         Write-Warning "  ip -4 addr show           # verify the VM got a DHCP lease on the LAN"
     }
@@ -1073,6 +1117,23 @@ if ($IsMacOS) {
     Import-Module $vmCommon -Force
     $CachingProxyServiceUrl = Get-WorkingCachingProxyServiceUrl -VMName $VMName
     if ($CachingProxyServiceUrl -match '^http://([0-9.]+):') { $cacheIp = $matches[1] }
+    # Both outcomes are said out loud, because everything downstream on this
+    # branch is gated on $cacheIp and silently does nothing without it -- no
+    # recorded state, no port maps -- and a bring-up that ends that way stops
+    # the run with nothing on screen to explain why.
+    if (-not $cacheIp) {
+        if ($CachingProxyServiceUrl) {
+            # Get-WorkingCachingProxyServiceUrl builds its host through
+            # Format-IpUrlHost, which brackets IPv6, while the pattern above
+            # reads IPv4 only -- so a cache reachable only at an IPv6 address
+            # answers the probe and still leaves no address to record. Naming
+            # the URL is what makes that five seconds to diagnose instead of a
+            # silent stop.
+            Write-Warning "The cache answered at $CachingProxyServiceUrl, but no IPv4 address could be read from it, so there is nothing to record or to point guests at. A cache reachable only over IPv6 lands here; give it an IPv4 address on the vSwitch it is attached to."
+        } else {
+            Write-Warning "No caching-proxy VM answered on the proxy port. Hyper-V KVP may be cold (hv_kvp_daemon not yet running in the guest) and the host's neighbor entry for the VM's MAC may have aged out. Check the VM is running, then re-run this script."
+        }
+    }
 
     # Persist the cache VM's IP so Test-CachingProxyServiceAvailable's state-
     # file-only discovery path can find it next call. Mirrors the macOS
@@ -1123,6 +1184,32 @@ if ($IsMacOS) {
     }
 }
 
+# Settled here, as the last thing inside the guarded section, because the exit
+# code is the only part of this a caller reads and every discovery path has
+# converged by now. Announcing success over a cache that never answered is what
+# let a failed bring-up report PASS: the step went green, and the NEXT step --
+# waiting on a service inside this VM -- spent its own full budget before
+# failing, naming a guest nobody could reach as the thing to inspect. A failure
+# has to be reported by the step that owns it.
+#
+# Inside the try rather than after the summary: exiting here runs the finally
+# that releases the serialization lock, so a waiting bring-up is not left behind
+# a lock this process no longer needs. The diagnosis is already on screen -- the
+# discovery warnings above name what to check -- and the summary below is the
+# success report, so nothing is lost by not reaching it.
+#
+# The address, not merely "something answered", because everything the cache is
+# FOR hangs off having recorded one: Save-CachingProxyServiceState and the LAN
+# port maps above are both gated on $cacheIp, setup reads that state file to
+# seed every guest's proxy, and a run that got this far without an address
+# configures no caching anywhere. Passing such a run would be the same false
+# green by a quieter route -- READY, exit 0, no proxy, and the next step left to
+# discover it.
+if (-not $cacheIp) {
+    Write-Output "== caching-proxy-service is NOT READY -- '$VMName' =="
+    exit 1
+}
+
 } finally {
     # Rebuild critical section done -- normally, via any of the `exit 1` paths above,
     # or via a throw. Release the serialization lock before the (read-only) summary so
@@ -1140,9 +1227,11 @@ if ($IsMacOS) {
 #     yq .password $PasswordFile        (or: Get-Content $PasswordFile)
 
 Write-Verbose ""
-Write-Verbose "================================================================="
+Write-Verbose "========"
+# Reached only when the cache answered -- the critical section exits before this
+# otherwise -- so READY is a claim this can still make truthfully.
 Write-Output "== caching-proxy-service is READY -- '$VMName' =="
-Write-Verbose "================================================================="
+Write-Verbose "========"
 if ($cacheIp) {
     Write-Output "  VM IP:       $cacheIp"
     $summaryHttpPort  = Get-CachingProxyServicePort -Scheme http
@@ -1225,8 +1314,6 @@ if ($cacheIp) {
             Write-Verbose "  YURUNA_CACHING_PROXY_SERVICE_IP naming this host's own IP is treated as local."
         }
     }
-} else {
-    Write-Output "  IP address:  (discovery failed -- see warnings above)"
 }
 Write-Verbose ""
 Write-Verbose "  SSH / console login:"
@@ -1241,4 +1328,4 @@ if ($cacheForwarded -and $cacheLanIp -and $cacheLanIp -ne $cacheIp) {
     # VM has its own LAN IP, so direct SSH from anywhere on the LAN works.
     Write-Verbose "    direct:   ssh caching-proxy-service-admin@${cacheIp}"
 }
-Write-Verbose "================================================================="
+Write-Verbose "========"

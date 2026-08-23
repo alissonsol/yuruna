@@ -38,7 +38,7 @@
     <h1>Assign test sets to pools</h1>
     <p class="muted">Each pool tests one test set (a framework + project repo pair).
       GH_TOKEN stays host-local &mdash; never stored in pool intent.</p>
-    <div id="notice" class="notice"></div>
+    <div id="notice" role="alert" class="notice"></div>
     <div class="row"><button id="refresh">Refresh</button></div>
     <table>
       <thead>
@@ -61,10 +61,13 @@
     </p>
   </main>
   <footer id="footer-bar">
-    <span id="footer-ips"><span class="label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-label="Server IP addresses">--</textarea></span>
+    <span id="footer-ips"><span class="label" id="footer-ips-label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-labelledby="footer-ips-label">--</textarea></span>
     <span>Loaded: <span id="last-loaded">--</span><span id="footer-busy" aria-hidden="true" hidden></span></span>
-    <span><a id="footer-refresh" href="#">Refresh</a>: <span id="countdown">60</span>s</span>
+    <span><button type="button" id="footer-refresh" class="linkish">Refresh</button>: <span id="countdown">60</span>s <button type="button" id="footer-pause" class="linkish" aria-pressed="false">Pause</button></span>
   </footer>
+  <!-- The shared runtime first: it installs the baseline shims (fetch, KeyboardEvent.key)
+       and defines Y, which every script below extends rather than rebuilds. -->
+  <script src="/assets/yuruna.core.js"></script>
   <script src="/assets/common.js"></script>
   <script src="/assets/index.js"></script>
 </body>

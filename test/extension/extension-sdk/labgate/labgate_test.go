@@ -273,11 +273,11 @@ func TestAServiceHoldingTheTokenJudgesAProofWithoutARoundTrip(t *testing.T) {
 	}
 }
 
-// A gate whose only door is the proof still has to honour the session it grants.
+// A gate whose only door is the proof still has to honor the session it grants.
 // The session check turns on whether the gate can verify its own signature, not
 // on which door minted the cookie -- otherwise this configuration reports a
 // successful unlock and then ignores it on every request that follows.
-func TestAProofSessionIsHonouredWithNoAggregatorConfigured(t *testing.T) {
+func TestAProofSessionIsHonoredWithNoAggregatorConfigured(t *testing.T) {
 	srv, _ := gated(t, Options{BearerToken: labAuthToken})
 
 	resp := unlockProof(t, srv, mintProof(labAuthToken, time.Now().Add(time.Minute).Unix()))
@@ -398,7 +398,7 @@ func TestTheSubmittedCodeIsNormalisedBeforeItLeaves(t *testing.T) {
 		t.Fatalf("login with an upper-cased, padded code = %d, want 200", r.StatusCode)
 	}
 	if got := agg.calls(); len(got) != 1 || got[0] != labCode {
-		t.Fatalf("aggregator was asked %v, want the normalised [%s]", got, labCode)
+		t.Fatalf("aggregator was asked %v, want the normalized [%s]", got, labCode)
 	}
 }
 

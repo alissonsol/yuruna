@@ -4,10 +4,17 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.08.23
+
+- **Lab credential setup is clearer and harder to get wrong.** The 48-hex shared
+  secret is now the *internal authentication key*, leaving "Lab token" for the
+  dashboard's 6-character code; sync prompts detect a pasted code and redeem it
+  automatically. Old names (`lab-auth-token`, `pool-auth-token`,
+  `-SharedToken`) still work as fallbacks and aliases.
+
 ## 2026.08.21
 
-- **Requirements check.** Brings the tools up to the required versions and
-  lists what it could not reach.
+- **Accessibility review.** Across the board accessibility improvements.
 
 ## 2026.08.20
 
@@ -320,7 +327,7 @@ tagged release.
   pool-aggregator (`POST /announce`) on boot, every 15 minutes
   (configurable via `--presence-interval` / `STASH_PRESENCE_INTERVAL`), and
   at shutdown, so the *Yuruna hosts* dashboard's **Extension hosts** row no
-  longer depends on the owning host's status server being up -- the row now
+  longer depends on the owning host's status service being up -- the row now
   survives host reboots and aggregator restarts (announces are journaled to
   Loki and rehydrated on startup). The aggregator also serves pool-status
   `stashBaseUrl` (registration target with announce fallback), completing
@@ -448,6 +455,6 @@ LICENSEURI <https://yuruna.link/license>
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.21
+Last review: 2026.08.23
 
 Back to [Yuruna](README.md)

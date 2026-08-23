@@ -1,580 +1,778 @@
 # Data flows
 
-> One sentence: the six highest-frequency runtime flows -- the deploy phases, one
-> test cycle, the guest fetch path, failure to alert, image acquisition, and what
-> the shared storage holds.
+> One sentence: the seven highest-frequency runtime exchanges -- the three deploy
+> phases, one test cycle, the guest fetch path, failure to alert, image
+> acquisition, what the shared storage holds, and the per-cycle pool round trip.
 
-See [Design overview](00-index.md) - [Lifecycle state](04-lifecycle-state.md) -
-[Yuruna Architecture](../architecture.md).
+See [Design overview](00-index.md) - [Context and components](01-context-and-components.md) -
+[Component breakdown](02-component-breakdown.md) - [Lifecycle state](04-lifecycle-state.md) -
+[Configuration data model](05-data-model.md) - [Deployment topology](06-deployment.md) -
+[Naming conventions](naming.md) - [Yuruna Architecture](../architecture.md).
 
-Derived from `automation/Set-{Resource,Component,Workload}.ps1` and the
+Derived from `automation/Set-Resource.ps1`, `automation/Set-Component.ps1`,
+`automation/Set-Workload.ps1` and the
 `automation/Yuruna.{Resource,Component,Workload,Retry,DeploymentKind,Result}.psm1`
-modules behind them, `automation/Get-SystemDiagnostic.ps1`,
-`automation/fetch-and-execute.sh` with `automation/yuruna-{retry,host-locate}.sh`,
-`test/modules/Test.{RunnerOuterLoop,RunnerInnerLoop,SequenceEngine,SequenceHandler,SequenceFailureState,GuestQuarantine,Remediation,Notify,PoolStorage,HostIdentity}.psm1`,
-`host/modules/Yuruna.{DownloadAgent,UbuntuImage,HostDownload,HostProvision}.psm1`,
-`host/vmconfig/{ubuntu.server,caching-proxy-service}.base.user-data`,
-`test/modules/Test.LabHealth.psm1`, and the Go `internal/config` packages of the
-download-agent and stash services plus the download-agent's `internal/state`.
+modules behind them; `automation/Get-SystemDiagnostic.ps1`;
+`automation/fetch-and-execute.sh` with `automation/yuruna-host-locate.sh` and
+`automation/yuruna-retry.sh`; `test/Start-TestRunner.ps1`,
+`test/modules/Invoke-TestCycleRunner.ps1`,
+`test/modules/Invoke-TestRunnerInnerLoop.ps1` and the
+`test/modules/Test.{RunnerOuterLoop,RunnerInnerLoop,SequenceEngine,SequenceHandler,SequenceFailureState,GuestQuarantine,Remediation,Notify,PoolStorage,PoolSync,PoolPush,HostIdentity,Status}.psm1`
+modules; `host/modules/Yuruna.{DownloadAgent,HostDownload,UbuntuImage}.psm1` and
+the per-guest `host/<platform>/guest.*/Get-Image.ps1` builders; and the Go
+`internal/config` packages of the download-agent, pool-control and stash
+services. The prose design lives in [Yuruna Architecture](../architecture.md)
+and is not repeated here.
 
 Every diagram carries only the actors that actually exchange a message, seven or
-fewer. Where reality has more, the fold is named in the prose directly under the
-diagram.
+fewer. Where reality has more, the fold is named directly under the diagram with
+its exact member list and real count.
 
 ## A. Three-phase deployment
 
 ```mermaid
 sequenceDiagram
-    participant cli as yuruna.ps1
-    participant resource as Set-Resource.ps1
-    participant component as Set-Component.ps1
-    participant workload as Set-Workload.ps1
+    participant caller as guest workload script
+    participant set-resource as Set-Resource.ps1
+    participant set-component as Set-Component.ps1
+    participant set-workload as Set-Workload.ps1
     participant retry as Invoke-WithYurunaRetry
-    participant tool as tofu docker helm kubectl
-    participant sidecar as stderr.log and rc
-    cli->>resource: resources
-    resource->>retry: init, plan, apply planfile, output
-    retry->>tool: tofu
-    retry->>sidecar: attempt header, merged output, last rc
-    resource->>cli: resources.output.yml
-    cli->>component: components
-    component->>tool: docker build, tag, login, push
-    component->>sidecar: phase header, output, last rc
-    cli->>workload: workloads
-    workload->>tool: helm lint, status, upgrade
-    workload->>retry: kubectl or helm deployment
-    retry->>tool: kubectl or helm
-    workload->>sidecar: per tool log and rc
+    participant tool as tofu docker kubectl helm
+    participant files as phase files on disk
+    caller->>set-resource: pwsh Set-Resource.ps1 website localhost
+    set-resource->>retry: tofu init, then plan, then apply planfile
+    retry->>tool: attempt n of 5, delay doubles to 300 s
+    tool->>retry: exit code plus merged output
+    retry->>files: tofu.stderr.log header, tofu.rc last exit
+    set-resource->>files: write config/localhost/resources.output.yml
+    caller->>files: grep clusterDnsPrefix from resources.output.yml
+    caller->>set-component: pwsh Set-Component.ps1 website localhost
+    set-component->>files: read resources.output.yml into Env
+    set-component->>tool: docker build, tag, registryLogin, push
+    set-component->>files: docker.stderr.log, docker.rc per phase
+    caller->>set-workload: pwsh Set-Workload.ps1 website localhost
+    set-workload->>files: read resources.output.yml into Env
+    set-workload->>tool: helm lint, status, upgrade --install --atomic
+    set-workload->>retry: kubectl or helm deployment expression
+    set-workload->>files: values.yaml, helm.stderr.log, helm.rc
+    set-workload->>caller: manifest JSON, exit 1 on failure
 ```
 
-`automation/yuruna.ps1` is a single `switch -Exact` dispatcher over
-`requirements / clear / validate / resources / components / workloads`; each of
-the three phase entry points is equally runnable on its own, and the test project
-scripts call them directly rather than through the dispatcher. All three share
-the same prelude -- `Set-YurunaLogLevel`, then `Resolve-YurunaRootSet` to publish
-`Env:yuruna_root` / `project_root` / `config_root`, then module eviction, then a
-`-Force` import of the phase module -- and all three end in
-`Complete-YurunaRun` (`automation/Yuruna.Result.psm1`), which tests `.success`
-through `Test-YurunaResultManifestOk` and exits 1 on a failure manifest. A
-non-empty manifest hashtable coerces to `$true`, so a bare `if (-Not $result)`
-would take the success branch; `yuruna.ps1` reproduces that same tail inline
-rather than calling the helper. `Set-Workload.ps1` adds one pre-flight the others do not have: it runs
-`automation/Test-Runtime.ps1` and inspects the **last** element of its output,
-because the healthy path streams `docker images` tables ahead of the boolean.
+**Who the boxes are.** `caller` is a project script running inside a guest --
+`example/website/test/ubuntu.server.24/ubuntu.server.24.workload.k8s.website.sh`
+in `yuruna-project`, which runs under `set -euo pipefail` and calls the three
+phases as plain `pwsh` invocations from `<home>/yuruna/project/example` at
+`:263`, `:443` and `:446`. The three entry points are
+`automation/Set-Resource.ps1`, `automation/Set-Component.ps1` and
+`automation/Set-Workload.ps1`; `automation/yuruna.ps1` reaches the same three
+publishers through its `resources` / `components` / `workloads` switch arms, and
+no cycle path in `test/` calls a phase entry point directly. `retry` is
+`Invoke-WithYurunaRetry` in `automation/Yuruna.Retry.psm1`.
 
-A third caller now exists beside `yuruna.ps1` and the project scripts, and it is
-not drawn because the diagram already carries seven participants:
-`test/service/Start-McpServer.ps1` serves MCP `2025-06-18` over stdio -- no
-listener, no port, no token, because a process reading one operator's stdin was
-started by that operator -- and its ten tools map onto the same entry points,
-`yuruna_set_resource` / `yuruna_set_component` / `yuruna_set_workload` among them.
+**Two folds.** `tool` stands for four real binaries -- `tofu`, `docker`,
+`kubectl`, `helm` (4). Only the first is named in the resource module; the
+component module hardcodes no tool at all and runs whatever `buildCommand`,
+`tagCommand` and `pushCommand` say through `Invoke-DynamicExpression`
+(`automation/Yuruna.Component.psm1:106`), so `docker` is the shipped configs'
+choice, not the engine's. `files` stands for the fourteen file names the three
+phases write or read: `terraform.tfvars`, `tofu.planfile`, `tofu.stderr.log`,
+`tofu.rc`, `.workfolder.complete`, `resources.output.yml`, `docker.stderr.log`,
+`docker.rc`, `values.yaml`, `helm.stderr.log`, `helm.rc`,
+`<toolName>.stderr.log`, `<toolName>.rc`, and the
+`<phase>.<yyyy-MM-dd-HH-mm-ss>.yml` input backup each publisher takes (14).
 
-The `tofu docker helm kubectl` participant folds the four external CLIs into one
-lane;
-`az` / `aws` / `gcloud` / `docker login` sit behind it too, reached only through
-`Resolve-ComponentRegistryLogin` (`automation/Yuruna.Component.Registry.psm1`)
-resolving a provider out of `automation/Yuruna.CredentialProvider.psm1`.
+**The easy edge to misread** is `caller->>files`. Between phase 1 and phase 2 it
+is the guest script itself, not the engine, that reads phase 1 output: it greps
+`clusterDnsPrefix` out of `resources.output.yml` and feeds
+`kubectl config rename-context` before `Set-Component.ps1` is ever started
+(`ubuntu.server.24.workload.k8s.website.sh:265-266`). The engine's own read of
+that file happens separately inside each later publisher.
 
-**Resource phase** (`automation/Yuruna.Resource.psm1`) runs
-`Publish-ResourceListHelper` twice against the same module-scope
-`$globalVariables`: pass one expands the globals and produces
-`tofu.planfile`; pass two, entered only if pass one's manifest reports success,
-applies that planfile and then reads `tofu output -json` into
-`resources.output.yml`. Three fail-fast throws guard that read -- a non-zero
-exit, empty output, and an outputs object with zero properties -- because a
-silently-failed `null_resource` provisioner otherwise produces a green run with
-no infrastructure.
+### The between-phase contract
 
-**Component phase** (`automation/Yuruna.Component.psm1`) walks
-`preProcessor -> build -> postProcessor -> tag -> registryLogin -> push`, each
-through the nested `Invoke-ComponentCommand`, which coerces an unset
-`$LASTEXITCODE` to `0` so a pure-PowerShell command chain is not read as a
-failure.
+`resources.output.yml` is the only file one phase writes for another to read.
 
-**Workload phase** (`automation/Yuruna.Workload.psm1`) resolves each deployment
-to a kind through `automation/Yuruna.DeploymentKind.psm1`. `chart` goes to
-`Invoke-WorkloadChartDeployment` (lint gate, then a `pending-*` recovery via
-rollback or uninstall, then `helm upgrade --install --atomic`); `kubectl`,
-`helm` and `shell` go to `Invoke-WorkloadToolDeployment`. Context switching is
-wrapped in a bare `try`/`finally` with no `catch`, so a
-`YurunaCycleRestart` control-flow marker propagates instead of being swallowed.
-
-### Retry gating -- which call sites are retried
-
-Matching the transient classifier in `automation/Yuruna.Retry.psm1` is
-necessary but not sufficient; each call site also declares whether re-running it
-is safe.
-
-| Call site | Gate |
+| Fact | Where |
 |---|---|
-| `tofu init` via `Invoke-TofuInitWithRetry` | retried on **any** non-zero -- no predicate |
-| `tofu plan`, `tofu apply <planfile>` | `$retryableTofu -and Test-YurunaTransientFailure` |
-| refreshing `tofu apply` fallback (no planfile) | goes through the helper with `$retryableTofu = $false`, so it runs once |
-| `tofu output -json` | transient classifier only |
-| `kubectl` / `helm` tool deployments | `$kind.Retryable -and` the transient pattern; `Retryable` is `$true` for `kubectl` and `helm` |
-| `shell` deployments | `Retryable` is `$false` -- never retried |
-| `helm lint`, `status`, `rollback`, `uninstall`, `upgrade --install` | **not gated at all**, each runs bare, once |
-| every docker phase in `Invoke-ComponentCommand` | **not gated at all** |
+| Recreated with `New-Item -Force` on the apply pass, seeded with one `globalVariables` map | `automation/Yuruna.Resource.psm1:86-90` |
+| One `<resourceName>: <tofu outputs>` block appended per templated resource | `automation/Yuruna.Resource.psm1:318-320` |
+| Read by the components phase, values pushed to `Env:` with `-NoExpand` | `automation/Yuruna.Component.psm1:73-80` |
+| Read by the workloads phase, with a `config/<cloud>/../resources.output.yml` fallback for phased deploys | `automation/Yuruna.Workload.psm1:327-344` |
+| Read by teardown to learn which resources exist | `automation/Yuruna.Clear.psm1:44-46` |
+| An absent file is valid; a present-but-null one is a failure | `automation/Yuruna.Validation.psm1:170-179` |
+
+Every one of those readers passes `-NoExpand`: the leaves are tofu outputs, and
+`ExpandString` would execute a `$(...)` subexpression echoed back inside a cloud
+resource name or tag (`automation/Yuruna.Workload.psm1:340-343`). A resource
+whose `template` is empty never appears in the file at all.
 
 ### The `.stderr.log` / `.rc` sidecar contract
 
-Every phase writes its tool output to a stable pair of files under
-`<project_root>/.yuruna/<config_subfolder>/`, so a post-mortem never depends on
-the transcript surviving the run.
-
-| Phase | Log | RC | Writer |
+| File | Folder | Writer | Reader |
 |---|---|---|---|
-| resources | `resources/<resourceName>/tofu.stderr.log` | `resources/<resourceName>/tofu.rc` | created and cleared in `Publish-ResourceListHelper`, then written by `Invoke-WithYurunaRetry -LogPath -RcFile` across `init`, `plan`/`apply` and `output` |
-| components | `components/docker.stderr.log` | `components/docker.rc` | truncated at run start, appended by `Invoke-ComponentCommand` -- one pair per environment, every component and phase shares it |
-| workloads, chart | `workloads/<contextName>/<installName>/helm.stderr.log` | `.../helm.rc` | truncated at chart entry, appended by `Invoke-WorkloadChartDeployment` |
-| workloads, tool | `workloads/<contextName>/<toolName>.stderr.log` | `.../<toolName>.rc` | `<toolName>` is `$kind.ToolName`; log by the retry helper, rc by `Set-Content -NoNewline` |
+| `tofu.stderr.log` | `.yuruna/<cloud>/resources/<resourceName>/` | cleared per run, then appended by `Invoke-WithYurunaRetry -LogPath` (`automation/Yuruna.Retry.psm1:205-217`) | `Get-TofuStderrTail` (`automation/Yuruna.Resource.psm1:42-51`) and the diagnostic |
+| `tofu.rc` | same | `Invoke-WithYurunaRetry -RcFile` (`automation/Yuruna.Retry.psm1:262-268`) | the diagnostic |
+| `tofu.planfile` | same | `tofu plan -out` (`automation/Yuruna.Resource.psm1:253`) | `tofu apply` (`:257`), carried across cycles by the staging copy (`:141`) |
+| `terraform.tfvars` | same | rewritten per resource from globals then locals (`automation/Yuruna.Resource.psm1:171-193`) | `tofu` |
+| `.workfolder.complete` | same | `Set-Content` after the staging swap (`automation/Yuruna.Resource.psm1:167-168`) | nothing in `automation/` |
+| `docker.stderr.log` / `docker.rc` | `.yuruna/<cloud>/components/` | truncated at start, then `Invoke-ComponentCommand` (`automation/Yuruna.Component.psm1:92-95`, `:113-115`) | the diagnostic |
+| `helm.stderr.log` / `helm.rc` | `.yuruna/<cloud>/workloads/<context>/<installName>/` | `automation/Yuruna.Workload.psm1:111-114`, `:123-125`, `:172-174` | the diagnostic |
+| `<toolName>.stderr.log` / `<toolName>.rc` | `.yuruna/<cloud>/workloads/<context>/` | the retry helper's log, then `Set-Content` for the rc (`automation/Yuruna.Workload.psm1:269-272`) | the diagnostic |
 
-Header formats, verbatim from source:
-
-- `Invoke-WithYurunaRetry`: `== <utc stamp> <label> attempt <n>/<max> (exit=<rc>) ==`,
-  the stamp being `yyyy-MM-ddTHH:mm:ssZ`; an exception appends `[exception] <message>`.
-- `Invoke-ComponentCommand`: `== [<phase>] <command> (exit=<rc>) ==`, where the
-  phase is one of `preProcessor[<p>]`, `build[<p>]`, `postProcessor[<p>]`,
-  `tag[<p>]`, `registryLogin[<p>]`, `push[<p>]`.
-- chart deploy: `== helm lint (exit=N) ==`,
-  `== pre-flight helm status (state=<s>; recovering) ==`,
-  `== helm rollback <name> 0 (exit=N) ==`,
-  `== helm uninstall <name> --no-hooks (exit=N) ==`,
-  `== helm upgrade --install --atomic <name> --debug (exit=N) ==`.
-
-The `.rc` file always holds the **last** observed exit code and is always written
-with `Set-Content`, never appended, so a re-attempt overwrites it.
-
-`automation/Get-SystemDiagnostic.ps1` is the consumer. It resolves the repo root
-from `$PSScriptRoot/..`, then enumerates with
+Three properties hold across the whole set. The `.rc` file always carries the
+LAST observed exit code and is always written with `Set-Content`, never
+appended. The `.stderr.log` files carry a `==`-delimited header per attempt or
+phase -- `== <utc> <label> attempt n/5 (exit=N) ==` from the retry helper
+(`automation/Yuruna.Retry.psm1:207-209`), `== [<phase>] <command> (exit=N) ==`
+from the component helper (`automation/Yuruna.Component.psm1:113`). And
+`Get-SystemDiagnostic.ps1` is the reader that ties them together: it resolves
+the repository root from `$PSScriptRoot/..`, enumerates with
 `Get-ChildItem -Recurse -File -Force` filtered on `*.stderr.log` -- `-Force` is
-load-bearing, because the logs live under the dot-directory `.yuruna/` and the
-whole scan finds nothing without it. Files over 64 KB are seeked to their last
-65536 bytes. The rc sidecar is *derived from the log name* rather than looked up
-separately, by stripping the extension and rewriting a trailing `.stderr` to
-`.rc`, and is rendered inline as ` (last rc=<value>)`. Two other sections read
-the same artifacts: the project walk greps `.yuruna/` working folders for
-error/fail/warning lines, and the first gap heuristic counts `tofu.tfstate`
-files against `helm list -A -o json` and, on state-without-releases, raises
-`GAP.tofu-state-without-helm-releases` with text pointing the reader back at the
-`helm.stderr.log` files.
+load-bearing, because the logs live under the dot-directory `.yuruna/` -- seeks
+the last 65536 bytes of any file over 64 KB, and derives the rc sibling from the
+log name by rewriting a trailing `.stderr` to `.rc`
+(`automation/Get-SystemDiagnostic.ps1:1896-1937`).
 
-### Atomic resource work-folder staging
+`<toolName>.stderr.log` is the one file that is never truncated, so repeated
+deployments of the same tool in one `workloads.yml` append in declaration order.
 
-A resource template is never refreshed in place. `Publish-ResourceListHelper`
-stages into `<workFolder>.new`, swaps through `<workFolder>.old`, and marks the
-result complete last:
+### Retry gating
 
-1. **SIGKILL recovery, before anything else** -- if the live folder is absent but
-   `.old` exists, `.old` is moved back. A kill landing between the two swap moves
-   leaves only `.old`, and the rollback `catch` never runs; without this guard
-   the next `tofu apply` would run against a folder with no provider state.
-2. Remove any stale `.new`, then create it.
-3. `Copy-Item "<template>/*" -> .new -Recurse -Container -ErrorAction Stop`. The
-   `-ErrorAction Stop` is the rule: a partial copy must abort rather than feed
-   tofu a truncated template.
-4. Carry `.terraform`, `.terraform.lock.hcl` and `tofu.planfile` over from the
-   live folder into `.new`, also with `-ErrorAction Stop`.
-5. Remove any stale `.old`, then move live -> `.old`.
-6. Move `.new` -> live inside a `try`; the `catch` moves `.old` back to live and
-   rethrows. That is the rollback branch.
-7. Remove `.old`.
-8. Write `.workfolder.complete` holding a round-trip UTC timestamp.
+One shared policy and one shared classifier, both in
+`automation/Yuruna.Retry.psm1` (`:51-56`, `:68`); the defaults and the matched
+token set are in
+[the shared retry policy](../architecture.md#shared-transient-failure-retry-policy).
+`YURUNA_RETRY_MAX_ATTEMPTS` and `YURUNA_RETRY_DELAY_SECONDS` override the
+attempt count and the initial delay per run (`:171`, `:174`). Which call site
+sits behind which gate:
 
-The invariant the marker buys: a watchdog kill before the marker write leaves
-either no work folder or the previous cycle's unchanged copy, never a
-half-applied template.
+| Call site | Gate | Where |
+|---|---|---|
+| `tofu init` | no predicate -- retried on any non-zero | `automation/Yuruna.Retry.psm1:307-321` |
+| `tofu plan`, `tofu apply <planfile>` | retryable flag AND the transient pattern | `automation/Yuruna.Resource.psm1:274-281` |
+| refreshing `tofu apply` fallback | flag forced false -- runs exactly once | `automation/Yuruna.Resource.psm1:261-262` |
+| `tofu output -json` | the transient classifier alone | `automation/Yuruna.Resource.psm1:296-300` |
+| `kubectl` and `helm` tool deployments | the kind's `Retryable` AND the transient pattern | `automation/Yuruna.Workload.psm1:254`, `:263-269` |
+| `shell` deployments | `Retryable = $false` -- never retried | `automation/Yuruna.DeploymentKind.psm1:254` |
+| `helm lint`, `status`, `rollback`, `uninstall`, `upgrade --install` | not gated -- each runs bare, once | `automation/Yuruna.Workload.psm1:121`, `:138`, `:147`, `:156`, `:170` |
+| every component phase | not gated | `automation/Yuruna.Component.psm1:106` |
 
-## B. Test cycle (one guest)
+The refreshing-apply exclusion is the load-bearing one: a saved-planfile apply
+re-applies the same plan and is safe to repeat, while a refreshing apply
+recomputes the plan, so retrying it after a partial apply is not idempotent
+(`automation/Yuruna.Resource.psm1:245-262`). A `-ShouldRetry` predicate that
+throws is treated as retryable, and a "not retryable" verdict emits
+`retry_exhausted` with `Permanent = $true` (`automation/Yuruna.Retry.psm1:235-243`).
+
+Failures leave by two different doors. Config-shaped failures return a manifest
+carrying `failureClass = 'config_error'` and unwind normally. Tool-shaped
+failures in the resources phase `throw` and are never caught -- there is no
+`try`/`catch` in `Set-Resource.ps1` -- so the throw ends the script before
+`Stop-Transcript` and `Complete-YurunaRun` can run. Everywhere else the manifest
+reaches `Complete-YurunaRun`, which writes compact JSON plus the transcript to
+stdout and calls `exit 1` (`automation/Yuruna.Result.psm1:206-210`); the guest
+script's `set -e` stops there.
+
+## B. One test cycle
 
 ```mermaid
 sequenceDiagram
-    participant outer as outer runner
-    participant inner as inner cycle
+    participant outer as outer runner processes
+    participant inner as Invoke-TestRunnerInnerLoop.ps1
     participant driver as Yuruna.Host driver
-    participant guest as guest VM
+    participant guest as test guest VM
     participant engine as Invoke-Sequence
-    participant status as status.json
-    participant notify as Test.Notify
-    outer->>inner: spawn child, arm watchdog
-    inner->>driver: New-VM then Start-VM
-    driver->>guest: define and boot
-    inner->>driver: Wait-VMIp, Wait-VMRunning
-    driver->>guest: address and state probes
-    inner->>engine: Start-GuestOS, Start-GuestWorkload
-    engine->>guest: typed console text or ssh exec
-    engine->>driver: Get-VMScreenshot
-    driver->>engine: frame for OCR match
-    engine->>status: Set-StepStatus pass or fail
+    participant status as status.json and NDJSON
+    participant notify as Send-CycleFailureNotification
+    outer->>inner: call operator pwsh, YURUNA_RUNNER_RELAUNCH 1
+    inner->>status: Start-YurunaStatusServiceIfEnabled on 8080
+    inner->>driver: New-VM, then Start-VM
+    driver->>guest: define and power on
+    inner->>driver: Update-GuestNeighborCache, Wait-VMIp 30 s
+    inner->>driver: Wait-VMRunning startTimeoutSeconds
+    inner->>engine: Start-GuestOS, then Start-GuestWorkload
+    engine->>guest: typed console text or sshExec
+    engine->>driver: Get-VMScreenshot raw_stamp.png
+    driver->>engine: one console frame
+    engine->>engine: Test-CombinedOcrMatch on the raw frame
+    engine->>status: Set-StepStatus running, then pass or fail
     inner->>status: Set-GuestStatus, Complete-CycleRun
-    inner->>notify: alert only when the latch fires
-    inner->>outer: exit 0 or 1
+    inner->>notify: only when armed and the streak is reached
+    notify->>status: notification.delivery.json in the cycle folder
+    inner->>outer: exit code plus runner.cycle.outcome.json
 ```
 
-Two folds. `outer runner` covers both resident
-`Invoke-RunnerOuterLoop` (`test/modules/Test.RunnerOuterLoop.psm1`) and the
-fresh-per-cycle child `test/modules/Invoke-TestCycleRunner.ps1`; they are
-separate processes that write the same `runner.state.json`, and the split is
-drawn in [Lifecycle state](04-lifecycle-state.md). `Yuruna.Host driver` stands
-for whichever of the three `host/*/modules/Yuruna.Host.psm1` implementations
-`Initialize-YurunaHost` loaded; all three satisfy the same 38-verb contract in
-`host/Yuruna.Host.Contract.psm1`.
+**Three folds.** `outer runner processes` covers two files (2):
+`test/Start-TestRunner.ps1`, the resident process that owns `runner.pid` and
+never ends, and `test/modules/Invoke-TestCycleRunner.ps1`, a fresh `pwsh` per
+cycle spawned with `Start-Process -NoLogo -NoProfile -NonInteractive -File
+<cycle script> -Cycle N -NoNewWindow -PassThru`
+(`test/modules/Test.RunnerOuterLoop.psm1:1806-1818`). It is the cycle child, not
+the resident parent, that invokes the inner, and it does so with the call
+operator `& $State.PwshExe @($State.ArgList)` (`:1372`) rather than a second
+`Start-Process`, so the inner inherits the terminal.
 
-The step list is derived per cycle by `Get-CycleStepNameList`
-(`test/modules/Test.RunnerInnerLoop.psm1`): the base four are `New-VM`,
-`Start-VM`, `Start-GuestOS` and `New-VM.Resource`, with `Screenshots` and
-`Start-GuestWorkload` appended only when a guest actually has a schedule or a
-workload sequence, so the dashboard renders exactly the tiles the cycle will run.
-`Invoke-GuestProvisionIteration` owns the per-guest body and returns control
-through an `IterState.Control` field of `proceed` / `continue` / `break` rather
-than a bare loop keyword.
+`Invoke-Sequence` covers the four modules that drive a guest and read its screen
+(4): `test/modules/Test.SequenceEngine.psm1`,
+`test/modules/Test.SequenceHandler.psm1`, `test/modules/Test.OcrMatch.psm1` and
+`test/modules/Test.OcrEngine.psm1`. `status.json and NDJSON` covers the status
+document plus the per-cycle event stream and the per-cycle folder that holds it.
 
-Four things happen around every step, not just the failing one: the lab-health
-gate and `Assert-CachingProxyServiceStillReachable` before it, `Set-StepStatus` on
-both sides of it, and `Sync-RunnerStepConfig` after it, which re-reads the config
-through an mtime-keyed cache and lets the caller mirror `StopOnFailure`,
-`VmStartTimeoutSeconds` and `VmBootDelaySeconds` back off the shared bag, so an
-operator edit lands mid-cycle. A mid-write or corrupt file keeps the last known
-good values and, after three consecutive failures, warns once that the runner is
-coasting.
+**What the driver box is.** One of three files, chosen by host type and imported
+`-Global`: `host/windows.hyper-v/modules/Yuruna.Host.psm1`,
+`host/ubuntu.kvm/modules/Yuruna.Host.psm1`,
+`host/macos.utm/modules/Yuruna.Host.psm1`. All three export the 38 verbs
+`host/Yuruna.Host.Contract.psm1:57-98` declares, and
+`Assert-YurunaHostContractCoverage` checks the intersection with the module's
+actual `ExportedFunctions` at load, so a verb declared but never exported still
+counts as missing.
 
-The lab-health gate (`Invoke-LabHealthGate`, `test/modules/Test.LabHealth.psm1`)
-holds the cycle while a service this host HAD been reaching stops answering. Its
-probe set is derived rather than configured -- every extension area that declares
-a health surface is probed -- and it fires twice per sequence, once at sequence
-start and once per step (`test/modules/Test.SequenceEngine.psm1:1809`, `:1873`),
-plus at every orchestration chain entry (`test/modules/Test.Orchestrator.psm1:552`).
-A service that was never reachable from this host is never held for; the hold
-needs a change of condition. Its own lifecycle -- probe, hold, and the three ways
-out -- is drawn in [Lifecycle state](04-lifecycle-state.md).
+**The six dashboard steps.** `Get-CycleStepNameList`
+(`test/modules/Test.RunnerInnerLoop.psm1:784-830`) emits four base names --
+`New-VM`, `Start-VM`, `Start-GuestOS`, `New-VM.Resource` -- and appends
+`Screenshots` only when some guest has a screenshot schedule and
+`Start-GuestWorkload` only when the plan has a workload sequence, so the maximum
+is six. The names are the dashboard tile labels; the HTML collapses the
+`New-VM` / `Start-VM` / `New-VM.Resource` triplet into one tile.
 
-The cycle also re-checks the host condition set before any guest work, because
-settings revert between long-running cycles (an OS update, an operator at the
-console). A refusal is a failed cycle rather than a skipped one: it clears a stale
-`last_failure.json`, records `unknown` / hard so the outer loop cannot fast-retry
-a fault only a person can clear, and stops before the first guest
-(`test/modules/Test.RunnerInnerLoop.psm1:1973-2018`).
+**Cross-cutting work on every step**, in
+`test/modules/Test.RunnerInnerLoop.psm1:3310-3885`:
+`Assert-CachingProxyServiceStillReachable` runs before the step,
+`Set-StepStatus -Status "running"` before and `pass` / `fail` / `skipped` after,
+and `Sync-RunnerStepConfig` after, followed by a re-read of `StopOnFailure`,
+`VmStartTimeoutSeconds` and `VmBootDelaySeconds` -- which is how a config edit
+mid-cycle takes effect at the next step boundary.
 
-Validation is one of two shapes and both funnel into the same pass/fail slot.
-The OCR shape is `Wait-ForText` in `test/modules/Test.SequenceEngine.psm1`,
-which polls against a wall-clock deadline, calls the driver's `Get-VMScreenshot`
-and hands the frame to `Test-CombinedOcrMatch`
-(`test/modules/Test.OcrMatch.psm1`), running the engines registered in
-`test/modules/Test.OcrEngine.psm1` sequentially and short-circuiting on the
-combine mode. The ssh shape is the `sshWaitReady` / `sshExec` /
-`sshFetchAndExecute` verbs reaching `Invoke-GuestSsh`
-(`test/modules/Test.Ssh.psm1`), which runs detached under a derived token so a
-reconnect re-attaches rather than re-running. In both shapes the step result is
-normalized to a strict `[bool]` before it is believed, and an unregistered verb
-is a warning plus a failure -- a YAML typo can never pass.
+**The watchdog is deliberately not a participant.** `Start-Watchdog`
+(`test/modules/Test.RunnerWatchdog.psm1:89-311`) returns a `Start-Job` named
+`yurunaWatchdog`, a separate `pwsh` process, and it exchanges no message with
+anyone in this diagram: it reads three files in `$env:YURUNA_RUNTIME_DIR`
+(`runner.stepHeartbeat`, `runner.phase`, `inner.pid`), appends to `outer.log`,
+and on a lapse drops `runner.watchdog.lapsed` and signals the inner process
+tree. Its kill surfaces here only as a non-zero inner exit.
 
-The notification arrow is gated, not unconditional; the latch is section D.
+**Where the OCR frames land.** `Get-VMScreenshot` writes
+`<cycleFolder>/screens_<VMName>/raw_<yyyyMMddTHHmmssfffZ>.png`
+(`test/modules/Test.SequenceEngine.psm1:937-939`); each frame gets a
+`raw_<stamp>.txt` sidecar holding the per-engine OCR text via `Save-OcrSidecar`
+(`:983`). The ring keeps five frames and evicts the `.txt` with its `.png` so
+the two stay in lockstep (`:948-958`). On failure the frozen moment is copied to
+`$YURUNA_LOG_DIR/failure_screenshot_<VMName>.png` and
+`failure_ocr_<VMName>.txt`, and `Copy-FailureArtifactsToStatusLog`
+(`test/modules/Test.RunnerInnerLoop.psm1:418`) copies the ring plus both into
+`<cycleFolder>/<VMName>/`. The ring is deleted only on a guest pass (`:3843-3846`).
 
-## C. Guest repo, proxy and stash fetch
+**The exit contract.** The inner returns an exit code; the cycle child writes
+`runtime/runner.cycle.outcome.json` holding `{"outcome":...,"exitCode":...}`
+before exiting with the same code
+(`test/modules/Invoke-TestCycleRunner.ps1:168-183`), because the exit-code space
+belongs to the inner and the outer needs to tell "the inner failed" from "the
+cycle never got that far".
+
+## C. Guest fetch through the caching proxy and the stash
 
 ```mermaid
 sequenceDiagram
-    participant harness as Test.SequenceHandler
+    participant handler as Test.SequenceHandler.psm1
     participant fae as fetch-and-execute.sh
     participant locate as yuruna-host-locate.sh
     participant statussvc as host status service
     participant squid as caching-proxy squid
-    participant origin as GitHub and upstreams
-    harness->>fae: typed envelope, sha and fallback ref
-    fae->>locate: yuruna_host_locate
-    locate->>statussvc: livecheck the held coordinate
-    fae->>statussvc: GET yuruna-repo path plus nocache
-    statussvc->>fae: script bytes
-    fae->>origin: contents or raw api when host unreachable
-    fae->>fae: verify_sha256 gate, one re-fetch
-    fae->>statussvc: GET ca.crt to re-anchor the bump CA
-    fae->>squid: apt, dnf and registry pulls
+    participant stash as stash-service daemon
+    participant origin as GitHub and package upstreams
+    handler->>fae: typed line, EXEC_REQUIRE_SHA256=1 E_SHA E_FB_REPO E_FB_REF
+    fae->>locate: yuruna_host_locate after fae_await_ipv4
+    locate->>statussvc: wget --no-proxy /livecheck on the held address
+    fae->>statussvc: GET /yuruna-repo/ plus the repo-relative path
+    statussvc->>fae: script bytes into a temp file
+    fae->>origin: GET api.github.com contents when the host is unreachable
+    fae->>fae: verify_sha256 before any byte reaches bash
+    fae->>statussvc: GET /ca.crt to re-anchor the bump CA
+    fae->>squid: apt and dnf on 3128, bumped HTTPS on 3129
     squid->>origin: MISS goes upstream
-    fae->>statussvc: POST control perf-checkpoints
+    fae->>squid: container pulls via the zot mirror on 5000
+    %% optional
+    fae-->>stash: scp to 22, or GET /download/ by id on 80
+    fae->>statussvc: POST /control/perf-checkpoints
 ```
 
-**What is asked for.** The harness never uploads the script. It types a command
-line built by `Get-FetchExecuteEnvPrefix`
-(`test/modules/Test.SequenceHandler.psm1`) that carries
-`EXEC_REQUIRE_SHA256=1`, the working-tree digest of the payload (`E_SHA`), the
-digest of the retry library (`E_RETRY_SHA`), and an owner/repo plus 12-hex
-commit fallback (`E_FB_REPO`, `E_FB_REF`). `GH_TOKEN` is deliberately never
-typed, because the console is screenshotted and OCR'd into the published run log.
-`fetch-and-execute.sh` itself was seeded by cloud-init, not fetched: the base64
-placeholders in `host/vmconfig/ubuntu.server.base.user-data` drop it,
-`yuruna-retry.sh`, `yuruna-versions.sh`, `yuruna-network.sh` and
-`yuruna-host-locate.sh` into `/usr/local/lib/yuruna/`.
+**What the host types.** The harness never uploads a script. It types a command
+line whose prefix `Get-FetchExecuteEnvPrefix`
+(`test/modules/Test.SequenceHandler.psm1:1021-1103`) builds:
+`EXEC_REQUIRE_SHA256=1` unconditionally (`:1065`), `E_SHA` as the working-tree
+SHA-256 of the payload (`:1076`), `E_RETRY_SHA` for the retry library when it is
+present (`:1081`), and `E_FB_REPO` plus a short `E_FB_REF` for the GitHub
+fallback (`:1103`). The expected digest therefore arrives over the channel that
+TYPED the command, never over the HTTP the bytes came from.
 
-**Who serves it.** `resolve_fetch_source()` prefers the host: it sources
-`/etc/yuruna/host.env`, and either a successful `yuruna_host_locate` (its
-success *is* the livecheck evidence) or a direct
-`wget --no-proxy --timeout=2 --tries=2` against `/livecheck` selects
-`http://<ip>:<port>/yuruna-repo/`, served by `test/service/Start-StatusService.ps1`
-behind a deny-list that keeps `test.config.yml`, vault files and ssh keys out of
-the tree. With no global IPv4 the resolver skips the probe entirely and goes
-straight to GitHub.
+**Address before source.** `fae_await_ipv4` runs before `resolve_fetch_source`
+(`automation/fetch-and-execute.sh:386-387`), on a budget defaulting to 180 s
+that is shared across both call sites and nudged at 60 s with
+`yuruna_net_repair_ipv4`. A guest with no global IPv4 at all prints the
+`GUEST HAS NO IPv4` block and goes straight to the `github` source rather than
+spending a probe whose only answer is "no" (`:61-77`).
 
-**The fallback to origin.** `build_fetch_url()` composes
-`https://api.github.com/repos/<repo>/contents/<path>?ref=<ref>` when a token
-exists -- passed in a 0600 temporary wgetrc via `--config=`, never `--header`,
-which would be visible in `ps` -- and `raw.githubusercontent.com/<repo>/<ref>/<path>`
-when it does not. Both pin the commit. Either way the bytes land in a temp file
-and pass `verify_sha256` before anything runs; an empty digest with
-`EXEC_REQUIRE_SHA256=1` is refused, and a mismatch buys exactly one re-fetch and
-re-verify to absorb the type-to-fetch concurrent-edit race.
+**Host location, in order** (`resolve_fetch_source`, `:29-153`): source
+`/etc/yuruna/host.env`; let typed values override it for repo and ref; honor an
+`EXEC_BASE_URL` override; source
+`/usr/local/lib/yuruna/yuruna-host-locate.sh` and take `yuruna_host_locate`'s
+success directly, with `HOST_BASE` becoming
+`http://<ip>:<port>/yuruna-repo/` (`:99-107`); otherwise probe
+`http://<ip>:<port>/livecheck` with `wget -q --no-proxy --timeout=2 --tries=2`
+(`:117-118`) -- two tries, not one, because the verdict cannot be revisited;
+otherwise print `HOST UNREACHABLE` and set the source to `github` (`:123-152`).
+`yuruna_host_locate` itself is probe-first, asks the pool aggregator on 9400 at
+`/api/v1/host-address?hostId=<id>` with `/api/v1/pool-status` as the
+compatibility leg, rejects implausible answers (loopback, `localhost`, `::1`,
+`0.0.0.0`, `169.254.*`, multicast), and on adoption persists to
+`/etc/yuruna/host.env`, the `yuruna-host` line in `/etc/hosts` and the
+`no_proxy` line in `/etc/wgetrc`
+(`automation/yuruna-host-locate.sh:104-108`, `:126-162`, `:188-231`, `:244-311`).
 
-**The cache-buster.** `QUERY_PARAMS` is `EXEC_QUERY_PARAMS` when set, else
-`?nocache=<YurunaCacheContent>` when that variable is non-empty, and it is
-appended only to the host and base legs -- the GitHub legs already pin a commit,
-so there is nothing to bust. The same `${YurunaCacheContent:+?nocache=...}` idiom
-appears on nearly thirty upstream URLs across `guest/**/*.sh`, which is how an
-operator forces a fresh pull through squid for one cycle.
+**The three URL shapes** (`build_fetch_url`, `automation/fetch-and-execute.sh:160-174`):
+`${HOST_BASE}${path}${QUERY_PARAMS}` for the host route,
+`https://api.github.com/repos/<repo>/contents/<path>?ref=<ref>` when a token is
+present, and `https://raw.githubusercontent.com/<repo>/<ref>/<path>` when it is
+not. The query string rides only the host route -- a second `?` would corrupt
+the API URL's `?ref=`.
 
-**The proxy leg.** Package and image bytes do not use this path at all: they go
-through the squid instance in the caching-proxy VM, seeded system-wide as
-`http_proxy` on 3128 and `https_proxy` on 3129, with the container registry
-mirrored at port 5000. Because 3129 is `ssl-bump`, the guest needs the proxy CA;
-`yuruna_ca_selfheal` in `automation/yuruna-retry.sh` re-fetches it from
-`http://<status ip>:<port>/ca.crt` and reinstalls it, which is what lets a guest
-whose seed was baked CA-less recover on its own.
+**The gate.** `verify_sha256` (`:273-302`) refuses an empty expected digest when
+`EXEC_REQUIRE_SHA256=1`, compares lowercased `sha256sum` output (falling back to
+`shasum -a 256`), and on a non-empty-digest mismatch the caller re-fetches once
+and re-verifies before exiting 3 (`:566-576`), which absorbs a host process
+rewriting the served file inside the type-to-fetch window. Only after the gate
+is the payload run as `/bin/bash -c "$script_content"` with output mirrored
+byte-identically to the console -- the host matches OCR patterns against exactly
+those bytes -- and a stamped copy written to
+`/tmp/yuruna-last-fetch-and-execute.log`.
 
-**The stash is not on this path.** No guest script fetches from the stash
-service; it is a write sink reached over `scp`/`sftp` on port 22 from a LAN
-client, and it holds no pool data. It is drawn in section F instead, where its
-separate share is the point.
+**The proxy leg is optional by design, and each family finds it differently.**
+Ubuntu has the address templated into its cloud-init seed
+(`CACHING_PROXY_URL_PLACEHOLDER`, `host/vmconfig/ubuntu.server.base.user-data:52`,
+`:66-67`), with the whole block wrapped in a non-empty test. Amazon Linux 2023
+derives it at run time -- `$http_proxy` first, then
+`YURUNA_CACHING_PROXY_SERVICE_IP` out of `/etc/yuruna/host.env`, then the bare
+name `yuruna-caching-proxy-service` -- and probes port 3128 before committing,
+clearing `CACHE_HOST` when nothing answers
+(`guest/amazon.linux.2023/amazon.linux.2023.update.sh:46-60`). The k8s guests
+follow the same three-step derivation but gate on the registry
+(`guest/ubuntu.server.26/ubuntu.server.26.k8s.sh:103-117`), and write
+`registry-mirrors` plus `insecure-registries` pointing at
+`http://<cache>:5000` only when a cache was found (`:118-127`). An empty
+`CACHE_HOST` is a supported topology, not a fault.
 
-### The leg that runs when the guest never finishes installing
+**The CA self-heal edge is easy to misread.** `fae->>statussvc: GET /ca.crt`
+goes to the HOST status service on 8080, not to the proxy VM, because that path
+is plain HTTP and the ssl-bump is not in front of it
+(`automation/yuruna-retry.sh:244-262`). The function is a hard no-op unless
+`https_proxy` really names port 3129 and the bump is not already trusted, and it
+answers three ways: 0 repaired, 1 nothing to repair, 2 tried and still untrusted
+(`:213-221`). Host side, `/ca.crt` live-reads
+`http://<cache>/yuruna-squid-ca.crt` and only falls back to the persisted copy
+(`test/service/Start-StatusService.ps1:2619-2650`,
+`test/modules/Test.CachingProxyService.psm1:1338-1377`).
 
-One artifact channel runs in the opposite direction from everything above and
-outside any sequence. When a guest's autoinstall dies, cloud-init's
-`error-commands` PUT the installer logs and a pre-captured network snapshot (`ip
-addr`, `ip route`, `resolv.conf`) to the host status service's
-`log-upload/<bucket>` route, with the bucket
-`installer-fail/<vm>/<stamp>` (`host/vmconfig/ubuntu.server.base.user-data:365-405`).
-The harness cannot observe that failure any other way: the guest never reaches the
-state where a sequence step could run. The uploads land at the log root rather
-than inside a cycle folder, so they are outside `manifest.json` and outside the
-per-cycle artifact model in [Configuration data model](05-data-model.md).
+**The stash edge is dashed because no shipped sequence walks it.** The stash
+daemon is real and running -- SCP/SFTP on `0.0.0.0:22` and the UI plus JSON API
+on `0.0.0.0:80`
+(`test/extension/stash-service/server/internal/config/config.go:13,22`), with
+`GET /download/...`, `GET /raw/...` and the short links `GET /v/{id}` and
+`GET /{id}` in
+`test/extension/stash-service/server/internal/httpsrv/handlers.go:34-74` -- and
+the extension exposes `Resolve-Host` for a sequence's `variables:` block to
+consume as `${ext:stash-service.ResolveHost(<vm>)}`
+(`test/extension/stash-service/default.psm1:279-351`). A search of both
+repositories finds that expression only inside
+`test/extension/stash-service/default.psm1` and one comment in
+`test/modules/Test.SequenceVariable.psm1:94`: no sequence in `test/sequences/`
+and none in `yuruna-project` names it today. The two sequences that mention the
+stash at all -- `workload.guest.ubuntu.server.26.stash-service.yml:50` and its
+`.ssh.yml` peer at `:38` -- build the daemon rather than fetching from it.
 
-## D. Failure, taxonomy and alert
+**Perf checkpoints ride only the host route.** `${host_origin}` is
+`HOST_BASE` with the trailing `/yuruna-repo/` stripped
+(`automation/fetch-and-execute.sh:792`), and the POST to
+`/control/perf-checkpoints` (`:840`) happens after the end marker,
+best-effort, and only when the source was `host`.
+
+## D. Failure, taxonomy, alert
 
 ```mermaid
 sequenceDiagram
     participant engine as Invoke-Sequence
     participant builder as New-SequenceFailureRecord
-    participant record as last_failure.json
-    participant runner as inner cycle runner
-    participant quarantine as Test.GuestQuarantine
-    participant remediation as Test.Remediation
-    participant notify as Test.Notify
-    engine->>builder: failed verb, label, step number
-    builder->>record: schema v2 ordered dict
-    builder->>runner: matching step_failure event
-    runner->>quarantine: class after host-network reclassification
-    quarantine->>runner: skip, release or none
-    runner->>remediation: the parsed record, in memory
-    remediation->>record: last_remediation.json beside it
-    remediation->>runner: recommendation and severity
-    runner->>notify: send only when armed and streak reached
-    notify->>runner: delivery ledger outcome
+    participant inner as inner cycle runner
+    participant files as cycle folder files
+    participant quarantine as Test.GuestQuarantine.psm1
+    participant remediation as Test.Remediation.psm1
+    participant notify as Test.Notify.psm1
+    engine->>builder: failed verb, step number, OCR tail
+    builder->>files: last_failure.json, schemaVersion 2
+    builder->>inner: matching step_failure NDJSON record
+    inner->>files: Write-CycleInfraFailure for a host stage
+    inner->>quarantine: class after host-network reclassification
+    quarantine->>inner: skip, release or none
+    inner->>files: Get-FailureEventData reads last_failure.json back
+    inner->>remediation: Invoke-Remediation with the in-memory payload
+    remediation->>files: last_remediation.json beside it
+    remediation->>inner: one of seven recommendations
+    inner->>notify: Send-CycleFailureNotification, armed and streak met
+    notify->>notify: extension POST to api.resend.com emails
+    notify->>files: notification.delivery.json
 ```
 
-**Classification.** The vocabulary is the 24-value `$script:FailureClassEnum` in
-`test/modules/Test.FailureTaxonomy.psm1`, with severity `hard` / `soft` /
-`unknown`. Each verb declares its own class statically at registration -- for
-example `waitForText` is `ocr_timeout` / hard, `sshWaitReady` is
-`network_timeout` / soft, `loadDiskSnapshot` is `snapshot_restore_failed` /
-hard. `Test.SequenceAction.psm1` keeps a literal copy of the enum in a
-`ValidateSet` (an attribute argument must be a constant) and asserts it back
-against the taxonomy at module load, warn-only, so drift is visible without
-taking a cycle down.
+**One fold.** `cycle folder files` stands for the four records this flow writes
+or reads inside `<cycleFolder>` and `$env:YURUNA_LOG_DIR` (4):
+`last_failure.json`, `last_remediation.json`, `notification.delivery.json`, and
+`cycle.events.ndjson` where the `step_failure` and `guest_quarantined` records
+land.
 
-One class is produced by a wait rather than by a step. When the lab-health gate's
-hold reaches its compiled ceiling of 999 re-probes -- roughly sixteen hours --
-`Invoke-LabHealthGate` writes a `lab_dependency_down` / hard record through the
-same `Write-CycleInfraFailure` and then throws a tagged marker, so the record
-exists before anything unwinds. It is deliberately kept off the auto-remediation
-allow-list: the cycle already re-probed on backoff for most of a day before the
-record was written, and under a pool the service that stopped is usually a VM
-another machine owns.
+**The vocabulary.** `$script:FailureClassEnum`
+(`test/modules/Test.FailureTaxonomy.psm1:28-40`) holds 24 values in declaration
+order: `ocr_timeout`, `console_flooded`, `network_timeout`,
+`credential_expired`, `host_io_blocked`, `pattern_matched_failure`,
+`retry_exhausted`, `snapshot_restore_failed`, `script_error`, `wait_timeout`,
+`extension_error`, `instrumentation_failure`, `provisioning_failure`,
+`bootstrap_sync`, `plan_invalid`, `elevation_required`,
+`project_access_denied`, `host_network_degraded`, `ip_not_discovered`,
+`payload_unavailable`, `pool_storage_full`, `dhcp_identity_unbounded`,
+`lab_dependency_down`, `unknown`. Severity is `hard` / `soft` / `unknown`
+(`:41`). `Assert-FailureTaxonomyInSync` (`:65-93`) is order-sensitive and
+warn-only, so a drifted copy surfaces at module load instead of aborting a cycle.
 
-**The record.** The failure record is built once, by
-`New-SequenceFailureRecord` in `test/modules/Test.SequenceFailureState.psm1`,
-which returns both the on-disk ordered dict and the matching NDJSON event from
-the same call, so file and stream can never disagree about the class. It is
-captured at the outer call site rather than inside the retry loop, so a
-transient attempt leaves no stale `last_failure.json`. Stages that fail
-*outside* the sequence engine -- git sync, planning, VM provisioning, cleanup --
-have no engine record to write, so `Write-CycleInfraFailure`
-(`test/modules/Test.RunnerInnerLoop.psm1`) lands an equivalent schema-v2 record,
-writing only when `last_failure.json` is absent so it can never clobber the
-richer engine-written one.
+The deploy engine has its own, smaller enum -- `ok`, `config_error`,
+`cluster_unreachable`, `chart_invalid`, `tool_failed`, `unknown`
+(`automation/Yuruna.Result.psm1:41-42`) -- and
+`ConvertTo-CanonicalFailureClass` (`:58-114`) maps it into the harness
+vocabulary: `config_error` and `chart_invalid` both become `plan_invalid`,
+`cluster_unreachable` becomes `network_timeout`, `tool_failed` becomes
+`provisioning_failure`, anything unrecognized becomes `unknown`.
 
-**Quarantine.** `test/modules/Test.GuestQuarantine.psm1` is a per-guest circuit
-breaker keyed on a *same-class consecutive* streak; a class change resets the
-count to one. Before any fail is registered the runner passes the class through
-`Resolve-HostNetworkFailureClass`, and host-scoped classes count for nothing and
-leave an existing streak standing -- otherwise one broken host would quarantine
-every network-touching guest at once and the pool would read green. A clean pass
-drops the record entirely. The decision function returns `none` / `skip` /
-`release`, releasing on a new framework or project commit or an exhausted skip
-budget.
+**Two record builders, one shape.** `New-SequenceFailureRecord`
+(`test/modules/Test.SequenceFailureState.psm1:150`) returns
+`@{File; Event}` so the on-disk record and the NDJSON record cannot drift. It
+starts from the verb registry's declared class and then narrows on evidence --
+a matched failure pattern wins and yields `pattern_matched_failure`, else a
+console flood yields `console_flooded`, else an unresolved guest address yields
+`ip_not_discovered`. `New-InfraFailureRecord` is the host-stage sibling,
+reached through `Write-CycleInfraFailure`
+(`test/modules/Test.RunnerInnerLoop.psm1:1808`), which classifies by stage:
+`provisioning_failure` for `New-VM` / `Start-VM` / `New-VM.Resource` /
+`Cleanup`, `network_timeout` for `GetImage`, `plan_invalid` for `folder-check`,
+`project_access_denied` for `ProjectAccess`, `bootstrap_sync` for
+`ProjectClone`, `dhcp_identity_unbounded` for `GuestAddressBound`,
+`pool_storage_full` for the two pool-storage stages, `lab_dependency_down` for
+the lab-health gate, and a synthetic `wait_timeout` when the outer attributes a
+non-zero exit to a watchdog kill.
+
+**The ordering invariant.** `Write-CycleInfraFailure` never overwrites an
+existing record, which protects the richer engine-written record produced later
+in the same cycle. The only legitimate clearing point is the first gate, before
+any cycle work (`test/modules/Test.RunnerInnerLoop.psm1:2063-2075`).
+
+**Quarantine is a per-guest circuit breaker, not an alert path.**
+`Get-GuestQuarantineDecision` (`test/modules/Test.GuestQuarantine.psm1:89-133`)
+is pure and returns `none`, `skip` or `release`; a new framework OR project
+commit releases, because it may carry the fix. `host_network_degraded` is
+host-scoped and exempt (`:35`): a host fault produces the identical class on
+every network-touching guest at once and would quarantine them all, leaving a
+green cycle over a broken host.
 
 **Remediation is advisory.** `Invoke-Remediation`
-(`test/modules/Test.Remediation.psm1`) routes on `failureClass` through a
-registry of built-in handlers, preferring `innerFailureClass` when the outer class
-is exactly `retry_exhausted`, the inner class differs from it, and that class has
-its own handler -- otherwise an exhausted retry
-would collapse every cause into `retry_exhausted`. It writes a durable
-`last_remediation.json` and emits `remediation_recommended`, and **performs
-nothing**. Actual automatic action happens in exactly one other place, and it is
-opt-in: the outer failure pause's fifth trigger (default off, behind
-`testCycle.autoRemediation.enabled`) asks `Test-AutoRemediationAllowed`, whose
-allow-list ships in `Test.Remediation.psm1` beside the handlers rather than in the
-loop -- a literal in the loop could not stay in step with them. When the class is
-on the list and the attempt cap (`maxAttemptsPerCycle`, default 2, reset by a
-passing cycle rather than by the clock) is not spent, it ends the pause early.
+(`test/modules/Test.Remediation.psm1:233`) routes on `failureClass` to a
+registered handler and returns one of seven recommendations (`:75-83`):
+`retry_immediately`, `retry_with_backoff`, `restart_from_snapshot`, `reconnect`,
+`pause_and_inspect`, `operator_intervention_required`, `escalate`. A handler
+that throws or answers outside that vocabulary is coerced to
+`operator_intervention_required`. Acting on a recommendation is a separate,
+default-off feature with its own 7-class allow-list (`:98-109`) and a per-cycle
+attempt cap.
 
-**The gate.** The latch is Armed -> N failures -> Fired -> M successes -> Armed,
-with the counters persisted to `runner.gating.json` so they survive the
-per-cycle respawn. A pass zeroes the failure streak and re-arms once the success
-threshold is met; a fail zeroes the success streak; a notification ships only
-when the latch is armed **and** the failure streak has reached
-`notification.failuresBeforeAlert`, after which it disarms itself. Pre-cycle
-failures route through the same latch, so an unfixed host alerts once per
-streak instead of once per respawn. Dispatch is `Send-YurunaNotification`
-(`test/modules/Test.Notify.psm1`) -- named that way, and not `Send-Notification`,
-because extensions load `-Global` and a same-named dispatcher would be shadowed
-by the first transport to load. Delivery is asynchronous by default and every
-outcome is appended to `notification.delivery.json`, so a reader can tell
-whether the escalation channel actually received the alert.
+**The alert latch.** The gate is
+`$AlertArmed -and $ConsecutiveFailures -ge $FailuresBeforeAlert`
+(`test/modules/Test.RunnerInnerLoop.psm1:2969`). Code defaults for
+`failuresBeforeAlert` and `successesBeforeRearm` are both 1 (`:1063-1064`); the
+shipped template ships 2 and 5 (`test/test.config.yml.template:41-43`). Sending
+disarms the latch, and a pass re-arms it after `successesBeforeRearm`
+consecutive successes. `Send-CycleFailureNotification`
+(`test/modules/Test.Notify.psm1:502-560`) calls
+`Send-YurunaNotification -EventCode 'cycle.failure' -Synchronous`; the
+`-Synchronous` is deliberate, because bootstrap failures call this immediately
+before process exit and a fire-and-forget thread job would be killed first.
+`Send-YurunaNotification` resolves each active extension's `Send-Notification`
+by the loaded module's absolute path, not by name, because
+`notification/default.psm1` and `authentication/default.psm1` both register as
+module `default` (`:100-111`). The shipped transport POSTs to
+`https://api.resend.com/emails` with a 30 s timeout
+(`test/extension/notification/default.psm1:100`), and the delivery outcome is
+persisted to `<cycleFolder>/notification.delivery.json` on both the synchronous
+and the asynchronous branch so a swallowed HTTP 503 stays visible.
 
-## E. Agent-first image acquisition
+## E. Guest-image acquisition through the download agent
 
 ```mermaid
 sequenceDiagram
     participant getimage as Get-Image.ps1
-    participant client as Yuruna.DownloadAgent
-    participant aggregator as pool aggregator
-    participant agent as download-agent service
-    participant share as pool share images
+    participant client as Yuruna.DownloadAgent.psm1
+    participant aggregator as pool-aggregator-service
+    participant agent as download-agent-service
+    participant share as pool share images tree
     participant squid as caching-proxy squid
-    participant origin as publisher origin
+    participant origin as image publisher origin
     getimage->>client: Resolve-DownloadAgentEndpoint
-    client->>aggregator: GET extension-hosts for the area
-    aggregator->>client: published target and port
-    client->>agent: GET healthz within two seconds
-    getimage->>client: filename and byte count fingerprint
-    client->>agent: POST images ensure
-    agent->>origin: fetch only a stale generation
-    agent->>share: artifact, sidecar, then pointer last
-    agent->>client: ready, fileUrl and sha256
-    client->>getimage: downloaded and hash verified
-    getimage->>squid: origin fetch when no agent answered
+    client->>aggregator: GET /api/v1/extension-hosts?area=download-agent-service
+    aggregator->>client: entry.target, or entry.host without a port
+    client->>agent: GET /healthz within a 2 s budget
+    getimage->>client: Request-DownloadAgentImage, filename and byteCount
+    client->>agent: POST /api/v1/images/hostType/imageKey/ensure
+    agent->>share: read current.arch.variant.json pointer
+    agent->>squid: fetch a stale generation through 3128
     squid->>origin: MISS goes upstream
+    agent->>share: artifact, then .meta.json, then pointer last
+    agent->>client: state ready, image.fileUrl and image.sha256
+    client->>agent: GET the file route, resuming with Range
+    client->>getimage: outcome downloaded, sha256 verified
+    getimage->>squid: origin path when no agent answered
 ```
 
-**The agent is asked before the origin is touched at all.** In
-`Save-UbuntuServerImage` (`host/modules/Yuruna.UbuntuImage.psm1`) the agent rungs
-are feature-detected by command name, so a caller with no driver loaded simply
-skips them; only after they decline does the script resolve the upstream index,
-consult the local sentinel, and download.
+**Who the boxes are on disk.** `getimage` is one of the 25 per-guest builders
+`host/<platform>/guest.<key>/Get-Image.ps1`; the amd64 KVM example read for this
+diagram is `host/ubuntu.kvm/guest.amazon.linux.2023/Get-Image.ps1:65-127`.
+`client` is `host/modules/Yuruna.DownloadAgent.psm1`. `agent` is the Go daemon
+in `test/extension/download-agent-service/server/`, listening on `0.0.0.0:80`
+inside the `yuruna-download-agent-service` VM. `aggregator` is
+`test/extension/pool-aggregator-service/`, which has no VM of its own and runs
+inside the caching-proxy VM on port 9400.
 
-**Endpoint discovery** (`Resolve-DownloadAgentEndpoint` in
-`host/modules/Yuruna.DownloadAgent.psm1`) walks three rungs, memoized per
-process: the operator pin `YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE` always
-first, so discovery can never beat it; then an agent VM on this host via the
-driver's `Get-VMIp`; then the pool, by asking the aggregator riding inside the
-caching-proxy VM on port 9400 for `/api/v1/extension-hosts?area=download-agent-service`
-and preferring the record's `target`, which is the only field carrying a
-published port. Every candidate is proved with a `/healthz` probe on a two-second
-budget before it is accepted, and every failure shape collapses to an empty
-string -- nothing in this module throws, because each call sits in front of a
-`Get-Image` run whose fallback is the origin. The single `aggregator` arrow folds
-those three rungs.
+**Feature detection comes first.** `Get-Image.ps1` checks that BOTH
+`Resolve-DownloadAgentEndpoint` and `Request-DownloadAgentImage` are in the
+command table before it does anything, so a caller with no driver loaded, or an
+agent that is down, or a host with no pool, runs the origin path exactly as it
+always has (`Get-Image.ps1:73-74`).
 
-**Per image**, `Request-DownloadAgentImage` POSTs
-`/api/v1/images/{hostType}/{imageKey}/ensure?arch=&variant=` with a three-field
-fingerprint -- filename, byte count, and a `sha256` that is normally empty, since
-hashing a multi-gigabyte local artifact would cost more than the transfer it
-saves and the four-line sentinel supplies the other two free. Filename plus byte
-count is exactly the agent's own fallback comparison. `localCurrent: true` returns `skipped` with no resolve, no
-HEAD and no transfer; `state: downloading` polls with backoff from 2 s to 30 s;
-`state: ready` yields metadata whose advertised `fileUrl` is used verbatim and
-resumed with `Range` requests across up to five attempts.
+**The endpoint ladder has three rungs**, nearest first
+(`Get-DownloadAgentEndpointCandidate`,
+`host/modules/Yuruna.DownloadAgent.psm1:277-347`): the operator override
+`$env:YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE`; the driver's
+`Get-VMIp -VMName 'yuruna-download-agent-service'`; and the pool, which resolves
+the cache host and asks
+`https://<cache>:9400/api/v1/extension-hosts?area=download-agent-service`,
+falling back to `http` (`:251-254`). The pool rung prefers `entry.target` over
+`entry.host` because only the target carries a published port (`:266-267`) --
+which matters on a UTM Shared-NAT peer, where the agent is reached at host port
+8082. Every candidate is normalized to `scheme://authority`, de-duplicated, and
+then proved with `GET /healthz` on a 2 s budget; the first 200 wins and the
+answer is memoized for the process.
 
-**Verification** is not optional. The fetched bytes are hashed with
-`Get-FileHash` against the agent's published SHA-256; a missing published hash is
-a refusal rather than a pass, and a mismatch deletes the staging file and returns
-`failed`. On the origin path the equivalent gate is
-`Test-UbuntuServerImageChecksum`, which fetches `SHA256SUMS` **to disk** (a
-`.Content` read would hand back a byte array whose string form is decimal),
-distinguishes a 403/404/410 "not published" soft pass from an unverifiable
-transient failure, and runs the signature check
-(`Test-PublishedChecksumSignature`, `host/modules/Yuruna.Image.psm1`) against
-pinned Ubuntu keys -- `bad` aborts, `unverified` warns and proceeds on the hash.
+**The fingerprint carries no hash on purpose.** The ensure body is
+`{filename, byteCount, sha256}` with `sha256` empty
+(`Invoke-DownloadAgentEnsure`, `host/modules/Yuruna.DownloadAgent.psm1:445-478`),
+because re-hashing a multi-GB local artifact to ask a question would cost more
+than the transfer the question avoids. The two values come from the local
+4-line origin sentinel.
 
-**Writes on the share are ordered so a reader never sees a torn generation:** the
-artifact and its `.meta.json` sidecar land first, and the
-`current.<arch>.<variant>.json` pointer is replaced last. Replacing that pointer
-is the only thing that changes what hosts are served.
+**Five answers, five outcomes** (`Request-DownloadAgentImage`, `:723-956`):
+`body.localCurrent` true is `skipped` and nothing transfers -- freshness is
+deliberately not consulted; `state == "failed"` is `failed`;
+`state == "downloading"` polls with a 2 s to 30 s doubling backoff until the
+`-DeadlineSeconds` budget (default 7200) expires; `state == "ready"` takes
+`image.fileUrl` verbatim, streams it with `Save-DownloadAgentArtifact` which
+resumes with `Range` rather than restarting, and verifies SHA-256 against
+`image.sha256` -- a mismatch deletes the staging file and yields `failed`; and
+HTTP 0 / 404 / 400 / 5xx or an unparseable body is `unavailable`. Back in
+`Get-Image.ps1`, `skipped` exits 0, `downloaded` sets the served flag and writes
+the image sentinel from the agent-supplied origin quadruple, and anything else
+warns and falls through to the origin path.
 
-The agent's own byte downloads run through squid too, with
-`--proxy-http=http://<cache>:3128` and `--proxy-https=http://<cache>:3129` pinned
-to `/etc/yuruna/yuruna-squid-ca.crt`.
+**The write order on the share is the correctness argument.** The agent writes
+the generation artifact, then its `.meta.json` sidecar, and the pointer
+`current.<arch>.<variant>.json` LAST, because the pointer is the only file whose
+replacement changes what is served
+(`test/extension/download-agent-service/server/internal/config/config.go:72-75`).
+The single-writer lease `.agent-lease.json` at the images root expires after
+three missed scan intervals, and correctness never depends on it --
+generation-addressed storage makes concurrent writers safe -- so an unreadable
+lease leaves the agent writable.
 
-## F. What lives on the shared storage
+**The origin fallback still goes through the cache.**
+`Save-CachedHttpUri` (`host/modules/Yuruna.HostDownload.psm1:262`) with no
+resolver closure does a plain `Invoke-WebRequest`. With one,
+`Get-CacheProxyForHostDownload` (`:202-259`) returns `$null` for a non-http(s)
+scheme or an empty cache address; `@{ Proxy = "http://<cache>:3128" }` for HTTP;
+and for HTTPS it probes 3129 AND 80, and only then fetches
+`http://<cache>/yuruna-squid-ca.crt` and returns
+`@{ Proxy = "http://<cache>:3129"; CaPemPath = ... }`. Either probe failing
+means a direct fetch.
 
-This one is a layout, not a message exchange, so it is a flowchart.
+## F. What the yuruna-pool share holds
+
+This one is a layout, not an exchange, so it is a flowchart.
 
 ```mermaid
 flowchart LR
-    pool-nas["ypool-nas pool share"]
+    pool-share["yuruna.pool share"]
     hosts["hosts"]
     images["images"]
     service-state["service state dirs"]
-    intent-git["pool-intent.git"]
-    stash-nas["ystash-nas stash share"]
-    stash-tree["per host stash tree"]
-    pool-nas --> hosts
-    pool-nas --> images
-    pool-nas --> service-state
-    pool-nas --> intent-git
-    stash-nas --> stash-tree
+    pool-intent-git["pool-intent.git"]
+    stash-share["yuruna.stash share"]
+    stash-host-tree["per host stash tree"]
+    pool-share --> hosts
+    pool-share --> images
+    pool-share --> service-state
+    pool-share --> pool-intent-git
+    stash-share --> stash-host-tree
 ```
 
-Two shares, two accounts, two mount points -- they are separate tiers, not one
-volume with two folders. `service state dirs` folds the two per-service state
-directories that sit at the pool root, listed individually below.
+**Two shares, not one volume with two folders.** The two names are the two
+directories `test/lab/New-Lab.ps1:210-211` creates under the lab root,
+`yuruna.pool` and `yuruna.stash`. They have separate config triples
+(`networkStorage.poolStorage{LocalPath,NetworkPath,NetworkUser}` and
+`networkStorage.stashStorage{LocalPath,NetworkPath,NetworkUser}`,
+`test/test.config.yml.template`), separate accounts, and separate mount points.
+The pool share is mounted at `/mnt/ypool-nas` inside the caching-proxy VM and at
+`/mnt/yuruna-pool` inside the download-agent and pool-control VMs
+(`test/extension/download-agent-service/server/internal/config/config.go:47`).
+Only `hostkey/` and `files/` live on the stash share.
 
-| Folder on the share | Confirmed in | Written by | Read by |
+**Four folds.** With the unfolded `pool-intent.git` box they account for all 15
+rows of the table below.
+
+- `hosts` stands for 4 rows: `hosts/info.<hostId>.yml`, `hosts/<hostId>/`,
+  `hosts/<hostId>/test-cycles/<cycle>/` and
+  `hosts/<hostId>/services/caching-proxy-service/`.
+- `images` stands for 5 rows: `images/`, `images/.agent-lease.json`,
+  `images/<hostType>/<imageKey>/current.<arch>.<variant>.json`,
+  `.../.staging/` and `.../manual/<arch>.<variant>/`.
+- `service state dirs` stands for the two per-service state directories that sit
+  at the pool root (2): `download-agent-service/` and `pool-control-service/`,
+  each holding `audit.jsonl` and `status.json`. They sit beside `images/` rather
+  than inside it so the images tree stays artifacts-only (`config.go:80-83`).
+- `per host stash tree` stands for 3 rows:
+  `<hostId>/hostkey/stash_host_ed25519`, `<hostId>/files/<YYYY>/<MM>/<DD>/` and
+  the `.yuruna.meta.json` sidecar beside each artifact.
+
+| Area on the share | Named in | Written by | Read by |
 |---|---|---|---|
-| `hosts/info.<hostId>.yml` | `Write-HostInfoRecord`, `test/modules/Test.HostIdentity.psm1` | the host, once per successful drain | the reimage-reclaim scanner, which enumerates `-Filter 'info.*.yml' -File` so sibling directories are invisible to it |
-| `hosts/<hostId>/` | `Get-PoolStorageHostFolderPath`, `test/modules/Test.PoolStorage.psm1` | the host | the host's own serving fallback |
-| `hosts/<hostId>/test-cycles/<NNNNNN.date.time.hostId>/` | `Get-PoolStorageCycleRootPath`, same module | `test/modules/Invoke-PoolStorageDrain.ps1`, oldest first, writing `.yuruna-complete` **last** | the aggregator's archive route and the dashboard cycle deep links |
-| `hosts/<hostId>/services/caching-proxy-service/` | `ypool-nas-replicate.sh` in `host/vmconfig/caching-proxy-service.base.user-data` | the caching-proxy VM, rsyncing loki, prometheus and grafana | manual restore only |
-| `images/` | `ImagesDirName`, `test/extension/download-agent-service/server/internal/config/config.go` | the download-agent service | every host's `Get-Image` path |
-| `images/.agent-lease.json` | `LeaseFileName`, same file | the agent holding the single-writer lease | other agents, which stand down read-only |
-| `images/<hostType>/<imageKey>/current.<arch>.<variant>.json` | `PointerName`, same file | the agent, **last** in the write order | hosts resolving an image generation |
-| `images/<hostType>/<imageKey>/.staging/` | `StagingDirName`, same file | the agent, PID-suffixed; dot-prefixed so pool walkers skip it | the agent only |
-| `images/<hostType>/<imageKey>/manual/<arch>.<variant>/` | `ManualDirName`, same file | a human, deliberately not dot-prefixed so it is visible in a file manager | adopted into the pool on the next scan |
-| `download-agent-service/` | `StateDirFor`, same file | the agent -- beside `images/`, not inside it, so the images tree stays artifacts-only | operators and the status route |
-| `pool-control-service/` | `STATE_DIR` in `guest/ubuntu.server.26/ubuntu.server.26.pool-control-service.sh` | the pool-control service | operators and its diagnostics route |
-| `pool-intent.git/` | `INTENT_STORE`, same script | the pool-control service, which commits and pushes | every runner, read-only over Apache's dumb-HTTP alias |
-| `stash/<hostId>/hostkey/stash_host_ed25519` | `HostKeyDirName` and `HostKeyFileName`, `test/extension/stash-service/server/internal/config/config.go` | the stash service | itself, across rebuilds |
-| `stash/<hostId>/files/yyyy/mm/dd/` | `FilesDirName`, same file | the stash service | the browser UI, pool-wide |
-| `stash/<hostId>/files/.../<name>.yuruna.meta.json` | `SidecarExtension`, same file | the stash service | index rebuild on a fresh VM |
+| `hosts/info.<hostId>.yml` | `Write-HostInfoRecord`, `test/modules/Test.HostIdentity.psm1:574-585` | the host, once per successful drain | `Find-PriorHostIdentity` (`:620-632`), enumerating with `-Filter 'info.*.yml' -File` |
+| `hosts/<hostId>/` | `Get-PoolStorageHostFolderPath`, `test/modules/Test.PoolStorage.psm1:2638-2650` | the host, folder create only | every consumer of the two subtrees below |
+| `hosts/<hostId>/test-cycles/<NNNNNN.date.time.hostId>/` | `Get-PoolStorageCycleRootPath`, same module `:2659` | `Copy-PoolStorageCycle` (`:2065`), driven by `test/modules/Invoke-PoolStorageDrain.ps1`, writing `.yuruna-complete` LAST (`:2066`) | the aggregator's `/archive/` route and the dashboard cycle deep links |
+| `hosts/<hostId>/services/caching-proxy-service/` | `host/vmconfig/caching-proxy-service.base.user-data:3775` | the caching-proxy guest's replicate unit, rsyncing `/var/lib/{loki,prometheus,grafana}` | a manual restore path |
+| `images/` | `ImagesDirName`, `test/extension/download-agent-service/server/internal/config/config.go:56` | the download-agent daemon | every host's `Get-Image.ps1` |
+| `images/.agent-lease.json` | `LeaseFileName`, same file `:70` | the agent holding the single-writer lease | other agents, which stand down read-only |
+| `images/<hostType>/<imageKey>/current.<arch>.<variant>.json` | `PointerFileFormat`, same file `:75` | the agent, LAST in the write order | hosts resolving a generation |
+| `images/<hostType>/<imageKey>/.staging/` | `StagingDirName`, same file `:60` | the agent, PID-suffixed; dot-prefixed so pool walkers skip it | the agent only |
+| `images/<hostType>/<imageKey>/manual/<arch>.<variant>/` | `ManualDirName`, same file `:67` | a human, deliberately NOT dot-prefixed so it is visible in a file manager | adopted by the agent on its next scan |
+| `download-agent-service/audit.jsonl` and `status.json` | `ServiceStateDirName`, same file `:83` | the agent's state store | operators and the `/healthz` route |
+| `pool-control-service/audit.jsonl` and `status.json` | `STATE_DIR` at `guest/ubuntu.server.26/ubuntu.server.26.pool-control-service.sh:94` | the pool-control daemon | operators and its `/healthz` route |
+| `pool-intent.git/` | `INTENT_STORE` at the same script `:100`; Apache alias at `host/vmconfig/caching-proxy-service.base.user-data:137` | the pool-control daemon and the 13 `test/pool/*.ps1` CLIs, which commit and push | every runner's per-cycle pull |
+| `<hostId>/hostkey/stash_host_ed25519` on the stash share | `HostKeyDirName` and `HostKeyFileName`, `test/extension/stash-service/server/internal/config/config.go:116-120` | the stash daemon | itself, across VM rebuilds |
+| `<hostId>/files/<YYYY>/<MM>/<DD>/` on the stash share | `FilesDirName`, same file `:117` | the stash daemon, renaming out of `<id>.staging/` | the browser UI, pool-wide, through `httpsrv/poolindex.go:186` |
+| `<...>.yuruna.meta.json` beside each artifact | `SidecarExtension`, same file `:103` | the stash daemon | index rebuild on a fresh VM |
 
-Three deliberate absences are as load-bearing as the folders.
+**Logs and results are the `test-cycles/` subtree.** The cycle folder name is
+`<NNNNNN>.<YYYY-MM-DD>.<HH-mm-ss>.<hostId>` with the cycle number zero-padded to
+six and the fourth segment the OPAQUE host id, never the hostname, because the
+name surfaces in the aggregator's public cycle URL
+(`Format-CycleFolderBaseName`, `test/modules/Test.Log.psm1:86`). The archive commit
+order is verify, then sentinel, then ledger, then delete: `Copy-PoolStorageCycle`
+deletes any pre-existing destination that lacks a sentinel before recopying, and
+the count-and-bytes comparison runs BEFORE the sentinel is written, because the
+sentinel lives inside the destination and a count taken afterwards is always off
+by one (`test/modules/Test.PoolStorage.psm1:2039-2095`).
+
+**Three deliberate absences carry as much weight as the folders.**
 
 - **The stash index is not on the share.** `stash.sqlite` and the offline buffer
-  live VM-local under `/var/lib/stash-service/`, because SQLite locking is
-  unreliable over CIFS. On a fresh VM the index is rebuilt from the on-share
-  sidecars, which is why the sidecar is durable and the database is not.
+  live VM-local under `/var/lib/stash-service/metadata` and `.../buffer`,
+  because SQLite locking is unreliable over SMB/CIFS
+  (`test/extension/stash-service/server/internal/config/config.go:110-129`). The
+  buffer stops accepting uploads at 5 GB rather than filling the VM disk
+  (`:131-136`). A fresh VM rebuilds the index from the on-share sidecars, which
+  is why the sidecar is durable and the database is not.
 - **The drain ledger is not on the share.** `runtime/poolstorage.state.json` on
-  the host is the source of truth for what has already been replicated; the
-  share is never consulted to decide.
-- **There is no stash data on the pool share, and no pool data on the stash
-  share.** A bare `<hostId>/` directory at the pool root is a pre-unification
-  layout: frozen, never read, never migrated, with `test/pool/Remove-PoolHost.ps1`
-  as its only sanctioned deleter.
+  the host's own disk is the source of truth for what has been replicated, and
+  the share is never consulted to decide. Losing it re-drains a small local
+  backlog -- wasted work, never lost or duplicated data, because copies are
+  idempotent onto immutable folders.
+- **Neither tier holds the other's data.** There is no stash data on the pool
+  share and no pool data on the stash share. A bare `<hostId>/` directory at the
+  pool root is a pre-unification layout: frozen, never read, never migrated,
+  with `test/pool/Remove-PoolHost.ps1` as its only sanctioned deleter
+  (`test/modules/Test.PoolStorage.psm1:2636`).
+
+## G. The per-cycle pool round trip
+
+This flow is here because it runs at the same rate as flow B: once per cycle,
+at both cycle boundaries, from the same cycle child. The intent pull is the
+first thing `Invoke-RunnerOuterCycle` does after the `cycle-start` transition
+(`test/modules/Test.RunnerOuterLoop.psm1:1172-1180`), and the drain and the
+event push are the last things it does before returning
+(`:1466-1524`).
+
+```mermaid
+sequenceDiagram
+    participant cyclechild as Invoke-TestCycleRunner.ps1
+    participant intent as pool-intent.git
+    participant state as runtime state files
+    participant drain as Invoke-PoolStorageDrain.ps1
+    participant share as yuruna.pool share
+    participant push as Invoke-PoolPushForwarder.ps1
+    participant aggregator as pool-aggregator-service
+    cyclechild->>intent: git fetch --depth 1, then reset --hard FETCH_HEAD
+    intent->>cyclechild: pools.yml members and desiredState
+    cyclechild->>state: pool.state.json and pool.manifest.json
+    cyclechild->>drain: detached spawn at cycle end, copy mode
+    drain->>share: copy the cycle folder, .yuruna-complete last
+    drain->>state: poolstorage.state.json ledger entry
+    cyclechild->>push: detached spawn with -HostId
+    push->>aggregator: POST /ingest on 9400, CA-pinned HTTPS
+    aggregator->>push: 2xx, or one re-fetch of the pool CA and a retry
+```
+
+**The pull is bounded and fails safe.** `Sync-YurunaPoolIntent`
+(`test/modules/Test.PoolSync.psm1:427-487`) clones or fetches the bare intent
+repo under one wall-clock deadline -- the fetch and the reset derive their
+timeouts from a single budget so the pair cannot run to twice the intended
+bound -- parses `pools.yml`, finds this host in `members[]` by host id, persists
+the derived pool id and desired state, and returns the pool object or `$null`.
+It never throws. With the remote unreachable it falls back to the last-good
+cached `pools.yml`; with nothing cached it behaves as a single host.
+`Resolve-YurunaPoolDesiredState` returns `run` for a `$null` pool, an absent
+field, or an unrecognized value.
+
+**Two desired states end the cycle before any VM is touched.** `drain` returns
+outcome `drain` and requests shutdown at the cycle boundary; `paused` writes the
+`paused` runner state and returns without spawning the inner
+(`test/modules/Test.RunnerOuterLoop.psm1:1183-1210`). Both leave the runner
+state at `cycle-start` with no further transition.
+
+**Three gates decide whether any of this runs.** The intent pull needs
+`pool.enabled` true AND a non-blank `pool.intentGitUrl`
+(`Get-YurunaPoolConfig`, `test/modules/Test.PoolSync.psm1`); the shipped
+template has `pool.enabled: false` and an empty URL
+(`test/test.config.yml.template`). The pool-storage tier is off unless all three
+of `poolStorageNetworkPath`, `poolStorageNetworkUser` and `poolStorageLocalPath`
+are non-blank, and `moveLogsToPoolStorage` selects the MODE, never whether
+archiving happens -- it is coerced through `ConvertTo-PoolStorageBool` because a
+bare `[bool]'false'` cast is `$true` in PowerShell and this key gates deletion
+of the only local copy. The push forwarder self-gates on a configured internal
+authentication key and a reachable caching proxy.
+
+**Copy mode and move mode differ in who waits.** In copy mode the drain is a
+detached one-shot process, so a slow or absent NAS never delays the cycle loop.
+In move mode the mover runs in-process, because its verdict has to be able to
+fail the cycle, and it waits on the push forwarder PROCESS -- not on its lock
+file -- for a default 120 s before anything is deleted
+(`test/modules/Test.RunnerOuterLoop.psm1:1526-1552`). The lock is taken well
+into the child's own startup, so a wait-for-release would observe "released"
+before the child had ever taken it.
+
+**The push is pinned, not trusted.** `Invoke-PoolEventPush`
+(`test/modules/Test.PoolPush.psm1:210-250`) reads `cycle.events.ndjson` from the
+cycle folder, batches it at 1000 lines, and POSTs to
+`https://<proxy>:9400/ingest` against a CA fetched from
+`http://<proxy>/yuruna-pool-ca.crt`. With no CA available it does not push at
+all, because it would have to send the bearer token unpinned. On a non-2xx it
+re-fetches the published CA exactly once -- covering a pool CA rotated by a
+proxy rebuild -- and retries the batch before giving up.

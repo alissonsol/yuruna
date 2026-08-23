@@ -25,7 +25,7 @@
     every one of them had to answer the same question: which port. Each
     answered it in its own copy of default-8080-then-read-the-config, and the
     copies drifted along four axes -- the variable holding the result, the
-    variable holding the path, whether the existence test honoured
+    variable holding the path, whether the existence test honored
     -LiteralPath, and whether the file went through Read-TestConfig or was
     parsed raw. The last one was the one with teeth: the raw readers bypassed
     the mtime-and-hash cache and re-parsed test.config.yml on every build.
@@ -34,7 +34,7 @@
     Naming either the config path or the statusService key inside a New-VM.ps1
     means a fifth copy has started, which is how the previous ones appeared.
 
-    The behaviour tests pin what the seeds depend on. A guest that cannot read
+    The behavior tests pin what the seeds depend on. A guest that cannot read
     the config still has to build -- it boots and self-heals its host
     coordinates -- so an absent or unparseable config yields the default port
     rather than an error. And Config comes back beside Port because the
@@ -169,7 +169,7 @@ Describe 'the seed helper answers what the guests ask it' {
         }
     }
 
-    It 'honours an explicit default port' {
+    It 'honors an explicit default port' {
         $bare = Join-Path ([IO.Path]::GetTempPath()) ("yuruna-statusseed-bare2-" + [guid]::NewGuid())
         New-Item -ItemType Directory -Path $bare -Force | Out-Null
         try {

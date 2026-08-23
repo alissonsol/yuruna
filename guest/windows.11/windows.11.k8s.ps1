@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42363f75-1d59-4ac0-a62f-c6d723656b28
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,10 +26,10 @@
 # --- REGION: Ensure running as Administrator
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Output ""
-    Write-Output "=============================================================="
+    Write-Output "========"
     Write-Output "|  This script requires elevation (Run as Administrator)    |"
     Write-Output "|  Right-click PowerShell and select 'Run as Administrator' |"
-    Write-Output "=============================================================="
+    Write-Output "========"
     Write-Output ""
     exit 1
 }
@@ -51,10 +51,10 @@ Write-Output ">>> Checking for PowerShell 7..."
 $pwshPath = Get-Command pwsh -ErrorAction SilentlyContinue
 if (-not $pwshPath) {
     Write-Output ""
-    Write-Output "=============================================================="
+    Write-Output "========"
     Write-Output "|  PowerShell 7 is required but not installed.              |"
     Write-Output "|  Run windows.11.update.ps1 first to install it.           |"
-    Write-Output "=============================================================="
+    Write-Output "========"
     Write-Output ""
     exit 1
 }

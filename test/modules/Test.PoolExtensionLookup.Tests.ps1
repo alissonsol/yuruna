@@ -30,7 +30,7 @@
     literal, is correct only until the service moves, and then a cycle spends
     its whole timeout budget on a machine that no longer exists.
 
-    The lookup is behavioural here, against a local listener speaking the
+    The lookup is behavioral here, against a local listener speaking the
     aggregator's answers: what matters is that each failure shape -- no pool, an
     area nobody serves, a collector too old to know the route, a dead socket --
     collapses to '' (or an empty list) rather than throwing into a cycle. The
@@ -344,7 +344,7 @@ Describe 'pool-extension-lookup wiring' {
         # hosts whose services live elsewhere.
         $fn = Get-FunctionAst -Path (Join-Path $here 'Test.CachingProxyService.psm1') -Name 'Get-PoolAggregatorServiceSeedUrl'
         Assert-True ($null -ne $fn) 'the aggregator URL resolver must exist'
-        Assert-True ($fn.Extent.Text -match 'YURUNA_CACHING_PROXY_SERVICE_IP') 'must still honour the env override'
+        Assert-True ($fn.Extent.Text -match 'YURUNA_CACHING_PROXY_SERVICE_IP') 'must still honor the env override'
         Assert-True ($fn.Extent.Text -match 'cachingProxyIp')          'must fall back to the persistent config key'
     }
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 427bf883-f57a-449e-98af-a9cec3b9704c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -104,7 +104,7 @@ function Get-ReaderKeyPath {
     return $paths.ToArray()
 }
 
-# Read and warned about rather than honoured: an older file may still carry it,
+# Read and warned about rather than honored: an older file may still carry it,
 # and the run says so instead of silently ignoring a key the operator wrote.
 $script:obsoleteReaderKey = @('lab.createDefaultPool')
 
@@ -159,7 +159,7 @@ Describe 'a document the writer emits is one the validator accepts' {
 Describe 'the validator refuses what an unattended run cannot finish' {
     It 'rejects kind local with an empty localRoot' {
         # The one pairing where an emitted file is worse than no file at all: a
-        # blank root is what a run that never resolved one has to serialise, and
+        # blank root is what a run that never resolved one has to serialize, and
         # it is also the value the reader refuses. Caught here, the writer is
         # forced to warn; missed, the file is advertised for the next machine and
         # that machine stops at the storage step.

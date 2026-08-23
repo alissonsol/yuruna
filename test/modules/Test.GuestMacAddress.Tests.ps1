@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42b98737-f5a4-45fd-a853-c26c9d97ec84
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -72,7 +72,7 @@ $script:UtmModule    = Join-Path $repoRoot 'host/macos.utm/modules/Yuruna.Host.p
 $script:HyperVModule = Join-Path $repoRoot 'host/windows.hyper-v/modules/Yuruna.Host.psm1'
 $KvmText      = Get-Content -Raw -LiteralPath $KvmModule
 
-# Define the KVM rewriter and its reader from their own source so the behaviour
+# Define the KVM rewriter and its reader from their own source so the behavior
 # asserted below is the shipped one, without importing a module that expects a
 # live libvirt.
 . ([scriptblock]::Create([regex]::Match($KvmText, '(?ms)^function Set-GuestMacInDomainXml\b.*?\n\}').Value))
@@ -410,7 +410,7 @@ Describe 'every New-VM.ps1 derives its MAC (no randomness left)' {
     It 'has no random-MAC generator anywhere under host/' {
         $rand = @(Get-ChildItem (Join-Path $repoRoot 'host') -Recurse -Filter 'New-VM.ps1' |
             Where-Object { (Get-Content -Raw -LiteralPath $_.FullName) -match 'NextBytes\(\$MacBytes\)' })
-        Assert-Equal -Expected 0 -Actual $rand.Count -Because "these still randomise: $(($rand | ForEach-Object { $_.FullName }) -join ', ')"
+        Assert-Equal -Expected 0 -Actual $rand.Count -Because "these still randomize: $(($rand | ForEach-Object { $_.FullName }) -join ', ')"
     }
     It 'calls the shared derivation from every New-VM.ps1' {
         $all  = @(Get-ChildItem (Join-Path $repoRoot 'host') -Recurse -Filter 'New-VM.ps1')

@@ -23,11 +23,12 @@ ExecStart=/usr/local/bin/caching-proxy-service \
   --aggregator-url=${CACHING_PROXY_AGGREGATOR_URL} \
   --host-id=${CACHING_PROXY_HOST_ID} \
   --presence-interval=${CACHING_PROXY_PRESENCE_INTERVAL} \
-  --auth-token-file=${CACHING_PROXY_AUTH_TOKEN_FILE}
+  --auth-token-file=${CACHING_PROXY_AUTH_TOKEN_FILE} \
+  --parser-url=${CACHING_PROXY_PARSER_URL}
 Restart=on-failure
 RestartSec=5
 
-# Unlike its two neighbours in this VM, this service WRITES: the offline and
+# Unlike its two neighbors in this VM, this service WRITES: the offline and
 # no-upstream switches are drop-ins under /etc/squid/conf.d, and applying one
 # means running `squid -k reconfigure`. That is why it runs as root with a
 # narrow write path rather than as the proxy user with none.

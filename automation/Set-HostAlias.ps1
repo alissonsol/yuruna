@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42de6dd0-d68a-40b1-a0d0-b2d21c4caf3c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -43,6 +43,13 @@
     Removal is LINE-based: a line that maps the target hostname is dropped in
     full, including any additional aliases that shared that line. Comment (#)
     and blank lines are always preserved verbatim.
+
+    A write that changes the file is followed by a best-effort flush of the
+    operating system's resolver cache, because the cache keeps answering with
+    the name's previous address for a while after the line under it changes.
+    Repointing a name at this machine and then connecting to it immediately is
+    the case that needs this: without the flush the connection goes to the
+    machine the name used to mean.
 
 .PARAMETER ComputerName
     The hostname (or fully qualified domain name) to map. Mandatory.
@@ -127,6 +134,66 @@ begin {
         throw $denied
     }
 
+    # --- REGION: 3. Resolver-cache invalidation
+    # Writing the file is not the end of the change. The operating system
+    # resolves names out of an in-memory cache that goes on answering with the
+    # PREVIOUS address after the hosts-file line under it has changed, and on
+    # macOS that window is wide enough to matter: mDNSResponder re-reads
+    # /etc/hosts on a schedule of its own, so a consumer that resolves within a
+    # few hundred milliseconds of the write still reaches the old host.
+    #
+    # The damage is worst for exactly the edit this script exists to make --
+    # repointing a name from another machine to this one. The caller believes it
+    # is dialing a local service; the connection instead leaves over the LAN to
+    # the machine the name USED to mean, and fails there against a credential,
+    # a share, or a certificate that only makes sense locally. Every visible
+    # detail (hostname, share path, account, mount point) is correct while that
+    # happens, which is what makes it so hard to read backwards from the error.
+    #
+    # Best-effort by design, and never fatal: a cache that cannot be flushed is
+    # slow to converge rather than broken, and a host with no caching resolver
+    # at all (common on Linux) has nothing to flush. The write has already
+    # succeeded by the time this runs, so nothing here may fail it.
+    function Clear-HostAliasResolverCache {
+        [CmdletBinding()]
+        param()
+        $flushers = if ($IsWindows) {
+            @(@{ File = 'ipconfig'; Args = @('/flushdns') })
+        }
+        elseif ($IsMacOS) {
+            # Both calls are needed and neither substitutes for the other:
+            # dscacheutil empties the Directory Services cache, while the SIGHUP
+            # is the only thing that makes mDNSResponder re-read the hosts file.
+            @(
+                @{ File = 'dscacheutil'; Args = @('-flushcache') }
+                @{ File = 'killall';     Args = @('-HUP', 'mDNSResponder') }
+            )
+        }
+        else {
+            # systemd-resolved on a modern distribution, nscd on older ones.
+            # Whichever is absent is skipped.
+            @(
+                @{ File = 'resolvectl'; Args = @('flush-caches') }
+                @{ File = 'nscd';       Args = @('-i', 'hosts') }
+            )
+        }
+        foreach ($flusher in $flushers) {
+            # Resolved as an Application so a same-named alias or function in
+            # the caller's session cannot stand in for the real binary.
+            $exe = (Get-Command -CommandType Application -Name $flusher.File -ErrorAction SilentlyContinue |
+                Select-Object -First 1).Source
+            if (-not $exe) { continue }
+            try {
+                $flushArgs = @($flusher.Args)
+                & $exe @flushArgs 2>&1 | Out-Null
+                Write-Verbose "Set-HostAlias: '$($flusher.File)' flushed the resolver cache (exit $LASTEXITCODE)."
+            }
+            catch {
+                Write-Verbose "Set-HostAlias: '$($flusher.File)' could not flush the resolver cache: $($_.Exception.Message)"
+            }
+        }
+    }
+
     Write-Verbose "Set-HostAlias: target hosts file '$script:HostsPath' (elevation confirmed)."
 }
 
@@ -165,7 +232,7 @@ process {
         $original = @(Get-Content -LiteralPath $script:HostsPath -ErrorAction Stop)
     }
 
-    # --- REGION: 3. Idempotent cleanup
+    # --- REGION: 4. Idempotent cleanup
     # Drop existing ENTRY lines that map this hostname. A bare \b boundary is
     # wrong for dotted hostnames: \b sits between 'foo' and '.', so \bfoo\b
     # also matches the 'foo' inside 'foo.bar'. Treat '.' and '-' as in-token
@@ -198,7 +265,7 @@ process {
     }
     $kept = @($kept)
 
-    # --- REGION: 4. Conditional upsert / delete
+    # --- REGION: 5. Conditional upsert / delete
     $final = $kept
     if ($isUpsert) {
         $final += ("{0}`t{1}" -f $targetIp, $name)
@@ -213,7 +280,7 @@ process {
 
     $action = if ($isUpsert) { "Map '$name' -> '$targetIp'" } else { "Remove host alias '$name'" }
     if ($PSCmdlet.ShouldProcess($script:HostsPath, $action)) {
-        # --- REGION: 5. Cross-platform safe, atomic write
+        # --- REGION: 6. Cross-platform safe, atomic write
         # BOM-less UTF-8 (a BOM breaks Linux/macOS resolvers), staged to a
         # sibling temp file and swapped in via [IO.File]::Replace so a
         # mid-write crash never truncates the live file and its ACLs survive.
@@ -235,5 +302,9 @@ process {
             }
         }
         Write-Verbose "Set-HostAlias: $action ($($final.Count) line(s) written to '$script:HostsPath')."
+        # Only after a write that actually changed the file: the early return
+        # above already covers the converged case, where the resolver is
+        # answering with what the file says and there is nothing to invalidate.
+        Clear-HostAliasResolverCache
     }
 }

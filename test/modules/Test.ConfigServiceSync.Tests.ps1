@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 424a2e17-dfe4-4ca3-ae90-6837265945f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,6 +28,7 @@
 
 BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
+$script:repoRoot = Split-Path -Parent (Split-Path -Parent $here)
 Import-Module (Join-Path $here 'Test.Prelude.psm1')        -Force -DisableNameChecking -ErrorAction SilentlyContinue
 Import-Module (Join-Path $here 'Test.ConfigServiceSync.psm1') -Force -DisableNameChecking
 try { Import-Module powershell-yaml -Force -ErrorAction Stop } catch { Write-Warning "powershell-yaml unavailable; YAML round-trip tests will fail." }
@@ -283,7 +284,7 @@ Describe 'Yuruna control proof (status-service control-route auth)' {
 }
 
 Describe 'Yuruna control tag (dashboard Control column)' {
-    # The non-secret name for a lab-auth-token that /control/control-status
+    # The non-secret name for an internal authentication key that /control/control-status
     # publishes and the pool-aggregator service compares with its own, to tell
     # "this host is enrolled here" from "this host is enrolled against a proxy
     # that has since been rebuilt". The golden vector is shared with the Go test
@@ -314,14 +315,14 @@ Describe 'Yuruna control tag (dashboard Control column)' {
     }
 }
 
-# --- REGION: lab-auth-token provisioning (Set-UserVaultKey + Set-LabAuthToken)
+# --- REGION: internal-auth-key provisioning (Set-UserVaultKey + Set-InternalAuthKey)
 # The auth extension's vault + users.yml paths are redirected into a throwaway
 # temp dir so the tests never touch the real vault. The redirect brackets the
 # Its from BeforeAll/AfterAll rather than file scope -- a file-scope teardown
 # would fire during discovery and leave the Its writing fixtures into the
 # operator's live credential store. Why discovery runs it early:
 # https://yuruna.link/memory#pester-file-scope-fixtures
-Describe 'lab-auth-token provisioning' {
+Describe 'internal-auth-key provisioning' {
     BeforeAll {
         # $PSScriptRoot, not the file-scope $here: discovery-phase variables are
         # not reliably visible from a run-phase block.
@@ -330,7 +331,7 @@ Describe 'lab-auth-token provisioning' {
         $patTmpDir = Join-Path ([System.IO.Path]::GetTempPath()) ('yuruna-pat-' + [guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $patTmpDir -Force | Out-Null
         $env:YURUNA_TEST_PAT_DIR = $patTmpDir
-        $patReady = [bool](Get-Command Set-LabAuthToken -ErrorAction SilentlyContinue) -and `
+        $patReady = [bool](Get-Command Set-InternalAuthKey -ErrorAction SilentlyContinue) -and `
                     [bool](Get-Command Set-UserVaultKey -ErrorAction SilentlyContinue)
         if ($patReady) {
             InModuleScope default {
@@ -352,40 +353,78 @@ Describe 'lab-auth-token provisioning' {
         Remove-Item Env:\YURUNA_TEST_PAT_DIR -ErrorAction SilentlyContinue
     }
 
-    It 'Get-LabAuthTokenValue serves a legacy pool-auth-token entry when the new name is absent' {
-        Assert-True $patReady 'auth extension (Set-LabAuthToken / Set-UserVaultKey) must be importable'
+    It 'Get-InternalAuthKeyValue serves a legacy pool-auth-token entry when the newer names are absent' {
+        Assert-True $patReady 'auth extension (Set-InternalAuthKey / Set-UserVaultKey) must be importable'
         $null = Set-UserVaultKey -LogicalUser 'pool-auth-token' -VaultKey 'pool-auth-token' -Confirm:$false
         $null = Set-Password -Username 'pool-auth-token' -NewPassword 'legacy-tok'
         $null = Reset-UsersConfigCache -Confirm:$false
-        Assert-Equal -Expected 'legacy-tok' -Actual (Get-LabAuthTokenValue) -Because 'a host provisioned under the legacy logical name keeps verifying'
+        Assert-Equal -Expected 'legacy-tok' -Actual (Get-InternalAuthKeyValue) -Because 'a host provisioned under the legacy logical name keeps verifying'
     }
     It 'stores + verifies the token with vaultKey == username (closes the mismatch class)' {
-        Assert-True $patReady 'auth extension (Set-LabAuthToken / Set-UserVaultKey) must be importable'
+        Assert-True $patReady 'auth extension (Set-InternalAuthKey / Set-UserVaultKey) must be importable'
         $tok = 'xp2e&Klq52-test'
-        $r = Set-LabAuthToken -Token $tok -Confirm:$false
-        Assert-True  $r.ok 'Set-LabAuthToken verifies the round-trip'
-        Assert-Equal 'lab-auth-token' $r.vaultKey
+        $r = Set-InternalAuthKey -Token $tok -Confirm:$false
+        Assert-True  $r.ok 'Set-InternalAuthKey verifies the round-trip'
+        Assert-Equal 'internal-auth-key' $r.vaultKey
         Assert-True  $r.verified
-        Assert-Equal $tok (Get-Password -Username 'lab-auth-token')
-        Assert-Equal 'lab-auth-token' (Get-EffectiveUser -LogicalUser 'lab-auth-token').vaultKey
-        Assert-True  (Test-VaultEntry -VaultKey 'lab-auth-token') 'vault entry present under the resolved key'
-        Assert-Equal -Expected $tok -Actual (Get-LabAuthTokenValue) -Because 'the new logical name wins over the legacy entry'
+        Assert-Equal $tok (Get-Password -Username 'internal-auth-key')
+        Assert-Equal 'internal-auth-key' (Get-EffectiveUser -LogicalUser 'internal-auth-key').vaultKey
+        Assert-True  (Test-VaultEntry -VaultKey 'internal-auth-key') 'vault entry present under the resolved key'
+        Assert-Equal -Expected $tok -Actual (Get-InternalAuthKeyValue) -Because 'the new logical name wins over the legacy entry'
     }
     It 'is idempotent on the vaultKey and rotates the token value' {
-        $null = Set-LabAuthToken -Token 'aaa' -Confirm:$false
-        $r2   = Set-LabAuthToken -Token 'bbb' -Confirm:$false
+        $null = Set-InternalAuthKey -Token 'aaa' -Confirm:$false
+        $r2   = Set-InternalAuthKey -Token 'bbb' -Confirm:$false
         Assert-True (-not $r2.keyChanged) 'vaultKey already set -> keyChanged is false'
-        Assert-Equal -Expected 'bbb' -Actual (Get-Password -Username 'lab-auth-token') -Because 'token rotates to the new value'
+        Assert-Equal -Expected 'bbb' -Actual (Get-Password -Username 'internal-auth-key') -Because 'token rotates to the new value'
     }
     It 'honors -WhatIf (stores nothing)' {
-        $null = Set-LabAuthToken -Token 'zzz-should-not-store' -WhatIf
-        Assert-Equal -Expected 'bbb' -Actual (Get-Password -Username 'lab-auth-token') -Because 'WhatIf left the prior value intact'
+        $null = Set-InternalAuthKey -Token 'zzz-should-not-store' -WhatIf
+        Assert-Equal -Expected 'bbb' -Actual (Get-Password -Username 'internal-auth-key') -Because 'WhatIf left the prior value intact'
     }
     It 'Set-UserVaultKey is idempotent (identical re-set is a no-op)' {
         $first  = Set-UserVaultKey -LogicalUser 'demo-user' -VaultKey 'demo.key' -Confirm:$false
         $second = Set-UserVaultKey -LogicalUser 'demo-user' -VaultKey 'demo.key' -Confirm:$false
         Assert-True $first         'first set writes the file'
         Assert-True (-not $second) 'identical second set makes no change'
+    }
+    It 'retires a superseded entry once the new one verifies, leaving ONE copy of the key' {
+        Assert-True $patReady 'auth extension must be importable'
+        $null = Set-UserVaultKey -LogicalUser 'lab-auth-token' -VaultKey 'lab-auth-token' -Confirm:$false
+        $null = Set-Password -Username 'lab-auth-token' -NewPassword 'superseded-value'
+        $null = Reset-UsersConfigCache -Confirm:$false
+        Assert-True (Test-VaultEntry -VaultKey 'lab-auth-token') 'the superseded entry is planted'
+
+        $r = Set-InternalAuthKey -Token 'migrated-key' -Confirm:$false
+        Assert-True $r.ok 'the new entry verifies'
+        Assert-True (-not (Test-VaultEntry -VaultKey 'lab-auth-token')) 'the superseded vault entry is gone'
+        Assert-True ($r.retired -contains 'lab-auth-token') 'the run reports what it retired'
+        Assert-Equal -Expected 'migrated-key' -Actual (Get-InternalAuthKeyValue) -Because 'the surviving copy is the one under the new name'
+    }
+    It 'Remove-VaultEntry deletes a stored entry and answers false for an absent one' {
+        $null = Set-Password -Username 'throwaway.key' -NewPassword 'gone-soon'
+        Assert-True (Test-VaultEntry -VaultKey 'throwaway.key') 'entry present before removal'
+        Assert-True  (Remove-VaultEntry -VaultKey 'throwaway.key' -Confirm:$false) 'removal reports the change'
+        Assert-True (-not (Test-VaultEntry -VaultKey 'throwaway.key')) 'entry is gone'
+        Assert-True (-not (Remove-VaultEntry -VaultKey 'throwaway.key' -Confirm:$false)) 'removing nothing is not a change'
+    }
+    It 'Remove-UserEntry drops the logical name rather than blanking its vaultKey' {
+        $null = Set-UserVaultKey -LogicalUser 'retire-me' -VaultKey 'retire.me' -Confirm:$false
+        $null = Reset-UsersConfigCache -Confirm:$false
+        Assert-Equal 'retire.me' (Get-EffectiveUser -LogicalUser 'retire-me').vaultKey
+        Assert-True (Remove-UserEntry -LogicalUser 'retire-me' -Confirm:$false) 'removal reports the change'
+        $null = Reset-UsersConfigCache -Confirm:$false
+        Assert-True (-not ((Get-EffectiveUser -LogicalUser 'retire-me').vaultKey)) 'the name no longer resolves to a vault key'
+        Assert-True (-not (Remove-UserEntry -LogicalUser 'retire-me' -Confirm:$false)) 'removing nothing is not a change'
+    }
+    It 'honors -WhatIf on both removals' {
+        $null = Set-Password -Username 'keepme.key' -NewPassword 'still-here'
+        $null = Remove-VaultEntry -VaultKey 'keepme.key' -WhatIf
+        Assert-True (Test-VaultEntry -VaultKey 'keepme.key') 'WhatIf removed nothing from the vault'
+        $null = Set-UserVaultKey -LogicalUser 'keep-user' -VaultKey 'keepme.key' -Confirm:$false
+        $null = Remove-UserEntry -LogicalUser 'keep-user' -WhatIf
+        $null = Reset-UsersConfigCache -Confirm:$false
+        Assert-Equal 'keepme.key' (Get-EffectiveUser -LogicalUser 'keep-user').vaultKey
     }
 }
 
@@ -481,7 +520,7 @@ Describe 'Get-ConfigSyncCredentialReadiness (credential capability verdict)' {
     # 503 == the reference has no token of its OWN, so no operator-supplied token
     # can ever unlock it. The verdict must be not-ready AND name the fix.
     It 'reads a 503 as not-ready and names the provisioning fix' {
-        $r = Get-ConfigSyncCredentialReadiness -StatusCode 503 -ServerError 'shared lab-auth-token not configured on this host' -ReferenceHost 'refbox' -User 'yuruna-pool'
+        $r = Get-ConfigSyncCredentialReadiness -StatusCode 503 -ServerError 'internal authentication key not configured on this host' -ReferenceHost 'refbox' -User 'yuruna-pool'
         Assert-True (-not $r.Ready) 'a reference with no token of its own can never serve a credential'
         Assert-Equal 503 $r.Status
         Assert-True ($r.Error -match 'Set-LabToken') 'the not-ready message points at the enrollment command'
@@ -551,6 +590,44 @@ Describe 'Get-LabTokenExchangeVerdict (lab-token exchange verdict)' {
 # opening, the two implementations have drifted on the KDF, the iteration count,
 # the AEAD label, or the envelope framing, and enrollment would fail closed
 # against a correctly-behaving aggregator.
+# --- REGION: Which of the two secrets is in hand
+# The dashboard's Lab token and the internal authentication key have disjoint
+# shapes, which is what lets a prompt accept either one without guessing.
+Describe 'Test-LabTokenShape (which of the two secrets is in hand)' {
+    It 'recognizes the 6-character dashboard code, in any case, with padding' {
+        Assert-True (Test-LabTokenShape -Value 'abc123')   'lowercase alphanumeric code'
+        Assert-True (Test-LabTokenShape -Value 'ABC123')   'the tile is read by eye; case is the operator shift key'
+        Assert-True (Test-LabTokenShape -Value '  abc123 ') 'a pasted code carries whitespace'
+        Assert-True (Test-LabTokenShape -Value '234567')   'digits only is still a code'
+    }
+    It 'does not mistake an internal authentication key for a code' {
+        $key = ([Convert]::ToHexString([byte[]]::new(24))).ToLowerInvariant()
+        Assert-Equal 48 $key.Length
+        Assert-True (-not (Test-LabTokenShape -Value $key)) 'a 48-hex key is not a 6-character code'
+    }
+    It 'answers false for empty, whitespace, and wrong-length input instead of throwing' {
+        foreach ($v in @('', '   ', 'abc12', 'abc1234', 'abc-12')) {
+            Assert-True (-not (Test-LabTokenShape -Value $v)) "'$v' is not a Lab token"
+        }
+    }
+}
+
+Describe 'Resolve-ConfigSyncInternalAuthKey (what the operator typed at the prompt)' {
+    It 'passes a key straight through, trimmed, without reaching the network' {
+        $key = ([Convert]::ToHexString([byte[]]::new(24))).ToLowerInvariant()
+        $r = Resolve-ConfigSyncInternalAuthKey -RepoRoot $script:repoRoot -Value "  $key  "
+        Assert-Equal $key $r.Key
+        Assert-True (-not $r.Redeemed) 'nothing to redeem'
+        Assert-True (-not $r.Enrolled) 'nothing to enroll'
+        Assert-True (-not $r.Error)    'a key is not an error'
+    }
+    It 'treats an empty entry as a skip, not a failure' {
+        $r = Resolve-ConfigSyncInternalAuthKey -RepoRoot $script:repoRoot -Value '   '
+        Assert-Equal '' $r.Key
+        Assert-True (-not $r.Error) 'pressing Enter is a skip'
+    }
+}
+
 Describe 'Unprotect-LabTokenEnvelope (cross-language lab-token envelope)' {
     # Golden envelope produced by the Go seal (pool-aggregator-service sealLabToken) for
     # code 'k3v9qa' over token 'shared-lab-auth-token-value'.

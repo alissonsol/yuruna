@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 420e9e53-94d9-42df-aca1-6b21310676a8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -140,7 +140,7 @@ function Resolve-LabHealthConfigDocument {
     .DESCRIPTION
         The two gate sites differ in what they already hold: the orchestrator is
         handed a parsed config, the sequence engine is not. Resolving here means
-        `enabled: false` is honoured at BOTH -- a host that opted out through the
+        `enabled: false` is honored at BOTH -- a host that opted out through the
         engine's gate but not the orchestrator's would hold anyway and read as
         the knob not working.
 

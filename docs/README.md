@@ -26,8 +26,8 @@ up a test machine.
   environment the instructions were tested against.
 - **[lab-operator.md](lab-operator.md)** -- bring-up runbook for a lab:
   shared NAS storage, caching-proxy service, stash and pool-control services,
-  each additional machine enrolled via the dashboard's lab token, and a
-  two-pool split running a different test set on each.
+  each additional machine enrolled via the dashboard's Lab token, and a
+  two-pool split running a different test-set on each.
 - **[definition.md](definition.md)** -- the glossary: generic and
   Yuruna-specific terms in one place, so the framework, guest scripts, and docs
   stay consistent.
@@ -84,6 +84,9 @@ up a test machine.
   three pluggable matching providers behind `waitForText` and friends.
 - **[loglevels.md](loglevels.md)** -- the single resolved log level, how it gates
   PowerShell streams, and how it propagates across every child process.
+- **[accessibility.md](accessibility.md)** -- the WCAG 2.2 AA target, the
+  surfaces in and out of scope, an operator keyboard reference, and the two
+  gates that hold the line.
 
 ## Failures and self-healing
 
@@ -140,8 +143,8 @@ up a test machine.
 ## Pools and services
 
 - **[pool-admin.md](pool-admin.md)** -- the pool administrator's guide: group
-  hosts into a pool and assign them test sets through the admin commands, and
-  the [Pool control service](pool-admin.md#pool-control-service) -- the operator
+  hosts into a pool and assign them test-sets through the admin commands, and
+  the [Pool-control service](pool-admin.md#pool-control-service) -- the operator
   UI and API that drives the pool-intent git store, which runners only ever
   pull read-only.
 - **[pool-dashboard.md](pool-dashboard.md)** -- the Yuruna hosts Grafana dashboard,
@@ -237,6 +240,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.21
+Last review: 2026.08.23
 
 Back to [Yuruna](../README.md)

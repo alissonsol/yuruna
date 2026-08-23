@@ -46,11 +46,11 @@ type Options struct {
 	// Images is the pool engine; nil leaves every image route answering 503.
 	Images ImageAPI
 
-	// AuthToken is the lab auth token the mutating routes accept as a bearer for
-	// automation. The interactive way through the same gate is the dashboard's
-	// rotating lab token, which AggregatorURL validates. Neither configured
-	// means no mutation can be authorized, and the routes answer 503 rather than
-	// running ungated.
+	// AuthToken is the internal authentication key the mutating routes accept as
+	// a bearer for automation. The interactive way through the same gate is the
+	// dashboard's rotating lab token, which AggregatorURL validates. Neither
+	// configured means no mutation can be authorized, and the routes answer 503
+	// rather than running ungated.
 	AuthToken string
 
 	// AggregatorURL validates a submitted lab token (and is reported by the

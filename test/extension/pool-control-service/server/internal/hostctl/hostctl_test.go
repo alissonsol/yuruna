@@ -241,7 +241,7 @@ func TestProofFromAggregatorReadsTheFragment(t *testing.T) {
 	}
 }
 
-// A redirect with no fragment means the aggregator holds no lab-auth-token, so
+// A redirect with no fragment means the aggregator holds no internal authentication key, so
 // the whole lab is loopback-only. That is one report about the lab, not a
 // refusal per host.
 func TestProofFromAggregatorWithoutAFragment(t *testing.T) {
@@ -251,8 +251,8 @@ func TestProofFromAggregatorWithoutAFragment(t *testing.T) {
 	defer agg.Close()
 
 	if _, err := New(Options{}).ProofFromAggregator(context.Background(), agg.URL, "42aa"); err == nil ||
-		!strings.Contains(err.Error(), "no lab auth token") {
-		t.Fatalf("error = %v, want one naming the missing lab auth token", err)
+		!strings.Contains(err.Error(), "no internal authentication key") {
+		t.Fatalf("error = %v, want one naming the missing internal authentication key", err)
 	}
 }
 

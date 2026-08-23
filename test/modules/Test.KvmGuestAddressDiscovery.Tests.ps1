@@ -3,7 +3,7 @@
 .GUID 4274cfbc-3e20-4a5b-846e-afc72bc0f9b7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS yuruna test kvm libvirt discovery arp neighbour pester
+.TAGS yuruna test kvm libvirt discovery arp neighbor pester
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
@@ -30,13 +30,13 @@ if (-not (Get-Command -Name Describe -ErrorAction SilentlyContinue)) {
 <#
 .SYNOPSIS
     The KVM guest-address chain: which row it picks out of `virsh domifaddr`,
-    which neighbour states it will trust, and that it never answers with a name.
+    which neighbor states it will trust, and that it never answers with a name.
 .DESCRIPTION
     WHY THIS EXISTS. Two of this driver's three virsh sources are silent by
     construction for a test guest: `lease` needs libvirt to be the DHCP server,
     which it is not on a bridge-forward network with no <dhcp> element, and
     `agent` needs qemu-guest-agent inside the guest. That leaves a passive read
-    of the host neighbour cache carrying the whole chain, and a passive read of
+    of the host neighbor cache carrying the whole chain, and a passive read of
     a decaying cache misses. A miss here is not cosmetic: the caller turns
     $null into an ssh target built from the VM name, which fails as a
     name-resolution error naming nothing about the real cause.
@@ -45,7 +45,7 @@ if (-not (Get-Command -Name Describe -ErrorAction SilentlyContinue)) {
     must prefer the domain's own NIC and this host's subnet, because a
     Kubernetes node reports its CNI bridge, overlay device and docker bridge
     through the same source and all of them look routable -- picking one turns
-    a loud failure into a silent connect timeout. And the neighbour reader must
+    a loud failure into a silent connect timeout. And the neighbor reader must
     accept STALE while rejecting FAILED and INCOMPLETE, because only the latter
     two genuinely carry no link-layer address.
 
@@ -92,6 +92,43 @@ Describe 'Select-VirshDomifaddrIp' {
         $ip = & $script:Driver { Select-VirshDomifaddrIp -Line $args[0] -Mac $args[1] -HostPrefix $args[2] } `
             $script:K8sRows $script:DomainMac $script:HostPrefix
         $ip | Should -Be '192.168.7.70'
+    }
+
+    It 'picks the newest lease when one MAC holds several' {
+        # A guest rebuilt from a fresh image identifies itself to DHCP under a
+        # new client-id each build, so the server hands out a new address and
+        # keeps the earlier ones until they expire. Taking the first row reports
+        # a previous build's address: unexpired, present, and answering nothing.
+        # The live guest keeps renewing while a dead lease only ages.
+        $rows = @(
+            ' Expiry Time           MAC address         Protocol   IP address           Hostname   Client ID or DUID',
+            ' 2026-08-23 06:30:37   42:38:f4:32:9f:22   ipv4       192.168.122.119/24   -          ff:56:50:4d',
+            ' 2026-08-23 06:49:42   42:38:f4:32:9f:22   ipv4       192.168.122.120/24   -          ff:56:50:4e',
+            ' 2026-08-23 07:14:01   42:38:f4:32:9f:22   ipv4       192.168.122.118/24   ch01host1  01:42:38:f4'
+        )
+        $ip = & $script:Driver { Select-VirshNetLeaseIp -Line $args[0] -Mac $args[1] } $rows '42:38:f4:32:9f:22'
+        $ip | Should -Be '192.168.122.118'
+    }
+
+    It 'never hands back a peer guest lease from the same network' {
+        # This view is scoped to the NETWORK, not to one domain, so every other
+        # guest's lease is in it. A MAC-affinity miss that falls back to any row
+        # returns a reachable address belonging to someone else, which no caller
+        # can tell from success.
+        $rows = @(
+            ' 2026-08-23 07:23:48   42:38:f4:a8:89:50   ipv4       192.168.122.112/24   yuhost24   01:42:38:f4'
+        )
+        $ip = & $script:Driver { Select-VirshNetLeaseIp -Line $args[0] -Mac $args[1] } $rows 'aa:bb:cc:dd:ee:ff'
+        $ip | Should -BeNullOrEmpty
+    }
+
+    It 'skips the header and returns nothing when only a header is present' {
+        $rows = @(
+            ' Expiry Time           MAC address         Protocol   IP address           Hostname   Client ID or DUID',
+            '-------------------------------------------------------------------------------------------------'
+        )
+        $ip = & $script:Driver { Select-VirshNetLeaseIp -Line $args[0] -Mac $args[1] } $rows '42:38:f4:32:9f:22'
+        $ip | Should -BeNullOrEmpty
     }
 
     It 'never returns the docker bridge when the domain MAC is known' {
@@ -173,7 +210,7 @@ Describe 'Get-KvmNeighborIp' {
 
 Describe 'Get-KvmNeighborIp ranks the entries a renumbered guest leaves behind' {
 
-    # A guest that moves does not take its old neighbour entry with it: the
+    # A guest that moves does not take its old neighbor entry with it: the
     # kernel ages that row to STALE under the SAME MAC and keeps it. So the
     # table routinely holds two addresses for one guest, only one of which is
     # current, and returning whichever appeared first meant returning the
@@ -289,7 +326,7 @@ Describe 'The contract this chain owes its callers' {
     }
 }
 
-Describe 'Invoke-GuestSsh honours the unresolved-address sentinel' {
+Describe 'Invoke-GuestSsh honors the unresolved-address sentinel' {
     # WHY THIS BLOCK IS HERE. Get-GuestAddress answers with the VM name when no
     # probe found an address. Four consumers test for that; Invoke-GuestSsh was
     # the one that did not, so every transient discovery miss became a hard step

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 427d5433-30b3-40c0-aa3e-59e31c0c828b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -240,7 +240,7 @@ if ([string]::IsNullOrWhiteSpace($t.IntentGitUrl)) {
 # The "Yuruna hosts" panel is the pool-aggregator-service's in-memory view (Prometheus
 # yuruna_pool_host_info), NOT the NAS records above -- a host it discovered by
 # POLLING status services lingers there for the aggregator's host TTL (-host-ttl, default 24h) after last contact, so the
-# deletions so far do not clear it. When a lab-auth-token + caching-proxy-service are
+# deletions so far do not clear it. When an internal authentication key + caching-proxy-service are
 # configured, ask the aggregator to forget the host NOW. Opt-in + best-effort: a
 # missing token, unknown proxy, or unreachable aggregator is a silent skip (pull +
 # TTL still converge) and never fails the purge or throws.
@@ -249,15 +249,15 @@ try {
         if (Get-Command Import-Extension -ErrorAction SilentlyContinue) {
             try { $null = Import-Extension -Area 'authentication' -RequireSingle } catch { $null = $_ }
         }
-        # Resolve ONLY when a declared + populated lab-auth-token vault entry exists;
+        # Resolve ONLY when a declared + populated internal-auth-key vault entry exists;
         # an empty vaultKey means push/forget is off (calling Get-Password then
         # would auto-generate a junk per-host token the aggregator would reject).
-        # 'lab-auth-token' first, then the legacy 'pool-auth-token' name, so a host
-        # enrolled under the old logical user can still evict.
+        # 'internal-auth-key' first, then the legacy 'lab-auth-token' and
+        # 'pool-auth-token' names, so a host enrolled under an older one can still evict.
         $token = ''
         if ((Get-Command Get-EffectiveUser -ErrorAction SilentlyContinue) -and (Get-Command Test-VaultEntry -ErrorAction SilentlyContinue)) {
             try {
-                foreach ($logical in @('lab-auth-token', 'pool-auth-token')) {
+                foreach ($logical in @('internal-auth-key', 'lab-auth-token', 'pool-auth-token')) {
                     $eff = Get-EffectiveUser -LogicalUser $logical
                     if ($eff.vaultKey -and (Test-VaultEntry -VaultKey $eff.vaultKey)) { $token = [string](Get-Password -Username $logical); break }
                 }
@@ -270,7 +270,7 @@ try {
         if ([string]::IsNullOrWhiteSpace($proxyIp) -and $env:YURUNA_CACHING_PROXY_SERVICE_IP) { $proxyIp = $env:YURUNA_CACHING_PROXY_SERVICE_IP.Trim() }
 
         if ([string]::IsNullOrWhiteSpace($token)) {
-            Write-Verbose 'forget-host: no lab-auth-token configured; skipping live-view eviction (the panel clears on the aggregator host TTL).'
+            Write-Verbose 'forget-host: no internal authentication key configured; skipping live-view eviction (the panel clears on the aggregator host TTL).'
         } elseif ([string]::IsNullOrWhiteSpace($proxyIp)) {
             Write-Verbose 'forget-host: no caching-proxy-service IP known; skipping live-view eviction.'
         } elseif (Get-Command Invoke-PoolForgetHost -ErrorAction SilentlyContinue) {

@@ -27,6 +27,7 @@ Connection information for squid:
 	Request Hit Ratios:	5min: 71.4%, 60min: 68.2%
 Cache information for squid:
 	Storage Swap size:	3184920 KB
+	Storage Mem size:	65536 KB
 	Mean Object Size:	42.10 KB
 Internal Data Structures:
 	Total accounted:	 191284 KB
@@ -60,6 +61,9 @@ func TestSquidSummaryReadsTheFieldsThePanelShows(t *testing.T) {
 		{"hitRatioPct (the 5min column)", got.HitRatioPct, 71.4},
 		{"cacheSizeKB", got.CacheSizeKB, int64(3184920)},
 		{"memoryUsageKB", got.MemoryUsageKB, int64(191284)},
+		// A DIFFERENT quantity from memoryUsageKB above: the in-memory cache,
+		// which the dashboard shows as "Cached (Mem)".
+		{"memCacheSizeKB", got.MemCacheSizeKB, int64(65536)},
 		{"fileDescriptorsInUse", got.FileDescCurrent, int64(142)},
 		{"uptimeSeconds", got.UptimeSeconds, int64(9958)},
 	} {

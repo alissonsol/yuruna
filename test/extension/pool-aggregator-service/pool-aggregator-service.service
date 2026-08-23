@@ -37,7 +37,7 @@ Group=proxy
 #     ExecStart=
 #     ExecStart=/usr/local/bin/pool-aggregator-service ... -host-ttl 6h
 # Either way cloud-init reinstalls this file from the repo, so the repo edit is durable.
-# The flag only exists in binaries built from the commit that introduced it: adding it to
+# Older binaries do not carry the flag: adding it to
 # an older proxy's unit makes the binary exit "flag provided but not defined" and
 # Restart=on-failure turns that into a crash loop. Check with
 # `/usr/local/bin/pool-aggregator-service -h | grep host-ttl` before adding it by hand.
@@ -52,7 +52,7 @@ Group=proxy
 # keep resolving after a host has moved its logs to the NAS (or has been switched off
 # entirely). The path is only captured at start; the directory is opened per request,
 # because the CIFS mount is nofail and arrives asynchronously after boot.
-ExecStart=/usr/local/bin/pool-aggregator-service -tls-cert /etc/squid/ssl_cert/pool-aggregator-service.crt -tls-key /etc/squid/ssl_cert/pool-aggregator-service.key -auth-token-file /etc/yuruna/lab-auth.token -host-ttl 24h -lab-token-rotate 60s -pool-archive-root /mnt/ypool-nas/hosts
+ExecStart=/usr/local/bin/pool-aggregator-service -tls-cert /etc/squid/ssl_cert/pool-aggregator-service.crt -tls-key /etc/squid/ssl_cert/pool-aggregator-service.key -auth-token-file /etc/yuruna/internal-auth.key -host-ttl 24h -lab-token-rotate 60s -pool-archive-root /mnt/ypool-nas/hosts
 Restart=on-failure
 RestartSec=5
 # Auto-discovers pool members by reading the squid access log (proxy owns it,

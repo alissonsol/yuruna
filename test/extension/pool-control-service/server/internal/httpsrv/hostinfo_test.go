@@ -99,9 +99,14 @@ func TestGoBaseURL(t *testing.T) {
 }
 
 // TestEveryPageServesChrome verifies that every page of this service carries the
-// shared header and footer markup, and that the module driving it ships in
-// common.js -- i.e. the chrome is wired end-to-end on all of them, not just on
+// shared header and footer markup, and that the module driving it is actually
+// served -- i.e. the chrome is wired end-to-end on all of them, not just on
 // whichever page it was added to first.
+//
+// The module lives in the SDK's yuruna.core.js rather than in this service's
+// common.js, so the assertion below also covers the asset fallback: the file is
+// embedded in another module and reaches the browser only if this service hands
+// it over.
 func TestEveryPageServesChrome(t *testing.T) {
 	srv := httptest.NewServer(New(&fakeIntent{}, Options{Version: "test"}).Handler())
 	defer srv.Close()
@@ -110,7 +115,12 @@ func TestEveryPageServesChrome(t *testing.T) {
 		`id="header-version"`, `id="machine"`, `Yuruna Pool Control`,
 		`id="footer-bar"`, `id="footer-ip-list"`, `id="last-loaded"`, `id="countdown"`,
 	}
-	for _, path := range []string{"/", "/assign", "/pools", "/test-sets", "/hosts", "/diagnostics"} {
+	// One list for both loops below. Stated twice, the two drift: a page added
+	// to one is checked for its markup and not for its runtime, or the reverse,
+	// and either way the gap reads as coverage.
+	pages := []string{"/", "/assign", "/pools", "/test-sets", "/scan", "/hosts", "/diagnostics"}
+
+	for _, path := range pages {
 		body := getText(t, srv.URL+path)
 		for _, w := range want {
 			if !strings.Contains(body, w) {
@@ -132,9 +142,17 @@ func TestEveryPageServesChrome(t *testing.T) {
 		}
 	}
 
-	js := getText(t, srv.URL+"/assets/common.js")
-	if !strings.Contains(js, "initChrome") {
-		t.Fatalf("common.js missing initChrome module")
+	for _, path := range pages {
+		if body := getText(t, srv.URL+path); !strings.Contains(body, "/assets/yuruna.core.js") {
+			t.Errorf("page %s does not load the shared runtime, so it has no chrome to wire", path)
+		}
+	}
+
+	js := getText(t, srv.URL+"/assets/yuruna.core.js")
+	for _, module := range []string{"initChrome", "initMenu", "initFooter"} {
+		if !strings.Contains(js, module) {
+			t.Errorf("the shared runtime is served but does not define %s", module)
+		}
 	}
 }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 420389b6-78fe-457b-a0ce-b1bc197ec2b7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -59,7 +59,7 @@ function Test-DownloadAgentServiceHost {
         GET http://<address>/healthz.
     .DESCRIPTION
         /healthz is served unconditionally -- neither the UI's lab-token unlock
-        nor the lab-auth token gates it -- and answers 200 even when the pool
+        nor the internal authentication key gates it -- and answers 200 even when the pool
         share is unmounted. A candidate that passes is one whose daemon is alive
         and whose address this host can route to, which is exactly what a caller
         needs before committing to an endpoint. Pool availability is a separate

@@ -50,7 +50,7 @@
       <code>192.168.7.34/24</code> equals <code>192.168.7.0/24</code>.
     </p>
 
-    <div id="notice" class="notice"></div>
+    <div id="notice" role="alert" class="notice"></div>
     <div class="row">
       <label class="scan-field">
         <span class="scan-label">Network</span>
@@ -63,8 +63,8 @@
     <!-- Two lines with two jobs: the hint answers "is what I typed valid",
          the note answers "what happens without me". Sharing one element would
          mean whichever wrote last wins. -->
-    <div id="cidr-hint" class="hint"></div>
-    <div id="sweep-note" class="muted scan-note"></div>
+    <div id="cidr-hint" role="status" class="hint"></div>
+    <div id="sweep-note" role="status" class="muted scan-note"></div>
 
     <h2>Progress</h2>
     <!-- aria-live on the summary, not on the address ticker below it: the
@@ -95,10 +95,13 @@
     </table>
   </main>
   <footer id="footer-bar">
-    <span id="footer-ips"><span class="label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-label="Server IP addresses">--</textarea></span>
+    <span id="footer-ips"><span class="label" id="footer-ips-label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-labelledby="footer-ips-label">--</textarea></span>
     <span>Loaded: <span id="last-loaded">--</span><span id="footer-busy" aria-hidden="true" hidden></span></span>
-    <span><a id="footer-refresh" href="#">Refresh</a>: <span id="countdown">60</span>s</span>
+    <span><button type="button" id="footer-refresh" class="linkish">Refresh</button>: <span id="countdown">60</span>s <button type="button" id="footer-pause" class="linkish" aria-pressed="false">Pause</button></span>
   </footer>
+  <!-- The shared runtime first: it installs the baseline shims (fetch, KeyboardEvent.key)
+       and defines Y, which every script below extends rather than rebuilds. -->
+  <script src="/assets/yuruna.core.js"></script>
   <script src="/assets/common.js"></script>
   <script src="/assets/scan.js"></script>
 </body>

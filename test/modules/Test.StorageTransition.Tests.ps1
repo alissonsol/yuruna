@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42cf1a35-c982-4816-bdc9-94893388e752
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -309,7 +309,7 @@ Describe 'the mounts a storage tier is carried by' {
         $found = @(Find-PoolStorageTierMount -MountLines @($DiskMountLine, $script:LocalMountLine) -LocalPath $MountPoint -NetworkPath $script:LocalNetworkPath)
         Assert-Equal -Expected 1 -Actual $found.Count 'our own share at our own point is still a mount we are carried by'
         Assert-Equal -Expected 'current' -Actual $found[0].Reason 'reason'
-        Assert-Equal -Expected 'ypool-nas' -Actual $found[0].HostName 'the server name the session was dialled under'
+        Assert-Equal -Expected 'ypool-nas' -Actual $found[0].HostName 'the server name the session was dialed under'
     }
 
     It 'includes a foreign share standing on our mount point' {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 422de2af-9e3f-4bca-8c35-df0040af74c0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -209,7 +209,19 @@ if (-not $Config) { Write-Error "Config not found or unparseable: $ConfigPath"; 
 # cannot unwind this script. -SkipSend stops the smoke-test email from
 # flooding subscribers["config.smoke"] on every Debug-TestSequence invocation.
 # Test.ConfigPreflight was imported by Initialize-YurunaEntryPointModuleSet above.
-$gate = Invoke-ConfigGate -TestRoot $TestRoot -ConfigPath $ConfigPath -Skip:$NoConfigGate -CallerName 'Debug-TestSequence'
+#
+# A NESTED run inherits its owner's verdict instead of re-gating. The owner
+# cleared this same host and config when it opened the cycle; a nested run is
+# one stage of that cycle, so re-validating per stage buys nothing and costs
+# something real. The gate reaches github.com, and remote state is not a
+# property of the config it is checking: a credential that expires between two
+# stages turns a pre-flight into a mid-flight abort, killing a cycle over
+# something none of its remaining work depends on and discarding every stage
+# already built. A pre-flight belongs at the front of the flight. A standalone
+# run (no inherited cycle context) is unaffected and still gates for itself.
+$gateSkip   = [bool]($NoConfigGate -or $isNested)
+$gateReason = if ($NoConfigGate) { '-NoConfigGate' } else { "nested run -- the owner cycle already gated $ConfigPath" }
+$gate = Invoke-ConfigGate -TestRoot $TestRoot -ConfigPath $ConfigPath -Skip:$gateSkip -SkipReason $gateReason -CallerName 'Debug-TestSequence'
 if (-not $gate.passed) { exit $gate.exitCode }
 
 # --- REGION: Refresh <RepoRoot>/project from test.config.yml's repositories.projectUrl
@@ -230,12 +242,12 @@ if ($NoProjectClone) {
     $cloneRes = Update-ProjectClone -RepoRoot $RepoRoot -ProjectUrl $projUrl -Confirm:$false
     if (-not $cloneRes.success) {
         Write-Warning ""
-        Write-Warning "============================================================"
+        Write-Warning "========"
         Write-Warning "  Project clone FAILED: $($cloneRes.errorMessage)"
         Write-Warning "  Debug-TestSequence cannot resolve project-tree sequences without"
         Write-Warning "  <RepoRoot>/project/. Fix repositories.projectUrl in"
         Write-Warning "  test.config.yml (or empty it to use the in-tree project)."
-        Write-Warning "============================================================"
+        Write-Warning "========"
         exit $ExitFailure
     }
 }
@@ -378,7 +390,7 @@ $script:CancelState = Register-EntryPointCancelHandler
 # leftover break-active.json + clears leftover pause flags (so the status
 # UI doesn't show a Continue pending, and the run doesn't start paused,
 # from a prior session the operator never resumed). The operator typed
-# THIS command line, so we honour the intent to run over the stale flags.
+# THIS command line, so we honor the intent to run over the stale flags.
 # Nested runs must NOT sweep control state: the pause / cycle-restart flags
 # belong to the owner's live cycle, and clearing them from a child would drop a
 # Continue the operator armed on the parent. Owner-only.
@@ -811,13 +823,13 @@ if ($isNested) {
 }
 
 Write-Output ""
-Write-Output "============================================="
+Write-Output "========"
 Write-Output "  Sequence: $SequenceName"
 Write-Output "  Chain:    $($ChainPlan.fullChain.Count) sequence(s), $totalSteps total step(s)"
 Write-Output "  Range:    starting at step $StartStep$stopLabel"
 Write-Output "  VM:       $VMName"
 Write-Output "  Guest:    $GuestKey"
-Write-Output "============================================="
+Write-Output "========"
 
 Write-Output ""
 Write-Output "Step list:"

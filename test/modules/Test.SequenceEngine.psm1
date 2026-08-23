@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 4210c3aa-ab5b-4b2b-9259-5c68ad1cb72e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -684,6 +684,27 @@ function Get-ConsoleFloodVerdict {
     return $verdict
 }
 
+function Get-ConsoleTextSignature {
+    <#
+    .SYNOPSIS
+        Whitespace-normalized form of a console OCR capture, for equality
+        comparison between two captures of the same screen.
+    .DESCRIPTION
+        Two captures of an unchanged console are not byte-equal: a blinking
+        cursor, a redrawn status line and single-glyph OCR jitter all move
+        characters around without the guest having printed anything. Collapsing
+        runs of whitespace and trimming leaves a form that is stable across
+        captures of a screen that has not actually changed, which is what makes
+        "the console content stopped moving" measurable at all.
+    .OUTPUTS
+        [string] the normalized signature ('' for empty input).
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][AllowEmptyString()][AllowNull()][string]$Text)
+    return (([string]$Text) -replace '\s+', ' ').Trim()
+}
+
 function Wait-ForText {
     <#
     .SYNOPSIS
@@ -724,7 +745,25 @@ function Wait-ForText {
         # pattern fired, producing a banner like
         #   waitForAndEnter: "Not listed?" -- matched failurePattern "install_fail.crash"
         # instead of the opaque timeout message.
-        [string[]]$FailurePattern = @()
+        [string[]]$FailurePattern = @(),
+        # Anti-patterns that are only meaningful for the first
+        # $EarlyFailureSeconds of the wait, then stop being evaluated.
+        #
+        # The canonical use is a shell REJECTING the command line it was just
+        # handed ("command not found", "No such file or directory"). That
+        # verdict is delivered within a second of Enter and means nothing ever
+        # started, so the positive pattern can never arrive and the whole
+        # timeout would be spent proving it. The same strings are also ordinary
+        # output from a script that IS running and healthy -- a package tool
+        # probing for an optional binary prints them constantly -- so as
+        # permanent anti-patterns they would abort good runs. The window is
+        # what separates the two readings: inside it the only thing that has
+        # had time to speak is the shell, outside it the answer is whatever the
+        # payload is printing. That is why this cannot simply be folded into
+        # $FailurePattern, whose entries are (correctly) evaluated for the
+        # whole wait.
+        [string[]]$EarlyFailurePattern = @(),
+        [int]$EarlyFailureSeconds = 0
     )
     # Reset the cross-function signals so a prior call can't leak into the next
     # Wait-ForText invocation. Like WaitForTextMatchedFailurePattern, the cause
@@ -736,6 +775,21 @@ function Wait-ForText {
     $script:Fail.WaitForTextPatternsSought = [string[]]@()
     $script:Fail.WaitForTextFreshWindowNearMiss = [string[]]@()
     $script:Fail.WaitForTextConsoleFlood   = $null
+    $script:Fail.WaitForTextConsoleStaticSeconds = 0
+    # Per-wait verdict, readable by a caller that has to decide what to do with a
+    # wait that came back false. The bool return says only "not found"; it cannot
+    # distinguish a guest still working from a guest parked on a prompt that has
+    # already scrolled off, and those two want opposite handling. Reset at entry so
+    # a caller can never read a previous wait's shape.
+    $script:LastWaitVerdict = @{
+        Matched              = $false
+        Flooded              = $false
+        DominantLine         = ''
+        ConsoleStaticSeconds = 0
+        ConsoleRestartsUsed  = 0
+        ElapsedSeconds       = 0
+        ConsoleText          = ''
+    }
     if ($HostType) { Write-Debug "Wait-ForText: -HostType '$HostType' is informational; Yuruna.Host dispatches Get-VMScreenshot internally." }
 
     $patternLabel = $Pattern[0]
@@ -838,6 +892,16 @@ function Wait-ForText {
     # to persist is the CONTENT across independent captures, not a duration.
     $floodPolls    = 0
     $floodReported = $false
+    # Content-static state (the console-parked signal, and the one the byte-hash
+    # freeze detector below cannot supply). A live-but-idle console keeps a
+    # blinking cursor, so its raw frames differ every capture while the CONTENT
+    # has not moved for minutes -- which is exactly the shape of a guest waiting
+    # on a prompt whose text has already scrolled out of the visible surface.
+    # Measured on whitespace-normalized OCR text so cursor blink and single-glyph
+    # OCR jitter do not read as movement.
+    $lastStaticText        = $null
+    $contentStaticSinceUtc = [DateTime]::UtcNow
+    $maxConsoleStaticSecs  = 0
     # Degradation-trend early action: the two self-heals above are reactive at a fixed
     # threshold. Once the feed has proven flaky (a console restart fired), drop
     # the freeze threshold so the next stall is caught sooner -- acting on the
@@ -945,10 +1009,21 @@ function Wait-ForText {
                         $lastOcrText = $result.AnyText
                         $recentFrames.Add([string]$result.AnyText)
                         if ($recentFrames.Count -gt $recentFrameMax) { $recentFrames.RemoveAt(0) }
+                        $normalizedNow = Get-ConsoleTextSignature -Text ([string]$result.AnyText)
+                        if ($normalizedNow -ne $lastStaticText) {
+                            $lastStaticText        = $normalizedNow
+                            $contentStaticSinceUtc = [DateTime]::UtcNow
+                        }
+                        $staticSecs = [int]([DateTime]::UtcNow - $contentStaticSinceUtc).TotalSeconds
+                        if ($staticSecs -gt $maxConsoleStaticSecs) { $maxConsoleStaticSecs = $staticSecs }
+                        $script:LastWaitVerdict.ConsoleStaticSeconds = $staticSecs
+                        $script:LastWaitVerdict.ConsoleText          = [string]$result.AnyText
+                        $script:LastWaitVerdict.ElapsedSeconds       = [int]([DateTime]::UtcNow - $startUtc).TotalSeconds
                     }
 
                     if ($result.Match) {
                         Write-Debug "      Text detected (combine=$combineMode)"
+                        $script:LastWaitVerdict.Matched = $true
                         return $true
                     }
 
@@ -961,6 +1036,7 @@ function Wait-ForText {
                     foreach ($p in $Pattern) {
                         if (Test-OCRMatch -Text $recentText -Pattern $p) {
                             Write-Debug "      Text detected across recent frames: '$p'"
+                            $script:LastWaitVerdict.Matched = $true
                             return $true
                         }
                     }
@@ -995,6 +1071,8 @@ function Wait-ForText {
                                 "$($floodVerdict.DistinctLines) distinct line(s) across $($floodVerdict.TotalLines) " +
                                 "on screen, dominant line '$($floodVerdict.DominantLine)' x$($floodVerdict.DominantCount)")
                             $script:Fail.WaitForTextConsoleFlood = $floodDetail
+                            $script:LastWaitVerdict.Flooded      = $true
+                            $script:LastWaitVerdict.DominantLine = [string]$floodVerdict.DominantLine
                             Write-Warning "      Wait-ForText: $floodDetail -- the pattern cannot be read off a surface this is overwriting, so the wait will run its budget and the failure will be recorded as a flooded console rather than a missing pattern."
                             if (Get-Command Send-YurunaDegradation -ErrorAction SilentlyContinue) {
                                 Send-YurunaDegradation -Dependency 'console-content' -Primary 'readable-console' -Fallback 'none' `
@@ -1077,6 +1155,7 @@ function Wait-ForText {
                             $effectiveFreezeThreshold = if ($consoleRestarts -gt 0) { [int][math]::Ceiling($frozenFeedSeconds / 2.0) } else { $frozenFeedSeconds }
                             if ($frozenSecs -ge $effectiveFreezeThreshold -and $consoleRestarts -lt $maxConsoleRestarts) {
                                 $consoleRestarts++
+                                $script:LastWaitVerdict.ConsoleRestartsUsed = $consoleRestarts
                                 # Grant bounded grace so the relaunched viewer
                                 # can deliver a fresh frame before the deadline.
                                 $grace = Get-OcrDegradationGrace -Action 'console-restart' -AlreadyGrantedSeconds $deadlineGrantedSeconds -MaxGrantSeconds $maxDeadlineGrantSeconds -BaseWindowSeconds $frozenFeedSeconds
@@ -1105,8 +1184,17 @@ function Wait-ForText {
             # check so a positive match wins ties when both appear in one
             # frame. Uses $lastOcrText (the freshest OCR output) so the
             # signature isn't masked by an OCR glitch on the current poll.
-            if ($FailurePattern -and $FailurePattern.Count -gt 0 -and $lastOcrText) {
-                foreach ($fp in $FailurePattern) {
+            # The early set joins the permanent one only while the window is
+            # open, so a match inside it reports through the same signal, the
+            # same screenshot capture and the same failure label as any other
+            # anti-pattern -- the window governs WHEN a pattern is consulted,
+            # never what happens once it fires.
+            $activeFailurePattern = @($FailurePattern)
+            if ($EarlyFailurePattern.Count -gt 0 -and $elapsed -le $EarlyFailureSeconds) {
+                $activeFailurePattern += $EarlyFailurePattern
+            }
+            if ($activeFailurePattern.Count -gt 0 -and $lastOcrText) {
+                foreach ($fp in $activeFailurePattern) {
                     if ([string]::IsNullOrWhiteSpace($fp)) { continue }
                     if (Test-OCRMatch -Text $lastOcrText -Pattern $fp) {
                         $script:Fail.WaitForTextMatchedFailurePattern = $fp
@@ -1149,6 +1237,19 @@ function Wait-ForText {
             $script:Fail.WaitForTextOcrTail = if ($lastOcrText.Length -le 1200) { $lastOcrText } else { $lastOcrText.Substring($lastOcrText.Length - 1200) }
             $script:Fail.WaitForTextPatternsSought = [string[]]@($Pattern)
         }
+
+        # How long the console content sat unchanged, at its longest. Separates a
+        # guest that was working the whole time from one parked on an unreadable
+        # screen, which the flood detail alone cannot do: Get-ConsoleFloodVerdict
+        # counts repeats WITHIN one frame, so a frozen wall of already-scrolled
+        # text reads as a flood even though nothing is moving.
+        $script:Fail.WaitForTextConsoleStaticSeconds = [int]$maxConsoleStaticSecs
+        # The verdict deliberately keeps the CURRENT unchanged run rather than the
+        # longest one: a caller deciding whether to send input to this console
+        # cares about the state it is in now, and a screen that sat still early
+        # and is scrolling again by the end is not a parked guest. The record
+        # keeps the longest run, which is the better evidence after the fact.
+        $script:LastWaitVerdict.ElapsedSeconds = [int]([DateTime]::UtcNow - $startUtc).TotalSeconds
 
         # Before reporting "not found", check whether the engines actually read
         # it and the freshMatch window is what hid it. Reporting a bare timeout
@@ -1197,6 +1298,198 @@ function Wait-ForText {
         # it at end-of-guest on success (or surfaces it on failure).
         Write-ProgressTick -Activity "waitForText" -Completed
     }
+}
+
+function Get-LastWaitVerdict {
+    <#
+    .SYNOPSIS
+        Shape of the most recent Wait-ForText call, for a caller deciding what
+        to do about a wait that came back false.
+    .DESCRIPTION
+        Wait-ForText answers a bool, which says only that the pattern was not
+        read. That single bit covers two opposite guests: one still working
+        toward the state the pattern describes, and one parked on a prompt whose
+        text has already scrolled out of the visible surface and will never come
+        back into it. Only the second can be unblocked by sending input, so the
+        signals that separate them -- how long the console content sat unchanged,
+        whether the surface was a wall of one repeating line, how many capture
+        repairs were already spent -- are published here rather than left in the
+        engine's locals.
+
+        Returns a copy: a caller that mutates the result cannot corrupt the
+        engine's own view of the wait it just ran.
+    .OUTPUTS
+        [hashtable] Matched, Flooded, DominantLine, ConsoleStaticSeconds,
+        ConsoleRestartsUsed, ElapsedSeconds, ConsoleText.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param()
+    if (-not $script:LastWaitVerdict) {
+        return @{
+            Matched              = $false
+            Flooded              = $false
+            DominantLine         = ''
+            ConsoleStaticSeconds = 0
+            ConsoleRestartsUsed  = 0
+            ElapsedSeconds       = 0
+            ConsoleText          = ''
+        }
+    }
+    $copy = @{}
+    foreach ($k in $script:LastWaitVerdict.Keys) { $copy[$k] = $script:LastWaitVerdict[$k] }
+    return $copy
+}
+
+# The Pattern parameter of Test-CombinedOcrMatch is mandatory, and the console-
+# change probe below has no pattern to seek -- it reads only the text the call
+# harvests. This is the literal it passes so the match result is always false
+# and the probe cannot be mistaken for a search.
+$script:ConsoleChangeProbePattern = 'yuruna.console.change.probe'
+
+function Wait-ForConsoleChange {
+    <#
+    .SYNOPSIS
+        Poll the guest console until its content differs from $BaselineText.
+    .DESCRIPTION
+        The proof that input sent to an unreadable console landed: a guest
+        parked on a prompt prints nothing until it is answered, so the content
+        moving again is the answer being consumed. Content, not raw frames -- a
+        parked console still blinks its cursor, so every raw capture differs
+        while nothing has happened (the same reason Wait-ForText's byte-hash
+        freeze detector cannot see a parked guest).
+
+        Captures to a fixed probe file rather than the raw_*.png ring so a
+        confirmation poll never displaces the failure run-up the ring exists to
+        preserve.
+
+        A $false answer covers two opposite consoles: one that did not move, and
+        one this function could not read. Only the first says anything about the
+        guest, so the counts that separate them are published through
+        Get-LastConsoleChangeVerdict rather than collapsed into the bool.
+    .OUTPUTS
+        [bool] $true when the console content changed; $false on timeout or on
+        a console that could not be read.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [string]$HostType,
+        [Parameter(Mandatory)][AllowEmptyString()][AllowNull()][string]$BaselineText,
+        [int]$TimeoutSeconds = 90,
+        [int]$PollSeconds = 5
+    )
+    if ($HostType) { Write-Debug "Wait-ForConsoleChange: -HostType '$HostType' is informational; Yuruna.Host dispatches Get-VMScreenshot internally." }
+    $modulesDir = Join-Path (Split-Path -Parent $PSScriptRoot) "modules"
+    if (-not (Get-Command Get-EnabledOcrProvider -ErrorAction SilentlyContinue)) {
+        Import-Module (Join-Path $modulesDir "Test.OcrEngine.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
+    }
+    $baseline  = Get-ConsoleTextSignature -Text $BaselineText
+    # Same guarded re-assert Wait-ForText makes: a nested -Force import elsewhere
+    # can evict the directory helper from this session state, and a confirmation
+    # that throws would take the step down with it instead of leaving it to fail
+    # on its own terms.
+    if (-not (Get-Command Get-CycleScreenDir -ErrorAction SilentlyContinue)) {
+        Import-Module (Join-Path $modulesDir "Test.Log.psm1") -Force -Global -ErrorAction SilentlyContinue -Verbose:$false
+    }
+    $script:LastConsoleChangeVerdict = @{
+        Changed        = $false
+        Readable       = $false
+        Polls          = 0
+        Captures       = 0
+        Reads          = 0
+        TimeoutSeconds = $TimeoutSeconds
+    }
+    $screensDir = $null
+    try { $screensDir = Get-CycleScreenDir -VMName $VMName -WhatIf:$false } catch { $screensDir = $null }
+    if (-not $screensDir) {
+        Write-Warning "      Wait-ForConsoleChange: no capture directory available; cannot confirm."
+        return $false
+    }
+    # Short by intent, and not for tidiness: the directory is already per-VM, so
+    # repeating the guest name in the file name only lengthens a path that a
+    # native OCR reader has a hard ceiling on -- and a capture the reader cannot
+    # open comes back as a console with no text on it, which is exactly the
+    # answer this function exists to distinguish from a console that did not move.
+    $probePath = Join-Path $screensDir 'probe.png'
+    $deadline  = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    if ($PollSeconds -lt 1) { $PollSeconds = 1 }
+    while ([DateTime]::UtcNow -lt $deadline) {
+        $script:LastConsoleChangeVerdict.Polls++
+        $captured = $false
+        try { $captured = [bool](Get-VMScreenshot -VMName $VMName -OutFile $probePath) }
+        catch { Write-Verbose "      Wait-ForConsoleChange: capture failed: $($_.Exception.Message)" }
+        if ($captured -and (Test-Path -LiteralPath $probePath)) {
+            $script:LastConsoleChangeVerdict.Captures++
+            $probe = $null
+            try { $probe = Test-CombinedOcrMatch -ImagePath $probePath -Pattern @($script:ConsoleChangeProbePattern) }
+            catch { Write-Verbose "      Wait-ForConsoleChange: OCR failed: $($_.Exception.Message)" }
+            if ($probe -and $probe.AnyText) {
+                $script:LastConsoleChangeVerdict.Reads++
+                $script:LastConsoleChangeVerdict.Readable = $true
+                $now = Get-ConsoleTextSignature -Text ([string]$probe.AnyText)
+                # An empty baseline would make any readable screen a "change",
+                # which proves nothing about the input that was just sent.
+                if ($baseline -and $now -ne $baseline) {
+                    Write-Debug "      Wait-ForConsoleChange: console content changed."
+                    $script:LastConsoleChangeVerdict.Changed = $true
+                    return $true
+                }
+            }
+        }
+        Start-Sleep -Seconds $PollSeconds
+    }
+    # Frames written and none of them read: every engine came back empty on a
+    # file that was captured and confirmed present. That is the reader failing,
+    # not the guest holding still, and reporting it as a console that did not
+    # move would put the blame on a guest that may well have moved on.
+    if ($script:LastConsoleChangeVerdict.Captures -gt 0 -and $script:LastConsoleChangeVerdict.Reads -eq 0) {
+        $blindDetail = ("captured $($script:LastConsoleChangeVerdict.Captures) frame(s) in ${TimeoutSeconds}s and read text from none of them; " +
+            "the console could not be read, so the console standing still was neither observed nor ruled out")
+        Write-Warning "      Wait-ForConsoleChange: $blindDetail."
+        if (Get-Command Send-YurunaDegradation -ErrorAction SilentlyContinue) {
+            Send-YurunaDegradation -Dependency 'console-content' -Primary 'readable-console' -Fallback 'none' `
+                -Reason $blindDetail
+        }
+        return $false
+    }
+    Write-Debug "      Wait-ForConsoleChange: console content unchanged after ${TimeoutSeconds}s."
+    return $false
+}
+
+function Get-LastConsoleChangeVerdict {
+    <#
+    .SYNOPSIS
+        Shape of the most recent Wait-ForConsoleChange call, for a caller
+        deciding what a $false answer actually proved.
+    .DESCRIPTION
+        Separates "the console did not move" from "the console could not be
+        read", which the bool cannot: a reader that came back empty on every
+        frame observed nothing about the guest, and a caller that reports it as
+        the guest ignoring its input states something it does not know.
+
+        Returns a copy, so a caller that mutates the result cannot corrupt the
+        engine's own view of the probe it just ran.
+    .OUTPUTS
+        [hashtable] Changed, Readable, Polls, Captures, Reads, TimeoutSeconds.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param()
+    if (-not $script:LastConsoleChangeVerdict) {
+        return @{
+            Changed        = $false
+            Readable       = $false
+            Polls          = 0
+            Captures       = 0
+            Reads          = 0
+            TimeoutSeconds = 0
+        }
+    }
+    $copy = @{}
+    foreach ($k in $script:LastConsoleChangeVerdict.Keys) { $copy[$k] = $script:LastConsoleChangeVerdict[$k] }
+    return $copy
 }
 
 # --- REGION: Action: takeScreenshot
@@ -1737,17 +2030,73 @@ function Invoke-Sequence {
     # Dynamic scoping resolves $stepPauseFlagFile and $writeCurrentAction
     # from the caller's scope at invoke time, so the scriptblock doesn't
     # need its own parameters for those.
+    #
+    # This gate holds the RUNNER, not the guest: the VM is created and started
+    # before the sequence begins, so it keeps running -- and printing -- for as
+    # long as the hold lasts. Anything the guest prints once and does not reprint
+    # (a boot-time confirmation prompt) can therefore expire while parked here,
+    # and the step that was going to read it resumes against a screen that no
+    # longer carries it. Both ends of the hold are published to the event stream
+    # so a failure that follows one can be read as such instead of as a guest
+    # that never printed; see docs/control-routes.md, "Pause and resume".
     $waitWhilePaused = {
         param([string]$Label)
         if (Test-Path $stepPauseFlagFile) {
+            # The status service stamps the flag file with the moment the operator
+            # armed it, so the hold can be reported against the request rather than
+            # against the first gate that happened to observe it.
+            $requestedAtUtc = ''
+            try {
+                $stamp = [string](Get-Content -LiteralPath $stepPauseFlagFile -Raw -ErrorAction Stop)
+                $requestedAtUtc = $stamp.Trim()
+            } catch {
+                Write-Verbose "pause flag stamp unreadable: $($_.Exception.Message)"
+            }
+            $pauseSeqName = [System.IO.Path]::GetFileNameWithoutExtension($SequencePath)
+            $pauseCommon = @{
+                pauseScope     = 'step'
+                label          = [string]$Label
+                guestKey       = [string]$GuestKey
+                vmName         = [string]$VMName
+                sequenceName   = [string]$pauseSeqName
+                requestedAtUtc = [string]$requestedAtUtc
+            }
+            if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
+                # Emitted on entry as well as on release: a hold still open when the
+                # runner dies leaves no release event, and an unpaired begin is the
+                # only record that the run was parked rather than stuck.
+                Send-CycleEventSafely -EventRecord ($pauseCommon + @{
+                    timestamp = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                    event     = 'sequence_paused'
+                })
+            }
             & $writeCurrentAction "$Label Paused (waiting for resume)"
             Write-Information "    $Label Paused (status-service request). Waiting for resume..."
+            $heldFromUtc  = [DateTime]::UtcNow
             $pauseAttempt = 1
             while (Test-Path $stepPauseFlagFile) {
                 Start-Sleep -Milliseconds (Get-PollDelay -Attempt $pauseAttempt)
                 $pauseAttempt++
             }
-            Write-Information "    $Label Resumed."
+            $heldSeconds = [int]([DateTime]::UtcNow - $heldFromUtc).TotalSeconds
+            Write-Information "    $Label Resumed after ${heldSeconds}s."
+            # Handed to the failure record so a step that fails right after a long
+            # hold reports the hold as part of its cause. Read by
+            # New-SequenceFailureRecord; harmless on the passing path, where
+            # nothing consults it.
+            $script:Fail.LastPauseRelease = @{
+                releasedAtUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                heldSeconds   = $heldSeconds
+                label         = [string]$Label
+                pauseScope    = 'step'
+            }
+            if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
+                Send-CycleEventSafely -EventRecord ($pauseCommon + @{
+                    timestamp   = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                    event       = 'sequence_resumed'
+                    heldSeconds = $heldSeconds
+                })
+            }
         }
     }
 
@@ -1805,6 +2154,11 @@ function Invoke-Sequence {
     # hold sits between them: an operator who has parked the cycle is present
     # and outranks a machine-initiated hold, and re-probing a lab nobody is
     # watching achieves nothing.
+    # Cleared here rather than with the other per-sequence cause slots further
+    # down: those run AFTER this gate, and the hold this gate is about to record
+    # is the one most worth reporting -- it ends with the guest already booted and
+    # a step about to read a screen that moved on without the runner.
+    $script:Fail.LastPauseRelease = $null
     & $waitWhilePaused "[sequence start]"
     & $waitWhileLabHealthy "[sequence start]"
     & $checkCycleRestart "[sequence start]"
@@ -2308,4 +2662,5 @@ function Invoke-Sequence {
 Export-ModuleMember -Function Invoke-Sequence, Invoke-SequenceByName, Send-Text, Send-Key, Send-Click, `
     Wait-ForText, Invoke-TapOn, Save-DebugScreenshot, Write-ProgressTick, `
     Select-SequenceStepWindow, Get-SequenceFinishedVMName, Get-OcrDegradationGrace, `
-    Get-ConsoleFloodVerdict, Invoke-GuestSequenceList
+    Get-ConsoleFloodVerdict, Invoke-GuestSequenceList, Get-ConsoleTextSignature, `
+    Get-LastWaitVerdict, Wait-ForConsoleChange, Get-LastConsoleChangeVerdict

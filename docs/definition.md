@@ -320,7 +320,7 @@ codes are not self-explanatory: **exit 4 collapses DNS failure,
 precisely the distinction a reader needs. The script resolves it from
 local state at the moment of failure: no global IPv4 means the link
 never came up; a missing default route means nothing can leave this
-subnet; a host name that will not resolve points at DNS; anything
+subnet; a hostname that will not resolve points at DNS; anything
 else means the guest was addressed and routed, so the peer refused or
 dropped the connection. The retry library's classifier cannot answer
 this -- it is installed and sourced only after a payload has landed,
@@ -627,6 +627,13 @@ The guest's `ubuntu.server.24.k8s.sh` reconfigures containerd to:
    only `docker pull` via dockerd benefits from the `daemon.json`
    `registry-mirrors` set above.
 
+Step (3) is conditional on the lab having a caching proxy, the same way
+the guest's proxy egress rules are. Where no cache is configured, the
+`daemon.json` mirror, the `certs.d` tree, the registry liveness gate and
+the image warm passes are all skipped, and pulls go to the upstreams
+directly -- the cache is an optimization, not a prerequisite. The guest
+prints which of the two it is on before installing Docker.
+
 `config_path = '/etc/containerd/certs.d'` is the modern containerd
 v1.7+ mechanism: drop a `hosts.toml` per upstream registry to rewrite
 the pull host. We register `docker.io`, `registry.k8s.io` (the
@@ -839,7 +846,7 @@ of `journalctl -u systemd-resolved --since '15 min ago'` so a
 DNS-side explanation is visible without re-shelling into the
 guest, and a current `Get-PSRepository` /
 `Get-PackageProvider -ListAvailable` / module snapshot so the
-operator can compare against the pre-flight state captured in
+operator can compare against the preflight state captured in
 the log at install time. Rationale in
 [Yuruna memory](memory.md#why-ubuntu--al2023-guest-update-scripts-wrap-install-module-powershell-yaml-with-pwsh_retry).
 
@@ -1051,15 +1058,20 @@ VM without the host itself swapping.
 
 ### Defining the status-page browser baseline
 
-The Yuruna status pages (`test/status/index.html`,
-`test/status/config.html`, and any future page mounted under
-`test/status/`) are written so they render correctly on **Safari iOS
-9.3 / Safari 9.1** as well as current browsers. That is the real hard
-floor: every color token is a CSS custom property (`var(--...)`), and
-custom properties first ship in iOS 9.3 / Safari 9.1 -- below that the
-palette is undefined and the pages do not render. The JavaScript is
-still authored to the stricter ES5-only bar (that bar predates the 9.3
-baseline and costs nothing to keep), so the code avoids:
+This baseline governs **every Yuruna web UI**: the status pages
+(`test/status/index.html`, `test/status/config.html`, and any future
+page mounted under `test/status/`) AND the browser UI of every
+extension service under `test/extension/*/server/internal/httpsrv/web/`
+-- pool control, stash, download agent, and any service added later.
+All of them are written so they render correctly on **Safari iOS 9.3 /
+Safari 9.1** as well as current browsers.
+
+That is the real hard floor: every color token is a CSS custom property
+(`var(--...)`), and custom properties first ship in iOS 9.3 / Safari
+9.1 -- below that the palette is undefined and the pages do not render.
+The JavaScript is authored to the stricter ES5-only bar (that bar
+predates the 9.3 baseline and costs nothing to keep), so the code
+avoids:
 
 - **JavaScript:** ES2015+ syntax (arrow functions, template literals,
   `async`/`await`, destructuring, optional chaining, nullish
@@ -1083,7 +1095,32 @@ baseline and costs nothing to keep), so the code avoids:
 `fetch` is shimmed inside
 [`test/status/yuruna.common.js`](../test/status/yuruna.common.js) for
 browsers that lack it; native fetch on every other browser is left
-untouched.
+untouched. The extension service UIs get the same shim, plus a
+`KeyboardEvent.key` fallback and an `Element.closest` polyfill, from
+[`test/extension/extension-sdk/webui/assets/yuruna.core.js`](../test/extension/extension-sdk/webui/assets/yuruna.core.js)
+-- the shared browser runtime every one of their pages loads before its
+own scripts.
+
+**How the floor is held.** The failure mode is silent and total: an iOS
+9 parser rejects a file carrying one arrow function OUTRIGHT, so nothing
+in that file runs -- not the offending statement, the whole file. The
+page still serves its static shell, so a table whose rows are built in
+script renders empty and a menu whose panel is revealed in script never
+opens, and neither looks like an error. Nothing a modern browser can be
+pointed at will reproduce it.
+
+So the floor is held by a lexer rather than by testing:
+[`tools/Invoke-Es5Check.ps1`](../tools/Invoke-Es5Check.ps1) reports
+ES2015+ syntax and APIs found in code (not in comments, strings or
+regex literals) across every shipped asset, and
+`test/modules/Test.BrowserBaseline.Tests.ps1` runs it, checks the
+stylesheets for the CSS features listed above, and feeds the checker
+known-bad input so a lint that has stopped matching cannot report a
+clean run. Run the script directly while changing a page:
+
+```
+pwsh -NoProfile -File tools/Invoke-Es5Check.ps1
+```
 
 ### Defining the status-page mobile and dark-mode hardening
 
@@ -1596,6 +1633,37 @@ Page-specific behavior:
   recomputes. Page re-renders with the fresh payload.
 
 ---
+
+## Lab credentials
+
+### Defining the two lab secrets
+
+A lab holds two secrets that authorize the same operations and are easy to
+confuse by name. They are told apart by shape, and nothing in the system has to
+guess which one it was handed.
+
+| | **Lab token** | **Internal authentication key** |
+|---|---|---|
+| Shape | 6 characters, `^[a-z0-9]{6}$` | 48 lowercase hex characters |
+| Where an operator sees it | the Yuruna hosts dashboard's *Lab token* tile | nowhere; it is never displayed |
+| Lifetime | rotates every 60 s; a shown code stays redeemable about 3 minutes | stable for the life of the lab |
+| What it is for | redeeming, once, for the internal authentication key | HMAC key for control proofs, the `/ingest` push bearer, and cross-host credential fetch |
+| Where it lives | minted by the pool-aggregator service, held only in flight | each host's vault under the logical user `internal-auth-key`; baked into a service VM at `/etc/yuruna/internal-auth.key` |
+
+**"Lab token" names the 6-character code and nothing else.** The key is a
+distinct term precisely so that a sentence, a prompt, or a comment naming one
+cannot be read as the other.
+
+The redemption path is `test/lab/Set-LabToken.ps1 -LabToken <code>`: it exchanges
+the code at the aggregator's `POST /api/v1/lab-token` and stores the key in this
+host's vault. An operator who reaches a prompt asking for the key and has only
+the tile in front of them can type the code there too -- the sync redeems it in
+place rather than refusing it, because the alternative is a host that borrows a
+secret for one command and stays unenrolled.
+
+A host provisioned before this vocabulary still resolves through the legacy
+logical names `lab-auth-token` and `pool-auth-token`, which are read as
+fallbacks and retired the next time the key is written.
 
 ## Canonical yuruna concepts
 
@@ -2144,6 +2212,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.21
+Last review: 2026.08.23
 
 Back to [Yuruna](../README.md)

@@ -18,24 +18,24 @@
   --fg-muted: #6b7280;
   --fg-faint: #9ca3af;
   --border: #e5e7eb;
-  --border-input: #d1d5db;
+  --border-input: #6b7280;
   --pass-bg: #dcfce7;
-  --pass-fg: #16a34a;
+  --pass-fg: #15803d;
   --warn-bg: #fef3c7;
   --warn-fg: #b45309;
   --fail-bg: #fee2e2;
-  --fail-fg: #dc2626;
+  --fail-fg: #b91c1c;
   --pending-bg: #fef3c7;
-  --pending-fg: #ca8a04;
+  --pending-fg: #854d0e;
   --running-bg: #dbeafe;
   --running-fg: #1d4ed8;
   --link: #0366d6;
   --primary-bg: #2563eb;
   --primary-fg: #ffffff;
   --primary-hover-bg: #1d4ed8;
-  --destructive-bg: #f97316;
+  --destructive-bg: #c2410c;
   --destructive-fg: #ffffff;
-  --destructive-hover-bg: #ea580c;
+  --destructive-hover-bg: #9a3412;
   /* The --chrome-* set is the shared one: see the page-chrome block below for
      why it must not drift between the service UIs and the host status pages. */
   --chrome-bg: #111827;
@@ -45,6 +45,7 @@
   --chrome-raised: #1f2937;
   --chrome-hover: #374151;
   --chrome-input-bg: #0b1220;
+  --chrome-control-edge: #8b93a1;
   --touch-min: 2.75rem;
   --mono: ui-monospace, Menlo, Consolas, monospace;
   --font-mono: var(--mono);
@@ -62,7 +63,7 @@
     --fg-muted: #94a3b8;
     --fg-faint: #64748b;
     --border: #1f2937;
-    --border-input: #334155;
+    --border-input: #64748b;
     --pass-bg: #14532d;
     --pass-fg: #4ade80;
     --warn-bg: #78350f;
@@ -74,6 +75,8 @@
     --running-bg: #1e3a8a;
     --running-fg: #93c5fd;
     --link: #74b8ff;
+    --destructive-bg: #c2410c;
+    --destructive-hover-bg: #9a3412;
     --chrome-bg: #030712;
     --chrome-muted: #94a3b8;
     --chrome-line: #1f2937;
@@ -96,7 +99,14 @@
    (each scrolls itself). Without this pin they paint at a different size from
    the rest of the page. Prefixed form is the one Safari implements; the
    standard form covers the others. */
-html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
+       /* The footer bar is fixed at the bottom, so the browser's own
+          scroll-into-view can land a freshly focused control underneath it --
+          entirely hidden, for a compact row button. Padding on <main> reserves
+          space past the LAST element only; scroll-padding is what the focus
+          scroll itself honors. */
+       scroll-padding-bottom: 4rem;
+       scroll-padding-bottom: calc(4rem + env(safe-area-inset-bottom)); }
 
 /* The base font size belongs to `body`, never to `html`: `rem` resolves
    against the ROOT, and the page chrome above is sized entirely in rem. Setting
@@ -224,7 +234,7 @@ header.app .btn:not(.primary):hover { background: var(--chrome-raised); }
 textarea#footer-ip-list {
   flex: 1 1 auto; min-width: 0;
   font-family: var(--mono); font-size: .6875rem;
-  color: var(--chrome-muted); background: var(--chrome-input-bg); border: 1px solid var(--chrome-line);
+  color: var(--chrome-muted); background: var(--chrome-input-bg); border: 1px solid var(--chrome-control-edge);
   border-radius: 3px; padding: .15rem .35rem;
   resize: none; overflow: auto; white-space: pre;
   line-height: 1.25; vertical-align: middle;
@@ -272,6 +282,17 @@ footer.app a { color: var(--chrome-muted); }
   #footer-ips { flex-basis: 100%; max-width: 100%; }
   body.has-footer-bar main { padding-bottom: 4.5rem; padding-bottom: calc(4.5rem + env(safe-area-inset-bottom)); }
 }
+/* Footer controls that read as text. Both are real <button>s: the refresh was
+   an <a href="#"> that never navigated -- announced as a link, behaving as a
+   button, and silent to Space -- and the pause needs a pressed state, which
+   only a button has. */
+#footer-bar .linkish {
+  appearance: none; -webkit-appearance: none;
+  background: none; border: 0; padding: 0; margin: 0;
+  font: inherit; color: var(--chrome-muted);
+  text-decoration: underline; cursor: pointer;
+}
+#footer-bar .linkish[aria-pressed="true"] { color: var(--chrome-fg); font-weight: 600; }
 /* === end page chrome ====================================================== */
 
 /* The page barrier (Y.block in common.js). Covers the viewport -- header, menu
@@ -301,7 +322,7 @@ footer.app a { color: var(--chrome-muted); }
 }
 .blocking.shown .blocking-box { visibility: visible; }
 .blocking-text { margin-left: .6rem; font-size: .95rem; }
-/* A ring with one coloured quarter: it is the rotation that reads as motion, so
+/* A ring with one colored quarter: it is the rotation that reads as motion, so
    the ring has to be visibly incomplete. flex-shrink keeps it circular when the
    message beside it competes for the row. */
 .spinner {
@@ -314,9 +335,10 @@ footer.app a { color: var(--chrome-muted); }
 /* Spinning is what this element says, so a reader who asked for no motion still
    needs it to say something: it pulses in place instead of going still. */
 @media (prefers-reduced-motion: reduce) {
-  .spinner { animation: yuruna-throb 1.6s ease-in-out infinite; }
+  /* The ring keeps its colored quarter, so it still reads as "busy" from
+     shape alone -- what it stops doing is moving. */
+  .spinner { animation: none; }
 }
-@keyframes yuruna-throb { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
 
 main {
   max-width: 1100px; margin: 0 auto;
@@ -369,6 +391,15 @@ h2 { font-size: 1rem; margin: 1.75rem 0 .25rem; }
    wraps it onto a line of its own. */
 .list-head .list-action { margin-left: auto; }
 
+/* Visually hidden, still in the accessibility tree. The clip-path pattern is
+   the one that survives every engine this UI targets: display:none and
+   visibility:hidden would remove the text from the tree along with the pixels,
+   which is the opposite of what a caption is for. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+
 /* Horizontal-scroll container: the columns overflow narrow phone viewports,
    and without a wrapper the whole page scrolls sideways. */
 .table-wrap { overflow-x: auto; }
@@ -393,7 +424,7 @@ table.stashes .num { text-align: right; white-space: nowrap; }
    the column that wraps when the table is squeezed. */
 table.stashes th.pick, table.stashes td.pick,
 table.stashes td.row-actions { width: 1px; white-space: nowrap; }
-table.stashes th.pick input, table.stashes td.pick input { width: 1.15rem; height: 1.15rem; vertical-align: middle; }
+table.stashes th.pick input, table.stashes td.pick input { width: 1.5rem; height: 1.5rem; vertical-align: middle; }
 /* Default cursor over the controls: the surrounding row is clickable (it opens
    the stash), these cells are not. */
 table.stashes tr:hover td.pick, table.stashes tr:hover td.row-actions { cursor: default; }
@@ -408,11 +439,20 @@ table.stashes tr:hover td.pick, table.stashes tr:hover td.row-actions { cursor: 
    headers can be sorted is visible before anything is clicked. */
 table.stashes th button.sort {
   appearance: none; -webkit-appearance: none;
-  background: none; border: 0; padding: 0; margin: 0;
+  background: none; border: 0; margin: 0;
   font: inherit; color: inherit; cursor: pointer;
-  display: inline-flex; align-items: center; gap: 0.3rem;
+  display: inline-flex; align-items: center;
+  /* A two-character header ("ID") gives a 14x20 box with no padding, under the
+     24x24 minimum on both axes -- and the neighboring header starts close
+     enough that the undisturbed-circle exception cannot be claimed either. The
+     padding buys the target without moving the label.
+     Physical margins, not margin-inline: the logical properties are Safari
+     14.1+, and below that the padding above would shift every header right. */
+  min-height: 24px; padding: 0 0.25rem; margin-left: -0.25rem; margin-right: -0.25rem;
 }
-table.stashes th button.sort::after { content: '\2195'; font-size: 0.8em; opacity: 0.35; }
+/* The caret is spaced with its own margin rather than the button's `gap`: flex
+   gap needs Safari 14.5, and below it the arrow would sit against the label. */
+table.stashes th button.sort::after { content: '\2195'; font-size: 0.8em; opacity: 0.35; margin-left: 0.3rem; }
 table.stashes th button.sort:hover { color: var(--fg-primary); }
 table.stashes th button.sort:hover::after { opacity: 0.7; }
 table.stashes th button.sort:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; border-radius: 3px; }
@@ -429,9 +469,18 @@ table.stashes th[aria-sort="descending"] button.sort::after { content: '\25BC'; 
 .badge.local { background: var(--pass-bg); color: var(--pass-fg); }
 
 .card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
-.kv { display: grid; grid-template-columns: max-content 1fr; grid-gap: 0.25rem 1rem; gap: 0.25rem 1rem; font-size: 0.9rem; }
+/* The stash metadata list. Two aligned columns where CSS Grid is available
+   (Safari 10.1+), and the browser baseline gets the same pairs stacked -- a
+   label over its value, which is what a <dl> reads as with no layout at all.
+   The fallback is the base rule so nothing below the floor inherits a
+   half-applied grid. */
+.kv { font-size: 0.9rem; }
 .kv dt { color: var(--fg-muted); }
-.kv dd { margin: 0; font-family: var(--mono); word-break: break-all; }
+.kv dd { margin: 0 0 0.5rem; font-family: var(--mono); word-break: break-all; }
+@supports (display: grid) {
+  .kv { display: grid; grid-template-columns: max-content 1fr; grid-gap: 0.25rem 1rem; gap: 0.25rem 1rem; }
+  .kv dd { margin: 0; }
+}
 
 pre.viewer { background: var(--bg-code); padding: 0.75rem; border-radius: 6px; overflow: auto; max-height: 70vh; font-family: var(--mono); font-size: 0.85rem; white-space: pre; }
 pre.viewer.wrap { white-space: pre-wrap; word-break: break-word; }
@@ -453,14 +502,21 @@ form.create textarea { min-height: 16rem; font-family: var(--mono); font-size: 0
 
 .tabs { display: flex; margin-bottom: 0.5rem; }
 .tabs > * + * { margin-left: 0.5rem; }
-.tab { padding: 0.4rem 0.8rem; border: 1px solid var(--border-input); border-radius: 6px; cursor: pointer; background: var(--bg-elevated); }
+/* .tab is a <button>, so it needs the UA button styling reset: font: inherit
+   stops it rendering at the browser's own smaller default, and appearance: none
+   removes the native chrome that would fight the border below. */
+.tab { padding: 0.4rem 0.8rem; border: 1px solid var(--border-input); border-radius: 6px; cursor: pointer; background: var(--bg-elevated); font: inherit; color: inherit; appearance: none; -webkit-appearance: none; }
 .tab.active { background: var(--primary-bg); color: var(--primary-fg); border-color: var(--primary-hover-bg); }
 
 /* The lab-token prompt. Framed rather than inline: it is the one part of these
    pages that asks the operator for something, and it appears above content that
    renders whether or not it is answered. */
 .login { border: 1px solid var(--border); border-radius: 6px; padding: 0.8rem; margin-bottom: 1rem; background: var(--bg-elevated); }
-.login .row { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+/* Margins, not `gap`: flex gap needs Safari 14.5, and below it the field and
+   its button would touch. */
+.login .row { display: flex; flex-wrap: wrap; align-items: center; }
+.login .row > * { margin: 0.25rem 0.5rem 0.25rem 0; }
+.login .row > *:last-child { margin-right: 0; }
 .login p { margin: 0.6rem 0 0; font-size: 0.85rem; }
 .login input { min-height: var(--touch-min); padding: 0.5rem 0.6rem; border-radius: 6px; border: 1px solid var(--border-input); background: var(--bg-elevated); color: var(--fg-primary); }
 
@@ -481,6 +537,7 @@ form.create textarea { min-height: 16rem; font-family: var(--mono); font-size: 0
      primary controls shifts the page. Desktop density is untouched. */
   .toolbar input[type="search"], .toolbar input[type="text"], .toolbar select,
   form.create input[type="text"], form.create textarea { font-size: 16px; }
-  /* The tab switcher is a div, so it misses the button --touch-min rule. */
+  /* The tab switcher is a <button>, so it picks up the shared --touch-min rule
+     above; this keeps its own flex centering at the phone breakpoint. */
   .tab { min-height: var(--touch-min); display: flex; align-items: center; }
 }

@@ -101,7 +101,7 @@ func (s *Server) sweepOnce(ctx context.Context) {
 	candidates := 0
 	var toAdd []string
 	for _, h := range status.Hosts {
-		// The WIRE value. `ready` means the host holds the same lab-auth-token
+		// The WIRE value. `ready` means the host holds the same internal authentication key
 		// the proxy mints proofs from AND its clock agrees; `none`, `mismatch`,
 		// `skew`, `unknown` and an absent field (omitempty, which is what a
 		// token-less proxy produces for every host) are all non-candidates, so a

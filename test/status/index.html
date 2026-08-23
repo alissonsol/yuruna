@@ -74,7 +74,11 @@
     }
     .guest-card-header > * + * { margin-left: 1rem; }
     .guest-card-header .left { flex: 1; min-width: 0; }
-    .guest-name { font-weight: 600; font-size: .9375rem; margin-bottom: .2rem; }
+    /* Guest keys are dotted identifiers with no spaces
+       (workload.guest.ubuntu.server.24.<name>), so without an explicit break
+       they are one unbreakable token wider than a phone. The sibling
+       .sequence-name and .guest-toplevel already break the same way. */
+    .guest-name { font-weight: 600; font-size: .9375rem; margin-bottom: .2rem; word-break: break-all; }
     .guest-meta { font-size: .75rem; color: var(--fg-muted); margin-bottom: .45rem; }
     .guest-toplevel {
       font-size: .75rem; color: var(--link-strong); margin-bottom: .45rem;
@@ -99,7 +103,7 @@
       font-family: var(--font-mono); word-break: break-all;
     }
     .guest-action.paused {
-      background: var(--paused-strong-bg); color: var(--fg-header); border-color: var(--paused-strong-border);
+      background: var(--banner-paused-bg); color: var(--fg-header); border-color: var(--paused-strong-border);
     }
 
     /* A sequence card is the visual unit for one test.runner.yml entry; it
@@ -228,13 +232,14 @@
 
 <div id="banner" class="idle">
   <span class="dot"></span>
-  <span id="banner-text">Loading…</span>
+  <span id="banner-text" role="status" aria-atomic="true">Loading…</span>
   <span id="banner-dash-row">
     <a id="banner-dash" class="hidden" href="#" target="_blank" rel="noopener">Dashboards</a><span id="banner-dash-noproxy" class="hidden">No dashboard server</span>
   </span>
 </div>
 
 <main>
+  <h1 class="sr-only">Yuruna host status</h1>
 
   <!-- Shown by controlAction() when a /control/* POST is refused (403): the
        on-host operator has loopback control; a browser on another machine needs
@@ -248,9 +253,9 @@
        role="status", not an alert. -->
   <div id="host-network-notice" class="control-notice host-network-notice" role="status" hidden></div>
 
-  <section id="sec-cycle" style="display:none">
+  <section id="sec-cycle" style="display:none" aria-labelledby="sec-cycle-title">
     <div class="section-title with-controls">
-      <span id="sec-cycle-title">Latest Cycle</span>
+      <h2 id="sec-cycle-title">Latest Cycle</h2>
       <button id="cycle-pause-btn" class="meta-btn" type="button" disabled>Pause after cycle</button>
     </div>
     <div class="meta-grid">
@@ -263,17 +268,17 @@
     <div id="cycle-failure" class="cycle-failure" style="display:none"></div>
   </section>
 
-  <section id="sec-sequences" style="display:none">
+  <section id="sec-sequences" style="display:none" aria-labelledby="sec-sequences-title">
     <div class="section-title with-controls">
-      <span id="sec-sequences-title">Test sequences</span>
+      <h2 id="sec-sequences-title">Test sequences</h2>
       <button id="step-pause-btn" class="meta-btn" type="button" disabled>Pause after step</button>
     </div>
     <div id="sequence-list"></div>
   </section>
 
-  <section id="sec-history" style="display:none">
+  <section id="sec-history" style="display:none" aria-labelledby="sec-history-title">
     <div class="section-title with-controls">
-      <span id="sec-history-title">Recent Cycles</span>
+      <h2 id="sec-history-title">Recent Cycles</h2>
       <a class="section-title-link" href="performance.html">Performance</a>
     </div>
     <div class="table-wrap">
@@ -299,7 +304,7 @@
 <footer id="footer-bar">
   <span id="footer-ips"><span class="label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-label="Host IP addresses">—</textarea></span>
   <span>Loaded: <span id="last-loaded">—</span></span>
-  <span><a id="footer-refresh" href="#">Refresh</a>: <span id="countdown">60</span>s</span>
+  <span><button type="button" id="footer-refresh" class="linkish">Refresh</button>: <span id="countdown">60</span>s <button type="button" id="footer-pause" class="linkish" aria-pressed="false">Pause</button></span>
 </footer>
 
 <script src="yuruna.common.js"></script>

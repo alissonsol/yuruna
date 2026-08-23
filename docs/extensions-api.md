@@ -26,8 +26,8 @@ is discovered by existing; it adds no case to any list in the framework.
 | `caching-proxy-service` | `default`     | The **management plane** for the caching-proxy VM -- the area that made that VM self-describing instead of a hardcoded roster row. A stdlib+SDK Go daemon on `:9310` reports squid's runtime summary (via the manager API), the offline / no-upstream switch state, and zot's catalog, canary and prewarm records; it owns the two operator switches, which used to be SSH-only. Nothing that serves traffic moved: squid (`:3128`/`:3129`), zot (`:5000`), Grafana, Prometheus, Loki and the exporters are untouched. Runs either on the proxy VM (`--mode local`) or on another host that can reach those APIs (`--mode remote`, read-only -- see [below](#running-the-caching-proxy-service-from-another-host)). |
 | `stash-service`        | `default`      | Receives `scp`/`sftp`-uploaded artifacts (diagnostic bundles, screenshots) into a stash-storage-backed stash. Ships a Go daemon under [`server/`](../test/extension/stash-service/server/) (legacy SCP **and** SFTP, files on the ystash-nas share + VM-local SQLite index/sidecars) brought up by `Start-StashServiceVM` + cloud-init, plus the PowerShell wrapper `default.psm1`. |
 | `pool-aggregator-service`      | `default`      | Read-only multi-host **pool view** (`Get-PoolAggregatorServiceManifest`) plus the pool half of the service lookup below (`Get-PoolExtensionHost`). Ships a stdlib-only Go daemon that runs on the caching-proxy-service machine (pool services host): it auto-discovers pool members from the squid access log, probes each one's status service, identifies on the stable `hostId`, and pushes cycle-status transitions to Loki. See [`pool-aggregator-service/README.md`](../test/extension/pool-aggregator-service/README.md). |
-| `pool-control-service` | `default`      | The operator board for **pool configuration**: which pools exist, which hosts belong to them, which test set each one runs. Ships a stdlib-only Go daemon on its own `yuruna-pool-control-service` VM that drives the pool-intent git store by shelling out to the pool-admin CLIs, with a web UI whose mutating actions unlock with the dashboard's rotating Lab token. The PowerShell `default.psm1` is the host-side pair -- `Get-PoolControlServiceInfo` (status stub) and `Test-PoolControlServiceHost` (the `/healthz` pre-flight). See [pool-admin.md](pool-admin.md#pool-control-service). |
-| `download-agent-service`       | `default`      | Pool-wide **guest-image downloader**: a stdlib-only Go daemon on its own `yuruna-download-agent-service` VM that keeps a Download pool on the pool share fresh and serves the artifacts to hosts over HTTP, with a web UI whose mutating actions unlock with the dashboard's rotating Lab token. The PowerShell `default.psm1` is the host-side pair -- `Get-DownloadAgentServiceInfo` (status stub) and `Test-DownloadAgentServiceHost` (the `/healthz` pre-flight). See [download-agent.md](download-agent.md). |
+| `pool-control-service` | `default`      | The operator board for **pool configuration**: which pools exist, which hosts belong to them, which test-set each one runs. Ships a stdlib-only Go daemon on its own `yuruna-pool-control-service` VM that drives the pool-intent git store by shelling out to the pool-admin CLIs, with a web UI whose mutating actions unlock with the dashboard's rotating Lab token. The PowerShell `default.psm1` is the host-side pair -- `Get-PoolControlServiceInfo` (status stub) and `Test-PoolControlServiceHost` (the `/healthz` preflight). See [pool-admin.md](pool-admin.md#pool-control-service). |
+| `download-agent-service`       | `default`      | Pool-wide **guest-image downloader**: a stdlib-only Go daemon on its own `yuruna-download-agent-service` VM that keeps a Download pool on the pool share fresh and serves the artifacts to hosts over HTTP, with a web UI whose mutating actions unlock with the dashboard's rotating Lab token. The PowerShell `default.psm1` is the host-side pair -- `Get-DownloadAgentServiceInfo` (status stub) and `Test-DownloadAgentServiceHost` (the `/healthz` preflight). See [download-agent.md](download-agent.md). |
 
 ## Filesystem layout
 
@@ -60,16 +60,16 @@ test/extension/
 |   +-- caching-proxy-service.contract.yml
 |   +-- caching-proxy-service.service   # systemd unit for the in-VM Go daemon
 |   +-- go.mod                          # flat module at the area root, like its two
-|   |                                   # neighbours in the proxy VM -- that VM has no
+|   |                                   # neighbors in the proxy VM -- that VM has no
 |   |                                   # framework checkout, so cloud-init fetches the
 |   |                                   # sources file by file and builds them in place
 |   +-- main.go, squid.go, switches.go, registry.go
 |   +-- main_test.go, squid_test.go
-|   +-- default.psm1                    # host-side info stub + /healthz pre-flight
+|   +-- default.psm1                    # host-side info stub + /healthz preflight
 +-- stash-service/
 |   +-- stash-service.config.yml        # active: ['default'] + the service manifest
 |   +-- stash-service.contract.yml      # requiredFunction: the info stub, Resolve-Host,
-|   |                                   # the /healthz pre-flight, the address publisher
+|   |                                   # the /healthz preflight, the address publisher
 |   +-- server/                         # Go daemon: main.go + internal/{...}, go.mod + go.sum
 |   |                                   # (the one service module with third-party deps),
 |   |                                   # and its own README.md
@@ -88,12 +88,12 @@ test/extension/
 |   +-- pool-control-service.config.yml         # active: ['default'] + the service manifest
 |   +-- pool-control-service.contract.yml
 |   +-- server/                         # Go daemon (main.go + internal/{...}, incl. intent)
-|   +-- default.psm1                    # host-side status stub + /healthz pre-flight
+|   +-- default.psm1                    # host-side status stub + /healthz preflight
 +-- download-agent-service/
 |   +-- download-agent-service.config.yml       # active: ['default'] + the service manifest
 |   +-- download-agent-service.contract.yml     # requiredFunction: Get-DownloadAgentServiceInfo
 |   +-- server/                         # Go daemon (main.go + internal/{...}, incl. imagestore)
-|   +-- default.psm1                    # host-side status stub + /healthz pre-flight
+|   +-- default.psm1                    # host-side status stub + /healthz preflight
 +-- extension-sdk/                      # the shared Go SDK, staged beside each server/
     +-- go.mod, README.md               # at build time -- never copied into one
     +-- beacon/                         # POST /announce presence
@@ -276,10 +276,10 @@ is merely unfinished.
 `extensionTargets` -- no hardcoded block per service, so a new extension reaches
 the pool without an edit to the registration writer.
 
-### The Lab Token rule
+### The Lab token rule
 
-**Any route that changes host or pool configuration requires the lab token** --
-the shared `lab-auth-token` as a bearer, or a session unlocked with the rotating
+**Any route that changes host or pool configuration requires one of two credentials** --
+the internal authentication key as a bearer, or a session unlocked with the rotating
 6-character Lab token the *Yuruna hosts* dashboard displays. Not a
 service-local secret: one more shared string to distribute and rotate buys
 nothing a rotating pool-wide code does not already give, and it would be the
@@ -293,12 +293,12 @@ saves going back to the dashboard to copy a code off a tile to act on a
 page it just sent you to. The proof is the weakest of the three
 credentials by design -- minted for one visit, valid for minutes, and redeemable
 for nothing but a session on the service it was carried to, whereas the
-6-character code can be exchanged for the `lab-auth-token` itself.
+6-character code can be exchanged for the internal authentication key itself.
 
-A service VM is not normally given the `lab-auth-token` (nothing bakes that file
+A service VM is not normally given the internal authentication key (nothing bakes that file
 into its seed), so it usually cannot check an arriving proof itself. It asks
 `POST /api/v1/control-proof` on the aggregator, which is the same division of
-labour the 6-character code already follows: validation stays with the daemon
+labor the 6-character code already follows: validation stays with the daemon
 that owns the secret. A service that *does* hold the token verifies locally and
 makes no round trip.
 
@@ -341,7 +341,7 @@ telemetry-only ([below](#post-announce-pool-aggregator-service)).
 
 1. `test/extension/<area>/` with `<area>.config.yml` (`active:` + the `service:`
    block), `<area>.contract.yml`, and `default.psm1` exporting at least a status
-   stub and a `Test-<Name>Host` `/healthz` pre-flight.
+   stub and a `Test-<Name>Host` `/healthz` preflight.
 2. `server/` for the Go daemon. Import `beacon`, `pool` and `labgate` from
    `yuruna.com/test/extension/extension-sdk/...`; put every configuration write
    behind `gate.Require`. The SDK is staged beside `server/` at bring-up and
@@ -370,14 +370,14 @@ scoped to the script: an advanced function invoked from it runs under the same
 preference, so every helper the script calls has its NON-terminating errors
 promoted to terminating ones.
 
-Several steps are built on exactly that tolerance -- the storage pre-flight warns
+Several steps are built on exactly that tolerance -- the storage preflight warns
 and proceeds when the share does not answer, and the post-boot publish steps are
 reported-never-fatal. Under `Stop` each of those designed outcomes ends the
 bring-up instead, and its reason is left on a console that is gone by the time
 anyone reads the run log.
 
 Where a condition really must stop the script, it says so itself with an
-explicit `Write-Error` followed by `exit`, the way the pre-flight hard gates do.
+explicit `Write-Error` followed by `exit`, the way the preflight hard gates do.
 That keeps every stopping decision at the point that makes it, instead of
 spreading it across every helper the script happens to call.
 
@@ -427,7 +427,7 @@ the bring-up that bakes it.
 | Service | Variables |
 |---|---|
 | `stash-service` | `STASH_HTTP_ADDR` (`0.0.0.0:80`; set it EMPTY to disable the UI -- the script uses `-` rather than `:-` so an empty value survives), `STASH_AGGREGATOR_URL` (overrides the seeded `pool.env` value), `STASH_PRESENCE_INTERVAL`, `STASH_POOL_WINDOW_DAYS` (`30`), `STASH_BUILD_TAGS` (empty; `-tags magika` opts the image into the ONNX detection backend, which also needs the runtime and model assets vendored) |
-| `download-agent-service` | `DOWNLOAD_AGENT_HTTP_ADDR` (`0.0.0.0:80`), `DOWNLOAD_AGENT_PRESENCE_INTERVAL`, `DOWNLOAD_AGENT_AUTH_TOKEN_FILE` (`/etc/yuruna/lab-auth.token`; an absent file disables the bearer path rather than opening it) |
+| `download-agent-service` | `DOWNLOAD_AGENT_HTTP_ADDR` (`0.0.0.0:80`), `DOWNLOAD_AGENT_PRESENCE_INTERVAL`, `DOWNLOAD_AGENT_AUTH_TOKEN_FILE` (`/etc/yuruna/internal-auth.key`; an absent file disables the bearer path rather than opening it) |
 | `pool-control-service` | `POOL_CONTROL_HTTP_ADDR` (`0.0.0.0:80`), `POOL_CONTROL_PRESENCE_INTERVAL`, `POOL_CONTROL_AUTH_TOKEN_FILE`, `POOL_CONTROL_SCAN_CIDR` (empty = derive the /24 around the daemon's own address), `POOL_CONTROL_SCAN_PORT` (`8080`), `POOL_CONTROL_SCAN_INTERVAL` (`15m`; empty disables the sweep, and is spelled `0` to the daemon because an empty duration is a flag parse error -- an operator's off switch must not become a service that will not start) |
 
 `<SERVICE>_PRESENCE_INTERVAL` is the beacon cadence and defaults to `2m` in all
@@ -540,7 +540,7 @@ operator may be mid-way through reading; pool-control's each commit and push
 the pool intent store; stash's `DELETE` reaches every host's stash on the shared
 mount, not just its own; and the download agent's `ensure` route is
 **deliberately ungated** on the HTTP side, so a tool for it could not both
-mirror its route's gate and honour the rule that a mutating tool takes the lab
+mirror its route's gate and honor the rule that a mutating tool takes the lab
 token. Reconciling that contradiction comes before it gets a tool.
 
 ### Why stdio for the core, and only stdio
@@ -634,9 +634,9 @@ Two checks bracket the build, and only one of them is evidence:
   what the daemon actually reports (`/api/hostinfo`). That one is authoritative,
   and it is the check that fails a bring-up.
 
-The split is the point: the pre-flight is a prediction and the post-boot check
+The split is the point: the preflight is a prediction and the post-boot check
 is an observation, so only the second may be trusted to say a deployed service
-runs current code. The pre-flight can pass and the guest still fall back -- the
+runs current code. The preflight can pass and the guest still fall back -- the
 host address is baked at seed time and the guest reaches for it minutes into
 first boot, so a host that renumbered in between sends the fetch to the mirror
 with everything on this side looking correct.
@@ -688,7 +688,7 @@ caching-proxy service has no aggregator to ask and no pool: that source
 contributes nothing.
 
 A list rather than one answer, because only the caller can say which
-address is usable: it holds the probe (the stash pre-flight demands
+address is usable: it holds the probe (the stash preflight demands
 `/healthz`, and `Test-DownloadAgentServiceHost` gates every download-agent
 candidate the same way), it may prefer a particular subnet, and it usually has a
 site-specific last resort to append. **Every entry is a hint, never a
@@ -707,7 +707,7 @@ rather than failing it.
 
 The stash extension's `Resolve-Host` (what
 `${ext:stash-service.ResolveHost(<vm>)}` expands to) consults it last,
-after the local VM and the address the cycle's pre-flight already verified.
+after the local VM and the address the cycle's preflight already verified.
 
 #### Asking the pool directly, and why an empty answer is not one answer
 
@@ -841,7 +841,7 @@ period, and with `active=false` at shutdown, so the dashboard's Extension
 hosts row survives the owning host's status service being down (the state
 a host reboot routinely leaves behind). The route is deliberately open
 (no bearer, unlike `/ingest`) because requiring the shared
-lab-auth-token would kill the beacon exactly where it is needed.
+internal authentication key would kill the beacon exactly where it is needed.
 Containment instead:
 
 1. **Self-identity binding** -- the advertised service URL is derived from
@@ -929,7 +929,7 @@ address, not on the rebuild:
   the current one.
 
 Hosts themselves need neither: host-side consumers re-resolve the proxy on every
-run. Enrollment is separate -- a rebuilt proxy mints a new `lab-auth-token`, so
+run. Enrollment is separate -- a rebuilt proxy mints a new internal authentication key, so
 each host stays *onsite* until `Set-LabToken.ps1` re-enrolls it
 ([control-routes.md](control-routes.md#enabling-remote-control-on-a-host)).
 
@@ -958,7 +958,7 @@ Containment mirrors `/announce`, with one gate deliberately stronger:
    that host's `status.json` cannot rename itself into that host's place.
 3. **Bounded.** Same body cap and hostId charset as `/announce`.
 4. **No bearer**, for the same reason `/announce` has none -- requiring the
-   shared lab token would kill the beacon in exactly the labs that need it. The
+   internal authentication key would kill the beacon in exactly the labs that need it. The
    route relocates an existing identity and confers no control-plane capability.
 
 `400` covers a malformed body, a bad hostId or `statusPort`, an address the pool
@@ -970,11 +970,11 @@ that served a *different* hostId. `503` when `-announce-ttl` is `0`. As with
 
 The enrollment exchange: a host redeems the 6-character lab connection
 token shown on the dashboard's "Lab token" tile (body
-`{"labToken":"<6 chars>"}`) and receives the shared lab-auth-token --
+`{"labToken":"<6 chars>"}`) and receives the internal authentication key --
 `200 {"ok":true,"v":1,"salt":...,"nonce":...,"ciphertext":...,"tag":...}`;
 `400` malformed, `403` unknown/expired code, `429` per-IP throttle,
 `503` disabled. The route is open -- the caller is by definition a host
-that does not yet hold the shared token -- and contained by the
+that does not yet hold that key -- and contained by the
 short-lived rotating code (`-lab-token-rotate`, default `60s`; a
 displayed code stays redeemable for about three rotations), the
 per-address throttle, and an audit of every attempt (aggregator log +
@@ -986,7 +986,7 @@ PBKDF2-HMAC-SHA256 key over that code and a fresh salt (associated data
 host that cannot verify its TLS leaf -- the proxy's own CA signs it, and
 an enrolling host has no reason to trust that CA yet -- so nothing else
 on the path can answer the exchange and plant a token the host would
-then honor for control proofs. It also keeps the shared token off the
+then honor for control proofs. It also keeps the key off the
 wire in the clear when the proxy runs plain HTTP (no TLS leaf).
 `pwsh test/lab/Set-LabToken.ps1 -LabToken <code>` is the client
 (`Unprotect-LabTokenEnvelope` opens the envelope; a seal that does not

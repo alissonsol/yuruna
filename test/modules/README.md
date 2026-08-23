@@ -89,7 +89,7 @@ etc.). Action reference and per-host
 | Function | Purpose |
 |---|---|
 | `Resolve-CyclePlan` | Reads `project/test/test.runner.yml` and walks each top-level sequence's baseline chain to produce ordered `(topLevel, guestKey, fullChain)` entries. |
-| `Get-CyclePlanGuestList` | Deduplicated guest list in plan order -- used for pre-flight folder checks and image refresh. |
+| `Get-CyclePlanGuestList` | Deduplicated guest list in plan order -- used for preflight folder checks and image refresh. |
 | `Get-CyclePlanSequencesForGuest` | Merged `startSequences` / `workloadSequences` for a single guest across all matching plan entries (current runner contract: one VM lifecycle per unique guest). |
 
 Sequences whose name starts with `start.` route to the runner's
@@ -153,6 +153,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.21
+Last review: 2026.08.23
 
 Back to [Yuruna](../../README.md)

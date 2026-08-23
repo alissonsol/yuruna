@@ -42,7 +42,7 @@ func TestAnnounceCreatesExtensionRow(t *testing.T) {
 	// itself -- here the verdict is seeded, since these tests have no client.
 	seedExtensionHealth(s, testHostID, stashArea, "http://10.0.0.7")
 	m := httptest.NewRecorder()
-	s.handleMetrics(m, httptest.NewRequest("GET", "/metrics", nil))
+	s.handleMetrics(m, metricsRequest())
 	// The target derives from the SOURCE address (port 80 -> no port suffix);
 	// baseUrl is empty because the owning host is not in the view. goPath is the
 	// dashboard's ready-made link for the row.
@@ -143,7 +143,7 @@ func TestAnnounceLiveAnnounceBeatsStaleRegistration(t *testing.T) {
 	seedExtensionHealth(s, testHostID, stashArea, "http://10.0.0.7")
 
 	m := httptest.NewRecorder()
-	s.handleMetrics(m, httptest.NewRequest("GET", "/metrics", nil))
+	s.handleMetrics(m, metricsRequest())
 	body := m.Body.String()
 	if got := strings.Count(body, "yuruna_pool_host_extension{"); got != 1 {
 		t.Errorf("emitted %d extension rows, want exactly 1 for one (hostId, area)", got)
@@ -172,7 +172,7 @@ func TestAnnounceDisagreementIsReported(t *testing.T) {
 	seedExtensionHealth(s, testHostID, stashArea, "http://10.0.0.7")
 
 	m := httptest.NewRecorder()
-	s.handleMetrics(m, httptest.NewRequest("GET", "/metrics", nil))
+	s.handleMetrics(m, metricsRequest())
 	body := m.Body.String()
 	if !strings.Contains(body, "yuruna_pool_extension_target_disagreement{") {
 		t.Fatalf("no disagreement gauge emitted, got:\n%s", body)
@@ -196,7 +196,7 @@ func TestAnnounceNoDisagreementWhenSourcesAgree(t *testing.T) {
 	seedExtensionHealth(s, testHostID, stashArea, "http://10.0.0.7")
 
 	m := httptest.NewRecorder()
-	s.handleMetrics(m, httptest.NewRequest("GET", "/metrics", nil))
+	s.handleMetrics(m, metricsRequest())
 	if body := m.Body.String(); strings.Contains(body, "yuruna_pool_extension_target_disagreement{") {
 		t.Errorf("disagreement gauge emitted for two sources that agree, got:\n%s", body)
 	}

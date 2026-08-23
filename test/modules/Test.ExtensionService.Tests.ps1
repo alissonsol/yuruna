@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42b86905-6f08-4020-9f8c-68c7b31b76ef
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -414,6 +414,25 @@ Describe 'the caching-proxy seed fetches the sources it builds' {
             'for f in (?<files>[^;]+); do\s+wget[^\n]*\$\{YR_BASE\}test/extension/(?<area>[A-Za-z0-9._-]+)/\$f')
         Assert-True ($loops.Count -ge 2) "expected the seed's per-service fetch loops, found $($loops.Count)"
 
+        # What the daemons in this seed actually import from the shared SDK. The
+        # SDK holds packages no VM here builds -- webui ships the browser
+        # runtime for the three extension service UIs, which are separate VMs --
+        # and fetching one of those would add a wget that can fail for a file
+        # `go build` never opens.
+        $daemonAreas = @($loops | ForEach-Object { $_.Groups['area'].Value } |
+                Where-Object { $_ -ne 'extension-sdk' })
+        $importedPackages = [Collections.Generic.HashSet[string]]::new()
+        foreach ($area in $daemonAreas) {
+            $dir = [IO.Path]::Combine($script:RepoRoot, 'test', 'extension', $area)
+            if (-not (Test-Path -LiteralPath $dir)) { continue }
+            foreach ($file in (Get-ChildItem -LiteralPath $dir -File -Filter '*.go' -Recurse -ErrorAction SilentlyContinue)) {
+                foreach ($m in [regex]::Matches((Get-Content -Raw -LiteralPath $file.FullName),
+                        'yuruna\.com/test/extension/extension-sdk/(?<pkg>[A-Za-z0-9._-]+)')) {
+                    [void]$importedPackages.Add($m.Groups['pkg'].Value)
+                }
+            }
+        }
+
         foreach ($loop in $loops) {
             $area   = $loop.Groups['area'].Value
             $listed = @($loop.Groups['files'].Value -split '\s+' | Where-Object { $_ })
@@ -438,10 +457,23 @@ Describe 'the caching-proxy seed fetches the sources it builds' {
                     Where-Object { $_.Name -notlike '*_test.go' } |
                     ForEach-Object { ([IO.Path]::GetRelativePath($dir, $_.FullName)) -replace '\\', '/' })
             foreach ($name in $sources) {
+                # An SDK package nothing here imports is not this seed's to
+                # fetch. It is still covered: it has to be imported by SOME
+                # daemon to exist, and that daemon's own bring-up stages the
+                # whole SDK directory.
+                if ($area -eq 'extension-sdk' -and $name -match '/') {
+                    $pkg = ($name -split '/')[0]
+                    if (-not $importedPackages.Contains($pkg)) { continue }
+                }
                 Assert-True ($listed -contains $name) `
                     "$area : $name is part of the daemon but the seed never fetches it"
             }
         }
+
+        # The narrowing above must not be able to swallow the whole check: at
+        # least one SDK package has to be reached this way, or a seed that
+        # fetched nothing from the SDK would pass in silence.
+        Assert-True ($importedPackages.Count -gt 0) 'the daemons in this seed import no SDK package at all'
     }
 }
 
@@ -452,7 +484,7 @@ Describe 'the caching-proxy management daemon ships runnable' {
         # AF_INET/AF_INET6/AF_UNIX makes net.Interfaces() fail with "address
         # family not supported by protocol", and the daemon then reports no
         # addresses at all -- silently, because the enumeration error is folded
-        # into an empty result by design. Its two neighbours in that VM never
+        # into an empty result by design. Its two neighbors in that VM never
         # enumerate, which is why they can restrict harder.
         $unit = [IO.Path]::Combine($script:RepoRoot, 'test', 'extension', 'caching-proxy-service', 'caching-proxy-service.service')
         $text = Get-Content -Raw -LiteralPath $unit

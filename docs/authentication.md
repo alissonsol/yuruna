@@ -220,13 +220,13 @@ none of them introduces a new secret, session or trust boundary to do it.
   routes are open on the trusted LAN by design, so the tools are too.
 - The **rotating Lab token remains the human path**. Nothing about MCP mints,
   stores or forwards one; a client that wants a mutating tool presents the same
-  shared lab-auth-token an automation caller presents to the route.
+  internal authentication key an automation caller presents to the route.
 - The **core framework's stdio server holds no credential at all**, because its
   transport is the boundary: it has no listener, and a process reading one
   operator's stdin can do exactly what that operator can already do by typing
   the command themselves.
 
-The practical consequence is that revoking or rotating the lab-auth-token
+The practical consequence is that revoking or rotating the internal authentication key
 closes the MCP surface exactly as it closes the HTTP one -- there is no second
 place to look.
 
@@ -234,6 +234,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.21
+Last review: 2026.08.23
 
 Back to [Yuruna](../README.md)

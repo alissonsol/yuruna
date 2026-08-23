@@ -63,7 +63,7 @@
   # Empty: this host learns a guest's address from the Hyper-V KVP data
   # exchange service, which is answered by the hypervisor rather than by
   # anything installed in the guest, and from a MAC-keyed read of the host
-  # neighbour cache. Neither route improves with a QEMU agent, and the guest
+  # neighbor cache. Neither route improves with a QEMU agent, and the guest
   # is not running on QEMU here.
 # === YURUNA_OVERLAY_LATE_HOST_AGENT ===
     # Empty: nothing to enable -- see the package section above.

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42ba7625-4a32-4a9d-9627-423df940b755
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -55,7 +55,18 @@ function Add-YurunaLogLine {
     if (-not $global:__YurunaLogFile) { return }
     try {
         $encoded = [System.Net.WebUtility]::HtmlEncode($Text)
-        $line = "<span class=`"log-$Severity`">$encoded</span>" + [Environment]::NewLine
+        # A step rule is the one line shape in the whole transcript that marks a
+        # section boundary, so it is the only thing that can give the document an
+        # outline. Both the opening rule and its ': PASS' / ': FAIL' twin are
+        # promoted: in a failed cycle the outcome line is the one a reader most
+        # wants to jump to.
+        $class = "log-$Severity"
+        $extra = ''
+        if ($Text -match '^-+ \[\d+/\d+\] .* -+$') {
+            $class = "$class log-step"
+            $extra = ' role="heading" aria-level="2"'
+        }
+        $line = "<span class=`"$class`"$extra>$encoded</span>" + [Environment]::NewLine
         [System.IO.File]::AppendAllText($global:__YurunaLogFile, $line)
     } catch { Microsoft.PowerShell.Utility\Write-Verbose "Yuruna.Log append failed (non-fatal): $($_.Exception.Message)" }
 }

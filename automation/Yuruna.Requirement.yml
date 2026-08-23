@@ -17,6 +17,18 @@
 # rejects `\s` in double-quoted strings as an unknown escape, and
 # single-quoted YAML would force every embedded apostrophe to be
 # doubled. Block literals keep the PowerShell as-typed.
+#
+# Choosing a `version:` -- a floor is the LOWEST version that every
+# supported host's package source ships, never the newest upstream
+# release. The sources do not move together: Homebrew and winget follow
+# upstream within days, while an Ubuntu LTS archive freezes its numbers
+# at release and afterwards carries only backported fixes, so for any
+# tool apt supplies it is the binding constraint and its number is the
+# floor. Set a floor above what a platform's source can deliver and the
+# check reports a defect on a correctly provisioned machine, on every
+# run, with no installer able to clear it -- the same trap the Docker,
+# buildx and npm entries below avoid by tracking their bundling source.
+# A floor says the host is provisioned, not that it is current.
 requirements:
   - tool: "PowerShell"
     command: |-
@@ -26,12 +38,12 @@ requirements:
   - tool: "git"
     command: |-
       ((git --version) -replace '^git version ','')
-    version: "2.55.0"
+    version: "2.53.0"
     releases: "https://git-scm.com/downloads"
   - tool: "python3"
     command: |-
       ((python3 --version) -replace '^Python ','')
-    version: "3.14.7"
+    version: "3.14.4"
     releases: "https://www.python.org/downloads/"
   - tool: "OpenTofu"
     command: "($(tofu version -json) | ConvertFrom-Json).terraform_version"
@@ -103,7 +115,7 @@ requirements:
     # paren-wrapped suffix is libcurl feature noise.
     command: |-
       ((curl --version | Select-Object -First 1) -replace '\s*\(.*$','')
-    version: "curl 8.21.0"
+    version: "curl 8.18.0"
     releases: "https://curl.se/download.html"
   - tool: "wget"
     command: "(wget --version 2>$null | Select-Object -First 1)"
@@ -111,14 +123,14 @@ requirements:
     releases: "https://www.gnu.org/software/wget/"
   - tool: "tesseract"
     command: "(tesseract --version 2>&1 | Select-Object -First 1)"
-    version: "tesseract 5.5.3"
+    version: "tesseract 5.5.0"
     releases: "https://github.com/tesseract-ocr/tesseract/releases"
   - tool: "qemu-img"
     # First line is `qemu-img version X.Y.Z, Copyright (c) ... Fabrice
     # Bellard`; the Copyright tail is a constant suffix.
     command: |-
       ((qemu-img --version | Select-Object -First 1) -replace ',\s*Copyright.*$','')
-    version: "qemu-img version 11.0.3"
+    version: "qemu-img version 10.2.1"
     releases: "https://www.qemu.org/download/"
   - tool: "AWS cli"
     # `aws-cli/X.Y.Z Python/X.Y.Z OS/build prompt/...`; everything past

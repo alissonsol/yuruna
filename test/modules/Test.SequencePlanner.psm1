@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 423c7308-8393-45aa-a74f-97c52bf1c3df
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -447,7 +447,7 @@ function Get-CycleOrchestrationList {
         # `sequences:` list independently of the plan, so a subset that excludes
         # an orchestration top-level would still find it here and trip the
         # orchestration-mix plan_invalid for a cycle that was never going to run
-        # it. Absent/empty preserves the whole-file behaviour exactly.
+        # it. Absent/empty preserves the whole-file behavior exactly.
         [AllowNull()][AllowEmptyCollection()][string[]]$Sequences
     )
     $cycleCfg = Get-CycleConfig -RepoRoot $RepoRoot

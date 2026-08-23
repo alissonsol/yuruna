@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Version: 2026.08.21
+# Version: 2026.08.23
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -61,11 +61,11 @@ HTTP_ADDR="${POOL_CONTROL_HTTP_ADDR:-0.0.0.0:80}"
 # address, so a cadence slower than the grace leaves the area unresolvable
 # between the refusal of the old address and the next announce.
 PRESENCE_INTERVAL="${POOL_CONTROL_PRESENCE_INTERVAL:-2m}"
-# The lab-auth token opens the bearer path on the routes that change pool
+# The internal authentication key opens the bearer path on the routes that change pool
 # configuration, for automation. Absent file => bearer disabled; an operator
 # unlocking with the dashboard's Lab token is then the only way in, and a change
 # with neither is refused rather than running ungated.
-AUTH_TOKEN_FILE="${POOL_CONTROL_AUTH_TOKEN_FILE:-/etc/yuruna/lab-auth.token}"
+AUTH_TOKEN_FILE="${POOL_CONTROL_AUTH_TOKEN_FILE:-/etc/yuruna/internal-auth.key}"
 # Network discovery: the sweep that finds Yuruna hosts nobody registered and adds
 # them to the monitored list. An empty CIDR leaves the daemon to derive the /24
 # around its own address, which is right whenever the service shares a subnet
@@ -236,8 +236,8 @@ echo -e "\e[1;36m==== Building pool-control-service ($VERSION_STR) from $SERVER_
 BUILD=/tmp/pool-control-service-build
 rm -rf "$BUILD"; mkdir -p "$BUILD"; cp -r "$SERVER_DIR" "$BUILD/server"
 # The SDK is a SEPARATE Go module, staged as a sibling of server/ because
-# go.mod resolves it with `replace ... => ../extension-sdk`. It used to be
-# mirrored INTO server/internal/yex, which meant thousands of duplicated
+# go.mod resolves it with `replace ... => ../extension-sdk`. Mirroring it
+# INTO server/internal/yex instead would mean thousands of duplicated
 # lines and a copy that could silently fork. A go.work file is no substitute
 # HERE: only the two directories staged below are copied into the build dir,
 # so a workspace file living in the enlistment never reaches this build.

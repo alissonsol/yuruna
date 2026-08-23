@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 4238dc49-0c94-4ba6-a7be-b24343a6ca42
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -368,7 +368,7 @@ function Write-YurunaPoolManifest {
     if ([string]::IsNullOrWhiteSpace($runtimeDir)) { return $false }
     $path = Join-Path $runtimeDir 'pool.manifest.json'
     $testSet = if ($Pool -is [System.Collections.IDictionary]) { $Pool['testSet'] } else { $null }
-    # Defence in depth for the target-pool rule. Test-PoolIntent and
+    # Defense in depth for the target-pool rule. Test-PoolIntent and
     # Set-PoolTestSet both refuse a testSet on the auto-enrollment target pool,
     # but neither runs on this host: a hand-edited store, or one written before
     # the rule existed, would otherwise reach here and repoint the host. Ignore
@@ -519,7 +519,7 @@ function Sync-YurunaPoolIntent {
     # Publish (or clear, when this host is unpooled / the pool has no
     # test-sets) the resolved test-set assignment for the inner runner.
     # The target-pool id is read from the same parsed document so the manifest
-    # writer can refuse a testSet on it (defence in depth -- neither the admin
+    # writer can refuse a testSet on it (defense in depth -- neither the admin
     # CLI nor Test-PoolIntent runs on this host).
     $autoTarget = if (($intent -is [System.Collections.IDictionary]) -and $intent['autoEnrollment']) { [string]$intent['autoEnrollment']['targetPoolId'] } else { '' }
     $null = Write-YurunaPoolManifest -Pool $pool -AutoEnrollTargetPoolId $autoTarget -Confirm:$false

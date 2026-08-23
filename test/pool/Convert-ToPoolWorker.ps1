@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 423d3dd4-8e4d-441b-9914-81735aaf24c6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,7 +40,7 @@
 
     Hence this script, in order:
 
-      1. Pre-flight   -- reference host reachable, shared token available.
+      1. Pre-flight   -- reference host reachable, internal authentication key available.
       2. Sync         -- test/lab/Sync-HostConfiguration.ps1, with the credential
                          convergence made mandatory.
       3. Teardown     -- every local service VM retired through its own
@@ -60,12 +60,12 @@
       7. Verify       -- test/Test-Config.ps1, then the question it cannot
                          answer: is the end state actually a worker.
 
-    The shared lab-auth-token is REQUIRED. Without one nothing can be fetched
+    The internal authentication key is REQUIRED. Without one nothing can be fetched
     from the reference, and the vault entries this machine minted for the shares
     it used to serve itself would survive the conversion -- a password the lab's
     NAS has never seen, on a host whose configuration now points at that NAS.
     That failure surfaces later as a mount error nobody connects to this step.
-    Enroll first with test/lab/Set-LabToken.ps1, or pass -SharedToken.
+    Enroll first with test/lab/Set-LabToken.ps1, or pass -InternalAuthKey.
 
     Step 5 is the one whose necessity is least visible. A standalone machine
     mounts its own shares at exactly the mount points the synced configuration
@@ -96,8 +96,8 @@
 .PARAMETER StatusPort
     The reference host's status-service port. Default 8080.
 
-.PARAMETER SharedToken
-    The raw shared lab-auth-token. Omit it when this host is already enrolled
+.PARAMETER InternalAuthKey
+    The raw internal authentication key. Omit it when this host is already enrolled
     (test/lab/Set-LabToken.ps1 stores it); this is the path for when the aggregator
     is unreachable and the token has to be carried by hand.
 
@@ -137,7 +137,7 @@
     # Every step rehearsed, nothing changed.
 
 .EXAMPLE
-    pwsh test/pool/Convert-ToPoolWorker.ps1 -ReferenceHost 192.168.7.12 -SharedToken '<raw>' -Force
+    pwsh test/pool/Convert-ToPoolWorker.ps1 -ReferenceHost 192.168.7.12 -InternalAuthKey '<raw>' -Force
     # Aggregator unreachable, token carried by hand, unattended.
 
 .NOTES
@@ -147,7 +147,7 @@
 #>
 
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
-    'PSAvoidUsingPlainTextForPassword', 'SharedToken',
+    'PSAvoidUsingPlainTextForPassword', 'InternalAuthKey',
     Justification = 'Forwarded as the plaintext vault stores it, to a sync that takes it the same way; only its HMAC proof crosses the wire.')]
 [CmdletBinding(SupportsShouldProcess)]
 param(
@@ -156,7 +156,7 @@ param(
     [string]$ReferenceHost,
 
     [Parameter()][int]$StatusPort = 8080,
-    [Parameter()][string]$SharedToken = '',
+    [Parameter()][Alias('SharedToken')][string]$InternalAuthKey = '',
     [switch]$KeepCachingProxy,
     [switch]$KeepLocalShares,
     [switch]$SkipValidation,
@@ -265,23 +265,23 @@ Write-Information "  Reference host $ReferenceHost is serving its configuration.
 
 # The token is resolved here rather than left to the sync, because THIS script
 # treats its absence as fatal and the sync does not. Order matches the sync's:
-# an explicit -SharedToken wins, else this host's own stored lab-auth-token.
-$token = $SharedToken
-$tokenSource = 'the -SharedToken parameter'
+# an explicit -InternalAuthKey wins, else this host's own stored key.
+$token = $InternalAuthKey
+$tokenSource = 'the -InternalAuthKey parameter'
 if (-not $token) {
-    $token = Get-LabAuthTokenValue
+    $token = Get-InternalAuthKeyValue
     $tokenSource = "this host's vault"
 }
 if (-not $token) {
     Write-Error (
-        "This host holds no shared lab-auth-token, so the credentials for the lab's shares cannot be fetched from $ReferenceHost.`n" +
+        "This host holds no internal authentication key, so the credentials for the lab's shares cannot be fetched from $ReferenceHost.`n" +
         "Without them the conversion would leave the passwords this machine minted for the shares it served ITSELF -- which the lab's`n" +
         "storage has never seen -- and the mount would fail later with a credential error.`n" +
         "Enroll first:  pwsh test/lab/Set-LabToken.ps1 -LabToken <code from the Yuruna hosts dashboard>`n" +
-        "or pass the raw token:  -SharedToken '<value>'")
+        "or pass the raw key:  -InternalAuthKey '<value>'")
     exit 1
 }
-Write-Information "  Shared lab-auth-token available (from $tokenSource)." -InformationAction Continue
+Write-Information "  Internal authentication key available (from $tokenSource)." -InformationAction Continue
 
 # A reference that cannot serve credentials fails the run for the same reason:
 # the sync would degrade to prompting, and under -NonInteractive to keeping the
@@ -426,7 +426,7 @@ if (-not $Force -and -not $NonInteractive -and -not $WhatIfPreference) {
     Write-Information '' -InformationAction Continue
     $answer = (Read-Host 'Proceed? [y/N]').Trim()
     if ($answer -notmatch '^(y|yes)$') {
-        Write-Information 'Cancelled; nothing was changed.' -InformationAction Continue
+        Write-Information 'Canceled; nothing was changed.' -InformationAction Continue
         exit 0
     }
 }
@@ -436,7 +436,7 @@ if (-not $Force -and -not $NonInteractive -and -not $WhatIfPreference) {
 # conversion gets the per-host conversion, the elevation checks, and the
 # freshness gate exactly as an operator running the sync by hand would.
 #
-# -SharedToken is passed explicitly even when it came from this host's own vault:
+# -InternalAuthKey is passed explicitly even when it came from this host's own vault:
 # the sync would find it again, but passing it makes the value this script
 # pre-flighted the value the sync uses, so the two cannot disagree about which
 # token the run is built on. Supplying it also makes the sync store it in this
@@ -464,7 +464,7 @@ $syncScript = Join-Path $TestRoot 'lab/Sync-HostConfiguration.ps1'
 $syncArgs = @{
     ReferenceHost              = $ReferenceHost
     StatusPort                 = $StatusPort
-    SharedToken                = $token
+    InternalAuthKey            = $token
     RequireReferenceCredential = $true
     SkipValidation             = $true
 }
@@ -655,7 +655,7 @@ if ($SkipValidation) {
 $unconverged = @()
 $syncCredentials = @(Sync-ConfigSyncVaultCredential -RepoRoot $RepoRoot -NetworkStorage `
     $(if ($config -is [System.Collections.IDictionary] -and $config['networkStorage'] -is [System.Collections.IDictionary]) { $config['networkStorage'] } else { @{} }) `
-    -ReferenceHost $ReferenceHost -Port $StatusPort -SharedToken $token `
+    -ReferenceHost $ReferenceHost -Port $StatusPort -InternalAuthKey $token `
     -NonInteractive:$NonInteractive -RequireReferenceValue)
 foreach ($credential in $syncCredentials) {
     if (-not $credential.Converged) { $unconverged += [string]$credential.User }

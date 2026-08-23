@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 4292b140-f5e0-474e-8de4-bb7e802db56d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -72,7 +72,7 @@ $script:GuestSshUserOverrides = Get-Variable -Name 'YurunaGuestSshUserOverrides'
 #
 # This is the last word in address discovery, not the first. Every other source
 # is a report about the guest -- the agent's, the lease database's, the kernel
-# neighbour table's -- and each can decline. A proven address is different in
+# neighbor table's -- and each can decline. A proven address is different in
 # kind: ssh completed a key exchange with the guest there. That does not make it
 # current (the guest may have moved since), which is why it is consulted only
 # when every discovery rung has declined, where today the harness dials the bare
@@ -514,14 +514,19 @@ $true if Get-GuestAddress returned a real, validated IPv4 during the wait.
 The final probe's combined stdout+stderr (or the probe-timeout note).
 .OUTPUTS
 System.String -- one of: auth_denied, connection_refused, host_key_changed,
-probe_timeout, ip_not_discovered, name_unresolved, network_unreachable,
-handshake_failed.
+probe_timeout, ip_not_discovered, ip_never_answered, name_unresolved,
+network_unreachable, handshake_failed.
 #>
     [CmdletBinding()]
     [OutputType([string])]
     param(
         [bool]$IpDiscovered,
-        [string]$LastError
+        [string]$LastError,
+        # $true once anything at the discovered address answered: a handshake, a
+        # refusal, an auth denial, a host-key complaint. Any of them proves the
+        # address belongs to something that is listening. Discovery producing an
+        # address proves only that a record of one exists.
+        [bool]$IpAnswered
     )
     $e = if ($LastError) { $LastError } else { '' }
     # 1. Evidence we reached sshd -- the true cause regardless of IP discovery.
@@ -541,6 +546,18 @@ handshake_failed.
     if (-not $IpDiscovered)                                                  { return 'ip_not_discovered' }
     # 3. A real IP, but the network path to it never came up.
     if ($e -match 'Could not resolve|Name or service not known|nodename nor servname') { return 'name_unresolved' }
+    # An address that never answered ANYTHING is a different fault from a live
+    # address whose path broke, and the two send a reader to different machines.
+    # A lease table can hold several addresses for one guest -- a rebuilt guest
+    # takes a new one and the old rows stay until they expire -- so an address
+    # can be discovered, unexpired, and belong to a machine that no longer
+    # exists. This does not prove the discovery was stale rather than the path
+    # broken; it says only that nothing ever replied on what was handed over,
+    # which is the point at which the address's provenance is worth reading
+    # before the network is.
+    if (-not $IpAnswered -and $e -match 'No route to host|Network is unreachable|Connection timed out|Operation timed out|timed out') {
+        return 'ip_never_answered'
+    }
     if ($e -match 'No route to host|Connection timed out|Operation timed out|timed out') { return 'network_unreachable' }
     return 'handshake_failed'
 }
@@ -552,6 +569,15 @@ Polls a guest VM until it accepts an SSH connection with the yuruna harness key.
 .DESCRIPTION
 Handshakes all the way to an authenticated shell (not just TCP/22) by running a
 trivial `echo` and matching its output. Returns $false if the deadline elapses.
+
+When a host driver is loaded (Get-VMState resolvable) the wait also samples the
+VM's run state: a definitive 'stopped' fails fast with cause 'vm_not_running'
+instead of burning the whole budget to conclude 'ip_not_discovered' -- a VM
+that is not running cannot answer ssh, and the stopped state (hypervisor died,
+forced stop, never started) is the finding the operator needs, not a discovery
+timeout. 'absent' and 'unknown' do NOT short-circuit: 'absent' is what the
+local driver reports for a plain hostname/IP target or a VM living on another
+pool host, and 'unknown' is an unevaluable probe -- both proceed normally.
 .PARAMETER VMName
 Hostname or IP the VM is reachable by from this host.
 .PARAMETER GuestKey
@@ -583,6 +609,11 @@ System.Boolean. $true if SSH became ready, $false on timeout.
     # "KVP/DHCP/utmctl never reported an address" wait from a genuine sshd/auth
     # fault when the gate fails (drives Get-SshReadinessFailureCause below).
     $ipEverDiscovered = $false
+    # Set the first time anything replies at the discovered address. Discovery
+    # producing an address and something owning that address are different
+    # facts, and only this one narrows a dead dial to the network rather than
+    # to where the address came from.
+    $ipEverAnswered = $false
     # Per-probe wall-clock cap; ssh has no timeout of its own past TCP setup.
     # --- REGION: https://yuruna.link/memory#why-the-ssh-readiness-probe-runs-in-process-with-its-own-wall-clock-cap
     $probeCapSeconds = 15
@@ -592,7 +623,20 @@ System.Boolean. $true if SSH became ready, $false on timeout.
     # the longer wait on a slow guest.
     $earlyPollSeconds = 1
     $earlyAttemptThreshold = 3
+    # Host-driver run-state gate (see .DESCRIPTION). Sampled on entry and then
+    # every $vmStatePollSeconds so a VM that dies mid-wait is caught too; the
+    # cadence keeps the driver query (utmctl / virsh / Get-VM) off the hot
+    # 1-second early-poll path.
+    $vmStateCmd         = Get-Command Get-VMState -ErrorAction SilentlyContinue
+    $vmState            = ''
+    $vmStatePollSeconds = 30
+    $vmStateCheckAt     = Get-Date
     while ((Get-Date) -lt $deadline) {
+        if ($vmStateCmd -and (Get-Date) -ge $vmStateCheckAt) {
+            $vmStateCheckAt = (Get-Date).AddSeconds($vmStatePollSeconds)
+            try { $vmState = [string](& $vmStateCmd -VMName $VMName) } catch { $vmState = '' }
+            if ($vmState -eq 'stopped') { break }
+        }
         $attempts++
         $thisPollSeconds = if ($attempts -le $earlyAttemptThreshold) { $earlyPollSeconds } else { $PollSeconds }
         # Re-resolve each iteration: on Hyper-V the IP may not be reported
@@ -679,6 +723,12 @@ System.Boolean. $true if SSH became ready, $false on timeout.
                 return $true
             }
             $lastError = $resultText.Trim()
+            # A refusal, an auth denial or a host-key complaint all come from
+            # something that accepted the connection, so each one proves the
+            # address is owned by a live machine just as firmly as a handshake.
+            if ($lastError -match 'Permission denied|publickey|Too many authentication|Connection refused|Host key verification failed|REMOTE HOST IDENTIFICATION') {
+                $ipEverAnswered = $true
+            }
         }
         # Poll before the next attempt, but never sleep past the deadline:
         # TimeoutSeconds is a hard wall-clock bound, so clamp the sleep to the
@@ -696,13 +746,24 @@ System.Boolean. $true if SSH became ready, $false on timeout.
     # repeats for every diagnostic capture on a guest whose sshd is unreachable.
     # The structured ssh_handshake_failed event below is the durable signal;
     # raise the log level when actually debugging a handshake.
-    $cause = Get-SshReadinessFailureCause -IpDiscovered $ipEverDiscovered -LastError $lastError
+    if ($vmState -eq 'stopped') {
+        $cause = 'vm_not_running'
+        if (-not $lastError) { $lastError = "host driver reports VM state 'stopped'" }
+    } else {
+        $cause = Get-SshReadinessFailureCause -IpDiscovered $ipEverDiscovered -LastError $lastError -IpAnswered $ipEverAnswered
+    }
     Write-Verbose "SSH did not become ready within ${TimeoutSeconds}s (${attempts} attempts): $user@$lastTarget"
-    Write-Verbose "  cause         : $cause (ipDiscovered=$ipEverDiscovered)"
+    Write-Verbose "  cause         : $cause (ipDiscovered=$ipEverDiscovered, ipAnswered=$ipEverAnswered)"
     Write-Verbose "  last ssh error: $lastError"
     Write-Verbose "  private key   : $key"
 
-    if ($cause -eq 'ip_not_discovered') {
+    if ($cause -eq 'vm_not_running') {
+        # The VM is not running, so sshd/auth/discovery dumps would all
+        # re-document the same absence. Point at the machine-level fact.
+        Write-Verbose "  the host driver reports this VM 'stopped' -- sshd cannot answer while"
+        Write-Verbose "  the VM is down. Start (or resume) the VM and look at WHY it stopped"
+        Write-Verbose "  (hypervisor app crash, forced stop, never started) before debugging ssh."
+    } elseif ($cause -eq 'ip_not_discovered') {
         # Never resolved a guest IP and never reached sshd: a host-side
         # discovery wait (KVP integration services / DHCP lease / utmctl
         # ip-address still empty), not an sshd or auth fault. The pubkey / ACL
@@ -776,7 +837,8 @@ System.Boolean. $true if SSH became ready, $false on timeout.
     # regex-parse the Write-Warning stream. `cause` is the granular
     # discriminator (ip_not_discovered vs auth_denied vs connection_refused
     # ...) whose remediations differ; `ipDiscovered` says whether the wait
-    # ever saw a real address. lastError carries the final probe output;
+    # ever saw a real address and `ipAnswered` whether anything replied at it.
+    # lastError carries the final probe output;
     # attempts / timeout pin down whether the gate was time- or attempt-bounded.
     Send-CycleEventSafely -EventRecord @{
         timestamp        = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
@@ -791,6 +853,14 @@ System.Boolean. $true if SSH became ready, $false on timeout.
         lastError        = [string]$lastError
         cause            = [string]$cause
         ipDiscovered     = [bool]$ipEverDiscovered
+        # Whether anything ever replied at that address. An address that was
+        # discovered and never answered is the shape where the address's
+        # provenance is worth reading before the network is.
+        ipAnswered       = [bool]$ipEverAnswered
+        # Host-driver run state at the last sample ('' when no driver is
+        # loaded): lets a reader separate "VM down" from every network-shaped
+        # cause without reconstructing it from host diagnostics.
+        vmState          = [string]$vmState
         failureClass     = 'network_timeout'
         severity         = 'soft'
     }
@@ -1090,7 +1160,7 @@ with a different owner, that is likewise invisible in the exit status.
     }
     # Every rung declined. Before falling back to the bare name, try the address
     # ssh last authenticated to for this guest: a renumbering host is exactly
-    # where discovery goes quiet -- the neighbour sweep needs a host prefix the
+    # where discovery goes quiet -- the neighbor sweep needs a host prefix the
     # host is in the middle of changing -- and on this path the alternative is a
     # getaddrinfo failure that names nothing about the real fault.
     if (-not $addressResolved) {
@@ -1582,7 +1652,7 @@ resolution falls back to when it discovers nothing) selects the "unknown" text.
 .PARAMETER Command
 The remote command to run.
 .PARAMETER VMName
-The VM name, used both to recognise the resolution fallback and to build the
+The VM name, used both to recognize the resolution fallback and to build the
 lookup hints.
 .OUTPUTS
 System.String. Either one runnable ssh line, or a short block naming the guest
@@ -1623,11 +1693,11 @@ as unresolved and how to resolve it.
         # construction on a bridged guest with no in-band agent: the lease source
         # needs libvirt to be the DHCP server, and the agent source needs
         # qemu-guest-agent inside the guest. When both say nothing, the MAC from
-        # the domain XML matched in the host neighbour table is the identity that
+        # the domain XML matched in the host neighbor table is the identity that
         # still holds -- and a FAILED entry there carries no address at all,
         # which is why it can look like the guest does not exist.
         $lines += "  virsh -c qemu:///system domifaddr --source agent '$vm'   # silent unless qemu-guest-agent is installed"
-        $lines += "  virsh -c qemu:///system domifaddr --source arp '$vm'     # passive: only while the host has a neighbour entry"
+        $lines += "  virsh -c qemu:///system domifaddr --source arp '$vm'     # passive: only while the host has a neighbor entry"
         $lines += "  virsh -c qemu:///system dumpxml '$vm' | grep -o `"mac address='[^']*'`""
         $lines += '  ip -4 neigh show              # the entry with that MAC is the guest; FAILED/INCOMPLETE carry no address'
     }
@@ -1647,9 +1717,9 @@ network. A bridged guest has no lease on this host and, without an in-band
 agent, nothing to ask; a lease keyed on a name that a rebuilt VM reuses is
 discarded rather than trusted. The MAC is the identity that stays true through
 all of that: it is fixed when the VM is defined and is what the guest puts on
-the wire, so a neighbour entry carrying it is this VM and no other.
+the wire, so a neighbor entry carrying it is this VM and no other.
 
-Rungs, cheapest first: the ordinary lookup; then warming the host's neighbour
+Rungs, cheapest first: the ordinary lookup; then warming the host's neighbor
 cache through the driver and repeating it, which is the portable rung and works
 on all three hosts; then UTM's Shared-NAT subnet, which is the one candidate a
 host-subnet sweep cannot reach.
@@ -1687,7 +1757,7 @@ System.String. An IPv4 address, or '' when the guest could not be identified.
     if ($address -and $address -ne $VMName) { return $address }
 
     # The portable rung, and the one that works on every host: ask the driver to
-    # warm the host's neighbour cache, then re-run the ordinary lookup. Every
+    # warm the host's neighbor cache, then re-run the ordinary lookup. Every
     # driver's address discovery includes a MAC-keyed read of that cache, so
     # warming it is exactly what turns a silent lookup into an answering one --
     # and both halves are contract verbs, so this needs no per-host branch.

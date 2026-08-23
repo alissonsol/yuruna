@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42630144-53bf-4e35-a4c0-971c1bcc65a0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -242,7 +242,7 @@ if (-not $Force -and -not $WhatIfPreference) {
     Write-Information '' -InformationAction Continue
     $answer = (Read-Host 'Proceed? [y/N]').Trim()
     if ($answer -notmatch '^(y|yes)$') {
-        Write-Information 'Cancelled; nothing was changed.' -InformationAction Continue
+        Write-Information 'Canceled; nothing was changed.' -InformationAction Continue
         exit 0
     }
 }

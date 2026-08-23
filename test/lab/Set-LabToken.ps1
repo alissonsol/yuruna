@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42267d15-1bc0-481c-b068-2bb6d74f5ffb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,12 +19,12 @@
 <#
 .SYNOPSIS
     Enroll THIS host in the lab: redeem the dashboard's Lab token for the
-    shared lab-auth-token and store it in the host vault (idempotent).
+    internal authentication key and store it in the host vault (idempotent).
 .DESCRIPTION
     The Yuruna hosts dashboard (Grafana on the caching-proxy service) shows a "Lab
     token" tile with a 6-character code that rotates about once a minute.
     This script redeems that code at the pool-aggregator service's
-    POST /api/v1/lab-token, receives the shared lab-auth-token, and stores it
+    POST /api/v1/lab-token, receives the internal authentication key, and stores it
     in this host's vault -- enabling the status-service control routes (the
     Grafana deep-link control proofs) and cross-host config-sync. The secret
     itself never has to be read off the proxy or typed by the operator.
@@ -108,7 +108,7 @@ if ($code -notmatch '^[a-z0-9]{6}$') {
 
 # The authentication extension supplies Set-Password / Set-UserVaultKey /
 # Test-VaultEntry; Test.ConfigServiceSync supplies the exchange client and the
-# Set-LabAuthToken orchestrator; Test.CachingProxyService resolves the aggregator
+# Set-InternalAuthKey orchestrator; Test.CachingProxyService resolves the aggregator
 # address. -Global -Force mirrors Import-Extension so a nested import does
 # not evict the module from the global scope.
 Write-Information 'Importing the authentication extension and the config-sync module ...' -InformationAction Continue
@@ -169,11 +169,11 @@ $candidates = if ($baseUrl) {
 }
 
 if ($WhatIfPreference) {
-    Write-Information "What if: would redeem Lab token '$code' at $($candidates[0])/api/v1/lab-token and store the returned lab-auth-token in this host's vault." -InformationAction Continue
+    Write-Information "What if: would redeem Lab token '$code' at $($candidates[0])/api/v1/lab-token and store the returned internal authentication key in this host's vault." -InformationAction Continue
     exit 0
 }
 
-# --- REGION: Redeem the code for the shared token
+# --- REGION: Redeem the code for the internal authentication key
 $verdict = $null
 foreach ($base in $candidates) {
     Write-Information "Redeeming the Lab token at $base/api/v1/lab-token ..." -InformationAction Continue
@@ -187,12 +187,12 @@ if (-not $verdict -or -not $verdict.Ok) {
     Write-Error $verdict.Error
     exit 1
 }
-Write-Information 'Lab token accepted; storing the shared lab-auth-token in this host''s vault.' -InformationAction Continue
+Write-Information 'Lab token accepted; storing the internal authentication key in this host''s vault.' -InformationAction Continue
 
-# --- REGION: Store + verify (the vault provisioning Set-LabAuthToken owns)
+# --- REGION: Store + verify (the vault provisioning Set-InternalAuthKey owns)
 $persistArgs = @{ Token = $verdict.Token; BounceStatusService = [bool]$BounceStatusService }
 if ($PSBoundParameters.ContainsKey('Confirm')) { $persistArgs['Confirm'] = $PSBoundParameters['Confirm'] }
-$provision = Set-LabAuthToken @persistArgs
+$provision = Set-InternalAuthKey @persistArgs
 
 # --- REGION: Bind this host to the lab proxy
 # Persist an operator-supplied address into vmStart.cachingProxyIp -- the key
@@ -292,7 +292,7 @@ if ($provision.ok -and $proxyAddress -and -not $NoPoolConfig) {
 
 $took = "{0:N1}s" -f $elapsed.Elapsed.TotalSeconds
 if ($provision.ok) {
-    $msg = "Done in ${took}: lab-auth-token stored and verified (vaultKey '$($provision.vaultKey)')."
+    $msg = "Done in ${took}: internal authentication key stored and verified (vaultKey '$($provision.vaultKey)')."
     if ($provision.bounced) {
         $msg += ' Status service restarted, so the token is live now.'
     } elseif ($BounceStatusService) {
@@ -304,5 +304,5 @@ if ($provision.ok) {
     exit 0
 }
 
-Write-Error "lab-auth-token provisioning did not verify after ${took} (keyChanged=$($provision.keyChanged), verified=$($provision.verified)). The token is not usable for control proofs on this host."
+Write-Error "Internal authentication key provisioning did not verify after ${took} (keyChanged=$($provision.keyChanged), verified=$($provision.verified)). The key is not usable for control proofs on this host."
 exit 1

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42311ad0-61e0-4919-8d94-c9e0e25c84a4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -414,7 +414,7 @@ function Get-FailureEventData {
     # Base URL precedence:
     #   1. $env:YURUNA_STATUS_PUBLIC_URL -- explicitly published reachable
     #      address (operator sets this on hosts whose dashboard is
-    #      exposed via a reverse proxy, a tunnelled hostname, or a LAN
+    #      exposed via a reverse proxy, a tunneled hostname, or a LAN
     #      IP). An off-host LLM remediator can follow the link.
     #   2. http://<HOST_FQDN>:<statusService.port> -- best guess from the
     #      cycle's recorded hostname + the running status service port,

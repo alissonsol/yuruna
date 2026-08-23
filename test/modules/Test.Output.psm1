@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42c69a51-1c69-4dba-ad62-2dda7b368e9c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -227,9 +227,9 @@ function Write-Summary {
         }
         if ($allWarns.Count -gt 0) {
             Write-Output ""
-            Write-Output "============================================================"
+            Write-Output "========"
             Write-Output "  WARNINGS ($($allWarns.Count)) -- advisory; the cycle can still start:"
-            Write-Output "============================================================"
+            Write-Output "========"
             $wi = 0
             foreach ($wentry in $allWarns) {
                 $wi++
@@ -238,16 +238,16 @@ function Write-Summary {
                 Write-Output ("        {0}" -f $wentry.Message)
             }
             Write-Output ""
-            Write-Output "============================================================"
+            Write-Output "========"
             Write-Output "  END OF WARNINGS ($($allWarns.Count))"
-            Write-Output "============================================================"
+            Write-Output "========"
         }
     }
     if ($script:State.FailCount -gt 0) {
         Write-Output ""
-        Write-Output "============================================================"
+        Write-Output "========"
         Write-Output "  FAILURES ($($script:State.FailCount)) -- the cycle gate refuses to start until these are resolved:"
-        Write-Output "============================================================"
+        Write-Output "========"
         $i = 0
         foreach ($f in $script:State.Failures) {
             $i++
@@ -268,9 +268,9 @@ function Write-Summary {
             }
         }
         Write-Output ""
-        Write-Output "============================================================"
+        Write-Output "========"
         Write-Output "  END OF FAILURES ($($script:State.FailCount))"
-        Write-Output "============================================================"
+        Write-Output "========"
     }
 }
 

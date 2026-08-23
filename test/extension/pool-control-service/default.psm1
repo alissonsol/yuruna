@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42ef1927-b8ef-4eaa-b7e6-2dd5a5a5af5f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -61,7 +61,7 @@ function Test-PoolControlServiceHost {
         Reachability probe for a pool-control service: GET http://<address>/healthz.
     .DESCRIPTION
         /healthz is served unconditionally -- neither the lab-token unlock nor
-        the lab-auth token gates it -- and answers even when the intent store is
+        the internal authentication key gates it -- and answers even when the intent store is
         unreadable. A candidate that passes is one whose daemon is alive and
         whose address this host can route to, which is exactly what a caller
         needs before committing to an endpoint. Whether the intent store is

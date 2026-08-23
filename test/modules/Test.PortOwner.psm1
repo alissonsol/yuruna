@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 4238bc78-c11a-402a-968a-b632c68efcf0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -549,7 +549,7 @@ function Invoke-PortTakeover {
         [hashtable] @{
             Attempted = [bool]    # a takeover was actually tried
             Freed     = [bool]    # the port is bindable now
-            Stopped   = [int[]]   # PIDs signalled
+            Stopped   = [int[]]   # PIDs signaled
             Detail    = [string]  # why it did not free the port, for the banner
         }
     #>

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 4233bb36-0ed5-4529-acff-23258b23fec0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -138,7 +138,18 @@ function Test-RepoFreshness {
     try {
         $fetch = Invoke-GitNetworkCommand -GitArgs @('-C', $Path, 'fetch', '--quiet') -TimeoutSeconds 60
         if ($fetch.ExitCode -ne 0) {
-            Write-Warn "${Label}: git fetch failed (offline, or the remote needs credentials this host does not have); cannot determine staleness."
+            if (Test-GitRemoteAuthFailure -Output $fetch.Output) {
+                # "offline, or maybe credentials" reads as an ambient condition to
+                # wait out. A refused credential is neither ambient nor
+                # self-healing, and it takes down every other remote-touching
+                # check in the same report -- so name it, with the fix, rather
+                # than leaving a reader to guess which half of an either/or they
+                # are in.
+                $remedy = (@(Get-GitAuthRefreshRemedy) -join '; ')
+                Write-Warn "${Label}: git fetch was REFUSED -- the remote rejected this host's GitHub credential, so staleness is unknown (and every other check here that reaches a remote will fail the same way). Refresh the login with ONE of: $remedy. git said: $(Get-GitFirstOutputLine -Output $fetch.Output)"
+            } else {
+                Write-Warn "${Label}: git fetch failed (offline, or the remote is unreachable from this host); cannot determine staleness."
+            }
             return
         }
         $st = Get-GitUpstreamStatus -Path $Path

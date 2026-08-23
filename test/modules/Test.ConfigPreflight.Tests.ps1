@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42871662-c8fc-4b5a-9380-fa9ff5c48ae5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -105,11 +105,14 @@ function Get-GateOutcome {
         [Parameter(Mandatory)][string]$TestRoot,
         [Parameter(Mandatory)][string]$ConfigPath,
         [switch]$Skip,
+        [string]$SkipReason,
         [string]$CallerName = 'UnitTest'
     )
     $result = $null
     $shown  = [System.Collections.Generic.List[string]]::new()
-    $emitted = @(Invoke-ConfigGate -TestRoot $TestRoot -ConfigPath $ConfigPath -Skip:$Skip -CallerName $CallerName 3>&1 6>&1)
+    $gateArgument = @{ TestRoot = $TestRoot; ConfigPath = $ConfigPath; Skip = $Skip; CallerName = $CallerName }
+    if ($PSBoundParameters.ContainsKey('SkipReason')) { $gateArgument['SkipReason'] = $SkipReason }
+    $emitted = @(Invoke-ConfigGate @gateArgument 3>&1 6>&1)
     foreach ($item in $emitted) {
         if ($item -is [hashtable]) { $result = $item } else { [void]$shown.Add("$item") }
     }
@@ -124,9 +127,9 @@ $script:failuresTranscript = @(
     'Checking config files...',
     'UNRELATED-CHATTER-BEFORE',
     '',
-    '============================================================',
+    '========',
     '  FAILURES (2) -- the cycle gate refuses to start until these are resolved:',
-    '============================================================',
+    '========',
     '',
     '  [1/2] in section: networkStorage',
     '        poolStorageNetworkPath is not reachable',
@@ -134,9 +137,9 @@ $script:failuresTranscript = @(
     '  [2/2] in section: repositories',
     '        projectUrl is empty',
     '',
-    '============================================================',
+    '========',
     '  END OF FAILURES (2)',
-    '============================================================',
+    '========',
     'UNRELATED-CHATTER-AFTER'
 )
 
@@ -225,9 +228,9 @@ Describe 'Invoke-ConfigGate' {
 
         It 'surfaces the block through to the end of capture when the footer never arrives' {
             $truncated = @(
-                '============================================================',
+                '========',
                 '  FAILURES (1) -- the cycle gate refuses to start until these are resolved:',
-                '============================================================',
+                '========',
                 '',
                 '  [1/1] in section: transports',
                 '        ssh transport unreachable',
@@ -259,5 +262,70 @@ Describe 'Invoke-ConfigGate' {
             Assert-True  ($o.Text -match 'Pre-cycle config gate FAILED') 'an opaque child failure still stops the cycle with a banner'
             Assert-True  ($o.Text -notmatch 'Last \d+ lines') 'there is no tail to print, and printing an empty one would be noise'
         }
+    }
+}
+
+Describe 'One gate per cycle, at the front of it' {
+    # The gate reaches the network. Re-running it per nested stage means a
+    # remote that stops answering partway through a cycle aborts work that was
+    # already succeeding and discards every stage already built -- while a
+    # runner that only gates at startup can go on for days without ever
+    # re-checking. Once, at the front of each cycle, is the placement that
+    # catches a broken config or credential before it costs anything.
+    BeforeAll {
+        # Owns its own copy of the stub tree: the Describe above removes the
+        # shared one in its AfterAll, which runs before this Describe starts.
+        foreach ($d in @($script:gateRoot, $script:planRoot)) { New-Item -ItemType Directory -Path $d -Force | Out-Null }
+        Set-Content -LiteralPath (Join-Path $script:gateRoot 'Test-Config.ps1') -Value $script:stubGateBody
+
+        $testRootDir = Split-Path -Parent (Split-Path -Parent $PSCommandPath)
+        $repo        = Split-Path -Parent $testRootDir
+        $script:innerText = Get-Content -Raw (Join-Path $repo 'test/modules/Invoke-TestRunnerInnerLoop.ps1')
+        $script:seqText   = Get-Content -Raw (Join-Path $repo 'test/Debug-TestSequence.ps1')
+        $script:outerText = Get-Content -Raw (Join-Path $repo 'test/Start-TestRunner.ps1')
+        $script:projText  = Get-Content -Raw (Join-Path $repo 'test/Invoke-TestProject.ps1')
+    }
+
+    AfterAll {
+        Remove-Item -LiteralPath $preflightRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'the cycle gates itself, before it touches the host' {
+        Assert-True ($script:innerText -match 'Invoke-ConfigGate') `
+            'a startup-only gate says nothing about hour nine of an eternal loop'
+        $gateAt  = $script:innerText.IndexOf('Invoke-ConfigGate')
+        $hostAt  = $script:innerText.IndexOf('$HostType = Get-HostType')
+        Assert-True ($gateAt -gt 0 -and $hostAt -gt $gateAt) `
+            'gating after the host work has begun is not a pre-flight'
+    }
+
+    It 'a nested stage inherits the cycle owner verdict instead of re-gating' {
+        Assert-True ($script:seqText -match '\$isNested') `
+            'a nested run is one stage of a cycle that already gated this config'
+        Assert-True ($script:seqText -match 'Skip:\$gateSkip') `
+            'the skip must cover the nested case, not only the operator bypass'
+        Assert-True ($script:seqText -match 'SkipReason') `
+            'a structural bypass and a deliberate -NoConfigGate must not read alike'
+    }
+
+    It 'the bypass reaches the layer that now gates' {
+        Assert-True ($script:outerText -notmatch 'OuterOnlyParams') `
+            '-NoConfigGate withheld from the inner would re-impose the gate the operator bypassed'
+        Assert-True ($script:projText -match 'NoConfigGate\s+= \[switch\]::new\(\$true\)') `
+            'the entry point that gates before its own re-clone must not make the cycle gate again'
+    }
+
+    It 'names a structural bypass as itself' {
+        $plan = New-GatePlan -Root $script:planRoot -Name 'skip-nested' -ExitCode 0
+        $o    = Get-GateOutcome -TestRoot $script:gateRoot -ConfigPath $plan.ConfigPath -Skip -SkipReason 'nested run -- the owner cycle already gated it'
+        Assert-Equal -Expected $true -Actual $o.Result.skipped
+        Assert-True  ($o.Text -match 'nested run') 'a reader must be able to tell WHY nothing was validated here'
+        Assert-True  ($o.Text -notmatch '-NoConfigGate') 'reporting an inherited verdict as an operator bypass is a false trail'
+    }
+
+    It 'still defaults to naming the operator bypass' {
+        $plan = New-GatePlan -Root $script:planRoot -Name 'skip-default' -ExitCode 0
+        $o    = Get-GateOutcome -TestRoot $script:gateRoot -ConfigPath $plan.ConfigPath -Skip
+        Assert-True ($o.Text -match '-NoConfigGate') 'the unqualified skip is still the operator opting out'
     }
 }

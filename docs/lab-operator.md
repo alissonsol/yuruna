@@ -325,7 +325,7 @@ which is why it is off by default.
 Two lab-specific notes: it **refuses to run while a test runner owns
 the runtime directory** -- the normal state of a cycling lab host, so
 stop the runner first -- and it knows nothing about **enrollment**: the
-`pool.*` keys and lab auth token stay where they are. To leave a pool,
+`pool.*` keys and the internal authentication key stay where they are. To leave a pool,
 use the pool admin commands ([pool-admin.md](pool-admin.md)); to drop
 a host from the dashboard, `test/pool/Remove-PoolHost.ps1`.
 
@@ -400,8 +400,8 @@ One proxy serves the whole lab. Builds the
 `yuruna-caching-proxy-service` VM and exposes ports 80 (CA cert),
 3128/3129 (Squid), 3000 (Grafana), 9302 (metrics). Elevated on
 Windows; unelevated on macOS. On every lab machine, set
-`vmStart.cachingProxyIp` to this proxy's IP. The build mints a
-`lab-auth-token` into this host's vault when none exists, and the
+`vmStart.cachingProxyIp` to this proxy's IP. The build mints an
+internal authentication key into this host's vault when none exists, and the
 "Yuruna hosts" Grafana dashboard shows the rotating 6-character "Lab
 token" later steps redeem to enroll hosts. The cache VM survives
 framework reinstalls. Details:
@@ -450,14 +450,14 @@ first. The UI is on port 80 (`http://<pool-control-service-vm-ip>/`),
 also linked in the Grafana "Yuruna hosts" dashboard's Extension hosts
 table. Enroll this host with `test/lab/Set-LabToken.ps1 -LabToken <code>`
 (the "Lab token" tile value); the script fetches the shared
-`lab-auth-token` into the host vault. `install/setup.ps1` does this
+internal authentication key into the host vault. `install/setup.ps1` does this
 for the beacon -- but **auto-enrollment stays off** until an
 `autoEnrollment` block names a target pool in the intent store's
 `pools.yml` *and* the daemon runs with `--auto-enroll`; until then, an
 enrolled host joins no pool on its own. Add `-HostSideProof` to run it
 directly on this host (UI at `http://<host>:8090/`, needs `go` +
 `pwsh`). Details:
-[Pool control service](pool-admin.md#pool-control-service).
+[Pool-control service](pool-admin.md#pool-control-service).
 
 Each service VM has its own administrator account and vault key -- see
 [VM administrator accounts](operator.md#vm-administrator-accounts).
@@ -501,13 +501,13 @@ On the machine that will run cycles first (any of them):
    ```
 
    `Set-LabToken.ps1` redeems the "Lab token" tile code at the
-   aggregator and stores the shared `lab-auth-token` in this
+   aggregator and stores the internal authentication key in this
    host's vault. The sync then copies the reference host's
    `test.config.yml` converted for this host (share paths, mount
    points, host aliases) and **finishes by running Test-Config.ps1**.
    If the aggregator is unreachable, skip `Set-LabToken.ps1` and pass
-   the raw token (from the shared-services host's vault) to the sync:
-   `-SharedToken '<raw-token>' -PersistSharedToken`. No local
+   the raw key (from the shared-services host's vault) to the sync:
+   `-InternalAuthKey '<raw-key>' -PersistInternalAuthKey`. No local
    caching-proxy is needed -- the synced `vmStart.cachingProxyIp`
    points at the shared one.
 
@@ -545,7 +545,7 @@ On the machine that will run cycles first (any of them):
    local squid on a slow link. Add `-WhatIf` to preview; that needs no
    elevation.
 
-   The shared `lab-auth-token` is **required** for the conversion.
+   The internal authentication key is **required** for the conversion.
    Without it the vault entries this machine minted for the shares it
    used to serve itself would survive, and the lab's storage has never
    seen those passwords -- the mount fails later with a credential
@@ -625,7 +625,7 @@ then re-run unelevated.
 
 ---
 
-## Two pools running two different test sets
+## Two pools running two different test-sets
 
 A worked example: one lab, two groups of hosts, each running a
 different body of tests. Names are placeholders.
@@ -732,6 +732,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.21
+Last review: 2026.08.23
 
 Back to [Yuruna](../README.md)

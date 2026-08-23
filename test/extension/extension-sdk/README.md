@@ -1,16 +1,41 @@
 # extension-sdk
 
-The Go half of the Yuruna extension interface: the three things every extension
-service daemon needs, written once.
+The shared half of the Yuruna extension interface: the things every extension
+service needs, written once -- three Go packages for the daemon, and one that
+carries the browser runtime its UI is built on.
 
 | Package | What it is |
 |---|---|
 | [`beacon`](beacon/) | The presence beacon. A hello at startup (retried on a doubling catch-up cadence until it first lands), a re-announce every interval, an `active:false` goodbye at shutdown &mdash; so the dashboard's **Extension hosts** row survives the owning host's status service being down. |
 | [`pool`](pool/) | The read client for the pool-aggregator service: `Status`, `ExtensionHost(s)`, `ExtensionTarget`, `Healthz`, plus `Get`/`GetURL` for the routes it does not type. One TLS posture, one timeout policy, one snapshot cache, and `SanitizeBaseURL` applied to every URL-valued field a response carries. |
-| [`labgate`](labgate/) | The write gate. A session unlocked with the dashboard's rotating Lab token, or the shared lab-auth-token as a bearer, in front of any route that changes host or pool configuration. Ships `Require`, `RequireBearer`, `HandleLogin` and `Session`. |
+| [`labgate`](labgate/) | The write gate. A session unlocked with the dashboard's rotating Lab token, or the internal authentication key as a bearer, in front of any route that changes host or pool configuration. Ships `Require`, `RequireBearer`, `HandleLogin` and `Session`. |
+| [`webui`](webui/) | The browser assets every service UI shares, embedded and handed over through `Asset(name)`. Today that is [`yuruna.core.js`](webui/assets/yuruna.core.js): the page chrome (header, menu, footer, countdown), the JSON client, the table furniture, and the shims the browser baseline needs. |
 
 Each package is self-contained: none imports another, and none imports anything
 outside the standard library.
+
+## The browser runtime, and why it is a Go package
+
+A service embeds its own pages and page scripts and serves them as before; it
+asks `webui` only for the names it does not have, so a service overrides a
+shared asset simply by shipping a file of that name itself.
+
+The indirection through Go exists because `//go:embed` cannot reach outside a
+module. The shared assets could not be referenced in place from three separate
+service modules, so they are embedded HERE and handed over across the boundary:
+
+```go
+shared, contentType, ok := webui.Asset("yuruna.core.js")
+```
+
+That there is one copy is the point, and it is not only about duplication.
+These assets carry a browser baseline -- Safari iOS 9.3, see the [browser
+baseline](../../../docs/definition.md#defining-the-status-page-browser-baseline)
+-- and a service holding its own copy of the runtime is a service that can fall
+off that baseline on its own. The failure is silent: an iOS 9 parser rejects a
+file carrying one arrow function outright, so the page serves its static shell
+and renders as merely empty. `tools/Invoke-Es5Check.ps1` is what holds the line;
+run it before shipping a change to anything under `webui/assets/`.
 
 ## Why the services stage it instead of vendoring it
 
@@ -25,7 +50,7 @@ replace yuruna.com/test/extension/extension-sdk => ../extension-sdk
 
 One copy of this code, shared by every service that asks for it.
 
-It used to be mirrored into each `server/internal/yex/` instead -- 4,290
+Mirroring it into each `server/internal/yex/` instead would mean 4,290
 duplicated lines kept honest only by a byte-identity check. A `go.work` file is
 no substitute for the staging: only `server/` and this directory are copied
 into the guest's build dir, so a workspace file left in the enlistment never

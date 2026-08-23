@@ -2,18 +2,25 @@
 
 > One sentence: the named states the runner moves through, and what one guest does inside a single cycle.
 
-See [Design overview](00-index.md) - [Data flows](03-data-flows.md) -
-[Yuruna Architecture](../architecture.md).
+See [Design overview](00-index.md) - [Context and components](01-context-and-components.md) -
+[Component breakdown](02-component-breakdown.md) - [Data flows](03-data-flows.md) -
+[Configuration data model](05-data-model.md) - [Deployment topology](06-deployment.md) -
+[Naming conventions](naming.md) - [Yuruna Architecture](../architecture.md).
 
-Grounded in `test/modules/Test.RunnerState.psm1` (the enum and the validator),
-`test/modules/Test.RunnerOuterLoop.psm1` (every product `Set-RunnerState` call
-site), `test/modules/Test.RunnerWatchdog.psm1`,
-`test/modules/Test.RunnerInnerLoop.psm1` and `test/modules/Test.WarmResume.psm1`.
+Grounded in `test/modules/Test.RunnerState.psm1` (the enum, the adjacency map and
+the boot-recovery synthetics), `test/modules/Test.RunnerOuterLoop.psm1` (every
+product `Set-RunnerState` call site and the failure pause),
+`test/modules/Test.RunnerWatchdog.psm1`, `test/modules/Test.RunnerInnerLoop.psm1`
+(the guest sweep and the warm-resume loop), `test/modules/Test.WarmResume.psm1`
+and `test/modules/Test.LabHealth.psm1`. Bounds are quoted from
+`test/Start-TestRunner.ps1` and `test/test.config.yml.template`.
+
+Four state machines follow, each with at most seven states.
 
 ## Outer runner -- 6 states
 
-`$script:StateEnum` in `test/modules/Test.RunnerState.psm1` declares exactly six
-names, and the diagram uses them verbatim:
+`$script:StateEnum` in `test/modules/Test.RunnerState.psm1` declares six names and
+the diagram spells them exactly as the source does:
 `idle`, `cycle-start`, `in-cycle`, `cycle-end`, `fault`, `paused`.
 
 ```mermaid
@@ -25,559 +32,560 @@ stateDiagram-v2
     state "fault" as fault
     state "paused" as paused
 
-    [*] --> idle
-    fault --> idle : boot recovery resolved
+    [*] --> idle : Initialize-RunnerState
     idle --> cycle_start : cycle N starting
-    cycle_start --> paused : pool desiredState=paused
-    cycle_start --> fault : pool storage full
     cycle_start --> in_cycle : inner spawning
+    cycle_start --> fault : pool storage full
+    cycle_start --> paused : pool desiredState paused
     in_cycle --> cycle_end : inner exited 0
-    cycle_end --> idle : cycle complete
     in_cycle --> fault : inner exited nonzero
+    cycle_end --> idle : cycle complete
     fault --> paused : failure-pause begin
+    fault --> idle : boot recovery resolved
     paused --> idle : failure-pause ended
-    paused --> cycle_start : 30s hold poll re-enters
+    paused --> cycle_start : next intent poll
 ```
 
-Six boxes, no aggregation -- the enum has exactly six members. `[*]` is the
-process-start marker, not a state.
+Six boxes and no fold -- the enum has exactly six members, so nothing is
+aggregated. `[*]` is the process-start marker of the resident outer, not a state.
 
-**`idle`.** The resting state. Written fresh by `Initialize-RunnerState` at
-outer startup (`Test.RunnerState.psm1`) and again by `Invoke-RunnerOuterLoop`
-after every clean cycle. It exits when the next iteration of the outer loop
-calls `Invoke-RunnerOuterCycle`, which writes `cycle-start` before it does
-anything else.
+The states map to two processes, not one. `test/Start-TestRunner.ps1` is the
+resident outer that owns `runner.pid` and never exits; each cycle runs in a fresh
+`pwsh` started from `test/modules/Invoke-TestCycleRunner.ps1`, which is where
+`cycle-start`, `paused` on a pool hold, `fault` on storage, and `in-cycle` are
+written. `cycle-end`, `idle`, `fault` on a non-zero exit and the two failure-pause
+writes come from the resident parent. The shared record is
+`$env:YURUNA_RUNTIME_DIR/runner.state.json`, replaced atomically through
+`Write-YurunaStateFileJson` in `test/modules/Test.StateFile.psm1`.
 
-**`cycle-start`.** The cycle child has begun: the framework git pull, the pool
-intent pull, the pre-spawn wipe of `inner.pid` / `runner.stepHeartbeat` /
-`runner.phase` / `last_failure.json`, and the pre-spawn pool-storage space check
-all run here. Three exits, all in `Invoke-RunnerOuterCycle`: a pulled
-`desiredState` of `paused` from `Resolve-YurunaPoolDesiredState`
-(`test/modules/Test.PoolSync.psm1`) goes to `paused`; a refusal from
-`Test-OuterPoolStorageSpaceReady` goes to `fault`; otherwise the watchdog is
-armed and the state becomes `in-cycle` immediately before the call-operator
-spawn of the inner.
+### Every transition, with its trigger and its bound
 
-Three outcomes leave without a transition at all. `pull-error` and `drain` both
-return straight out of `Invoke-RunnerOuterCycle` after the `cycle-start` write, so
-the state file stays on `cycle-start` -- for the 30-second hold in the
-`pull-error` case, permanently in the `drain` case. The retried cycle then writes
-`cycle-start` on top of `cycle-start`, an unmapped edge that logs the same drift
-warning as `fault -> fault`. The third is the `spawn-failed` raised inside the
-cycle child: it returns after `in-cycle` has already been written, stranding the
-file there, and the retry's `in-cycle -> cycle-start` is unmapped for the same
-reason.
+Rows are in the declaration order of `$script:ValidTransition`. The reason column
+holds the `-Reason` string the call site passes verbatim; `<n>` stands for the
+cycle number the caller interpolates.
 
-**`in-cycle`.** The inner runner owns the machine. The outer is blocked in the
-call operator (in the cycle child) while the resident parent polls the child
-process. Nothing writes state here; the exit is decided by the exit code the
-dispatch returns, and both exit writes come from `Invoke-RunnerOuterLoop` in the
-resident parent.
+| From -> To | `-Reason` literal | Trigger in code | Bound, key, default |
+|---|---|---|---|
+| `idle` -> `cycle-start` | `cycle <n> starting` | first statement of `Invoke-RunnerOuterCycle`, ahead of the framework git pull | pull bounded 60 s in `Invoke-OuterGitPull` |
+| `cycle-start` -> `in-cycle` | `inner spawning` | `Start-Watchdog` armed, immediately before the call-operator spawn | watchdog kill after `testCycle.stepTimeoutSeconds`, default 2700 s; `testCycle.preambleTimeoutSeconds`, default 600 s, while `runner.phase` exists |
+| `cycle-start` -> `fault` | `pool storage full` | `Test-OuterPoolStorageSpaceReady` answered `ok=$false` before the spawn | none; the outcome is `storage-full` and takes the full failure pause |
+| `cycle-start` -> `paused` | `pool desiredState=paused (cycle <n>)` | `Resolve-YurunaPoolDesiredState` returned `paused` | 30 s hold, the `default` arm of the outcome switch |
+| `in-cycle` -> `cycle-end` | `inner exited 0` | child exit code 0 | none |
+| `in-cycle` -> `fault` | `inner exited <code>` | child exit code non-zero | none |
+| `cycle-end` -> `idle` | `cycle complete` | written in the same statement pair as `cycle-end` | none |
+| `fault` -> `paused` | `failure-pause begin` | entry to the failure-pause `try` | cap `$script:FailurePauseMaxSeconds` = 3600 s; poll `$script:FailureCommitPollSeconds` = 300 s; sleep sliced at 5 s |
+| `fault` -> `idle` | `boot_recovery_resolved` | `Initialize-RunnerState` on a stale prior state file | none |
+| `paused` -> `idle` | `failure-pause ended` | the pause loop's `finally`, taken on every exit path | none |
+| `paused` -> `cycle-start` | `cycle <n> starting` | the next outer iteration after the 30 s pool hold | 30 s |
 
-**`cycle-end`.** A pure punctuation state, occupied for one statement. It is
-written and then immediately followed by `idle` in the same statement pair so a
-streaming consumer sees clean closure explicitly rather than inferring it from
-the absence of a fault event.
+`$script:FailurePauseMaxSeconds`, `$script:FailureCommitPollSeconds`,
+`$script:StepTimeoutSecondsDefault` (2700) and
+`$script:PreambleTimeoutSecondsDefault` (600) are hardcoded at the top of
+`test/Start-TestRunner.ps1` rather than being config keys, and restated in
+`test/modules/Invoke-TestCycleRunner.ps1` for the cycle child. The two watchdog
+bounds are the only pair a config key can move:
+`Get-OuterStepTimeoutSeconds` and `Get-OuterPreambleTimeoutSeconds` in
+`test/modules/Test.RunnerOuterLoop.psm1` re-read them uncached every cycle, accept
+a pool-level override, and treat `preambleTimeoutSeconds: 0` as the opt-out that
+applies the step bound everywhere.
 
-**`fault`.** The cycle produced a verdict of failure -- either a non-zero inner
-exit or the storage refusal. The state lands here before the failure-pause loop
-runs, so a dashboard shows `fault` the moment the inner exits rather than after
-the status-service re-ensure. It exits to `paused` when the pause loop begins.
+The adjacency map holds one pair the diagram omits: `idle` -> `fault`. It is legal
+so the validator stays quiet if it ever happens, but no call site produces it
+today -- every `fault` write happens from `cycle-start` or `in-cycle`.
 
-**`paused`.** Two different holds share this name. The healthy pool hold sits
-here while `desiredState=paused`, waiting 30 seconds in
-`Wait-OuterInterruptible` and re-entering at `cycle-start` on the next
-iteration. The failure pause sits here for up to an hour and exits to `idle`
-through the loop's `finally`. Both edges are in the adjacency map precisely so
-the healthy hold does not log two drift warnings per poll.
+`Set-RunnerState` rejects in two tiers. A target outside the enum is refused with
+a warning and nothing is written. A target inside the enum on an unmapped edge is
+warned about and written anyway, because the map exists to make drift visible, not
+to lose telemetry. Each write appends to a `history` array capped at
+`$script:HistoryDepth` = 20 entries and emits a `runner_state_transition` NDJSON
+record.
 
-`fault -> idle` and `idle -> fault` are the two mapped edges with no live
-`Set-RunnerState` call site. `Initialize-RunnerState` writes the boot-recovery pair directly as two
-synthetic NDJSON `runner_state_transition` events (reasons
-`boot_recovery_detected_stale_state` and `boot_recovery_resolved`) and seeds them
-as the first two `history` entries, because the crash they describe is
-unobservable after the fact. The first of the pair is not drawn as
-`idle -> fault`: it is emitted only when the prior state was *not* idle, and its
-`fromState` is whatever stale state the crashed runner left behind. The rule is
-simply "prior state is not `idle`", so the synthetic edge can start from any of the
-other five -- `fault -> fault` included, because a runner killed between the
-`fault` write and the pause that follows it leaves `fault` on disk. `idle -> fault`
-stays in the adjacency map with no producer anywhere in the tree.
+### Boot recovery -- the synthetic pair
 
-The validator never rejects. An unrecognized target name warns and skips the
-write; a recognized target on an unmapped edge warns
-("recording anyway so the drift is visible") and writes. That is deliberate: a
-telemetry channel that drops events to enforce a model is worse than one that
-records the model being wrong. The storage-full path exercises this -- the cycle
-child writes `fault`, returns exit code 1, and the parent's failure branch writes
-`fault` again, so `fault -> fault` logs the drift warning every time.
+`Initialize-RunnerState` runs once, from `test/Start-TestRunner.ps1`, and is
+deliberately not re-run per cycle: a fresh `runId` every cycle would break run
+continuity on the event stream. On a prior state file whose `runId` differs from
+this run's and whose `current` is not `idle`, it emits two synthetic
+`runner_state_transition` events and seeds them as the first two `history`
+entries: `<stale> -> fault` with reason `boot_recovery_detected_stale_state`
+carrying `priorWriterPid` and `priorRunId`, then `fault -> idle` with reason
+`boot_recovery_resolved`. Both carry `synthetic = $true`.
 
-State lands in `$env:YURUNA_RUNTIME_DIR/runner.state.json`
-(`Get-RunnerStatePath`, falling back to `[System.IO.Path]::GetTempPath()` because
-`$env:TEMP` is null off Windows), written by `Write-YurunaStateFileJson` in
-`test/modules/Test.StateFile.psm1` as a temp file plus an atomic
-`[System.IO.File]::Move(..., $true)`. Shape: `current`, `since`, `runId`,
-`writerPid`, a `history` array capped at 20 entries, plus one optional
-cycle-context field: `lastCycleStartUtc`, refreshed by a `cycle-start` transition
-when the caller has already set `$global:__YurunaCycleStartUtc` and carried forward
-otherwise, so one read of the file has the latest cycle start without joining to
-the manifest. `Set-RunnerState` carries a second slot, `lastCycleNumber`, forward
-in the same loop -- but nothing in either repository ever writes it, so it never
-appears on a real state file.
+The first synthetic edge starts from whatever was on disk, so it can leave any
+non-`idle` state -- including `cycle-end` -> `fault` and `paused` -> `fault`, which
+are not in the adjacency map. They pass unremarked because the synthetics are
+written straight to the event stream and the history array rather than through
+`Set-RunnerState`.
 
 ### The watchdog path into `fault`
 
-`test/modules/Test.RunnerWatchdog.psm1` runs as a `Start-Job` named
-`yurunaWatchdog` -- a separate pwsh process, not a ThreadJob, because the cycle
-child is blocked inside the call operator and an in-runspace monitor cannot pump
-while that wait is outstanding. `Start-Watchdog` is called just before the inner
-spawn; `Stop-Watchdog` runs in a `finally`.
+`Start-Watchdog` in `test/modules/Test.RunnerWatchdog.psm1` returns a `Start-Job`
+named `yurunaWatchdog` -- a separate `pwsh` process, because the outer is blocked
+inside the call-operator wait and an in-runspace monitor cannot pump. It is armed
+immediately before the `cycle-start` -> `in-cycle` write and stopped in the
+enclosing `finally`.
 
-It reads three files in the runtime dir and writes two more. `runner.stepHeartbeat` is the staleness
-signal, touched from the runspace at the top of each step by `Invoke-Sequence`
-(`test/modules/Test.SequenceEngine.psm1`) -- deliberately not
-`runner.heartbeat`, which a `System.Threading.Timer` on a threadpool thread keeps
-ticking through a wedged runspace. `runner.phase` selects the bound and is
-re-read every poll, never cached. `inner.pid` is the kill target. Lapses and
-kills are appended to `outer.log`, and any lapse also drops the durable
-`runner.watchdog.lapsed` sentinel.
+The watchdog writes no runner state at all. Its path into `fault` is indirect:
 
-Two bounds, both re-read every cycle with `Read-TestConfig -NoCache` so an
-operator edit takes effect at the next spawn without a restart, and both
-overridable per pool by a `config.testCycle` block:
+1. Arm. Wait up to 180 s for `inner.pid` to appear, read it, then capture identity
+   as PID plus `StartTime` over up to 3 probes 2 s apart. A failure at any of those
+   three points drops `runner.watchdog.lapsed` and exits, and the cycle runs
+   unguarded.
+2. Poll every `$script:WatchdogPollSeconds` = 30 s. Pick the bound first and never
+   cache it: `runner.phase` present selects the preamble bound, absent or
+   unreadable selects the looser step bound.
+3. Measure staleness as the mtime age of `runner.stepHeartbeat`, or age from arm
+   time when that file does not exist yet. A transient read failure counts as
+   not-stale for that poll.
+4. Over the bound, re-verify identity, then kill: `taskkill /PID <pid> /T /F` plus
+   a `Stop-Process -Force` backstop on Windows; on POSIX build the descendant set
+   from `/bin/ps -eo pid=,ppid=` and kill leaves first.
+5. The killed inner exits non-zero, the outer takes `in-cycle` -> `fault`, then
+   `fault` -> `paused`.
 
-| Bound | Config key | Default | Resolver |
-|---|---|---|---|
-| step timeout | `testCycle.stepTimeoutSeconds` | 2700 s | `Get-OuterStepTimeoutSeconds` |
-| preamble timeout | `testCycle.preambleTimeoutSeconds` | 600 s | `Get-OuterPreambleTimeoutSeconds` |
+Identity confirmed gone across 3 probes 5 s apart disarms without killing; a
+probe that merely fails neither kills nor disarms and polling continues.
 
-Defaults live in `test/Start-TestRunner.ps1` as
-`$script:StepTimeoutSecondsDefault` and `$script:PreambleTimeoutSecondsDefault`.
-The step timeout accepts `-gt 0`; the preamble timeout accepts `-ge 0`, because
-0 is the meaningful opt-out that applies the step bound everywhere. A
-non-numeric value warns and keeps the default rather than throwing -- a typo in
-a tuning knob must not take the runner down.
+Two heartbeat files exist and only one is the watchdog signal.
+`runner.heartbeat` is written by a compiled `Yuruna.HeartbeatWriter` timer on a
+threadpool thread at 30000 ms due and period, which keeps ticking through a wedged
+runspace. `runner.stepHeartbeat` is touched from the runspace itself at each step
+boundary in `test/modules/Test.SequenceEngine.psm1`, so it is the one that goes
+stale when work stops.
 
-Selection inside the job is one line: the preamble bound applies only when it is
-both positive and tighter than the step bound, and
-`$effectiveThreshold = if ($phase) { $preambleSeconds } else { $thresholdSeconds }`.
-An absent or unreadable `runner.phase` always falls to the looser bound, so the
-failure direction is never "kill sooner than intended". Poll interval is 30
-seconds.
+`Write-RunnerPhase` in `test/modules/Test.RunnerHeartbeat.psm1` writes
+`runner.phase` and refreshes `runner.stepHeartbeat` in the same call, so slow but
+progressing preamble work is not read as a stall.
+`test/modules/Invoke-TestRunnerInnerLoop.ps1` writes six phases in call order --
+`bootstrap`, `host-detect`, `host-network`, `service-vm-restore`,
+`caching-proxy-gate`, `status-service` -- and calls `Clear-RunnerPhase` exactly
+once, immediately before `Invoke-RunnerInnerCycle`. The outer wipes `runner.phase`
+pre-spawn and warns if the wipe failed, because a surviving marker would apply the
+tight 600 s bound to the whole cycle.
 
-The inner writes six phases in order via `Write-RunnerPhase`
-(`test/modules/Test.RunnerHeartbeat.psm1`): `bootstrap`, `host-detect`,
-`host-network`, `service-vm-restore`, `caching-proxy-gate`, `status-service`.
-`Clear-RunnerPhase` is called exactly once, immediately before
-`Invoke-RunnerInnerCycle` in `test/modules/Invoke-TestRunnerInnerLoop.ps1`; it
-verifies the delete and retries up to five times with 200 ms backoff, because
-the watchdog's own read handle can block it, then refreshes the step heartbeat so
-the restored looser bound starts from a fresh mark.
+Back in the outer, a non-zero exit whose `runner.stepHeartbeat` age exceeds the
+step bound is attributed to the watchdog. Only when the inner left no record does
+the outer synthesize a schema-version-2 `last_failure.json` with
+`reason = 'watchdog_kill'`, `failureClass = 'wait_timeout'`,
+`severity = 'hard'`, `classificationSource = 'synthetic'` and
+`synthesizedBy = 'outer-watchdog'`.
 
-Arming waits up to 180 s for `inner.pid`, then captures identity as the PID plus
-its `StartTime` in round-trip UTC over up to three probes. Any failure calls the
-lapse reporter and returns, and the cycle runs unguarded rather than the watchdog
-guessing at a target.
+### Cycle outcomes that write no transition
 
-On expiry the watchdog re-verifies identity, and only if it still matches logs
-`step heartbeat stale <n>s` naming the bound (and the preamble phase when one is
-present) and kills the whole tree: `taskkill /PID <pid> /T /F` plus a
-`Stop-Process -Force` backstop on Windows; on POSIX it builds the descendant set
-from `/bin/ps -eo pid=,ppid=` and kills leaves first. Identity confirmed gone
-across three spaced probes disarms without killing; a transiently failing probe
-neither kills nor disarms, and it keeps polling.
+`Invoke-RunnerOuterCycle` returns one of six outcome strings --
+`completed`, `pull-error`, `paused`, `drain`, `spawn-failed`, `storage-full` --
+and `Invoke-OuterCycleDispatch` adds two more, `shutdown` and `cycle-aborted`.
+Only some of them coincide with a state write.
 
-The watchdog writes no runner state of its own. The kill makes the inner exit
-non-zero, so the ordinary path applies: `in-cycle -> fault`, then
-`fault -> paused`. Back in `Invoke-RunnerOuterCycle`, a non-zero exit whose
-`runner.stepHeartbeat` age exceeds the step timeout is attributed to the
-watchdog, and -- only when the inner left none -- a synthetic schema-v2
-`last_failure.json` is written with `reason = 'watchdog_kill'`,
-`failureClass = 'wait_timeout'`, `severity = 'hard'`,
-`classificationSource = 'synthetic'` and `synthesizedBy = 'outer-watchdog'`. A
-SIGKILL leaves no application-level record, so without this the streak-capped
-auto-remediation would have nothing to classify and every hang would escalate
-straight to the full hour.
+- `pull-error` and `drain` return after `cycle-start` was written and produce no
+  further transition, so the machine sits in `cycle-start` through the hold.
+- `spawn-failed` returns after `in-cycle` was already written.
+- `shutdown` kills the cycle process tree with a 15000 ms grace and writes nothing.
+- `cycle-aborted` is a heuristic, not an exit code: no outcome file, non-zero child
+  exit, and the child ran for less than `$script:CycleAbortSeconds` = 30 s. The
+  child reports through `runtime/runner.cycle.outcome.json` rather than an exit
+  code, because the exit-code space belongs to the inner.
 
-### Cycle outcomes that leave the machine hanging
+Four of those outcomes take a short hold and re-enter rather than pausing:
+`pull-error`, `paused`, `spawn-failed` and `cycle-aborted`. The hold is
+`$script:OuterPullErrorSleepSeconds` = 30 s for `pull-error`,
+`$script:InnerSpawnErrorSleepSeconds` = 30 s for `spawn-failed` and
+`cycle-aborted`, and the switch's `default` of 30 s for `paused`.
+`storage-full` is deliberately outside that set and falls through to the full
+failure pause -- a full share is not momentary.
 
-`Invoke-RunnerOuterCycle` returns `Outcome` from
-`completed | pull-error | paused | drain | spawn-failed | storage-full`;
-`Invoke-OuterCycleDispatch` adds `shutdown` and `cycle-aborted`. Only
-`completed` carries a test verdict. The rest are the shapes where the cycle
-either never ran or ran and produced nothing to judge:
+Aborting mid-cycle is also available from inside a step. The cycle-restart gate in
+`test/modules/Test.SequenceEngine.psm1` throws a `RuntimeException` tagged
+`Data['YurunaCycleRestart'] = $true` with the message prefix
+`YurunaCycleRestart: `. `test/modules/Test.RunnerInnerLoop.psm1` handles it as a
+normal cycle ending rather than a crash: no crash-counter increment, no postmortem
+banner, cycle finalized as `fail`. That is distinct from the crash path, where
+`$MaxConsecutiveCrashes` = 3 aborts the loop and each earlier crash sleeps
+`min(300, 30 * 2^(crashes-1))` seconds with 25 percent jitter, in 1 s slices that
+refresh `runner.stepHeartbeat` so the watchdog does not kill the backoff.
 
-| Outcome | What happened | What the loop does |
-|---|---|---|
-| `pull-error` | the outer's own git pull failed | hold `OuterPullErrorSleepSeconds` (30 s), `continue` |
-| `spawn-failed` | either spawn threw -- `Start-Process` on the cycle child in `Invoke-OuterCycleDispatch`, or the call-operator invocation of the inner inside the cycle child | hold `InnerSpawnErrorSleepSeconds` (30 s), `continue` |
-| `cycle-aborted` | no outcome file, non-zero exit, and the child ran under 30 s | hold 30 s, `continue` |
-| `paused` | pool intent says hold | hold 30 s, `continue` |
-| `drain` | pool intent says stop at the boundary | set shutdown requested, `break` |
-| `shutdown` | Ctrl+C killed the child mid-cycle | the loop condition ends the run |
-| `storage-full` | the pre-spawn space check refused | falls to the failure branch, full pause |
+### Leaving `paused` -- six break-out triggers
 
-The `cycle-aborted` heuristic is the interesting one: `$script:CycleAbortSeconds`
-is 30, well under the inner's own 600 s preamble budget, so "died almost
-immediately with no outcome file" distinguishes a console that broke under the
-child from a real test failure. The child reports through
-`runtime/runner.cycle.outcome.json` rather than an exit code precisely because
-the exit-code space belongs to the inner and a sentinel value could collide with
-a genuine failure.
+The failure pause captures three baselines once at entry: framework HEAD from
+`Get-OuterCommitSha`, project remote HEAD from `Get-OuterProjectUrl` plus
+`Get-OuterRemoteSha`, and the config mtime from `Get-OuterConfigMtime`. It then
+polls every `$script:FailureCommitPollSeconds` = 300 s, sleeping in 5 s slices so
+Ctrl+C stays observable.
 
-`storage-full` is deliberately excluded from the transient hold list. Retrying
-every 30 seconds would burn the day rediscovering that nobody has deleted
-anything yet, so it takes the full pause, which ends early only on the two things
-that plausibly change it -- a config edit or a new commit.
+Six things end it, and all six leave through the single `finally` that writes
+`paused` -> `idle`. The `paused` -> `idle` edge in the diagram is that fold; its
+exact members and real count are:
 
-### Leaving `paused` -- the break-out triggers
-
-The failure pause sleeps in 5-second slices (with a `Write-Progress` render
-wrapped in try/catch, because it throws on tmux and sshd PTYs with no resolvable
-TERM), polls every `FailureCommitPollSeconds` (5 min), and gives up after
-`FailurePauseMaxSeconds` (60 min). Baselines for the comparisons are captured
-once at pause start by `Get-OuterCommitSha`, `Get-OuterProjectUrl` +
-`Get-OuterRemoteSha`, and `Get-OuterConfigMtime`.
-
-1. **New framework commit.** `Test-OuterNewCommitsAvailable` against the captured
-   baseline SHA.
-2. **New project commit.** `Get-OuterRemoteSha` on `repositories.projectUrl`.
-   Requires both the current and the baseline SHA to be non-null, so an
-   `ls-remote` that fails on the network cannot fire it spuriously.
+1. **New framework commit.** `Test-OuterNewCommitsAvailable` requires
+   `git rev-list --count HEAD..@{u}` above zero, not merely a differing tip,
+   because a clone holding an unpushed local commit differs permanently.
+2. **New project commit.** `Get-OuterRemoteSha` against `repositories.projectUrl`,
+   requiring both the current and the baseline SHA to be non-null so a network
+   failure cannot fire it.
 3. **Local `test.config.yml` edit.** A nullable `-ne` on the mtime, which catches
    changed, created and deleted in one comparison.
-4. **Status UI start-cycle.** `runtime/control.cycle-restart` present; the flag is
+4. **Status-UI start cycle.** `runtime/control.cycle-restart` present; the flag is
    consumed on the spot so the next spawn does not re-fire on it.
-5. **Gated auto-remediation.** Only while `Get-OuterAutoRemediation` reports
-   enabled (`testCycle.autoRemediation.enabled`, default off) and the streak
-   counter is under `maxAttemptsPerCycle` (default 2). The class from
-   `Get-OuterLastFailureClass` is checked against
-   `$script:AutoRemediationAllowList` in `test/modules/Test.Remediation.psm1`
-   via `Test-AutoRemediationAllowed`; if that module cannot be loaded the answer
-   is no, because an unclassifiable failure is the one that should stop and be
-   looked at. On allow it emits `auto_remediation_applied` with
-   `action = 'end_failure_pause_early'` and breaks.
-6. **Cap elapsed, or Ctrl+C.** The `while` condition itself.
+5. **Gated auto-remediation.** Enabled by `testCycle.autoRemediation.enabled`
+   (default false, template false) and capped by
+   `testCycle.autoRemediation.maxAttemptsPerCycle` (default 2, template 2). The
+   class from `Get-OuterLastFailureClass` must pass `Test-AutoRemediationAllowed`
+   in `test/modules/Test.Remediation.psm1`; an unavailable module answers no. On
+   allow it emits `auto_remediation_applied` with
+   `action = 'end_failure_pause_early'`.
+6. **Cap elapsed, or shutdown requested.** The `while` condition itself, bounded by
+   `$script:FailurePauseMaxSeconds` = 3600 s.
 
-The streak counter lives in `Invoke-RunnerOuterLoop` in the resident parent, not
-the per-cycle child -- a fresh process would reset it every cycle and the cap
-would never be reached. A passing cycle resets it to zero.
+Six triggers, one edge. The `$remediationAutoSkips` counter that caps trigger 5
+lives in `Invoke-RunnerOuterLoop` in the resident parent, not in the per-cycle
+child -- a fresh process would reset it every cycle and the cap would never be
+reached. A passing cycle resets it to zero.
 
-All six leave through the same `finally`, which dismisses the progress bar and
-writes `paused -> idle` with reason `failure-pause ended`. From the state
-machine's point of view every one of them means the same thing: ready to try
-again.
+## Per-guest step lifecycle inside one cycle
 
-## Per-guest step lifecycle
-
-Owner: `Invoke-GuestProvisionIteration` in `test/modules/Test.RunnerInnerLoop.psm1`,
-dispatched from the guest `foreach` in `Invoke-RunnerInnerCycle`. The helper never
-uses a bare `break` or `continue` -- absent a loop of its own those would escape
-the guest sweep -- so it signals through `$IterState.Control`, which is
-`proceed`, `continue` or `break`.
+`Invoke-RunnerInnerCycle` in `test/modules/Test.RunnerInnerLoop.psm1` runs its body
+in a `do { ... } while ($false)` -- exactly one pass, because per-cycle iteration
+belongs to the outer. Inside it, one `foreach` walks the guest list and calls
+`Invoke-GuestProvisionIteration` per guest. The states below are the literal
+`-StepName` values that function passes to `Set-StepStatus`, plus the `Cleanup`
+stage name its teardown reports.
 
 ```mermaid
 stateDiagram-v2
-    state "quarantine gate" as quarantine
-    state "New-VM, Start-VM" as provision
-    state "Start-GuestOS" as guestos
-    state "New-VM.Resource" as vmresource
-    state "Screenshots, Start-GuestWorkload" as workload
+    state "New-VM" as new_vm
+    state "Start-VM" as start_vm
+    state "Start-GuestOS" as start_guest_os
+    state "New-VM.Resource" as new_vm_resource
+    state "Screenshots" as screenshots
+    state "Start-GuestWorkload" as start_guest_workload
     state "Cleanup" as cleanup
-    state "guest fail" as failed
 
-    [*] --> quarantine
-    quarantine --> [*] : skipped, streak open
-    quarantine --> provision : not quarantined
-    provision --> guestos : VM running
-    provision --> failed : provisioning_failure
-    guestos --> vmresource : start sequences passed
-    guestos --> failed : sequence failed
-    vmresource --> workload : Wait-VMRunning passed
-    vmresource --> failed : provisioning_failure
-    workload --> cleanup : all sequences passed
-    workload --> failed : warm resume exhausted
-    cleanup --> [*] : pass
-    cleanup --> failed : VM still running
+    [*] --> new_vm : quarantine gate passed
+    new_vm --> start_vm : pass
+    new_vm --> [*] : fail
+    start_vm --> start_guest_os : pass
+    start_vm --> [*] : fail
+    start_guest_os --> new_vm_resource : pass or skipped
+    start_guest_os --> [*] : fail
+    new_vm_resource --> screenshots : pass
+    new_vm_resource --> start_guest_workload : no screenshots
+    new_vm_resource --> [*] : fail
+    screenshots --> start_guest_workload : pass or skipped
+    screenshots --> cleanup : no extensions
+    screenshots --> [*] : fail
+    start_guest_workload --> cleanup : pass or skipped
+    start_guest_workload --> [*] : fail
+    cleanup --> [*] : Remove-VM verified
+    cleanup --> [*] : still running
 ```
 
-Seven boxes. Two are aggregates: `New-VM, Start-VM` folds the two provisioning
-steps (`New-VM` through the Yuruna.Host driver, then `Start-VM` followed by
-`Update-GuestNeighborCache` and `Wait-VMIp -TimeoutSeconds 30`), and
-`Screenshots, Start-GuestWorkload` folds the optional screenshot step
-(`Invoke-ScreenshotTest`) with the workload step. "Optional" is per cycle rather
-than per guest: `$hasScreenshots` is one cycle-wide OR computed in
-`Get-StepDerivation` and passed to every guest, so if any guest in the list
-declares a schedule the step runs for all of them, and a guest without one reports
-`skipped` rather than not having the step. `[*]` is the guest-loop entry and exit, not a state.
+Seven states, which is the cap, so three things are folded onto edges rather than
+drawn. The exact members and real counts:
 
-Four of the boxes -- `New-VM, Start-VM`, `Start-GuestOS`, `New-VM.Resource`,
-`Screenshots, Start-GuestWorkload` -- carry the literal `-StepName` values passed
-to `Set-StepStatus`, which is what the dashboard renders as tiles. `Cleanup` is
-not one of them: it appears only as the `FailedStep` on `$IterState` and as
-`Write-CycleInfraFailure -Stage 'Cleanup'`, so a teardown failure reaches the
-failure record without ever having had a tile. `quarantine gate` and `guest fail`
-are control-flow boxes rather than step names.
+- **The entry gates fold onto `[*] --> New-VM`.** Three checks run before the first
+  step, in this order. `Invoke-GuestQuarantineGate` runs in the guest `foreach`
+  itself when `testCycle.guestQuarantine.enabled` is true (default true, template
+  true); a skip sets guest status `skipped`, raises the dashboard quarantine flag
+  against the current framework commit, and moves to the next guest without
+  entering the iteration function at all. Inside the function, a requested
+  shutdown sets `Control='break'` with `FailedStep="shutdown"`, and a guest already
+  in `$FailedGuests` sets `Control='continue'`.
+- **The per-guest preparation folds onto the same edge.** Four actions, all before
+  `New-VM`: create the per-guest cycle data folder eagerly and record its URL so
+  the dashboard tile is clickable mid-cycle; delete stale
+  `failure_screenshot_<VM>.png` and `failure_ocr_<VM>.txt` from the log root;
+  on a host with `ProcessorCount` of 4 or fewer running more than one VM this
+  cycle, force-stop every other running cycle VM; and
+  `Remove-GuestVMQuietly -SkipStop`.
+- **The failure handling folds onto each `fail` edge.** Five actions run before any
+  branch: `Set-StepStatus fail`, `Set-GuestStatus fail`, populate the four
+  `$IterState` fields, `Write-CycleInfraFailure` where the step has an infra class,
+  and `Copy-FailureArtifactsToStatusLog`. The artifact copy is placed ahead of the
+  `StopOnFailure` branch so both paths get the debug folder. Only then does
+  `testCycle.stopOnFailure` (default false, template false) decide:
+  true leaves the VM as-is and sets `Control='break'`; false runs
+  `Remove-GuestVMQuietly` and sets `Control='continue'`, which is what actually
+  releases the memory reservation for the next guest.
 
-**quarantine gate.** `Invoke-GuestQuarantineGate`
-(`test/modules/Test.GuestQuarantine.psm1`), consulted only when
-`testCycle.guestQuarantine.enabled` is on (code default true, shipped false). A
-skip sets the guest status to `skipped`, marks it quarantined on the dashboard
-with the current framework commit, and `continue`s to the next guest. It is
-consulted in `Invoke-RunnerInnerCycle`'s guest `foreach` *before* the iteration
-helper is called (`test/modules/Test.RunnerInnerLoop.psm1:2744-2753`), so its skip
-is a bare `continue` in that loop rather than an `$IterState.Control` signal --
-the one gate that never enters the helper. The shutdown check
-(`Control = 'break'`) and the already-failed-this-cycle check
-(`Control = 'continue'`) are the first two blocks *inside* the iteration, and so
-run after it.
+Each state, what it runs, and its bound:
 
-**`New-VM` / `Start-VM`.** `New-VM` cascades `Username`, `Hostname`,
-`MemoryStartupBytes` and `Cores` from the plan and forwards the runner-detected
-caching-proxy URL. `Start-VM` refreshes the neighbor cache and waits briefly for
-an address, printing either the IP or `(pending)`. Both classify a failure as
-`provisioning_failure`.
+| State | Driver | Bound, key, default | Infra failure class |
+|---|---|---|---|
+| `New-VM` | `New-VM` with cascaded `Username`, `Hostname`, `MemoryStartupBytes`, `Cores` | none | `provisioning_failure` |
+| `Start-VM` | `Start-VM`, then `Update-GuestNeighborCache` and `Wait-VMIp` | `Wait-VMIp -TimeoutSeconds 30`, hardcoded | `provisioning_failure` |
+| `Start-GuestOS` | `Start-GuestOS` over the plan's `startSequences` | per-step `vmCommunication.timeoutSeconds`, default 180, template 180 | none; supports `skipped` |
+| `New-VM.Resource` | `Wait-VMRunning` | `vmStart.startTimeoutSeconds`, default 120, template 120; `vmStart.bootDelaySeconds`, default 15, template 15 | `provisioning_failure` |
+| `Screenshots` | `Invoke-ScreenshotTest` | per-step `vmCommunication.timeoutSeconds` | none; supports `skipped` |
+| `Start-GuestWorkload` | `Start-GuestWorkload` over `workloadSequences` | per-step `vmCommunication.timeoutSeconds`; warm resume on top | none directly; writes `Set-LastFailureSummary` from `Get-FailureEventData` |
+| `Cleanup` | teardown: DHCP release, `Stop-VM -Force`, `Remove-VM`, `Get-VMState` verify | one retry, no timeout | `provisioning_failure` |
 
-**`Start-GuestOS`.** `test/modules/Test.Start-GuestOS.psm1` runs the merged
-`startSequences` through `Invoke-GuestSequenceList -PhaseLabel 'Start'` with the
-cascade variable map. This step supports a `skipped` result.
+Three edges are easy to misread.
 
-**`New-VM.Resource`.** `Wait-VMRunning` with the configured VM start timeout and
-boot delay. Also `provisioning_failure`.
+**The two bypass edges are cycle-wide, not per-guest.** `$hasScreenshots` is a
+single OR computed once by `Get-CycleStepNameList` for the whole cycle, so
+`New-VM.Resource --> Start-GuestWorkload` is taken only when no guest in the cycle
+schedules screenshots. A guest that merely has no schedule of its own still enters
+`Screenshots` and reports `skipped`, which is why the step stays visible on the
+dashboard instead of vanishing. `Screenshots --> Cleanup` is the same shape for
+`$hasExtensions`.
 
-**`Screenshots` / `Start-GuestWorkload`.**
-`test/modules/Test.Start-GuestWorkload.psm1` runs the workload sequences through
-`Invoke-GuestSequenceList -PhaseLabel 'Workload'`. On a failure the runner first
-reclassifies host-network faults, then enters the warm-resume loop below, and
-only the final result reaches the fail branch.
+**`Cleanup` is reached only on a pass.** `Set-GuestStatus pass` is written before
+it, then the per-VM `screens_<VM>/` ring is deleted, then
+`Invoke-GuestDhcpRelease` asks for the lease back while there is still a guest to
+ask -- the `Stop-VM -Force` that follows is invisible to the guest's own shutdown
+unit. A VM still `running` after `Remove-VM` and one retry becomes a `Cleanup`
+failure that sets the four `$IterState` fields, writes
+`Write-CycleInfraFailure -Stage 'Cleanup' -FailureClass 'provisioning_failure'`
+and breaks regardless of `stopOnFailure`. It writes no `Set-StepStatus` and no
+`Set-GuestStatus` and copies no artifacts, so the guest keeps the `pass` written
+one step earlier. `Cleanup` is not a dashboard tile.
 
-**`Cleanup`.** On a pass: delete the per-VM pre-OCR screen ring, ask for the DHCP
-lease back with `Invoke-GuestDhcpRelease` while there is still a guest to ask
-(the force-stop that follows is invisible to the guest's own shutdown unit), then
-`Stop-VM -Force`, `Remove-VM`, and verify with `Get-VMState` plus one retry.
-`Remove-VM`'s own return cannot answer this -- its status output folds into the
-bool cast -- so the state is probed directly. A VM still `running` after the
-retry is a `Cleanup` failure with class `provisioning_failure` and
-`Control = 'break'`, because the next guest must not cold-start onto a host still
-carrying this one.
+**Every state boundary carries two cross-cutting calls the diagram cannot show.**
+`Assert-CachingProxyServiceStillReachable` runs before each of the six dashboard
+steps with a 3000 ms TCP cap; it never holds the cycle, it only emits a coherent
+transition log -- one loud `LOST` warning on the down edge, terse notes during a
+sustained outage, and a note on recovery. After each step,
+`Sync-RunnerStepConfig` re-reads the config and the three mirrors
+`StopOnFailure`, `VmStartTimeoutSeconds` and `VmBootDelaySeconds` are refreshed,
+so an operator edit lands at the next step boundary rather than the next cycle.
 
-Cross-cutting on every step: `Assert-CachingProxyServiceStillReachable` before it,
-`Set-StepStatus` to `running` before and `pass`/`fail`/`skipped` after, and
-`Sync-RunnerStepConfig` after, which re-reads `StopOnFailure`,
-`VmStartTimeoutSeconds` and `VmBootDelaySeconds` from disk so a mid-cycle edit is
-picked up.
+After the iteration returns, `Register-GuestQuarantineOutcome` folds the outcome
+into the per-guest circuit breaker in `test/modules/Test.GuestQuarantine.psm1`. A
+pass clears the entry; a failure extends the same-class streak and trips
+quarantine at `testCycle.guestQuarantine.failuresToQuarantine` (default 3,
+template 3) for `testCycle.guestQuarantine.skipCycles` (default 5, template 5)
+cycles or until a new framework or project commit. Classes in
+`$script:HostScopedFailureClass`, which today holds only
+`host_network_degraded`, never start or extend a streak: a host fault produces
+the identical class on every network-touching guest at once and would quarantine
+them all.
 
-Every failure edge does the same work before it branches: `Set-StepStatus` to
-`fail`, `Set-GuestStatus` to `fail`, populate the four `$IterState` failure
-fields, and `Copy-FailureArtifactsToStatusLog` -- placed before the branch so
-both paths get the debug folder. Then `StopOnFailure` decides. The `Cleanup` edge
-is the exception to all of it: a teardown that leaves the VM running sets the four
-`$IterState` fields and writes `Write-CycleInfraFailure -Stage 'Cleanup'`, then
-breaks regardless of `StopOnFailure` -- with no `Set-StepStatus`, no
-`Set-GuestStatus` and no artifact copy, so the guest keeps the `pass` the teardown
-region already wrote. `true` means
-`Control = 'break'` with the VM left exactly as it is on all six steps --
-`Start-GuestOS`, `New-VM.Resource`, `Screenshots` and `Start-GuestWorkload` say so
-on the console ("left running for investigation"), while `New-VM` and `Start-VM`
-break silently. `false` means `Remove-GuestVMQuietly` runs and
-`Control = 'continue'`, which is where the memory reservation is actually
-released so the next guest does not cold-start against it.
+## Holding for a lab service that stopped answering
 
-### Holding for a lab service that went away
+`Wait-LabHealthy` in `test/modules/Test.LabHealth.psm1` is the hold, and
+`Invoke-LabHealthGate` wraps it. The gate is called at sequence start and at the
+top of every step from `test/modules/Test.SequenceEngine.psm1`, and once per
+orchestration chain entry from `test/modules/Test.Orchestrator.psm1`. Every call
+site is `Get-Command`-guarded so a module set without `Test.LabHealth` runs
+ungated.
 
-Ahead of every sequence step and every orchestration chain entry, the cycle asks
-whether the services this lab declares are answering, and parks itself while one
-that *had* been answering is away. This is not a seventh runner state -- the enum
-and its schema mirror are still exactly the six above -- but it is a state machine
-with its own flags, its own break-out and its own terminal failure class.
+States below are the verdict literals `Test-LabHealth` returns and the `Outcome`
+literals `Wait-LabHealthy` returns.
 
 ```mermaid
 stateDiagram-v2
-    state "lab verdict ok" as lab_ok
-    state "confirmation re-probe" as lab_confirm
-    state "hold and re-probe" as lab_hold
-    state "service answered" as lab_recovered
-    state "operator released" as lab_released
-    state "lab_dependency_down" as lab_exhausted
+    state "ok" as ok
+    state "down" as down
+    state "Test-LabHealth -Force" as confirm
+    state "Held" as held
+    state "recovered" as recovered
+    state "released" as released
+    state "exhausted" as exhausted
 
-    [*] --> lab_ok
-    lab_ok --> lab_confirm : verdict down
-    lab_confirm --> lab_ok : was a blip
-    lab_confirm --> lab_hold : still down
-    lab_hold --> lab_recovered : probe answered
-    lab_hold --> lab_released : release flag set
-    lab_hold --> lab_exhausted : ceiling reached
-    lab_recovered --> lab_ok : step proceeds
-    lab_released --> lab_ok : step proceeds
+    [*] --> ok : Test-LabHealth
+    ok --> down : armed area silent
+    down --> confirm : cache cleared
+    confirm --> ok : answered
+    confirm --> held : Set-LabHold
+    held --> held : re-probe attempt
+    held --> recovered : verdict not down
+    held --> released : operator release flag
+    held --> exhausted : MaxHoldAttempts reached
+    recovered --> [*] : Clear-LabHold
+    released --> [*] : Clear-LabHold
+    exhausted --> [*] : throw
 ```
 
-Six boxes, no fold. `Invoke-LabHealthGate`
-(`test/modules/Test.LabHealth.psm1`) is entered from
-`test/modules/Test.SequenceEngine.psm1:1809` and `:1873` and from
-`test/modules/Test.Orchestrator.psm1:552`.
+Seven states, which is the cap. Every box is a literal from
+`test/modules/Test.LabHealth.psm1`: `ok` and `down` are values of the `Verdict`
+field `Test-LabHealth` returns, `Held` and the three terminals `recovered`,
+`released` and `exhausted` are values of the `Held` and `Outcome` fields
+`Wait-LabHealthy` returns, and `Test-LabHealth -Force` is the confirmation call
+made verbatim.
 
-**Armed, not configured.** The probe set is derived from every extension area
-that declares a health surface, and a hold requires a change of condition: an
-area this host reached inside the arming window and can no longer reach. A
-service that was never reachable from here is never held for -- which is what
-keeps a standalone host from parking on a pool service it does not have -- unless
-the operator names it in `testCycle.labHealth.require` (shipped empty), which
-forces a `down` verdict for an unarmed area
-(`test/modules/Test.LabHealth.psm1:484`, `:527`).
+The third verdict value, `unknown`, is folded into `ok` on the diagram because the hold treats them identically: `Wait-LabHealthy`
+returns its idle result for any verdict that is not `down`. The real verdict set
+is three values -- `ok`, `down`, `unknown`.
 
-**`lab-confirm`.** `Wait-LabHealthy` is entered only on a verdict of `down`, and
-re-probes with `-Force` first so the freshness cache cannot answer for it. The
-loop re-asks discovery on every attempt rather than replaying a candidate list,
-because a rebuilt service normally comes back on a different address.
+The probe set is derived, never configured: `Get-LabHealthProbeSet` walks
+`Get-ExtensionServiceManifestAll` and keeps every area whose `HealthPort` is above
+zero. Per area, an armed area is probed at its recorded `lastAddress` first with
+no discovery at all; only on failure, or with no address on record, is discovery
+re-asked through `Resolve-LabHealthAddress`, because a rebuilt service normally
+returns on a different address. The verdict is `ok` when something answered, else
+`down` when the area is armed or named in `testCycle.labHealth.require`, else
+`unknown`.
 
-**Three ways out.** `recovered` when a probe answers, `released` when the
-operator drops `control.lab-hold-release`, `exhausted` at
-`testCycle.labHealth.maxHoldAttempts` -- shipped 999, clamped to a compiled
-ceiling of 999 and a floor of 1 -- at up to 59 s per re-probe, so roughly sixteen
-hours at the shipped value. Only the third is a
-failure: it writes a `lab_dependency_down` / hard record through
-`Write-CycleInfraFailure` and throws a tagged marker. Each outcome emits its own
-NDJSON event (`lab_health_change`, `lab_health_released`, `lab_health_exhausted`).
+Arming is a change of condition, not absolute state. `Test-LabHealthArmed`
+requires a parseable `lastOkUtc` no older than `testCycle.labHealth.armWindowHours`
+(default 24, template 24). A stamp in the future arms too -- clock skew is not
+evidence the service is absent. An area that has never answered is never `down`
+unless the operator names it in `testCycle.labHealth.require`.
 
-**It stays interruptible.** Every iteration runs the caller's abort check, so a
-cycle restart aborts a held cycle exactly as it aborts a running one, and yields
-to the caller's pause wait, so an operator pausing on top of a hold stops the
-re-probing rather than racing it.
+Each transition, with its bound:
 
-**The watchdog does not know it is holding.** Nothing in the hold path refreshes
-`runner.stepHeartbeat`, and the gate runs ahead of the per-step refresh, so a held
-step ages against the ordinary step bound while it waits. Whichever ceiling comes
-first ends the hold: the watchdog's `testCycle.stepTimeoutSeconds` (2700 s by
-default) or the gate's own `maxHoldAttempts`.
+| From -> To | Trigger in code | Bound, key, default |
+|---|---|---|
+| `[*]` -> `ok` | `Test-LabHealth`, gated on `testCycle.labHealth.enabled` (default true, template true) | per attempt `$script:ProbeAttempts` = 1 and `$script:ProbeTimeoutSeconds` = 3; verdict cached for `testCycle.labHealth.minIntervalSeconds` (default 30, template 30) when armed or required, `testCycle.labHealth.discoveryIntervalSeconds` (default 600, template 600) when not |
+| `ok` -> `down` | an armed or required area answered nothing | same probe budget |
+| `down` -> `Test-LabHealth -Force` | `Clear-LabHealthVerdictCache` then a forced re-probe | same probe budget |
+| `Test-LabHealth -Force` -> `ok` | the confirmation probe answered; result is `Outcome = 'none'` and no hold is raised | none |
+| `Test-LabHealth -Force` -> `Held` | still `down`; `Set-LabHold` plus a `lab_health_change` event carrying `ok -> down` | none |
+| `Held` -> `Held` | one re-probe attempt after the poll delay | `Get-LabHoldPollDelay` delegates to `Get-PollDelay` in `test/modules/Test.Backoff.psm1`: `min(59, 2^(n-1))` seconds minus up to 25 percent jitter, flat 5000 ms fallback |
+| `Held` -> `recovered` | a probe answered; `lab_health_change` carrying `down -> ok` | none |
+| `Held` -> `released` | `control.lab-hold-release` present, read by `Test-LabHoldReleaseRequested`; `lab_health_released` with `releasedBy = 'operator'` | none |
+| `Held` -> `exhausted` | attempts reached `MaxHoldAttempts`; `lab_health_exhausted` | `testCycle.labHealth.maxHoldAttempts`, default 999, template 999, clamped to the compiled ceiling `$script:MaxHoldAttemptsCeiling` = 999 with a floor of 1 |
+| any terminal -> `[*]` | `Clear-LabHold` on every exit path | none |
 
-## Warm resume
+Three details are easy to misread.
 
-The in-place retry, decided by `test/modules/Test.WarmResume.psm1`, driven by the
-loop in `Test.RunnerInnerLoop.psm1`, and executed by
-`Invoke-Sequence -StartStep`. It exists so an eligible transient failure re-runs
-the failed sequence from its last good step on the same still-alive VM instead of
-redoing the whole install from a cold provision.
+**The confirmation probe is not redundant.** The gate runs on a single-attempt
+3 s probe at every step boundary, so one dropped packet is enough to produce
+`down` on a service that is up. The cache is cleared and the probe re-run with
+`-Force` before the cycle is parked, because parking a cycle on a dropped packet
+is worse than the failure being prevented.
+
+**The hold stays interruptible.** Every iteration runs the caller's `CheckAbort`,
+which is the cycle-restart gate, so a restart aborts a held cycle exactly as it
+aborts a running one, and yields to `WaitWhilePaused` so an operator pause stops
+the re-probing rather than racing it. Each attempt re-asks discovery rather than
+replaying a candidate list.
+
+**Only `exhausted` is a failure.** `Invoke-LabHealthGate` writes
+`Write-CycleInfraFailure` with `FailureClass 'lab_dependency_down'`,
+`Severity 'hard'` and `GuestKey '(orchestration)'` before throwing, then throws a
+`RuntimeException` tagged `Data['YurunaLabDependencyDown'] = $true` with the
+message prefix `YurunaLabDependencyDown: `. Both markers exist so a caller can
+tell it from a code crash -- no stack banner, no crash-streak increment -- and so
+the caller's generic handler does not overwrite the classified record. A bad
+verdict never clears the `lab-health.json` record, which would disarm the gate at
+exactly the moment it is needed. `Set-LabHold` writes the sidecar `lab-hold.json`
+first and the `control.lab-hold` flag second, so no reader can see a raised hold
+with no explanation beside it.
+
+The watchdog does not know a hold is in progress. Nothing in the hold path
+refreshes `runner.stepHeartbeat`, and the gate runs ahead of the per-step refresh.
+Whichever ceiling arrives first ends the hold: the watchdog's
+`testCycle.stepTimeoutSeconds` of 2700 s, or the gate's own `maxHoldAttempts`.
+
+## Warm-resume retry loop
+
+The decision core is `test/modules/Test.WarmResume.psm1`; the loop that drives it
+sits inside the `Start-GuestWorkload` region of `Invoke-GuestProvisionIteration`
+in `test/modules/Test.RunnerInnerLoop.psm1`. It re-runs a failed sequence from its
+last-good step on the same still-alive VM, because the teardown fires only on the
+final result.
 
 ```mermaid
 stateDiagram-v2
-    state "workload step failed" as wl_failed
+    state "Start-GuestWorkload" as workload
     state "Read-WarmResumeCheckpoint" as checkpoint
     state "Get-WarmResumeDecision" as decision
     state "Get-WarmResumeRewindStep" as rewind
-    state "Start-GuestWorkload -ResumeFromStep" as attempt
-    state "resumed pass" as resumed
-    state "teardown, cold re-provision" as cold
+    state "Test-WarmResumeReplayIsSafe" as replay_safe
+    state "ResumeFromStep" as resume
 
-    wl_failed --> checkpoint : enabled and not skipped
-    checkpoint --> decision : failureClass, sequenceName, resumeFromStep
-    decision --> cold : declined
-    decision --> rewind : ShouldResume
-    rewind --> cold : replay unsafe, no snapshot
-    rewind --> attempt : attempt under maxAttempts
-    attempt --> resumed : success
-    attempt --> checkpoint : failed again
-    attempt --> cold : attempts exhausted
+    [*] --> workload
+    workload --> [*] : success or skipped
+    workload --> checkpoint : eligible failure
+    checkpoint --> decision : class and step
+    decision --> [*] : ShouldResume false
+    decision --> rewind : ShouldResume true
+    rewind --> resume : boundary found
+    rewind --> replay_safe : no boundary
+    replay_safe --> [*] : replay unsafe
+    replay_safe --> resume : replay safe
+    resume --> [*] : recovered
+    resume --> checkpoint : failed again
+    resume --> [*] : attempts exhausted
 ```
 
-Seven boxes, no aggregation.
+Six states, no fold. Four of the boxes are functions in
+`test/modules/Test.WarmResume.psm1` and carry their exact names.
+`Start-GuestWorkload` is the entry point in
+`test/modules/Test.Start-GuestWorkload.psm1`, and the `ResumeFromStep` box is the
+same function re-invoked as
+`Start-GuestWorkload -ResumeFromSequence <entry> -ResumeFromStep <n>`;
+`ResumeFromStep` is also the field name the checkpoint and the rewind both return.
 
-**Eligible classes.** `$script:WarmResumeEligibleClass` holds exactly six:
-`network_timeout`, `wait_timeout`, `instrumentation_failure`, `host_io_blocked`,
-`ip_not_discovered`, `payload_unavailable`. The predicate is
-`Test-WarmResumeEligibleClass`. The last two earn their place on the same
-ground: a step that never resolved an address, or never received a payload,
-never reached the guest, so nothing it might have done is in question and
-replaying it is as sound as replaying a timeout. Hard and deterministic classes
--- `script_error`, `provisioning_failure`, `pattern_matched_failure` -- are never
-resumed.
+The loop is break-free -- `$wrDone` carries the stop condition, because a bare
+`break` absent a loop of its own would escape the caller's guest `foreach`.
 
-**Checkpoint.** `Read-WarmResumeCheckpoint -LogDir ... -NotBeforeUtc $wlStartUtc`
-reads `$env:YURUNA_LOG_DIR/last_failure.json` and pulls `failureClass`,
-`sequenceName` and `repro.resumeFromStep`. The `NotBeforeUtc` staleness guard (2
-second clock tolerance) is what stops a prior phase's record from triggering a
-resume; a missing, stale or unparseable file yields `ResumeFromStep = 0`, which
-the decision treats as "do not resume".
+Entry is gated on four conditions together: `testCycle.warmResume.enabled`
+(default true, template true), the result not successful, the result not skipped,
+and `Read-WarmResumeCheckpoint` resolvable. Before the decision reads the record,
+`Write-CycleHostNetworkReclassification` re-files host-network faults against the
+host, because on a host whose bridge carries nothing every attempt would get the
+same answer and a resume would only spend the cycle budget reproducing it.
 
-**Attempt counter.** `testCycle.warmResume.enabled` (code default true) and
-`testCycle.warmResume.maxAttempts` (code default 2) surface as
-`$cfg.WarmResumeEnabled` and `$cfg.WarmResumeMaxAttempts` through
-`Get-RunnerReloadableConfig`. Shipped `test/test.config.yml` sets
-`enabled: true`, `maxAttempts: 2`. The loop condition is
-`while (-not $wrDone -and $wrAttempt -lt [int]$cfg.WarmResumeMaxAttempts)`, and
-each iteration re-reads the checkpoint, so a second failure at a different step
-resumes from the new one.
+| From -> To | Trigger in code | Bound, key, default |
+|---|---|---|
+| `Start-GuestWorkload` -> `Read-WarmResumeCheckpoint` | the four entry gates above | loop bound `testCycle.warmResume.maxAttempts`, default 2, template 2 |
+| `Read-WarmResumeCheckpoint` -> `Get-WarmResumeDecision` | reads `$YURUNA_LOG_DIR/last_failure.json` for `failureClass`, `sequenceName` and `repro.resumeFromStep` | staleness guard `-NotBeforeUtc` set to the workload start, with a 2 s clock tolerance |
+| `Get-WarmResumeDecision` -> `[*]` | `ShouldResume` false | none |
+| `Get-WarmResumeDecision` -> `Get-WarmResumeRewindStep` | `ShouldResume` true; `ResumeSequence` is the workload-list entry verbatim | none |
+| `Get-WarmResumeRewindStep` -> `ResumeFromStep` | a `loadDiskSnapshot` found at or before the checkpoint | none |
+| `Get-WarmResumeRewindStep` -> `Test-WarmResumeReplayIsSafe` | `BoundaryStep` of 0 or less | none |
+| `Test-WarmResumeReplayIsSafe` -> `[*]` | the step to replay hands work to the guest | none |
+| `Test-WarmResumeReplayIsSafe` -> `ResumeFromStep` | no guest-state verb at the checkpoint | none |
+| `ResumeFromStep` -> `[*]` | `$r.success` after the re-invocation | none |
+| `ResumeFromStep` -> `Read-WarmResumeCheckpoint` | failed again with attempts remaining | `testCycle.warmResume.maxAttempts` |
+| `ResumeFromStep` -> `[*]` | attempts reached `maxAttempts` | same |
 
-**Decline reasons.** `Get-WarmResumeDecision` returns `ShouldResume`, `Reason`
-and `ResumeSequence`, declining with `disabled`,
-`class-not-eligible (<class>)`, `no-resume-step`, `no-sequence-name`, or
-`sequence-not-in-workload (<name>)`. Sequence matching is exact or by base name
-with a `.yml`/`.yaml` suffix stripped.
+The eligible classes are `$script:WarmResumeEligibleClass`, exactly six, in
+declaration order: `network_timeout`, `wait_timeout`, `instrumentation_failure`,
+`host_io_blocked`, `ip_not_discovered`, `payload_unavailable`. Anything else takes
+the `class-not-eligible` decline.
 
-**Rewind.** The checkpoint names the step that *failed*, and its work may be
-half-applied -- transient says why it stopped, not how far it got. So
-`Get-WarmResumeStepAction` reads the resolved sequence's 1-based action list and
-`Get-WarmResumeRewindStep` scans backwards for the nearest `loadDiskSnapshot`
-boundary, resuming there and replaying the intervening steps against restored
-state. With no boundary at or before the checkpoint,
-`Test-WarmResumeReplayIsSafe` decides: if the checkpoint step runs guest work,
-the resume is declined with a warning naming the missing `loadDiskSnapshot`,
-leaving the original result -- and the real failure with it -- untouched.
-Replaying there would land on the residue the failed attempt already created and
-report that instead of the transient.
+`Get-WarmResumeDecision` has five decline reasons, evaluated in this order:
+`disabled`, `class-not-eligible (<class>)`, `no-resume-step` when
+`ResumeFromStep` is below 1, `no-sequence-name`, and
+`sequence-not-in-workload (<name>)`. Matching against the workload list is exact
+or by base name with `\.ya?ml$` stripped. A missing, stale or unparseable
+checkpoint file yields `ResumeFromStep = 0`, which the decision reads as
+`no-resume-step`.
 
-**Observability.** `New-WarmResumeEvent` emits a `warm_resume` NDJSON record
-carrying `checkpointStep` whenever it differs from the step actually resumed, so
-a rewind is visible rather than inferred.
+Three details are easy to misread.
 
-**Fallback.** A decline before any attempt leaves the original result in place;
-once an attempt has run, `$r` has been reassigned, so what reaches the fail branch
-is the last attempt's result rather than the original failure. That flows into the normal `Start-GuestWorkload` fail branch, teardown,
-and a cold re-provision on the next cycle. The teardown firing only on the final
-result is exactly what keeps the VM alive across attempts.
+**The rewind exists because the checkpoint names the step that failed.** That
+step's work may be half applied -- transient says why it stopped, not how far it
+got. `Get-WarmResumeStepAction` reads the resolved sequence through
+`Read-SequenceFile` and takes each step's lead action via `Get-StepLeadAction`, so
+a restore nested inside a `retry` block is still found.
+`Get-WarmResumeRewindStep` then scans backwards from the checkpoint for the
+nearest `loadDiskSnapshot` and returns `ResumeFromStep`, `Rewound` and
+`BoundaryStep`.
+
+**The replay-safety guard only runs when no boundary exists.** Its unsafe verbs
+are `$script:WarmResumeGuestStateVerbs`, exactly three: `fetchAndExecute`,
+`sshFetchAndExecute`, `sshExec`. A null or empty action list, or a checkpoint
+outside it, answers unsafe. On unsafe the resume is declined with a warning naming
+the missing `loadDiskSnapshot`, and `$r` -- with the real failure inside it -- is
+left exactly as the original attempt wrote it.
+
+**Each iteration re-reads the checkpoint.** A second failure at a different step
+resumes from the new one. On a resume the loop emits a `warm_resume` NDJSON record
+from `New-WarmResumeEvent` carrying `checkpointStep` and `rewoundSteps` whenever
+they differ from the step actually resumed, then re-invokes `Start-GuestWorkload`
+with `-ResumeFromSequence` and `-ResumeFromStep`. Once an attempt has run, `$r` has
+been reassigned, so what reaches the fail branch afterwards is the last attempt's
+result.
 
 ## What is deliberately not drawn
 
-**The notification latch.** Armed -> N failures -> Fired -> M successes ->
-Armed, with counters persisted in `runtime/runner.gating.json`. It is a state
-machine, but it is a property of the *alerting* channel rather than of the
-runner, and it advances at cycle granularity -- one transition per cycle, driven
-entirely by the pass/fail the diagrams above already produce. Drawing it here
-would duplicate the outcome edges with different labels.
-
-**The guest quarantine circuit breaker.** `none` / `skip` / `release` from
-`Get-GuestQuarantineDecision`, with a per-guest same-class failure streak, a
-skip-cycle budget, and release on a framework or project commit change. Its
-lifetime spans cycles, so it does not fit either the per-cycle or the per-guest
-frame; the per-guest diagram shows only where the gate is consulted.
-
-**The remediation dispatcher's recommendation vocabulary.** Seven values from
-`retry_immediately` through `escalate`. `Invoke-Remediation` is advisory -- it
-writes `last_remediation.json` and emits an event, and performs nothing -- so it
-has no states, only a classification. The one place a recommendation changes
-runner behavior is the gated auto-remediation break-out, which is drawn as
-trigger 5.
-
-**Boot recovery's own sequence.** `Invoke-YurunaBootRecovery` sweeps stale
-pidfiles, a stale `break-active.json`, stale pause flags -- now including the lab
-hold's `control.lab-hold`, `lab-hold.json` and `control.lab-hold-release`, while
-`lab-health.json` is deliberately left standing because it is what arms the gate
--- and orphan `.incomplete` cycle folders. It runs once, before the state machine is initialized, and is
-strictly ordered rather than branching, so it is a data flow rather than a
-lifecycle.
-
-**The MCP endpoints, the requirement version floors and the Lab token
-diagnostic.** They landed alongside this work and carry no runner state at all:
-the per-daemon MCP surfaces belong to the daemons in
-[Deployment topology](06-deployment.md), the version floors run inside an
-installer, and `test/lab/Lab-Diag.ps1` is a read-only probe that stores nothing.
-Nothing here transitions.
-
-**Host and service-VM lifecycles, except one transition.** The caching-proxy,
-stash, pool-control and download-agent VMs each have their own start, health and
-stop shape driven from `test/service/`, and it is out of frame here. One edge is
-not: once per cycle the `service-vm-restore` preamble phase sweeps the roster and
-powers on every service VM that is registered but stopped
-(`test/modules/Invoke-TestRunnerInnerLoop.ps1:669-694`), because a host reboot
-leaves them all registered and off and nothing else in the cycle turns them back
-on. That off-to-running edge is the only service-VM transition the runner owns; it
-never builds one and never stops one.
+- **The sequence-step machine.** `Invoke-Sequence` in
+  `test/modules/Test.SequenceEngine.psm1` dispatches each step's verb through the
+  registry populated by `Register-SequenceAction` in
+  `test/modules/Test.SequenceHandler.psm1`. It is a dispatch table, not a state
+  machine, and the number of verbs is far past seven.
+- **The failure taxonomy.** `$script:FailureClassEnum` in
+  `test/modules/Test.FailureTaxonomy.psm1` holds 24 values and
+  `$script:RecommendationEnum` in `test/modules/Test.Remediation.psm1` holds 7.
+  Neither is a lifecycle, and the classification-to-alert path is a flow, shown in
+  [Data flows](03-data-flows.md).
+- **The notification latch.** `AlertArmed` with `ConsecutiveFailures` and
+  `ConsecutiveSuccesses`, persisted in `runtime/runner.gating.json`, is a counter
+  pair rather than a named-state machine.
+- **The pool desired state.** `run`, `paused` and `drain` are read from pool intent
+  and consumed by the outer; the two that matter here already appear as the
+  `cycle-start` -> `paused` edge and the `drain` outcome that writes no transition.

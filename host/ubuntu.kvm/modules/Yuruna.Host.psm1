@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42539052-a22b-452d-ad7f-0bbf053904ff
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,10 +46,10 @@ $script:HostFolder     = Join-Path $script:RepoRoot 'host/ubuntu.kvm'
 $script:VirshUri       = 'qemu:///system'
 $script:VmRootDir      = Join-Path $HOME 'yuruna/vms'
 $script:PortMapDir     = Join-Path $HOME 'yuruna/portmap'
-# Last neighbour-cache sweep per VM. Module-scoped so a polling caller cannot
+# Last neighbor-cache sweep per VM. Module-scoped so a polling caller cannot
 # turn its poll interval into a sweep interval; see Update-GuestNeighborCache.
 $script:NeighborSweepMemo = @{}
-# The last IPv4 prefix this host held. Kept so the neighbour sweep still has a
+# The last IPv4 prefix this host held. Kept so the neighbor sweep still has a
 # subnet to work with during the seconds between leases, when the live lookup
 # has nothing to report.
 $script:LastKnownHostPrefix = $null
@@ -808,7 +808,7 @@ function Send-Text {
         [switch]$Sensitive
     )
     # Sensitive is part of the contract for log redaction; current paths
-    # (SSH and the Invoke-Sequence GUI dispatcher) do not yet honour it.
+    # (SSH and the Invoke-Sequence GUI dispatcher) do not yet honor it.
     if ($Sensitive) { Write-Debug "Send-Text: -Sensitive set on '$VMName'; log redaction not yet implemented on KVM." }
     if ($Mechanism -eq 'ssh') {
         if (-not $GuestKey) {
@@ -988,7 +988,7 @@ function Wait-VMIp {
 .SYNOPSIS
     Return this host's own IPv4 and its prefix length, or $null.
 .DESCRIPTION
-    The prefix bounds the neighbour sweep below. It is read rather than
+    The prefix bounds the neighbor sweep below. It is read rather than
     assumed because a sweep is only defensible on a /24: at /16 it is 65k
     probes against the operator's LAN, which is a scan, not a lookup.
 .PARAMETER AddrLine
@@ -1030,7 +1030,7 @@ function Get-HostIpv4Prefix {
     to diagnose.
 
     So: rows whose MAC is the domain's own NIC win outright, then rows on this
-    host's subnet, then first-match as the legacy behaviour. v4 before v6
+    host's subnet, then first-match as the legacy behavior. v4 before v6
     throughout, because the port-map forwarders bind v4 sockets; v6 is returned
     only when no v4 exists, so a v6-only guest still resolves.
 .PARAMETER Line
@@ -1095,9 +1095,80 @@ function Select-VirshDomifaddrIp {
 
 <#
 .SYNOPSIS
-    Read this host's neighbour table for an entry matching a guest MAC.
+    Pick the address whose lease is the LIVE one out of `virsh net-dhcp-leases`
+    rows, or $null.
 .DESCRIPTION
-    The direct analogue of the Hyper-V driver's MAC-keyed neighbour stage, and
+    `virsh domifaddr --source lease` answers with every lease libvirt still
+    holds for a domain's MAC and no way to tell them apart. One MAC accumulates
+    several: a guest built from a fresh image identifies itself to DHCP by a
+    client-id derived from a machine-id that is new on every build, so the
+    server hands out a new address each time and keeps the earlier ones until
+    they expire. Taking the first row then reports an address from a previous
+    build of the same guest -- present, unexpired, and answering nothing.
+
+    Expiry is what separates them, and only this view carries it. The live
+    guest keeps RENEWING while a dead one's lease only ages, so the latest
+    expiry is the live one; the same rule the macOS driver already applies to
+    its own lease file.
+
+    Rows look like:
+      Expiry Time         MAC address        Protocol  IP address          ...
+      2026-01-02 03:04:05 52:54:00:1a:b2:c3  ipv4      192.168.122.118/24  ...
+    The header carries no MAC, so requiring one is what skips it without
+    matching on column titles that a localized virsh renames.
+.OUTPUTS
+    System.String. The address, or $null when no row qualifies.
+#>
+function Select-VirshNetLeaseIp {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [string[]]$Line,
+        [string]$Mac
+    )
+    $wantMac = if ($Mac) { $Mac.ToLowerInvariant() } else { '' }
+    $rows = @()
+    foreach ($l in @($Line)) {
+        if ("$l" -match '^\s*(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2})\s+([0-9a-fA-F:]{17})\s+(ipv4|ipv6)\s+(\S+?)/\d+') {
+            $expiry = [datetime]::MinValue
+            # An unparsable stamp must not win by accident, so it sorts oldest
+            # rather than being dropped: a row that is the only candidate is
+            # still the answer.
+            $null = [datetime]::TryParse($Matches[1], [ref]$expiry)
+            $rows += @{
+                Expiry = $expiry
+                Mac    = $Matches[2].ToLowerInvariant()
+                Family = $Matches[3]
+                Ip     = $Matches[4]
+            }
+        }
+    }
+    if (-not $rows.Count) { return $null }
+
+    foreach ($family in @('ipv4', 'ipv6')) {
+        $candidates = @($rows | Where-Object {
+            $_.Family -eq $family -and [bool](Select-YurunaRoutableAddress -Address @($_.Ip))
+        })
+        # MAC affinity is a REQUIREMENT here, not the preference it is when
+        # reading domifaddr. That view is already scoped to one domain, so every
+        # row belongs to the guest being asked about and falling back to any row
+        # is harmless. This view is scoped to the NETWORK: every other guest's
+        # lease is in it, and the same fallback would hand back a peer's address
+        # -- reachable, wrong, and indistinguishable from success.
+        if ($wantMac) {
+            $candidates = @($candidates | Where-Object { $_.Mac -eq $wantMac })
+        }
+        if (-not $candidates.Count) { continue }
+        return [string](@($candidates | Sort-Object -Property Expiry -Descending)[0].Ip)
+    }
+    return $null
+}
+
+<#
+.SYNOPSIS
+    Read this host's neighbor table for an entry matching a guest MAC.
+.DESCRIPTION
+    The direct analog of the Hyper-V driver's MAC-keyed neighbor stage, and
     the reason it exists here: `virsh domifaddr --source arp` asks libvirt to
     match the same table, but libvirt sees an entry only while the kernel is
     publishing a link-layer address for it. FAILED and INCOMPLETE entries carry
@@ -1128,7 +1199,7 @@ function Get-KvmNeighborIp {
     # because the kernel has no address for them; PERMANENT/NOARP are included
     # because a statically configured entry is as good as a probed one.
     $usableState = @('REACHABLE', 'STALE', 'DELAY', 'PROBE', 'PERMANENT', 'NOARP')
-    # --- REGION: https://yuruna.link/network#why-neighbour-entries-are-ranked-not-taken-in-order
+    # --- REGION: https://yuruna.link/network#why-neighbor-entries-are-ranked-not-taken-in-order
     # A guest that renumbers leaves its OLD address in this table under the same
     # MAC, and the kernel does not remove it -- it ages to STALE and sits there.
     # Taking the first matching line therefore returns whichever entry the hash
@@ -1167,9 +1238,9 @@ function Get-KvmNeighborIp {
 
 <#
 .SYNOPSIS
-    Refresh the host neighbour cache so a passive MAC lookup can succeed.
+    Refresh the host neighbor cache so a passive MAC lookup can succeed.
 .DESCRIPTION
-    Contract verb. `--source arp` and the neighbour rung above are both passive
+    Contract verb. `--source arp` and the neighbor rung above are both passive
     reads: they answer only for addresses the kernel already has an entry for,
     and nothing in a normal cycle makes a guest talk to this host often enough
     to keep one alive. This is the active half -- one bounded ICMP sweep of the
@@ -1207,7 +1278,7 @@ function Update-GuestNeighborCache {
     # A host between leases has no default-route IPv4 for a few seconds, and
     # Get-HostIpv4Prefix answers with nothing. That window is not a reason to
     # skip the sweep -- it is the window the sweep exists for, because a host
-    # that just renumbered is exactly when the guest's neighbour entry is stale
+    # that just renumbered is exactly when the guest's neighbor entry is stale
     # and a lookup is about to fail. The subnet does not move when the address
     # within it does, so the last prefix this host held is still the right place
     # to look, and remembering it turns "no sweep, no address" into a sweep that
@@ -1231,14 +1302,14 @@ function Update-GuestNeighborCache {
         Write-Verbose 'Update-GuestNeighborCache: ping is not installed; no sweep.'
         return $false
     }
-    if (-not $PSCmdlet.ShouldProcess("$($prefix.Prefix).0/$($prefix.Length)", 'ICMP sweep to populate the neighbour cache')) {
+    if (-not $PSCmdlet.ShouldProcess("$($prefix.Prefix).0/$($prefix.Length)", 'ICMP sweep to populate the neighbor cache')) {
         return $false
     }
     $script:NeighborSweepMemo[$VMName] = $now
     Write-Verbose "Update-GuestNeighborCache: sweeping $($prefix.Prefix).0/$($prefix.Length) for '$VMName'."
     # One echo request per address, one second of patience, 64 in flight. The
     # replies are irrelevant -- the point is the ARP exchange each probe forces,
-    # which is what lands in the neighbour table.
+    # which is what lands in the neighbor table.
     $sweepPrefix = $prefix.Prefix
     1..254 | ForEach-Object -Parallel {
         $null = & ping -c 1 -W 1 "$using:sweepPrefix.$_" 2>$null
@@ -1260,7 +1331,7 @@ function Update-GuestNeighborCache {
     this code: `lease` needs libvirt to be the DHCP server, so it is silent for
     a guest on a bridge-forward network with no <dhcp> element; `agent` needs
     qemu-guest-agent inside the guest. Where both are silent the arp and
-    neighbour rungs are the whole of discovery, and they are passive reads of a
+    neighbor rungs are the whole of discovery, and they are passive reads of a
     cache that decays -- hence the active refresh as the last resort.
 #>
 function Get-VMIp {
@@ -1274,7 +1345,7 @@ function Get-VMIp {
     try {
         $mac = Get-VMMac -VMName $VMName
         if (-not $mac) {
-            Write-Verbose "Get-VMIp: no MAC in the domain XML for '$VMName'; MAC-affinity and the neighbour rung are unavailable for this lookup."
+            Write-Verbose "Get-VMIp: no MAC in the domain XML for '$VMName'; MAC-affinity and the neighbor rung are unavailable for this lookup."
         }
         $prefixInfo = Get-HostIpv4Prefix
         $hostPrefix = if ($prefixInfo) { $prefixInfo.Prefix } else { '' }
@@ -1291,6 +1362,22 @@ function Get-VMIp {
         # at the cost of that resolution, because the closure carries the calling
         # scope instead of the module's.
         $state = @{ Mac = $mac; HostPrefix = $hostPrefix }
+        # The lease rung asks the network's own lease table first, because that
+        # is the only view carrying expiry -- and expiry is the only thing that
+        # separates this build's address from the ones earlier builds of the
+        # same guest left behind. domifaddr stays underneath it: a bridged
+        # domain has no libvirt network to ask, and there the ambiguity this
+        # avoids cannot arise anyway, since no libvirt-managed server issued
+        # the lease.
+        $netLeaseProbe = {
+            param($vm, $s)
+            if (-not $s.Mac) { return $null }
+            $iface = Get-YurunaGuestBridge -VMName $vm
+            if (-not $iface.Network) { return $null }
+            $lines = Invoke-Virsh -VirshArgs @('net-dhcp-leases', $iface.Network)
+            if ($LASTEXITCODE -ne 0) { return $null }
+            Select-VirshNetLeaseIp -Line $lines -Mac $s.Mac
+        }
         $virshProbe = {
             param($vm, $s, $source)
             $lines = Invoke-Virsh -VirshArgs @('domifaddr', $vm, '--source', $source)
@@ -1309,7 +1396,7 @@ function Get-VMIp {
         # Agent first, then the caches. The agent asks the guest what addresses
         # it holds RIGHT NOW, over a virtio-serial channel that carries no IP and
         # so cannot itself be broken by the renumbering this exists to survive.
-        # The lease database and the ARP/neighbour table are both records of what
+        # The lease database and the ARP/neighbor table are both records of what
         # was true earlier, and on a guest that has just moved they are confidently
         # wrong rather than merely empty -- which is worse, because a wrong answer
         # ends the ladder just as surely as a right one.
@@ -1321,20 +1408,22 @@ function Get-VMIp {
         # for that window, unchanged.
         $rungs = @(
             @{ Name = 'virsh agent'; Probe = { param($vm, $s) & $s.VirshProbe $vm $s 'agent' } }
+            @{ Name = 'virsh net lease'; Probe = { param($vm, $s) & $s.NetLeaseProbe $vm $s } }
             @{ Name = 'virsh lease'; Probe = { param($vm, $s) & $s.VirshProbe $vm $s 'lease' } }
             @{ Name = 'virsh arp';   Probe = { param($vm, $s) & $s.VirshProbe $vm $s 'arp' } }
-            @{ Name = 'host neighbour table'; Probe = { param($vm, $s) $null = $vm; Get-KvmNeighborIp -Mac $s.Mac } }
+            @{ Name = 'host neighbor table'; Probe = { param($vm, $s) $null = $vm; Get-KvmNeighborIp -Mac $s.Mac } }
             # Last, and the only rung that costs anything: warm the cache, then
             # read it again. Update-GuestNeighborCache applies its own cooldown,
             # running-state and prefix-width guards, so a repeated lookup does
             # not repeat the sweep.
-            @{ Name = 'neighbour table after refresh'; Probe = {
+            @{ Name = 'neighbor table after refresh'; Probe = {
                     param($vm, $s)
                     if (-not (Update-GuestNeighborCache -VMName $vm)) { return $null }
                     Get-KvmNeighborIp -Mac $s.Mac
                 } }
         )
         $state['VirshProbe'] = $virshProbe
+        $state['NetLeaseProbe'] = $netLeaseProbe
         return Invoke-ResolveVmIp -VMName $VMName -Rung $rungs -State $state -Context $script:HostTag
     } finally {
         # Only restore a value that existed. Writing $null into $LASTEXITCODE
@@ -1359,7 +1448,7 @@ function Get-VMMac {
     if ($joined -match "<mac\s+address='([0-9a-fA-F:]{17})'") {
         # Canonical form for the whole harness, so a MAC read on one host
         # compares equal to the same MAC read on another. Consumers that need a
-        # platform notation (the kernel's lowercase neighbour table here)
+        # platform notation (the kernel's lowercase neighbor table here)
         # normalize at the point of comparison, not in storage.
         $canonical = ConvertTo-YurunaMacAddress -MacAddress $Matches[1]
         if ($canonical) { return $canonical }
@@ -3536,6 +3625,35 @@ $script:YurunaDhcpCaptureGrant = 'sudo setcap cap_net_raw,cap_net_admin=eip $(co
 # itself on the guest that fails rather than only on the first guest of the run.
 $script:YurunaDhcpWireRefusal = ''
 
+# Gaps already reported, so a host that cannot capture at all says so once
+# instead of once per guest per cycle. The window is armed on every Start-VM,
+# and a missing capability does not change inside a run.
+$script:YurunaDhcpGapReported = @{}
+
+# Say why the DHCP evidence is not there. The capture is armed on every VM
+# start and copied only on the failure path, so a cycle that ends with no
+# dhcp.capture.txt cannot distinguish a window that was never armed from a save
+# that declined -- and that is precisely the cycle where someone is looking for
+# the file. Reported on two surfaces because neither is complete alone: the
+# warning reaches the console and the process transcript but not the cycle's
+# own event stream, and the degradation event lands beside the missing artifact
+# but is dropped silently when no cycle folder is open.
+function Write-YurunaDhcpGap {
+    [CmdletBinding()]
+    [OutputType([void])]
+    param([Parameter(Mandatory)][string]$Reason, [string]$VMName = '')
+    if ($script:YurunaDhcpGapReported.ContainsKey($Reason)) { return }
+    $script:YurunaDhcpGapReported[$Reason] = $true
+    $subject = if ($VMName) { " for '$VMName'" } else { '' }
+    Write-Warning "DHCP evidence unavailable${subject}: $Reason"
+    # Resolved by name behind a guard so this driver still imports standalone,
+    # which is how the suites load it.
+    if (Get-Command Send-YurunaDegradation -ErrorAction SilentlyContinue) {
+        Send-YurunaDegradation -Dependency 'dhcp-capture' -Primary 'armed-window' -Fallback 'none' `
+            -Reason $Reason
+    }
+}
+
 <#
 .SYNOPSIS
     Resolve the bridge (and libvirt network, if any) a domain's NIC attaches to.
@@ -3679,7 +3797,7 @@ function Start-VMDhcpCapture {
         Write-Verbose "DHCP evidence armed for '$VMName' at @$armed ($($capture.WireNote))."
         return $true
     } catch {
-        Write-Verbose "Start-VMDhcpCapture failed: $($_.Exception.Message)"
+        Write-YurunaDhcpGap -Reason "the window could not be armed: $($_.Exception.Message)" -VMName $VMName
         return $false
     }
 }
@@ -3737,7 +3855,11 @@ function Save-VMDhcpCapture {
     try {
         $capture = $script:YurunaDhcpCapture
         if (-not $capture -or $capture.VMName -ne $VMName) {
-            Write-Verbose "no armed DHCP window belongs to '$VMName'; nothing to save."
+            # One window at a time: a later Start-VM for another guest replaces
+            # it, and the already-running path never arms one at all. Either way
+            # the guest that failed has no evidence, and that is worth a line.
+            $held = if ($capture) { "the armed window belongs to '$($capture.VMName)'" } else { 'no window was armed' }
+            Write-YurunaDhcpGap -Reason "nothing to save for '$VMName' -- $held" -VMName $VMName
             return $false
         }
         $script:YurunaDhcpCapture = $null

@@ -4,8 +4,10 @@
   Framework-free checks for this directory's index.js (the stashes list page).
   Run: node index.test.js (exit 0 = pass). There is no JS test runner in the repo,
   so this drives the page through a minimal DOM/fetch shim, the same way
-  common.test.js does for common.js. index.js is an IIFE with no exports, so it is
-  concatenated after common.js and exercised through the elements it wires.
+  common.test.js does. index.js is an IIFE with no exports, so the three scripts
+  a page loads -- the SDK's shared runtime, this service's common.js, then
+  index.js -- are run in that order and the page is exercised through the
+  elements it wires.
 
   Covers the selection + delete surface:
     - an unlocked browser gets a checkbox and a Delete on EVERY row, another
@@ -29,6 +31,8 @@ const vm = require('vm');
 const assert = require('assert');
 const path = require('path');
 
+const coreSrc = fs.readFileSync(path.join(__dirname, '..', '..', '..', '..', '..', '..',
+  'extension-sdk', 'webui', 'assets', 'yuruna.core.js'), 'utf8');
 const commonSrc = fs.readFileSync(path.join(__dirname, 'common.js'), 'utf8');
 const indexSrc = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
 
@@ -54,25 +58,46 @@ function makeEl(tag) {
     children: [],
     parentNode: null,
     listeners: {},
+    tabIndex: -1,
     get firstChild() { return this.children.length ? this.children[0] : null; },
+    get firstElementChild() { return this.children.filter((c) => c.nodeType === 1)[0] || null; },
+    get lastElementChild() { const e = this.children.filter((c) => c.nodeType === 1); return e[e.length - 1] || null; },
     setAttribute(k, v) { this.attrs[k] = String(v); if (k === 'disabled') this.disabled = true; },
     getAttribute(k) { return Object.prototype.hasOwnProperty.call(this.attrs, k) ? this.attrs[k] : null; },
+    removeAttribute(k) { delete this.attrs[k]; },
+    hasAttribute(k) { return Object.prototype.hasOwnProperty.call(this.attrs, k); },
     addEventListener(type, fn) { (this.listeners[type] = this.listeners[type] || []).push(fn); },
-    append(...kids) {
-      for (const kid of kids) {
-        const node = (kid && kid.nodeType) ? kid : makeText(String(kid));
-        node.parentNode = this;
-        this.children.push(node);
-      }
+    removeEventListener() {},
+    focus() {},
+    // The runtime builds every tree with appendChild, never ChildNode.append:
+    // the browser baseline it targets does not carry the latter.
+    appendChild(kid) {
+      const node = (kid && kid.nodeType) ? kid : makeText(String(kid));
+      node.parentNode = this;
+      this.children.push(node);
+      return node;
     },
-    prepend(kid) { kid.parentNode = this; this.children.unshift(kid); },
+    insertBefore(kid, ref) {
+      const i = this.children.indexOf(ref);
+      kid.parentNode = this;
+      this.children.splice(i < 0 ? 0 : i, 0, kid);
+      return kid;
+    },
     removeChild(kid) {
       const i = this.children.indexOf(kid);
       if (i >= 0) this.children.splice(i, 1);
       kid.parentNode = null;
       return kid;
     },
+    contains(node) {
+      if (!node) { return false; }
+      if (node === this) { return true; }
+      return this.children.some((c) => c.nodeType === 1 && c.contains && c.contains(node));
+    },
+    closest() { return null; },
     querySelector() { return null; },
+    querySelectorAll() { return []; },
+    scrollIntoView() {},
   };
 }
 
@@ -105,7 +130,10 @@ function blocked() {
 
 function fakeFetch(p, o) {
   const method = (o && o.method) || 'GET';
-  const body = (o && o.body) ? JSON.parse(o.body) : null;
+  let body = null;
+  if (o && typeof o.body === 'string') {
+    try { body = JSON.parse(o.body); } catch (e) { body = null; }
+  }
   calls.push({ path: p, method, body, blocked: blocked() });
   if (p === '/api/hostinfo') return respond({ ok: true, serverIps: '10.0.0.2', version: '1', localHostId: 'h1' });
   if (p === '/api/session') return respond(Object.assign({ ok: true }, session));
@@ -167,6 +195,10 @@ function bootPage(sess) {
     setTimeout,
     clearTimeout,
     setInterval: (fn) => { ticks.push(fn); return ticks.length; },
+    clearInterval() {},
+    localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
+    FormData,
+    Blob,
     fetch: (p, o) => fakeFetch(p, o),
     confirm: (msg) => { confirmed++; assert.match(msg, /cannot be undone/, 'bulk delete warns the action is final'); return confirmAnswer; },
     location: { origin: 'https://stash.test', href: '', hash: '', pathname: '/', search: '', reload() {} },
@@ -179,11 +211,19 @@ function bootPage(sess) {
       getElementById: (id) => byId[id] || null,
       addEventListener() {},
       removeEventListener() {},
+      activeElement: null,
     },
   };
+  // The scripts address the browser through `window`, so it has to be the
+  // context itself -- a separate object would hand the runtime a different
+  // setInterval from the one these ticks are captured through.
+  sandbox.window = sandbox;
   sandbox.globalThis = sandbox;
   vm.createContext(sandbox);
-  vm.runInContext(commonSrc + '\n;globalThis.__Y = Y;\n' + indexSrc, sandbox, { filename: 'index-page.js' });
+  // Loaded in page order: shared runtime, service layer, page.
+  vm.runInContext(coreSrc, sandbox, { filename: 'yuruna.core.js' });
+  vm.runInContext(commonSrc, sandbox, { filename: 'common.js' });
+  vm.runInContext(indexSrc, sandbox, { filename: 'index.js' });
 }
 
 // The page under test throughout: a browser that has been through the gate.
@@ -270,6 +310,9 @@ const bulkCalls = () => calls.filter((c) => c.path === '/api/stashes/delete');
 
   // (8) Per-row Delete: the row goes, the counts follow it, and the list is NOT
   // re-fetched -- the operator keeps their position on the page.
+  // The answer is set back to yes first: case (7) above left it at no, and a
+  // declined row delete would look exactly like a row delete that never fired.
+  confirmAnswer = true;
   const loadsBefore = listLoads();
   fire(delOf(rowsOf()[0]), 'click');
   await settle();

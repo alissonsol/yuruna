@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42475b3f-e79e-40ac-8114-ff6104d9b316
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1505,7 +1505,7 @@ function Assert-WindowsHostConditionSet {
     # --- REGION: Hyper-V management service must be running
     $svc = Get-Service -Name vmms -ErrorAction SilentlyContinue
     if (-not $svc -or $svc.Status -ne 'Running') {
-        Write-Warning "==================================================================="
+        Write-Warning "========"
         Write-Warning " Hyper-V Virtual Machine Management service (vmms) is not running."
         Write-Warning ""
         Write-Warning " Quick fix -- run from an elevated PowerShell at the repo root:"
@@ -1514,7 +1514,7 @@ function Assert-WindowsHostConditionSet {
         Write-Warning " If Hyper-V is not installed, enable it first:"
         Write-Warning "   Enable-WindowsOptionalFeature -Online -FeatureName Microsoft-Hyper-V -All"
         Write-Warning " then reboot."
-        Write-Warning "==================================================================="
+        Write-Warning "========"
         return $false
     }
 
@@ -1527,14 +1527,14 @@ function Assert-WindowsHostConditionSet {
             $seconds = [Convert]::ToInt32($acTimeout.Matches[0].Groups[1].Value, 16)
             if ($seconds -ne 0) {
                 $minutes = [math]::Round($seconds / 60)
-                Write-Warning "==================================================================="
+                Write-Warning "========"
                 Write-Warning " Display timeout is set to $minutes minute(s) on AC power."
                 Write-Warning " The screen will blank during long test runs, which may cause"
                 Write-Warning " Hyper-V Enhanced Session screen captures to fail."
                 Write-Warning ""
                 Write-Warning " Quick fix -- run from an elevated PowerShell at the repo root:"
                 Write-Warning "   pwsh .\host\windows.hyper-v\Enable-TestAutomation.ps1"
-                Write-Warning "==================================================================="
+                Write-Warning "========"
                 return $false
             }
         }
@@ -1550,13 +1550,13 @@ function Assert-WindowsHostConditionSet {
             $lockTimeoutSeconds = $regProps.InactivityTimeoutSecs
         }
         if ($lockTimeoutSeconds -and $lockTimeoutSeconds -gt 0) {
-            Write-Warning "==================================================================="
+            Write-Warning "========"
             Write-Warning " Machine inactivity lock is set to $lockTimeoutSeconds second(s)."
             Write-Warning " The lock screen will activate during long test runs."
             Write-Warning ""
             Write-Warning " Quick fix -- run from an elevated PowerShell at the repo root:"
             Write-Warning "   pwsh .\host\windows.hyper-v\Enable-TestAutomation.ps1"
-            Write-Warning "==================================================================="
+            Write-Warning "========"
             return $false
         }
     } catch {

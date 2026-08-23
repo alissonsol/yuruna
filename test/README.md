@@ -94,7 +94,7 @@ a hardcoded list. Adding a new guest = creating the folder with
    `transports.resend.apiKey` and `transports.resend.fromEmail`, then
    add subscribers under `subscribers["cycle.failure"]` (one entry per
    recipient). Leave `subscribers["config.smoke"]` empty unless you
-   want validator runs to deliver mail. Full setup walkthrough:
+   want validator runs to deliver mail. Full setup walk-through:
    [Test Runner](read.more.md#notifications-resend--full-setup).
 
 ### Validate
@@ -171,6 +171,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.21
+Last review: 2026.08.23
 
 Back to [Yuruna](../README.md)

@@ -290,7 +290,7 @@ func TestHTTPProber(t *testing.T) {
 	defer yuruna.Close()
 
 	// Same port, same 200, different service: the value check is what keeps a
-	// neighbouring web server out of the pool's host list.
+	// neighboring web server out of the pool's host list.
 	impostor := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true, "service": "something-else"})
 	}))
@@ -321,7 +321,7 @@ func TestHTTPProber(t *testing.T) {
 
 	got, ok := probeAt(yuruna)
 	if !ok {
-		t.Fatal("a status service must be recognised")
+		t.Fatal("a status service must be recognized")
 	}
 	if got.HostID != "42" || got.Hostname != "lab-1" || got.HostType != "ubuntu.kvm" {
 		t.Fatalf("probe returned %+v, want the host's own identity with the host. prefix dropped", got)

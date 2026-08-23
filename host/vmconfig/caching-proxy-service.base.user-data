@@ -148,14 +148,42 @@ write_files:
     owner: root:root
     content: |
       # --- REGION: https://yuruna.link/caching#the-bare-80-redirect-and-what-must-not-be-redirected
+      # Bare :80 serves the landing page: an index of this lab's dashboards and
+      # extension services, each linked only where it is actually reachable.
+      #
+      # It PROXIES rather than redirects, and that is the whole design. The page
+      # is served by the caching-proxy-service daemon on 9310, which is not in
+      # the host port-map set (Get-CachingProxyServiceExposedPort) -- a redirect
+      # would hand the browser an address it cannot reach whenever the VM is
+      # behind a port map rather than bridged. Proxying keeps the operator on
+      # :80, which IS mapped everywhere.
+      #
+      # Not a redirect straight into a Grafana dashboard either. Grafana is a
+      # single-page app: a browser too old to run it lands on a blank screen
+      # with nothing to say why. The landing page is plain server-rendered
+      # HTML with no script at all, so it renders on anything.
+      #
+      # ProxyPreserveHost, so the daemon sees the address the OPERATOR typed and
+      # can build links from it; without it every link would point at 127.0.0.1.
+      ProxyRequests Off
+      ProxyPreserveHost On
       # <Directory>, not server level: mod_rewrite rules are NOT inherited into
       # <VirtualHost>, and Ubuntu serves :80 from the stock 000-default vhost --
       # a server-level rule parses cleanly and then never fires. In this context
       # the match is relative to the directory, so the empty string is '/'.
+      #
+      # The pattern stays anchored to '/' and '/index.html'. Everything else
+      # under this root is a real file the lab depends on -- the squid CA, the
+      # Prometheus text exporters, cache-health, the pool-intent git tree -- and
+      # a broader rule would proxy those into a daemon that has never heard of
+      # them.
       <Directory /var/www/html>
           RewriteEngine On
-          RewriteRule ^(index\.html)?$ http://%{SERVER_NAME}:3000/d/yuruna-pool/yuruna-hosts [R=302,L]
+          RewriteRule ^(index\.html)?$ http://127.0.0.1:9310/landing [P,L]
       </Directory>
+      # The daemon being down must read as an error on the landing page alone,
+      # not as a proxy that retries forever while the operator waits.
+      ProxyTimeout 5
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#squid-drop-in-config-approach
   - path: /etc/squid/conf.d/yuruna.conf
     permissions: '0644'
@@ -1656,7 +1684,12 @@ write_files:
       # 6) Stable identity, then strip import-only fields.
       d['uid'] = 'yuruna-zot-official'
       d['title'] = 'Zot (official, Grafana ID 20501)'
-      d['tags'] = sorted(set((d.get('tags') or []) + ['yuruna']))
+      # The 'community' tag is this board's provenance, declared by the step that
+      # installs it rather than guessed downstream. The uid cannot carry it: this
+      # line rewrites the uid into the yuruna- namespace precisely so the board
+      # has a stable identity, which makes uid useless for telling ours from
+      # upstream. The brand stamper reads this tag.
+      d['tags'] = sorted(set((d.get('tags') or []) + ['yuruna', 'community']))
       for k in ('id', '__inputs', '__elements', '__requires'):
           d.pop(k, None)
       json.dump(d, sys.stdout, indent=2)
@@ -1979,7 +2012,7 @@ write_files:
             "id": 18,
             "type": "stat",
             "title": "Lab token",
-            "description": "The lab connection token and the collector's health. Blue when enrollment is open: a joining host redeems the 6-character code (pwsh test/lab/Set-LabToken.ps1 -LabToken CODE); codes rotate every minute -- read right before enrolling. Red when the collector behind this dashboard has stopped: every panel may be stale; the tile links to the fix. Grey when the token exchange is off. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+            "description": "The lab connection token and the collector's health. Blue when enrollment is open: a joining host redeems the 6-character code (pwsh test/lab/Set-LabToken.ps1 -LabToken CODE); the code is select-and-copy text -- there is no need to retype it. It omits i, l, o, 0 and 1, and a code you have just read stays valid for about three minutes, so there is no need to rush it. Red when the collector behind this dashboard has stopped: every panel may be stale. Gray when the token exchange is off. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
             "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
             "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
             "targets": [
@@ -1987,7 +2020,7 @@ write_files:
               { "refId": "B", "expr": "absent(yuruna_pool_collector_up) * 0", "instant": true, "legendFormat": "Collector down", "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
             ],
             "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "background", "graphMode": "none", "textMode": "name" },
-            "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "noValue": "off", "thresholds": { "mode": "absolute", "steps": [ { "color": "#6b7280", "value": null }, { "color": "red", "value": 0 }, { "color": "blue", "value": 1 } ] }, "links": [ { "title": "Collector down -- how to fix", "url": "https://yuruna.link/collector-down", "targetBlank": true } ] }, "overrides": [] }
+            "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "noValue": "off", "thresholds": { "mode": "absolute", "steps": [ { "color": "#6b7280", "value": null }, { "color": "red", "value": 0 }, { "color": "blue", "value": 1 } ] } }, "overrides": [] }
           },
           {
             "id": 2,
@@ -2199,14 +2232,14 @@ write_files:
                 {
                   "matcher": { "id": "byName", "options": "Control" },
                   "properties": [
-                    { "id": "custom.width", "value": 100 },
+                    { "id": "custom.width", "value": 190 },
                     { "id": "custom.cellOptions", "value": { "type": "color-text" } },
                     { "id": "mappings", "value": [ { "type": "value", "options": {
                       "ready": { "text": "remote", "color": "#16a34a", "index": 0 },
-                      "none": { "text": "onsite", "color": "#6b7280", "index": 1 },
-                      "mismatch": { "text": "onsite", "color": "#ca8a04", "index": 2 },
-                      "skew": { "text": "onsite", "color": "#ca8a04", "index": 3 },
-                      "unknown": { "text": "unknown", "color": "#6b7280", "index": 4 }
+                      "none": { "text": "onsite", "color": "#9ca3af", "index": 1 },
+                      "mismatch": { "text": "onsite (token mismatch)", "color": "#eab308", "index": 2 },
+                      "skew": { "text": "onsite (clock skew)", "color": "#eab308", "index": 3 },
+                      "unknown": { "text": "unknown", "color": "#9ca3af", "index": 4 }
                     } } ] },
                     { "id": "links", "value": [ { "title": "Open host status page", "url": "${aggregator}/go/host?host=${__data.fields.hostIdDashed}&pool=${pool}", "targetBlank": true } ] }
                   ]
@@ -2285,7 +2318,7 @@ write_files:
             "transformations": [
               { "id": "renameByRegex", "options": { "regex": ".*?([0-9a-fA-F]{8})[0-9a-fA-F]{24}.*", "renamePattern": "$1" } }
             ],
-            "options": { "mergeValues": true, "showValue": "never", "alignValue": "left", "rowHeight": 0.9, "tooltip": { "mode": "single" }, "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true } },
+            "options": { "mergeValues": true, "showValue": "auto", "alignValue": "left", "rowHeight": 0.9, "tooltip": { "mode": "single" }, "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true } },
             "fieldConfig": {
               "defaults": {
                 "color": { "mode": "thresholds" },
@@ -2312,18 +2345,18 @@ write_files:
                 ],
                 "mappings": [
                   { "type": "value", "options": {
-                    "0": { "text": "unreachable", "color": "#374151", "index": 0 },
-                    "1": { "text": "running", "color": "#2563eb", "index": 1 },
+                    "0": { "text": "unreachable", "color": "#cbd5e1", "index": 0 },
+                    "1": { "text": "running", "color": "#3b82f6", "index": 1 },
                     "2": { "text": "pass", "color": "#16a34a", "index": 2 },
-                    "3": { "text": "fail", "color": "#dc2626", "index": 3 },
-                    "4": { "text": "not running", "color": "#6b7280", "index": 4 },
+                    "3": { "text": "fail", "color": "#ef4444", "index": 3 },
+                    "4": { "text": "not running", "color": "#94a3b8", "index": 4 },
                     "5": { "text": "paused", "color": "#ca8a04", "index": 5 },
                     "6": { "text": "pausing (after cycle)", "color": "#eab308", "index": 6 },
                     "7": { "text": "pausing (after step)", "color": "#f59e0b", "index": 7 },
-                    "8": { "text": "runner stopped", "color": "#475569", "index": 8 }
+                    "8": { "text": "runner stopped", "color": "#64748b", "index": 8 }
                   } }
                 ],
-                "thresholds": { "mode": "absolute", "steps": [ { "color": "#374151", "value": null }, { "color": "#2563eb", "value": 1 }, { "color": "#16a34a", "value": 2 }, { "color": "#dc2626", "value": 3 }, { "color": "#6b7280", "value": 4 }, { "color": "#ca8a04", "value": 5 }, { "color": "#eab308", "value": 6 }, { "color": "#f59e0b", "value": 7 }, { "color": "#475569", "value": 8 } ] }
+                "thresholds": { "mode": "absolute", "steps": [ { "color": "#cbd5e1", "value": null }, { "color": "#3b82f6", "value": 1 }, { "color": "#16a34a", "value": 2 }, { "color": "#ef4444", "value": 3 }, { "color": "#94a3b8", "value": 4 }, { "color": "#ca8a04", "value": 5 }, { "color": "#eab308", "value": 6 }, { "color": "#f59e0b", "value": 7 }, { "color": "#64748b", "value": 8 } ] }
               },
               "overrides": []
             }
@@ -2729,12 +2762,37 @@ write_files:
           return name, version
 
 
-      def brand_content(name, version):
-          lines = [SENTINEL, "#### " + name]
+      COMMUNITY_TAG = "community"
+
+
+      def is_ours(dashboard):
+          """Whether the framework authored this dashboard.
+
+          The provisioned directory holds our seeded boards beside one fetched
+          from grafana.com at install time, and the installer TAGS that one --
+          provenance is declared by the step that knows it, not inferred here.
+
+          Neither the uid nor the filename can answer this. The install step
+          rewrites the community board's uid into the yuruna- namespace so it
+          has a stable identity, and Grafana names the file. The tag is the only
+          thing that travels with the content.
+          """
+          tags = dashboard.get("tags")
+          return not (isinstance(tags, list) and COMMUNITY_TAG in tags)
+
+
+      def brand_content(name, version, ours=True):
+          lines = [SENTINEL, "**" + name + "**"]
           if version:
               # Backticks give the code style the status pages' header-version
               # uses: monospace and muted, subordinate to the name above it.
               lines.append("`v" + version + "`")
+          if not ours:
+              # The tile otherwise files upstream content alongside ours with
+              # nothing to tell them apart, and this board has had no
+              # accessibility assessment and no review of any other kind. Say so
+              # on the board itself, where an operator reading it will see it.
+              lines.append("_Community dashboard, unmodified_")
           return "\n\n".join(lines)
 
 
@@ -2823,8 +2881,12 @@ write_files:
           return True
 
 
-      def brand_file(path, content):
-          """Returns True when the file was rewritten."""
+      def brand_file(path, name, version):
+          """Returns True when the file was rewritten.
+
+          The text is built per dashboard, not once for the directory: only the
+          dashboard itself says whether it is ours.
+          """
           try:
               with open(path, "r", encoding="utf-8") as fh:
                   dashboard = json.load(fh)
@@ -2835,6 +2897,7 @@ write_files:
           if not isinstance(dashboard, dict):
               return False
 
+          content = brand_content(name, version, is_ours(dashboard))
           existing = find_brand(dashboard.get("panels") or [])
           if existing is not None:
               if existing.get("options", {}).get("content") == content:
@@ -2877,11 +2940,9 @@ write_files:
               print("yuruna-brand-dashboards: no brand name in %s; nothing stamped"
                     % BRAND_ENV, file=sys.stderr)
               return 0
-          content = brand_content(name, version)
-
           targets = [args.file] if args.file else sorted(
               glob.glob(os.path.join(DASHBOARD_DIR, "*.json")))
-          branded = sum(1 for path in targets if brand_file(path, content))
+          branded = sum(1 for path in targets if brand_file(path, name, version))
           if branded:
               print("yuruna-brand-dashboards: %s %s stamped into %d dashboard(s)"
                     % (name, "v" + version if version else "(no version)", branded))
@@ -2949,12 +3010,12 @@ write_files:
           {
             "id": 1,
             "type": "stat",
-            "title": "Manifest latency (canary)",
+            "title": "Manifest latency (canary) -- amber from 5 s, red from 30 s",
             "description": "Time for a HEAD of the canary tag through this cache, which re-runs the on-demand upstream sync. Amber from 5s; red from 30s, because dockerd abandons a pull whose response headers have not arrived by roughly then -- a cache can sit green on every liveness check and still be past this line. Details: <a href=\"https://yuruna.link/cache-health-dashboard\" target=\"_blank\" rel=\"noopener\">Cache health dashboard</a> guide.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
             "options": {
-              "colorMode": "background",
+              "colorMode": "value",
               "graphMode": "area",
               "textMode": "value",
               "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}
@@ -2991,13 +3052,13 @@ write_files:
             "fieldConfig": {
               "defaults": {
                 "mappings": [
-                  {"type": "value", "options": {"0": {"text": "PULLS FAILING", "color": "red"}, "1": {"text": "pull-viable", "color": "green"}}}
+                  {"type": "value", "options": {"0": {"text": "PULLS FAILING", "color": "dark-red"}, "1": {"text": "pull-viable", "color": "dark-green"}}}
                 ],
                 "thresholds": {
                   "mode": "absolute",
                   "steps": [
-                    {"color": "red", "value": null},
-                    {"color": "green", "value": 1}
+                    {"color": "dark-red", "value": null},
+                    {"color": "dark-green", "value": 1}
                   ]
                 }
               },
@@ -3008,12 +3069,12 @@ write_files:
           {
             "id": 2,
             "type": "stat",
-            "title": "Upstream pull budget left",
+            "title": "Upstream pull budget left -- amber under 25, red under 10",
             "description": "Anonymous pulls remaining in the current window for this egress IP, shared by the whole lab. Green at 25 or more, amber from 10, red below. Exhaustion never reaches a guest as a clean 429 -- the guest just sees a cache that stopped answering in time. 'No data' means the budget was not read, deliberately not painted as zero. Details: <a href=\"https://yuruna.link/cache-health-dashboard\" target=\"_blank\" rel=\"noopener\">Cache health dashboard</a> guide.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
             "options": {
-              "colorMode": "background",
+              "colorMode": "value",
               "graphMode": "area",
               "textMode": "value",
               "reduceOptions": {"calcs": ["lastNotNull"], "fields": "", "values": false}
@@ -3050,7 +3111,7 @@ write_files:
             "fieldConfig": {
               "defaults": {
                 "mappings": [
-                  {"type": "value", "options": {"0": {"text": "DOWN", "color": "red"}, "1": {"text": "up", "color": "green"}}}
+                  {"type": "value", "options": {"0": {"text": "DOWN", "color": "dark-red"}, "1": {"text": "up", "color": "dark-green"}}}
                 ],
                 "thresholds": {"mode": "absolute", "steps": [{"color": "text", "value": null}]}
               },
@@ -3135,7 +3196,7 @@ write_files:
               "showTime": true,
               "showLabels": false,
               "showCommonLabels": false,
-              "wrapLogMessage": false,
+              "wrapLogMessage": true,
               "prettifyLogMessage": false,
               "enableLogDetails": true,
               "dedupStrategy": "none",
@@ -3189,7 +3250,7 @@ write_files:
             "id": 6,
             "type": "timeseries",
             "title": "Client HTTP(S) data served (kB/s): total vs cached",
-            "description": "Throughput delivered to clients over a 5-minute window: 'Total' (yellow) is every response, 'Cached' (green) is the subset answered from cache. The gap = upstream bandwidth needed. Details: <a href=\"https://yuruna.link/caching-proxy-dashboard\" target=\"_blank\" rel=\"noopener\">Caching-proxy dashboard</a> guide.",
+            "description": "Throughput delivered to clients over a 5-minute window: 'Total' (solid) is every response, 'Cached' (dashed) is the subset answered from cache. The gap = upstream bandwidth needed. Details: <a href=\"https://yuruna.link/caching-proxy-dashboard\" target=\"_blank\" rel=\"noopener\">Caching-proxy dashboard</a> guide.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 0, "y": 0, "w": 24, "h": 8},
             "fieldConfig": {
@@ -3197,11 +3258,14 @@ write_files:
               "overrides": [
                 {
                   "matcher": {"id": "byName", "options": "Total"},
-                  "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "yellow"}}]
+                  "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "#A07D00"}}]
                 },
                 {
                   "matcher": {"id": "byName", "options": "Cached"},
-                  "properties": [{"id": "color", "value": {"mode": "fixed", "fixedColor": "green"}}]
+                  "properties": [
+                    {"id": "color", "value": {"mode": "fixed", "fixedColor": "dark-green"}},
+                    {"id": "custom.lineStyle", "value": {"fill": "dash", "dash": [10, 10]}}
+                  ]
                 }
               ]
             },
@@ -3221,7 +3285,7 @@ write_files:
               "showTime": true,
               "showLabels": false,
               "showCommonLabels": false,
-              "wrapLogMessage": false,
+              "wrapLogMessage": true,
               "prettifyLogMessage": false,
               "enableLogDetails": true,
               "dedupStrategy": "none",
@@ -3252,7 +3316,7 @@ write_files:
             "fieldConfig": {
               "defaults": {
                 "unit": "bytes",
-                "color": {"mode": "fixed", "fixedColor": "yellow"}
+                "color": {"mode": "fixed", "fixedColor": "#A07D00"}
               },
               "overrides": []
             },
@@ -3298,7 +3362,7 @@ write_files:
             "fieldConfig": {
               "defaults": {
                 "unit": "bytes",
-                "color": {"mode": "fixed", "fixedColor": "yellow"}
+                "color": {"mode": "fixed", "fixedColor": "#A07D00"}
               },
               "overrides": []
             },
@@ -3344,9 +3408,9 @@ write_files:
             "fieldConfig": {
               "defaults": {
                 "mappings": [
-                  {"type": "value", "options": {"0": {"text": "Off", "color": "red"},  "1": {"text": "On", "color": "green"}}}
+                  {"type": "value", "options": {"0": {"text": "Off", "color": "dark-red"},  "1": {"text": "On", "color": "dark-green"}}}
                 ],
-                "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]},
+                "thresholds": {"mode": "absolute", "steps": [{"color": "dark-red", "value": null}, {"color": "dark-green", "value": 1}]},
                 "noValue": "Unknown"
               },
               "overrides": []
@@ -3370,9 +3434,9 @@ write_files:
             "fieldConfig": {
               "defaults": {
                 "mappings": [
-                  {"type": "value", "options": {"0": {"text": "Off", "color": "red"},  "1": {"text": "On", "color": "green"}}}
+                  {"type": "value", "options": {"0": {"text": "Off", "color": "dark-red"},  "1": {"text": "On", "color": "dark-green"}}}
                 ],
-                "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "green", "value": 1}]},
+                "thresholds": {"mode": "absolute", "steps": [{"color": "dark-red", "value": null}, {"color": "dark-green", "value": 1}]},
                 "noValue": "Unknown"
               },
               "overrides": []
@@ -3665,12 +3729,12 @@ write_files:
   # /etc/yuruna/ypool-nas.cifs.cred is deliberately NOT baked: yuruna-config-fetch.sh
   # writes it (0600) at runtime from the config service (/v1/nas/pool), so
   # rotation needs no rebuild and the plaintext pool password never ships in the seed.iso.
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#lab-auth-token
-  - path: /etc/yuruna/lab-auth.token
+  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#internal-authentication-key
+  - path: /etc/yuruna/internal-auth.key
     permissions: '0640'
     owner: root:proxy
     content: |
-      LAB_AUTH_TOKEN_PLACEHOLDER
+      INTERNAL_AUTH_KEY_PLACEHOLDER
   - path: /usr/local/bin/ypool-nas-replicate.sh
     permissions: '0755'
     owner: root:root
@@ -3907,7 +3971,9 @@ runcmd:
     # A cosmetic landing redirect must not be able to cost that, so the conf
     # is kept only if the module took AND the whole config still tests clean;
     # otherwise it is rolled back and the stock page stays.
-    a2enmod rewrite && a2enconf yuruna-landing || true
+    # proxy + proxy_http alongside rewrite: the landing rule uses the [P] flag,
+    # which parses without them and then fails every request at runtime.
+    a2enmod rewrite proxy proxy_http && a2enconf yuruna-landing || true
     if ! apache2ctl configtest >/dev/null 2>&1; then
       a2disconf yuruna-landing >/dev/null 2>&1 || true
       echo "== YURUNA: :80 landing redirect DISABLED (apache config test failed); serving the stock page =="
@@ -4047,7 +4113,7 @@ runcmd:
     fi
     # caching-proxy-service: the management plane for this VM -- a read surface
     # over squid/zot state plus the two operator switches. Source under
-    # test/extension/caching-proxy-service/. Unlike its two neighbours it links
+    # test/extension/caching-proxy-service/. Unlike its two neighbors it links
     # the shared extension SDK, which is a SEPARATE Go module: go.mod resolves
     # it with `replace ... => ../extension-sdk`, so the SDK is staged one level
     # up from the daemon's build dir -- the same relative position it occupies
@@ -4055,7 +4121,7 @@ runcmd:
     mkdir -p /opt/caching-proxy-service
     cd /opt/caching-proxy-service
     CPS_OK=1
-    for f in go.mod main.go squid.go switches.go registry.go mcp.go ui.go caching-proxy-service.service; do
+    for f in go.mod main.go squid.go switches.go registry.go mcp.go ui.go landing.go caching-proxy-service.service; do
       wget $YR_FLAGS --no-cache --timeout=15 --tries=3 -q -O "$f" "${YR_BASE}test/extension/caching-proxy-service/$f" || CPS_OK=0
       if [ ! -s "$f" ]; then CPS_OK=0; echo "== YURUNA: caching-proxy-service source '$f' empty/missing from ${YR_BASE}test/extension/caching-proxy-service/$f (source=${YR_SRC}) =="; fi
     done
@@ -4094,7 +4160,7 @@ runcmd:
     # Written at bring-up. The daemon is LOCAL mode here: it runs on the box it
     # reports on, so it reads squid over loopback and can apply the switches.
     # Remote mode is the same binary with --mode=remote and a --squid-addr that
-    # is not loopback; see the runbook in dev-only/2026-08.extension-drift/.
+    # is not loopback.
     CACHING_PROXY_HTTP_ADDR=0.0.0.0:9310
     CACHING_PROXY_MODE=local
     CACHING_PROXY_SQUID_ADDR=127.0.0.1:3128
@@ -4104,7 +4170,12 @@ runcmd:
     CACHING_PROXY_AGGREGATOR_URL=$CPS_AGG
     CACHING_PROXY_HOST_ID=$CPS_HOST_ID
     CACHING_PROXY_PRESENCE_INTERVAL=2m
-    CACHING_PROXY_AUTH_TOKEN_FILE=/etc/yuruna/lab-auth.token
+    CACHING_PROXY_AUTH_TOKEN_FILE=/etc/yuruna/internal-auth.key
+    # The sibling parser on this VM, whose recent-request tail this service
+    # republishes as caching_proxy_recent_requests. Loopback: the parser also
+    # listens on the LAN, but a hop between two daemons on one box has no
+    # reason to leave it.
+    CACHING_PROXY_PARSER_URL=http://127.0.0.1:9302
     EOF
         echo "yuruna: caching-proxy-service ($CPS_VERSION) built and installed at /usr/local/bin/caching-proxy-service"
     else
@@ -4137,7 +4208,7 @@ runcmd:
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#enable-pool-aggregator-service
   - systemctl enable --now pool-aggregator-service.service || true
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#start-the-caching-proxy-management-service
-  # `|| true` like its two neighbours: a management plane that fails to start
+  # `|| true` like its two neighbors: a management plane that fails to start
   # must not fail the boot of the VM whose traffic it does not carry.
   - systemctl enable --now caching-proxy-service.service || true
   # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#pool-intent-store-seeding

@@ -115,7 +115,7 @@ Describe 'setup -logLevel -- the parameter exists and carries the whole cascade'
     }
 }
 
-Describe 'setup -logLevel -- every script the setup starts honours the inherited level' {
+Describe 'setup -logLevel -- every script the setup starts honors the inherited level' {
 
     It 'each child script calls Use-LogLevelFromEnv' {
         $missing = [System.Collections.Generic.List[string]]::new()

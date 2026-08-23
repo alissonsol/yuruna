@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42040d67-5b20-4d5c-a82c-4a95c2371f44
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,7 +38,7 @@
       * a networkStorage user with no local vault entry has its password
         fetched from the reference host's token-gated
         /control/vault-credential endpoint (encrypted with a key derived
-        from the shared lab-auth-token; prompt as fallback) and stored
+        from the internal authentication key; prompt as fallback) and stored
         via Set-Password.
 
     Finishes by running test/Test-Config.ps1 so mount + credential
@@ -52,8 +52,8 @@
 .PARAMETER StatusPort
     The reference host's status-service port. Default 8080.
 
-.PARAMETER SharedToken
-    The shared lab-auth-token used to fetch missing vault credentials.
+.PARAMETER InternalAuthKey
+    The internal authentication key used to fetch missing vault credentials.
     Defaults to this host's own vault copy when configured; an interactive
     session prompts as the last resort.
 
@@ -77,8 +77,8 @@
 #>
 
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
-    'PSAvoidUsingPlainTextForPassword', 'SharedToken',
-    Justification = 'Shared token handled as the plaintext vault stores it; only its HMAC proof crosses the wire.')]
+    'PSAvoidUsingPlainTextForPassword', 'InternalAuthKey',
+    Justification = 'The internal authentication key is handled as the plaintext vault stores it; only its HMAC proof crosses the wire.')]
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [Parameter(Mandatory, Position = 0)]
@@ -86,7 +86,7 @@ param(
     [string]$ReferenceHost,
 
     [Parameter()][int]$StatusPort = 8080,
-    [Parameter()][string]$SharedToken = '',
+    [Parameter()][Alias('SharedToken')][string]$InternalAuthKey = '',
     [switch]$NonInteractive,
     [switch]$SkipValidation,
     [switch]$NoPool,
@@ -140,7 +140,7 @@ Initialize-HostSetupModule -RepoRoot $RepoRoot -BoundParameters $bootstrapParams
 Import-Module (Join-Path $RepoRoot 'test/modules/Test.ConfigServiceSync.psm1') -Force -DisableNameChecking
 
 Sync-HostConfiguration -ReferenceHost $ReferenceHost -StatusPort $StatusPort -RepoRoot $RepoRoot `
-    -SharedToken $SharedToken -NonInteractive:$NonInteractive -SkipValidation:$SkipValidation -NoPool:$NoPool `
+    -InternalAuthKey $InternalAuthKey -NonInteractive:$NonInteractive -SkipValidation:$SkipValidation -NoPool:$NoPool `
     -AllowStaleReference:$AllowStaleReference -RequireReferenceCredential:$RequireReferenceCredential
 
 # --- REGION: Guest address-discovery readiness
@@ -148,7 +148,7 @@ Sync-HostConfiguration -ReferenceHost $ReferenceHost -StatusPort $StatusPort -Re
 # configuration, not by the harness: the lease rung needs libvirt to be the DHCP
 # server for the guest network, and the agent rung needs qemu-guest-agent inside
 # the guest. When both are structurally silent, discovery rests entirely on a
-# passive read of the host neighbour cache -- which decays, so lookups start
+# passive read of the host neighbor cache -- which decays, so lookups start
 # missing intermittently, and a miss surfaces to the operator as an ssh
 # name-resolution error that says nothing about any of this.
 #
@@ -195,13 +195,13 @@ if ($networkName) {
     } catch { $prefix = $null }
     if ($prefix) {
         $sweep = if ($prefix.Length -ge 24) { 'available' } else { "REFUSED -- /$($prefix.Length) is wider than /24" }
-        Write-Output "  neighbour cache + refresh: $sweep (host $($prefix.Address)/$($prefix.Length))"
+        Write-Output "  neighbor cache + refresh : $sweep (host $($prefix.Address)/$($prefix.Length))"
     } else {
-        Write-Output '  neighbour cache + refresh: unavailable -- no default-route IPv4 on this host'
+        Write-Output '  neighbor cache + refresh : unavailable -- no default-route IPv4 on this host'
     }
     if (-not $isNat -and -not $hasAgent) {
         Write-Warning ('Both on-demand discovery rungs are silent on this host, so guest addresses come only from the ' +
-                       'host neighbour cache. That cache decays, so lookups will miss intermittently. Install ' +
+                       'host neighbor cache. That cache decays, so lookups will miss intermittently. Install ' +
                        'qemu-guest-agent in the guest seed, or put guests on a libvirt-managed network.')
     }
 }

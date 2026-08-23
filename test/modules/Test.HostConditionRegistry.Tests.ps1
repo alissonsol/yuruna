@@ -38,7 +38,7 @@
     a caller or it does not belong in the record. It also protects the first
     rule, because an unread mandatory slot is the cheapest way to lose an
     entire platform's registration: the host stops registering over a function
-    whose absence changes no behaviour.
+    whose absence changes no behavior.
 
     Registration happens at import, on whatever OS the suite runs on, because
     the platform modules define their functions unconditionally and only

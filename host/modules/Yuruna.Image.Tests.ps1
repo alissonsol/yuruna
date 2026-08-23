@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42fd17d5-cc0b-4b81-94e7-4b54d311a679
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,7 +47,7 @@ if (-not (Get-Command -Name Describe -ErrorAction SilentlyContinue)) {
     No network and no mocks: bodies are literals, and the fetch path is
     exercised against a raw loopback socket that answers HTTP by hand -- with
     the Content-Type header deliberately omitted, so the responder reproduces
-    the publisher behaviour that triggers the class.
+    the publisher behavior that triggers the class.
 
     Throw-based assertions so the file runs under the OS-bundled Pester 3.4 and
     Pester 5+. Run: Invoke-Pester -Path host/modules/Yuruna.Image.Tests.ps1
@@ -228,7 +228,7 @@ Describe 'A missing entry and an unreachable publisher are different answers' {
 
     It 'reads the hash back over a response that carries no Content-Type' {
         # End-to-end through the fetch path, against the exact publisher
-        # behaviour -- a 200 with no Content-Type -- that broke the lookup.
+        # behavior -- a 200 with no Content-Type -- that broke the lookup.
         $bound = Get-LoopbackChecksumListener
         $job   = Get-ChecksumResponderJob -Listener $bound.Listener -SumsBody $ImageSumsBody
         try {

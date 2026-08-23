@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42f17d0e-cf42-4655-b11b-a34a4a0b449c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -730,7 +730,7 @@ if ($diag -and -not [string]::IsNullOrWhiteSpace([string]$diag.output)) {
         Write-Verbose "  $hintLine"
     }
 }
-Write-Verbose "==========================================================================="
+Write-Verbose "========"
 Write-Verbose ""
 Write-Information "The download-agent-service daemon did not come up on :80. Reading the capture above:" -InformationAction Continue
 Write-Information "  * cloud-init status 'running'  -> the in-guest build (golang) is still going; wait, then" -InformationAction Continue

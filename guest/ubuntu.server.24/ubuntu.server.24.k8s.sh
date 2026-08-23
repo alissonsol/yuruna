@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.21
+# Version: 2026.08.23
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -123,21 +123,37 @@ EOF
 # (sudo without -E, a non-login shell), which is not rare and is not an error.
 # /etc/yuruna/host.env carries the proxy's ADDRESS, seeded at build time and
 # refreshed by yuruna-host-locate.timer, so it needs no name resolution at all.
-# The bare hostname is last because it needs working DNS for a name the lab's
-# resolver may not serve: when it fails, the error is "could not resolve host",
-# which reads as a broken proxy and sends the reader to the wrong machine.
+# The bare hostname is probed rather than assumed, because a lab whose resolver
+# serves DHCP-registered guest names answers on it and a lab with no cache at
+# all does not -- so the probe is what tells those two apart. Adopting the name
+# unprobed turns "no cache here" into "could not resolve host", which reads as a
+# broken proxy and sends the reader to a machine that was never meant to exist.
 CACHE_HOST=$(echo "${http_proxy:-}" | sed -E 's|^https?://([^:/]+).*|\1|')
 if [ -z "$CACHE_HOST" ] && [ -r /etc/yuruna/host.env ]; then
     CACHE_HOST=$(sed -nE 's/^YURUNA_CACHING_PROXY_SERVICE_IP=([^[:space:]]+).*/\1/p' /etc/yuruna/host.env | head -n1)
 fi
-[ -z "$CACHE_HOST" ] && CACHE_HOST="yuruna-caching-proxy-service"
-sudo install -d -m 0755 /etc/docker
-sudo tee /etc/docker/daemon.json >/dev/null <<EOF
+if [ -z "$CACHE_HOST" ] \
+   && curl -fsS --max-time 10 -o /dev/null "http://yuruna-caching-proxy-service:5000/v2/" 2>/dev/null; then
+    CACHE_HOST="yuruna-caching-proxy-service"
+fi
+# An empty CACHE_HOST is a supported topology, not a fault: a lab with no
+# caching proxy pulls from the upstreams directly. Every mirror-shaped step
+# below is gated on this one variable -- a registry-mirrors daemon.json, a
+# certs.d tree, the liveness gate, the warm passes -- because each of them
+# describes an address that does not exist in that lab, and each would fail
+# naming a cache instead of the absence of one.
+if [ -n "$CACHE_HOST" ]; then
+    echo "Caching proxy: ${CACHE_HOST} -- container image pulls are mirrored through it."
+    sudo install -d -m 0755 /etc/docker
+    sudo tee /etc/docker/daemon.json >/dev/null <<EOF
 {
   "registry-mirrors": ["http://${CACHE_HOST}:5000"],
   "insecure-registries": ["${CACHE_HOST}:5000"]
 }
 EOF
+else
+    echo "Caching proxy: none in this lab -- container image pulls go to the upstreams directly."
+fi
 
 # Write the Kubernetes repo HERE so the single `apt-get update` below
 # refreshes both Docker and K8s indices in one shot. K8s packages are
@@ -212,9 +228,9 @@ done
 
 if [ "$DOCKER_READY" = false ]; then
     echo ""
-    echo -e "\e[1;31m+====================================================================+\e[0m"
+    echo -e "\e[1;31m+========+\e[0m"
     echo -e "\e[1;31m|  ERROR: Docker daemon is not responding after ${DOCKER_WAIT_SECONDS}s               |\e[0m"
-    echo -e "\e[1;31m+====================================================================+\e[0m"
+    echo -e "\e[1;31m+========+\e[0m"
     echo -e "\e[1;31m|  Kubernetes requires Docker to be running. Try the following:      |\e[0m"
     echo -e "\e[1;31m|                                                                    |\e[0m"
     echo -e "\e[1;31m|  1. Start Docker manually:                                         |\e[0m"
@@ -228,7 +244,7 @@ if [ "$DOCKER_READY" = false ]; then
     echo -e "\e[1;31m|     sudo dockerd &                                                 |\e[0m"
     echo -e "\e[1;31m|                                                                    |\e[0m"
     echo -e "\e[1;31m|  Once Docker is running, re-run this script to continue setup.     |\e[0m"
-    echo -e "\e[1;31m+====================================================================+\e[0m"
+    echo -e "\e[1;31m+========+\e[0m"
     echo ""
     exit 1
 fi
@@ -253,116 +269,121 @@ if ! grep -q 'SystemdCgroup = true' /etc/containerd/config.toml; then
     echo "ERROR: containerd SystemdCgroup was not set to true; the cgroup driver would not match kubelet." >&2
     exit 1
 fi
-# containerd 2.2 emits `config_path = '/etc/containerd/certs.d:/etc/docker/certs.d'`
-# -- single-quoted, non-empty, colon-joined -- so a pattern anchored on the 1.x
-# empty `""` matches nothing and leaves the default in place, which containerd
-# 2.2 then ignores anyway (containerd#12808). Both failures are silent: every
-# hosts.toml below goes inert and containerd pulls bypass zot entirely. Match
-# whatever value is there, write the single supported path, and assert the
-# result, so a future schema move fails HERE instead of going quiet again.
-sudo sed -i "s|^\(\s*config_path\s*=\s*\).*|\1'/etc/containerd/certs.d'|" /etc/containerd/config.toml
-if ! grep -qE "^\s*config_path\s*=\s*'/etc/containerd/certs.d'\s*$" /etc/containerd/config.toml; then
-    echo "ERROR: containerd registry config_path was not set to /etc/containerd/certs.d; pulls would bypass the cache." >&2
-    exit 1
-fi
-sudo mkdir -p /etc/containerd/certs.d/docker.io \
-              /etc/containerd/certs.d/registry.k8s.io \
-              /etc/containerd/certs.d/public.ecr.aws \
-              /etc/containerd/certs.d/ghcr.io \
-              /etc/containerd/certs.d/mcr.microsoft.com
-# Each hosts.toml below names the cache twice and both spellings are
-# load-bearing: `server` must not fall back to the upstream, and the [host]
-# form is what makes containerd send the ns=<namespace> parameter zot routes
-# on. Full reasoning under the REGION anchor above.
-sudo tee /etc/containerd/certs.d/docker.io/hosts.toml > /dev/null <<HOSTSEOF
-server = "http://${CACHE_HOST}:5000"
-
-[host."http://${CACHE_HOST}:5000"]
-  capabilities = ["pull", "resolve"]
-HOSTSEOF
-sudo tee /etc/containerd/certs.d/registry.k8s.io/hosts.toml > /dev/null <<HOSTSEOF
-server = "http://${CACHE_HOST}:5000"
-
-[host."http://${CACHE_HOST}:5000"]
-  capabilities = ["pull", "resolve"]
-HOSTSEOF
-# public.ecr.aws can return transient HTTP errors that bubble up as 4xx
-# from `registry:2`. Mirroring it via zot means the cached copy is served
-# whenever the upstream has an image-specific hiccup, instead of fronting
-# the upstream's failure.
-sudo tee /etc/containerd/certs.d/public.ecr.aws/hosts.toml > /dev/null <<HOSTSEOF
-server = "http://${CACHE_HOST}:5000"
-
-[host."http://${CACHE_HOST}:5000"]
-  capabilities = ["pull", "resolve"]
-HOSTSEOF
-# Flannel's three images (flannel-cni-plugin + flannel, used by both init
-# containers and the daemon) live on ghcr.io. Without this entry containerd
-# bypasses zot and tunnels every flannel layer through squid's CONNECT port,
-# which is uncached: a stalled tunnel leaves kube-flannel-ds at Init:1/2 with
-# /etc/cni/net.d empty, so the node never leaves NotReady. zot's sync
-# extension already lists ghcr.io as an on-demand upstream.
-sudo tee /etc/containerd/certs.d/ghcr.io/hosts.toml > /dev/null <<HOSTSEOF
-server = "http://${CACHE_HOST}:5000"
-
-[host."http://${CACHE_HOST}:5000"]
-  capabilities = ["pull", "resolve"]
-HOSTSEOF
-# The .NET base images (dotnet/sdk, dotnet/aspnet) live on
-# mcr.microsoft.com. Without this entry containerd bypasses zot and pulls
-# them straight from the upstream through squid's CONNECT port, which is
-# uncached: every guest re-downloads the same multi-hundred-megabyte layers,
-# and the cache's scheduled pre-warm of those two tags is never read. Routed
-# here the request carries ns=mcr.microsoft.com, so zot resolves it against
-# the MCR upstream instead of walking its list.
-sudo tee /etc/containerd/certs.d/mcr.microsoft.com/hosts.toml > /dev/null <<HOSTSEOF
-server = "http://${CACHE_HOST}:5000"
-
-[host."http://${CACHE_HOST}:5000"]
-  capabilities = ["pull", "resolve"]
-HOSTSEOF
-# A cache that is merely slow is fine -- containerd waits, and the pull
-# progress cap below bounds a genuine wedge. A cache that is DOWN is now
-# terminal for image pulls, since nothing else serves them, so surface that
-# here rather than letting it read as a mystery ImagePullBackOff later.
-# A cache being REBUILT is neither: it refuses connections for as long as the
-# replacement VM takes to boot zot and then serves normally, so a single-shot
-# probe reads a recoverable window as a dead cache. Wait that window out before
-# calling it down -- on the liveness endpoint only, which costs nothing from the
-# lab's shared pull budget.
-cache_wait="${YURUNA_CACHE_WAIT_SECONDS:-180}"
-cache_started=$SECONDS
-cache_err=""
-# Each waiting line carries its own elapsed count rather than repeating one
-# fixed string. This runs on the VM console, where the host's OCR watcher reads
-# a screen dominated by one identical line as a wedged guest -- and a bounded
-# wait that is working looks exactly like that unless the lines differ. curl's
-# own stderr is held back for the same reason and replayed once if the wait is
-# ultimately lost, where it is the part worth reading.
-until cache_err=$(curl -fsS --max-time 15 -o /dev/null "http://${CACHE_HOST}:5000/v2/" 2>&1); do
-    cache_elapsed=$(( SECONDS - cache_started ))
-    if [ "$cache_elapsed" -ge "$cache_wait" ]; then
-        echo "ERROR: the caching proxy's registry did not answer at ${CACHE_HOST}:5000" >&2
-        echo "       within ${cache_wait}s: ${cache_err}" >&2
-        echo "       containerd is configured to pull only from it -- reaching the" >&2
-        echo "       upstreams directly from a guest is rate limited and fails anyway." >&2
-        echo "       Check that the caching proxy VM is up and zot is serving:" >&2
-        echo "           curl -fsS http://${CACHE_HOST}:5000/v2/" >&2
+# Everything from here to the cache-health read is the mirrored-pull topology:
+# without a cache to point at, containerd's defaults already send pulls to the
+# upstreams, and a certs.d tree naming an absent address would only break them.
+if [ -n "$CACHE_HOST" ]; then
+    # containerd 2.2 emits `config_path = '/etc/containerd/certs.d:/etc/docker/certs.d'`
+    # -- single-quoted, non-empty, colon-joined -- so a pattern anchored on the 1.x
+    # empty `""` matches nothing and leaves the default in place, which containerd
+    # 2.2 then ignores anyway (containerd#12808). Both failures are silent: every
+    # hosts.toml below goes inert and containerd pulls bypass zot entirely. Match
+    # whatever value is there, write the single supported path, and assert the
+    # result, so a future schema move fails HERE instead of going quiet again.
+    sudo sed -i "s|^\(\s*config_path\s*=\s*\).*|\1'/etc/containerd/certs.d'|" /etc/containerd/config.toml
+    if ! grep -qE "^\s*config_path\s*=\s*'/etc/containerd/certs.d'\s*$" /etc/containerd/config.toml; then
+        echo "ERROR: containerd registry config_path was not set to /etc/containerd/certs.d; pulls would bypass the cache." >&2
         exit 1
     fi
-    echo "  ${CACHE_HOST}:5000 not answering after ${cache_elapsed}s; it may be restarting (waiting up to ${cache_wait}s)"
-    sleep 15
-done
-# --- REGION: https://yuruna.link/caching#warm-sets-and-the-cold-sync-reading
-# Read the cache's published reading rather than measuring from here: measuring
-# would spend a pull from the budget the whole lab shares, every run. Advisory,
-# never fatal -- its value is a before-picture in THIS guest's log.
-if cache_health=$(curl -fsS --max-time 5 "http://${CACHE_HOST}/cache-health" 2>/dev/null); then
-    echo "Cache health, as published by ${CACHE_HOST}:"
-    printf '%s\n' "$cache_health" | sed 's/^/  /'
-else
-    echo "Note: ${CACHE_HOST} publishes no cache-health page; only its /v2/ liveness was checked here,"
-    echo "      which stays green through a manifest stall."
+    sudo mkdir -p /etc/containerd/certs.d/docker.io \
+                  /etc/containerd/certs.d/registry.k8s.io \
+                  /etc/containerd/certs.d/public.ecr.aws \
+                  /etc/containerd/certs.d/ghcr.io \
+                  /etc/containerd/certs.d/mcr.microsoft.com
+    # Each hosts.toml below names the cache twice and both spellings are
+    # load-bearing: `server` must not fall back to the upstream, and the [host]
+    # form is what makes containerd send the ns=<namespace> parameter zot routes
+    # on. Full reasoning under the REGION anchor above.
+    sudo tee /etc/containerd/certs.d/docker.io/hosts.toml > /dev/null <<HOSTSEOF
+server = "http://${CACHE_HOST}:5000"
+
+[host."http://${CACHE_HOST}:5000"]
+  capabilities = ["pull", "resolve"]
+HOSTSEOF
+    sudo tee /etc/containerd/certs.d/registry.k8s.io/hosts.toml > /dev/null <<HOSTSEOF
+server = "http://${CACHE_HOST}:5000"
+
+[host."http://${CACHE_HOST}:5000"]
+  capabilities = ["pull", "resolve"]
+HOSTSEOF
+    # public.ecr.aws can return transient HTTP errors that bubble up as 4xx
+    # from `registry:2`. Mirroring it via zot means the cached copy is served
+    # whenever the upstream has an image-specific hiccup, instead of fronting
+    # the upstream's failure.
+    sudo tee /etc/containerd/certs.d/public.ecr.aws/hosts.toml > /dev/null <<HOSTSEOF
+server = "http://${CACHE_HOST}:5000"
+
+[host."http://${CACHE_HOST}:5000"]
+  capabilities = ["pull", "resolve"]
+HOSTSEOF
+    # Flannel's three images (flannel-cni-plugin + flannel, used by both init
+    # containers and the daemon) live on ghcr.io. Without this entry containerd
+    # bypasses zot and tunnels every flannel layer through squid's CONNECT port,
+    # which is uncached: a stalled tunnel leaves kube-flannel-ds at Init:1/2 with
+    # /etc/cni/net.d empty, so the node never leaves NotReady. zot's sync
+    # extension already lists ghcr.io as an on-demand upstream.
+    sudo tee /etc/containerd/certs.d/ghcr.io/hosts.toml > /dev/null <<HOSTSEOF
+server = "http://${CACHE_HOST}:5000"
+
+[host."http://${CACHE_HOST}:5000"]
+  capabilities = ["pull", "resolve"]
+HOSTSEOF
+    # The .NET base images (dotnet/sdk, dotnet/aspnet) live on
+    # mcr.microsoft.com. Without this entry containerd bypasses zot and pulls
+    # them straight from the upstream through squid's CONNECT port, which is
+    # uncached: every guest re-downloads the same multi-hundred-megabyte layers,
+    # and the cache's scheduled pre-warm of those two tags is never read. Routed
+    # here the request carries ns=mcr.microsoft.com, so zot resolves it against
+    # the MCR upstream instead of walking its list.
+    sudo tee /etc/containerd/certs.d/mcr.microsoft.com/hosts.toml > /dev/null <<HOSTSEOF
+server = "http://${CACHE_HOST}:5000"
+
+[host."http://${CACHE_HOST}:5000"]
+  capabilities = ["pull", "resolve"]
+HOSTSEOF
+    # A cache that is merely slow is fine -- containerd waits, and the pull
+    # progress cap below bounds a genuine wedge. A cache that is DOWN is now
+    # terminal for image pulls, since nothing else serves them, so surface that
+    # here rather than letting it read as a mystery ImagePullBackOff later.
+    # A cache being REBUILT is neither: it refuses connections for as long as the
+    # replacement VM takes to boot zot and then serves normally, so a single-shot
+    # probe reads a recoverable window as a dead cache. Wait that window out before
+    # calling it down -- on the liveness endpoint only, which costs nothing from the
+    # lab's shared pull budget.
+    cache_wait="${YURUNA_CACHE_WAIT_SECONDS:-180}"
+    cache_started=$SECONDS
+    cache_err=""
+    # Each waiting line carries its own elapsed count rather than repeating one
+    # fixed string. This runs on the VM console, where the host's OCR watcher reads
+    # a screen dominated by one identical line as a wedged guest -- and a bounded
+    # wait that is working looks exactly like that unless the lines differ. curl's
+    # own stderr is held back for the same reason and replayed once if the wait is
+    # ultimately lost, where it is the part worth reading.
+    until cache_err=$(curl -fsS --max-time 15 -o /dev/null "http://${CACHE_HOST}:5000/v2/" 2>&1); do
+        cache_elapsed=$(( SECONDS - cache_started ))
+        if [ "$cache_elapsed" -ge "$cache_wait" ]; then
+            echo "ERROR: the caching proxy's registry did not answer at ${CACHE_HOST}:5000" >&2
+            echo "       within ${cache_wait}s: ${cache_err}" >&2
+            echo "       containerd is configured to pull only from it -- reaching the" >&2
+            echo "       upstreams directly from a guest is rate limited and fails anyway." >&2
+            echo "       Check that the caching proxy VM is up and zot is serving:" >&2
+            echo "           curl -fsS http://${CACHE_HOST}:5000/v2/" >&2
+            exit 1
+        fi
+        echo "  ${CACHE_HOST}:5000 not answering after ${cache_elapsed}s; it may be restarting (waiting up to ${cache_wait}s)"
+        sleep 15
+    done
+    # --- REGION: https://yuruna.link/caching#warm-sets-and-the-cold-sync-reading
+    # Read the cache's published reading rather than measuring from here: measuring
+    # would spend a pull from the budget the whole lab shares, every run. Advisory,
+    # never fatal -- its value is a before-picture in THIS guest's log.
+    if cache_health=$(curl -fsS --max-time 5 "http://${CACHE_HOST}/cache-health" 2>/dev/null); then
+        echo "Cache health, as published by ${CACHE_HOST}:"
+        printf '%s\n' "$cache_health" | sed 's/^/  /'
+    else
+        echo "Note: ${CACHE_HOST} publishes no cache-health page; only its /v2/ liveness was checked here,"
+        echo "      which stays green through a manifest stall."
+    fi
 fi
 # Bound a stalled pull. containerd's default no-progress window is long enough
 # that a dead tunnel parks the pod at Init:n/m past every downstream wait
@@ -437,7 +458,9 @@ yuruna_warm_refs() {
 # binary and moved on their own schedule, so any list built here would miss
 # exactly the images that then arrive cold.
 _k8s_refs=$(sudo kubeadm config images list 2>/dev/null || true)
-if [ -z "$_k8s_refs" ]; then
+if [ -z "$CACHE_HOST" ]; then
+    echo "No caching proxy: skipping the warm pass -- there is nothing to warm, and the kubeadm pull below fetches the set from the upstreams."
+elif [ -z "$_k8s_refs" ]; then
     echo "Note: kubeadm could not list its images; skipping the warm pass and letting the pull below discover the set."
 else
     yuruna_warm_refs "control-plane" $_k8s_refs
@@ -571,7 +594,7 @@ fi
 # containerd for them. Advisory rather than fatal, unlike the control plane:
 # the rollout wait below can still converge if an image lands moments later.
 _cni_refs=$(awk '$1=="image:"{print $2}' "$FLANNEL_MANIFEST" | sort -u || true)
-if [ -n "$_cni_refs" ]; then
+if [ -n "$CACHE_HOST" ] && [ -n "$_cni_refs" ]; then
     yuruna_warm_refs "flannel" $_cni_refs
     if [ "$yuruna_warm_missing" -gt 0 ]; then
         echo "Note: ${yuruna_warm_missing} of ${yuruna_warm_total} flannel images are not cached; the rollout wait below is likely to time out." >&2
@@ -716,7 +739,7 @@ echo "== Optional Steps =="
 echo "Current hostname: $(hostnamectl hostname)"
 echo "1. Change hostname: sudo hostnamectl set-hostname [desired-hostname]"
 echo ""
-echo -e "\e[1;33m+====================================================================+\e[0m"
+echo -e "\e[1;33m+========+\e[0m"
 echo -e "\e[1;33m|  IMPORTANT: Docker group permissions                               |\e[0m"
 echo -e "\e[1;33m|                                                                    |\e[0m"
 echo -e "\e[1;33m|  Your user was added to the 'docker' group, but the current shell  |\e[0m"
@@ -727,4 +750,4 @@ echo -e "\e[1;33m|      newgrp docker                                           
 echo -e "\e[1;33m|                                                                    |\e[0m"
 echo -e "\e[1;33m|  New terminals will activate the docker group automatically        |\e[0m"
 echo -e "\e[1;33m|  via the .bashrc snippet. A full logout/login also works.          |\e[0m"
-echo -e "\e[1;33m+====================================================================+\e[0m"
+echo -e "\e[1;33m+========+\e[0m"

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42c2bf4c-4df0-494d-8571-5945ed9ab682
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,10 +25,10 @@
 # --- REGION: Ensure running as Administrator
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Output ""
-    Write-Output "=============================================================="
+    Write-Output "========"
     Write-Output "|  This script requires elevation (Run as Administrator)    |"
     Write-Output "|  Right-click PowerShell and select 'Run as Administrator' |"
-    Write-Output "=============================================================="
+    Write-Output "========"
     Write-Output ""
     exit 1
 }

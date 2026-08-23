@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42059317-b175-4928-938e-8776d088f5e7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -216,7 +216,7 @@ Describe 'ConvertTo-HostScriptArgument' {
     }
 
     It 'keeps a value carrying spaces and quotes as ONE element' {
-        $bound = @{ SharedToken = 'tok en "with" spaces' }
+        $bound = @{ InternalAuthKey = 'tok en "with" spaces' }
         $argv  = @(ConvertTo-HostScriptArgument -BoundParameters $bound)
         Assert-Equal -Expected 2 -Actual $argv.Count
         Assert-Equal -Expected 'tok en "with" spaces' -Actual $argv[1] -Because 'the value must not be split on whitespace'

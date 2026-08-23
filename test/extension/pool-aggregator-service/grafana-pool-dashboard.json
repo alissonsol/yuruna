@@ -31,7 +31,7 @@
       "id": 18,
       "type": "stat",
       "title": "Lab token",
-      "description": "The lab connection token and the collector's health. Blue when enrollment is open: a joining host redeems the 6-character code (pwsh test/lab/Set-LabToken.ps1 -LabToken CODE); codes rotate every minute -- read right before enrolling. Red when the collector behind this dashboard has stopped: every panel may be stale; the tile links to the fix. Grey when the token exchange is off. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+      "description": "The lab connection token and the collector's health. Blue when enrollment is open: a joining host redeems the 6-character code (pwsh test/lab/Set-LabToken.ps1 -LabToken CODE); the code is select-and-copy text -- there is no need to retype it. It omits i, l, o, 0 and 1, and a code you have just read stays valid for about three minutes, so there is no need to rush it. Red when the collector behind this dashboard has stopped: every panel may be stale. Gray when the token exchange is off. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
       "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
       "targets": [
@@ -39,7 +39,7 @@
         { "refId": "B", "expr": "absent(yuruna_pool_collector_up) * 0", "instant": true, "legendFormat": "Collector down", "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
       ],
       "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "colorMode": "background", "graphMode": "none", "textMode": "name" },
-      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "noValue": "off", "thresholds": { "mode": "absolute", "steps": [ { "color": "#6b7280", "value": null }, { "color": "red", "value": 0 }, { "color": "blue", "value": 1 } ] }, "links": [ { "title": "Collector down -- how to fix", "url": "https://yuruna.link/collector-down", "targetBlank": true } ] }, "overrides": [] }
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "noValue": "off", "thresholds": { "mode": "absolute", "steps": [ { "color": "#6b7280", "value": null }, { "color": "red", "value": 0 }, { "color": "blue", "value": 1 } ] } }, "overrides": [] }
     },
     {
       "id": 2,
@@ -251,14 +251,14 @@
           {
             "matcher": { "id": "byName", "options": "Control" },
             "properties": [
-              { "id": "custom.width", "value": 100 },
+              { "id": "custom.width", "value": 190 },
               { "id": "custom.cellOptions", "value": { "type": "color-text" } },
               { "id": "mappings", "value": [ { "type": "value", "options": {
                 "ready": { "text": "remote", "color": "#16a34a", "index": 0 },
-                "none": { "text": "onsite", "color": "#6b7280", "index": 1 },
-                "mismatch": { "text": "onsite", "color": "#ca8a04", "index": 2 },
-                "skew": { "text": "onsite", "color": "#ca8a04", "index": 3 },
-                "unknown": { "text": "unknown", "color": "#6b7280", "index": 4 }
+                "none": { "text": "onsite", "color": "#9ca3af", "index": 1 },
+                "mismatch": { "text": "onsite (token mismatch)", "color": "#eab308", "index": 2 },
+                "skew": { "text": "onsite (clock skew)", "color": "#eab308", "index": 3 },
+                "unknown": { "text": "unknown", "color": "#9ca3af", "index": 4 }
               } } ] },
               { "id": "links", "value": [ { "title": "Open host status page", "url": "${aggregator}/go/host?host=${__data.fields.hostIdDashed}&pool=${pool}", "targetBlank": true } ] }
             ]
@@ -337,7 +337,7 @@
       "transformations": [
         { "id": "renameByRegex", "options": { "regex": ".*?([0-9a-fA-F]{8})[0-9a-fA-F]{24}.*", "renamePattern": "$1" } }
       ],
-      "options": { "mergeValues": true, "showValue": "never", "alignValue": "left", "rowHeight": 0.9, "tooltip": { "mode": "single" }, "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true } },
+      "options": { "mergeValues": true, "showValue": "auto", "alignValue": "left", "rowHeight": 0.9, "tooltip": { "mode": "single" }, "legend": { "displayMode": "list", "placement": "bottom", "showLegend": true } },
       "fieldConfig": {
         "defaults": {
           "color": { "mode": "thresholds" },
@@ -364,18 +364,18 @@
           ],
           "mappings": [
             { "type": "value", "options": {
-              "0": { "text": "unreachable", "color": "#374151", "index": 0 },
-              "1": { "text": "running", "color": "#2563eb", "index": 1 },
+              "0": { "text": "unreachable", "color": "#cbd5e1", "index": 0 },
+              "1": { "text": "running", "color": "#3b82f6", "index": 1 },
               "2": { "text": "pass", "color": "#16a34a", "index": 2 },
-              "3": { "text": "fail", "color": "#dc2626", "index": 3 },
-              "4": { "text": "not running", "color": "#6b7280", "index": 4 },
+              "3": { "text": "fail", "color": "#ef4444", "index": 3 },
+              "4": { "text": "not running", "color": "#94a3b8", "index": 4 },
               "5": { "text": "paused", "color": "#ca8a04", "index": 5 },
               "6": { "text": "pausing (after cycle)", "color": "#eab308", "index": 6 },
               "7": { "text": "pausing (after step)", "color": "#f59e0b", "index": 7 },
-              "8": { "text": "runner stopped", "color": "#475569", "index": 8 }
+              "8": { "text": "runner stopped", "color": "#64748b", "index": 8 }
             } }
           ],
-          "thresholds": { "mode": "absolute", "steps": [ { "color": "#374151", "value": null }, { "color": "#2563eb", "value": 1 }, { "color": "#16a34a", "value": 2 }, { "color": "#dc2626", "value": 3 }, { "color": "#6b7280", "value": 4 }, { "color": "#ca8a04", "value": 5 }, { "color": "#eab308", "value": 6 }, { "color": "#f59e0b", "value": 7 }, { "color": "#475569", "value": 8 } ] }
+          "thresholds": { "mode": "absolute", "steps": [ { "color": "#cbd5e1", "value": null }, { "color": "#3b82f6", "value": 1 }, { "color": "#16a34a", "value": 2 }, { "color": "#ef4444", "value": 3 }, { "color": "#94a3b8", "value": 4 }, { "color": "#ca8a04", "value": 5 }, { "color": "#eab308", "value": 6 }, { "color": "#f59e0b", "value": 7 }, { "color": "#64748b", "value": 8 } ] }
         },
         "overrides": []
       }

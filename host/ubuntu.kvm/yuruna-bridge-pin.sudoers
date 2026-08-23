@@ -19,7 +19,7 @@
 # Why it is safe to grant unattended: `nmcli connection modify` writes the
 # stored profile and does NOT reactivate it. The live connection keeps its
 # address, no interface goes down, and no session is dropped; the setting takes
-# effect at the next activation. The neighbouring test/lab/yuruna-churn.sudoers
+# effect at the next activation. The neighboring test/lab/yuruna-churn.sudoers
 # grants `connection up`, which DOES reactivate -- the two are separate grants
 # on purpose, and neither implies the other.
 #

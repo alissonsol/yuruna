@@ -142,12 +142,13 @@
 
 <div id="banner" class="idle">
   <span class="dot"></span>
-  <span id="banner-text">Loading…</span>
+  <span id="banner-text" role="status" aria-atomic="true">Loading…</span>
   <button id="perf-recalc" type="button" title="Re-scan test/status/perf/cycles/*.jsonl and refresh every chart.">Recalculate</button>
 </div>
 
 <main>
-  <div id="perf-message" class="perf-message">Loading perf aggregates…</div>
+  <h1 class="sr-only">Cycle performance</h1>
+  <div id="perf-message" role="status" class="perf-message">Loading perf aggregates…</div>
   <div id="perf-body"></div>
 </main>
 

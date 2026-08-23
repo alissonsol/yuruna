@@ -167,7 +167,7 @@ grace: a re-announce is also how a renumbered service reports its new address.
 **Delete authorization.** Reads and creates are open on the LAN; `DELETE` needs
 a session, unlocked either with the dashboard's rotating Lab token or with the
 short-lived control proof the *Extension hosts* link carries in its URL
-fragment. This VM holds no lab auth token, so `--aggregator-url` is what makes
+fragment. This VM holds no internal authentication key, so `--aggregator-url` is what makes
 either possible -- without it every delete answers `503`, and the UI says so
 instead of offering a button. A delete reaches **any** host's stash, not only
 this one's: the share is mounted with write access to all of them.
@@ -230,7 +230,7 @@ Coverage focuses on the spec-driven pure-logic bits:
 - `internal/store/` -- section 6.3 extension-extraction rules + section 13 boundaries;
   mountinfo parsing (the cifs-nofail trap), DirSize, AtomicCopyFile (section 8.4).
 - `internal/id/id_test.go` -- per-day uniqueness, on-disk scan picks up
-  pre-existing IDs incl. sidecars (restart safety), cross-day re-use (section 12).
+  pre-existing IDs incl. sidecars (restart safety), cross-day reuse (section 12).
 - `internal/meta/` -- sidecar write -> reimage rebuild round-trip (section 8.5);
   buffered lifecycle (UpdateOnComplete preserves the flag, section 8.4).
 - `internal/sshsrv/` -- flush worker (move+sidecar+clear+remove, offline
@@ -290,6 +290,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.21
+Last review: 2026.08.23
 
 Back to [Yuruna](../../../../README.md)

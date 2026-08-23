@@ -38,7 +38,7 @@ func TestFrozenDefaults(t *testing.T) {
 	if DefaultPoolDir != "/mnt/yuruna-pool" {
 		t.Errorf("DefaultPoolDir = %q", DefaultPoolDir)
 	}
-	if DefaultAuthTokenFile != "/etc/yuruna/lab-auth.token" {
+	if DefaultAuthTokenFile != "/etc/yuruna/internal-auth.key" {
 		t.Errorf("DefaultAuthTokenFile = %q", DefaultAuthTokenFile)
 	}
 	if MaxRequestBytes != 1<<20 {

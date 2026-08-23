@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 421654e8-21f9-45e4-9613-5c67d4e4290f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 # One-shot pool push forwarder, fired DETACHED by the outer loop at each cycle end
 # (Test.RunnerOuterLoop.psm1). It ships the latest cycle's cycle.events.ndjson to the
-# aggregator's POST /ingest over CA-pinned HTTPS with the shared bearer token, closing the
+# aggregator's POST /ingest over CA-pinned HTTPS with the internal authentication key, closing the
 # trailing-event gap between 30s pulls. Best-effort: gated on the token being configured
 # (the operator's push opt-in) + a reachable caching-proxy-service; a slow/absent aggregator never
 # delays the cycle (own fresh process + bounded HttpClient). Pull backfills anything push
@@ -48,17 +48,17 @@ if ([string]::IsNullOrWhiteSpace($runtimeDir) -or [string]::IsNullOrWhiteSpace($
 }
 if (-not (Test-Path -LiteralPath $runtimeDir)) { New-Item -ItemType Directory -Force -Path $runtimeDir | Out-Null }
 
-# --- REGION: Push opt-in gate (shared bearer token)
+# --- REGION: Push opt-in gate (internal authentication key)
 # Resolve ONLY when a vaultKey is declared for the logical user AND populated
 # (Test-VaultEntry); an empty vaultKey means push is DISABLED, and calling
-# Get-Password then would auto-generate a junk per-host token. 'lab-auth-token'
-# first, then the legacy 'pool-auth-token' name, so a host enrolled under the
-# old logical user keeps pushing (same fallback order as Get-LabAuthTokenValue,
+# Get-Password then would auto-generate a junk per-host token. 'internal-auth-key'
+# first, then the legacy 'lab-auth-token' and 'pool-auth-token' names, so a host
+# enrolled under an older one keeps pushing (same order as Get-InternalAuthKeyValue,
 # inlined because Test.ConfigServiceSync is not among this forwarder's imports).
 $token = ''
 try {
     if ((Get-Command Get-EffectiveUser -ErrorAction SilentlyContinue) -and (Get-Command Test-VaultEntry -ErrorAction SilentlyContinue)) {
-        foreach ($logical in @('lab-auth-token', 'pool-auth-token')) {
+        foreach ($logical in @('internal-auth-key', 'lab-auth-token', 'pool-auth-token')) {
             $eff = Get-EffectiveUser -LogicalUser $logical
             if ($eff.vaultKey -and (Test-VaultEntry -VaultKey $eff.vaultKey)) {
                 $token = [string](Get-Password -Username $logical)
@@ -68,7 +68,7 @@ try {
     }
 } catch { $null = $_ }
 if ([string]::IsNullOrWhiteSpace($token)) {
-    Write-Verbose "pool push: no lab-auth-token configured; push disabled."
+    Write-Verbose "pool push: no internal authentication key configured; push disabled."
     return
 }
 

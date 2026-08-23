@@ -41,7 +41,7 @@ func main() {
 	stateDir := flag.String("state-dir", "", "directory (under poolStorageNetworkPath/pool-control-service/) for the audit log + status.json; empty disables persistence")
 	monitorInterval := flag.Duration("monitor-interval", 60*time.Second, "how often to probe the intent + refresh status.json")
 	configPath := flag.String("config-file", "/etc/yuruna/pool-control-service.env", "env file re-read before each intent operation for POOL_CONTROL_INTENT_GIT_URL (empty pins the launch flag)")
-	authTokenFile := flag.String("auth-token-file", config.DefaultAuthTokenFile, "file holding the lab auth token accepted as a bearer on the mutating routes (empty or missing leaves the dashboard's lab token as the only way in)")
+	authTokenFile := flag.String("auth-token-file", config.DefaultAuthTokenFile, "file holding the internal authentication key accepted as a bearer on the mutating routes (empty or missing leaves the dashboard's lab token as the only way in)")
 	autoEnroll := flag.Bool("auto-enroll", false, "enable the auto-enrollment sweep (adds lab-token-ready hosts to the target pool); OFF by default")
 	autoEnrollInterval := flag.Duration("auto-enroll-interval", 60*time.Second, "how often the auto-enrollment sweep runs when --auto-enroll is set")
 	scanCIDR := flag.String("scan-cidr", "", "network to sweep for Yuruna hosts, in CIDR notation (empty = the /24 around this service's own address)")
@@ -141,15 +141,24 @@ func main() {
 	}
 }
 
-// readTokenFile loads the lab auth token; an absent or unreadable file leaves
-// bearer auth simply unconfigured rather than failing startup.
+// readTokenFile loads the internal authentication key; an absent or unreadable
+// file leaves bearer auth simply unconfigured rather than failing startup.
 func readTokenFile(path string) string {
 	if strings.TrimSpace(path) == "" {
 		return ""
 	}
 	b, err := os.ReadFile(path)
 	if err != nil {
-		log.Printf("pool-control-service: auth token file %s unreadable (%v); bearer auth disabled", path, err)
+		// Only the untouched default falls back. An operator who named a path
+		// meant that path, and quietly reading a different file would hand the
+		// service a bearer they never pointed it at.
+		if path == config.DefaultAuthTokenFile {
+			if lb, lerr := os.ReadFile(config.LegacyAuthTokenFile); lerr == nil {
+				log.Printf("pool-control-service: internal auth key read from %s; rebuild this VM to move it to %s", config.LegacyAuthTokenFile, config.DefaultAuthTokenFile)
+				return strings.TrimSpace(string(lb))
+			}
+		}
+		log.Printf("pool-control-service: internal auth key file %s unreadable (%v); bearer auth disabled", path, err)
 		return ""
 	}
 	return strings.TrimSpace(string(b))

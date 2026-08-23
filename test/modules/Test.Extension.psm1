@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42f9c779-1132-4dfb-9658-60cfc646620d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -432,7 +432,7 @@ function Get-ExtensionHostAddress {
         }
     }
 
-    # 3. The pool's record. Import-Extension is the framework path -- it honours
+    # 3. The pool's record. Import-Extension is the framework path -- it honors
     #    <area>.config.yml, so a site that swapped the reader gets its own --
     #    but it parses YAML, which a client script running outside a cycle may
     #    not have the parser loaded for; hence the module file as fallback

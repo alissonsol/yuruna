@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 421a49fd-aa32-431c-979f-99704a673b48
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -279,7 +279,7 @@ function Write-HostClockDriftWarning {
     $offBy     = [math]::Round([math]::Abs($skew), 1)
     $direction = if ($skew -gt 0) { 'ahead of' } else { 'behind' }
     $hostFolder = ($HostType -replace '^host\.', '')
-    Write-Warning "==================================================================="
+    Write-Warning "========"
     Write-Warning " Host clock is ${offBy}s $direction real time (limit: ${MaxSkewSeconds}s)."
     Write-Warning " Guests take this clock from their virtual RTC at power-on, and"
     Write-Warning " their own NTP client steps them to real time seconds into the"
@@ -291,7 +291,7 @@ function Write-HostClockDriftWarning {
     Write-Warning " answer for Administrator / sudo -- run from the repo root:"
     Write-Warning "   pwsh test/Test-Config.ps1"
     Write-Warning "   pwsh host/$hostFolder/Enable-TestAutomation.ps1"
-    Write-Warning "==================================================================="
+    Write-Warning "========"
 }
 
 function Reset-HostClockReport {

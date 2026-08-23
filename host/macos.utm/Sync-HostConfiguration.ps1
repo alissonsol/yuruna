@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 4294865c-194b-42cf-97c1-6dee3c2b9aa4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,7 +38,7 @@
       * a networkStorage user with no local vault entry has its password
         fetched from the reference host's token-gated
         /control/vault-credential endpoint (encrypted with a key derived
-        from the shared lab-auth-token; prompt as fallback) and stored
+        from the internal authentication key; prompt as fallback) and stored
         via Set-Password.
 
     Finishes by running test/Test-Config.ps1 so mount + credential
@@ -52,8 +52,8 @@
 .PARAMETER StatusPort
     The reference host's status-service port. Default 8080.
 
-.PARAMETER SharedToken
-    The shared lab-auth-token used to fetch missing vault credentials.
+.PARAMETER InternalAuthKey
+    The internal authentication key used to fetch missing vault credentials.
     Defaults to this host's own vault copy when configured; an interactive
     session prompts as the last resort.
 
@@ -77,8 +77,8 @@
 #>
 
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
-    'PSAvoidUsingPlainTextForPassword', 'SharedToken',
-    Justification = 'Shared token handled as the plaintext vault stores it; only its HMAC proof crosses the wire.')]
+    'PSAvoidUsingPlainTextForPassword', 'InternalAuthKey',
+    Justification = 'The internal authentication key is handled as the plaintext vault stores it; only its HMAC proof crosses the wire.')]
 [CmdletBinding(SupportsShouldProcess)]
 param(
     [Parameter(Mandatory, Position = 0)]
@@ -86,7 +86,7 @@ param(
     [string]$ReferenceHost,
 
     [Parameter()][int]$StatusPort = 8080,
-    [Parameter()][string]$SharedToken = '',
+    [Parameter()][Alias('SharedToken')][string]$InternalAuthKey = '',
     [switch]$NonInteractive,
     [switch]$SkipValidation,
     [switch]$NoPool,
@@ -138,5 +138,5 @@ Initialize-HostSetupModule -RepoRoot $RepoRoot -BoundParameters $bootstrapParams
 Import-Module (Join-Path $RepoRoot 'test/modules/Test.ConfigServiceSync.psm1') -Force -DisableNameChecking
 
 Sync-HostConfiguration -ReferenceHost $ReferenceHost -StatusPort $StatusPort -RepoRoot $RepoRoot `
-    -SharedToken $SharedToken -NonInteractive:$NonInteractive -SkipValidation:$SkipValidation -NoPool:$NoPool `
+    -InternalAuthKey $InternalAuthKey -NonInteractive:$NonInteractive -SkipValidation:$SkipValidation -NoPool:$NoPool `
     -AllowStaleReference:$AllowStaleReference -RequireReferenceCredential:$RequireReferenceCredential

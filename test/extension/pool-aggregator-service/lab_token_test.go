@@ -11,6 +11,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -19,7 +20,7 @@ import (
 
 // The lab-token exchange (POST /api/v1/lab-token): the dashboard shows a
 // rotating 6-char lab connection token; a joining host redeems it here for the
-// shared lab-auth-token (Set-LabToken.ps1). These cover the code generator's
+// internal authentication key (Set-LabToken.ps1). These cover the code generator's
 // alphabet, the rotation's retention window, the handler's verify /
 // grace-window / throttle / self-disable behavior, and the /metrics exposition
 // the dashboard tile reads.
@@ -28,7 +29,7 @@ import (
 // token, rotation on, and a seeded current code.
 func newLabState(codes ...string) *poolState {
 	s := newPoolState("default", 8080)
-	s.authToken = "sekret-lab-auth-token"
+	s.authToken = "sekret-internal-auth-key"
 	s.labRotate = time.Minute
 	s.labCodes = codes
 	return s
@@ -40,6 +41,32 @@ func postLabToken(s *poolState, remoteAddr, body string) *httptest.ResponseRecor
 	rec := httptest.NewRecorder()
 	s.handleLabToken(rec, req)
 	return rec
+}
+
+// metricsRequest builds a /metrics request from THIS machine. httptest defaults
+// RemoteAddr to 192.0.2.1 (TEST-NET-1), which the handler now refuses: the
+// exposition carries the live lab token, so it is served to loopback only.
+func metricsRequest() *http.Request {
+	r := httptest.NewRequest("GET", "/metrics", nil)
+	r.RemoteAddr = "127.0.0.1:54321"
+	return r
+}
+
+func TestMetricsRefusesARemoteCaller(t *testing.T) {
+	// The exposition includes yuruna_pool_lab_token{token="..."} -- the current
+	// enrollment credential in plain text. A LAN client that could read it held
+	// the key to every gated control in the pool.
+	s := newLabState("bqilzj")
+	rec := httptest.NewRecorder()
+	r := httptest.NewRequest("GET", "/metrics", nil)
+	r.RemoteAddr = "192.168.7.99:41000"
+	s.handleMetrics(rec, r)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("a LAN caller got %d, want %d -- /metrics must not serve the lab token off-host", rec.Code, http.StatusForbidden)
+	}
+	if strings.Contains(rec.Body.String(), "lab_token") {
+		t.Errorf("the refusal body still leaks the token:\n%s", rec.Body.String())
+	}
 }
 
 func TestNewLabCodeShape(t *testing.T) {
@@ -300,7 +327,7 @@ func TestLabFailsMapIsBounded(t *testing.T) {
 func TestMetricsExposeLabToken(t *testing.T) {
 	s := newLabState("abc123")
 	rec := httptest.NewRecorder()
-	s.handleMetrics(rec, httptest.NewRequest("GET", "/metrics", nil))
+	s.handleMetrics(rec, metricsRequest())
 	want := `yuruna_pool_lab_token{pool="default",token="abc123"} 1`
 	if !strings.Contains(rec.Body.String(), want) {
 		t.Errorf("/metrics missing the lab-token gauge.\nwant: %s\ngot:\n%s", want, rec.Body.String())
@@ -313,7 +340,7 @@ func TestMetricsOmitLabTokenWhenDisabled(t *testing.T) {
 	s := newLabState("abc123")
 	s.labRotate = 0
 	rec := httptest.NewRecorder()
-	s.handleMetrics(rec, httptest.NewRequest("GET", "/metrics", nil))
+	s.handleMetrics(rec, metricsRequest())
 	if strings.Contains(rec.Body.String(), "yuruna_pool_lab_token") {
 		t.Error("/metrics exports a lab-token series while the exchange is disabled")
 	}

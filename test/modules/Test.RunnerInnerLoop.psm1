@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42479415-ffbe-4fef-9daa-15edda547208
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -617,13 +617,40 @@ function Copy-FailureArtifactsToStatusLog {
             Write-Warning "  Host diagnostics capture skipped: $($_.Exception.Message)"
         }
 
+        # Hypervisor-app crash reports (macOS). When UTM (or its per-VM QEMU
+        # launcher) dies mid-cycle, everything above records only symptoms --
+        # console I/O stops answering, screenshots stop landing, IP discovery
+        # goes quiet -- while the actual "why" is the .ips report macOS writes
+        # under ~/Library/Logs/DiagnosticReports. Copy the reports written
+        # since this cycle began (folder creation time is the cycle start) so
+        # the crash cause travels with the failure evidence instead of aging
+        # out on the host. Soft-failing like its neighbors.
+        try {
+            if ($IsMacOS) {
+                $reportsDir = Join-Path $HOME 'Library/Logs/DiagnosticReports'
+                $cycleItem  = Get-Item -LiteralPath $global:__YurunaCycleFolder -ErrorAction SilentlyContinue
+                if ($cycleItem -and (Test-Path -LiteralPath $reportsDir)) {
+                    $crashReports = @(Get-ChildItem -LiteralPath $reportsDir -File -ErrorAction SilentlyContinue |
+                        Where-Object { $_.Name -match '^(UTM|QEMU)' -and $_.LastWriteTimeUtc -ge $cycleItem.CreationTimeUtc } |
+                        Sort-Object LastWriteTimeUtc -Descending |
+                        Select-Object -First 5)
+                    foreach ($report in $crashReports) {
+                        Copy-Item -LiteralPath $report.FullName -Destination (Join-Path $destSeqDir $report.Name) -Force
+                        Write-Output "  Hypervisor crash report saved: ./status/log/$cycleBase/$destSeqName/$($report.Name)"
+                    }
+                }
+            }
+        } catch {
+            Write-Warning "  Hypervisor crash-report collection skipped: $($_.Exception.Message)"
+        }
+
         # DHCP wire capture (drivers that arm one at Start-VM). The guest-side
         # network diagnostic can only say "no lease"; whether the DISCOVER
         # never left the guest, died crossing the vSwitch or uplink, or went
         # out unanswered is only visible on the host's packet path, and each
         # of those shapes indicts a different machine. Guarded by Get-Command
         # because only some host drivers implement it, and soft-failing like
-        # its neighbours: a diagnostic must never turn a failed step into a
+        # its neighbors: a diagnostic must never turn a failed step into a
         # failed collection.
         try {
             if (Get-Command Save-VMDhcpCapture -ErrorAction SilentlyContinue) {
@@ -1140,9 +1167,9 @@ function Remove-CycleTeardownOrphanVM {
     # cycle-work output from teardown output, and pins the moment we
     # transition into the cleanup + delay phase.
     Write-Output ""
-    Write-Output "============================================="
+    Write-Output "========"
     Write-Output "  CYCLE $CycleCount complete -- entering teardown"
-    Write-Output "============================================="
+    Write-Output "========"
 
     # One line, every cycle, whatever the number. A release that silently never
     # happens is indistinguishable in the log from one that worked, which is how
@@ -1592,7 +1619,7 @@ function Test-CycleHostNetworkDegraded {
         the switch is still enumerable, still named, still marked External, and
         nothing it carries forwards. That is why this is probed live every cycle
         rather than read from a state file -- and why the answer must be re-derived
-        for the CURRENT cycle, so a recovered host stops relabelling genuine guest
+        for the CURRENT cycle, so a recovered host stops relabeling genuine guest
         faults the moment it recovers.
 
         The classifier is private to the Hyper-V host driver, so it is resolved
@@ -1659,7 +1686,7 @@ function Resolve-HostNetworkFailureClass {
         operator instead. host_network_degraded is deliberately absent from both
         allow-lists, which is the load-bearing part.
 
-        Bootstrap and planner stages are left alone: they use parenthesised pseudo
+        Bootstrap and planner stages are left alone: they use parenthesized pseudo
         guest keys and their network is the runner's own reach to git/the project
         repo over the physical NIC, not the guest bridge.
     .OUTPUTS
@@ -1900,6 +1927,65 @@ function Invoke-RunnerBootstrapFailureGate {
     }
 }
 
+function Get-PauseFlagStamp {
+    <#
+    .SYNOPSIS
+        The moment an operator armed a pause, as stamped into the flag file.
+    .DESCRIPTION
+        The status service writes the request time into the flag file it creates,
+        so a hold can be reported against when it was asked for rather than when
+        a gate happened to notice it -- the two differ by however long the step
+        that was already running took to finish. Unreadable or absent stamp
+        answers '': a hold with an unknown start is still a hold worth reporting.
+    .OUTPUTS
+        [string] ISO-8601 stamp, or '' when it cannot be read.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$Path)
+    try {
+        return ([string](Get-Content -LiteralPath $Path -Raw -ErrorAction Stop)).Trim()
+    } catch {
+        Write-Verbose "pause flag stamp unreadable ($Path): $($_.Exception.Message)"
+        return ''
+    }
+}
+
+function Send-CyclePauseEvent {
+    <#
+    .SYNOPSIS
+        Emit one end of a cycle-boundary operator hold to the event stream.
+    .DESCRIPTION
+        Both cycle-pause gates (pre-delay and post-delay) report through here so
+        the two cannot drift apart, and so a cycle whose wall-clock is mostly an
+        operator hold reads as one rather than as a slow cycle. Unlike the
+        sequence-level gate, this hold runs with the guests already torn down, so
+        nothing on a guest can expire underneath it: the pair is duration
+        reporting, not cause.
+
+        Telemetry never blocks the gate -- an emitter that is not loaded is
+        skipped rather than waited on.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][ValidateSet('sequence_paused','sequence_resumed')][string]$EventName,
+        [AllowEmptyString()][string]$RequestedAtUtc = '',
+        [int]$HeldSeconds = -1
+    )
+    if (-not (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue)) { return }
+    $record = @{
+        timestamp      = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+        event          = $EventName
+        pauseScope     = 'cycle'
+        label          = '[cycle boundary]'
+        requestedAtUtc = [string]$RequestedAtUtc
+    }
+    # Only on the release event: an open hold has no duration yet, and a zero
+    # would read as one that ended instantly.
+    if ($HeldSeconds -ge 0) { $record['heldSeconds'] = [int]$HeldSeconds }
+    Send-CycleEventSafely -EventRecord $record
+}
+
 <#
 .SYNOPSIS
     Run the runner's single inner cycle: git pull, project clone, module
@@ -2042,10 +2128,10 @@ do {
   try {
 
     Write-Output ""
-    Write-Output "============================================="
+    Write-Output "========"
     Write-Output "  CYCLE $CycleCount"
     Write-Output "  (inner cycle starting -- local time: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss zzz'))"
-    Write-Output "============================================="
+    Write-Output "========"
 
     # --- REGION: Authentication vault: fresh per cycle
     Initialize-CycleAuthVault
@@ -2350,7 +2436,7 @@ do {
     $script:CyclePlan = $null
     $plannerFatal     = $false
     $script:PoolCycle = $false
-    # Initialised HERE, not inside the try: the orchestration-list call further
+    # Initialized HERE, not inside the try: the orchestration-list call further
     # down reads it, and a throw before its in-try assignment would otherwise
     # leave it undefined on that path.
     $script:PoolSubset = @()
@@ -2372,7 +2458,7 @@ do {
         #
         # An assigned testSet may name a SUBSET of the project's top-level
         # sequences. Absent or empty -> $script:PoolSubset stays empty and the
-        # call below is byte-for-byte the whole-project behaviour, which is what
+        # call below is byte-for-byte the whole-project behavior, which is what
         # every unpooled host and every existing pool store gets.
         $script:PoolSubset = @()
         if ($script:PoolCycle) {
@@ -2395,7 +2481,7 @@ do {
         # ambiguous -- silently falling back to guestSequence would let the
         # cycle run against an arbitrary winner. Print the error prominently
         # and short-circuit GuestList to empty so the foreach loop below
-        # runs zero iterations. Cycle still flows through "Finalise cycle"
+        # runs zero iterations. Cycle still flows through "Finalize cycle"
         # naturally so $OverallPassed=false bumps ConsecutiveFailures and
         # fires notifications on the same threshold as any other failure.
         if ($_.Exception.Message -like 'PlannerFatal:*') {
@@ -2553,7 +2639,7 @@ do {
     # rejected by the status schema's gitCommits reader and by the pool-aggregator service,
     # which then cannot parse the host's status.json at all.
     # An orchestration cycle skips this whole block: Invoke-OrchestrationSequence
-    # (delegated at "Finalise cycle" below) does its own Reset/Initialize-Status
+    # (delegated at "Finalize cycle" below) does its own Reset/Initialize-Status
     # Document + Start-LogFile so it owns the status doc + transcript. Running the
     # runner's Initialize here too would create an empty guest cycle that the
     # orchestrator then clobbers. $CycleStartUtc/$LogFile stay empty; the guest loop
@@ -2814,7 +2900,7 @@ do {
         if ($guestIterState.Control -eq 'continue') { continue }
     }
 
-    # --- REGION: Finalise cycle
+    # --- REGION: Finalize cycle
     if ($isOrchestrationCycle) {
         # Delegate the whole cycle to the orchestration runner: it owns Reset/
         # Initialize/Start-Log, walks the InvokeTestSequence steps (one dashboard
@@ -2962,10 +3048,10 @@ do {
     #     which outer respawns with a clean slate.
     if ($_.Exception.Message -like 'YurunaCycleRestart:*') {
         Write-Output ""
-        Write-Output "============================================="
+        Write-Output "========"
         Write-Output "  CYCLE $CycleCount aborted by /control/start-cycle"
         Write-Output "  $($_.Exception.Message)"
-        Write-Output "============================================="
+        Write-Output "========"
         if ($script:ActiveVMName) {
             try {
                 Write-Output "  Cycle-restart cleanup: stopping VM '$($script:ActiveVMName)'..."
@@ -3089,6 +3175,9 @@ do {
     $cycleRestartFlagFile = Join-Path $env:YURUNA_RUNTIME_DIR 'control.cycle-restart'
     if (Test-Path $cyclePauseFlagFile) {
         Write-Output "Cycle pause set via status UI. Waiting for resume..."
+        $cyclePauseRequestedAt = Get-PauseFlagStamp -Path $cyclePauseFlagFile
+        $cyclePauseHeldFrom    = [DateTime]::UtcNow
+        Send-CyclePauseEvent -EventName 'sequence_paused' -RequestedAtUtc $cyclePauseRequestedAt
         # Refresh runner.stepHeartbeat each iteration: the outer watchdog
         # reads only this file's mtime and kills the inner after
         # testCycle.stepTimeoutSeconds (default 2700) of staleness. A
@@ -3111,7 +3200,9 @@ do {
             Write-Output "Shutdown requested during cycle pause. Exiting cycle loop."
             break
         }
-        Write-Output "Cycle pause released. Resuming."
+        $cyclePauseHeldSeconds = [int]([DateTime]::UtcNow - $cyclePauseHeldFrom).TotalSeconds
+        Write-Output "Cycle pause released after ${cyclePauseHeldSeconds}s. Resuming."
+        Send-CyclePauseEvent -EventName 'sequence_resumed' -RequestedAtUtc $cyclePauseRequestedAt -HeldSeconds $cyclePauseHeldSeconds
     }
 
     # Inter-cycle delay LIVES IN THE INNER (not the outer) so the operator
@@ -3169,6 +3260,9 @@ do {
     # refresh / resume / shutdown handling in sync.
     if (($effectiveDelay -gt 0) -and (Test-Path $cyclePauseFlagFile) -and (-not $ShutdownState['Requested'])) {
         Write-Output "Cycle pause armed during inter-cycle delay. Pausing before next cycle; waiting for resume..."
+        $cyclePauseRequestedAt = Get-PauseFlagStamp -Path $cyclePauseFlagFile
+        $cyclePauseHeldFrom    = [DateTime]::UtcNow
+        Send-CyclePauseEvent -EventName 'sequence_paused' -RequestedAtUtc $cyclePauseRequestedAt
         $postDelayPauseAttempt = 1
         while ((Test-Path $cyclePauseFlagFile) -and (-not $ShutdownState['Requested'])) {
             try {
@@ -3183,7 +3277,9 @@ do {
             Write-Output "Shutdown requested during cycle pause. Exiting cycle loop."
             break
         }
-        Write-Output "Cycle pause released. Resuming."
+        $cyclePauseHeldSeconds = [int]([DateTime]::UtcNow - $cyclePauseHeldFrom).TotalSeconds
+        Write-Output "Cycle pause released after ${cyclePauseHeldSeconds}s. Resuming."
+        Send-CyclePauseEvent -EventName 'sequence_resumed' -RequestedAtUtc $cyclePauseRequestedAt -HeldSeconds $cyclePauseHeldSeconds
     }
 
     # Single-cycle runner: the per-cycle pwsh respawn lives in the outer

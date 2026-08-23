@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
-.GUID 4e1b6d02-9c71-4f8a-9a35-2f0c6b5d8e17
+.VERSION 2026.08.23
+.GUID 429cf70d-40bb-4de7-a305-1a10d263253b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test dhcp capture dnsmasq libvirt kvm pester
@@ -54,7 +54,7 @@ if (-not (Get-Command -Name Describe -ErrorAction SilentlyContinue)) {
 
     Mostly static assertions over the driver, because the thing under test is
     what a FAILING cycle is built to leave behind and there is no failing cycle
-    to run. The behavioural cases drive the module with libvirt output fed
+    to run. The behavioral cases drive the module with libvirt output fed
     through mocks, so they need no VM, no libvirt and no root.
     Run: Invoke-Pester -Path test/modules/Test.KvmDhcpCapture.Tests.ps1
 #>

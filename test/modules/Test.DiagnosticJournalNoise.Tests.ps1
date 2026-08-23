@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
-.GUID 4f83a1d6-5c0e-4a3b-8b21-6d9b2f7c4a51
+.VERSION 2026.08.23
+.GUID 42a6b0a3-6ac8-4209-8138-98b813018d22
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test diagnostic journal libvirt dnsmasq pester

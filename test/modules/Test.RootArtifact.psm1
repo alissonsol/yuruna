@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42551ffa-1dbb-4832-a894-196282de212c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -472,7 +472,7 @@ function Clear-YurunaRootArtifact {
         The listener case is the one with a real safety rule: it kills a process
         owned by another account, so the process is identified through `sudo lsof`
         and killed ONLY when its command name looks like a PowerShell host. A port
-        this harness cannot recognise the holder of is left alone and reported --
+        this harness cannot recognize the holder of is left alone and reported --
         an unrelated root daemon that happens to sit on 8080 must survive a yuruna
         setup run.
     #>

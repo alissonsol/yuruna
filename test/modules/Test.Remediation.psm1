@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42bd6583-4d45-42df-b3b7-3411df4c5af9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -324,6 +324,19 @@ function Invoke-Remediation {
         return $null
     }
 
+    # causeDetail lives one level below context; give it its own reader rather
+    # than widening $recField, whose two-level search would otherwise start
+    # returning nested values for names that also exist at the top.
+    $causeField = {
+        param($Name)
+        $ctxNode = if ($FailureRecord.Contains('context')) { $FailureRecord['context'] } else { $null }
+        if ($ctxNode -is [System.Collections.IDictionary] -and $ctxNode.Contains('causeDetail') -and
+            ($ctxNode['causeDetail'] -is [System.Collections.IDictionary]) -and $ctxNode['causeDetail'].Contains($Name)) {
+            return $ctxNode['causeDetail'][$Name]
+        }
+        return 0
+    }
+
     # Inner-cause routing. An exhausted `retry` reports the outer class
     # 'retry_exhausted', which masks the deepest verb's actionable cause the
     # record preserved in innerFailureClass. Route on the inner class when it is
@@ -376,6 +389,12 @@ function Invoke-Remediation {
             matchedFailurePattern = [string](& $recField 'matchedFailurePattern')
             innerFailureClass     = $innerClass
             reproCommand          = $reproCommand
+            # causeDetail signals a handler needs to tell apart screens that look
+            # identical in the class alone: how long the console content sat
+            # unchanged, and whether an operator hold ended just before the step.
+            # Zero when absent, so a handler can compare without a null guard.
+            consoleStaticSeconds   = [int](& $causeField 'consoleStaticSeconds')
+            pauseBeforeStepSeconds = [int](& $causeField 'pauseBeforeStepSeconds')
         }
     }
     $handler = Get-RecoveryHandler -FailureClass $failureClass
@@ -541,15 +560,42 @@ function Register-BuiltinRecoveryHandler {
     # to read it, so this class stops rather than spending another full timeout.
     Register-RecoveryHandler -FailureClass 'console_flooded' -Handler {
         param([hashtable]$c)
-        return @{
-            Recommendation = 'pause_and_inspect'
-            Rationale      = "console_flooded on $($c.Context.vmName): the wait ran its full budget against a console that was overwriting itself with one repeating line, so the pattern could not be read off it whether or not the guest ever printed it. This is not a guest that failed to reach the expected state -- it is a screen that could not be read, and replaying it floods the same screen again. What is repeating names the cause: a link or DHCP event churning the installer's network model, a service restart loop, or a kernel message storm."
-            Actions        = @(
+        # Two screens reach this class. One is still moving: a line repeating
+        # faster than the pattern can be read off it, where the answer is to fix
+        # what is repeating. The other stopped moving a long time ago and only
+        # LOOKS like a flood, because the repeat count is measured within a single
+        # frame -- a wall of already-scrolled text on a guest that is waiting for
+        # something. Naming a churning network on the second sends the reader
+        # after a fault that is not there, so the static reading decides which
+        # cause is described.
+        $staticSecs = [int]$c.Context.consoleStaticSeconds
+        $heldSecs   = [int]$c.Context.pauseBeforeStepSeconds
+        $parked     = $staticSecs -gt 0
+        $rationale = if ($parked) {
+            "console_flooded on $($c.Context.vmName): the wait ran its full budget against a screen whose content had not changed for ${staticSecs}s -- a wall of text that scrolled by earlier, not a console still filling. A guest printing nothing is a guest waiting for something, and a prompt it printed once before this wait began would look exactly like this." +
+            $(if ($heldSecs -gt 0) { " An operator hold of ${heldSecs}s ended just before this step: the guest kept running through it, so anything it printed and does not reprint is off the screen the step then had to read." } else { '' })
+        } else {
+            "console_flooded on $($c.Context.vmName): the wait ran its full budget against a console that was overwriting itself with one repeating line, so the pattern could not be read off it whether or not the guest ever printed it. This is not a guest that failed to reach the expected state -- it is a screen that could not be read, and replaying it floods the same screen again. What is repeating names the cause: a link or DHCP event churning the installer's network model, a service restart loop, or a kernel message storm."
+        }
+        $actions = if ($parked) {
+            @(
+                'Read causeDetail.consoleStaticSeconds and consoleFlood in last_failure.json -- a long static run with a repeating dominant line is a parked guest, not a live flood',
+                'Open the guest console and answer what it is waiting on; a prompt that is off screen is still live and still reading input',
+                'Where the step is a waitForAndEnter, blindAfterSeconds lets it answer that prompt itself on the next run',
+                'Re-run the sequence from the failing step only after the guest is moving again'
+            )
+        } else {
+            @(
                 'Read causeDetail.consoleFlood in last_failure.json for the dominant line and its share of the screen',
                 'Fix what is repeating rather than re-running the wait -- a longer timeout cannot make a self-overwriting surface readable',
                 'Where the flood is installer-phase network churn, confirm the guest is getting a DHCP lease at all',
                 'Only then re-run the sequence from the failing step'
             )
+        }
+        return @{
+            Recommendation = 'pause_and_inspect'
+            Rationale      = $rationale
+            Actions        = $actions
         }
     }
 
@@ -727,7 +773,7 @@ function Register-BuiltinRecoveryHandler {
             Actions        = @(
                 'Retry after a short backoff -- the address usually appears with no operator action',
                 'If it persists, confirm the guest booted and its NIC is attached to the expected network',
-                'Check the host-side lease / neighbour source the driver reads for a stale or missing entry'
+                'Check the host-side lease / neighbor source the driver reads for a stale or missing entry'
             )
         }
     }

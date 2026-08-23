@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42904a4e-7e96-4d32-883d-8326239ad090
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -470,7 +470,7 @@ function Get-OuterStatusBaseUrl {
         [Parameter()][AllowNull()][string[]]$ArgList = @()
     )
 
-    # An operator-published base wins: a reverse proxy or tunnelled hostname
+    # An operator-published base wins: a reverse proxy or tunneled hostname
     # is not discoverable from inside this process, and its presence means a
     # dashboard is served regardless of what this host runs locally.
     if ($env:YURUNA_STATUS_PUBLIC_URL) { return ([string]$env:YURUNA_STATUS_PUBLIC_URL).TrimEnd('/') }
@@ -525,7 +525,7 @@ function Get-OuterCycleSummaryLine {
         The link is the status service's /cycle/<number> alias, not the
         transcript's real path: that path carries the cycle's timestamp and
         host id, which makes it too long to paste into a message, and the
-        number is the only part of it a reader can recognise. The server
+        number is the only part of it a reader can recognize. The server
         resolves the number to the on-disk folder, whatever lifecycle suffix
         it currently carries.
     .PARAMETER ConfigPath
@@ -1492,7 +1492,7 @@ function Invoke-RunnerOuterCycle {
         # without waiting for the next 30s pull. Runs in its OWN detached process (same
         # idiom as the drain) so a slow/absent aggregator can NEVER delay the next cycle
         # (preserving read-side decoupling); pull backfills anything push drops. The
-        # forwarder self-gates: it is a fast no-op unless the lab-auth-token is configured
+        # forwarder self-gates: it is a fast no-op unless the internal authentication key is configured
         # (enrollment is the push opt-in) AND a caching-proxy-service is reachable. Spawn failure is
         # non-fatal.
         $pushProc = $null

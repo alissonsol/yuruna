@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 421a21ac-638b-4121-a908-7c26df6a9e86
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -758,7 +758,7 @@ To hold this script longer next time:
             Write-Verbose "  $hintLine"
         }
     }
-    Write-Verbose "=================================================================="
+    Write-Verbose "========"
     Write-Verbose ""
     Write-Information "The pool-control-service daemon did not come up on :80. Reading the capture above:" -InformationAction Continue
     Write-Information "  * cloud-init status 'running'  -> the in-guest build (go/pwsh) is still going; wait, then" -InformationAction Continue

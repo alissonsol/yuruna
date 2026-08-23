@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42e9ac75-3fda-482e-9c3e-944aff26fe2a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,22 +41,22 @@
 .PARAMETER StatusPort
     The reference host's status-service port. The per-host script's default
     applies when this is omitted.
-.PARAMETER SharedToken
-    Shared lab-auth-token, used to fetch a missing vault credential from the
+.PARAMETER InternalAuthKey
+    Internal authentication key, used to fetch a missing vault credential from the
     reference host. The per-host script falls back to this host's own vault copy,
     then to a prompt. The convenient way to obtain the token on a new host is
     test/lab/Set-LabToken.ps1 with the dashboard's Lab token; this parameter takes
-    the RAW shared token, the host-to-host path for when the aggregator is not
+    the RAW key value, the host-to-host path for when the aggregator is not
     reachable.
-.PARAMETER PersistSharedToken
-    Store -SharedToken in THIS host's vault as the lab-auth-token (via the
-    Set-LabAuthToken provisioning) before syncing config, and bounce the status
+.PARAMETER PersistInternalAuthKey
+    Store -InternalAuthKey in THIS host's vault as the internal-auth-key (via the
+    Set-InternalAuthKey provisioning) before syncing config, and bounce the status
     server so it takes effect immediately. This is the DEFAULT whenever
-    -SharedToken is supplied and the host is joining the pool, so a joined host
+    -InternalAuthKey is supplied and the host is joining the pool, so a joined host
     is reachable from the dashboard instead of accepting control only from
     loopback; the switch remains for explicitness.
-.PARAMETER NoPersistSharedToken
-    Use -SharedToken only for this run and do NOT store it. The host keeps
+.PARAMETER NoPersistInternalAuthKey
+    Use -InternalAuthKey only for this run and do NOT store it. The host keeps
     loopback-only control. For a host that should not be remotely drivable.
 .PARAMETER AllowStaleReference
     Copy from a reference host whose test.config.yml is behind THIS host's
@@ -93,10 +93,10 @@
 #>
 
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
-    'PSAvoidUsingPlainTextForPassword', 'SharedToken',
+    'PSAvoidUsingPlainTextForPassword', 'InternalAuthKey',
     Justification = 'Forwarded as the plaintext vault stores it, to a per-host script that takes it the same way; only its HMAC proof crosses the wire.')]
 # SupportsShouldProcess is load-bearing, not decoration: this script performs a
-# state change of its own (storing the shared token in the vault and bouncing
+# state change of its own (storing the internal-auth-key in the vault and bouncing
 # the status service) before delegating. Without it, -WhatIf binds to
 # -RemainingArguments as a plain string instead of a common parameter, so the
 # rehearsal reaches only the per-host script -- and the vault write it was meant
@@ -112,9 +112,9 @@ param(
     # omitted and ITS default applies. Restating those defaults here would be a
     # second place for them to drift.
     [Parameter()][int]$StatusPort,
-    [Parameter()][string]$SharedToken,
-    [switch]$PersistSharedToken,
-    [switch]$NoPersistSharedToken,
+    [Parameter()][Alias('SharedToken')][string]$InternalAuthKey,
+    [Alias('PersistSharedToken')][switch]$PersistInternalAuthKey,
+    [Alias('NoPersistSharedToken')][switch]$NoPersistInternalAuthKey,
     [switch]$NonInteractive,
     [switch]$SkipValidation,
     [switch]$NoPool,
@@ -139,7 +139,7 @@ Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScript
 # --- REGION: Elevation gate
 # Elevation before anything happens. Invoke-YurunaHostScript makes the same
 # check, but only at line-of-delegation -- by then this redirector has already
-# rewritten the vault's lab-auth-token and bounced the status service (a wait of
+# rewritten the vault's internal-auth-key and bounced the status service (a wait of
 # up to three minutes), so an unelevated Windows operator pays for work that
 # cannot finish. Test-IsAdministrator lives in Yuruna.Common: Yuruna.HostRedirect
 # imports it into its own scope only, so this entry point imports it too.
@@ -169,34 +169,34 @@ $extra = @()
 if ($PSBoundParameters.ContainsKey('Verbose') -or $VerbosePreference -eq 'Continue') { $extra += '-Verbose' }
 if ($PSBoundParameters.ContainsKey('WhatIf'))  { $extra += '-WhatIf' }
 
-# --- REGION: Shared lab-auth-token
-# -PersistSharedToken is host-neutral: storing the shared lab-auth-token in
+# --- REGION: Internal authentication key
+# -PersistInternalAuthKey is host-neutral: storing the internal authentication key in
 # this host's vault is the identical vault operation on every platform (unlike
 # the config conversion the per-host script owns), so it runs here in the
 # redirector -- before the per-host config-sync, which can then also read the
-# token from the local vault. Handled by the module's Set-LabAuthToken
+# token from the local vault. Handled by the module's Set-InternalAuthKey
 # in-process (test/lab/Set-LabToken.ps1 takes only the dashboard's 6-char code,
 # never the raw token); the persist switches are excluded from the forwarded
 # arguments (the per-host script has no such parameter).
 # Persisting is the DEFAULT once a token is supplied and the host is joining the
 # pool: a host that syncs a pool config but stores no token accepts control only
 # from loopback, so the dashboard's own deep link into it fails with a 403 that
-# looks like a bug rather than an unfinished setup. -NoPersistSharedToken keeps
+# looks like a bug rather than an unfinished setup. -NoPersistInternalAuthKey keeps
 # the token transient for a host that should stay locally-driven, and -NoPool
 # already means "not joining", so it does not persist either.
-$persistToken = -not $NoPersistSharedToken -and -not $NoPool -and
-                ($PersistSharedToken -or -not [string]::IsNullOrEmpty($SharedToken))
+$persistToken = -not $NoPersistInternalAuthKey -and -not $NoPool -and
+                ($PersistInternalAuthKey -or -not [string]::IsNullOrEmpty($InternalAuthKey))
 if ($persistToken) {
-    if ([string]::IsNullOrEmpty($SharedToken)) {
-        throw "-PersistSharedToken requires -SharedToken (the shared lab-auth-token to store in this host's vault)."
+    if ([string]::IsNullOrEmpty($InternalAuthKey)) {
+        throw "-PersistInternalAuthKey requires -InternalAuthKey (the internal authentication key to store in this host's vault)."
     }
     Import-Module (Join-Path $PSScriptRoot '../extension/authentication/default.psm1') -Global -Force -DisableNameChecking
     Import-Module (Join-Path $PSScriptRoot '../modules/Test.ConfigServiceSync.psm1') -Global -Force -DisableNameChecking
-    $tokenArgs = @{ Token = $SharedToken; BounceStatusService = $true }
+    $tokenArgs = @{ Token = $InternalAuthKey; BounceStatusService = $true }
     if ($PSBoundParameters.ContainsKey('WhatIf')) { $tokenArgs['WhatIf'] = $PSBoundParameters['WhatIf'] }
-    $provision = Set-LabAuthToken @tokenArgs
+    $provision = Set-InternalAuthKey @tokenArgs
     if (-not $WhatIfPreference -and -not $provision.ok) {
-        throw "lab-auth-token provisioning failed (keyChanged=$($provision.keyChanged), verified=$($provision.verified))."
+        throw "Internal authentication key provisioning failed (keyChanged=$($provision.keyChanged), verified=$($provision.verified))."
     }
 }
 
@@ -204,7 +204,7 @@ if ($persistToken) {
 $forwarded = @(ConvertTo-HostScriptArgument `
     -BoundParameters $PSBoundParameters `
     -RemainingArguments $RemainingArguments `
-    -Exclude 'RemainingArguments', 'PersistSharedToken', 'NoPersistSharedToken' `
+    -Exclude 'PersistInternalAuthKey', 'NoPersistInternalAuthKey', 'RemainingArguments' `
     -ExtraArgument $extra)
 
 Invoke-YurunaHostScript -ScriptName 'Sync-HostConfiguration.ps1' -ArgumentList $forwarded

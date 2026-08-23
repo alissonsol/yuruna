@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42bb2613-9d4e-4ac0-aeb2-0784a83e7a8a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -314,6 +314,59 @@ function Invoke-GitNetworkCommand {
     return Invoke-GitNetworkCommandOnce -GitArgs $GitArgs -TimeoutSeconds $TimeoutSeconds
 }
 
+function Get-GitFirstOutputLine {
+    <#
+    .SYNOPSIS
+        The first non-blank line of a git command's captured output, trimmed, or
+        an empty string when there is none.
+    .DESCRIPTION
+        git puts the sentence a human needs first ("remote: Invalid username or
+        token", "Repository not found") and follows it with the "fatal:" restating
+        of the same thing, so a one-line quote is what belongs in a report line
+        that already carries its own explanation.
+    .OUTPUTS
+        [string]
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter()][AllowNull()][AllowEmptyString()][string]$Output)
+    if ([string]::IsNullOrWhiteSpace($Output)) { return '' }
+    $line = (($Output -split "`r?`n") | Where-Object { $_ -match '\S' } | Select-Object -First 1)
+    if (-not $line) { return '' }
+    return ([string]$line).Trim()
+}
+
+function Get-GitAuthRefreshRemedy {
+    <#
+    .SYNOPSIS
+        The ways an operator can restore a working github.com credential on this
+        host, one option per element, ordered the way the runner tries them.
+    .DESCRIPTION
+        An auth-shaped git failure (Test-GitRemoteAuthFailure) has exactly one
+        remedy no matter which check tripped over it, and a reader who is handed
+        a different wording per call site has to work out whether they are
+        looking at the same problem twice. Owning the list here keeps the
+        interactive banner and the pre-cycle gate's FAIL text saying the same
+        thing, and adding a credential source updates both at once.
+
+        Returned unformatted -- no bullets, no leading spaces -- because callers
+        render it differently: a multi-line banner has room for a list, a single
+        FAIL line embedded in a report does not.
+    .OUTPUTS
+        [string[]] -- the remedies, most-preferred first.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseOutputTypeCorrectly', '',
+        Justification = 'Returns a [string[]]; callers always wrap with @(...), so the pipeline unroll into object[] is harmless and re-collected.')]
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param()
+    return [string[]]@(
+        "gh auth login   (the runner picks up the gh CLI's stored login by itself)",
+        'export GH_TOKEN=<a valid GitHub token>',
+        'refresh your git credential helper / re-enter the personal access token'
+    )
+}
+
 function Write-GitAuthRefreshBanner {
     <#
     .SYNOPSIS
@@ -328,21 +381,17 @@ function Write-GitAuthRefreshBanner {
         [Parameter()][AllowEmptyString()][string]$GitOutput
     )
     $remote = if ([string]::IsNullOrWhiteSpace($RemoteUrl)) { 'origin' } else { $RemoteUrl.Trim() }
-    $said   = ''
-    if (-not [string]::IsNullOrWhiteSpace($GitOutput)) {
-        $line = (($GitOutput -split "`r?`n") | Where-Object { $_ -match '\S' } | Select-Object -First 1)
-        if ($line) { $said = "`n  git said: $($line.Trim())" }
-    }
+    $first  = Get-GitFirstOutputLine -Output $GitOutput
+    $said   = if ($first) { "`n  git said: $first" } else { '' }
+    $options = ((@(Get-GitAuthRefreshRemedy) | ForEach-Object { "    * $_" }) -join "`n")
     Write-Warning @"
 GitHub access needs refreshing.
-  git could not authenticate to the framework remote:
+  git could not authenticate to the remote:
     $remote
   The cached GitHub credential is missing or expired, so 'git fetch' / 'git
   pull' would block on an interactive login prompt (which hangs an unattended
   runner). Refresh the login with ONE of, then re-run:
-    * gh auth login   (the runner picks up the gh CLI's stored login by itself)
-    * export GH_TOKEN=<a valid GitHub token>
-    * refresh your git credential helper / re-enter the personal access token$said
+$options$said
 "@
 }
 
@@ -1240,4 +1289,4 @@ function Install-PSScriptAnalyzerIfMissing {
     return Install-YurunaGalleryModuleIfMissing -Name 'PSScriptAnalyzer' @PSBoundParameters
 }
 
-Export-ModuleMember -Function Invoke-GitPull, Get-GitUpstreamStatus, Get-GitUnmergedPath, Test-GitWorktreeMerged, Get-CurrentGitCommit, Get-FileLockingProcess, Update-ProjectClone, Resolve-GitRepositoryWebUrl, Resolve-GitRemoteLink, Get-GitRepositoryName, Test-GitRemoteAccess, Get-HostRepositoryAccess, Install-PowerShellYamlIfMissing, Install-PSScriptAnalyzerIfMissing, Test-GitRemoteAuthFailure, Write-GitAuthRefreshBanner, Invoke-GitNetworkCommand, Get-YurunaGitCredentialArg, Get-YurunaGhCliCredentialArg, Get-YurunaGitAuthAttemptList
+Export-ModuleMember -Function Invoke-GitPull, Get-GitUpstreamStatus, Get-GitUnmergedPath, Test-GitWorktreeMerged, Get-CurrentGitCommit, Get-FileLockingProcess, Update-ProjectClone, Resolve-GitRepositoryWebUrl, Resolve-GitRemoteLink, Get-GitRepositoryName, Test-GitRemoteAccess, Get-HostRepositoryAccess, Install-PowerShellYamlIfMissing, Install-PSScriptAnalyzerIfMissing, Test-GitRemoteAuthFailure, Get-GitFirstOutputLine, Get-GitAuthRefreshRemedy, Write-GitAuthRefreshBanner, Invoke-GitNetworkCommand, Get-YurunaGitCredentialArg, Get-YurunaGhCliCredentialArg, Get-YurunaGitAuthAttemptList

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42b44044-9076-41c3-a573-d5fa643cd35e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,6 +24,7 @@
 
 .PARAMETER ConfigPath           test.config.yml path (default: next to this script)
 .PARAMETER NoGitPull             Skip `git pull` at cycle start
+.PARAMETER NoConfigGate          Skip this cycle's Test-Config.ps1 preflight
 .PARAMETER NoStatusService       Skip the built-in HTTP status service
 .PARAMETER CycleDelaySeconds     Pause between cycles (default 30)
 .PARAMETER logLevel              One of Error|Warning|Information|Verbose|Debug. Each level shows itself + all higher-priority levels (Error highest). Omit to read test.config.yml.logLevel (default "Information").
@@ -42,6 +43,10 @@ param(
     # work. The cycle still requires <RepoRoot>/project/.git to exist;
     # if it doesn't, the cycle fails fast with a clear message.
     [switch]$NoProjectClone,
+    # Skip this cycle's Test-Config.ps1 gate. Forwarded from the outer runner
+    # so an operator who bypassed the startup gate for an in-progress edit is
+    # not stopped by the same check one layer down.
+    [switch]$NoConfigGate,
     [int]$CycleDelaySeconds    = 30,
     # Three-state: omitted -> read test.config.yml.logLevel; explicit
     # value -> override JSON for the lifetime of this runner. Cmdline
@@ -167,12 +172,12 @@ if ($env:YURUNA_RUNNER_RELAUNCH -ne '1') {
     switch ($priorRunner.status) {
         'OtherRunner' {
             Write-Output ""
-            Write-Output "============================================="
+            Write-Output "========"
             Write-Output "  Another Start-TestRunner.ps1 is running"
             Write-Output "  PID:     $($priorRunner.pid)"
             Write-Output "  Action:  stopping it and running"
             Write-Output "           Remove-TestVMFiles.ps1 before start"
-            Write-Output "============================================="
+            Write-Output "========"
             # 'test-' is the template default: test.config.yml hasn't been
             # merged yet, so we can't read a user override. If the user
             # picked a custom prefix this cleanup is a no-op -- same as
@@ -359,6 +364,24 @@ $script:Config = $Config
 # at the top of the script saw cmdline-only data. Per-step refreshes inside a
 # cycle run via Resolve-RunnerLogLevel.
 Resolve-LogLevel
+
+# --- REGION: Cycle-start config gate
+# One gate, at the front of the cycle, before any host work: the outer runner
+# gates once at startup, but it then runs cycles for days, so a startup-only
+# check says nothing about a config -- or a GitHub credential -- that went bad
+# in hour nine. Validating here means a cycle that cannot succeed is refused
+# in its first seconds, with Test-Config's FAILURES block naming what to fix,
+# instead of surfacing later as an opaque step failure partway through the
+# lab's VM builds.
+#
+# This is also the ONLY gate the cycle runs. Nested Debug-TestSequence stages
+# spawned by host actions inherit this verdict rather than re-running the
+# check per stage: the gate reaches the network, and a remote that stops
+# answering between two stages would otherwise abort a healthy cycle
+# mid-flight and discard every stage already built.
+Write-RunnerPhase -Phase 'config-gate'
+$gate = Invoke-ConfigGate -TestRoot $TestRoot -ConfigPath $ConfigPath -Skip:$NoConfigGate -CallerName 'cycle start'
+if (-not $gate.passed) { exit $ExitFailure }
 
 # --- REGION: Bootstrap
 $HostType = Get-HostType
@@ -606,7 +629,7 @@ if (-not $hostNetwork.Healthy) {
     if ($hostNetworkStreak -lt $HostNetworkTotalLossCycles) {
         Write-Warning "Host guest-network: no usable guest path ($($hostNetwork.Reason)) -- observation $hostNetworkStreak of $HostNetworkTotalLossCycles. Running this cycle anyway; a link still renegotiating after a reboot recovers on its own."
     } else {
-        Write-Warning "==================================================================="
+        Write-Warning "========"
         Write-Warning " No network path exists for any guest on this host."
         Write-Warning " $($hostNetwork.Reason)"
         Write-Warning " Seen on $hostNetworkStreak consecutive cycles, so this is not a"
@@ -617,7 +640,7 @@ if (-not $hostNetwork.Healthy) {
         Write-Warning " $HostNetworkStateFile (or just let the next healthy cycle clear it):"
         Write-Warning "   Get-VMSwitch | Format-List Name, SwitchType, AllowManagementOS, NetAdapterInterfaceDescription"
         Write-Warning "   Get-NetAdapter | Format-Table Name, InterfaceDescription, Status"
-        Write-Warning "==================================================================="
+        Write-Warning "========"
         # Leave the host no dirtier than a normal cycle start: the sweep that
         # removes VMs stranded by the previous cycle lives inside the cycle
         # body, which this refusal skips.
@@ -866,8 +889,12 @@ if ($cachingProxyUrl) {
             # The exposed-port set (incl. 9302 caching-proxy-parser-service live tail)
             # comes from Get-CachingProxyServiceExposedPort so it cannot drift from
             # Start-CachingProxyServiceVM's install list; Add-PortMap is clear-all-first,
-            # so a dropped port goes dark on reinstall. macOS re-maps only Grafana.
-            $CachingProxyServiceExposedPorts = if ($IsMacOS) { @(3000) } else { Get-CachingProxyServiceExposedPort -HttpPort $cacheHttpPort -HttpsPort $cacheHttpsPort }
+            # so a dropped port goes dark on reinstall. macOS re-maps only the two
+            # ports an operator opens by hand: Grafana, and 80 -- which is where
+            # the caching-proxy VM's landing page lives, and therefore where the
+            # host status pages' Dashboards link points. Without 80 that link
+            # reaches nothing from a Mac host.
+            $CachingProxyServiceExposedPorts = if ($IsMacOS) { @(80, 3000) } else { Get-CachingProxyServiceExposedPort -HttpPort $cacheHttpPort -HttpsPort $cacheHttpsPort }
             $portMapArgs = @{
                 VMIp      = $portMapIp
                 Port      = $CachingProxyServiceExposedPorts
@@ -970,7 +997,7 @@ $cycleState = @{
 # long and unbounded -- the weekly base-image download most of all -- and from
 # its first step Invoke-Sequence takes over refreshing runner.stepHeartbeat.
 # Dropping runner.phase restores the full testCycle.stepTimeoutSeconds bound,
-# i.e. exactly the behaviour that shipped before the preamble bound existed.
+# i.e. exactly the behavior that shipped before the preamble bound existed.
 Clear-RunnerPhase
 Invoke-RunnerInnerCycle -State $cycleState
 $OverallPassed        = $cycleState.OverallPassed

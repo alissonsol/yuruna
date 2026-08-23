@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42570333-9ac2-4031-a0fd-695d1459461e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -15,6 +15,11 @@
 #>
 
 #requires -version 7
+
+# Resolve-OcrImagePath / Clear-OcrImagePath: tesseract is a native binary and
+# cannot open a path past the Windows long-path ceiling, so every image handed
+# to it goes through the shared leaf helper first.
+Import-Module (Join-Path $PSScriptRoot 'Test.OcrPath.psm1') -Global -Force
 
 <#
 .SYNOPSIS
@@ -175,7 +180,11 @@ function Invoke-TesseractOcr {
         throw (Get-TesseractInstallGuidance)
     }
 
-    $absPath = (Resolve-Path $ImagePath).Path
+    # A path tesseract cannot open reads as an empty screen rather than an
+    # error to everything downstream, so the handle is resolved before the run
+    # and released in the finally below whether the run throws or not.
+    $pathHandle = Resolve-OcrImagePath -ImagePath $ImagePath
+    $absPath = [string]$pathHandle.Path
 
     # --psm 6 is load-bearing: every neighboring page-segmentation mode
     # silently drops text on terminal screenshots. Full mode-by-mode
@@ -194,12 +203,16 @@ function Invoke-TesseractOcr {
     # message (the preference defaults $true on PS 7.4+ under EAP=Stop; see
     # feedback_winget_self_upgrade_kills_running_pwsh for the guard class).
     $PSNativeCommandUseErrorActionPreference = $false
-    $merged = & $tesseractExe $absPath stdout --psm 6 2>&1
-    $exitCode = $LASTEXITCODE
-    if ($exitCode -ne 0) {
-        $errOutput = $merged | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] }
-        $errMsg = ($errOutput | ForEach-Object { "$_" }) -join "`n"
-        throw "Tesseract failed with exit code $exitCode.`n$errMsg"
+    try {
+        $merged = & $tesseractExe $absPath stdout --psm 6 2>&1
+        $exitCode = $LASTEXITCODE
+        if ($exitCode -ne 0) {
+            $errOutput = $merged | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] }
+            $errMsg = ($errOutput | ForEach-Object { "$_" }) -join "`n"
+            throw "Tesseract failed with exit code $exitCode.`n$errMsg"
+        }
+    } finally {
+        Clear-OcrImagePath -Handle $pathHandle
     }
 
     $text = ($merged | Where-Object { $_ -is [string] }) -join "`n"
@@ -229,7 +242,10 @@ function Get-TesseractWordBox {
 
     $tesseractExe = Find-Tesseract
     if (-not $tesseractExe) { throw (Get-TesseractInstallGuidance) }
-    $absPath = (Resolve-Path $ImagePath).Path
+    # Same long-path ceiling as the text path above: word boxes read off an
+    # image tesseract could not open would come back as an empty box set.
+    $pathHandle = Resolve-OcrImagePath -ImagePath $ImagePath
+    $absPath = [string]$pathHandle.Path
 
     # `tesseract <img> stdout tsv` prints TSV with columns:
     #   level page_num block_num par_num line_num word_num left top width height conf text
@@ -239,12 +255,16 @@ function Get-TesseractWordBox {
     # failure carries tesseract's own stderr into the thrown message, and the
     # EAP pin keeps the exit-code branch reachable on PS 7.4+.
     $PSNativeCommandUseErrorActionPreference = $false
-    $merged = & $tesseractExe $absPath stdout --psm 6 tsv 2>&1
-    $exitCode = $LASTEXITCODE
-    if ($exitCode -ne 0) {
-        $errOutput = $merged | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] }
-        $errMsg = ($errOutput | ForEach-Object { "$_" }) -join "`n"
-        throw "Tesseract TSV mode failed with exit code $exitCode.`n$errMsg"
+    try {
+        $merged = & $tesseractExe $absPath stdout --psm 6 tsv 2>&1
+        $exitCode = $LASTEXITCODE
+        if ($exitCode -ne 0) {
+            $errOutput = $merged | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] }
+            $errMsg = ($errOutput | ForEach-Object { "$_" }) -join "`n"
+            throw "Tesseract TSV mode failed with exit code $exitCode.`n$errMsg"
+        }
+    } finally {
+        Clear-OcrImagePath -Handle $pathHandle
     }
     # A successful run can still emit stderr chatter (e.g. resolution warnings)
     # as ErrorRecords; keep only stdout strings so they are not mis-parsed as

@@ -160,7 +160,7 @@ the id from EVERY pool's `members[]` (needs `pool.intentGitUrl`; without it the 
 records are still removed and membership is skipped with a warning); and (3) asks
 the aggregator to **forget** the host (`POST /api/v1/forget-host`) so it leaves the
 dashboard NOW instead of after the host TTL. Step 3 is opt-in + best-effort: it
-fires only when a `lab-auth-token` and a caching-proxy-service are configured (the same
+fires only when an internal authentication key and a caching-proxy-service are configured (the same
 CA-pinned bearer transport as pool push), and a missing token / unreachable
 aggregator is a silent skip -- the panel still self-clears on the TTL. A host that
 is still live is re-discovered on the aggregator's next poll, so stop/drain it
@@ -183,7 +183,7 @@ Every command below lives in `test/pool/`.
 | `Get-PoolStatus.ps1` | read members + the assigned test-set (intent) | `-PoolId` |
 | `Get-PoolIntent.ps1` | dump the whole intent store as JSON (what the dashboard reads) | -- |
 | `Test-PoolIntent.ps1` | validate the intent files | -- |
-| `Convert-ToPoolWorker.ps1` | turn a standalone machine into a worker of an existing lab | `-ReferenceHost` (req), `-SharedToken`, `-KeepCachingProxy` |
+| `Convert-ToPoolWorker.ps1` | turn a standalone machine into a worker of an existing lab | `-ReferenceHost` (req), `-InternalAuthKey`, `-KeepCachingProxy` |
 
 All mutating commands support `-WhatIf` (preview) and `-Confirm`, validate against the
 schemas **before** writing, and `git commit` + `push` for you. `-IntentGitUrl` defaults to
@@ -193,9 +193,9 @@ command discards it -- recover by re-running from a writable location (on the pr
 or local path to the bare repo), or delete the admin clone dir to discard the local change and
 re-clone from the remote. Every command has full help: e.g. `Get-Help test/pool/Set-PoolTestSet.ps1 -Full`.
 
-## Pool control service
+## Pool-control service
 
-The Pool control service is the operator UI + API for the LAN pool intent. It
+The Pool-control service is the operator UI + API for the LAN pool intent. It
 drives the pool-intent git store; runners only
 PULL that store read-only. Every button routes through the admin CLIs above,
 so the UI and the command line cannot diverge.
@@ -346,8 +346,8 @@ Driving another host's control routes needs a **control proof** (see
 [control-routes.md](control-routes.md)), which the service obtains one of two
 ways, in order:
 
-1. the shared `lab-auth-token` from `--auth-token-file`
-   (default `/etc/yuruna/lab-auth.token`), if present &mdash; no round trip; or
+1. the internal authentication key from `--auth-token-file`
+   (default `/etc/yuruna/internal-auth.key`), if present &mdash; no round trip; or
 2. the pool aggregator's `/go/host` redirect, the identical proof a browser
    receives from a dashboard host link.
 
@@ -357,7 +357,7 @@ the file, rather than collecting one `403` per host.
 
 Members are driven individually and reported individually: `2 applied, 1 failed
 -- 42ab12cd (the host holds no lab token ...)`. A host that was never enrolled, is
-powered off, or holds a different lab token fails on its own without costing the
+powered off, or holds a different Lab token fails on its own without costing the
 others their change. Every fan-out is written to the audit log with how much of
 it landed.
 
@@ -407,7 +407,7 @@ A small Go daemon (`test/extension/pool-control-service/server`, module `pool-co
 
 Everything this service changes **is** pool configuration &mdash; which pools
 exist, which hosts belong to them, which test-set each one runs &mdash; so every
-mutating route takes the lab-token gate that
+mutating route takes the write gate that
 [docs/extensions-api.md](extensions-api.md#the-lab-token-rule) applies to every
 extension service:
 
@@ -417,9 +417,9 @@ extension service:
   SameSite=Lax so the dashboard deep-link keeps it) and re-sends the change you
   were making. There is nothing to set up: the daemon already knows the
   aggregator, and the aggregator owns the codes.
-- **From automation**, send the shared `lab-auth-token` as
+- **From automation**, send the internal authentication key as
   `Authorization: Bearer ...`. The daemon reads it from `--auth-token-file`
-  (default `/etc/yuruna/lab-auth.token`, absent by default). Nothing bakes that
+  (default `/etc/yuruna/internal-auth.key`, absent by default). Nothing bakes that
   file into the VM seed, so the bearer is opt-in: drop the token there yourself
   on a service VM that automation drives.
 
@@ -474,7 +474,7 @@ Needs `go` + `pwsh` on PATH and the framework checkout (the CLIs live at
 
 ### Auto-enrollment
 
-A host that has enrolled its lab token, and is in **no pool at all**, can join a
+A host that has enrolled its Lab token, and is in **no pool at all**, can join a
 pool without you adding it. It **ships off**: the sweep runs only when an
 `autoEnrollment` block in the intent store's `pools.yml` names a target pool
 *and* the daemon runs with `--auto-enroll` (`--auto-enroll-interval`, default 60s,
@@ -608,7 +608,7 @@ share". Reads are open on the LAN. Three per-row actions are gated:
 
 Each action is appended to `<pool root>/download-agent-service/audit.jsonl`. The
 same three exist as API routes for automation, which also accept the shared
-`lab-auth-token` as a bearer.
+internal authentication key as a bearer.
 
 ### Unlocking the actions
 
@@ -630,13 +630,13 @@ The daemon does not judge the code itself: it forwards it to the aggregator's
 `POST /api/v1/lab-token` exchange, which owns the rotation. So an aggregator
 that is down means the board cannot be unlocked -- a deliberate fail-closed,
 answered as `503 lab-token-unavailable` rather than as "wrong code". Automation
-is unaffected; the same routes take `Authorization: Bearer <lab-auth-token>`.
+is unaffected; the same routes take `Authorization: Bearer <internal-auth-key>`.
 
 The code is public on the LAN by construction (the aggregator publishes it on
 its open `/metrics`). It stops a stray click on Delete; it is not a secret, and
 it is worth having because it expires on its own.
 
-With neither an aggregator to ask nor a lab-auth-token configured the mutating
+With neither an aggregator to ask nor an internal authentication key configured the mutating
 routes answer `503` -- never an ungated write.
 
 ### Running it
@@ -687,7 +687,7 @@ then to standalone -- a pool never stops a host from testing.
 ## See also
 
 - [control-routes.md](control-routes.md) -- what a host accepts from the dashboard's action
-  buttons, and the one-time `lab-auth-token` setup that enables them from another machine.
+  buttons, and the one-time internal authentication key setup that enables them from another machine.
 - [pool-storage.md](pool-storage.md) -- optional NAS replication of pool observability data
   (a separate, NAS-only feature).
 - [test/extension/pool-aggregator-service/README.md](../test/extension/pool-aggregator-service/README.md) --
@@ -700,6 +700,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.21
+Last review: 2026.08.23
 
 Back to [Yuruna](../README.md)

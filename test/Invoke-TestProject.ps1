@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 4245d5d1-5745-4e5e-b405-e37f1c12f700
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -213,14 +213,14 @@ if (Get-Command Clear-StaleControlState -ErrorAction SilentlyContinue) {
 }
 
 Write-Output ''
-Write-Output '============================================='
+Write-Output '========'
 Write-Output '  Invoke-TestProject (single test cycle)'
 Write-Output "  Config:     $ConfigPath"
 Write-Output "  ProjectUrl: $projectUrl"
 Write-Output "  RepoRoot:   $RepoRoot"
 Write-Output "  Inner:      $InnerScript"
 Write-Output "  Stop:       Ctrl+C (or completes when the inner exits)"
-Write-Output '============================================='
+Write-Output '========'
 
 # --- REGION: Pre-cycle config gate (mirrors Start-TestRunner + Debug-TestSequence)
 # Invoke-TestProject re-clones the project then runs one cycle. Without this gate
@@ -276,10 +276,15 @@ $pwshExe = Get-PwshExePath
 # would conflate signals. logLevel is forwarded only if the operator passed
 # it on this script's command line (PSBoundParameters), so the inner falls
 # back to its config-file default otherwise.
+# -NoConfigGate is forced too: the gate above already cleared this same config
+# seconds ago, ahead of the destructive re-clone that only this entry point
+# performs. The inner gating again would re-probe every remote for a verdict
+# nothing has had a chance to invalidate.
 $innerParams = [ordered]@{
     ConfigPath     = $ConfigPath
     NoGitPull      = [switch]::new($true)
     NoProjectClone = [switch]::new($true)
+    NoConfigGate   = [switch]::new($true)
 }
 # Forward -NoStatusService so the inner's shared status-service gate honors it; the
 # server is the inner's responsibility, so Invoke-TestProject only passes it through.
@@ -306,13 +311,13 @@ Write-Output "[Invoke-TestProject] Step 3: inner cycle exited with code $innerEx
 # upstream wrapper can branch on cycle pass/fail just as if
 # Invoke-TestRunnerInnerLoop had been called directly.
 Write-Output ''
-Write-Output '============================================='
+Write-Output '========'
 Write-Output "  Invoke-TestProject: STOP (exit $innerExit)"
 if ($innerExit -eq $ExitOk) {
     Write-Output '  Cycle PASSED.'
 } else {
     Write-Output "  Cycle FAILED. See $env:YURUNA_LOG_DIR for the per-cycle log."
 }
-Write-Output '============================================='
+Write-Output '========'
 
 exit $innerExit

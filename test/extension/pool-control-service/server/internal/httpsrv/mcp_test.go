@@ -31,12 +31,37 @@ func TestMcpToolsArePinnedAndReadOnly(t *testing.T) {
 	defer srv.Close()
 	got := mcpPost(t, srv.URL, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
 	tools := got["result"].(map[string]any)["tools"].([]any)
+	// Read tools and control tools, in the order tools/list sorts them. The
+	// control tools were a recorded deferral until the read surface was in use;
+	// they are now present, and the assertion below is what keeps them honest.
+	readOnly := map[string]bool{
+		"pool_control_board":              true,
+		"pool_control_diagnostics":        true,
+		"pool_control_host_control_state": true,
+		"pool_control_host_facts":         true,
+		"pool_control_hostinfo":           true,
+		"pool_control_hosts":              true,
+		"pool_control_scan_status":        true,
+		"pool_control_state":              true,
+		"pool_control_add_host":           false,
+		"pool_control_assign_testset":     false,
+		"pool_control_move_host":          false,
+		"pool_control_remove_host":        false,
+		"pool_control_set_host_control":   false,
+	}
 	want := []string{
+		"pool_control_add_host",
+		"pool_control_assign_testset",
 		"pool_control_board",
 		"pool_control_diagnostics",
+		"pool_control_host_control_state",
 		"pool_control_host_facts",
 		"pool_control_hostinfo",
 		"pool_control_hosts",
+		"pool_control_move_host",
+		"pool_control_remove_host",
+		"pool_control_scan_status",
+		"pool_control_set_host_control",
 		"pool_control_state",
 	}
 	if len(tools) != len(want) {
@@ -47,9 +72,51 @@ func TestMcpToolsArePinnedAndReadOnly(t *testing.T) {
 		if m["name"] != want[i] {
 			t.Fatalf("tool %d = %v, want %s", i, m["name"], want[i])
 		}
-		if m["annotations"].(map[string]any)["readOnlyHint"] != true {
-			t.Errorf("%v must be read-only; every mutation here commits and pushes the pool intent store", m["name"])
+		name := m["name"].(string)
+		ro, known := readOnly[name]
+		if !known {
+			t.Fatalf("%s is not in the read-only/mutating table; a new tool must declare which it is", name)
 		}
+		if m["annotations"].(map[string]any)["readOnlyHint"] != ro {
+			t.Errorf("%s: readOnlyHint is %v, want %v", name, m["annotations"].(map[string]any)["readOnlyHint"], ro)
+		}
+	}
+}
+
+func TestEveryMutatingToolPassesTheGate(t *testing.T) {
+	// The invariant that makes the control tools safe to ship: a ReadOnly:false
+	// tool is checked against the daemon's OWN gate on the incoming request
+	// before its handler runs, so "may an agent do this" and "may a curl do
+	// this" cannot drift apart. Enumerated from the registry rather than
+	// eyeballed, so a tool added later cannot quietly skip it.
+	srv := newTestServer(&fakeIntent{})
+	defer srv.Close()
+	got := mcpPost(t, srv.URL, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
+	tools := got["result"].(map[string]any)["tools"].([]any)
+	mutating := 0
+	for _, raw := range tools {
+		m := raw.(map[string]any)
+		if m["annotations"].(map[string]any)["readOnlyHint"] == true {
+			continue
+		}
+		mutating++
+		name := m["name"].(string)
+		// An ungated daemon refuses every mutating tool with a NAMED reason.
+		// newTestServer wires no internal authentication key, so this is the refusal path.
+		call := `{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"` + name + `","arguments":{}}}`
+		res := mcpPost(t, srv.URL, call)
+		errObj, ok := res["error"].(map[string]any)
+		if !ok {
+			t.Errorf("%s answered without passing the gate: %v", name, res)
+			continue
+		}
+		data, _ := errObj["data"].(map[string]any)
+		if data == nil || data["reason"] == "" {
+			t.Errorf("%s refused without a machine-readable reason: %v", name, errObj)
+		}
+	}
+	if mutating == 0 {
+		t.Fatal("no mutating tool found; this test would pass vacuously")
 	}
 }
 

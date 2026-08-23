@@ -4,85 +4,98 @@
 (function () {
   // Header version + host id and the footer bar; its countdown re-reads the
   // library rather than reloading, so a half-typed test set is not wiped.
-  const chrome = Y.initChrome({ refresh: function () { load({ quiet: true }); } });
+  var chrome = Y.initChrome({ refresh: function () { load({ quiet: true }); } });
 
   // Built once, not per read: the sort an operator chose is theirs until they
   // change it, and re-reading the library every minute must not put the table
   // back in the server's order under them.
-  const sorter = Y.sortTable(document.getElementById('ts-rows'), { key: 'name' });
+  var sorter = Y.sortTable(document.getElementById('ts-rows'), { key: 'name' });
 
   // quiet marks the countdown's read, which keeps the table it is refreshing on
   // screen. Every other read replaces it and says so: the library is read by
   // running a CLI on the server, which is not instant.
-  async function load(opts) {
-    const quiet = !!(opts && opts.quiet);
-    const done = quiet ? function () { } : Y.busy(document.getElementById('ts-rows'), 'Loading test sets...');
+  function load(opts) {
+    var quiet = !!(opts && opts.quiet);
+    var done = quiet ? function () { } : Y.busy(document.getElementById('ts-rows'), 'Loading test sets...');
     chrome.busy(true);
-    try {
-      await renderSets();
-    } finally {
-      // Also on the failure path: an indicator left turning over a read that
-      // already failed claims progress that is not happening.
-      done();
-      chrome.busy(false);
-    }
+    // Runs on the failure path too: an indicator left turning over a read that
+    // already failed claims progress that is not happening.
+    var finish = function () { done(); chrome.busy(false); };
+    return renderSets().then(finish, finish);
   }
 
-  async function renderSets() {
+  function renderSets() {
     Y.clearNotice();
-    let data;
-    try { data = await Y.api('/api/state'); }
-    catch (e) { Y.notice('error', 'Could not load test sets: ' + e.message); return; }
-    chrome.markLoaded();
-    const sets = data.testSets || [];
-    const tbody = document.getElementById('ts-rows');
+    return Y.api('/api/state').then(function (data) {
+      chrome.markLoaded();
+      paintSets(data.testSets || []);
+    }, function (e) {
+      Y.notice('error', 'Could not load test sets: ' + e.message);
+    });
+  }
+
+  function paintSets(sets) {
+    var tbody = document.getElementById('ts-rows');
+    if (Y.holdRepaint(tbody, renderSets)) { return; }
     tbody.textContent = '';
     if (sets.length === 0) {
       sorter.set([]);
       tbody.appendChild(Y.el('tr', {}, [Y.el('td', { colspan: '5', class: 'muted', text: 'No test sets yet.' })]));
       return;
     }
-    const rows = [];
-    for (const t of sets) {
-      const editBtn = Y.el('button', { text: 'Edit' });
-      editBtn.addEventListener('click', function () {
-        document.getElementById('ts-name').value = t.name;
-        document.getElementById('ts-framework').value = t.frameworkUrl;
-        document.getElementById('ts-project').value = t.projectUrl;
-      });
-      const delBtn = Y.el('button', { text: 'Delete' });
-      delBtn.addEventListener('click', async function () {
-        delBtn.disabled = true;
-        try { await Y.mutate('/api/testset?name=' + encodeURIComponent(t.name), { method: 'DELETE' }); Y.notice('ok', "Deleted '" + t.name + "'."); load(); }
-        catch (e) { Y.notice('error', 'Delete failed: ' + e.message); delBtn.disabled = false; }
-      });
-      rows.push({
-        tr: Y.el('tr', {}, [
-          Y.el('td', { text: t.name }),
-          Y.el('td', { class: 'mono', text: t.frameworkUrl }),
-          Y.el('td', { class: 'mono', text: t.projectUrl }),
-          Y.el('td', {}, [editBtn, ' ', delBtn])
-        ]),
-        values: {
-          name: t.name || '',
-          frameworkUrl: t.frameworkUrl || '',
-          projectUrl: t.projectUrl || ''
-        }
-      });
-    }
+    var rows = [];
+    for (var i = 0; i < sets.length; i++) { rows.push(buildRow(sets[i])); }
     sorter.set(rows);
   }
 
-  document.getElementById('save').addEventListener('click', async function () {
-    const name = document.getElementById('ts-name').value.trim();
-    const fw = document.getElementById('ts-framework').value.trim();
-    const proj = document.getElementById('ts-project').value.trim();
+  // One row, built in its own call so the handlers below close over THIS test
+  // set. Wiring them from inside a loop body would leave every button holding
+  // the last row's name.
+  function buildRow(t) {
+    var editBtn = Y.el('button', { text: 'Edit' });
+    editBtn.addEventListener('click', function () {
+      document.getElementById('ts-name').value = t.name;
+      document.getElementById('ts-framework').value = t.frameworkUrl;
+      document.getElementById('ts-project').value = t.projectUrl;
+    });
+    var delBtn = Y.el('button', { text: 'Delete', 'aria-label': 'Delete test set ' + t.name });
+    delBtn.addEventListener('click', function () {
+      if (!window.confirm("Delete test set '" + t.name + "'? This cannot be undone.")) { return; }
+      delBtn.disabled = true;
+      Y.mutate('/api/testset?name=' + encodeURIComponent(t.name), { method: 'DELETE' }).then(function () {
+        Y.notice('ok', "Deleted '" + t.name + "'.");
+        load();
+      }, function (e) {
+        Y.notice('error', 'Delete failed: ' + e.message);
+        delBtn.disabled = false;
+      });
+    });
+    return {
+      tr: Y.el('tr', {}, [
+        Y.el('td', { text: t.name }),
+        Y.el('td', { class: 'mono', text: t.frameworkUrl }),
+        Y.el('td', { class: 'mono', text: t.projectUrl }),
+        Y.el('td', {}, [editBtn, ' ', delBtn])
+      ]),
+      values: {
+        name: t.name || '',
+        frameworkUrl: t.frameworkUrl || '',
+        projectUrl: t.projectUrl || ''
+      }
+    };
+  }
+
+  document.getElementById('save').addEventListener('click', function () {
+    var name = document.getElementById('ts-name').value.trim();
+    var fw = document.getElementById('ts-framework').value.trim();
+    var proj = document.getElementById('ts-project').value.trim();
     if (!name || !fw || !proj) { Y.notice('error', 'name, frameworkUrl and projectUrl are all required.'); return; }
-    try {
-      await Y.mutate('/api/testset', { method: 'POST', body: { name: name, frameworkURL: fw, projectURL: proj } });
+    Y.mutate('/api/testset', { method: 'POST', body: { name: name, frameworkURL: fw, projectURL: proj } }).then(function () {
       Y.notice('ok', "Saved test set '" + name + "'.");
       load();
-    } catch (e) { Y.notice('error', 'Save failed: ' + e.message); }
+    }, function (e) {
+      Y.notice('error', 'Save failed: ' + e.message);
+    });
   });
 
   // Wrapped rather than passed straight to the listener: load() reads its first

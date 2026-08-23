@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42bd906d-30b3-44f2-9020-fea9dbf0805f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -686,8 +686,34 @@ function Start-UtmDialogWatchdog {
     if (-not (Test-Path $stateDir)) {
         New-Item -ItemType Directory -Path $stateDir -Force | Out-Null
     }
+    # Only buttons that mean "proceed with what I asked for". The list is a
+    # blind click driven by title alone, against whatever UTM happens to be
+    # showing, so every entry has to be one whose meaning cannot be "undo the
+    # thing being set up" -- and "Close" cannot clear that bar. It is a real,
+    # localized UTM title (a key in Localizable.strings across a dozen .lproj
+    # bundles, rendered literally in English because en.lproj is an empty stub),
+    # so it was a live click, not a dead entry.
+    #
+    # What is established about the cost: a synthetic click on a UTM window,
+    # seconds after macOS granted this watchdog its Automation permission, was
+    # followed within two seconds by UTM tearing down the QEMU session, and the
+    # bundle was left with megabytes of saved VM state leaked into its 64 MiB
+    # efi_vars.fd -- the suspend signature docs/host-macos.md describes. The
+    # bring-up that armed the watchdog then spent its whole discovery budget on
+    # a VM that was no longer executing. Which control the click actually landed
+    # on was never pinned down, and the documented state-saving path is quitting
+    # UTM, which did not happen here -- so treat the mechanism as open and the
+    # correlation as the reason.
+    #
+    # This narrows the list; it does not make it safe. "OK" stays because the
+    # custom-QEMU-args modal needs it, and "OK" is also the affirmative on UTM's
+    # generic Confirmation sheet -- so a confirmation raised while this is armed
+    # is still answered yes by a watchdog that cannot see what it is agreeing
+    # to. Keeping it armed for no longer than the launch it exists to unblock is
+    # the real bound. ("Okay" and "Open" match no UTM title; they are left as
+    # harmless catches for a macOS-supplied sheet on a UTM window.)
     $asScript = @'
-set acceptLabels to {"Continue", "OK", "Okay", "Run", "Open", "Allow", "Dismiss", "Close", "Ignore"}
+set acceptLabels to {"Continue", "OK", "Okay", "Run", "Open", "Allow"}
 repeat
     try
         tell application "System Events"
@@ -1339,7 +1365,7 @@ function Assert-NoConcurrentUtmVm {
         $running = @($running | Where-Object { $_ -ne $ExceptVmName })
     }
     if ($running.Count -eq 0) { return $true }
-    Write-Warning "==================================================================="
+    Write-Warning "========"
     Write-Warning " One or more UTM VMs are currently running:"
     foreach ($vm in $running) { Write-Warning "   - $vm" }
     Write-Warning ""
@@ -1355,7 +1381,7 @@ function Assert-NoConcurrentUtmVm {
     if ($ExceptVmName) {
         Write-Warning " (Also excluding the cycle's target VM '$ExceptVmName'.)"
     }
-    Write-Warning "==================================================================="
+    Write-Warning "========"
     return $false
 }
 
@@ -3073,7 +3099,7 @@ function Send-Text {
         [switch]$Sensitive
     )
     # Sensitive is part of the contract for log redaction; current paths
-    # (SSH and the Invoke-Sequence GUI dispatcher) do not yet honour it.
+    # (SSH and the Invoke-Sequence GUI dispatcher) do not yet honor it.
     if ($Sensitive) { Write-Debug "Send-Text: -Sensitive set on '$VMName'; log redaction not yet implemented on UTM." }
     if ($Mechanism -eq 'ssh') {
         if (-not $GuestKey) {
@@ -3510,7 +3536,7 @@ function Get-UtmAgentReportedIp {
 .PARAMETER OnLinkVerdict
     Forwarded to Select-DhcpLeaseIpAddress, which judges each candidate
     against the host's live interface subnets by default. Supplying a
-    verdict fixes that judgement, so a lease fixture reads the same on a
+    verdict fixes that judgment, so a lease fixture reads the same on a
     host that serves the vmnet subnet and on one that does not.
 #>
 function Get-UtmSharedLeaseIp {
@@ -3715,7 +3741,7 @@ function Get-VMMac {
 
 <#
 .SYNOPSIS
-    Refresh the host neighbour cache so a passive MAC lookup can succeed.
+    Refresh the host neighbor cache so a passive MAC lookup can succeed.
 .DESCRIPTION
     Contract verb, and deliberately a no-op here. This driver's bridged rung
     already escalates to its own ICMP sweep from inside Get-VMIp, where the
@@ -3733,7 +3759,7 @@ function Update-GuestNeighborCache {
         [int]$CooldownSeconds = 60
     )
     $null = $CooldownSeconds
-    if (-not $PSCmdlet.ShouldProcess($VMName, 'Refresh the neighbour cache')) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($VMName, 'Refresh the neighbor cache')) { return $false }
     Write-Verbose "Update-GuestNeighborCache on host.macos.utm: no external sweep -- Get-VMIp's bridged rung runs its own bounded, memoized sweep for '$VMName'."
     return $false
 }
@@ -4135,7 +4161,7 @@ function Get-BestHostIp {
     Restoring the whole tree is therefore the fix; restoring the bundle alone
     repairs this run and breaks the next.
 
-    This is a GUARD, not a licence to run these scripts under sudo: root has no
+    This is a GUARD, not a license to run these scripts under sudo: root has no
     Aqua session, so `open`, `utmctl` and the osascript dialog watchdog fail
     before ownership is ever reached. The supported invocation is unelevated --
     the scripts request sudo per operation.

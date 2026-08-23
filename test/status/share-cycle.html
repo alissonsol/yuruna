@@ -96,7 +96,7 @@
 
 <div id="banner" class="idle">
   <span class="dot"></span>
-  <span id="banner-text">Loading…</span>
+  <span id="banner-text" role="status" aria-atomic="true">Loading…</span>
 </div>
 
 <main id="share-cycle">
@@ -108,7 +108,7 @@
     <dt>Archive</dt><dd id="share-filename">—</dd>
   </dl>
   <button id="share-go" type="button">Pack and download the cycle results</button>
-  <p id="share-status"></p>
+  <p id="share-status" role="status"></p>
   <!--
     Hidden until the host has answered for the folder, then both links at once.
     The draft is the operator's own click and not something the page navigates

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 421d3153-a504-4156-917e-10ff36bab08d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,6 +28,12 @@
     `git fetch` (git waiting on an interactive username prompt). The behavioral
     tests assert the auth classifier; the AST/source guards assert the pull path
     stays prompt-proof. Runs under Pester 4.10.1 (script-scoped throw helper).
+
+    Also guards how a refused credential is REPORTED. Every check that reaches a
+    remote trips over the same credential, so each one that describes it as a
+    generic unreachability -- a typo to hunt, a host that might be offline --
+    sends its reader after a cause that is not there. These pin the shared
+    remedy and the sites that must name it.
 #>
 
 BeforeAll {
@@ -255,5 +261,105 @@ Describe 'Update-ProjectClone -- the project clone is prompt-proof too' {
         Assert-True ($script:updateProjectCloneText -match 'ls-remote')                  'the project remote must be preflighted before wiping the clone'
         Assert-True ($script:updateProjectCloneText -match 'Test-GitRemoteAuthFailure')  'a project-clone auth failure must be classified'
         Assert-True ($script:updateProjectCloneText -match 'Write-GitAuthRefreshBanner') 'a project-clone auth failure must surface the refresh-access banner'
+    }
+}
+
+Describe 'Get-GitFirstOutputLine -- the one sentence worth quoting back' {
+    It 'returns the first non-blank line, trimmed' {
+        $out = "`n  remote: Invalid username or token.`nfatal: Authentication failed for 'https://github.com/acme/p/'"
+        Assert-StringEqual 'remote: Invalid username or token.' (Get-GitFirstOutputLine -Output $out) `
+            'git leads with the human-readable cause and follows with the fatal: restatement of it'
+    }
+    It 'returns an empty string for empty or whitespace output' {
+        Assert-StringEqual '' (Get-GitFirstOutputLine -Output '')      'no output means nothing to quote'
+        Assert-StringEqual '' (Get-GitFirstOutputLine -Output "  `n ") 'whitespace-only output means nothing to quote'
+    }
+}
+
+Describe 'Get-GitAuthRefreshRemedy -- one remedy list, every reporting site' {
+    # An auth-shaped failure has the same fix wherever it is noticed. Reports that
+    # word it differently read like different problems, and a host that grows a new
+    # credential source has to be updated in each place it is described.
+    It 'names every credential source the runner actually chains' {
+        $r = @(Get-GitAuthRefreshRemedy)
+        Assert-True ($r.Count -ge 3)              'the list covers gh, GH_TOKEN, and the credential helper'
+        Assert-True (($r -join ' ') -match 'gh auth login') 'the gh CLI login is offered'
+        Assert-True (($r -join ' ') -match 'GH_TOKEN')      'the environment token is offered'
+    }
+    It 'is what the refresh banner renders, so the two cannot drift' {
+        $banner = (Write-GitAuthRefreshBanner -RemoteUrl 'https://github.com/acme/p' `
+                       -GitOutput 'remote: Invalid username or token.' 3>&1 | Out-String)
+        foreach ($option in @(Get-GitAuthRefreshRemedy)) {
+            Assert-True ($banner -match [regex]::Escape($option)) "the banner renders the shared remedy: $option"
+        }
+        Assert-True ($banner -match 'git said: remote: Invalid username or token\.') 'the banner quotes what git said'
+    }
+}
+
+Describe 'Reporting an auth-shaped failure as one -- not as "offline, or maybe credentials"' {
+    # A refused credential is not an ambient condition to wait out, and it takes
+    # down every other remote-touching check in the same report. Each site that
+    # notices one must say so, and say what to do, or the reader is left picking
+    # between causes that call for opposite responses.
+    BeforeAll {
+        $script:testConfigText = Get-Content -Raw (Join-Path $repoRoot 'test/Test-Config.ps1')
+        $validatorAst  = Get-ModuleAst -Path (Join-Path $repoRoot 'test/modules/Test.ConfigValidator.psm1')
+        $script:freshnessText = (Get-FunctionAst -RootAst $validatorAst -FunctionName 'Test-RepoFreshness').Extent.Text
+        # Test-RepoFreshness reports through Test.Output and returns nothing, so the
+        # message IS the behavior: load the reporter and give the function a
+        # directory that looks like a working tree for it to check.
+        Import-Module (Join-Path $repoRoot 'test/modules/Test.Output.psm1')          -Force -Global -DisableNameChecking
+        Import-Module (Join-Path $repoRoot 'test/modules/Test.ConfigValidator.psm1') -Force -Global -DisableNameChecking
+        Initialize-OutputState
+        $script:fakeRepo = New-YurunaTestTempDir -Prefix 'freshness'
+        New-Item -ItemType Directory -Path (Join-Path $script:fakeRepo '.git') -Force | Out-Null
+
+        function Get-FreshnessWarning {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', 'GitOutput',
+                Justification = 'Consumed inside the .GetNewClosure() mock body below, which the analyzer does not follow.')]
+            [CmdletBinding()]
+            [OutputType([string])]
+            param([Parameter(Mandatory)][string]$GitOutput)
+            $captured = [System.Collections.Generic.List[string]]::new()
+            # .GetNewClosure() binds $GitOutput into the mock body here and now.
+            # A mock scriptblock is invoked later, from inside the mocked module's
+            # session state, so a bare reference to a caller variable is a
+            # different question than it looks -- and one that silently answers
+            # $null would make every case in this Describe assert the same thing.
+            $fetchResult = { return @{ ExitCode = 128; Output = $GitOutput } }.GetNewClosure()
+            Mock -ModuleName Test.ConfigValidator Invoke-GitNetworkCommand $fetchResult
+            Mock -ModuleName Test.ConfigValidator Write-Warn { param($Message) $captured.Add("$Message") }
+            Test-RepoFreshness -Label 'project' -Path $script:fakeRepo
+            return ($captured -join "`n")
+        }
+    }
+    AfterAll {
+        if ($script:fakeRepo) { Remove-YurunaTestTempDir -Path $script:fakeRepo }
+    }
+    It 'the projectUrl probe classifies before it blames the URL' {
+        Assert-True ($script:testConfigText -match 'Test-GitRemoteAuthFailure -Output \$ls\.Output') `
+            'a refused credential must be told apart from a typo / missing repo'
+        Assert-True ($script:testConfigText -match 'Get-GitAuthRefreshRemedy') `
+            'the remedy must ride INSIDE the FAIL -- the gate re-emits only the FAILURES block'
+    }
+    It 'the staleness check classifies its fetch failure' {
+        Assert-True ($script:freshnessText -match 'Test-GitRemoteAuthFailure') `
+            'a refused fetch must be told apart from an offline host'
+        Assert-True ($script:freshnessText -match 'Get-GitAuthRefreshRemedy') `
+            'the same remedy must reach a reader who only sees the staleness warning'
+        Assert-True ($script:freshnessText -notmatch 'offline, or the remote needs credentials') `
+            'an either/or wording leaves the reader picking between causes that call for opposite responses'
+    }
+    It 'names the credential, the blast radius, and the fix when the fetch is refused' {
+        $warning = Get-FreshnessWarning -GitOutput "remote: Invalid username or token. Password authentication is not supported for Git operations.`nfatal: Authentication failed for 'https://github.com/acme/p/'"
+        Assert-Match 'REFUSED'          $warning 'the reader must not be left wondering whether the host is merely offline'
+        Assert-Match 'gh auth login'    $warning 'the fix belongs where the problem is reported'
+        Assert-Match 'every other check' $warning 'one dead credential explains every other remote failure in the same report'
+        Assert-Match 'git said: remote: Invalid username or token' $warning 'quoting git is what proves the diagnosis'
+    }
+    It 'still reports an unreachable remote as unreachable' {
+        $warning = Get-FreshnessWarning -GitOutput "fatal: unable to access 'https://github.com/acme/p/': Could not resolve host: github.com"
+        Assert-Match 'offline'             $warning 'an outage is an outage'
+        Assert-True  ($warning -notmatch 'gh auth login') 'refreshing a login cannot fix a resolver failure, so do not suggest it'
     }
 }

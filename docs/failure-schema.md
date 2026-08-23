@@ -61,8 +61,17 @@ These appear on **both** step and crash records (a crash after step N began stil
 | `sequencePath` | Path of the failing sequence YAML. |
 | `cycleFolder` | Cycle log dir (step failures only). |
 | `failureScreenshotPath` / `failureOcrPath` | Cycle-dir-relative names (step failures only); may not exist (waitForText emits OCR text, non-OCR failures emit a screenshot) -- presence is checked at deep-link time. |
-| `causeDetail` | Step records only: `{ ocrTail, patternsSought }` -- the freshest on-screen OCR text (bounded tail, <=1200 chars) and the patterns the wait was seeking at the failure site. Lets a consumer see the runtime cause behind a verb-static `failureClass`. Mirrored flat on the event as `causeOcrTail` / `causePatternsSought`. |
+| `causeDetail` | Step records only: `{ ocrTail, patternsSought }` -- the freshest on-screen OCR text (bounded tail, <=1200 chars) and the patterns the wait was seeking at the failure site. Lets a consumer see the runtime cause behind a verb-static `failureClass`. Mirrored flat on the event as `causeOcrTail` / `causePatternsSought`. Also carries `freshWindowNearMiss`, `consoleFlood`, `consoleStaticSeconds`, `pauseBeforeStepSeconds` and `pauseReleasedAtUtc` (below). |
 | `crash` | Crash records only: `{ error, origin, stack }`. |
+
+#### `causeDetail` fields that describe the screen
+
+| Field | Notes |
+|---|---|
+| `consoleFlood` | Set when the console filled with one repeating line while the wait was seeking its pattern; carries the dominant line and its share of the screen. `''` when the screen was not repetitive. |
+| `consoleStaticSeconds` | The longest run, in seconds, that the console CONTENT did not change during the wait. Repetition is counted within a single frame, so a wall of text that scrolled by earlier and then stopped reads as a flood -- this is what tells the two apart. A high value means a guest that is waiting, not one that is working, and a guest that is waiting can often be unblocked by answering it. `0` when the screen kept moving. |
+| `pauseBeforeStepSeconds` | Seconds an operator hold ran, when one was released before the failing step. The pause gate holds the runner and not the guest, so a prompt the guest printed once during the hold is off the screen the resumed step then has to read -- which looks identical to a prompt that never printed. `0` when there was no hold. |
+| `pauseReleasedAtUtc` | When that hold ended, so it can be placed against the step's own start. `''` when there was no hold. |
 
 The write is atomic (temp-file + rename via `Write-YurunaStateFile`) so a
 remediator or the status service never observes a truncated record.
@@ -193,7 +202,7 @@ skip is loud, never a silent pass. The emit is best-effort
 
 A cycle step needs the lab's services -- the stash it uploads binaries to, the
 caching proxy its guests fetch through -- and a service being rebuilt is away for
-minutes to tens of minutes. Long enough that the pre-flight retry windows sized
+minutes to tens of minutes. Long enough that the preflight retry windows sized
 for a DHCP renew cannot cover it, and short enough that failing the cycle throws
 away a pass for a condition that cures itself.
 
@@ -218,7 +227,7 @@ when this host reached it inside `testCycle.labHealth.armWindowHours` (default
 service stopped for a rebuild is already gone when the next cycle starts, so a
 baseline captured at cycle start would never see the transition the gate exists
 to catch. A service this host has *never* reached is deliberately never a hold:
-holding would park a fresh host on its first cycle, where a pre-flight gives a
+holding would park a fresh host on its first cycle, where a preflight gives a
 faster and more accurate "there is no stash here".
 
 **Cost.** An armed area is probed at its last known address first, with no
@@ -327,6 +336,33 @@ The cross-language fetch-and-execute failure sentinel `NONZERO SCRIPT EXIT:`
 (the string the guest wrapper prints and the `fetchAndExecute` verb matches) is
 a declared constant on each side (`Get-NonzeroScriptExitSentinel` + the bash
 producer) with a drift-guard test, so the two sides can't silently diverge.
+
+## `sequence_paused` / `sequence_resumed` events (operator holds)
+
+Both pause gates report both ends of a hold, so a cycle that spent most of its
+wall-clock parked reads as parked rather than as slow, and a failure that
+follows a hold can be read against it.
+
+| Field | Notes |
+|---|---|
+| `pauseScope` | `step` (the sequence gate, from `control.step-pause`) or `cycle` (the cycle-boundary gate, from `control.cycle-pause`). |
+| `label` | Where the gate fired: `[sequence start]`, `[3/9]`, or `[cycle boundary]`. |
+| `requestedAtUtc` | When the operator armed the hold, read from the flag file the status service stamps. `''` when unreadable. |
+| `heldSeconds` | Release event only. An open hold has no duration yet, and an unpaired `sequence_paused` is the only record that a runner died while parked rather than while stuck. |
+| `guestKey` / `vmName` / `sequenceName` | Step scope only: what was parked. |
+
+The two scopes differ in what a hold costs, and the distinction is the reason
+the scope is on the event at all:
+
+- **`cycle`** holds after teardown, with no guest running. Nothing can expire
+  underneath it; the pair is duration reporting.
+- **`step`** holds the runner while the guest keeps running. A guest prints on
+  its own schedule, so anything it prints once and does not reprint -- a
+  boot-time confirmation prompt above all -- can scroll away unanswered during
+  the hold. The step that resumes then reads a screen the prompt has left, which
+  is indistinguishable from a prompt that never printed. That is why a released
+  hold is also carried into the failure record as
+  `causeDetail.pauseBeforeStepSeconds`.
 
 ## status.json `lastFailure` summary
 
@@ -569,6 +605,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.21
+Last review: 2026.08.23
 
 Back to [Yuruna](../README.md)

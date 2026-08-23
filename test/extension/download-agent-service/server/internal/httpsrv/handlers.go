@@ -16,6 +16,8 @@ import (
 	"download-agent-service/internal/config"
 	"download-agent-service/internal/imagestore"
 	"download-agent-service/internal/state"
+
+	"yuruna.com/test/extension/extension-sdk/webui"
 )
 
 func (s *Server) routes() http.Handler {
@@ -45,7 +47,7 @@ func (s *Server) routes() http.Handler {
 	// start a resolver child -- that is the gated test route below.
 	mux.HandleFunc("GET /api/v1/diagnostics", s.handleDiagnostics)
 
-	// Mutations: lab-token session or lab-auth-token bearer.
+	// Mutations: lab-token session or internal-auth-key bearer.
 	mux.HandleFunc("POST /api/v1/images/{hostType}/{imageKey}/refresh", s.gate.Require(s.handleRefresh))
 	mux.HandleFunc("POST /api/v1/images/{hostType}/{imageKey}/delete", s.gate.Require(s.handleDelete))
 	mux.HandleFunc("POST /api/v1/images/{hostType}/{imageKey}/prune", s.gate.Require(s.handlePrune))
@@ -469,20 +471,24 @@ func (s *Server) servePage(name string) http.HandlerFunc {
 
 func (s *Server) handleAsset(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimPrefix(r.URL.Path, "/assets/")
-	clean := filepath.ToSlash(filepath.Clean("/" + name))
-	b, err := webFS.ReadFile("web/assets/" + strings.TrimPrefix(clean, "/"))
+	clean := strings.TrimPrefix(filepath.ToSlash(filepath.Clean("/"+name)), "/")
+	b, err := webFS.ReadFile("web/assets/" + clean)
 	if err != nil {
-		http.NotFound(w, r)
+		// Not one of this service's own files, so try the shared ones. The
+		// runtime every page loads first lives in the SDK precisely so there is
+		// one copy of it; a service overrides a shared name by shipping a file
+		// of that name itself, which is why its own directory is searched first.
+		shared, ct, ok := webui.Asset(clean)
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", ct)
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		_, _ = w.Write(shared)
 		return
 	}
-	ct := "application/octet-stream"
-	switch {
-	case strings.HasSuffix(name, ".js"):
-		ct = "text/javascript; charset=utf-8"
-	case strings.HasSuffix(name, ".css"):
-		ct = "text/css; charset=utf-8"
-	}
-	w.Header().Set("Content-Type", ct)
+	w.Header().Set("Content-Type", webui.ContentType(name))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	_, _ = w.Write(b)
 }

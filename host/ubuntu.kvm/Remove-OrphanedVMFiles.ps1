@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 429b56f1-0d8f-43a6-a6dc-445eb58c952f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -78,16 +78,16 @@ if (Test-Path $_testHost) {
 
 # --- REGION: Warning
 Write-CleanupMessage ""
-Write-CleanupMessage "================================================================"
+Write-CleanupMessage "========"
 Write-CleanupMessage "  WARNING: DESTRUCTIVE OPERATION"
-Write-CleanupMessage "================================================================"
+Write-CleanupMessage "========"
 Write-CleanupMessage ""
 Write-CleanupMessage "  This script deletes VM directories under ~/yuruna/vms/"
 Write-CleanupMessage "  that are NOT registered with libvirt."
 Write-CleanupMessage ""
 Write-CleanupMessage "  THIS CANNOT BE UNDONE."
 Write-CleanupMessage ""
-Write-CleanupMessage "================================================================"
+Write-CleanupMessage "========"
 Write-CleanupMessage ""
 
 # --- REGION: Scan for VM directories

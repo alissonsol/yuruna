@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 4204dc0d-3f1d-4015-b639-9480d7186c23
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -407,6 +407,11 @@ rm -rf "$root"
     }
 
     It 'caps the journal slice rather than printing the unit log' {
+        # The cap is a frame budget, not a preference: this block lands
+        # immediately above the marker the host matches, and the capture
+        # surface freezes a bounded number of trailing lines. Every line
+        # added here is paid for by one removed from the static prose in
+        # network_diag's addressless verdict.
         $driver = @'
 
 stub=$(mktemp)
@@ -421,7 +426,7 @@ rm -f "$stub"
 '@
         $out = Invoke-ShellDriver -FunctionText (Get-DiagFunctionText) -Driver $driver
         if ($null -eq $out) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
-        Assert-True ([int]$out.Trim() -le 4) "the slice must stay bounded; printed $($out.Trim()) lines"
+        Assert-True ([int]$out.Trim() -le 7) "the slice must stay bounded; printed $($out.Trim()) lines"
         Assert-True ([int]$out.Trim() -gt 0) 'the slice must actually print what it found'
     }
 
@@ -432,6 +437,29 @@ rm -f "$stub"
         $fn = Get-ShellFunctionText -Path $script:netLib -Name '_yuruna_net_client_state'
         Assert-True ($fn -match 'Network File') 'the claiming profile is the evidence for the never-attempted shape'
         Assert-True ($fn -match 'DHCP4 Client ID') 'the identity in use is what a lease keyed on client-id turns on'
+    }
+
+    It 'keeps ordering in the slice, which is what separates the three shapes' {
+        # A late lease, a client that stopped asking, and a lease the server
+        # ACKed that was never installed all bottom out at "no address". Only
+        # the order and spacing of the client's own lines tell them apart, so
+        # the timestamp is load-bearing -- but only the time part of it: the
+        # date, hostname and unit prefix would wrap the line on the console
+        # this is read back from.
+        $fn = Get-ShellFunctionText -Path $script:netLib -Name '_yuruna_net_journal_slice'
+        Assert-True ($fn -match 'short-precise') 'the slice must carry timestamps'
+        Assert-True ($fn -notmatch '\-o cat') 'a stripped timestamp cannot order the evidence'
+        Assert-True ($fn -match 'sed') 'the date/hostname/unit prefix must be trimmed back off'
+    }
+
+    It 'reaches past the DHCP words into the address plane' {
+        # The shape that motivates the timestamps leaves its evidence where a
+        # dhcp|lease|carrier filter cannot see it: the refusal or error that
+        # stopped an ACKed address from reaching the link.
+        $fn = Get-ShellFunctionText -Path $script:netLib -Name '_yuruna_net_journal_slice'
+        foreach ($word in 'address', 'not ready', 'could not set') {
+            Assert-True ($fn -match [regex]::Escape($word)) "the slice must match '$word'"
+        }
     }
 
     It 'never parks a console at a password prompt nobody can answer' {
@@ -575,6 +603,20 @@ rm -rf "$root" "$stubdir"
         if ($null -eq $out) { Set-ItResult -Skipped -Because 'bash is unavailable'; return }
         Assert-True ($out -match 'WITH_V4:0')    'a held lease must not be re-kicked'
         Assert-True ($out -match 'WITHOUT_V4:1') 'an addressless physical link must be reconfigured'
+    }
+
+    It 'samples the client state before it restarts the client' {
+        # The reconfigure below the sample restarts the DHCP client, so every
+        # field it would have answered with is gone a moment later -- and the
+        # failing run reaches its own diagnostic minutes after that. Ordering is
+        # the whole property: a sample taken after the nudge describes the nudge.
+        $fn = Get-ShellFunctionText -Path $script:netLib -Name 'yuruna_net_repair_ipv4'
+        $sampleAt = $fn.IndexOf('_yuruna_net_client_state')
+        $reconfAt = $fn.IndexOf('networkctl reconfigure "$ifc"')
+        Assert-True ($sampleAt -ge 0) 'the repair must sample the client state'
+        Assert-True ($reconfAt -gt $sampleAt) 'the sample must precede the reconfigure that discards it'
+        Assert-True ($fn -match 'command -v _yuruna_net_client_state') `
+            'the probe must be feature-detected: a guest may carry an older network lib without it'
     }
 
     It 'is what the fetch wait calls between its two budget halves' {

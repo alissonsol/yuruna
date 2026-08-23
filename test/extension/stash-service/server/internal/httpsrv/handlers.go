@@ -24,6 +24,8 @@ import (
 	"stash-service/internal/detect"
 	"stash-service/internal/meta"
 	"stash-service/internal/sshsrv"
+
+	"yuruna.com/test/extension/extension-sdk/webui"
 )
 
 func (s *Server) routes() http.Handler {
@@ -724,7 +726,18 @@ func (s *Server) handleAsset(w http.ResponseWriter, r *http.Request) {
 	}
 	data, err := webFS.ReadFile("web/" + clean)
 	if err != nil {
-		http.Error(w, "not found", http.StatusNotFound)
+		// Not one of this service's own files, so try the shared ones. The
+		// runtime every page loads first lives in the SDK precisely so there is
+		// one copy of it; a service overrides a shared name by shipping a file
+		// of that name itself, which is why its own directory is searched first.
+		shared, ct, ok := webui.Asset(strings.TrimPrefix(clean, "assets/"))
+		if !ok {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", ct)
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		_, _ = w.Write(shared)
 		return
 	}
 	w.Header().Set("Content-Type", assetContentType(clean))

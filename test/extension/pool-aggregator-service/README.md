@@ -106,7 +106,7 @@ Every `-interval` (default 30s) it:
    tightly validated, bounded, self-identity-bound; `-announce-ttl 0` disables it.
 5c-ii. **Confirms every advertised address before publishing it.** No address
    reaches a consumer until THIS aggregator has reached it at `<target>/healthz` --
-   the same gate the host-side pre-flight and the guest workloads apply, asked
+   the same gate the host-side preflight and the guest workloads apply, asked
    from where the consumers sit. A host can only see its own machine: a service
    VM that came up on a hypervisor-private network (the macOS shared vmnet, a
    Hyper-V Default Switch, libvirt's `virbr0`) answers its host and nobody else,
@@ -191,7 +191,7 @@ Every `-interval` (default 30s) it:
    time rather than trusted until the next poll reaps it. Read-only and unauthenticated, the same
    posture as `/api/v1/pool-status`: it discloses service coordinates to a caller
    already on the LAN those services listen on, and every consumer proves the
-   address independently (the stash pre-flight demands `/healthz`) before using it.
+   address independently (the stash preflight demands `/healthz`) before using it.
    Host-side reader: `Get-PoolExtensionHost -Area stash-service` in
    [`default.psm1`](default.psm1) -- the pool half on its own. Client code calls
    the framework entry point instead,
@@ -204,7 +204,7 @@ Every `-interval` (default 30s) it:
    reachable host's `GET /control/control-status` (open, read-only) and classifies
    the answer into `yuruna_pool_host_info`'s **`control`** label -- the dashboard's
    **Control** column, which is also the host link. `ready` ("remote") means the
-   host holds the SAME `lab-auth-token` this proxy mints proofs from, so its
+   host holds the SAME internal authentication key this proxy mints proofs from, so its
    control buttons will work; `none`/`mismatch`/`skew` ("onsite") mean they will
    403 because the host holds no token, holds a different one (enrolled against a
    proxy since rebuilt), or has a clock skewed far enough to expire a fresh proof;
@@ -259,14 +259,14 @@ Every `-interval` (default 30s) it:
    a-z0-9) and exposes it as `yuruna_pool_lab_token{pool,token}` -- an info
    gauge carrying the current code -- which drives the dashboard's **Lab token**
    stat tile. A host redeems the displayed code at `POST /api/v1/lab-token`
-   (via `test/lab/Set-LabToken.ps1`) and receives the shared **lab-auth-token**,
+   (via `test/lab/Set-LabToken.ps1`) and receives the **internal authentication key**,
    the bearer that gates `/ingest` and the other token-gated pool routes; a
    displayed code stays redeemable for about three rotations, so the tile never
    shows a code that is already dead. The reply is **sealed under the redeemed
    code** (AES-256-GCM, PBKDF2-HMAC-SHA256 key over code + fresh salt): that is
    what authenticates this aggregator to a host that cannot verify its TLS leaf
    -- the leaf is signed by the proxy's own CA, which an enrolling host has no
-   reason to trust yet -- and it keeps the shared token off the wire in the clear
+   reason to trust yet -- and it keeps the key off the wire in the clear
    on a proxy running plain HTTP. The exchange is per-address throttled (IPv6
    grouped by /64) and every attempt is audited (aggregator log + Loki, label
    `src="lab-token"`; the code itself is never logged) and counted in
@@ -319,7 +319,7 @@ unaffected (graceful degradation).
 - `go.mod` -- module + Go version. Zero external dependencies.
 - `pool-aggregator-service.service` -- systemd unit (`User=proxy`, hardened,
   `ReadOnlyPaths=/var/log/squid` to read the access log; `:9400`; `ExecStart`
-  carries `-auth-token-file /etc/yuruna/lab-auth.token -host-ttl 24h
+  carries `-auth-token-file /etc/yuruna/internal-auth.key -host-ttl 24h
   -lab-token-rotate 60s`).
 - `pool-aggregator-service.config.yml` / `pool-aggregator-service.contract.yml` -- the Yuruna
   extension area scaffolding (mirrors `caching-proxy-parser-service`).
@@ -375,8 +375,8 @@ unaffected (graceful degradation).
 `-incident-window` (default `2h`) - `-cross-host-fails` (default `3`) -
 `-cross-host-window` (default `15m`) - `-host-ttl` (default `24h`) - `-announce-ttl` (default `45m`; `0`
 disables `POST /announce`) - `-auth-token-file` (file holding the shared
-lab-auth-token that bearer-gates `/ingest` + `/api/v1/forget-host`; the unit
-points it at `/etc/yuruna/lab-auth.token`) - `-lab-token-rotate` (default
+internal authentication key that bearer-gates `/ingest` + `/api/v1/forget-host`; the unit
+points it at `/etc/yuruna/internal-auth.key`) - `-lab-token-rotate` (default
 `60s`; `0` disables the Lab token tile and the `/api/v1/lab-token` exchange) -
 `-pool-archive-root` (empty; the pool share's `hosts/` directory on this
 machine -- empty leaves the `/archive` route unregistered) - `-tls-cert` /
@@ -399,14 +399,14 @@ the leaf is absent.
 | `/archive/<hostId>/test-cycles/<cycle>/...` | GET, HEAD | none | archived cycle results served straight off the pool share (`-pool-archive-root`, the proxy's existing `/mnt/ypool-nas/hosts` mount). Read-only, Range-capable, with directory listings for folder URLs. The path shape IS the authorization: 32-hex hostId, the literal `test-cycles`, and a bare cycle identity (no `.incomplete` / `.aborted` suffix -- on-share leaves are always the stripped identity) are validated before any filesystem call, and `os.Root` contains the rest in the kernel. The root is re-opened **per request**, because the proxy's CIFS mount is `nofail` and arrives asynchronously after boot. Absent flag => route not registered; mount away => 404 and `yuruna_pool_archive_available 0` |
 | `/go/host?host=<hostId>` | GET | none | dashboard timeline click -> 302 to that host's status-page **root**. Same `host` uuid -> **current** IP resolution as `/go/cycle` (survives a host IP change), but always lands on the status page rather than a cycle folder -- the IP-free state-timeline rows can't carry the IP, so the link resolves it here |
 | `/go/stash?host=<hostId>&area=<area>` | GET | none | 302 to that host's extension-service UI (default `area=stash-service`, the stash-service VM), resolved through the same source merge as the dashboard cell -- the service's own live announce first, the host's `extensionTargets` when nothing is announcing (see 5c-i). For IP-free, hostId-only consumers -- the dashboard table itself links directly via the `target` label. Unknown host/target -> 404 |
-| `/api/v1/lab-token` | POST | none (per-IP throttled) | lab-token exchange: body `{"labToken":"<6 chars>"}` -> `200 {"ok":true,"v":1,"salt":...,"nonce":...,"ciphertext":...,"tag":...}` -- redeems the dashboard's **Lab token** code for the shared lab-auth-token, sealed under that code so only the redeemer can open it (called by `test/lab/Set-LabToken.ps1`). `400` malformed, `403` unknown/expired code, `429` per-IP throttle, `503` disabled (`-lab-token-rotate 0`). Every attempt audited (aggregator log + Loki, `src="lab-token"`) |
-| `/ingest` | POST | Bearer | runner-side push of NDJSON events (supplements pull); the bearer is the shared lab-auth-token (`-auth-token-file`). `503` when the proxy holds no token -- a failure state, since the proxy build mints one |
+| `/api/v1/lab-token` | POST | none (per-IP throttled) | lab-token exchange: body `{"labToken":"<6 chars>"}` -> `200 {"ok":true,"v":1,"salt":...,"nonce":...,"ciphertext":...,"tag":...}` -- redeems the dashboard's **Lab token** code for the internal authentication key, sealed under that code so only the redeemer can open it (called by `test/lab/Set-LabToken.ps1`). `400` malformed, `403` unknown/expired code, `429` per-IP throttle, `503` disabled (`-lab-token-rotate 0`). Every attempt audited (aggregator log + Loki, `src="lab-token"`) |
+| `/ingest` | POST | Bearer | runner-side push of NDJSON events (supplements pull); the bearer is the internal authentication key (`-auth-token-file`). `503` when the proxy holds no key -- a failure state, since the proxy build mints one |
 | `/api/v1/forget-host?hostId=<42-hex>` | POST | Bearer | operator eviction: drop one hostId from the in-memory view NOW (all per-host maps -> gone from the next `/metrics` scrape) instead of waiting out the configured host TTL (`-host-ttl`). Same token as `/ingest`; 503 when no token, 400 on a malformed id. JSON `{forgotten, hostId, wasPresent}`. A still-reachable host is re-discovered on the next poll -- stop/drain it first. Called by `test/pool/Remove-PoolHost.ps1` |
 | `/announce` | POST | none (self-identity-bound) | extension-presence beacon (stash service et al., point 5c): the advertised URL derives from / must match the sender's address, so an announcer can only advertise itself, and must be an address the pool could route to (`400` for loopback/link-local/multicast/non-URL); the handler confirms a newly announced address against `/healthz` before it is resolvable (point 5c-ii). Telemetry-only, bounded, disabled (503) when `-announce-ttl` is `0` |
 | `/api/v1/pool-stats` | GET | none | per-**host** terminal-cycle counts over a preset window -- the numbers behind the pool-control board's cards. Per-host rather than per-pool because pool membership lives in the intent store this service never reads; the control service does the join. Read-only and open, like `pool-status` |
 | `/api/v1/host-announce` | POST | none (self-identity-bound) | host-presence beacon, the host-level counterpart to `/announce`. Same open, self-identity-bound posture, but the confirm is an identity check against the announced address's own `status.json` rather than a `/healthz` probe. Self-gates on `-announce-ttl` (503 when `0`) |
 | `/api/v1/host-address?host=<hostId>` | GET | none | one host's current base URL, for the guest-side resolver. The read-only, proof-free counterpart to `/go/host`: it answers with the address instead of redirecting to it, so a guest can resolve a host without following a 302 or carrying a control proof. Documented in [network.md](../../../docs/network.md) |
-| `/api/v1/control-proof` | POST | none | verifier, not a mint: "was this proof made from the pool's lab-auth-token, and is it still live?" -- asked by an extension service that holds no token of its own and so cannot check the proof the `/go/stash` redirect handed its UI. 503 when the proxy holds no token. Documented in [control-routes.md](../../../docs/control-routes.md) |
+| `/api/v1/control-proof` | POST | none | verifier, not a mint: "was this proof made from the pool's internal authentication key, and is it still live?" -- asked by an extension service that holds no key of its own and so cannot check the proof the `/go/stash` redirect handed its UI. 503 when the proxy holds no key. Documented in [control-routes.md](../../../docs/control-routes.md) |
 | `/go/cycle-share?host=<hostId>&t=<epochMs>` | GET | none | the `/go/cycle` click resolved the same way, but landing on the host's **share** page for that cycle -- one archive of the whole results folder, ready for the operator's mail client. Open, like the redirects around it. Documented in [control-routes.md](../../../docs/control-routes.md) |
 
 ## Deploy + verify
@@ -455,7 +455,7 @@ gauge as a constant `1`, and Prometheus stales a target's series on the first
 failed scrape, so the tile means one thing: *this proxy's
 `pool-aggregator-service` is not answering.* Nothing on the pool is broken by
 it -- the collector is read-only, so every runner keeps testing (the same
-graceful degradation as killing the daemon on purpose) -- but no lab token can
+graceful degradation as killing the daemon on purpose) -- but no Lab token can
 be minted, no host can enroll, and every other panel on the board is frozen at
 its last scrape.
 
@@ -523,7 +523,7 @@ dashboard's 30s refresh, with no Grafana or dashboard action.
   real port (planned).
 - TLS on `:9400` (proxy-CA leaf) + a bearer-gated `POST /ingest` push
   route that SUPPLEMENTS pull (closing the trailing-event gap; Loki dedups the overlap).
-  The bearer is the shared `lab-auth-token`, minted and stored in the building
+  The bearer is the internal authentication key, minted and stored in the building
   host's vault at proxy build when none exists -- so push is enabled once the
   proxy is built and hosts enroll (`test/lab/Set-LabToken.ps1` redeems the
   dashboard's Lab token code). `/metrics`, `/healthz`, `/api/v1/pool-status`

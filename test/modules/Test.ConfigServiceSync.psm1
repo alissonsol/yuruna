@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42523d00-1e52-4f07-92e7-2f54c6fa62da
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,8 +36,8 @@
         automation/Set-HostAlias.ps1 (operator prompt as fallback);
       * vault credentials -- a networkStorage user with no local vault
         entry is fetched from the reference host's
-        GET /control/vault-credential, which is gated by the shared
-        lab-auth-token and returns the password encrypted with a key
+        GET /control/vault-credential, which is gated by the internal
+        authentication key and returns the password encrypted with a key
         derived from that token, so no secret crosses the LAN in
         cleartext (operator prompt as fallback).
 
@@ -265,7 +265,7 @@ function Merge-ConfigSyncReferenceConfig {
 }
 
 # --- REGION: Shared-token credential envelope (client + server sides)
-# Both ends hold the shared lab-auth-token; nothing else is shared.
+# Both ends hold the internal authentication key; nothing else is shared.
 # The request carries an HMAC proof-of-knowledge (the token itself never
 # crosses the wire) and the response password is AES-256-GCM encrypted with
 # an HKDF key derived from token + a fresh per-response salt, with the user
@@ -298,8 +298,8 @@ function Get-ConfigSyncHmac {
 
 <#
 .SYNOPSIS
-    Client side: the base64 HMAC proof that the caller knows the shared
-    lab-auth-token, bound to the requested user and the client nonce.
+    Client side: the base64 HMAC proof that the caller knows the
+    internal authentication key, bound to the requested user and the client nonce.
 #>
 function Get-ConfigSyncProof {
     [CmdletBinding()]
@@ -341,8 +341,8 @@ function Test-ConfigSyncProof {
     "<expiryUnixSeconds>.<base64 HMAC>". The pool-aggregator service's /go/host mints the
     identical value in Go so a Grafana deep-link can carry it to the browser UI.
 .DESCRIPTION
-    proof = base64( HMAC-SHA256(lab-auth-token, "yuruna-control|proof|<expiry>") ).
-    Bound to the expiry only: the lab-auth-token is pool-wide, so a valid proof means
+    proof = base64( HMAC-SHA256(internal-auth-key, "yuruna-control|proof|<expiry>") ).
+    Bound to the expiry only: the internal authentication key is pool-wide, so a valid proof means
     "authorized within the TTL". The raw token never leaves the minting host (only the
     HMAC + the plaintext expiry travel, in a URL fragment).
 #>
@@ -359,8 +359,8 @@ function Get-YurunaControlProof {
 
 <#
 .SYNOPSIS
-    A non-secret tag identifying WHICH lab-auth-token this host holds:
-    base64( HMAC-SHA256(lab-auth-token, "yuruna-control|tag|v1") ).
+    A non-secret tag identifying WHICH internal authentication key this host holds:
+    base64( HMAC-SHA256(internal-auth-key, "yuruna-control|tag|v1") ).
 .DESCRIPTION
     Answers "does this host share the proxy's token?" without either end
     disclosing the token. The host publishes the tag on the open
@@ -402,7 +402,7 @@ function Test-YurunaControlProof {
     [CmdletBinding()]
     [OutputType([bool])]
     param(
-        # AllowEmptyString: the server gate calls this with whatever lab-auth-token it
+        # AllowEmptyString: the server gate calls this with whatever internal auth key it
         # read -- possibly empty on a host that has none -- and must get $false, not a
         # binding throw that would break the route.
         [Parameter(Mandatory)][AllowEmptyString()][string]$Token,
@@ -720,7 +720,9 @@ function Get-ConfigSyncLocalAddress {
     Fetches one vault credential from the reference host's token-gated
     GET /control/vault-credential and decrypts it locally.
 .OUTPUTS
-    [hashtable] @{ Ok; Password; Error } -- Error carries the reason on failure.
+    [hashtable] @{ Ok; Password; Status; Error } -- Error carries the reason on
+    failure, Status the observed HTTP status (0 when the host did not answer) so
+    a caller can tell a rejected key from an absent credential.
 #>
 function Request-ConfigSyncVaultCredential {
     [CmdletBinding()]
@@ -741,19 +743,19 @@ function Request-ConfigSyncVaultCredential {
     try {
         $resp = Invoke-WebRequest -Uri $url -Method Get -TimeoutSec $TimeoutSeconds -SkipHttpErrorCheck
     } catch {
-        return @{ Ok = $false; Password = $null; Error = "vault-credential request failed: $($_.Exception.Message)" }
+        return @{ Ok = $false; Password = $null; Status = 0; Error = "vault-credential request failed: $($_.Exception.Message)" }
     }
     $doc = $null
     try { $doc = $resp.Content | ConvertFrom-Json -AsHashtable } catch { $null = $_ }
     if ($resp.StatusCode -ne 200 -or $doc -isnot [System.Collections.IDictionary] -or -not $doc['ok']) {
         $reason = if ($doc -is [System.Collections.IDictionary] -and $doc['error']) { [string]$doc['error'] } else { "HTTP $($resp.StatusCode)" }
-        return @{ Ok = $false; Password = $null; Error = "vault-credential for '$User': $reason" }
+        return @{ Ok = $false; Password = $null; Status = [int]$resp.StatusCode; Error = "vault-credential for '$User': $reason" }
     }
     try {
         $pw = Unprotect-ConfigSyncCredential -Token $Token -User $User -ClientNonce $clientNonce -Envelope ([pscustomobject]$doc)
-        return @{ Ok = $true; Password = $pw; Error = $null }
+        return @{ Ok = $true; Password = $pw; Status = [int]$resp.StatusCode; Error = $null }
     } catch {
-        return @{ Ok = $false; Password = $null; Error = "vault-credential for '$User': decrypt failed (token mismatch or tampered payload)" }
+        return @{ Ok = $false; Password = $null; Status = [int]$resp.StatusCode; Error = "vault-credential for '$User': decrypt failed (the key does not match the one that sealed the reply, or the payload was tampered with)" }
     }
 }
 
@@ -763,7 +765,7 @@ function Request-ConfigSyncVaultCredential {
     verdict. Pure (no I/O); the HTTP wrapper below feeds it the observed status.
 .DESCRIPTION
     The route checks its preconditions in a fixed order -- user referenced by
-    this host's config (404), lab-auth-token configured here (503), proof
+    this host's config (404), internal auth key configured here (503), proof
     verifies (403), stored credential exists (404) -- so everything up to the
     proof check is observable WITHOUT the token. A deliberately wrong proof that
     comes back 403 therefore means "a correct token would have worked", which is
@@ -789,12 +791,12 @@ function Get-ConfigSyncCredentialReadiness {
         }
         403 {
             # Proof mismatch is the SUCCESS case for a probe: the reference holds
-            # a lab-auth-token and has a credential path for this user -- the
+            # an internal auth key and has a credential path for this user -- the
             # only thing standing between us and the password is the right token.
             return @{ Ready = $true; Status = 403; Error = $null }
         }
         503 {
-            return @{ Ready = $false; Status = 503; Error = "$ReferenceHost has no shared lab-auth-token configured, so it cannot serve credentials to a peer. Enroll BOTH hosts with the Lab token shown on the Yuruna hosts dashboard (on ${ReferenceHost}: pwsh test/lab/Set-LabToken.ps1 -LabToken <dashboard-code> -BounceStatusService), then re-run this sync." }
+            return @{ Ready = $false; Status = 503; Error = "$ReferenceHost has no internal authentication key configured, so it cannot serve credentials to a peer. Enroll BOTH hosts with the Lab token shown on the Yuruna hosts dashboard (on ${ReferenceHost}: pwsh test/lab/Set-LabToken.ps1 -LabToken <dashboard-code> -BounceStatusService), then re-run this sync." }
         }
         404 {
             return @{ Ready = $false; Status = 404; Error = "$ReferenceHost cannot serve the credential for '$User' ($ServerError)." }
@@ -820,7 +822,7 @@ function Get-ConfigSyncCredentialReadiness {
     and never serves anything, so the probe cannot leak a credential even
     against a host that HAS the token) and hands the observed status to
     Get-ConfigSyncCredentialReadiness. This keeps the sync from begging for
-    input it cannot use: a reference host with no lab-auth-token of its own can
+    input it cannot use: a reference host with no internal auth key of its own can
     never serve a credential, so prompting for the token -- and then for every
     password once the operator skips it -- would demand by hand precisely the
     values this sync exists to copy.
@@ -981,7 +983,132 @@ function Read-ConfigSyncSecret {
     param([Parameter(Mandatory)][string]$Prompt)
     $secure = Read-Host -Prompt $Prompt -AsSecureString
     if (-not $secure -or $secure.Length -eq 0) { return '' }
-    return (ConvertFrom-SecureString -SecureString $secure -AsPlainText)
+    # Trimmed because a secret is pasted far more often than typed, and a
+    # trailing space or newline rides along invisibly. Both consumers use the
+    # value as HMAC key material, where one stray byte is indistinguishable
+    # from the wrong secret entirely: the far end can only answer "mismatch".
+    return (ConvertFrom-SecureString -SecureString $secure -AsPlainText).Trim()
+}
+
+# --- REGION: https://yuruna.link/definition#defining-the-two-lab-secrets
+
+<#
+.SYNOPSIS
+    Is this string shaped like the dashboard's Lab token (the 6-character
+    redemption code), rather than an internal authentication key?
+.DESCRIPTION
+    The two secrets an operator can hold have disjoint shapes -- 6 characters of
+    lowercase alphanumerics against 48 hexadecimal ones -- so which one is in
+    hand is decidable, and nothing has to guess. Case is folded first because
+    the dashboard renders the code in a font where the operator's shift key is
+    the only thing deciding case.
+
+    Callers that need the redemption code use this to accept it; callers that
+    need the key itself use it to recognize the one value they must never
+    treat as key material.
+.OUTPUTS
+    [bool]
+#>
+function Test-LabTokenShape {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter()][AllowEmptyString()][AllowNull()][string]$Value = '')
+    if ([string]::IsNullOrWhiteSpace($Value)) { return $false }
+    return ($Value.Trim().ToLowerInvariant() -match '^[a-z0-9]{6}$')
+}
+
+<#
+.SYNOPSIS
+    Turn whatever the operator typed at a secret prompt into an internal
+    authentication key, redeeming a dashboard Lab token in place when that is
+    what arrived.
+.DESCRIPTION
+    An operator who has a lab at all has the Lab token tile in front of them;
+    the internal authentication key lives in another host's vault and is
+    deliberately never displayed. So the value most likely to be typed at a
+    prompt asking for the key is the one thing that cannot serve as the key.
+
+    Rather than refuse it, this redeems it: the exchange that turns a Lab token
+    into the key is the same one enrollment runs, so accepting the code here
+    both unblocks the caller and leaves the host properly enrolled -- holding
+    the key in its vault, answering control routes, and reporting to the
+    dashboards -- instead of borrowing a secret for one command.
+
+    Redemption is a state change beyond what a prompt implies, so it is
+    announced before it happens and reported after. When the aggregator cannot
+    be reached the code is refused rather than guessed at, and the caller is
+    told which command completes the enrollment by hand.
+.OUTPUTS
+    [hashtable] @{ Key; Enrolled; Redeemed; Error } -- Key is '' when nothing
+    usable could be produced; Error is operator-actionable.
+#>
+function Resolve-ConfigSyncInternalAuthKey {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter()][AllowEmptyString()][string]$Value = '',
+        # Skip the vault write and use the redeemed key for this run only.
+        [switch]$NoPersist
+    )
+    $typed = "$Value".Trim()
+    if (-not $typed) { return @{ Key = ''; Enrolled = $false; Redeemed = $false; Error = $null } }
+    if (-not (Test-LabTokenShape -Value $typed)) {
+        return @{ Key = $typed; Enrolled = $false; Redeemed = $false; Error = $null }
+    }
+
+    $code = $typed.ToLowerInvariant()
+    Write-Information "That is the dashboard's 6-character Lab token, not an internal authentication key -- redeeming it for the key ..." -InformationAction Continue
+
+    # Resolved on demand: this module works on hosts that never reach an
+    # aggregator, and loading the caching-proxy resolver up front would make
+    # its absence a load error rather than a redemption that simply cannot run.
+    $baseUrl = ''
+    try {
+        $proxyModule = Join-Path $RepoRoot 'test/modules/Test.CachingProxyService.psm1'
+        if (Test-Path -LiteralPath $proxyModule) {
+            Import-Module $proxyModule -Force -DisableNameChecking
+            if (Get-Command Get-PoolAggregatorServiceSeedUrl -ErrorAction SilentlyContinue) {
+                $baseUrl = [string](Get-PoolAggregatorServiceSeedUrl -MaxWaitSeconds 30)
+            }
+        }
+    } catch { $null = $_ }
+    if (-not $baseUrl) {
+        return @{ Key = ''; Enrolled = $false; Redeemed = $false; Error = "A Lab token was entered, but no caching-proxy service this host names answered on :9400, so it cannot be redeemed here. Enroll separately and re-run this sync: pwsh test/lab/Set-LabToken.ps1 -LabToken $code -CachingProxyService <proxy-address> -BounceStatusService" }
+    }
+
+    # https first (a provisioned proxy mints the aggregator's TLS leaf), plain
+    # http as the transport fallback. Only a transport failure falls through:
+    # an answered refusal is the aggregator's verdict, and retrying the same
+    # code would burn another audited attempt against a budget the operator
+    # cannot see.
+    $verdict = $null
+    foreach ($base in @($baseUrl, ($baseUrl -replace '^https:', 'http:'))) {
+        $verdict = Request-LabTokenExchange -AggregatorBaseUrl $base -LabToken $code
+        if ($verdict.Ok -or $verdict.Status -ne 0) { break }
+    }
+    if (-not $verdict -or -not $verdict.Ok) {
+        $why = if ($verdict) { $verdict.Error } else { 'the exchange could not be attempted' }
+        return @{ Key = ''; Enrolled = $false; Redeemed = $false; Error = $why }
+    }
+
+    if ($NoPersist) {
+        Write-Information 'Lab token accepted; using the internal authentication key for this run only.' -InformationAction Continue
+        return @{ Key = $verdict.Token; Enrolled = $false; Redeemed = $true; Error = $null }
+    }
+
+    Write-Information "Lab token accepted; enrolling this host so the key is here for every later run ..." -InformationAction Continue
+    $enrolled = $false
+    try {
+        $provision = Set-InternalAuthKey -Token $verdict.Token
+        $enrolled = [bool]$provision.ok
+        if (-not $enrolled) {
+            Write-Warning "The internal authentication key was fetched but could not be stored in this host's vault (keyChanged=$($provision.keyChanged), verified=$($provision.verified)); continuing with it for this run only."
+        }
+    } catch {
+        Write-Warning "The internal authentication key was fetched but could not be stored in this host's vault ($($_.Exception.Message)); continuing with it for this run only."
+    }
+    return @{ Key = $verdict.Token; Enrolled = $enrolled; Redeemed = $true; Error = $null }
 }
 
 # --- REGION: https://yuruna.link/memory#why-the-networkstorage-vault-sync-probes-before-prompting-and-rewrites-on-drift
@@ -997,8 +1124,8 @@ function Read-ConfigSyncSecret {
     absent or disagrees. An entry that already matches is left untouched and no
     write happens, so a repeat run is a no-op.
 
-    The shared lab-auth-token is what makes the fetch possible: an explicit
-    -SharedToken wins, else this host's stored lab-auth-token, else -- for a
+    The internal authentication key is what makes the fetch possible: an explicit
+    -InternalAuthKey wins, else this host's stored key, else -- for a
     genuinely missing credential in an interactive session -- a prompt.
 
     Emits one record per user, so a caller can tell a converged entry from a
@@ -1021,11 +1148,11 @@ function Sync-ConfigSyncVaultCredential {
         [Parameter(Mandatory)]$NetworkStorage,
         [Parameter(Mandatory)][string]$ReferenceHost,
         [Parameter()][int]$Port = 8080,
-        [Parameter()][string]$SharedToken = '',
+        [Parameter()][Alias('SharedToken')][string]$InternalAuthKey = '',
         [switch]$NonInteractive,
         # Refuse to keep a local entry the reference host did not supply, and
         # overwrite one that disagrees, instead of treating "an entry exists" as
-        # good enough. The no-token shortcut is disabled with it: without a token
+        # good enough. The no-token shortcut is disabled with it: without a key
         # nothing can be fetched, so every user reports 'no-token' rather than
         # 'kept-local' and the caller fails the run instead of shipping a host
         # whose credentials were never checked against the lab.
@@ -1049,20 +1176,20 @@ function Sync-ConfigSyncVaultCredential {
     # and a rehearsal that stops to demand a password is not a rehearsal.
     $canPrompt = (-not $NonInteractive) -and (-not $WhatIfPreference)
 
-    # Acquire the shared token WITHOUT prompting: an explicit -SharedToken wins,
-    # else this host's own stored lab-auth-token. Prompting is deferred to the
+    # Acquire the key WITHOUT prompting: an explicit -InternalAuthKey wins,
+    # else this host's own stored internal auth key. Prompting is deferred to the
     # point a genuinely MISSING credential needs it, so a re-run where every entry
-    # is already present -- the common case -- never stops to ask for a token, yet
-    # a token that is available (passed or stored) is still used to refresh a
+    # is already present -- the common case -- never stops to ask for a key, yet
+    # a key that is available (passed or stored) is still used to refresh a
     # rotated password silently.
-    $token = $SharedToken
-    if (-not $token) {
-        $token = Get-LabAuthTokenValue
-        if ($token) {
-            Write-Information "vault: using this host's stored lab-auth-token to fetch credentials from $ReferenceHost." -InformationAction Continue
+    $authKey = $InternalAuthKey
+    if (-not $authKey) {
+        $authKey = Get-InternalAuthKeyValue
+        if ($authKey) {
+            Write-Information "vault: using this host's stored internal authentication key to fetch credentials from $ReferenceHost." -InformationAction Continue
         }
     }
-    $tokenPromptTried = $false
+    $keyPromptTried = $false
     $outcome = [System.Collections.Generic.List[pscustomobject]]::new()
     # Local so the emitting lines read as one shape; every exit below records
     # exactly one outcome per user.
@@ -1083,51 +1210,67 @@ function Sync-ConfigSyncVaultCredential {
         $resolvedKey = if ([string]::IsNullOrWhiteSpace($vaultKey)) { $user } else { $vaultKey }
         $hasEntry = [bool](Test-VaultEntry -VaultKey $resolvedKey)
 
-        # No shared token to fetch a possibly-rotated value with, and a working
+        # No internal authentication key to fetch a possibly-rotated value with, and a working
         # entry is already here: keep it, with no network round-trip and no prompt.
-        # Fetching (hence refreshing) is impossible without the token by design, so
+        # Fetching (hence refreshing) is impossible without the key by design, so
         # there is nothing the reference could tell us that would change the outcome.
-        # Pass -SharedToken (or store a lab-auth-token here) to have re-runs refresh
+        # Pass -InternalAuthKey (or store an internal auth key here) to have re-runs refresh
         # this against the reference.
         #
         # -RequireReferenceValue takes this branch off the table. The caller has
         # said an unchecked entry is not acceptable, and on a host converting away
         # from standalone it is actively wrong: the entry it would keep was minted
         # here, for a share this host used to serve itself.
-        if (-not $token -and $hasEntry -and -not $RequireReferenceValue) {
-            Write-Information "vault: '$user' has a stored credential; keeping it (no shared token available to check it against $ReferenceHost)." -InformationAction Continue
-            & $record $user $resolvedKey 'kept-local' "no shared lab-auth-token was available to check it against $ReferenceHost"
+        if (-not $authKey -and $hasEntry -and -not $RequireReferenceValue) {
+            Write-Information "vault: '$user' has a stored credential; keeping it (no internal authentication key available to check it against $ReferenceHost)." -InformationAction Continue
+            & $record $user $resolvedKey 'kept-local' "no internal authentication key was available to check it against $ReferenceHost"
             continue
         }
-        if (-not $token -and $RequireReferenceValue) {
-            Write-Warning "vault: no shared lab-auth-token is available, so the '$user' credential cannot be fetched from $ReferenceHost. Enroll this host (pwsh test/lab/Set-LabToken.ps1 -LabToken <dashboard-code>) or pass -SharedToken."
-            & $record $user $resolvedKey 'no-token' "no shared lab-auth-token available to fetch the credential from $ReferenceHost"
+        if (-not $authKey -and $RequireReferenceValue) {
+            Write-Warning "vault: no internal authentication key is available, so the '$user' credential cannot be fetched from $ReferenceHost. Enroll this host (pwsh test/lab/Set-LabToken.ps1 -LabToken <dashboard-code>) or pass -InternalAuthKey."
+            & $record $user $resolvedKey 'no-token' "no internal authentication key available to fetch the credential from $ReferenceHost"
             continue
         }
 
         $capability = Test-ConfigSyncCredentialEndpoint -ReferenceHost $ReferenceHost -Port $Port -User $user
         $password = ''
         if ($capability.Ready) {
-            # Prompt for the token only when it is needed to BOOTSTRAP a missing
+            # Prompt for the key only when it is needed to BOOTSTRAP a missing
             # entry -- never merely to check an existing one for rotation, which
             # would nag on every re-run. Asked once, and only when the reference
             # can actually serve (Ready), so the prompt is never a dead end.
-            if (-not $token -and -not $tokenPromptTried -and -not $hasEntry -and $canPrompt) {
-                $tokenPromptTried = $true
-                $token = Read-ConfigSyncSecret -Prompt "Shared lab-auth-token to fetch credentials from $ReferenceHost (Enter to skip)"
+            if (-not $authKey -and -not $keyPromptTried -and -not $hasEntry -and $canPrompt) {
+                $keyPromptTried = $true
+                $typed = Read-ConfigSyncSecret -Prompt "Internal authentication key -- or the dashboard's 6-character Lab token, which is redeemed for it (Enter to skip)"
+                if ($typed) {
+                    $resolved = Resolve-ConfigSyncInternalAuthKey -RepoRoot $RepoRoot -Value $typed
+                    if ($resolved.Error) { Write-Warning $resolved.Error }
+                    $authKey = [string]$resolved.Key
+                    if ($resolved.Redeemed -and $resolved.Enrolled) {
+                        Write-Information 'vault: this host is now enrolled; later runs need no key at all.' -InformationAction Continue
+                    }
+                }
             }
-            if ($token) {
-                $r = Request-ConfigSyncVaultCredential -ReferenceHost $ReferenceHost -Port $Port -User $user -Token $token
+            if ($authKey) {
+                $r = Request-ConfigSyncVaultCredential -ReferenceHost $ReferenceHost -Port $Port -User $user -Token $authKey
                 if ($r.Ok) {
                     $password = $r.Password
                 } else {
                     Write-Warning $r.Error
+                    # A rejected proof is a verdict on the key, not on this user:
+                    # the same key would be rejected for every remaining one. Drop
+                    # it so each user is not charged another identical warning, and
+                    # say once what would actually fix it.
+                    if ($r.Status -eq 403) {
+                        $authKey = ''
+                        Write-Warning "vault: that internal authentication key is not the one $ReferenceHost holds, so no credential can be fetched. Enroll this host with the dashboard's Lab token (pwsh test/lab/Set-LabToken.ps1 -LabToken <dashboard-code> -BounceStatusService) and re-run this sync."
+                    }
                 }
             } elseif (-not $hasEntry) {
-                # Serviceable, but we have no token and cannot (or were told not to)
+                # Serviceable, but we have no key and cannot (or were told not to)
                 # get one. Only worth flagging when the entry is missing; an entry
                 # that already exists is kept quietly below.
-                Write-Warning "vault: $ReferenceHost can serve the '$user' credential but this host has no shared lab-auth-token to unlock it; pass -SharedToken, or enroll this host with the dashboard's Lab token (pwsh test/lab/Set-LabToken.ps1 -LabToken <dashboard-code>)."
+                Write-Warning "vault: $ReferenceHost can serve the '$user' credential but this host has no internal authentication key to unlock it; pass -InternalAuthKey, or enroll this host with the dashboard's Lab token (pwsh test/lab/Set-LabToken.ps1 -LabToken <dashboard-code>)."
             }
         } else {
             Write-Warning "vault: the '$user' credential cannot be fetched from the reference host -- $($capability.Error)"
@@ -1208,10 +1351,10 @@ function Sync-ConfigSyncVaultCredential {
     Network name or IP address of the host to copy from (any host type).
 .PARAMETER StatusPort
     The reference host's status-service port (default 8080).
-.PARAMETER SharedToken
-    The shared lab-auth-token value used to fetch missing vault credentials
-    from the reference host. When omitted, the local vault's own
-    lab-auth-token is used if configured; an interactive session prompts as
+.PARAMETER InternalAuthKey
+    The internal authentication key used to fetch missing vault credentials
+    from the reference host. When omitted, this host's own stored
+    internal authentication key is used; an interactive session prompts as
     the last resort.
 .PARAMETER NonInteractive
     Never prompt: anything that would need operator input is skipped with a
@@ -1317,8 +1460,8 @@ function Test-ConfigSyncReferenceFreshness {
 .PARAMETER RepoRoot
     Repository root to write into. Defaults to the checkout this module lives in.
 
-.PARAMETER SharedToken
-    Lab auth token for the fetch. Empty means read it from local config.
+.PARAMETER InternalAuthKey
+    Internal authentication key for the fetch. Empty means read it from local config.
 
 .PARAMETER NonInteractive
     Never prompt. A stale reference throws instead of asking, so a scripted run
@@ -1355,7 +1498,7 @@ function Sync-HostConfiguration {
         [Parameter(Mandatory)][string]$ReferenceHost,
         [Parameter()][int]$StatusPort = 8080,
         [Parameter()][string]$RepoRoot,
-        [Parameter()][string]$SharedToken = '',
+        [Parameter()][Alias('SharedToken')][string]$InternalAuthKey = '',
         [switch]$NonInteractive,
         [switch]$SkipValidation,
         [switch]$NoPool,
@@ -1435,7 +1578,7 @@ function Sync-HostConfiguration {
         } elseif (-not $PSCmdlet.ShouldContinue(
                     "Copy this partially-migrated configuration onto this host anyway?",
                     "Reference host $ReferenceHost is not up to date")) {
-            throw "Sync-HostConfiguration: cancelled -- ${ReferenceHost} is not up to date."
+            throw "Sync-HostConfiguration: canceled -- ${ReferenceHost} is not up to date."
         }
     } elseif ($freshness.Checked) {
         Write-Information "Reference config from ${ReferenceHost} matches this host's schema." -InformationAction Continue
@@ -1487,7 +1630,7 @@ function Sync-HostConfiguration {
         # object, and per-user records escaping into that stream would make the
         # caller's `$r.Wrote` read off whichever record landed first.
         $credentialResult = @(Sync-ConfigSyncVaultCredential -RepoRoot $RepoRoot -NetworkStorage $ns `
-            -ReferenceHost $ReferenceHost -Port $StatusPort -SharedToken $SharedToken `
+            -ReferenceHost $ReferenceHost -Port $StatusPort -InternalAuthKey $InternalAuthKey `
             -NonInteractive:$NonInteractive -RequireReferenceValue:$RequireReferenceCredential)
 
         # On Linux the poolStorage mount runs `sudo -n mount/mkdir/umount`, which
@@ -1647,22 +1790,22 @@ function Invoke-StatusServiceBounce {
 
 <#
 .SYNOPSIS
-    Read this host's stored shared lab-auth-token, or '' when none is set.
+    Read this host's stored internal authentication key, or '' when none is set.
 .DESCRIPTION
-    Resolves the 'lab-auth-token' vault entry through the same
+    Resolves the 'internal-auth-key' vault entry through the same
     users.yml-vaultKey indirection the control gate uses, falling back to the
-    legacy 'pool-auth-token' logical name so a host whose vault was
-    provisioned under that name keeps verifying proofs and fetching
+    legacy 'lab-auth-token' and 'pool-auth-token' logical names so a host whose vault was
+    provisioned under either name keeps verifying proofs and fetching
     credentials without re-enrollment. Never calls Get-Password without a
     confirmed vault entry (an unpopulated user would auto-generate a junk
     credential). Requires the authentication extension loaded; returns ''
     when it is not.
 #>
-function Get-LabAuthTokenValue {
+function Get-InternalAuthKeyValue {
     [CmdletBinding()]
     [OutputType([string])]
     param()
-    foreach ($logical in @('lab-auth-token', 'pool-auth-token')) {
+    foreach ($logical in @('internal-auth-key', 'lab-auth-token', 'pool-auth-token')) {
         try {
             if (-not (Get-Command Get-EffectiveUser -ErrorAction SilentlyContinue)) { return '' }
             $tm = Get-EffectiveUser -LogicalUser $logical
@@ -1684,7 +1827,7 @@ function Get-LabAuthTokenValue {
     code for a redeemable code, 400 for a malformed one, 403 for an
     unknown/expired one, 429 when the caller's address burned its
     failed-attempt budget, and 503 when the exchange is disabled (rotation off,
-    or the proxy holds no lab-auth-token). $StatusCode 0 denotes a transport
+    or the proxy holds no internal auth key). $StatusCode 0 denotes a transport
     failure (the aggregator did not answer); the caller passes the token it
     managed to open, so an envelope that would not unseal arrives here as an
     empty -Token and is refused.
@@ -1718,7 +1861,7 @@ function Get-LabTokenExchangeVerdict {
             return @{ Ok = $false; Token = ''; Status = 429; Error = "$AggregatorUrl throttled this host after too many failed attempts. Wait a few minutes, read a fresh Lab token off the dashboard, and re-run." }
         }
         503 {
-            return @{ Ok = $false; Token = ''; Status = 503; Error = "$AggregatorUrl has the lab-token exchange disabled (rotation off, or the proxy holds no lab-auth-token). Rebuild the caching-proxy service from a host that holds the token, or check the pool-aggregator service flags." }
+            return @{ Ok = $false; Token = ''; Status = 503; Error = "$AggregatorUrl has the lab-token exchange disabled (rotation off, or the proxy holds no internal authentication key). Rebuild the caching-proxy service from a host that holds the token, or check the pool-aggregator service flags." }
         }
         default {
             $why = if ($ServerError) { $ServerError } else { "HTTP $StatusCode" }
@@ -1790,8 +1933,8 @@ function Unprotect-LabTokenEnvelope {
 
 <#
 .SYNOPSIS
-    Redeems a dashboard Lab token at the pool-aggregator service for the shared
-    lab-auth-token.
+    Redeems a dashboard Lab token at the pool-aggregator service for the
+    internal authentication key.
 .DESCRIPTION
     POSTs {labToken} to <base>/api/v1/lab-token and classifies the answer via
     Get-LabTokenExchangeVerdict. The reply carries the shared token SEALED under
@@ -1849,14 +1992,14 @@ function Request-LabTokenExchange {
 
 <#
 .SYNOPSIS
-    Provision THIS host as a holder of the shared lab-auth-token (idempotent).
+    Provision THIS host as a holder of the internal authentication key (idempotent).
 .DESCRIPTION
-    The shared lab-auth-token gates cross-host config-sync AND the
+    The internal authentication key gates cross-host config-sync AND the
     status-service control routes (the deep-link control proofs the pool
     aggregator mints). Storing it needs two coupled writes that are easy to
     get subtly wrong by hand:
 
-      1. users.yml -- lab-auth-token.vaultKey must be NON-EMPTY (an empty
+      1. users.yml -- internal-auth-key.vaultKey must be NON-EMPTY (an empty
          vaultKey routes Get-Password down the auto-generate path, which the
          gate rejects) AND must EQUAL the -Username Set-Password writes
          under. Set-Password keys the vault by -Username; the gate resolves
@@ -1876,7 +2019,7 @@ function Request-LabTokenExchange {
 
     Requires the authentication extension loaded (Set-Password et al.).
 #>
-function Set-LabAuthToken {
+function Set-InternalAuthKey {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
     param(
@@ -1884,14 +2027,14 @@ function Set-LabAuthToken {
         [switch]$BounceStatusService,
         [ValidateRange(10, 900)][int]$BounceTimeoutSeconds = 180
     )
-    $logical = 'lab-auth-token'
+    $logical = 'internal-auth-key'
     foreach ($fn in @('Set-UserVaultKey', 'Set-Password', 'Get-Password', 'Test-VaultEntry', 'Get-EffectiveUser', 'Reset-UsersConfigCache')) {
         if (-not (Get-Command $fn -ErrorAction SilentlyContinue)) {
-            throw "Set-LabAuthToken requires the authentication extension: '$fn' is not available. Import test/extension/authentication/default.psm1 first."
+            throw "Set-InternalAuthKey requires the authentication extension: '$fn' is not available. Import test/extension/authentication/default.psm1 first."
         }
     }
-    $result = @{ ok = $false; vaultKey = $logical; keyChanged = $false; verified = $false; bounced = $false; bounceLog = $null }
-    if (-not $PSCmdlet.ShouldProcess("host vault ($logical)", 'Provision shared lab-auth-token')) {
+    $result = @{ ok = $false; vaultKey = $logical; keyChanged = $false; verified = $false; retired = [string[]]@(); bounced = $false; bounceLog = $null }
+    if (-not $PSCmdlet.ShouldProcess("host vault ($logical)", 'Provision the internal authentication key')) {
         return $result
     }
     # Each step is announced on the Information stream before it runs. The vault
@@ -1899,7 +2042,7 @@ function Set-LabAuthToken {
     # seconds (port map + readiness wait), and a silent script in that window is
     # indistinguishable from a wedged one -- the operator needs to see which step
     # owns the wait.
-    $steps = if ($BounceStatusService) { 4 } else { 3 }
+    $steps = if ($BounceStatusService) { 5 } else { 4 }
 
     # vaultKey == the logical name so Set-Password's -Username and the gate's
     # vaultKey resolution address the identical vault slot.
@@ -1908,27 +2051,56 @@ function Set-LabAuthToken {
     $keyNote = if ($result.keyChanged) { 'vaultKey updated' } else { 'vaultKey already correct, file unchanged' }
     Write-Information "[1/$steps] users.yml: $keyNote." -InformationAction Continue
 
-    Write-Information "[2/$steps] vault: storing the shared token under '$logical' ..." -InformationAction Continue
+    Write-Information "[2/$steps] vault: storing the internal authentication key under '$logical' ..." -InformationAction Continue
     $null = Set-Password -Username $logical -NewPassword $Token
     $null = Reset-UsersConfigCache -Confirm:$false
-    Write-Information "[2/$steps] vault: token stored." -InformationAction Continue
+    Write-Information "[2/$steps] vault: key stored." -InformationAction Continue
 
     Write-Information "[3/$steps] vault: verifying the round-trip through the same resolution the control gate uses ..." -InformationAction Continue
     $tm = Get-EffectiveUser -LogicalUser $logical
     $result.verified = [bool]($tm.vaultKey -and (Test-VaultEntry -VaultKey $tm.vaultKey) -and ((Get-Password -Username $logical) -eq $Token))
-    $verifyNote = if ($result.verified) { 'round-trip verified' } else { 'round-trip FAILED -- the token cannot be read back' }
+    $verifyNote = if ($result.verified) { 'round-trip verified' } else { 'round-trip FAILED -- the key cannot be read back' }
     Write-Information "[3/$steps] vault: $verifyNote." -InformationAction Continue
+
+    # Retire the names the read chain still falls back to, so one secret lives
+    # under exactly one key. Strictly AFTER the verify: the fallback copy is the
+    # only thing standing between a failed write and an unreachable host, and
+    # deleting it first would turn a recoverable mis-store into a re-enrollment.
+    Write-Information "[4/$steps] vault: retiring superseded key names ..." -InformationAction Continue
+    if (-not $result.verified) {
+        Write-Information "[4/$steps] vault: skipped -- the new entry did not verify, so the fallback copies stay." -InformationAction Continue
+    } elseif (-not (Get-Command Remove-VaultEntry -ErrorAction SilentlyContinue) -or
+              -not (Get-Command Remove-UserEntry  -ErrorAction SilentlyContinue)) {
+        Write-Information "[4/$steps] vault: skipped -- this authentication extension has no removal support." -InformationAction Continue
+    } else {
+        $retired = [System.Collections.Generic.List[string]]::new()
+        foreach ($old in @('lab-auth-token', 'pool-auth-token')) {
+            try {
+                $oldKey = ''
+                try { $oldKey = [string](Get-EffectiveUser -LogicalUser $old).vaultKey } catch { $null = $_ }
+                $removedVault = $false
+                if ($oldKey) { $removedVault = [bool](Remove-VaultEntry -VaultKey $oldKey -Confirm:$false) }
+                $removedUser = [bool](Remove-UserEntry -LogicalUser $old -Confirm:$false)
+                if ($removedVault -or $removedUser) { [void]$retired.Add($old) }
+            } catch {
+                Write-Warning "Could not retire the superseded '$old' entry ($($_.Exception.Message)); it still holds a copy of this host's internal authentication key."
+            }
+        }
+        $result.retired = [string[]]@($retired)
+        $retiredNote = if ($retired.Count) { "removed $($retired -join ', ')" } else { 'nothing to remove' }
+        Write-Information "[4/$steps] vault: $retiredNote." -InformationAction Continue
+    }
 
     if ($BounceStatusService) {
         $startScript = Join-Path (Split-Path -Parent $PSScriptRoot) 'service/Start-StatusService.ps1'
         $pwshExe = [System.Environment]::ProcessPath
         if ((Test-Path -LiteralPath $startScript) -and $pwshExe -and (Test-Path -LiteralPath $pwshExe)) {
-            Write-Information "[4/$steps] status service: restarting so the running process re-reads users.yml now (up to ${BounceTimeoutSeconds}s) ..." -InformationAction Continue
+            Write-Information "[5/$steps] status service: restarting so the running process re-reads users.yml now (up to ${BounceTimeoutSeconds}s) ..." -InformationAction Continue
             $bounce = Invoke-StatusServiceBounce -PwshExe $pwshExe -StartScript $startScript -TimeoutSeconds $BounceTimeoutSeconds
             $result.bounced   = $bounce.ok
             $result.bounceLog = $bounce.logPath
             if ($bounce.ok) {
-                Write-Information "[4/$steps] status service: restarted." -InformationAction Continue
+                Write-Information "[5/$steps] status service: restarted." -InformationAction Continue
             } elseif ($bounce.timedOut) {
                 Write-Warning "Status-server bounce is still running after ${BounceTimeoutSeconds}s; it was left alone (killing it would take the server down with it). Transcript: $($bounce.logPath). The token is stored and takes effect at the next cycle."
             } else {
@@ -1947,7 +2119,7 @@ Export-ModuleMember -Function `
     Get-ConfigSyncProof, Test-ConfigSyncProof, Get-YurunaControlProof, Test-YurunaControlProof, Get-YurunaControlTag, Protect-ConfigSyncCredential, Unprotect-ConfigSyncCredential, `
     Get-ConfigSyncReferenceConfig, Get-ConfigSyncReferenceAliasMap, Resolve-ConfigSyncAliasResponse, `
     Request-ConfigSyncVaultCredential, Test-ConfigSyncCredentialEndpoint, Get-ConfigSyncCredentialReadiness, `
-    Sync-ConfigSyncVaultCredential, `
-    Sync-HostConfiguration, Test-ConfigSyncReferenceFreshness, Set-LabAuthToken, Get-LabAuthTokenValue, `
+    Sync-ConfigSyncVaultCredential, Test-LabTokenShape, Resolve-ConfigSyncInternalAuthKey, `
+    Sync-HostConfiguration, Test-ConfigSyncReferenceFreshness, Set-InternalAuthKey, Get-InternalAuthKeyValue, `
     Request-LabTokenExchange, Get-LabTokenExchangeVerdict, Unprotect-LabTokenEnvelope, `
     Test-ConfigSyncEnvelopeSupport, Get-ConfigSyncEnvelopeSupport

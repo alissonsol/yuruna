@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 4210d385-d4df-4f13-9344-d649676c6dc4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -783,6 +783,15 @@ if (Test-IsSet $projectUrlConfigured) {
             $ls  = Invoke-GitNetworkCommand -GitArgs @('ls-remote', '--exit-code', '--quiet', $projectUrlConfigured, 'HEAD') -TimeoutSeconds 30
             if ($ls.ExitCode -eq 0) {
                 Write-Pass "projectUrl reachable (git ls-remote HEAD exit 0): $projectUrlConfigured"
+            } elseif (Test-GitRemoteAuthFailure -Output $ls.Output) {
+                # github.com answered, and it rejected the credential -- so the URL
+                # is very likely fine and the generic causes below are a wrong
+                # trail. Say so, and carry the remedy INSIDE the FAIL: the
+                # pre-cycle gate re-emits only the FAILURES block to the console,
+                # so anything written outside it never reaches the operator who
+                # is looking at a refused cycle.
+                $remedy = (@(Get-GitAuthRefreshRemedy) -join '; ')
+                Write-Fail "projectUrl='$projectUrlConfigured': github.com REFUSED this host's GitHub credential (git ls-remote exit $($ls.ExitCode)) -- the URL itself is reachable, so this is a login to refresh, not a typo to hunt. Every credential source this host has was tried. Refresh the login with ONE of, then re-run: $remedy. ls-remote output: $($ls.Output)" -FullPath $ConfigPath
             } else {
                 Write-Fail "projectUrl='$projectUrlConfigured' is not reachable (git ls-remote exit $($ls.ExitCode)). Common causes: typo, private repo without cached credentials, or repo doesn't exist. ls-remote output: $($ls.Output)" -FullPath $ConfigPath
             }

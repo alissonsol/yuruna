@@ -105,14 +105,14 @@ func login(t *testing.T, srv *httptest.Server, code string) *http.Response {
 // wiring -- that the route is mounted and reaches the gate; the proof's own
 // rules (window, ceiling, forgery, who verifies it) live in the labgate suite.
 func TestAControlProofFromTheDashboardUnlocksTheGatedRoutes(t *testing.T) {
-	const labAuthToken = "lab-auth-token-for-the-whole-pool"
-	srv, _ := newServer(t, Options{AuthToken: labAuthToken})
+	const internalAuthKey = "internal-auth-key-for-the-whole-pool"
+	srv, _ := newServer(t, Options{AuthToken: internalAuthKey})
 
 	if r := post(t, srv, imgPath+"/refresh"+imgQuery, "", nil); r.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("no session = %d, want 401", r.StatusCode)
 	}
 	expiry := strconv.FormatInt(time.Now().Add(15*time.Minute).Unix(), 10)
-	proof := expiry + "." + hmacB64(labAuthToken, "yuruna-control|proof|"+expiry)
+	proof := expiry + "." + hmacB64(internalAuthKey, "yuruna-control|proof|"+expiry)
 	resp, err := srv.Client().Post(srv.URL+"/api/unlock-proof", "application/json",
 		strings.NewReader(`{"proof":`+strconv.Quote(proof)+`}`))
 	if err != nil {
@@ -196,7 +196,7 @@ func TestAnUnavailableAggregatorFailsClosedNamingTheReason(t *testing.T) {
 		assertLabTokenUnavailable(t, login(t, srv, labCode))
 	})
 	t.Run("no aggregator configured", func(t *testing.T) {
-		srv, _ := newServer(t, Options{AuthToken: labToken})
+		srv, _ := newServer(t, Options{AuthToken: internalAuthKey})
 		assertLabTokenUnavailable(t, login(t, srv, labCode))
 	})
 }

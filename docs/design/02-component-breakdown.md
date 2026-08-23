@@ -1,943 +1,832 @@
 # Component breakdown
 
-> One sentence: each of the seven top-level blocks opened into at most seven
-> real children, with the exact file list behind every aggregate box.
+> One sentence: each of the seven level-1 blocks opened one level down, into at
+> most seven real children, with the exact file list and count behind every
+> aggregate box.
 
 See [Design overview](00-index.md) - [Context and components](01-context-and-components.md) -
-[Yuruna Architecture](../architecture.md).
+[Data flows](03-data-flows.md) - [Lifecycle state](04-lifecycle-state.md) -
+[Configuration data model](05-data-model.md) - [Deployment topology](06-deployment.md) -
+[Naming conventions](naming.md) - [Yuruna Architecture](../architecture.md).
 
-Sections follow the block order [doc 1](01-context-and-components.md) declares:
-repository directory order, with the block that owns no directory last. Every
-diagram holds seven boxes or fewer. Where a directory holds more children than
-that, siblings are folded into a named aggregate chosen along a responsibility
-boundary, and the fold is named with its member list underneath.
+Section order, section names and node ids come from the block taxonomy in
+[Context and components](01-context-and-components.md): the six directory-owning
+blocks in repository directory order of their first root (`automation/`,
+`global/`, `guest/`, `host/`, `install/`, `test/`), then the block that owns no
+directory last. Which paths fall outside all seven blocks, and why, is stated
+there and is not repeated here.
 
-Only `*.psm1`, `*.ps1`, `*.sh` and data files are counted below. The 205
-`test/modules/*.Tests.ps1` Pester suites are excluded throughout: they mirror
-the modules they cover and are driven as one set by `tools/Invoke-TestSuite.ps1`.
+**Counting rule.** Every count below is tracked files,
+`git ls-tree -r --name-only HEAD <path> | wc -l`, taken from the working tree as
+it stands. A box is drawn only when the directory or file behind it exists
+today. Where a parent holds more than seven children, siblings are folded into a
+named aggregate along a responsibility boundary, and the fold is spelled out
+beneath the diagram as `aggregate-id -- N: member, member, ...`. Every box in
+every section is an aggregate except three single files, each marked as such.
+
+**Excluded throughout.** The Pester suites never get a box of their own. There
+are 212 of them: 211 under `test/modules/` and one,
+`host/modules/Yuruna.Image.Tests.ps1`, beside the module it covers. They are
+counted inside the directory that holds them and are driven as one set by
+`tools/Invoke-TestSuite.ps1`, whose `-Path` defaults to
+`@('test/modules', 'host/modules')` (`:102`), which discovers suites through
+`git ls-files` so a generated copy under `project/` or `test/status/runtime/`
+cannot be swept in, and which spawns `tools/_InvokeOneSuite.ps1` once per suite
+in its own process. One further exclusion applies only to `install/`:
+`install/setup.answers.standalone.yml` exists in the working tree but is
+untracked, so it is not in that directory's count of 10.
 
 ## Deploy Engine -- `automation/`
 
 ```mermaid
 flowchart TD
-    entry-scripts["phase entry scripts"]
-    phase-publishers["phase publisher modules"]
-    config-load["config load and validation"]
-    run-outcome["result, retry, logging"]
-    host-helpers["host-side helpers"]
-    guest-seed["guest seed authoring"]
-    guest-runtime["guest-side runtime"]
+    phase-entrypoints["phase entry scripts"]
+    phase-modules["phase publisher modules"]
+    shared-contract["shared contract modules"]
+    registry-credentials["registry login modules"]
+    host-seed-modules["redirect and seed modules"]
+    requirement-diagnostic["requirement and diagnostic"]
+    guest-side-runtime["guest-side runtime scripts"]
 
-    entry-scripts --> phase-publishers
-    entry-scripts --> run-outcome
-    entry-scripts --> host-helpers
-    phase-publishers --> config-load
-    phase-publishers --> run-outcome
-    host-helpers --> guest-seed
-    guest-seed --> guest-runtime
+    phase-entrypoints --> phase-modules
+    phase-entrypoints --> shared-contract
+    phase-modules --> shared-contract
+    phase-modules --> registry-credentials
+    requirement-diagnostic --> shared-contract
+    host-seed-modules --> shared-contract
+    host-seed-modules --> guest-side-runtime
 ```
 
-`automation/` holds 44 files, so all seven boxes are aggregates. The split is by
-who calls whom, not by file extension: the entry scripts are what a deploy is
-driven through, the publishers own the tool-invoking phases, and the last box
-holds artifacts that never execute on the host at all. Three qualifications the
-diagram cannot carry. The probes in `host-helpers` are invoked directly as well,
-by the harness and by `test/service/Start-McpServer.ps1`, whose ten MCP tools draw
-three entry points from that box and seven from `entry-scripts`
-(table at `test/service/Start-McpServer.ps1:158-186`, each shelled out to a child
-pwsh at `:133`). That script is also the only place the block's uneven success
-semantics are written down (`ConvertTo-McpToolResult`, `:196-260`). `tofu init` is run from
-`automation/Yuruna.Retry.psm1:319`, not from the resource publisher, so the
-network-facing first step is retried by the same policy as the rest of the run.
-And `guest-seed` is the mirror image of "never executes on the host": three
-host-side builders whose *output* is what runs in a guest.
+`automation/` is flat: 44 tracked files, no subdirectory. The fold is therefore
+by role, and every one of the seven boxes is an aggregate. The two edges that
+are easy to misread: `host-seed-modules --> guest-side-runtime` is not a call,
+it is authoring -- `Get-YurunaGuestScriptBase64`
+(`automation/Yuruna.CloudInitTemplate.psm1:166`, script paths at `:190-198`)
+base64-bakes five of the shell scripts into a cloud-init seed, so the seed
+carries them rather than the guest fetching them. And nothing points from `phase-modules` to
+`guest-side-runtime`: the deploy phases are driven from *inside* a guest, by the
+project's own workload script, long after `fetch-and-execute.sh` put it there.
 
-**`entry-scripts`** (8) -- `automation/yuruna.ps1` (the single dispatcher over
-`requirements / clear / validate / resources / components / workloads`),
-`automation/Set-Resource.ps1`, `automation/Set-Component.ps1`,
-`automation/Set-Workload.ps1`, `automation/Invoke-Clear.ps1`,
-`automation/Test-Configuration.ps1`, `automation/Test-Requirement.ps1`,
-`automation/Test-Runtime.ps1`. The three `Set-*` scripts share a prelude -- set
-the log level, resolve the root set, evict every `Yuruna.*` module, import the one
-phase module -- and a tail -- transcript, one `Publish-*List` call, then
-`Complete-YurunaRun`, which exits 1 on a failure manifest -- which is why they are
-one box and not three. `Set-Workload.ps1:66-77` is the one variation: it runs
-`Test-Runtime.ps1` first and reads the verdict as the LAST pipeline object,
-because that script streams tables on the healthy path. `Test-Requirement.ps1` is
-also this block's machine-readable interface to the installers: `-Tool <list>
--WarnOnly` prints one `REQUIREMENT-ISSUE: <text>` line per problem and exits 0,
-because an installer wants the operator told rather than blocked.
+**`phase-entrypoints`** -- 5: `automation/yuruna.ps1`, `automation/Set-Resource.ps1`,
+`automation/Set-Component.ps1`, `automation/Set-Workload.ps1`,
+`automation/Invoke-Clear.ps1`. `yuruna.ps1` is the single dispatcher; its
+`switch -Exact` at `:97` covers six operations -- `requirements`, `clear`,
+`validate`, `resources`, `components`, `workloads` -- each mapping to one
+function in `phase-modules` or `requirement-diagnostic`. The three `Set-*`
+wrappers share an identical prelude at `:50-84`: the same three parameters
+(`project_root`, `config_subfolder`, a `ValidateSet` `logLevel`), a
+`Resolve-YurunaRootSet` call that exports `Env:yuruna_root`, `Env:project_root`
+and `Env:config_root`, a module eviction, a transcript, the publish call, and a
+shared failure tail. `Set-Workload.ps1` alone adds a runtime gate ahead of the
+publish (`:66-77`).
 
-**`phase-publishers`** (8) -- `automation/Yuruna.Resource.psm1`,
-`automation/Yuruna.Component.psm1`,
-`automation/Yuruna.Component.Registry.psm1`,
-`automation/Yuruna.CredentialProvider.psm1`,
-`automation/Yuruna.Workload.psm1`, `automation/Yuruna.Clear.psm1`,
-`automation/Yuruna.Requirement.psm1` and the version table
-`automation/Yuruna.Requirement.yml`. The registry bridge and the credential
-provider are folded in here because they supply the component pipeline's
-`registryLogin` phase, which runs between `tag` and `push`
-(`automation/Yuruna.Component.psm1:218`, `:230`, `:242`);
-`Yuruna.CredentialProvider.psm1` has a second consumer outside this block, in the
-harness's own credential self-heal (`test/modules/Test.CredentialProvider.psm1:41`).
-The requirement pair is in this box as the phase precondition rather than as a
-publisher -- `Confirm-RequirementList` publishes nothing. It checks the 20 tool
-rows in `Yuruna.Requirement.yml` for MISSING or BELOW, narrowable with `-Tool`,
-and adds a `Runtime capabilities` section holding one row today, AES-GCM, because
-a runtime that meets the PowerShell floor can still lack the algorithm every
-Lab-token enrollment needs (`automation/Yuruna.Requirement.psm1:145-155`).
-`automation/Check-DependencyVersion.ps1:75` parses the same table so it can ask
-upstream what is newer.
+**`phase-modules`** -- 4: `automation/Yuruna.Resource.psm1` (382 lines,
+`Publish-ResourceList` at `:333`), `automation/Yuruna.Component.psm1` (261,
+`Publish-ComponentList` at `:38`), `automation/Yuruna.Workload.psm1` (432,
+`Publish-WorkloadList` at `:294`), `automation/Yuruna.Clear.psm1` (103,
+`Clear-Configuration` at `:25`). The first three read
+`config/<subfolder>/{resources,components,workloads}.yml` under the project root
+and return a result manifest; `Yuruna.Clear.psm1` returns a bare boolean and
+reads `resources.output.yml` rather than `resources.yml`, because the deployed
+names are the keys that file already holds (`:66-69`).
 
-**`config-load`** (5) -- `automation/Import.Yaml.psm1`,
-`automation/Yuruna.Validation.psm1`,
-`automation/Yuruna.VariableExpansion.psm1`,
-`automation/Yuruna.DeploymentKind.psm1`,
-`automation/Invoke-DynamicExpression.psm1`. Folded together because each one
-turns declarative YAML into something executable: parse, gate, expand into
-environment variables, resolve the deployment kind, then evaluate.
+**`shared-contract`** -- 10: `automation/Import.Yaml.psm1`,
+`automation/Invoke-DynamicExpression.psm1`, `automation/Yuruna.Common.psm1`,
+`automation/Yuruna.DeploymentKind.psm1`, `automation/Yuruna.Log.psm1`,
+`automation/Yuruna.LogLevel.psm1`, `automation/Yuruna.Result.psm1`,
+`automation/Yuruna.Retry.psm1`, `automation/Yuruna.Validation.psm1`,
+`automation/Yuruna.VariableExpansion.psm1`. This box is what makes the two edges
+into it real rather than decorative: each publisher imports Validation and
+Invoke-DynamicExpression at `:21-22`, Result and Common a few lines later
+(`Yuruna.Resource.psm1:26,29`, `Yuruna.Component.psm1:23,26`,
+`Yuruna.Workload.psm1:23,26`), and each entry script imports
+`Yuruna.LogLevel.psm1` before anything else (`Set-Resource.ps1:58`,
+`Test-Configuration.ps1:58`, `Test-Runtime.ps1:53`, `yuruna.ps1:70`).
+`Yuruna.Common.psm1` is the outlier at 2259 lines and 42 exported names;
+everything else in the box is a single-purpose leaf. `Yuruna.Retry.psm1` owns
+the one transient-failure regex and the `tofu init` wrapper (`:319`), so the
+network-facing first step of a resource run is retried under the same policy as
+the rest.
 
-**`run-outcome`** (4) -- `automation/Yuruna.Result.psm1`,
-`automation/Yuruna.Retry.psm1`, `automation/Yuruna.LogLevel.psm1`,
-`automation/Yuruna.Log.psm1`. `Yuruna.Result.psm1` and `Yuruna.Retry.psm1` decide
-what a run reports and how often a step is reattempted, and `Yuruna.LogLevel.psm1`
-is the prelude every entry point imports. `Yuruna.Retry.psm1` is also imported
-from `host/modules/` and `test/modules/`, so it is a shared policy rather than a
-deploy-only detail -- and it is only the host half of one: its guest twin is
-`automation/yuruna-retry.sh` in `guest-runtime`, honouring the same
-`YURUNA_RETRY_MAX_ATTEMPTS` and `YURUNA_RETRY_DELAY_SECONDS`.
-`Yuruna.Log.psm1` sits in this directory but on no deploy path at all -- nothing
-in `automation/` imports it; it is a `Write-*` tee the test runner picks up
-(`test/modules/Invoke-TestRunnerInnerLoop.ps1:303`).
+**`registry-credentials`** -- 2: `automation/Yuruna.Component.Registry.psm1`,
+`automation/Yuruna.CredentialProvider.psm1`. Split from `shared-contract`
+because only the component phase reaches it
+(`Yuruna.Component.psm1:35` imports the bridge, which imports the provider
+registry). The provider registry is ordered and first-match-wins, with five
+entries registered in this order: `azurecr` (`:99`), `ecr` (`:123`), `gar`
+(`:154`), `dockerhub` (`:185`), `docker-generic` (`:217`, the catch-all,
+registered last precisely so it loses every earlier match).
 
-**`host-helpers`** (7) -- `automation/Yuruna.Common.psm1` (the 42-function
-grab bag of address, memory, MAC and sudo helpers),
-`automation/Yuruna.HostRedirect.psm1`, `automation/Yuruna.HostSetup.psm1`,
-`automation/Set-HostAlias.ps1`, `automation/Get-SystemDiagnostic.ps1`,
-`automation/Check-DependencyVersion.ps1`, `automation/context-copy.ps1`. Five of
-these are off the three-phase deploy path and are imported from `host/**`,
-`install/setup.ps1:2322` and `test/modules/`. `Yuruna.Common.psm1` is one of the
-two exceptions: all three publishers import it (`Yuruna.Resource.psm1:29`,
-`Yuruna.Component.psm1:26`, `Yuruna.Workload.psm1:26`), which is why the
-42-function grab bag cannot be moved out of this block. `context-copy.ps1` is the
-one file here with no caller anywhere in either repository -- a hand-run
-kube-context repair tool; the `localhost/context-copy` OpenTofu template ships its
-own `context-copy.sh`, and that is what the resource phase runs.
+**`host-seed-modules`** -- 5: `automation/Yuruna.CloudInitTemplate.psm1`,
+`automation/Yuruna.GitHubSource.psm1`, `automation/Yuruna.GuestSeed.psm1`,
+`automation/Yuruna.HostRedirect.psm1`, `automation/Yuruna.HostSetup.psm1`.
+None of the five is on a deploy path. They are the part of `automation/` that
+exists for the blocks above it: `Yuruna.HostRedirect.psm1` resolves
+`host/<platform>/<name>.ps1` and runs it in a child pwsh
+(`Invoke-YurunaHostScript` at `:250`), taking the folder from `Get-HostFolder`
+at `:167` -- a function it deliberately does not reimplement, importing
+`test/modules/Test.HostDetection.psm1` on demand instead (`:127`) -- and it
+imports `Yuruna.Common.psm1` at `:36`. `Yuruna.CloudInitTemplate.psm1` and
+`Yuruna.GuestSeed.psm1` build the seed a per-guest builder hands to the
+hypervisor.
 
-**`guest-seed`** (5) -- `automation/Yuruna.CloudInitTemplate.psm1`,
-`automation/Yuruna.GuestSeed.psm1`, `automation/Yuruna.GitHubSource.psm1`,
-`automation/windows-guest-bootstrap.ps1`,
-`automation/yuruna-host-locate.ps1`. Authored on the host, consumed in a guest.
-`Yuruna.CloudInitTemplate.psm1` merges a base seed with an overlay and fills every
-`*_PLACEHOLDER`, throwing on any left unresolved; `Yuruna.GuestSeed.psm1` builds
-the apt-proxy block and the Windows first-logon bootstrap; `Yuruna.GitHubSource.psm1`
-merges nothing -- it resolves the repository slug, commit and token that the seed
-bakes in as the guest's GitHub fallback route. The Windows pair is separate work
-again: `New-WindowsGuestBootstrap` (`automation/Yuruna.GuestSeed.psm1:140`) base64s
-`yuruna-host-locate.ps1` into `windows-guest-bootstrap.ps1` and hands back one
-UTF-16LE `-EncodedCommand` blob for the three `guest.windows.11` builders.
+**`requirement-diagnostic`** -- 7: `automation/Check-DependencyVersion.ps1`,
+`automation/Get-SystemDiagnostic.ps1`, `automation/Test-Configuration.ps1`,
+`automation/Test-Requirement.ps1`, `automation/Test-Runtime.ps1`,
+`automation/Yuruna.Requirement.psm1`, `automation/Yuruna.Requirement.yml`. The
+`.yml` is in this box rather than in a data block because it is read by exactly
+two consumers, both of them here: `Confirm-RequirementList`
+(`Yuruna.Requirement.psm1:40`, reached from `yuruna.ps1:99` and
+`Test-Requirement.ps1:78`) and `Check-DependencyVersion.ps1:75`. It holds 20
+`requirements[]` entries, each a `{tool, command, version, releases}` map, and
+states its own floor rule at `:21-31`: a floor is the lowest version every
+supported host's package source ships, not the newest upstream release.
+`Yuruna.Requirement.psm1` reaches `shared-contract` through
+`Invoke-DynamicExpression` (`:22`, used at `:66`), which is how an absent tool
+becomes a MISSING row instead of a terminated report.
 
-**`guest-runtime`** (7) -- `automation/fetch-and-execute.sh`,
-`automation/yuruna-run.sh`, `automation/yuruna-retry.sh`,
-`automation/yuruna-network.sh`, `automation/yuruna-host-locate.sh`,
-`automation/yuruna-versions.sh`, `automation/Test-YurunaHost.ps1`. Five of the
-seven arrive by cloud-init: `Get-YurunaGuestScriptBase64`
-(`automation/Yuruna.CloudInitTemplate.psm1:166`) base64s `yuruna-retry.sh`,
-`yuruna-versions.sh`, `fetch-and-execute.sh`, `yuruna-network.sh` and
-`yuruna-host-locate.sh` into `/usr/local/lib/yuruna/`, and throws if any is
-missing. `yuruna-run.sh` deliberately does not: the harness base64s it into the
-ssh command line and pipes it to `bash -s --` (`test/modules/Test.Ssh.psm1:963`),
-so the supervisor always matches this harness rather than the oldest snapshot.
-`Test-YurunaHost.ps1` runs from a repo checkout inside the guest.
-`automation/yuruna-retry.sh` is the guest half of the retry policy whose host half
-is `Yuruna.Retry.psm1`, and `automation/yuruna-versions.sh` is the version pin
-manifest that `automation/Check-DependencyVersion.ps1` reads back on the host.
+**`guest-side-runtime`** -- 11: `automation/context-copy.ps1`,
+`automation/fetch-and-execute.sh`, `automation/Set-HostAlias.ps1`,
+`automation/Test-YurunaHost.ps1`, `automation/windows-guest-bootstrap.ps1`,
+`automation/yuruna-host-locate.ps1`, `automation/yuruna-host-locate.sh`,
+`automation/yuruna-network.sh`, `automation/yuruna-retry.sh`,
+`automation/yuruna-run.sh`, `automation/yuruna-versions.sh`. The membership test
+for this box is where the file executes, not what language it is written in:
+every one of the eleven runs on the machine being provisioned, never in the
+runner process. That is why two `.ps1` files sit beside six `.sh` files.
+`fetch-and-execute.sh` is the largest at 852 lines and is the only member with a
+digest gate: it verifies a host-supplied SHA-256 before any byte reaches bash,
+failing closed under `EXEC_REQUIRE_SHA256=1` (`:279-281`) and warning but
+proceeding without it (`:283`). Five of the six shell scripts --
+`yuruna-retry.sh`, `yuruna-versions.sh`, `fetch-and-execute.sh`,
+`yuruna-network.sh`, `yuruna-host-locate.sh` -- are the exact set
+`Get-YurunaGuestScriptBase64` bakes into a seed
+(`Yuruna.CloudInitTemplate.psm1:190-198`); `yuruna-run.sh`, the supervisor that
+keeps a payload alive past its ssh session, is not in that set and arrives by
+other means.
 
 ## Project & Global Data -- `global/`, `yuruna-project/`
 
 ```mermaid
 flowchart TD
-    global-resources["global/resources/"]
-    global-placeholders["global/ unused slots"]
-    shipped-projects["template, example, book"]
-    project-config["per-environment config"]
-    project-trees["project deploy trees"]
-    project-test["project test/"]
-    project-work["generated .yuruna/"]
+    global-resources["global resource templates"]
+    global-placeholders["global placeholder markers"]
+    project-template["project scaffold template"]
+    example-website["website example project"]
+    example-text-to-sql["text-to-sql example project"]
+    example-nested-host["nested-host example"]
+    book-and-runner-plan["book and runner plan"]
 
-    shipped-projects --> project-config
-    shipped-projects --> project-test
-    project-config --> project-trees
-    project-config --> project-work
-    project-trees --> global-resources
-    global-placeholders -.-> project-trees
-    %% planned: no global fallback is implemented for components or workloads
+    project-template --> global-resources
+    example-website --> global-resources
+    example-text-to-sql --> global-resources
+    book-and-runner-plan --> example-website
 ```
 
-Two roots share this block because they are the same contract seen from both
-sides: `global/` is what the framework ships as a fallback, `yuruna-project/` is
-what an operator supplies. Only the resource phase actually has a fallback.
+Two roots, one namespace. `global/` holds 51 tracked files and the
+`yuruna-project` repository holds 108 inside its four tracked directories (116
+counting its 8 root files). The three edges into `global-resources` are the
+resource-template fallback and nothing else: `Yuruna.Resource.psm1:103` looks
+under `<project_root>/resources/<template>` first, and only when that path does
+not exist does `:105` look under `<yuruna_root>/global/resources/<template>`;
+`Yuruna.Validation.psm1:138-140` repeats the same two steps. The fallback is
+resources-only -- components resolve under `<project_root>/components/`
+(`Yuruna.Component.psm1:133`) and charts under `<project_root>/workloads/`
+(`Yuruna.Workload.psm1:73`), with no global leg at either.
 
-A third root is not drawn, because a box for it would take the diagram to eight:
-`<RepoRoot>/project/` is where every path below is actually read from. It is
-gitignored (`.gitignore:376`) and re-created each cycle by `Update-ProjectClone`
-(`test/modules/Test.HostGit.psm1:785`), which deletes the tree before cloning
-`repositories.projectUrl` and refuses any target not strictly under the repo root.
-So the shape -- `config/<cloud>/`, `components/`, `workloads/`, `test/` -- is the
-contract, and `yuruna-project` is one instance of it; an operator pointing
-`projectUrl` elsewhere gets their own tree in the same slot.
+**`global-resources`** -- 48 files in 10 template directories under 3 provider
+roots: `global/resources/aws/` (11 files, `eks-cluster`, `registry`),
+`global/resources/azure/` (27 files, `aks-cluster`, `postgresql`, `registry`,
+`resource-group`, `storage-share`, `vm-linux`), `global/resources/localhost/`
+(10 files, `context-copy`, `registry`). The three edges above are not
+theoretical: both example projects' own `resources/` directories contain nothing
+but a `placeholder`, so every template their configs name resolves here. Two of
+the ten declare no `output` block at all -- `aws/eks-cluster/` and
+`azure/vm-linux/` -- which matters because `Publish-ResourceListHelper` throws
+when `tofu output -json` returns `{}`. `localhost/registry/versions.tf` declares
+no `required_providers` on purpose: the work folder's carried-forward
+`.terraform.lock.hcl` is what pins them, and a constraint added later than a
+host's lock would break `tofu init` on that host.
 
-**`global-resources`** (10 template directories) --
-`global/resources/aws/eks-cluster/`, `global/resources/aws/registry/`,
-`global/resources/azure/aks-cluster/`, `global/resources/azure/postgresql/`,
-`global/resources/azure/registry/`, `global/resources/azure/resource-group/`,
-`global/resources/azure/storage-share/`, `global/resources/azure/vm-linux/`,
-`global/resources/localhost/context-copy/`,
-`global/resources/localhost/registry/`. Folded into one box because they are
-interchangeable at the same lookup point: a `template:` value in
-`resources.yml` resolves against the project's own `resources/` first and this
-tree second. Interchangeable at the lookup point is not the same as usable:
-`Set-Resource` requires every resource to declare at least one tofu `output`
-block and throws when `tofu output -json` comes back empty
-(`automation/Yuruna.Resource.psm1:309`), and two of the ten -- `aws/eks-cluster/`
-and `azure/vm-linux/` -- declare none. There is no `global/resources/gcp/`; gcp
-appears in prose only.
+**`global-placeholders`** -- 3: `global/components/placeholder`,
+`global/workloads/placeholder`, `global/config/gcp/gcp-access-key.json`. All
+three are inert. A repository-wide search for `global/components` and
+`global/workloads` finds no code reference; the only hits are
+`.gitattributes:98-99`, declaring the two marker files `eol=lf`. The gcp file is
+a tracked placeholder whose own first line tells the operator to replace it with
+a downloaded service-account key, and nothing under `automation/` or `global/`
+reads it -- there is no `global/resources/gcp/` to read it for.
 
-**`global-placeholders`** (3) -- `global/components/placeholder`,
-`global/workloads/placeholder`, `global/config/gcp/gcp-access-key.json`. The
-dashed edge records that the slots exist but nothing reads them:
-`Yuruna.Component.psm1` resolves a build folder only under the project root, and
-`Yuruna.Workload.psm1` resolves a chart only under the project root. The third is
-the sharpest: `global/config/gcp/gcp-access-key.json` is tracked and NOT
-gitignored, and its own first line tells the operator to replace it with a
-service-account key downloaded from GCP -- a tracked slot that becomes a committed
-private key the moment it is used. Nothing reads it, and there is no
-`global/resources/gcp/` for it to serve.
+**`project-template`** -- 7: `yuruna-project/template/README.md`,
+`template/config/localhost/{components,resources,workloads}.yml`,
+`template/components/yrn42template/placeholder`,
+`template/resources/placeholder`,
+`template/workloads/yrn42template/echoParams.ps1`. This is the scaffold shape a
+new project is copied from: one `config/<cloud>/` directory holding exactly the
+three deploy files, plus the three sibling trees the phases resolve against.
 
-**`shipped-projects`** (5) -- `yuruna-project/template/` (the scaffold:
-`config/localhost/` with `TO-SET` markers in place of a real component, plus two
-empty `yrn42template/` slots -- a bare `placeholder` under `components/` and an
-`echoParams.ps1` under `workloads/`, neither wired to the config nor buildable
-as-is), `yuruna-project/example/website/`,
-`yuruna-project/example/text-to-sql/`, `yuruna-project/example/nested.host/`,
-`yuruna-project/book/test/`. Folded because they share one root shape, not
-because they are interchangeable: a project root is whatever holds
-`config/<cloud>/`, and only `template/`, `example/website/` and
-`example/text-to-sql/` do. `Resolve-YurunaRootSet`
-(`automation/Yuruna.LogLevel.psm1:102-106`) fails the run when that directory is
-missing, so `example/nested.host/` (a README and one sequence) and `book/` (four
-sequences) can never be passed as `project_root`; they contribute only to
-`project-test`.
+**`example-website`** -- 52: `README.md`, `config/` 9 (three files each under
+`aws/`, `azure/`, `localhost/` -- the only shipped project with all three target
+environments), `components/` 30 under `components/frontend/`, `workloads/` 5
+under `workloads/frontend/website/`, `resources/` 1 (`placeholder`), `test/` 6.
+The `test/` six are four sequence files and two guest scripts,
+`test/ubuntu.server.24/ubuntu.server.24.workload.k8s.website.sh` and its
+`ubuntu.server.26` peer. Those two shell scripts are the reverse edge
+[Context and components](01-context-and-components.md) records from this block
+back into the deploy engine: each runs
+`pwsh ../../automation/Set-Resource.ps1`, then `Set-Component.ps1`, then
+`Set-Workload.ps1` (`:263`, `:443`, `:446`), and reads
+`config/localhost/resources.output.yml` between phase one and phase two
+(`:265-266`).
 
-**`project-config`** -- one directory per target environment, holding
-`resources.yml`, `components.yml`, `workloads.yml`, the generated
-`resources.output.yml`, and the project vault: plaintext `*.txt` files in
-`config/<cloud>/secrets/`, plus a peer `config/secrets/` shared across cloud
-subfolders that only the workload path reads. `Invoke-SecretFolderValidation`
-(`automation/Yuruna.Validation.psm1:72-101`) marks every vault file
-`git update-index --assume-unchanged` as it validates; an empty file is
-informational for resources (`:157-159`) and blocking for workloads
-(`:305-313`). No shipped project tree contains a `secrets/` directory -- it is a
-slot the operator fills. Live instances:
-`yuruna-project/example/website/config/aws/`,
-`yuruna-project/example/website/config/azure/`,
-`yuruna-project/example/website/config/localhost/`,
-`yuruna-project/example/text-to-sql/config/localhost/`,
-`yuruna-project/template/config/localhost/`.
+**`example-text-to-sql`** -- 41: `README.md`, `config/` 3 (`localhost` only),
+`components/` 26 under `components/frontend/`, `workloads/` 5 under
+`workloads/frontend/text-to-sql-ui/`, `resources/` 1 (`placeholder`), `db/` 1
+(`schema.sql`), `test/` 4 (two sequence files and two guest scripts under
+`test/ubuntu.server.24/`).
 
-**`project-trees`** (3 per project) -- `resources/` (the project-local first
-tier of the template lookup: present in all three roots but holding only a
-`placeholder`, so today every `template:` value falls through to
-`global/resources/`), `components/` (a build folder per component, each holding a
-Dockerfile), `workloads/` (a helm chart per chart deployment). Concrete
-instances include
-`yuruna-project/example/website/components/frontend/website/` and
-`yuruna-project/example/website/workloads/frontend/website/`.
+**`example-nested-host`** -- 3: `yuruna-project/example/README.md`,
+`example/nested.host/README.md`, `example/nested.host/test/nested.host.yml`. It
+carries no `config/` directory at all, so no deploy phase can be pointed at it;
+it is a sequence that installs Yuruna inside a guest and runs one inner cycle
+there. The two `nested.host/` files are the entire contents of
+`yuruna-project`'s `KEEP-PRIVATE.txt`, so they are stripped from the public
+mirror; `example/README.md` is not.
 
-**`project-test`** -- `<RepoRoot>/project/test/test.runner.yml` is the cycle
-plan. `Get-CycleConfigPath` (`test/modules/Test.SequencePlanner.psm1:56`) reads
-that one path and nothing else, so the tracked
-`yuruna-project/test/test.runner.yml` becomes the plan only once it is cloned
-into the `project/` slot. The plan's names then resolve project-first and
-framework-second -- `Resolve-SequencePath`
-(`test/modules/Test.SequenceResolve.psm1:273-286`) probes every `test/` directory
-under the clone -- `project/test/` included -- before `test/sequences/`, so a project file shadows a framework
-file of the same name, and a name with no project file at all (the shipped plan's
-`workload.guest.windows.11`) resolves entirely in the framework. Project
-sequences also chain back the other way: `workload.guest.ubuntu.server.24.k8s.website.yml`
-names the framework's `workload.guest.ubuntu.server.24` as its prerequisite. Two
-same-named files under different project `test/` directories is a `PlannerFatal`
-(`Find-ProjectFlatSequenceFile`, `:193-208`). The project `test/` directories
-are:
-`yuruna-project/example/website/test/`,
-`yuruna-project/example/text-to-sql/test/`,
-`yuruna-project/example/nested.host/test/`, `yuruna-project/book/test/`. Folded
-into one box because the resolver treats them as one search set: every `test/`
-directory found under the cloned project shadows the framework's
-`test/sequences/` by file name.
-
-**`project-work`** -- the generated `.yuruna/` tree under a project root:
-`.yuruna/<cloud>/` first and one subtree per phase second
-(`resources/<resourceName>/`, `components/`, `workloads/<context>/<installName>/`),
-plus a cloud-independent `.yuruna/tofu-plugin-cache/` that `Set-Resource` creates
-and exports as `TF_PLUGIN_CACHE_DIR` when the operator has not set one
-(`automation/Yuruna.Resource.psm1:353-357`). It holds the timestamped input
-backups, the staged tofu work folders, and the `*.stderr.log` / `*.rc` sidecar
-pairs. It is a box rather than a
-footnote because it is the only place a post-mortem finds the tool output;
-`automation/Get-SystemDiagnostic.ps1` scans for it with `-Force` precisely
-because the dot-prefixed name hides it from an ordinary walk.
+**`book-and-runner-plan`** -- 5: `yuruna-project/book/test/ch01.website.example.yml`,
+`book/test/ch01.website.example.no-break.yml`,
+`book/test/ch02.website.k8s.dotnet.yml`,
+`book/test/ch02.website.k8s.dotnet.no-break.yml`,
+`yuruna-project/test/test.runner.yml`. The single file `test.runner.yml` is what
+gives this box its edge to `example-website`: its `sequences:` list names
+`ch01.website.example.no-break` (from `book/`),
+`workload.guest.ubuntu.server.24.k8s.website` (from `example/website/test/`) and
+`workload.guest.windows.11` (a framework sequence), and its `testSets:` block
+names three operator-visible subsets over that list. The runner reads it at
+cycle start to know which top-level sequences to run.
 
 ## Guest Workloads -- `guest/`
 
 ```mermaid
 flowchart TD
-    guest-readme["guest/README.md"]
-    amazon-linux-2023["amazon.linux.2023/"]
-    macos-26["macos.26/"]
-    ubuntu-server-24["ubuntu.server.24/"]
-    ubuntu-server-26["ubuntu.server.26/"]
-    windows-11["windows.11/"]
-    service-daemons["service daemon scripts"]
+    amazon-linux-2023["amazon.linux.2023 scripts"]
+    macos-26["macos.26 scripts"]
+    ubuntu-server-24["ubuntu.server.24 scripts"]
+    ubuntu-server-26["ubuntu.server.26 scripts"]
+    windows-11["windows.11 scripts"]
+    guest-readme["guest tree readme"]
 
     guest-readme --> amazon-linux-2023
+    guest-readme --> macos-26
     guest-readme --> ubuntu-server-24
     guest-readme --> ubuntu-server-26
     guest-readme --> windows-11
-    guest-readme -.-> macos-26
-    %% manual: New-VM.ps1 restores the IPSW, first boot is Setup Assistant
-    ubuntu-server-26 --> service-daemons
 ```
 
-Five of the seven boxes are real directories -- `amazon.linux.2023/`,
-`macos.26/`, `ubuntu.server.24/`, `ubuntu.server.26/`, `windows.11/`. The other
-two are a single file (`guest/README.md`, the family index) and the diagram's one
-fold, the three `ubuntu.server.26` service-daemon scripts. The dashed edge to
-`macos.26/` records that the family is manual rather than unbuilt:
-`host/macos.utm/guest.macos.26/New-VM.ps1` creates the VM and stops at Setup
-Assistant, nothing installs `automation/fetch-and-execute.sh` on a macOS guest,
-and there is no `test/sequences/start.guest.macos.26.yml`.
+Six boxes, because `guest/` holds exactly five directories and one file at its
+root -- no fold is needed. The 30 tracked files are 24 workload scripts and 6
+`README.md` files, one per family plus the root. Every script is named by
+repository-relative path and fetched over the host route: the harness types
+`/usr/local/lib/yuruna/fetch-and-execute.sh guest/<family>/<script>` into the
+guest, the fetch is gated on a SHA-256 the host supplied over the channel that
+typed the command, and only then does the payload reach bash. The five
+edges above are documentation ownership, not calls: `guest/README.md` is the
+index over the five family directories, which never reference each other.
 
-| Box | Files |
-|---|---|
-| `amazon.linux.2023/` | `guest/amazon.linux.2023/amazon.linux.2023.update.sh`, `.code.sh`, `.n8n.sh`, `.openclaw.sh`, `.postgresql.sh` |
-| `macos.26/` | `guest/macos.26/macos.26.update.sh` |
-| `ubuntu.server.24/` | `guest/ubuntu.server.24/ubuntu.server.24.update.sh`, `.code.sh`, `.k8s.sh`, `.n8n.sh`, `.openclaw.sh`, `.postgresql.sh` |
-| `ubuntu.server.26/` | `guest/ubuntu.server.26/ubuntu.server.26.update.sh`, `.code.sh`, `.k8s.sh`, `.n8n.sh`, `.openclaw.sh`, `.postgresql.sh` |
-| `windows.11/` | `guest/windows.11/windows.11.update.ps1`, `.code.ps1`, `.k8s.ps1` |
-| `service-daemons` | `guest/ubuntu.server.26/ubuntu.server.26.stash-service.sh`, `.download-agent-service.sh`, `.pool-control-service.sh` |
+**`amazon-linux-2023`** -- 6: `guest/amazon.linux.2023/README.md`,
+`amazon.linux.2023.code.sh`, `amazon.linux.2023.n8n.sh`,
+`amazon.linux.2023.openclaw.sh`, `amazon.linux.2023.postgresql.sh`,
+`amazon.linux.2023.update.sh`. It is the one family that derives its cache
+address at run time rather than having it templated in, reading `$http_proxy`,
+then `/etc/yuruna/host.env`, then the name `yuruna-caching-proxy-service`, and
+probing before committing (`amazon.linux.2023.update.sh:46-60`). The probe is
+deliberately non-fatal there: nothing in that script has yet been configured to
+route exclusively through the cache, so an absent cache just means the upstreams
+serve the guest directly.
 
-Each family box also holds a `README.md` -- six in all counting `guest/README.md`,
-which is the other 6 of the block's 30 tracked files. The per-family README is the
-workload index: `guest/ubuntu.server.26/README.md` lists all nine, the three
-service builders included.
+**`macos-26`** -- 2: `guest/macos.26/README.md`, `macos.26.update.sh`. The
+smallest family, and the only one whose builder directory exists on a single
+hypervisor (`host/macos.utm/guest.macos.26/`).
 
-**`service-daemons`** is split out of `ubuntu.server.26/` rather than left in it
-because the three scripts do a different job -- each compiles a Go daemon out of
-`test/extension/` and installs it under systemd -- and because they carry a second
-entry point the other six do not: cloud-init runs them by absolute path on first
-boot. Only `stash-service` gets its own bring-up unit
-(`host/vmconfig/stash-service.base.user-data:202`, `yuruna-stash-bringup.service`,
-re-entrant through `ConditionPathExists`); `pool-control-service.base.user-data:186`
-and `download-agent-service.base.user-data:342` call `bash <path>` straight from
-`runcmd:`.
+**`ubuntu-server-24`** -- 7: `guest/ubuntu.server.24/README.md`,
+`ubuntu.server.24.code.sh`, `ubuntu.server.24.k8s.sh`, `ubuntu.server.24.n8n.sh`,
+`ubuntu.server.24.openclaw.sh`, `ubuntu.server.24.postgresql.sh`,
+`ubuntu.server.24.update.sh`.
 
-The three are not interchangeable either. `stash-service` masks the OS sshd and
-binds `:22` as well as `:80`
-(`guest/ubuntu.server.26/ubuntu.server.26.stash-service.sh:238-248`); the other two
-bind `:80` only. All three take the low-port grant from
-`AmbientCapabilities=CAP_NET_BIND_SERVICE` in the unit, with the `setcap` call as a
-fallback for a non-systemd launch. Only `stash-service` builds against a committed
-`go.sum`; the other two modules have none -- standard library plus the staged
-`extension-sdk` -- so `go mod tidy` must not run there.
+**`ubuntu-server-26`** -- 10: `guest/ubuntu.server.26/README.md`,
+`ubuntu.server.26.code.sh`, `ubuntu.server.26.download-agent-service.sh`,
+`ubuntu.server.26.k8s.sh`, `ubuntu.server.26.n8n.sh`,
+`ubuntu.server.26.openclaw.sh`, `ubuntu.server.26.pool-control-service.sh`,
+`ubuntu.server.26.postgresql.sh`, `ubuntu.server.26.stash-service.sh`,
+`ubuntu.server.26.update.sh`. The three `*-service.sh` builders are the reason
+this family is larger than the others: they are what turns a plain Ubuntu guest
+into the stash, pool-control or download-agent service VM. Two paths reach the
+same three scripts -- a service VM's cloud-init runs one by absolute path
+(`host/vmconfig/stash-service.base.user-data:186`,
+`host/vmconfig/pool-control-service.base.user-data:186`,
+`host/vmconfig/download-agent-service.base.user-data:342`), while three
+framework sequences drive two of them through `fetch-and-execute.sh` instead.
+Both paths landing on one script is why those scripts are idempotent.
 
-The other six `ubuntu.server.26` scripts are fetched, digest-checked and run by
-`fetch-and-execute.sh`, typed into a console or sent over SSH. Only `update` and
-`code` have a sequence today
-(`test/sequences/workload.guest.ubuntu.server.26.yml:42`,
-`start.guest.ubuntu.server.26.yml`); `k8s`, `n8n`, `openclaw` and `postgresql` are
-operator-run. They install packages, but not only: `update.sh:90` repairs the
-caching-proxy CA through `yuruna_ca_selfheal`, and `k8s.sh:103-112` reads
-`YURUNA_CACHING_PROXY_SERVICE_IP` out of `/etc/yuruna/host.env` and points Docker
-at `http://<proxy>:5000` as a registry mirror -- the block's one live runtime
-coupling to the lab.
+**`windows-11`** -- 4: `guest/windows.11/README.md`, `windows.11.code.ps1`,
+`windows.11.k8s.ps1`, `windows.11.update.ps1`. The only family with no `.sh` at
+all, and the only one whose scripts no tracked sequence in either repository
+names.
 
-`windows.11` is reached by a different one-liner again: an elevated
-`irm .../guest/windows.11/windows.11.<workload>.ps1 | iex` against
-`raw.githubusercontent.com` (`guest/windows.11/README.md:18`), with no local
-fetcher and no digest gate. Its two sequences drive no guest script --
-`test/sequences/workload.guest.windows.11.yml` carries an empty `workload:`.
-
-The workload names repeat across families, which is what makes the family
-directories the right boxes: `update` exists in all five, `code` in four (all
-but `macos.26`), `k8s` in three (`ubuntu.server.24`, `ubuntu.server.26`,
-`windows.11`), and `n8n`, `openclaw`, `postgresql` in the three Linux families
-other than `macos.26`. The `ubuntu.server.24` and `ubuntu.server.26` copies of
-`update`, `code`, `n8n`, `openclaw` and `postgresql` are byte-identical; only
-the `k8s` pair differs, and the 24.04 copy is the superset -- it defines a
-`assert_tool_runnable` helper that gates the Helm and mkcert installs, which the
-26.04 copy lacks.
+**`guest-readme`** -- 1: `guest/README.md`. A single file, not an aggregate.
 
 ## Host Provisioning -- `host/`
 
 ```mermaid
 flowchart TD
-    host-contract["Yuruna.Host.Contract.psm1"]
-    macos-utm["macos.utm/"]
-    host-modules["host/modules/"]
-    ubuntu-kvm["ubuntu.kvm/"]
-    vmconfig["host/vmconfig/"]
-    windows-hyper-v["windows.hyper-v/"]
-    guest-builders["per-guest builder dirs"]
+    host-contract["host driver contract"]
+    macos-utm["macos.utm driver"]
+    ubuntu-kvm["ubuntu.kvm driver"]
+    windows-hyper-v["windows.hyper-v driver"]
+    host-modules["shared host modules"]
+    host-vmconfig["cloud-init seed data"]
+    host-docs["host tree readmes"]
 
-    host-contract --> macos-utm
-    host-contract --> ubuntu-kvm
-    host-contract --> windows-hyper-v
+    macos-utm --> host-contract
+    ubuntu-kvm --> host-contract
+    windows-hyper-v --> host-contract
     macos-utm --> host-modules
     ubuntu-kvm --> host-modules
     windows-hyper-v --> host-modules
-    host-modules --> guest-builders
-    guest-builders --> host-modules
-    guest-builders --> vmconfig
+    host-modules --> host-vmconfig
+    host-docs --> macos-utm
+    host-docs --> ubuntu-kvm
+    host-docs --> windows-hyper-v
 ```
 
-Boxes are declared in directory order. Three of them are literal files or
-directories; the three provider boxes and the builder box are aggregates.
+`host/` holds 150 tracked files across five directories and three root files:
+`46 + 30 + 32 + 8 + 31 + 3 = 150`. Seven boxes, so no sibling is folded away.
+The edge to read carefully is `host-modules --> host-vmconfig`: nothing in
+`host/vmconfig/` is code, and nothing in `host/` merges those seeds either. The
+merge lives in the deploy engine (`Merge-CloudInitUserData` in
+`automation/Yuruna.CloudInitTemplate.psm1`); a per-guest builder resolves the
+three template paths itself and hands them over, for example at
+`host/ubuntu.kvm/guest.ubuntu.server.26/New-VM.ps1:233-236`.
 
-**`host-contract`** -- `host/Yuruna.Host.Contract.psm1`, a single file holding
-the 38-verb driver contract and the coverage assertion each driver calls at the
-bottom of its own module body. It is its own box because it is the interface
-every other box in this section is measured against.
+**`host-contract`** -- 1: `host/Yuruna.Host.Contract.psm1` (160 lines). A single
+file, not an aggregate. `$script:YurunaHostContract` at `:57-98` is the verb
+array: 38 names in 11 comment-labeled groups -- VM lifecycle, VM inventory,
+disk snapshots, VM console, image acquisition, input and capture, guest
+networking probes, external and shared network, host port mapping,
+caching-proxy probes, host proxy management. `Assert-YurunaHostContractCoverage`
+(`:111-158`) intersects a driver's declared list with the module's actual
+`ExportedFunctions.Keys` (`:144-146`), so a verb declared but never exported
+still counts as missing; it emits one warning naming every gap and returns a
+boolean. The file exports only those two helpers (`:160`).
 
-**`macos.utm/`**, **`ubuntu.kvm/`**, **`windows.hyper-v/`** -- one box per
-provider. Each folds a driver module plus the four operator scripts that exist
-under all three providers by the same names -- the name is the contract, because
-`automation/Yuruna.HostRedirect.psm1:136` resolves `host/<host type>/<name>.ps1`
-by name and runs it in a child pwsh, so the operator types one command on every
-platform. Their parameters and exit codes are per-script, not shared
-(`Enable-TestAutomation.ps1` exits 0 when everything is in place and 2 when an
-operator is still needed; `Sync-HostConfiguration.ps1` never calls `exit`):
-`host/<provider>/modules/Yuruna.Host.psm1`,
-`host/<provider>/Enable-TestAutomation.ps1`,
-`host/<provider>/Disable-TestAutomation.ps1`,
-`host/<provider>/Sync-HostConfiguration.ps1`,
-`host/<provider>/Remove-OrphanedVMFiles.ps1`. Provider-only extras ride in the
-same box: `host/ubuntu.kvm/modules/Yuruna.GuestRail.psm1` (a second, stable
-libvirt-NAT address per guest -- derived and unit-tested, but imported by no
-production file; its own header records that it keys on the transient VM name and
-would break VM creation on the second guest of a cycle) and
-`host/ubuntu.kvm/yuruna-bridge-pin.sudoers`;
-`host/macos.utm/Remove-StaleDhcpLease.ps1` and
-`host/macos.utm/brew-doctor-fix.sh`.
-`host/macos.utm/Start-CachingProxyServiceForwarder.ps1` sits in the macOS folder
-but is not a macOS-only file: it is a pure-PowerShell TCP forwarder the Hyper-V
-driver resolves and spawns as well
-(`host/windows.hyper-v/modules/Yuruna.Host.psm1:2489`, `:2628`).
+**`macos-utm`** -- 46: `host/macos.utm/modules/Yuruna.Host.psm1` (4550 lines);
+9 root files (`Disable-TestAutomation.ps1`, `Enable-TestAutomation.ps1`,
+`README.md`, `read.more.md`, `Remove-OrphanedVMFiles.ps1`,
+`Remove-StaleDhcpLease.ps1`, `Start-CachingProxyServiceForwarder.ps1`,
+`Sync-HostConfiguration.ps1`, `brew-doctor-fix.sh`); and 36 files across 9
+`guest.*` builder directories (`guest.amazon.linux.2023` 5,
+`guest.caching-proxy-service` 4, `guest.download-agent-service` 3,
+`guest.macos.26` 4, `guest.pool-control-service` 3, `guest.stash-service` 3,
+`guest.ubuntu.server.24` 4, `guest.ubuntu.server.26` 4, `guest.windows.11` 6).
+It is the only driver with nine builder directories, because `guest.macos.26`
+exists nowhere else, and the only one whose builders carry a
+`config.plist.template` beside `Get-Image.ps1` and `New-VM.ps1`. Its declared
+export list carries 39 names -- the 38 plus `Get-HostLanPrefix` (`:4526-4535`).
 
-The folding is by platform because the platform-touching half has nothing to
-hoist: the three drivers implement the same 38 verbs against `Hyper-V\*` cmdlets
-plus `netsh` and `pktmon`, against `virsh` plus `nmcli` and `netplan`, and against
-`utmctl` plus `qemu-img` and `osascript`. The platform-independent half is already
-hoisted -- four contract verbs delegate their bodies to
-`host/modules/Yuruna.HostProvision.psm1` in every driver (`New-VM`, `Get-Image`,
-`Wait-VMIp`, `Test-CachingProxyServiceAvailable`), and a fifth (`Get-VMIp` through
-`Invoke-ResolveVmIp`) in `ubuntu.kvm` alone.
+**`ubuntu-kvm`** -- 30: `host/ubuntu.kvm/modules/Yuruna.Host.psm1` (3843 lines)
+and `host/ubuntu.kvm/modules/Yuruna.GuestRail.psm1`; 6 root files
+(`Disable-TestAutomation.ps1`, `Enable-TestAutomation.ps1`, `README.md`,
+`Remove-OrphanedVMFiles.ps1`, `Sync-HostConfiguration.ps1`,
+`yuruna-bridge-pin.sudoers`); and 22 files across 8 `guest.*` directories
+(`guest.amazon.linux.2023` 3, `guest.caching-proxy-service` 3,
+`guest.download-agent-service` 2, `guest.pool-control-service` 2,
+`guest.stash-service` 2, `guest.ubuntu.server.24` 3, `guest.ubuntu.server.26` 3,
+`guest.windows.11` 4). It is the only driver with a second module in
+`modules/`, and the only one shipping a sudoers fragment -- which is also what
+gives the Installers block its edge here, since `install/ubuntu.kvm.sh:1023`
+reads that file and installs it as `/etc/sudoers.d/yuruna-bridge-pin`. Its
+declared export list carries 40 names: the 38 plus
+`New-YurunaExternalNetwork` and `Get-YurunaExternalNetworkPlan` (`:3819-3828`).
 
-The asymmetry that matters is in the extras rather than the contract: all three
-drivers export all 38 verbs, and two of them also arm a DHCP wire capture at
-`Start-VM` and drop it beside the sequence output. `Start-`/`Stop-`/`Save-VMDhcpCapture`
-runs over `pktmon` on Hyper-V (`host/windows.hyper-v/modules/Yuruna.Host.psm1:3965-4081`)
-and over `tcpdump` plus the dnsmasq journal on KVM
-(`host/ubuntu.kvm/modules/Yuruna.Host.psm1:3610-3789`). `macos.utm` exports none of
-the three, so the single caller (`test/modules/Test.RunnerInnerLoop.psm1:630`)
-guards on `Get-Command` and the capture is simply absent there.
+**`windows-hyper-v`** -- 32: `host/windows.hyper-v/modules/Yuruna.Host.psm1`
+(4776 lines); 6 root files (`Disable-TestAutomation.ps1`,
+`Enable-TestAutomation.ps1`, `README.md`, `read.more.md`,
+`Remove-OrphanedVMFiles.ps1`, `Sync-HostConfiguration.ps1`); and 25 files across
+8 `guest.*` directories (`guest.amazon.linux.2023` 4,
+`guest.caching-proxy-service` 3, `guest.download-agent-service` 2,
+`guest.pool-control-service` 2, `guest.stash-service` 2,
+`guest.ubuntu.server.24` 3, `guest.ubuntu.server.26` 3, `guest.windows.11` 6).
+It is the only driver whose declared list is exactly the 38 canonical names
+(`:4751-4762`), and the only one that carries a `vmconfig/README.md` beside a
+per-guest `autounattend.xml`.
 
-**`host-modules`** (7) -- `host/modules/Yuruna.HostProvision.psm1` (the shared
-bodies of five contract verbs), `host/modules/Yuruna.HostDownload.psm1` (the
-squid download stack), `host/modules/Yuruna.DownloadAgent.psm1` (the host-side
-client for the pooled download agent, which deliberately imports nothing),
-`host/modules/Yuruna.Image.psm1` (the checksum and signature gateway),
-`host/modules/Yuruna.UbuntuImage.psm1` (the live-server ISO pipeline),
-`host/modules/Yuruna.VMCleanup.psm1`, and the Pester suite
-`host/modules/Yuruna.Image.Tests.ps1`. The pinned Ubuntu signing keys live
-beside them at `host/modules/keys/ubuntu-image-signing-keys.asc`. Folded as one
-box because they are the hypervisor-independent half of provisioning -- but they
-are loaded by two different callers. The three drivers import
-`Yuruna.HostDownload`, `Yuruna.DownloadAgent` and `Yuruna.HostProvision` `-Global`
-at load (`host/windows.hyper-v/modules/Yuruna.Host.psm1:81`, `:85`, `:88`;
-`host/macos.utm/modules/Yuruna.Host.psm1:80`, `:84`, `:87`;
-`host/ubuntu.kvm/modules/Yuruna.Host.psm1:102`, `:106`, `:109`) and then
-feature-detect the download-agent functions by name. `Yuruna.Image` and `Yuruna.UbuntuImage` are
-imported by the per-guest `Get-Image.ps1` / `New-VM.ps1` scripts instead, and
-`Yuruna.VMCleanup` only by the three `Remove-OrphanedVMFiles.ps1`.
+All three drivers are complete against the contract: no canonical verb is
+missing from any export block, and every canonical verb has a definition in
+every driver. What differs is everything outside the contract -- port-mapping
+mechanism (`netsh portproxy`, socket-activated `systemd-socket-proxyd` units,
+per-port pwsh listeners), console mechanism (vmconnect, `virt-viewer`, an RFB
+port at `5900 + display`), and whether DHCP capture exists at all: the
+`Start-/Stop-/Save-VMDhcpCapture` trio is present on hyper-v and kvm and absent
+from macos.utm, which the load-time assertion cannot see because those are not
+contract verbs.
 
-**`vmconfig`** (31 files) -- six seed families, each with a
-`<family>.base.user-data`, a `<family>.meta-data` and one overlay per
-hypervisor, plus the single shared `host/vmconfig/guest-dhcp.network-config`.
-The families are `amazon.linux.2023`, `caching-proxy-service`,
-`download-agent-service`, `pool-control-service`, `stash-service` and
-`ubuntu.server`; the overlay suffixes are `.hyperv.overlay.yml`,
-`.kvm.overlay.yml` and `.utm.overlay.yml`. They fold into one box because they
-share one merge contract: `automation/Yuruna.CloudInitTemplate.psm1` substitutes
-overlay sections into base anchors line by line, and an anchor with no matching
-overlay section is a hard error in either direction. One family is a different
-kind of file from the other five: `host/vmconfig/caching-proxy-service.base.user-data`
-is 4,426 lines against 191-452 for the rest, and it is the only seed in the
-repository that fetches Go sources out of `test/extension/` and builds daemons at
-first boot.
+**`host-modules`** -- 8: `host/modules/Yuruna.DownloadAgent.psm1`,
+`Yuruna.HostDownload.psm1`, `Yuruna.HostProvision.psm1`, `Yuruna.Image.psm1`,
+`Yuruna.Image.Tests.ps1`, `Yuruna.UbuntuImage.psm1`, `Yuruna.VMCleanup.psm1`,
+`keys/ubuntu-image-signing-keys.asc`. The split inside the box is by consumer:
+all three drivers import `Yuruna.HostDownload`, `Yuruna.DownloadAgent` and
+`Yuruna.HostProvision` at the top of their `Yuruna.Host.psm1`, which is what
+the three driver edges into this box mean; `Yuruna.Image`, `Yuruna.UbuntuImage`
+and `Yuruna.VMCleanup` are not imported by the drivers at all and are used by
+the per-guest image builders. The `.asc` keyring is the trust anchor for the
+signature check `Yuruna.Image.psm1` runs over a published checksum file.
+`Yuruna.Image.Tests.ps1` is the single Pester suite outside `test/modules/`.
 
-**`guest-builders`** (25 directories) -- `host/<provider>/guest.<name>/`, each
-holding a `Get-Image.ps1` and a `New-VM.ps1`. Eight guest names appear under all
-three providers -- `guest.amazon.linux.2023`, `guest.caching-proxy-service`,
-`guest.download-agent-service`, `guest.pool-control-service`,
-`guest.stash-service`, `guest.ubuntu.server.24`, `guest.ubuntu.server.26`,
-`guest.windows.11` -- and `host/macos.utm/guest.macos.26/` exists only under
-UTM. Folded into one box rather than 25 because they are dispatched
-identically: `Invoke-PerGuestNewVm` and `Invoke-GetImage` in
-`host/modules/Yuruna.HostProvision.psm1` run each one as a child `pwsh` and map
-its exit code to a result hashtable. Only `New-VM.ps1` gets arguments --
-`-VMName` always, and `-CachingProxyServiceUrl`, `-Username`, `-Hostname`,
-`-MemoryStartupBytes`, `-Cores` only when the caller bound them and the target
-script declares them (`host/modules/Yuruna.HostProvision.psm1:84-118`).
-`Get-Image.ps1` is invoked bare, and is skipped entirely when the image is
-already on disk and `-Force` was not passed. Their per-guest data
-files sit alongside: `config.plist.template` under every
-`host/macos.utm/guest.*/`, and `vmconfig/autounattend.xml` under all three
-`guest.windows.11` directories.
+**`host-vmconfig`** -- 31: 6 `*.base.user-data`, 6 `*.meta-data`, 18
+`*.overlay.yml`, and `guest-dhcp.network-config`. The six seed families are
+`amazon.linux.2023`, `ubuntu.server`, `caching-proxy-service`, `stash-service`,
+`pool-control-service`, `download-agent-service`, each with one base, one
+meta-data, and exactly three overlays (`hyperv`, `kvm`, `utm`) -- which is
+`6 * 5 + 1 = 31`. There is no script anywhere in the directory. Overlay content
+is addressed by `# === YURUNA_OVERLAY_<KEY> ===` anchors, and an empty section
+emits nothing; `tools/Test-RegionAnchors.ps1` is the gate that every anchor
+pairs between a base and its three overlays. `guest-dhcp.network-config` is
+netplan-only and matches interfaces by name pattern rather than MAC, and warns
+in its own header that a guest matching neither `en*` nor `eth*` ends with no
+network configuration at all.
+
+**`host-docs`** -- 2: `host/README.md`, `host/read.more.md`. The three edges out
+of this box are documentation ownership, not calls: `host/README.md` links to
+each driver's own `README.md` (`:6-8`), and the file states the split it applies
+recursively -- `README.md` is the happy path, `read.more.md` is the gotcha
+catalog and command reference, and every platform folder repeats the pair. That
+is why `read.more.md` exists under `macos.utm/` and `windows.hyper-v/` and is
+part of their counts, and why `ubuntu.kvm/` -- which ships only the `README.md`
+half -- is one file lighter at that level.
 
 ## Installers -- `install/`, `tools/`
 
 ```mermaid
 flowchart TD
-    macos-utm-sh["install/macos.utm.sh"]
-    ubuntu-kvm-sh["install/ubuntu.kvm.sh"]
-    windows-hyper-v-ps1["install/windows.hyper-v.ps1"]
-    signed-manifest["signed install manifest"]
-    setup-ps1["install/setup.ps1"]
-    repo-gates["tools/ gates and migrations"]
-    pre-commit["tools/githooks/pre-commit"]
+    platform-bootstrappers["three platform bootstrappers"]
+    guided-setup["guided setup script"]
+    release-manifest["signed release manifest"]
+    repo-gates["repository content gates"]
+    suite-runners["test suite runners"]
+    maintenance-tools["maintenance and release tools"]
 
-    signed-manifest --> macos-utm-sh
-    signed-manifest --> ubuntu-kvm-sh
-    signed-manifest --> windows-hyper-v-ps1
-    pre-commit --> repo-gates
+    platform-bootstrappers --> release-manifest
+    guided-setup --> platform-bootstrappers
+    maintenance-tools --> release-manifest
+    maintenance-tools --> repo-gates
+    suite-runners --> repo-gates
 ```
 
-Boxes are declared in install phase order -- verify, bootstrap, configure --
-then the repo-hygiene pair. Only two boxes are aggregates. `setup-ps1` has no
-inbound edge on purpose: no installer runs or even names `install/setup.ps1`, and
-an operator starts it after a bootstrap has finished.
+Two roots, 24 tracked files, six boxes. The two directories are one block
+because `tools/Update-YurunaReleasePins.ps1` produces the artifacts the
+installers are verified against: it writes `install/install.sha256` (`:112`) and
+`install/install.sha256.sig` (`:113`), builds its manifest input list starting
+at `'install/macos.utm.sh'` (`:119`), and rewrites the verified-download tag
+inside `install/README.md` (`:140`). The `platform-bootstrappers --> release-manifest`
+edge is the verification direction, not the production direction: an operator
+checks the signature over the manifest, then the installer's own hash against
+the verified manifest.
 
-**`macos.utm.sh`**, **`ubuntu.kvm.sh`**, **`windows.hyper-v.ps1`** -- one box
-each, because each is a single file with a platform-specific package set but a
-shared contract: clone to `~/git/yuruna`, honour a version pin, tee a per-run
-install log, preserve `test/status/` across an update, seed
-`test/test.config.yml` from its template, and close with a version-floor pass
-against the shared floors in `automation/Yuruna.Requirement.yml` plus a
-deferred-issue summary. The pointer at `host/<platform>/Enable-TestAutomation.ps1`
-is printed, never run, and is marked optional on Ubuntu and Windows.
+**`platform-bootstrappers`** -- 3: `install/macos.utm.sh` (1287 lines),
+`install/ubuntu.kvm.sh` (1313), `install/windows.hyper-v.ps1` (1558). One per
+supported host platform, each fronted by a one-liner at `:7` in the shell pair.
+`windows.hyper-v.ps1` must stay 7-bit ASCII with no BOM because PowerShell 5.1
+parses an `irm | iex` stream byte for byte (`:22-24`). All three reach outside
+this block twice: they read the version floors by running
+`automation/Test-Requirement.ps1` and parsing its `REQUIREMENT-ISSUE:` lines,
+and they print the `host/<platform>/Enable-TestAutomation.ps1` command rather
+than running it -- so provisioning is a handoff, while the floor check is a real
+call with a real answer read back.
 
-The floor pass is one file, one script and one machine-readable line format --
-`Test-Requirement.ps1 -Tool <list> -WarnOnly` printing `REQUIREMENT-ISSUE: <text>`
--- with three different tool lists and two different postures. Ubuntu
-(`PowerShell,git,qemu-img,wget,tesseract,curl,python3`,
-`install/ubuntu.kvm.sh:1175`) and Windows (`install/windows.hyper-v.ps1:1511`)
-report only. macOS repairs first and reports the residue
-(`install/macos.utm.sh:1120`): at most two passes that unpin and upgrade the
-Homebrew formula, add the other PowerShell build when the first pass is still
-short, then link the newest copy of each tool into `/usr/local/bin` -- the
-directory the stock `/etc/paths` carries -- and unlink an older Homebrew copy that
-would otherwise keep winning on PATH.
+**`guided-setup`** -- 1: `install/setup.ps1` (3532 lines). A single file, not an
+aggregate, and its own box because it is the only member that drives other
+blocks rather than preparing the machine for them. It has exactly two modes,
+chosen at `:2483-2495` (`$isLab = ($setupType -eq 'lab')`), runs storage before
+service VMs by design (`:41-44`), is re-runnable with an adopt-versus-rebuild
+rule (`:46-54`), and writes `test/status/log/setup.<timestamp>.log`. It resolves
+and runs `test/service/<Start|Stop>*.ps1`, runs `test/lab/Set-LabToken.ps1`
+(`:3356`) in lab mode, and imports both `test/modules/*.psm1` and
+`automation/Yuruna.{HostRedirect,Common}.psm1` (`:2322`, `:2325`). Its shipped
+answer file, `install/setup.answers.standalone.yml`, is present in the tree but
+untracked, so it is not in the count of 10 for `install/`.
 
-**`signed-manifest`** (4) -- `install/install.sha256`,
+**`release-manifest`** -- 6: `install/install.sha256`,
 `install/install.sha256.sig`, `install/keys/yuruna-release-signing.pub.pem`,
-`install/keys/yuruna-release-signing.pub.xml`, documented by
-`install/keys/README.md` and `install/README.md` (which carries the verified
-two-step download snippets). Folded because they are one trust chain and cover
-exactly one thing: the manifest lists the SHA-256 of the three bootstrappers above
-and nothing else. It is tag-scoped -- it covers those three files as published at
-`refs/tags/<CalVer>`, so `main` is expected to be ahead of it between releases and
-`sha256sum -c install/install.sha256` failing in a working tree is the designed
-state, not drift. Nothing in the checkout verifies itself against the manifest;
-the operator runs that check out of band, on the fetched copies.
+`install/keys/yuruna-release-signing.pub.xml`, `install/keys/README.md`,
+`install/README.md`. The manifest is three lines, one SHA-256 per bootstrapper.
+The public key ships twice on purpose: PEM for the openssl path, and the same
+key as a .NET `RSAKeyValue` XML for PowerShell 5.1 on .NET Framework 4.8, which
+has no `RSA.ImportFromPem`. `install/keys/README.md:18-20` fixes the order --
+check the signature over `install.sha256` first, then the installer's own hash
+against that now-verified file -- and `:36` records that the private key is
+never in the repository.
 
-**`setup.ps1`** -- `install/setup.ps1`. Its own box because it installs and
-clones nothing. A guided run writes the answer file it used to
-`install/setup.answers.<type>.yml` -- generated, gitignored at `.gitignore:373`,
-not tracked source -- and `-AnswerFile` replays it unattended on the next machine.
-It orchestrates scripts that already exist in the checkout --
-`test/lab/Enable-TestAutomation.ps1`, `test/lab/New-LocalLabStorage.ps1`,
-`test/lab/Set-LabToken.ps1`, the `test/service/Start-*ServiceVM.ps1` set,
-`test/pool/New-Pool.ps1` and `test/pool/Test-PoolIntent.ps1`.
+**`repo-gates`** -- 6: `tools/Invoke-Lint.ps1`, `tools/Invoke-ShellCheck.ps1`,
+`tools/Test-AsciiNoBom.ps1`, `tools/Test-RegionAnchors.ps1`,
+`tools/Invoke-Es5Check.ps1`, `tools/Invoke-A11yCheck.ps1`. These run against
+every block, which is why they belong to the release path rather than to any one
+block they inspect: `Test-AsciiNoBom.ps1:99` targets
+`install/windows.hyper-v.ps1`, `Test-RegionAnchors.ps1:206` walks
+`host/vmconfig`, and `Invoke-A11yCheck.ps1:114-117` targets the three service
+web roots and `test/status`. `Invoke-Lint.ps1` and `Invoke-ShellCheck.ps1`
+select through `git ls-files` -- tracked plus new, minus everything `.gitignore`
+covers -- which is the same selector `Invoke-TestSuite.ps1` uses, so both gates
+see one set of files.
 
-**`repo-gates`** (9) -- `tools/Invoke-GoTest.ps1`, `tools/Invoke-JsTest.ps1`,
-`tools/Invoke-Lint.ps1`, `tools/Invoke-ShellCheck.ps1`,
-`tools/Invoke-TestSuite.ps1` with its single-suite helper
-`tools/_InvokeOneSuite.ps1`, `tools/Test-AsciiNoBom.ps1`,
-`tools/Test-RegionAnchors.ps1`, `tools/Update-TestConfigNaming.ps1`. Folded
-because they are the out-of-cycle gates, not because they work alike. The four
-source gates (`Invoke-Lint.ps1`, `Invoke-ShellCheck.ps1`, `Test-AsciiNoBom.ps1`,
-`Test-RegionAnchors.ps1`) select their inputs from git so no generated tree is
-scanned. Of the suite runners, `Invoke-GoTest.ps1` instead walks `test/extension`
-for `go.mod` -- 7 modules today -- and runs build, vet and test per module,
-staging the 5 that name the SDK as a sibling
-(`replace yuruna.com/test/extension/extension-sdk => ../extension-sdk`) into a
-throwaway `server/` + `extension-sdk/` pair first, because that replace only
-resolves in the layout the guest bring-up assembles. `_InvokeOneSuite.ps1` selects
-nothing at all -- it is the per-suite child shim -- and
-`Update-TestConfigNaming.ps1` is a one-config migration with `-WhatIf`, not a
-repository pass or fail.
-`tools/Update-YurunaReleasePins.ps1` is the exception and belongs with
-`signed-manifest`: it is the writer of that manifest and its signature.
+**`suite-runners`** -- 4: `tools/Invoke-TestSuite.ps1`,
+`tools/_InvokeOneSuite.ps1`, `tools/Invoke-GoTest.ps1`, `tools/Invoke-JsTest.ps1`.
+`Invoke-TestSuite.ps1` requires Pester 5 or newer and fails fast without it
+(`:116-120`), runs one process per suite through the sibling shim, and compares
+against the tracked baseline `test/modules/suite-baseline.json` (`:129`).
+`Invoke-GoTest.ps1:57` defaults to `test/extension`, where the seven Go modules
+live; `Invoke-JsTest.ps1` runs the tracked JavaScript self-tests with node.
 
-**`pre-commit`** -- `tools/githooks/pre-commit`, activated per clone through
-`core.hooksPath` set in `.gitconfig.yuruna`. Kept out of `repo-gates` because it
-is advisory rather than a gate: it skips with a warning when `pwsh` is absent,
-blocks on only two of its three passes, and warns on the third.
+**`maintenance-tools`** -- 4: `tools/Export-GeneratedPages.ps1`,
+`tools/Update-TestConfigNaming.ps1`, `tools/Update-YurunaReleasePins.ps1`,
+`tools/githooks/pre-commit`. `Update-YurunaReleasePins.ps1` runs the ASCII and
+no-BOM gate as a hard precondition before it will sign anything, which is the
+`maintenance-tools --> repo-gates` edge. `Export-GeneratedPages.ps1` materializes
+the HTML the Go daemons generate into files the browser gates can open, which is
+what makes `Invoke-A11yCheck.ps1` and `Invoke-Es5Check.ps1` able to inspect
+pages that otherwise exist only at run time. `pre-commit` is the hook file
+itself, activated per clone rather than by being present.
 
 ## Test Harness -- `test/`
 
 ```mermaid
 flowchart TD
-    configuration["config, schemas, support"]
-    runner["runner loop"]
-    sequence-engine["sequence engine, guest IO"]
-    host-adapters["host adapters"]
-    host-services["host services"]
-    extensions["test/extension/"]
-    pool-lab["pool and lab"]
+    runner-entrypoints["runner entry scripts"]
+    runner-modules["harness module library"]
+    extension-areas["extension area sources"]
+    sequence-schema-data["sequences and schemas"]
+    service-scripts["service start stop scripts"]
+    pool-lab-cli["pool and lab CLI"]
+    status-ui-check["status UI and probes"]
 
-    configuration --> runner
-    runner --> sequence-engine
-    runner --> host-adapters
-    runner --> host-services
-    sequence-engine --> host-adapters
-    host-services --> extensions
-    runner --> pool-lab
-    pool-lab --> extensions
+    runner-entrypoints --> runner-modules
+    runner-modules --> sequence-schema-data
+    runner-modules --> extension-areas
+    runner-modules --> status-ui-check
+    service-scripts --> runner-modules
+    pool-lab-cli --> runner-modules
+    extension-areas --> sequence-schema-data
 ```
 
-`test/modules/` alone holds 96 modules, so every box here is an aggregate.
-Boxes are declared in execution order: configuration is read before the runner
-starts, the runner drives sequences, sequences reach the host and the guest, and
-the last three boxes are the long-lived services the cycle depends on. The 96
-modules partition exactly across the seven boxes with no module counted twice.
+`test/` holds 646 tracked files across nine directories plus 11 files at its
+root: `231 + 315 + 19 + 16 + 16 + 13 + 12 + 10 + 3 + 11 = 646`. Nine
+directories plus a root file set is ten children, so three folds bring it to
+seven: sequences with schemas, pool with lab, and status with check.
 
-**`configuration`** (15 modules) -- `test/modules/Test.Config.psm1`,
-`Test.ConfigValidator.psm1`, `Test.ConfigPreflight.psm1`,
-`Test.ConfigNaming.psm1`, `Test.ConfigSync.psm1`, `Test.ConfigServiceCA.psm1`,
-`Test.ConfigServiceSync.psm1`, `Test.Capability.psm1`, `Test.Prelude.psm1`,
-`Test.YurunaDir.psm1`, `Test.Hash.psm1`, `Test.Assert.psm1`,
-`Test.FrameworkSource.psm1`, `Test.RootArtifact.psm1`,
-`Test.CredentialProvider.psm1`. Also `test/Test-Config.ps1`,
-`test/test.config.yml.template`, and the 13 contracts in `test/schemas/`
-(`vault`, `lab.vault`, `users`, `pools`, `pool-test-sets`,
-`host.registration`, `sequence`, `orchestration-sequence`, `actions`,
-`snippets`, `extension-config`, `notification.transports`,
-`guests.compatibility`). Folded because all of it answers one question before a
-cycle runs -- is this host's declared state well formed. `test/Test-Config.ps1`
-asks it of `test.config.yml`, of every discovered
-`test/extension/<area>/<area>.config.yml` against `extension-config.schema.yml`
-(`:910-915`), and, on macOS, of the operator grants and the screen-lock and sleep
-settings read from the same host-condition provider registry the cycle itself
-uses (`:573-654`) -- so a host this gate passes is not one the runner then
-refuses.
+Three edges need a word. `runner-modules --> status-ui-check` is a serving
+relationship rather than an import: the status service launches a detached pwsh
+that serves the `test/status/` directory (`test/service/Start-StatusService.ps1:24`).
+`runner-modules --> extension-areas` is a loader relationship:
+`test/modules/Test.Extension.psm1:26` anchors on `test/extension` and imports an
+area's provider module by directory basename. And the two edges pointing back
+into `runner-modules` are ordinary imports, but they are not universal -- 13 of
+the 15 `test/service/*.ps1` scripts and 21 of the 23 `test/pool/*.ps1` plus
+`test/lab/*.ps1` scripts name a `Test.*.psm1`, so a handful in each are
+standalone.
 
-**`runner`** (22 modules) -- `test/modules/Test.RunnerOuterLoop.psm1`,
-`Test.RunnerInnerLoop.psm1`, `Test.RunnerState.psm1`,
-`Test.RunnerWatchdog.psm1`, `Test.RunnerHeartbeat.psm1`,
-`Test.RunnerElevation.psm1`, `Test.SingleInstance.psm1`,
-`Test.InnerSpawn.psm1`, `Test.Recovery.psm1`, `Test.WarmResume.psm1`,
-`Test.GuestQuarantine.psm1`, `Test.Remediation.psm1`,
-`Test.FailureTaxonomy.psm1`, `Test.Notify.psm1`, `Test.Perf.psm1`,
-`Test.Provenance.psm1`, `Test.EventSchema.psm1`, `Test.StateFile.psm1`,
-`Test.Log.psm1`, `Test.LogRotation.psm1`, `Test.LogLevel.psm1`,
-`Test.Output.psm1`. Its three entry points are
-`test/Start-TestRunner.ps1` (resident), `test/modules/Invoke-TestCycleRunner.ps1`
-(one process per cycle) and `test/modules/Invoke-TestRunnerInnerLoop.ps1` (the
-cycle body), with `test/Invoke-TestProject.ps1` as the single-cycle variant.
-Failure classification, notification and quarantine are folded in here rather
-than split out because they all read the same per-cycle failure record and are
-what the loop consults to decide whether to run the next cycle.
+**`runner-entrypoints`** -- 11: `test/Debug-TestSequence.ps1`,
+`test/Invoke-TestProject.ps1`, `test/New-LocalTestUser.ps1`, `test/README.md`,
+`test/read.more.md`, `test/Remove-TestVMFiles.ps1`, `test/Start-TestRunner.ps1`,
+`test/Test-CachingProxyService.ps1`, `test/Test-Config.ps1`,
+`test/test-localhost.sh`, `test/test.config.yml.template`.
+`Start-TestRunner.ps1` (404 lines) is the resident outer process that owns
+`runner.pid` and never exits on its own; `Invoke-TestProject.ps1` (318) is the
+one-shot peer that wipes and re-clones `project/` then runs a single cycle;
+`Debug-TestSequence.ps1` (933) runs one sequence with its prerequisite chain
+from a chosen step; `Test-Config.ps1` (2004) validates `test.config.yml` and
+every `test/extension/*` config and fires a `config.smoke` notification with its
+own subscriber list. `test.config.yml.template` is the tracked artifact: the
+live `test/test.config.yml` holds credentials and is gitignored.
 
-**`sequence-engine`** (26 modules) -- the engine proper is
-`test/modules/Test.SequenceEngine.psm1`, `Test.SequenceAction.psm1`,
-`Test.SequenceHandler.psm1`, `Test.SequencePlanner.psm1`,
-`Test.SequenceResolve.psm1`, `Test.SequenceRunner.psm1`,
-`Test.SequenceVariable.psm1`, `Test.SequenceFailureState.psm1`,
-`Test.Orchestrator.psm1`, `Test.Start-GuestOS.psm1`,
-`Test.Start-GuestWorkload.psm1`, `Test.SnapshotManifest.psm1`,
-`Test.Backoff.psm1`, `Test.Registry.psm1`. The guest I/O layer folded in with it
-is `Test.HostIO.psm1` and its three backends `Test.HostIO.HyperV.psm1`,
-`Test.HostIO.Kvm.psm1`, `Test.HostIO.Utm.psm1`, plus `Test.Transport.psm1`,
-`Test.KeyCodeRegistry.psm1`, `Test.OcrEngine.psm1`, `Test.OcrMatch.psm1`,
-`Test.Tesseract.psm1`, `Test.ScreenshotProvider.psm1`, `Test.VncProvider.psm1`
-and `Test.Ssh.psm1`. The fold is deliberate: those twelve exist only to serve
-sequence verbs -- a screenshot is taken so a `waitForText` can be judged, a
-keystroke is sent because an `inputText` step asked for one -- and separating
-them would cost a box without marking a real boundary. Eleven of the twelve are
-sequence-only; `Test.Ssh.psm1` is the exception, imported by 21 of the 25 per-guest
-`New-VM.ps1` builders and called by the `Start-*ServiceVM.ps1` scripts outside any
-sequence. Data and drivers in the
-same box: the 19 files under `test/sequences/` (17 sequences plus
-`_snippets.yml` and `actions.yml`), the two OCR probes in `test/check/` (`Test-TesseractOcr.ps1`, `Test-WinRtOcr.ps1`), and
-`test/Debug-TestSequence.ps1` and `test/test-localhost.sh`.
+**`runner-modules`** -- 315: 97 `.psm1`, 211 `*.Tests.ps1`, 5 loose `.ps1`,
+`README.md` and `suite-baseline.json`. The five loose scripts are the
+long-running and detached members that cannot be modules because each needs its
+own process: `Invoke-TestCycleRunner.ps1` (183 lines, one fresh pwsh per cycle),
+`Invoke-TestRunnerInnerLoop.ps1` (1150, the inner runner),
+`Invoke-HostAddressBeacon.ps1`, `Invoke-PoolPushForwarder.ps1`,
+`Invoke-PoolStorageDrain.ps1`. The 97 modules, in directory order:
+`Test.Assert`, `Test.Backoff`, `Test.CachingProxyService`,
+`Test.CachingProxyServiceLock`, `Test.Capability`, `Test.Config`,
+`Test.ConfigNaming`, `Test.ConfigPreflight`, `Test.ConfigServiceCA`,
+`Test.ConfigServiceSync`, `Test.ConfigSync`, `Test.ConfigValidator`,
+`Test.CredentialProvider`, `Test.Diagnostic`, `Test.DownloadAgentService`,
+`Test.EventSchema`, `Test.Extension`, `Test.ExtensionService`,
+`Test.FailureTaxonomy`, `Test.FrameworkSource`, `Test.GuestQuarantine`,
+`Test.Hash`, `Test.HostAddressBeacon`, `Test.HostAutomationState`,
+`Test.HostBootstrap`, `Test.HostCondition`, `Test.HostCondition.Linux`,
+`Test.HostCondition.Mac`, `Test.HostCondition.Windows`, `Test.HostContract`,
+`Test.HostDetection`, `Test.HostFacts`, `Test.HostGit`, `Test.HostIdentity`,
+`Test.HostIO`, `Test.HostIO.HyperV`, `Test.HostIO.Kvm`, `Test.HostIO.Utm`,
+`Test.InnerSpawn`, `Test.KeyCodeRegistry`, `Test.Lab`, `Test.LabHealth`,
+`Test.LocalLabStorage`, `Test.Log`, `Test.LogLevel`, `Test.LogRotation`,
+`Test.Notify`, `Test.OcrEngine`, `Test.OcrMatch`, `Test.OcrPath`,
+`Test.Orchestrator`, `Test.Output`, `Test.Perf`, `Test.PoolAdmin`,
+`Test.PoolNotifier`, `Test.PoolPlanner`, `Test.PoolPush`, `Test.PoolStorage`,
+`Test.PoolSync`, `Test.PoolWorker`, `Test.PortOwner`, `Test.Prelude`,
+`Test.Provenance`, `Test.Recovery`, `Test.Registry`, `Test.Remediation`,
+`Test.RootArtifact`, `Test.RunnerElevation`, `Test.RunnerHeartbeat`,
+`Test.RunnerInnerLoop`, `Test.RunnerOuterLoop`, `Test.RunnerState`,
+`Test.RunnerWatchdog`, `Test.ScreenshotProvider`, `Test.SequenceAction`,
+`Test.SequenceEngine`, `Test.SequenceFailureState`, `Test.SequenceHandler`,
+`Test.SequencePlanner`, `Test.SequenceResolve`, `Test.SequenceRunner`,
+`Test.SequenceVariable`, `Test.ServiceVm`, `Test.SingleInstance`,
+`Test.SnapshotManifest`, `Test.Ssh`, `Test.Start-GuestOS`,
+`Test.Start-GuestWorkload`, `Test.StateFile`, `Test.Status`,
+`Test.StatusFirewall`, `Test.Tesseract`, `Test.Transport`, `Test.VMUtility`,
+`Test.VncProvider`, `Test.WarmResume`, `Test.YurunaDir` (all `.psm1`). The two
+largest carry the loops that the three entry processes are thin wrappers over:
+`Test.RunnerOuterLoop.psm1` (2225 lines) and `Test.RunnerInnerLoop.psm1` (3894),
+with `Test.SequenceEngine.psm1` (2666) third. Loop bodies live in modules rather
+than in the scripts so that they are unit-testable, which is also why the
+suite-to-module ratio in this directory is better than two to one.
 
-**`host-adapters`** (16 modules) -- `test/modules/Test.HostBootstrap.psm1`,
-`Test.HostDetection.psm1`, `Test.HostContract.psm1`, `Test.HostCondition.psm1`
-with `Test.HostCondition.Linux.psm1`, `Test.HostCondition.Mac.psm1` and
-`Test.HostCondition.Windows.psm1`, `Test.HostFacts.psm1`,
-`Test.HostIdentity.psm1`, `Test.HostGit.psm1`,
-`Test.HostAutomationState.psm1`, `Test.HostAddressBeacon.psm1`,
-`Test.VMUtility.psm1`, `Test.ServiceVm.psm1`, `Test.Diagnostic.psm1`,
-`Test.PortOwner.psm1`. Scripts: `test/modules/Invoke-HostAddressBeacon.ps1`,
-`test/Remove-TestVMFiles.ps1`, `test/New-LocalTestUser.ps1`. This box is where
-the harness meets `host/`: `Test.HostBootstrap.psm1` is what picks a host type
-and imports the matching `host/<provider>/modules/Yuruna.Host.psm1`, and
-`Test.HostContract.psm1` is the facade that imports four of its `Test.Host*`
-siblings -- `Test.HostDetection`, `Test.HostCondition`, `Test.HostGit`,
-`Test.HostBootstrap` -- `-Global`, so a caller that knows only the facade gets
-those exports (`:41-52`). The contract
-check runs on the other side of the boundary: each driver imports
-`host/Yuruna.Host.Contract.psm1` and calls `Assert-YurunaHostContractCoverage` at
-load (`host/ubuntu.kvm/modules/Yuruna.Host.psm1:3817` and its two siblings).
-`Test.HostCondition.psm1` is a provider registry rather than a switch
-(`Register-HostConditionProvider`, `:45`): each platform sibling registers itself,
-and macOS is by far the largest provider (2,220 lines against 1,796 for Windows
-and 244 for Linux) because it carries the operator-grant, utmctl-link and
-sleep/screen-lock subsystems the other two do not need.
+**`extension-areas`** -- 231: nine area directories plus one loose file,
+`test/extension/ui-pages.test.js`. Per area: `authentication` 4,
+`caching-proxy-parser-service` 11, `caching-proxy-service` 15,
+`download-agent-service` 47, `extension-sdk` 13, `notification` 4,
+`pool-aggregator-service` 27, `pool-control-service` 54, `stash-service` 55.
+Eight of the nine carry an `<area>.contract.yml` and `<area>.config.yml` pair;
+`extension-sdk` carries neither because it is the shared Go library, holding
+`beacon/`, `labgate/`, `mcp/`, `pool/`, `webui/`, a `go.mod` and a `README.md`.
+Seven `go.mod` modules live under this box:
+`caching-proxy-parser-service`, `caching-proxy-service`,
+`download-agent-service/server`, `extension-sdk`, `pool-aggregator-service`,
+`pool-control-service/server`, `stash-service/server`. The compiled binaries are
+gitignored by name, so this block owns the source and never the artifact. Every
+area also ships a `default.psm1`, and every area config declares
+`active: [default]`; an area with a `service:` block is a daemon on the network,
+an area without one is code the cycle loads.
 
-**`host-services`** (6 modules) -- `test/modules/Test.Status.psm1`,
-`Test.StatusFirewall.psm1`, `Test.CachingProxyService.psm1`,
-`Test.CachingProxyServiceLock.psm1`, `Test.DownloadAgentService.psm1`,
-`Test.LabHealth.psm1`. The lifecycle scripts are the six `Start-`/`Stop-` pairs in
-`test/service/` -- four service VMs (`CachingProxyServiceVM`,
-`DownloadAgentServiceVM`, `PoolControlServiceVM`, `StashServiceVM`) and the two
-host-resident listeners (`ConfigService`, `StatusService`) -- plus
-`Move-CachingProxyService.ps1` and `Repair-CachingProxyServiceForwarder.ps1`. The
-served tree is `test/status/`: 8 tracked UI files (`index.html`, `config.html`,
-`diagnostics.html`, `performance.html`, `share-cycle.html`, the shared CSS/JS and
-`status.json.template`), beside two JavaScript unit suites
-(`status-badges.test.js`, `yuruna.common.test.js`) that `tools/Invoke-JsTest.ps1`
-runs, over runtime directories no commit contains
-(`.gitignore:407` ignores `test/status/*/`) -- `runtime/` and `log/` created by
-`Test.YurunaDir.psm1`, `perf/` by `Test.Perf.psm1:225`, `captures/` by
-`Test.SequenceEngine.psm1:1835`, plus `extension/` and `ssh/`.
+**`sequence-schema-data`** -- 32: `test/sequences/` 19 and `test/schemas/` 13.
+The sequences are `actions.yml`, `_snippets.yml`, seven `start.guest.*` files and
+ten `workload.guest.*` files covering `amazon.linux.2023`,
+`ubuntu.server.24`, `ubuntu.server.26` and `windows.11`, with the ssh variant a
+separate `<name>.ssh.yml` file rather than a switch. `actions.yml` is a
+documentation catalog only: its own header at `:12-16` names the registry that
+the 21 `Register-SequenceAction` calls in
+`test/modules/Test.SequenceHandler.psm1` populate as the source of truth for
+which actions exist, which is why this box has no edge back into
+`runner-modules`. The `extension-areas --> sequence-schema-data` edge is the
+other document class: each of the eight area configs opens with a
+`yaml-language-server` header naming `test/schemas/extension-config.schema.yml`,
+and `test/Test-Config.ps1:915-921` walks every area directory that carries a
+config and validates it against that schema. The 13 schemas are `actions`,
+`extension-config`, `guests.compatibility`, `host.registration`, `lab.vault`,
+`notification.transports`, `orchestration-sequence`, `pools`, `pool-test-sets`,
+`sequence`, `snippets`, `users`, `vault`. Only seven of the thirteen have a
+runtime validator call; the rest are contracts an editor enforces through the
+`yaml-language-server` header on the documents they shape.
 
-Folded together because `test/service/Start-StatusService.ps1` and
-`test/service/Start-ConfigService.ps1` are the two host-resident listeners, and
-the four `Start-*ServiceVM.ps1` scripts differ from them only in that the listener
-runs in a VM. `test/Test-CachingProxyService.ps1` is the operator probe for the
-same set. `test/service/Start-McpServer.ps1` is a third operator-run server and
-the only one that is not a listener: it serves the framework's ten `automation/`
-entry points over MCP on stdio, in the foreground, with no port and no token --
-the transport is the trust model -- shelling each tool out to a child pwsh
-(`:123`, `:133`).
+**`service-scripts`** -- 16: `test/service/README.md`,
+`Move-CachingProxyService.ps1`, `Repair-CachingProxyServiceForwarder.ps1`,
+`Start-CachingProxyServiceVM.ps1`, `Start-ConfigService.ps1`,
+`Start-DownloadAgentServiceVM.ps1`, `Start-McpServer.ps1`,
+`Start-PoolControlServiceVM.ps1`, `Start-StashServiceVM.ps1`,
+`Start-StatusService.ps1`, `Stop-CachingProxyServiceVM.ps1`,
+`Stop-ConfigService.ps1`, `Stop-DownloadAgentServiceVM.ps1`,
+`Stop-PoolControlServiceVM.ps1`, `Stop-StashServiceVM.ps1`,
+`Stop-StatusService.ps1`. Seven start scripts against six stop scripts, plus
+one migration and one repair helper -- `Start-McpServer.ps1` is the one start
+with no stop counterpart. Two members are not VM lifecycle at all:
+`Start-StatusService.ps1` and `Start-ConfigService.ps1` start detached pwsh
+listeners on the hypervisor host itself. `Start-McpServer.ps1` is the harness's
+one out-of-band caller into the deploy engine: an operator-launched stdio MCP
+server with no listener and no token, whose tool table at `:165-183` exposes ten
+`automation/` entry points, each shelled out as a child pwsh at `:133`.
 
-`Test.LabHealth.psm1` belongs here because it probes the long-lived services this
-box is built around: it holds the cycle while a service that WAS answering stops
-answering, and the hold surfaces as the runtime flag `control.lab-hold`, read at
-`Test.Status.psm1:658` beside `control.step-pause` and `control.cycle-pause`. Its
-probe set is derived, never configured -- every area declaring a `healthPort` in
-its `<area>.config.yml` `service:` block joins by existing
-(`Get-LabHealthProbeSet`, `Test.LabHealth.psm1:423-426`), which is five areas
-today: the four service VMs this box starts and stops, plus `pool-aggregator-service`,
-which rides inside the caching-proxy VM. The two host-resident listeners are
-outside it, being no one's extension area.
+**`pool-lab-cli`** -- 28: `test/pool/` 16 and `test/lab/` 12.
+`test/pool/` is 13 scripts (`Add-HostToPool.ps1`, `Convert-ToPoolWorker.ps1`,
+`Get-PoolIntent.ps1`, `Get-PoolStatus.ps1`, `New-Pool.ps1`,
+`Remove-HostFromPool.ps1`, `Remove-Pool.ps1`, `Remove-PoolHost.ps1`,
+`Set-PoolDesiredState.ps1`, `Set-PoolTestSet.ps1`,
+`Set-PoolTestSetDefinition.ps1`, `Sync-PoolDashboardOnProxy.ps1`,
+`Test-PoolIntent.ps1`) plus `README.md` and two example documents,
+`examples/pools.yml` and `examples/guests.compatibility.yml`. `test/lab/` is 10
+scripts (`Clear-LocalLabStorage.ps1`, `Disable-TestAutomation.ps1`,
+`Enable-TestAutomation.ps1`, `Invoke-HostAddressChurn.ps1`, `Lab-Diag.ps1`,
+`New-Lab.ps1`, `New-LocalLabStorage.ps1`, `Remove-OrphanedVMFiles.ps1`,
+`Set-LabToken.ps1`, `Sync-HostConfiguration.ps1`) plus `README.md` and
+`yuruna-churn.sudoers`. `test/pool/examples/pools.yml` is named in the
+repository's `KEEP-PRIVATE.txt` and is stripped from the public mirror.
 
-The service-VM roster is a different derivation from the same manifests:
-`Test.ServiceVm.psm1:76` calls `Get-ExtensionServiceVmRoster`
-(`Test.ExtensionService.psm1:161`), which passes `-WithVMOnly` and so yields one
-row per area that names a `vmName` -- four today. Either way the
-`host-services -> extensions` edge is a call and not a category.
+**`status-ui-check`** -- 13: `test/status/` 10 (`config.html`,
+`diagnostics.html`, `index.html`, `performance.html`, `share-cycle.html`,
+`status-badges.test.js`, `status.json.template`, `yuruna.common.css`,
+`yuruna.common.js`, `yuruna.common.test.js`) and `test/check/` 3 (`README.md`,
+`Test-TesseractOcr.ps1`, `Test-WinRtOcr.ps1`). Only files at the `test/status/`
+root are tracked: one `.gitignore` umbrella rule, `test/status/*/`, removes
+every harness runtime subdirectory beneath it -- `runtime/`, `log/`, `perf/`,
+`extension/`, `captures/`, `ssh/` -- so the live extension configuration and
+every captured artifact are working-tree state, not source. `test/check/` holds
+the two standalone OCR engine probes, which is why it folds with the UI here
+rather than with `runner-modules`: both are things an operator opens or runs
+directly rather than things a cycle imports.
 
-**`extensions`** (2 modules, 8 areas plus the SDK) --
-`test/modules/Test.Extension.psm1` and `Test.ExtensionService.psm1` are the loader
-and the service-block reader; the areas are `test/extension/authentication/`,
-`test/extension/notification/`, `test/extension/caching-proxy-service/`,
-`test/extension/caching-proxy-parser-service/`,
-`test/extension/download-agent-service/`,
-`test/extension/pool-aggregator-service/`,
-`test/extension/pool-control-service/` and `test/extension/stash-service/`. The
-shared Go library `test/extension/extension-sdk/` sits beside them and is not an
-area: `Get-ExtensionAreaName` (`Test.Extension.psm1:274`) admits only a directory
-holding an `<area>.config.yml`. One box because every area obeys the same two-file
-contract -- an `<area>.contract.yml` naming the required verbs and an
-`<area>.config.yml` naming the active providers -- regardless of whether the
-implementation is a PowerShell module, a Go daemon under `server/internal/`
-(`download-agent-service`, `pool-control-service`, `stash-service`) or a flat Go
-module at the area root (`caching-proxy-service`, `pool-aggregator-service`,
-`caching-proxy-parser-service`), whose files a VM seed fetches by name.
-
-`extension-sdk/` is four packages: `beacon/` (self-announce), `labgate/` (the
-write gate), `pool/` (the aggregator read client) and `mcp/`. `mcp/mcp.go` is a
-stdlib-only MCP server pinned to protocol `2025-06-18`, with no resources, no
-prompts and no SSE: a tool wraps a route the daemon already serves, and a tool
-that is not read-only passes that route's own gate before it runs (`mcp.go:365`).
-Five of the eight areas mount `POST /mcp` -- `caching-proxy-service/main.go:210`,
-`pool-aggregator-service/main.go:5801`, and `server/internal/httpsrv/handlers.go`
-in `download-agent-service` (`:65`), `pool-control-service` (`:74`) and
-`stash-service` (`:41`). `caching-proxy-parser-service` does not: it has no gate
-to inherit.
-
-**`pool-lab`** (9 modules) -- `test/modules/Test.PoolAdmin.psm1`,
-`Test.PoolNotifier.psm1`, `Test.PoolPlanner.psm1`, `Test.PoolPush.psm1`,
-`Test.PoolStorage.psm1`, `Test.PoolSync.psm1`, `Test.PoolWorker.psm1`,
-`Test.Lab.psm1`, `Test.LocalLabStorage.psm1`, with the detached workers
-`test/modules/Invoke-PoolStorageDrain.ps1` and
-`test/modules/Invoke-PoolPushForwarder.ps1`. The operator CLIs are the 13 scripts
-in `test/pool/` and the 10 in `test/lab/`, where `Lab-Diag.ps1` is the read-only
-diagnostic beside `Set-LabToken.ps1` on the same lab-token exchange -- it prints
-every step between the six-character code and the recovered token and stores
-nothing. Folded as one box because both
-sets edit the same two things -- the git-backed pool intent store and the two
-network shares -- and `test/lab/` is simply the single-machine case of the pool
-one.
-
-## External Services -- clouds, registries, GitHub, packages, email
+## External Services -- no directory
 
 ```mermaid
-flowchart LR
-    caching-proxy["yuruna caching proxy"]
-    package-origins["package and toolchain origins"]
+flowchart TD
+    cloud-control-planes["cloud control planes"]
+    opentofu-provider-registry["OpenTofu provider registry"]
     container-registries["container registries"]
     github["GitHub"]
-    cloud-apis["cloud provider APIs"]
-    cluster-api["Kubernetes API"]
-    resend-api["Resend email API"]
+    os-image-publishers["OS image publishers"]
+    package-upstreams["package upstreams"]
+    resend-email-api["Resend email API"]
 
-    caching-proxy --> package-origins
-    caching-proxy --> container-registries
-    caching-proxy --> github
-    cloud-apis --> container-registries
-    cloud-apis --> cluster-api
+    cloud-control-planes --> container-registries
 ```
 
-This block owns no directory. The caching proxy is drawn with it because it
-changes what "external" means for three of the six dependencies: it is an
-internal VM, built from
-`host/vmconfig/caching-proxy-service.base.user-data`, that terminates and caches
-almost every byte a guest fetches.
+This is the one block that owns nothing on disk, so the rule that every box is a
+real file or directory cannot apply: each box is an external system, and what is
+verifiable in the tree is the call site that reaches it. Seven boxes, no fold.
+The block is a sink -- no arrow leaves it toward any other block, because nothing
+outside the system calls in. The single internal edge is real: a container
+registry in two of the three cloud roots is created by the cloud control plane,
+`azurerm_container_registry` at `global/resources/azure/registry/registry.tf:3`
+and `aws_ecr_repository` at `global/resources/aws/registry/registry.tf:3`.
 
-What the proxy does *not* stand in front of is narrow: the Resend POST runs in the
-host runner process, and the OCR engines are local binaries. Everything else can
-traverse it, the cloud leg included -- a guest gets `http_proxy` / `https_proxy` in
-`/etc/environment` and in systemd's `DefaultEnvironment`
-(`host/vmconfig/ubuntu.server.base.user-data:71-92`) behind a `no_proxy` list covering loopback,
-the proxy and status-service addresses, RFC1918 and link-local `169.254.0.0/16`
-(`:70`), and squid bumps everything
-(`ssl_bump peek step1` / `ssl_bump bump all`,
-`host/vmconfig/caching-proxy-service.base.user-data:340-341`). So when the deploy
-phases run inside a guest, even `tofu init`'s provider downloads go through the
-proxy by design; the seed pins the four opentofu.org hosts for a full year
-(`:297-301`).
+**`cloud-control-planes`** -- Azure Resource Manager and the AWS APIs, reached
+through the OpenTofu providers the templates declare (`hashicorp/azurerm ~> 4.80`,
+`hashicorp/aws ~> 6.54`) and driven by `tofu plan`
+(`automation/Yuruna.Resource.psm1:253`), `tofu apply` (`:257`, `:261`),
+`tofu output -json` (`:300`) and `tofu destroy`
+(`automation/Yuruna.Clear.psm1:84`). The same box is also reached by CLI:
+`az account show --query id --output tsv` when `ARM_SUBSCRIPTION_ID` is empty
+(`Yuruna.Resource.psm1:219-229`), and `az`, `aws` and `gcloud` from the
+authenticators in `automation/Yuruna.CredentialProvider.psm1`.
 
-OCR is deliberately not a box here. The three engines behind
-`test/modules/Test.OcrEngine.psm1` -- tesseract through `Test.Tesseract.psm1`,
-`Windows.Media.Ocr` through a `powershell.exe` 5.1 child process (`:803`), and
-Apple Vision through a Swift source compiled on first use (`:831`, `:1013`) -- are
-local binaries. Neither module contains a single HTTP call, so they cross no
-network boundary and route through no proxy; their operator probes are the two
-scripts in `test/check/`.
+**`opentofu-provider-registry`** -- where `tofu init` resolves the
+`source = "hashicorp/<name>"` constraints the `versions.tf` files declare. It is
+its own box rather than folded into the clouds because it is reached at a
+different moment, by a different command, with a different failure mode: the
+init step is the only `tofu` call retried on any non-zero exit with no
+predicate at all (`automation/Yuruna.Retry.psm1:307-321`). Downloads are cached
+per project under `<project_root>/.yuruna/tofu-plugin-cache` when the operator
+has not already set `TF_PLUGIN_CACHE_DIR` (`Yuruna.Resource.psm1:354-358`), and
+the resolved versions are pinned by a `.terraform.lock.hcl` that is carried
+across runs by the staging copy at `:141-146` and is never tracked.
 
-**`caching-proxy`** -- squid on 3128 plain and 3129 ssl-bump, an OCI
-pull-through registry on 5000, and the CA that makes interception work. Guests
-are pointed at it by the cloud-init seed above; hosts route image downloads
-through it in `host/modules/Yuruna.HostDownload.psm1`
-(`Get-CacheProxyForHostDownload`, `Invoke-HttpsViaSquidBump`); guests re-anchor
-its CA through `yuruna_ca_selfheal` in `automation/yuruna-retry.sh`.
+**`container-registries`** -- the image origins the component phase pushes to.
+Five are recognized by the ordered, first-match-wins provider registry in
+`automation/Yuruna.CredentialProvider.psm1`: Azure Container Registry
+(`\.azurecr\.io`, `:99`), Amazon ECR
+(`\.dkr\.ecr\.[^.]+\.amazonaws\.com`, `:123`), Google Artifact Registry
+(`-docker\.pkg\.dev`, `:154`), Docker Hub (`^(index\.)?docker\.io`, `:185`) and
+a catch-all `docker-generic` (`:217`). Only two of the five have a matching
+provisioning template under `global/resources/` -- `azure/registry` for
+`azurecr` and `aws/registry` for `ecr`. `gar` is a login-only path to a registry
+created elsewhere, and the shipped `localhost/registry` template publishes
+`{"registryLocation":"localhost:5000"}`
+(`global/resources/localhost/registry/localhost-registry-check.sh:26`), which
+only the catch-all matches.
 
-**`package-origins`** -- the distribution endpoints every install step reaches.
-Distro archives and vendor repositories: the apt and dnf mirrors used by
-`guest/ubuntu.server.24/ubuntu.server.24.update.sh` and
-`guest/amazon.linux.2023/amazon.linux.2023.update.sh`,
-`download.docker.com` and `pkgs.k8s.io` in
-`guest/ubuntu.server.26/ubuntu.server.26.k8s.sh`,
-`apt.postgresql.org` in `guest/ubuntu.server.26/ubuntu.server.26.postgresql.sh`,
-`packages.microsoft.com` in `guest/ubuntu.server.26/ubuntu.server.26.code.sh`,
-Homebrew in `install/macos.utm.sh`, and winget plus PSGallery in
-`install/windows.hyper-v.ps1`. Toolchain publishers are folded into the same box
-because they are the same kind of dependency reached the same way: `dot.net` in
-`guest/ubuntu.server.24/ubuntu.server.24.code.sh`, `get.opentofu.org`,
-`dl.filippo.io` and the Helm install script in
-`guest/ubuntu.server.24/ubuntu.server.24.k8s.sh`,
-`rpm.nodesource.com` in `guest/amazon.linux.2023/amazon.linux.2023.n8n.sh` and
-the nvm installer in `guest/ubuntu.server.26/ubuntu.server.26.n8n.sh`,
-`api.adoptium.net` in `guest/windows.11/windows.11.code.ps1`, and the OpenTofu
-provider registry that `tofu init` reads before any cloud is touched --
-`Invoke-TofuInitWithRetry` (`automation/Yuruna.Resource.psm1:237`, from
-`Yuruna.Retry.psm1:307`) names `registry.opentofu.org` as the 5xx source in its own
-failure text (`:240`), and the requested set across `global/resources` is
-`hashicorp/kubernetes`, `null`, `local` and `random`, plus `azurerm`, `aws`, `tls`
-and `external`.
+**`github`** -- reached three ways, all of them read-only.
+`automation/fetch-and-execute.sh` falls back to
+`https://api.github.com/repos/<repo>/contents/<path>?ref=<ref>` when a token is
+present (`:168`) and to `https://raw.githubusercontent.com/<repo>/<ref>/<path>`
+when it is not (`:170`), both pinned to a commit; the harness pulls the
+framework and the project repository through `Invoke-GitPull`
+(`test/modules/Test.HostGit.psm1:349`) and `Update-ProjectClone` (`:785`). The
+unauthenticated leg warns rather than failing, because
+`raw.githubusercontent.com` can only 404 a private repository -- the warning is
+the diagnosis.
 
-The OS image publishers sit in the same box, and two different fetchers resolve
-them identically so either can do the download: `releases.ubuntu.com` /
-`cdimage.ubuntu.com` (`host/modules/Yuruna.UbuntuImage.psm1:96-103`),
-`cloud-images.ubuntu.com` for the cloud-init disk every Ubuntu guest boots from
-(`host/modules/Yuruna.Image.psm1:837`), `cdn.amazonlinux.com`
-(`host/ubuntu.kvm/guest.amazon.linux.2023/Get-Image.ps1:48`), the Windows 11
-download page and the pinned virtio-win ISO on `fedorapeople.org`
-(`host/ubuntu.kvm/guest.windows.11/Get-Image.ps1:67`, `:178`), and `getutm.app` for
-the UTM guest tools ISO (`host/macos.utm/guest.windows.11/Get-Image.ps1:30`). The
-host modules ask the in-lab download-agent-service first
-(`Yuruna.Image.psm1:903-944`) and fall back to a direct download only when no agent
-answers.
+**`os-image-publishers`** -- the Ubuntu image origins.
+`host/modules/Yuruna.Image.psm1:837` fetches
+`https://cloud-images.ubuntu.com/<codename>/current/<codename>-server-cloudimg-<arch>.img`
+and verifies it against a published checksum file whose GPG signature is checked
+against `host/modules/keys/ubuntu-image-signing-keys.asc`.
+`host/modules/Yuruna.UbuntuImage.psm1:96-103` resolves installer ISOs from
+`releases.ubuntu.com` for amd64 stable and `cdimage.ubuntu.com` for arm64 stable
+and for dailies of both architectures.
 
-Vendor update services belong here too, because the guests reach them on every
-cycle rather than once at install: `winget upgrade --all` and PSWindowsUpdate in
-`guest/windows.11/windows.11.update.ps1:149`, `:161`, `:173`, and `softwareupdate`
-in `guest/macos.26/macos.26.update.sh:129`, `:133`.
+**`package-upstreams`** -- the distribution and vendor endpoints every guest
+install step reaches. `guest/ubuntu.server.26/ubuntu.server.26.k8s.sh:75` fetches
+the Docker signing key from `download.docker.com` and `:134` the Kubernetes key
+from `pkgs.k8s.io`, then adds both as signed apt sources; each family's
+`*.update.sh` installs from its own distribution repositories, and
+`guest/windows.11/windows.11.update.ps1` is the Windows peer. Every one of these
+fetches can be routed through the lab's caching proxy, and every one of them
+still works when no proxy answers -- an empty cache address is a supported
+topology, not a fault.
 
-**`container-registries`** -- the image origins. `docker.io`,
-`registry.k8s.io`, `public.ecr.aws`, `ghcr.io` and `mcr.microsoft.com` are
-mirrored per-registry by the containerd `hosts.toml` written in
-`guest/ubuntu.server.26/ubuntu.server.26.k8s.sh`; the push side is
-`automation/Yuruna.Component.psm1`, which runs the component's `pushCommand`
-after a login command resolved by `automation/Yuruna.Component.Registry.psm1`
-from the provider table in `automation/Yuruna.CredentialProvider.psm1`. The
-inbound edge from `cloud-apis` is real for two of the five providers: the Azure
-and AWS registries in that table are cloud-managed resources this repository
-creates -- `azurerm_container_registry` in
-`global/resources/azure/registry/registry.tf:3` and `aws_ecr_repository` in
-`global/resources/aws/registry/registry.tf:3` -- and both are logged into with
-their cloud CLI. Google Artifact Registry is a login target only
-(`gcloud auth print-access-token | docker login`,
-`automation/Yuruna.CredentialProvider.psm1:160-182`) with no provisioning
-template: `global/resources/` holds exactly `aws`, `azure` and `localhost`.
-
-**`github`** -- three distinct uses, all folded into one box because they hit
-one host: `automation/Yuruna.GitHubSource.psm1` resolves the repository slug and
-ref that `automation/fetch-and-execute.sh` falls back to when the host status
-service is unreachable, using the Contents API with a token or
-`raw.githubusercontent.com` without one;
-`automation/Check-DependencyVersion.ps1` follows the `/releases/latest` redirect
-to compare pins, deliberately never calling the API host; and the framework and
-project repositories themselves are cloned by the guest `update` scripts and by
-`install/ubuntu.kvm.sh` and its two peers.
-
-**`cloud-apis`** -- Azure Resource Manager and the AWS APIs, reached by the
-OpenTofu providers declared in `global/resources/azure/aks-cluster/` and
-`global/resources/aws/eks-cluster/` and driven by `tofu init`, `tofu plan` and
-`tofu apply` in `automation/Yuruna.Resource.psm1`. The same block also reaches
-`az account show` from that module when `ARM_SUBSCRIPTION_ID` is unset, and
-`az`, `aws` and `gcloud` from the authenticators in
-`automation/Yuruna.CredentialProvider.psm1`.
-
-**`cluster-api`** -- the cluster's own API server, which the workload phase
-talks to on every run and which doc 1's "tofu, docker, helm" edge lands on. It is
-reached three ways: the `hashicorp/kubernetes` provider declared across
-`global/resources` (for example `aws/eks-cluster/kubernetes.tf`);
-`kubectl config current-context` / `get-contexts` / `use-context`
-(`automation/Yuruna.Workload.psm1:373-384`); and helm at `:121` (`lint`), `:138`
-(`status`), `:147` (`rollback`), `:156` (`uninstall`) and `:170`
-(`upgrade --install --atomic`). It has an inbound edge from `cloud-apis` because
-a managed cluster's API server is created by the cloud control plane. Chart
-repositories are config-gated rather than hard-coded: no `helm repo add` with a
-literal URL exists in tracked source.
-
-**`resend-api`** -- the transactional email API, the only network dependency of
-the notification path. It is called from exactly one place,
-`test/extension/notification/default.psm1`, with credentials read from the
-transports file whose shape is fixed by
-`test/schemas/notification.transports.schema.yml`.
+**`resend-email-api`** -- `https://api.resend.com/emails`, the transactional
+mail endpoint. Exactly one place in either repository sends to it,
+`test/extension/notification/default.psm1:100`; the only other reference is a
+reachability probe that resolves the name and opens a TCP connection to port 443
+without sending anything (`test/Test-Config.ps1:1905-1921`). It is the only
+outbound network dependency of the failure-alert path, its credentials come from
+the transports document whose shape
+`test/schemas/notification.transports.schema.yml` fixes, and the delivery
+outcome is persisted per cycle so a swallowed HTTP error is still visible
+afterwards.

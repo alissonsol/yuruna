@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.21
+# Version: 2026.08.23
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Yuruna macOS UTM bootstrap installer.
@@ -143,7 +143,7 @@ preflight_system_requirements() {
     return 0
   fi
   warn ''
-  warn '============================================================'
+  warn '========'
   warn '  System does not meet Yuruna TESTED requirements:'
   local i; for i in "${issues[@]}"; do warn "    - $i"; done
   warn ''
@@ -152,7 +152,7 @@ preflight_system_requirements() {
   warn ''
   warn '  Continuing is permitted but UNTESTED; the test harness may'
   warn '  fail in ways the core development team cannot reproduce.'
-  warn '============================================================'
+  warn '========'
   warn ''
   local ans
   read -r -p 'Continue anyway? [y/N]: ' ans
@@ -793,7 +793,7 @@ if [[ -d "$YURUNA_DIR/.git" ]]; then
   if [[ "$remote_basename" == "yurunadev" ]]; then
     if ! GIT_TERMINAL_PROMPT=0 git ls-remote --exit-code "$actual_remote" HEAD >/dev/null 2>&1; then
       warn ""
-      warn "============================================================"
+      warn "========"
       warn "  $actual_remote requires GitHub authentication to pull, and"
       warn "  the current credentials don't grant access (or no credentials"
       warn "  are configured)."
@@ -804,7 +804,7 @@ if [[ -d "$YURUNA_DIR/.git" ]]; then
       warn ""
       warn "  Continuing this run WITHOUT updating $YURUNA_DIR --"
       warn "  existing on-disk content will be used as-is."
-      warn "============================================================"
+      warn "========"
       warn ""
       skip_pull=1
     fi
@@ -1017,7 +1017,7 @@ prefer_newest_binary() {
   if [[ "$best" != "$link" && "$(readlink "$link" 2>/dev/null || true)" != "$best" ]]; then
     if [[ -e "$link" && ! -L "$link" ]]; then
       # A real binary someone put there is not this installer's to delete, and
-      # a timestamped neighbour is a state the operator can walk back from.
+      # a timestamped neighbor is a state the operator can walk back from.
       keep="$link.pre-yuruna.$(date +%Y%m%d-%H%M%S)"
       warn "  $link is a real file rather than a link -- keeping it as $keep"
       sudo mv "$link" "$keep" \
@@ -1254,7 +1254,7 @@ EOF
 # --- REGION: Backup notice
 if [[ -n "$YURUNA_BACKUP_CREATED" ]]; then
   warn ""
-  warn "============================================================"
+  warn "========"
   warn "IMPORTANT: a backup of your previous Yuruna checkout was created"
   warn "  because 'git pull --ff-only' could not advance the local repo."
   warn ""
@@ -1263,14 +1263,14 @@ if [[ -n "$YURUNA_BACKUP_CREATED" ]]; then
   warn "Review the backup for any local edits you want to preserve."
   warn "When you no longer need it, delete it manually:"
   warn "  rm -rf '$YURUNA_BACKUP_CREATED'"
-  warn "============================================================"
+  warn "========"
 fi
 
 # --- REGION: Install summary
 # The last thing printed. Everything above scrolls; this does not.
 if [[ ${#YURUNA_ISSUES[@]} -gt 0 ]]; then
   warn ""
-  warn "============================================================"
+  warn "========"
   warn "INSTALL FINISHED WITH ${#YURUNA_ISSUES[@]} ISSUE(S)"
   warn ""
   for issue in "${YURUNA_ISSUES[@]}"; do
@@ -1280,7 +1280,7 @@ if [[ ${#YURUNA_ISSUES[@]} -gt 0 ]]; then
   warn "The install completed and the machine is usable. Each line above is"
   warn "something that did not happen as intended -- re-running this installer"
   warn "is safe and retries every one of them."
-  warn "============================================================"
+  warn "========"
 else
   log ""
   log "Install finished with no issues."

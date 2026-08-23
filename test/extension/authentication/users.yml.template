@@ -87,7 +87,7 @@ users:
     vaultKey:           ""
     localOsPasswordRef: ""
 
-  # Lab shared bearer token. NOT a login user: this entry holds the shared secret
+  # Internal authentication key. NOT a login user: this entry holds the shared secret
   # that gates the pool-aggregator-service's POST /ingest write route and keys the
   # control proofs for the status-service /control/* routes. Leave vaultKey EMPTY
   # (default) to keep the host un-enrolled -- push stays disabled and control stays
@@ -96,9 +96,9 @@ users:
   # stores the token in one step. Building the caching-proxy service mints one
   # automatically when none exists. The vault never auto-generates for a populated
   # vaultKey, so the token stays lab-owned; every pool host and the proxy must hold
-  # the SAME value. Hosts holding the legacy 'pool-auth-token' entry keep working:
-  # every reader falls back to it when this one is empty.
-  lab-auth-token:
+  # the SAME value. Hosts holding a legacy 'lab-auth-token' or 'pool-auth-token' entry
+  # keep working: every reader falls back to those when this one is empty.
+  internal-auth-key:
     localOsUser: ""
     corporate:   { domain: "", sam: "", upn: "" }
     vaultKey:           ""

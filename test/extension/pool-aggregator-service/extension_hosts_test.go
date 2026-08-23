@@ -74,7 +74,7 @@ func TestExtensionMetricFromActiveExtensions(t *testing.T) {
 	seedExtensionHealth(s, hid, stashArea, "http://10.0.0.5")
 
 	rec := httptest.NewRecorder()
-	s.handleMetrics(rec, httptest.NewRequest("GET", "/metrics", nil))
+	s.handleMetrics(rec, metricsRequest())
 	body := rec.Body.String()
 	// baseUrl, target and goPath ride as labels (string columns carry no field
 	// labels); the dashboard hides all three and deep-links Extension -> goPath,
@@ -95,7 +95,7 @@ func TestExtensionMetricAbsentWhenNoActiveExtension(t *testing.T) {
 	s.hosts[hid] = &hostView{HostId: hid, LastSeenUnixMs: time.Now().UnixMilli()}
 
 	rec := httptest.NewRecorder()
-	s.handleMetrics(rec, httptest.NewRequest("GET", "/metrics", nil))
+	s.handleMetrics(rec, metricsRequest())
 	if strings.Contains(rec.Body.String(), "yuruna_pool_host_extension{") {
 		t.Errorf("yuruna_pool_host_extension must be absent when no host runs an extension")
 	}

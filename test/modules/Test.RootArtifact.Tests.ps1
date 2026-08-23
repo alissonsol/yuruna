@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42662cde-638a-419a-a7c9-d2c8c08c9b0d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -106,7 +106,7 @@ Describe 'Test-RootArtifactSudoAnswered (a refusal is not a "no")' {
             # every refusal read as "the path is absent" unless this is known.
             'sudo: interactive authentication is required',
             'Sorry, user paulohp may not run sudo on Mac-2.')) {
-            Assert-False (Test-RootArtifactSudoAnswered -ExitCode 1 -StdErr $text) "refusal recognised: $text"
+            Assert-False (Test-RootArtifactSudoAnswered -ExitCode 1 -StdErr $text) "refusal recognized: $text"
         }
     }
     It 'does not treat a timeout or a failed start as an answer' {

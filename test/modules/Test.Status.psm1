@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42994da6-e051-4570-a609-afe6e87fdcf8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -137,6 +137,10 @@ function Reset-StatusDocumentForCycleStart {
         overallStatus  = "running"
         stepPaused     = $false
         cyclePaused    = $false
+        # When each hold was armed, so a consumer can report its age. Refreshed
+        # from the flag files on every status write, alongside the flags.
+        stepPausedSinceUtc  = ''
+        cyclePausedSinceUtc = ''
         # Machine-initiated hold, distinct from the two operator pauses above:
         # the gate raises it when a lab service the host had been reaching stops
         # answering, and clears it when the service returns. Kept separate so
@@ -309,6 +313,10 @@ function Initialize-StatusDocument {
         overallStatus  = "running"
         stepPaused     = $false
         cyclePaused    = $false
+        # When each hold was armed, so a consumer can report its age. Refreshed
+        # from the flag files on every status write, alongside the flags.
+        stepPausedSinceUtc  = ''
+        cyclePausedSinceUtc = ''
         # Machine-initiated hold, distinct from the two operator pauses above:
         # the gate raises it when a lab service the host had been reaching stops
         # answering, and clears it when the service returns. Kept separate so
@@ -618,6 +626,31 @@ function Complete-Run {
     Write-StatusJson
 }
 
+function Get-PauseFlagStamp {
+    <#
+    .SYNOPSIS
+        The ISO-8601 moment stamped into a pause flag file, or '' when absent.
+    .DESCRIPTION
+        The status service writes the request time into the flag file it creates.
+        Reading it back is what lets a consumer report a hold's age instead of
+        only its existence. Absent file, unreadable file and empty file all
+        answer '': the flag's presence is the truth about whether a hold is on,
+        and this only ever adds when it started.
+    .OUTPUTS
+        [string]
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$Path)
+    if (-not (Test-Path $Path)) { return '' }
+    try {
+        return ([string](Get-Content -LiteralPath $Path -Raw -ErrorAction Stop)).Trim()
+    } catch {
+        Write-Verbose "pause flag stamp unreadable ($Path): $($_.Exception.Message)"
+        return ''
+    }
+}
+
 <#
 .SYNOPSIS
     Atomically writes the in-memory document to status.json.
@@ -628,7 +661,11 @@ function Complete-Run {
     source of truth for the two UI Pause/Continue buttons: the status
     server creates/removes them and the runner + Invoke-Sequence poll
     them. Mirroring the flags here keeps the parent's periodic status
-    writes from clobbering the server-written values.
+    writes from clobbering the server-written values. The moment each
+    flag was armed is mirrored alongside it (stepPausedSinceUtc /
+    cyclePausedSinceUtc), so a consumer can report how long a hold has
+    run -- which for a step-pause is the reading that matters, since the
+    guest keeps running underneath one.
 
     Reads the runtime dir directly from $env:YURUNA_RUNTIME_DIR rather
     than deriving it from the status.json path (Split-Path -Parent
@@ -649,6 +686,13 @@ function Write-StatusJson {
     $cyclePauseFlag = Join-Path $runtimeDir 'control.cycle-pause'
     $script:Doc.stepPaused  = (Test-Path $stepPauseFlag)
     $script:Doc.cyclePaused = (Test-Path $cyclePauseFlag)
+    # The flag files carry the moment the operator armed them, so the UI can say
+    # how long a hold has run rather than only that one is on. A step-pause holds
+    # the runner while the guest keeps running, which makes the age of that hold
+    # the operator's most useful reading -- a guest can print, and scroll away,
+    # a prompt nobody is there to answer.
+    $script:Doc.stepPausedSinceUtc  = Get-PauseFlagStamp -Path $stepPauseFlag
+    $script:Doc.cyclePausedSinceUtc = Get-PauseFlagStamp -Path $cyclePauseFlag
     # The lab hold mirrors the same way and for the same reason: the gate writes
     # the flag from the cycle process while this document is flushed from both
     # the runner and the status service, so re-reading the file here is what
@@ -1168,4 +1212,4 @@ function Set-NestedRunStatus {
     } finally { Exit-StatusLock -Lock $lock }
 }
 
-Export-ModuleMember -Function Reset-StatusDocumentForCycleStart, Initialize-StatusDocument, Set-GuestVMName, Set-GuestStatus, Set-GuestQuarantine, Set-StepStatus, Set-LastFailureSummary, Set-GuestProvenance, Get-GuestProvenance, Set-GuestTopLevel, Set-GuestFailureArtifact, Set-CycleFolderUrl, Get-CycleNumber, Complete-Run, Write-StatusJson, Get-LastGetImageTime, Set-LastGetImageTime, Get-CycleContext, Publish-CycleContext, Clear-CycleContext, Enter-StatusLock, Exit-StatusLock, Read-StatusDocFromDisk, Register-NestedRunNode, Set-NestedRunStep, Set-NestedRunStatus
+Export-ModuleMember -Function Get-PauseFlagStamp, Reset-StatusDocumentForCycleStart, Initialize-StatusDocument, Set-GuestVMName, Set-GuestStatus, Set-GuestQuarantine, Set-StepStatus, Set-LastFailureSummary, Set-GuestProvenance, Get-GuestProvenance, Set-GuestTopLevel, Set-GuestFailureArtifact, Set-CycleFolderUrl, Get-CycleNumber, Complete-Run, Write-StatusJson, Get-LastGetImageTime, Set-LastGetImageTime, Get-CycleContext, Publish-CycleContext, Clear-CycleContext, Enter-StatusLock, Exit-StatusLock, Read-StatusDocFromDisk, Register-NestedRunNode, Set-NestedRunStep, Set-NestedRunStatus

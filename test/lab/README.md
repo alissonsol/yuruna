@@ -41,7 +41,7 @@ stop and unregister the test VMs *and* sweep, use
 | `New-Lab.ps1` | create a lab: its storage layout, config and identity |
 | `New-LocalLabStorage.ps1` | publish this machine's own pool/stash SMB shares and the accounts scoped to them |
 | `Clear-LocalLabStorage.ps1` | withdraw those shares and accounts (leaves the data) |
-| `Set-LabToken.ps1` | enroll this host: redeem the dashboard's 6-character Lab token for the shared lab-auth-token |
+| `Set-LabToken.ps1` | enroll this host: redeem the dashboard's 6-character Lab token for the internal authentication key |
 | `Lab-Diag.ps1` | show where a Lab token exchange stops, step by step, when `Set-LabToken.ps1` fails |
 
 ```
@@ -53,7 +53,7 @@ is itself invoked by `install/setup.ps1`. `Clear-LocalLabStorage.ps1` is
 run for you by [`../pool/Convert-ToPoolWorker.ps1`](../pool/Convert-ToPoolWorker.ps1)
 when a standalone machine joins a lab.
 
-Walkthrough: [Lab operator](../../docs/lab-operator.md).
+Walk-through: [Lab operator](../../docs/lab-operator.md).
 
 ## Path base
 

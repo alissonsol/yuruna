@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 4271255a-d0dd-4c45-8932-15f35ae51cf4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -358,7 +358,7 @@ if ($WhatIfPreference) {
         Write-Information "  admin   : $(if ($Admin) { 'yes -- will join the built-in Administrators group' } else { 'no' })"
         Write-Information ""
         if (-not (Confirm-Step "Relaunch this script elevated")) {
-            Write-Information "Cancelled. Nothing was changed."
+            Write-Information "Canceled. Nothing was changed."
             return
         }
         Invoke-SelfElevation -WantsPassword $WantsPassword
@@ -383,7 +383,7 @@ if ($WhatIfPreference) {
     Write-Information "password for the new account."
     Write-Information ""
     if (-not (Confirm-Step "Proceed")) {
-        Write-Information "Cancelled. Nothing was changed."
+        Write-Information "Canceled. Nothing was changed."
         return
     }
     & sudo -v
@@ -973,9 +973,9 @@ $banner  = if ($WhatIfPreference) { 'Local test user WOULD BE created' }
            else                    { 'Local test user created' }
 $heading = if ($WhatIfPreference) { 'What a real run would leave behind:' } else { 'Action items + state:' }
 Write-Information ""
-Write-Information "=========================================================="
+Write-Information "========"
 Write-Information "  ${banner}: $AccountName ($FullName)"
-Write-Information "=========================================================="
+Write-Information "========"
 Write-Information ""
 Write-Information $heading
 Write-Information ""

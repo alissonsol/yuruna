@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 421d8999-cae4-4164-90cd-fd5cc6a6e28f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,7 +24,7 @@
     The *.test.js files carry real assertions about the browser assets, so the
     thing that can quietly lose them is discovery: a pathspec that stops
     matching a subdirectory drops those assertions from the gate while the
-    summary still reads green. The four tracked files are therefore named
+    summary still reads green. The tracked files are therefore named
     literally here rather than derived, so this suite disagrees with the runner
     when the runner stops seeing one.
 
@@ -55,6 +55,7 @@ $script:Runner   = Join-Path $script:RepoRoot 'tools' | Join-Path -ChildPath 'In
 $script:Expected = @(
     'test/extension/stash-service/server/internal/httpsrv/web/assets/common.test.js',
     'test/extension/stash-service/server/internal/httpsrv/web/assets/index.test.js',
+    'test/extension/ui-pages.test.js',
     'test/status/status-badges.test.js',
     'test/status/yuruna.common.test.js'
 )

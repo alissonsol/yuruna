@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42a6d0b4-8e17-4c92-b5a3-6f019d3ce7a2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -178,7 +178,7 @@ Describe 'the reference-to-host conversion, after migration' {
     }
 
     It 'still clears a tier the reference genuinely does not configure' {
-        # The clearing branch is correct behaviour -- the reference is the source
+        # The clearing branch is correct behavior -- the reference is the source
         # of truth. What was wrong was reaching it because of a spelling.
         $cfg = '{ "networkStorage": { "poolNetworkPath": "//p/q", "poolNetworkUser": "u", "poolLocalPath": "/mnt/p" } }' |
             ConvertFrom-Json -AsHashtable

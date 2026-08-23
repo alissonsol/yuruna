@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.08.21
+  Version: 2026.08.23
   --- REGION: https://yuruna.link/definition#defining-the-status-page-browser-baseline
   --- REGION: https://yuruna.link/definition#defining-the-status-page-header-anatomy
   --- REGION: https://yuruna.link/definition#defining-the-status-page-mobile-and-dark-mode-hardening
@@ -26,7 +26,7 @@
   --fg-faint:     #6b7280;
   --border:       #e5e7eb;
   --border-soft:  #f3f4f6;
-  --border-input: #d1d5db;
+  --border-input: #6b7280;
   /* Translucent-white overlays for affordances hosted ON the status banner
      (e.g. performance.html #perf-recalc). They ride whatever saturated banner color
      is behind, so they stay theme-neutral -- one definition keeps banner
@@ -35,11 +35,16 @@
   --banner-overlay-hover-bg: rgba(255,255,255,.3);
   --banner-overlay-border:   rgba(255,255,255,.32);
   --pass-bg:      #dcfce7;
-  --pass-fg:      #16a34a;
+  /* Badge TEXT, and only that. The banner used to paint its fill from this
+     same value, which is why it could not be darkened: a colour tuned to read
+     AS text on a pastel chip is too light to sit UNDER white text. The two
+     roles now have separate tokens (--banner-*-bg below), so each can satisfy
+     its own contrast floor. */
+  --pass-fg:      #15803d;
   --warn-bg:      #fef3c7;
   --warn-fg:      #b45309;
   --fail-bg:      #fee2e2;
-  --fail-fg:      #dc2626;
+  --fail-fg:      #b91c1c;
   --fail-soft-bg: #fef2f2;
   --fail-soft-border: #fecaca;
   --info-bg:      #eff6ff;
@@ -47,10 +52,17 @@
   --info-border:  #bfdbfe;
   --info-strong:  #2563eb;
   --pending-bg:   #fef3c7;
-  --pending-fg:   #ca8a04;
+  --pending-fg:   #854d0e;
+  --badge-muted-fg: #5b6472;
   --paused-strong-bg: #ca8a04;
   --paused-strong-border: #a16207;
   --stopped-bg:   #374151;
+  --banner-idle-bg:    #6b7280;
+  --banner-running-bg: #2563eb;
+  --banner-pass-bg:    #15803d;
+  --banner-fail-bg:    #dc2626;
+  --banner-paused-bg:  #a16207;
+  --banner-stopped-bg: #374151;
   --running-bg:   #dbeafe;
   --running-fg:   #1d4ed8;
   --skipped-bg:   #fef9c3;
@@ -64,6 +76,7 @@
   --chrome-raised: #1f2937;
   --chrome-hover: #374151;
   --chrome-input-bg: #0b1220;
+  --chrome-control-edge: #8b93a1;
   --section-link: #2563eb;
   --link:         #0366d6;
   --link-strong:  #1e40af;
@@ -72,10 +85,11 @@
   --meta-btn-border: #d1d5db;
   --meta-btn-hover-bg: #e5e7eb;
   --meta-btn-active-bg: #fbbf24;
+  --meta-btn-active-fg: #111827;
   --meta-btn-active-border: #b45309;
-  --destructive-bg: #f97316;
-  --destructive-border: #ea580c;
-  --destructive-hover-bg: #ea580c;
+  --destructive-bg: #c2410c;
+  --destructive-border: #9a3412;
+  --destructive-hover-bg: #9a3412;
   --destructive-disabled-bg: #fdba74;
   --primary-bg:   #2563eb;
   --primary-border: #1d4ed8;
@@ -106,7 +120,7 @@
     --fg-faint:     #7c8899;
     --border:       #1f2937;
     --border-soft:  #111827;
-    --border-input: #334155;
+    --border-input: #64748b;
     --pass-bg:      #14532d;
     --pass-fg:      #4ade80;
     --warn-bg:      #78350f;
@@ -127,9 +141,16 @@
     --info-strong:  #3b82f6;
     --pending-bg:   #78350f;
     --pending-fg:   #fcd34d;
+    --badge-muted-fg: var(--fg-muted);
     --paused-strong-bg: #b45309;
     --paused-strong-border: #92400e;
     --stopped-bg:   #1f2937;
+    --banner-idle-bg:    #4b5563;
+    --banner-running-bg: #1d4ed8;
+    --banner-pass-bg:    #15803d;
+    --banner-fail-bg:    #b91c1c;
+    --banner-paused-bg:  #a16207;
+    --banner-stopped-bg: #374151;
     --running-bg:   #1e3a8a;
     --running-fg:   #93c5fd;
     --skipped-bg:   #422006;
@@ -151,6 +172,7 @@
     --meta-btn-border: #334155;
     --meta-btn-hover-bg: #334155;
     --meta-btn-active-bg: #b45309;
+    --meta-btn-active-fg: #ffffff;
     --meta-btn-active-border: #fcd34d;
     --destructive-bg: #c2410c;
     --destructive-border: #9a3412;
@@ -177,7 +199,14 @@
    performance.html's 560 px chart rows. Without this pin those paint at a
    different size from the rest of the page. Prefixed form is the one Safari
    implements; the standard form covers the others. */
-html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
+       /* The footer bar is fixed at the bottom, so the browser's own
+          scroll-into-view can land a freshly focused control underneath it --
+          entirely hidden, for a one-line link inside a history row. Padding on
+          <main> reserves space past the LAST element only; scroll-padding is
+          what the focus scroll itself honors. */
+       scroll-padding-bottom: 3.5rem;
+       scroll-padding-bottom: calc(3.5rem + env(safe-area-inset-bottom)); }
 body {
   /* Same family list as the service UIs, so the chrome's `font: inherit`
      controls -- the menu button above all -- resolve to one face everywhere. */
@@ -295,7 +324,7 @@ header.app .btn:not(.primary):hover { background: var(--chrome-raised); }
 textarea#footer-ip-list {
   flex: 1 1 auto; min-width: 0;
   font-family: var(--mono); font-size: .6875rem;
-  color: var(--chrome-muted); background: var(--chrome-input-bg); border: 1px solid var(--chrome-line);
+  color: var(--chrome-muted); background: var(--chrome-input-bg); border: 1px solid var(--chrome-control-edge);
   border-radius: 3px; padding: .15rem .35rem;
   resize: none; overflow: auto; white-space: pre;
   line-height: 1.25; vertical-align: middle;
@@ -343,6 +372,17 @@ footer.app a { color: var(--chrome-muted); }
   #footer-ips { flex-basis: 100%; max-width: 100%; }
   body.has-footer-bar main { padding-bottom: 4.5rem; padding-bottom: calc(4.5rem + env(safe-area-inset-bottom)); }
 }
+/* Footer controls that read as text. Both are real <button>s: the refresh was
+   an <a href="#"> that never navigated -- announced as a link, behaving as a
+   button, and silent to Space -- and the pause needs a pressed state, which
+   only a button has. */
+#footer-bar .linkish {
+  appearance: none; -webkit-appearance: none;
+  background: none; border: 0; padding: 0; margin: 0;
+  font: inherit; color: var(--chrome-muted);
+  text-decoration: underline; cursor: pointer;
+}
+#footer-bar .linkish[aria-pressed="true"] { color: var(--chrome-fg); font-weight: 600; }
 /* === end page chrome ====================================================== */
 
 /* The status pages put a two-line host identity where a service UI puts one
@@ -398,12 +438,16 @@ button {
   transition: background .3s;
 }
 #banner > * + * { margin-left: .625rem; }
-#banner.idle    { background: var(--fg-muted); color: var(--fg-header); }
-#banner.running { background: var(--info-strong); color: var(--fg-header); }
-#banner.pass    { background: var(--pass-fg); color: var(--fg-header); }
-#banner.fail    { background: var(--fail-fg); color: var(--fg-header); }
-#banner.paused  { background: var(--paused-strong-bg); color: var(--fg-header); }
-#banner.stopped { background: var(--stopped-bg); color: var(--fg-header); }
+/* --fg-header is white and stays white here, in both colour schemes, which is
+   only safe because every fill below is a banner-specific token dark enough to
+   carry it. Pointing these at the badge-text tokens instead -- which is what
+   they used to do -- put white on the dark scheme's pale #fecaca. */
+#banner.idle    { background: var(--banner-idle-bg); color: var(--fg-header); }
+#banner.running { background: var(--banner-running-bg); color: var(--fg-header); }
+#banner.pass    { background: var(--banner-pass-bg); color: var(--fg-header); }
+#banner.fail    { background: var(--banner-fail-bg); color: var(--fg-header); }
+#banner.paused  { background: var(--banner-paused-bg); color: var(--fg-header); }
+#banner.stopped { background: var(--banner-stopped-bg); color: var(--fg-header); }
 #banner .dot {
   width: .625rem; height: .625rem; border-radius: 50%;
   background: currentColor; display: inline-block; flex-shrink: 0;
@@ -415,8 +459,8 @@ button {
    yuruna.common.js emits) so a page that reuses a status word for an
    unrelated element -- e.g. performance.html's .cycle-dur.fail duration cell --
    is not tinted. */
-.badge.idle,    .step-pill.idle,    .idle-bg    { background: var(--bg-hover); color: var(--fg-muted); }
-.badge.pending, .step-pill.pending, .pending-bg { background: var(--bg-hover); color: var(--fg-muted); }
+.badge.idle,    .step-pill.idle,    .idle-bg    { background: var(--bg-hover); color: var(--badge-muted-fg); }
+.badge.pending, .step-pill.pending, .pending-bg { background: var(--bg-hover); color: var(--badge-muted-fg); }
 .badge.running, .step-pill.running, .running-bg { background: var(--running-bg); color: var(--running-fg); }
 .badge.pass,    .step-pill.pass,    .pass-bg    { background: var(--pass-bg); color: var(--pass-fg); }
 .badge.fail,    .step-pill.fail,    .fail-bg    { background: var(--fail-bg); color: var(--fail-fg); }
@@ -470,8 +514,15 @@ button {
     grid-template-columns: 1fr;
     grid-row-gap: .625rem; row-gap: .625rem;
   }
+  /* min-width:0 is not cosmetic here. A grid item's min-width defaults to
+     `auto`, which resolves to its MIN-CONTENT width -- so a track that is
+     nominally 1fr silently refuses to shrink below the longest unbreakable
+     token inside it, and the overflow escapes to the document rather than
+     being clipped by anything. On a 320px viewport that turned the whole page
+     into a two-dimensional scroll. The cards themselves have no minimum worth
+     preserving: their content wraps. */
   #sequence-list > .sequence-card,
-  #sequence-list > .guest-card { margin-bottom: 0; }
+  #sequence-list > .guest-card { margin-bottom: 0; min-width: 0; }
 }
 
 /* SVG perf charts: scale with the container instead of pinning to a
@@ -490,6 +541,18 @@ svg.cycle-flame { width: 100%; height: auto; max-width: 100%; }
    label over a soft underline. `.with-controls` lays the heading row
    out as a flex container so a CTA / button can sit at the right
    margin and tighten the underline space to taste. */
+/* Visually hidden, still in the accessibility tree. clip-path rather than
+   display:none or visibility:hidden, which would take the text out of the tree
+   along with the pixels -- the opposite of what a heading like this is for. */
+.sr-only {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+  overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0;
+}
+
+/* The section title's box carries the type treatment, so the heading inside it
+   inherits rather than bringing the user-agent's own size and margins. */
+.section-title h2 { font: inherit; letter-spacing: inherit; color: inherit; margin: 0; }
+
 .section-title {
   font-size: .6875rem; font-weight: 700; text-transform: uppercase;
   letter-spacing: .07em; color: var(--fg-muted);
@@ -523,9 +586,15 @@ svg.cycle-flame { width: 100%; height: auto; max-width: 100%; }
 }
 .meta-btn:hover:not([disabled]) { background: var(--meta-btn-hover-bg); }
 .meta-btn[disabled] { cursor: default; opacity: .45; }
+/* The armed state inverts the button: an amber fill in light, a darker amber
+   in dark. --meta-btn-fg is the colour for the RESTING fill and follows the
+   theme in the opposite direction, so on the dark theme's #b45309 it lands at
+   4.06:1 -- the same one-token-two-roles shape as the status banner. The armed
+   state gets its own foreground, and the fill is dark enough for white in both
+   schemes. */
 .meta-btn.paused-active,
 .meta-btn.paused-active:hover:not([disabled]) {
-  background: var(--meta-btn-active-bg); color: var(--meta-btn-fg);
+  background: var(--meta-btn-active-bg); color: var(--meta-btn-active-fg);
   border-color: var(--meta-btn-active-border);
 }
 

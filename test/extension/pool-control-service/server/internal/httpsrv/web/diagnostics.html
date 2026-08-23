@@ -37,9 +37,9 @@
   <main>
     <h1>Service diagnostics</h1>
     <p class="muted">Every dependency a UI request touches, probed in the order a request touches it. A failing check names what to fix in the guest.</p>
-    <div id="notice" class="notice"></div>
+    <div id="notice" role="alert" class="notice"></div>
     <div class="row"><button id="refresh">Re-run checks</button></div>
-    <div id="summary"></div>
+    <div id="summary" role="status"></div>
     <table>
       <thead>
         <tr><th>Check</th><th>Result</th><th>Detail</th><th>What to do</th></tr>
@@ -69,10 +69,13 @@
     <pre id="health" class="detail muted">(persistence disabled)</pre>
   </main>
   <footer id="footer-bar">
-    <span id="footer-ips"><span class="label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-label="Server IP addresses">--</textarea></span>
+    <span id="footer-ips"><span class="label" id="footer-ips-label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-labelledby="footer-ips-label">--</textarea></span>
     <span>Loaded: <span id="last-loaded">--</span><span id="footer-busy" aria-hidden="true" hidden></span></span>
-    <span><a id="footer-refresh" href="#">Refresh</a>: <span id="countdown">60</span>s</span>
+    <span><button type="button" id="footer-refresh" class="linkish">Refresh</button>: <span id="countdown">60</span>s <button type="button" id="footer-pause" class="linkish" aria-pressed="false">Pause</button></span>
   </footer>
+  <!-- The shared runtime first: it installs the baseline shims (fetch, KeyboardEvent.key)
+       and defines Y, which every script below extends rather than rebuilds. -->
+  <script src="/assets/yuruna.core.js"></script>
   <script src="/assets/common.js"></script>
   <script src="/assets/diagnostics.js"></script>
 </body>

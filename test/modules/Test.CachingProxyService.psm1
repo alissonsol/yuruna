@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 422ef01b-468d-4c38-ab4c-8337b8a3ccd5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -994,7 +994,7 @@ function Wait-YurunaAggregatorReady {
     while ($true) {
         # Resolved every round, not once: before the aggregator answers this is ''
         # by design, and the whole point of waiting is that it stops being ''.
-        # Only a SUCCESSFUL resolution is memoised, so re-asking is not defeated
+        # Only a SUCCESSFUL resolution is memoized, so re-asking is not defeated
         # by a cached failure.
         $baseUrl = if ($ProxyAddress) {
             $urlHost = if (Get-Command Format-IpUrlHost -ErrorAction SilentlyContinue) { Format-IpUrlHost $ProxyAddress } else { $ProxyAddress }

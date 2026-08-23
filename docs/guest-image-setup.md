@@ -370,11 +370,12 @@ When a `guest.caching-proxy-service` VM is running on any host, pass its IP via
 `-CachingProxyServiceUrl` to `New-VM.ps1` for supported guests. Ubuntu Server
 guests (24.04, 26.04) accept the parameter and cloud-init / autoinstall
 points apt at it for the install, much faster than hitting upstream
-mirrors on every rebuild. Amazon Linux 2023 guests do
-**not** support the caching-proxy service -- their `New-VM.ps1` declares no
-`-CachingProxyServiceUrl` parameter because templating a dnf proxy into
-cloud-init proved unreliable. See the per-guest README files for
-feature availability, and
+mirrors on every rebuild. Amazon Linux 2023 guests take no
+`-CachingProxyServiceUrl` parameter, because templating a dnf proxy into
+cloud-init proved unreliable on a guest that boots a prebuilt cloud image.
+They still use the cache: `amazon.linux.2023.update.sh` derives its address
+at run time and points dnf at it once a probe answers. See the per-guest
+README files for feature availability, and
 [`docs/caching.md`](caching.md).
 
 ## Shared extension-service base image
@@ -389,7 +390,7 @@ nominal size is deliberately **not** baked into the shared artifact (see
 
 It is deliberately **not** the `guest.ubuntu.server.26` image. That one is the
 live-server *installer* ISO driven by subiquity autoinstall, while these services
-boot a pre-built cloud rootfs directly with no install pass.
+boot a prebuilt cloud rootfs directly with no install pass.
 
 The release is Ubuntu 26.04 LTS (Resolute Raccoon). A current LTS keeps these
 long-lived service VMs inside the supported-LTS window, so the
@@ -554,6 +555,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.21
+Last review: 2026.08.23
 
 Back to [Yuruna](../README.md)

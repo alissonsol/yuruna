@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 428d5583-549b-428b-9150-dfe8fe3266a4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -80,6 +80,18 @@ function Initialize-SequenceFailureStateStore {
     # record, and the flood is the one whose owner is the guest rather than the
     # capture path.
     $Store['WaitForTextConsoleFlood'] = $null
+    # Longest run, in seconds, that the console CONTENT stayed unchanged during
+    # the wait. Separates the two screens the flood detail alone cannot: one
+    # scrolling a repeating line, and one frozen on text that scrolled past
+    # already -- the second is a guest parked on something, and the wait it
+    # failed was never going to end on its own.
+    $Store['WaitForTextConsoleStaticSeconds'] = 0
+    # Set by the sequence-start / per-step pause gate when an operator hold is
+    # released: @{ releasedAtUtc; heldSeconds; label; pauseScope }. The gate holds
+    # the runner while the guest keeps running, so a hold is part of the cause of
+    # whatever the next step finds on screen, and a record that omits it sends the
+    # reader looking for a guest fault that is not there.
+    $Store['LastPauseRelease'] = $null
     # Set by the ssh verbs when host-side discovery never produced an address
     # and the bare VM name was dialed as the last route left. The verb registry
     # classifies those verbs by their COMMON failure -- a guest command that
@@ -193,6 +205,16 @@ function New-SequenceFailureRecord {
     [string[]]$patternsSought = @($fail.WaitForTextPatternsSought)
     [string[]]$freshWindowNearMiss = @($fail.WaitForTextFreshWindowNearMiss)
     $consoleFlood = if ($fail.WaitForTextConsoleFlood) { [string]$fail.WaitForTextConsoleFlood } else { '' }
+    $consoleStaticSeconds = if ($fail.WaitForTextConsoleStaticSeconds) { [int]$fail.WaitForTextConsoleStaticSeconds } else { 0 }
+    # 0 / '' rather than $null when there was no hold, matching consoleFlood: the
+    # fields are always present, so a consumer never has to tell "not paused" from
+    # "this record predates the gate reporting it".
+    $pauseHeldSeconds  = 0
+    $pauseReleasedAtUtc = ''
+    if ($fail.LastPauseRelease) {
+        $pauseHeldSeconds   = [int]$fail.LastPauseRelease.heldSeconds
+        $pauseReleasedAtUtc = [string]$fail.LastPauseRelease.releasedAtUtc
+    }
     $stepNumber = if ($fail.LastFailedStepNumber) { [int]$fail.LastFailedStepNumber } else { 0 }
     if ($Reason -eq 'crash') {
         $label = if ($fail.LastFailureLabel) { [string]$fail.LastFailureLabel } else { "engine crash: $($CrashError.Exception.Message)" }
@@ -403,6 +425,13 @@ function New-SequenceFailureRecord {
                     # always present and a consumer never has to tell "not
                     # flooded" from "this record predates the check".
                     consoleFlood       = $consoleFlood
+                    consoleStaticSeconds = $consoleStaticSeconds
+                    # The operator hold that ended before this step ran, if any.
+                    # A guest keeps running through a hold, so a prompt printed
+                    # during one is gone by the time the run resumes -- which
+                    # reads on screen exactly like a prompt that never printed.
+                    pauseBeforeStepSeconds = $pauseHeldSeconds
+                    pauseReleasedAtUtc     = $pauseReleasedAtUtc
                 }
             }
         }

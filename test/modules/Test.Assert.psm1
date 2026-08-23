@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 423d6743-1531-4ed7-b6b3-7d5bf06035c0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,7 +24,7 @@
     296 hand-rolled Assert-* definitions across 151 of 182 suites is the tax on
     every behavioral test the harness wants next, and it compounds: the count
     was 234 when it was first measured, because each new suite copies the
-    helpers from a neighbour. This module is the one place they live.
+    helpers from a neighbor. This module is the one place they live.
 
     WHY Assert-Equal AND Assert-StringEqual ARE SEPARATE EXPORTS. The suites had
     drifted into three incompatible semantics for one name:

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42d2490f-e2d9-4303-a287-fa13182fb811
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -130,7 +130,7 @@ Describe 'the Host ID a dashboard panel shows' {
         Assert-True ($null -ne $t) -Because 'the timeline renames its series to a readable row label'
         $full = '426d17ef0b88426b922180dad1a9e921'
         $shown = [regex]::Replace($full, $t.options.regex, ($t.options.renamePattern -replace '\$(\d)', '$$$1'))
-        Assert-Equal -Expected '426d17ef' -Actual $shown -Because 'a timeline row is labelled with the short id'
+        Assert-Equal -Expected '426d17ef' -Actual $shown -Because 'a timeline row is labeled with the short id'
     }
 
     It 'reveals the full GUID-formatted id from the cell menu' {

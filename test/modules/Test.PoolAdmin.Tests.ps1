@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42a44cb3-b163-4c40-bb54-44dd8119924a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -186,7 +186,7 @@ Describe 'Initialize-YurunaPoolIntentStorePath (seed a writable store that was n
         Assert-False $r.Ok 'a blank target is not a store'
         Assert-False $r.Created 'nothing created'
     }
-    It 'honours -WhatIf' {
+    It 'honors -WhatIf' {
         $work = New-TempDir
         try {
             $store = Join-Path $work 'pool-intent.git'

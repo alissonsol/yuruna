@@ -309,6 +309,16 @@ workarounds collected during development live in [Yuruna Workarounds](docs/worka
   skipped when `pwsh` is absent and bypassable with
   `git commit --no-verify` -- so the release script must run the same gate as
   a hard precondition (the authoritative check for the published artifact).
+- **Accessibility** -- run `pwsh tools/Invoke-A11yCheck.ps1` when you touch a
+  page, a stylesheet, or anything that generates HTML. It drives the installed
+  Chrome and measures what the browser paints -- contrast, reflow at 320 CSS px,
+  target size and the ARIA wiring -- and exits `2` when it cannot run at all,
+  which is not a pass. The static half of the same checks lives in
+  `test/modules/Test.ExtensionUiChrome.Tests.ps1` and runs everywhere without a
+  browser. A new page belongs in the gate's roots; a new HTML *generator*
+  belongs in `tools/Export-GeneratedPages.ps1`, or the gate will not see it. The
+  target, the exclusions and an operator keyboard reference are in
+  [docs/accessibility.md](docs/accessibility.md).
 - **Resources** -- keep OpenTofu files simple; minimize variables.
 - **Components** -- reusable components are best explained in an
   end-to-end example.
@@ -361,6 +371,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.21
+Last review: 2026.08.23
 
 Back to [Yuruna](README.md)

@@ -2,16 +2,16 @@
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 // Host-centric pool assignment. No innerHTML on data.
 (function () {
-  let pools = [];
-  let targetPoolId = '';
-  let goBaseUrl = '';
+  var pools = [];
+  var targetPoolId = '';
+  var goBaseUrl = '';
   // The last answer, kept so a header click re-sorts what is on screen instead
   // of costing a round trip, and so the countdown's reload does not throw the
   // operator's chosen order away.
-  let hosts = [];
-  let hostnamesVisible = false;
-  let sortKey = 'hostId';
-  let sortAsc = true;
+  var hosts = [];
+  var hostnamesVisible = false;
+  var sortKey = 'hostId';
+  var sortAsc = true;
   // Each host's own account of itself from /api/hosts/facts -- hardware and the
   // two repository columns -- keyed the way rows are: host id when there is
   // one, address otherwise. Fetched at page load and on the header Refresh
@@ -20,12 +20,12 @@
   // re-clone, and the fetch fans out to every machine the page lists -- a
   // per-minute poll multiplied by every open tab would hit each one for values
   // that cannot have moved.
-  let facts = {};
+  var facts = {};
 
   // The dashboard collapses control state into remote/onsite. This page shows
   // the wire value instead, because mismatch (wrong token) and skew (clock) need
   // completely different fixes.
-  const CONTROL_HINT = {
+  var CONTROL_HINT = {
     ready: 'Holds this lab\'s token; clock agrees.',
     none: 'Never enrolled a lab token -- run Set-LabToken.ps1 on the host.',
     mismatch: 'Holds a DIFFERENT token -- re-enroll against this proxy.',
@@ -38,24 +38,24 @@
   // url it was configured with). So they answer for EVERY host, pooled or not,
   // and the value is the repository name rather than a status word: an
   // operator reads the table to see which machines are on which repository.
-  const REPO_ACCESS_LABEL = { frameworkAccess: 'framework', projectAccess: 'project' };
+  var REPO_ACCESS_LABEL = { frameworkAccess: 'framework', projectAccess: 'project' };
   // Where each column's repository lives, reported beside the name it belongs to.
-  const REPO_URL_KEY = { frameworkAccess: 'frameworkUrl', projectAccess: 'projectUrl' };
-  const NO_ACCESS = 'No access';
+  var REPO_URL_KEY = { frameworkAccess: 'frameworkUrl', projectAccess: 'projectUrl' };
+  var NO_ACCESS = 'No access';
 
   // The pool's separate question -- can this MEMBER read what its pool assigned
   // -- is answered in the host's registration record, and denied is the one
   // value that needs an operator. It rides the project cell's tooltip: the
   // column itself shows what the host holds, which is a different fact.
-  const POOL_ACCESS_HINT = {
+  var POOL_ACCESS_HINT = {
     denied: 'The pool assigned this host a project its git credential cannot read -- grant its GH_TOKEN access to that repo, or reassign the pool to one every member can read. Its cycles fail until then, and no retry can fix it.',
     unreachable: 'The project this host\'s pool assigned did not answer -- network, not permission. Transient: the cycle\'s clone retries through the normal backoff.'
   };
 
   // Raw value for a repository column, or '' when the host did not report one.
   function accessValue(h, key) {
-    const f = facts[factKey(h)];
-    if (!f || !f.ok) return '';
+    var f = facts[factKey(h)];
+    if (!f || !f.ok) { return ''; }
     return String(f[key] || '');
   }
 
@@ -70,13 +70,18 @@
   // browsers refuse to NAVIGATE there from a served page, but the link still
   // names the location and copies.
   function accessUrl(h, key) {
-    const f = facts[factKey(h)];
-    if (!f || !f.ok) return '';
-    const s = String(f[REPO_URL_KEY[key]] || '').trim();
-    if (!s) return '';
+    var f = facts[factKey(h)];
+    if (!f || !f.ok) { return ''; }
+    var s = String(f[REPO_URL_KEY[key]] || '').trim();
+    if (!s) { return ''; }
+    // Parsed with an anchor rather than `new URL`, which the browser baseline
+    // does not carry: assigning to a detached anchor resolves the value exactly
+    // as the browser would before following it, which is the whole point of
+    // reading the scheme back off it.
     try {
-      const p = new URL(s).protocol;
-      return (p === 'http:' || p === 'https:' || p === 'file:') ? s : '';
+      var a = document.createElement('a');
+      a.href = s;
+      return (a.protocol === 'http:' || a.protocol === 'https:' || a.protocol === 'file:') ? s : '';
     } catch (e) {
       return '';
     }
@@ -88,20 +93,23 @@
   // reported no location (an older build, a remote nothing can be addressed at)
   // keeps the plain text: the cell never links nowhere.
   function repoEl(url, attrs, text) {
-    if (!url) return Y.el('span', attrs, text);
-    const linked = Object.assign({}, attrs, { href: url, target: '_blank', rel: 'noopener' });
-    return Y.el('a', linked, text);
+    if (!url) { return Y.el('span', attrs, text); }
+    // Y.linkTo, not an href through Y.el: accessUrl above has already decided
+    // this value is http(s) or file, and file: is not in Y.el's default set --
+    // it is opted into here, by the one column that means it.
+    var linked = Object.assign({}, attrs, { target: '_blank', rel: 'noopener' });
+    return Y.linkTo(url, ['file:'], linked, text);
   }
 
   function accessCell(h, key, error) {
-    const what = REPO_ACCESS_LABEL[key];
-    const value = accessValue(h, key);
-    const url = accessUrl(h, key);
+    var what = REPO_ACCESS_LABEL[key];
+    var value = accessValue(h, key);
+    var url = accessUrl(h, key);
     // The url ends the tooltip rather than sitting inside it: the cell shows a
     // name, and where that name came from is what an operator checks before
     // following the link.
-    const where = url ? ' ' + url : '';
-    const poolHint = key === 'projectAccess' ? POOL_ACCESS_HINT[h.access] : '';
+    var where = url ? ' ' + url : '';
+    var poolHint = key === 'projectAccess' ? POOL_ACCESS_HINT[h.access] : '';
     if (value === NO_ACCESS) {
       // Linked to the url it could NOT read, which is the one an operator
       // checks first: a url naming the wrong repository looks exactly like a
@@ -126,7 +134,7 @@
   // withheld until this browser is unlocked, or a host that never reported one
   // (it has no address the pool can read a registration record from).
   function hostnameCell(name) {
-    if (name) return Y.el('span', { text: name });
+    if (name) { return Y.el('span', { text: name }); }
     return Y.el('span', {
       class: 'muted', text: '--',
       title: hostnamesVisible
@@ -136,12 +144,12 @@
   }
 
   function typeCell(type) {
-    if (!type) return Y.el('span', { class: 'muted', text: '--' });
+    if (!type) { return Y.el('span', { class: 'muted', text: '--' }); }
     return Y.el('span', { text: type });
   }
 
   // Which raw facts field backs each hardware column, for both cells and sort.
-  const FACT_KEY = {
+  var FACT_KEY = {
     memory: 'memoryBytes',
     cores: 'cores',
     storageTotal: 'storageTotalBytes',
@@ -150,19 +158,22 @@
 
   // Bytes as an integer in the largest unit that keeps it at or under 1024:
   // 32 GiB RAM reads "32 GB", a 2 TB array reads "2 TB" rather than "2048 GB".
+  var BYTE_UNITS = [['MB', 1048576], ['GB', 1073741824], ['TB', 1099511627776]];
   function fmtBytes(n) {
-    if (!(n > 0)) return null;
-    for (const [name, div] of [['MB', 1048576], ['GB', 1073741824], ['TB', 1099511627776]]) {
-      const v = Math.round(n / div);
-      if (v <= 1024 || name === 'TB') return v + ' ' + name;
+    if (!(n > 0)) { return null; }
+    for (var i = 0; i < BYTE_UNITS.length; i++) {
+      var name = BYTE_UNITS[i][0];
+      var v = Math.round(n / BYTE_UNITS[i][1]);
+      if (v <= 1024 || name === 'TB') { return v + ' ' + name; }
     }
+    return null;
   }
 
   // One blank for every way a fact can be missing (host silent, older host
   // build without the route, fan-out still unfetched); the title says which.
   // Takes a formatted string or a raw number (the Cores column).
   function factCell(value, error) {
-    if (value !== null && value !== undefined && value !== '') return Y.el('span', { text: String(value) });
+    if (value !== null && value !== undefined && value !== '') { return Y.el('span', { text: String(value) }); }
     return Y.el('span', { class: 'muted', text: '--', title: error || 'This host has not reported hardware facts.' });
   }
 
@@ -177,46 +188,46 @@
   // Raw number for a fact, or null when the host has none -- null is what the
   // sort ranks last, same as the string columns' blanks.
   function factValue(h, key) {
-    const f = facts[factKey(h)];
-    if (!f || !f.ok) return null;
-    const v = Number(f[FACT_KEY[key]]);
+    var f = facts[factKey(h)];
+    if (!f || !f.ok) { return null; }
+    var v = Number(f[FACT_KEY[key]]);
     return v > 0 ? v : null;
   }
 
   // Hardware columns sort on their raw numbers; every other column is a string
   // on the wire, so one comparison serves them all -- lowercased, because a
-  // hostname's capitalisation is not a sort order anyone means to ask for.
+  // hostname's capitalization is not a sort order anyone means to ask for.
   //
   // A discovered host that could not name itself has no id to sort on, so it
   // sorts on the address it answered at -- otherwise every such row would herd
   // to one end of the table as a blank, away from the machines beside it.
   function sortValue(h, key) {
-    if (FACT_KEY[key]) return factValue(h, key);
-    if (REPO_ACCESS_LABEL[key]) return accessValue(h, key).toLowerCase();
-    if (key === 'hostId') return String(h.hostId || h.address || '').toLowerCase();
+    if (FACT_KEY[key]) { return factValue(h, key); }
+    if (REPO_ACCESS_LABEL[key]) { return accessValue(h, key).toLowerCase(); }
+    if (key === 'hostId') { return String(h.hostId || h.address || '').toLowerCase(); }
     return String(h[key] || '').toLowerCase();
   }
 
   function sorted(rows) {
     return rows.slice().sort(function (a, b) {
-      const av = sortValue(a, sortKey);
-      const bv = sortValue(b, sortKey);
-      let cmp = 0;
+      var av = sortValue(a, sortKey);
+      var bv = sortValue(b, sortKey);
+      var cmp = 0;
       if (av !== bv) {
         // A row with no value ranks last ascending: sorting on a column is a
         // way of reading the rows that HAVE one, and this page is full of
         // blanks -- a withheld hostname, a host the pool cannot reach, a
         // hardware fact (null) from a host that never answered.
-        if (av === '' || av === null) cmp = 1;
-        else if (bv === '' || bv === null) cmp = -1;
-        else cmp = av < bv ? -1 : 1;
+        if (av === '' || av === null) { cmp = 1; }
+        else if (bv === '' || bv === null) { cmp = -1; }
+        else { cmp = av < bv ? -1 : 1; }
       }
-      if (!sortAsc) cmp = -cmp;
-      if (cmp !== 0) return cmp;
+      if (!sortAsc) { cmp = -cmp; }
+      if (cmp !== 0) { return cmp; }
       // Host ids are unique, so tying rows land in ONE order for a given column
       // rather than reshuffling under the operator on the next refresh.
-      const ai = sortValue(a, 'hostId');
-      const bi = sortValue(b, 'hostId');
+      var ai = sortValue(a, 'hostId');
+      var bi = sortValue(b, 'hostId');
       return ai < bi ? -1 : (ai > bi ? 1 : 0);
     });
   }
@@ -231,10 +242,10 @@
   // The address is the way in instead: it is where this service just got an
   // answer, so it is the one address known to work.
   function hostCell(h) {
-    if (!h.discovered) return Y.hostLink(h.hostId, h.pool, goBaseUrl);
-    const box = Y.el('span', { class: 'discovered-host' });
+    if (!h.discovered) { return Y.hostLink(h.hostId, h.pool, goBaseUrl); }
+    var box = Y.el('span', { class: 'discovered-host' });
     if (h.hostId) box.appendChild(Y.el('span', { class: 'mono', text: Y.shortHost(h.hostId), title: Y.guid(h.hostId) }));
-    const seen = h.lastSeen ? ', last seen ' + new Date(h.lastSeen).toLocaleString() : '';
+    var seen = h.lastSeen ? ', last seen ' + new Date(h.lastSeen).toLocaleString() : '';
     if (h.baseUrl) {
       box.appendChild(Y.el('a', {
         class: 'mono', href: h.baseUrl, target: '_blank', rel: 'noopener',
@@ -248,31 +259,36 @@
   }
 
   function rowEl(h, n) {
-    const sel = Y.el('select', { 'aria-label': 'Pool for host ' + (h.hostId || h.address) });
+    var sel = Y.el('select', { 'aria-label': 'Pool for host ' + (h.hostId || h.address) });
     sel.appendChild(Y.el('option', { value: '', text: '(none)' }));
-    for (const p of pools) {
-      const o = Y.el('option', { value: p, text: p + (p === targetPoolId ? ' -- auto-enrollment target' : '') });
-      if (p === h.pool) o.selected = true;
+    for (var i = 0; i < pools.length; i++) {
+      var p = pools[i];
+      var o = Y.el('option', { value: p, text: p + (p === targetPoolId ? ' -- auto-enrollment target' : '') });
+      if (p === h.pool) { o.selected = true; }
       sel.appendChild(o);
     }
-    sel.addEventListener('change', async () => {
-      const to = sel.value;
-      const label = to || '(none)';
+    Y.onSelectCommit(sel, function () {
+      var to = sel.value;
+      var label = to || '(none)';
       // (none) also records an exclusion, or the sweep would undo this within a
       // minute and the UI would look broken. Say so, rather than surprise them.
-      const extra = to ? '' : '\n\nIt will also be excluded from auto-enrollment, so the sweep will not add it back.';
-      if (!confirm('Move host ' + Y.guid(h.hostId) + ' to ' + label + '?' + extra)) {
+      var extra = to ? '' : '\n\nIt will also be excluded from auto-enrollment, so the sweep will not add it back.';
+      if (!window.confirm('Move host ' + Y.guid(h.hostId) + ' to ' + label + '?' + extra)) {
         sel.value = h.pool || '';
         return;
       }
-      try {
-        Y.clearNotice();
-        await Y.mutate('/api/pool/move-host', { method: 'POST', body: { hostId: h.hostId, poolId: to } });
-        await load();
-      } catch (e) {
+      Y.clearNotice();
+      Y.mutate('/api/pool/move-host', { method: 'POST', body: { hostId: h.hostId, poolId: to } }).then(function () {
+        // Beside the picker as well as in the banner: on a twelve-column table
+        // at high zoom the banner at the top of <main> is not on screen with
+        // the row that produced it.
+        Y.rowFeedback(sel.closest('tr'), 'ok', 'Moved to ' + label + '.');
+        return load();
+      }, function (e) {
         sel.value = h.pool || '';
         Y.notice('error', e.message);
-      }
+        Y.rowFeedback(sel.closest('tr'), 'error', 'Move failed: ' + e.message);
+      });
     });
 
     // Pool membership is recorded against a host id, so a discovered host that
@@ -283,9 +299,9 @@
       sel.title = 'This host has not reported an id, so it cannot be assigned to a pool yet.';
     }
 
-    const control = Y.el('span', { text: h.control, title: CONTROL_HINT[h.control] || '' });
-    const f = facts[factKey(h)];
-    const factErr = f && !f.ok ? (f.error || '') : '';
+    var control = Y.el('span', { text: h.control, title: CONTROL_HINT[h.control] || '' });
+    var f = facts[factKey(h)];
+    var factErr = f && !f.ok ? (f.error || '') : '';
     return Y.el('tr', {}, [
       Y.numCell(n),
       Y.el('td', {}, [hostCell(h)]),
@@ -303,40 +319,47 @@
   }
 
   function render() {
-    const body = document.getElementById('host-rows');
+    var body = document.getElementById('host-rows');
+    if (Y.holdRepaint(body, render)) { return; }
     body.textContent = '';
     // The counter numbers the position on screen, not the host in it, so it
     // runs 1..n down the page whichever column the table is sorted by.
-    let n = 0;
-    for (const h of sorted(hosts)) body.appendChild(rowEl(h, ++n));
-    const unlock = document.getElementById('show-hostnames');
-    if (unlock) unlock.hidden = hostnamesVisible;
+    var ordered = sorted(hosts);
+    for (var i = 0; i < ordered.length; i++) { body.appendChild(rowEl(ordered[i], i + 1)); }
+    var unlock = document.getElementById('show-hostnames');
+    if (unlock) { unlock.hidden = hostnamesVisible; }
   }
 
   // The header cells carry the sort key; the buttons inside them are what the
   // keyboard and the screen reader act on, and aria-sort on the cell is what
   // announces the result. Clicking the sorted column reverses it.
   function initSort() {
-    for (const th of document.querySelectorAll('th[data-sort]')) {
-      const btn = th.querySelector('button');
-      if (!btn) continue;
-      btn.addEventListener('click', function () {
-        const key = th.getAttribute('data-sort');
-        if (key === sortKey) sortAsc = !sortAsc;
-        else { sortKey = key; sortAsc = true; }
-        markSorted();
-        render();
-      });
+    var ths = document.querySelectorAll('th[data-sort]');
+    for (var i = 0; i < ths.length; i++) {
+      // Wired through a call rather than from the loop body, so each handler
+      // closes over ITS header cell instead of the last one in the row.
+      (function (th) {
+        var btn = th.querySelector('button');
+        if (!btn) { return; }
+        btn.addEventListener('click', function () {
+          var key = th.getAttribute('data-sort');
+          if (key === sortKey) { sortAsc = !sortAsc; }
+          else { sortKey = key; sortAsc = true; }
+          markSorted();
+          render();
+        });
+      }(ths[i]));
     }
     markSorted();
   }
 
   function markSorted() {
-    for (const th of document.querySelectorAll('th[data-sort]')) {
-      if (th.getAttribute('data-sort') === sortKey) {
-        th.setAttribute('aria-sort', sortAsc ? 'ascending' : 'descending');
+    var ths = document.querySelectorAll('th[data-sort]');
+    for (var i = 0; i < ths.length; i++) {
+      if (ths[i].getAttribute('data-sort') === sortKey) {
+        ths[i].setAttribute('aria-sort', sortAsc ? 'ascending' : 'descending');
       } else {
-        th.removeAttribute('aria-sort');
+        ths[i].removeAttribute('aria-sort');
       }
     }
   }
@@ -345,21 +368,24 @@
   // keeps the rows it is refreshing on screen and signals in the footer. Every
   // other read replaces the table, so it says so: this one fans out to every
   // host in the lab and a silent machine holds it up for seconds.
-  async function load(opts) {
-    const quiet = !!(opts && opts.quiet);
-    const done = quiet ? function () { } : Y.busy(document.getElementById('host-rows'), 'Loading hosts...');
+  function load(opts) {
+    var quiet = !!(opts && opts.quiet);
+    var done = quiet ? function () { } : Y.busy(document.getElementById('host-rows'), 'Loading hosts...');
     chrome.busy(true);
-    try {
-      // The hostname column turns on a session, and arriving from the dashboard
-      // brings one in the URL fragment -- so wait for that exchange to settle
-      // rather than fetching first and rendering a locked table to an operator
-      // who is, a moment later, unlocked.
-      await Y.ready();
-      const d = await Y.api('/api/hosts');
+    var finish = function () { done(); chrome.busy(false); };
+    // The hostname column turns on a session, and arriving from the dashboard
+    // brings one in the URL fragment -- so wait for that exchange to settle
+    // rather than fetching first and rendering a locked table to an operator
+    // who is, a moment later, unlocked.
+    return Y.ready().then(function () {
+      // Y.hostInfo is memoized and non-rejecting, so this is one read for the
+      // life of the page and an aggregator this daemon does not know about just
+      // means unlinked ids.
+      return Promise.all([Y.api('/api/hosts'), Y.hostInfo()]);
+    }).then(function (both) {
+      var d = both[0];
       chrome.markLoaded();
-      // Memoized and non-rejecting, so this is one read for the life of the page
-      // and an aggregator this daemon does not know about just means unlinked ids.
-      goBaseUrl = (await Y.hostInfo()).goBaseUrl || '';
+      goBaseUrl = both[1].goBaseUrl || '';
       pools = d.pools || [];
       targetPoolId = d.targetPoolId || '';
       hosts = d.hosts || [];
@@ -370,29 +396,27 @@
       } else {
         Y.clearNotice();
       }
-    } catch (e) {
+    }, function (e) {
       Y.notice('error', e.message);
-    } finally {
-      done();
-      chrome.busy(false);
-    }
+    }).then(finish, finish);
   }
 
   // Silent on failure by design: the table is fully usable without hardware
   // facts, and the columns' em-dash tooltips already say a host did not report.
   // It shows in the footer rather than over the table for the same reason: the
   // rows are already readable while these columns fill in.
-  async function loadFacts() {
+  function loadFacts() {
     chrome.busy(true);
-    try {
-      const d = await Y.api('/api/hosts/facts');
+    var idle = function () { chrome.busy(false); };
+    return Y.api('/api/hosts/facts').then(function (d) {
       facts = d.hosts || {};
       // Only a repaint of rows that exist. On first load these two reads race,
       // and painting an empty table here would take down the wait indicator the
       // host read is still under -- leaving a blank page mid-fetch.
-      if (hosts.length) render();
-    } catch (e) { /* facts keep their last value */ }
-    finally { chrome.busy(false); }
+      if (hosts.length) { render(); }
+    }, function () {
+      // Facts keep their last value: the table is fully usable without them.
+    }).then(idle, idle);
   }
 
   document.getElementById('refresh').addEventListener('click', function () {
@@ -403,14 +427,14 @@
   // other page prompts at the moment a change is attempted, but the hostname is
   // a READ that needs a session, so without this an operator who wants the
   // column has nothing to click.
-  document.getElementById('show-hostnames').addEventListener('click', async () => {
-    if (await Y.unlock()) await load();
+  document.getElementById('show-hostnames').addEventListener('click', function () {
+    Y.unlock().then(function (ok) { if (ok) { load(); } });
   });
   initSort();
   // Header version + host id and the footer bar; its countdown re-reads the host
   // list rather than reloading, so a pending pool choice in a row survives. The
   // countdown deliberately does NOT re-fetch hardware facts (see `facts`).
-  const chrome = Y.initChrome({ refresh: function () { load({ quiet: true }); } });
+  var chrome = Y.initChrome({ refresh: function () { load({ quiet: true }); } });
   load();
   loadFacts();
 })();

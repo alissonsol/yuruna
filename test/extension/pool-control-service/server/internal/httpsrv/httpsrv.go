@@ -23,7 +23,7 @@ import (
 )
 
 // aggregatorTimeout bounds one aggregator read. The board holds a browser
-// connection while it waits, so a collector that has stopped answering must grey
+// connection while it waits, so a collector that has stopped answering must gray
 // the numbers out rather than hang the page.
 const aggregatorTimeout = 15 * time.Second
 
@@ -58,9 +58,9 @@ type Options struct {
 	AggregatorURL string
 	HostID        string
 	IntentGitURL  string
-	// AuthToken is the shared lab auth token accepted as a bearer on the routes
-	// that change pool configuration. Empty leaves the dashboard's lab token as
-	// the only way in; it never leaves those routes open.
+	// AuthToken is the internal authentication key accepted as a bearer on
+	// the routes that change pool configuration. Empty leaves the dashboard's
+	// lab token as the only way in; it never leaves those routes open.
 	AuthToken string
 	// AuthTokenFile is where AuthToken was read from. Carried so the one error
 	// an operator can act on -- "this service can prove control to no host" --

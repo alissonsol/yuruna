@@ -183,7 +183,7 @@ func TestApplyDrivesEveryMember(t *testing.T) {
 	}
 }
 
-// The proof presented to a host is the one this service's own lab-auth-token
+// The proof presented to a host is the one this service's own internal authentication key
 // mints. Sending anything else is a 403 per member, which reads like a lab of
 // unenrolled hosts rather than one misconfigured service.
 func TestApplyPresentsAProofFromTheServiceToken(t *testing.T) {
@@ -266,7 +266,7 @@ func TestApplyDrivesMembersNotAdvertisers(t *testing.T) {
 	}
 }
 
-// A service with no lab-auth-token of its own asks the aggregator for the same
+// A service with no internal authentication key of its own asks the aggregator for the same
 // proof a browser gets from a dashboard host link. Nothing bakes that token
 // file into a service VM, so without this the feature would be unusable on a
 // lab that never placed one by hand.
@@ -302,7 +302,7 @@ func TestApplyFallsBackToTheAggregatorForAProof(t *testing.T) {
 func TestApplyWithoutAnyProofRefusesOnce(t *testing.T) {
 	h := newCtlHost(t, "")
 	// No token here and none at the aggregator either: its /go/host redirect
-	// carries no fragment, which is what a lab with no lab-auth-token looks like.
+	// carries no fragment, which is what a lab with no internal authentication key looks like.
 	agg := ctlAggregator(t, map[string]string{"42aa": h.srv.URL}, "")
 	srv := httptest.NewServer(New(ctlIntent("42aa"), Options{AggregatorURL: agg.URL}).Handler())
 	defer srv.Close()
@@ -319,7 +319,7 @@ func TestApplyWithoutAnyProofRefusesOnce(t *testing.T) {
 	if resp.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("status = %d, want 503 (%v)", resp.StatusCode, m)
 	}
-	if msg, _ := m["error"].(string); !strings.Contains(msg, "/etc/yuruna/lab-auth.token") {
+	if msg, _ := m["error"].(string); !strings.Contains(msg, "/etc/yuruna/internal-auth.key") {
 		t.Errorf("error %q does not name the token file", msg)
 	}
 	if got := h.recorded(); len(got) != 0 {

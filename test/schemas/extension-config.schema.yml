@@ -82,7 +82,7 @@ properties:
           The key in runtime/<area>.json holding the base URL this host
           advertises for the service. Every marker also carries the
           uniform `baseUrl`; this names the per-service key that
-          predates it, which readers still honour.
+          predates it, which readers still honor.
       beaconInterval:
         type: string
         pattern: '^[0-9]+(ns|us|ms|s|m|h)$'
@@ -99,7 +99,7 @@ properties:
         enum: [lab-token, none]
         description: >
           What a route that changes host or pool configuration requires.
-          `lab-token` is the rule: the shared lab-auth-token as a bearer,
+          `lab-token` is the rule: the internal authentication key as a bearer,
           or a session unlocked with the dashboard's rotating Lab token.
           `none` is only for an area that changes no configuration at
           all -- it is a claim about the service, not a way to opt out.

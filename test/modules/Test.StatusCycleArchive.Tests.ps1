@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 4225e4e5-9e96-476f-b10c-41d45c8308df
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,7 +24,7 @@
     resolves to, so the name grammar is the whole boundary: it is what keeps
     the archive pointed at one cycle results folder under log/ and nowhere
     else on disk.
-    A sanitiser would be the wrong shape here -- there is exactly one legal
+    A sanitizer would be the wrong shape here -- there is exactly one legal
     form, so anything else is refused rather than cleaned up, and these tests
     pin both halves of that (what it accepts, and that no separator, traversal
     or absolute path can pass).
@@ -384,7 +384,7 @@ Describe 'the share page and the host agree on one grammar' {
         # so emphasis somewhere else on the page plus the words somewhere else
         # again cannot satisfy it between them.
         Assert-True ($script:SharePage -match '(?s)<strong>(?:(?!</?strong>).)*attach\s+the\s+downloaded\s+file(?:(?!</?strong>).)*</strong>') `
-            'the attach instruction is no longer emphasised on the share page'
+            'the attach instruction is no longer emphasized on the share page'
     }
 
     It 'falls back to a download when the browser cannot attach a file itself' {
@@ -395,7 +395,7 @@ Describe 'the share page and the host agree on one grammar' {
         Assert-True ($ShareJs -match 'navigator\.canShare') `
             'the share path must test canShare({files}), not merely navigator.share'
         Assert-True ($ShareJs -match "err\.name === 'AbortError'") `
-            'a share the operator cancelled must not fall through to a download they did not ask for'
+            'a share the operator canceled must not fall through to a download they did not ask for'
     }
 
     It 'leaves the draft to a click of its own rather than navigating to it' {

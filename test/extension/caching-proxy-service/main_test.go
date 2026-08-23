@@ -17,8 +17,8 @@ import (
 )
 
 const (
-	testVersion = "2026.08.21"
-	testBearer  = "test-lab-auth-token"
+	testVersion = "2026.08.23"
+	testBearer  = "test-internal-auth-key"
 )
 
 // newDaemon builds a daemon whose every outside edge is faked: no squid, no
@@ -31,7 +31,7 @@ func newDaemon(t *testing.T, mode runMode) (*httptest.Server, *fakeExec) {
 
 // newDaemonWithGate builds a daemon whose gate is either unconfigured (bearer
 // "") or open to testBearer. Both states are load-bearing: unconfigured must
-// refuse every mutation, configured must let an authorised one through to the
+// refuse every mutation, configured must let an authorized one through to the
 // mode check underneath.
 func newDaemonWithGate(t *testing.T, mode runMode, bearer string) (*httptest.Server, *fakeExec) {
 	t.Helper()
@@ -89,7 +89,7 @@ func postJSON(t *testing.T, srv *httptest.Server, path, body string) *http.Respo
 	return postJSONAs(t, srv, path, body, "")
 }
 
-// postJSONAs sends the shared lab auth token as a bearer when one is given,
+// postJSONAs sends the internal authentication key as a bearer when one is given,
 // which is the automation path through the gate.
 func postJSONAs(t *testing.T, srv *httptest.Server, path, body, bearer string) *http.Response {
 	t.Helper()
@@ -305,6 +305,7 @@ func TestMcpListsExactlyTheToolsThisDaemonOffers(t *testing.T) {
 	}
 	want := []string{
 		"caching_proxy_hostinfo",
+		"caching_proxy_recent_requests",
 		"caching_proxy_set_no_upstream",
 		"caching_proxy_set_offline",
 		"caching_proxy_status",
@@ -395,7 +396,7 @@ func TestMcpMutatingToolRunsForAnAuthorisedCaller(t *testing.T) {
 		testBearer)
 	res, ok := got["result"].(map[string]any)
 	if !ok {
-		t.Fatalf("an authorised mutation was refused: %v", got)
+		t.Fatalf("an authorized mutation was refused: %v", got)
 	}
 	if res["isError"] != false {
 		t.Fatalf("mutation errored: %v", res)
@@ -482,4 +483,101 @@ func TestUnknownPathsStill404(t *testing.T) {
 	if resp := get(t, srv, "/not-a-page"); resp.StatusCode != http.StatusNotFound {
 		t.Errorf("GET /not-a-page = %d, want 404", resp.StatusCode)
 	}
+}
+
+// TestRecentRequestsRepublishesTheParserTail covers the hop this service makes
+// on behalf of a daemon that deliberately has no agent surface of its own.
+func TestRecentRequestsRepublishesTheParserTail(t *testing.T) {
+	rows := `[{"ts_iso":"2026-08-22T09:14:02.511Z","client_ip":"192.168.7.61","status":"TCP_HIT/200",` +
+		`"bytes":91234,"method":"GET","url":"http://archive.ubuntu.com/x.deb","ua":"curl/8.5.0"},` +
+		`{"ts_iso":"2026-08-22T09:14:03.002Z","client_ip":"192.168.7.62","status":"TCP_MISS/404",` +
+		`"bytes":512,"method":"GET","url":"http://example.invalid/missing","ua":"-"}]`
+	parser := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/recent-requests" {
+			t.Errorf("parser asked for %q, want /recent-requests", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(rows))
+	}))
+	defer parser.Close()
+
+	version = testVersion
+	d := newTestDaemon(t, modeLocal, t.TempDir(), &fakeExec{}, "")
+	d.readSwitches = func() SwitchState { return SwitchState{Source: "test"} }
+	d.parserURL = parser.URL
+	srv := httptest.NewServer(d.routes())
+	defer srv.Close()
+
+	got := callRecentRequests(t, srv, `{}`)
+	if got["count"] != float64(2) {
+		t.Fatalf("count = %v, want 2", got["count"])
+	}
+	list, _ := got["requests"].([]any)
+	if len(list) != 2 {
+		t.Fatalf("requests = %v, want 2 rows", got["requests"])
+	}
+	first, _ := list[0].(map[string]any)
+	if first["client_ip"] != "192.168.7.61" || first["status"] != "TCP_HIT/200" {
+		t.Errorf("first row = %v; the tail must be republished verbatim", first)
+	}
+
+	// limit is what makes this usable for a caller that wants a glance rather
+	// than the whole ring.
+	got = callRecentRequests(t, srv, `{"limit":1}`)
+	if got["count"] != float64(1) || got["limit"] != float64(1) {
+		t.Errorf("limited call = %v, want one row and limit 1", got)
+	}
+}
+
+// TestRecentRequestsSaysWhenTheParserIsSilent guards the difference between "the
+// proxy served nothing" and "nothing answered". Reporting the second as an empty
+// list would turn an operational fault into a quiet, plausible zero.
+func TestRecentRequestsSaysWhenTheParserIsSilent(t *testing.T) {
+	version = testVersion
+	d := newTestDaemon(t, modeLocal, t.TempDir(), &fakeExec{}, "")
+	d.readSwitches = func() SwitchState { return SwitchState{Source: "test"} }
+	d.parserURL = "http://127.0.0.1:1" // nothing listens here
+	srv := httptest.NewServer(d.routes())
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + routeRecentRequests)
+	if err != nil {
+		t.Fatalf("GET: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Errorf("status = %d, want 503 naming the parser", resp.StatusCode)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(body), "caching-proxy-parser-service") {
+		t.Errorf("body = %q; it must name what did not answer", body)
+	}
+}
+
+// callRecentRequests drives the tool the way an agent would and returns the
+// object it answers with.
+func callRecentRequests(t *testing.T, srv *httptest.Server, args string) map[string]any {
+	t.Helper()
+	body := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"caching_proxy_recent_requests","arguments":` + args + `}}`
+	got := mcpCall(t, srv, body, "")
+	res, ok := got["result"].(map[string]any)
+	if !ok {
+		t.Fatalf("no result in %v", got)
+	}
+	if res["isError"] == true {
+		t.Fatalf("tool call failed: %v", res)
+	}
+	if sc, ok := res["structuredContent"].(map[string]any); ok {
+		return sc
+	}
+	content, _ := res["content"].([]any)
+	if len(content) == 0 {
+		t.Fatalf("no content in %v", res)
+	}
+	text, _ := content[0].(map[string]any)["text"].(string)
+	var out map[string]any
+	if err := json.Unmarshal([]byte(text), &out); err != nil {
+		t.Fatalf("unreadable tool text %q: %v", text, err)
+	}
+	return out
 }

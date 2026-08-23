@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.21
+# Version: 2026.08.23
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -96,7 +96,7 @@ POOL_WINDOW_DAYS="${STASH_POOL_WINDOW_DAYS:-30}"
 AGGREGATOR_URL_SEED=$(sed -nE "s/^YURUNA_AGGREGATOR_URL='(.*)'\$/\1/p" /etc/yuruna/pool.env 2>/dev/null | head -n1 || true)
 AGGREGATOR_URL="${STASH_AGGREGATOR_URL:-$AGGREGATOR_URL_SEED}"
 # Delete authorization rides on the aggregator URL above: the daemon holds no
-# lab auth token of its own, so the aggregator is what judges a Lab token or a
+# internal authentication key of its own, so the aggregator is what judges a Lab token or a
 # dashboard control proof. Without one, nothing can be deleted through the UI.
 if [ -n "$AGGREGATOR_URL" ]; then
   echo "Delete authorization: Lab token or Yuruna hosts dashboard link, checked by $AGGREGATOR_URL."
@@ -198,8 +198,8 @@ sudo rm -rf "$BUILD"
 sudo mkdir -p "$BUILD"
 sudo cp -r "$SERVER_DIR" "$BUILD/server"
 # The SDK is a SEPARATE Go module, staged as a sibling of server/ because
-# go.mod resolves it with `replace ... => ../extension-sdk`. It used to be
-# mirrored INTO server/internal/yex instead, which meant 4,290 duplicated
+# go.mod resolves it with `replace ... => ../extension-sdk`. Mirroring it
+# INTO server/internal/yex instead would mean 4,290 duplicated
 # lines and a copy that could silently fork from the original. A go.work file
 # is no substitute HERE: only the two directories staged into $BUILD are
 # copied, so a workspace file living in the enlistment never reaches this

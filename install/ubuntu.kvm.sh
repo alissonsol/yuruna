@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.21
+# Version: 2026.08.23
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Yuruna Ubuntu KVM/libvirt bootstrap installer.
@@ -183,7 +183,7 @@ preflight_system_requirements() {
     return 0
   fi
   warn ''
-  warn '============================================================'
+  warn '========'
   warn '  System does not meet Yuruna TESTED requirements:'
   local i; for i in "${issues[@]}"; do warn "    - $i"; done
   warn ''
@@ -192,7 +192,7 @@ preflight_system_requirements() {
   warn ''
   warn '  Continuing is permitted but UNTESTED; the test harness may'
   warn '  fail in ways the core development team cannot reproduce.'
-  warn '============================================================'
+  warn '========'
   warn ''
   local ans
   read -r -p 'Continue anyway? [y/N]: ' ans
@@ -650,6 +650,10 @@ install_pwsh_tarball() {
   sudo ln -sf /opt/microsoft/powershell/7/pwsh /usr/local/bin/pwsh
 }
 
+# Presence only, deliberately: this runs before the checkout exists, so the
+# floor it would have to compare against is not readable yet. An already-present
+# pwsh is raised to the floor by the repair region further down, once the repo
+# is on disk.
 if ! command -v pwsh >/dev/null 2>&1; then
   case "$ARCH" in
     x86_64)  install_pwsh_apt || install_pwsh_tarball ;;
@@ -801,7 +805,7 @@ if [[ -d "$YURUNA_DIR/.git" ]]; then
   if [[ "$remote_basename" == "yurunadev" ]]; then
     if ! GIT_TERMINAL_PROMPT=0 git ls-remote --exit-code "$actual_remote" HEAD >/dev/null 2>&1; then
       warn ""
-      warn "============================================================"
+      warn "========"
       warn "  $actual_remote requires GitHub authentication to pull, and"
       warn "  the current credentials don't grant access (or no credentials"
       warn "  are configured)."
@@ -812,7 +816,7 @@ if [[ -d "$YURUNA_DIR/.git" ]]; then
       warn ""
       warn "  Continuing this run WITHOUT updating $YURUNA_DIR --"
       warn "  existing on-disk content will be used as-is."
-      warn "============================================================"
+      warn "========"
       warn ""
       skip_pull=1
     fi
@@ -898,6 +902,102 @@ if [[ "$PIN_VERSION" != "0" && "$YURUNA_BRANCH_EXPLICIT" -eq 0 && -d "$YURUNA_DI
   fi
 fi
 restore_test_status
+
+# --- REGION: PowerShell floor repair
+# The interpreter every later step runs on, brought up to the floor in
+# automation/Yuruna.Requirement.yml. The install region above only fires when
+# `pwsh` is ABSENT, and presence is not the question a floor asks: a pwsh that
+# arrived from a source this installer does not manage -- the Canonical snap, a
+# hand-unpacked tarball, a package left by another tool -- otherwise answers the
+# name for the life of the machine at whatever version it was, while the closing
+# check reports a gap the run had every means to close. PowerShell is the one
+# floor-checked tool here whose sources lead the Ubuntu archive, so it is the one
+# the installer can actually raise.
+#
+# Placed after the checkout rather than beside the install: the floor lives in
+# the repo, which does not exist yet where pwsh is installed.
+requirement_floor() {
+  # A `version:` string carries vendor decoration around the number
+  # ("7.6.4 (Core)"); the first dotted-number run is the version. Two keys at a
+  # fixed indent, so awk reads them without a YAML parser this early in a run.
+  local want="$1" yml="$YURUNA_DIR/automation/Yuruna.Requirement.yml"
+  [[ -f "$yml" ]] || return 1
+  awk -v want="$want" '
+    $0 ~ "^[[:space:]]*-[[:space:]]+tool:[[:space:]]*\"" want "\"[[:space:]]*$" { seen = 1; next }
+    seen && /^[[:space:]]*-[[:space:]]+tool:/ { exit }
+    seen && /^[[:space:]]*version:/ {
+      if (match($0, /[0-9]+(\.[0-9]+)+/)) { print substr($0, RSTART, RLENGTH); exit }
+    }
+  ' "$yml"
+}
+
+# A >= B, field by field as numbers: 7.6.10 is newer than 7.6.4, which both a
+# string compare and a float compare get backwards.
+version_ge() {
+  [[ -n "$1" ]] || return 1
+  [[ -n "$2" ]] || return 0
+  [[ "$(printf '%s\n%s\n' "$1" "$2" | sort -t. -k1,1n -k2,2n -k3,3n -k4,4n | head -1)" == "$2" ]]
+}
+
+pwsh_version() {
+  pwsh -NoLogo -NoProfile -Command '$PSVersionTable.PSVersion.ToString()' 2>/dev/null \
+    | grep -oE '[0-9]+(\.[0-9]+){1,3}' | head -1
+}
+
+bring_powershell_to_required_version() {
+  local floor have
+  floor="$(requirement_floor PowerShell || true)"
+  have="$(pwsh_version || true)"
+  if [[ -z "$floor" ]]; then
+    warn "Could not read the PowerShell floor from $YURUNA_DIR/automation/Yuruna.Requirement.yml -- leaving the installed interpreter alone."
+    return 0
+  fi
+  if [[ -z "$have" ]]; then
+    note_issue "pwsh is on PATH but reported no version, so it could not be checked against the $floor floor."
+    return 0
+  fi
+  if version_ge "$have" "$floor"; then
+    log "PowerShell $have meets the $floor floor"
+    return 0
+  fi
+  log "PowerShell $have is below the $floor floor -- upgrading"
+  # A snap advances only through snapd; neither apt nor the tarball can touch
+  # one. Ask snapd rather than inspecting the resolved path, so the answer comes
+  # from the thing that owns the package: when it does carry a PowerShell,
+  # refreshing in place keeps the provenance the operator chose, and only a
+  # channel that cannot reach the floor falls through to the sources below.
+  if command -v snap >/dev/null 2>&1 && snap list powershell >/dev/null 2>&1; then
+    log "  refreshing the PowerShell snap"
+    sudo snap refresh powershell || warn "  'snap refresh powershell' failed -- trying the sources this installer manages"
+    hash -r
+    have="$(pwsh_version || true)"
+  fi
+  if ! version_ge "$have" "$floor"; then
+    # Both managed sources land under /usr/local/bin (the tarball through the
+    # symlink beside it), which the stock PATH puts ahead of /snap/bin, so the
+    # newer copy wins the name without removing the one already there.
+    #
+    # Run in a subshell so a source that gives up -- an unreachable release
+    # feed, a checksum that does not match -- ends the upgrade attempt rather
+    # than the install. Unlike the first-install path, this host already has a
+    # working interpreter; the version check below says it is still old, and
+    # that belongs in the closing summary, not in an aborted run.
+    (
+      case "$ARCH" in
+        x86_64)  install_pwsh_apt || install_pwsh_tarball ;;
+        aarch64) install_pwsh_tarball ;;
+      esac
+    ) || true
+    hash -r
+    have="$(pwsh_version || true)"
+  fi
+  if version_ge "$have" "$floor"; then
+    log "  PowerShell is now $have"
+  else
+    note_issue "PowerShell is ${have:-unreadable} after the upgrade attempt, still below the $floor floor."
+  fi
+}
+bring_powershell_to_required_version
 
 # --- REGION: Seed test.config.yml from template
 TEST_DIR="$YURUNA_DIR/test"
@@ -1180,7 +1280,7 @@ fi
 # --- REGION: Backup notice
 if [[ -n "$YURUNA_BACKUP_CREATED" ]]; then
   warn ""
-  warn "============================================================"
+  warn "========"
   warn "IMPORTANT: a backup of your previous Yuruna checkout was created"
   warn "  because 'git pull --ff-only' could not advance the local repo."
   warn ""
@@ -1189,14 +1289,14 @@ if [[ -n "$YURUNA_BACKUP_CREATED" ]]; then
   warn "Review the backup for any local edits you want to preserve."
   warn "When you no longer need it, delete it manually:"
   warn "  rm -rf '$YURUNA_BACKUP_CREATED'"
-  warn "============================================================"
+  warn "========"
 fi
 
 # --- REGION: Install summary
 # The last thing printed. Everything above scrolls; this does not.
 if [[ ${#YURUNA_ISSUES[@]} -gt 0 ]]; then
   warn ""
-  warn "============================================================"
+  warn "========"
   warn "INSTALL FINISHED WITH ${#YURUNA_ISSUES[@]} ISSUE(S)"
   warn ""
   for issue in "${YURUNA_ISSUES[@]}"; do
@@ -1206,7 +1306,7 @@ if [[ ${#YURUNA_ISSUES[@]} -gt 0 ]]; then
   warn "The install completed and the machine is usable. Each line above is"
   warn "something that did not happen as intended -- re-running this installer"
   warn "is safe and retries every one of them."
-  warn "============================================================"
+  warn "========"
 else
   log ""
   log "Install finished with no issues."

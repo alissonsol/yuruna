@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42a369ad-01e2-44e3-b547-f5faae54a6ba
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -141,9 +141,9 @@ if ($CacheIp) {
 
 # --- REGION: Step 3: summarize
 Write-Output ""
-Write-Output "================================================================="
+Write-Output "========"
 Write-Output "== caching-proxy-service REACHABLE (LAN-direct) =="
-Write-Output "================================================================="
+Write-Output "========"
 Write-Output "  VM IP:       $CacheIp"
 Write-Output "  Proxy URL:   $foundUrl"
 Write-Output "  HTTPS bump:  http://${CacheIp}:${httpsPort}"
@@ -152,5 +152,5 @@ Write-Output "  Recent 100:  http://${CacheIp}:9302/"
 Write-Output "  cachemgr:    ssh to the VM, then 'squidclient mgr:info'  (web UI dropped in Ubuntu 26.04)"
 Write-Output "  CA cert:     http://${CacheIp}/yuruna-squid-ca.crt"
 Write-Output "  State file:  $StateFile  (refreshed)"
-Write-Output "================================================================="
+Write-Output "========"
 exit 0

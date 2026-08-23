@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42f41a3a-96b8-4ab6-ac90-5f5f7b020de7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -535,5 +535,39 @@ Describe 'dispatcher command resolution' {
         }
         Assert-Equal -Expected 0 -Actual @($offenders).Count `
             -Because "these call the transport directly, bypassing the dispatch loop and the delivery ledger: $($offenders -join ', ')"
+    }
+}
+
+Describe 'Send-EmailViaResend -- the message every subscriber actually reads' {
+    # The transport is a private function inside the extension module, so the
+    # assertions run in module scope. Loading it non-Global keeps the module's
+    # own Send-Notification from shadowing the dispatcher for the suites above.
+    BeforeAll {
+        $script:ResendModule = Join-Path (Split-Path -Parent (Split-Path -Parent $PSCommandPath)) 'extension/notification/default.psm1'
+        Import-Module $script:ResendModule -Force -DisableNameChecking
+    }
+    AfterAll {
+        Remove-Module -Name 'default' -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'sends both a text and an html part, and wraps the html one' {
+        # A single html part leaves the provider to synthesize a plain-text
+        # alternative for clients that ask for one -- a machine's guess at a
+        # message we are holding in its original form.
+        Mock -ModuleName 'default' -CommandName 'Invoke-RestMethod' -MockWith { $script:SentBody = $Body }
+
+        InModuleScope 'default' {
+            Send-EmailViaResend `
+                -ResendCfg @{ apiKey = 'k'; fromEmail = 'a@example.com' } `
+                -ToAddress 'b@example.com' -Subject 's' -BodyText "line one`nline two <b>"
+        }
+
+        $payload = $script:SentBody | ConvertFrom-Json
+        Assert-True ($null -ne $payload.text) 'the request carries a text part'
+        Assert-True ($null -ne $payload.html) 'the request carries an html part'
+        Assert-Equal -Expected "line one`nline two <b>" -Actual $payload.text -Because 'the text part is the message as written, not an encoded copy'
+        Assert-True ($payload.html -match 'lang="en"')          'the html part declares a document language'
+        Assert-True ($payload.html -match 'pre-wrap')            'the html part wraps instead of scrolling horizontally'
+        Assert-True ($payload.html -match 'line two &lt;b&gt;')  'the html part is still encoded'
     }
 }

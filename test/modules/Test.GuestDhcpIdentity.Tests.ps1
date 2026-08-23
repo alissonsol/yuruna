@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 4223adbe-1c67-4f91-9007-d00e25adf8ec
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -352,7 +352,7 @@ Describe 'the ledger that decides whether a rebuilt guest kept its address' {
         } finally { Remove-Item -Recurse -Force $d }
     }
 
-    It 'keeps identities apart rather than comparing a guest against its neighbour' {
+    It 'keeps identities apart rather than comparing a guest against its neighbor' {
         $d = Get-LedgerTempDir
         try {
             $null = Register-GuestAddressObservation -RuntimeDir $d -Identity 'amisad-build' -Address '192.168.7.59' -Confirm:$false

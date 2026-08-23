@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42d109f3-873a-4131-8420-1d54845d2805
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -59,7 +59,7 @@ Describe 'Get-GuestRailAddress' {
 
     It 'treats the name case-insensitively, as libvirt does' {
         # Two spellings of one domain must not become two rail addresses, or a
-        # peer that capitalises differently silently dials somewhere else.
+        # peer that capitalizes differently silently dials somewhere else.
         $lower = Get-GuestRailAddress -VMName 'amisad-edge-a'
         $upper = Get-GuestRailAddress -VMName 'AMISAD-EDGE-A'
         $upper.Ip  | Should -Be $lower.Ip

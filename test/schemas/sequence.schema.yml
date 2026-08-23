@@ -236,6 +236,13 @@ $defs:
             timeoutSeconds:         { type: integer, minimum: 0 }
             pollSeconds:            { type: number,  minimum: 0 }
             freshMatchTailLines:    { type: integer, minimum: 0 }
+            failurePatterns:
+              $ref: "#/$defs/patternOrArray"
+              description: >
+                Replaces the default fast-fail set (the wrapper's non-zero-exit
+                sentinel) for this step's payload. The shell-rejection
+                anti-patterns, which decide whether the typed command line was
+                accepted at all, are not part of this set and stay in force.
 
       - if: { properties: { action: { const: pressKey } } }
         then:
@@ -378,7 +385,7 @@ $defs:
             # it on a step whose script provisions; leave it off on one that
             # seeds records and asserts over them. Only consulted when the step
             # is NOT detached -- a detached step re-attaches instead of
-            # re-running, which needs no such judgement.
+            # re-running, which needs no such judgment.
             transportRetries: { type: integer, minimum: 0, maximum: 10 }
             # Run the payload under the guest-side supervisor so it outlives the
             # ssh session, and make a reconnect re-attach to it from the last
@@ -421,6 +428,9 @@ $defs:
             tabCount:            { type: integer, minimum: 0 }
             charDelayMs:         { type: integer, minimum: 0 }
             delaySeconds:        { type: number,  minimum: 0 }
+            blindAfterSeconds:   { type: integer, minimum: 0 }
+            confirmPattern:      { $ref: "#/$defs/patternOrArray" }
+            confirmSeconds:      { type: integer, minimum: 0 }
 
       - if: { properties: { action: { const: waitForSeconds } } }
         then:

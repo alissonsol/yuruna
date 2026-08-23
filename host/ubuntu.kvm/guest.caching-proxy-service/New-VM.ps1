@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42f8395b-50cf-4a59-bfc3-49af26e60079
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -274,38 +274,38 @@ if (($ypoolNasNetPath -match "'") -or ($ypoolNasUser -match "'")) {
 # is NOT baked -- the config service serves it at runtime (/v1/nas/pool).
 $ypoolNasReplicate = if ($ypoolNasCfg -and $ypoolNasUser -and $ypoolNasNetPath) { 'true' } else { 'false' }
 
-# --- REGION: Lab shared bearer (control proofs + push-ingest + lab-token exchange)
+# --- REGION: Internal authentication key (control proofs + push-ingest + lab-token exchange)
 # --- REGION: https://yuruna.link/caching-proxy-service#cache-vm-nas-and-config-service
 # Empty vaultKey means the token is unset: do NOT call Get-Password then (it
-# would auto-generate a junk per-host token). 'lab-auth-token' first, then the
-# legacy 'pool-auth-token' name, so a host enrolled under the old logical user
-# rebuilds its proxy with the token the pool already shares.
-$labAuthToken = ''
+# would auto-generate a junk per-host key). 'internal-auth-key' first, then the
+# legacy 'lab-auth-token' and 'pool-auth-token' names, so a host enrolled under
+# an older logical user rebuilds its proxy with the key the pool already shares.
+$internalAuthKey = ''
 # A read that THREW is not the same as a vault with no entry: the vault lock
 # can time out, and a mint on that path would replace a token the rest of the
 # lab still shares. Track the difference so only a completed read that found
 # nothing reaches the mint below.
-$labTokenReadFailed = $false
+$keyReadFailed = $false
 try {
-    foreach ($labLogical in @('lab-auth-token', 'pool-auth-token')) {
-        $paEff = Get-EffectiveUser -LogicalUser $labLogical
+    foreach ($keyLogical in @('internal-auth-key', 'lab-auth-token', 'pool-auth-token')) {
+        $paEff = Get-EffectiveUser -LogicalUser $keyLogical
         if ($paEff.vaultKey -and (Test-VaultEntry -VaultKey $paEff.vaultKey)) {
-            $labAuthToken = [string](Get-Password -Username $labLogical)
+            $internalAuthKey = [string](Get-Password -Username $keyLogical)
             break
         }
     }
 } catch {
-    $labTokenReadFailed = $true
-    Write-Warning ("lab-auth-token: reading this host's vault failed ($($_.Exception.Message)). Building with an EMPTY token and leaving the vault untouched: " +
+    $keyReadFailed = $true
+    Write-Warning ("internal authentication key: reading this host's vault failed ($($_.Exception.Message)). Building with an EMPTY key and leaving the vault untouched: " +
         "the proxy will mint no control proofs, push-ingest stays disabled, and the dashboard shows no Lab token. Resolve the vault error and rebuild.")
 }
 # Refuse a token carrying a newline or quote: it would corrupt the baked token file or
 # the runner's bearer header.
-if ($labAuthToken -match '[\r\n''"]') {
-    Write-Warning ("lab-auth-token in this host's vault contains a newline or quote character, which would corrupt the baked token file; building with an EMPTY token. " +
+if ($internalAuthKey -match '[\r\n''"]') {
+    Write-Warning ("The internal authentication key in this host's vault contains a newline or quote character, which would corrupt the baked key file; building with an EMPTY key. " +
         "Re-enroll this host (pwsh test/lab/Set-LabToken.ps1) or store a clean value, then rebuild.")
-    $labAuthToken = ''
-    $labTokenReadFailed = $true
+    $internalAuthKey = ''
+    $keyReadFailed = $true
 }
 # No stored token -> mint one and store it NOW, so the proxy is never built
 # with an empty token (which would mint no control proofs, keep /ingest 503,
@@ -313,18 +313,18 @@ if ($labAuthToken -match '[\r\n''"]') {
 # control into a 403). The building host becomes the lab's first enrolled
 # member; every other host receives the same value through the dashboard's
 # Lab token (pwsh test/lab/Set-LabToken.ps1).
-if ([string]::IsNullOrEmpty($labAuthToken) -and -not $labTokenReadFailed) {
-    $labAuthToken = [Convert]::ToHexString([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(24)).ToLowerInvariant()
+if ([string]::IsNullOrEmpty($internalAuthKey) -and -not $keyReadFailed) {
+    $internalAuthKey = [Convert]::ToHexString([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(24)).ToLowerInvariant()
     Import-Module (Join-Path $repoRoot 'test/modules/Test.ConfigServiceSync.psm1') -Global -Force -DisableNameChecking
-    $labProvision = Set-LabAuthToken -Token $labAuthToken
-    if ($labProvision.ok) {
-        Write-Output "lab-auth-token: none was stored on this host; minted one and stored it (vaultKey '$($labProvision.vaultKey)')."
+    $keyProvision = Set-InternalAuthKey -Token $internalAuthKey
+    if ($keyProvision.ok) {
+        Write-Output "internal authentication key: none was stored on this host; minted one and stored it (vaultKey '$($keyProvision.vaultKey)')."
     } else {
-        Write-Warning ("Could not store a freshly minted lab-auth-token in this host's vault " +
-            "(keyChanged=$($labProvision.keyChanged), verified=$($labProvision.verified)); building with an EMPTY " +
+        Write-Warning ("Could not store a freshly minted internal authentication key in this host's vault " +
+            "(keyChanged=$($keyProvision.keyChanged), verified=$($keyProvision.verified)); building with an EMPTY " +
             "token: the proxy will mint no control proofs, push-ingest stays disabled, and the dashboard shows " +
             "no Lab token until one is provisioned and the proxy rebuilt.")
-        $labAuthToken = ''
+        $internalAuthKey = ''
     }
 }
 
@@ -433,7 +433,7 @@ $userData = New-CloudInitUserData `
         YPOOL_NAS_NETWORK_PATH_PLACEHOLDER  = $ypoolNasNetPath
         YPOOL_NAS_NETWORK_USER_PLACEHOLDER  = $ypoolNasUser
         YPOOL_NAS_HOST_ID_PLACEHOLDER       = $ypoolNasHostId
-        LAB_AUTH_TOKEN_PLACEHOLDER     = $labAuthToken
+        INTERNAL_AUTH_KEY_PLACEHOLDER  = $internalAuthKey
         YURUNA_DOCKERHUB_USERNAME_PLACEHOLDER = $dockerHubUsername
         YURUNA_DOCKERHUB_TOKEN_PLACEHOLDER    = $dockerHubToken
         YURUNA_CONFIG_SERVICE_PORT_PLACEHOLDER               = $configPort
@@ -679,9 +679,9 @@ for ($i = 0; $i -lt $maxIterations; $i++) {
 if (-not $cacheIp) {
     $detail = @"
 
-=========================================================================
+========
 ERROR: caching-proxy-service VM '$VMName' did not obtain an IP address within 20 minutes.
-=========================================================================
+========
 
 The VM is running but virsh domifaddr (sources: lease, agent, arp) all
 returned empty. Exiting with failure so guest installs won't silently
@@ -709,7 +709,7 @@ Diagnostic steps inside the VM:
 If cloud-init is still running (package install is slow or the mirror
 is throttled), re-run New-VM.ps1 after it finishes -- the script is
 idempotent and will rebuild the VM cleanly.
-=========================================================================
+========
 "@
     Write-Output $detail
     exit 1
@@ -778,10 +778,10 @@ for ($i = 0; $i -lt $portMaxIterations; $i++) {
 }
 $detail = @"
 
-=========================================================================
+========
 ERROR: squid did not start listening on :3128 within 15 minutes.
   Cache IP probed: $cacheIp
-=========================================================================
+========
 
 The VM is running and has an IP, but port 3128 never accepted a TCP
 connection. Exiting with failure so subsequent guest installs can't
@@ -829,7 +829,7 @@ Recovery options:
   * Manual:  ssh in, fix (e.g. wait for rate-limit, then
              'sudo cloud-init clean --logs && sudo cloud-init init').
   * Probe:   nc -z -w 3 $cacheIp 3128
-=========================================================================
+========
 "@
 Write-Output $detail
 exit 1

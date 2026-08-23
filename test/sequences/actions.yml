@@ -86,7 +86,21 @@ actions:
     wait's timeout reports the value to use. Raise it ONLY when the step
     clears the screen first, or is the sequence's only fetchAndExecute:
     the window is what stops an earlier step's marker from satisfying
-    this one, and sequences share a single generic marker string).
+    this one, and sequences share a single generic marker string),
+    failurePatterns (string or string-array -- anti-patterns that abort
+    the wait early. Replaces the default, which is the fetch-and-execute
+    wrapper's non-zero-exit sentinel; set it only when the step's script
+    announces its own failures some other way).
+
+
+    One further fast-fail is always in force and is not affected by
+    failurePatterns, because it is about the typed line rather than about
+    the script: for the first seconds after Enter, the shell's own refusal
+    of the command line -- "command not found", "No such file or
+    directory" -- ends the wait, because nothing started and the
+    completion marker can never arrive. Those strings are also ordinary
+    output from a healthy script, which is why they stop being consulted
+    once the payload owns the console.
 
   pressKey: >
     Send a single keystroke. Parameters: name (string).

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42393379-b183-472a-aafb-3e90a62215aa
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -319,7 +319,7 @@ Describe 'Superseded lease blocks are selected, and only those' {
         Assert-StringEqual -Expected 0 -Actual $stale.Count -Because 'two blocks with one expiry cannot be told apart'
     }
 
-    It 'honours a name scope' {
+    It 'honors a name scope' {
         $stale = @(Select-StaleDhcpLeaseBlock -LeaseText $script:StaleLeaseText -Name @('lonely-guest') -InUseVerdict { 'unknown' })
         Assert-StringEqual -Expected 0 -Actual $stale.Count -Because 'a scoped run considers only the names given'
     }

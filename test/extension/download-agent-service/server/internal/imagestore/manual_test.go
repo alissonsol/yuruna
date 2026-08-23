@@ -46,7 +46,7 @@ func brokenFido(t *testing.T) FidoConfig {
 }
 
 func TestAHandPlacedISOBecomesTheServedArtifact(t *testing.T) {
-	a := newTestAgent(t, Options{PoolDir: t.TempDir(), Fido: brokenFido(t), AgentVersion: "2026.08.21"})
+	a := newTestAgent(t, Options{PoolDir: t.TempDir(), Fido: brokenFido(t), AgentVersion: "2026.08.23"})
 	body := []byte("bytes an operator downloaded from Microsoft by hand")
 	dropFile(t, a.store, windowsID, signedName, body, 10*time.Minute)
 
@@ -264,7 +264,7 @@ func TestAFolderOutsideThePoolIsNeverRepublishedAsAShare(t *testing.T) {
 	}
 	// A Windows-style UNC is the same path; the pool config writes it either way.
 	if got := shareFolder(`\\nas\share\`, images, images+"/x/y"); got != "//nas/share/images/x/y" {
-		t.Errorf("shareFolder = %q, want the backslash form normalised", got)
+		t.Errorf("shareFolder = %q, want the backslash form normalized", got)
 	}
 	// A mount point that happens to contain the images directory name must not
 	// be cut at the wrong segment: the answer is derived from the images root

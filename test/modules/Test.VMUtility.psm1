@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42cfa437-bd81-47fb-8d48-e2ca1335fa07
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -694,7 +694,7 @@ function Get-StashServiceProbeCommand {
     .DESCRIPTION
         Update-StashServiceMarkerAddress has to tell "this address IS the stash
         VM" from "this address merely parses", and the extension already owns
-        that judgement -- HTTP :80 answering /healthz is the same gate the cycle
+        that judgment -- HTTP :80 answering /healthz is the same gate the cycle
         pre-flight and the guest workloads apply. Borrowing it keeps one
         definition of what reachable means instead of a second, subtly
         different probe here.

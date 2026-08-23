@@ -7,7 +7,7 @@
 //
 // A host accepts a mutating /control/* call only from its own loopback
 // interface or from a caller presenting a control proof -- an HMAC over the
-// pool-wide lab-auth-token, carried in X-Yuruna-Control. That format is shared
+// pool-wide internal authentication key, carried in X-Yuruna-Control. That format is shared
 // with the pool aggregator (Go) and the host's own verifier (PowerShell), so
 // all three must derive it byte for byte identically; the golden vector in this
 // package's tests is what pins it.
@@ -86,7 +86,7 @@ var ErrNoProof = errors.New("no control proof")
 
 // Proof is the deterministic core of the control proof: the exact wire string
 // "<expiry>.<base64 HMAC>" a host accepts on its mutating /control/* routes,
-// where HMAC = HMAC-SHA256(lab-auth-token, "yuruna-control|proof|<expiry>").
+// where HMAC = HMAC-SHA256(internal authentication key, "yuruna-control|proof|<expiry>").
 func Proof(token string, expiry int64) string {
 	mac := hmac.New(sha256.New, []byte(token))
 	mac.Write([]byte("yuruna-control|proof|" + strconv.FormatInt(expiry, 10)))
@@ -259,7 +259,7 @@ func (c *Client) State(ctx context.Context, baseURL string) (string, error) {
 // /go/host -- the identical proof a browser receives when an operator follows a
 // dashboard host link, carried in the redirect's URL fragment.
 //
-// This is the fallback for a service that holds no lab-auth-token of its own:
+// This is the fallback for a service that holds no internal authentication key of its own:
 // nothing bakes that file into a service VM's seed, so requiring it would leave
 // the pool-wide control unusable on a lab that never placed one by hand. The
 // fragment never reaches a server or an access log -- here it never leaves this
@@ -278,12 +278,12 @@ func (c *Client) ProofFromAggregator(ctx context.Context, aggregatorBase, hostID
 	if resp.StatusCode/100 != 3 {
 		return "", fmt.Errorf("the pool aggregator answered HTTP %d for this host", resp.StatusCode)
 	}
-	// No fragment means the aggregator holds no lab-auth-token of its own, so
+	// No fragment means the aggregator holds no internal authentication key of its own, so
 	// the whole lab is loopback-only control. Say that, rather than sending a
 	// proofless call to every member to collect identical 403s.
 	_, proof, found := strings.Cut(resp.Header.Get("Location"), proofFragment)
 	if !found || proof == "" {
-		return "", errors.New("the pool aggregator minted no control proof (it holds no lab auth token)")
+		return "", errors.New("the pool aggregator minted no control proof (it holds no internal authentication key)")
 	}
 	return proof, nil
 }

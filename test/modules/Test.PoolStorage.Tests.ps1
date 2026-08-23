@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42697c34-7060-4995-8ce1-baeb7bd4bbd6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -186,7 +186,7 @@ Describe 'Test-PoolStorageSudoRefusal (sudo would not run it vs the mount failed
             'sudo: interactive authentication is required',
             'Sorry, user ytest may not run sudo on syzor202607a.',
             'ytest is not in the sudoers file.')) {
-            Assert-True (Test-PoolStorageSudoRefusal -StdErr $text) "refusal recognised: $text"
+            Assert-True (Test-PoolStorageSudoRefusal -StdErr $text) "refusal recognized: $text"
         }
     }
     It 'does not call a real mount failure a refusal' {
@@ -826,7 +826,7 @@ Describe 'Test-PoolStorageWriteProbe (a mount-table entry is not proof the mount
             $r = Test-PoolStorageWriteProbe -Path $dir -TimeoutSeconds 1
             $sw.Stop()
             # A local temp dir answers instantly, so this asserts the budget is
-            # honoured as a CAP, never as a delay.
+            # honored as a CAP, never as a delay.
             Assert-True $r.Ok 'a responsive path still passes under a tight cap'
             Assert-True ($sw.Elapsed.TotalSeconds -lt 15) "returned promptly ($([int]$sw.Elapsed.TotalSeconds)s)"
         } finally { Remove-Item -LiteralPath $dir -Recurse -Force -ErrorAction SilentlyContinue }

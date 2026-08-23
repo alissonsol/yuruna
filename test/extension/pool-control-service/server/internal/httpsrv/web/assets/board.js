@@ -4,21 +4,47 @@
 // Operator board. Every value here comes from an operator or a project repo, so
 // nothing is ever written with innerHTML -- Y.el sets textContent.
 (function () {
-  const RANGE_KEY = 'yuruna.board.range';
-  let state = { range: localStorage.getItem(RANGE_KEY) || '24h', cards: [], offers: [] };
-  let pending = null;   // the assignment awaiting confirmation
-  let timer = null;
+  var RANGE_KEY = 'yuruna.board.range';
 
-  const $ = (id) => document.getElementById(id);
+  // Guarded both ways: private browsing makes localStorage throw on write, and
+  // on some builds on read too. A board that cannot remember the chosen period
+  // is a smaller loss than a board that does not render.
+  function remembered(key, fallback) {
+    try { return window.localStorage.getItem(key) || fallback; } catch (e) { return fallback; }
+  }
+  function remember(key, value) {
+    try { window.localStorage.setItem(key, value); } catch (e) { /* private mode */ }
+  }
+
+  var state = { range: remembered(RANGE_KEY, '24h'), cards: [], offers: [] };
+  var pending = null;   // the assignment awaiting confirmation
+  var timer = null;
+
+  function $(id) { return document.getElementById(id); }
+
+  // The class carries the look; aria-pressed carries the state. Setting only
+  // the class leaves the selected range visible and unannounced. Written with
+  // add/remove rather than classList.toggle's force argument, which the browser
+  // baseline does not carry everywhere.
+  function markPeriod(selected) {
+    var all = document.querySelectorAll('.periods button');
+    for (var i = 0; i < all.length; i++) {
+      var b = all[i];
+      var on = (b === selected);
+      if (on) { b.className = b.className.indexOf('on') >= 0 ? b.className : (b.className + ' on').replace(/^\s+/, ''); }
+      else { b.className = b.className.replace(/\bon\b/g, '').replace(/\s+/g, ' ').replace(/^\s+|\s+$/g, ''); }
+      b.setAttribute('aria-pressed', String(on));
+    }
+  }
 
   // --- rendering -----------------------------------------------------------
 
   // Thresholds mirror the Grafana tile exactly: red below 95, amber below 100,
   // green only at a clean 100.
   function heroClass(pct) {
-    if (pct === null || pct === undefined) return 'none';
-    if (pct >= 100) return 'good';
-    if (pct >= 95) return 'warn';
+    if (pct === null || pct === undefined) { return 'none'; }
+    if (pct >= 100) { return 'good'; }
+    if (pct >= 95) { return 'warn'; }
     return 'bad';
   }
 
@@ -33,7 +59,7 @@
   }
 
   function cardEl(c) {
-    const kids = [
+    var kids = [
       Y.el('h2', { text: c.displayName }),
       Y.el('p', { class: 'hosts', text: c.hostsTotal + (c.hostsTotal === 1 ? ' host' : ' hosts') + ' - ' + c.hostsReporting + ' reporting' }),
       Y.el('div', { class: 'hero ' + heroClass(c.successPct) }, [
@@ -46,7 +72,7 @@
       ])
     ];
 
-    const assigned = Y.el('p', { class: 'assigned' });
+    var assigned = Y.el('p', { class: 'assigned' });
     assigned.appendChild(document.createTextNode('Running: '));
     if (c.testSet) {
       assigned.appendChild(Y.el('strong', { text: c.testSetLabel || c.testSet }));
@@ -56,16 +82,20 @@
     kids.push(assigned);
 
     if (c.assignAllowed) {
-      const sel = Y.el('select', { 'aria-label': 'Test set for ' + c.displayName });
+      var sel = Y.el('select', { 'aria-label': 'Test set for ' + c.displayName });
       sel.appendChild(Y.el('option', { value: '', text: 'Change test set...' }));
-      for (const o of state.offers) {
-        const opt = Y.el('option', { value: o.name, text: offerLabel(o) });
-        if (o.name === c.testSet) opt.selected = true;
+      for (var i = 0; i < state.offers.length; i++) {
+        var o = state.offers[i];
+        var opt = Y.el('option', { value: o.name, text: offerLabel(o) });
+        if (o.name === c.testSet) { opt.selected = true; }
         sel.appendChild(opt);
       }
-      sel.addEventListener('change', () => {
-        const chosen = state.offers.find((o) => o.name === sel.value);
-        if (!chosen) return;
+      Y.onSelectCommit(sel, function () {
+        var chosen = null;
+        for (var j = 0; j < state.offers.length; j++) {
+          if (state.offers[j].name === sel.value) { chosen = state.offers[j]; break; }
+        }
+        if (!chosen) { return; }
         askConfirm(c, chosen, sel);
       });
       kids.push(sel);
@@ -84,23 +114,50 @@
   }
 
   function render() {
-    const host = $('cards');
+    var host = $('cards');
+    if (Y.holdRepaint(host, render)) { return; }
     host.textContent = '';
-    for (const c of state.cards) host.appendChild(cardEl(c));
+    for (var i = 0; i < state.cards.length; i++) { host.appendChild(cardEl(state.cards[i])); }
     $('empty').hidden = state.cards.length > 0;
   }
 
   // --- confirmation --------------------------------------------------------
 
   // The failure mode is a mis-tap, so name the blast radius before writing.
+  // Where focus was when the sheet opened, so it can go back there. The sheet
+  // markup is already correct (role=dialog, aria-modal, aria-labelledby); what
+  // was missing was every behavior behind it. aria-modal="true" in particular
+  // asks assistive tech to ignore everything OUTSIDE the dialog -- so leaving
+  // focus on the <select> that opened it put the user's focus point inside the
+  // part of the tree the screen reader had just been told to suppress, and
+  // nothing was announced at all.
+  var confirmOpener = null;
+
+  function trapConfirmKeys(ev) {
+    var k = Y.key(ev);
+    if (k === 'Escape') { ev.preventDefault(); closeConfirm(true); return; }
+    if (k !== 'Tab') { return; }
+    var box = $('confirm').querySelector('.sheet-box');
+    var stops = box.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])');
+    if (!stops.length) { return; }
+    var first = stops[0], last = stops[stops.length - 1];
+    if (ev.shiftKey && document.activeElement === first) { ev.preventDefault(); last.focus(); }
+    else if (!ev.shiftKey && document.activeElement === last) { ev.preventDefault(); first.focus(); }
+  }
+
   function askConfirm(card, offer, selectEl) {
     pending = { card: card, offer: offer, selectEl: selectEl };
     $('confirm-title').textContent = 'Assign "' + offerLabel(offer) + '" to ' + card.displayName + '?';
-    const n = card.hostsTotal;
+    var n = card.hostsTotal;
     $('confirm-body').textContent =
       n + (n === 1 ? ' host will switch to ' : ' hosts will switch to ') +
       (offer.projectUrl || 'the assigned project') + ' on their next cycle.';
+    confirmOpener = document.activeElement;
     $('confirm').hidden = false;
+    // Cancel, not Assign: the sheet guards a change the user has not committed
+    // to, so the safe option is the one under the finger.
+    $('confirm-cancel').focus();
+    document.addEventListener('keydown', trapConfirmKeys, true);
   }
 
   function closeConfirm(restore) {
@@ -109,35 +166,41 @@
     }
     pending = null;
     $('confirm').hidden = true;
+    document.removeEventListener('keydown', trapConfirmKeys, true);
+    // Back to the control that opened it. Without this the focused button is
+    // hidden underneath the user and focus falls to <body>. parentNode rather
+    // than Node.isConnected, which the browser baseline does not carry.
+    if (confirmOpener && confirmOpener.parentNode && confirmOpener.focus) { confirmOpener.focus(); }
+    confirmOpener = null;
   }
 
-  $('confirm-cancel').addEventListener('click', () => closeConfirm(true));
-  $('confirm-ok').addEventListener('click', async () => {
-    if (!pending) return;
+  $('confirm-cancel').addEventListener('click', function () { closeConfirm(true); });
+  $('confirm-ok').addEventListener('click', function () {
+    if (!pending) { return; }
     $('confirm').hidden = true;
-    await assignPending();
+    assignPending();
   });
 
   // assignPending sends the confirmed assignment through Y.mutate, so a gate
   // refusal prompts for the Lab token and re-sends this same assignment rather
   // than losing the selection. A real failure puts the picker back where it was,
   // so the UI never claims an assignment that did not happen.
-  async function assignPending() {
-    const { card, offer } = pending;
-    try {
-      await Y.mutate('/api/pool/testset', {
-        method: 'POST',
-        body: {
-          poolId: card.poolId, name: offer.name,
-          frameworkUrl: offer.frameworkUrl, projectUrl: offer.projectUrl
-        }
-      });
+  function assignPending() {
+    var card = pending.card;
+    var offer = pending.offer;
+    return Y.mutate('/api/pool/testset', {
+      method: 'POST',
+      body: {
+        poolId: card.poolId, name: offer.name,
+        frameworkUrl: offer.frameworkUrl, projectUrl: offer.projectUrl
+      }
+    }).then(function () {
       pending = null;
-      await load();
-    } catch (e) {
+      return load();
+    }, function (e) {
       closeConfirm(true);
-      alert('Could not assign: ' + e.message);
-    }
+      window.alert('Could not assign: ' + e.message);
+    });
   }
 
   // --- data ----------------------------------------------------------------
@@ -146,7 +209,7 @@
   // each pass, because the 30 s poll below would otherwise keep resetting the
   // 60 s countdown and it would never reach zero. refreshOnVisible is off -- the
   // board already reloads on that event.
-  const chrome = Y.initChrome({
+  var chrome = Y.initChrome({
     intervalSeconds: 60, refreshOnVisible: false,
     refresh: function () { load({ quiet: true }); }
   });
@@ -158,9 +221,9 @@
   // the indicator. A poll keeps its numbers on screen and signals in the footer
   // instead: a wall display that blanked every half minute would read as
   // failing rather than as refreshing.
-  async function load(opts) {
-    const quiet = !!(opts && opts.quiet);
-    let done = function () { };
+  function load(opts) {
+    var quiet = !!(opts && opts.quiet);
+    var done = function () { };
     if (!quiet) {
       // The empty-state line is an ANSWER ("no pools yet"), so it must not sit
       // under the indicator claiming one before the read has landed.
@@ -168,14 +231,14 @@
       done = Y.busy($('cards'), 'Loading pools...');
     }
     chrome.busy(true);
-    try {
-      const d = await Y.api('/api/board?range=' + encodeURIComponent(state.range));
+    var finish = function () { done(); chrome.busy(false); };
+    return Y.api('/api/board?range=' + encodeURIComponent(state.range)).then(function (d) {
       chrome.stamp();
       state.cards = d.cards || [];
       state.offers = d.offers || [];
-      const b = $('stats-banner');
+      var b = $('stats-banner');
       if (d.statsError) {
-        // Numbers grey out; assignment still works, because it goes through the
+        // Numbers gray out; assignment still works, because it goes through the
         // intent CLIs and never touches the aggregator.
         b.textContent = 'Live numbers unavailable (' + d.statsError + '). Assigning still works.';
         b.hidden = false;
@@ -183,22 +246,19 @@
         b.hidden = true;
       }
       render();
-    } catch (e) {
-      Y.notice && Y.notice('error', e.message);
+    }, function (e) {
+      if (Y.notice) { Y.notice('error', e.message); }
       // A failed poll leaves the cards it could not refresh alone -- they are
       // stale, not wrong, and the footer time says how stale.
-      if (!quiet) showLoadError(e.message);
-    } finally {
-      done();
-      chrome.busy(false);
-    }
+      if (!quiet) { showLoadError(e.message); }
+    }).then(finish, finish);
   }
 
   // This page carries no notice area, so a read that failed says so where the
   // cards would have been. Without it the wait ends in a blank board that looks
   // exactly like the wait did.
   function showLoadError(msg) {
-    const host = $('cards');
+    var host = $('cards');
     host.textContent = '';
     host.appendChild(Y.el('p', {
       class: 'muted load-error',
@@ -206,31 +266,38 @@
     }));
   }
 
-  for (const btn of document.querySelectorAll('.periods button')) {
-    btn.addEventListener('click', () => {
-      state.range = btn.getAttribute('data-range');
-      localStorage.setItem(RANGE_KEY, state.range);
-      for (const b of document.querySelectorAll('.periods button')) b.classList.toggle('on', b === btn);
-      load();
-    });
+  var periodButtons = document.querySelectorAll('.periods button');
+  for (var pi = 0; pi < periodButtons.length; pi++) {
+    // Wired through a call rather than from the loop body, so each handler
+    // closes over ITS button instead of the last one in the list.
+    (function (btn) {
+      btn.addEventListener('click', function () {
+        state.range = btn.getAttribute('data-range');
+        remember(RANGE_KEY, state.range);
+        markPeriod(btn);
+        load();
+      });
+    }(periodButtons[pi]));
   }
 
   // Auto-refresh, paused while the tab is hidden so a phone in a pocket is not
   // polling. The endpoint behind this is memoized server-side.
   function startTimer() {
-    if (timer) clearInterval(timer);
-    timer = setInterval(() => { if (!document.hidden) load({ quiet: true }); }, 30000);
+    if (timer) { window.clearInterval(timer); }
+    timer = window.setInterval(function () { if (!document.hidden) { load({ quiet: true }); } }, 30000);
   }
-  document.addEventListener('visibilitychange', () => { if (!document.hidden) load({ quiet: true }); });
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) { load({ quiet: true }); } });
 
-  (async function init() {
-    for (const b of document.querySelectorAll('.periods button')) {
-      b.classList.toggle('on', b.getAttribute('data-range') === state.range);
+  (function init() {
+    var all = document.querySelectorAll('.periods button');
+    var selected = null;
+    for (var i = 0; i < all.length; i++) {
+      if (all[i].getAttribute('data-range') === state.range) { selected = all[i]; }
     }
+    markPeriod(selected);
     // The board never blocks on the gate: it renders for anyone on the LAN and
     // asks for the Lab token at the moment a change is attempted.
     $('board').hidden = false;
-    await load();
-    startTimer();
-  })();
+    load().then(startTimer, startTimer);
+  }());
 })();

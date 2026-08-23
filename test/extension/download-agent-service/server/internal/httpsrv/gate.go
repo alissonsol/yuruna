@@ -13,7 +13,7 @@ import (
 // The write gate. Deleting a generation or forcing a re-download changes what
 // every host in the pool receives, so those routes carry the lab-token gate
 // every extension service shares: a session an operator unlocks with the
-// dashboard's rotating code, or the lab auth token as a bearer for automation.
+// dashboard's rotating code, or the internal authentication key as a bearer for automation.
 //
 // Reads are deliberately outside it. The catalog, the metadata and the bytes
 // are open on the trusted LAN, matching the pool-status and stash artifact

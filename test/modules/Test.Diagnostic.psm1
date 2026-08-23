@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42a266d5-29ef-459f-9141-78b35e35cc6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1323,7 +1323,7 @@ function Save-GuestDiagnostic {
         return @{ success=$false; outPath=$null; mechanism='none'; attempted=$attempted; exitCode=0; bytes=0L; skipped=$true; reason="no SSH user mapping for guest '$GuestKey'" }
     }
 
-    # Pre-flight: ask the driver to warm the host's neighbour cache before any
+    # Pre-flight: ask the driver to warm the host's neighbor cache before any
     # address lookup. Wherever the host is not the DHCP server for the guest
     # network -- an External vSwitch, a bridge-forward libvirt network -- there
     # is no in-band source to ask, and a passive cache read finds the guest only
@@ -1337,7 +1337,7 @@ function Save-GuestDiagnostic {
     # escalates internally declines here, so its own bounded, memoized sweep
     # is not duplicated by an unbounded one from out here.
     try {
-        Write-Verbose '  Diagnostics: warming the host neighbour cache before address lookup...'
+        Write-Verbose '  Diagnostics: warming the host neighbor cache before address lookup...'
         $null = Update-GuestNeighborCache -VMName $VMName
     } catch {
         Write-Debug "Save-GuestDiagnostic: Update-GuestNeighborCache threw: $($_.Exception.Message)"
@@ -1562,4 +1562,5 @@ Export-ModuleMember -Function `
     Get-DiagnosticsFileName, `
     Resolve-StatusServiceEndpoint, `
     New-DiagnosticsConsoleCommand, `
-    Test-ConsoleEchoIntact
+    Test-ConsoleEchoIntact, `
+    Get-ConsoleEchoVerdict

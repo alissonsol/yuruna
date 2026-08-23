@@ -193,7 +193,7 @@ func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Stats are best-effort. A dead aggregator greys the NUMBERS; it must never
+	// Stats are best-effort. A dead aggregator grays the NUMBERS; it must never
 	// stop an operator assigning work, because assignment goes through the
 	// intent CLIs and has no aggregator dependency at all.
 	var stats aggPoolStats

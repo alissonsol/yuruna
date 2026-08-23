@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42e0baf3-f2f9-48ca-aa27-fcf4d1a9763e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -91,7 +91,7 @@ Describe 'Resolve-CleanupVmNamePrefix' {
         Assert-StringEqual 'test-' ((Resolve-CleanupVmNamePrefix -VmStart $null) -join ',')
     }
 
-    It 'honours a customized test-VM prefix' {
+    It 'honors a customized test-VM prefix' {
         $got = Resolve-CleanupVmNamePrefix -VmStart @{ testVmNamePrefix = 'yr-' }
         Assert-StringEqual 'yr-' ($got -join ',')
     }

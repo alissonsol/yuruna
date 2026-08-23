@@ -4,7 +4,7 @@
 // every comparator reads in one screen. Sorting is comparison-only: it never
 // touches the document.
 (function () {
-  const S = {};
+  var S = {};
 
   // The columns a header can sort by, in table order. Actions is absent: it
   // holds controls, not a value, and ordering by it would mean nothing.
@@ -16,13 +16,13 @@
   // scan, an unavailable one waits for the operator to install something.
   S.stateRank = { failed: 0, downloading: 1, unavailable: 2, absent: 3, stale: 4, fresh: 5 };
   // A state this table does not rank -- `deleting`, or one a later agent adds --
-  // sorts after every ranked one instead of silently borrowing a neighbour's
+  // sorts after every ranked one instead of silently borrowing a neighbor's
   // urgency, and stays where the identity tiebreak puts it.
-  const UNRANKED = 90;
+  var UNRANKED = 90;
 
   // Never verified is the oldest thing there is, so those rows gather at the
   // same end of the timestamp order whichever direction is active.
-  const NEVER_VERIFIED = -Infinity;
+  var NEVER_VERIFIED = -Infinity;
 
   S.isColumn = function (col) { return S.columns.indexOf(col) >= 0; };
 
@@ -42,14 +42,14 @@
 
   function verifiedAt(img) {
     if (!img.lastVerifiedAt) return NEVER_VERIFIED;
-    const t = Date.parse(img.lastVerifiedAt);
+    var t = Date.parse(img.lastVerifiedAt);
     return isNaN(t) ? NEVER_VERIFIED : t;
   }
 
   function sizeOf(img) {
     // Current generation only, and as a number: the cell renders "9 GiB" and
     // "12 GiB", which as text would order the larger image first.
-    const n = Number(img.currentBytes);
+    var n = Number(img.currentBytes);
     return isFinite(n) ? n : 0;
   }
 
@@ -57,7 +57,7 @@
     // hasOwnProperty, not a plain lookup: a state named like something on
     // Object.prototype would otherwise rank as an inherited member and hand the
     // comparator a value that is not a number at all.
-    const name = str(img.state).toLowerCase();
+    var name = str(img.state).toLowerCase();
     return Object.prototype.hasOwnProperty.call(S.stateRank, name) ? S.stateRank[name] : UNRANKED;
   }
 
@@ -82,7 +82,7 @@
   function cmpNum(a, b) { return a < b ? -1 : a > b ? 1 : 0; }
 
   function cmpText(a, b) {
-    const x = a.toLowerCase(), y = b.toLowerCase();
+    var x = a.toLowerCase(), y = b.toLowerCase();
     return x < y ? -1 : x > y ? 1 : 0;
   }
 
@@ -91,10 +91,10 @@
   // tiebreak always ascends, so reversing a column reverses what the operator
   // clicked on and nothing else.
   S.compare = function (col, dir) {
-    const d = dir < 0 ? -1 : 1;
+    var d = dir < 0 ? -1 : 1;
     return function (a, b) {
-      const ka = S.key(a, col), kb = S.key(b, col);
-      const c = (typeof ka === 'number') ? cmpNum(ka, kb) : cmpText(ka, kb);
+      var ka = S.key(a, col), kb = S.key(b, col);
+      var c = (typeof ka === 'number') ? cmpNum(ka, kb) : cmpText(ka, kb);
       return c !== 0 ? c * d : cmpText(S.identity(a), S.identity(b));
     };
   };

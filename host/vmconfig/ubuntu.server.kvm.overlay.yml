@@ -69,6 +69,6 @@
     # --- REGION: https://yuruna.link/vmconfig#universe-packages-go-in-late-commands-not-packages
     # --- REGION: https://yuruna.link/network#why-the-guest-agent-is-asked-first
     # Both commands tolerate failure by design: discovery degrades to the host
-    # neighbour rung, while an aborted late-command fails the entire install.
+    # neighbor rung, while an aborted late-command fails the entire install.
     - curtin in-target --target=/target -- env DEBIAN_FRONTEND=noninteractive apt-get install -y qemu-guest-agent || true
     - curtin in-target --target=/target -- systemctl enable qemu-guest-agent.service || true

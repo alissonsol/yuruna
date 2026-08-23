@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 4264b221-526c-4487-9f9f-8d58b28b11dd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,11 +28,14 @@
 
 param(
     [string]$VMName = "amazon-linux01",
-    # No -CachingProxyServiceUrl: AL2023 does not template a dnf proxy into cloud-init
-    # (the guest-side placeholder approach was abandoned as unreliable, see
-    # feedback_dnf_proxy_via_cloud_init_placeholder), matching the Hyper-V/UTM
-    # AL2023 New-VM.ps1. Invoke-PerGuestNewVm only forwards -CachingProxyServiceUrl to
-    # scripts that declare it, so omitting it here is contract-safe.
+    # No -CachingProxyServiceUrl: this guest boots a prebuilt cloud image, so a
+    # templated dnf proxy is written before anything can confirm the address
+    # still answers, and a stale one strands every transaction with no way back.
+    # amazon.linux.2023.update.sh derives and probes the address at run time
+    # instead, so the cache is still used -- just not through the seed. Matches
+    # the Hyper-V/UTM AL2023 New-VM.ps1. Invoke-PerGuestNewVm only forwards
+    # -CachingProxyServiceUrl to scripts that declare it, so omitting it here is
+    # contract-safe.
     # Greppable test user added on top of ec2-user; force-expired by
     # cloud-init chpasswd default so the rotation flow runs.
     [string]$Username = 'yauser1',

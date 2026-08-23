@@ -24,6 +24,7 @@ import (
 	"stash-service/internal/meta"
 	"stash-service/internal/sshsrv"
 	"stash-service/internal/store"
+
 	"yuruna.com/test/extension/extension-sdk/labgate"
 )
 
@@ -32,7 +33,7 @@ const testHostID = "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 32 hex, hostId-shaped
 // testVersion stands in for the framework version the guest build stamps in
 // through -ldflags. A daemon that loses that wiring reports the zero value and
 // the UI footer shows nothing, which no other assertion here would notice.
-const testVersion = "2026.08.21"
+const testVersion = "2026.08.23"
 
 func newTestUI(t *testing.T) (*httptest.Server, *Server, string) {
 	return newTestUIHost(t, testHostID)
@@ -832,9 +833,13 @@ func TestHostInfo(t *testing.T) {
 	}
 }
 
-// TestIndexServesFooter verifies the home page carries the shared footer
-// markup and that the footer module ships in common.js -- i.e. the footer is
-// actually wired end-to-end, not just defined.
+// TestIndexServesFooter verifies the home page carries the shared footer markup
+// and that the module driving it is actually served -- i.e. the footer is wired
+// end-to-end, not just defined.
+//
+// That module lives in the SDK's shared runtime rather than in this service's
+// common.js, so this also covers the asset fallback: the file is embedded in
+// another module and reaches the browser only if this service hands it over.
 func TestIndexServesFooter(t *testing.T) {
 	ts, _, _ := newTestUI(t)
 	home := getText(t, ts.URL+"/")
@@ -843,9 +848,14 @@ func TestIndexServesFooter(t *testing.T) {
 			t.Fatalf("home page missing footer element %q", want)
 		}
 	}
-	js := getText(t, ts.URL+"/assets/common.js")
-	if !strings.Contains(js, "initFooter") {
-		t.Fatalf("common.js missing initFooter module")
+	if !strings.Contains(home, "/assets/yuruna.core.js") {
+		t.Fatalf("home page does not load the shared runtime, so it has no footer to wire")
+	}
+	js := getText(t, ts.URL+"/assets/yuruna.core.js")
+	for _, module := range []string{"initFooter", "initMenu", "initHeader"} {
+		if !strings.Contains(js, module) {
+			t.Errorf("the shared runtime is served but does not define %s", module)
+		}
 	}
 }
 

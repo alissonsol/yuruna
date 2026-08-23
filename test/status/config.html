@@ -199,10 +199,27 @@
     .cache-ip-mark.ok       { color: var(--pass-fg); }
     .cache-ip-mark.fail     { color: var(--fail-fg); }
     .cache-ip-mark.disabled { color: var(--fg-faint); }
-    .cache-ip-mark.pending  { color: var(--warn-fg); animation: cache-ip-pulse 1.1s ease-in-out infinite; }
+    /* The pending state already has its own glyph, so the motion is decoration
+       on top of a cue that is complete without it. A probe can sit pending for
+       the full 15 s abort window and re-enter it on every edit, so an
+       unconditional infinite animation is a long one. Gate it the way the
+       banner dot is gated in yuruna.common.css: motion only when nobody has
+       asked for less of it. */
+    .cache-ip-mark.pending  { color: var(--warn-fg); }
+    @media (prefers-reduced-motion: no-preference) {
+      .cache-ip-mark.pending { animation: cache-ip-pulse 1.1s ease-in-out infinite; }
+    }
     @keyframes cache-ip-pulse {
       0%, 100% { opacity: 1; }
       50%      { opacity: .45; }
+    }
+    /* The validation message the invalid field points at with
+       aria-describedby. Visible text, not a tooltip: a title attribute is
+       mouse-only, and this is the one thing standing between a typo and a
+       rejected Save. */
+    .tree-error {
+      display: block; margin-top: .2rem;
+      font-size: .75rem; color: var(--fail-fg);
     }
     .tree-input[disabled] {
       background: var(--bg-hover); color: var(--fg-muted);
@@ -341,14 +358,15 @@
 
 <div id="banner" class="idle">
   <span class="dot"></span>
-  <span id="banner-text">Loading…</span>
+  <span id="banner-text" role="status" aria-atomic="true">Loading…</span>
 </div>
 
 <main id="config-body">
+  <h1 class="sr-only">test.config.yml</h1>
   <div class="tree-empty">Loading…</div>
 </main>
 
-<div id="config-status"></div>
+<div id="config-status" role="status"></div>
 
 <div id="config-footer">
   <button type="button" class="config-btn destructive" id="config-save-start">Save and start cycle</button>

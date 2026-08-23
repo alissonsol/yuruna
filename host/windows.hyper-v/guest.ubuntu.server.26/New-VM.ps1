@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 424987be-221a-49fe-a0ac-06e90a13e1b0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -270,9 +270,9 @@ if (-not $cacheVM) {
         # PSScriptAnalyzer complaint.
         $detail = @"
 
-=========================================================================
+========
 ERROR: yuruna-caching-proxy-service VM is running but port 3128 is not reachable.
-=========================================================================
+========
   Discovered IPs: $ipList
 
 Aborting so this guest install doesn't silently fall back to direct
@@ -290,7 +290,7 @@ Rebuild the cache VM:
 
 To intentionally skip the cache:
   Stop-VM yuruna-caching-proxy-service   (guest will then WARN and download direct).
-=========================================================================
+========
 "@
         $Host.UI.WriteLine([ConsoleColor]::Red, $Host.UI.RawUI.BackgroundColor, $detail)
         exit 1
@@ -306,7 +306,7 @@ To intentionally skip the cache:
 # Shared builder: automation/Yuruna.GuestSeed.psm1. Hyper-V pins the amd64
 # archive.ubuntu.com mirror.
 # The apt Acquire tuning it emits is a step-budget bound, so it has to be
-# identical on every host driver: three copies of the literal drift, and a
+# identical on every host driver: copies inlined per driver drift, and a
 # mirror stall then burns a step budget on whichever host was missed.
 $AptProxyBlock = New-AptProxyBlock -PrimaryUri 'http://archive.ubuntu.com/ubuntu' -CachingProxyServiceUrl $CachingProxyServiceUrl
 
@@ -403,9 +403,11 @@ Set-Content -Path "$SeedDir/meta-data" -Value $MetaData -NoNewline
 # stays as the belt to this braces; it cannot replace this, because by the time
 # a late-command runs the installer has already taken a lease under the default
 # machine-id identity, and on a long lease that address is spent for a week.
-# Matching en*/eth* mirrors cloud-init's own fallback, so a guest whose
-# interface matches neither is no worse off than with no file here -- the
-# property that makes this safe to apply during an install.
+# Matching en*/eth* by name lets one shared file cover enp0s1 on UTM, eth0 on
+# Hyper-V and enp1s0 on KVM, and netplan resolves those globs against real
+# devices. The match must hold: a seeded network-config REPLACES the config
+# cloud-init would otherwise generate, so one that resolves to no interface
+# leaves the guest -- or, during an install, the installer -- with no network.
 Copy-Item -LiteralPath (Join-Path $HostVmConfigDir 'guest-dhcp.network-config') `
     -Destination "$SeedDir/network-config" -Force
 

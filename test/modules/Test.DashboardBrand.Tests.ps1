@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42536ec8-4d7e-4727-b52e-55f7f0ca8688
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -104,7 +104,7 @@ function Invoke-Brander {
     param(
         [Parameter(Mandatory)][string]$DashboardDir,
         [string]$Name = 'Yurunadev',
-        [string]$Version = '2026.08.21',
+        [string]$Version = '2026.08.23',
         [switch]$NoEnvFile
     )
     $envFile = Join-Path $DashboardDir '..' | Join-Path -ChildPath 'brand.env'
@@ -238,6 +238,74 @@ Describe 'the brand tile costs no vertical space on the dashboards this VM serve
     }
 }
 
+Describe 'the brand tile says which dashboards are not ours' {
+
+    It 'marks a community dashboard as unmodified upstream content, and leaves ours unmarked' {
+        if (-not $script:Python) { Set-ItResult -Skipped -Because 'python3 is not installed on this host'; return }
+
+        # The fixture carries the uid the installed board ACTUALLY has. The
+        # install step rewrites the community board's uid into the yuruna-
+        # namespace to give it a stable identity, so a uid-prefix rule matches
+        # every dashboard on the VM and marks none of them. Only the tag the
+        # installer writes distinguishes them, and only a fixture that mirrors
+        # the deployed shape can prove it.
+        $community = @{
+            uid    = 'yuruna-zot-official'
+            title  = 'Zot (official, Grafana ID 20501)'
+            tags   = @('yuruna', 'community')
+            panels = @(@{ id = 1; type = 'stat'; gridPos = @{ h = 4; w = 24; x = 0; y = 0 } })
+        } | ConvertTo-Json -Depth 8
+        $fixture = [ordered]@{ 'squid' = $script:RealDashboards['squid']; 'zot-official' = $community }
+
+        $dir = Get-DashboardFixture -Dashboard $fixture
+        Invoke-Brander -DashboardDir $dir | Out-Null
+
+        $ours = Get-BrandPanel -Dashboard (Get-Content -Raw (Join-Path $dir 'squid.json') | ConvertFrom-Json)
+        $theirs = Get-BrandPanel -Dashboard (Get-Content -Raw (Join-Path $dir 'zot-official.json') | ConvertFrom-Json)
+
+        Assert-True ($null -ne $theirs) 'the community dashboard still gets a tile'
+        Assert-True ("$($theirs.options.content)" -match 'Community dashboard, unmodified') `
+            'the community tile says the board is unmodified upstream content'
+        Assert-True ("$($ours.options.content)" -notmatch 'Community') `
+            'a seeded dashboard is not labeled as community content'
+    }
+
+    It 'reads the tag the installer writes, not the uid or the filename' {
+        if (-not $script:Python) { Set-ItResult -Skipped -Because 'python3 is not installed on this host'; return }
+
+        # Same uid namespace, same filename shape, opposite provenance. If the
+        # rule ever drifts back to inspecting either one, exactly one of these
+        # two assertions fails.
+        $tagged = @{
+            uid = 'yuruna-something'; title = 'Upstream'; tags = @('yuruna', 'community')
+            panels = @(@{ id = 1; type = 'stat'; gridPos = @{ h = 4; w = 24; x = 0; y = 0 } })
+        } | ConvertTo-Json -Depth 8
+        $untagged = @{
+            uid = 'yuruna-something-else'; title = 'Ours'; tags = @('yuruna')
+            panels = @(@{ id = 1; type = 'stat'; gridPos = @{ h = 4; w = 24; x = 0; y = 0 } })
+        } | ConvertTo-Json -Depth 8
+
+        $dir = Get-DashboardFixture -Dashboard ([ordered]@{ 'a-board' = $tagged; 'b-board' = $untagged })
+        Invoke-Brander -DashboardDir $dir | Out-Null
+
+        $a = Get-BrandPanel -Dashboard (Get-Content -Raw (Join-Path $dir 'a-board.json') | ConvertFrom-Json)
+        $b = Get-BrandPanel -Dashboard (Get-Content -Raw (Join-Path $dir 'b-board.json') | ConvertFrom-Json)
+        Assert-True ("$($a.options.content)" -match 'Community dashboard, unmodified') 'the tagged board is marked'
+        Assert-True ("$($b.options.content)" -notmatch 'Community') 'the untagged board is not'
+    }
+
+    It 'the seed tags the community board it installs' {
+        # The stamper can only read a tag the installer writes. Assert the two
+        # halves agree, in the seed itself, so they cannot drift apart silently
+        # -- which is exactly how the uid rule shipped marking nothing.
+        $seed = [System.IO.File]::ReadAllText($script:SeedPath)
+        Assert-True ($seed -match "\['yuruna', 'community'\]") `
+            'the zot rebinder tags the board it installs as community content'
+        Assert-True ($seed -match 'COMMUNITY_TAG = "community"') `
+            'the brand stamper looks for that same tag'
+    }
+}
+
 Describe 'the brand tile is safe to re-run' {
 
     It 'rewrites nothing on a dashboard that already carries it' {
@@ -263,7 +331,7 @@ Describe 'the brand tile is safe to re-run' {
         if (-not $script:Python) { Set-ItResult -Skipped -Because 'python3 is not installed on this host'; return }
 
         $dir = Get-DashboardFixture -Dashboard $script:RealDashboards
-        Invoke-Brander -DashboardDir $dir -Name 'Yurunadev' -Version '2026.08.21' | Out-Null
+        Invoke-Brander -DashboardDir $dir -Name 'Yurunadev' -Version '2026.08.23' | Out-Null
         $doc = Get-Content -Raw (Join-Path $dir 'pool.json') | ConvertFrom-Json
         $geometry = @(Get-TopRow -Dashboard $doc | ForEach-Object { "$($_.gridPos.x),$($_.gridPos.w)" }) -join '|'
 
@@ -271,7 +339,12 @@ Describe 'the brand tile is safe to re-run' {
         $doc = Get-Content -Raw (Join-Path $dir 'pool.json') | ConvertFrom-Json
 
         $content = "$((Get-BrandPanel -Dashboard $doc).options.content)"
-        Assert-True ($content -match 'Yuruna(\r|\n|$)') -Because 'the refreshed tile must carry the new name'
+        # The boundary matters, not the markup: "Yuruna" must not match inside
+        # "Yurunadev", which is the name the tile carried a moment ago. The tile
+        # emits the name in bold rather than as a markdown heading -- a heading
+        # made it the FIRST heading on every provisioned dashboard, an <h4> with
+        # no h1/h2/h3 above it, and the brand name is a label, not a section.
+        Assert-True ($content -match 'Yuruna(\*\*|\r|\n|$)') -Because 'the refreshed tile must carry the new name'
         Assert-True ($content -match 'v2026\.09\.01') -Because 'the refreshed tile must carry the new version'
         Assert-Equal -Expected $geometry `
             -Actual (@(Get-TopRow -Dashboard $doc | ForEach-Object { "$($_.gridPos.x),$($_.gridPos.w)" }) -join '|') `

@@ -143,10 +143,10 @@ Spawning a child pwsh with any std stream redirected (including
 turns handle inheritance ON for that child. `Invoke-StatusServiceBounce` in
 [`test/modules/Test.ConfigServiceSync.psm1`](../test/modules/Test.ConfigServiceSync.psm1)
 runs `Start-StatusService.ps1 -Restart` in a child pwsh, and the status
-server it starts is a grandchild that outlives the bounce by design. With
-inheritance on, that server inherits the write end of the caller's stdout
+service it starts is a grandchild that outlives the bounce by design. With
+inheritance on, that service inherits the write end of the caller's stdout
 pipe and holds it open for its lifetime: the read never reaches EOF, so the
-bounce blocks on the SERVER, not on the child that exited seconds ago. The
+bounce blocks on the SERVICE, not on the child that exited seconds ago. The
 same redirection also swallows every progress line, so the symptom is a
 silent, unbounded hang. Redirecting the child's own streams to files does
 NOT close the hole -- an inheritable pipe further up the ancestry (any
@@ -162,7 +162,7 @@ blocking on a hidden window nobody can answer. Waiting must use
 the whole descendant tree, which includes the status service, reintroducing
 the unbounded wait from the other direction.
 
-Unix has no `ShellExecute`, but its detached server is `nohup`'d onto
+Unix has no `ShellExecute`, but its detached service is `nohup`'d onto
 `/dev/null` + `server.err` and cannot pin the caller's streams, so
 redirecting the child's own streams to files there is safe and gives the same
 live tail.
@@ -249,6 +249,20 @@ Substitute your release (`24`, `26`, ...) for `<release>` in the paths
 below -- e.g. the 24.04 fetch-and-execute paths use
 `guest/ubuntu.server.24/...` (`ubuntu.server.24.update.sh`).
 
+**Autoinstall never starts; console is a wall of
+`subiquity/Network/_send_update: CHANGE eth0`** -- the installer is not stuck,
+it is waiting. subiquity asks `Continue with autoinstall? (yes|no)` a few
+seconds into boot, asks it once, and does not re-ask on a bare Enter -- only a
+literal `yes` or `no` moves it. Its network controller writes a `start:` /
+`finish:` pair to the same console for every link event, so the question scrolls
+off while the installer goes on waiting behind it. The prompt is still live:
+type `yes` + Enter into the console and the install proceeds. Restarting the VM
+also works (the ISO asks again) but is the slower fix. Anything that delays the
+runner past the guest's own boot puts it in this state -- most often an operator
+step-pause, which holds the runner while the guest keeps printing; see
+[control-routes.md](control-routes.md#pause-and-resume-the-flag-file-back-channel).
+The harness answers this itself when the step sets `blindAfterSeconds`.
+
 **Boot issues** -- check `/var/log/installer/installer-journal.txt` for
 hints. If the text-mode installer appears stuck, `Ctrl+Alt+F2` (or `F3`)
 to switch to a TTY, then check `/var/log/installer` or
@@ -312,6 +326,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.21
+Last review: 2026.08.23
 
 Back to [Yuruna](../README.md)

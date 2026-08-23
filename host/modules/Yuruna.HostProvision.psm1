@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 429be071-3a67-44e5-91dc-fd9c3fe536b4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -236,8 +236,8 @@ function Invoke-ResolveVmIp {
         answer, narrating every decline.
     .DESCRIPTION
         Each host driver has its own set of places a guest address can come from,
-        but the logic AROUND those places is the same everywhere and was
-        previously written out once per driver: try them cheapest-first, take the
+        but the logic AROUND those places is the same everywhere, so it lives
+        here once instead of once per driver: try them cheapest-first, take the
         first usable answer, and -- the part that kept getting missed -- say why
         each one declined.
 

@@ -35,7 +35,7 @@ func TestHostInfo(t *testing.T) {
 	if err := json.Unmarshal(b, &info); err != nil {
 		t.Fatalf("hostinfo: %v (body %s)", err, b)
 	}
-	if !info.OK || info.LocalHostID != testHostID || info.Version != "2026.08.21" {
+	if !info.OK || info.LocalHostID != testHostID || info.Version != "2026.08.23" {
 		t.Fatalf("hostinfo should carry the host id and version; got %+v", info)
 	}
 	// Every reported line must be a comma-list of parseable IPs (no stray
@@ -56,8 +56,10 @@ func TestHostInfo(t *testing.T) {
 }
 
 // TestPageServesChrome verifies the page carries the shared header and footer
-// markup and that the module driving it ships in common.js -- i.e. the chrome is
-// wired end-to-end, not just defined.
+// markup and that the module driving it is actually served -- it lives in the
+// SDK's shared runtime rather than in this service's common.js, so this also
+// covers the asset fallback: the file is embedded in another module and reaches
+// the browser only if this service hands it over.
 func TestPageServesChrome(t *testing.T) {
 	srv, _ := newServer(t, Options{})
 
@@ -74,7 +76,7 @@ func TestPageServesChrome(t *testing.T) {
 	// The chrome only runs if the page's scripts actually load. A page that
 	// references an asset the binary does not embed renders as a dead skeleton,
 	// which no markup assertion above would catch.
-	for _, asset := range []string{"/assets/common.js", "/assets/sort.js", "/assets/images.js", "/assets/style.css"} {
+	for _, asset := range []string{"/assets/yuruna.core.js", "/assets/common.js", "/assets/sort.js", "/assets/images.js", "/assets/style.css"} {
 		if !strings.Contains(page, asset) {
 			t.Errorf("page no longer references %s", asset)
 			continue
@@ -84,9 +86,15 @@ func TestPageServesChrome(t *testing.T) {
 		}
 	}
 
-	js := readBody(t, get(t, srv, "/assets/common.js"))
-	if !strings.Contains(js, "initChrome") {
-		t.Fatalf("common.js missing initChrome module")
+	// The chrome module lives in the SDK's shared runtime rather than in this
+	// service's common.js, so this also covers the asset fallback: the file is
+	// embedded in another module and reaches the browser only if this service
+	// hands it over.
+	js := readBody(t, get(t, srv, "/assets/yuruna.core.js"))
+	for _, module := range []string{"initChrome", "initMenu", "initFooter"} {
+		if !strings.Contains(js, module) {
+			t.Errorf("the shared runtime is served but does not define %s", module)
+		}
 	}
 }
 

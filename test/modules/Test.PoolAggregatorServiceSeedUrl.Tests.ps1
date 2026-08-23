@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 4278d388-a2bd-4339-8e7c-b8dad60dc368
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -175,7 +175,7 @@ Describe 'Get-PoolAggregatorServiceSeedUrl believes a claim only once it answers
             Use-ConfigProxyAddress '192.0.2.63'
             [void](Get-PoolAggregatorServiceSeedUrl -WhatIf)
             # -WhatIf does not reach a module on its own, so the ShouldProcess
-            # gate inside it is the only thing that can honour one.
+            # gate inside it is the only thing that can honor one.
             Assert-MockCalled Save-CachingProxyServiceState -ModuleName Test.CachingProxyService -Scope It -Times 0 -Exactly
         }
     }

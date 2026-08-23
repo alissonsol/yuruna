@@ -14,6 +14,8 @@ import (
 	"pool-control-service/internal/config"
 	"pool-control-service/internal/intent"
 	"pool-control-service/internal/state"
+
+	"yuruna.com/test/extension/extension-sdk/webui"
 )
 
 func (s *Server) routes() http.Handler {
@@ -46,7 +48,7 @@ func (s *Server) routes() http.Handler {
 	// status.json every host already serves openly to the LAN.
 	mux.HandleFunc("GET /api/pool/host-control", s.handleHostControlState)
 
-	// Mutations: lab-token session or lab-auth-token bearer. Every one of these
+	// Mutations: lab-token session or internal-auth-key bearer. Every one of these
 	// rewrites pool configuration.
 	mux.HandleFunc("POST /api/pool", s.gate.Require(s.handleNewPool))
 	mux.HandleFunc("DELETE /api/pool", s.gate.Require(s.handleRemovePool))
@@ -163,20 +165,24 @@ func (s *Server) servePage(name string) http.HandlerFunc {
 
 func (s *Server) handleAsset(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimPrefix(r.URL.Path, "/assets/")
-	clean := filepath.ToSlash(filepath.Clean("/" + name))
-	b, err := webFS.ReadFile("web/assets/" + strings.TrimPrefix(clean, "/"))
+	clean := strings.TrimPrefix(filepath.ToSlash(filepath.Clean("/"+name)), "/")
+	b, err := webFS.ReadFile("web/assets/" + clean)
 	if err != nil {
-		http.NotFound(w, r)
+		// Not one of this service's own files, so try the shared ones. The
+		// runtime every page loads first lives in the SDK precisely so there is
+		// one copy of it; a service overrides a shared name by shipping a file
+		// of that name itself, which is why its own directory is searched first.
+		shared, ct, ok := webui.Asset(clean)
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", ct)
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		_, _ = w.Write(shared)
 		return
 	}
-	ct := "application/octet-stream"
-	switch {
-	case strings.HasSuffix(name, ".js"):
-		ct = "text/javascript; charset=utf-8"
-	case strings.HasSuffix(name, ".css"):
-		ct = "text/css; charset=utf-8"
-	}
-	w.Header().Set("Content-Type", ct)
+	w.Header().Set("Content-Type", webui.ContentType(name))
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	_, _ = w.Write(b)
 }

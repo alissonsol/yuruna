@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42f12da2-1112-4de8-b565-c97a7434c2c2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -152,7 +152,7 @@ if (-not $sshPub) { Write-Error "Get-YurunaSshPublicKey returned empty. Module p
 # auto-generates and stores on first call; later calls within the same
 # cycle return the rotated value committed by an earlier guest's
 # Set-Password. Cycle-end cleanup wipes vault.yml on success.
-# YURUNA_GUEST_PASSWORD env-var is honoured for ad-hoc dev-loop
+# YURUNA_GUEST_PASSWORD env-var is honored for ad-hoc dev-loop
 # overrides (skips the vault -- nothing is committed back).
 if (-not (Get-Command openssl -ErrorAction SilentlyContinue)) {
     Write-Error "openssl is required for the autoinstall password hash. apt install openssl."
@@ -204,7 +204,7 @@ $hostPort = $_statusSeed.Port
 # Shared builder: automation/Yuruna.GuestSeed.psm1. $primaryUri is the
 # arch-resolved mirror knob.
 # The apt Acquire tuning it emits is a step-budget bound, so it has to be
-# identical on every host driver: three copies of the literal drift, and a
+# identical on every host driver: copies inlined per driver drift, and a
 # mirror stall then burns a step budget on whichever host was missed.
 Import-Module (Join-Path $repoRoot 'automation/Yuruna.GuestSeed.psm1') -Force
 $AptProxyBlock = New-AptProxyBlock -PrimaryUri $primaryUri -CachingProxyServiceUrl $CachingProxyServiceUrl
@@ -278,9 +278,11 @@ Set-Content -LiteralPath (Join-Path $seedDir 'meta-data') -Value $metaData -NoNe
 # stays as the belt to this braces; it cannot replace this, because by the time
 # a late-command runs the installer has already taken a lease under the default
 # machine-id identity, and on a long lease that address is spent for a week.
-# Matching en*/eth* mirrors cloud-init's own fallback, so a guest whose
-# interface matches neither is no worse off than with no file here -- the
-# property that makes this safe to apply during an install.
+# Matching en*/eth* by name lets one shared file cover enp0s1 on UTM, eth0 on
+# Hyper-V and enp1s0 on KVM, and netplan resolves those globs against real
+# devices. The match must hold: a seeded network-config REPLACES the config
+# cloud-init would otherwise generate, so one that resolves to no interface
+# leaves the guest -- or, during an install, the installer -- with no network.
 Copy-Item -LiteralPath (Join-Path $hostVmConfigDir 'guest-dhcp.network-config') `
     -Destination (Join-Path $seedDir 'network-config') -Force
 

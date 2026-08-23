@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 424fcb83-70f8-4a61-899b-5252d0c26fea
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -57,7 +57,7 @@
     The second rule here is the assertion-helper one: no suite may declare its
     own Assert-*. The two belong together because both are forms of "the suite
     carries something that belongs in one shared place", and both regrow the
-    same way -- by being copied from a neighbour. The Assert-* count went 234 ->
+    same way -- by being copied from a neighbor. The Assert-* count went 234 ->
     296 over the period when nothing enforced it.
 #>
 

@@ -27,7 +27,7 @@ func TestMintControlProofGolden(t *testing.T) {
 	}
 }
 
-// TestMintControlProofEmptyToken: no configured lab-auth-token -> no proof, so /go/host
+// TestMintControlProofEmptyToken: no configured internal authentication key -> no proof, so /go/host
 // adds no fragment and the host falls back to loopback-only control.
 func TestMintControlProofEmptyToken(t *testing.T) {
 	if got := mintControlProof("", 0); got != "" {
@@ -37,7 +37,7 @@ func TestMintControlProofEmptyToken(t *testing.T) {
 
 // --- verification: the answer an extension service cannot work out for itself -
 
-const proofToken = "sekret-lab-auth-token"
+const proofToken = "sekret-internal-auth-key"
 
 // TestVerifyControlProofAcceptsWhatItMints closes the loop on the format: what this
 // daemon hands a browser is what this daemon will later accept back from the service
@@ -110,7 +110,7 @@ func TestControlProofRouteSelfGatesWithoutAToken(t *testing.T) {
 	s := newPoolState("default", 8080)
 	s.authToken = ""
 	if rec := postProof(t, s, `{"proof":"1900000000.AAAA"}`); rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("no lab auth token = %d, want 503", rec.Code)
+		t.Fatalf("no internal authentication key = %d, want 503", rec.Code)
 	}
 }
 

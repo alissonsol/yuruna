@@ -957,7 +957,7 @@ alias, but naming the alias too costs nothing and does not depend on
 how the distribution happens to wire it.
 
 What it costs the operator: this guest has no conventional SSH login
-any more. Console access (the hypervisor's serial or graphical console)
+anymore. Console access (the hypervisor's serial or graphical console)
 is the way in when the daemon is wedged, and nothing on the host may
 assume it can `ssh` into a stash guest. A mask is reversible with
 `systemctl unmask ssh.service`, but doing that while the daemon holds
@@ -990,7 +990,7 @@ Source:
 
 `Sync-ConfigSyncVaultCredential` converges every networkStorage user's vault entry onto the credential the REFERENCE host holds, fetched over the token-gated, encrypted endpoint, prompting the operator only for what the reference cannot supply. Two rules earn their keep:
 
-- **Ask the reference what it can do BEFORE asking the operator for anything.** The shared lab-auth-token unlocks the fetch, but a reference host with no token of its own can never serve a credential, whatever the operator types. Prompting for the token, then for every password once the operator skips it, demands by hand precisely the values this sync exists to copy. The capability probe needs no token and turns that into one sentence naming the fix.
+- **Ask the reference what it can do BEFORE asking the operator for anything.** The internal authentication key unlocks the fetch, but a reference host with no key of its own can never serve a credential, whatever the operator types. Prompting for the key, then for every password once the operator skips it, demands by hand precisely the values this sync exists to copy. The capability probe needs no key and turns that into one sentence naming the fix.
 - **An existing vault entry is not a reason to stop.** Skipping every user who already had one makes the sync a one-shot bootstrap: a NAS password rotated on the reference never reaches a host holding the old one, and the mount fails with a credential the sync was staring right at. The fetched value is compared against the stored one and written only when they differ, so a re-run converges and a no-op run writes nothing.
 
 Requires the authentication extension; degrades to warnings when it cannot be loaded.
@@ -1594,6 +1594,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.21
+Last review: 2026.08.23
 
 Back to [Yuruna](../README.md)

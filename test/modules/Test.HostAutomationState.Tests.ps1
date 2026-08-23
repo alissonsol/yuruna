@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42e5dbd9-8c32-496e-ab48-855a0584ae9c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,7 +30,7 @@
     here instead, statically, against the setter sources themselves. A new write
     fails this test rather than shipping.
 
-    Deliberately source-level rather than behavioural: the macOS and Linux
+    Deliberately source-level rather than behavioral: the macOS and Linux
     readers early-return on the wrong OS, so a runtime comparison could only ever
     check one platform from any one machine. Reading the source checks all three
     from anywhere, which is what CI needs.
@@ -270,4 +270,3 @@ Describe 'the teardown steps every host shares' {
         }
     }
 }
-

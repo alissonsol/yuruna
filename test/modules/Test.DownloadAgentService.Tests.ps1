@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 421157f0-4a70-494a-a09e-b13c89c002b4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -599,7 +599,7 @@ Describe 'Yuruna.DownloadAgent endpoint ladder' {
         $savedPin = $env:YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE
         try {
             # A Shared-NAT Mac publishes http://<mac-lan-ip>:8082/, so the port
-            # has to survive normalisation; a driver's Get-VMIp hands over a bare
+            # has to survive normalization; a driver's Get-VMIp hands over a bare
             # address, which has to acquire a scheme.
             $port = ([System.Uri]$agent.BaseUrl).Port
             $env:YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE = "http://127.0.0.1:$port/"
@@ -688,7 +688,7 @@ Describe 'Yuruna.DownloadAgent endpoint ladder' {
         }
     }
 
-    It 'honours the address the pool advertises, port and all' {
+    It 'honors the address the pool advertises, port and all' {
         # The pool rung needs the aggregator on its fixed port, so this binds
         # 9400 on loopback. A machine already using that port cannot host the
         # test; say so rather than asserting nothing.

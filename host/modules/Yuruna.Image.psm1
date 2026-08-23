@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42b38afa-a30f-4806-9948-a381706b1765
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,7 +42,7 @@
          `<sha256>  <filename>` shape the cloud-images mirrors use).
       4. POLICY (matches the Ubuntu-ISO policy). Four outcomes, four
          decisions, every default permissive so a caller that does not
-         opt in keeps the behaviour it was written against:
+         opt in keeps the behavior it was written against:
            - hash match          -> silent pass, return $true
            - hash mismatch       -> -OnMismatch
            - publisher lists no

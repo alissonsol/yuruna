@@ -158,7 +158,7 @@ func newServer(t *testing.T, opts Options) (*httptest.Server, *fakeImages) {
 	f := newFake(t)
 	opts.Images = f
 	if opts.Version == "" {
-		opts.Version = "2026.08.21"
+		opts.Version = "2026.08.23"
 	}
 	srv := httptest.NewServer(New(opts).Handler())
 	t.Cleanup(srv.Close)
@@ -208,7 +208,7 @@ func decodeBody(t *testing.T, resp *http.Response) map[string]any {
 const (
 	imgPath  = "/api/v1/images/ubuntu.kvm/guest.ubuntu.server.26"
 	imgQuery = "?arch=amd64&variant=stable"
-	labToken = "lab-auth-token-value"
+	internalAuthKey = "internal-auth-key-value"
 	// labCode is a stand-in for what the dashboard's Lab token tile shows.
 	labCode = "ab12cd"
 )
@@ -298,11 +298,11 @@ func TestPoolWideRefreshIsBearerOnly(t *testing.T) {
 		t.Fatal("the refusal must carry the machine-readable reason")
 	}
 
-	srv2, f2 := newServer(t, Options{AuthToken: labToken})
+	srv2, f2 := newServer(t, Options{AuthToken: internalAuthKey})
 	if r := post(t, srv2, "/api/v1/refresh", "", nil); r.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("pool refresh with no bearer = %d, want 401", r.StatusCode)
 	}
-	if r := post(t, srv2, "/api/v1/refresh", labToken, nil); r.StatusCode != http.StatusAccepted {
+	if r := post(t, srv2, "/api/v1/refresh", internalAuthKey, nil); r.StatusCode != http.StatusAccepted {
 		t.Fatalf("pool refresh with the bearer = %d, want 202", r.StatusCode)
 	}
 	if f2.refreshAll != 1 {
@@ -314,7 +314,7 @@ func TestPoolWideRefreshIsBearerOnly(t *testing.T) {
 }
 
 func TestBearerGatesThePerImageMutations(t *testing.T) {
-	srv, f := newServer(t, Options{AuthToken: labToken})
+	srv, f := newServer(t, Options{AuthToken: internalAuthKey})
 
 	if r := post(t, srv, imgPath+"/refresh"+imgQuery, "", nil); r.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("no bearer = %d, want 401", r.StatusCode)
@@ -322,13 +322,13 @@ func TestBearerGatesThePerImageMutations(t *testing.T) {
 	if r := post(t, srv, imgPath+"/refresh"+imgQuery, "wrong-token", nil); r.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("wrong bearer = %d, want 401", r.StatusCode)
 	}
-	if r := post(t, srv, imgPath+"/refresh"+imgQuery, labToken, nil); r.StatusCode != http.StatusAccepted {
+	if r := post(t, srv, imgPath+"/refresh"+imgQuery, internalAuthKey, nil); r.StatusCode != http.StatusAccepted {
 		t.Fatalf("correct bearer = %d, want 202", r.StatusCode)
 	}
-	if r := post(t, srv, imgPath+"/delete"+imgQuery, labToken, nil); r.StatusCode != http.StatusOK {
+	if r := post(t, srv, imgPath+"/delete"+imgQuery, internalAuthKey, nil); r.StatusCode != http.StatusOK {
 		t.Fatalf("delete = %d, want 200", r.StatusCode)
 	}
-	if r := post(t, srv, imgPath+"/prune"+imgQuery, labToken, nil); r.StatusCode != http.StatusOK {
+	if r := post(t, srv, imgPath+"/prune"+imgQuery, internalAuthKey, nil); r.StatusCode != http.StatusOK {
 		t.Fatalf("prune = %d, want 200", r.StatusCode)
 	}
 	if len(f.refreshed) != 1 || len(f.deleted) != 1 || len(f.pruned) != 1 {
@@ -349,7 +349,7 @@ func TestSessionRouteReportsWhichGatesExist(t *testing.T) {
 		t.Fatalf("unconfigured session = %+v", body)
 	}
 
-	srv2, _ := newServer(t, Options{AggregatorURL: "http://aggregator.invalid", AuthToken: labToken})
+	srv2, _ := newServer(t, Options{AggregatorURL: "http://aggregator.invalid", AuthToken: internalAuthKey})
 	body2 := decodeBody(t, get(t, srv2, "/api/session"))
 	if body2["configured"] != true || body2["labToken"] != true || body2["bearer"] != true {
 		t.Fatalf("configured session = %+v", body2)
@@ -359,7 +359,7 @@ func TestSessionRouteReportsWhichGatesExist(t *testing.T) {
 	}
 
 	// Bearer alone: there is a gate, but nothing an operator can type.
-	srv3, _ := newServer(t, Options{AuthToken: labToken})
+	srv3, _ := newServer(t, Options{AuthToken: internalAuthKey})
 	body3 := decodeBody(t, get(t, srv3, "/api/session"))
 	if body3["configured"] != true || body3["labToken"] != false || body3["bearer"] != true {
 		t.Fatalf("bearer-only session = %+v", body3)
@@ -367,7 +367,7 @@ func TestSessionRouteReportsWhichGatesExist(t *testing.T) {
 }
 
 func TestIdentityValidationRefusesOutOfSetSegments(t *testing.T) {
-	srv, _ := newServer(t, Options{AuthToken: labToken})
+	srv, _ := newServer(t, Options{AuthToken: internalAuthKey})
 	cases := []string{
 		"/api/v1/images/linux.qemu/guest.ubuntu.server.26?arch=amd64&variant=stable",
 		imgPath + "?arch=riscv&variant=stable",
@@ -443,7 +443,7 @@ func TestTheAdvertisedFileUrlIsFetchableVerbatim(t *testing.T) {
 		t.Fatalf("Commit: %v", err)
 	}
 
-	srv := httptest.NewServer(New(Options{Images: agent, Version: "2026.08.21"}).Handler())
+	srv := httptest.NewServer(New(Options{Images: agent, Version: "2026.08.23"}).Handler())
 	t.Cleanup(srv.Close)
 
 	catalog := decodeBody(t, get(t, srv, "/api/v1/images"))
@@ -476,9 +476,9 @@ func TestMetadataRouteAnswers404WhenTheEntryIsAbsent(t *testing.T) {
 }
 
 func TestRefreshRefusalRelaysTheReason(t *testing.T) {
-	srv, f := newServer(t, Options{AuthToken: labToken})
+	srv, f := newServer(t, Options{AuthToken: internalAuthKey})
 	f.refreshErr = errLeaseReadOnly{}
-	resp := post(t, srv, imgPath+"/refresh"+imgQuery, labToken, nil)
+	resp := post(t, srv, imgPath+"/refresh"+imgQuery, internalAuthKey, nil)
 	if resp.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("refused refresh = %d, want 503", resp.StatusCode)
 	}
@@ -496,12 +496,12 @@ func TestARefusalNeverRelaysARawFilesystemError(t *testing.T) {
 	// contract and echo the pool's UNC path from a route the caller reached with
 	// only a bearer token.
 	poolPath := `\\nas\yuruna-pool\images`
-	srv, f := newServer(t, Options{AuthToken: labToken})
+	srv, f := newServer(t, Options{AuthToken: internalAuthKey})
 	f.refreshErr = errors.New("open " + poolPath + ": permission denied")
 	f.refreshAllErr = errors.New("readdir " + poolPath + ": input/output error")
 
 	for _, path := range []string{imgPath + "/refresh" + imgQuery, "/api/v1/refresh"} {
-		resp := post(t, srv, path, labToken, nil)
+		resp := post(t, srv, path, internalAuthKey, nil)
 		if resp.StatusCode != http.StatusServiceUnavailable {
 			t.Errorf("POST %s = %d, want 503", path, resp.StatusCode)
 		}
@@ -519,9 +519,9 @@ func TestAnUnsupportedFamilyAnswersTheSameCodeEverywhere(t *testing.T) {
 	// ensure answers 404 for a family the agent has no resolver for; a mutating
 	// route answering 503 for the same cause makes a client tell one condition
 	// apart from itself.
-	srv, f := newServer(t, Options{AuthToken: labToken})
+	srv, f := newServer(t, Options{AuthToken: internalAuthKey})
 	f.refreshErr = errors.New(imagestore.ReasonUnsupported)
-	resp := post(t, srv, imgPath+"/refresh"+imgQuery, labToken, nil)
+	resp := post(t, srv, imgPath+"/refresh"+imgQuery, internalAuthKey, nil)
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("refresh of an unsupported family = %d, want 404 (ensure's answer for the same condition)", resp.StatusCode)
 	}
@@ -704,7 +704,7 @@ func TestDiagnosticsRouteIsOpenAndCarriesTheFamilyEvidence(t *testing.T) {
 }
 
 func TestFidoTestRouteIsGatedAndRunsOneResolve(t *testing.T) {
-	srv, f := newServer(t, Options{AuthToken: labToken})
+	srv, f := newServer(t, Options{AuthToken: internalAuthKey})
 
 	if r := post(t, srv, "/api/v1/diagnostics/fido-test?arch=amd64", "", nil); r.StatusCode != http.StatusUnauthorized {
 		t.Fatalf("no credential = %d, want 401", r.StatusCode)
@@ -716,14 +716,14 @@ func TestFidoTestRouteIsGatedAndRunsOneResolve(t *testing.T) {
 		t.Fatal("a refused call must not have run the resolver")
 	}
 
-	if r := post(t, srv, "/api/v1/diagnostics/fido-test", labToken, nil); r.StatusCode != http.StatusBadRequest {
+	if r := post(t, srv, "/api/v1/diagnostics/fido-test", internalAuthKey, nil); r.StatusCode != http.StatusBadRequest {
 		t.Fatalf("no arch = %d, want 400", r.StatusCode)
 	}
-	if r := post(t, srv, "/api/v1/diagnostics/fido-test?arch=x86", labToken, nil); r.StatusCode != http.StatusBadRequest {
+	if r := post(t, srv, "/api/v1/diagnostics/fido-test?arch=x86", internalAuthKey, nil); r.StatusCode != http.StatusBadRequest {
 		t.Fatalf("unknown arch = %d, want 400", r.StatusCode)
 	}
 
-	resp := post(t, srv, "/api/v1/diagnostics/fido-test?arch=amd64", labToken, nil)
+	resp := post(t, srv, "/api/v1/diagnostics/fido-test?arch=amd64", internalAuthKey, nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("authorized test = %d, want 200", resp.StatusCode)
 	}

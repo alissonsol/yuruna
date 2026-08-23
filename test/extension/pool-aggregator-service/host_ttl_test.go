@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// TestHostTTLReapHonoursConfiguredWindow pins the configurable host-disappearance
+// TestHostTTLReapHonorsConfiguredWindow pins the configurable host-disappearance
 // window: a host silent for longer than the configured TTL leaves the view, one
 // inside it stays.
 //
@@ -19,7 +19,7 @@ import (
 // squid-log IPs unioned with every hv.CurrentIP, and each candidate is fetched
 // with the *http.Client passed to pollOnce -- so a seeded IP plus the nil client
 // this test uses would panic in the fetch rather than exercise the reap.
-func TestHostTTLReapHonoursConfiguredWindow(t *testing.T) {
+func TestHostTTLReapHonorsConfiguredWindow(t *testing.T) {
 	s := newPoolState("default", 8080)
 	s.hostTtl = 2 * time.Hour
 	now := time.Now().UTC()
@@ -35,7 +35,7 @@ func TestHostTTLReapHonoursConfiguredWindow(t *testing.T) {
 
 	// Dedup keys exercise the OTHER sweep in the same locked section, which is
 	// gated on the derived seenTtl. Seeding them here is what pins the ordering
-	// to behaviour: one key inside hostTtl+1h must survive the reap that removed
+	// to behavior: one key inside hostTtl+1h must survive the reap that removed
 	// its own host row (else a returning host re-counts that cycle), and one past
 	// it must go.
 	s.seenAt["stalehost1|cycle-recent"] = now.Add(-150 * time.Minute) // < 3h, survives

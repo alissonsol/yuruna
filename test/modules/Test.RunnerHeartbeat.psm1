@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42bf60de-1efd-47a3-9c1c-7472978c1c6d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -176,7 +176,7 @@ function Write-RunnerPhase {
 
         Callers MUST Clear-RunnerPhase before any legitimately long stretch
         (the weekly base-image download) and before handing off to the
-        sequence. Absence restores the stepTimeoutSeconds behaviour, so a
+        sequence. Absence restores the stepTimeoutSeconds behavior, so a
         forgotten clear is never worse than not calling this at all -- the
         failure direction is deliberately toward the looser bound.
 

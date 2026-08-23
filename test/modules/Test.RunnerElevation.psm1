@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 423b72a7-afb9-44a7-8fef-2acb7cbf69b0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -314,7 +314,7 @@ function Assert-RunnerElevation {
 
     # An operator is present only if this process actually has a terminal to
     # prompt on. Redirected stdin means a service/cron launch, where a prompt
-    # would read EOF and a "cancelled" answer would be indistinguishable from a
+    # would read EOF and a "canceled" answer would be indistinguishable from a
     # real refusal.
     $interactive = -not $NonInteractive
     if ($interactive) {
@@ -338,9 +338,9 @@ function Assert-RunnerElevation {
     $specUser = if ($user) { $user } else { '<your-account>' }
     $spec = Get-RunnerSudoersSpec -User $specUser -Command $commands
     Write-Host ''
-    Write-Host '================================================================'
+    Write-Host '========'
     Write-Host '  RUNNER NOT STARTED -- elevation required'
-    Write-Host '================================================================'
+    Write-Host '========'
     Write-Host ''
     Write-Host "  Host type: $HostType"
     Write-Host "  Account:   $(if ($user) { $user } else { '(could not be determined)' })"
@@ -358,7 +358,7 @@ function Assert-RunnerElevation {
     foreach ($line in (Get-RunnerElevationHint -Spec $spec)) { Write-Host $line }
     Write-Host ''
     Write-Host '  Then re-run: pwsh test/Start-TestRunner.ps1'
-    Write-Host '================================================================'
+    Write-Host '========'
     Write-Host ''
     return $false
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42398c5e-c859-4bdc-9114-f9b19317cd8b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -270,10 +270,10 @@ if ($probedUrl) {
     # surfaces during the install, not as a slow 429 storm later.
     $detail = @"
 
-=========================================================================
+========
 ERROR: yuruna-caching-proxy-service VM is started but no :3128 listener was
        found on this host's LAN /24.
-=========================================================================
+========
   utmctl status yuruna-caching-proxy-service : $squidStatus
   LAN /24 scan                       : no answer
 
@@ -291,7 +291,7 @@ Fix:
 
 To intentionally skip the cache:
   test/service/Stop-CachingProxyServiceVM.ps1     (guest will then WARN and download direct).
-=========================================================================
+========
 "@
     $Host.UI.WriteLine([ConsoleColor]::Red, $Host.UI.RawUI.BackgroundColor, $detail)
     exit 1
@@ -317,7 +317,7 @@ To intentionally skip the cache:
 # Shared builder: automation/Yuruna.GuestSeed.psm1. UTM pins the aarch64
 # ports.ubuntu.com mirror (macOS UTM is always aarch64).
 # The apt Acquire tuning it emits is a step-budget bound, so it has to be
-# identical on every host driver: three copies of the literal drift, and a
+# identical on every host driver: copies inlined per driver drift, and a
 # mirror stall then burns a step budget on whichever host was missed.
 Import-Module (Join-Path $RepoRoot 'automation/Yuruna.GuestSeed.psm1') -Force
 $AptProxyBlock = New-AptProxyBlock -PrimaryUri 'http://ports.ubuntu.com/ubuntu-ports' -CachingProxyServiceUrl $CachingProxyServiceUrl
@@ -390,9 +390,11 @@ Set-Content -Path "$SeedDir/meta-data" -Value $MetaData -NoNewline
 # stays as the belt to this braces; it cannot replace this, because by the time
 # a late-command runs the installer has already taken a lease under the default
 # machine-id identity, and on a long lease that address is spent for a week.
-# Matching en*/eth* mirrors cloud-init's own fallback, so a guest whose
-# interface matches neither is no worse off than with no file here -- the
-# property that makes this safe to apply during an install.
+# Matching en*/eth* by name lets one shared file cover enp0s1 on UTM, eth0 on
+# Hyper-V and enp1s0 on KVM, and netplan resolves those globs against real
+# devices. The match must hold: a seeded network-config REPLACES the config
+# cloud-init would otherwise generate, so one that resolves to no interface
+# leaves the guest -- or, during an install, the installer -- with no network.
 Copy-Item -LiteralPath (Join-Path $HostVmConfigDir 'guest-dhcp.network-config') `
     -Destination "$SeedDir/network-config" -Force
 

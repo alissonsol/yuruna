@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42b9fcf3-37e5-4fd0-a90c-1f76b45c64a3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -67,7 +67,11 @@ $script:tables = @(
         Script = (Get-Content -Raw -LiteralPath (Join-Path $web $_.Script))
     }
 }
-$script:common = Get-Content -Raw -LiteralPath (Join-Path $web 'assets/common.js')
+# The scripts a page of this service runs, in load order: the SDK's shared
+# runtime (which holds the table furniture every service UI draws with) and then
+# this service's own layer. Read as one, because that is what the browser has.
+$script:common = (Get-Content -Raw -LiteralPath (Join-Path $repo 'test/extension/extension-sdk/webui/assets/yuruna.core.js')) +
+    "`n" + (Get-Content -Raw -LiteralPath (Join-Path $web 'assets/common.js'))
 }
 
 Describe 'pool-control tables: sortable headers and a row counter' {
@@ -168,8 +172,8 @@ Describe 'pool-control tables: sortable headers and a row counter' {
     }
 
     It 'keeps the shared table helpers the pages are built on' {
-        Assert-True ($script:common -match 'Y\.numCell\s*=') 'common.js no longer defines Y.numCell'
-        Assert-True ($script:common -match 'Y\.sortTable\s*=') 'common.js no longer defines Y.sortTable'
+        Assert-True ($script:common -match 'Y\.numCell\s*=') 'the runtime no longer defines Y.numCell'
+        Assert-True ($script:common -match 'Y\.sortTable\s*=') 'the runtime no longer defines Y.sortTable'
         $findings = @()
         foreach ($t in $script:tables | Where-Object { $_.Page -ne 'Hosts' }) {
             if ($t.Script -notmatch 'Y\.sortTable\(') { $findings += "$($t.Page): its script never builds a sorter" }

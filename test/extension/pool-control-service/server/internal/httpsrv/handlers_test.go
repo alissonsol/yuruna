@@ -63,11 +63,11 @@ func (f *fakeIntent) DeleteTestSetDef(ctx context.Context, a string) intent.Resu
 	return f.ret
 }
 
-// testBearer stands in for the shared lab auth token. Every route that rewrites
+// testBearer stands in for the internal authentication key. Every route that rewrites
 // pool configuration is gated on it, so these relay tests carry it: what they
 // are about is which CLI a route invokes with which arguments, and the gate has
 // its own coverage in board_test.go and in the SDK.
-const testBearer = "test-lab-auth-token"
+const testBearer = "test-internal-auth-key"
 
 func newTestServer(f *fakeIntent) *httptest.Server {
 	return httptest.NewServer(New(f, Options{Version: "test", AuthToken: testBearer}).Handler())

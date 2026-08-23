@@ -129,12 +129,24 @@ would replay each tick, making the transcript unreadable. The cascade
 silences it past Information so `-logLevel Verbose` gives clean,
 line-oriented output.
 
+## Progress regions are separate from the level
+
+`Write-Progress` paints a repainting region that no log level suppresses and no
+screen reader can follow. Silence it independently:
+
+```powershell
+$ProgressPreference = 'SilentlyContinue'
+```
+
+Nothing is lost -- progress regions carry no information the transcript does not
+already hold. See [accessibility.md](accessibility.md).
+
 ---
 
 LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.21
+Last review: 2026.08.23
 
 Back to [Yuruna](../README.md)

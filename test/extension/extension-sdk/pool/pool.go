@@ -11,7 +11,7 @@
 //
 //   - Trusted-LAN TLS. The aggregator serves :9400 with a leaf signed by the
 //     pool CA, which no guest has a trust-store entry for, so a default client
-//     fails the handshake and the caller's numbers grey out permanently. These
+//     fails the handshake and the caller's numbers gray out permanently. These
 //     reads encrypt without pinning; pinning the pool CA is the documented
 //     upgrade path, not a silent assumption.
 //   - Every URL-valued field in a response is sanitized before a caller can see

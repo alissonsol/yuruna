@@ -30,6 +30,10 @@
     </div>
   </header>
   <main id="main">
+    <!-- The detail view names itself from the stash it renders, but that fact
+         arrives with the fetch. The heading is here so the page has a subject
+         before -- and if -- the data lands. -->
+    <h1>Stash</h1>
     <!-- Same lab-token prompt as the list page: viewing and downloading render
          regardless, and Delete is the one action that needs a session. -->
     <section id="login" class="login" hidden>
@@ -38,7 +42,7 @@
                autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false"
                placeholder="Lab token" aria-label="Six-character lab token from the dashboard">
         <button type="submit" class="btn primary">Unlock actions</button>
-        <span id="login-error" class="muted"></span>
+        <span id="login-error" role="alert" class="muted"></span>
       </form>
       <p class="muted">
         The 6-character code on the Yuruna hosts dashboard's <em>Lab token</em>
@@ -56,10 +60,13 @@
       nothing here can be deleted. Set <code>--aggregator-url</code> on the
       daemon to enable it.
     </p>
-    <div id="msg"></div>
+    <div id="msg" role="alert"></div>
     <div id="detail" class="muted">Loading...</div>
   </main>
   <footer class="app">Yuruna stash service</footer>
+  <!-- The shared runtime first: it installs the baseline shims (fetch, KeyboardEvent.key)
+       and defines Y, which every script below extends rather than rebuilds. -->
+  <script src="/assets/yuruna.core.js"></script>
   <script src="/assets/common.js"></script>
   <script src="/assets/stash.js"></script>
 </body>

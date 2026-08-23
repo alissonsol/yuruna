@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 425548c6-683c-4519-9712-2f32b36e15e8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -281,9 +281,9 @@ if (-not $WhatIfPreference -and $IsWindows -and -not (Test-IsElevated)) {
 # that the NAS has never heard of, and mounts that fail with a credential error
 # whose real cause is on the other machine.
 Write-Information ""
-Write-Information "=================================================================="
+Write-Information "========"
 Write-Information "  Local lab storage -- FOR THIS MACHINE ONLY"
-Write-Information "=================================================================="
+Write-Information "========"
 Write-Information ""
 Write-Information "This creates pool and stash storage that lives on THIS machine and"
 Write-Information "is served by THIS machine over SMB. It creates local OS accounts,"
@@ -304,7 +304,7 @@ Write-Information ""
 if ($WhatIfPreference) {
     Write-Information "-WhatIf: previewing only, so this confirmation is skipped."
 } elseif (-not (Confirm-Step -Question "The storage for this lab is LOCAL to this machine. Continue" -SkipPrompt $Force.IsPresent)) {
-    Write-Information "Cancelled. Nothing was changed."
+    Write-Information "Canceled. Nothing was changed."
     exit (Get-EntryPointExitCode -Outcome 'Ok')
 }
 
@@ -642,7 +642,7 @@ if ($WhatIfPreference -or -not $wrote) {
 Complete-LabStorageStep
 $failed = @($tiers | Where-Object { -not $mounted[$_.Kind] })
 Write-Information ""
-Write-Information "=================================================================="
+Write-Information "========"
 if ($WhatIfPreference) {
     Write-Information "  -WhatIf: nothing was changed"
 } elseif ($failed.Count -eq 0) {
@@ -650,7 +650,7 @@ if ($WhatIfPreference) {
 } else {
     Write-Information "  Local lab storage created, but $($failed.Count) share did not mount"
 }
-Write-Information "=================================================================="
+Write-Information "========"
 Write-Information ""
 Write-Information "Next:"
 Write-Information "  1. Validate:  pwsh test/Test-Config.ps1"

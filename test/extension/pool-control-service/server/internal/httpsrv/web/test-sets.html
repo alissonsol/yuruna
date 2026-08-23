@@ -38,11 +38,20 @@
     <h1>Test sets</h1>
     <p class="muted">A test set is a framework + project repo pair. GH_TOKEN is <strong>not</strong> stored here &mdash;
       it stays host-local on each host's test.config.yml / vault.</p>
-    <div id="notice" class="notice"></div>
+    <div id="notice" role="alert" class="notice"></div>
     <div class="row">
-      <input id="ts-name" placeholder="name" size="16">
-      <input id="ts-framework" placeholder="frameworkUrl" size="40">
-      <input id="ts-project" placeholder="projectUrl" size="40">
+      <label class="labeled-field">
+        <span class="scan-label">Name</span>
+        <input id="ts-name" size="16">
+      </label>
+      <label class="labeled-field">
+        <span class="scan-label">Framework URL</span>
+        <input id="ts-framework" size="40">
+      </label>
+      <label class="labeled-field">
+        <span class="scan-label">Project URL</span>
+        <input id="ts-project" size="40">
+      </label>
       <button id="save" class="primary">Save test set</button>
     </div>
     <table>
@@ -59,10 +68,13 @@
     </table>
   </main>
   <footer id="footer-bar">
-    <span id="footer-ips"><span class="label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-label="Server IP addresses">--</textarea></span>
+    <span id="footer-ips"><span class="label" id="footer-ips-label">IPs:</span><textarea id="footer-ip-list" readonly rows="1" spellcheck="false" inputmode="none" autocorrect="off" autocapitalize="off" aria-labelledby="footer-ips-label">--</textarea></span>
     <span>Loaded: <span id="last-loaded">--</span><span id="footer-busy" aria-hidden="true" hidden></span></span>
-    <span><a id="footer-refresh" href="#">Refresh</a>: <span id="countdown">60</span>s</span>
+    <span><button type="button" id="footer-refresh" class="linkish">Refresh</button>: <span id="countdown">60</span>s <button type="button" id="footer-pause" class="linkish" aria-pressed="false">Pause</button></span>
   </footer>
+  <!-- The shared runtime first: it installs the baseline shims (fetch, KeyboardEvent.key)
+       and defines Y, which every script below extends rather than rebuilds. -->
+  <script src="/assets/yuruna.core.js"></script>
   <script src="/assets/common.js"></script>
   <script src="/assets/test-sets.js"></script>
 </body>

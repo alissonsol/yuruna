@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 426d4c3d-0ae7-41c9-8bac-5f42f9255e5b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 # --- REGION: https://yuruna.link/network#defining-the-guest-to-guest-rail
 # A second, stable libvirt-NAT address per guest, for guests that must reach
-# EACH OTHER. KVM-only: every consumer treats a rail address as an optimisation
+# EACH OTHER. KVM-only: every consumer treats a rail address as an optimization
 # that may be absent, never as a dependency.
 # NOTHING CALLS THIS. Get-GuestRailAddress keys on the transient VM name, so
 # wiring it back as it stands breaks VM creation on the second guest of every

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 4287fe47-ee43-47e6-b67f-e2fb5baf90c5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -58,7 +58,7 @@
 
 .PARAMETER LeasePath
     Lease file to operate on. Defaults to /var/db/dhcpd_leases; a path is
-    accepted mainly so the behaviour can be exercised against a copy.
+    accepted mainly so the behavior can be exercised against a copy.
 
 .PARAMETER SkipReachabilityCheck
     Drop the in-use veto and decide on expiry alone. Faster on a file with many
@@ -119,7 +119,7 @@ function Test-AddressInUse {
         $true when something is using $Address right now.
     .DESCRIPTION
         ARP first, ICMP second. A guest that has talked to this host recently
-        is already in the neighbour table, so it is recognised without a packet
+        is already in the neighbor table, so it is recognized without a packet
         being sent; anything not resolved there gets one ping, because a live
         but quiet guest may simply have aged out.
 

@@ -73,12 +73,13 @@
 
 <div id="banner" class="idle">
   <span class="dot"></span>
-  <span id="banner-text">Loading…</span>
+  <span id="banner-text" role="status" aria-atomic="true">Loading…</span>
   <span id="banner-user-row">User account: <span id="banner-user">—</span></span>
 </div>
 
 <main>
-  <pre id="diagnostics-output" class="loading">Running Get-SystemDiagnostic on host…</pre>
+  <h1 class="sr-only">Host diagnostics</h1>
+  <pre id="diagnostics-output" role="status" class="loading">Running Get-SystemDiagnostic on host…</pre>
 </main>
 
 <script src="yuruna.common.js"></script>

@@ -46,9 +46,15 @@ const (
 	// DefaultPoolDir is where the pool share is CIFS-mounted inside the guest.
 	DefaultPoolDir = "/mnt/yuruna-pool"
 
-	// DefaultAuthTokenFile holds the lab auth token accepted as a bearer on the
-	// gated routes.
-	DefaultAuthTokenFile = "/etc/yuruna/lab-auth.token"
+	// DefaultAuthTokenFile holds the internal authentication key accepted as a
+	// bearer on the gated routes.
+	DefaultAuthTokenFile = "/etc/yuruna/internal-auth.key"
+
+	// LegacyAuthTokenFile is the key file path a guest built earlier still
+	// carries. Read only when the default path is absent and the operator named
+	// no path of their own, so a service VM that predates the current layout
+	// keeps its bearer route working until it is rebuilt.
+	LegacyAuthTokenFile = "/etc/yuruna/lab-auth.token"
 )
 
 const (

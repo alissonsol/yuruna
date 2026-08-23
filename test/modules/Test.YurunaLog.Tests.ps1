@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42ac2b74-32fe-4772-8fad-0e7833bd2f68
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -216,6 +216,18 @@ Describe 'yuruna-log-tee -- severity tags and unconditional warning mirroring' {
         } finally { Restore-TranscriptFixture -Fixture $fx }
     }
 
+    It 'gives the transcript an outline by promoting step rules to headings' {
+        $fx = New-TranscriptFixture
+        try {
+            $global:InformationPreference = 'Continue'
+            Write-Information '----- [2/11] workload.guest.example -----'
+            Write-Information 'ordinary output that happens to mention [2/11]'
+            $content = Get-Content -Raw -LiteralPath $fx.File
+            Assert-True ($content -match 'class="log-information log-step" role="heading" aria-level="2"') 'the step rule is exposed as a level-2 heading'
+            Assert-True (([regex]::Matches($content, 'role="heading"')).Count -eq 1) 'a line that merely mentions a step number is not promoted'
+        } finally { Restore-TranscriptFixture -Fixture $fx }
+    }
+
     It 'HTML-encodes the message body while emitting the span markup verbatim' {
         $fx = New-TranscriptFixture
         try {
@@ -225,5 +237,24 @@ Describe 'yuruna-log-tee -- severity tags and unconditional warning mirroring' {
             Assert-True ($content -match 'a&lt;b&gt;c')          'angle brackets in the message are HTML-encoded'
             Assert-True ($content -match '<span class="log-warning">') 'the span wrapper is emitted as live markup, not escaped'
         } finally { Restore-TranscriptFixture -Fixture $fx }
+    }
+}
+
+Describe 'yuruna-log-tee -- the transcript preamble' {
+    BeforeAll {
+        Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Log.psm1') -Force -DisableNameChecking
+    }
+
+    It 'renders every severity class it writes, with a word cue and not color alone' {
+        # The classes were written and thrown away: no stylesheet defined them,
+        # so a warning and an ordinary line rendered identically. Assert on the
+        # header rather than on a live transcript, because the header is what
+        # every transcript -- owner cycle and nested sub-run -- starts from.
+        $header = Get-YurunaLogPreamble
+        Assert-True ($header -match '<html lang="en"')  'the transcript declares a document language'
+        foreach ($sev in @('error', 'warning', 'debug', 'verbose')) {
+            Assert-True ($header -match "\.log-$sev\b")      "the header defines a rule for log-$sev"
+            Assert-True ($header -match "\.log-$sev::before") "log-$sev carries a text cue, not color alone"
+        }
     }
 }

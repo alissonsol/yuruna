@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42b17423-c407-4384-96bd-8aa338c885ba
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -151,7 +151,7 @@ if ($status -ne 200) {
     switch ($status) {
         403 { Write-Information 'The aggregator REFUSED the code: it is unknown or expired. Re-read the tile and retry -- this is the case Set-LabToken''s message is written for.' -InformationAction Continue }
         429 { Write-Information 'This address burned its failed-attempt budget. Wait for the window to pass rather than retrying.' -InformationAction Continue }
-        503 { Write-Information 'The exchange is disabled on that aggregator: rotation is off, or the proxy holds no lab-auth-token to hand out.' -InformationAction Continue }
+        503 { Write-Information 'The exchange is disabled on that aggregator: rotation is off, or the proxy holds no internal authentication key to hand out.' -InformationAction Continue }
         default { Write-Information "Unexpected status $status; the body above is the aggregator's own account." -InformationAction Continue }
     }
     exit 1

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42c1e552-e3c2-4c54-b73a-ac2577a100fc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -458,7 +458,7 @@ function Get-YurunaStatusServiceSeed {
         seed, and every one of them resolved the port the same way: default to
         8080, read test/test.config.yml, take statusService.port if it is
         there. The copies drifted along four axes -- which variable held the
-        result, which held the path, whether the existence test honoured
+        result, which held the path, whether the existence test honored
         -LiteralPath, and, the one that mattered, whether the file was read
         through Read-TestConfig or parsed raw. The raw readers bypassed the
         mtime-and-hash cache and re-parsed the file on every build.

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 429770ab-d272-43a0-985e-672863545e2c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -238,14 +238,44 @@ function Get-YurunaLogPreamble {
     param()
     return @'
 <!DOCTYPE html>
-<html><head>
+<html lang="en"><head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
 <title>Yuruna test-runner log</title>
-</head><body><pre style="white-space: pre-wrap; word-wrap: break-word; overflow-x: auto;">
+<style>
+/* The transcript declares light explicitly rather than inheriting whatever the
+   browser decides. Every color below is measured against this white, so a
+   forced-dark rendering would invalidate all of them at once. */
+:root { color-scheme: light; }
+body { background: #fff; color: #111827; }
+h1 { font: inherit; font-weight: 700; margin: 0 0 8px; }
+/* Severity rides as a CSS class on every line, and until this block existed
+   nothing rendered it -- warning, error and ordinary output looked identical to
+   every reader, sighted or not. Each cue is a WORD before it is a color: the
+   prefix survives a monochrome display, a color-vision difference and a
+   screen reader, none of which a hue reaches. The colors are secondary and
+   each clears 4.5:1 on the white above. */
+.log-error::before   { content: "ERROR "; }
+.log-warning::before { content: "WARNING "; }
+.log-debug::before   { content: "DEBUG "; }
+.log-verbose::before { content: "VERBOSE "; }
+.log-error   { color: #b91c1c; }
+.log-warning { color: #92400e; }
+.log-debug   { color: #4b5563; }
+.log-verbose { color: #4b5563; }
+/* The step rules are the transcript's only structure, and a reader with no
+   outline has to scroll tens of kilobytes of one <pre> to find a step. They
+   carry a heading ROLE rather than being wrapped in <h2>, because <pre> takes
+   phrasing content: the role puts the step list in the document outline
+   without putting flow content where the parser does not accept it. */
+.log-step { font-weight: 700; }
+</style>
+</head><body>
+<h1>Yuruna test-runner log</h1>
+<pre style="white-space: pre-wrap; word-wrap: break-word; overflow-x: auto;">
 '@
 }
 

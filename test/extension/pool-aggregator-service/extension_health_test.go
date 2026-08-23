@@ -427,7 +427,7 @@ func TestMetricsSeparatesUnreachableExtension(t *testing.T) {
 		LastSeenUnixMs:   now.UnixMilli(),
 	}
 	rec := httptest.NewRecorder()
-	s.handleMetrics(rec, httptest.NewRequest("GET", "/metrics", nil))
+	s.handleMetrics(rec, metricsRequest())
 	body := rec.Body.String()
 	if strings.Contains(body, "yuruna_pool_host_extension{") {
 		t.Errorf("an unreachable service was listed as a usable extension host:\n%s", body)

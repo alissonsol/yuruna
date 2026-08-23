@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42944d84-a340-428d-8b14-0273934cf4fc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -55,16 +55,16 @@ Set-VMCleanupQuiet -Quiet $Quiet.IsPresent
 
 # --- REGION: Warning
 Write-CleanupMessage ""
-Write-CleanupMessage "================================================================"
+Write-CleanupMessage "========"
 Write-CleanupMessage "  WARNING: DESTRUCTIVE OPERATION"
-Write-CleanupMessage "================================================================"
+Write-CleanupMessage "========"
 Write-CleanupMessage ""
 Write-CleanupMessage "  This script deletes UTM VM bundles (.utm) from ~/yuruna/guest.nosync"
 Write-CleanupMessage "  that are NOT registered in UTM."
 Write-CleanupMessage ""
 Write-CleanupMessage "  THIS CANNOT BE UNDONE."
 Write-CleanupMessage ""
-Write-CleanupMessage "================================================================"
+Write-CleanupMessage "========"
 Write-CleanupMessage ""
 
 # Base image filenames follow the legacy convention "host.<short>.guest.<name>"

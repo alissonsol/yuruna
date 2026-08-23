@@ -956,7 +956,7 @@ Earlier rungs' text output is not discarded -- `$lastResult` keeps the
 most informative one, so a partial-and-failed earlier capture is still
 written when every later rung ends up empty.
 
-**Wait-SshReady pre-flight.** Sequences often end with "Reboot the
+**Wait-SshReady preflight.** Sequences often end with "Reboot the
 VM", so the guest may be mid-reboot when `Save-GuestDiagnostic` runs.
 Without a real-handshake gate, the call would either bail at
 `Get-GuestAddress` (empty per-guest folder) or write a near-useless
@@ -977,7 +977,7 @@ so a near-deadline call cannot push the cycle past the
 
 The outer runner's job is to keep the inner running forever. Stale
 heartbeat detection, single-instance guard, and the failure-pause
-back-off protocol all live in
+backoff protocol all live in
 [Watchdog](runner-outer-loop.md#watchdog-and-heartbeat-protocol). Per-step
 log-stream visibility is controlled by [Log levels](loglevels.md).
 
@@ -986,7 +986,7 @@ log-stream visibility is controlled by [Log levels](loglevels.md).
 | Code | Meaning |
 |------|---------|
 | `0` | All guests passed (runner was interrupted or completed) |
-| `1` | One or more guests failed, or pre-flight error |
+| `1` | One or more guests failed, or preflight error |
 
 ---
 
@@ -994,6 +994,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.21
+Last review: 2026.08.23
 
 Back to [Yuruna](../README.md)

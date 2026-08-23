@@ -16,7 +16,7 @@ import (
 // proxy. A 404 there reads as "the service is broken", which is the opposite of
 // what it meant.
 //
-// Self-contained, like its neighbour in this VM: no external stylesheet, no
+// Self-contained, like its neighbor in this VM: no external stylesheet, no
 // script host, no font. The proxy VM serves this to a browser that may have no
 // route off the lab network, so an external asset would render a broken page on
 // exactly the machine whose job is to make the network unnecessary. Rows are
@@ -28,7 +28,7 @@ import (
 // this caller change the proxy" is decided. The page names the API call
 // instead; the gate stays in one place.
 const indexHTML = `<!doctype html>
-<html><head><meta charset="utf-8">
+<html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Caching proxy service</title>
 <style>
@@ -38,26 +38,49 @@ const indexHTML = `<!doctype html>
   body { font: 12px Menlo, Consolas, monospace; background: #111827; color: #e5e7eb;
          margin: 0; padding: 12px; }
   h1 { font-size: 14px; margin: 0 0 8px; color: #9ca3af; font-weight: 600; }
-  #meta { color: #6b7280; font-weight: 400; }
-  h2 { font-size: 12px; margin: 14px 0 4px; color: #6b7280; font-weight: 600;
+  /* #6b7280 computes 3.67:1 on this page's #111827 and 3.04:1 on the hover
+     band -- below the 4.5:1 body-text floor at the 12px this page sets. #9ca3af
+     is the same neutral one step up and is already the h1 color here, so the
+     hierarchy survives while every tier clears AA. */
+  #meta { color: #9ca3af; font-weight: 400; margin: 0 0 8px; }
+  /* 26px tall at this font size, which clears the 24x24 minimum for a pointer
+     target, and the focus ring is drawn outside the border so it stays visible
+     against the button's own fill. */
+  #controls { margin: 0 0 8px; }
+  button { font: inherit; color: #e5e7eb; background: #1f2937;
+           border: 1px solid #4b5563; border-radius: 3px; padding: 6px 10px; }
+  button:hover { background: #374151; }
+  button:focus-visible { outline: 2px solid #93c5fd; outline-offset: 2px; }
+  h2 { font-size: 12px; margin: 14px 0 4px; color: #9ca3af; font-weight: 600;
        text-transform: uppercase; letter-spacing: .04em; }
   table { width: 100%; max-width: 90ch; border-collapse: collapse; }
   th, td { text-align: left; padding: 3px 8px; border-bottom: 1px solid #1f2937;
            vertical-align: top; }
-  th { color: #6b7280; font-weight: 600; width: 26ch; }
+  th { color: #9ca3af; font-weight: 600; width: 26ch; }
   tbody tr:nth-child(odd) { background: var(--band-odd); }
   tbody tr:nth-child(even) { background: var(--band-even); }
   tr:hover td { background: #1f2937; }
   .ok    { color: #10b981; }
   .warn  { color: #fbbf24; }
   .red   { color: #f87171; }
-  .gray  { color: #6b7280; }
+  .gray  { color: #9ca3af; }
   code { color: #93c5fd; }
-  footer { margin-top: 16px; color: #6b7280; }
+  footer { margin-top: 16px; color: #9ca3af; }
   a { color: #93c5fd; }
 </style>
 </head><body>
-<h1>Caching proxy service <span id="meta"></span></h1>
+<h1>Caching proxy service</h1>
+<!-- The refresh timestamp is rewritten on every tick, so it sits beside the
+     heading rather than inside it: a document whose h1 changes six times a
+     minute has no stable name to navigate to. -->
+<p id="meta"></p>
+<!-- role="alert" and empty at load: a live region has to exist before its text
+     is written to be announced reliably. Deliberately NOT on #meta, which is a
+     timestamp -- announcing that every 10 seconds would be a spoken clock. The
+     thing worth interrupting for is the data going stale, which is what fills
+     this. -->
+<p id="err" role="alert"></p>
+<p id="controls"><button type="button" id="pause" aria-pressed="false">Pause auto-refresh</button></p>
 
 <h2>Squid</h2>
 <table><tbody id="squid"></tbody></table>
@@ -145,15 +168,39 @@ function refresh() {
     if (s.mode === 'remote') {
       line.textContent = 'Remote mode: the switches are readable here but can only be applied by the daemon on the proxy VM itself.';
     } else {
-      line.textContent = 'Flip a switch: POST /api/switches/offline {"on":true} with the lab token as a bearer.';
+      line.textContent = 'Flip a switch: POST /api/switches/offline {"on":true} with the internal authentication key as a bearer.';
     }
     help.appendChild(line);
+    document.getElementById('err').textContent = '';
   }).catch(function () {
     document.getElementById('meta').textContent = '(refresh failed)';
+    // A sighted reader sees the header change; without this the values below
+    // simply stop moving, which looks identical to a quiet lab.
+    document.getElementById('err').textContent =
+      'Refresh failed. The values below are from the last successful read.';
   });
 }
+// The handle is kept so the control above has something to clear. Discarding
+// it leaves the poll unstoppable even in principle, which is what turns a
+// refresh into moving content with no mechanism to pause it.
+var timer = null;
+var pause = document.getElementById('pause');
+function startPolling() { if (timer === null) { timer = setInterval(refresh, 10000); } }
+function stopPolling() { if (timer !== null) { clearInterval(timer); timer = null; } }
+pause.addEventListener('click', function () {
+  if (pause.getAttribute('aria-pressed') === 'true') {
+    pause.setAttribute('aria-pressed', 'false');
+    pause.textContent = 'Pause auto-refresh';
+    startPolling();
+    refresh();
+  } else {
+    pause.setAttribute('aria-pressed', 'true');
+    pause.textContent = 'Resume auto-refresh';
+    stopPolling();
+  }
+});
 refresh();
-setInterval(refresh, 10000);
+startPolling();
 </script>
 </body></html>`
 

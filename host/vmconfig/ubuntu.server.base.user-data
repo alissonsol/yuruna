@@ -308,8 +308,8 @@ APT_PROXY_BLOCK_PLACEHOLDER
     # Written unconditionally, and separately from the token below, because the
     # two have opposite conditions. A token being present is what makes a
     # private clone succeed; a token being ABSENT is what makes it prompt. Gating
-    # the prompt-suppression on the token installed it in exactly the case that
-    # did not need it and omitted it in the case that did.
+    # the prompt-suppression on the token installs it in exactly the case that
+    # does not need it and omits it in the case that does.
     - |
       cat > /target/etc/profile.d/yuruna-git-noprompt.sh << 'EOF'
       export GIT_TERMINAL_PROMPT=0

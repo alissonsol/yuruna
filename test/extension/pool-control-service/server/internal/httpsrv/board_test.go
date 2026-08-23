@@ -194,7 +194,7 @@ func TestBoardTargetPoolCannotBeAssigned(t *testing.T) {
 }
 
 func TestBoardSurvivesDeadAggregator(t *testing.T) {
-	// Numbers grey out; the cards -- and therefore assignment -- keep working,
+	// Numbers gray out; the cards -- and therefore assignment -- keep working,
 	// because assignment goes through the intent CLIs, not the aggregator.
 	s := New(&boardIntent{doc: intentTwoPools}, Options{AggregatorURL: "http://127.0.0.1:1"})
 	p := boardPayload(t, s, "")
@@ -298,9 +298,9 @@ func hostsPayload(t *testing.T, s *Server, bearer string) (map[string]any, map[s
 // and the answer says which kind of read it was, or the page could not tell a
 // withheld name from a host that has never reported one.
 func TestHostsCarryTheHostnameOnlyToAnUnlockedRead(t *testing.T) {
-	const labAuthToken = "shared-lab-auth-token"
+	const internalAuthKey = "shared-internal-auth-key"
 	agg := hostsAggStub(t)
-	s := New(&boardIntent{doc: intentTwoPools}, Options{AggregatorURL: agg.URL, AuthToken: labAuthToken})
+	s := New(&boardIntent{doc: intentTwoPools}, Options{AggregatorURL: agg.URL, AuthToken: internalAuthKey})
 
 	openRead, openRows := hostsPayload(t, s, "")
 	if openRead["hostnamesVisible"] != false {
@@ -314,7 +314,7 @@ func TestHostsCarryTheHostnameOnlyToAnUnlockedRead(t *testing.T) {
 		t.Errorf("access = %v, want granted even while the hostname is withheld", got)
 	}
 
-	unlocked, rows := hostsPayload(t, s, labAuthToken)
+	unlocked, rows := hostsPayload(t, s, internalAuthKey)
 	if unlocked["hostnamesVisible"] != true {
 		t.Errorf("hostnamesVisible = %v for an unlocked read, want true", unlocked["hostnamesVisible"])
 	}
@@ -354,7 +354,7 @@ func TestHostsTypeDropsThePrefixAndFallsBackToTheHostsOwnRecord(t *testing.T) {
 // configuration, and nothing else.
 
 func TestReadsAreOpenAndPoolConfigWritesAreNot(t *testing.T) {
-	s := New(&boardIntent{doc: intentTwoPools}, Options{AuthToken: "shared-lab-auth-token"})
+	s := New(&boardIntent{doc: intentTwoPools}, Options{AuthToken: "shared-internal-auth-key"})
 
 	// Reads render on a wall display with no credential, matching the
 	// aggregator's own pool-status posture.
@@ -387,7 +387,7 @@ func TestReadsAreOpenAndPoolConfigWritesAreNot(t *testing.T) {
 }
 
 func TestTheBearerOpensThePoolConfigWrites(t *testing.T) {
-	s := New(&boardIntent{doc: intentTwoPools}, Options{AuthToken: "shared-lab-auth-token"})
+	s := New(&boardIntent{doc: intentTwoPools}, Options{AuthToken: "shared-internal-auth-key"})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/pool/move-host", strings.NewReader("{}"))
 	req.Header.Set("Authorization", "Bearer wrong")
@@ -398,11 +398,11 @@ func TestTheBearerOpensThePoolConfigWrites(t *testing.T) {
 	}
 
 	req = httptest.NewRequest(http.MethodPost, "/api/pool/move-host", strings.NewReader("{}"))
-	req.Header.Set("Authorization", "Bearer shared-lab-auth-token")
+	req.Header.Set("Authorization", "Bearer shared-internal-auth-key")
 	rec = httptest.NewRecorder()
 	s.routes().ServeHTTP(rec, req)
 	if rec.Code == http.StatusUnauthorized {
-		t.Error("the shared lab auth token must open a pool-config write")
+		t.Error("the internal authentication key must open a pool-config write")
 	}
 }
 
@@ -412,11 +412,11 @@ func TestTheBearerOpensThePoolConfigWrites(t *testing.T) {
 // wiring -- that the route is mounted and its session opens the same writes; the
 // proof's own rules (window, ceiling, forgery, who verifies it) live in the SDK.
 func TestAControlProofFromTheDashboardOpensThePoolConfigWrites(t *testing.T) {
-	const labAuthToken = "shared-lab-auth-token"
-	s := New(&boardIntent{doc: intentTwoPools}, Options{AuthToken: labAuthToken})
+	const internalAuthKey = "shared-internal-auth-key"
+	s := New(&boardIntent{doc: intentTwoPools}, Options{AuthToken: internalAuthKey})
 
 	expiry := strconv.FormatInt(time.Now().Add(15*time.Minute).Unix(), 10)
-	mac := hmac.New(sha256.New, []byte(labAuthToken))
+	mac := hmac.New(sha256.New, []byte(internalAuthKey))
 	mac.Write([]byte("yuruna-control|proof|" + expiry))
 	proof := expiry + "." + base64.StdEncoding.EncodeToString(mac.Sum(nil))
 

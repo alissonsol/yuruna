@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42547b68-a60f-4a35-be1d-21d02f08f7bf
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,7 +54,7 @@
     `sudo` prompting on the inherited terminal with nobody present) burns
     the full step budget while the dashboard still shows the previous
     cycle's green. Absence of runner.phase restores the plain
-    step-timeout behaviour, so the looser bound is always the failure
+    step-timeout behavior, so the looser bound is always the failure
     direction.
 #>
 

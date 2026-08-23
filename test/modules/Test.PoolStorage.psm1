@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 42273fc7-eee1-4ff4-9191-32ad482e41dd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -403,7 +403,7 @@ our share, at our mount point, answered by a server that is not this machine is
 exactly what a repointed host alias leaves behind, and leaving it out of the list
 is what makes such a machine read as "nothing to do".
 
-The server-name half is the one that is not obvious. An SMB client keeps ONE session per server name and reuses it for every later mount of that name -- so once a name has been dialled, the hosts file no longer decides where it goes. Repoint 'ypool-nas' from a NAS to this machine while a share from the old NAS is still mounted under that name, and the new mount is served by the OLD session: it looks for our share on the NAS, does not find it, and mount_smbfs reports "No such file or directory". Every visible detail -- alias, share path, account, mount point -- is correct while that happens, which is why the message is so hard to read backwards.
+The server-name half is the one that is not obvious. An SMB client keeps ONE session per server name and reuses it for every later mount of that name -- so once a name has been dialed, the hosts file no longer decides where it goes. Repoint 'ypool-nas' from a NAS to this machine while a share from the old NAS is still mounted under that name, and the new mount is served by the OLD session: it looks for our share on the NAS, does not find it, and mount_smbfs reports "No such file or directory". Every visible detail -- alias, share path, account, mount point -- is correct while that happens, which is why the message is so hard to read backwards.
 
 The mount-point half is ordinary: whatever is standing there has to go, whether or not it is ours, because the share path a mount point carried before is not the one being asked for now.
 #>
@@ -789,7 +789,7 @@ function Get-PoolStorageEstablishedPeer {
 The address the kernel recorded for a cifs mount, read from /proc/mounts lines. '' when the mount point is not there or carries no addr= option. Pure.
 .DESCRIPTION
 Linux records `addr=<ip>` in a cifs mount's options at mount time: the address
-the mount actually dialled, not the name it was asked for. That is the one field
+the mount actually dialed, not the name it was asked for. That is the one field
 on a Linux host that cannot have been repointed since.
 #>
 function Get-PoolStorageCifsPeer {

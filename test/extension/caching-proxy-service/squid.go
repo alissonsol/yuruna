@@ -24,15 +24,19 @@ const mgrPathPrefix = "/squid-internal-mgr/"
 // string a dashboard cell can hold; the raw page stays available to anyone who
 // wants it via squidclient.
 type SquidSummary struct {
-	Reachable       bool    `json:"reachable"`
-	Version         string  `json:"version,omitempty"`
-	UptimeSeconds   int64   `json:"uptimeSeconds,omitempty"`
-	RequestsTotal   int64   `json:"requestsTotal,omitempty"`
-	HitRatioPct     float64 `json:"hitRatioPct,omitempty"`
-	CacheSizeKB     int64   `json:"cacheSizeKB,omitempty"`
-	MemoryUsageKB   int64   `json:"memoryUsageKB,omitempty"`
-	FileDescCurrent int64   `json:"fileDescriptorsInUse,omitempty"`
-	Error           string  `json:"error,omitempty"`
+	Reachable     bool    `json:"reachable"`
+	Version       string  `json:"version,omitempty"`
+	UptimeSeconds int64   `json:"uptimeSeconds,omitempty"`
+	RequestsTotal int64   `json:"requestsTotal,omitempty"`
+	HitRatioPct   float64 `json:"hitRatioPct,omitempty"`
+	CacheSizeKB   int64   `json:"cacheSizeKB,omitempty"`
+	MemoryUsageKB int64   `json:"memoryUsageKB,omitempty"`
+	// "Storage Mem size" is a DIFFERENT quantity from "Total accounted" above:
+	// the in-memory cache, which the dashboard shows as "Cached (Mem)" and the
+	// API did not carry at all. Both are kibibytes.
+	MemCacheSizeKB  int64  `json:"memCacheSizeKB,omitempty"`
+	FileDescCurrent int64  `json:"fileDescriptorsInUse,omitempty"`
+	Error           string `json:"error,omitempty"`
 }
 
 // squidClient reads squid's manager pages. The address it talks to is the
@@ -129,6 +133,8 @@ func (c *squidClient) summary() SquidSummary {
 			s.CacheSizeKB = parseInt(value)
 		case strings.Contains(label, "Total accounted"):
 			s.MemoryUsageKB = parseInt(value)
+		case strings.Contains(label, "Storage Mem size"):
+			s.MemCacheSizeKB = parseInt(value)
 		case strings.Contains(label, "Number of file desc currently in use"):
 			s.FileDescCurrent = parseInt(value)
 		case label == "UP Time":

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 420effcb-c2e1-4c95-b3b0-ddb550aecce4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -71,9 +71,9 @@ Set-VMCleanupQuiet -Quiet $Quiet.IsPresent
 
 # --- REGION: Warning
 Write-CleanupMessage ""
-Write-CleanupMessage "================================================================"
+Write-CleanupMessage "========"
 Write-CleanupMessage "  WARNING: DESTRUCTIVE OPERATION"
-Write-CleanupMessage "================================================================"
+Write-CleanupMessage "========"
 Write-CleanupMessage ""
 Write-CleanupMessage "  This script deletes files from your Hyper-V storage paths"
 Write-CleanupMessage "  that are NOT associated with any currently listed VM."
@@ -83,7 +83,7 @@ Write-CleanupMessage "  and any other files left behind by removed VMs."
 Write-CleanupMessage ""
 Write-CleanupMessage "  THIS CANNOT BE UNDONE."
 Write-CleanupMessage ""
-Write-CleanupMessage "================================================================"
+Write-CleanupMessage "========"
 Write-CleanupMessage ""
 
 # Base image filenames follow the legacy convention "host.<short>.guest.<name>"

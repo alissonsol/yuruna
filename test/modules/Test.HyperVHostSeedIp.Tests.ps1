@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.21
+.VERSION 2026.08.23
 .GUID 4250adff-0991-409e-81bf-56dfdf1149db
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -165,7 +165,7 @@ Describe 'hyper-v-guest-seed-host-ip' {
         Assert-True ($null -ne $segment) 'the segment predicate must exist'
         Assert-True ($segment.Extent.Text -match 'vEthernet \(') 'the switch''s own management vNIC is on its segment'
         Assert-True ($null -ne (Get-CallLine -FunctionAst $segment -CommandName 'Get-YurunaSwitchUplinkDescription')) `
-            'so is a NIC the switch bridges -- the topology the docstring legitimises'
+            'so is a NIC the switch bridges -- the topology the docstring legitimizes'
     }
 
     It 'Wait-ExternalSwitchHostIpv4 stops waiting for a management vNIC that cannot appear' {

@@ -40,7 +40,7 @@ Install the GUI with `sudo dnf groupinstall -y "Desktop"`.
 
 ## Key differences from the Hyper-V version
 
-- Amazon Linux ships pre-built qcow2 KVM ARM64 images -- no installer
+- Amazon Linux ships prebuilt qcow2 KVM ARM64 images -- no installer
   ISO; the VM boots straight from the copied disk.
 - `seed.iso` uses cloud-init (not autoinstall).
 - `hdiutil makehybrid` replaces `Oscdimg.exe`.
@@ -51,6 +51,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.21
+Last review: 2026.08.23
 
 Back to [Yuruna](../../../README.md)

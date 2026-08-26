@@ -17,7 +17,7 @@ intent store -- plus the sample intent files under [`examples/`](examples/).
 | `Get-PoolStatus.ps1` | read a pool's members and assigned test-set |
 | `Test-PoolIntent.ps1` | schema-validate `pools.yml` (+ `guests.compatibility.yml`) and enforce the one-pool-per-host invariant |
 | `Convert-ToPoolWorker.ps1` | turn a standalone machine into a worker of an existing lab |
-| `Sync-PoolDashboardOnProxy.ps1` | push the canonical dashboard assets to the lab's caching proxy |
+| `Sync-PoolDashboardOnProxy.ps1` | push the canonical dashboard assets to the lab's caching-proxy-service |
 
 ```
 pwsh test/pool/Test-PoolIntent.ps1

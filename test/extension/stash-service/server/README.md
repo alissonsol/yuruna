@@ -1,4 +1,4 @@
-# stash service — Go daemon (`stash-service`)
+# stash service -- Go daemon (`stash-service`)
 
 A single static binary with TWO listeners:
 
@@ -45,7 +45,7 @@ Pure Go (the SQLite driver is [`modernc.org/sqlite`](https://pkg.go.dev/modernc.
 not the CGo one), so the build needs only `golang-go`. `go.sum` is
 committed, so do NOT run `go mod tidy` (it needs the network to recompute
 the graph); `go build` verifies against `go.sum` and fetches modules
-through the caching-proxy service:
+through the caching-proxy-service:
 
 ```bash
 sudo apt-get install -y golang-go libcap2-bin
@@ -189,7 +189,7 @@ launch line records the gate once at startup (`grep 'delete authz'`). The bring-
 `-ldflags "-X main.version=<v>"` (shown in the UI header); ad-hoc dev builds
 show `vdev`.
 
-## Presence beacon (§4.7)
+## Presence beacon (section 4.7)
 
 With `--aggregator-url` + `--host-id` set (the bring-up bakes both from the
 host seed), the daemon POSTs `<aggregator>/announce` at startup, every
@@ -290,6 +290,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../../../../README.md)

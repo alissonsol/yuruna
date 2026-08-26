@@ -16,12 +16,10 @@ import (
 // Every tool is mcp.FromRoute over the handler its HTTP route already uses, so
 // a tool cannot answer differently from the route -- one body, produced once.
 //
-// Read-only. The mutating routes here rewrite the pool intent store by shelling
-// out to the pool-admin CLIs, and each one commits and pushes; giving an agent
-// those before an operator has watched the read tools in use would be adding a
-// second way to change pool membership before the first is understood. They are
-// a register item, and the gate is wired anyway so adding one cannot
-// accidentally add an ungated one.
+// The read tools wrap open routes and carry exactly their exposure. The
+// mutating tools rewrite the pool intent store by shelling out to the
+// pool-admin CLIs -- each one commits and pushes -- so they sit behind the
+// daemon's own write gate; see the mutating block below.
 func (s *Server) mcpRegistry() *mcp.Registry {
 	reg := mcp.NewRegistry()
 	noArgs := json.RawMessage(`{"type":"object","properties":{}}`)
@@ -36,8 +34,6 @@ func (s *Server) mcpRegistry() *mcp.Registry {
 		{"pool_control_state", "Read the daemon's own state: last write, last action, whether the intent store is readable.", "/api/state", s.handleState},
 		{"pool_control_diagnostics", "Read the diagnostic report: what this service can reach, what it cannot, and why. Probes run when the route is called, so this is a live check and can take a few seconds. Use it when a read above answers but looks wrong.", "/api/diagnostics", s.handleDiagnostics},
 		{"pool_control_hostinfo", "Read this daemon's host id, stamped version and own addresses.", "/api/hostinfo", s.handleHostInfo},
-		// Two reads the UI shows and no tool reached. The deferral recorded
-		// above is about the MUTATING routes and says nothing about a read.
 		{"pool_control_scan_status", "Read the network scan: whether one is running, the CIDR it covers, how far it has got, and every host it has found so far. This is what the Scan page shows.", "/api/scan", s.handleScanStatus},
 		{"pool_control_host_control_state", "Read the per-pool control state (continue, pause-after-cycle, pause-after-step) and which members disagree with it -- the answer behind the board's \"Mixed\" cell.", "/api/pool/host-control", s.handleHostControlState},
 	} {
@@ -51,22 +47,15 @@ func (s *Server) mcpRegistry() *mcp.Registry {
 	}
 	// --- Mutating tools -------------------------------------------------------
 	//
-	// The deferral this file used to record -- that these routes shell out to
-	// the pool-admin CLIs, that each one commits and pushes, and that an agent
-	// should not reach them before an operator has watched the read tools in
-	// use -- was sound and is now discharged rather than ignored. The read
-	// tools above shipped first and are in use; the register the comment
-	// deferred to never held the item; and the operator asked for the controls.
-	//
 	// Every one of these is ReadOnly:false, which is what makes the MCP server
 	// run s.gate.Allow on the INCOMING request before the handler is reached --
 	// the daemon's own Authed, so an agent and a curl face the same check. The
 	// handler is wrapped raw on purpose: wrapping the GATED handler would test
 	// a synthesized request that carries no credential and refuse everything.
 	//
-	// Still deliberately absent: new-pool and remove-pool (a second pass --
-	// remove-pool commits and pushes a deletion), and the scan verbs (they aim
-	// a burst of connection attempts at a network the caller names).
+	// Deliberately absent: new-pool and remove-pool (remove-pool commits and
+	// pushes a deletion), and the scan verbs (they aim a burst of connection
+	// attempts at a network the caller names).
 	type mut struct {
 		name, desc, method, target string
 		destructive, idempotent    bool

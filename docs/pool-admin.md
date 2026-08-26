@@ -1,4 +1,4 @@
-# Yuruna pool admin guide — assign test sequences to a host pool
+# Yuruna pool admin guide -- assign test sequences to a host pool
 
 > **Who this is for.** A **pool administrator / operator** running several Yuruna test
 > hosts who wants them to share work and report together. It is *not* a guide to writing
@@ -55,7 +55,7 @@ library, `guests.compatibility.yml`). No credential is ever routed through it.
 
 Run the commands below from the repo root.
 
-## Step 1 — Create the pool
+## Step 1 -- Create the pool
 
 ```powershell
 pwsh test/pool/New-Pool.ps1 -PoolId lab -DisplayName 'Lab pool' -IntentGitUrl <writable-url>
@@ -66,7 +66,7 @@ pwsh test/pool/New-Pool.ps1 -PoolId lab -DisplayName 'Lab pool' -IntentGitUrl <w
   later forks the history.
 - The pool starts empty (`desiredState: run`, no members, no test-set).
 
-## Step 2 — Add the hosts
+## Step 2 -- Add the hosts
 
 Run once per host:
 
@@ -81,7 +81,7 @@ pwsh test/pool/Add-HostToPool.ps1 -PoolId lab -HostId 42abcdef0123456789abcdef01
   Membership is the single source of truth; re-adding a host is a no-op.
 - To remove a host later, see **Step 6** below (drain it first if it is running).
 
-## Step 3 — Define the test-set (a framework/project repo pair)
+## Step 3 -- Define the test-set (a framework/project repo pair)
 
 A **test-set** is `{name, frameworkUrl, projectUrl}`. Assigning one to a pool makes every member
 override its own `repositories.frameworkUrl` / `repositories.projectUrl` with the
@@ -99,7 +99,7 @@ pwsh test/pool/Set-PoolTestSetDefinition.ps1 -Name smoke -FrameworkUrl <framewor
   optional -- Step 4's `Set-PoolTestSet.ps1` takes the URLs directly.
 - Full field reference: [`test/schemas/pool-test-sets.schema.yml`](../test/schemas/pool-test-sets.schema.yml).
 
-## Step 4 — Assign the test-set to the pool
+## Step 4 -- Assign the test-set to the pool
 
 ```powershell
 pwsh test/pool/Set-PoolTestSet.ps1 -PoolId lab -Name smoke -FrameworkUrl <framework-url> -ProjectUrl <project-url> -IntentGitUrl <writable-url>
@@ -112,7 +112,7 @@ pwsh test/pool/Set-PoolTestSet.ps1 -PoolId lab -Name smoke -FrameworkUrl <framew
 - Nothing probes the URLs at assignment time: a typo first surfaces when a
   member's next cycle tries to clone.
 
-## Step 5 — Verify
+## Step 5 -- Verify
 
 ```powershell
 pwsh test/pool/Test-PoolIntent.ps1             # schema-validates pools.yml (+ guests.compatibility.yml); host-in-one-pool invariant
@@ -124,7 +124,7 @@ There is nothing to "deploy": each runner picks up the new intent at the start o
 confirm it took effect on the **Yuruna hosts** Grafana dashboard (it groups every host under
 your `poolId`), or directly: `curl -sk https://<proxy>:9400/api/v1/pool-status`.
 
-## Step 6 — Operate the pool
+## Step 6 -- Operate the pool
 
 ```powershell
 pwsh test/pool/Set-PoolDesiredState.ps1 -PoolId lab -State paused -IntentGitUrl <writable-url>   # run | paused | drain
@@ -238,12 +238,12 @@ that control shows now (**Assign test set** on the set the pool holds, **Members
 on how many there are). The order survives the page's own minute-by-minute
 re-read, so a table left sorted stays that way. Each of those tables opens with a
 counter column that numbers the rows *as shown*: it reads 1&hellip;n down the page
-whatever the sort, which is how many pools, hosts or test sets there are.
+whatever the sort, which is how many pools, hosts or test-sets there are.
 
 Assigning copies the chosen library triple into the pool's inline `testSet`;
 members then behave exactly as on the CLI path in Steps 3-4 above.
 
-### Framework and Project — which repositories is each host on?
+### Framework and Project -- which repositories is each host on?
 
 The two repository columns on `/hosts` are each host's own account of what it
 runs on: the **framework** checkout its status service runs from, and the
@@ -278,7 +278,7 @@ and such a host reads `--` for one refresh before its answer arrives. Like the
 hardware columns, these are read on page load and on **Refresh**, not on the
 footer countdown.
 
-### Project access — can each host read what its pool assigned?
+### Project access -- can each host read what its pool assigned?
 
 A pool can hand a host a `projectUrl` that host's git credential cannot read:
 the assignment is made centrally, the credential is host-local, and `GH_TOKEN`
@@ -500,7 +500,7 @@ Failure is **bounded, not atomic**. Each host is its own CLI run, commit and
 push, so a failure partway through leaves the earlier hosts enrolled. Enrollment
 is idempotent and resumable, so the next tick finishes the job.
 
-### Network scan — finding hosts nobody registered
+### Network scan -- finding hosts nobody registered
 
 A host reaches the pool's pages by registering with the aggregator. A machine
 that is running a Yuruna status service but has never enrolled is therefore
@@ -576,7 +576,7 @@ is skipped.
 - **Keeps it fresh.** A background scanner walks the pool every
   `downloadAgentService.scanIntervalSeconds` and acts on anything expiring within
   `prefetchLeadSeconds` of its `freshnessSeconds` budget. Freshness probes go
-  **direct** to the origin, never through the squid cache -- a proxied HEAD would
+  **direct** to the origin, never through the Squid cache -- a proxied HEAD would
   return frozen prewarm-era headers and certify staleness as freshness. Byte
   downloads do use the cache, falling back to direct on any proxy failure. When a
   refresh fails, the previous verified artifact stays servable.
@@ -700,6 +700,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../README.md)

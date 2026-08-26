@@ -18,8 +18,8 @@ import (
 // there is one body, produced once, by one function.
 //
 // Read-only, deliberately. The mutating routes here are per-image refresh,
-// delete and prune, and the pool-wide refresh; wrapping those is a register
-// item rather than an oversight, because the one route an agent would most
+// delete and prune, and the pool-wide refresh; wrapping those is a deliberate
+// deferral rather than an oversight, because the one route an agent would most
 // want -- POST .../ensure -- is DELIBERATELY ungated on the HTTP side (it is
 // the call a host makes for itself on the read path), and a tool for it could
 // not both mirror its route's gate and honor the rule that a mutating tool

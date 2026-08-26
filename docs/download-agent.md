@@ -156,11 +156,11 @@ acts on anything whose freshness expires within `prefetchLeadSeconds`:
 - **Origin unreachable** -> nothing is stamped. The pool serves stale rather than
   certifying staleness as freshness.
 
-Two caching-proxy rules are load-bearing and easy to get backwards:
+Two caching-proxy-service rules are load-bearing and easy to get backwards:
 
 | Traffic | Path | Why |
 |---|---|---|
-| Byte downloads | squid first (`:3128` / ssl-bump `:3129`), direct on any proxy failure including the offline-mode `504` | The bytes are exactly what a cache is for |
+| Byte downloads | Squid first (`:3128` / ssl-bump `:3129`), direct on any proxy failure including the offline-mode `504` | The bytes are exactly what a cache is for |
 | Freshness probes and resolver fetches | **always direct** | The proxy pins `.iso`/`.zip` with `override-expire override-lastmod` and runs `offline_mode` after prewarm. A proxied `HEAD` returns frozen prewarm-era headers as a success, which would certify staleness as freshness forever |
 
 **Seeding.** Content enters the pool three ways. With `autoSeed` on (the
@@ -169,8 +169,8 @@ types present, infers arch from host type, and pre-downloads the stable families
 for them, at most two seed downloads at a time so seeding never starves an
 interactive request. Beyond that, a host's first request creates an entry on
 demand, and the UI's Force refresh creates one manually. Hosts the aggregator has
-no status for, and arm64 KVM hosts (the roster carries no arch field), are
-covered on demand -- never an error. `guest.windows.11` and `virtio-win` are
+no status for, and arm64 Hyper-V or KVM hosts (the roster carries no arch field),
+are covered on demand -- never an error. `guest.windows.11` and `virtio-win` are
 never seeded: a best-effort family should not spend seed bandwidth, and
 virtio-win is wanted only by hosts that build a Windows guest.
 
@@ -395,8 +395,7 @@ hosts* dashboard -- the *Extension hosts* table, `Download-agent service` -- and
 arrives already unlocked. That link goes through the aggregator's `/go/stash`
 redirect, which hands the page a short-lived control proof in the URL fragment
 (never sent to a server, never in an access log); the page exchanges it for a
-session on arrival. That spares going back to the dashboard to copy a code
-off a tile to act on a page it just sent you to.
+session on arrival.
 
 The prompt below is what you see when there is no proof to spend: the page was
 opened by typing its address, or bookmarked, or the proof expired while the tab
@@ -463,7 +462,7 @@ script therefore forwards **host `:8082` to guest `:80`** and writes the marker'
 `downloadAgentServiceBaseUrl` as `http://<mac-lan-ip>:8082/`. On a bridged host
 the marker carries the VM's own address and no forward is needed.
 
-The port is fixed, not picked at run time: `:80` is the caching-proxy service's
+The port is fixed, not picked at run time: `:80` is the caching-proxy-service's
 CA-cert endpoint, `:2222` is the stash service, and `:8081` is the pool-control
 service.
 Asking for a port already forwarded would attach to that forwarder and publish
@@ -472,7 +471,7 @@ the wrong service at the advertised URL.
 The beacon cannot cover this case -- the aggregator derives the announcing
 address from the request's source IP, which NAT rewrites to the Mac's address
 *without* the port that reaches the guest. That is why the published endpoint
-comes from the marker. A Shared-NAT Mac is a **reduced-value placement**: prefer
+comes from the marker. A Shared NAT Mac is a **reduced-value placement**: prefer
 a bridged host for the agent.
 
 ### Pinning an endpoint by hand
@@ -529,10 +528,10 @@ held only live credentials.
 | Start script times out waiting on `:80` | First boot is still installing the toolchain and building the daemon | Re-run to re-check, or raise `YURUNA_DOWNLOAD_AGENT_SERVICE_READY_TIMEOUT_SECONDS`. The printed `cloud-init status` says whether it is still running |
 | Start script prints a `go build` or `apt` error | Package or source problem in the guest | The log tail names the line; fix and rebuild with Stop then Start |
 | Daemon serves, UI says `poolAvailable:false` | The pool share did not mount in the guest | Check the NAS credential (`Set-Password` the `poolStorageNetworkUser`) and that the share is reachable, then rebuild. The daemon deliberately keeps serving; every `ensure` answers `pool-unavailable` and hosts fall back |
-| "the daemon IS serving in-guest but this host cannot connect" | The address is not reachable from here | A stale DHCP lease (compare the guest console's own `eth0` line), a guest firewall dropping `:80`, or a bridged-mode address being probed on a Shared-NAT host. Waiting cannot help -- the daemon is already up |
+| "the daemon IS serving in-guest but this host cannot connect" | The address is not reachable from here | A stale DHCP lease (compare the guest console's own `eth0` line), a guest firewall dropping `:80`, or a bridged-mode address being probed on a Shared NAT host. Waiting cannot help -- the daemon is already up |
 | No Extension hosts row | The host status service is not serving `host.registration.json`, or the marker says `active:false` | Run `test/service/Start-StatusService.ps1`; check `runtime/download-agent-service.json`. The beacon alone still paints a row, minus the status baseUrl link |
-| Row appears but the deep-link is dead from other machines | Shared-NAT Mac whose `:8082` forward did not install | Re-run the start script once the VM has an address; prefer a bridged host for the agent |
-| Unlock says `503 lab-token-unavailable` | The daemon could not reach the aggregator to check the code, so it refused rather than guessing | Check the caching-proxy VM and the aggregator (`journalctl -u pool-aggregator-service`). Until it answers, drive the agent with the `Authorization: Bearer <internal-auth-key>` API routes |
+| Row appears but the deep-link is dead from other machines | Shared NAT Mac whose `:8082` forward did not install | Re-run the start script once the VM has an address; prefer a bridged host for the agent |
+| Unlock says `503 lab-token-unavailable` | The daemon could not reach the aggregator to check the code, so it refused rather than guessing | Check the caching-proxy-service VM and the aggregator (`journalctl -u pool-aggregator-service`). Until it answers, drive the agent with the `Authorization: Bearer <internal-auth-key>` API routes |
 | Unlock refuses a code you just read | The code rotated more than about three minutes ago, or the tile is stale | Re-read the tile and retry. If the tile itself reads "collector down", fix the aggregator first |
 | UI actions return `503 auth-unconfigured` | The VM was built with no aggregator URL and no internal authentication key, so neither gate exists | Enroll the host with `test/lab/Set-LabToken.ps1` so it stores the internal authentication key, then rebuild the agent VM so the seed carries the aggregator URL |
 | UI actions return "read-only" / show a `leaseHolder` | Another agent on the same NAS holds the lease | Expected. Use that agent's UI, or stop it -- the lease expires after three scan intervals |
@@ -552,9 +551,9 @@ by hand to verify the daemon compiles and starts on a vanilla guest.
   context of the rest of the pool tooling.
 - [pool-storage.md](pool-storage.md) -- the pool share itself: paths,
   credentials, and the on-share layout.
-- [caching.md](caching.md) -- the squid caching-proxy service the agent's byte
+- [caching.md](caching.md) -- the Squid caching-proxy-service the agent's byte
   downloads ride through, and its offline-mode behavior.
-- [network.md](network.md) -- the Shared-NAT host-port allocation table.
+- [network.md](network.md) -- the Shared NAT host-port allocation table.
 - [test-config.md](test-config.md#downloadagentservice--the-pool-wide-image-downloader) --
   the config-key reference.
 - [guest-image-setup.md](guest-image-setup.md) -- how hosts obtain guest images.
@@ -565,6 +564,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../README.md)

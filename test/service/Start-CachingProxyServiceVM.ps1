@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.23
+.VERSION 2026.08.25
 .GUID 42647c3a-19a7-4931-b638-07791d5f0b1b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -988,8 +988,8 @@ if ($IsMacOS) {
         Write-Warning "  * Wi-Fi AP filtering the cache's locally-administered MAC -- switch to Ethernet or allow the new MAC."
         Write-Warning "  * cloud-init still installing squid (rare on first run; check progress via UTM window)."
         Write-Warning "  * LAN is not a single /24 (the discovery sweep assumes one)."
-        # Asked for rather than asserted: this used to claim the VM was still
-        # running, which is one of the things that can be wrong here -- a VM
+        # Asked for rather than asserted: whether the VM is still running is one
+        # of the things that can be wrong here -- a VM
         # stopped or suspended out from under the sweep looks identical to one
         # that never got a DHCP lease, and sending the operator inside a guest
         # that is not running costs them the whole diagnosis.

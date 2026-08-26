@@ -9,7 +9,7 @@ A small stdlib-only Go daemon that runs on the **caching-proxy-service machine**
 pool services host). It needs **no host list** -- it auto-discovers pool members.
 Every `-interval` (default 30s) it:
 
-1. **Discovers candidate IPs from the squid access log**
+1. **Discovers candidate IPs from the Squid access log**
    (`/var/log/squid/yuruna_access.log`) -- every host that pulls
    packages/images through the proxy appears there. Reads only the recent tail
    (last ~35 min, just over a 30-min DHCP lease), plus the last-known IP of each
@@ -170,7 +170,7 @@ Every `-interval` (default 30s) it:
    timeout budget on a machine that no longer exists. Since the aggregator runs
    inside the caching-proxy-service VM, knowing the **proxy** address -- which every host
    already needs, to reach the cache at all -- becomes enough to locate everything
-   else the pool offers. Conversely a host with no caching-proxy service has no aggregator
+   else the pool offers. Conversely a host with no caching-proxy-service has no aggregator
    to ask, and no pool: there is nothing to look up, and the lookup says so.
 
    `?area=<slug>` returns one area (`404` when the pool knows no live host for it,

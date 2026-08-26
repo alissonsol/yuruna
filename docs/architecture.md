@@ -79,7 +79,7 @@ yuruna/
 
 - A `.yuruna` folder is created under `project_root` for temporary files.
 
-Directories are not the same thing as system blocks, and several of these do
+Directories are not system blocks, and several of these do
 not line up with one -- `automation/` is a shared library root rather than only
 the deploy engine, and `project/` is re-cloned every cycle rather than tracked.
 [Context and components](design/01-context-and-components.md) draws the blocks
@@ -197,7 +197,7 @@ error: unable to read URL "https://github.com/...", server
  reported 502 Bad Gateway, status code=502
 ```
 
-Multiple hosts sharing one squid egress IP can fail inside a
+Multiple hosts sharing one Squid egress IP can fail inside a
 sub-second window -- that is a shared upstream event, not per-host
 configuration.
 
@@ -211,6 +211,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../README.md)

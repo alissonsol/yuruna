@@ -1,4 +1,4 @@
-# Windows 11 guest on macOS UTM host — Nerd-Level Details
+# Windows 11 guest on macOS UTM host -- Nerd-Level Details
 
 See [Hosts -- ...](../../README.md) for host prerequisites, VM sizing,
 and connectivity. macOS counterpart of
@@ -153,6 +153,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../../../README.md)

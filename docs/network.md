@@ -81,7 +81,7 @@ The library exports five functions:
 | `apt_retry`  | `apt-get ...` | Ubuntu 24/26 guests |
 | `dnf_retry`  | `dnf ...`     | Amazon Linux 2023 guests |
 | `curl_retry` | `curl ...`    | Any caller; prepends `--retry 3 --retry-connrefused --retry-delay 5` so curl handles transient HTTP 5xx + connection-refused in-process before the outer attempt loop fires. Deliberately NOT `--retry-all-errors`: that would also retry 4xx (auth failures, 404s), which are non-transient and only waste attempts. |
-| `wget_try`   | `wget ...`    | wget analogue of `curl_retry`: prepends `--tries=3 --waitretry=5 --retry-connrefused` for in-process transient handling and shares the transient/permanent gate below. |
+| `wget_try`   | `wget ...`    | wget analog of `curl_retry`: prepends `--tries=3 --waitretry=5 --retry-connrefused` for in-process transient handling and shares the transient/permanent gate below. |
 | `pwsh_retry` | `sudo pwsh ...` | Body on stdin (here-doc), piped to `sudo pwsh -NoProfile -Command -`. All pwsh streams (stdout, stderr, verbose, warning, information) appended to a caller-supplied log file under `/var/log/yuruna/` with a UTC-stamped per-attempt header. The log is the failure-collector handoff -- see [`Defining Get-SystemDiagnostic`](definition.md#defining-get-systemdiagnostic), GUEST PROVISIONING section. Body must `throw` / `exit 1` on its own failure conditions (retry is driven by pwsh's exit code). Stdin pipe instead of a positional `-Command` arg avoids both the argv-length-cap class (32 K on Windows `CreateProcess`, `ARG_MAX` on Linux) and the quote-escaping pit. |
 
 **Outer-loop behavior** (all five wrappers share `_yuruna_retry`):
@@ -173,7 +173,7 @@ HTTP transfer that stalls after response headers -- or trickles too
 slowly to trip the client's own connect/read-gap timeout -- otherwise
 hangs the attempt forever, and the retry loop never gets to retry on
 a fresh connection (the stalled-transfer trap class: apt InRelease
-fetches wedging mid-body behind a caching-proxy service). A malformed value
+fetches wedging mid-body behind a caching-proxy-service). A malformed value
 fails LOUD and unbounded, not silently unbounded -- silence would leave
 the operator believing a bound is active.
 
@@ -217,7 +217,7 @@ root-caused (suspects: apt's dpkg-pty EOF drain or its hook-child
 wait under a `timeout(1)` parent), the safe default is the plain
 unwrapped invocation; the mirror-stall exposure is instead bounded at
 the transfer layer (curl/wget/git low-speed aborts, apt's own
-`Acquire::http::Timeout`, and the caching-proxy service's `read_timeout`).
+`Acquire::http::Timeout`, and the caching-proxy-service's `read_timeout`).
 
 ### Bounding apt-get update without bounding dpkg
 
@@ -758,7 +758,7 @@ the tail of the transaction, briefly dropping the DHCP lease. The
 harness's next sequence step is `saveSystemDiagnostic`, which opens the
 FIRST host->guest SSH of the run; if it fires during the bounce window
 the host's neighbor entry is stale (the Hyper-V External vSwitch
-ARP-discovery trap; UTM has the vmnet analogue) and SSH times out for
+ARP-discovery trap; UTM has the vmnet analog) and SSH times out for
 the full 180 s `Wait-SshReady` budget.
 
 The probe MUST match whichever manager owns the link: server
@@ -782,7 +782,7 @@ the guest's HTTPS through the bump (`:3129`) and locks direct `:443`
 egress, so a CA-less guest fails every HTTPS request with curl rc=60
 ("self-signed certificate in certificate chain"). That is why the CA
 fetch is retried under the shared capped-backoff policy -- one blip
-against a slow or flapping caching-proxy service must not strand the guest
+against a slow or flapping caching-proxy-service must not strand the guest
 without the CA. See the memory capture
 `feedback_sslbump_rc60_untrusted_chain_and_ca_gate_trap` for the incident
 class.
@@ -836,7 +836,7 @@ relaxing egress (`project_sslbump_ca_gating_durable_fix`):
   otherwise.
 
 On macOS UTM the fetch has an extra reason to run host-side: guests on VZ
-shared-NAT cannot reach the cache VM directly, but the host can. The UTM
+Shared NAT cannot reach the cache VM directly, but the host can. The UTM
 scripts must also resolve **which IP** serves the CA:
 
 - An **external cache** (`YURUNA_CACHING_PROXY_SERVICE_IP` set to a valid IP) wins:
@@ -855,12 +855,12 @@ scripts must also resolve **which IP** serves the CA:
 
 ### Defining utm cache vm bridged discovery
 
-The macOS UTM ubuntu `New-VM.ps1` scripts detect the caching-proxy service and
+The macOS UTM ubuntu `New-VM.ps1` scripts detect the caching-proxy-service and
 inject its proxy URL into the autoinstall seed when available. The cache
 VM is bridged to the host's physical NIC
 (`VZBridgedNetworkDeviceAttachment` in `config.plist.template`), so it
 carries its own LAN DHCP IP -- e.g. `http://192.168.7.150:3128`. Install
-VMs on shared NAT reach that LAN IP through VMnet's outbound NAT (the
+VMs on Shared NAT reach that LAN IP through VMnet's outbound NAT (the
 same path they use to reach Ubuntu mirrors), so no host-side TCP
 forwarder layer is needed. Discovery delegates to
 `Test-CachingProxyServiceAvailable`, which owns the (state-file fast path ->
@@ -881,7 +881,7 @@ Severity policy:
 A second, stable address per guest on libvirt's NAT network, for guests that
 have to reach **each other**.
 
-The problem it solves is narrow and worth stating precisely. Guests are bridged
+The problem it solves is narrow. Guests are bridged
 onto the site LAN so remote clients can reach them, which means their addresses
 come from a DHCP server this lab does not control -- and on a host with a short
 lease, a guest that another guest is talking to can move mid-scenario. The
@@ -999,7 +999,7 @@ network like the other two, not inherited from the host's resolver:
 `Get-YurunaPoolSeedValue` / `Get-YurunaStashSeedValue`
 (`test/modules/Test.PoolStorage.psm1`) substitute the guest-reachable
 host address whenever the resolved one is loopback or link-local, and
-the caching-proxy's `yuruna-config-fetch.sh` does the equivalent in the
+the caching-proxy-service's `yuruna-config-fetch.sh` does the equivalent in the
 guest for the address the config service hands it at runtime.
 
 On **macos.utm** the mode is resolved once per build by
@@ -1013,15 +1013,15 @@ and pool-control are therefore Shared on Wi-Fi, with `Add-PortMap`
 publishing them to the LAN through the host -- as is the download-agent
 service. No choice of port is arbitrary: stash takes `:2222` because the
 Mac's own sshd owns `:22`; pool-control takes `:8081` because the
-caching-proxy already forwards `:80` for its CA-cert endpoint --
+caching-proxy-service already forwards `:80` for its CA-cert endpoint --
 reusing it would publish the cache at the URL the
 pool-control bring-up prints; and the download-agent service takes
 `:8082`, the next free port clear of all three. The allocation is
 therefore fixed per service rather than picked at run time:
 
-| Service | Host port on a Shared-NAT Mac | Guest port |
+| Service | Host port on a Shared NAT Mac | Guest port |
 |---|---|---|
-| caching-proxy service | `80` (plus its own squid/dashboard ports) | 80 |
+| caching-proxy-service | `80` (plus its own squid/dashboard ports) | 80 |
 | stash service | `2222` | 22 |
 | pool-control service | `8081` | 80 |
 | download-agent service | `8082` | 80 |
@@ -1030,8 +1030,8 @@ Because the beacon's announce is derived from the connection's source IP
 -- NAT-internal, and unroutable from any peer -- the download-agent
 service's **marker** carries the published endpoint instead:
 `downloadAgentServiceBaseUrl` is written as
-`http://<mac-lan-ip>:8082/` on a Shared-NAT bundle, and as the VM's own
-address on a bridged one. A Shared-NAT Mac is still a reduced-value
+`http://<mac-lan-ip>:8082/` on a Shared NAT bundle, and as the VM's own
+address on a bridged one. A Shared NAT Mac is still a reduced-value
 placement for the agent; prefer a bridged host.
 
 ## Registry rate limits disguised as 400
@@ -1053,7 +1053,7 @@ to retry. Two shapes must both be recognized:
 A rate limit is keyed to the egress IP's quota window and will not
 clear on a 10-30 s retry, so the scripts surface operator guidance
 (wait, authenticate the pull-through proxy, bake the image into the
-guest base, or check the caching-proxy service's zot endpoint) and exit
+guest base, or check the caching-proxy-service's zot endpoint) and exit
 immediately instead of burning the remaining retry budget on a
 foregone conclusion.
 
@@ -1064,7 +1064,7 @@ third-party apt signing keys -- Docker
 (`download.docker.com/linux/ubuntu/gpg`), Kubernetes
 (`pkgs.k8s.io/.../Release.key`), and Microsoft
 (`packages.microsoft.com/keys/microsoft.asc`) -- over the guest's
-SSL-bump caching-proxy service, which is a **trust boundary**: a tampering proxy
+SSL-bump caching-proxy-service, which is a **trust boundary**: a tampering proxy
 or CDN could otherwise land an attacker key in apt's trust store.
 `_yuruna_verify_key_fpr` verifies every downloaded key against a pinned
 allow-set of PRIMARY-key fingerprints before it is trusted:
@@ -1443,7 +1443,7 @@ a one-minute timer, so a step that runs for many minutes is covered too.
 The directory it asks is kept current from the host side by a beacon that
 announces on address change, on status-service start, and on a periodic
 beat. Without that push, the aggregator learns a host's address only by
-tailing the squid access log -- which lags exactly when it matters, since a
+tailing the Squid access log -- which lags exactly when it matters, since a
 host appears there only when it or its guests pull through the proxy.
 
 Two properties are worth knowing:
@@ -1612,9 +1612,9 @@ on a guest with no tooling installed -- a bounded read keeps a pathological
 
 `__yhl_http_get` is one bounded, proxy-free GET to stdout, non-zero when the
 peer did not answer. `--no-proxy` / `--noproxy '*'` are load-bearing: the
-caching-proxy service and the host are both on the LAN and both already sit
+caching-proxy-service and the host are both on the LAN and both already sit
 in the guest's `no_proxy` list, but a project script that exported its own
-`http_proxy` would otherwise route this through squid and cache an address
+`http_proxy` would otherwise route this through Squid and cache an address
 lookup. An address lookup is the one answer in this framework that must
 never be served from a cache -- the whole point is that it changes, which is
 also why the aggregator sets `Cache-Control: no-store` on the answer.
@@ -1712,7 +1712,7 @@ the only safe form of asking here.
 - `wgetrc`'s `no_proxy` is belt-and-braces for the one file that names an
   address. The environment's `no_proxy` already covers the RFC1918 ranges,
   but a single stale literal here sends a plain `wget` at the host through
-  squid, which then caches a status-service response.
+  Squid, which then caches a status-service response.
 
 ### Defining host locate entrypoint
 
@@ -2259,7 +2259,7 @@ being stranded by it. The Ubuntu guest-update script wraps that read in
 `amisad_host_fetch`.
 
 A failed fetch additionally earns one forced run of
-`yuruna-host-locate.sh` rather than waiting for the timer to come round.
+`yuruna-host-locate.sh` rather than waiting for the timer to come around.
 The file can be up to a full refresh interval behind the very move that
 broke the fetch, so a retry that skips the refresh does nothing but
 re-dial the address that already failed. Both callers spend exactly one
@@ -2314,7 +2314,7 @@ first place.
 
 ## Local Subnet Connectivity
 
-During `setup.ps1` execution, service VMs (such as the caching-proxy or stash service) must reach the host across the local subnet (typically a `/24`). If host-level firewall rules or network isolation block that traffic, the `setup.ps1` preflight fails.
+During `setup.ps1` execution, service VMs (such as the caching-proxy-service or stash service) must reach the host across the local subnet (typically a `/24`). If host-level firewall rules or network isolation block that traffic, the `setup.ps1` preflight fails.
 
 Follow the instructions below for your operating system.
 
@@ -2471,6 +2471,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../README.md)

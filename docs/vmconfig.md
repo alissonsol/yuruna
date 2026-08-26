@@ -357,7 +357,7 @@ and pointing `Acquire::https::Proxy` at the `:3129` ssl-bump listener:
   `wget http://${CACHE_HOST}/yuruna-squid-ca.crt` -- guests reach the
   cache VM directly on the (Default Switch / libvirt 'default') NAT.
   Failure leaves the plain-HTTP proxy in place; HTTPS apt goes direct.
-- **macos.utm:** Apple VZ shared-NAT isolates guests from each other,
+- **macos.utm:** Apple VZ Shared NAT isolates guests from each other,
   so the CA fetch happens on the HOST inside `New-VM.ps1` and the bytes
   arrive base64-embedded via `CA_CERT_BASE64_PLACEHOLDER`. An empty
   placeholder is a graceful no-op: HTTPS apt bypasses the cache.
@@ -437,7 +437,7 @@ cloud-init failure or minutes of delay before login.
 - **Hyper-V Default Switch:** the IPv6 path eventually resolves but
   slowly -- visible as
   `Job systemd-networkd-wait-online.service/start running ([TIME] / no limit)`.
-- **Apple VZ shared NAT (UTM):** the IPv6 RAs the tracker expects never
+- **Apple VZ Shared NAT (UTM):** the IPv6 RAs the tracker expects never
   arrive; without the cap the service blocks forever.
 - **libvirt 'default' NAT (KVM):** can stall on IPv6 RA waits and
   delay cloud-init via `network-online.target`.
@@ -922,7 +922,7 @@ Belt-and-suspenders for the host status-service probe. subiquity's
 installed system. Without `no_proxy`, an in-guest `fetch-and-execute.sh`
 that lacks `--no-proxy` routes the `/livecheck` probe through the
 caching-proxy-service, which cannot reach the host's NAT address
-(Hyper-V Default Switch / libvirt default / Apple VZ shared NAT), and
+(Hyper-V Default Switch / libvirt default / Apple VZ Shared NAT), and
 silently falls through to GitHub.
 
 MUST come BEFORE the fetch-and-execute download and the timezone wget
@@ -963,10 +963,9 @@ All five `automation/*.sh` helpers land in the canonical
   the guest fetches code from.
 
 They are read at seed-build time by the host-side `New-VM.ps1`,
-base64-encoded, and embedded as cloud-init `write_files:` content --
-baked into the seed rather than fetched, so they are on disk before any
-provisioning script runs. Single source of truth: `automation/` in the
-framework repo.
+base64-encoded, and embedded as cloud-init `write_files:` content, so
+they are on disk before any provisioning script runs. Single source of
+truth: `automation/` in the framework repo.
 
 ### Timezone via IP geolocation and NTP
 
@@ -1368,7 +1367,7 @@ known helm-repo hosts so unrelated YAML is not over-cached.
 ### Squid access log and self-scrape filtering
 
 The `yuruna` logformat feeds the Grafana "Recent 100 requests" panel and the
-caching-proxy-parser-service. `%>A` is deliberately absent: squid 6 turns it into a
+caching-proxy-parser-service. `%>A` is deliberately absent: Squid 6 turns it into a
 synchronous PTR lookup, and RFC1918 addresses come back as garbage from
 upstream resolvers. The User-Agent is wrapped in literal double quotes because
 `%{...}>h` does not escape embedded spaces on its own.
@@ -1392,7 +1391,7 @@ hundreds per minute, burying genuine errors. `src` is always available, so the
 exclusion stays warning-free. Guest traffic is LAN-sourced, so dropping
 loopback removes only self-scrapes and local health probes.
 
-squid 7 requires the module prefix on `access_log`; without `stdio:` the
+Squid 7 requires the module prefix on `access_log`; without `stdio:` the
 parser emits a deprecation warning at every config load.
 
 ### Prometheus loopback only
@@ -1790,7 +1789,7 @@ Enable the timer that keeps the Yuruna hosts dashboard's per-host panels sized t
 
 ### Install community Zot dashboard
 
-Install the community Zot dashboard (Grafana ID 20501) alongside the hand-crafted Yuruna caching-proxy service dashboard. The write_files rewriter (see "Grafana dashboard rewriter" above) pins it to yuruna-prometheus with a stable uid and a friendly title, so re-runs are idempotent. The dashboard provisioner under /etc/grafana/provisioning/dashboards/yuruna.yaml picks the file up on its next 30s tick. The `else` branch keeps cycling: a transient grafana.com outage degrades to "missing extra dashboard" rather than failing the whole runcmd phase.
+Install the community Zot dashboard (Grafana ID 20501) alongside the hand-crafted Yuruna caching-proxy-service dashboard. The write_files rewriter (see "Grafana dashboard rewriter" above) pins it to yuruna-prometheus with a stable uid and a friendly title, so re-runs are idempotent. The dashboard provisioner under /etc/grafana/provisioning/dashboards/yuruna.yaml picks the file up on its next 30s tick. The `else` branch keeps cycling: a transient grafana.com outage degrades to "missing extra dashboard" rather than failing the whole runcmd phase.
 
 ### Enable grafana dashboard brand tile
 
@@ -2070,11 +2069,10 @@ Two call sites keep the DACL bounded:
   live, so its (not-yet-added) ACE is safe; all earlier VMs' ACEs are gone,
   bounding the DACL to roughly *(live VMs + 1)*.
 - **(B) During cleanup** -- `Remove-OrphanedVMFiles.ps1` prunes every kept
-  base image on each run (a no-op on the base VHDX images, which are copied
-  per-VM and never attached directly, so they accumulate nothing), reclaiming
-  ACL space even when no VM is being created. It runs before the deletion
-  prompt because it is safe maintenance: it only removes access for VMs that
-  no longer exist.
+  base image on each run (a no-op on the base VHDX images, which accumulate
+  nothing), reclaiming ACL space even when no VM is being created. It runs
+  before the deletion prompt because it is safe maintenance: it only removes
+  access for VMs that no longer exist.
 
 ##### Manual remediation (already-failing host)
 
@@ -2116,6 +2114,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../README.md)

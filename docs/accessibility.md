@@ -15,7 +15,7 @@ operators a keyboard reference, and tells contributors which gates to run.
 | pool-control service UI (7 pages) | [`test/extension/pool-control-service/.../web/`](../test/extension/pool-control-service/server/internal/httpsrv/web/) |
 | download-agent service UI (2 pages) | [`test/extension/download-agent-service/.../web/`](../test/extension/download-agent-service/server/internal/httpsrv/web/) |
 | stash service UI | [`test/extension/stash-service/.../web/`](../test/extension/stash-service/server/internal/httpsrv/web/) |
-| caching-proxy service UI | [`test/extension/caching-proxy-service/ui.go`](../test/extension/caching-proxy-service/ui.go) |
+| caching-proxy-service UI | [`test/extension/caching-proxy-service/ui.go`](../test/extension/caching-proxy-service/ui.go) |
 | caching-proxy-parser service UI | [`test/extension/caching-proxy-parser-service/parse.go`](../test/extension/caching-proxy-parser-service/parse.go) |
 | status pages (5) | [`test/status/`](../test/status/) |
 | Provisioned Grafana dashboards (3) | [`host/vmconfig/caching-proxy-service.base.user-data`](../host/vmconfig/caching-proxy-service.base.user-data) |
@@ -77,7 +77,7 @@ plots is also reachable as a tool call with declared units:
 history.** That is a decision, not an omission. Two further tools -- a cycle
 history and a proxy traffic series -- would complete the mapping, and neither
 was built: no daemon here keeps a series. The aggregator holds pass/fail
-counters and the current host view; the proxy daemon reads squid's counters as
+counters and the current host view; the proxy daemon reads Squid's counters as
 of the call. The timelines are drawn by Prometheus scraping over time, so either
 tool would mean a daemon querying Prometheus -- a new dependency, and a new
 failure mode for a read that today cannot fail. The trade was taken knowingly:
@@ -249,6 +249,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.23
+.VERSION 2026.08.25
 .GUID 42303d37-2208-46b9-ad37-c8c5638af258
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -302,13 +302,24 @@ To intentionally skip the cache:
 # Always emit `geoip: false` plus a pinned `primary:` mirror -- deterministic
 # election, and `primary:` rather than `sources_list:`. See
 # feedback_macos_utm_apt_block_resolute_curtin_trap.md.
-# Shared builder: automation/Yuruna.GuestSeed.psm1. Hyper-V pins the amd64
-# archive.ubuntu.com mirror.
+# Shared builder: automation/Yuruna.GuestSeed.psm1. The mirror follows the
+# guest architecture: archive.ubuntu.com carries amd64 only, and an ARM64
+# autoinstall pinned to it finds no packages and dies in curtin. OSArchitecture
+# rather than $env:PROCESSOR_ARCHITECTURE, which reports AMD64 for an x64 pwsh
+# under emulation on an ARM64 host.
 # The apt Acquire tuning it emits is a step-budget bound, so it has to be
 # identical on every host driver: copies inlined per driver drift, and a
 # mirror stall then burns a step budget on whichever host was missed.
+switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) {
+    'X64'   { $primaryUri = 'http://archive.ubuntu.com/ubuntu' }
+    'Arm64' { $primaryUri = 'http://ports.ubuntu.com/ubuntu-ports' }
+    default {
+        Write-Error "Unsupported processor architecture: $([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture). A Hyper-V host must be AMD64 or ARM64."
+        exit 1
+    }
+}
 Import-Module (Join-Path $RepoRoot 'automation/Yuruna.GuestSeed.psm1') -Force
-$AptProxyBlock = New-AptProxyBlock -PrimaryUri 'http://archive.ubuntu.com/ubuntu' -CachingProxyServiceUrl $CachingProxyServiceUrl
+$AptProxyBlock = New-AptProxyBlock -PrimaryUri $primaryUri -CachingProxyServiceUrl $CachingProxyServiceUrl
 
 # --- REGION: Pick a vSwitch
 # Pick a vSwitch FIRST -- prefer Yuruna-External (LAN-bridged) so the

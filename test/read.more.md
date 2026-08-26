@@ -1,4 +1,4 @@
-# Test Runner — Nerd-Level Details
+# Test Runner -- Nerd-Level Details
 
 The crisp version lives in [Yuruna Test ...](README.md); this file holds the
 full configuration table, the authentication vault, sequence development,
@@ -330,6 +330,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../README.md)

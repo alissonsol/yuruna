@@ -1,4 +1,4 @@
-# Yuruna install scripts — rationale
+# Yuruna install scripts -- rationale
 
 This file collects the load-bearing rationale for the three bootstrap
 installers:
@@ -28,7 +28,7 @@ used by [memory.md](memory.md), [definition.md](definition.md),
 ### Install log
 
 Each installer mirrors stdout+stderr to a log file and the
-terminal so a mid-install failure can be inspected afterwards. The shell
+terminal so a mid-install failure can be inspected afterward. The shell
 installers use a FIFO and a backgrounded `tee` (rather than
 `exec > >(tee ...)`) so the EXIT path can wait for tee to flush, keeping
 the file complete even on an abrupt exit -- a process-substitution tee is
@@ -90,7 +90,7 @@ would stall waiting for GitHub credentials this run doesn't have.
 
 ### Release pinning + signed integrity
 
-`VERSION` (bare CalVer, e.g. `2026.08.23`) is the source of truth for releases.
+`VERSION` (bare CalVer, e.g. `2026.08.25`) is the source of truth for releases.
 At release time `tools/Update-YurunaReleasePins.ps1` regenerates
 `install/install.sha256`, signs it (`install/install.sha256.sig`, RSA-4096),
 runs the ASCII/no-BOM gate as a hard precondition, and bumps the one tag still
@@ -156,8 +156,8 @@ request always wins over this fallback.
 Tested baselines:
 
 - Windows host: 32 GB RAM, 512 GB free on system drive, Windows 11
-  Pro/Enterprise/Education or Windows Server with Hyper-V on AMD64,
-  16+ physical cores.
+  Pro/Enterprise/Education or Windows Server with Hyper-V on AMD64 or
+  ARM64, 16+ physical cores.
 - macOS host: 32 GB RAM, 512 GB free, macOS 26+ on arm64, 16+ cores.
 - Ubuntu host: 32 GB RAM, 512 GB free, Ubuntu 26+ on amd64, 16+ cores.
 
@@ -273,7 +273,7 @@ quits UTM and lets the orphaned-bundle sweep delete the cache.
 
 If the cache is running OR its state is uncertain, the macOS installer
 skips the UTM cask upgrade so a quit-UTM window does not let the
-orphaned-bundle sweep delete the multi-GB squid spool.
+orphaned-bundle sweep delete the multi-GB Squid spool.
 
 ### Directory rename that stays a rename
 
@@ -533,7 +533,7 @@ Before materializing, the installer sweeps stale materialization temps
 left by a crashed prior run -- only temps older than one hour, so the
 age guard never touches a concurrent run's fresh temp.
 
-### Self-elevation and PS5 → PS7 bootstrap
+### Self-elevation and PS5 -> PS7 bootstrap
 
 Every Yuruna script that needs elevation says so up front rather than
 surprising the user midway through. After a `Test-SystemRequirement`
@@ -880,7 +880,7 @@ and ovmf.
 The installer runs apt's solver in `--simulate` mode FIRST. If a
 dependency conflict exists -- e.g. `-hwe` qemu pulling `ubuntu-virt-hwe`
 against the rest of the stack's `ubuntu-virt` -- it surfaces here
-BEFORE we start actually installing anything, with the same "X depends
+BEFORE we start installing anything, with the same "X depends
 Y but it is not going to be installed" diagnostic the real install
 would emit. `set -e` + the ERR trap means a non-zero apt-get exit
 prints the abort block naming this step.
@@ -969,7 +969,7 @@ default of 0600 would always fail the cross-user read regardless of
 traverse), then `sudo -u libvirt-qemu test -r <probe>`. The test
 isolates the directory-traverse question from the file-mode question.
 
-### Default libvirt network — start + autostart
+### Default libvirt network -- start + autostart
 
 The `default` NAT network (`192.168.122.0/24`) is shipped by
 `libvirt-daemon-system` but starts disabled. The installer ensures
@@ -1028,6 +1028,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../README.md)

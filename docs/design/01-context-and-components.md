@@ -11,7 +11,7 @@ See [Design overview](00-index.md) - [Component breakdown](02-component-breakdow
 
 The block set is not an invented taxonomy. It is the tracked top-level
 directories of the two repositories, read with `git ls-tree -r --name-only HEAD`
-and bucketed by first path segment. `VERSION` reads `2026.08.23`.
+and bucketed by first path segment. `VERSION` reads `2026.08.25`.
 
 `yuruna` tracks 1066 files across nine directories:
 

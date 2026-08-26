@@ -29,7 +29,7 @@ pwsh install/setup.ps1
 
 One guided command ([details](install/README.md#guided-setup)): it
 turns off sleep and screen lock, sets up storage, builds the
-caching-proxy and stash service VMs, and ends on the `Test-Config`
+caching-proxy-service and stash service VMs, and ends on the `Test-Config`
 validation gate. On Windows it relaunches itself elevated once.
 
 **3 -- Run your first test.**
@@ -95,4 +95,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25

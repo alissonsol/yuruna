@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.23
+.VERSION 2026.08.25
 .GUID 42218fa5-018e-4ea0-a6fe-a80cc7202613
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -226,8 +226,9 @@ Describe 'The counter is reachable from the session that actually records it' {
         $probe = {
             param($RepoRoot)
             Import-Module (Join-Path $RepoRoot 'test/modules/Test.Log.psm1') -Force -DisableNameChecking -ErrorAction SilentlyContinue
-            # Stop-LogFile imports the beacon module on demand; before this
-            # change it merely probed for it with Get-Command and gave up.
+            # Stop-LogFile imports the beacon module on demand rather than
+            # merely probing for it with Get-Command and giving up; mirror
+            # that on-demand import here.
             if (-not (Get-Command Get-HostAddressChangeCount -ErrorAction SilentlyContinue)) {
                 Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostAddressBeacon.psm1') -Force -DisableNameChecking -ErrorAction SilentlyContinue
             }

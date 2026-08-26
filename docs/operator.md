@@ -9,7 +9,7 @@ sequence -- run it top to bottom, or let
 [A.0](#a0-shortcut-the-standalone-setup-script) run its middle
 (A.3-A.7). [Section B: Deep dive](#section-b-deep-dive) explains each
 step; read it when a step needs judgment or fails.
-For a lab -- several machines sharing one caching-proxy service,
+For a lab -- several machines sharing one caching-proxy-service,
 NAS-backed storage, and pool-control service -- complete A.1-A.2 on
 each machine, then continue with the
 [Lab operator guide](lab-operator.md).
@@ -247,7 +247,7 @@ place. It needs pwsh 7; its preflight fails the run if
 | [A.3](#a3-enable-test-automation) enable test automation | Yes -- runs `Enable-TestAutomation -SkipPoolStorage`, unless `runTests: false` |
 | [A.4](#a4-configure-and-validate) configure and validate | Partly -- creates or refreshes `test/test.config.yml` from the template and ends on the `Test-Config` gate; the edits in between are still yours |
 | [A.5](#a5-create-pool-and-stash-storage) pool and stash storage | Yes for `kind: local` -- runs `New-LocalLabStorage`. For `kind: nas` it only **mounts** what `networkStorage.*` already names |
-| [A.6](#a6-start-the-caching-proxy-service) caching-proxy service | Yes -- stops and removes any existing one first, builds the VM, waits up to 15 minutes for the pool-aggregator service, then writes `vmStart.cachingProxyIp` |
+| [A.6](#a6-start-the-caching-proxy-service) caching-proxy-service | Yes -- stops and removes any existing one first, builds the VM, waits up to 15 minutes for the pool-aggregator service, then writes `vmStart.cachingProxyIp` |
 | [A.7](#a7-start-the-stash-service) stash service | Yes -- same stop-then-build -- unless storage was skipped |
 | [A.8](#a8-run-one-test-cycle) one test cycle | No |
 | [A.9](#a9-run-continuous-cycles) continuous cycles | No -- the closing message points you at `pwsh test/Start-TestRunner.ps1` |
@@ -316,7 +316,7 @@ questions are still asked).
 instead of adopting a healthy one. It is how a changed address or
 credential reaches a guest, because the seed is baked at build time.
 It also makes a re-run expensive -- roughly 15 minutes for the proxy,
-plus a cold squid cache -- so drop it when re-running to fix something
+plus a cold Squid cache -- so drop it when re-running to fix something
 the proxy does not bake in. The run
 log's header records the switches each run was invoked with.
 
@@ -675,7 +675,7 @@ A host reboot damages nothing: it leaves every service VM registered with
 the hypervisor and powered off. Nothing then turns them back on, and the
 two consequences are not alike --
 
-- the **caching-proxy service** merely degrades: guests download direct,
+- the **caching-proxy-service** merely degrades: guests download direct,
   slowly;
 - the **stash service** is fatal to a cycle: the warm-up resolves it,
   finds nothing, and every workload stage is skipped.
@@ -696,7 +696,7 @@ non-authoritative -- a freshly resumed guest can take a while to re-open
 its listener, and the real gates run afterwards and own the verdict.
 
 **Start what is built; do not rebuild.** A rebuild costs ~15 minutes and
-throws away a warm squid cache; a start costs seconds and preserves it.
+throws away a warm Squid cache; a start costs seconds and preserves it.
 Rebuilding is the escalation for a VM that will not come up, never the
 first response to one that is merely off.
 
@@ -806,6 +806,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../README.md)

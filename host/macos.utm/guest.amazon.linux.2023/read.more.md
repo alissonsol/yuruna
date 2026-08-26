@@ -1,4 +1,4 @@
-# Amazon Linux 2023 guest on macOS UTM host — Nerd-Level Details
+# Amazon Linux 2023 guest on macOS UTM host -- Nerd-Level Details
 
 See [Hosts -- ...](../../README.md) for host prerequisites, VM sizing,
 and connectivity. macOS counterpart of
@@ -25,7 +25,7 @@ pwsh ./Get-Image.ps1
 reads it natively; no raw conversion), resizes to 128 GB (thin),
 generates a cloud-init `seed.iso`, and writes `config.plist` from
 [`config.plist.template`](./config.plist.template) -- QEMU (HVF)
-ARM64, core-count-policy vCPUs (min 4), 12 GB RAM, UEFI, shared NAT,
+ARM64, core-count-policy vCPUs (min 4), 12 GB RAM, UEFI, Shared NAT,
 clipboard.
 
 ```
@@ -51,6 +51,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../../../README.md)

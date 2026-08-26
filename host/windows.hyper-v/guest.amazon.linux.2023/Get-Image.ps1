@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.23
+.VERSION 2026.08.25
 .GUID 42f7b3b7-64ca-41c6-96ad-88a15026c482
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,15 +18,23 @@
 
 <#
 .SYNOPSIS
-    Downloads the Amazon Linux 2023 Hyper-V image (VHDX) for Hyper-V.
+    Downloads the Amazon Linux 2023 image and stages it as a VHDX for
+    Hyper-V.
 
 .DESCRIPTION
-    AL2023 ships native Hyper-V images under cdn.amazonlinux.com keyed by
-    platform: hyperv. The directory listing on the HTTPS endpoint exposes
-    a zip that packages the VHDX per release; this script downloads it,
-    verifies its SHA-256 against the publisher checksum, extracts the
-    VHDX, and stages it under the Hyper-V default VHDX folder
-    ((Get-VMHost).VirtualHardDiskPath).
+    AL2023 publishes under cdn.amazonlinux.com keyed by platform. On AMD64
+    the `hyperv` platform exposes a zip that packages a native VHDX per
+    release. AMD64 is the only architecture that platform is published for,
+    so on ARM64 this pulls the `kvm-arm64` qcow2 instead and converts it to
+    VHDX locally with qemu-img.
+
+    Either way the artifact is verified against the publisher SHA-256 before
+    it is unpacked, and the result is promoted to the same host-standard
+    file name under the Hyper-V default VHDX folder
+    ((Get-VMHost).VirtualHardDiskPath), so New-VM.ps1 consumes it unchanged.
+
+    Architecture is picked from the host: Hyper-V has no cross-architecture
+    emulation, so the host's architecture is also the guest's.
 #>
 
 # Honor logLevel from Start-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
@@ -40,13 +48,33 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     exit 1
 }
 
+# --- REGION: Host architecture
+# OSArchitecture, not $env:PROCESSOR_ARCHITECTURE: an x64 pwsh running under
+# emulation on an ARM64 Windows host reports AMD64 in that variable, which
+# would pick an image the hypervisor cannot boot. Hyper-V has no
+# cross-architecture emulation, so the host's architecture is the guest's.
+#
+# The publisher has no ARM64 counterpart to the `hyperv` platform, so ARM64
+# takes the KVM qcow2 and converts it below; the two platforms differ in the
+# artifact extension, which is what drives both the listing scrape and the
+# staging step.
+switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) {
+    'X64'   { $hostArch = 'amd64'; $platformDir = 'hyperv';    $downloadExtension = 'zip' }
+    'Arm64' { $hostArch = 'arm64'; $platformDir = 'kvm-arm64'; $downloadExtension = 'qcow2' }
+    default {
+        Write-Error "Unsupported processor architecture: $([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture). A Hyper-V host must be AMD64 or ARM64."
+        exit 1
+    }
+}
+Write-Output "Host architecture: $hostArch (Amazon Linux 2023 platform: $platformDir)"
+
 # --- REGION: Configuration
-$sourceUrl = "https://cdn.amazonlinux.com/al2023/os-images/latest/hyperv/"
+$sourceUrl = "https://cdn.amazonlinux.com/al2023/os-images/latest/$platformDir/"
 $downloadDir = (Get-VMHost).VirtualHardDiskPath
 $baseImageName = "host.windows.hyper-v.guest.amazon.linux.2023"
 $baseImageFile = Join-Path $downloadDir "$baseImageName.vhdx"
 $baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
-$downloadFile = Join-Path $downloadDir "downloaded.zip"
+$downloadFile = Join-Path $downloadDir "downloaded.$downloadExtension"
 
 Write-Output "Hyper-V default VHDX folder: $downloadDir"
 if (!(Test-Path -Path $downloadDir)) {
@@ -57,6 +85,12 @@ if (!(Test-Path -Path $downloadDir)) {
 # The host driver brings the skip-if-same-source guard + sentinel writer, the
 # cache-aware Save-CachedHttpUri wrapper, and the download-agent client.
 Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yuruna.Host.psm1") -Force
+# Yuruna.Image.psm1 second, so its module scope never shadows the driver's
+# cache-injecting Save-CachedHttpUri. It carries Save-ImageWithChecksum for
+# the origin path AND Convert-Qcow2ToVhdx for the ARM64 staging step, which
+# the agent path also reaches -- so the import cannot sit inside the
+# origin-only branch.
+Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Yuruna.Image.psm1") -Force
 
 # --- REGION: https://yuruna.link/guest-image-setup#agent-first-image-downloads
 $agentServed = $false
@@ -69,13 +103,13 @@ if ((Get-Command -Name Resolve-DownloadAgentEndpoint -ErrorAction SilentlyContin
         Write-Verbose "No download agent reachable; using the origin path."
     } else {
         # Fingerprint the local copy with the sentinel's filename + byte count
-        # and no SHA-256: the sentinel records the size of the downloaded ZIP,
-        # which is the pooled artifact, not the extracted VHDX on disk.
+        # and no SHA-256: the sentinel records the size of the download, which
+        # is the pooled artifact, not the VHDX that staging leaves on disk.
         $agentArgs = @{
             BaseUrl         = $agentBaseUrl
             HostType        = 'windows.hyper-v'
             ImageKey        = 'guest.amazon.linux.2023'
-            Arch            = 'amd64'
+            Arch            = $hostArch
             Variant         = 'stable'
             StagingPath     = $downloadFile
             DeadlineSeconds = 7200
@@ -120,8 +154,12 @@ if ((Get-Command -Name Resolve-DownloadAgentEndpoint -ErrorAction SilentlyContin
 if (-not $agentServed) {
     # --- REGION: Find the file to download
     $html = Invoke-WebRequest -Uri $sourceUrl
-    $zipLink = ($html.Links | Where-Object { $_.href -match "\.zip$" })[0].href
-    $downloadUrl = $sourceUrl + $zipLink
+    $artifactLink = ($html.Links | Where-Object { $_.href -match "\.$downloadExtension$" } | Select-Object -First 1).href
+    if (-not $artifactLink) {
+        Write-Error "No .$downloadExtension listed at $sourceUrl"
+        exit 1
+    }
+    $downloadUrl = $sourceUrl + $artifactLink
 
     # --- REGION: https://yuruna.link/guest-image-setup#skip-if-same-source-guard
     if (Test-DownloadAlreadyCurrent -SourceUrl $downloadUrl -BaseImageFile $baseImageFile -OriginFile $baseImageOrigin) {
@@ -147,14 +185,13 @@ if (-not $agentServed) {
     # a genuine mismatch deletes the tampered file and fails the run
     # (WarnAndDelete), so unverified bytes never reach the base image.
     Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
-    Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Yuruna.Image.psm1") -Force
-    $checksumLink = ($html.Links | Where-Object { $_.href -match "\.zip\.sha256$" })
-    $checksumUrl = if ($checksumLink) { $sourceUrl + $checksumLink[0].href } else { $null }
+    $checksumLink = ($html.Links | Where-Object { $_.href -match "\.$downloadExtension\.sha256$" } | Select-Object -First 1)
+    $checksumUrl = if ($checksumLink) { $sourceUrl + $checksumLink.href } else { $null }
     $downloaded = Save-ImageWithChecksum `
         -SourceUrl  $downloadUrl `
         -DestPath   $downloadFile `
         -ChecksumUrl $checksumUrl `
-        -ChecksumTargetFileName $zipLink `
+        -ChecksumTargetFileName $artifactLink `
         -OnMismatch 'WarnAndDelete' `
         -Confirm:$false
     if (-not $downloaded) {
@@ -162,37 +199,50 @@ if (-not $agentServed) {
         exit 1
     }
 }
-# Capture the HTTP-download size BEFORE extraction; the .vhdx that
-# lands at $baseImageFile is the unzipped artifact, not the bytes
-# Test-DownloadAlreadyCurrent will compare against on the next run.
+# Capture the HTTP-download size BEFORE staging; the .vhdx that lands at
+# $baseImageFile is the unpacked (AMD64) or converted (ARM64) artifact, not
+# the bytes Test-DownloadAlreadyCurrent will compare against on the next run.
 $downloadedSize = (Get-Item -LiteralPath $downloadFile).Length
 
-# --- REGION: Extract the image from the archive
+# --- REGION: Stage the VHDX from the download
 # Write to a temp path first so the previous image is only replaced after a
-# successful extraction.
+# successful extraction or conversion.
 $extractedFile = Join-Path $downloadDir "$baseImageName.downloading.vhdx"
 Remove-Item $extractedFile -Force -ErrorAction SilentlyContinue
-Add-Type -AssemblyName System.IO.Compression.FileSystem
-$zip = [System.IO.Compression.ZipFile]::OpenRead($downloadFile)
-$entry = $zip.Entries | Where-Object { $_.Name -match "\.vhdx$" }
-if ($entry) {
-    $stream = $entry.Open()
-    try {
-        $outStream = [System.IO.File]::Open($extractedFile, [System.IO.FileMode]::Create)
+if ($hostArch -eq 'amd64') {
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $zip = [System.IO.Compression.ZipFile]::OpenRead($downloadFile)
+    $entry = $zip.Entries | Where-Object { $_.Name -match "\.vhdx$" }
+    if ($entry) {
+        $stream = $entry.Open()
         try {
-            $stream.CopyTo($outStream)
+            $outStream = [System.IO.File]::Open($extractedFile, [System.IO.FileMode]::Create)
+            try {
+                $stream.CopyTo($outStream)
+            } finally {
+                $outStream.Close()
+            }
         } finally {
-            $outStream.Close()
+            $stream.Close()
         }
-    } finally {
-        $stream.Close()
+    } else {
+        Write-Error "No .vhdx file found inside the downloaded zip."
+        $zip.Dispose()
+        exit 1
     }
-} else {
-    Write-Error "No .vhdx file found inside the downloaded zip."
     $zip.Dispose()
-    exit 1
+} else {
+    # -SizeBytes 0 converts only, leaving the cloud image at its native
+    # capacity: New-VM.ps1 grows its own per-VM copy, and a base pre-grown to
+    # the largest consumer would force smaller ones to shrink, which Hyper-V
+    # refuses while the guest partition still spans the disk.
+    Write-Output "Converting the Amazon Linux 2023 ARM64 cloud image to VHDX..."
+    if (-not (Convert-Qcow2ToVhdx -SourcePath $downloadFile -DestPath $extractedFile -SizeBytes 0)) {
+        Write-Error "Could not convert $downloadFile to VHDX. Install QEMU for Windows (winget install SoftwareFreedomConservancy.QEMU) if qemu-img is missing."
+        Remove-Item $extractedFile -Force -ErrorAction SilentlyContinue
+        exit 1
+    }
 }
-$zip.Dispose()
 
 # --- REGION: Preserve previous and finalize
 $previousFile = Join-Path $downloadDir "$baseImageName.previous.vhdx"

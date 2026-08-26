@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.23
+.VERSION 2026.08.25
 .GUID 42859ca6-4a84-417f-b9e8-f2a3a4dd84a5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,10 +21,9 @@
     Discover and run every Pester suite in the repo, one process per suite, and
     fail on any regression -- including the ones an exit code cannot express.
 .DESCRIPTION
-    The repo carries ~178 *.Tests.ps1 files and, before this script, nothing
-    that ran them as a set. A suite could stop being runnable and stay that way
-    indefinitely, which is exactly what happened to the three suites that
-    assign fixtures at file scope.
+    The repo carries ~178 *.Tests.ps1 files, and this script is the only thing
+    that runs them as a set. A suite nothing runs can stop being runnable and
+    stay that way indefinitely.
 
     Each suite runs in its own pwsh process via tools/_InvokeOneSuite.ps1, so
     one suite's module imports, global state or crash cannot color another's

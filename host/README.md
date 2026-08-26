@@ -1,4 +1,4 @@
-# Hosts — VM provisioning per hypervisor
+# Hosts -- VM provisioning per hypervisor
 
 Each subfolder owns VM provisioning (image download, VM creation) for
 every supported guest on one hypervisor.
@@ -65,7 +65,7 @@ on separators -- the key contains them. `Get-TestVMName` composes the name and
 rejects anything outside `[A-Za-z0-9._-]`, keeping an operator-supplied prefix
 out of the hypervisor command lines it flows into.
 
-## Guest × host coverage
+## Guest x host coverage
 
 Most guests are supported on all three hosts. The exception is
 **macOS 26**, which can only run as a guest on a macOS host (Apple's
@@ -162,6 +162,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../README.md)

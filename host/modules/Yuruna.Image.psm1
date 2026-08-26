@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.23
+.VERSION 2026.08.25
 .GUID 42b38afa-a30f-4806-9948-a381706b1765
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -820,7 +820,17 @@ function Get-UbuntuExtensionImageInfo {
             $dir    = Join-Path $HOME "yuruna/image/$script:UbuntuExtensionImageStem"
         }
         'windows.hyper-v' {
-            $arch   = 'amd64'
+            # OSArchitecture, not $env:PROCESSOR_ARCHITECTURE: an x64 pwsh
+            # running under emulation on an ARM64 Windows host reports AMD64 in
+            # that variable, which would pick an image the hypervisor cannot
+            # boot. Hyper-V has no cross-architecture emulation, so the host's
+            # architecture is the guest's.
+            $osArch = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+            switch ($osArch) {
+                'X64'   { $arch = 'amd64' }
+                'Arm64' { $arch = 'arm64' }
+                default { throw "Unsupported architecture for the extension-service base image: $osArch. A Hyper-V host must be AMD64 or ARM64." }
+            }
             # Hyper-V boots VHDX, and it expects guest disks under the host's
             # own VirtualHardDiskPath (which the operator may have relocated).
             $format = 'vhdx'

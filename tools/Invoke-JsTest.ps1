@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.23
+.VERSION 2026.08.25
 .GUID 42e621ac-ad54-49e2-8681-64687c21a8c8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,7 +21,8 @@
     Run every tracked JavaScript self-test with node.
 .DESCRIPTION
     The browser assets under test/status and the stash-service web directory
-    carry their own checks in *.test.js, and nothing in the repo ran them.
+    carry their own checks in *.test.js, and this script is the only thing in
+    the repo that runs them.
 
     Those files are framework-free CommonJS scripts, not a suite: each one
     `require`s node's built-in assert/vm, reads the asset beside it through

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.23
+.VERSION 2026.08.25
 .GUID 4207e139-f8d7-47ca-aef7-9b91cc585612
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,13 +18,18 @@
 
 <#
 .SYNOPSIS
-    Downloads the Ubuntu Server 24.04 live-server amd64 ISO for autoinstall.
+    Downloads the Ubuntu Server 24.04 live-server ISO for autoinstall.
 
 .DESCRIPTION
     Pulls the Ubuntu Server live ISO. Its cdrom ships a full kernel
     meta-package (`linux-generic`) and a network-configured
     `ubuntu.sources`, so curtin's install_kernel step always succeeds.
     First boot lands in a text-mode login.
+
+    Architecture (amd64/arm64) is picked from the host. Hyper-V has no
+    cross-architecture emulation, so the host's architecture is also the
+    guest's; the ISO lands under the same host-standard file name either
+    way, and New-VM.ps1 consumes it unchanged.
 
 .PARAMETER daily
     If set, pulls the rolling daily ISO instead of the latest stable point
@@ -48,6 +53,21 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     exit 1
 }
 
+# --- REGION: Host architecture
+# OSArchitecture, not $env:PROCESSOR_ARCHITECTURE: an x64 pwsh running under
+# emulation on an ARM64 Windows host reports AMD64 in that variable, which
+# would pick an ISO the hypervisor cannot boot. Hyper-V has no
+# cross-architecture emulation, so the host's architecture is the guest's.
+switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) {
+    'X64'   { $hostArch = 'amd64' }
+    'Arm64' { $hostArch = 'arm64' }
+    default {
+        Write-Error "Unsupported processor architecture: $([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture). A Hyper-V host must be AMD64 or ARM64."
+        exit 1
+    }
+}
+Write-Output "Host architecture: $hostArch"
+
 # --- REGION: Configuration
 $downloadDir = (Get-VMHost).VirtualHardDiskPath
 Write-Output "Hyper-V default VHDX folder: $downloadDir"
@@ -66,7 +86,7 @@ Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScript
 try {
     Save-UbuntuServerImage `
         -ReleaseCodename 'noble' `
-        -Arch 'amd64' `
+        -Arch $hostArch `
         -DownloadDir $downloadDir `
         -BaseImageName 'host.windows.hyper-v.guest.ubuntu.server.24' `
         -PreferDaily:$daily `

@@ -1,4 +1,4 @@
-# Test harness — architecture
+# Test harness -- architecture
 
 How `test/` is put together. See [Yuruna Architecture](architecture.md) for project-wide
 architecture and [Yuruna Test ...](../test/README.md) for operator usage.
@@ -24,8 +24,8 @@ architecture and [Yuruna Test ...](../test/README.md) for operator usage.
 rest are grouped by what they act on: `test/lab/` (standing a lab up on this
 host -- the four host-neutral entry points, lab creation, local storage, token
 enrollment), `test/pool/` (the pool-admin CLI and the sample intent files),
-`test/service/` (service VM and host-service lifecycle, plus the caching-proxy
-operations), `test/check/` (standalone sanity checks), `test/modules/` (harness
+`test/service/` (service VM and host-service lifecycle, plus the
+caching-proxy-service operations), `test/check/` (standalone sanity checks), `test/modules/` (harness
 internals, not invoked directly). The repo-wide encoding gate lives at
 `tools/Test-AsciiNoBom.ps1`.
 
@@ -202,8 +202,8 @@ cycle runs:
 | `Test.Extension`       | Loader for the pluggable extension areas under `test/extension/<area>/`, plus `Get-ExtensionHostAddress` -- where a service area is reachable for this host -- see [Extensions API](extensions-api.md) |
 | `Test.ExtensionService`| The `service:` manifest an area declares about itself, and the runtime marker saying this host runs it |
 | `Test.DownloadAgentService` | Host-side download-agent lifecycle: the marker, the readiness probe, the published address |
-| `Test.CachingProxyService` | Cross-cycle state for the caching-proxy VM (admin password + IP) -- see [Caching proxy](caching.md) |
-| `Test.CachingProxyServiceLock` | The serialization lock around caching-proxy rebuild / port-map writes, and the adopt-if-healthy decision |
+| `Test.CachingProxyService` | Cross-cycle state for the caching-proxy-service VM (admin password + IP) -- see [Caching](caching.md) |
+| `Test.CachingProxyServiceLock` | The serialization lock around caching-proxy-service rebuild / port-map writes, and the adopt-if-healthy decision |
 
 **Shared primitives** -- leaf modules with no harness dependencies:
 
@@ -994,6 +994,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../README.md)

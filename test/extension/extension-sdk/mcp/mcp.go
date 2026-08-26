@@ -27,8 +27,9 @@
 //
 // No resources, no prompts, no sampling, no server-initiated requests, and no
 // SSE stream: every method is a single request and a single response. A
-// notification gets 202 and no body. Those are register items, not oversights;
-// adding them means adding a session model this package does not have.
+// notification gets 202 and no body. Those are deliberate omissions, not
+// oversights; adding them means adding a session model this package does not
+// have.
 package mcp
 
 import (

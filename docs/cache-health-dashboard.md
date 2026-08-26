@@ -2,7 +2,7 @@
 
 > **Who this is for.** An operator reading either Grafana dashboard on the
 > caching-proxy VM: **Yuruna cache health (registry path)** (the zot
-> pull-through registry) or **Yuruna caching-proxy service** (the squid web
+> pull-through registry) or **Yuruna caching-proxy service** (the Squid web
 > path every guest routes HTTP(S) through). Each panel's (i) tooltip gives
 > the short reading and links here.
 
@@ -94,7 +94,7 @@ entries here explain the latency the panels above only measure.
 
 ## Caching-proxy dashboard (web path)
 
-This dashboard watches the web path -- the squid cache every guest routes HTTP(S)
+This dashboard watches the web path -- the Squid cache every guest routes HTTP(S)
 through: how much traffic is served, how much of it came from cache, and whether the
 VM can still reach the internet at all.
 
@@ -112,7 +112,7 @@ is the per-request forensic view behind the throughput panel above.
 
 ### Served / From cache (24 hours and 7 days)
 
-Four tiles, one mechanism. "Served" is the total bytes squid delivered to clients over
+Four tiles, one mechanism. "Served" is the total bytes Squid delivered to clients over
 the window, from cache or fetched from origin on a miss -- driven by
 `squid_client_http_kbytes_out_kbytes_total` from squid-exporter. "From cache" is the
 subset answered by cache hits, memory (`TCP_MEM_HIT`) and disk (`TCP_HIT`) -- driven by
@@ -131,7 +131,7 @@ never a raw 1/0 -- the metric carries the number underneath.
 
 ### Offline mode support
 
-Whether squid will keep serving cache hits when upstream fails. Green "On" when the
+Whether Squid will keep serving cache hits when upstream fails. Green "On" when the
 runtime config has `offline_mode on`, meaning cache hits are served unconditionally
 when upstream answers 5xx; red "Off" otherwise. "Unknown" means the live query did not
 answer. Queried live from `/squid-internal-mgr/config`, so it reflects what the daemon
@@ -157,6 +157,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../README.md)

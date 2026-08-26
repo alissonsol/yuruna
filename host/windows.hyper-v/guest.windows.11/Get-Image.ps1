@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.23
+.VERSION 2026.08.25
 .GUID 42a337f9-dcb7-4dfa-9c51-9ddba462035e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,6 +20,37 @@
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
 if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
 
+# --- REGION: Host architecture
+# OSArchitecture, not $env:PROCESSOR_ARCHITECTURE: an x64 pwsh running under
+# emulation on an ARM64 Windows host reports AMD64 in that variable, which
+# would pick media the hypervisor cannot boot. Hyper-V has no
+# cross-architecture emulation, so the host's architecture is the guest's.
+#
+# Microsoft publishes the two architectures on separate pages with
+# differently-labeled choices, and Fido names them x64 / arm64 while the
+# download agent's image keys use amd64 / arm64 -- hence three spellings of
+# one fact resolved here, once.
+switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) {
+    'X64' {
+        $hostArch        = 'amd64'
+        $fidoArch        = 'x64'
+        $downloadPageUrl = "https://www.microsoft.com/en-us/software-download/windows11"
+        $editionChoice   = 'Windows 11 (multi-edition ISO for x64 devices)'
+        $downloadButton  = '64-bit Download'
+    }
+    'Arm64' {
+        $hostArch        = 'arm64'
+        $fidoArch        = 'arm64'
+        $downloadPageUrl = "https://www.microsoft.com/en-us/software-download/windows11arm64"
+        $editionChoice   = 'Windows 11 (multi-edition ISO for ARM64 devices)'
+        $downloadButton  = 'ARM64 Download'
+    }
+    default {
+        Write-Error "Unsupported processor architecture: $([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture). A Hyper-V host must be AMD64 or ARM64."
+        exit 1
+    }
+}
+
 # --- REGION: Configuration
 $baseImageName      = "host.windows.hyper-v.guest.windows.11"
 $defaultDownloadDir = "C:\ProgramData\Microsoft\Windows\Virtual Hard Disks"
@@ -34,9 +65,6 @@ $fidoUrl        = "https://raw.githubusercontent.com/pbatard/Fido/v1.70/Fido.ps1
 $fidoSha256     = "24c86067fa399d2fd75ef0693a2ec79ca8db162827f808caac03541cbf640c13"
 $languageFilter = "English"
 
-# Manual download fallback
-$downloadPageUrl = "https://www.microsoft.com/en-us/software-download/windows11"
-
 function Show-ManualDownloadInstruction {
     param([string]$TargetPath, [string]$TargetDir)
     Write-Output ""
@@ -45,11 +73,11 @@ function Show-ManualDownloadInstruction {
     Write-Output "  Please download the Windows 11 ISO manually:"
     Write-Output ""
     Write-Output "    1. Open: $downloadPageUrl"
-    Write-Output "    2. Select 'Windows 11 (multi-edition ISO for x64 devices)'"
+    Write-Output "    2. Select '$editionChoice'"
     Write-Output "    3. Click Confirm"
     Write-Output "    4. Select 'English' as the language"
     Write-Output "    5. Click Confirm"
-    Write-Output "    6. Click the '64-bit Download' button"
+    Write-Output "    6. Click the '$downloadButton' button"
     Write-Output "    7. Save the ISO file as: $TargetPath"
     Write-Output "       Or save any Win11*.iso file to: $TargetDir"
     Write-Output ""
@@ -155,7 +183,7 @@ if ((Get-Command -Name Resolve-DownloadAgentEndpoint -ErrorAction SilentlyContin
         try {
             Remove-Item $agentStagingFile -Force -ErrorAction SilentlyContinue
             $agentResult = Request-DownloadAgentImage -BaseUrl $agentBaseUrl -HostType 'windows.hyper-v' `
-                -ImageKey 'guest.windows.11' -Arch 'amd64' -Variant 'stable' `
+                -ImageKey 'guest.windows.11' -Arch $hostArch -Variant 'stable' `
                 -StagingPath $agentStagingFile -DeadlineSeconds 7200
         } catch {
             Write-Warning "Download agent at $agentBaseUrl failed ($($_.Exception.Message)); falling back to the Fido path."
@@ -213,11 +241,11 @@ try {
     Write-Output "  Done."
 
     Write-Output "[Step 2/3] Retrieving Windows 11 ISO download URL..."
-    Write-Output "  Language: $languageFilter | Architecture: x64"
+    Write-Output "  Language: $languageFilter | Architecture: $fidoArch"
     # -PlatformArch skips Fido's slow WMI CPU autodetection and keeps this
     # invocation the verbatim mirror of the download-agent daemon's, which needs
     # the parameter because Get-CimInstance does not exist off Windows.
-    $downloadUrl = & $fidoScript -Win 11 -Lang $languageFilter -Arch x64 -PlatformArch x64 -GetUrl
+    $downloadUrl = & $fidoScript -Win 11 -Lang $languageFilter -Arch $fidoArch -PlatformArch $fidoArch -GetUrl
 
     if (-not $downloadUrl) {
         throw "Fido did not return a download URL."

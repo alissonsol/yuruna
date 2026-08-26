@@ -77,7 +77,7 @@ reading as a guest that never printed.
   **invoked fresh on every reference** (no per-step memoization).
   Inner `${var}` placeholders inside the args are resolved first.
 - **Escape `$`** by doubling: `$$` produces a literal `$`. In
-  particular `$${foo}` yields the four-character literal `${foo}`
+  particular `$${foo}` yields the literal `${foo}`
   (no substitution). To embed two literal dollars, write `$$$$`.
 - **Planner-cascaded overrides REPLACE same-named sequence variables.**
   A `workload.*.yml` that defines `username: webuser` propagates that
@@ -880,7 +880,7 @@ cleanup sweep. The rename is **part of the contract** -- calling the
 contract function commits to both legs and returns `$false` if either
 fails.
 
-#### Hyper-V — full support
+#### Hyper-V -- full support
 
 - **Snapshot:** stop VM (`Stop-VM` graceful, `Stop-VMForce` fallback
   that escalates to killing `vmwp.exe`), drop any prior checkpoint with
@@ -896,7 +896,7 @@ fails.
   on the next cycle would reclaim the orphan dir and kill the persisted
   snapshot.
 
-#### KVM (Ubuntu / libvirt) — full support
+#### KVM (Ubuntu / libvirt) -- full support
 
 - **Snapshot:** stop VM, drop any prior snapshot with the same name,
   `virsh snapshot-create-as --atomic --domain <vm> --name <id>` on the
@@ -916,7 +916,7 @@ fails.
   cloud-init naming convention the test harness uses; would over-replace
   if a guest's name were a substring of an unrelated XML token.
 
-#### UTM (macOS) — full support via plist surgery
+#### UTM (macOS) -- full support via plist surgery
 
 UTM has no first-class rename API, and macOS 26 builds mark the
 AppleScript `name` property of `virtual machine` as read-only, so
@@ -1023,6 +1023,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../README.md)

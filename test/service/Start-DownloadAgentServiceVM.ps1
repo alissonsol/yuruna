@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.23
+.VERSION 2026.08.25
 .GUID 42f17d0e-cf42-4655-b11b-a34a4a0b449c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -287,7 +287,7 @@ if (-not (Wait-VMRunning -VMName $VMName -TimeoutSeconds 120)) {
 Import-Module (Join-Path $ModulesDir 'Test.Ssh.psm1') -Global -Force
 # Wait-VMIp, not a single Get-VMIp. A guest that has just been started has no
 # address for the first several seconds -- on UTM Shared NAT it appears only
-# once DHCP completes -- and a one-shot call there returns empty, which used to
+# once DHCP completes -- and a one-shot call there returns empty, which would
 # skip the readiness probe entirely and report the service as failed seconds
 # after the VM booted. "No address yet" and "daemon still building" are the same
 # wait to an operator, so the address wait draws from the SAME readiness budget
@@ -413,7 +413,7 @@ if ($vmIp) {
     # seconds means the address lookup itself is unsupported for this networking
     # mode, while the full budget means DHCP never completed. Reporting the
     # nominal readiness timeout here instead -- for a probe that never ran --
-    # is what made an eight-second failure read as a fifteen-minute one.
+    # would make an eight-second failure read as a fifteen-minute one.
     Write-Warning ("Could not resolve the VM's IP after waiting ${ipWaitSeconds}s (Wait-VMIp); the VM IS running, so this is address " +
                    "discovery, not a boot failure. Asking the guest itself whether the daemon is up.")
     # Address discovery failing is not the same as the service failing, and the

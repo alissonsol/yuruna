@@ -4,13 +4,15 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
-## 2026.08.23
+## 2026.08.25
 
-- **Lab credential setup is clearer and harder to get wrong.** The 48-hex shared
-  secret is now the *internal authentication key*, leaving "Lab token" for the
-  dashboard's 6-character code; sync prompts detect a pasted code and redeem it
-  automatically. Old names (`lab-auth-token`, `pool-auth-token`,
-  `-SharedToken`) still work as fallbacks and aliases.
+- **Hyper-V hosts run on ARM64.** `Get-Image.ps1` downloads the guest image
+  matching the host architecture, pinning Ubuntu mirrors and converting Amazon
+  Linux 2023 locally. File names are unchanged.
+
+- **Lab credentials are clearer.** The 48-hex shared secret is the *internal
+  authentication key*; "Lab token" means the dashboard's 6-character code,
+  redeemed automatically at sync prompts. Old names still work.
 
 ## 2026.08.21
 
@@ -455,6 +457,6 @@ LICENSEURI <https://yuruna.link/license>
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](README.md)

@@ -1,4 +1,4 @@
-# Guests — workloads that run inside a VM
+# Guests -- workloads that run inside a VM
 
 Each subfolder holds the workload scripts (Code, k8s, n8n, postgresql,
 ...) that run **inside** a running guest, independent of which host
@@ -40,6 +40,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../README.md)

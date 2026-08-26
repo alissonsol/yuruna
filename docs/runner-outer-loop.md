@@ -1,4 +1,4 @@
-# Test runner — setup, outer-loop dispatcher, watchdog, and state machine
+# Test runner -- setup, outer-loop dispatcher, watchdog, and state machine
 
 Please read the **Administrator Risk Warning** section of the
 [Yuruna License](../LICENSE.md).
@@ -6,7 +6,7 @@ Please read the **Administrator Risk Warning** section of the
 `test/Start-TestRunner.ps1` is the daily-driver loop, meant to run for hours
 or days without an operator present. This document covers both halves: what to
 do **once per machine** before leaving the runner unattended, then what the
-eternal cycle loop it launches actually does.
+eternal cycle loop it launches does.
 
 See [test-config.md](test-config.md) for the `test.config.yml` parameter
 reference, including the optional `networkStorage` NAS replication tier and how
@@ -37,7 +37,7 @@ and an operator edit takes effect on the next one with no runner restart. The
 loop process keeps only what must not be re-derived per cycle: the pidfile,
 the boot-recovery sweep, the state machine, the Ctrl+C subscription, and the
 cross-cycle counters. It polls that child in slices rather than blocking on
-it, which is what makes Ctrl+C observable mid-cycle and able to take the whole
+it, which keeps Ctrl+C observable mid-cycle and able to take the whole
 child tree down with it. With no cycle script on disk the loop runs the cycle
 in-process instead -- identical behavior except that an edit then needs a
 restart, and the shape the unit tests drive. That is why the loop body lives
@@ -245,7 +245,7 @@ that keeps a run log can file it there. `install/setup.ps1` does exactly
 that, at `CHILD` level, so the warnings the gate raised about the machine
 (an unreachable server, a missing vault credential, a skipped active
 preflight) survive the terminal. A caller with nowhere to file a
-transcript simply ignores the field.
+transcript ignores the field.
 
 `-ExpectStorageConfigured` is a caller telling the gate that shared
 storage was supposed to have been stood up before it ran. An absent or
@@ -323,7 +323,7 @@ crash the loop.
 
 The auto-remediation trigger is capped per consecutive-failure streak, and
 the streak is held in the loop process rather than the per-cycle child: a
-fresh process each cycle would reset it to zero every time, so the cap would
+fresh process each cycle would reset it every time, so the cap would
 never be reached and a deterministic transient would auto-retry forever. A
 passing cycle re-arms the budget. Everything the dispatcher does not classify
 as clearly-safe keeps the full wait-for-human pause.
@@ -332,8 +332,8 @@ as clearly-safe keeps the full wait-for-human pause.
 
 The dispatcher calls `Set-RunnerState` at every cycle boundary so a
 streaming consumer sees the lifecycle explicitly. Full enum and
-transition table live in the
-[Runner state machine](#runner-state-machine) section below.
+transition table live in
+[Runner state machine](#runner-state-machine) below.
 
 | Cycle phase | Transition |
 |---|---|
@@ -496,7 +496,7 @@ it mid-download.
 
 | `runner.phase` | Bound | Why |
 |---|---|---|
-| Present | `testCycle.preambleTimeoutSeconds` (default 600) | The inner is still in bootstrap, host detection, the caching-proxy gate, status-service start. None of that is legitimately slow. |
+| Present | `testCycle.preambleTimeoutSeconds` (default 600) | The inner is still in bootstrap, host detection, the caching-proxy-service gate, status-service start. None of that is legitimately slow. |
 | Absent | `testCycle.stepTimeoutSeconds` (default 2700) | Either the inner cleared it for a legitimately long stretch (the weekly base-image download) or the sequence has taken over. |
 
 The inner *seeds* `runner.stepHeartbeat` at startup, so without the tighter
@@ -669,6 +669,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../README.md)

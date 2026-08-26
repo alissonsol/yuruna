@@ -17,9 +17,8 @@ import (
 // Every tool is mcp.FromRoute over the handler its HTTP route already uses, so
 // a tool cannot answer differently from the route -- one body, produced once.
 //
-// Read-only. The one mutating thing here is DELETE, and it reaches ANY host's
-// stash on the shared mount rather than only this one's; that asymmetry is
-// exactly why it is not an agent's to call yet. A register item.
+// Read-only apart from stash_refresh; the mutating block below says why
+// DELETE has no tool.
 func (s *Server) mcpRegistry() *mcp.Registry {
 	reg := mcp.NewRegistry()
 	noArgs := json.RawMessage(`{"type":"object","properties":{}}`)
@@ -45,8 +44,6 @@ func (s *Server) mcpRegistry() *mcp.Registry {
 		ReadOnly:    true,
 		Handler:     mcp.FromRoute(s.handleSession, http.MethodGet, "/api/session"),
 	})
-	// Two reads the UI makes and no tool reached. The deferral recorded above
-	// is about DELETE and says nothing about a read.
 	reg.MustAdd(mcp.Tool{
 		Name: "stash_get",
 		Description: "Read ONE stash's metadata -- its size, content class, original filename, owning host and status -- without pulling the whole catalog. " +

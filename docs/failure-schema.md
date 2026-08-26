@@ -201,7 +201,7 @@ skip is loud, never a silent pass. The emit is best-effort
 ## The lab-health gate (`lab_health_*` events)
 
 A cycle step needs the lab's services -- the stash it uploads binaries to, the
-caching proxy its guests fetch through -- and a service being rebuilt is away for
+caching-proxy-service its guests fetch through -- and a service being rebuilt is away for
 minutes to tens of minutes. Long enough that the preflight retry windows sized
 for a DHCP renew cannot cover it, and short enough that failing the cycle throws
 away a pass for a condition that cures itself.
@@ -217,7 +217,7 @@ returns.
 declares `healthPort`/`healthPath` in its `service:` block
 ([extensions-api.md](extensions-api.md)), so an area that ships tomorrow is gated
 the day it lands. An area exporting the contract verb `Test-<Area>Host` is probed
-through it instead: the caching proxy's `healthPort` is squid's 3128 while its
+through it instead: the caching-proxy-service's `healthPort` is Squid's 3128 while its
 daemon answers `/healthz` on 9310, and a manifest-driven probe there would report
 a dead daemon on every healthy proxy in the lab.
 
@@ -605,6 +605,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../README.md)

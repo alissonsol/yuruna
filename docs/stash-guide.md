@@ -1,4 +1,4 @@
-# Yuruna Stash — user guide
+# Yuruna Stash -- user guide
 
 The **stash** is a shared drop box for files and snippets. You put content
 in from the command line (`scp`) or from the browser, then browse, view,
@@ -182,6 +182,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../README.md)

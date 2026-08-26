@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.23
+.VERSION 2026.08.25
 .GUID 420b9d4a-e9ff-472b-9afa-d978ada39114
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -120,8 +120,8 @@ if (-not $Serve -and -not $Url) {
     # Five surfaces are GENERATED and have no .html file to discover: two service
     # UIs that live as Go raw-string constants, the cycle transcript, the log
     # directory listing, and the html part of the failure email. A gate that only
-    # walks the tree inherits the same blind spot that left them unaudited, so
-    # they are materialized first and served like any other root. The path is
+    # walks the tree cannot see them, so they are materialized first and served
+    # like any other root. The path is
     # fixed rather than unique so a failing run leaves the page behind to open.
     $generated = Join-Path ([IO.Path]::GetTempPath()) 'yuruna-a11y-generated'
     $Serve += (& (Join-Path $PSScriptRoot 'Export-GeneratedPages.ps1') -OutputDirectory $generated -Quiet |

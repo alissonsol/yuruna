@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.23
+.VERSION 2026.08.25
 .GUID 421157f0-4a70-494a-a09e-b13c89c002b4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1110,19 +1110,25 @@ Describe 'Download-agent pins agree across languages' {
         $go = @('manual.go', 'fido.go' | ForEach-Object {
             Get-Content -Raw -LiteralPath (Join-Path $AgentRepoRoot "test/extension/download-agent-service/server/internal/imagestore/$_")
         }) -join "`n"
+        # The Hyper-V script names both: it picks the page and the labels from
+        # the host architecture, and a Hyper-V host is AMD64 or ARM64. The
+        # other two hosts each run one architecture, so they name one page.
         $expectations = @(
-            @{ Script = 'host/windows.hyper-v/guest.windows.11/Get-Image.ps1'; Arch = 'x64' },
-            @{ Script = 'host/ubuntu.kvm/guest.windows.11/Get-Image.ps1';      Arch = 'x64' },
-            @{ Script = 'host/macos.utm/guest.windows.11/Get-Image.ps1';       Arch = 'ARM64' }
+            @{ Script = 'host/windows.hyper-v/guest.windows.11/Get-Image.ps1'; Arch = @('x64', 'ARM64') },
+            @{ Script = 'host/ubuntu.kvm/guest.windows.11/Get-Image.ps1';      Arch = @('x64') },
+            @{ Script = 'host/macos.utm/guest.windows.11/Get-Image.ps1';       Arch = @('ARM64') }
         )
         foreach ($e in $expectations) {
             $text = Get-Content -Raw -LiteralPath (Join-Path $AgentRepoRoot $e.Script)
-            $page = ([regex]::Match($text, "https://www\.microsoft\.com/[^\s'`"]*software-download/windows11[^\s'`"]*")).Value
-            Assert-True ([bool]$page) "$($e.Script) still names a manual download page"
-            Assert-True ($go.Contains($page)) `
-                -Because "the agent sends operators to $page for $($e.Arch) too, or the two surfaces disagree about where the media comes from"
+            $pages = @([regex]::Matches($text, "https://www\.microsoft\.com/[^\s'`"]*software-download/windows11[^\s'`"]*") |
+                ForEach-Object { $_.Value } | Sort-Object -Unique)
+            Assert-True ($pages.Count -gt 0) "$($e.Script) still names a manual download page"
+            foreach ($page in $pages) {
+                Assert-True ($go.Contains($page)) `
+                    -Because "the agent sends operators to $page too, or the two surfaces disagree about where the media comes from"
+            }
 
-            foreach ($choice in @("Windows 11 (multi-edition ISO for $($e.Arch) devices)", 'English')) {
+            foreach ($choice in @($e.Arch | ForEach-Object { "Windows 11 (multi-edition ISO for $_ devices)" }) + @('English')) {
                 Assert-True ($text.Contains($choice)) "$($e.Script) still tells the operator to select '$choice'"
                 Assert-True ($go.Contains($choice)) `
                     -Because "the pool page must name the same choice ('$choice') as $($e.Script), or the pool fills with an edition no host asked for"

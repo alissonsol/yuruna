@@ -257,6 +257,16 @@ func TestResolveAmazonLinuxPicksArtifactAndSidecarPerPlatform(t *testing.T) {
 			wantPath: "https://cdn.amazonlinux.com/al2023/os-images/latest/hyperv/",
 			wantFile: "al2023-hyperv-2023.10.20260715.0-kernel-6.12-x86_64.xfs.gpt.vhdx.zip",
 		},
+		{
+			// The hyperv platform is x86-64 only, so an ARM64 Hyper-V host must
+			// be sent to the ARM64 qcow2 it converts itself. Serving it the zip
+			// would be an artifact of the wrong architecture in a container its
+			// converter cannot open.
+			id:       ImageID{HostType: HostTypeHyperV, ImageKey: KeyAmazonLinux2023, Arch: ArchARM64, Variant: VariantStable},
+			listing:  al2023ListingFixture,
+			wantPath: "https://cdn.amazonlinux.com/al2023/os-images/latest/kvm-arm64/",
+			wantFile: "al2023-kvm-2023.10.20260715.0-kernel-6.12-x86_64.xfs.gpt.qcow2",
+		},
 	}
 	for _, tc := range cases {
 		listing := tc.listing

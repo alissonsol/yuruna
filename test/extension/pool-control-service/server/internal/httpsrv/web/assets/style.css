@@ -148,7 +148,7 @@ header.app .btn:not(.primary):hover { background: var(--chrome-raised); }
    header above -- fixed at the bottom, with a readonly mono textarea for the
    (possibly long) IP list. main pads its bottom so the fixed bar never covers
    the last row of a table. margin-top/text-align are restated because one page
-   carries this id on a <footer class="app"> that centres its flow content. */
+   carries this id on a <footer class="app"> that centers its flow content. */
 #footer-bar {
   position: fixed; bottom: 0; left: 0; right: 0;
   background: var(--chrome-bg); color: var(--chrome-muted);
@@ -187,13 +187,13 @@ body.has-footer-bar main { padding-bottom: 3rem; padding-bottom: calc(3rem + env
 
 /* The in-flow footer of a page with no data feed of its own (create, detail).
    Same surface, same padding and same type scale as the fixed bar above, so a
-   page that ends early ends on a bar of identical height and colour instead of
+   page that ends early ends on a bar of identical height and color instead of
    trailing off into the page background. */
 footer.app {
   background: var(--chrome-bg); color: var(--chrome-muted);
   /* Deliberately NOT a flex container: this variant holds a run of inline text
      around its link, and flex would promote each text run to its own anonymous
-     item and eat the spaces at their edges. The taller padding centres that one
+     item and eat the spaces at their edges. The taller padding centers that one
      line inside the shared min-height instead. */
   padding: .6rem 1rem;
   padding: .6rem max(1rem, env(safe-area-inset-right)) max(.6rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));

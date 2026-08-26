@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.23
+.VERSION 2026.08.25
 .GUID 42df925f-3353-4a16-aae2-7e8a097c522c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,9 +30,8 @@
         status-service template,
       - the html part of the cycle-failure notification email.
 
-    That is exactly why an eleven-agent sweep of the shipped surfaces missed
-    them: there is no file to find. A gate that only reads files inherits the
-    same blind spot, so this script writes what those code paths produce.
+    There is no file to find, so any gate that only reads files misses these
+    surfaces entirely; this script writes what those code paths produce.
 
     Every page here comes from the SHIPPING code path, not a transcription of
     it. The Go constants are extracted from the source; the transcript is

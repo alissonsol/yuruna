@@ -23,7 +23,7 @@ by what it acts on:
 |---|---|
 | [`lab/`](lab/) | standing a lab up on this host: the four host-neutral entry points, lab creation, local storage, token enrollment |
 | [`pool/`](pool/) | the pool-admin CLI -- everything that reads or writes a lab's pool intent -- and the sample intent files |
-| [`service/`](service/) | start/stop pairs for the service VMs and the host config/status services (`Start-StatusService.ps1` among them), plus the caching-proxy operations |
+| [`service/`](service/) | start/stop pairs for the service VMs and the host config/status services (`Start-StatusService.ps1` among them), plus the caching-proxy-service operations |
 | [`check/`](check/) | standalone host-capability checks (OCR engines) |
 | [`modules/`](modules/) | harness modules and the two per-cycle children; not invoked directly |
 
@@ -64,7 +64,7 @@ and unregister the test VMs *and* sweep, use `pwsh test/Remove-TestVMFiles.ps1`.
 
 ## Configuration
 
-Copy the template (it is git-ignored):
+Copy the template (it is gitignored):
 
 ```
 cp test/test.config.yml.template test/test.config.yml
@@ -106,7 +106,7 @@ pwsh test/Test-Config.ps1 -SkipSend  # Skip the send
 
 Each check prints `[PASS]`, `[WARN]`, or `[FAIL]`.
 
-## Remote caching-proxy service
+## Remote caching-proxy-service
 
 The runner auto-discovers a local `caching-proxy-service` VM. Point at a remote
 proxy by setting `vmStart.cachingProxyIp` in `test/test.config.yml`
@@ -160,7 +160,7 @@ and assign already-developed test sequences to it, see the operator guide
 ## Logging
 
 Each cycle writes `test/status/log/{cycleStartUtc}.{hostname}.{gitCommit}.html`
-(git-ignored; linked from the status page). Exit codes:
+(gitignored; linked from the status page). Exit codes:
 [Test harness](../docs/test-harness.md#exit-codes).
 
 Read more: [Test Runner](read.more.md).
@@ -171,6 +171,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../README.md)

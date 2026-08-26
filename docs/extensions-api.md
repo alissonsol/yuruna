@@ -23,9 +23,9 @@ is discovered by existing; it adds no case to any list in the framework.
 | `authentication`       | `default`      | `${ext:authentication.GetPassword(<user>)}` / `NewRandomPassword()` / `SetPassword()` -- vault read/write for sequences. The `default` extension stores per-cycle ephemeral test-VM passwords in plaintext YAML **by design**; see [Authentication -- Test-harness vault threat model](authentication.md#test-harness-vault--threat-model) for the trust boundary. Wire a different extension (DPAPI / keyring / external secret manager) before driving any production system from a sequence. |
 | `notification`         | `default`      | `Send-Notification -EventCode -EventMessage`; iterates the subscriber list and delivers each one through its declared transport. The `default` extension implements exactly one, `email` via Resend; any other value in `transports.yml` warns `Unknown transport` and delivers nothing. Wire a new one by adding a branch here. |
 | `caching-proxy-parser-service` | `default`      | Tails the Squid access log into a 100-entry in-memory ring and serves it on `:9302` as JSON (`/recent-requests`) plus a self-contained HTML page -- the source behind the Grafana dashboard's **Recent 100 requests** panel, replacing loki + promtail for it. Ships a stdlib-only Go daemon (`parse.go` + `main_linux.go` + `caching-proxy-parser-service.service`) built into the proxy VM; the PowerShell `default.psm1` is the host-side wrapper, exporting `Get-CachingProxyParserServiceManifest`. Nothing is persisted: the ring is the retention policy. |
-| `caching-proxy-service` | `default`     | The **management plane** for the caching-proxy VM -- the area that made that VM self-describing instead of a hardcoded roster row. A stdlib+SDK Go daemon on `:9310` reports squid's runtime summary (via the manager API), the offline / no-upstream switch state, and zot's catalog, canary and prewarm records; it owns the two operator switches, which used to be SSH-only. Nothing that serves traffic moved: squid (`:3128`/`:3129`), zot (`:5000`), Grafana, Prometheus, Loki and the exporters are untouched. Runs either on the proxy VM (`--mode local`) or on another host that can reach those APIs (`--mode remote`, read-only -- see [below](#running-the-caching-proxy-service-from-another-host)). |
+| `caching-proxy-service` | `default`     | The **management plane** for the caching-proxy-service VM -- the area that made that VM self-describing instead of a hardcoded roster row. A stdlib+SDK Go daemon on `:9310` reports Squid's runtime summary (via the manager API), the offline / no-upstream switch state, and zot's catalog, canary and prewarm records; it owns the two operator switches, which used to be SSH-only. Nothing that serves traffic moved: Squid (`:3128`/`:3129`), zot (`:5000`), Grafana, Prometheus, Loki and the exporters are untouched. Runs either on the proxy VM (`--mode local`) or on another host that can reach those APIs (`--mode remote`, read-only -- see [below](#running-the-caching-proxy-service-from-another-host)). |
 | `stash-service`        | `default`      | Receives `scp`/`sftp`-uploaded artifacts (diagnostic bundles, screenshots) into a stash-storage-backed stash. Ships a Go daemon under [`server/`](../test/extension/stash-service/server/) (legacy SCP **and** SFTP, files on the ystash-nas share + VM-local SQLite index/sidecars) brought up by `Start-StashServiceVM` + cloud-init, plus the PowerShell wrapper `default.psm1`. |
-| `pool-aggregator-service`      | `default`      | Read-only multi-host **pool view** (`Get-PoolAggregatorServiceManifest`) plus the pool half of the service lookup below (`Get-PoolExtensionHost`). Ships a stdlib-only Go daemon that runs on the caching-proxy-service machine (pool services host): it auto-discovers pool members from the squid access log, probes each one's status service, identifies on the stable `hostId`, and pushes cycle-status transitions to Loki. See [`pool-aggregator-service/README.md`](../test/extension/pool-aggregator-service/README.md). |
+| `pool-aggregator-service`      | `default`      | Read-only multi-host **pool view** (`Get-PoolAggregatorServiceManifest`) plus the pool half of the service lookup below (`Get-PoolExtensionHost`). Ships a stdlib-only Go daemon that runs on the caching-proxy-service machine (pool services host): it auto-discovers pool members from the Squid access log, probes each one's status service, identifies on the stable `hostId`, and pushes cycle-status transitions to Loki. See [`pool-aggregator-service/README.md`](../test/extension/pool-aggregator-service/README.md). |
 | `pool-control-service` | `default`      | The operator board for **pool configuration**: which pools exist, which hosts belong to them, which test-set each one runs. Ships a stdlib-only Go daemon on its own `yuruna-pool-control-service` VM that drives the pool-intent git store by shelling out to the pool-admin CLIs, with a web UI whose mutating actions unlock with the dashboard's rotating Lab token. The PowerShell `default.psm1` is the host-side pair -- `Get-PoolControlServiceInfo` (status stub) and `Test-PoolControlServiceHost` (the `/healthz` preflight). See [pool-admin.md](pool-admin.md#pool-control-service). |
 | `download-agent-service`       | `default`      | Pool-wide **guest-image downloader**: a stdlib-only Go daemon on its own `yuruna-download-agent-service` VM that keeps a Download pool on the pool share fresh and serves the artifacts to hosts over HTTP, with a web UI whose mutating actions unlock with the dashboard's rotating Lab token. The PowerShell `default.psm1` is the host-side pair -- `Get-DownloadAgentServiceInfo` (status stub) and `Test-DownloadAgentServiceHost` (the `/healthz` preflight). See [download-agent.md](download-agent.md). |
 
@@ -118,11 +118,11 @@ a name and throws only when neither form is exported.
 
 A service area additionally carries a `service:` block in its
 `<area>.config.yml` -- the manifest described
-[below](#1-the-manifest--what-the-area-declares) -- and, when it ships a Go
+[below](#1-the-manifest----what-the-area-declares) -- and, when it ships a Go
 daemon, a `server/` directory holding that daemon.
 
 Per-area state (vault file, transport credentials) lives under
-[`test/status/extension/<area>/`](../test/status/) -- git-ignored, never
+[`test/status/extension/<area>/`](../test/status/) -- gitignored, never
 shipped.
 
 ## The loader API
@@ -157,7 +157,7 @@ rewrites pool configuration with no credential at all.
 
 The interface is three layers, each with one source of truth.
 
-### 1. The manifest — what the area declares
+### 1. The manifest -- what the area declares
 
 A service area's `<area>.config.yml` carries a `service:` block, validated by
 [`test/schemas/extension-config.schema.yml`](../test/schemas/extension-config.schema.yml):
@@ -188,10 +188,11 @@ something the pool can locate or restart, so returning nothing for those is the
 answer, not a failure.
 
 Running inside another area's VM is a different thing from having no manifest.
-`pool-aggregator-service` lives in the caching-proxy VM and still declares a
-full block: `hostedIn` instead of `vmName`, which is what keeps it out of the
-service-VM roster while leaving it locatable, health-probed and gated like any
-other service. `-WithVMOnly` is the switch that separates the two.
+`pool-aggregator-service` lives in the caching-proxy-service VM and still
+declares a full block: `hostedIn` instead of `vmName`, which is what keeps it
+out of the service-VM roster while leaving it locatable, health-probed and
+gated like any other service. `-WithVMOnly` is the switch that separates the
+two.
 
 It is read by
 [`Test.ExtensionService.psm1`](../test/modules/Test.ExtensionService.psm1),
@@ -203,7 +204,7 @@ restarts its service VMs, and a prefix-matching cleanup can no longer prove it
 will skip them. The schema constrains the block to a flat mapping of scalars, so
 `key: value` at two spaces of indent is the whole grammar the reader handles.
 
-### 2. The Go SDK — talking to the pool, and gating writes
+### 2. The Go SDK -- talking to the pool, and gating writes
 
 [`test/extension/extension-sdk/`](../test/extension/extension-sdk/) is its own
 Go module with three self-contained packages:
@@ -432,7 +433,7 @@ the bring-up that bakes it.
 
 `<SERVICE>_PRESENCE_INTERVAL` is the beacon cadence and defaults to `2m` in all
 three. It must stay under the aggregator's five-minute health grace; see
-[the manifest](#1-the-manifest--what-the-area-declares).
+[the manifest](#1-the-manifest----what-the-area-declares).
 
 **On the host**, each `Start-<Service>VM.ps1` waits for the daemon to answer
 `:80`, and the wait is overridable because first boot builds the daemon inside
@@ -458,25 +459,25 @@ file on a share -- never a local socket, never a systemd call -- so the same
 binary answers from the proxy VM or from a machine that can reach it.
 
 **The data plane never moves.** Squid (`:3128`, `:3129`), zot (`:5000`),
-Grafana, Prometheus, Loki and the exporters stay on the caching-proxy VM in
-either mode. What relocates is the management plane: reading state and flipping
-switches. Moving it buys isolation -- a management plane that survives the box
-it reports on -- and costs a network hop per read.
+Grafana, Prometheus, Loki and the exporters stay on the caching-proxy-service
+VM in either mode. What relocates is the management plane: reading state and
+flipping switches. Moving it buys isolation -- a management plane that survives
+the box it reports on -- and costs a network hop per read.
 
 | | `--mode local` (default) | `--mode remote` |
 |---|---|---|
-| squid summary | manager pages over loopback | manager pages over the LAN, which needs the ACL below |
-| switch state | the `conf.d` drop-ins themselves | inferred from squid's running config, and says so |
+| Squid summary | manager pages over loopback | manager pages over the LAN, which needs the ACL below |
+| switch state | the `conf.d` drop-ins themselves | inferred from Squid's running config, and says so |
 | switch changes | writes the drop-in, `squid -k reconfigure` | **501 `caching-proxy-remote-readonly`** |
 | zot catalog | zot's API over loopback | zot's API over the LAN |
 | canary verdict | `/zot-meta` over loopback | `/zot-meta` over the LAN |
 | prewarm record | `/var/lib/yuruna` on the box | absent unless the share is mounted |
 
-Remote mode is **read-only, and refuses rather than pretends**. Stock squid has
+Remote mode is **read-only, and refuses rather than pretends**. Stock Squid has
 no remote reconfigure: a change made off the box could be written but never
 loaded, so both switch routes answer `501` with reason
 `caching-proxy-remote-readonly` and name the mode that refused. That is a
-statement about squid, not about permissions -- which is why it is `501` and
+statement about Squid, not about permissions -- which is why it is `501` and
 not `403`, and why an on-box agent is what would lift it.
 
 **The manager ACL is the one prerequisite, and it is not a drop-in.** Stock
@@ -486,7 +487,7 @@ in a drop-in is dead code. Opening the manager interface to a remote reader
 means editing `squid.conf` itself, above that deny, and pairing it with a
 `cachemgr_passwd`. Nothing in the shipped seed does this: local mode does not
 need it (loopback is already allowed by the stock `allow localhost manager`),
-and opening squid's manager interface to the LAN is a posture change no VM
+and opening Squid's manager interface to the LAN is a posture change no VM
 should get for a mode it is not running.
 
 ## MCP endpoints
@@ -611,7 +612,7 @@ back to cloning the public GitHub mirror when the host does not answer, so a
 bring-up still works off-LAN. The two sources are NOT equivalent: the host
 serves the enlistment the operator is working in, while the mirror is a
 published snapshot that lags it by however long since the last release push.
-Whichever wins is compiled into the daemon minutes later, so a silent fall back
+Whichever wins is compiled into the daemon minutes later, so a silent fallback
 to the mirror deploys older code that then reports itself as current forever.
 
 The status service therefore has to be up BEFORE `New-VM` bakes and boots the
@@ -653,7 +654,7 @@ warning, and the service then runs published code on purpose.
 A host that needs a network service -- the stash service, pool-control service,
 download-agent service -- usually does not run it: the service lives on another
 host, often another subnet, at an address DHCP is free to change. Nothing in
-this host's config knows where it is, so the alternative is a hard-coded literal
+this host's config knows where it is, so the alternative is a hardcoded literal
 that is correct only until the service moves -- and then a cycle spends its whole
 timeout budget on a machine that no longer exists.
 
@@ -684,7 +685,7 @@ The answer is a **list, nearest first**, and may be empty:
 Since the aggregator lives in the caching-proxy-service VM, knowing the proxy
 address -- which every host needs anyway, to reach the cache at all -- is
 enough to locate every other service the pool offers. A host with no
-caching-proxy service has no aggregator to ask and no pool: that source
+caching-proxy-service has no aggregator to ask and no pool: that source
 contributes nothing.
 
 A list rather than one answer, because only the caller can say which
@@ -918,7 +919,7 @@ address, not on the rebuild:
   handler accepts an announce from a `hostId` the pool has never seen and
   confirms the target itself, so the row needs no prior discovery. The
   *registration*-sourced row takes longer: a rebuilt proxy starts with an empty
-  squid log and an empty Loki, so the owning host is re-discovered only once it
+  Squid log and an empty Loki, so the owning host is re-discovered only once it
   next pulls through the proxy.
 - **New address** -- no. Every rebuild draws a fresh MAC and therefore a new DHCP
   lease, and the beacon keeps posting to the address that is gone. Either pin the
@@ -937,9 +938,9 @@ each host stays *onsite* until `Set-LabToken.ps1` re-enrolls it
 
 The host-level counterpart to `/announce`: a **host** POSTs
 `{"hostId":"<42-hex>","statusPort":<port>}` when its address changes, when its
-status service starts, and on a periodic beacon.
+status-service starts, and on a periodic beacon.
 
-It exists because squid-log discovery is pull-only, and so lags exactly when it
+It exists because Squid-log discovery is pull-only, and so lags exactly when it
 matters. A host enters the log only when it or its guests pull through the
 proxy, so between cycles the view ages out and the address it still holds is the
 one the host has just left -- and a guest resolving through that view gets an

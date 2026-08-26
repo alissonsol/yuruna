@@ -44,7 +44,10 @@ and select only **Deployment Tools**.
 ## 4) Install QEMU tools
 
 `guest.caching-proxy-service/Get-Image.ps1` uses `qemu-img.exe` to convert the
-Ubuntu Server cloud image (qcow2) to VHDX:
+Ubuntu Server cloud image (qcow2) to VHDX. On an ARM64 host
+`guest.amazon.linux.2023/Get-Image.ps1` uses it too: the publisher offers no
+ARM64 Hyper-V image, so that guest starts from the ARM64 KVM cloud image and
+is converted here.
 
 ```
 winget install --id SoftwareFreedomConservancy.QEMU --exact --silent `
@@ -141,6 +144,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../../README.md)

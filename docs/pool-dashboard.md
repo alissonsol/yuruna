@@ -1,7 +1,7 @@
 # Yuruna hosts dashboard -- what each panel means
 
 > **Who this is for.** An operator reading the **Yuruna hosts** Grafana dashboard --
-> the lab-wide summary served by the caching-proxy service's Grafana and fed by the
+> the lab-wide summary served by the caching-proxy-service's Grafana and fed by the
 > **pool-aggregator-service** collector on the same VM, which polls every host and
 > publishes what it learns. The dashboard is viewable with no credential. Each panel's
 > (i) tooltip gives the short reading and links here; this page carries the full story.
@@ -51,7 +51,7 @@ Thresholds: red below 95%, amber below 100%, green at exactly 100%.
 ## Addresses in use
 
 A **measured** count of the IPv4 addresses the lab is currently holding: the
-caching-proxy service's observed clients UNION every registered host's current
+caching-proxy-service's observed clients UNION every registered host's current
 address, deduplicated so a host that also proxies is counted once. The host half
 matters on its own -- a statically addressed host answers no DHCP and appears in no
 lease table, yet still occupies an address in the subnet.
@@ -249,6 +249,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../README.md)

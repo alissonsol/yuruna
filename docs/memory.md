@@ -177,14 +177,14 @@ The macOS UTM ubuntu.server.24 guest is arm64-only. When a cache is
 reachable, the autoinstall apt block injects:
 
 - **`proxy`** -- routes apt (and, unavoidably, `http_proxy` /
-  `https_proxy`) via squid.
+  `https_proxy`) via Squid.
 - **`primary`** -- pins the arm64 mirror to `ports.ubuntu.com` so
   subiquity doesn't elect `archive.ubuntu.com` (the amd64 default)
   and 404 behind the proxy.
 - **`geoip: false`** -- skips the HTTPS `geoip.ubuntu.com` lookup that
-  otherwise goes through squid (`http_proxy` is exported globally when
+  otherwise goes through Squid (`http_proxy` is exported globally when
   `apt.proxy` is set -- `subiquity/server/controllers/proxy.py:43-44`)
-  and can stall on the squid CONNECT path, keeping subiquity's
+  and can stall on the Squid CONNECT path, keeping subiquity's
   mirror-election retry loop (`mirror.py:200-227`) alive.
 - **`sources_list`** -- legacy `/etc/apt/sources.list` with
   `ports.ubuntu.com` entries.
@@ -305,8 +305,8 @@ Source:
 The Hyper-V caching-proxy-service VM's VHDX is grown to 512 GB for cache
 storage (384 GB `squid cache_dir` + ~128 GB OS/logs/headroom). VHDX is
 dynamic, so 512 GB is the APPARENT size only -- actual disk consumption
-stays low until squid starts caching (or unattended-upgrades pulls a
-kernel). The `cache_dir` budget was raised from 128 GB so squid can
+stays low until Squid starts caching (or unattended-upgrades pulls a
+kernel). The `cache_dir` budget was raised from 128 GB so Squid can
 hold the macOS install image (~18 GB) plus other multi-GB objects with
 breathing room -- see
 `host/vmconfig/caching-proxy-service.base.user-data` and the
@@ -1315,8 +1315,8 @@ Wrapping the call in
    `Resolve-DnsName www.powershellgallery.com` + HEAD on
    `api/v2/` is appended to
    `/var/log/yuruna/pwsh-yaml-install.log` along with the
-   `Install-Module -Verbose 4>&1` stream, plus a one-shot pre-
-   flight (`Get-PSRepository`, `Get-PackageProvider -ListAvailable`,
+   `Install-Module -Verbose 4>&1` stream, plus a one-shot preflight
+   (`Get-PSRepository`, `Get-PackageProvider -ListAvailable`,
    PowerShellGet + PSResourceGet versions) recorded before the loop.
 
 The matching `Import-Module powershell-yaml; ConvertFrom-Yaml 'k: v'`
@@ -1424,7 +1424,7 @@ registry.opentofu.org returns the same 5xx within a tight retry
 window: a per-attempt retry loop cannot survive the burst, but a
 cached plugin sidesteps it.
 
-The cache is self-populating; nothing external (squid, network
+The cache is self-populating; nothing external (Squid, network
 mirror) needs to be reachable. The operator can override the path via
 `TF_PLUGIN_CACHE_DIR`; otherwise it lives under the project's
 `.yuruna/` tree so a `yuruna clear` purges it. Upstream's
@@ -1594,6 +1594,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../README.md)

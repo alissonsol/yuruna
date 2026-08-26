@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.23
+.VERSION 2026.08.25
 .GUID 428d485e-047b-4cc1-8ed5-93ab18e050f7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -48,9 +48,9 @@
     feedback_macos_utm_apt_block_resolute_curtin_trap.md). When a caching-proxy service
     is configured its `proxy:` line is appended to the `uri:` line with a leading
     newline + 4-space indent so it lands at the same YAML level; with no proxy
-    the expansion is empty. -PrimaryUri is the one platform knob (Hyper-V pins
-    archive.ubuntu.com, UTM pins the aarch64 ports mirror, KVM resolves it by
-    arch).
+    the expansion is empty. -PrimaryUri is the one platform knob (UTM pins the
+    aarch64 ports mirror; Hyper-V and KVM resolve it by arch, since
+    archive.ubuntu.com carries amd64 only).
 .OUTPUTS
     [string] the apt block, byte-identical across the three platform scripts.
 #>

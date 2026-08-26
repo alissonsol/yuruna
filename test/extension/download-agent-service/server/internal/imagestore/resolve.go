@@ -167,9 +167,17 @@ func ubuntuManifest(codename, arch string) ubuntuURLs {
 // al2023PlatformDir maps a host type + arch onto the AL2023 publisher's
 // platform directory. Hyper-V takes the zipped VHDX; the two qemu-family hosts
 // take the native qcow2.
+//
+// The hyperv platform is published for x86-64 only. An ARM64 Hyper-V host
+// therefore takes the same ARM64 qcow2 the qemu hosts do and converts it to
+// VHDX itself, so answering that request with the x86-64 zip would hand it an
+// artifact of the wrong architecture in a container its converter cannot open.
 func al2023PlatformDir(hostType, arch string) (dir, suffix string, ok bool) {
 	switch hostType {
 	case HostTypeHyperV:
+		if arch == ArchARM64 {
+			return "kvm-arm64", ".qcow2", true
+		}
 		return "hyperv", ".zip", true
 	case HostTypeKVM:
 		if arch == ArchARM64 {

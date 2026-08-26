@@ -6,7 +6,7 @@ carries the browser runtime its UI is built on.
 
 | Package | What it is |
 |---|---|
-| [`beacon`](beacon/) | The presence beacon. A hello at startup (retried on a doubling catch-up cadence until it first lands), a re-announce every interval, an `active:false` goodbye at shutdown &mdash; so the dashboard's **Extension hosts** row survives the owning host's status service being down. |
+| [`beacon`](beacon/) | The presence beacon. A hello at startup (retried on a doubling catch-up cadence until it first lands), a re-announce every interval, an `active:false` goodbye at shutdown -- so the dashboard's **Extension hosts** row survives the owning host's status service being down. |
 | [`pool`](pool/) | The read client for the pool-aggregator service: `Status`, `ExtensionHost(s)`, `ExtensionTarget`, `Healthz`, plus `Get`/`GetURL` for the routes it does not type. One TLS posture, one timeout policy, one snapshot cache, and `SanitizeBaseURL` applied to every URL-valued field a response carries. |
 | [`labgate`](labgate/) | The write gate. A session unlocked with the dashboard's rotating Lab token, or the internal authentication key as a bearer, in front of any route that changes host or pool configuration. Ships `Require`, `RequireBearer`, `HandleLogin` and `Session`. |
 | [`webui`](webui/) | The browser assets every service UI shares, embedded and handed over through `Asset(name)`. Today that is [`yuruna.core.js`](webui/assets/yuruna.core.js): the page chrome (header, menu, footer, countdown), the JSON client, the table furniture, and the shims the browser baseline needs. |

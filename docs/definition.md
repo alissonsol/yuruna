@@ -57,9 +57,9 @@ base URL for `curl`-style fetches in priority order:
 2. **`/etc/yuruna/host.env`** -- written by `New-VM.ps1` at provision
    time. Holds `YURUNA_STATUS_SERVICE_IP` / `YURUNA_STATUS_SERVICE_PORT` for the dev
    iteration loop. We probe `/livecheck` with a short timeout; on
-   success the host status service takes precedence over GitHub. On
-   failure we fall through: no `/etc/yuruna/host.env` (CI, fresh demo)
-   or a stopped server lands on the GitHub fallback below.
+   success the host status service takes precedence over GitHub. No
+   `/etc/yuruna/host.env` (CI, fresh demo) or a stopped server falls
+   through to the GitHub fallback below.
 3. **GitHub, same repository, pinned commit** -- the final fallback.
 
 **The fallback is not a fixed public URL.** It is built from a repo slug
@@ -99,7 +99,7 @@ Cache-busting via environment variables (priority order):
 1. **`$EXEC_QUERY_PARAMS`** -- explicit override, used verbatim (include
    `?`).
 2. **`YurunaCacheContent`** -- systemwide cache-buster. Leave unset so
-   caching proxies (e.g. the optional squid VM) serve stored copies;
+   caching proxies (e.g. the optional caching-proxy-service VM) serve stored copies;
    set it to force a fresh fetch:
    `export YurunaCacheContent="$(date +%Y%m%d%H%M%S)"`.
 
@@ -120,9 +120,9 @@ serves files from the host status service. Two probe details are
 load-bearing:
 
 **`--no-proxy`.** The host status service lives on a Hyper-V Default
-Switch / VZ shared NAT IP. If anything (subiquity leakage,
+Switch / VZ Shared NAT IP. If anything (subiquity leakage,
 `/etc/wgetrc`, the harness itself on the host) left `http_proxy`
-pointing at the caching-proxy service, the probe rewrites to that proxy -- which
+pointing at the caching-proxy-service, the probe rewrites to that proxy -- which
 is meant for external mirrors and cannot route to the host's internal
 IP -- and times out. We then silently fall through to GitHub even
 though the host server is right there. `NO_PROXY` won't save us: this
@@ -224,13 +224,13 @@ on the file being readable, so a guest imaged before the resolver existed
 resolves exactly as it always did.
 
 A success is taken directly as `FETCH_SOURCE='host'` rather than falling into
-the `/livecheck` probe below: locate has just made that same call, so the
-evidence is already in hand and a second round trip would only re-learn it.
+the `/livecheck` probe below: locate has just made that same call, so a
+second round trip would only re-learn it.
 A failure deliberately falls *through* instead of short-circuiting, which
 keeps [the host-unreachable
 warning](#defining-fetch-and-execute-host-unreachable-warning) the single
 place that explains a dead host. That banner then names what the directory was
-asked -- the `hostId` and the caching-proxy address it was asked at -- so a
+asked -- the `hostId` and the caching-proxy-service address it was asked at -- so a
 renumbered host reads as a cause already ruled out rather than the reader's
 leading hypothesis, and points at whichever coordinate of the indirection is
 missing.
@@ -251,7 +251,7 @@ GitHub would hide the real problem. Common causes:
   so a reused VM outlives it.
 - Host status service crashed.
 - Host firewall change.
-- Default Switch / VZ shared NAT gateway changed.
+- Default Switch / VZ Shared NAT gateway changed.
 
 The cycle can still complete via the GitHub fallback, but only if the
 commit the host is serving is actually *on* the remote: the fallback
@@ -300,9 +300,9 @@ can tell the two failure categories apart immediately.
 first and runs `/bin/bash -c "$script_content"` second, so network
 problems surface distinctly from inner-script errors. When
 `source=host` the URL is a local-only IP (Hyper-V Default Switch / VZ
-shared NAT) -- `--no-proxy` is added to wget for the same reason
+Shared NAT) -- `--no-proxy` is added to wget for the same reason
 `resolve_base_url` does (see "host environment variables" above). For
-`source=github`, the proxy is left on so the caching-proxy service can serve
+`source=github`, the proxy is left on so the caching-proxy-service can serve
 cached external fetches.
 
 The payload fetch carries `--timeout` and `--tries`. That is a bound,
@@ -518,7 +518,7 @@ for the exact settings; one fine-grained token can only cover repositories
 under a single owner.
 
 **`--no-proxy` on host probes.** The host server lives on a private
-NAT IP that any inherited `http_proxy` (e.g. the caching-proxy service) cannot
+NAT IP that any inherited `http_proxy` (e.g. the caching-proxy-service) cannot
 route to.
 
 Sources (every guest script that needs framework/project repos
@@ -627,7 +627,7 @@ The guest's `ubuntu.server.24.k8s.sh` reconfigures containerd to:
    only `docker pull` via dockerd benefits from the `daemon.json`
    `registry-mirrors` set above.
 
-Step (3) is conditional on the lab having a caching proxy, the same way
+Step (3) is conditional on the lab having a caching-proxy-service, the same way
 the guest's proxy egress rules are. Where no cache is configured, the
 `daemon.json` mirror, the `certs.d` tree, the registry liveness gate and
 the image warm passes are all skipped, and pulls go to the upstreams
@@ -951,7 +951,7 @@ must either run on a larger host or edit the specific guest's
 (caching-proxy-service, stash-service, download-agent-service,
 pool-control-service) stay on the baseline policy: they normally run on
 dedicated hosts where taking half the threads is the point, and their
-sizing is coupled to service budgets (squid `cache_mem`, SCP receive)
+sizing is coupled to service budgets (Squid `cache_mem`, SCP receive)
 rather than to test-cycle co-tenancy.
 
 **Related runner guard.** On hosts with <= 4 threads the test runner
@@ -1006,7 +1006,7 @@ per VM subtracts from how many guests a KVM host can run concurrently in a
 busy pool.
 
 **The caching-proxy-service 12 GB is load-bearing**, not a default that happens to
-match: squid's `cache_mem` is tuned to 7 GB (58 % of the VM) with 2 GB left
+match: Squid's `cache_mem` is tuned to 7 GB (58 % of the VM) with 2 GB left
 for the zot registry cache, and swap is masked, so an OOM is unrecoverable.
 Tune VM RAM, `cache_mem`, and zot together -- see
 [caching.md](caching.md#caching-proxy-service--test-harness-operator-reference).
@@ -1014,15 +1014,15 @@ Tune VM RAM, `cache_mem`, and zot together -- see
 **The extension services share one 2 GB baseline**, a working-set fit
 rather than a budget. None of the three holds a large resident set: the
 stash streams an SCP receive to disk next to a SQLite metadata writer,
-the download agent streams artifacts through to the pool share instead
+the download-agent streams artifacts through to the pool share instead
 of buffering them in RAM, and pool-control serves registry reads beside
 short-lived pwsh CLI invocations. Because all three hosts pin the
 allocation, the number that matters on a host carrying several of these
-at once -- a standalone host runs the caching proxy, the stash, and the
-download agent on one machine -- is their **sum**, committed whether or
+at once -- a standalone host runs the caching-proxy-service, the stash, and
+the download-agent on one machine -- is their **sum**, committed whether or
 not the guests touch it. Every GB left in them subtracts directly from
-what the test guests on the same machine can start with. The caching
-proxy is the one service that cannot join the baseline, for the
+what the test guests on the same machine can start with. The
+caching-proxy-service is the one that cannot join the baseline, for the
 `cache_mem` reason above.
 
 What sets the baseline is not steady state but first boot: each guest is
@@ -1030,7 +1030,7 @@ an Ubuntu Server cloud image whose bring-up script installs `golang-go`
 and compiles the service in-guest, with no swap configured. The stash is
 the largest of the three builds -- its pure-Go SQLite driver is the
 biggest compile in any of the graphs -- and peaks near 1.1 GB cold, on
-both `amd64` and `arm64`; the download agent and pool-control build
+both `amd64` and `arm64`; the download-agent and pool-control build
 stdlib-only graphs in about 0.4 GB. The peak does not grow with the
 guest's vCPU count, so a large host's wider `go build` parallelism does
 not raise it. That is the number the 2 GB has to carry, and the reason
@@ -1062,7 +1062,7 @@ This baseline governs **every Yuruna web UI**: the status pages
 (`test/status/index.html`, `test/status/config.html`, and any future
 page mounted under `test/status/`) AND the browser UI of every
 extension service under `test/extension/*/server/internal/httpsrv/web/`
--- pool control, stash, download agent, and any service added later.
+-- pool-control, stash, download-agent, and any service added later.
 All of them are written so they render correctly on **Safari iOS 9.3 /
 Safari 9.1** as well as current browsers.
 
@@ -1160,7 +1160,7 @@ countdown resets to 0 so the operator sees a fresh reload at once.
 Every `.html` response from `Start-StatusService.ps1` carries
 `Cache-Control: public, max-age=60, must-revalidate`, and each HTML
 file includes a matching `<meta http-equiv="Cache-Control">` tag.
-Operators often browse the status page through a shared caching-proxy service
+Operators often browse the status page through a shared caching-proxy-service
 (`Test-CachingProxyService -SetHostProxy`, corp proxy, etc.); without a
 cache window the dashboard re-fetches on every navigation/poll, and
 a `no-store` header leaks stale content through some intermediary
@@ -1470,7 +1470,7 @@ Page-specific behavior:
   `runtime/caching-proxy-service.txt` for an `<a href="...">` -- if present,
   renders a **`Dashboards`** anchor to that URL (the Grafana
   dashboards browse page filtered by the `yuruna` tag, served from
-  the same host as the caching-proxy service); otherwise renders text **`No
+  the same host as the caching-proxy-service); otherwise renders text **`No
   dashboard server`**. `&amp;` in the file is unescaped to `&` before
   `setAttribute('href', ...)` so the browser hits the actual URL on
   click.
@@ -1684,7 +1684,7 @@ relies on them. Pointers, not duplicates:
 - **The three operations (`resources`, `components`, `workloads`)** --
   see [`automation/yuruna.ps1`](../automation/yuruna.ps1). Sequenced
   by the umbrella CLI.
-- **Forwarder** (host-side squid TCP forwarder) -- see
+- **Forwarder** (host-side Squid TCP forwarder) -- see
   [`host/macos.utm/Start-CachingProxyServiceForwarder.ps1`](../host/macos.utm/Start-CachingProxyServiceForwarder.ps1).
 
 For deeper architectural context see
@@ -1988,7 +1988,7 @@ Ubuntu live-server ISOs.
 Behavior:
 
 1. Routes the download through `Save-CachedHttpUri` when available
-   (squid bump + per-process custom CA trust) and falls back to a
+   (Squid bump + per-process custom CA trust) and falls back to a
    direct `Invoke-WebRequest`.
 2. Computes SHA-256 of the downloaded file.
 3. Compares against `-ExpectedSha256` directly OR by parsing a
@@ -2212,6 +2212,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.23
+.VERSION 2026.08.25
 .GUID 423bf361-3c2d-4eec-ac8d-50aca4319afe
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,10 +21,9 @@
     Build, vet and test every Go module under test/extension.
 .DESCRIPTION
     The extension services carry ~19,700 lines of Go test across ~69 files, and
-    before this script nothing in the repo ran any of it. That is not a
-    theoretical gap: one module was found failing at HEAD because a UI change
-    added a table column and the accessibility invariant that column violated
-    was never re-checked.
+    this gate is the only thing in the repo that runs them. An unrun test body
+    silently accumulates failures: a change that violates an invariant a test
+    asserts stays green until something actually executes the assertion.
 
     Modules are discovered by walking for go.mod rather than listing them, so a
     new service is covered the day it is added instead of the day someone

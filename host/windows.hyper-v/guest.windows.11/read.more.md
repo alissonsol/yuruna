@@ -1,4 +1,4 @@
-# Windows 11 guest on Windows Hyper-V host — Nerd-Level Details
+# Windows 11 guest on Windows Hyper-V host -- Nerd-Level Details
 
 See [Hosts -- ...](../../README.md) for host prerequisites (Hyper-V, ADK
 Deployment Tools for `oscdimg.exe`), VM sizing, and connectivity.
@@ -9,7 +9,10 @@ The Windows 11 ISO has no direct download URL.
 [`Get-Image.ps1`](./Get-Image.ps1) prints instructions to download from
 [Microsoft](https://www.microsoft.com/software-download/windows11) into
 the Hyper-V default VHDX folder; any `Win11*.iso` there is renamed
-automatically.
+automatically. Microsoft publishes the two architectures on separate
+pages under different edition labels, so on an ARM64 host the script
+prints the ARM64 page and its choices instead -- the file name it saves
+to is the same either way.
 
 ```
 .\Get-Image.ps1
@@ -47,6 +50,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../../../README.md)

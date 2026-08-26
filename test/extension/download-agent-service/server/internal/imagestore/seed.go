@@ -54,9 +54,9 @@ func knownHostType(ht string) bool {
 
 // ArchForHostType infers the guest architecture a host type runs. Pool-status
 // carries no arch field, so the mapping is by host type: Hyper-V and KVM hosts
-// are x86-64 in practice, UTM runs on Apple Silicon. An arm64 KVM host is
-// covered demand-driven -- its first request creates the arm64 entry, which the
-// scanner then maintains.
+// are x86-64 in the common case, UTM runs on Apple Silicon. An arm64 Hyper-V or
+// KVM host is covered demand-driven -- its first request creates the arm64
+// entry, which the scanner then maintains.
 func ArchForHostType(hostType string) string {
 	switch hostType {
 	case HostTypeUTM:

@@ -1,7 +1,7 @@
 # Yuruna lab operator guide
 
 Bring-up runbook for a Yuruna lab: several machines sharing one
-caching-proxy service, NAS-backed pool and stash storage, and a
+caching-proxy-service, NAS-backed pool and stash storage, and a
 pool-control service, grouped into pools and assigned test-sets.
 
 [Section A: Quickstart](#section-a-quickstart) is the complete command
@@ -364,7 +364,7 @@ the same mount and replication code as one with a NAS
 ([operator.md B.7](operator.md#b7-local-shares-for-pool-and-stash-storage)).
 
 A **standalone** machine gets one more alias, `yuruna-dash`, pointing at
-the caching-proxy VM rather than at loopback: it makes the Yuruna hosts
+the caching-proxy-service VM rather than at loopback: it makes the Yuruna hosts
 dashboard `http://yuruna-dash:3000/d/yuruna-pool/yuruna-hosts`, a URL
 worth bookmarking because it survives the cache VM being rebuilt onto a
 new DHCP lease. `setup.ps1` rewrites it every run from the same address
@@ -508,7 +508,7 @@ On the machine that will run cycles first (any of them):
    If the aggregator is unreachable, skip `Set-LabToken.ps1` and pass
    the raw key (from the shared-services host's vault) to the sync:
    `-InternalAuthKey '<raw-key>' -PersistInternalAuthKey`. No local
-   caching-proxy is needed -- the synced `vmStart.cachingProxyIp`
+   caching-proxy-service is needed -- the synced `vmStart.cachingProxyIp`
    points at the shared one.
 
    Before overwriting anything, the sync compares the fetched config
@@ -542,7 +542,7 @@ On the machine that will run cycles first (any of them):
    host drops off the dashboard's Extension hosts row within one
    aggregator poll -- drops the hosts-file aliases those services
    owned, and verifies the end state. `-KeepCachingProxy` keeps a warm
-   local squid on a slow link. Add `-WhatIf` to preview; that needs no
+   local Squid on a slow link. Add `-WhatIf` to preview; that needs no
    elevation.
 
    The internal authentication key is **required** for the conversion.
@@ -732,6 +732,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../README.md)

@@ -6,7 +6,7 @@ root:
 
 | Pair | What it manages |
 |---|---|
-| `Start-CachingProxyServiceVM.ps1` / `Stop-CachingProxyServiceVM.ps1` | the Squid caching-proxy VM and the host proxy settings that point at it |
+| `Start-CachingProxyServiceVM.ps1` / `Stop-CachingProxyServiceVM.ps1` | the Squid caching-proxy-service VM and the host proxy settings that point at it |
 | `Start-StashServiceVM.ps1` / `Stop-StashServiceVM.ps1` | the stash-service VM and its presence marker |
 | `Start-DownloadAgentServiceVM.ps1` / `Stop-DownloadAgentServiceVM.ps1` | the download-agent VM and its pool claim |
 | `Start-PoolControlServiceVM.ps1` / `Stop-PoolControlServiceVM.ps1` | the pool-control-service VM that serves the lab dashboard |
@@ -16,11 +16,11 @@ root:
 [`Stop-StatusService.ps1`](Stop-StatusService.ps1) complete the set: the host
 status HTTP server that publishes the status UI (no VM of its own).
 
-Two caching-proxy operations sit alongside the pair that owns that VM:
+Two caching-proxy-service operations sit alongside the pair that owns that VM:
 
 | Script | What it does |
 |---|---|
-| `Move-CachingProxyService.ps1` | hand the caching-proxy service over to another host in the lab |
+| `Move-CachingProxyService.ps1` | hand the caching-proxy-service over to another host in the lab |
 | `Repair-CachingProxyServiceForwarder.ps1` | macOS/UTM: re-verify the proxy VM is reachable on the LAN and refresh its state file |
 
 ```

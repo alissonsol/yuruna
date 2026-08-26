@@ -44,7 +44,7 @@ func newTestServer(t *testing.T, gate Gate) *httptest.Server {
 			return map[string]any{"ok": true, "on": in.On}, nil
 		},
 	})
-	srv := httptest.NewServer(NewServer("test-service", "2026.08.23", reg, gate).Handler())
+	srv := httptest.NewServer(NewServer("test-service", "2026.08.25", reg, gate).Handler())
 	t.Cleanup(srv.Close)
 	return srv
 }
@@ -96,7 +96,7 @@ func TestInitializeAnswersThePinnedProtocol(t *testing.T) {
 		}
 	}
 	info, _ := res["serverInfo"].(map[string]any)
-	if info["name"] != "test-service" || info["version"] != "2026.08.23" {
+	if info["name"] != "test-service" || info["version"] != "2026.08.25" {
 		t.Errorf("serverInfo = %v", info)
 	}
 }

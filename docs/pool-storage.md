@@ -1,4 +1,4 @@
-# poolStorage (ypool-nas) — NAS-backed durable replication
+# poolStorage (ypool-nas) -- NAS-backed durable replication
 
 Hosts in the Yuruna pool are **reimageable at any time**, exactly like the guests
 they test. So host-local storage is treated as fast and **ephemeral**, and
@@ -61,7 +61,7 @@ which have to be created on the device itself. See
   no mount, no copy, no background work. Populating all three turns archiving on;
   `moveLogsToPoolStorage` then selects copy vs move.
 
-## How replication works — the PoolStorageReplicator
+## How replication works -- the PoolStorageReplicator
 
 At the end of every cycle the outer runner loop
 ([Test.RunnerOuterLoop.psm1](../test/modules/Test.RunnerOuterLoop.psm1)) fires
@@ -72,8 +72,8 @@ replicator; the orchestration lives in `Invoke-PoolStorageDrain`
 
 **Asynchronous -- never delays the loop.** The drain runs in its own process
 (Windows `Start-Process` with an empty stdin sink + hidden window; macOS/Linux
-`nohup` in its own process group), so however long a copy takes -- or however dead
-the NAS is -- the cycle loop is never blocked.
+`nohup` in its own process group), so a slow copy -- or a dead NAS -- never
+blocks the cycle loop.
 
 **Fail-fast.** Before mounting, the drain probes `<server>:445` (a bounded TCP
 connect, ~5 s). An unreachable NAS is detected in seconds, recorded in the local
@@ -422,16 +422,16 @@ pool is ASCII. `nofail` and `_netdev` keep a NAS outage from wedging boot -- the
 daemons are written to start without the share and report it as unavailable rather
 than refusing to run.
 
-## What is — and isn't — replicated
+## What is -- and isn't -- replicated
 
 - **Replicated:** each host's finished **cycle output** (logs, screenshots, NDJSON
   events, diagnostics) -- the per-cycle folders.
-- **Not replicated:** the **squid cache** (`/var/spool/squid`). It is fully
-  rebuildable from upstream and is handled by squid itself; copying it would
+- **Not replicated:** the **Squid cache** (`/var/spool/squid`). It is fully
+  rebuildable from upstream and is handled by Squid itself; copying it would
   be churn with no durability value.
 - **Service data (caching-proxy-service):** the proxy's **Loki, Prometheus, and Grafana**
   data -- archived to ypool-nas by the guest itself (see *Service replication* below).
-  The **stash** service is deferred (no data dir yet); Zot's OCI cache is excluded
+  The **stash** service is deferred (no data dir yet); zot's OCI cache is excluded
   too (rebuildable).
 
 ## Service replication (caching-proxy-service)
@@ -466,7 +466,7 @@ CIFS-mounts the share, and an hourly `ypool-nas-replicate.timer` rsyncs the data
   (minted by the host Config CA at VM-create); without it the proxy can't fetch and the
   share stays unmounted.
 - **Reachability:** the proxy must be on a **LAN-routable (bridged)** network to reach
-  the NAS; on a NAT proxy (Default Switch / UTM Shared / Hyper-V-on-Wi-Fi) the mount
+  the NAS; on a NAT proxy (Default Switch / UTM Shared NAT / Hyper-V-on-Wi-Fi) the mount
   fails (nofail) and replication silently no-ops -- visible at the breadcrumb below.
 - **Visibility:** the proxy publishes `http://<proxy>/ypool-nas-status`
   (`last_attempt=... mounted=0|1 rc_loki=... rc_prometheus=... rc_grafana=...`) and logs to
@@ -549,9 +549,9 @@ What it does, in order:
    is reconciled against the reference host's own resolution of it
    (`GET /control/host-aliases`) -- the reference is the source of truth, so
    its address is adopted whenever it disagrees with what this host resolves
-   the name to, not only when the name fails to resolve here. That makes a
-   re-run repair a **stale** alias (a NAS that moved address) instead of
-   leaving the old entry in place because it still "resolves". Written via
+   the name to. That makes a re-run repair a **stale** alias (a NAS that
+   moved address) instead of keeping the old entry because it still
+   "resolves". Written via
    `automation/Set-HostAlias.ps1` (sudo on Linux/macOS); nothing is written
    when the two already agree. If the reference can't supply an address, a
    working local mapping is kept and only a genuinely-unresolved name
@@ -724,7 +724,7 @@ Common findings:
 
 ## Security notes
 
-The SMB password lives only in the per-host, git-ignored vault
+The SMB password lives only in the per-host, gitignored vault
 (`test/status/extension/authentication/vault.yml`), never in `test.config.yml`. It
 is passed in-process (Windows) or through a transient `0600` credentials file
 (Linux); on macOS it is briefly on the `mount_smbfs` argv (the one residual
@@ -734,7 +734,7 @@ or storage.
 
 ---
 
-## Pool harness — membership, intent, and test-set execution
+## Pool harness -- membership, intent, and test-set execution
 
 The **pool-control service plane** -- creating pools, adding hosts, assigning already-developed
 test sequences, and operating the fleet -- is documented step by step in
@@ -758,6 +758,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../README.md)

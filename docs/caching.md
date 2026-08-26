@@ -54,17 +54,17 @@ guest install scripts.
 
 ## Squid cache VM
 
-Optional local HTTP/HTTPS caching-proxy service packaged as a standalone VM.
+Optional local HTTP/HTTPS caching-proxy-service packaged as a standalone VM.
 Works identically on Windows Hyper-V, macOS UTM, and Ubuntu KVM/libvirt.
 
 ### What it does
 
 Ubuntu Server VM (8 GB RAM with 3 GB `cache_mem`, 12 GB / 7 GB on a lab
-beacon -- see [Cache VM sizing](#cache-vm-sizing); 4 vCPU, 512 GB disk
-with a 384 GB `cache_dir`) on `:3128`, transparently caching every
+beacon; 4 vCPU, 512 GB disk with a 384 GB `cache_dir`) on `:3128`,
+transparently caching every
 cacheable response (`.deb` packages, ISO metadata, firmware blobs,
 anything fetched over plain HTTP). This is a *dedicated* VM -- the
-memory budget is sized around squid's hot-object LRU plus the zot OCI
+memory budget is sized around Squid's hot-object LRU plus the zot OCI
 registry pull-through cache; the full breakdown is in
 [Cache VM sizing](#cache-vm-sizing).
 
@@ -191,7 +191,7 @@ in their own shells; one that does not answer clears both, so a guest whose
 cache was rebuilt or moved returns to the direct path instead of pointing
 at a dead address forever.
 
-HTTPS reaches the cache through squid's ssl-bump on `:3129`, which needs
+HTTPS reaches the cache through Squid's ssl-bump on `:3129`, which needs
 the bump CA in the guest's trust store. Nothing seeds it there, so the
 script calls `yuruna_ca_selfheal` to fetch it from the host status service
 over the plain-HTTP path the bump is not in front of. When that cannot be
@@ -246,7 +246,7 @@ swaps only the arch-specific package list; New-VM merges them via
 ### Serve stale, never serve failures
 
 - `negative_ttl 0 seconds` -- do not cache 4xx/5xx. A transient blip
-  mustn't leave a cached 504 for an object squid could otherwise fetch.
+  mustn't leave a cached 504 for an object Squid could otherwise fetch.
 - Aggressive `refresh_pattern` for content-addressable files
   (`.deb .udeb .tar.xz .tar.gz .tar.bz2 .iso`):
   `override-expire override-lastmod ignore-reload ignore-no-store
@@ -562,7 +562,7 @@ Pre-provisioned "Yuruna caching-proxy service" dashboard:
   until Promtail ships its first line. Cardinality stays bounded: only
   `job=squid` is a stream label.
 
-No HTTPS-specific client counter -- squid's `client_http.*` counters
+No HTTPS-specific client counter -- Squid's `client_http.*` counters
 aggregate HTTP + HTTPS (CONNECT + ssl-bump), hence "HTTP(S)".
 boynux/squid-exporter mixes unit suffixes: Total uses `_kbytes_total`,
 Cached uses `_bytes_total` (both are kbytes). Verify with
@@ -601,7 +601,7 @@ Verify with
 `curl -G 'http://127.0.0.1:3100/loki/api/v1/query_range' --data-urlencode 'query={job="squid"}' --data-urlencode 'limit=5'`.
 
 **squid-exporter** -- [boynux/squid-exporter](https://github.com/boynux/squid-exporter)
-speaks squid's cache-manager protocol on `localhost:3128`. Built from
+speaks Squid's cache-manager protocol on `localhost:3128`. Built from
 source during cloud-init (`go install`); `golang-go` is purged once
 the static binary lands in `/usr/local/bin/squid-exporter`.
 
@@ -885,9 +885,9 @@ unless the origin marks it public or `s-maxage`, and registries do not.
 The `refresh_pattern` option that used to override this, `ignore-auth`,
 is **obsolete in Squid 7** -- it still parses, emits
 `UPGRADE: ... is obsolete. Remove it.`, and changes nothing. A config
-review that greps only for `FATAL`/`ERROR` will not see it. So squid
+review that greps only for `FATAL`/`ERROR` will not see it. So Squid
 cannot be made the manifest store for a token-authenticated registry:
-squid gates and accounts, zot stores.
+Squid gates and accounts, zot stores.
 
 ### Optional Docker Hub account for the sync
 
@@ -1006,7 +1006,7 @@ UTM's Shared mode hands out `192.168.64.0/24` with a gateway of
 - **All UTM VMs egress through the host's single public IP.** That
   amplifies upstream rate-limiting (`security.ubuntu.com` 429s bite
   faster than on Hyper-V where every VM may NAT through its own
-  source) -- one of the reasons squid's broader caching matters most
+  source) -- one of the reasons Squid's broader caching matters most
   on this platform.
 
 ### Cache-VM disk sizing for the macOS install image
@@ -1086,7 +1086,7 @@ suppresses ubuntu creation):
 ### Reaching the cache from outside the host (port 8022)
 
 `Start-CachingProxyServiceVM.ps1` adds an `8022 -> 22` host port forward
-alongside the squid/Grafana ones:
+alongside the Squid/Grafana ones:
 
 ```
 ssh -p 8022 caching-proxy-service-admin@<host-lan-ip>     # -> cache VM :22
@@ -1114,7 +1114,7 @@ what each host's network stack allows.
 
 #### macOS: pwsh forwarder + PROXY v1
 
-Apple VZ shared-NAT isolates guest<->guest traffic on `192.168.64.0/24`,
+Apple VZ Shared NAT isolates guest<->guest traffic on `192.168.64.0/24`,
 so LAN clients can't reach the cache VM directly. The Mac host runs
 [`Start-CachingProxyServiceForwarder.ps1`](../host/macos.utm/Start-CachingProxyServiceForwarder.ps1)
 on `0.0.0.0:3128` / `:3129`, accepts each LAN client's TCP connection,
@@ -1144,7 +1144,7 @@ network);
 [`guest.caching-proxy-service/New-VM.ps1`](../host/windows.hyper-v/guest.caching-proxy-service/New-VM.ps1)
 calls it on every provision and falls back to `Default Switch` if no
 LAN-routed NIC is available. The cache VM then gets a real LAN IP via
-DHCP; remote clients hit `<cache-lan-ip>:3128` directly -- squid sees
+DHCP; remote clients hit `<cache-lan-ip>:3128` directly -- Squid sees
 real client IPs at TCP level, no PROXY protocol needed.
 
 Constraints: a PCI-attached wired NIC works best. Two uplink classes
@@ -1154,7 +1154,7 @@ promiscuous/MAC-spoofing support Hyper-V bridging needs -- so on such an
 uplink DHCP fails and the guest boots with eth0 DOWN; the helper
 (`Test-WindowsUplinkNotBridgeable`) warns and diverts to the Default
 Switch. The cache VM is on the LAN broadcast domain --
-squid's RFC1918 ACL still gates proxy use, but anyone on the LAN can
+Squid's RFC1918 ACL still gates proxy use, but anyone on the LAN can
 TCP-connect. Removing the bridge requires explicit
 `Remove-VMSwitch -Name 'Yuruna-External'` (no auto-clean -- other VMs
 may share the switch).
@@ -1231,9 +1231,9 @@ Implementation:
   [`Start-TestRunner.ps1`](../test/Start-TestRunner.ps1), and
   [`Start-StatusService.ps1`](../test/service/Start-StatusService.ps1).
 
-The console password isn't a secret: squid's `http_access` ACL restricts
+The console password isn't a secret: Squid's `http_access` ACL restricts
 proxy use to RFC1918. The VM is most often debugged before cloud-init
-finishes (Apache, squid, Grafana, Prometheus all install over apt) --
+finishes (Apache, Squid, Grafana, Prometheus all install over apt) --
 console fallback via `vmconnect` is the normal path during that window.
 
 ## Management
@@ -1295,7 +1295,7 @@ It also beacons, which is what puts the proxy in the dashboard's **Extension
 hosts** row rather than being the one service the pool could not see.
 
 The daemon can also run on a different host in a read-only mode; see
-[Running the caching-proxy service from another host](extensions-api.md#running-the-caching-proxy-service-from-another-host)
+[Running the caching-proxy-service from another host](extensions-api.md#running-the-caching-proxy-service-from-another-host)
 for what that costs and the one squid ACL it needs.
 
 ## HTTPS caching
@@ -1323,7 +1323,7 @@ Public cert published at `http://<cache-vm-ip>/yuruna-squid-ca.crt`.
 
 ### Guest trust flow
 
-Platforms differ because Apple VZ's shared-NAT blocks guest<->guest
+Platforms differ because Apple VZ's Shared NAT blocks guest<->guest
 traffic -- a UTM guest can't reach the cache VM IP directly.
 
 **Hyper-V (in-install wget):** when `New-VM.ps1` injects a proxy, the
@@ -1379,11 +1379,11 @@ squid packages surface but older docs do not. The heading keeps its
 link to it:
 
 - **ssl-bump exists only in the `squid-openssl` build** (Ubuntu 26.04 /
-  squid 7.2). `at_step`, `http_port ... ssl-bump`, `sslcrtd_program`,
+  Squid 7.2). `at_step`, `http_port ... ssl-bump`, `sslcrtd_program`,
   and the `/usr/lib/squid/security_file_certgen` helper are all
   compiled under `#if USE_OPENSSL`; the plain `squid` package omits
   every one of them. Feed this drop-in to a non-OpenSSL binary and
-  squid FATALs at config parse, never binds 3128/3129, and cloud-init
+  Squid FATALs at config parse, never binds 3128/3129, and cloud-init
   moves on without ever retrying the failed unit. Two symptoms, one
   cause: `FATAL: ... invalid ACL type 'at_step'` at
   `acl step1 at_step SslBump1`, and -- if that line is deleted --
@@ -1406,7 +1406,7 @@ link to it:
 - **`step1` ACL must be declared explicitly** -- Squid does NOT
   auto-define `at_step` ACLs. Without `acl step1 at_step SslBump1`,
   `ssl_bump peek step1` FATALs with `"Bungled ... ssl_bump peek
-  step1"` and squid never binds 3128/3129.
+  step1"` and Squid never binds 3128/3129.
 - **`dynamic_cert_mem_cache_size` is TOP-LEVEL in Squid 6** (not an
   `http_port` option). Inlining it on the `http_port` line FATALs
   with `"Bungled"`. The default 4 MB is fine; leave it unset.
@@ -1439,7 +1439,7 @@ cache, a typical cycle hits 429
 "Too Many Requests" responses within minutes and stretches each
 install from ~2 min (warm cache) to ~30 min (live), or fails outright
 when an upstream mirror rate-limits the test-lab egress IP. The
-caching-proxy service VM sits on the same host network as the test guests
+caching-proxy-service VM sits on the same host network as the test guests
 and serves the same bytes from disk on every cycle; only the cache VM
 contacts the CDN, so the test guests stay network-isolated and the
 upstream rate limit applies once per cache miss rather than once per
@@ -1553,14 +1553,14 @@ pairing exists to prevent.
 This is a DEDICATED cache VM (squid and the zot OCI pull-through registry
 are its only top-priority workloads), so the memory budget is sized around
 those two rather than the other way around. Per the
-`host/vmconfig/caching-proxy-service.base.user-data` tuning, squid's `cache_mem`
-is **3 GB** by default and **7 GB** on a beacon. Empirically squid's RSS runs
+`host/vmconfig/caching-proxy-service.base.user-data` tuning, Squid's `cache_mem`
+is **3 GB** by default and **7 GB** on a beacon. Empirically Squid's RSS runs
 ~1 GB above `cache_mem` (sslcrtd children + connection buffers + in-RAM hot
-objects), so those imply ~4 GB and ~8 GB of squid RSS respectively.
+objects), so those imply ~4 GB and ~8 GB of Squid RSS respectively.
 
 What the two pairings hold constant is the headroom above that resident set,
 not a proportion of the VM: both leave **4 GB** -- 2 GB for zot, which handles
-the Docker Hub manifest HEADs squid cannot and peaks at ~500 MB during heavy
+the Docker Hub manifest HEADs Squid cannot and peaks at ~500 MB during heavy
 parallel pulls, and ~2 GB for the rest of the stack (apache, grafana,
 prometheus, loki, promtail, squid-exporter, caching-proxy-parser-service,
 kernel, page cache). 3 GB in 8 GB and 7 GB in 12 GB are 37 % and 58 % of their
@@ -1568,8 +1568,7 @@ VMs, so a third pairing has to satisfy the headroom arithmetic rather than
 carry a percentage across.
 
 4 vCPU stays -- caching is I/O- and memory-bound, not CPU-bound; raising
-the vCPU count without raising RAM wouldn't help. Swap is masked in
-user-data, so an OOM event is unrecoverable; if you tune `cache_mem`
+the vCPU count without raising RAM wouldn't help. If you tune `cache_mem`
 upward, raise the VM total proportionally.
 
 ### Cache-VM password persistence
@@ -1823,7 +1822,7 @@ inherits the URL, fetches the CA from
 When both sources are empty -- or both fail their `:3128` probes (the
 env var is then cleared) -- local discovery runs unchanged: a host
 running its own cache VM falls back to it, and a host with none
-proceeds without a caching-proxy service.
+proceeds without a caching-proxy-service.
 
 ### Port-map dispatch by host topology
 
@@ -1841,14 +1840,14 @@ clients up to the cache:
 2. **Local cache on `Yuruna-External` vSwitch** (fast path). When the
    cache VM is bridged to LAN, install VMs (which also prefer
    `Yuruna-External`) sit on the same segment and reach squid at its
-   DHCP-assigned LAN IP. squid sees real client IPs at TCP level -- no
+   DHCP-assigned LAN IP. Squid sees real client IPs at TCP level -- no
    forwarder, no PROXY-protocol header, no portproxy. Any leftover
    `netsh portproxy` from a prior Default-Switch cycle is removed so
    it cannot silently NAT-rewrite a parallel path. The dashboard URL
    points at the cache VM's LAN IP (not the host IP -- the host is no
    longer the proxy entry point).
 
-3. **Local cache on Hyper-V Default Switch** (fallback). squid lives
+3. **Local cache on Hyper-V Default Switch** (fallback). Squid lives
    on the same NAT as the install VMs but does not accept LAN clients
    directly, so the runner forwards host:port -> cache:port. Default
    Switch's NAT does **not** route to LAN destinations without
@@ -1896,7 +1895,7 @@ start and stop.
 
 The "detected" word printed at startup is an ANSI OSC 8 hyperlink to
 the Grafana dashboard so modern terminals (Windows Terminal, VS Code)
-can ctrl-click into the caching-proxy service view. Terminals without OSC 8
+can ctrl-click into the caching-proxy-service view. Terminals without OSC 8
 drop the escapes silently.
 
 ### Updating the pool dashboard without a rebuild
@@ -2070,7 +2069,7 @@ On the **new** cache (the child):
 
 - `cache_peer <old> parent 3130 0 no-query default tls
   tls-flags=DONT_VERIFY_PEER,DONT_VERIFY_DOMAIN` -- the old cache
-  becomes the default parent. The link is TLS because squid refuses to
+  becomes the default parent. The link is TLS because Squid refuses to
   relay ssl-bumped `https://` requests over a plaintext peer link;
   over TLS, both the ssl-bumped HTTPS objects **and** the plain-HTTP
   objects warm from the old cache. Verification is off because the old
@@ -2078,7 +2077,7 @@ On the **new** cache (the child):
   a lab-internal, migration-lifetime link between two VMs the operator
   controls.
 - `prefer_direct off` + `nonhierarchical_direct off` -- send misses
-  (including requests squid would classify as non-hierarchical)
+  (including requests Squid would classify as non-hierarchical)
   through the parent instead of going direct.
 
 If the old cache has no ssl-bump CA pair, or `:3130` fails to come up,
@@ -2231,6 +2230,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../README.md)

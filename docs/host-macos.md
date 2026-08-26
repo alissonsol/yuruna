@@ -1,4 +1,4 @@
-# macOS UTM host — troubleshooting
+# macOS UTM host -- troubleshooting
 
 **Warning:** Instructions are intentionally brief -- don't follow them unless you know what you are doing.
 
@@ -33,7 +33,7 @@ printf 'macOS account password: ' && read -rs YPW && echo && \
   printf '%s\n' "$YPW" | sudo sysadminctl -screenLock off -password -; unset YPW
 ```
 
-The state is persistent across reboots, so this is a one-time step. The same
+The state persists across reboots, so this is a one-time step. The same
 command with a number instead of `off` restores a delay in seconds -- which is
 what `Disable-TestAutomation.ps1` does from the captured pre-automation state.
 
@@ -85,7 +85,7 @@ without fully quitting the terminal afterwards; or the check is running in an
 SSH session, which cannot hold these grants at all (the gate says so instead of
 failing, since it is describing the wrong session).
 
-## `utmctl missing on PATH` — the gate fails on a Mac where UTM is installed
+## `utmctl missing on PATH` -- the gate fails on a Mac where UTM is installed
 
 `Test-Config.ps1` reports `[PASS] UTM.app installed.` and, one line later,
 `[FAIL] utmctl missing on PATH`; `Start-TestRunner.ps1` then refuses with
@@ -224,7 +224,7 @@ or window-id lookups, verify:
 QEMU+VNC guests (any guest opting into `-vnc` in `AdditionalArguments`)
 are Space-independent and need none of the above.
 
-## `Assert-ScreenRecording` false positive — toggle is on but harness refuses to start
+## `Assert-ScreenRecording` false positive -- toggle is on but harness refuses to start
 
 System Settings shows the toggle ON, you've fully quit and relaunched,
 yet `Start-TestRunner.ps1` still rejects with "Screen Recording is
@@ -259,10 +259,10 @@ Open an issue with:
 
 ## Unrelated UTM VMs split test guests onto a second vmnet-shared bridge
 
-**Limitation:** before starting an `Start-TestRunner.ps1` cycle, stop
+**Limitation:** before starting a `Start-TestRunner.ps1` cycle, stop
 (or pause) every other UTM VM in the library. Leaving an unrelated VM
 running is a known-bad state -- cloud-init in the test guests will fail
-to reach the host caching-proxy service and the cycle will fail at the first
+to reach the host caching-proxy-service and the cycle will fail at the first
 `fetch-and-execute` step.
 
 Symptom in the cycle log:
@@ -472,6 +472,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../README.md)

@@ -25,7 +25,7 @@ up a test machine.
   tool to install before running Yuruna, the cloud accounts and CLIs, and the
   environment the instructions were tested against.
 - **[lab-operator.md](lab-operator.md)** -- bring-up runbook for a lab:
-  shared NAS storage, caching-proxy service, stash and pool-control services,
+  shared NAS storage, caching-proxy-service, stash and pool-control services,
   each additional machine enrolled via the dashboard's Lab token, and a
   two-pool split running a different test-set on each.
 - **[definition.md](definition.md)** -- the glossary: generic and
@@ -98,7 +98,7 @@ up a test machine.
 - **[system-diagnostic.md](system-diagnostic.md)** -- the read-only diagnostic
   dump collected during incident triage.
 - **[workarounds.md](workarounds.md)** -- frequently asked questions plus
-  workarounds learned during development, starting with connectivity, and
+  workarounds from development, starting with connectivity, and
   [per-guest-OS troubleshooting](workarounds.md#guest-troubleshooting) for
   Amazon Linux, Ubuntu Server, and Windows 11.
 - **[memory.md](memory.md)** -- load-bearing rationale that used to live inline in
@@ -133,7 +133,7 @@ up a test machine.
   cache, and preflighting.
 - **[cache-health-dashboard.md](cache-health-dashboard.md)** -- the cache VM's two
   Grafana dashboards: the zot registry-path manifest latency canary, upstream pull
-  budget, and slow-request forensics, plus the squid web-path throughput, hit
+  budget, and slow-request forensics, plus the Squid web-path throughput, hit
   ratios, connectivity, and offline mode. Both dashboards' tooltips link here.
 - **[network.md](network.md)** -- rationale for network-related workarounds in the
   guest scripts and the host harness.
@@ -240,6 +240,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../README.md)

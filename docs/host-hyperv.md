@@ -1,4 +1,37 @@
-# Windows Hyper-V host — troubleshooting
+# Windows Hyper-V host -- troubleshooting
+
+## ARM64 hosts: `$env:PROCESSOR_ARCHITECTURE` reports the wrong answer
+
+An ARM64 Windows host runs x64 processes under emulation, and inside such a
+process `$env:PROCESSOR_ARCHITECTURE` is `AMD64` -- the emulated view, not
+the machine. An operator checking the host by hand that way concludes the
+machine is AMD64, and the answer differs between an x64 shell and a native
+ARM64 one on the same host.
+
+Everything that picks a guest image reads
+`[System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture`
+instead, which reports `Arm64` for the host whether or not the process is
+emulated. That is true of .NET 7 and later -- earlier runtimes, and .NET
+Framework (so Windows PowerShell 5.1), report the emulated `X64` there
+too, which is why the answer is only trustworthy from `pwsh`. To check by
+hand:
+
+```powershell
+[System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+```
+
+An image fetched for the wrong architecture does not fail at download time.
+It fails when the VM is started, as a guest that never boots.
+
+## ARM64 hosts: Amazon Linux 2023 needs qemu-img
+
+Amazon publishes its `hyperv` platform (a zipped VHDX) for x86-64 only.
+`guest.amazon.linux.2023/Get-Image.ps1` therefore pulls the ARM64 KVM
+qcow2 on an ARM64 host and converts it locally, so `qemu-img` has to be on
+the machine -- `winget install SoftwareFreedomConservancy.QEMU`. Without it
+the script stops with a conversion error after a successful download; every
+other guest on an ARM64 host has a native ARM64 publication and needs no
+conversion.
 
 ## Cleaning up old files
 
@@ -256,6 +289,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../README.md)

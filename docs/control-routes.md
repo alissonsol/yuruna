@@ -1,4 +1,4 @@
-# Yuruna control routes — who is allowed to drive a host
+# Yuruna control routes -- who is allowed to drive a host
 
 > **Who this is for.** An operator who uses a host's **status page** to start a cycle,
 > pause a step, or run a host diagnostic -- especially from a browser on **another
@@ -35,7 +35,7 @@ aggregator's push-ingest and the cross-host credential fetch, **not a new secret
 token itself never travels in a URL.
 
 When you open a host from the *Yuruna hosts* dashboard, the link goes through the pool
-aggregator on the caching-proxy service, which mints a proof valid for **15 minutes** and
+aggregator on the caching-proxy-service, which mints a proof valid for **15 minutes** and
 hands it to the host page in the URL **fragment** (`#yctl=...`). A fragment never reaches a
 server or an access log; only the page's own JavaScript reads it. The page keeps it in
 `sessionStorage` **for that tab** and presents it as the `X-Yuruna-Control` header on every
@@ -63,9 +63,9 @@ decides whether pool-wide control reaches it, and the `reason` table below expla
 
 ## Enabling remote control on a host
 
-Every host **and** the caching-proxy service must hold the **same** internal authentication key: a proof
+Every host **and** the caching-proxy-service must hold the **same** internal authentication key: a proof
 minted by the proxy can only be verified by a host that shares that key. The key
-originates on the caching-proxy service -- building the proxy VM mints one automatically
+originates on the caching-proxy-service -- building the proxy VM mints one automatically
 when the building host has none -- and every other host obtains it by **enrolling with the
 Lab token**. The key itself is never displayed anywhere, and the ordinary paths
 never ask anyone to type it; the one escape hatch that takes it directly
@@ -73,7 +73,7 @@ never ask anyone to type it; the one escape hatch that takes it directly
 already-enrolled host's vault.
 
 **1. Read the Lab token off the dashboard.** Open the *Yuruna hosts* dashboard (Grafana on
-the caching-proxy service) and find the **Lab token** tile at the top left of the summary
+the caching-proxy-service) and find the **Lab token** tile at the top left of the summary
 row: a 6-character code -- the one credential an operator ever reads or types. It
 rotates every minute (aggregator
 `-lab-token-rotate`) and a displayed code stays redeemable for about three minutes, so read
@@ -95,7 +95,7 @@ is audited -- the aggregator logs every attempt with the caller's address, to it
 and to Loki -- and per-address throttled. Whoever can **view** the dashboard can enroll a
 host: that is the lab's trust model, and the dashboard and the code rotate together.
 
-The caching-proxy service is found from this host's configuration
+The caching-proxy-service is found from this host's configuration
 (`vmStart.cachingProxyIp`, the persisted proxy state, or
 `$env:YURUNA_CACHING_PROXY_SERVICE_IP`). Each is probed on the aggregator port `:9400` and
 the first that answers is used, so a stale address -- the persisted state keeps its last
@@ -134,7 +134,7 @@ host-to-host path for a lab whose aggregator is unreachable: it takes the raw ke
 from an operator who already holds it and stores it the same way.)
 
 **3. Drive the host from the dashboard.** Open the *Yuruna hosts* dashboard on the
-caching-proxy service and follow the host's link -- the **Control** cell in the *Pool
+caching-proxy-service and follow the host's link -- the **Control** cell in the *Pool
 hosts* table, or the timeline's "open host status page" -- both route through the
 aggregator's `/go/host` redirect. Arriving that way is what carries the proof; typing the
 host's URL by hand does not. A **Host ID** cell opens a menu instead of one destination:
@@ -228,7 +228,7 @@ message, and the status pages render it in place of a bare `HTTP 403`:
 2. **You typed the host URL instead of following the dashboard link.** The proof lives in that
    tab's `sessionStorage` and is per-origin: arriving on one of the host's addresses and then
    switching to another loses it. Re-enter through the dashboard host link. A minted proof
-   lasts about 15 minutes; the config page shows a countdown and warns before it lapses.
+   lasts about 15 minutes.
 3. **The host has no `internal-auth-key` vault entry** (or an empty vault key) -- non-loopback
    control is refused by design until the host is enrolled. Read the current Lab token off
    the dashboard and run `pwsh test/lab/Set-LabToken.ps1 -LabToken <code> -BounceStatusService`
@@ -529,6 +529,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../README.md)

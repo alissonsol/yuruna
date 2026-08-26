@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.23
+.VERSION 2026.08.25
 .GUID 42fba995-7607-4a66-acfd-0149a2a9f06a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -2606,7 +2606,7 @@ try {
                 `$res.ContentLength64 = `$body.Length
                 # HEAD: advertise Content-Length but send no body.
                 # HTTP.sys RSTs the connection when user code writes
-                # bytes for a HEAD response, which made wget --spider
+                # bytes for a HEAD response, which makes wget --spider
                 # probes from automation/fetch-and-execute.sh fail and
                 # silently fall back to GitHub for every fetch.
                 if (`$req.HttpMethod -ne 'HEAD') {
@@ -2697,10 +2697,10 @@ try {
                 `$diagFolder = (`$folderSegs -join '/')
                 # Path-traversal guard on every folder segment. Filename
                 # is checked separately below. We don't pattern-match the
-                # folder shape (the older *.failure-screens-* check is
-                # obsolete -- cycleGuestDataFolders are just the VM name)
-                # because the existence-on-disk requirement at the end
-                # of this block is the actual security boundary.
+                # folder shape (cycleGuestDataFolders are just the VM
+                # name, with no stable grammar to match) because the
+                # existence-on-disk requirement at the end of this block
+                # is the actual security boundary.
                 # Note: ``continue`` inside the loop would only iterate
                 # over segments -- we set a flag and break, then short-
                 # circuit out of the dispatch with ``continue`` against
@@ -3369,8 +3369,8 @@ try {
                 # (index.html, config.html) carry a 60-second freshness
                 # window with must-revalidate so a browser left open re-
                 # fetches on the next navigation/poll instead of serving a
-                # stale DOM that older 'no-store' headers paradoxically
-                # leaked through some clients. Last-Modified rides along so
+                # stale DOM that bare 'no-store' headers paradoxically
+                # leak through some clients. Last-Modified rides along so
                 # the revalidation can return 304 (cheap) when nothing
                 # changed. Everything else mutates per cycle (.json) or is
                 # repo content served for guests (.sh, .ps1, .psm1, .yml,

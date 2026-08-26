@@ -84,7 +84,7 @@ Likely the best path for command-line use and environments like Linux.
   - Other scripts for convenience.
     - `test/lab/Enable-TestAutomation.ps1`: Change host settings to avoid screen savers and other disruptions for long test cycles.
     - `test/lab/Sync-HostConfiguration.ps1`: Copy host configuration (`test.config.yml`) parameters from another host.
-    - `test/Test-CachingProxyService.ps1`: Test connectivity to the caching-proxy service.
+    - `test/Test-CachingProxyService.ps1`: Test connectivity to the caching-proxy-service.
     - `test/Test-Config.ps1`: Test if the host configuration has valid values.
 
 ## Workflow
@@ -219,7 +219,7 @@ the empty `ghToken: ""` in the template is.
 
 ### 5. **Running Tests**
 
-  - If not using a local caching-proxy service, set the address of that server --
+  - If not using a local caching-proxy-service, set the address of that server --
     durably via `vmStart.cachingProxyIp` in `test/test.config.yml` (probed
     first at cycle start), or for the session only via the fallback env var
     (consulted only when the config key is empty or unreachable):
@@ -228,7 +228,7 @@ the empty `ghToken: ""` in the template is.
     ```
 
   - Test your configuration, address the errors, and understand the warnings.
-    - Test just the caching-proxy service: `test/Test-CachingProxyService.ps1`
+    - Test just the caching-proxy-service: `test/Test-CachingProxyService.ps1`
     - Check the configuration: `test/Test-Config.ps1`
 
 #### **Ensuring local changes are used in tests**
@@ -256,12 +256,12 @@ the empty `ghToken: ""` in the template is.
 
   Test steps assume a PowerShell terminal (with Administrator permissions in Windows).
 
-  - Start the Yuruna caching-proxy service
+  - Start the Yuruna caching-proxy-service
     - Locally: `test/service/Start-CachingProxyServiceVM.ps1`
-    - For a remote cache: set `vmStart.cachingProxyIp` in `test/test.config.yml` (probed first), or `$env:YURUNA_CACHING_PROXY_SERVICE_IP = 'x.y.z.a'` when the config key is empty
+    - For a remote cache: set `vmStart.cachingProxyIp` in `test/test.config.yml`, or the fallback env var (see step 5)
     - Test: `test/Test-CachingProxyService.ps1`
   - Single test loop: `test/Invoke-TestProject.ps1`
-  - For unattended tests, see the [Test Runner](docs/runner-outer-loop.md) documentation.
+  - For unattended tests, see the [Test runner](docs/runner-outer-loop.md) documentation.
 
 ### 7. **Debug a specific step**
   - `Debug-TestSequence.ps1` re-runs a
@@ -371,6 +371,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](README.md)

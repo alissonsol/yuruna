@@ -1,4 +1,4 @@
-# Get-SystemDiagnostic — design and per-section rationale
+# Get-SystemDiagnostic -- design and per-section rationale
 
 [`automation/Get-SystemDiagnostic.ps1`](../automation/Get-SystemDiagnostic.ps1)
 is a read-only diagnostic dump invoked from the host (and pulled
@@ -305,6 +305,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../README.md)

@@ -54,7 +54,7 @@ validation, or small changes against real recurring pain.
   (pull-collector, Grafana dashboard, Loki/Prometheus wiring) is built and
   statically verified but has never run against live hosts. Bring up the host
   status service, boot the caching-proxy-service VM, run a cycle or two so hosts
-  pull through the squid proxy, then confirm `:9400/healthz`, that
+  pull through the Squid proxy, then confirm `:9400/healthz`, that
   `/api/v1/pool-status` lists discovered hosts, the Prometheus target is
   UP, Loki streams flow, the dashboard renders across >=2 hosts, and killing
   the collector leaves every runner still testing. The only part of the
@@ -265,6 +265,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../README.md)

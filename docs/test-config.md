@@ -1,7 +1,7 @@
-# test.config.yml — runner configuration reference
+# test.config.yml -- runner configuration reference
 
 `test/test.config.yml` is the per-host runner configuration. On first run it is
-bootstrapped from `test/test.config.yml.template` (then git-ignored, so your edits
+bootstrapped from `test/test.config.yml.template` (then gitignored, so your edits
 and secrets stay local). Edit it directly, or through the status-page editor
 (`config.html`), a schema-driven form that loads/saves via
 `GET`/`POST /control/test-config`. The template carries short comments on many
@@ -28,7 +28,7 @@ pwsh tools/Update-TestConfigNaming.ps1
 ```
 
 It keeps the previous file alongside as `test.config.yml.pre-renaming` (which
-holds the same secrets the live file does, and is git-ignored for that reason),
+holds the same secrets the live file does, and is gitignored for that reason),
 is a no-op on an already-converted file, and refuses to guess when a key is
 present in both forms. The retired-key table it reads is
 `test/modules/Test.ConfigNaming.psm1`; the rules behind the names are in
@@ -87,7 +87,7 @@ Two consequences: the operator-managed `secrets` node is emitted as real YAML
 adds by hand outside the obsolete block are not preserved, because the
 template -- not the previous file -- is the skeleton.
 
-## configService — host mTLS credential service
+## configService -- host mTLS credential service
 
 `configService.enabled` / `configService.port` (default `8443`) control the
 per-host **config service** -- the mTLS endpoint that serves NAS credentials to
@@ -120,7 +120,7 @@ stop->start of the agent VM, not on the next cycle. The same defaults are
 hardcoded in the daemon (`server/internal/config`), so a host with no
 `downloadAgentService` block and a bare daemon behave identically.
 
-## networkStorage — optional NAS-backed durable tiers
+## networkStorage -- optional NAS-backed durable tiers
 
 Hosts (like guests) are **reimageable at any time**, so local storage stays local,
 fast, and ephemeral; optional Network-Attached Storage shares are the durable tier.
@@ -141,14 +141,14 @@ whether archiving happens:
 | **copy** (default) | `false` | Copy each finished cycle to the share and **keep** the local folder. Runs detached at cycle end; a slow or absent NAS never delays the loop. |
 | **move** | `true` | Copy, **verify**, and then **delete** the local folder, so the share holds the only copy. Runs synchronously at cycle end, because the cycle's verdict depends on it. |
 
-The squid cache is **not** archived (rebuildable; left to squid pools). The stash
+The Squid cache is **not** archived (rebuildable; left to Squid pools). The stash
 tier has no mode flag -- the stash daemon writes its files directly to its own share.
 
 > **`pool.networkReplicate` is retired.** It is ignored wherever it still appears,
 > and `pwsh test/Test-Config.ps1` prints one advisory naming the replacement. A host
 > that had the three paths populated with `networkReplicate: false` -- the
 > pre-validation state this page used to recommend -- **starts archiving in copy mode
-> at upgrade**, and its next caching-proxy rebuild starts replicating the proxy's
+> at upgrade**, and its next caching-proxy-service rebuild starts replicating the proxy's
 > observability data too. Delete the key; add `moveLogsToPoolStorage: true` if you
 > want move semantics.
 
@@ -245,7 +245,7 @@ Each SMB password must match the NAS exactly, so it is **never** auto-generated 
 you set it once, per host. Because the pool and stash use **separate
 accounts**, you set **two** passwords: one for `poolStorageNetworkUser` and one for
 `stashStorageNetworkUser`. The vault
-(`test/status/extension/authentication/vault.yml`) is git-ignored, plaintext, and
+(`test/status/extension/authentication/vault.yml`) is gitignored, plaintext, and
 persists across cycles.
 
 **Already done for local storage.** If the shares live on this machine and were
@@ -259,7 +259,7 @@ the pool account has no usable credential, the validator asks for the
 `poolStorageNetworkUser` password (typed twice, not echoed), maps the `vaultKey` in
 `users.yml`, stores the password, and re-checks -- so the run ends with the gate
 satisfied instead of a failure to act on later. Run non-interactively (the
-unattended runner, a redirected stdin), it never prompts and just reports the
+unattended runner, a redirected stdin), it never prompts and reports the
 failure. The `stashStorageNetworkUser` password is still set by hand, below.
 
 **Recommended (fail-safe):** map a `vaultKey` so the harness never silently
@@ -335,13 +335,13 @@ and probes each from this host:
   cycling and recover.
 
 Several hosts each running their own stash service is normal and reports as
-several PASS lines. A host with no caching-proxy service has no aggregator to
+several PASS lines. A host with no caching-proxy-service has no aggregator to
 ask; the section says so and skips.
 
-## pool — optional multi-host pool intent (default-off)
+## pool -- optional multi-host pool intent (default-off)
 
 Joins this host to a **pool**: it PULLs the slow-changing pool intent (membership
-+ `desiredState`) from a LAN git repo on the caching-proxy service each cycle, and the
++ `desiredState`) from a LAN git repo on the caching-proxy-service each cycle, and the
 pool-aggregator service labels its telemetry by the pool it belongs to. **Default-off** --
 with `enabled: false` (or no `pool` block) the host behaves exactly as a single
 host. Creating pools + assigning test sequences (the operator guide): [pool-admin.md](pool-admin.md).
@@ -379,7 +379,7 @@ consecutive-failure streak (`maxAttemptsPerCycle`) so a deterministic failure
 still escalates to the normal wait-for-human pause after that many auto-retries.
 A pool may override the whole block through its `config.testCycle`.
 
-## testCycle.labHealth — hold the cycle while a lab service is away
+## testCycle.labHealth -- hold the cycle while a lab service is away
 
 ```yaml
 testCycle:
@@ -420,17 +420,17 @@ names extra areas to probe even where this host has never seen them healthy.
 its `status.json` fields:
 [failure-schema.md](failure-schema.md#the-lab-health-gate-lab_health_-events).
 
-## vmStart.cachingProxyIp — external cache source (probed first)
+## vmStart.cachingProxyIp -- external cache source (probed first)
 
-Names the external caching-proxy service this host should route guest installs
+Names the external caching-proxy-service this host should route guest installs
 through. At cycle start `Resolve-CachingProxyServiceEndpoint` (Test.CachingProxyService)
-probes this value **first**; it wins when its squid HTTP port `:3128`
+probes this value **first**; it wins when its Squid HTTP port `:3128`
 answers. `$Env:YURUNA_CACHING_PROXY_SERVICE_IP` is the session-scope **fallback**,
 probed only when this key is empty or its probe fails. The winner (from
 either source) is published into the env var for the rest of the cycle.
 When both sources fail their probes, the env var is cleared and local
 discovery runs -- a host with its own cache VM falls back to it; a host
-with none proceeds without a caching-proxy service.
+with none proceeds without a caching-proxy-service.
 
 Empty string means absent (fall through to the env var / local
 discovery). The status-page editor validates the value at save time:
@@ -460,6 +460,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../README.md)

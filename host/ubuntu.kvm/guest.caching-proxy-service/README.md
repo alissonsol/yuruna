@@ -12,9 +12,9 @@ Scripts and config in this folder:
   (amd64 on x86_64, arm64 on aarch64, qcow2, resized to 512 GB sparse).
 - [New-VM.ps1](New-VM.ps1) -- defines the libvirt domain
   (12 GB RAM / core-count-policy vCPUs, min 4) and seeds via cloud-init. Dedicated cache box
-  budgeted around squid's 7 GB `cache_mem` (58 % of RAM).
+  budgeted around Squid's 7 GB `cache_mem` (58 % of RAM).
 - [host/vmconfig/caching-proxy-service.base.user-data](../../vmconfig/caching-proxy-service.base.user-data) -- shared
-  cloud-init base (+ per-host overlay): squid, Prometheus + Grafana + squid-exporter,
+  cloud-init base (+ per-host overlay): Squid, Prometheus + Grafana + squid-exporter,
   qemu-guest-agent, snapshot-cache tuning, `offline_mode` flip after prewarm.
 - [host/vmconfig/caching-proxy-service.meta-data](../../vmconfig/caching-proxy-service.meta-data) -- shared
   cloud-init instance metadata.
@@ -129,10 +129,10 @@ sets one up automatically for ports 80 / 3000 / 9302 / 9400 / 3128 /
 
 **The multi-host pool dashboard requires the bridge.** On the NAT
 fallback the forwarder is `systemd-socket-proxyd`, a userspace TCP proxy
-that re-originates every connection from the host -- so squid records a
+that re-originates every connection from the host -- so Squid records a
 single client IP (the NAT gateway `192.168.122.1`) for the whole LAN.
 The pool-aggregator-service discovers hosts by their real client IP in
-squid's log, so on NAT it discovers none and
+Squid's log, so on NAT it discovers none and
 `.../d/yuruna-pool/yuruna-hosts` shows "No data" however many hosts point
 at the proxy. Bridging is the only reliable fix (the macOS UTM and
 Hyper-V cache VMs are bridged, which is why their pool dashboards
@@ -153,6 +153,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../../../README.md)

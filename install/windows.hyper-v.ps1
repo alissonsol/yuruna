@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.23
+.VERSION 2026.08.25
 .GUID 425b1941-f370-4155-9842-47cbe6837b47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -201,9 +201,19 @@ function Test-SystemRequirement {
             $null = $issues.Add("Windows edition '$caption' detected (need Windows 11 Pro/Enterprise/Education or Windows Server with Hyper-V)")
         }
     }
-    $archEnv = $env:PROCESSOR_ARCHITECTURE
-    if ($archEnv -ne 'AMD64') {
-        $null = $issues.Add("architecture '$archEnv' detected (need AMD64/x86_64)")
+    # AMD64 and ARM64 hosts are both supported; anything else (x86, and the
+    # arm32 the enum can still name) cannot run the guests.
+    #
+    # OSArchitecture rather than $env:PROCESSOR_ARCHITECTURE, which reports
+    # AMD64 for an x64 process under emulation on an ARM64 host. This preflight
+    # runs before the relaunch into pwsh, so on .NET Framework it can report
+    # that same emulated view -- harmless here, because both answers are
+    # accepted and only the reported name in the message would be off. The
+    # scripts that pick an actual image all run under pwsh 7, where
+    # OSArchitecture reports the machine.
+    $archEnv = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
+    if ($archEnv -notin @([System.Runtime.InteropServices.Architecture]::X64, [System.Runtime.InteropServices.Architecture]::Arm64)) {
+        $null = $issues.Add("architecture '$archEnv' detected (need AMD64/x86_64 or ARM64)")
     }
     $cores = 0
     try {

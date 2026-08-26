@@ -31,9 +31,9 @@ func TestMcpToolsArePinnedAndReadOnly(t *testing.T) {
 	defer srv.Close()
 	got := mcpPost(t, srv.URL, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
 	tools := got["result"].(map[string]any)["tools"].([]any)
-	// Read tools and control tools, in the order tools/list sorts them. The
-	// control tools were a recorded deferral until the read surface was in use;
-	// they are now present, and the assertion below is what keeps them honest.
+	// Read tools and control tools, in the order tools/list sorts them. Every
+	// tool declares which it is here, and the assertion below keeps the
+	// declarations honest.
 	readOnly := map[string]bool{
 		"pool_control_board":              true,
 		"pool_control_diagnostics":        true,

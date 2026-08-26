@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.23
+.VERSION 2026.08.25
 .GUID 422e4357-5c4b-4d6a-a0e1-938418a006fb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -136,7 +136,7 @@ $ApiRules = @(
     @{ Name = 'String.padStart';       Pattern = '\.padStart\s*\(';                        Since = 'Safari 10' }
     @{ Name = 'String.padEnd';         Pattern = '\.padEnd\s*\(';                          Since = 'Safari 10' }
     @{ Name = 'Array.prototype.flat';  Pattern = '\.flat\s*\(';                            Since = 'Safari 12' }
-    @{ Name = 'Array.prototype.find';  Pattern = '\.findLast\s*\(';                        Since = 'Safari 15.4' }
+    @{ Name = 'Array.prototype.findLast'; Pattern = '\.findLast\s*\(';                     Since = 'Safari 15.4' }
     @{ Name = 'URL constructor';       Pattern = '\bnew\s+URL\s*\(';                       Since = 'Safari 10' }
     @{ Name = 'URLSearchParams';       Pattern = '\bnew\s+URLSearchParams\b';               Since = 'Safari 10.1' }
     @{ Name = 'NodeList.forEach';      Pattern = '\bquerySelectorAll\([^)]*\)\.forEach\b';  Since = 'Safari 10' }

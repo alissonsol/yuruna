@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.23
+.VERSION 2026.08.25
 .GUID 42d07272-8c12-4ba7-807e-c0b201076d87
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -221,7 +221,7 @@ if ($rc -ne 0) {
 # The host contract's Start-VM owns the whole UTM sequence -- VNC-display
 # arbitration, the custom-QEMU-args dialog watchdog (without which this bring-up
 # cannot run unattended, because UTM blocks on a modal), open, utmctl start, and
-# the exit-0-but-QEMU-died check. Hand-rolling it here got all four wrong.
+# the exit-0-but-QEMU-died check. Hand-rolling it here gets all four wrong.
 if ($HostType -eq 'host.macos.utm') {
     $UtmDir = "$HOME/yuruna/guest.nosync/$VMName.utm"
     if (-not (Test-Path $UtmDir)) {

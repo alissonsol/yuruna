@@ -1,4 +1,4 @@
-# Guest image setup — common pattern
+# Guest image setup -- common pattern
 
 > Shared lifecycle that every `host/<HOST>/guest.<GUEST>/` folder
 > follows. Per-host READMEs document only the deltas (paths, package
@@ -36,9 +36,13 @@ force a cross-architecture image.
 Image source by host:
 
 - **Hyper-V** -- vendor ISO (Ubuntu live-server, Windows 11 media)
-  pulled directly. Some publishers gate the download behind a
-  short-lived URL; `Get-Image.ps1` prints manual fallback steps when
-  the automated fetch is blocked.
+  pulled directly, on an AMD64 or ARM64 host. Some publishers gate the
+  download behind a short-lived URL; `Get-Image.ps1` prints manual
+  fallback steps when the automated fetch is blocked. Amazon Linux 2023
+  is the one guest whose publisher offers no ARM64 Hyper-V image, so on
+  ARM64 the script pulls the ARM64 KVM qcow2 and converts it to VHDX
+  with `qemu-img` -- the same file name either way, so `New-VM.ps1` is
+  unaffected.
 - **macOS UTM** -- same as Hyper-V for ISO-based guests. macOS guests
   use `.ipsw` (queried via the Virtualization framework rather than a
   stable URL).
@@ -364,7 +368,7 @@ sequence drives that rotation against the OS prompt.
 For ad-hoc runs outside a cycle, set `$env:YURUNA_GUEST_PASSWORD` to
 a known plaintext before `New-VM.ps1` to bypass the vault.
 
-## Caching-proxy service
+## Caching-proxy-service
 
 When a `guest.caching-proxy-service` VM is running on any host, pass its IP via
 `-CachingProxyServiceUrl` to `New-VM.ps1` for supported guests. Ubuntu Server
@@ -416,8 +420,8 @@ Only two things vary, and they vary by HOST, not by service:
 | Host type | Base image | What `New-VM.ps1` creates |
 | --- | --- | --- |
 | `macos.utm` | arm64 qcow2, resized to 256 GB sparse on APFS | a UTM bundle (QEMU backend, `-vnc`, bridged networking), seeded via cloud-init |
-| `ubuntu.kvm` | amd64 qcow2, resized to 256 GB sparse | a libvirt domain, seeded via a cloud-init NoCloud ISO |
-| `windows.hyper-v` | amd64 qcow2 converted to VHDX, resized to 256 GB dynamic | a Hyper-V VM, seeded via a cloud-init ISO |
+| `ubuntu.kvm` | host-architecture qcow2, resized to 256 GB sparse | a libvirt domain, seeded via a cloud-init NoCloud ISO |
+| `windows.hyper-v` | host-architecture qcow2 converted to VHDX, resized to 256 GB dynamic | a Hyper-V VM, seeded via a cloud-init ISO |
 
 All three sizes are 2 GB RAM and core-count-policy vCPUs (minimum 4).
 
@@ -480,7 +484,7 @@ outage.
 
 ### Cache-routed downloads: `Yuruna.HostDownload.psm1`
 
-Holds the shared squid caching-proxy-service download stack:
+Holds the shared Squid caching-proxy-service download stack:
 `Test-DownloadAlreadyCurrent`, `Get-CacheProxyForHostDownload`,
 `Save-CachedHttpUri`, `Invoke-HttpsViaSquidBump`, and the TCP port
 probe. Centralizing them means a hardening fix to the X509
@@ -505,7 +509,7 @@ Centralizes the resolve / download / verify / swap workflow for
 
 `Save-CachedHttpUri` and `Test-DownloadAlreadyCurrent` are exported
 from each per-host `Yuruna.Host.psm1` driver. With the driver imported,
-`Save-UbuntuServerImage` routes downloads through the squid cache --
+`Save-UbuntuServerImage` routes downloads through the Squid cache --
 HTTPS via the SSL-bump port with per-process trust of
 the freshly-fetched yuruna CA, HTTP via the proxy port, falling through
 to a direct `Invoke-WebRequest` when no cache is reachable -- and
@@ -555,6 +559,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../README.md)

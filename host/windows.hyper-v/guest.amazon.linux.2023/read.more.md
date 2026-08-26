@@ -1,4 +1,4 @@
-# Amazon Linux 2023 guest on Windows Hyper-V host — Nerd-Level Details
+# Amazon Linux 2023 guest on Windows Hyper-V host -- Nerd-Level Details
 
 See [Hosts -- ...](../../README.md) for host prerequisites (Hyper-V, ADK
 Deployment Tools for `oscdimg.exe`), VM sizing, and connectivity.
@@ -16,6 +16,13 @@ From an elevated PowerShell 7.5+:
 One-time per host: install the ADK Deployment Tools (for
 `oscdimg.exe`); confirm the path at the top of
 [`../modules/Yuruna.Host.psm1`](../modules/Yuruna.Host.psm1).
+
+On AMD64 this unpacks the publisher's Hyper-V VHDX, which ships zipped.
+That platform is published for x86-64 only, so on ARM64 the script pulls
+the ARM64 KVM cloud image instead and converts it to VHDX with
+`qemu-img` -- which then also has to be installed
+(`winget install SoftwareFreedomConservancy.QEMU`). The result carries
+the same file name on both, so step 2 does not change.
 
 ## 2) Create the VM
 
@@ -41,7 +48,7 @@ and places seed + VHDX there.
 **CHECKPOINT**: good moment for a Hyper-V checkpoint
 named `VM Configured`. Optional: `sudo dnf install powershell -y`.
 
-## Open issue — GUI resolution
+## Open issue -- GUI resolution
 
 Contribution opportunity. The
 [AL2023 TigerVNC tutorial](https://docs.aws.amazon.com/linux/al2023/ug/vnc-configuration-al2023.html)
@@ -54,6 +61,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../../../README.md)

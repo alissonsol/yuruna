@@ -1,6 +1,6 @@
 # caching-proxy-parser-service
 
-A ~380-line Go tail-server that replaces loki + promtail for the single
+A ~500-line Go tail-server that replaces loki + promtail for the single
 "Recent 100 requests" panel on the caching-proxy-service Grafana dashboard.
 Optimized for that one scenario -- no tenancy, no persistence, no
 LogQL, no plugin dependencies.
@@ -21,7 +21,7 @@ served as JSON + a self-contained HTML page.
 
 | File | Purpose |
 |---|---|
-| `main.go` | The Go service. Tail + ring + HTTP. No external deps. |
+| `parse.go`, `main_linux.go`, `main_other.go` | The Go service. Tail + ring + HTTP. No external deps. |
 | `go.mod` | Standard-library-only module file. |
 | `caching-proxy-parser-service.service` | systemd unit. Runs as `proxy`, read-only `/var/log/squid`, fully sandboxed. |
 | `caching-proxy-parser-service.config.yml` | Extension config (single provider). |
@@ -33,7 +33,8 @@ served as JSON + a self-contained HTML page.
 The caching-proxy-service VM's cloud-init `runcmd` (in
 [user-data](../../../host/vmconfig/caching-proxy-service.base.user-data)):
 
-1. wgets `main.go`, `go.mod`, `caching-proxy-parser-service.service` from the
+1. wgets `parse.go`, `main_linux.go`, `main_other.go`, `go.mod`, and
+   `caching-proxy-parser-service.service` from the
    harness's yuruna-repo HTTP server (with the GitHub raw fallback
    the rest of the user-data already uses).
 2. `go build` produces a static binary; the toolchain is the same
@@ -105,6 +106,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.23
+Last review: 2026.08.25
 
 Back to [Yuruna](../../../README.md)

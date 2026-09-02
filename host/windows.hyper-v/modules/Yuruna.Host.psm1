@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 425e6973-60a5-43b1-90b8-194b4331c1f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -90,7 +90,44 @@ Import-Module (Join-Path $script:RepoRoot 'host\modules\Yuruna.HostProvision.psm
 
 # ADK Deployment Tools path. The '10' is the ADK major version, not the Windows
 # version -- adjust it if a different ADK is installed.
-$OscdimgPath = "C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\amd64\Oscdimg\Oscdimg.exe"
+#
+# The ADK lays Oscdimg down once per architecture -- amd64, arm64 and x86 are
+# all present after a single install, on an ARM64 host as much as an x64 one --
+# so the subdirectory is a choice, not a constant. Pinning amd64 does run on
+# ARM64, silently, through the x64 emulation layer, which is exactly what makes
+# the wrong pin hard to notice: a seed ISO is on the path of every guest this
+# driver creates, and it would keep working until it met a host where that
+# layer is unavailable. Prefer the native build and keep the others as
+# fallbacks, so a partial ADK still yields a runnable copy.
+$script:OscdimgToolsRoot = "C:\Program Files (x86)\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools"
+
+function Resolve-OscdimgPath {
+    <#
+    .SYNOPSIS
+        Full path to the ADK's Oscdimg.exe for this host, native build first.
+    .OUTPUTS
+        [string] -- an existing path, or the native candidate so a caller that
+        finds nothing can name the directory the operator should be looking at.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    # OSArchitecture, not $env:PROCESSOR_ARCHITECTURE: an x64 pwsh running
+    # under emulation on an ARM64 host reports AMD64 in that variable, which
+    # would pick the emulated build on the one host class that has a native one.
+    $native = switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) {
+        'Arm64' { 'arm64' }
+        default { 'amd64' }
+    }
+    $nativePath = Join-Path $script:OscdimgToolsRoot "$native\Oscdimg\Oscdimg.exe"
+    foreach ($archDir in (@($native, 'amd64', 'x86') | Select-Object -Unique)) {
+        $candidate = Join-Path $script:OscdimgToolsRoot "$archDir\Oscdimg\Oscdimg.exe"
+        if (Test-Path -LiteralPath $candidate) { return $candidate }
+    }
+    return $nativePath
+}
+
+$OscdimgPath = Resolve-OscdimgPath
 
 <#
 .SYNOPSIS
@@ -132,7 +169,7 @@ function CreateIso {
     }
 
     if (-not (Test-Path -Path $OscdimgPath)) {
-        Throw "Oscdimg.exe not found at path: $OscdimgPath. Install the Windows ADK Deployment Tools or set ``-OscdimgPath`` to the proper location."
+        Throw "Oscdimg.exe not found at path: $OscdimgPath. Install the Windows ADK 'Deployment Tools' feature (winget install --id Microsoft.WindowsADK), then re-run. If the ADK is installed somewhere else, point `$script:OscdimgToolsRoot in host\windows.hyper-v\modules\Yuruna.Host.psm1 at its 'Deployment Tools' directory."
     }
 
     Write-Verbose "Creating ISO `nfrom '$SourceDir' `nto '$OutputFile' `nwith Volume ID '$VolumeId'..."
@@ -3308,11 +3345,17 @@ function New-VM {
         # variables.cores), forwarded under the same declare-or-drop rule as
         # -Username. Empty leaves the per-guest script on its built-in default.
         [string]$MemoryStartupBytes,
-        [string]$Cores
+        [string]$Cores,
+        # Planner-cascaded nested-virtualization request
+        # (variables.exposeVirtualizationExtensions), forwarded under the same
+        # declare-or-drop rule as -Username. Empty leaves the per-guest script
+        # on its default (no virtualization extensions exposed).
+        [string]$ExposeVirtualizationExtensions
     )
     # Thin wrapper over the shared per-guest runner; the host subdir is the
     # only platform variable. Splatting $PSBoundParameters preserves the
-    # conditional -CachingProxyServiceUrl/-Username/-Hostname/-MemoryStartupBytes/-Cores
+    # conditional -CachingProxyServiceUrl/-Username/-Hostname/-MemoryStartupBytes/-Cores/
+    # -ExposeVirtualizationExtensions
     # forwarding (the runner checks ContainsKey) and propagates -WhatIf/-Confirm.
     Invoke-PerGuestNewVm -HostSubdir 'host\windows.hyper-v' @PSBoundParameters
 }
@@ -4708,6 +4751,113 @@ function Remove-OrphanedVMFileAccess {
     return $staleSids.Count
 }
 
+function Disable-HyperVHeartbeatForLinuxGuest {
+    <#
+    .SYNOPSIS
+        Turn the Heartbeat integration service off for a Linux guest on an
+        ARM64 host. No-op on AMD64.
+    .DESCRIPTION
+        On an ARM64 host the heartbeat channel stops a Linux guest booting at
+        all. hv_utils answers each heartbeat request from a VMBus tasklet
+        (heartbeat_onchannelcallback -> vmbus_sendpacket -> vmbus_setevent ->
+        hv_do_fast_hypercall8) and the channel re-arms faster than the tasklet
+        drains it, so CPU 0 never leaves softirq context. The kernel reports
+        `watchdog: BUG: soft lockup - CPU#0 stuck for Ns!`, RCU stalls behind
+        it, and the boot stops one driver short of hv_storvsc -- so the guest
+        never enumerates its own root disk, never reaches its installer, and
+        is unreachable by console and by SSH alike. The console freezes on the
+        three hv_utils IC version lines, which is the signature to match:
+
+            hv_utils: Heartbeat IC version 3.0
+            hv_utils: Shutdown IC version 3.2
+            hv_utils: TimeSync IC version 4.0
+
+        Removing the service removes the channel, and with it the caller that
+        re-arms. It is the difference between a guest that never boots and one
+        that installs. AMD64 is untouched, and no guest OS test is applied
+        either: a Windows guest's own drivers handle the same channel without
+        trouble, so callers gate this on the guest rather than the function.
+
+        Nothing in the harness depends on the Hyper-V heartbeat. Only
+        guest.caching-proxy-service/New-VM.ps1 reads it, as one line of a
+        readiness summary, and Get-VMIp resolves addresses through KVP and ARP
+        -- neither of which this touches.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][string]$VMName)
+
+    if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne [System.Runtime.InteropServices.Architecture]::Arm64) {
+        return $false
+    }
+    if (-not $PSCmdlet.ShouldProcess($VMName, 'Disable the Heartbeat integration service')) { return $false }
+    try {
+        Disable-VMIntegrationService -VMName $VMName -Name 'Heartbeat' -ErrorAction Stop
+        Write-Verbose "Heartbeat integration service disabled for '$VMName' (ARM64 host; the channel wedges a Linux guest before hv_storvsc)."
+        return $true
+    } catch {
+        # A guest that boots anyway is the good case, and one that wedges
+        # reports it as its own boot failure with the console signature above.
+        # Neither is worth failing VM creation over.
+        Write-Warning "Could not disable the Heartbeat integration service for '$VMName' ($($_.Exception.Message)); an ARM64 Linux guest may wedge before hv_storvsc."
+        return $false
+    }
+}
+
+function Limit-HyperVLinuxGuestCoreCount {
+    <#
+    .SYNOPSIS
+        Cap the vCPU count of a Linux guest on an ARM64 host. No-op on AMD64.
+    .DESCRIPTION
+        On an ARM64 host a Linux guest's virtual processors do not buy the
+        compute the count implies. Each one traps into the hypervisor at a rate
+        that rises with the number of them, and the trapped time is taken out of
+        the guest's own execution rather than added to it. Measured on one such
+        host, booting the same 12 GB Ubuntu guest off the same image, sampling
+        the Hyper-V virtual-processor counters:
+
+            vCPUs   % guest run time   % hypervisor run time   intercepts/sec
+              1           65                  33                 1.3 million
+              2         7 / 64              88 / 34              4.6 million
+              4           19                  61                 9.2 million
+
+        The root partition on the same machine at the same moment sits under 2%
+        hypervisor time and forty thousand intercepts a second, so this is a
+        property of how the guest is scheduled, not of the host being busy.
+
+        Read the table by column. Delivered compute -- vCPUs times the share
+        actually spent running guest code -- is roughly FLAT at about two thirds
+        of one processor no matter how many are configured. What the count
+        changes is how fast any single thread advances, and that is what a boot
+        is: a long serial path. The guest that gets one vCPU runs that path at
+        two thirds speed; the guest that gets four runs it at a fifth, and takes
+        an order of magnitude longer to reach its installer, its login prompt
+        and everything gated behind them.
+
+        The cap is two rather than one because kubeadm's preflight check refuses
+        to initialize a control plane on a single processor, and the guests this
+        applies to go on to run one. Two is the smallest count that keeps that
+        workload possible while halving the intercept rate against four.
+
+        A caller that has asked for a specific count is still capped: the ask
+        expresses how much work the guest has to do, which is exactly the thing
+        extra virtual processors fail to deliver here.
+    #>
+    [CmdletBinding()]
+    [OutputType([int])]
+    param(
+        [Parameter(Mandatory)][int]$RequestedCores,
+        [int]$MaximumCores = 2
+    )
+
+    if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne [System.Runtime.InteropServices.Architecture]::Arm64) {
+        return $RequestedCores
+    }
+    if ($RequestedCores -le $MaximumCores) { return $RequestedCores }
+    Write-Warning "ARM64 host: capping the guest at $MaximumCores vCPU(s) instead of $RequestedCores. Additional virtual processors raise the hypervisor intercept rate without delivering more guest compute, and slow every serial path -- boot and install most visibly."
+    return $MaximumCores
+}
+
 # --- REGION: Exports
 
 Export-ModuleMember -Function `
@@ -4738,7 +4888,7 @@ Export-ModuleMember -Function `
     Remove-SinglePortMap, Clear-AllCachingProxyServicePortMapping, `
     Get-HyperVScreenshot, Get-HyperVWindowScreenshot, Get-VMConsoleSecondOpinion, `
     Start-VMDhcpCapture, Save-VMDhcpCapture, Stop-VMDhcpCapture, `
-    Remove-OrphanedVMFileAccess
+    Remove-OrphanedVMFileAccess, Disable-HyperVHeartbeatForLinuxGuest, Limit-HyperVLinuxGuestCoreCount
 
 # Contract-coverage assertion: warns at load time if the export block
 # above drifts away from the canonical Yuruna.Host contract. The module

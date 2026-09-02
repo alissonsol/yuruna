@@ -162,11 +162,18 @@ fetches. A deterministic config, plan, auth, or NotFound error does
 whole backoff budget on an error that will never clear. It matches:
 
 - **Network blips** -- `failed to fetch`, `i/o timeout`, `no such host`,
-  connection refused/reset, `client.timeout`, `TLS handshake`,
-  `temporary failure`, `EOF`, HTTP 429/500/502/503/504, `too many
-  requests`.
+  `server misbehaving`, connection refused/reset, `client.timeout`,
+  `TLS handshake`, `temporary failure`, `EOF`, HTTP 429/500/502/503/504,
+  `too many requests`.
 - **Backend locks** -- tofu remote-state contention (`Error acquiring
   the state lock`, DynamoDB `ConditionalCheckFailedException`).
+
+A refused connection needs two spellings, not one. Go prints the errno form
+(`connect: connection refused`); kubectl catches the same errno and reformats
+it around the URL's host -- `The connection to the server <host> was refused -
+did you specify the right host or port?` -- sharing no contiguous substring
+with the first. A classifier carrying only the Go wording fails fast on
+`kubectl -f <URL>`, which is one of the call sites gated below.
 
 A bare `500` sits alongside the gateway 5xx codes because the read-only
 manifest and chart fetches gated here (helm, `kubectl -f <URL>`, tofu
@@ -211,6 +218,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.25
+Last review: 2026.09.01
 
 Back to [Yuruna](../README.md)

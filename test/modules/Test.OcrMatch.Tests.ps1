@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 428a8fea-36e6-48a4-aa62-2004e6035a54
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,6 +38,7 @@ $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.OcrMatch.psm1') -Force -DisableNameChecking
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+}
 
 # Fixtures live at FILE scope, above the first Describe. A Describe body runs
 # during discovery and its variables are discarded before any It executes, and
@@ -83,8 +84,6 @@ $script:StrippedCase = @(
     @{ Name = 'double quote'; Char = '"' }
     @{ Name = 'backtick';     Char = '`' }
 )
-
-}
 
 Describe 'Get-OCRNormalized' {
     It 'lowercases and drops spaces' {
@@ -173,6 +172,80 @@ Describe 'Test-OCRMatch' {
     }
     It 'does NOT match unrelated console output' {
         Assert-Equal -Expected $false -Actual (Test-OCRMatch -Text 'cloud-init v.24.1 running modules for final stage' -Pattern 'Password:')
+    }
+
+    # The shell-existence guard in the Linux sequences. Its whole job is to
+    # tell a live session from the agetty prompt it was reached through, and
+    # the two surfaces carry the same two tokens: a login line echoes the
+    # username it was just given, right beside the hostname in /etc/issue.
+    # Segment matching splits on "@" and asks only that each half appear
+    # somewhere, so a user@host pattern cannot separate them and a guard
+    # built on one passes at exactly the prompt it exists to reject.
+    It 'segment matching cannot separate a shell prompt from the login line it followed' {
+        $agetty = "Ubuntu 26.04 LTS yuhost26 tty1`n`nyuhost26 login: yuuser26"
+        Assert-Equal -Expected $true -Actual (Test-OCRMatch -Text $agetty -Pattern 'yuuser26@yuhost26')
+    }
+    # Anchoring the prompt on the colon a shell prints before its working
+    # directory looks like it separates the two surfaces, and does for a
+    # single-label hostname. It collapses for a dotted one: normalization
+    # folds "." onto ":", so "host.domain" in the /etc/issue banner carries
+    # the same token as "host:" in the prompt. Guests here are named after
+    # their VM, which is dotted, so the prompt is not expressible.
+    It 'the colon anchor separates the surfaces only for a single-label hostname' {
+        $pattern = 'yuuser26@yuhost26:~'
+        Assert-Equal -Expected $false -Actual (Test-OCRMatch -Text 'yuhost26 login:' -Pattern $pattern)
+        Assert-Equal -Expected $false -Actual (Test-OCRMatch -Text 'yuhost26 login: yuuser26' -Pattern $pattern)
+        Assert-Equal -Expected $true -Actual (Test-OCRMatch -Text 'yuuser26@yuhost26:~$ ' -Pattern $pattern)
+    }
+    It 'a dotted hostname puts the prompt token in the issue banner, defeating the anchor' {
+        $banner = "Ubuntu 26.04.1 LTS test-guest.ubuntu.server.26-01 tty1`ntest-guest login: yuuser26`nPassword:"
+        Assert-Equal -Expected $true -Actual (Test-OCRMatch -Text $banner -Pattern 'yuuser26@test-guest:~')
+    }
+
+    # What the sequences wait for instead. agetty echoes a typed line back
+    # verbatim and can produce nothing else, so only a live shell puts the
+    # expansion on screen. The token carries no character the matcher splits
+    # on, so segment matching never runs and order stays enforced.
+    It 'the echoed command is not mistaken for the token it would expand to' {
+        $typed = "echo yuruna_`$(seq -s '' 1 9)_ok"
+        $agetty = "Ubuntu 26.04.1 LTS test-guest.ubuntu.server.26-01 tty1`ntest-guest login: $typed`nPassword:"
+        Assert-Equal -Expected $false -Actual (Test-OCRMatch -Text $agetty -Pattern 'yuruna_123456789_ok')
+    }
+    It 'the expanded token matches, including through OCR damage to its digits' {
+        $typed = "echo yuruna_`$(seq -s '' 1 9)_ok"
+        Assert-Equal -Expected $true -Actual (Test-OCRMatch -Text "yuuser26@test-guest:~`$ $typed`nyuruna_123456789_ok" -Pattern 'yuruna_123456789_ok')
+        # 1 read as l, 5 as S: both are confusion-group members.
+        Assert-Equal -Expected $true -Actual (Test-OCRMatch -Text 'yuruna_l234S6789_ok' -Pattern 'yuruna_123456789_ok')
+    }
+    # The login anchor has the same shape of problem as the shell guard, in the
+    # other direction: it is too specific rather than too loose. A guest named
+    # after its VM answers at agetty with only the first label of that name,
+    # and the full dotted name reaches the console solely in the /etc/issue
+    # banner above the prompt -- so a pattern carrying it matches while the
+    # banner is on screen and stops the moment it scrolls.
+    It 'a dotted host name stops matching its own login prompt once the banner scrolls' {
+        $fqdn = 'test-guest.ubuntu.server.26-01 login:'
+        Assert-Equal -Expected $true  -Actual (Test-OCRMatch -Text "Ubuntu 26.04.1 LTS test-guest.ubuntu.server.26-01 tty1`ntest-guest login:" -Pattern $fqdn)
+        Assert-Equal -Expected $false -Actual (Test-OCRMatch -Text "[  OK  ] Started Login Service.`ntest-guest login:" -Pattern $fqdn)
+    }
+    It 'the host label matches the prompt with or without the banner' {
+        $label = 'test-guest login:'
+        Assert-Equal -Expected $true -Actual (Test-OCRMatch -Text "Ubuntu 26.04.1 LTS test-guest.ubuntu.server.26-01 tty1`ntest-guest login:" -Pattern $label)
+        Assert-Equal -Expected $true -Actual (Test-OCRMatch -Text "[  OK  ] Started Login Service.`ntest-guest login:" -Pattern $label)
+    }
+    It 'the host label still rejects the installer console the anchor exists to exclude' {
+        # The property the whole anchor is for: the installer leaves its own
+        # login prompt on screen seconds before the installed system exists,
+        # and typing a username at that surface sends it nowhere.
+        $label = 'test-guest login:'
+        Assert-Equal -Expected $false -Actual (Test-OCRMatch -Text "Ubuntu 26.04.1 LTS ubuntu-server ttyl`nubuntu-server login:" -Pattern $label)
+        Assert-Equal -Expected $false -Actual (Test-OCRMatch -Text 'ubuntu login:' -Pattern $label)
+        Assert-Equal -Expected $false -Actual (Test-OCRMatch -Text "installing system`ncurtin command install" -Pattern $label)
+    }
+
+    It 'the token pattern has no character segment matching would split on' {
+        $segments = @([regex]::Split('yuruna_123456789_ok', '[\s@\-\[\]$~"''`]+') | Where-Object { $_.Length -gt 0 })
+        Assert-Equal -Expected 1 -Actual $segments.Count
     }
 }
 

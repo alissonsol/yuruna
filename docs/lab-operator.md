@@ -27,9 +27,9 @@ machine; every other machine points at them.
 > It runs exactly the scripts below, so the two paths stay
 > interchangeable. It configures **only the machine it runs on** --
 > joining machines still run `Set-LabToken.ps1` and the sync themselves
-> ([A.7](#a7-enroll-each-additional-machine)). Re-running rebuilds the
-> beacon's service VMs (~15 minutes for the proxy). Coverage,
-> `-WhatIf`, and unattended runs:
+> ([A.7](#a7-enroll-each-additional-machine)). Re-running adopts healthy
+> service VMs; `-Rebuild` replaces them (~15 minutes for the proxy).
+> Coverage, `-WhatIf`, and unattended runs:
 > [B.0](#b0-the-guided-setup-script-on-a-beacon).
 
 ---
@@ -214,6 +214,11 @@ are never touched. It runs no cycles -- `Invoke-TestProject.ps1` and
 
 ### A.7 Enroll each additional machine
 
+> **First time, or a machine that still needs its test account?**
+> [Adding a machine to a lab](lab-new-machine.md) walks this same
+> sequence in full -- creating the account, signing into it, the GitHub
+> credential, and the first `Test-Config.ps1` report.
+
 On each remaining machine ([B.7](#b7-each-additional-machine)):
 
 ```
@@ -275,9 +280,9 @@ keys it expected; the auto-enrollment sweep
 ([B.5](#b5-start-the-pool-control-service)); and the cycles, so
 [A.6](#a6-bring-up-the-first-machine) still ends with you.
 
-Each service VM is stopped and removed before its replacement is
-built, so a re-run rebuilds the beacon's services rather than adopting
-survivors -- budget roughly 15 minutes for the proxy.
+Bring-up adopts a healthy service VM and replaces an unhealthy,
+half-removed, or missing one. `-Rebuild` replaces every service VM in the
+run; budget roughly 15 minutes for the proxy.
 
 An interactive run writes the answers it *resolved* to
 `install/setup.answers.lab.yml`; feed that back with `-AnswerFile` to
@@ -486,6 +491,10 @@ On the machine that will run cycles first (any of them):
    ([runner-outer-loop.md](runner-outer-loop.md)).
 
 ### B.7 Each additional machine
+
+Step by step, with the human parts (test account, sign-in, GitHub
+credential, reading the first validation report):
+[Adding a machine to a lab](lab-new-machine.md).
 
 1. **OS baseline, preflight, install, test user** -- operator guide
    through [A.2](operator.md#a2-create-the-test-user); reboot if the
@@ -732,6 +741,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.25
+Last review: 2026.09.01
 
 Back to [Yuruna](../README.md)

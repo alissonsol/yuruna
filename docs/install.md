@@ -90,7 +90,7 @@ would stall waiting for GitHub credentials this run doesn't have.
 
 ### Release pinning + signed integrity
 
-`VERSION` (bare CalVer, e.g. `2026.08.25`) is the source of truth for releases.
+`VERSION` (bare CalVer, e.g. `2026.09.01`) is the source of truth for releases.
 At release time `tools/Update-YurunaReleasePins.ps1` regenerates
 `install/install.sha256`, signs it (`install/install.sha256.sig`, RSA-4096),
 runs the ASCII/no-BOM gate as a hard precondition, and bumps the one tag still
@@ -163,7 +163,10 @@ Tested baselines:
 
 Anything below is permitted but UNTESTED -- the script prompts the
 operator before proceeding so an under-spec'd host does not burn an hour
-of installs only to fail in the first test cycle. The check is silent
+of installs only to fail in the first test cycle. Physical core count is
+the exception on Windows: it is reported as a recommendation and never
+prompts, because a host below 16 runs the harness correctly, only slower,
+and no ARM64 Windows machine reaches 16. The check is otherwise silent
 when every requirement is met. On Windows it is gated by `-SkipPreflight`
 so self-relaunches (UAC elevation, PS5->PS7 bootstrap) do not re-prompt.
 
@@ -1028,6 +1031,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.25
+Last review: 2026.09.01
 
 Back to [Yuruna](../README.md)

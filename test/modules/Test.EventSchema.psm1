@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 42d40efa-2d27-4f91-93ff-3707aaa44c6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -142,7 +142,7 @@ $script:TypedField = @{
 }
 
 # FailureClass / Severity enums, sourced from the canonical Test.FailureTaxonomy
-# module (not re-declared here). A failureClass value outside this set is flagged
+# module (not redeclared here). A failureClass value outside this set is flagged
 # because every downstream consumer (last_failure.json schema v2, the remediation
 # dispatcher) routes on the enum and a typo would silently fall through to
 # 'unknown'.

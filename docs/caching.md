@@ -568,21 +568,21 @@ boynux/squid-exporter mixes unit suffixes: Total uses `_kbytes_total`,
 Cached uses `_bytes_total` (both are kbytes). Verify with
 `curl -s http://127.0.0.1:9301/metrics | grep hit_kbytes_out`.
 
-Every dashboard on this VM carries a read-only brand tile in its top-left
-corner: the framework repository the VM was built from (`Yuruna`,
-`Yurunadev`, ...) over that enlistment's VERSION -- the same pair the host's
-status pages show in their header, resolved by the same rule so the two
-cannot name different repositories. A lab running both repositories
+Every dashboard on this VM opens with a read-only brand banner across its
+top: the framework repository the VM was built from (`Yuruna`,
+`Yurunadev`, ...) beside that enlistment's VERSION -- the same pair the
+host's status pages show in their header, resolved by the same rule so the
+two cannot name different repositories. A lab running both repositories
 otherwise holds two proxies whose dashboards are indistinguishable, and a
-proxy long outlives the bring-up that built it. The tile is a panel, not
+proxy long outlives the bring-up that built it. The banner is a panel, not
 toolbar chrome -- Grafana's toolbar is not reachable from dashboard JSON --
-and it takes its four grid units out of the first row rather than adding
-one, so it costs no vertical space. `yuruna-brand-dashboards.py` stamps it,
-covering the community Zot dashboard and any dashboard dropped into
-`/var/lib/grafana/dashboards` later; `systemctl start
-yuruna-brand-dashboards.service` re-stamps on demand. A missing tile means
-the VM was built without a resolvable repository name -- the dashboards are
-otherwise unaffected.
+and it is a full-width strip one line tall, so the panels that carry the
+data keep the whole 24-unit row and pay one band of height for it.
+`yuruna-brand-dashboards.py` stamps it, covering the community Zot
+dashboard and any dashboard dropped into `/var/lib/grafana/dashboards`
+later; `systemctl start yuruna-brand-dashboards.service` re-stamps on
+demand. A missing banner means the VM was built without a resolvable
+repository name -- the dashboards are otherwise unaffected.
 
 Edit dashboards with `admin`/`admin` (unrotated; VM is on private
 switch). Datasource UIDs: `yuruna-prometheus`, `yuruna-loki`. Grafana
@@ -1940,9 +1940,9 @@ until the timer next fires. Because the fitter's geometry is deliberately not
 compared, a proxy whose panels are correctly sized still reports "already
 current" instead of being rewritten into a re-fit on every run.
 
-**The brand tile.** The canonical file carries no tile -- it is stamped on the
-proxy, from an identity only the proxy holds -- so the push stamps the candidate
-too, with the proxy's own `yuruna-brand-dashboards.py` and its own
+**The brand banner.** The canonical file carries no banner -- it is stamped on
+the proxy, from an identity only the proxy holds -- so the push stamps the
+candidate too, with the proxy's own `yuruna-brand-dashboards.py` and its own
 `/etc/yuruna/brand.env`, before anything is compared. Doing it in that order is
 what keeps an up-to-date proxy reading as unchanged instead of being rewritten
 every run, and it means the pushed file arrives already branded rather than
@@ -2230,6 +2230,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.25
+Last review: 2026.09.01
 
 Back to [Yuruna](../README.md)

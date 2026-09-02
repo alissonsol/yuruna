@@ -2502,8 +2502,6 @@ write_files:
       TIMELINE_ROW_PX = 32  # per-host row; below ~22px the timeline squeezes rows
       MAX_ROWS = 60         # a runaway count must not mint a 3000px panel
 
-      STAT_ROW_H = 4  # the stat tiles across the top; the panels below stack under it
-
 
       def units(px):
           """Grid units needed to give a panel `px` of content."""
@@ -2540,6 +2538,26 @@ write_files:
 
       def clamp(rows):
           return max(0, min(MAX_ROWS, rows))
+
+
+      def stack_top(panels, sized):
+          """The y the sized stack starts at: the bottom edge of what sits above it.
+
+          Read off the dashboard rather than stated as a constant. The summary
+          tiles are a fixed height, but they are not the only thing above the
+          stack -- the brand banner is a strip above them -- and an origin that
+          named a height would re-stack the tables over the tiles as soon as
+          anything above them was a different size than it assumed.
+          """
+          tops = [int(p["gridPos"].get("y", 0)) for p in sized]
+          if not tops:
+              return 0
+          first = min(tops)
+          above = [int(p["gridPos"].get("y", 0)) + int(p["gridPos"].get("h", 0))
+                   for p in panels
+                   if isinstance(p.get("gridPos"), dict)
+                   and int(p["gridPos"].get("y", 0)) < first]
+          return max(above) if above else 0
 
 
       def main():
@@ -2592,9 +2610,9 @@ write_files:
                   panels[panel_id]["gridPos"]["h"] = height
                   changed = True
 
-          # Re-stack every top-level panel below the stat tiles, so a resize never
-          # leaves a gap or an overlap behind it.
-          y = STAT_ROW_H
+          # Re-stack every top-level panel below the summary tiles, so a resize
+          # never leaves a gap or an overlap behind it.
+          y = stack_top(dashboard["panels"], [panels[pid] for pid in heights])
           for panel_id in (PANEL_TIMELINE, PANEL_POOL, PANEL_EXTENSION):
               if panels[panel_id]["gridPos"].get("y") != y:
                   panels[panel_id]["gridPos"]["y"] = y
@@ -2696,22 +2714,24 @@ write_files:
     owner: root:root
     content: |
       #!/usr/bin/env python3
-      """Stamp the framework's name and version into the top-left of every
+      """Stamp the framework's name and version across the top of every
       provisioned Grafana dashboard.
 
       Grafana's time-range picker lives in the app's own dashboard toolbar,
-      which dashboard JSON has no way to reach, so the tile is a panel in the
-      grid instead. It costs no vertical space: the first row of a Yuruna
-      dashboard already fills the 24-unit width, so its panels are narrowed to
-      free the four units the tile occupies, and the row's height is unchanged.
+      which dashboard JSON has no way to reach, so the banner is a panel in the
+      grid instead: a full-width strip above the first row carrying the name,
+      the version and the provenance note side by side on one line. It costs a
+      single band of grid height and no width at all -- the panels that carry
+      the data keep the whole 24-unit row they were laid out for.
 
       Every dashboard in the directory is branded, including the community one
-      fetched from grafana.com, whose layout is not ours to predict -- hence the
-      width fit and its two fallbacks rather than a hard-coded geometry.
+      fetched from grafana.com, whose layout is not ours to predict. A
+      full-width strip needs to know nothing about that layout: whatever is on
+      the board moves down by the banner's height, and nothing is resized.
 
-      Idempotent by construction: a dashboard that already carries the tile has
-      only the tile's text refreshed, never its geometry, so repeated runs
-      cannot walk the first row further left on each pass.
+      Idempotent by construction: a dashboard that already carries the banner
+      has only its text refreshed, never its geometry, so repeated runs cannot
+      push the board further down on each pass.
 
       Files are rewritten only when their content actually changes, and always
       through a same-directory rename, so Grafana's file provider (which
@@ -2737,9 +2757,13 @@ write_files:
       BRAND_PANEL_ID = 900001
 
       GRID_W = 24    # Grafana's fixed dashboard grid width
-      BRAND_W = 4
-      BRAND_H = 4
-      MIN_W = 2      # narrower than this and a stat tile shows an ellipsis, not a number
+      BRAND_W = GRID_W
+      # Two grid units, not one: a unit is 30px tall, which a line of text does
+      # not survive once the panel's own padding is taken out of it.
+      BRAND_H = 2
+      # Non-breaking, because a run of ordinary spaces collapses to one space in
+      # rendered HTML and the parts would read as a single sentence.
+      SEPARATOR = "\u00a0" * 4
 
 
       def read_brand():
@@ -2782,26 +2806,27 @@ write_files:
 
 
       def brand_content(name, version, ours=True):
-          lines = [SENTINEL, "**" + name + "**"]
+          """One line, so the banner is one line tall on every dashboard."""
+          parts = ["**" + name + "**"]
           if version:
               # Backticks give the code style the status pages' header-version
-              # uses: monospace and muted, subordinate to the name above it.
-              lines.append("`v" + version + "`")
+              # uses: monospace and muted, subordinate to the name beside it.
+              parts.append("`v" + version + "`")
           if not ours:
-              # The tile otherwise files upstream content alongside ours with
+              # The banner otherwise files upstream content alongside ours with
               # nothing to tell them apart, and this board has had no
               # accessibility assessment and no review of any other kind. Say so
               # on the board itself, where an operator reading it will see it.
-              lines.append("_Community dashboard, unmodified_")
-          return "\n\n".join(lines)
+              parts.append("_Community dashboard, unmodified_")
+          return SENTINEL + "\n\n" + SEPARATOR.join(parts)
 
 
       def brand_panel(content):
           return {
               "id": BRAND_PANEL_ID,
               "type": "text",
-              # No title and no panel background: the tile reads as a label in
-              # the corner of the dashboard rather than as one more stat card.
+              # No title and no panel background: the banner reads as a label
+              # across the top of the board rather than as one more stat card.
               "title": "",
               "transparent": True,
               "gridPos": {"h": BRAND_H, "w": BRAND_W, "x": 0, "y": 0},
@@ -2819,62 +2844,20 @@ write_files:
           return None
 
 
-      def fit_widths(widths, available):
-          """Shrink widths to total `available`, or None if that squeezes a panel
-          below MIN_W. Largest-remainder, so the units lost land on the panels
-          with the least claim to them and the row still totals exactly."""
-          total = sum(widths)
-          if total <= 0:
-              return None
-          if total <= available:
-              return list(widths)
-          scaled = [(w * available) // total for w in widths]
-          remainders = [(w * available) % total for w in widths]
-          spare = available - sum(scaled)
-          for index in sorted(range(len(widths)), key=lambda i: -remainders[i])[:spare]:
-              scaled[index] += 1
-          if any(w < MIN_W for w in scaled):
-              return None
-          return scaled
-
-
       def insert_brand(dashboard, panel):
-          """Place the tile at the top-left, preferring the layout that costs no
-          vertical space."""
+          """Give the banner a strip of its own above everything else.
+
+          Nothing is narrowed and nothing is reordered: a board of any shape,
+          ours or upstream, keeps the layout it was written with, one band
+          lower. That the banner is inserted only once is what keeps the shift
+          from repeating -- a board that already carries it never reaches here.
+          """
           panels = dashboard.get("panels")
           if not isinstance(panels, list):
               return False
 
-          top = [p for p in panels
-                 if isinstance(p, dict) and isinstance(p.get("gridPos"), dict)
-                 and p["gridPos"].get("y") == 0]
-
-          if not top:
-              # Nothing in the first row to make room in: the tile just takes it.
-              panels.insert(0, panel)
-              return True
-
-          # A row header spans the full width and is not a panel that can be
-          # narrowed, so a dashboard opening with one takes the pushed-down path.
-          fitted = None
-          if all(p.get("type") != "row" for p in top):
-              top.sort(key=lambda p: p["gridPos"].get("x", 0))
-              fitted = fit_widths([int(p["gridPos"].get("w", 0)) for p in top],
-                                  GRID_W - BRAND_W)
-
-          if fitted is not None:
-              x = BRAND_W
-              for p, width in zip(top, fitted):
-                  p["gridPos"]["w"] = width
-                  p["gridPos"]["x"] = x
-                  x += width
-              panels.insert(0, panel)
-              return True
-
-          # Last resort: give the tile a row of its own. Costs vertical space,
-          # which is why it is reached only when the first row cannot yield any.
           for p in panels:
-              grid = p.get("gridPos")
+              grid = p.get("gridPos") if isinstance(p, dict) else None
               if isinstance(grid, dict):
                   grid["y"] = int(grid.get("y", 0)) + BRAND_H
           panels.insert(0, panel)

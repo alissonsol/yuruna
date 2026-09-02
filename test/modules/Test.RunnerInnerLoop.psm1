@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 42479415-ffbe-4fef-9daa-15edda547208
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1285,7 +1285,14 @@ function Get-CycleGuestAndSequenceList {
         # guestSequence path below, where the dashboard falls back to a flat
         # per-guest list.
         $SequenceList = Get-CyclePlanSequenceList -Plan $CyclePlan
-        Write-Output "Cycle plan: $($CyclePlan.Count) entries across $($GuestList.Count) guest(s)."
+        # Write-Information, not Write-Output: this function's return value is
+        # assigned by its caller, and PowerShell hands the assignment EVERY
+        # success-stream object. A Write-Output progress line here makes the
+        # result an Object[] of [String, Hashtable] instead of the hashtable --
+        # member access still reads through it, so nothing looks broken, but an
+        # empty GuestList then enumerates to $null rather than @() and the line
+        # itself never reaches the transcript.
+        Write-Information "Cycle plan: $($CyclePlan.Count) entries across $($GuestList.Count) guest(s)." -InformationAction Continue
     } else {
         $GuestList    = Get-GuestList -Config $Config
         $SequenceList = @()
@@ -3476,6 +3483,10 @@ function Invoke-GuestProvisionIteration {
     # override the per-host New-VM.ps1 sizing defaults. Empty leaves the default.
     $effectiveMemory = ''
     $effectiveCores  = ''
+    # variables.exposeVirtualizationExtensions cascades the same way. Empty
+    # leaves the per-host New-VM.ps1 default (no virtualization extensions
+    # exposed to the guest).
+    $effectiveExposeVirt = ''
     if ($script:CyclePlan -and $script:CyclePlan.Count -gt 0) {
         $mergedPlan = Get-CyclePlanSequencesForGuest -Plan $script:CyclePlan -GuestKey $GuestKey
         if ($mergedPlan -and $mergedPlan.effectiveUsername) {
@@ -3489,6 +3500,9 @@ function Invoke-GuestProvisionIteration {
         }
         if ($mergedPlan -and $mergedPlan.effectiveCores) {
             $effectiveCores = [string]$mergedPlan.effectiveCores
+        }
+        if ($mergedPlan -and $mergedPlan.effectiveExposeVirtualizationExtensions) {
+            $effectiveExposeVirt = [string]$mergedPlan.effectiveExposeVirtualizationExtensions
         }
     }
     $newVmArgs = @{ GuestKey = $GuestKey; RepoRoot = $RepoRoot; VMName = $VMName; CachingProxyServiceUrl = $newVmProxy }
@@ -3507,6 +3521,10 @@ function Invoke-GuestProvisionIteration {
     if ($effectiveCores) {
         Write-Verbose "Cascaded cores for $GuestKey -> $effectiveCores (overrides per-host New-VM.ps1 default)"
         $newVmArgs.Cores = $effectiveCores
+    }
+    if ($effectiveExposeVirt) {
+        Write-Verbose "Cascaded exposeVirtualizationExtensions for $GuestKey -> $effectiveExposeVirt (overrides the per-host New-VM.ps1 default of not exposing them)"
+        $newVmArgs.ExposeVirtualizationExtensions = $effectiveExposeVirt
     }
     $r = New-VM @newVmArgs -Confirm:$false
     Sync-RunnerStepConfig -State $cfg -ConfigPath $ConfigPath

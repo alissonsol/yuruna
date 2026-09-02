@@ -165,14 +165,29 @@ Two caching-proxy-service rules are load-bearing and easy to get backwards:
 
 **Seeding.** Content enters the pool three ways. With `autoSeed` on (the
 default), each scan reads the pool aggregator's host roster, derives the host
-types present, infers arch from host type, and pre-downloads the stable families
-for them, at most two seed downloads at a time so seeding never starves an
-interactive request. Beyond that, a host's first request creates an entry on
-demand, and the UI's Force refresh creates one manually. Hosts the aggregator has
-no status for, and arm64 Hyper-V or KVM hosts (the roster carries no arch field),
-are covered on demand -- never an error. `guest.windows.11` and `virtio-win` are
-never seeded: a best-effort family should not spend seed bandwidth, and
-virtio-win is wanted only by hosts that build a Windows guest.
+types present, and pre-downloads the stable families for **every architecture
+each host type can run** -- UTM is Apple Silicon, Hyper-V and KVM ship on both,
+and the roster carries no arch field to narrow it by -- at most two seed
+downloads at a time so seeding never starves an interactive request. Beyond
+that, a host's first request creates an entry on demand, and the UI's Force
+refresh creates one manually. Hosts the aggregator has no status for are covered
+on demand -- never an error.
+
+Seeding both architectures costs one extra copy per stable family on the two
+both-arch host types, and it is what keeps an ARM64 Hyper-V or KVM host
+addressable at all. An architecture left out of the scan gets no catalog row, no
+seed and no drop folder, leaving only the on-demand path -- which has to resolve
+the family before it can create anything. For a best-effort family whose
+resolver is down that is a closed loop: the request answers `unsupported`
+because there is no entry, and the entry can never be created because the
+resolver cannot run.
+
+`guest.windows.11` and `virtio-win` are never seeded: a best-effort family
+should not spend seed bandwidth, and virtio-win is wanted only by hosts that
+build a Windows guest. They still get a catalog row -- and Windows 11 a drop
+folder -- for each architecture, which costs nothing until an operator fills it.
+virtio-win is the exception that stays x86-64 only, because the bundle carries
+no ARM64 drivers to offer.
 
 ## Windows 11: a best-effort family, and what it is worth
 
@@ -230,7 +245,10 @@ held anyway. The raw resolver error stays available: it is the line's tooltip,
 and the [Diagnostics page](#diagnostics) keeps the whole capture.
 
 The folder is `images/<hostType>/guest.windows.11/manual/<arch>.<variant>/` on
-the pool share. The agent creates it as soon as the family goes unavailable, and
+the pool share -- one per architecture that host type can run, so an ARM64
+Hyper-V host has somewhere to be handed its media even though the amd64 row is
+the one an x86-64 host reads. The agent creates it as soon as the family goes
+unavailable, and
 the UI names it as the share path -- `//nas/share/...`, what your file manager
 opens -- when the daemon was given `--pool-network-path`, which the guest seed
 fills in from the pool config; otherwise it names its own mount point.
@@ -538,6 +556,7 @@ held only live credentials.
 | An entry is stale and refuses to refresh | The origin is unreachable directly | The pool keeps serving the previous verified generation. Nothing to do but restore origin reachability; the next scan retries |
 | `guest.windows.11` never appears in the pool, or stays `absent` after a Force refresh | Best-effort family: no PowerShell, no Fido, or Fido could not mint a URL under Linux pwsh | Open the **Diagnostics** page: the family card carries the exact failure, the last resolver run shows both output streams, and the gated Resolver test reruns the resolve on demand. A VM built before this family (or before the platform-gate patch) needs a Stop/Start rebuild. Hosts are unaffected either way: Hyper-V and UTM run Fido themselves, KVM stays manual |
 | `Fido failed: exit status 3 (Error: Sentinel marked this request as rejected.)` | Microsoft refused the session; their front end, not the agent or the network | Follow the instructions on the row: fetch the ISO from the page it links and copy it into the folder it links. The agent adopts it within one scan and serves it to every host. Retrying sooner mostly spends more sessions from the same address, which is what earns the refusal -- the agent already spaces its own attempts out |
+| Host warns that the agent "holds"/"offers" an artifact "this host stages" cannot use | The agent VM runs an older resolver that maps that guest key to the x86-64 publisher platform for every Hyper-V host, whatever its architecture | Harmless in the moment -- the host falls back to the publisher and the cycle continues. Rebuild the agent VM (Stop then Start) so its resolver is current, then Force-refresh that row; the stale generation is replaced on the next scan either way |
 | Pool is eating the share | Retention is current + previous per identity | Prune previous on the fat rows, or Delete entries for host types this lab no longer runs |
 
 The manual smoke test for the daemon build itself is
@@ -564,6 +583,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.25
+Last review: 2026.09.01
 
 Back to [Yuruna](../README.md)

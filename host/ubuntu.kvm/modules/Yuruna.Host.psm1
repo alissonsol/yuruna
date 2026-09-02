@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 42539052-a22b-452d-ad7f-0bbf053904ff
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -171,13 +171,41 @@ function New-VM {
         # Planner-cascaded VM sizing (variables.memoryStartupBytes /
         # variables.cores); same declare-or-drop forwarding rule as -Username.
         [string]$MemoryStartupBytes,
-        [string]$Cores
+        [string]$Cores,
+        # Planner-cascaded nested-virtualization request
+        # (variables.exposeVirtualizationExtensions); same declare-or-drop
+        # forwarding rule as -Username. Declared for host-contract parity: no
+        # KVM guest script consumes it today (KVM nested virtualization is a
+        # host-level kernel-module setting), so the dispatcher drops it on the
+        # Verbose stream.
+        [string]$ExposeVirtualizationExtensions
     )
     # Thin wrapper over the shared per-guest runner; the host subdir is the
     # only platform variable. Splatting $PSBoundParameters preserves the
-    # conditional -CachingProxyServiceUrl/-Username/-Hostname/-MemoryStartupBytes/-Cores
+    # conditional -CachingProxyServiceUrl/-Username/-Hostname/-MemoryStartupBytes/-Cores/
+    # -ExposeVirtualizationExtensions
     # forwarding (the runner checks ContainsKey) and propagates -WhatIf/-Confirm.
-    Invoke-PerGuestNewVm -HostSubdir 'host/ubuntu.kvm' @PSBoundParameters
+    $result = Invoke-PerGuestNewVm -HostSubdir 'host/ubuntu.kvm' @PSBoundParameters
+    # Some per-guest builders boot the domain themselves -- an --import that is
+    # not told otherwise, and the define+start pair the ISO installers use. Those
+    # guests reach Start-VM already running, and its early return must not arm,
+    # because for every other caller a running domain's first ask is long past.
+    # Here it is not: the domain came up moments ago, inside the call above, so
+    # this is the last point at which a window can still contain its first
+    # DISCOVER. Gated on the domain actually running, so a builder that leaves it
+    # defined and shut off is armed by Start-VM instead -- earlier still, before
+    # the guest has drawn power at all.
+    #
+    # The create's exit code is put back afterwards: the state read and the arm
+    # run virsh lookups of their own, and a caller reading $LASTEXITCODE after
+    # this function would otherwise be reading the diagnostic's result as the
+    # create's.
+    $newVmExitCode = $LASTEXITCODE
+    if ($result -and $result.success -and (Get-VirshDomState -VMName $VMName) -eq 'running') {
+        [void](Start-VMDhcpCapture -VMName $VMName)
+    }
+    if ($null -ne $newVmExitCode) { $global:LASTEXITCODE = $newVmExitCode }
+    return $result
 }
 
 <#
@@ -300,7 +328,7 @@ function Remove-VM {
     # saves (and clears) the window before removal, so this fires only on the
     # teardown that had nothing to explain.
     if ($script:YurunaDhcpCapture -and $script:YurunaDhcpCapture.VMName -eq $VMName) {
-        [void](Stop-VMDhcpCapture)
+        [void](Stop-VMDhcpCapture -Reason "discarded when '$VMName' was removed")
     }
 
     # Force-stop first; ignore errors (VM may be absent or already stopped).
@@ -3615,6 +3643,16 @@ function Assert-Virtualization {
 # that THIS process armed a window for that VM.
 $script:YurunaDhcpCapture = $null
 
+# What last happened to that one slot, in words, for the guest that ends up
+# without evidence. An empty slot has exactly one message today and three
+# possible histories behind it -- nothing ever armed, another guest's start
+# took the slot, or a teardown discarded it -- and they call for different
+# fixes in different files. The slot itself cannot carry that: it is null in
+# every one of them. Recorded on each transition so the gap can name which
+# one it was instead of leaving the reader to reconstruct it from a cycle
+# transcript that does not log the arm at all.
+$script:YurunaDhcpTrail = ''
+
 # tcpdump needs CAP_NET_RAW to open a bridge. The grant is per-binary and
 # survives upgrades of nothing, so it is named here rather than assumed.
 $script:YurunaDhcpCaptureGrant = 'sudo setcap cap_net_raw,cap_net_admin=eip $(command -v tcpdump)'
@@ -3735,7 +3773,7 @@ function Start-VMDhcpCapture {
         # One window at a time. A start that inherits a live capture from the
         # previous guest would leave that guest's tcpdump running against a
         # bridge nobody is collecting from, and its temp file behind it.
-        if ($script:YurunaDhcpCapture) { [void](Stop-VMDhcpCapture) }
+        if ($script:YurunaDhcpCapture) { [void](Stop-VMDhcpCapture -Reason "superseded when '$VMName' was started") }
         # Stamped before anything else is looked up: a DISCOVER sent while this
         # is still resolving the bridge has to fall inside the window, and one
         # second of slack absorbs the journal's own clock rounding.
@@ -3794,6 +3832,7 @@ function Start-VMDhcpCapture {
             Remove-Item -LiteralPath $errPath -Force -ErrorAction SilentlyContinue
         }
         $script:YurunaDhcpCapture = $capture
+        $script:YurunaDhcpTrail = "a window was armed for '$VMName' at @$armed"
         Write-Verbose "DHCP evidence armed for '$VMName' at @$armed ($($capture.WireNote))."
         return $true
     } catch {
@@ -3813,11 +3852,17 @@ function Stop-VMDhcpCapture {
     [OutputType([bool])]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Diagnostic teardown: stops a packet capture and deletes its temp file; must never prompt inside a runner cycle.')]
-    param()
+    param(
+        # What is discarding the window, in words, for the trail a later gap
+        # reports. Optional so a caller with nothing to add still clears
+        # cleanly; the default names no cause because there is none to name.
+        [string]$Reason = 'discarded'
+    )
     try {
         $capture = $script:YurunaDhcpCapture
         $script:YurunaDhcpCapture = $null
         if (-not $capture) { return $true }
+        $script:YurunaDhcpTrail = "the window armed for '$($capture.VMName)' at @$($capture.ArmedUtc) was $Reason"
         if ($capture.Process -and -not $capture.Process.HasExited) {
             Stop-Process -Id $capture.Process.Id -Force -ErrorAction SilentlyContinue
         }
@@ -3858,11 +3903,21 @@ function Save-VMDhcpCapture {
             # One window at a time: a later Start-VM for another guest replaces
             # it, and the already-running path never arms one at all. Either way
             # the guest that failed has no evidence, and that is worth a line.
-            $held = if ($capture) { "the armed window belongs to '$($capture.VMName)'" } else { 'no window was armed' }
+            # The trail belongs to the empty-slot case only. A slot held by
+            # another guest already names what happened to this one; adding a
+            # history behind that reads as a second, competing explanation.
+            $held = if ($capture) {
+                "the armed window belongs to '$($capture.VMName)'"
+            } elseif ($script:YurunaDhcpTrail) {
+                "no window is armed -- $script:YurunaDhcpTrail"
+            } else {
+                'no window was armed, and nothing in this process ever armed one'
+            }
             Write-YurunaDhcpGap -Reason "nothing to save for '$VMName' -- $held" -VMName $VMName
             return $false
         }
         $script:YurunaDhcpCapture = $null
+        $script:YurunaDhcpTrail = "the window armed for '$VMName' was saved"
         if ($capture.Process -and -not $capture.Process.HasExited) {
             Stop-Process -Id $capture.Process.Id -Force -ErrorAction SilentlyContinue
             # tcpdump flushes on SIGTERM; without a moment to do it the file is

@@ -43,9 +43,9 @@ storage lives), then runs
 order, ending on the `Test-Config` gate. On Windows it relaunches
 itself elevated once. It runs no cycles --
 [A.8](#a8-run-one-test-cycle)-[A.9](#a9-run-continuous-cycles) are
-still yours. Re-running is safe, **except that every run rebuilds the
-service VMs** (~15 minutes for the caching-proxy). Parameters,
-`-WhatIf`, unattended runs, coverage, and failure behavior:
+still yours. Re-running is safe and adopts healthy service VMs;
+`-Rebuild` forces their replacement (~15 minutes for the caching-proxy).
+Parameters, `-WhatIf`, unattended runs, coverage, and failure behavior:
 [B.0](#b0-the-guided-setup-script).
 
 The steps below are the by-hand path -- read them when a step needs
@@ -247,8 +247,8 @@ place. It needs pwsh 7; its preflight fails the run if
 | [A.3](#a3-enable-test-automation) enable test automation | Yes -- runs `Enable-TestAutomation -SkipPoolStorage`, unless `runTests: false` |
 | [A.4](#a4-configure-and-validate) configure and validate | Partly -- creates or refreshes `test/test.config.yml` from the template and ends on the `Test-Config` gate; the edits in between are still yours |
 | [A.5](#a5-create-pool-and-stash-storage) pool and stash storage | Yes for `kind: local` -- runs `New-LocalLabStorage`. For `kind: nas` it only **mounts** what `networkStorage.*` already names |
-| [A.6](#a6-start-the-caching-proxy-service) caching-proxy-service | Yes -- stops and removes any existing one first, builds the VM, waits up to 15 minutes for the pool-aggregator service, then writes `vmStart.cachingProxyIp` |
-| [A.7](#a7-start-the-stash-service) stash service | Yes -- same stop-then-build -- unless storage was skipped |
+| [A.6](#a6-start-the-caching-proxy-service) caching-proxy-service | Yes -- adopts a healthy VM; otherwise replaces it, waits up to 15 minutes for the pool-aggregator service, then writes `vmStart.cachingProxyIp`. `-Rebuild` forces replacement |
+| [A.7](#a7-start-the-stash-service) stash service | Yes -- adopts a healthy VM or replaces an unhealthy one, unless storage was skipped. `-Rebuild` forces replacement |
 | [A.8](#a8-run-one-test-cycle) one test cycle | No |
 | [A.9](#a9-run-continuous-cycles) continuous cycles | No -- the closing message points you at `pwsh test/Start-TestRunner.ps1` |
 
@@ -267,14 +267,13 @@ Every step runs in a child `pwsh`, and a step that can tell it is
 already done -- config file present, pool storage mounted,
 `cachingProxyIp` matching -- is skipped, so re-running is safe.
 
-**The service VMs are the exception: every run rebuilds them.** Each
-start is preceded by its own `Stop-...ServiceVM.ps1`. That lets a
-re-run *apply* a change -- a healthy proxy left alone is adopted in
-seconds, keeping the configuration you re-ran to replace -- and keeps
-a start from failing over a registered VM whose files are gone.
-Budget roughly 15 minutes for the proxy. A run only removes a service
-it will rebuild, so a standalone re-run leaves a former lab's
-pool-control service running.
+**The service VMs are the exception:** their bring-up scripts make the
+reuse decision. A healthy VM is adopted in seconds; an unhealthy,
+half-removed, or missing VM is replaced. Use `-Rebuild` to force the
+replacement that applies changed seed-time configuration. Budget roughly
+15 minutes for rebuilding the proxy. A run only removes a service it will
+rebuild, so a standalone re-run leaves a former lab's pool-control service
+running.
 
 #### What ends a run
 
@@ -400,10 +399,11 @@ Before running the installer, confirm:
 - **Network access to github.com** -- the installer clones the framework.
 
 The installer re-checks the hardware baselines and prompts before
-proceeding on an under-spec'd host. Some examples also assume a
-registered domain whose DNS you control. Before installing
-certificates on localhost, run `mkcert -install` once (may require
-elevation).
+proceeding on an under-spec'd host -- except physical core count on
+Windows, which is reported as a recommendation and never prompts. Some
+examples also assume a registered domain whose DNS you control. Before
+installing certificates on localhost, run `mkcert -install` once (may
+require elevation).
 
 #### Required tools
 
@@ -416,6 +416,7 @@ used in testing
 
 - Install [PowerShell Core](https://github.com/powershell/powershell) 7.6.4+ -- the floor in [`Yuruna.Requirement.yml`](../automation/Yuruna.Requirement.yml); anything older fails `Test-Requirement.ps1`.
   On Windows, from an Administrator PowerShell:
+  - Install it for all users: `winget install --id Microsoft.PowerShell --scope machine`. A per-user copy sits under `%LOCALAPPDATA%`, where no other account can execute it, so the test user from [B.4](#b4-create-the-yuruna-test-user) cannot run `pwsh` at all.
   - `Set-ExecutionPolicy -ExecutionPolicy RemoteSigned` (see [execution policies](https://go.microsoft.com/fwlink/?LinkID=135170))
   - `Install-Module -Name powershell-yaml`
 - Install [Git](https://git-scm.com/downloads)
@@ -493,11 +494,13 @@ dseditgroup -o edit -a yurunatest -t user admin` (macOS), `sudo
 usermod -aG sudo yurunatest` (Ubuntu), or `Add-LocalGroupMember` on
 the S-1-5-32-544 group (Windows) -- then sign that account out and
 back in, because a session keeps the group list it started with; or
-re-run with `-Admin -Force`, which deletes the account and its home
-directory and creates it again. `-Force` is the destructive path --
-preview it with `-Force -WhatIf` first, and note it refuses to delete
-the account you are running as, a system account, or an account with
-an open login session. The password is asked interactively (twice) and
+re-run with `-Admin`, which offers to delete the account and its home
+directory and create it again once you confirm; `-Force` answers that
+confirmation in advance, so an unattended run recreates the account
+in one call. That is the destructive path -- preview what it removes
+with `-Force -WhatIf` first, and note it refuses to delete the account
+you are running as, a system account, or an account with an open
+login session. The password is asked interactively (twice) and
 is immediately usable, unless the authentication vault already holds
 one for the account: that one is reused, so a re-created account still
 matches the credential Yuruna hands out (`-PromptForPassword` opts
@@ -806,6 +809,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.25
+Last review: 2026.09.01
 
 Back to [Yuruna](../README.md)

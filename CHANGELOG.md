@@ -4,6 +4,24 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.09.01
+
+- **First-time setup.** Fixes in `install/setup.ps1` and
+  `test/Test-Config.ps1` make initial setup more reliable.
+
+- **Ubuntu guests run to completion on ARM64 Hyper-V hosts.** The
+  Visual Studio Code step now finishes, with its sequence budget sized from
+  that measurement. ARM64 Hyper-V hosts must raise the outer watchdog above
+  it. A sacrificial leading character absorbs the console's dropped first
+  keystroke.
+
+- **Also in this release.** The shell-existence guard now waits for a token
+  only a live shell produces. `Test-Config.ps1` reports anti-virus
+  minifilters on the VHDX volume and host-wide shadow-copy state. Guest
+  scripts report detected architecture and virtualization, not a `uname`
+  guess. Windows image builders fetch and hash-verify Fido in a per-run
+  temporary directory, then remove it.
+
 ## 2026.08.25
 
 - **Hyper-V hosts run on ARM64.** `Get-Image.ps1` downloads the guest image
@@ -457,6 +475,6 @@ LICENSEURI <https://yuruna.link/license>
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.25
+Last review: 2026.09.01
 
 Back to [Yuruna](README.md)

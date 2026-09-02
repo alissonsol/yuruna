@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 4264b221-526c-4487-9f9f-8d58b28b11dd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -297,7 +297,7 @@ $vmCores = [math]::Min($hostCores - 1, [math]::Max(2, [math]::Floor($hostCores /
 $YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $GuestHostname
 Write-Verbose "Deterministic guest MAC for '$GuestHostname': $YurunaGuestMac"
 
-# --- REGION: Define + start the VM via virt-install
+# --- REGION: Define the VM via virt-install
 $installArgs = @(
     '--connect', $virshUri,
     '--name',    $VMName,
@@ -311,7 +311,15 @@ $installArgs = @(
     '--graphics','vnc,listen=127.0.0.1',
     '--events',  'on_reboot=restart',
     '--noautoconsole',
-    '--import'
+    '--import',
+    # Define the domain without booting it. Start-VM is the only place that
+    # opens the DHCP evidence window, and it can open one solely for a domain
+    # it started itself -- a guest's first DISCOVER lands seconds after
+    # firmware, so a window opened after someone else booted it records an
+    # empty slice for a guest that did ask, which reads as the opposite of
+    # what happened. `--import` boots the domain on its own unless told not
+    # to, which would put every boot of this guest past that window.
+    '--noreboot'
 )
 # --- REGION: https://yuruna.link/memory#why-the-amazonlinux-kvm-guest-uses-seabios-not-uefi
 if ($arch -eq 'aarch64') {
@@ -338,4 +346,4 @@ if ($virtInstallExit -ne 0) {
 }
 
 # --- REGION: Guidance
-Write-Verbose "VM '$VMName' created. Get IP via 'virsh -c $virshUri domifaddr $VMName' once cloud-init finishes."
+Write-Verbose "VM '$VMName' defined and left shut off; Start-VM boots it. Get IP via 'virsh -c $virshUri domifaddr $VMName' once cloud-init finishes."

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 42b86905-6f08-4020-9f8c-68c7b31b76ef
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -293,10 +293,10 @@ Describe 'Get-ActiveExtensionService' {
 Describe 'the Go SDK is shared, not mirrored' {
 
     It 'leaves no copy of the SDK inside any service module' {
-        # The SDK used to be mirrored into <service>/server/internal/yex so each
-        # daemon could build from a copy of server/ alone -- 4,290 duplicated
-        # lines whose only guard was a byte-identity check. It is now staged
-        # beside server/ as the separate module it always was.
+        # Mirroring the SDK into <service>/server/internal/yex would let each
+        # daemon build from a copy of server/ alone -- at the price of 4,290
+        # duplicated lines whose only guard is a byte-identity check. It stays
+        # beside server/ as its own module instead.
         foreach ($goMod in (Get-ChildItem -LiteralPath (Join-Path $script:RepoRoot 'test/extension') -Directory |
                 ForEach-Object { Join-Path $_.FullName 'server/go.mod' } | Where-Object { Test-Path -LiteralPath $_ })) {
             $mirror = Join-Path (Split-Path -Parent $goMod) 'internal/yex'

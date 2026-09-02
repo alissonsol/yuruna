@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 427027e4-02aa-49bd-8f50-95db47263320
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -17,7 +17,14 @@
 #requires -version 7
 
 param(
-    [string]$VMName = "windows11-01"
+    [string]$VMName = "windows11-01",
+    # Planner-cascaded nested-virtualization request
+    # (variables.exposeVirtualizationExtensions). 'true' exposes
+    # virtualization extensions to the guest so it can run its own hypervisor
+    # (e.g. WSL2 or Hyper-V inside the guest). Default off: ARM64 Hyper-V
+    # cannot start a VM with the extensions exposed, and most guests never
+    # need them.
+    [string]$ExposeVirtualizationExtensions = ''
 )
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
@@ -59,6 +66,24 @@ if (-not (Assert-HyperVEnabled)) {
 $downloadDir = (Get-VMHost).VirtualHardDiskPath
 if (!(Test-Path -Path $downloadDir)) {
     Write-Output "The Hyper-V default VHDX folder does not exist: $downloadDir"
+    exit 1
+}
+
+# Nested virtualization is opt-in and AMD64-only: ARM64 Hyper-V rejects a VM
+# with virtualization extensions exposed at start time ("this platform does
+# not support nested virtualization"), so an impossible ask fails here,
+# before any VM state is created. OSArchitecture rather than
+# $env:PROCESSOR_ARCHITECTURE, which reports AMD64 for an x64 pwsh under
+# emulation on an ARM64 host.
+$exposeVirt = $false
+if ($ExposeVirtualizationExtensions) {
+    if (-not [bool]::TryParse($ExposeVirtualizationExtensions, [ref]$exposeVirt)) {
+        Write-Error "Invalid -ExposeVirtualizationExtensions '$ExposeVirtualizationExtensions': expected 'true' or 'false'."
+        exit 1
+    }
+}
+if ($exposeVirt -and [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne [System.Runtime.InteropServices.Architecture]::X64) {
+    Write-Error "Nested virtualization (exposeVirtualizationExtensions: true) was requested, but Hyper-V supports it only on AMD64 hosts; this host is $([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture). Remove the variable or run the sequence on an AMD64 host."
     exit 1
 }
 
@@ -252,7 +277,12 @@ if ($hostCores -lt 4) {
 }
 $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
 Write-Verbose "Host cores: $hostCores -- assigning $vmCores virtual processors to VM."
-Set-VMProcessor -VMName $VMName -Count $vmCores -ExposeVirtualizationExtensions $true | Out-Null
+# Virtualization extensions only on request (validated in the environment
+# checks above): the flag is unsupported on ARM64 hosts and unnecessary for
+# guests that run no hypervisor of their own.
+$vmProcessorArgs = @{ VMName = $VMName; Count = $vmCores }
+if ($exposeVirt) { $vmProcessorArgs.ExposeVirtualizationExtensions = $true }
+Set-VMProcessor @vmProcessorArgs | Out-Null
 
 # Enable Guest Service Interface for file copy (Hyper-V Integration Services)
 Enable-VMIntegrationService -VMName $VMName -Name "Guest Service Interface"

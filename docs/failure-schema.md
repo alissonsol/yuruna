@@ -59,7 +59,7 @@ These appear on **both** step and crash records (a crash after step N began stil
 | `hostType` | e.g. `host.windows.hyper-v`. |
 | `matchedFailurePattern` | The hard-block pattern `Wait-ForText` matched, or `null`. |
 | `sequencePath` | Path of the failing sequence YAML. |
-| `cycleFolder` | Cycle log dir (step failures only). |
+| `cycleFolder` | The cycle's stable identity (step failures only) -- the same value the NDJSON stream stamps, so this file joins to the event stream and resolves to the folder on disk. |
 | `failureScreenshotPath` / `failureOcrPath` | Cycle-dir-relative names (step failures only); may not exist (waitForText emits OCR text, non-OCR failures emit a screenshot) -- presence is checked at deep-link time. |
 | `causeDetail` | Step records only: `{ ocrTail, patternsSought }` -- the freshest on-screen OCR text (bounded tail, <=1200 chars) and the patterns the wait was seeking at the failure site. Lets a consumer see the runtime cause behind a verb-static `failureClass`. Mirrored flat on the event as `causeOcrTail` / `causePatternsSought`. Also carries `freshWindowNearMiss`, `consoleFlood`, `consoleStaticSeconds`, `pauseBeforeStepSeconds` and `pauseReleasedAtUtc` (below). |
 | `crash` | Crash records only: `{ error, origin, stack }`. |
@@ -330,7 +330,15 @@ queryable in `cycle.events.ndjson`, not just buried in the human log:
 Fields (all additive; the schema is open): `event`, `timestamp`, `stack`
 (`pwsh` / `sequence` / `bash`), `attempt`, `maxAttempts`, `exitCode`,
 `description` (the label), and optionally `transient` / `permanent` /
-`sleepSeconds` / `failureClass` / `guestKey` / `vmName`.
+`sleepSeconds` / `failureClass` / `severity` / `guestKey` / `vmName` /
+`evidencePath`.
+
+`evidencePath` (sequence stack) is the cycle-relative folder holding the screen
+frames and OCR text the failed attempt produced, copied aside before the next
+attempt recycles them. It is present only when the failed inner verb is
+`hard`-severity and there was something to capture. It is the only durable
+record of an attempt that a later retry recovers: such a cycle ends `pass`, and
+every other artifact-gathering path runs on cycle failure.
 
 The cross-language fetch-and-execute failure sentinel `NONZERO SCRIPT EXIT:`
 (the string the guest wrapper prints and the `fetchAndExecute` verb matches) is
@@ -605,6 +613,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.25
+Last review: 2026.09.01
 
 Back to [Yuruna](../README.md)

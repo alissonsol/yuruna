@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 42b8bc4c-f5b0-463b-9fd9-76f8a65ee16f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -186,6 +186,30 @@ Describe 'Get-OcrDegradationGrace' {
         try { [void](Get-OcrDegradationGrace -Action 'reboot-guest' -AlreadyGrantedSeconds 0 -MaxGrantSeconds 120 -BaseWindowSeconds 45) }
         catch { $threw = $true }
         Assert-True $threw 'ValidateSet should reject an unknown action'
+    }
+}
+
+Describe 'Wait-ForText periodic nudge contract' {
+    It 'exposes optional key and interval parameters without changing plain waits' {
+        $p = (Get-Command Wait-ForText).Parameters
+        Assert-True ($p.ContainsKey('NudgeKey')) 'Wait-ForText must accept the recovery key'
+        Assert-True ($p.ContainsKey('NudgeIntervalSeconds')) 'Wait-ForText must accept the recovery cadence'
+    }
+    It 'checks success and installer failures before injecting the recovery key' {
+        $t = (Get-Command Wait-ForText).ScriptBlock.Ast.Extent.Text
+        $positiveAt = $t.IndexOf('if ($result.Match)')
+        $failureAt  = $t.IndexOf('$activeFailurePattern = @($FailurePattern)')
+        $nudgeAt    = $t.IndexOf('$nudgeOk = [bool](Send-Key')
+        Assert-True ($positiveAt -ge 0) 'located the positive match branch'
+        Assert-True ($failureAt -ge 0) 'located the failure-pattern branch'
+        Assert-True ($nudgeAt -ge 0) 'located the periodic key injection'
+        Assert-True ($positiveAt -lt $nudgeAt) 'a visible target must return before another key is sent'
+        Assert-True ($failureAt -lt $nudgeAt) 'an installer crash must abort before Enter is sent'
+    }
+    It 're-arms from the actual send time so slow OCR cannot cause key bursts' {
+        $t = (Get-Command Wait-ForText).ScriptBlock.Ast.Extent.Text
+        Assert-True ($t -match [regex]::Escape('$nextNudgeUtc = $nudgeNowUtc.AddSeconds($NudgeIntervalSeconds)')) `
+            'the next key deadline must advance from now, not from a stale target'
     }
 }
 

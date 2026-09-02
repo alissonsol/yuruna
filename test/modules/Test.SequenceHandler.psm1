@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 4232820e-f96a-47ea-863b-f94b73f9c76f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -916,6 +916,31 @@ Register-SequenceAction -Name 'waitForText' -HostIORequirement @() -OcrRequired 
             -FreshMatchTailLines $p.tailLines -FailurePattern $p.failurePatterns)
     }
 
+Register-SequenceAction -Name 'waitForTextWithNudge' -HostIORequirement @('Send-Key') -OcrRequired $true `
+    -FailureClass 'ocr_timeout' -Severity 'hard' -SuggestedRecoveries @('restart_from_snapshot','pause_and_inspect') `
+    -UsesWaitSignals $true -CapturesOwnFailureScreenshot $true `
+    -Description 'OCR-poll under one deadline and periodically press a key to redraw a one-shot prompt.' `
+    -FailureLabel { param($c)
+        $pd = Format-SequencePatternLabel -Step $c.Step -Vars $c.Vars -ExpandVariable $c.ExpandVariable
+        "waitForTextWithNudge: `"$pd`""
+    } `
+    -Handler {
+        param([hashtable]$c)
+        $p = Resolve-WaitForTextStepParam -Context $c
+        $nudgeKey = [string]$c.Step.nudgeKey
+        $nudgeInterval = $c.Step.nudgeIntervalSeconds ? [int]$c.Step.nudgeIntervalSeconds : 0
+        if ([string]::IsNullOrWhiteSpace($nudgeKey) -or $nudgeInterval -lt 1) {
+            Write-Warning '      waitForTextWithNudge requires nudgeKey and nudgeIntervalSeconds >= 1.'
+            return $false
+        }
+        $patternDisplay = $p.patterns -join "' | '"
+        Write-Debug "      Watching screen for: '$patternDisplay' (timeout: $($p.timeout)s, nudge '$nudgeKey' every ${nudgeInterval}s$(if ($p.fresh) { ', freshMatch' })$(if ($p.failurePatterns.Count) { ", $($p.failurePatterns.Count) failurePatterns" }))"
+        return [bool](Wait-ForText -HostType $c.HostType -VMName $c.VMName -Pattern $p.patterns `
+            -TimeoutSeconds $p.timeout -PollSeconds $p.poll -FreshMatch $p.fresh `
+            -FreshMatchTailLines $p.tailLines -FailurePattern $p.failurePatterns `
+            -NudgeKey $nudgeKey -NudgeIntervalSeconds $nudgeInterval)
+    }
+
 Register-SequenceAction -Name 'waitForAndEnter' -HostIORequirement @('Send-Text', 'Send-Key') -OcrRequired $true `
     -FailureClass 'ocr_timeout' -Severity 'hard' -SuggestedRecoveries @('restart_from_snapshot','pause_and_inspect') `
     -UsesWaitSignals $true -CapturesOwnFailureScreenshot $true `
@@ -1524,17 +1549,41 @@ Register-SequenceAction -Name 'retry' -HostIORequirement @() -OcrRequired $false
                 Write-Information ("    [{0}/{1}] retry succeeded on attempt {2}/{3}" -f $c.StepNum, $c.StepCount, $attempt, $maxAttempts)
                 break
             }
+            # Preserve what the failed attempt had on screen, before the next
+            # attempt's waits recycle the frame ring and overwrite the
+            # per-VM failure screenshot. An attempt that later succeeds
+            # takes the whole cycle to a pass, and every path that gathers
+            # evidence is a cycle-failure path -- so without a copy taken
+            # here, a recovered failure is unreconstructable no matter how
+            # often it recurs. Gated on hard severity: soft classes are the
+            # ones the retry exists to absorb, and copying for those would
+            # bury the real captures under routine ones.
+            $attemptVerbEntry = Get-SequenceAction -Name $script:Fail.LastFailedAction
+            if ($attemptVerbEntry -and $attemptVerbEntry.Severity -eq 'hard' -and
+                (Get-Command Save-StepFailureEvidence -ErrorAction SilentlyContinue)) {
+                $evidenceRel = Save-StepFailureEvidence -VMName $c.VMName `
+                    -Label ("step{0}-attempt{1}" -f $c.StepNum, $attempt) -WhatIf:$false
+            } else {
+                $evidenceRel = $null
+            }
+
             # Structured per-attempt record so a flaky retry is queryable in the
-            # cycle NDJSON stream, not just the human log.
+            # cycle NDJSON stream, not just the human log. evidencePath carries
+            # the capture above so a consumer can reach the frames without
+            # knowing the naming convention.
             if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
                 Send-CycleEventSafely -EventRecord @{
-                    timestamp   = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
-                    event       = 'retry_attempt'
-                    stack       = 'sequence'
-                    attempt     = [int]$attempt
-                    maxAttempts = [int]$maxAttempts
-                    description = [string]$c.Description
-                    ok          = $false
+                    timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+                    event        = 'retry_attempt'
+                    stack        = 'sequence'
+                    attempt      = [int]$attempt
+                    maxAttempts  = [int]$maxAttempts
+                    description  = [string]$c.Description
+                    vmName       = [string]$c.VMName
+                    failureClass = [string]$(if ($attemptVerbEntry) { $attemptVerbEntry.FailureClass } else { 'unknown' })
+                    severity     = [string]$(if ($attemptVerbEntry) { $attemptVerbEntry.Severity }     else { 'unknown' })
+                    evidencePath = [string]$evidenceRel
+                    ok           = $false
                 }
             }
             if ($attempt -lt $maxAttempts) {

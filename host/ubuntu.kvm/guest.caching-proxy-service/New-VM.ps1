@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 42f8395b-50cf-4a59-bfc3-49af26e60079
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -380,7 +380,7 @@ if ((-not $dockerHubUsername) -or (-not $dockerHubToken)) {
     $dockerHubUsername = ''
     $dockerHubToken    = ''
     if (-not $dockerHubWarned) {
-        Write-Warning ("Docker Hub: no complete credential (account name + secret) for logical user 'dockerhub-token' in this host's vault; the cache syncs " +
+        Write-Verbose ("Docker Hub: no complete credential (account name + secret) for logical user 'dockerhub-token' in this host's vault; the cache syncs " +
             "anonymously against a pull budget shared by every guest behind this egress IP. Store the Hub account name as that user's localOsUser and its " +
             "access token in the vault to move the cache onto the account's own budget.")
     }

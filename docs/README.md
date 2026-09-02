@@ -28,6 +28,11 @@ up a test machine.
   shared NAS storage, caching-proxy-service, stash and pool-control services,
   each additional machine enrolled via the dashboard's Lab token, and a
   two-pool split running a different test-set on each.
+- **[lab-new-machine.md](lab-new-machine.md)** -- adding one machine to an
+  existing lab, step by step: creating the account the harness runs as (and
+  what a domain password policy does to it), signing in, the GitHub
+  credential, the configuration sync and its Lab-token prompt, and which
+  warnings a first `Test-Config.ps1` is expected to print.
 - **[definition.md](definition.md)** -- the glossary: generic and
   Yuruna-specific terms in one place, so the framework, guest scripts, and docs
   stay consistent.
@@ -240,6 +245,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.25
+Last review: 2026.09.01
 
 Back to [Yuruna](../README.md)

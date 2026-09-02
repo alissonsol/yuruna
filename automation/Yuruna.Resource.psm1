@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 426a341c-7627-4ced-878b-96844d5d7165
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -70,7 +70,7 @@ function Publish-ResourceListHelper {
 
     if ($isInitialization) {
         # Global variables are saved expanded after first time so resources.output
-        # can re-use them.
+        # can reuse them.
         if ((-Not ($null -eq $yaml.globalVariables)) -and (-Not ($null -eq $yaml.globalVariables.Keys))) {
             $keys = @($yaml.globalVariables.Keys)
             foreach ($key in $keys) {

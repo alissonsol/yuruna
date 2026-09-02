@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 42bd906d-30b3-44f2-9020-fea9dbf0805f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -2346,11 +2346,19 @@ function New-VM {
         # Planner-cascaded VM sizing (variables.memoryStartupBytes /
         # variables.cores); same declare-or-drop forwarding rule as -Username.
         [string]$MemoryStartupBytes,
-        [string]$Cores
+        [string]$Cores,
+        # Planner-cascaded nested-virtualization request
+        # (variables.exposeVirtualizationExtensions); same declare-or-drop
+        # forwarding rule as -Username. Declared for host-contract parity: no
+        # UTM guest script consumes it today (Apple's Virtualization framework
+        # offers no per-VM nested-virtualization knob), so the dispatcher
+        # drops it on the Verbose stream.
+        [string]$ExposeVirtualizationExtensions
     )
     # Thin wrapper over the shared per-guest runner; the host subdir is the
     # only platform variable. Splatting $PSBoundParameters preserves the
-    # conditional -CachingProxyServiceUrl/-Username/-Hostname/-MemoryStartupBytes/-Cores
+    # conditional -CachingProxyServiceUrl/-Username/-Hostname/-MemoryStartupBytes/-Cores/
+    # -ExposeVirtualizationExtensions
     # forwarding (the runner checks ContainsKey) and propagates -WhatIf/-Confirm.
     Invoke-PerGuestNewVm -HostSubdir 'host/macos.utm' @PSBoundParameters
 }

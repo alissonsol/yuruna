@@ -55,6 +55,20 @@ one machine can be picked up on another. Import the cluster context and
 via `$PSVersionTable`. Setup: <https://aka.ms/powershell>. Versions used in
 testing: [Preflight dependencies](operator.md#b2-preflight-dependencies).
 
+**PowerShell installed for one user only** -- a per-user install (a per-user
+MSI, or the Microsoft Store package, both under `%LOCALAPPDATA%`) can only be
+executed by the account that installed it. Every other account on the host,
+the Yuruna test user included, gets `Access is denied` -- so
+`test/New-LocalTestUser.ps1` cannot set that account's PowerShell 7 execution
+policy, and a scheduled task pointed at the same `pwsh.exe` fails the same
+way. Check with `(Get-Command pwsh).Source`; anything under `C:\Users\` is
+per-user. Fix it from an elevated prompt:
+
+```powershell
+winget uninstall --id Microsoft.PowerShell
+winget install --id Microsoft.PowerShell --scope machine
+```
+
 ## Development notes
 
 **Log data from inside a VM** -- copy/paste often works; when it doesn't,
@@ -299,6 +313,13 @@ Add-AppxPackage -RegisterByFamilyName -MainPackage Microsoft.DesktopAppInstaller
 Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force
 ```
 
+Accounts created by `test/New-LocalTestUser.ps1` already carry this: the
+policy is set at creation, from a one-shot logon as the new account, or
+at its first sign-in by the `YurunaExecutionPolicy-<account>` scheduled
+task when the account has no password the creating run can log on with
+(`-NoPassword`, `-ForcePasswordChange`). The command above is for
+accounts created any other way.
+
 **Docker Desktop requires restart** -- if `docker` commands fail after
 install: restart the computer, launch Docker Desktop, wait for the
 systray icon to stop animating.
@@ -326,6 +347,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.25
+Last review: 2026.09.01
 
 Back to [Yuruna](../README.md)

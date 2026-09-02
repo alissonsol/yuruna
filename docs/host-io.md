@@ -95,16 +95,43 @@ that escape byte before each release. A prefix that fails is a warning, not an
 abort -- the character writes may still succeed, and the warning puts the
 divergence in the cycle log.
 
-**The whole payload goes in one CIM call.** One call per character plus a sleep
-after each costs roughly N x (5-15 ms of CIM plus the 20 ms default delay) -- a
-16-character password spends 400-560 ms of wall clock on typing alone.
-`TypeScancodes` queues the entire byte payload internally and feeds the guest's
-PS/2 buffer at its own fast pace, so batching cuts the cost to about a single
-call. Shifted characters keep the standard per-character sequence (LShift make,
-char make, char break, LShift break), concatenated into the batch. Batching also
-changes what `CharDelayMs` means: it becomes a wall-clock settle budget applied
-AFTER the batch, so an explicit non-zero value asks the guest to drain before
-the next action while the default is minimal pacing.
+**On AMD64 the whole payload goes in one CIM call.** One call per character plus
+a sleep after each costs roughly N x (5-15 ms of CIM plus the 20 ms default
+delay) -- a 16-character password spends 400-560 ms of wall clock on typing
+alone. `TypeScancodes` queues the entire byte payload internally and feeds the
+guest's PS/2 buffer at its own fast pace, so batching cuts the cost to about a
+single call. Shifted characters keep the standard per-character sequence
+(LShift make, char make, char break, LShift break), concatenated into the
+batch. Batching also changes what `CharDelayMs` means: it becomes a wall-clock
+settle budget applied AFTER the batch, so an explicit non-zero value asks the
+guest to drain before the next action while the default is minimal pacing.
+
+**On ARM64 it must not.** An ARM64 Hyper-V guest receives *nothing* from a
+batched payload. `TypeScancodes` returns 0, `Send-Text` reports success, and the
+guest's console shows an empty line -- so a username, a password and a command
+all arrive as a bare Enter, which reads downstream as a wrong credential or a
+prompt that would not advance. Single-key sends work on the same host and the
+same guest at the same moment, which is what makes the failure so hard to place
+from a transcript: `pressKey` lands, `inputText` does not. Sending each
+character in its own call, paced by `CharDelayMs`, arrives intact.
+`Send-TextHyperV` therefore defaults to per-char pacing when the HOST is ARM64
+(the drop is in the synthetic keyboard, so the guest OS does not enter into it)
+and keeps the batch on AMD64. `vmCommunication.batchedTextSend` overrides the
+default in either direction. The shift pair always travels with its character:
+splitting them across the pacing sleep would leave Shift held and upshift
+whatever the guest read next.
+
+**The modifier-release prefix is batched-only.** On the same ARM64 host the
+prefix does active harm: every character sent after it is swallowed too, so a
+string that types perfectly on its own types nothing once the prefix leads it.
+Neither the E0 escapes nor the gap after the burst account for it -- a
+four-byte prefix with a 250 ms settle behind it loses the characters just the
+same, and the identical characters land when nothing precedes them. Per-char
+sending does not need the defense the prefix provides anyway: each call carries
+its character's make AND break, and a shifted character's Shift pair with them,
+so nothing can be left latched for the next character to inherit. The prefix
+therefore runs only in batched mode, where a single call cannot self-correct
+mid-payload and a latched modifier really would upshift the rest of it.
 
 ## The registry API
 
@@ -223,6 +250,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.25
+Last review: 2026.09.01
 
 Back to [Yuruna](../README.md)

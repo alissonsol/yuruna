@@ -128,10 +128,65 @@ requirements:
   - tool: "qemu-img"
     # First line is `qemu-img version X.Y.Z, Copyright (c) ... Fabrice
     # Bellard`; the Copyright tail is a constant suffix.
+    #
+    # The name alone under-reports this on Windows. The QEMU installer does
+    # not register itself on PATH, so a host whose qcow2-to-VHDX conversion
+    # runs fine still answers a by-name probe with CommandNotFoundException
+    # and lands here as MISSING -- a defect no re-install can clear, on a
+    # machine with nothing wrong with it. The candidate directories mirror
+    # Resolve-QemuImgCommand in host/modules/Yuruna.Image.psm1, the resolver
+    # every Windows caller of qemu-img goes through; they have to stay the
+    # same set, or this row resumes disagreeing with the code it describes.
+    #
+    # Windows-only on purpose. Where a package manager owns the tool, a
+    # by-name miss is a real defect and the signal the installers' repair
+    # passes act on (install/macos.utm.sh relinks the Homebrew keg), so an
+    # off-PATH fallback there would report a green floor for exactly the
+    # unlinked state that pass exists to fix.
     command: |-
-      ((qemu-img --version | Select-Object -First 1) -replace ',\s*Copyright.*$','')
+      $exe = (Get-Command qemu-img -ErrorAction SilentlyContinue).Source
+      if (-not $exe -and $IsWindows) {
+          $exe = @("$env:ProgramFiles\qemu\qemu-img.exe", "${env:ProgramFiles(x86)}\qemu\qemu-img.exe") |
+              Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
+      }
+      if ($exe) { ((& $exe --version | Select-Object -First 1) -replace ',\s*Copyright.*$','') }
     version: "qemu-img version 10.2.1"
     releases: "https://www.qemu.org/download/"
+  - tool: "oscdimg"
+    # The banner line is `OSCDIMG X.YZ CD-ROM and DVD-ROM Premastering
+    # Utility`. There is no version flag -- `-h` means "include hidden files"
+    # -- so the version is read from the banner oscdimg prints ahead of its
+    # usage text when invoked with no source and target. Those missing
+    # arguments also make it exit non-zero, which is NOT a failure signal
+    # here: with $PSNativeCommandUseErrorActionPreference left at the host's
+    # default, a PowerShell 7.4+ session running at ErrorActionPreference
+    # Stop turns that exit into a terminating error, and the caught message
+    # carries no version number, so a healthy ADK would report MISSING.
+    # Match the banner rather than taking line 1, so a leading blank or a
+    # future preamble line does not read as an absent tool.
+    #
+    # Windows-only, and never on PATH: the ADK registers nothing, shipping
+    # DandISetEnv.bat to build an environment on demand instead. It lays
+    # Oscdimg down once per architecture (amd64, arm64 and x86 all appear
+    # after one install), and the glob takes whichever copy is present --
+    # a floor asks how new the ADK is, not which build runs. That second
+    # question belongs to Resolve-OscdimgPath in
+    # host/windows.hyper-v/modules/Yuruna.Host.psm1, and repeating its
+    # ordering here would be a second copy to keep in step for an answer
+    # this row never uses.
+    command: |-
+      & {
+          if (-not $IsWindows) { return }
+          $PSNativeCommandUseErrorActionPreference = $false
+          $exe = Get-ChildItem -Path "${env:ProgramFiles(x86)}\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\*\Oscdimg\Oscdimg.exe" -ErrorAction SilentlyContinue |
+              Select-Object -First 1
+          if ($exe) {
+              @(& $exe.FullName 2>&1 | ForEach-Object { "$_" }) |
+                  Where-Object { $_ -match 'OSCDIMG' } | Select-Object -First 1
+          }
+      }
+    version: "OSCDIMG 2.56"
+    releases: "https://learn.microsoft.com/en-us/windows-hardware/get-started/adk-install"
   - tool: "AWS cli"
     # `aws-cli/X.Y.Z Python/X.Y.Z OS/build prompt/...`; everything past
     # the first whitespace is environment context, not version.

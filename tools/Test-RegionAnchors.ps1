@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 427a25a9-d3c8-4ce6-b877-b396666875b0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -158,8 +158,8 @@ $checked    = 0
 foreach ($rel in $tracked) {
     $full = Join-Path $RepoRoot $rel
     if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { continue }
-    # Runtime output, and the review-history records whose purpose is to
-    # preserve anchor names as they were at the time -- both would report
+    # Runtime output and historical records deliberately preserve anchor
+    # names as they were at the time -- both would report
     # states this gate is not meant to police.
     if ($rel -like 'test/status/*') { continue }
     if ($rel -like 'dev-only/review.history/*') { continue }
@@ -198,7 +198,7 @@ foreach ($rel in $tracked) {
 # a base anchors a key its overlay does not define, or an overlay defines a key
 # the base never anchors. That throw lands at VM-creation time, on a host,
 # mid-cycle -- so a comment restyle that drops or reflows one of these lines
-# passes review, passes the build, and fails at the first guest bring-up. The
+# evades static parsing and fails only at the first guest bring-up. The
 # same pairing is cheap to check here, where a wrong edit is still a diff.
 $anchorRe    = [regex]'^\s*#\s*===\s*YURUNA_OVERLAY_([A-Z0-9_]+)\s*===\s*$'
 $overlayBad  = New-Object System.Collections.Generic.List[hashtable]

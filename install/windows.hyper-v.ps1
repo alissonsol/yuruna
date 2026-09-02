@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 425b1941-f370-4155-9842-47cbe6837b47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -188,9 +188,71 @@ packages are installed or the Hyper-V feature is touched.
 "@
 }
 
+# --- REGION: Preflight: host architecture
+# The machine's architecture as 'AMD64' or 'ARM64' -- or, when no source
+# answers, a name to print instead of a blank.
+#
+# Three sources, machine truth first, because this preflight runs under
+# whatever shell the operator pasted the one-liner into: Windows PowerShell 5.1
+# on .NET Framework, before the relaunch into pwsh.
+#
+#   * The Session Manager environment block in HKLM holds the value Windows
+#     writes for the machine. It names the hardware on every edition and
+#     interpreter, and no emulation layer rewrites it.
+#   * RuntimeInformation::OSArchitecture is the managed answer, and what the
+#     pwsh 7 scripts under host/windows.hyper-v read. Its assembly is not
+#     always loaded under .NET Framework, and PowerShell answers a missing
+#     static member with $null and NO error -- at any ErrorActionPreference --
+#     so an unguarded read yields an empty architecture name that reaches the
+#     operator as "architecture '' detected" and reads as a broken machine
+#     rather than an absent API. Confirm the member exists before reading it.
+#   * PROCESSOR_ARCHITECTURE describes THIS PROCESS: an x64 shell emulated on
+#     an ARM64 host reports AMD64. PROCESSOR_ARCHITEW6432 carries the machine
+#     value whenever the process is the emulated one, so it is read first.
+function Get-HostArchitecture {
+    [OutputType([string])]
+    param()
+    $candidate = New-Object System.Collections.Generic.List[string]
+    try {
+        $machineEnv = Get-ItemProperty -LiteralPath 'HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment' -Name 'PROCESSOR_ARCHITECTURE' -ErrorAction Stop
+        $null = $candidate.Add([string]$machineEnv.PROCESSOR_ARCHITECTURE)
+    } catch {
+        Write-Verbose "Machine-wide PROCESSOR_ARCHITECTURE could not be read: $($_.Exception.Message)"
+    }
+    $runtimeInfo = 'System.Runtime.InteropServices.RuntimeInformation' -as [type]
+    if ($runtimeInfo) {
+        $osArch = $runtimeInfo.GetProperty('OSArchitecture')
+        if ($osArch) {
+            try {
+                $null = $candidate.Add([string]$osArch.GetValue($null, $null))
+            } catch {
+                Write-Verbose "RuntimeInformation.OSArchitecture could not be read: $($_.Exception.Message)"
+            }
+        }
+    }
+    foreach ($name in 'PROCESSOR_ARCHITEW6432', 'PROCESSOR_ARCHITECTURE') {
+        $null = $candidate.Add([string][Environment]::GetEnvironmentVariable($name))
+    }
+    # The first source naming an architecture the harness runs on wins. A source
+    # naming anything else is kept only so the warning can print a name.
+    $unsupported = ''
+    foreach ($value in $candidate) {
+        if (-not $value) { continue }
+        if ($value -match '^(AMD64|X64|x86[_-]64)$') { return 'AMD64' }
+        if ($value -match '^(ARM64|AARCH64)$')       { return 'ARM64' }
+        if (-not $unsupported) { $unsupported = $value }
+    }
+    if ($unsupported) { return $unsupported }
+    return 'unknown'
+}
+
 # --- REGION: Preflight: system requirements
 function Test-SystemRequirement {
     $issues = New-Object System.Collections.Generic.List[string]
+    # Recommendations print alongside the issues and gate nothing. A shortfall
+    # belongs here rather than in $issues when a machine below the line still
+    # runs the harness correctly, only slower.
+    $advice = New-Object System.Collections.Generic.List[string]
     $os = $null
     try { $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop } catch { $null = $issues.Add("could not read Win32_OperatingSystem: $($_.Exception.Message)") }
     $caption = if ($os) { $os.Caption } else { 'unknown' }
@@ -202,17 +264,9 @@ function Test-SystemRequirement {
         }
     }
     # AMD64 and ARM64 hosts are both supported; anything else (x86, and the
-    # arm32 the enum can still name) cannot run the guests.
-    #
-    # OSArchitecture rather than $env:PROCESSOR_ARCHITECTURE, which reports
-    # AMD64 for an x64 process under emulation on an ARM64 host. This preflight
-    # runs before the relaunch into pwsh, so on .NET Framework it can report
-    # that same emulated view -- harmless here, because both answers are
-    # accepted and only the reported name in the message would be off. The
-    # scripts that pick an actual image all run under pwsh 7, where
-    # OSArchitecture reports the machine.
-    $archEnv = [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture
-    if ($archEnv -notin @([System.Runtime.InteropServices.Architecture]::X64, [System.Runtime.InteropServices.Architecture]::Arm64)) {
+    # arm32 a source can still name) cannot run the guests.
+    $archEnv = Get-HostArchitecture
+    if ($archEnv -notin @('AMD64', 'ARM64')) {
         $null = $issues.Add("architecture '$archEnv' detected (need AMD64/x86_64 or ARM64)")
     }
     $cores = 0
@@ -222,8 +276,12 @@ function Test-SystemRequirement {
         Write-Verbose "Win32_Processor query failed: $($_.Exception.Message); treating physical-core count as 0."
     }
     if (-not $cores) { $cores = 0 }
+    # Core count advises, it never gates. The harness runs correctly below 16 --
+    # serialized and slower -- and no ARM64 Windows machine on the market has 16
+    # physical cores, so gating here would turn a speed difference into a
+    # refusal of an entire supported host class.
     if ($cores -lt 16) {
-        $null = $issues.Add("$cores physical cores detected (need 16+)")
+        $null = $advice.Add("$cores physical cores detected; 16+ recommended (fewer cores mean slower, more serialized test runs)")
     }
     $memGB = 0
     if ($os) { $memGB = [math]::Round($os.TotalVisibleMemorySize / 1MB, 0) }
@@ -243,12 +301,18 @@ function Test-SystemRequirement {
     }
     if ($issues.Count -eq 0) {
         Write-Step "System OK: $caption, $archEnv, $cores cores, ${memGB}GB RAM, ${freeGB}GB free on $sysDriveLetter"
+        foreach ($a in $advice) { Write-Warn "Recommended: $a" }
         return
     }
     Write-Warning ''
     Write-Warning '========'
     Write-Warning '  System does not meet Yuruna TESTED requirements:'
     foreach ($i in $issues) { Write-Warning "    - $i" }
+    if ($advice.Count -gt 0) {
+        Write-Warning ''
+        Write-Warning '  Recommended, but not blocking:'
+        foreach ($a in $advice) { Write-Warning "    - $a" }
+    }
     Write-Warning ''
     Write-Warning '  Tested baseline (Windows host):'
     Write-Warning '    32GB RAM, 512GB free, Windows 11 Pro/Enterprise/Education'
@@ -460,8 +524,13 @@ Microsoft Store (or update Windows) and re-run this script.
     $pwshPkg = winget list --id 'Microsoft.PowerShell' --exact --source winget --accept-source-agreements 2>$null |
         Select-String -SimpleMatch 'Microsoft.PowerShell'
     if (-not $pwshPkg) {
-        Write-Step '  installing PowerShell 7 via winget'
+        Write-Step '  installing PowerShell 7 via winget (all users)'
+        # --scope machine, not the default: a per-user install lands under the
+        # installing account's profile, where no other account on the host can
+        # execute it. The Yuruna test account is a different account, and it
+        # has to run pwsh as itself -- see test/New-LocalTestUser.ps1.
         winget install --id 'Microsoft.PowerShell' --exact --silent --source winget `
+            --scope machine `
             --accept-package-agreements --accept-source-agreements `
             --disable-interactivity
         if ($LASTEXITCODE -ne 0) {
@@ -867,8 +936,14 @@ Microsoft Store (or update Windows) and re-run this script.
 function Install-WingetPackage {
     param(
         [Parameter(Mandatory)][string]$Id,
-        [string]$FriendlyName = $Id
+        [string]$FriendlyName = $Id,
+        # 'machine' for anything a second account on this host has to run;
+        # winget's default otherwise, which some packages only ship per-user.
+        [ValidateSet('', 'machine', 'user')][string]$Scope = ''
     )
+    # Only on install: an upgrade keeps the scope the installed copy has, and
+    # asking for a different one there fails the upgrade instead of moving it.
+    $scopeArg = if ($Scope) { @('--scope', $Scope) } else { @() }
     $installed = winget list --id $Id --exact --source winget --accept-source-agreements 2>$null |
         Select-String -SimpleMatch $Id
     if ($installed) {
@@ -886,7 +961,7 @@ function Install-WingetPackage {
         }
     } else {
         Write-Step "  installing $FriendlyName"
-        winget install --id $Id --exact --silent --source winget `
+        winget install --id $Id --exact --silent --source winget @scopeArg `
             --accept-package-agreements --accept-source-agreements `
             --disable-interactivity
         if ($LASTEXITCODE -ne 0) {
@@ -910,11 +985,11 @@ if ($PSVersionTable.PSEdition -eq 'Core') {
     # the version check at the end is the only thing that will say so.
     Write-Step "  PowerShell 7 is the running interpreter ($($PSVersionTable.PSVersion)) -- skipping its winget upgrade (would terminate this installer). Update it later from Windows PowerShell or a separate window: winget upgrade --id Microsoft.PowerShell"
 } else {
-    Install-WingetPackage -Id 'Microsoft.PowerShell'          -FriendlyName 'PowerShell 7'
+    Install-WingetPackage -Id 'Microsoft.PowerShell'          -FriendlyName 'PowerShell 7' -Scope machine
 }
 Install-WingetPackage -Id 'Git.Git'                           -FriendlyName 'Git (brings openssl.exe used by Ubuntu guest New-VM.ps1 password hashing)'
 Install-WingetPackage -Id 'Microsoft.WindowsADK'              -FriendlyName 'Windows ADK (Deployment Tools / oscdimg)'
-Install-WingetPackage -Id 'SoftwareFreedomConservancy.QEMU'   -FriendlyName 'QEMU tools (qemu-img for guest.caching-proxy-service/Get-Image.ps1)'
+Install-WingetPackage -Id 'SoftwareFreedomConservancy.QEMU'   -FriendlyName 'QEMU tools (qemu-img converts the qcow2 cloud images every extension-service guest boots from to VHDX)'
 Install-WingetPackage -Id 'UB-Mannheim.TesseractOCR'          -FriendlyName 'Tesseract OCR'
 Install-WingetPackage -Id 'GitHub.cli'                        -FriendlyName 'GitHub CLI (gh) -- run `gh auth login` after install to authenticate'
 
@@ -925,6 +1000,27 @@ $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' +
 foreach ($cmd in 'git','pwsh') {
     if (-not (Get-Command $cmd -ErrorAction SilentlyContinue)) {
         Write-Warn "$cmd not yet on PATH -- you may need to open a new terminal."
+    }
+}
+
+# A PowerShell installed for one user lives under that account's profile -- a
+# per-user MSI under AppData\Local\Programs, or a Store execution alias under
+# AppData\Local\Microsoft\WindowsApps -- and no other account on the host can
+# execute it. That breaks the Yuruna test account, which runs the harness as
+# itself. An install already in place is not moved by re-running winget, so
+# this is reported rather than repaired.
+$pwshResolved = Get-Command pwsh -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+if ($pwshResolved -and $pwshResolved.Source -and $env:USERPROFILE) {
+    $profileRoot = (Split-Path -Parent $env:USERPROFILE).TrimEnd('\') + '\'
+    if ($pwshResolved.Source.StartsWith($profileRoot, [StringComparison]::OrdinalIgnoreCase)) {
+        Add-InstallIssue @"
+PowerShell 7 is installed for one user only ($($pwshResolved.Source)). No
+other account on this host can run it, so the Yuruna test account created by
+test/New-LocalTestUser.ps1 cannot run pwsh, and that script cannot set its
+execution policy. Reinstall it for all users, from an elevated prompt:
+  winget uninstall --id Microsoft.PowerShell
+  winget install --id Microsoft.PowerShell --scope machine
+"@
     }
 }
 
@@ -1526,7 +1622,7 @@ if (Test-Path -LiteralPath $requirementScript) {
     Write-Step 'Checking installed versions against the required floors'
     try {
         $reported = & pwsh -NoProfile -File $requirementScript `
-            -Tool 'PowerShell,git,qemu-img' -WarnOnly 2>$null
+            -Tool 'PowerShell,git,qemu-img,oscdimg' -WarnOnly 2>$null
         foreach ($line in @($reported)) {
             if ("$line" -match '^REQUIREMENT-ISSUE: (.+)$') { Add-InstallIssue $Matches[1] }
         }
@@ -1537,7 +1633,15 @@ if (Test-Path -LiteralPath $requirementScript) {
 
 # --- REGION: Install summary
 # The last thing printed before the transcript closes. Everything above
-# scrolls; this does not.
+# scrolls; this does not -- including the outcome banner, which the floor check
+# and this block both print after.
+#
+# Every verdict here is gated on the run's outcome, not on the issue count
+# alone. A caught failure and a pending Hyper-V activation each reach this
+# point, and a summary that reads "the machine is usable" or "finished with no
+# issues" under either one contradicts the banner the operator just scrolled
+# past, with the contradiction in the position that survives.
+$installComplete = $script:InstallSucceeded -and -not $script:RestartNeeded
 if ($script:YurunaIssue.Count -gt 0) {
     Write-Output ''
     Write-Output '========'
@@ -1545,11 +1649,16 @@ if ($script:YurunaIssue.Count -gt 0) {
     Write-Output ''
     foreach ($issue in $script:YurunaIssue) { Write-Output "  - $issue" }
     Write-Output ''
-    Write-Output 'The install completed and the machine is usable. Each line above is'
-    Write-Output 'something that did not happen as intended -- re-running this installer'
-    Write-Output 'is safe and retries every one of them.'
+    if ($installComplete) {
+        Write-Output 'The install completed and the machine is usable. Each line above is'
+        Write-Output 'something that did not happen as intended -- re-running this installer'
+        Write-Output 'is safe and retries every one of them.'
+    } else {
+        Write-Output 'Each line above is something that did not happen as intended --'
+        Write-Output 're-running this installer is safe and retries every one of them.'
+    }
     Write-Output '========'
-} else {
+} elseif ($installComplete) {
     Write-Output ''
     Write-Output 'Install finished with no issues.'
 }
@@ -1561,6 +1670,44 @@ if ($script:YurunaIssue.Count -gt 0) {
 # at the next run's top.
 if ($PSCommandPath -and (Split-Path -Leaf $PSCommandPath) -match '^yuruna-windows-hyper-v-[0-9a-fA-F]{32}\.ps1$') {
     Remove-Item -LiteralPath $PSCommandPath -Force -ErrorAction SilentlyContinue
+}
+
+# --- REGION: Closing hold on the paths that open no handoff window
+# The elevated console is started without -NoExit, so it is destroyed the
+# instant this script returns. Only a clean finish survives that, and only
+# because it opens a SEPARATE -NoExit window; a failure and a pending Hyper-V
+# activation both end here having printed the operator's next action to a
+# window that is already gone. The whole message reaches the transcript either
+# way, but an operator who has to be told to find a log file has already been
+# told nothing. Hold the console open long enough to read it.
+#
+# Placed after the summary rather than inside the outcome banner, because that
+# banner runs in the finally: the floor check and the summary both print below
+# it, so a hold up there would still let the last words scroll away.
+#
+# Timed, not a prompt. This file's only interactive question is the hardware
+# gate in Test-SystemRequirement, and an operator who walked away from a run
+# they expected to be unattended must not come back to a console still waiting
+# on a keypress.
+if ($script:RestartNeeded -or -not $script:InstallSucceeded) {
+    Write-Output ''
+    Write-Output '========'
+    if ($script:RestartNeeded) {
+        Write-Output '   RESTART REQUIRED -- Hyper-V is enabled but not yet active.'
+        Write-Output ''
+        Write-Output '   Restart Windows, then run this installer again. The second run'
+        Write-Output '   finishes host configuration and leaves you at a pwsh prompt in'
+        Write-Output '   the test directory. Nothing here starts VMs until then.'
+    } else {
+        Write-Output '   INSTALL DID NOT COMPLETE -- review the messages above, then'
+        Write-Output '   run this installer again. Completed steps are skipped.'
+    }
+    Write-Output ''
+    Write-Output ("   Full log of this run: " + $LogPath)
+    Write-Output '========'
+    Write-Output ''
+    Write-Output 'Pausing 60 seconds so this is readable before the window closes.'
+    Start-Sleep -Seconds 60
 }
 
 # Close the transcript (best-effort). A hard failure earlier already flushed

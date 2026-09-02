@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 4236c7a4-0e24-4a2c-beef-a19ebb5235fa
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -394,7 +394,7 @@ function Get-EffectiveUser {
     cycles -- the harness must never silently delete users or rotate
     passwords without an explicit Set-Password call. This function
     therefore only creates the file when it is absent; an existing
-    vault is left untouched and its contents are re-used as-is.
+    vault is left untouched and its contents are reused as-is.
 
     The 'init' event log distinguishes the two cases via Detail:
       'created'  -- no prior vault file existed, an empty one is written

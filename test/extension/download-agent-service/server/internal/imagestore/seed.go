@@ -52,33 +52,43 @@ func knownHostType(ht string) bool {
 	return false
 }
 
-// ArchForHostType infers the guest architecture a host type runs. Pool-status
-// carries no arch field, so the mapping is by host type: Hyper-V and KVM hosts
-// are x86-64 in the common case, UTM runs on Apple Silicon. An arm64 Hyper-V or
-// KVM host is covered demand-driven -- its first request creates the arm64
-// entry, which the scanner then maintains.
-func ArchForHostType(hostType string) string {
+// ArchesForHostType is the guest architectures a host type can run. Pool-status
+// carries no arch field, so the answer is by host type alone: UTM is Apple
+// Silicon and runs arm64 only, while Hyper-V and KVM ship on both.
+//
+// Both are named rather than the commoner one, because an arch left out here is
+// left out of everything the scan builds -- no catalog row, no seed, and no drop
+// folder -- and is then reachable only by a host request that resolves the
+// family first. That escape does not exist for a best-effort family whose
+// resolver is down: Ensure answers "unsupported" for an identity with no pointer
+// while the resolver is unavailable, so the request that was supposed to create
+// the entry never can, and the drop folder that would let an operator supply the
+// media by hand was never created either. An ARM64 Hyper-V host asking for
+// Windows 11 while Fido is refused is exactly that dead end.
+//
+// The cost is one extra seeded copy per stable family for the two both-arch host
+// types. The best-effort families are not seeded at all, so the arch they gain
+// costs a catalog row and a drop folder, not bandwidth.
+func ArchesForHostType(hostType string) []string {
 	switch hostType {
 	case HostTypeUTM:
-		return ArchARM64
+		return []string{ArchARM64}
 	case HostTypeHyperV, HostTypeKVM:
-		return ArchAMD64
+		return []string{ArchAMD64, ArchARM64}
 	default:
-		return ""
+		return nil
 	}
 }
 
 // SeedTargets expands host types into the stable-family identities the pass
-// ensures exist.
+// ensures exist, one per architecture the host type can run.
 func SeedTargets(hostTypes []string) []ImageID {
 	var out []ImageID
 	for _, ht := range hostTypes {
-		arch := ArchForHostType(ht)
-		if arch == "" {
-			continue
-		}
-		for _, key := range SeedFamilies {
-			out = append(out, ImageID{HostType: ht, ImageKey: key, Arch: arch, Variant: VariantStable})
+		for _, arch := range ArchesForHostType(ht) {
+			for _, key := range SeedFamilies {
+				out = append(out, ImageID{HostType: ht, ImageKey: key, Arch: arch, Variant: VariantStable})
+			}
 		}
 	}
 	return out
@@ -112,16 +122,17 @@ func bestEffortKeysFor(hostType string) []string {
 func BestEffortTargets(hostTypes []string) []ImageID {
 	var out []ImageID
 	for _, ht := range hostTypes {
-		arch := ArchForHostType(ht)
-		if arch == "" {
-			continue
-		}
-		for _, key := range bestEffortKeysFor(ht) {
-			id := ImageID{HostType: ht, ImageKey: key, Arch: arch, Variant: VariantStable}
-			if !Supported(id) {
-				continue
+		for _, arch := range ArchesForHostType(ht) {
+			for _, key := range bestEffortKeysFor(ht) {
+				id := ImageID{HostType: ht, ImageKey: key, Arch: arch, Variant: VariantStable}
+				// Supported is what keeps virtio-win out of the arm64 pass: the
+				// bundle carries x86-64 drivers only, so a row for it would
+				// promise media that does not exist.
+				if !Supported(id) {
+					continue
+				}
+				out = append(out, id)
 			}
-			out = append(out, id)
 		}
 	}
 	return out

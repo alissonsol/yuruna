@@ -74,18 +74,21 @@ func TestDeriveHostTypesTreatsAnEmptyHostFieldAsMissingStatus(t *testing.T) {
 	}
 }
 
-func TestArchIsInferredFromTheHostType(t *testing.T) {
+func TestArchesAreInferredFromTheHostType(t *testing.T) {
 	// Pool-status carries no arch field; the mapping is the whole inference.
-	for hostType, want := range map[string]string{
-		HostTypeHyperV: ArchAMD64,
-		HostTypeKVM:    ArchAMD64,
-		HostTypeUTM:    ArchARM64,
+	// Hyper-V and KVM ship on both, and naming only the commoner one would leave
+	// the other with no catalog row, no seed and no drop folder.
+	for hostType, want := range map[string][]string{
+		HostTypeHyperV: {ArchAMD64, ArchARM64},
+		HostTypeKVM:    {ArchAMD64, ArchARM64},
+		HostTypeUTM:    {ArchARM64},
 	} {
-		if got := ArchForHostType(hostType); got != want {
-			t.Errorf("ArchForHostType(%q) = %q, want %q", hostType, got, want)
+		got := ArchesForHostType(hostType)
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("ArchesForHostType(%q) = %v, want %v", hostType, got, want)
 		}
 	}
-	if ArchForHostType("freebsd.bhyve") != "" {
+	if len(ArchesForHostType("freebsd.bhyve")) != 0 {
 		t.Error("an unknown host type must infer no arch")
 	}
 }
@@ -121,6 +124,48 @@ func TestSeedTargetsCoverTheStableFamiliesOnly(t *testing.T) {
 func TestSeedTargetsSkipHostTypesWithNoInferredArch(t *testing.T) {
 	if got := SeedTargets([]string{"freebsd.bhyve"}); len(got) != 0 {
 		t.Fatalf("got %d targets, want none", len(got))
+	}
+}
+
+func TestSeedTargetsCoverEveryArchAHostTypeCanRun(t *testing.T) {
+	targets := SeedTargets([]string{HostTypeHyperV})
+	if len(targets) != 2*len(SeedFamilies) {
+		t.Fatalf("got %d targets for a both-arch host type, want %d", len(targets), 2*len(SeedFamilies))
+	}
+	perArch := map[string]int{}
+	for _, id := range targets {
+		perArch[id.Arch]++
+	}
+	for _, arch := range []string{ArchAMD64, ArchARM64} {
+		if perArch[arch] != len(SeedFamilies) {
+			t.Errorf("arch %s has %d seed target(s), want %d", arch, perArch[arch], len(SeedFamilies))
+		}
+	}
+}
+
+func TestBestEffortTargetsGiveAnArm64HyperVHostAWindows11Row(t *testing.T) {
+	// The row is the whole point: with no entry and a resolver that cannot run,
+	// Ensure answers "unsupported" and the drop folder that would let an operator
+	// hand the media over is never created. Naming the arch here is what makes
+	// that host addressable at all.
+	var found bool
+	for _, id := range BestEffortTargets([]string{HostTypeHyperV}) {
+		if id.ImageKey == KeyWindows11 && id.Arch == ArchARM64 {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("an ARM64 Hyper-V host has no guest.windows.11 target")
+	}
+}
+
+func TestBestEffortTargetsKeepVirtioWinOffArm64(t *testing.T) {
+	// The bundle carries x86-64 drivers only, so an arm64 row would promise media
+	// that does not exist.
+	for _, id := range BestEffortTargets([]string{HostTypeKVM}) {
+		if id.ImageKey == KeyVirtioWin && id.Arch != ArchAMD64 {
+			t.Errorf("virtio-win must not be offered for %s", id.Arch)
+		}
 	}
 }
 

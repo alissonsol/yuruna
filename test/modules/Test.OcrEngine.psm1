@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 425af8de-0326-440d-a6ef-cfcf1c3376cb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -338,7 +338,7 @@ foreach ($line in $ocrResult.Lines) {
 # $script:WinRtOcrScript; we hash it (first 16 hex chars of SHA-256) so a
 # source edit lands at a different path -- if the module is re-imported
 # mid-cycle after an edit, the next call writes a fresh file instead of
-# silently re-using stale content.
+# silently reusing stale content.
 $script:WinRtOcrScriptPath = $null
 
 # Content-addressed source-hash key: the first 16 hex chars of the lowercase SHA-256

@@ -42,7 +42,10 @@ Image source by host:
   is the one guest whose publisher offers no ARM64 Hyper-V image, so on
   ARM64 the script pulls the ARM64 KVM qcow2 and converts it to VHDX
   with `qemu-img` -- the same file name either way, so `New-VM.ps1` is
-  unaffected.
+  unaffected. The converted guest does not boot on Hyper-V, though: that
+  image carries no Hyper-V drivers, so it finds neither its root disk nor
+  a NIC. See
+  [host-hyperv.md](host-hyperv.md#the-converted-arm64-image-does-not-boot).
 - **macOS UTM** -- same as Hyper-V for ISO-based guests. macOS guests
   use `.ipsw` (queried via the Virtualization framework rather than a
   stable URL).
@@ -81,12 +84,24 @@ things can come back:
   fields it always has.
 - **anything else** -- the origin path below runs instead.
 
+A script whose staging step depends on the container format states the
+filename shape it can handle, and an answer that names anything else is
+refused before a byte moves. The hash proves the agent served the
+artifact it described, not that the artifact is the one this host asked
+for -- and the two differ where one guest key maps to different
+publisher platforms per architecture. Amazon Linux 2023 on Hyper-V is
+that case: AMD64 unzips the publisher's native VHDX, ARM64 converts the
+same `kvm-arm64` qcow2 the UTM hosts boot, and the x86-64 zip fed to
+that converter would fail with an unreadable-image error far from its
+cause.
+
 **What an operator sees when there is no agent: nothing new.** The hooks
 are guarded twice -- the client module must be loaded *and* an endpoint
 must resolve to a healthy agent -- and no lab is required to run one. A
 missing module, an agent VM that was never started or is down, one
-whose pool share is unmounted, a request that fails a checksum
-or runs out its deadline: each falls through to the resolve /
+whose pool share is unmounted, a request that fails a checksum, names
+an artifact of the wrong shape, or runs out its deadline: each falls
+through to the resolve /
 skip-if-same-source / publisher-download path below, with the same
 output, sentinel, and exit codes. Failures of an agent that *did*
 answer print one warning line and continue; an agent
@@ -559,6 +574,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.25
+Last review: 2026.09.01
 
 Back to [Yuruna](../README.md)

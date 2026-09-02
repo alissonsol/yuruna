@@ -277,3 +277,12 @@ actions:
     start a shell' so an installer crash fails the cycle in ~20s
     instead of waiting the full timeoutSeconds for a login prompt that
     will never come). Uses ${var} substitution.
+
+  waitForTextWithNudge: >
+    Like waitForText, but periodically presses nudgeKey while retaining one
+    wall-clock timeoutSeconds deadline. Positive and failure patterns are
+    checked before each nudge, so a visible prompt completes without another
+    keypress and an installer crash still aborts immediately. Parameters are
+    waitForText's set plus nudgeKey (required key name) and
+    nudgeIntervalSeconds (required integer >= 1). Canonical use: redraw an
+    agetty login prompt that late console output can scroll off screen.

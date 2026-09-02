@@ -158,7 +158,7 @@ func newServer(t *testing.T, opts Options) (*httptest.Server, *fakeImages) {
 	f := newFake(t)
 	opts.Images = f
 	if opts.Version == "" {
-		opts.Version = "2026.08.25"
+		opts.Version = "2026.09.01"
 	}
 	srv := httptest.NewServer(New(opts).Handler())
 	t.Cleanup(srv.Close)
@@ -206,8 +206,8 @@ func decodeBody(t *testing.T, resp *http.Response) map[string]any {
 }
 
 const (
-	imgPath  = "/api/v1/images/ubuntu.kvm/guest.ubuntu.server.26"
-	imgQuery = "?arch=amd64&variant=stable"
+	imgPath         = "/api/v1/images/ubuntu.kvm/guest.ubuntu.server.26"
+	imgQuery        = "?arch=amd64&variant=stable"
 	internalAuthKey = "internal-auth-key-value"
 	// labCode is a stand-in for what the dashboard's Lab token tile shows.
 	labCode = "ab12cd"
@@ -443,7 +443,7 @@ func TestTheAdvertisedFileUrlIsFetchableVerbatim(t *testing.T) {
 		t.Fatalf("Commit: %v", err)
 	}
 
-	srv := httptest.NewServer(New(Options{Images: agent, Version: "2026.08.25"}).Handler())
+	srv := httptest.NewServer(New(Options{Images: agent, Version: "2026.09.01"}).Handler())
 	t.Cleanup(srv.Close)
 
 	catalog := decodeBody(t, get(t, srv, "/api/v1/images"))

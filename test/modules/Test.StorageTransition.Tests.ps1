@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 42cf1a35-c982-4816-bdc9-94893388e752
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -296,7 +296,7 @@ Describe 'reading the peer out of what each platform prints' {
     }
 
     It 'reads the address the Linux kernel recorded for a cifs mount' {
-        Assert-Equal -Expected '192.168.7.25' -Actual (Get-PoolStorageCifsPeer -Line $script:ProcMountsLines -MountPoint '/mnt/ypool-nas') 'addr= is the address the mount dialled'
+        Assert-Equal -Expected '192.168.7.25' -Actual (Get-PoolStorageCifsPeer -Line $script:ProcMountsLines -MountPoint '/mnt/ypool-nas') 'addr= is the address the mount dialed'
         Assert-Equal -Expected '' -Actual (Get-PoolStorageCifsPeer -Line $script:ProcMountsLines -MountPoint '/mnt/other') 'a different mount point is not our mount'
     }
 }

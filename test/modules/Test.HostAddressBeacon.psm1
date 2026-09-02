@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 42d5663b-af64-472f-8342-ab50456c2fc4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -805,16 +805,34 @@ function Get-HostAddressStabilityReport {
             return $report
         }
         default {
-            # The beacon writes a baseline row the first time it sees an
-            # address, so the record exists for as long as it has run. Nothing
-            # to read is therefore not "this host is quiet" -- it is "nothing is
-            # watching this host", which is worth more than an advisory: an
-            # unwatched host is exactly where unbounded renumbering hides.
-            $report.severity = 'warning'
-            $report.message  = ('No host address record to read. The beacon writes one the first time it ' +
-                'observes an address, so its absence means the beacon is not running here -- this host''s ' +
-                'address footprint is unmeasured, not proven quiet.')
-            $report.remedy   = 'start the status service (the beacon runs alongside it) and confirm it writes runtime/hostaddress.changes.ndjson.'
+            # No address history. Which of two situations that is depends on
+            # whether the status service was ever started here: starting it
+            # materializes .status-service.ps1 into the runtime directory, and
+            # the recorder runs inside it, writing its first row the first time
+            # it observes an address. No marker is the expected state of a host
+            # that was just configured -- say so in plain terms and ask for
+            # nothing, because there is nothing to do -- and also the steady
+            # state of a host deliberately run with the status service disabled
+            # (statusService.enabled false, or -NoStatusService), so the
+            # message must not claim no cycle has run, only that recording has
+            # not started. A marker with no history means a started service
+            # never recorded, and that is worth a warning rather than an
+            # advisory: an unwatched host is exactly where unbounded
+            # renumbering hides.
+            $serviceMarker = Join-Path $RuntimeDir '.status-service.ps1'
+            if (Test-Path -LiteralPath $serviceMarker) {
+                $report.severity = 'warning'
+                $report.message  = ('This host has no address history even though its status service has been ' +
+                    'started before (runtime/hostaddress.changes.ndjson was never written), so whether it ' +
+                    'keeps or changes its network address over time cannot be checked.')
+                $report.remedy   = 'start the status service and confirm runtime/hostaddress.changes.ndjson appears; see docs/network.md, ''Host address stability''.'
+            } else {
+                $report.severity = 'advisory'
+                $report.message  = ('No address history to check yet: it is recorded by this host''s status ' +
+                    'service, which has never started here. The first cycle starts it automatically when ' +
+                    'statusService.enabled keeps its default -- nothing to do now. A host deliberately run ' +
+                    'with the status service disabled stays unmeasured by that choice.')
+            }
             return $report
         }
     }

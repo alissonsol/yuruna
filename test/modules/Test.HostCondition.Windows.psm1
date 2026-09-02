@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 42475b3f-e79e-40ac-8114-ff6104d9b316
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1111,6 +1111,214 @@ function Set-YurunaDisplayScale100 {
     return $scaleChanged
 }
 
+function Get-WindowsDisplayScaleSetting {
+    <#
+    .SYNOPSIS
+    The three HKCU display and text scaling knobs on this host, as the raw
+    numbers the registry holds.
+    .DESCRIPTION
+    The reading half of Get-WindowsDisplayScaleIssue, split out so the rule
+    that turns these numbers into findings can be exercised on a host that
+    has no registry at all.
+
+    Reads exactly the keys Set-YurunaDisplayScale100 writes. A reader that
+    consulted a different source could call a host clean that the applier
+    would still change, and the operator would have no way to tell which of
+    the two was describing their machine.
+
+    Values come back exactly as the registry surfaces them, REG_DWORD's
+    unsigned form included, because reinterpreting them is part of the rule
+    rather than part of the reading.
+    .OUTPUTS
+    [hashtable] with PerMonitor, LogPixels, Win8DpiScaling and
+    TextScaleFactor; each key is $null when its source could not be read.
+    $null when the host is not Windows.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param()
+
+    if (-not $IsWindows) { return $null }
+
+    $setting = @{
+        PerMonitor      = $null
+        LogPixels       = $null
+        Win8DpiScaling  = $null
+        TextScaleFactor = $null
+    }
+
+    # One try per source: a key this process cannot read must not truncate
+    # the ones the operator can still act on.
+    try {
+        $perMonPath = 'HKCU:\Control Panel\Desktop\PerMonitorSettings'
+        if (Test-Path -LiteralPath $perMonPath) {
+            $monitors = New-Object System.Collections.Generic.List[hashtable]
+            $monKeys  = Get-ChildItem -LiteralPath $perMonPath -Recurse -ErrorAction SilentlyContinue |
+                        Where-Object { $_.PSIsContainer }
+            foreach ($mon in $monKeys) {
+                $props = Get-ItemProperty -LiteralPath $mon.PSPath -ErrorAction SilentlyContinue
+                if ($null -eq $props) { continue }
+                if (-not ($props.PSObject.Properties.Name -contains 'DpiValue')) { continue }
+                $recommended = $null
+                if ($props.PSObject.Properties.Name -contains 'RecommendedDpiValue') {
+                    $recommended = $props.RecommendedDpiValue
+                }
+                $monitors.Add(@{
+                    Name                = $mon.PSChildName
+                    DpiValue            = $props.DpiValue
+                    RecommendedDpiValue = $recommended
+                })
+            }
+            $setting.PerMonitor = @($monitors)
+        }
+    } catch {
+        Write-Debug "Per-monitor DPI read failed: $_"
+    }
+
+    try {
+        $dp = Get-ItemProperty -LiteralPath 'HKCU:\Control Panel\Desktop' -ErrorAction SilentlyContinue
+        if ($dp) {
+            if ($dp.PSObject.Properties.Name -contains 'LogPixels')      { $setting.LogPixels      = $dp.LogPixels }
+            if ($dp.PSObject.Properties.Name -contains 'Win8DpiScaling') { $setting.Win8DpiScaling = $dp.Win8DpiScaling }
+        }
+    } catch {
+        Write-Debug "System DPI read failed: $_"
+    }
+
+    try {
+        $ap = Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Accessibility' -ErrorAction SilentlyContinue
+        if ($ap -and ($ap.PSObject.Properties.Name -contains 'TextScaleFactor')) {
+            $setting.TextScaleFactor = $ap.TextScaleFactor
+        }
+    } catch {
+        Write-Debug "Accessibility text scale read failed: $_"
+    }
+
+    return $setting
+}
+
+function Get-WindowsDisplayScaleIssue {
+    <#
+    .SYNOPSIS
+    Whether this host's display and text scaling would hand resampled glyphs
+    to OCR, decided from the raw registry values.
+    .DESCRIPTION
+    A pure function of those values, so the rule can be exercised without
+    Windows. The alternative is a rule that only ever runs on the one host
+    it is meant to protect.
+
+    Reports three outcomes rather than two. An empty finding list can mean
+    the host is at 100% or that nothing about its scaling could be measured,
+    and a report that renders those the same way tells an operator a HiDPI
+    laptop is ready when it is not. A monitor with no DpiValue is the case
+    that forces the distinction: it is not a monitor at 100%, it is one left
+    at whatever Windows recommends for that panel, which is 125% or 150% on
+    a HiDPI display.
+
+    The three knobs, their signed-offset arithmetic and the percentage
+    formula match install/windows.hyper-v.ps1's preflight and
+    Set-YurunaDisplayScale100. That installer runs before the repo exists
+    and so cannot import this module; keeping the arithmetic identical is
+    what stops the two from describing one host differently.
+    .PARAMETER Setting
+    The values from Get-WindowsDisplayScaleSetting; read from this host when
+    the parameter is not supplied. Passing $null explicitly still selects the
+    unreadable-host answer, which is how a test reaches that branch.
+    .OUTPUTS
+    [pscustomobject] with Status ('Clean', 'Issue' or 'Unknown'), Issue
+    ([string[]], one line per finding) and Detail (one sentence).
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([hashtable]$Setting)
+
+    if (-not $PSBoundParameters.ContainsKey('Setting')) { $Setting = Get-WindowsDisplayScaleSetting }
+
+    if ($null -eq $Setting) {
+        return [pscustomobject]@{
+            Status = 'Unknown'
+            Issue  = @()
+            Detail = 'The Windows display scaling settings could not be read on this host.'
+        }
+    }
+
+    # REG_DWORD arrives as UInt32, so a stored -2 surfaces as 4294967294 and
+    # a bare [int] cast throws OverflowException. Reinterpret the bits.
+    # Widening to Int64 first accepts both that unsigned form and an already
+    # signed one, because a [uint32] cast throws on a negative input and the
+    # throw would not surface as an error here -- it would leave the value
+    # unset and report the monitor as scaled when it is at 100%.
+    $asSignedDword = {
+        param($raw)
+        if ($null -eq $raw) { return 0 }
+        $n = [int64]$raw
+        if ($n -gt [int32]::MaxValue) { return [int32]($n - 0x100000000) } else { return [int32]$n }
+    }
+
+    $issue      = New-Object System.Collections.Generic.List[string]
+    $determined = $false
+
+    # Per-monitor scale decides what a window capture hands OCR. DpiValue
+    # counts scaling steps from the scale Windows recommends for that panel,
+    # so 100% is -RecommendedDpiValue and not zero.
+    foreach ($mon in @($Setting.PerMonitor)) {
+        if ($null -eq $mon -or $null -eq $mon.DpiValue) { continue }
+        $current     = & $asSignedDword $mon.DpiValue
+        $recommended = & $asSignedDword $mon.RecommendedDpiValue
+        $target      = -$recommended
+        $determined  = $true
+        if ($current -ne $target) {
+            $percent = 100 + (($current - $target) * 25)
+            $issue.Add("Monitor $($mon.Name) is at $percent% display scale (DpiValue=$current, recommended offset=$recommended).")
+        }
+    }
+
+    # LogPixels governs only while Win8DpiScaling is 1, the one-scale-for-
+    # all-displays mode. In the per-monitor mode a leftover non-96 value
+    # changes nothing on screen, and naming it would send an operator to a
+    # setting that is not affecting anything.
+    $logPixels = if ($null -ne $Setting.LogPixels)      { & $asSignedDword $Setting.LogPixels }      else { 96 }
+    $win8      = if ($null -ne $Setting.Win8DpiScaling) { & $asSignedDword $Setting.Win8DpiScaling } else { 0 }
+    if ($win8 -eq 1) {
+        $determined = $true
+        if ($logPixels -ne 96) {
+            $percent = [math]::Round(($logPixels / 96.0) * 100)
+            $issue.Add("System DPI applies to every display and is $logPixels ($percent%).")
+        }
+    }
+
+    # Accessibility text size enlarges text without changing the display
+    # scale, and no DPI value includes it. It can produce a finding but
+    # never settles whether the display scale is known, so it does not mark
+    # the reading determined.
+    if ($null -ne $Setting.TextScaleFactor) {
+        $tsf = & $asSignedDword $Setting.TextScaleFactor
+        if ($tsf -ne 100) {
+            $issue.Add("Accessibility text size is $tsf% (Settings > Accessibility > Text size).")
+        }
+    }
+
+    if ($issue.Count -gt 0) {
+        return [pscustomobject]@{
+            Status = 'Issue'
+            Issue  = @($issue)
+            Detail = 'Host display or text scaling is not at 100%.'
+        }
+    }
+    if ($determined) {
+        return [pscustomobject]@{
+            Status = 'Clean'
+            Issue  = @()
+            Detail = 'Every scaling knob this host records reads 100%.'
+        }
+    }
+    return [pscustomobject]@{
+        Status = 'Unknown'
+        Issue  = @()
+        Detail = 'This host records no per-monitor display scale, so each display is running at whatever scale Windows recommends for it, which is 125% or 150% on a HiDPI panel. Read Settings > System > Display > Scale to confirm it is 100%.'
+    }
+}
+
 function Set-WindowsHostConditionSet {
     <#
     .SYNOPSIS
@@ -1793,4 +2001,169 @@ function Test-WindowsHostMinimum {
     return $ok
 }
 
-Export-ModuleMember -Function Set-WindowsHostConditionSet, Assert-WindowsHostConditionSet, Test-WindowsHostMinimum, Test-WindowsGuestNetworkHealth, Sync-WindowsHostClock, Install-YurunaVirtualDisplay, Remove-YurunaVirtualDisplay, Set-YurunaDisplayCloneAndResolution, Set-YurunaDisplayScale100, Test-YurunaVirtualDisplayEnabled
+# Anti-virus minifilters are allocated altitudes 320000-329998 by Microsoft, so
+# a filter's altitude identifies it as a scanner without naming a vendor. Any
+# product that registers correctly lands here; one that does not is not
+# something this report can discover anyway.
+$script:AntiVirusAltitudeMin = 320000
+$script:AntiVirusAltitudeMax = 329998
+
+function Get-WindowsVhdxFilterProfile {
+    <#
+    .SYNOPSIS
+    Raw reading of what sits between a guest's VHDX writes and the disk:
+    filesystem filters on the volume, the registered anti-virus products, and
+    the shadow-copy area competing for the same writes.
+    .DESCRIPTION
+    Reads only; every decision is left to Get-WindowsVhdxFilterIssue so the
+    rule can be exercised on a machine that has none of this.
+
+    Each probe is independently guarded. A host where fltmc is unavailable
+    still reports its anti-virus products, and one where WMI refuses the
+    Security Center namespace still reports its filters -- a single missing
+    reading must not collapse the whole section to "unknown".
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param()
+
+    $prof = @{
+        VhdxPath        = $null
+        VhdxVolume      = $null
+        Filters         = @()
+        AntiVirus       = @()
+        DefenderPassive = $null
+        Exclusions      = @()
+        ShadowUsedBytes = $null
+        ShadowMaxBytes  = $null
+        ShadowCount     = $null
+        Errors          = @()
+    }
+
+    try {
+        $prof.VhdxPath = (Hyper-V\Get-VMHost -ErrorAction Stop).VirtualHardDiskPath
+        if ($prof.VhdxPath) {
+            $qualifier = Split-Path -Qualifier $prof.VhdxPath -ErrorAction SilentlyContinue
+            if ($qualifier) { $prof.VhdxVolume = $qualifier }
+        }
+    } catch { $prof.Errors += "VHDX path: $($_.Exception.Message)" }
+
+    # fltmc prints a fixed-width table; the altitude is the second column and
+    # is the only field this rule needs, so parse defensively rather than
+    # depending on the whole row shape.
+    if ($prof.VhdxVolume) {
+        try {
+            $raw = & fltmc.exe instances -v $prof.VhdxVolume 2>&1
+            if ($LASTEXITCODE -eq 0) {
+                foreach ($line in @($raw)) {
+                    if ($line -match '^\s*(\S+)\s+([0-9]+(?:\.[0-9]+)?)\s') {
+                        $prof.Filters += @{ Name = $Matches[1]; Altitude = [double]$Matches[2] }
+                    }
+                }
+            } else {
+                $prof.Errors += "fltmc returned $LASTEXITCODE (elevation is required to list instances)"
+            }
+        } catch { $prof.Errors += "fltmc: $($_.Exception.Message)" }
+    }
+
+    try {
+        foreach ($av in @(Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct -ErrorAction Stop)) {
+            $prof.AntiVirus += $av.displayName
+        }
+    } catch { $prof.Errors += "Security Center: $($_.Exception.Message)" }
+
+    # Defender in passive mode still has a filter attached but is not the
+    # scanner, so its exclusion list says nothing about what is actually
+    # inspecting the VHDX. The two readings only mean something together.
+    try {
+        $mp = Get-MpComputerStatus -ErrorAction Stop
+        $prof.DefenderPassive = ($mp.AMRunningMode -ne 'Normal') -or (-not $mp.RealTimeProtectionEnabled)
+    } catch { $prof.Errors += "Defender status: $($_.Exception.Message)" }
+
+    # An unreadable exclusion list is not an error worth reporting: where a
+    # third-party product owns real-time scanning, Defender's list says
+    # nothing about coverage either way, so the rule already treats an empty
+    # one as "not excluded" rather than as a failure.
+    try { $prof.Exclusions = @((Get-MpPreference -ErrorAction Stop).ExclusionPath) } catch { Write-Debug "Defender exclusion list read failed: $_" }
+
+    try {
+        $shadows = @(Get-CimInstance Win32_ShadowCopy -ErrorAction Stop)
+        $prof.ShadowCount = $shadows.Count
+        foreach ($s in @(Get-CimInstance Win32_ShadowStorage -ErrorAction Stop)) {
+            $prof.ShadowUsedBytes = [int64]$s.UsedSpace
+            $prof.ShadowMaxBytes  = [int64]$s.MaxSpace
+        }
+    } catch { $prof.Errors += "Shadow copies: $($_.Exception.Message)" }
+
+    return $prof
+}
+
+function Get-WindowsVhdxFilterIssue {
+    <#
+    .SYNOPSIS
+    Whether anything between a guest's VHDX and the disk is likely to be
+    charging the guest's install phase, decided from a profile hashtable.
+    .DESCRIPTION
+    A pure function of the profile, so the rule is testable without Hyper-V,
+    without an anti-virus product, and without elevation.
+
+    Three outcomes, not two. "No filters found" is Unknown rather than Clean:
+    listing instances needs elevation, and an unelevated report that said
+    "clean" would be asserting the opposite of what it measured.
+
+    WARN-shaped by construction. A scanner on the VHDX volume is a legitimate
+    configuration on a machine that is also somebody's laptop, and the harness
+    has no business refusing to run over it -- but it is invisible from inside
+    the guest, where the cost lands as a slow install and an expired step
+    budget that names the guest instead.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][hashtable]$FilterProfile)
+
+    $issues = @()
+
+    if (-not $FilterProfile.VhdxPath) {
+        return @{ Status = 'Unknown'; Issue = @(); Detail = 'The Hyper-V virtual hard disk path could not be read, so nothing can be said about what filters it.' }
+    }
+    # Drop empty entries before counting. @($null) has one element, so a
+    # profile whose filter reading came back null would otherwise count as
+    # "one filter, none of them scanners" and report the volume clean --
+    # the exact false all-clear the Unknown state exists to prevent.
+    $filters = @($FilterProfile.Filters | Where-Object { $_ -and $null -ne $_.Altitude })
+    if ($filters.Count -eq 0) {
+        return @{ Status = 'Unknown'; Issue = @(); Detail = "No filesystem filters could be listed for $($FilterProfile.VhdxVolume). Listing them needs an elevated session, so this is 'not measured' rather than 'nothing attached'." }
+    }
+
+    $scanners = @($filters | Where-Object {
+        $_.Altitude -ge $script:AntiVirusAltitudeMin -and $_.Altitude -le $script:AntiVirusAltitudeMax
+    })
+
+    if ($scanners.Count -gt 0) {
+        $names = ($scanners | ForEach-Object { "$($_.Name) (altitude $($_.Altitude))" }) -join ', '
+        $issues += "Anti-virus filters are attached to $($FilterProfile.VhdxVolume), the volume holding $($FilterProfile.VhdxPath): $names. Every guest write is inspected on its way to disk."
+
+        # An exclusion list that does not name the VHDX path is the same as no
+        # exclusion, and Defender's list is the only one readable from here --
+        # a third-party scanner's is not, so its presence is reported as
+        # unknown coverage rather than assumed either way.
+        $covered = @($FilterProfile.Exclusions | Where-Object { $_ -and $FilterProfile.VhdxPath.StartsWith($_, [StringComparison]::OrdinalIgnoreCase) })
+        if ($covered.Count -eq 0) {
+            $issues += "No Microsoft Defender exclusion covers that path. Where a third-party product owns real-time scanning its own exclusions are not readable from here and have to be checked in its console."
+        }
+    }
+
+    if ($FilterProfile.ShadowUsedBytes -and $FilterProfile.ShadowUsedBytes -gt 0) {
+        $usedGb = [math]::Round($FilterProfile.ShadowUsedBytes / 1GB, 1)
+        $maxGb  = if ($FilterProfile.ShadowMaxBytes) { [math]::Round($FilterProfile.ShadowMaxBytes / 1GB, 1) } else { $null }
+        $span   = if ($maxGb) { "$usedGb GB of a $maxGb GB area" } else { "$usedGb GB" }
+        $issues += "Volume shadow copies are using $span on this host ($($FilterProfile.ShadowCount) copies). A dynamically expanding VHDX first-touches new blocks constantly during an install, and each first touch under a shadow copy is a copy-on-write before the guest's own write lands."
+    }
+
+    if ($issues.Count -eq 0) {
+        return @{ Status = 'Clean'; Issue = @(); Detail = "Nothing between $($FilterProfile.VhdxPath) and the disk is inspecting or duplicating guest writes." }
+    }
+    return @{ Status = 'Issue'; Issue = $issues; Detail = '' }
+}
+
+Export-ModuleMember -Function Set-WindowsHostConditionSet, Assert-WindowsHostConditionSet, Test-WindowsHostMinimum, Test-WindowsGuestNetworkHealth, Sync-WindowsHostClock, Install-YurunaVirtualDisplay, Remove-YurunaVirtualDisplay, Set-YurunaDisplayCloneAndResolution, Set-YurunaDisplayScale100, Test-YurunaVirtualDisplayEnabled, Get-WindowsDisplayScaleSetting, Get-WindowsDisplayScaleIssue, Get-WindowsVhdxFilterProfile, Get-WindowsVhdxFilterIssue

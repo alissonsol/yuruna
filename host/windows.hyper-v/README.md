@@ -14,8 +14,10 @@ under the same file name either way, so `New-VM.ps1` is identical on both.
 
 One guest needs an extra step on ARM64: Amazon Linux 2023 publishes no
 ARM64 Hyper-V image, so its `Get-Image.ps1` pulls the ARM64 KVM cloud
-image and converts it to VHDX with `qemu-img`. That makes the QEMU tools
-below a requirement rather than a convenience on an ARM64 host.
+image and converts it to VHDX with `qemu-img`. The QEMU tools below are
+not optional on either architecture, though -- Hyper-V boots VHDX and the
+Ubuntu cloud image the extension-service guests share ships as qcow2, so
+those convert on AMD64 too.
 
 ## Quick install (one line)
 
@@ -27,8 +29,8 @@ irm "https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install
 ```
 
 Installs PowerShell 7, Git, Windows ADK Deployment Tools (for
-`oscdimg.exe`), QEMU tools (for `qemu-img` used by
-`guest.caching-proxy-service/Get-Image.ps1`, and on ARM64 also by
+`oscdimg.exe`), QEMU tools (for `qemu-img`, used by every
+extension-service `Get-Image.ps1` and on ARM64 also by
 `guest.amazon.linux.2023/Get-Image.ps1`), and Tesseract OCR via `winget`;
 enables **Microsoft-Hyper-V-All** via `dism.exe`; clones the repo to
 `%USERPROFILE%\git\yuruna`; seeds `test\test.config.yml`. Idempotent;
@@ -74,6 +76,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.25
+Last review: 2026.09.01
 
 Back to [Yuruna](../../README.md)

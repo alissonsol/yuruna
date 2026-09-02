@@ -50,8 +50,8 @@ func TestOneResolveServesEveryRowThatWantsTheSameArtifact(t *testing.T) {
 	att := &countingAttempt{reply: func(int) FidoAttempt { return okAttempt(signedURL1) }}
 
 	// Three host types carry a guest.windows.11 row and all three come due in
-	// the same scan pass. That used to be three sessions inside a few seconds
-	// from one address, which is the shape Microsoft rejects.
+	// the same scan pass. Without the gate that is three sessions inside a few
+	// seconds from one address, which is the shape Microsoft rejects.
 	for i := 0; i < 3; i++ {
 		at := g.Do(context.Background(), "x64", false, att.run)
 		if at.URL != signedURL1 {

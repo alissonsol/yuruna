@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 42a296aa-3108-4ad0-928d-3bf246b2d537
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,9 @@
 .SYNOPSIS
     Guards on the VM-sizing contract: a sequence's `variables.memoryStartupBytes`
     and `variables.cores` must reach the per-guest New-VM.ps1, exactly like
-    `variables.username` / `variables.hostname` do.
+    `variables.username` / `variables.hostname` do. The nested-virtualization
+    request (`variables.exposeVirtualizationExtensions`) travels the same
+    cascade and is guarded here too.
 .DESCRIPTION
     The value crosses the same files (planner -> runner/Debug-TestSequence -> the
     Invoke-PerGuestNewVm dispatcher -> the per-guest New-VM.ps1), and the
@@ -54,6 +56,16 @@ $hostContract = @(
     'host/macos.utm/modules/Yuruna.Host.psm1'
 ) | ForEach-Object { Join-Path $repoRoot $_ }
 $script:hostCase = @($hostContract | ForEach-Object { @{ name = (Split-Path -Leaf (Split-Path -Parent (Split-Path -Parent $_))); path = $_ } })
+
+# The guest scripts wired for the nested-virtualization request: Hyper-V only
+# (KVM nested virt is a host-level kernel-module setting; UTM has no per-VM
+# knob), across every Hyper-V guest OS that can host a hypervisor of its own.
+$hyperVGuestPaths = @(
+    'host/windows.hyper-v/guest.windows.11/New-VM.ps1',
+    'host/windows.hyper-v/guest.ubuntu.server.24/New-VM.ps1',
+    'host/windows.hyper-v/guest.ubuntu.server.26/New-VM.ps1'
+) | ForEach-Object { Join-Path $repoRoot $_ }
+$script:hyperVGuestCase = @($hyperVGuestPaths | ForEach-Object { @{ name = (Split-Path -Leaf (Split-Path -Parent $_)); path = $_ } })
 
 $script:provisionSrc = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'host/modules/Yuruna.HostProvision.psm1')
 $script:plannerSrc   = Get-Content -Raw -LiteralPath (Join-Path $repoRoot 'test/modules/Test.SequencePlanner.psm1')
@@ -159,5 +171,44 @@ Describe 'vm-sizing -- the planner cascade surfaces the effective fields' {
         Assert-True ($script:seqEntrySrc -match [regex]::Escape('$newVmArgs.Cores')) 'Debug-TestSequence must forward cores'
         Assert-True ($script:innerSrc -match [regex]::Escape('$newVmArgs.MemoryStartupBytes')) 'the runner must forward memory'
         Assert-True ($script:innerSrc -match [regex]::Escape('$newVmArgs.Cores')) 'the runner must forward cores'
+    }
+}
+
+Describe 'nested-virt -- exposeVirtualizationExtensions travels the same cascade, off by default' {
+    It 'finds the wired Hyper-V guest scripts (fixture sanity)' {
+        Assert-True ($hyperVGuestPaths.Count -eq 3) "expected 3 wired Hyper-V guest scripts, found $($hyperVGuestPaths.Count)"
+        foreach ($p in $hyperVGuestPaths) { Assert-True (Test-Path -LiteralPath $p) "missing guest script: $p" }
+    }
+    It 'declares -ExposeVirtualizationExtensions defaulting to unset: <name>' -TestCases $script:hyperVGuestCase {
+        param($name, $path)
+        $src = Get-Content -Raw -LiteralPath $path
+        Assert-True ($src -match '(?m)^\s*\[string\]\$ExposeVirtualizationExtensions\s*=\s*''''') `
+            "$name has no [string]`$ExposeVirtualizationExtensions = '' parameter; Invoke-PerGuestNewVm would drop the cascade to Verbose"
+    }
+    It 'never hardcodes -ExposeVirtualizationExtensions $true on Set-VMProcessor: <name>' -TestCases $script:hyperVGuestCase {
+        param($name, $path)
+        $src = Get-Content -Raw -LiteralPath $path
+        Assert-True ($src -notmatch [regex]::Escape('-ExposeVirtualizationExtensions $true')) `
+            "$name passes -ExposeVirtualizationExtensions `$true unconditionally; an ARM64 host then fails every VM start with 'this platform does not support nested virtualization'"
+        Assert-True ($src -match [regex]::Escape('$vmProcessorArgs.ExposeVirtualizationExtensions')) `
+            "$name must add ExposeVirtualizationExtensions to the Set-VMProcessor splat only when requested"
+    }
+    It 'the dispatcher probes and forwards -ExposeVirtualizationExtensions' {
+        Assert-True ($script:provisionSrc -match [regex]::Escape("ContainsKey('ExposeVirtualizationExtensions')")) `
+            'Invoke-PerGuestNewVm must probe for -ExposeVirtualizationExtensions before forwarding'
+        Assert-True ($script:provisionSrc -match [regex]::Escape("@('-ExposeVirtualizationExtensions', `$ExposeVirtualizationExtensions)")) `
+            'a probed-and-present -ExposeVirtualizationExtensions must reach the child script'
+    }
+    It 'host-contract New-VM wrappers declare -ExposeVirtualizationExtensions: <name>' -TestCases $script:hostCase {
+        param($name, $path)
+        $src = Get-Content -Raw -LiteralPath $path
+        Assert-True ($src -match '(?m)^\s*\[string\]\$ExposeVirtualizationExtensions\b') `
+            "$name New-VM wrapper must declare -ExposeVirtualizationExtensions so @PSBoundParameters carries it to the dispatcher"
+    }
+    It 'planner, runner, and both forward sites carry the effective field' {
+        Assert-True ($script:plannerSrc -match 'effectiveExposeVirtualizationExtensions') 'planner must extract exposeVirtualizationExtensions from the cascade'
+        Assert-True ($script:runnerSrc -match 'effectiveExposeVirtualizationExtensions') 'Resolve-TestSequencePlan must surface exposeVirtualizationExtensions'
+        Assert-True ($script:seqEntrySrc -match [regex]::Escape('$newVmArgs.ExposeVirtualizationExtensions')) 'Debug-TestSequence must forward exposeVirtualizationExtensions'
+        Assert-True ($script:innerSrc -match [regex]::Escape('$newVmArgs.ExposeVirtualizationExtensions')) 'the runner must forward exposeVirtualizationExtensions'
     }
 }

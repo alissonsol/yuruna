@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 422ccca9-b2ae-4944-9d17-c8d6f481d268
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -215,7 +215,7 @@ if (-not $PSCmdlet.ShouldProcess("${User}@${ProxyAddress}", "Replace $GuestPath 
     Write-Information "WhatIf: nothing was sent. A real run would:" -InformationAction Continue
     Write-Information "  1. copy the canonical dashboard into the guest ($($payload.Length) base64 chars, gzip-compressed)," -InformationAction Continue
     Write-Information "  2. rewrite AGGREGATOR_BASE_PLACEHOLDER to http://<the VM's own IP>:9400, exactly as cloud-init does," -InformationAction Continue
-    Write-Information "  2a. stamp the brand tile into the candidate from the proxy's own /etc/yuruna/brand.env, exactly as the brander does," -InformationAction Continue
+    Write-Information "  2a. stamp the brand banner into the candidate from the proxy's own /etc/yuruna/brand.env, exactly as the brander does," -InformationAction Continue
     Write-Information "  3. skip the write entirely if the proxy already serves this dashboard," -InformationAction Continue
     Write-Information "  4. otherwise move it over $GuestPath after it parses as JSON in the guest, and" -InformationAction Continue
     Write-Information "  5. run yuruna-fit-pool-dashboard.service once so the per-host panel heights are right immediately." -InformationAction Continue
@@ -258,14 +258,14 @@ if ! python3 -c 'import json,sys; json.load(open(sys.argv[1]))' "$WORK/cand.json
   echo "FAILED: the transferred dashboard is not valid JSON after the aggregator rewrite; $DASH untouched" >&2
   exit 7
 fi
-# The brand tile is stamped into the dashboards ON THE PROXY, so the candidate
+# The brand banner is stamped into the dashboards ON THE PROXY, so the candidate
 # is stamped here too, from the same seeded identity. Doing it before the
 # comparison is what keeps an up-to-date proxy reading as unchanged -- and it
-# means the pushed file already carries the tile, rather than losing it until
+# means the pushed file already carries the banner, rather than losing it until
 # the brander's timer comes round again.
 if [ -x /usr/local/bin/yuruna-brand-dashboards.py ]; then
   /usr/local/bin/yuruna-brand-dashboards.py --file "$WORK/cand.json" >/dev/null \
-    || echo "BRAND-SKIPPED: the brand tile could not be stamped into the candidate; the timer re-stamps within 15 minutes" >&2
+    || echo "BRAND-SKIPPED: the brand banner could not be stamped into the candidate; the timer re-stamps within 15 minutes" >&2
 fi
 # Already current? Compare against what is served, with the geometry the fitter
 # owns taken from the live file -- otherwise every run would look like a change

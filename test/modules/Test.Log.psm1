@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 429770ab-d272-43a0-985e-672863545e2c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -384,6 +384,15 @@ function Start-LogFile {
         $preamble | Microsoft.PowerShell.Utility\Out-File -FilePath $logFile -Encoding utf8 -ErrorAction SilentlyContinue
         $global:__YurunaLogFile = $logFile
         $global:__YurunaCycleFolder = $cycleFolder
+        # The OWNING cycle's identity, held separately from the folder
+        # events are written into. A nested run repoints __YurunaCycleFolder
+        # at its own sub-folder so its transcript and events land beside it,
+        # and deriving the cycleFolder stamp from that would label a child's
+        # events with the child's leaf -- splitting one cycle into as many
+        # apparent cycles as it has nested nodes, none of them joinable to
+        # the cycle that actually ran. This handle is what the stamp comes
+        # from, and a nested run inherits rather than replaces it.
+        $global:__YurunaCycleIdentity = Get-CycleFolderIdentity -Path $cycleFolder
         # Stable run-correlator stamped on every NDJSON record by Write-
         # CycleNdjsonEvent. cycleFolder alone IS unique on a single host,
         # but a multi-host pool consumer joining live streams off three
@@ -498,6 +507,88 @@ function Get-CycleScreenDir {
         }
     }
     return $folder
+}
+
+function Save-StepFailureEvidence {
+    <#
+    .SYNOPSIS
+        Snapshot the screen evidence a step failure just produced into a
+        durable per-attempt folder under the cycle. Returns the folder's
+        cycle-relative path, or $null when there was nothing to save.
+    .DESCRIPTION
+        The evidence a failed OCR wait leaves behind is short-lived in two
+        different ways, and both erase it well before any cycle-level
+        failure path runs:
+
+          * the screens_<VM>/ ring buffer holds only the last few frames
+            and is re-seeded and trimmed by every subsequent wait, so the
+            next attempt overwrites the frames that show the failure;
+          * failure_screenshot_<VM>.png / failure_ocr_<VM>.txt are keyed
+            only by VM name at the log root, so the next timeout for the
+            same guest replaces them in place.
+
+        A failure that a later retry recovers therefore reaches the end of
+        the cycle with nothing left to look at: the cycle passes, the
+        artifact-gathering path never fires, and the only trace is a step
+        record saying something failed without saying what was on screen.
+        Copying at the moment of failure is what keeps that class of
+        problem diagnosable, and it is the only point at which the frames
+        still exist.
+
+        Best-effort by contract: a missing cycle folder, an unreadable
+        source, or a copy that loses a race all degrade to $null. Evidence
+        capture must never be able to fail the run it is documenting.
+    .PARAMETER VMName
+        The guest whose evidence to collect.
+    .PARAMETER Label
+        Distinguishes one capture from the next within a cycle (an attempt
+        ordinal, say). Non-portable characters are replaced.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
+        Justification = 'Reads the cycle-folder anchor set by Start-LogFile in the same module.')]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$Label
+    )
+    try {
+        if (-not $global:__YurunaCycleFolder) { return $null }
+        $safeLabel = ($Label -replace '[^A-Za-z0-9._-]', '_')
+        $guestDir  = Join-Path $global:__YurunaCycleFolder $VMName
+        $destDir   = Join-Path $guestDir "failed_${safeLabel}"
+
+        $srcScreens = Join-Path $global:__YurunaCycleFolder "screens_${VMName}"
+        $logRoot    = $env:YURUNA_LOG_DIR
+        $srcScreen  = if ($logRoot) { Join-Path $logRoot "failure_screenshot_${VMName}.png" } else { $null }
+        $srcOcr     = if ($logRoot) { Join-Path $logRoot "failure_ocr_${VMName}.txt" } else { $null }
+
+        $frames = @()
+        if (Test-Path -LiteralPath $srcScreens) {
+            $frames = @(Get-ChildItem -LiteralPath $srcScreens -Filter 'raw_*' -File -ErrorAction SilentlyContinue)
+        }
+        $hasScreen = $srcScreen -and (Test-Path -LiteralPath $srcScreen)
+        $hasOcr    = $srcOcr    -and (Test-Path -LiteralPath $srcOcr)
+        if ($frames.Count -eq 0 -and -not $hasScreen -and -not $hasOcr) { return $null }
+
+        if (-not $PSCmdlet.ShouldProcess($destDir, 'Save step failure evidence')) { return $null }
+        if (-not (Test-Path -LiteralPath $destDir)) {
+            New-Item -ItemType Directory -Path $destDir -Force | Out-Null
+        }
+        foreach ($f in ($frames | Sort-Object Name)) {
+            Copy-Item -LiteralPath $f.FullName -Destination (Join-Path $destDir $f.Name) -Force -ErrorAction SilentlyContinue
+        }
+        if ($hasScreen) {
+            Copy-Item -LiteralPath $srcScreen -Destination (Join-Path $destDir 'failure_screenshot.png') -Force -ErrorAction SilentlyContinue
+        }
+        if ($hasOcr) {
+            Copy-Item -LiteralPath $srcOcr -Destination (Join-Path $destDir 'failure_ocr.txt') -Force -ErrorAction SilentlyContinue
+        }
+        return "$VMName/failed_${safeLabel}"
+    } catch {
+        Write-Verbose "Save-StepFailureEvidence skipped: $($_.Exception.Message)"
+        return $null
+    }
 }
 
 function Write-CycleManifest {
@@ -847,6 +938,7 @@ function Stop-LogFile {
         $global:__YurunaLogFile = $null
         $global:__YurunaCycleFolder = $null
         $global:__YurunaCycleStartUtc = $null
+        $global:__YurunaCycleIdentity = $null
     }
 }
 
@@ -909,6 +1001,12 @@ function Start-NestedLogFile {
         $global:__YurunaLogFile     = $logFile
         $global:__YurunaCycleFolder = $nestedFolder
         $global:__YurunaCycleStartUtc     = [string]$CycleStartUtc
+        # Identity stays the OWNER's. Events written from here land in the
+        # nested folder, but they describe work done inside the owner's
+        # cycle and must join to it -- stamping them with this sub-run's
+        # leaf would strand them as a cycle no consumer ever sees start
+        # or end.
+        $global:__YurunaCycleIdentity = Get-CycleFolderIdentity -Path $root
     }
     return [pscustomobject]@{ LogFile = $logFile; CycleFolder = $nestedFolder; LogRel = $logRel }
 }
@@ -935,6 +1033,7 @@ function Stop-NestedLogFile {
     $global:__YurunaLogFile     = $null
     $global:__YurunaCycleFolder = $null
     $global:__YurunaCycleStartUtc     = $null
+    $global:__YurunaCycleIdentity = $null
 }
 
 function Write-CycleNdjsonEvent {
@@ -980,7 +1079,11 @@ function Write-CycleNdjsonEvent {
     # renames or a streaming consumer's join would break. Get-Cycle-
     # FolderIdentity strips any of the three suffixes.
     if (-not $EventRecord.Contains('cycleFolder')) {
-        $EventRecord['cycleFolder'] = Get-CycleFolderIdentity -Path $cycleFolder
+        $EventRecord['cycleFolder'] = if ($global:__YurunaCycleIdentity) {
+            [string]$global:__YurunaCycleIdentity
+        } else {
+            Get-CycleFolderIdentity -Path $cycleFolder
+        }
     }
     if (-not $EventRecord.Contains('cycleStartUtc') -and $global:__YurunaCycleStartUtc) {
         $EventRecord['cycleStartUtc'] = [string]$global:__YurunaCycleStartUtc
@@ -1177,4 +1280,4 @@ function Send-YurunaDegradation {
     Write-Information "  [degradation] ${Dependency}: ${Primary} -> ${Fallback}${suffix}"
 }
 
-Export-ModuleMember -Function Start-LogFile, Stop-LogFile, Start-NestedLogFile, Stop-NestedLogFile, Get-YurunaLogPreamble, Get-CycleGuestDataFolder, Get-CycleScreenDir, Format-CycleFolderBaseName, Get-CycleFolderIdentity, Write-CycleNdjsonEvent, Write-CycleManifest, Send-CycleEventSafely, New-YurunaDegradationRecord, Send-YurunaDegradation, Invoke-CycleLogRotation
+Export-ModuleMember -Function Start-LogFile, Stop-LogFile, Start-NestedLogFile, Stop-NestedLogFile, Get-YurunaLogPreamble, Get-CycleGuestDataFolder, Get-CycleScreenDir, Save-StepFailureEvidence, Format-CycleFolderBaseName, Get-CycleFolderIdentity, Write-CycleNdjsonEvent, Write-CycleManifest, Send-CycleEventSafely, New-YurunaDegradationRecord, Send-YurunaDegradation, Invoke-CycleLogRotation

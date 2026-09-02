@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 426c2f81-86df-422e-8db7-a94bd7ff61fe
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -48,11 +48,11 @@ function Get-YurunaServiceVmRoster {
 
         Every service VM here is DISCOVERED from its own area manifest
         (test/extension/<area>/<area>.config.yml, `service:` block), so a new one
-        joins the sweep by existing rather than by an edit here. That now
-        includes the caching proxy, which used to be listed inline on the
-        grounds that it was the machine the pool services run ON rather than an
-        area of its own -- true of the VM, but it left the one service nothing
-        could ask a manifest about.
+        joins the sweep by existing rather than by an edit here. That includes
+        the caching proxy: listing it inline instead, on the grounds that it is
+        the machine the pool services run ON rather than an area of its own, is
+        true of the VM but leaves the one service nothing could ask a manifest
+        about.
 
         HealthPort is what a CONSUMER connects to, deliberately, rather than
         whatever the guest happens to also listen on: :3128 is the squid port

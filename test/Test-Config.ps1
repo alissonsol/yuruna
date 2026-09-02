@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 4210d385-d4df-4f13-9344-d649676c6dc4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -704,6 +704,102 @@ if (-not (Test-Path -LiteralPath $beaconMod)) {
     }
 }
 
+# --- REGION: Section 5c: Display scaling (OCR)
+# A host desktop above 100% scale composes a VM console window through a
+# scaled compositor, so the glyphs a window capture hands OCR arrive
+# resampled instead of at native resolution. Nothing errors when that bites:
+# the step spends its whole timeoutSeconds and reports 'pattern not found'
+# while the saved frame looks perfectly readable to a person, which is the
+# most expensive way for this to be discovered.
+#
+# Scoped per host family because the exposure is not uniform. The OCR wait
+# loop reads the guest framebuffer directly -- WMI on Hyper-V, VNC on UTM,
+# virsh on KVM -- and host scaling cannot reach any of those. It reaches OCR
+# only through the window-capture paths: the tapOn loop, which always asks
+# for a window, and the fallbacks each family drops to when its framebuffer
+# read fails. On KVM there is no such path at all, so the honest answer
+# there is that the setting does not apply rather than that it passed.
+#
+# WARN, never FAIL, and deliberately unlike Section 5a2 above: no per-cycle
+# assertion refuses a cycle over scaling, so a report that failed one here
+# would be inventing a gate the harness does not have -- and a health report
+# that can fail a run is one operators stop running.
+
+Write-Section "Display scaling (OCR)"
+
+$scaleReport = $null
+if (-not $HostType) {
+    Write-Info "Host type unknown -- display scaling not checked."
+} elseif ($HostType -eq 'host.ubuntu.kvm') {
+    Write-Info "Not applicable on host.ubuntu.kvm: OCR frames come from 'virsh screenshot' against the libvirt framebuffer, and a 'window' request is collapsed to that same read, so host display scaling cannot reach OCR."
+} elseif ($HostType -eq 'host.windows.hyper-v' -and (Get-Command Get-WindowsDisplayScaleIssue -ErrorAction SilentlyContinue)) {
+    $scaleReport = Get-WindowsDisplayScaleIssue
+    if ($scaleReport.Status -eq 'Clean') {
+        Write-Pass "Host display and text scaling read 100%, so window captures reach OCR at native resolution."
+    } elseif ($scaleReport.Status -eq 'Issue') {
+        foreach ($scaleIssue in @($scaleReport.Issue)) { Write-Warn $scaleIssue }
+        Write-Info "The OCR wait loop reads the guest framebuffer through WMI and is unaffected. Scaling reaches OCR through the vmconnect window, which tapOn always captures and which the frame path falls back to when the WMI read fails."
+        Write-Info "On those paths a step burns its whole timeoutSeconds and reports 'pattern not found' while the saved frame still looks readable."
+        Write-Info "Fix with: Settings > System > Display > Scale set to 100%, then sign out and back in  (a session keeps the scale it started with)."
+    } else {
+        Write-Info $scaleReport.Detail
+    }
+} elseif ($HostType -eq 'host.macos.utm' -and (Get-Command Get-MacDisplayScaleIssue -ErrorAction SilentlyContinue)) {
+    $scaleReport = Get-MacDisplayScaleIssue -Json (Get-MacDisplayScaleProfile)
+    if ($scaleReport.Status -eq 'Clean') {
+        Write-Pass "The main display renders two pixels per point, so UTM window captures carry the glyph resolution OCR expects."
+    } elseif ($scaleReport.Status -eq 'Issue') {
+        foreach ($scaleIssue in @($scaleReport.Issue)) { Write-Warn $scaleIssue }
+        Write-Info "Guests whose UTM configuration passes -vnc to QEMU are read straight off the guest framebuffer and are unaffected. Scaling reaches OCR through UTM window captures: guests that ship without -vnc, tapOn on any guest, and VNC failures."
+        Write-Info "A scaled 'More Space' mode is not the problem: screencapture reads the backing store before the GPU fits it to the panel, so those captures still carry two pixels per point. What halves them is a main display with no HiDPI mode at all."
+        Write-Info "Fix with: System Settings > Displays, making a Retina display the main one, or move the UTM window onto the built-in panel."
+    } else {
+        Write-Info $scaleReport.Detail
+    }
+} else {
+    Write-Info "Display scaling is not checked on host type '$HostType'."
+}
+
+# --- REGION: Section 5d: Storage filter stack (guest throughput)
+# A guest install is tens of thousands of small writes with a flush behind
+# each one, and every one of them passes through whatever the host has
+# attached to the volume holding the VHDX. That cost is invisible from
+# inside the guest and invisible in the harness's own logs: what surfaces is
+# a package step that runs long and a step budget that expires, both of
+# which name the guest. Raising the budget then treats the symptom on the
+# wrong machine.
+#
+# Reported, never enforced, and reported even when it is fine. The host that
+# runs the lab is often also somebody's workstation, so a scanner on that
+# volume is a legitimate configuration rather than a defect -- but it has to
+# be a known one, because it silently rescales every duration the harness
+# records and every budget derived from them.
+#
+# Windows-only by nature: filesystem minifilters and volume shadow copies
+# are Windows constructs, and a KVM or UTM host's qcow2 has nothing
+# equivalent in the path.
+
+Write-Section "Storage filter stack (guest throughput)"
+
+if (-not $HostType) {
+    Write-Info "Host type unknown -- the storage filter stack was not checked."
+} elseif ($HostType -ne 'host.windows.hyper-v') {
+    Write-Info "Not applicable on ${HostType}: filesystem minifilters and volume shadow copies are Windows constructs, and this host's guest disks are not filtered by either."
+} elseif (Get-Command Get-WindowsVhdxFilterProfile -ErrorAction SilentlyContinue) {
+    $filterReport = Get-WindowsVhdxFilterIssue -FilterProfile (Get-WindowsVhdxFilterProfile)
+    if ($filterReport.Status -eq 'Clean') {
+        Write-Pass $filterReport.Detail
+    } elseif ($filterReport.Status -eq 'Issue') {
+        foreach ($filterIssue in @($filterReport.Issue)) { Write-Warn $filterIssue }
+        Write-Info "This does not fail a cycle. It is reported because it rescales what every step on this host costs, so a budget derived from a filtered run does not transfer to an unfiltered one."
+        Write-Info "To measure without it: exclude the virtual hard disk folder, vmms.exe and vmwp.exe in the scanner that owns real-time protection, and delete the shadow copies on that volume if they are not wanted."
+    } else {
+        Write-Info $filterReport.Detail
+    }
+} else {
+    Write-Info "The storage filter stack could not be checked: the Windows host-condition module is not loaded."
+}
+
 # --- REGION: Section 6: Framework / project staleness
 # git fetch + compare HEAD to upstream. WARN (not FAIL) when the local
 # clone is behind: the harness can still run, but its runner / index.html
@@ -932,7 +1028,7 @@ foreach ($AreaDir in (Get-ChildItem -LiteralPath $ExtensionRoot -Directory -Erro
 
 if (-not (Test-Path $NotificationCfgPath)) {
     if (Test-Path $NotificationTmplPath) {
-        Write-Warn "status/extension/notification/transports.yml missing -- copy from transports.yml.template and populate before the next cycle: $NotificationTmplPath -> $NotificationCfgPath"
+        Write-Warn "status/extension/notification/transports.yml missing -- until it exists this host sends NO notifications: a failed cycle emails nobody and is visible only in the dashboard and logs. Copy from transports.yml.template and populate before the next cycle: $NotificationTmplPath -> $NotificationCfgPath"
     } else {
         Write-Fail "status/extension/notification/transports.yml missing and no template found at $NotificationTmplPath" -FullPath $NotificationCfgPath
     }
@@ -1204,7 +1300,7 @@ if (-not (Test-Path $seqResolveMod)) {
 # aliases of ONE NAS to the SAME IP is intentional and fine -- an UNRESOLVABLE
 # alias is the actual blocker. List them and, only with an operator at the
 # keyboard, offer to unmount each so the pool/stash mounts below are not
-# pre-empted. Headless runs never prompt: advisory WARN + the one-line manual fix.
+# preempted. Headless runs never prompt: advisory WARN + the one-line manual fix.
 if ($IsWindows) {
     $smbMod = Join-Path $ModulesDir 'Test.PoolStorage.psm1'
     if (Test-Path $smbMod) {
@@ -1867,20 +1963,30 @@ if (-not (Test-Path $poolSyncMod)) {
 Write-Section "Resend transport settings"
 
 $resend = $null
-if (Test-Path $NotificationCfgPath) {
+if (-not (Test-Path $NotificationCfgPath)) {
+    # The missing FILE is already a warning under 'Extension configs', with the
+    # consequence and the fix. Warning again that a section is absent from a
+    # file that does not exist would be the same fact reported twice.
+    Write-Info "transports.yml not present -- nothing to verify here (reported under 'Extension configs' above)."
+} else {
+    $notifCfgReadable = $true
     try {
         $notifCfg = Read-TestConfig -Path $NotificationCfgPath -ThrowOnError
         if ($notifCfg.Contains('transports') -and $notifCfg.transports.Contains('resend')) {
             $resend = $notifCfg.transports.resend
         }
     } catch {
+        # The parse failure is the finding; a "not configured" warning on top
+        # of it would blame the operator's settings for a broken file.
+        $notifCfgReadable = $false
         Write-Fail "transports.yml parse error in ${NotificationCfgPath}: $($_.Exception.Message)" -FullPath $NotificationCfgPath
+    }
+    if ($notifCfgReadable -and -not $resend) {
+        Write-Warn "transports.resend is not configured in ${NotificationCfgPath} -- the email transport cannot send, so email subscribers in that file (cycle.failure included) receive nothing until it is populated."
     }
 }
 
-if (-not $resend) {
-    Write-Warn "transports.resend not configured in transports.yml -- email transport will warn at runtime."
-} else {
+if ($resend) {
     if (Test-IsSet $resend.apiKey) {
         Write-Pass "transports.resend.apiKey is set (not shown)."
         if (-not "$($resend.apiKey)".StartsWith("re_")) {
@@ -1910,24 +2016,31 @@ if ((Get-OutputState).FailCount -gt 0) {
 
 Write-Section "Resend API connectivity"
 
-try {
-    $resolved = [System.Net.Dns]::GetHostAddresses("api.resend.com")
-    Write-Pass "DNS resolved 'api.resend.com' -> $($resolved[0].IPAddressToString)"
-} catch {
-    Write-Fail "DNS resolution failed for 'api.resend.com': $_"
-    Write-Info "Check that DNS is available and api.resend.com is reachable."
-    Exit-WithSummary 1
-}
-
-try {
-    if (Test-TcpReachable -HostName "api.resend.com" -Port 443 -TimeoutMs 5000) {
-        Write-Pass "TCP connection to api.resend.com:443 succeeded."
-    } else {
-        Write-Fail "TCP connection to api.resend.com:443 timed out."
-        Write-Info "Verify that no firewall is blocking outbound HTTPS."
+if (-not $resend) {
+    # Nothing on this host uses api.resend.com until transports.resend exists,
+    # so reachability proves nothing -- and an unreachable endpoint must not be
+    # able to stop the gate over a transport that is not in use.
+    Write-Info "Skipped -- transports.resend is not configured, so nothing on this host talks to api.resend.com."
+} else {
+    try {
+        $resolved = [System.Net.Dns]::GetHostAddresses("api.resend.com")
+        Write-Pass "DNS resolved 'api.resend.com' -> $($resolved[0].IPAddressToString)"
+    } catch {
+        Write-Fail "DNS resolution failed for 'api.resend.com': $_"
+        Write-Info "Check that DNS is available and api.resend.com is reachable."
+        Exit-WithSummary 1
     }
-} catch {
-    Write-Fail "TCP connection to api.resend.com:443 failed: $_"
+
+    try {
+        if (Test-TcpReachable -HostName "api.resend.com" -Port 443 -TimeoutMs 5000) {
+            Write-Pass "TCP connection to api.resend.com:443 succeeded."
+        } else {
+            Write-Fail "TCP connection to api.resend.com:443 timed out."
+            Write-Info "Verify that no firewall is blocking outbound HTTPS."
+        }
+    } catch {
+        Write-Fail "TCP connection to api.resend.com:443 failed: $_"
+    }
 }
 
 # --- REGION: Section 12: Live smoke notification

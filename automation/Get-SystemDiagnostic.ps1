@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 420783b4-e34a-4b51-b88e-e01fa3738a91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -757,10 +757,36 @@ function Get-JournalSelfNoiseClass {
     [OutputType([string])]
     param([string]$Line)
     if ($Line -match 'apparmor="STATUS"') { return 'apparmor profile reloads' }
-    if ($Line -match 'Guest agent is not responding') { return 'guest-agent probes' }
+    # libvirt reports an absent guest agent in more than one wording, and which
+    # one dominates a window is an accident of when the probe lands relative to
+    # the guest's lifecycle -- "not responding" once a domain is up, "not
+    # connected" mid-teardown, "not configured" for an image that ships no
+    # agent at all. Matching only one of them makes the counter depend on that
+    # accident: two hosts with the same lab-normal journal can land on opposite
+    # sides of the threshold purely because their guests died at different
+    # points. All three are the same rung-1 address probe.
+    if ($Line -match 'guest agent is not (responding|connected|configured)') { return 'guest-agent probes' }
+    # The other half of the same teardown. libvirtd logs an EOF when a domain
+    # it was talking to disappears, and networkctl reports the vnet tap that
+    # went with it as missing; they arrive paired, in the same second, once per
+    # guest the cycle destroys. Both are scoped narrowly -- libvirtd's own EOF,
+    # and vnet interfaces specifically -- so a genuine I/O error from another
+    # unit, or a missing interface that is not a libvirt tap, still counts.
+    if ($Line -match 'libvirtd(\[\d+\])?:.*End of file while reading data') { return 'libvirt domain teardown' }
+    if ($Line -match 'Interface "vnet\d+" not found') { return 'libvirt domain teardown' }
     if ($Line -match 'NamedPipeIPC_ServerListener(Error|Started)') { return 'PowerShell IPC listener records' }
     if ($Line -match 'Creating Scriptblock text \(\d+ of \d+\)') { return 'script-compile records' }
     return $null
+}
+
+# journalctl prints "-- Boot <id> --" and "-- Reboot --" markers between boots
+# in the window it is asked for. They are structural separators, not entries,
+# and counting them as errors adds one phantom error per boot -- enough on its
+# own to push a quiet host over the threshold.
+function Test-JournalSeparatorLine {
+    [OutputType([bool])]
+    param([string]$Line)
+    return [bool]($Line -match '^\s*--\s*(Boot|Reboot)\b.*--\s*$')
 }
 
 # Render the tally as one trailing line, or '' when nothing was suppressed.
@@ -933,10 +959,47 @@ try {
         }
     }
     Get-VersionLine 'qemu-img' {
-        if (Get-Command qemu-img -ErrorAction SilentlyContinue) {
+        # PATH alone under-reports this one on Windows, the same way it does for
+        # tesseract above: the QEMU installer does not register itself on PATH,
+        # so a host whose qcow2-to-VHDX conversion runs fine prints
+        # "(not installed)" here -- and this report is read while triaging image
+        # preparation, exactly where that disagreement sends the reader after a
+        # binary that is not missing. The directories below mirror
+        # Resolve-QemuImgCommand in host/modules/Yuruna.Image.psm1 literal for
+        # literal; they have to stay the same set, or the report resumes
+        # disagreeing with the resolver it is describing. No non-Windows
+        # candidates, because the resolver has none either.
+        $exe = (Get-Command qemu-img -ErrorAction SilentlyContinue).Source
+        if (-not $exe -and $IsWindows) {
+            $exe = @(
+                "$env:ProgramFiles\qemu\qemu-img.exe"
+                "${env:ProgramFiles(x86)}\qemu\qemu-img.exe"
+            ) | Where-Object { $_ -and (Test-Path -LiteralPath $_) } | Select-Object -First 1
+        }
+        if ($exe) {
             # First line is `qemu-img version X.Y.Z, Copyright (c) ... Fabrice Bellard`;
             # the Copyright tail is constant noise.
-            (& qemu-img --version 2>$null | Select-Object -First 1) -replace ',\s*Copyright.*$',''
+            (& $exe --version 2>$null | Select-Object -First 1) -replace ',\s*Copyright.*$',''
+        }
+    }
+    Get-VersionLine 'oscdimg' {
+        # Windows-only, and never on PATH: the ADK registers nothing, shipping
+        # DandISetEnv.bat to build an environment on demand instead. It lays
+        # Oscdimg down once per architecture, and any copy answers the version
+        # question -- which build actually runs is Resolve-OscdimgPath's
+        # decision, in host/windows.hyper-v/modules/Yuruna.Host.psm1.
+        if ($IsWindows) {
+            $exe = Get-ChildItem -Path "${env:ProgramFiles(x86)}\Windows Kits\10\Assessment and Deployment Kit\Deployment Tools\*\Oscdimg\Oscdimg.exe" -ErrorAction SilentlyContinue |
+                Select-Object -First 1
+            if ($exe) {
+                # No version flag (`-h` means "include hidden files"), so the
+                # version comes off the banner oscdimg prints ahead of its usage
+                # text. The missing source and target make it exit non-zero,
+                # which is not a failure signal here.
+                $PSNativeCommandUseErrorActionPreference = $false
+                @(& $exe.FullName 2>&1 | ForEach-Object { "$_" }) |
+                    Where-Object { $_ -match 'OSCDIMG' } | Select-Object -First 1
+            }
         }
     }
     Get-VersionLine 'AWS cli' {
@@ -1868,11 +1931,20 @@ try {
                 # nothing but its own guest-address probes is a host with no
                 # problem, and reporting one there spends the operator's
                 # attention on the thing that is working.
-                $realCount = @($jc | Where-Object { -not (Get-JournalSelfNoiseClass -Line ([string]$_)) }).Count
-                if ($realCount -ge 10) { Add-Problem "EVENTS: $realCount journalctl error entries in the last hour." }
-                elseif ($count -ge 10) {
-                    Write-Output ("({0} of {1} error entries are this harness's own polling -- not counted as a problem)" -f ($count - $realCount), $count)
+                $entries   = @($jc | Where-Object { -not (Test-JournalSeparatorLine -Line ([string]$_)) })
+                $entryCount = $entries.Count
+                $realCount = @($entries | Where-Object { -not (Get-JournalSelfNoiseClass -Line ([string]$_)) }).Count
+                # The reconciliation line explains a number the operator can
+                # see, so it is printed whenever anything was suppressed --
+                # including when the problem fires. Tying it to the quiet case
+                # withheld it exactly when the count is being questioned, and a
+                # flagged host then showed a total with no way to tell how much
+                # of it was the harness looking at itself.
+                $suppressed = $entryCount - $realCount
+                if ($suppressed -gt 0) {
+                    Write-Output ("({0} of {1} error entries are this harness's own polling -- not counted as a problem)" -f $suppressed, $entryCount)
                 }
+                if ($realCount -ge 10) { Add-Problem "EVENTS: $realCount journalctl error entries in the last hour." }
             } else { Write-Output "(no error entries in the last hour)" }
         } elseif (Test-Path '/var/log/syslog') {
             Write-Sub "tail /var/log/syslog (last 30 lines)"
@@ -1953,8 +2025,14 @@ try {
     if ($SkipDocker) {
         Write-Output "(skipped via -SkipDocker)"
     } elseif (-not (Test-CommandAvailable 'docker')) {
+        # Absence is reported, not flagged. A host that runs its container
+        # workloads inside guests has no reason to carry a container runtime
+        # itself, so on most of this fleet the tool is missing by design and
+        # the problem fires on every cycle forever. A permanent entry is worse
+        # than no entry: it costs the operator the "no problems reported"
+        # branch below, which is the line that makes a real finding visible.
+        # Other absent tools in this script are already reported this way.
         Write-Output "docker command not found in PATH (or present but not executable)."
-        Add-Problem "DOCKER: docker not installed (or not in PATH / not executable)."
     } else {
         # --- REGION: https://yuruna.link/system-diagnostic#wedged-daemon-protection
         $probe = Invoke-WithDeadline -TimeoutSeconds 5 -ScriptBlock {
@@ -2094,8 +2172,12 @@ try {
     if ($SkipKube) {
         Write-Output "(skipped via -SkipKube)"
     } elseif (-not (Test-CommandAvailable 'kubectl')) {
+        # Reported, not flagged -- same reasoning as the docker probe above:
+        # the clusters this fleet exercises live inside guests, and the host
+        # is not expected to hold a client for them. HELM below keeps its
+        # problem because it is only reached once kubectl HAS answered, where
+        # a missing helm really does mean charts could not have deployed.
         Write-Output "kubectl command not found in PATH (or present but not executable -- e.g. a dangling /usr/local/bin symlink)."
-        Add-Problem "KUBE: kubectl not installed (or not in PATH / not executable)."
     } else {
         Write-Sub "kubectl version"
         # --- REGION: https://yuruna.link/system-diagnostic#per-tool-request-timeouts (kubectl --request-timeout)
@@ -3556,24 +3638,50 @@ try {
             if ($registryRepos.Count -eq 0) {
                 Write-Output "(no local registry at :5000 or its catalog is empty; nothing to cross-check)"
             } else {
-                # Containers + initContainers + ephemeralContainers, all namespaces
-                $allImages = @(& kubectl get pods -A --request-timeout=5s `
-                    -o jsonpath='{range .items[*]}{range .spec.containers[*]}{.image}{"`n"}{end}{range .spec.initContainers[*]}{.image}{"`n"}{end}{range .spec.ephemeralContainers[*]}{.image}{"`n"}{end}{end}' 2>$null `
-                    -split "`n" | Where-Object { $_ })
-                $orphans = @()
-                foreach ($repo in $registryRepos) {
-                    # --- REGION: https://yuruna.link/system-diagnostic#heuristic-4-local-registry-image-not-referenced-by-any-pod (image-ref shape)
-                    $needle = "/$repo`:"
-                    $matched = @($allImages | Where-Object { $_ -like "*$needle*" })
-                    if ($matched.Count -eq 0) {
-                        $orphans += $repo
-                        Write-Output ("  registry repo '{0}' -- NO pod references it" -f $repo)
-                    } else {
-                        Write-Output ("  registry repo '{0}' -- referenced by {1} container(s)" -f $repo, $matched.Count)
-                    }
+                # Containers + initContainers + ephemeralContainers, all namespaces.
+                #
+                # The invocation and the transformation are separate statements
+                # on purpose. Written as one backtick-continued pipeline, the
+                # parser is still in command-argument mode on the continuation
+                # line, so `-split` and its operand are handed to kubectl as two
+                # more arguments instead of splitting anything: kubectl rejects
+                # the unknown flag, the redirect swallows the complaint, and the
+                # image list comes back empty. Every repo in the registry then
+                # looks unreferenced, which is the one answer this heuristic
+                # must never invent.
+                #
+                # The separator is jsonpath's own \n escape. A backtick is
+                # PowerShell's escape character and means nothing to kubectl,
+                # and inside a single-quoted string it is not even that -- it
+                # reaches the template as two literal characters and no line
+                # break is ever emitted.
+                $imageJsonPath = '{range .items[*]}{range .spec.containers[*]}{.image}{"\n"}{end}{range .spec.initContainers[*]}{.image}{"\n"}{end}{range .spec.ephemeralContainers[*]}{.image}{"\n"}{end}{end}'
+                $imagesRaw = & kubectl get pods -A --request-timeout=5s -o jsonpath=$imageJsonPath 2>$null
+                if ($LASTEXITCODE -ne 0) {
+                    # A probe that failed is not evidence of an orphan. Say the
+                    # cross-check could not run and stop, rather than reporting
+                    # the empty result as a finding.
+                    Write-Output "(kubectl could not list pod images; cannot cross-check the registry catalog)"
+                    $allImages = $null
+                } else {
+                    $allImages = @($imagesRaw -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ })
                 }
-                if ($orphans.Count -gt 0) {
-                    Add-Problem -Class 'GAP.registry-image-not-referenced' -Message ("GAP: $($orphans.Count) image(s) pushed to local registry but not referenced by any pod -- $($orphans -join ', '). The workloads phase either didn't deploy a chart that uses these images, or the chart rendered them with a different registry prefix (check componentsRegistry.registryLocation in resources.output.yml).")
+                if ($null -ne $allImages) {
+                    $orphans = @()
+                    foreach ($repo in $registryRepos) {
+                        # --- REGION: https://yuruna.link/system-diagnostic#heuristic-4-local-registry-image-not-referenced-by-any-pod (image-ref shape)
+                        $needle = "/$repo`:"
+                        $matched = @($allImages | Where-Object { $_ -like "*$needle*" })
+                        if ($matched.Count -eq 0) {
+                            $orphans += $repo
+                            Write-Output ("  registry repo '{0}' -- NO pod references it" -f $repo)
+                        } else {
+                            Write-Output ("  registry repo '{0}' -- referenced by {1} container(s)" -f $repo, $matched.Count)
+                        }
+                    }
+                    if ($orphans.Count -gt 0) {
+                        Add-Problem -Class 'GAP.registry-image-not-referenced' -Message ("GAP: $($orphans.Count) image(s) pushed to local registry but not referenced by any pod -- $($orphans -join ', '). The workloads phase either didn't deploy a chart that uses these images, or the chart rendered them with a different registry prefix (check componentsRegistry.registryLocation in resources.output.yml). An image that only ever serves as a build stage is expected here and is not itself a deploy gap.")
+                    }
                 }
             }
         }

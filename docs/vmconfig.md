@@ -688,6 +688,13 @@ never sees a `login:` prompt. The fix:
    the VNC after a while + OCR stopped working" symptom on long test
    runs.
 
+On an ARM64 host that `console=ttyS0` is not merely quiet: it names a
+device the guest does not have, because the UART there is the SBSA PL011,
+`ttyAMA0`. A serial console attached to `ttyS0` stays empty however the
+boot goes, which leaves the framebuffer as the only channel unless the
+cmdline is overridden --
+[host-hyperv.md](host-hyperv.md#the-converted-arm64-image-does-not-boot).
+
 UTM omits this block entirely: its display window reads the serial
 console directly, with no framebuffer dependency.
 
@@ -1529,7 +1536,7 @@ Yuruna hosts dashboard. INLINED (like squid.json) so it deploys from the local u
 
 ### Yuruna hosts dashboard panel autofit
 
-Panel heights are fixed in dashboard JSON, and one fixed height per row does not scale across pool sizes. `yuruna-fit-pool-dashboard.py` reads the host count the collector is reporting (Prometheus + Loki on loopback), recomputes each panel's height from the dashboard grid geometry (a panel of `h` units is `38h - 8` px tall, less the chrome, the table header row, and -- on the timeline -- the x-axis and legend), re-stacks the panels below it, and rewrites `/var/lib/grafana/dashboards/pool.json` atomically. Only the three per-host panels move: the summary tiles across the top -- including "Lab token" (panel id 18), which folds in the collector's own health -- are a fixed 4 units tall and the stack starts below them. Heights round UP: a panel a few px too tall shows blank space, one a few px too short shows a scrollbar, and only the scrollbar is a defect. The `gridPos.h` values inlined above are only the pre-collector default. A collector that is down reports no hosts, indistinguishable from an empty pool, so a zero count leaves the file untouched rather than collapsing every panel to its header. Row counts track the dashboard's DEFAULT 24h window; a wider range picked in the time picker can still surface an older host and scroll.
+Panel heights are fixed in dashboard JSON, and one fixed height per row does not scale across pool sizes. `yuruna-fit-pool-dashboard.py` reads the host count the collector is reporting (Prometheus + Loki on loopback), recomputes each panel's height from the dashboard grid geometry (a panel of `h` units is `38h - 8` px tall, less the chrome, the table header row, and -- on the timeline -- the x-axis and legend), re-stacks the panels below it, and rewrites `/var/lib/grafana/dashboards/pool.json` atomically. Only the three per-host panels move: the summary tiles across the top -- including "Lab token" (panel id 18), which folds in the collector's own health -- are a fixed 4 units tall and the stack starts at their bottom edge, read off the dashboard rather than assumed, because [the brand banner](#grafana-dashboard-brand-tile) sits above them and moves them down. Heights round UP: a panel a few px too tall shows blank space, one a few px too short shows a scrollbar, and only the scrollbar is a defect. The `gridPos.h` values inlined above are only the pre-collector default. A collector that is down reports no hosts, indistinguishable from an empty pool, so a zero count leaves the file untouched rather than collapsing every panel to its header. Row counts track the dashboard's DEFAULT 24h window; a wider range picked in the time picker can still surface an older host and scroll.
 
 ### Dashboard brand identity
 
@@ -1537,11 +1544,11 @@ Panel heights are fixed in dashboard JSON, and one fixed height per row does not
 
 ### Grafana dashboard brand tile
 
-`yuruna-brand-dashboards.py` stamps that identity into the top-left of every dashboard in `/var/lib/grafana/dashboards` -- the three inlined here and the community Zot dashboard alike -- as a transparent text panel: the repository name over its version, the same pair the status pages carry in their header. It exists because a proxy outlives the bring-up that built it, and a lab running both repositories otherwise holds two proxies whose dashboards are indistinguishable.
+`yuruna-brand-dashboards.py` stamps that identity across the top of every dashboard in `/var/lib/grafana/dashboards` -- the three inlined here and the community Zot dashboard alike -- as a transparent full-width text panel: the repository name, its version, and on a board that is not ours the note that it is unmodified upstream content, side by side on one line. The name and version are the pair the status pages carry in their header. It exists because a proxy outlives the bring-up that built it, and a lab running both repositories otherwise holds two proxies whose dashboards are indistinguishable.
 
-The tile costs no vertical space. Grafana's time-range picker lives in the app's own dashboard toolbar, which dashboard JSON cannot reach, so the tile is a panel in the grid instead -- and since a Yuruna dashboard's first row already fills the 24-unit width, room is made by narrowing that row's panels rather than by adding one. The fit is largest-remainder, so the row still ends exactly at the right edge. Two fallbacks cover a layout that cannot yield: a first row opening with a row header (which spans the full width and is not a panel that can be narrowed) and one whose panels would be squeezed below legibility both get a row of their own instead. Those exist for the community dashboard, whose layout is fetched at build time and is not ours to predict.
+The banner costs one line of height and no width at all. Grafana's time-range picker lives in the app's own dashboard toolbar, which dashboard JSON cannot reach, so the banner is a panel in the grid instead: a strip spanning the full 24 units above the first row, two grid units tall because a unit is 30px and a line of text does not survive that once the panel's own padding is out of it. The parts are held apart by non-breaking spaces -- a run of ordinary ones collapses to a single space in rendered HTML. Everything already on the board moves down by the banner's height and nothing is resized, so a layout that is not ours to predict needs no special case: the community dashboard, whose layout is fetched at build time, moves down like the rest whether it opens with a row header or with tiles too narrow to have given anything up.
 
-Idempotent by construction: a dashboard already carrying the tile has only its text refreshed, never its geometry, so the timer cannot walk the first row further left on each pass. Files are rewritten only when their content changes and always through a same-directory rename, so the dashboard provider never reads a partial file. The tile sits within the first row's own height, which is why it does not disturb [the panel autofit](#yuruna-hosts-dashboard-panel-autofit) -- that re-stacks from below the first row and the two never touch the same panels.
+Idempotent by construction: a dashboard already carrying the banner has only its text refreshed, never its geometry, so the timer cannot push the board further down on each pass. Files are rewritten only when their content changes and always through a same-directory rename, so the dashboard provider never reads a partial file. [The panel autofit](#yuruna-hosts-dashboard-panel-autofit) rewrites the same file, and the two agree without coordinating: the autofit stacks from the bottom edge of whatever sits above the per-host panels, which is the banner plus the summary tiles when the banner is there and the tiles alone when it is not.
 
 ### Squid dashboard inlined
 
@@ -2114,6 +2121,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.25
+Last review: 2026.09.01
 
 Back to [Yuruna](../README.md)

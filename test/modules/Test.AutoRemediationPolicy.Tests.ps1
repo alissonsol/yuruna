@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 42c9b3e7-1d58-4a06-9e24-7f3b5c8d1a60
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,7 +47,7 @@ Describe 'the auto-remediation allow-list' {
     It 'admits only classes whose retry is the whole repair' {
         $expected = @(
             'wait_timeout', 'network_timeout', 'ip_not_discovered', 'host_network_degraded',
-            'instrumentation_failure', 'host_io_blocked', 'credential_expired'
+            'instrumentation_failure', 'host_io_blocked'
         )
         foreach ($c in $expected) {
             Assert-True (Test-AutoRemediationAllowed -FailureClass $c) "$c must be retryable"
@@ -60,8 +60,12 @@ Describe 'the auto-remediation allow-list' {
         # Each of these has a registered handler that recommends something other
         # than a retry: a bad plan, a missing payload, a full disk and an
         # unclassified failure all need a human before the next attempt.
+        # credential_expired belongs with them -- its handler asks for an
+        # operator, and a credential the vault cannot satisfy is not repaired
+        # by shortening the pause before the next attempt.
         foreach ($c in @('plan_invalid', 'payload_unavailable', 'pool_storage_full',
-                'project_access_denied', 'elevation_required', 'script_error', 'unknown')) {
+                'project_access_denied', 'elevation_required', 'script_error',
+                'credential_expired', 'unknown')) {
             Assert-True (-not (Test-AutoRemediationAllowed -FailureClass $c)) "$c must NOT be retried unattended"
         }
     }

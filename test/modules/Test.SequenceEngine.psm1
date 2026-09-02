@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 4210c3aa-ab5b-4b2b-9259-5c68ad1cb72e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -732,6 +732,14 @@ function Wait-ForText {
         [int]$PollSeconds = 3,
         [bool]$FreshMatch = $false,
         [int]$FreshMatchTailLines = 12,
+        # Optional periodic console nudge. This stays inside the same wall-clock
+        # deadline as the OCR wait: it is for one-shot prompts (notably agetty's
+        # login prompt) that can be scrolled off a live console and redrawn with
+        # a harmless keypress. A dedicated sequence action supplies these
+        # parameters so capability preflight can require Send-Key only when the
+        # nudge is actually requested.
+        [string]$NudgeKey = '',
+        [int]$NudgeIntervalSeconds = 0,
         # Anti-patterns: if ANY of these fuzzy-matches on screen OCR,
         # abort the wait immediately and return $false. Canonical use
         # case is subiquity's "install_fail.crash" / "An error occurred.
@@ -789,6 +797,7 @@ function Wait-ForText {
         ConsoleRestartsUsed  = 0
         ElapsedSeconds       = 0
         ConsoleText          = ''
+        NudgeAttempts        = 0
     }
     if ($HostType) { Write-Debug "Wait-ForText: -HostType '$HostType' is informational; Yuruna.Host dispatches Get-VMScreenshot internally." }
 
@@ -805,6 +814,8 @@ function Wait-ForText {
     $startUtc    = [DateTime]::UtcNow
     $deadlineUtc = $startUtc.AddSeconds($TimeoutSeconds)
     $elapsed     = 0
+    $nudgeEnabled = (-not [string]::IsNullOrWhiteSpace($NudgeKey) -and $NudgeIntervalSeconds -gt 0)
+    $nextNudgeUtc = if ($nudgeEnabled) { $startUtc.AddSeconds($NudgeIntervalSeconds) } else { $null }
 
     # Import required modules. Screenshot capture is via the Yuruna.Host
     # contract (Get-VMScreenshot) -- assumed already loaded by the caller's
@@ -1160,7 +1171,7 @@ function Wait-ForText {
                                 # can deliver a fresh frame before the deadline.
                                 $grace = Get-OcrDegradationGrace -Action 'console-restart' -AlreadyGrantedSeconds $deadlineGrantedSeconds -MaxGrantSeconds $maxDeadlineGrantSeconds -BaseWindowSeconds $frozenFeedSeconds
                                 if ($grace -gt 0) { $deadlineUtc = $deadlineUtc.AddSeconds($grace); $deadlineGrantedSeconds += $grace }
-                                Write-Warning "      Wait-ForText: capture feed frozen (byte-identical ${frozenSecs}s, threshold ${effectiveFreezeThreshold}s) while still seeking '$patternLabel' -- forcing console reconnect (repair $consoleRestarts/$maxConsoleRestarts, deadline +${grace}s)."
+                                Write-Verbose "      Wait-ForText: capture feed frozen (byte-identical ${frozenSecs}s, threshold ${effectiveFreezeThreshold}s) while still seeking '$patternLabel' -- forcing console reconnect (repair $consoleRestarts/$maxConsoleRestarts, deadline +${grace}s)."
                                 if (Get-Command Restart-VMConsole -ErrorAction SilentlyContinue) {
                                     try { [void](Restart-VMConsole -VMName $VMName -Confirm:$false) }
                                     catch { Write-Verbose "      Restart-VMConsole failed: $($_.Exception.Message)" }
@@ -1216,6 +1227,26 @@ function Wait-ForText {
                         return $false
                     }
                 }
+            }
+
+            # Check positive and failure patterns BEFORE injecting input. A
+            # crash screen must abort immediately rather than receive Enter,
+            # and a prompt already visible must complete without one extra
+            # redraw. Re-arm from the actual send time (not the prior target)
+            # so a slow OCR pass cannot trigger a catch-up burst of keys.
+            $nudgeNowUtc = [DateTime]::UtcNow
+            if ($nudgeEnabled -and $nudgeNowUtc -ge $nextNudgeUtc) {
+                $script:LastWaitVerdict.NudgeAttempts++
+                Write-Verbose "      Wait-ForText: nudging console with '$NudgeKey' while seeking '$patternLabel' (elapsed ${elapsed}s / ${TimeoutSeconds}s)"
+                $nudgeOk = [bool](Send-Key -HostType $HostType -VMName $VMName -KeyName $NudgeKey)
+                if (-not $nudgeOk) {
+                    # A failed recovery key must not turn an otherwise healthy
+                    # wait into a false failure. Keep polling and try again at
+                    # the next interval; the action's host-I/O preflight has
+                    # already established that the transport exists.
+                    Write-Warning "      Wait-ForText: console nudge '$NudgeKey' did not land; continuing OCR wait."
+                }
+                $nextNudgeUtc = $nudgeNowUtc.AddSeconds($NudgeIntervalSeconds)
             }
 
             Write-Debug "      Waiting for text '$patternLabel'... (${elapsed}s / ${TimeoutSeconds}s)"
@@ -1858,6 +1889,24 @@ function Invoke-Sequence {
             }
         }
     }
+    # Auto-derive ${hostLabel}: the host name a guest's own console prints,
+    # which is not ${hostname}. ${hostname} defaults to the VM name, and a VM
+    # name carries dots -- test-guest.ubuntu.server.26-01 -- while agetty and a
+    # shell prompt both print only the first label, "test-guest". The full name
+    # appears on the console in exactly one place, the /etc/issue banner, so a
+    # pattern built from ${hostname} matches only while that banner is on
+    # screen and stops matching the moment it scrolls, even though the prompt
+    # it is waiting for is still sitting there. A wait like that cannot fail
+    # fast: it spends its entire budget and is recovered only by a retry that
+    # redraws the banner.
+    #
+    # Derived after the override merge so it follows whatever hostname is
+    # actually in force, and only when unset, so a sequence or a cascade can
+    # still name it outright.
+    if (-not $vars.ContainsKey('hostLabel') -and $vars.ContainsKey('hostname')) {
+        $vars['hostLabel'] = ([string]$vars['hostname']).Split('.')[0]
+    }
+
     # Auto-derive ${loginUser} from the resolved ${username} via the
     # authentication extension's users.yml mapping. The sequence file
     # is free to declare its own `loginUser` under variables: (or pass

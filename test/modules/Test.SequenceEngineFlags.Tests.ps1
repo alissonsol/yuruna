@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 422650f8-dbc0-42cf-8dcf-e365f9c7de11
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -59,12 +59,12 @@ Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1')
 # over from the generating foreach -- the loop variable does not survive the pass
 # boundary, and a $null verb would silently exercise the empty-name path.
 
-# Original literal annotation gate: waitForText / waitForAndEnter / passwdPrompt / sshWaitReady.
-$script:usesWaitSignals = 'waitForText','waitForAndEnter','passwdPrompt','sshWaitReady'
+# Original literal annotation gate plus the bounded-nudge OCR sibling.
+$script:usesWaitSignals = 'waitForText','waitForTextWithNudge','waitForAndEnter','passwdPrompt','sshWaitReady'
 $script:notWaitSignals  = 'fetchAndExecute','sshExec','sshFetchAndExecute','pressKey','retry','tapOn','waitForSeconds'
 
-# Original literal screenshot-skip gate: waitForText / waitForAndEnter / passwdPrompt / fetchAndExecute.
-$script:selfCapture = 'waitForText','waitForAndEnter','passwdPrompt','fetchAndExecute'
+# Original literal screenshot-skip gate plus the bounded-nudge OCR sibling.
+$script:selfCapture = 'waitForText','waitForTextWithNudge','waitForAndEnter','passwdPrompt','fetchAndExecute'
 # sshWaitReady writes a screenshot on its slow path but was NOT in the skip
 # list -- the engine still captures for it, so its flag stays off.
 $script:engineCapture = 'sshWaitReady','sshExec','pressKey','retry','tapOn','waitForSeconds'
@@ -116,6 +116,17 @@ Describe 'CapturesOwnFailureScreenshot flag matches the former screenshot-skip v
             Assert-True ($null -ne $e) "'$verb' must be registered"
             Assert-Equal -Expected $false -Actual ([bool]$e.CapturesOwnFailureScreenshot) -Because "'$verb' must let the engine capture (behavior identity with the former literal list)"
         }
+    }
+}
+
+Describe 'waitForTextWithNudge declares its additional host capability' {
+    It 'requires both OCR and Send-Key without changing plain waitForText' {
+        $nudged = Get-SequenceAction -Name 'waitForTextWithNudge'
+        $plain  = Get-SequenceAction -Name 'waitForText'
+        Assert-True ($null -ne $nudged) 'waitForTextWithNudge must be registered'
+        Assert-True ([bool]$nudged.OcrRequired) 'the action still consumes OCR'
+        Assert-True (@($nudged.HostIORequirement) -contains 'Send-Key') 'periodic redraw requires Send-Key preflight'
+        Assert-Equal -Expected 0 -Actual @($plain.HostIORequirement).Count -Because 'plain waitForText remains screen-read-only'
     }
 }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 42782448-e44d-4353-957b-a836ffda43e7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,6 +46,39 @@ $script:k8sPaths = @(
 )
 $script:al2023Update = Join-Path $repoRoot 'guest/amazon.linux.2023/amazon.linux.2023.update.sh'
 $script:retryLib     = Join-Path $repoRoot 'automation/yuruna-retry.sh'
+
+# The guest scripts above are only half of what runs inside a guest. A project
+# supplies its own workload scripts, and they address the cache the same way --
+# so the contract has to reach them too, or it pins the engine's copy of a rule
+# while the copy that actually failed goes unchecked.
+#
+# A project is a separate checkout: the operator mounts one at <repo>/project,
+# and a workspace may hold siblings beside the engine. Both are searched, and
+# whichever exist contribute their scripts. The scan is by content rather than
+# by name so a workload script added later is covered without this list moving.
+$script:projectRoots = @(
+    (Join-Path $repoRoot 'project')
+    (Join-Path (Split-Path -Parent $repoRoot) 'yuruna-project')
+) | Where-Object { Test-Path -LiteralPath $_ -PathType Container }
+
+$script:projectCacheScripts = @(
+    foreach ($root in $script:projectRoots) {
+        Get-ChildItem -LiteralPath $root -Recurse -Filter '*.sh' -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.FullName -notmatch '[\\/]\.git[\\/]' } |
+            Where-Object {
+                $text = Get-Content -LiteralPath $_.FullName -Raw -ErrorAction SilentlyContinue
+                $text -and $text -match 'CACHE_HOST'
+            } | ForEach-Object { $_.FullName }
+    }
+)
+
+# Named so a run that found no project checkout says so in the failure text
+# instead of passing silently on an empty set.
+$script:projectScanLabel = if ($script:projectRoots.Count -eq 0) {
+    'no project checkout found at <repo>/project or beside the engine'
+} else {
+    "roots: $($script:projectRoots -join ', '); cache-addressing scripts: $($script:projectCacheScripts.Count)"
+}
 }
 
 Describe 'A lab with no caching proxy provisions on the direct path' {
@@ -223,5 +256,165 @@ Describe 'The shared trust anchor reaches both guest families' {
         $fn = [regex]::Match($t, '(?s)_yuruna_ca_trust\(\) \{.*?\n\}').Value
         $fn | Should -Match 'cannot add a trust anchor here'
         $fn | Should -Match 'return 1'
+    }
+}
+
+Describe 'Project workload scripts honor the same two-topology contract' {
+    # The engine's guest scripts and a project's workload scripts run in the
+    # same guest, minutes apart, and read the same http_proxy. A rule enforced
+    # on one and not the other lets the two disagree about whether the lab has
+    # a cache: the guest script concludes there is none and configures direct
+    # pulls, then the workload script adopts a hostname nothing answers to and
+    # fails naming a machine that was never meant to exist.
+    It 'never adopts the cache hostname without probing it' {
+        $offenders = @(
+            foreach ($p in $script:projectCacheScripts) {
+                $t = Get-Content -LiteralPath $p -Raw
+                # The bare assignment form takes the name on faith. Its presence
+                # is the regression; the probed form below is the replacement.
+                if ($t -match '(?m)^\[ -z "\$CACHE_HOST" \] && CACHE_HOST=') { $p }
+            }
+        )
+        $offenders -join ' | ' | Should -BeExactly '' -Because "an unprobed fallback turns a cacheless lab into a resolve failure ($script:projectScanLabel)"
+    }
+
+    It 'adopts the bare service name only after something answers on it' {
+        foreach ($p in $script:projectCacheScripts) {
+            $t = Get-Content -LiteralPath $p -Raw
+            if ($t -notmatch 'CACHE_HOST="yuruna-caching-proxy-service"') { continue }
+            # The probe has to gate the adoption, not merely appear somewhere:
+            # an adoption that runs first is unprobed however many probes follow.
+            $probeAt  = $t.IndexOf('curl -fsS --max-time 10 -o /dev/null "http://yuruna-caching-proxy-service:5000/v2/"')
+            $adoptAt  = $t.IndexOf('CACHE_HOST="yuruna-caching-proxy-service"')
+            $probeAt | Should -BeGreaterThan -1 -Because "$p names the bare service host, so it must probe it first"
+            $probeAt | Should -BeLessThan $adoptAt -Because "$p must probe before adopting the bare service host"
+        }
+    }
+
+    It 'says out loud which topology it decided it is in' {
+        # The decision is invisible otherwise: every later message names a cache
+        # or does not, and a reader with no record of the branch cannot tell a
+        # lab without a cache from a cache that went missing.
+        foreach ($p in $script:projectCacheScripts) {
+            $t = Get-Content -LiteralPath $p -Raw
+            $t | Should -Match 'Caching proxy: none in this lab' -Because "$p must name the no-cache topology when it takes it"
+        }
+    }
+
+    It 'expands CACHE_HOST only where the variable has been tested' {
+        # Structural rather than by enumeration: a step added later that
+        # addresses the cache without asking whether there is one is exactly the
+        # regression this pins, and naming today's steps would not catch it.
+        #
+        # Two guard shapes count as a test. A block opener -- `if`/`elif [ -n
+        # "$CACHE_HOST" ]` -- covers the block it opens. A function guard clause
+        # -- `[ -n "$CACHE_HOST" ] || return` -- covers the rest of its function,
+        # which is how an advisory cache helper declines to run at all.
+        foreach ($p in $script:projectCacheScripts) {
+            $depth      = 0
+            $inTested   = $false
+            $inGuarded  = $false
+            $ungated    = @()
+            foreach ($line in (Get-Content -LiteralPath $p)) {
+                $s = $line.Trim()
+                # A guard clause holds until the function that carries it closes,
+                # which at this nesting is the next line that is exactly '}'.
+                if ($inGuarded -and $s -eq '}') { $inGuarded = $false; continue }
+                if ($s -match '^\[ -n "\$CACHE_HOST" \] \|\| return') { $inGuarded = $true; continue }
+                if ($inTested) {
+                    if ($s -match '^(if|until|while|for|case) ') { $depth++ }
+                    elseif ($s -in @('fi', 'done', 'esac')) {
+                        $depth--
+                        if ($depth -eq 0) { $inTested = $false; continue }
+                    }
+                } elseif ($s -match '^(if|elif) \[ -[nz] "\$CACHE_HOST" \]') {
+                    $inTested = $true
+                    $depth = 1
+                    continue
+                }
+                if (-not $inTested -and -not $inGuarded -and $line -match '\$\{CACHE_HOST\}') {
+                    $ungated += "$([System.IO.Path]::GetFileName($p)): $s"
+                }
+            }
+            $ungated -join ' | ' | Should -BeExactly '' -Because "every cache-addressed step must ask whether there is a cache"
+        }
+    }
+}
+
+Describe 'The cache-address derivation resolves each topology correctly' -Skip:(-not (Get-Command bash -ErrorAction SilentlyContinue)) {
+    # The structural guards above cannot show what the chain actually resolves
+    # to. This runs the shipped prologue itself under a stubbed curl, so the
+    # topology decision is observed rather than inferred.
+    #
+    # The host.env path is redirected to a temporary file: the chain reads an
+    # absolute path, and leaving it alone would make the result depend on
+    # whether the machine running the suite happens to have a cache recorded.
+    BeforeAll {
+        $script:runPrologue = {
+            param($ScriptPath, $ProxyValue, $HostEnvContent, $CurlExit)
+
+            $text = Get-Content -LiteralPath $ScriptPath -Raw
+            $startAt = $text.IndexOf('CACHE_HOST=$(echo "${http_proxy:-}"')
+            $endMark = 'image pulls go to the upstreams directly."'
+            $endAt   = $text.IndexOf($endMark)
+            if ($startAt -lt 0 -or $endAt -lt 0) { return $null }
+            $endAt   = $text.IndexOf("fi", $endAt)
+            $prologue = $text.Substring($startAt, ($endAt + 2) - $startAt)
+
+            $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ([System.IO.Path]::GetRandomFileName())
+            New-Item -ItemType Directory -Path $tmp -Force | Out-Null
+            try {
+                $hostEnv = Join-Path $tmp 'host.env'
+                if ($null -ne $HostEnvContent) { Set-Content -LiteralPath $hostEnv -Value $HostEnvContent -NoNewline }
+                $prologue = $prologue.Replace('/etc/yuruna/host.env', $hostEnv)
+
+                # Stub curl so the probe's verdict is the test's to choose.
+                $stub = Join-Path $tmp 'curl'
+                Set-Content -LiteralPath $stub -Value "#!/bin/sh`nexit $CurlExit`n" -NoNewline
+                & chmod +x $stub
+
+                $runner = Join-Path $tmp 'run.sh'
+                $body = "#!/bin/bash`nset -euo pipefail`nexport PATH=""${tmp}:`$PATH""`nexport http_proxy='${ProxyValue}'`n${prologue}`necho ""CACHE_HOST=[`${CACHE_HOST}]""`n"
+                Set-Content -LiteralPath $runner -Value $body -NoNewline
+                & chmod +x $runner
+                return (& bash $runner 2>&1) -join "`n"
+            } finally {
+                Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+        $script:derivationScripts = @($script:projectCacheScripts | Where-Object {
+            (Get-Content -LiteralPath $_ -Raw) -match 'image pulls go to the upstreams directly'
+        })
+    }
+
+    It 'takes the address from http_proxy when the guest was given one' {
+        foreach ($p in $script:derivationScripts) {
+            $out = & $script:runPrologue $p 'http://192.168.7.42:3128/' $null 7
+            $out | Should -Match 'CACHE_HOST=\[192\.168\.7\.42\]' -Because "$p must derive the cache host from http_proxy"
+        }
+    }
+
+    It 'falls back to the address the host recorded when http_proxy is absent' {
+        foreach ($p in $script:derivationScripts) {
+            $out = & $script:runPrologue $p '' "YURUNA_CACHING_PROXY_SERVICE_IP=10.1.2.3`n" 7
+            $out | Should -Match 'CACHE_HOST=\[10\.1\.2\.3\]' -Because "$p must read the recorded cache address"
+        }
+    }
+
+    It 'adopts the bare service name when it answers' {
+        foreach ($p in $script:derivationScripts) {
+            $out = & $script:runPrologue $p '' $null 0
+            $out | Should -Match 'CACHE_HOST=\[yuruna-caching-proxy-service\]' -Because "$p may adopt the name once it answers"
+        }
+    }
+
+    It 'resolves to no cache at all when nothing answers' {
+        # The regression in one line: this is the lab where the old chain
+        # adopted the unresolvable name and failed the run.
+        foreach ($p in $script:derivationScripts) {
+            $out = & $script:runPrologue $p '' $null 7
+            $out | Should -Match 'CACHE_HOST=\[\]' -Because "$p must leave the cache host empty when the lab has none"
+            $out | Should -Match 'none in this lab' -Because "$p must name the no-cache topology"
+        }
     }
 }

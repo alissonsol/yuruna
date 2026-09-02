@@ -29,9 +29,225 @@ Amazon publishes its `hyperv` platform (a zipped VHDX) for x86-64 only.
 `guest.amazon.linux.2023/Get-Image.ps1` therefore pulls the ARM64 KVM
 qcow2 on an ARM64 host and converts it locally, so `qemu-img` has to be on
 the machine -- `winget install SoftwareFreedomConservancy.QEMU`. Without it
-the script stops with a conversion error after a successful download; every
-other guest on an ARM64 host has a native ARM64 publication and needs no
-conversion.
+the script stops with a conversion error after a successful download.
+
+`qemu-img` is not an ARM64-only dependency, though. Hyper-V boots VHDX and
+the Ubuntu cloud image the four extension-service guests share ships as
+qcow2, so those convert on AMD64 too. Only the Ubuntu Server and Windows 11
+guests skip conversion entirely; they install from vendor ISOs.
+
+The QEMU installer does not put `qemu-img` on PATH. Every caller resolves it
+through `Resolve-QemuImgCommand`, which falls back to `%ProgramFiles%\qemu`,
+so conversion works on a machine where `qemu-img --version` fails at a
+prompt. If a report says `qemu-img` is missing, confirm with
+`Test-Path "$env:ProgramFiles\qemu\qemu-img.exe"` before reinstalling.
+
+### The converted ARM64 image does not boot
+
+The conversion is only a container change, and the guest inside it has no
+Hyper-V drivers. Amazon's aarch64 kernel package ships no `drivers/hv/`
+and no `drivers/net/hyperv/` at all -- no `hv_vmbus`, `hv_storvsc`,
+`hv_netvsc`, `hid_hyperv`, or Hyper-V framebuffer. That is consistent with
+Amazon publishing the `hyperv` platform for x86-64 only: the ARM64 image is
+built for KVM, where the disk and NIC are virtio, and Hyper-V offers
+neither. Every device a Gen2 Hyper-V guest has is synthetic and reached over
+VMBus.
+
+The failure is therefore not in the download or the conversion, both of
+which succeed. GRUB runs (the firmware reads the disk through UEFI, not
+through Linux), prints `Booting 'Amazon Linux ...'`, hands off, and the
+kernel then never enumerates a root device:
+
+```
+dracut-initqueue: timeout, still waiting for following initqueue hooks:
+/lib/dracut/hooks/initqueue/finished/devexists-...by-uuid...sh
+```
+
+It repeats until the step's whole budget is spent. The guest also never
+sends a DHCP DISCOVER -- there is no NIC driver either -- so it is
+unreachable by console and by SSH alike, and no host-side setting reaches
+any of it: Generation 2, Secure Boot off, a `cidata`-labeled seed on a
+SCSI DVD and a hand-built minimal `user-data` all reproduce it exactly.
+
+Reading that boot has a trap of its own, and it is not specific to this
+guest. The image pins `console=ttyS0,115200n8 console=tty0` on the kernel
+cmdline, and on ARM64 there is no `ttyS0` -- the guest UART is the SBSA
+PL011, `ttyAMA0`. A COM port attached with `Set-VMComPort` therefore stays
+at zero bytes however far the guest gets, which reads as a dead guest
+rather than a console pointed at a UART that does not exist. Override the
+cmdline with `console=ttyAMA0,115200n8` to make the boot readable. That
+same pin is what keeps the AL2023 framebuffer silent until `getty@tty1`
+is enabled -- [vmconfig.md](vmconfig.md#al2023-framebuffer-console)
+describes it from the x86 side, where `ttyS0` is a real device.
+
+Console ORDER then decides where the interesting text lands. The last
+`console=` on the cmdline becomes `/dev/console`, so with `console=tty0`
+last the kernel's own printk still reaches the serial line while userspace
+output -- dracut's `initqueue: timeout` warnings among them -- goes only to
+the framebuffer, where `GetVirtualSystemThumbnailImage` is the way to read
+it. Put `console=tty0` first when the message you need comes from
+userspace. Streaming a boot over the synthetic COM port also slows that
+boot down, so treat any timing measured through serial as suspect and
+confirm it on a VM with no COM port attached. More in
+`feedback_hyperv_arm64_diagnostics.md`.
+
+For ARM64 coverage of this guest use `host.macos.utm` or `host.ubuntu.kvm`,
+which present the virtio devices the image drives. On Hyper-V it is an
+AMD64-only guest.
+
+## ARM64 hosts: the heartbeat channel wedges a Linux guest
+
+**Symptom:** a Linux guest boots as far as its VMBus drivers and stops dead.
+The console freezes on the three integration-service version lines and never
+prints another, so `hv_storvsc` never registers, the root disk never
+enumerates, and the installer is never reached:
+
+```
+hv_vmbus: Vmbus version:5.3
+hv_vmbus: registering driver hv_netvsc
+hv_utils: Registering HyperV Utility Driver
+hv_utils: Heartbeat IC version 3.0
+hv_utils: TimeSync IC version 4.0
+        <- nothing further, ever
+```
+
+The harness reports it as whatever OCR step was waiting -- for Ubuntu Server
+that is `waitForAndEnter: "Continue with autoinstall?"` timing out with the
+console static for the whole window -- which points at the wrong thing.
+Keystrokes are refused at the same time (`Msvm_Keyboard` returns 32775), for
+the same reason: no guest driver has attached to the synthetic keyboard.
+
+**Cause:** `hv_utils` answers each heartbeat request from a VMBus tasklet
+(`heartbeat_onchannelcallback` -> `vmbus_sendpacket` -> `vmbus_setevent` ->
+`hv_do_fast_hypercall8`). On ARM64 the channel re-arms faster than the
+tasklet drains it, so CPU 0 never leaves softirq context; the kernel reports
+`watchdog: BUG: soft lockup - CPU#0 stuck for Ns! [swapper/0:0]` with
+`hv_do_fast_hypercall8` at the PC and RCU stalls behind it. Ubuntu 24.04 and
+26.04 both do it, and so does the ISO's HWE kernel, so it is not a guest
+version to wait out.
+
+**Fix:** the Ubuntu guests call `Disable-HyperVHeartbeatForLinuxGuest` at VM
+creation, which turns the Heartbeat integration service off on ARM64 and does
+nothing on AMD64. Nothing in the harness depends on that service --
+`Get-VMIp` resolves through KVP and ARP, and only the caching-proxy guest
+reads the heartbeat, as one line of a readiness summary. A Windows guest is
+unaffected either way and keeps it.
+
+**What it does not fix.** The guest still runs far slower than the same image
+on an AMD64 host, and still takes occasional soft lockups elsewhere
+(`kick_all_cpus_sync` during module load, for one). Disabling the service is
+the difference between a guest that never boots and one that installs, not
+between a slow guest and a fast one -- which is why the autoinstall wait is
+budgeted in tens of minutes rather than one.
+
+## ARM64 Hyper-V host: a Linux guest loses half its CPU to hypervisor intercepts
+
+**Symptom:** everything works and everything is slow. The guest boots,
+installs, logs in and runs its workloads, but a package step that costs
+minutes elsewhere costs tens of minutes here, and step budgets sized on
+another host expire on this one. Nothing in the guest or in the harness log
+names a cause, because neither can see it.
+
+**What it is.** Measured on this lab's ARM64 host with one 2-vCPU Ubuntu
+guest installing packages, sampling the guest's Hyper-V virtual-processor
+counters and comparing them with the root partition's counters at the same
+moment:
+
+| | root partition | Ubuntu guest |
+|---|---|---|
+| `% Guest Run Time` | 25.3 | 17.3 |
+| `% Hypervisor Run Time` | 0.8 | **51.7** |
+| `Total Intercepts/sec` | 38,810 | **3,856,173** |
+
+The guest traps roughly a hundred times more often than the root partition on
+the same machine at the same instant, and spends more of its scheduled time
+inside the hypervisor than running its own code. That is the throughput
+ceiling: it is not explained by the disk, network, or ordinary host load
+alone.
+
+**What it is not.** Two plausible-looking explanations do not survive
+measurement here. The network is not it -- the same failing step pulls
+442 MB of archives in 22 seconds (13.6 and 27.2 MB/s) and then spends half an
+hour unpacking them. The host's anti-virus filter is not the main term
+either: it accounts for about 0.09 of a core against the guest's 1.41 over
+the same window. It is still worth excluding (see the storage filter stack
+section of `Test-Config.ps1`), but it is a correction, not the cause.
+
+**How to read it.** Sample these while a guest is under load; the instances
+do not exist until the VM is running, so expand the wildcard per sample
+rather than once:
+
+```powershell
+Get-Counter -Counter @(
+  '\Hyper-V Hypervisor Virtual Processor(*)\% Guest Run Time'
+  '\Hyper-V Hypervisor Virtual Processor(*)\% Hypervisor Run Time'
+  '\Hyper-V Hypervisor Virtual Processor(*)\Total Intercepts/sec'
+  '\Hyper-V Hypervisor Root Virtual Processor(*)\Total Intercepts/sec'
+) -MaxSamples 1
+```
+
+The root-partition column is the control: it is what this machine's trap rate
+looks like when nothing pathological is happening.
+
+**What follows from it.** Budgets measured on an AMD64 host do not transfer
+to this one, and a budget that expires here is reporting the ceiling rather
+than a stuck guest -- which is why the failure classifier's `wait_timeout` on
+a guest whose console is still moving means "too slow", not "wedged". The
+vCPU cap (`Limit-HyperVLinuxGuestCoreCount`) is the one lever already applied:
+more virtual processors raise the intercept rate without delivering more
+guest compute, so the cap makes single-threaded work -- boot, install,
+`dpkg` -- finish sooner rather than later.
+
+### Budgeting a step on this host
+
+Two ceilings bound a step and they are not interchangeable. A sequence step's
+own `timeoutSeconds` fails that step and names it. `testCycle.stepTimeoutSeconds`
+is the outer watchdog: `runner.stepHeartbeat` is touched at the top of every
+step, and the outer runner kills the whole inner process when one step's
+heartbeat goes older than that. **Keep every step budget below the watchdog**,
+or a slow step costs an unattributed runner kill instead of a precise failure.
+
+Measured on this host for `ubuntu.server.26.code.sh` -- a JDK, the .NET SDK,
+and Code with its GTK and X11 closure, about seventy packages:
+
+| condition | duration |
+|---|---|
+| host otherwise quiet | 1373 s (JDK 456, .NET 20, Code 897) |
+| a cycle running with the host busy | still short of done at 1810 s; JDK alone 854 s |
+
+Host contention moves this by nearly 2x. A full clean run of the whole chain
+measured this step at 2828 s and passed, so the step is budgeted at 3000 s and
+`testCycle.stepTimeoutSeconds` ships at 3600 s to stay above it. The earlier
+2700 s default would have killed that successful run a hundred seconds short
+of the end -- as a watchdog kill of the whole inner runner, which names
+nothing, rather than a failure naming the step.
+
+## ARM64 Hyper-V host: the first keystroke after a fresh login is dropped
+
+**Symptom:** a typed command arrives missing its first character. The console
+shows the shell answering `Command 'cho' not found` to an `echo`, and the
+step waiting on that command's output spends its whole budget.
+
+**Where it bites.** Only the first send to a console that has just come up --
+a session established seconds earlier by a login. A console that has already
+been typed at takes the next command whole. That makes it invisible in most
+runs and fatal in the one step that types first, and a lost character does
+not fail loudly: it silently turns one command into a different one, which
+for a line that begins with a variable assignment or an absolute path can
+mean running something other than what was asked for.
+
+**Working around it.** Give the first command a sacrificial leading
+character. The Linux sequences type ` echo ...` with a leading space: dropped,
+the command still starts at `echo`; delivered, the shell ignores leading
+whitespace. Because that step is the first thing typed after a login, it also
+absorbs the loss for every step below it. This is a sequence-level
+workaround, not a transport fix -- the per-character send path in
+`Send-TextHyperV` does not yet prime the console itself.
+
+Related PS/2 delivery traps on this host are in
+`docs/host-io.md#hyper-v-ps2-scancode-behavior`: a multi-character payload in
+one `TypeScancodes` call arrives as nothing, and a character sent after a
+modifier-release burst is swallowed. All three return success.
 
 ## Cleaning up old files
 
@@ -289,6 +505,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.25
+Last review: 2026.09.01
 
 Back to [Yuruna](../README.md)

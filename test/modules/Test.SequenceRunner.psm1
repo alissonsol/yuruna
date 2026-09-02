@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 42876323-908f-424a-bc58-2069b325aa64
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -76,6 +76,7 @@ function Resolve-TestSequencePlan {
     $effectiveHost   = $ChainPlan.effectiveHostname
     $effectiveMemory = $ChainPlan.effectiveMemoryStartupBytes
     $effectiveCores  = $ChainPlan.effectiveCores
+    $effectiveExposeVirt = $ChainPlan.effectiveExposeVirtualizationExtensions
 
     # Build (name, path, sequence, stepCount, globalStart) per chain entry
     # using the planner's chainPaths map. Re-reading the YAML here (vs.
@@ -103,6 +104,7 @@ function Resolve-TestSequencePlan {
         effectiveHost      = $effectiveHost
                 effectiveMemoryStartupBytes = $effectiveMemory
                 effectiveCores     = $effectiveCores
+                effectiveExposeVirtualizationExtensions = $effectiveExposeVirt
                 chainTotalSteps    = 0
                 requiredSnapshotId = $null
                 warmPath           = $false
@@ -179,6 +181,7 @@ function Resolve-TestSequencePlan {
         effectiveHost      = $effectiveHost
                 effectiveMemoryStartupBytes = $effectiveMemory
                 effectiveCores     = $effectiveCores
+                effectiveExposeVirtualizationExtensions = $effectiveExposeVirt
                 chainTotalSteps    = 0
                 requiredSnapshotId = $requiredSnapshotId
                 warmPath           = $false
@@ -207,6 +210,7 @@ function Resolve-TestSequencePlan {
         effectiveHost      = $effectiveHost
         effectiveMemoryStartupBytes = $effectiveMemory
         effectiveCores     = $effectiveCores
+        effectiveExposeVirtualizationExtensions = $effectiveExposeVirt
         chainTotalSteps    = $ChainTotalSteps
         requiredSnapshotId = $requiredSnapshotId
         warmPath           = $warmPath

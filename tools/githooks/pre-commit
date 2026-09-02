@@ -145,7 +145,7 @@ if [ -n "$staged" ]; then
         # matches because `$` is not `{`.
         #
         # The spelling is escaped into the regex rather than passed to -F, so a
-        # path entry like test/New-Pool.ps1 keeps matching only itself and not
+        # path entry like test/pool/New-Pool.ps1 keeps matching only itself and not
         # any character in place of the dots.
         esc=$(printf '%s' "$old" | sed 's/[][\.*+?(){}|^$\\]/\\&/g')
         hits=$(printf '%s\n' "$staged" | tr '\n' '\0' |

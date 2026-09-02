@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.25
+# Version: 2026.09.01
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -13,16 +13,20 @@ REAL_HOME=$(getent passwd "$REAL_USER" | cut -d: -f6)
 # --- REGION: Detect architecture
 ARCH=$(uname -m)
 echo "Detected architecture: $ARCH"
+# Architecture does not imply host platform: this lab runs aarch64 guests on
+# Hyper-V and UTM. Report virtualization detected inside the guest instead of
+# inferring the host from uname.
+echo "Detected virtualization: $(systemd-detect-virt 2>/dev/null || echo unknown)"
 case "$ARCH" in
   x86_64)
-    echo "Environment: x86_64/amd64 (Hyper-V)"
+    echo "Environment: x86_64/amd64"
     ;;
   aarch64)
-    echo "Environment: aarch64/arm64 (UTM on Apple Silicon)"
+    echo "Environment: aarch64/arm64"
     ;;
   *)
     echo "WARNING: Unsupported architecture: $ARCH"
-    echo "This script supports x86_64 (Hyper-V) and aarch64 (UTM on Apple Silicon)."
+    echo "This script supports x86_64/amd64 and aarch64/arm64."
     exit 1
     ;;
 esac
@@ -383,7 +387,15 @@ yuruna_warm_refs() {
     shift
     yuruna_warm_total=0
     yuruna_warm_missing=0
-    _wr_deadline=$(( $(date +%s) + YURUNA_IMAGE_WARM_BUDGET ))
+    # Split out of the missing count because the two say different things to a
+    # reader: an image that was never asked for is a budget that ran out, while
+    # one that answered with an error or not at all failed on its own and would
+    # have failed with any budget. Reporting both as one number sends the reader
+    # after slowness when the request was refused, which is the wrong machine.
+    yuruna_warm_unattempted=0
+    yuruna_warm_errored=0
+    _wr_start=$(date +%s)
+    _wr_deadline=$(( _wr_start + YURUNA_IMAGE_WARM_BUDGET ))
     # Spelled out because a manifest request stating no preference gets the
     # registry's default, which for a multi-arch tag is not the index a pull
     # resolves -- warming the wrong document leaves the real pull still cold.
@@ -398,6 +410,7 @@ yuruna_warm_refs() {
         _wr_left=$(( _wr_deadline - $(date +%s) ))
         if [ "$_wr_left" -le 0 ]; then
             yuruna_warm_missing=$((yuruna_warm_missing + 1))
+            yuruna_warm_unattempted=$((yuruna_warm_unattempted + 1))
             printf '  %-52s       not attempted (warm budget spent)\n' "${_wr_repo}:${_wr_tag}"
             continue
         fi
@@ -419,9 +432,11 @@ yuruna_warm_refs() {
             printf '  %-52s %5ss (%s)\n' "${_wr_repo}:${_wr_tag}" "$_wr_el" "$_wr_state"
         else
             yuruna_warm_missing=$((yuruna_warm_missing + 1))
+            yuruna_warm_errored=$((yuruna_warm_errored + 1))
             printf '  %-52s %5ss (NOT CACHED -- HTTP %s)\n' "${_wr_repo}:${_wr_tag}" "$_wr_el" "${_wr_code:-000}"
         fi
     done
+    yuruna_warm_spent=$(( $(date +%s) - _wr_start ))
     echo "== ${_wr_label}: $((yuruna_warm_total - yuruna_warm_missing)) of ${yuruna_warm_total} images cached =="
 }
 
@@ -437,7 +452,21 @@ elif [ -z "$_k8s_refs" ]; then
 else
     yuruna_warm_refs "control-plane" $_k8s_refs
     if [ "$yuruna_warm_missing" -gt 0 ]; then
-        echo "ERROR: the cache is still cold -- ${yuruna_warm_missing} of ${yuruna_warm_total} control-plane images did not arrive within the ${YURUNA_IMAGE_WARM_BUDGET}s warm budget." >&2
+        echo "ERROR: the cache is still cold -- ${yuruna_warm_missing} of ${yuruna_warm_total} control-plane images did not reach the cache." >&2
+        # Name the limit that was actually hit, in the fewest lines that can
+        # carry it. Spent-against-budget is the whole correction: a run that
+        # spent seconds of a 900s budget was stopped by the upstream, not by
+        # the budget, and a reader told otherwise widens a budget that was
+        # never the constraint. Kept to one line per shape because this block
+        # sits above the marker the host matches on, and the console capture
+        # holds a bounded tail -- prose here pushes the per-image HTTP column
+        # it refers to out of the captured frame.
+        if [ "$yuruna_warm_errored" -gt 0 ]; then
+            echo "       ${yuruna_warm_errored} answered with an error or not at all (HTTP column above); ${yuruna_warm_spent}s of the ${YURUNA_IMAGE_WARM_BUDGET}s budget was spent." >&2
+        fi
+        if [ "$yuruna_warm_unattempted" -gt 0 ]; then
+            echo "       ${yuruna_warm_unattempted} were never requested: the ${YURUNA_IMAGE_WARM_BUDGET}s warm budget ran out first." >&2
+        fi
         echo "       kubeadm would spend its entire step budget re-requesting them and end as a bare" >&2
         echo "       timeout naming no image, so stop here while the cause is still on screen." >&2
         echo "       The cache continues each interrupted sync in the background, so a re-run lands warm." >&2

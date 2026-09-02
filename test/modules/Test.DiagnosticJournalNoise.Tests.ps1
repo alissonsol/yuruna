@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 42a6b0a3-6ac8-4209-8138-98b813018d22
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -121,9 +121,25 @@ Describe 'diagnostic journal: the harness does not report itself as news' {
     }
 
     It 'counts only entries the harness did not write when deciding there is a problem' {
-        $script:DiagText | Should -Match '\$realCount = @\(\$jc \| Where-Object \{ -not \(Get-JournalSelfNoiseClass' `
+        $script:DiagText | Should -Match '\$realCount = @\(\$entries \| Where-Object \{ -not \(Get-JournalSelfNoiseClass' `
             -Because 'a host whose error journal is only its own guest-address probes has no problem to report'
         $script:DiagText | Should -Match 'if \(\$realCount -ge 10\)' -Because 'the threshold must be applied to the filtered count'
+    }
+
+    It 'does not count journalctl boot separators as errors' {
+        # "-- Boot <id> --" is punctuation between boots, not an entry. Counting
+        # it adds one phantom error per boot in the window.
+        $script:DiagText | Should -Match '\$entries\s+= @\(\$jc \| Where-Object \{ -not \(Test-JournalSeparatorLine' `
+            -Because 'separators must be removed before anything is counted'
+    }
+
+    It 'reconciles the suppressed count whether or not the problem fires' {
+        # The line explains a number the operator can see. Tying it to the quiet
+        # case withheld it exactly when the count was being questioned.
+        $script:DiagText | Should -Match '\$suppressed = \$entryCount - \$realCount' `
+            -Because 'the note reports what was filtered, not what survived'
+        $script:DiagText | Should -Match "if \(\`$suppressed -gt 0\) \{" `
+            -Because 'suppression is reported on its own terms, not as an else-branch of the threshold'
     }
 
     It 'still prints every line it was given' {

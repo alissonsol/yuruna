@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 424987be-221a-49fe-a0ac-06e90a13e1b0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -55,7 +55,13 @@ param(
     # Planner-cascaded vCPU count (variables.cores). Overrules the default
     # host/2 calculation below. Empty keeps the default. Clamped to the host's
     # physical core count.
-    [string]$Cores = ''
+    [string]$Cores = '',
+    # Planner-cascaded nested-virtualization request
+    # (variables.exposeVirtualizationExtensions). 'true' exposes
+    # virtualization extensions to the guest so it can run its own hypervisor
+    # (e.g. KVM for a nested host). Default off: ARM64 Hyper-V cannot start a
+    # VM with the extensions exposed, and most guests never need them.
+    [string]$ExposeVirtualizationExtensions = ''
 )
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
@@ -107,6 +113,24 @@ if (-not (Assert-HyperVEnabled)) {
 $downloadDir = (Get-VMHost).VirtualHardDiskPath
 if (!(Test-Path -Path $downloadDir)) {
     Write-Output "The Hyper-V default VHDX folder does not exist: $downloadDir"
+    exit 1
+}
+
+# Nested virtualization is opt-in and AMD64-only: ARM64 Hyper-V rejects a VM
+# with virtualization extensions exposed at start time ("this platform does
+# not support nested virtualization"), so an impossible ask fails here,
+# before any VM state is created. OSArchitecture rather than
+# $env:PROCESSOR_ARCHITECTURE, which reports AMD64 for an x64 pwsh under
+# emulation on an ARM64 host.
+$exposeVirt = $false
+if ($ExposeVirtualizationExtensions) {
+    if (-not [bool]::TryParse($ExposeVirtualizationExtensions, [ref]$exposeVirt)) {
+        Write-Error "Invalid -ExposeVirtualizationExtensions '$ExposeVirtualizationExtensions': expected 'true' or 'false'."
+        exit 1
+    }
+}
+if ($exposeVirt -and [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne [System.Runtime.InteropServices.Architecture]::X64) {
+    Write-Error "Nested virtualization (exposeVirtualizationExtensions: true) was requested, but Hyper-V supports it only on AMD64 hosts; this host is $([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture). Remove the variable or run the sequence on an AMD64 host."
     exit 1
 }
 
@@ -455,6 +479,13 @@ Set-VM -Name $VMName -MemoryStartupBytes $vmMemoryBytes -MemoryMinimumBytes $vmM
 Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
 Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
 
+# --- REGION: docs/host-hyperv.md#arm64-hosts-the-heartbeat-channel-wedges-a-linux-guest
+# No-op on AMD64. On ARM64 the heartbeat channel drives this guest into
+# repeated soft lockups; the 24.04 sibling does not boot past it at all.
+# Set before the DVDs are attached so the guest's first boot is already
+# free of it.
+$null = Disable-HyperVHeartbeatForLinuxGuest -VMName $VMName -Confirm:$false
+
 # Enable MAC-address spoofing on the synthetic NIC. Gen 2 VMs have no
 # legacy adapter to fall back to, so this is the only host-side lever
 # the hypervisor exposes to flatten host-guest link-state handshakes.
@@ -501,7 +532,18 @@ if ($Cores) {
     }
     $vmCores = $coresInt
 }
-Set-VMProcessor -VMName $VMName -Count $vmCores -ExposeVirtualizationExtensions $true | Out-Null
+# No-op on AMD64. On ARM64 a Linux guest's virtual processors trap into the
+# hypervisor at a rate that grows with their number, and the trapped time comes
+# out of guest execution rather than adding to it -- so the count divides the
+# speed of every serial path without raising delivered compute. A boot is such
+# a path, which is why it is what shows the cost.
+$vmCores = Limit-HyperVLinuxGuestCoreCount -RequestedCores $vmCores
+# Virtualization extensions only on request (validated in the environment
+# checks above): the flag is unsupported on ARM64 hosts and unnecessary for
+# guests that run no hypervisor of their own.
+$vmProcessorArgs = @{ VMName = $VMName; Count = $vmCores }
+if ($exposeVirt) { $vmProcessorArgs.ExposeVirtualizationExtensions = $true }
+Set-VMProcessor @vmProcessorArgs | Out-Null
 
 # WARNING: The test harness OCR is calibrated for 1920x1080.
 # Changing this resolution may break automated screen-text detection

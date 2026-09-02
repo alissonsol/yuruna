@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.25
+# Version: 2026.09.01
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 
@@ -618,7 +618,7 @@ fi
 # thing that discovers a trust anchor that went stale while it was not looking.
 # Non-fatal by contract: a guest with no bump in front of it is a hard no-op,
 # and a repair that cannot complete leaves the payload to fail with its own
-# diagnosis rather than being pre-empted by a less specific one here.
+# diagnosis rather than being preempted by a less specific one here.
 if command -v yuruna_ca_selfheal >/dev/null 2>&1; then
     yuruna_ca_selfheal || true
 fi

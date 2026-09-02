@@ -259,7 +259,7 @@ function loadWithHash(hash) {
 
   // (5) The control-proof handoff. A page reached from the Yuruna hosts
   // dashboard carries the proof in the fragment; it is spent once, at load, and
-  // stripped from the address bar so it cannot be re-used out of history or a
+  // stripped from the address bar so it cannot be reused out of history or a
   // copied URL. A page with no fragment must send nothing at all.
   // Counted by route, not by total: a loading page also reads /api/hostinfo for
   // its header and footer, and that read is not what is under test here.
@@ -271,7 +271,7 @@ function loadWithHash(hash) {
   assert.strictEqual(await spent.Y.proofUnlock, true, 'a carried proof unlocks the page');
   assert.strictEqual(unlockPosts(spent).length, 1, 'a carried proof is spent exactly once');
   assert.deepStrictEqual(JSON.parse(unlockPosts(spent)[0].body), { proof: '1900000000.QUJD' }, 'the proof is sent verbatim');
-  assert.strictEqual(spent.replaced, 1, 'the fragment is stripped from the address bar, so it cannot be re-used from history');
+  assert.strictEqual(spent.replaced, 1, 'the fragment is stripped from the address bar, so it cannot be reused from history');
 
   const clean = loadWithHash('');
   assert.strictEqual(await clean.Y.proofUnlock, false, 'no fragment, no unlock attempt');

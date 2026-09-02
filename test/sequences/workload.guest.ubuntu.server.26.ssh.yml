@@ -24,9 +24,17 @@ component:
     description: "Smoke test: whoami/hostname"
 
 workload:
+  # Kept equal to the console variant's budget for the same script on the same
+  # guest: what this costs is dominated by how fast the guest unpacks and
+  # configures seventy packages, which is a property of the host. The console
+  # twin carries the measurement the number comes from. Driving over SSH does
+  # appear to be the cheaper of the two -- the update script on this guest ran
+  # 153 s over SSH against 253-288 s on the console -- but that was measured
+  # across cycles rather than back to back, so it sizes nothing here; a budget
+  # is a ceiling, and the ceiling is the slow path either way.
   - action: sshFetchAndExecute
     command: "/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.26/ubuntu.server.26.code.sh"
-    timeoutSeconds: 1800
+    timeoutSeconds: 3000
     description: "ubuntu.server.26.code.sh"
 
   - action: sshExec

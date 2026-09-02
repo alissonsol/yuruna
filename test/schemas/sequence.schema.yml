@@ -203,6 +203,7 @@ $defs:
           - waitForAndEnter
           - waitForSeconds
           - waitForText
+          - waitForTextWithNudge
       description:
         type: string
         description: Free-form label shown in the cycle log and dashboard.
@@ -448,6 +449,22 @@ $defs:
             freshMatch:          { type: boolean }
             freshMatchTailLines: { type: integer, minimum: 0 }
             failurePatterns:     { $ref: "#/$defs/patternOrArray" }
+
+      - if: { properties: { action: { const: waitForTextWithNudge } } }
+        then:
+          required: [pattern, nudgeKey, nudgeIntervalSeconds]
+          properties:
+            pattern:             { $ref: "#/$defs/patternOrArray" }
+            timeoutSeconds:      { type: integer, minimum: 0 }
+            pollSeconds:         { type: number,  minimum: 0 }
+            freshMatch:          { type: boolean }
+            freshMatchTailLines: { type: integer, minimum: 0 }
+            failurePatterns:     { $ref: "#/$defs/patternOrArray" }
+            nudgeKey:
+              type: string
+              enum: [Enter, Tab, Space, Escape, Up, Down, Left, Right,
+                     F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12]
+            nudgeIntervalSeconds: { type: integer, minimum: 1 }
 
   patternOrArray:
     description: A single OCR pattern, or an array of candidate patterns.

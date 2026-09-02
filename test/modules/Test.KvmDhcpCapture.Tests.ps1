@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 429cf70d-40bb-4de7-a305-1a10d263253b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -104,6 +104,49 @@ Describe 'kvm DHCP evidence: armed at the only moment that sees the first ask' {
         ($alreadyAt -ge 0 -and $armAt -gt $alreadyAt) | Should -BeTrue -Because 'the early return must not carry an arm with it'
     }
 
+    It 'leaves the imported guest shut off for Start-VM to boot' {
+        # The cases above describe a window Start-VM opens on a domain it
+        # started itself. A builder that boots the domain sends every cycle
+        # through the already-running return instead, and the window it needs
+        # is then only as early as New-VM's fallback arm below.
+        $builder = Get-Content -Raw -LiteralPath `
+            (Join-Path $script:RepoRoot 'host/ubuntu.kvm/guest.amazon.linux.2023/New-VM.ps1')
+        $builder | Should -Match "'--import'" -Because 'the cloud image is bootable, so there is no install phase'
+        $builder | Should -Match "'--noreboot'" -Because 'virt-install boots an --import domain unless told not to, which puts the first DISCOVER past any window Start-VM could open'
+    }
+
+    It 'arms from New-VM for a builder that booted the domain itself' {
+        # Not every builder can be made to define without booting: an ISO
+        # install boots to run the installer, and --noreboot governs only the
+        # reboot AFTER an install phase, so it leaves a --cdrom domain running.
+        # Those guests would otherwise reach Start-VM already running and never
+        # be armed at all, which surfaces only as a missing artifact on the one
+        # failure that needed it.
+        $fn = Get-PsFunctionText -Source $script:DriverText -Name 'New-VM'
+        $fn | Should -Match 'Start-VMDhcpCapture' -Because 'a builder that boots the domain leaves no later hook before the first ask'
+        $fn | Should -Match "Get-VirshDomState -VMName \`$VMName\) -eq 'running'" `
+            -Because 'a builder that left the domain shut off must be armed by Start-VM instead, which is earlier'
+        $createAt = $fn.IndexOf('Invoke-PerGuestNewVm')
+        $armAt    = $fn.IndexOf('Start-VMDhcpCapture')
+        ($createAt -ge 0 -and $armAt -gt $createAt) | Should -BeTrue -Because 'a window for a domain that was never created describes nothing'
+    }
+
+    It 'arms from New-VM only for a domain the builder actually left running' -ForEach @(
+        @{ Created = $true;  State = 'running';  Times = 1; Case = 'builder booted it' }
+        @{ Created = $true;  State = 'shut off'; Times = 0; Case = 'builder left it defined' }
+        @{ Created = $false; State = 'running';  Times = 0; Case = 'create failed' }
+    ) {
+        # The shape assertions above cannot tell the guard from its inverse, and
+        # an inverted guard arms exactly the guests Start-VM already covers while
+        # leaving the ones that need it unarmed.
+        Mock -ModuleName 'Yuruna.Host' Invoke-PerGuestNewVm { @{ success = $Created; errorMessage = $null } }
+        Mock -ModuleName 'Yuruna.Host' Get-VirshDomState { $State }
+        Mock -ModuleName 'Yuruna.Host' Start-VMDhcpCapture { $true }
+        $r = Yuruna.Host\New-VM -GuestKey 'guest.test' -RepoRoot '/tmp' -VMName 'test-vm-01' -Confirm:$false
+        $r.success | Should -Be $Created -Because 'the create result must pass through the arm untouched'
+        Should -Invoke -ModuleName 'Yuruna.Host' Start-VMDhcpCapture -Times $Times -Exactly -Because $Case
+    }
+
     It 'opens the window at an instant, not at a duration' {
         $fn = Get-PsFunctionText -Source $script:DriverText -Name 'Get-YurunaDnsmasqJournal'
         $fn | Should -Match "'--since', ""@\`$SinceEpochSecond""" -Because 'a relative window drifts with how long the failing step took'
@@ -155,6 +198,30 @@ Describe 'kvm DHCP evidence: collected with the failure, discarded with the gues
         $fn = Get-PsFunctionText -Source $script:DriverText -Name 'Remove-VM'
         $fn | Should -Match 'Stop-VMDhcpCapture' -Because 'the no-failure teardown must not leak a running capture'
         $fn | Should -Match '\.VMName -eq \$VMName' -Because 'the cycle-start sweep removes leftover VMs; an unowned discard kills the window of the guest under test'
+    }
+
+    It 'names which history left the slot empty' -ForEach @(
+        @{ Setup = { }
+           Expect = 'nothing in this process ever armed one'
+           Case   = 'no arm ran at all -- the hole is in the start path' }
+        @{ Setup = { Yuruna.Host\Start-VMDhcpCapture -VMName 'test-other-01' | Out-Null
+                     Yuruna.Host\Remove-VM -VMName 'test-other-01' -Confirm:$false | Out-Null }
+           Expect = "was discarded when 'test-other-01' was removed"
+           Case   = 'a teardown took it -- the hole is in the discard guard' }
+    ) {
+        # An empty slot has one message and three histories behind it, each
+        # pointing at a different file. Without the transition recorded, the
+        # cycle that most needs the evidence reports only that it is missing,
+        # and the next occurrence is as unreadable as this one.
+        InModuleScope 'Yuruna.Host' { $script:YurunaDhcpCapture = $null; $script:YurunaDhcpTrail = '' }
+        Mock -ModuleName 'Yuruna.Host' Get-YurunaGuestBridge { @{ Bridge = ''; Network = '' } }
+        Mock -ModuleName 'Yuruna.Host' Get-VMMac { '52:54:00:aa:bb:cc' }
+        Mock -ModuleName 'Yuruna.Host' Invoke-Virsh { @() }
+        $warnings = @()
+        & $Setup
+        Yuruna.Host\Save-VMDhcpCapture -VMName 'test-guest-01' -OutputDirectory $TestDrive `
+            -WarningVariable warnings -WarningAction SilentlyContinue | Out-Null
+        ($warnings -join ' ') | Should -Match ([regex]::Escape($Expect)) -Because $Case
     }
 
     It 'never lets a capture failure escape into the step' {

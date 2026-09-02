@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 42ed1667-e5c7-4bea-b28b-0e6c1706de72
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -145,7 +145,10 @@ function Get-MacPmsetKeyValue {
         [string[]]$PmsetCustom,
         [Parameter(Mandatory)][string]$Key
     )
-    return @($PmsetCustom |
+    # Cast, not a bare @(): the pipeline yields Object[], and callers compare
+    # each element as a number, so the declared [string[]] has to be what
+    # actually comes back rather than a promise the return value breaks.
+    return [string[]]@($PmsetCustom |
         Select-String -Pattern ('^\s*' + [regex]::Escape($Key) + '\s+(\d+)') |
         ForEach-Object { $_.Matches[0].Groups[1].Value })
 }
@@ -522,7 +525,7 @@ function Get-MacScreenLockIssue {
         Write-Debug "pmset system-sleep / extended-guard check failed: $_"
     }
 
-    return @($issues)
+    return [string[]]@($issues)
 }
 
 function Assert-ScreenLock {
@@ -566,6 +569,168 @@ function Assert-ScreenLock {
     Write-Warning "        sudo pmset -b displaysleep 0 )"
     Write-Warning "========"
     return $false
+}
+
+function Get-MacDisplayScaleProfile {
+    <#
+    .SYNOPSIS
+    The raw system_profiler SPDisplaysDataType JSON for this Mac.
+    .DESCRIPTION
+    The reading half of Get-MacDisplayScaleIssue.
+
+    The JSON form rather than the plain-text one: the text renderer prints
+    no logical-point line for a built-in Apple panel and labels the panel's
+    own pixel grid "Resolution", so a Mac rendering into a larger
+    framebuffer reads as though it were not scaled at all.
+
+    Bounded twice. system_profiler's own -timeout defaults to three minutes,
+    and a gate that runs before every cycle cannot wait that long on a
+    window server that has stopped answering.
+    .PARAMETER TimeoutSeconds
+    How long system_profiler may take. The process is killed a few seconds
+    after that regardless.
+    .OUTPUTS
+    [string] the JSON text, or $null when the host is not a Mac, the binary
+    is absent, or the probe did not complete.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([int]$TimeoutSeconds = 15)
+
+    if (-not $IsMacOS) { return $null }
+    $exe = '/usr/sbin/system_profiler'
+    if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) { return $null }
+
+    $psi = [System.Diagnostics.ProcessStartInfo]::new()
+    $psi.FileName               = $exe
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError  = $true
+    $psi.UseShellExecute        = $false
+    foreach ($a in @('-json', '-detailLevel', 'mini', '-timeout', "$TimeoutSeconds", 'SPDisplaysDataType')) {
+        $null = $psi.ArgumentList.Add($a)
+    }
+
+    $proc = $null
+    try {
+        $proc = [System.Diagnostics.Process]::Start($psi)
+        # Drain before waiting: a synchronous read paired with WaitForExit
+        # deadlocks as soon as the output fills the pipe buffer.
+        $stdout = $proc.StandardOutput.ReadToEndAsync()
+        $null   = $proc.StandardError.ReadToEndAsync()
+        if (-not $proc.WaitForExit(($TimeoutSeconds + 5) * 1000)) {
+            try { $proc.Kill($true) } catch { Write-Debug "system_profiler kill failed: $_" }
+            return $null
+        }
+        return $stdout.GetAwaiter().GetResult()
+    } catch {
+        Write-Debug "system_profiler probe failed: $_"
+        return $null
+    } finally {
+        if ($proc) { $proc.Dispose() }
+    }
+}
+
+function Get-MacDisplayScaleIssue {
+    <#
+    .SYNOPSIS
+    Whether this Mac's main display carries enough pixels per glyph for the
+    OCR pipeline, decided from the system_profiler JSON.
+    .DESCRIPTION
+    A pure function of that text, so the rule can be exercised without a Mac.
+
+    Reports only what the capture path can actually be hurt by. screencapture
+    reads the window backing store, which is upstream of the GPU pass that
+    fits the framebuffer to the panel, so a display rendering 3420x2224 onto
+    a 2560x1664 panel still hands over two pixels per point and its glyphs
+    reach OCR intact -- the captures docs/ocr.md describes are 2x their
+    logical size. A scaled "More Space" mode is therefore NOT reported.
+    What halves the glyph pixels is a main display with no HiDPI mode at
+    all, where one pixel per point is all there is.
+
+    A future capture path that read the panel rather than the backing store
+    would invalidate that reasoning, which is why it is recorded here rather
+    than left to be re-derived.
+    .PARAMETER Json
+    The text from Get-MacDisplayScaleProfile.
+    .OUTPUTS
+    [pscustomobject] with Status ('Clean', 'Issue' or 'Unknown'), Issue
+    ([string[]], one line per finding) and Detail (one sentence).
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param([AllowNull()][AllowEmptyString()][string]$Json)
+
+    $unknown = {
+        param([string]$Why)
+        [pscustomobject]@{ Status = 'Unknown'; Issue = @(); Detail = $Why }
+    }
+
+    if ([string]::IsNullOrWhiteSpace($Json)) {
+        return & $unknown 'system_profiler returned nothing this check could read, so display scaling was not assessed.'
+    }
+    $doc = $null
+    try { $doc = $Json | ConvertFrom-Json -ErrorAction Stop } catch { $doc = $null }
+    if ($null -eq $doc -or -not $doc.PSObject.Properties['SPDisplaysDataType']) {
+        return & $unknown 'system_profiler returned nothing this check could read, so display scaling was not assessed.'
+    }
+
+    $parseWH = {
+        param($text)
+        if ($null -eq $text) { return $null }
+        $m = [regex]::Match([string]$text, '(\d+)\s*x\s*(\d+)')
+        if (-not $m.Success) { return $null }
+        [pscustomobject]@{ W = [int]$m.Groups[1].Value; H = [int]$m.Groups[2].Value }
+    }
+
+    $displays = New-Object System.Collections.Generic.List[object]
+    foreach ($gpu in @($doc.SPDisplaysDataType)) {
+        if ($null -eq $gpu -or -not $gpu.PSObject.Properties['spdisplays_ndrvs']) { continue }
+        foreach ($d in @($gpu.spdisplays_ndrvs)) {
+            if ($null -eq $d) { continue }
+            $read = { param($n) if ($d.PSObject.Properties[$n]) { $d.$n } else { $null } }
+            $pt = & $parseWH (& $read '_spdisplays_resolution')
+            $px = & $parseWH (& $read '_spdisplays_pixels')
+            if (-not $pt -or -not $px -or $pt.W -le 0 -or $px.W -le 0) { continue }
+            $displays.Add([pscustomobject]@{
+                Name        = & $read '_name'
+                IsMain      = ((& $read 'spdisplays_main')   -eq 'spdisplays_yes')
+                IsOnline    = ((& $read 'spdisplays_online') -eq 'spdisplays_yes')
+                PointWidth  = $pt.W
+                PointHeight = $pt.H
+                PixelWidth  = $px.W
+                PixelHeight = $px.H
+            })
+        }
+    }
+
+    # A report trimmed to its GPU entries is what a Mac returns when no
+    # window server is attached to this session. That is an answer about the
+    # session, not about the displays, and must not read as "no display has
+    # a problem".
+    if ($displays.Count -eq 0) {
+        return & $unknown 'system_profiler answered with no display list, which is what a Mac reports when no window server is attached to this session. Display scaling was not assessed.'
+    }
+
+    $target = @($displays | Where-Object { $_.IsMain -and $_.IsOnline }) | Select-Object -First 1
+    if (-not $target) { $target = @($displays | Where-Object { $_.IsOnline }) | Select-Object -First 1 }
+    if (-not $target) {
+        return & $unknown 'system_profiler reported displays but none of them online, so display scaling was not assessed.'
+    }
+
+    $backingScale = $target.PixelWidth / $target.PointWidth
+    if ($backingScale -lt 2) {
+        $name = if ($target.Name) { $target.Name } else { 'the main display' }
+        return [pscustomobject]@{
+            Status = 'Issue'
+            Issue  = @("The main display '$name' has no HiDPI mode: macOS renders $($target.PixelWidth)x$($target.PixelHeight) pixels for $($target.PointWidth)x$($target.PointHeight) points, which is half the pixels per glyph a window capture normally carries.")
+            Detail = 'The main display renders one pixel per point.'
+        }
+    }
+    return [pscustomobject]@{
+        Status = 'Clean'
+        Issue  = @()
+        Detail = 'The main display renders two pixels per point.'
+    }
 }
 
 function Test-MacSudoAvailable {
@@ -2217,4 +2382,4 @@ function Test-MacHostMinimum {
     return $ok
 }
 
-Export-ModuleMember -Function Assert-ScreenLock, Get-MacScreenLockIssue, Initialize-SudoCache, Test-MacSudoAvailable, Get-MacPmsetGuardList, Get-MacDefaultsCommandArgument, Set-MacHostConditionSet, Set-MacUtmctlLink, Get-MacUtmctlRemediation, Set-MacScreenLockState, Get-MacScreenLockManualCommand, Get-MacSessionKind, Get-MacTccSubjectName, Get-MacOperatorGrant, Get-MacOperatorGrantState, Get-MacOperatorGrantInstruction, Assert-MacOperatorGrant, Invoke-MacOperatorGrantAssist, Assert-Accessibility, Assert-ScreenRecording, Assert-MacHostConditionSet, Test-MacHostMinimum, Sync-MacHostClock
+Export-ModuleMember -Function Assert-ScreenLock, Get-MacScreenLockIssue, Initialize-SudoCache, Test-MacSudoAvailable, Get-MacPmsetGuardList, Get-MacDefaultsCommandArgument, Set-MacHostConditionSet, Set-MacUtmctlLink, Get-MacUtmctlRemediation, Set-MacScreenLockState, Get-MacScreenLockManualCommand, Get-MacSessionKind, Get-MacTccSubjectName, Get-MacOperatorGrant, Get-MacOperatorGrantState, Get-MacOperatorGrantInstruction, Assert-MacOperatorGrant, Invoke-MacOperatorGrantAssist, Assert-Accessibility, Assert-ScreenRecording, Assert-MacHostConditionSet, Test-MacHostMinimum, Sync-MacHostClock, Get-MacDisplayScaleProfile, Get-MacDisplayScaleIssue

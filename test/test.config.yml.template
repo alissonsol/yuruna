@@ -105,7 +105,23 @@ testCycle:
     enabled: true
   recentDisplayCount: 30
   stopOnFailure: false
-  stepTimeoutSeconds: 2700
+  # Outer watchdog, not a second step budget: runner.stepHeartbeat is touched at
+  # the top of every step and the outer runner kills the whole inner process when
+  # one step goes staler than this. It therefore has to sit ABOVE the largest
+  # step budget any sequence asks for -- below it, a step that is merely slow is
+  # killed as a wedged runner, trading a failure that names the step for one that
+  # names nothing.
+  #
+  # 3600 rather than a tighter number because the slowest step the tree ships,
+  # the Visual Studio Code workload, asks 3000 and has been measured at 2828 s on
+  # an ARM64 Hyper-V host where a Linux guest runs at about a third of the speed
+  # the same work takes elsewhere (docs/host-hyperv.md). That run SUCCEEDED; a
+  # 2700 s watchdog would have killed it a hundred seconds short. Hosts that
+  # finish the same step in minutes pay nothing for the headroom -- the only cost
+  # of a generous value is how long a genuinely wedged step takes to be noticed,
+  # and preambleTimeoutSeconds below still bounds the phase where a stall is
+  # never legitimate.
+  stepTimeoutSeconds: 3600
   # Tighter watchdog bound for the runner's PREAMBLE -- process start through host
   # detection, the caching-proxy gate and its port-map refresh, and the status-service
   # start, i.e. everything before the first sequence step. None of it is legitimately

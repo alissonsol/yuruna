@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 427227f6-5537-49d8-bd74-b53ec39ba8f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -163,6 +163,22 @@ Describe 'recoverFromSnapshot log interpolates the failed-step number correctly'
         # ".LastFailedStepNumber"; the subexpression $(...) renders the member.
         $src = Get-Content -Raw -LiteralPath $script:modulePath
         Assert-True ($src -match '\$\(\$script:Fail\.LastFailedStepNumber\)') 'the log must use $($script:Fail.LastFailedStepNumber)'
+    }
+}
+
+Describe 'waitForTextWithNudge preserves one OCR deadline' {
+    It 'forwards the normal wait parameters and the periodic nudge controls to Wait-ForText' {
+        $handler = Get-HandlerScriptBlockAst -Path $script:modulePath -Name 'waitForTextWithNudge'
+        $t = $handler.Extent.Text
+        Assert-True ($t -match 'Wait-ForText') 'the action must use the ordinary wall-clock OCR wait'
+        Assert-True ($t -match '-NudgeKey\s+\$nudgeKey') 'the key must reach Wait-ForText'
+        Assert-True ($t -match '-NudgeIntervalSeconds\s+\$nudgeInterval') 'the interval must reach Wait-ForText'
+        Assert-True ($t -match '-FailurePattern\s+\$p\.failurePatterns') 'installer crash patterns must retain fast-fail behavior'
+    }
+    It 'rejects an incomplete nudge configuration before starting OCR' {
+        $handler = Get-HandlerScriptBlockAst -Path $script:modulePath -Name 'waitForTextWithNudge'
+        Assert-True ($handler.Extent.Text -match 'IsNullOrWhiteSpace\(\$nudgeKey\)') 'an empty key must fail validation'
+        Assert-True ($handler.Extent.Text -match '\$nudgeInterval\s+-lt\s+1') 'a zero/negative interval must fail validation'
     }
 }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 422de2af-9e3f-4bca-8c35-df0040af74c0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -534,6 +534,7 @@ $effectiveUser      = $plan.effectiveUser
 $effectiveHost      = $plan.effectiveHost
 $effectiveMemory    = $plan.effectiveMemoryStartupBytes
 $effectiveCores     = $plan.effectiveCores
+$effectiveExposeVirt = $plan.effectiveExposeVirtualizationExtensions
 $ChainTotalSteps    = $plan.chainTotalSteps
 $requiredSnapshotId = $plan.requiredSnapshotId
 # Warm path targets the persisted snapshot VM by its recorded id. An
@@ -665,6 +666,10 @@ if ((Get-VMState -VMName $VMName) -ne 'absent') {
     if ($effectiveCores) {
         Write-Verbose "Forwarding -Cores '$effectiveCores' from $($SequenceName).variables.cores."
         $newVmArgs.Cores = $effectiveCores
+    }
+    if ($effectiveExposeVirt) {
+        Write-Verbose "Forwarding -ExposeVirtualizationExtensions '$effectiveExposeVirt' from $($SequenceName).variables.exposeVirtualizationExtensions."
+        $newVmArgs.ExposeVirtualizationExtensions = $effectiveExposeVirt
     }
     $r = New-VM @newVmArgs -Confirm:$false
     if (-not $r.success) {

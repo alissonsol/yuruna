@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 429be071-3a67-44e5-91dc-fd9c3fe536b4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,7 +41,8 @@ function Invoke-PerGuestNewVm {
         it is a plain -HostSubdir string param rather than an injected
         scriptblock; each driver's New-VM wrapper supplies its constant value.
 
-        -CachingProxyServiceUrl, -Username, -Hostname, -MemoryStartupBytes and -Cores
+        -CachingProxyServiceUrl, -Username, -Hostname, -MemoryStartupBytes, -Cores
+        and -ExposeVirtualizationExtensions
         are forwarded to the per-guest script only when (a) the caller bound them
         AND (b) the target script declares them -- this lets the contract grow
         new pass-through arguments without breaking guests (e.g. windows.11,
@@ -66,7 +67,13 @@ function Invoke-PerGuestNewVm {
         # per-guest New-VM.ps1 parses + applies them. Forwarded under the same
         # declare-or-drop rule as -Username/-Hostname.
         [string]$MemoryStartupBytes,
-        [string]$Cores
+        [string]$Cores,
+        # Planner-cascaded nested-virtualization request
+        # (variables.exposeVirtualizationExtensions). String-valued like the
+        # sizing params; the per-guest New-VM.ps1 parses it as a boolean and
+        # only then exposes virtualization extensions to the VM. Forwarded
+        # under the same declare-or-drop rule as -Username.
+        [string]$ExposeVirtualizationExtensions
     )
     if (-not $PSCmdlet.ShouldProcess($VMName, "Create VM ($GuestKey)")) { return @{ success = $false; errorMessage = 'WhatIf' } }
     $scriptPath = Join-Path $RepoRoot (Join-Path $HostSubdir (Join-Path $GuestKey 'New-VM.ps1'))
@@ -79,6 +86,7 @@ function Invoke-PerGuestNewVm {
     $scriptAcceptsHostname = $false
     $scriptAcceptsMemory   = $false
     $scriptAcceptsCores    = $false
+    $scriptAcceptsExposeVirt = $false
     try {
         $cmdInfo = Get-Command -Name $scriptPath -ErrorAction Stop
         if ($cmdInfo.Parameters) {
@@ -87,6 +95,7 @@ function Invoke-PerGuestNewVm {
             $scriptAcceptsHostname = [bool]$cmdInfo.Parameters.ContainsKey('Hostname')
             $scriptAcceptsMemory   = [bool]$cmdInfo.Parameters.ContainsKey('MemoryStartupBytes')
             $scriptAcceptsCores    = [bool]$cmdInfo.Parameters.ContainsKey('Cores')
+            $scriptAcceptsExposeVirt = [bool]$cmdInfo.Parameters.ContainsKey('ExposeVirtualizationExtensions')
         }
     } catch {
         $scriptAcceptsProxy    = $false
@@ -94,6 +103,7 @@ function Invoke-PerGuestNewVm {
         $scriptAcceptsHostname = $false
         $scriptAcceptsMemory   = $false
         $scriptAcceptsCores    = $false
+        $scriptAcceptsExposeVirt = $false
     }
     if ($PSBoundParameters.ContainsKey('CachingProxyServiceUrl') -and $scriptAcceptsProxy) {
         $childArgs += @('-CachingProxyServiceUrl', $CachingProxyServiceUrl)
@@ -117,6 +127,11 @@ function Invoke-PerGuestNewVm {
         $childArgs += @('-Cores', $Cores)
     } elseif ($PSBoundParameters.ContainsKey('Cores') -and $Cores -and -not $scriptAcceptsCores) {
         Write-Verbose "Cascaded -Cores '$Cores' NOT forwarded: $scriptPath does not declare a -Cores parameter."
+    }
+    if ($PSBoundParameters.ContainsKey('ExposeVirtualizationExtensions') -and $ExposeVirtualizationExtensions -and $scriptAcceptsExposeVirt) {
+        $childArgs += @('-ExposeVirtualizationExtensions', $ExposeVirtualizationExtensions)
+    } elseif ($PSBoundParameters.ContainsKey('ExposeVirtualizationExtensions') -and $ExposeVirtualizationExtensions -and -not $scriptAcceptsExposeVirt) {
+        Write-Verbose "Cascaded -ExposeVirtualizationExtensions '$ExposeVirtualizationExtensions' NOT forwarded: $scriptPath does not declare an -ExposeVirtualizationExtensions parameter."
     }
     Write-Verbose "Running: $scriptPath $($childArgs -join ' ')"
     $output = & pwsh -NoProfile -File $scriptPath @childArgs 2>&1

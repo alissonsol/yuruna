@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 426cd98f-b5bd-4102-91d1-1cc3b6887155
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -29,6 +29,19 @@ $script:DefaultCharDelayMs = 10
 # test.config.yml's vmCommunication.settleMs.
 $script:DefaultSettleMs    = 200
 $script:DefaultVncPort     = 5900
+# --- REGION: docs/host-io.md#hyper-v-ps2-scancode-behavior
+# Whether Send-TextHyperV may hand a whole payload to one TypeScancodes call.
+# An ARM64 Hyper-V host defaults to $false because the guest receives NONE of a
+# batched payload there: the CIM call returns 0, Send-Text reports success, and
+# the guest's console shows nothing -- every typed username, password and
+# command lands as an empty line, which reads downstream as a wrong credential
+# or a prompt that never advanced. Single-key sends are unaffected on the same
+# host and the same guest, which is what makes the failure so hard to place
+# from a transcript. Per-char pacing costs $CharDelayMs per character and is
+# the only shape that arrives. AMD64 keeps the batch it has always used;
+# vmCommunication.batchedTextSend overrides either way.
+$script:DefaultBatchedTextSend =
+    -not ($IsWindows -and [System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -eq [System.Runtime.InteropServices.Architecture]::Arm64)
 $script:TransportConfigLastRefreshUtc = [DateTime]::MinValue
 # 1-second floor between refreshes. A step boundary is the natural
 # trigger (and step boundaries are >= 1 s apart in normal cycles), so
@@ -85,6 +98,7 @@ function Update-TransportDefault {
         if ($comm.charDelayMs) { $script:DefaultCharDelayMs = [int]$comm.charDelayMs }
         if ($comm.vncPort)          { $script:DefaultVncPort     = [int]$comm.vncPort }
         if ($null -ne $comm.settleMs) { $script:DefaultSettleMs   = [int]$comm.settleMs }
+        if ($null -ne $comm.batchedTextSend) { $script:DefaultBatchedTextSend = [bool]$comm.batchedTextSend }
     }
     $script:TransportConfigLastRefreshUtc = $now
 }
@@ -116,6 +130,14 @@ function Get-HyperVKeyboard {
         this object many times per step. Lookups go through WMI so we
         cache the last resolved instance to avoid the per-call WMI hit;
         cache key is $VMName so switching VMs invalidates correctly.
+
+        The name is not enough on its own. Hyper-V re-creates a VM's
+        Msvm_Keyboard association when the guest reboots, and the VM keeps
+        its name across that, so a cached instance can name a live VM and
+        still address a device that no longer exists. Nothing about the key
+        can detect it -- only a delivery that fails can -- which is why
+        Clear-HyperVKeyboard is the other half of this cache and every
+        failed send calls it.
     #>
     param([string]$VMName)
     if ($script:CachedKbVM -eq $VMName -and $script:CachedKb) { return $script:CachedKb }
@@ -127,6 +149,28 @@ function Get-HyperVKeyboard {
     $script:CachedKb = $kb
     $script:CachedKbVM = $VMName
     return $kb
+}
+
+function Clear-HyperVKeyboard {
+    <#
+    .SYNOPSIS
+        Drop the cached Msvm_Keyboard instance so the next send re-resolves.
+    .DESCRIPTION
+        A stale handle fails every send made through it, and the cache would
+        hand the same dead instance to each retry -- so a transport that one
+        re-resolve would have fixed presents as a guest that cannot be typed
+        into at all. Dropping the entry is the whole repair: the next
+        Get-HyperVKeyboard pays one WMI lookup and returns the instance for
+        the VM as it exists now.
+
+        Cheap enough to call on any failed delivery. The only cost of
+        clearing an entry that was in fact healthy is that one lookup.
+    #>
+    [CmdletBinding()]
+    [OutputType([void])]
+    param()
+    $script:CachedKb = $null
+    $script:CachedKbVM = $null
 }
 
 $script:PS2ScanCodes  = Get-KeyCodeMap -Kind 'PS2-Named'
@@ -629,10 +673,48 @@ function Send-ScanCode {
         Thin wrapper around Invoke-CimMethod so the Send-Key/Text/Click
         Hyper-V paths share one call shape. Returns $true on
         ReturnValue=0 (success); WMI errors surface to the caller.
+
+        A non-zero ReturnValue is printed, not swallowed. The two codes
+        this refuses on mean different things and demand different
+        repairs: 32769 is an access denial (the caller is not elevated, or
+        is not the session that owns the VM), while 32775 -- "invalid
+        state" -- says the handle just used addresses no live keyboard.
+        That has two causes, and dropping the cache below covers only one
+        of them: the instance may belong to a previous boot, OR the guest
+        may have no driver attached to the synthetic keyboard's VMBus
+        channel at all. The second is the steady state for a guest OS with
+        no Hyper-V VMBus drivers -- firmware and the boot loader take
+        injected keys, and every key after the kernel takes over is
+        refused -- and no amount of re-resolving reaches it. Collapsing
+        both codes to $false leaves the transcript with an unexplained
+        "pressKey returned false" and no way to tell an elevation problem
+        from a stale handle from a guest that can never accept keystrokes.
     #>
     param($Keyboard, [byte[]]$Codes)
-    $r = Invoke-CimMethod -InputObject $Keyboard -MethodName "TypeScancodes" -Arguments @{Scancodes=$Codes}
-    return ($r.ReturnValue -eq 0)
+    # Both failure shapes drop the cached handle. A guest reboot re-creates the
+    # keyboard device while the VM name stays the same, so the cache cannot tell
+    # a live instance from one belonging to a previous boot -- a send that did
+    # not land is the only evidence available, and it arrives either as a WMI
+    # throw or as a non-zero ReturnValue. Keeping the entry after either turns
+    # one stale handle into every later keystroke failing the same way, which
+    # outlasts any retry built on top of this.
+    try {
+        $r = Invoke-CimMethod -InputObject $Keyboard -MethodName "TypeScancodes" -Arguments @{Scancodes=$Codes}
+    } catch {
+        Clear-HyperVKeyboard
+        throw
+    }
+    if ($r.ReturnValue -ne 0) {
+        $hint = switch ([int]$r.ReturnValue) {
+            32769   { 'access denied -- run the harness elevated' }
+            32775   { 'invalid state -- the handle addresses no live keyboard: either it belongs to a previous boot (the re-resolve below fixes that) or no guest driver has attached to the synthetic keyboard channel yet (a guest OS without Hyper-V VMBus drivers never will)' }
+            default { 'see the Msvm_Keyboard return codes' }
+        }
+        Write-Warning "Hyper-V TypeScancodes returned $($r.ReturnValue): $hint"
+        Clear-HyperVKeyboard
+        return $false
+    }
+    return $true
 }
 
 
@@ -966,18 +1048,32 @@ function Send-TextHyperV {
             0xE0, 0xDB,       # LMeta/LGUI break (E0-prefixed)
             0xE0, 0xDC        # RMeta/RGUI break (E0-prefixed)
         )
-        if (-not (Send-ScanCode -Keyboard $kb -Codes $resetCodes)) {
-            # Single-shot reset failed -- continue anyway; per-char
-            # writes may still succeed, and warning surfaces the
-            # divergence in the cycle log.
-            Write-Warning "Send-TextHyperV: modifier-reset prefix failed; proceeding without it."
+        # --- REGION: docs/host-io.md#hyper-v-ps2-scancode-behavior
+        # The prefix is emitted only in batched mode. On the host that needs
+        # per-char pacing it does active harm: every character sent after it
+        # in the same session is swallowed, so a string that types perfectly
+        # on its own types nothing at all once the prefix leads it. Per-char
+        # sending does not need the defense the prefix provides either --
+        # each call carries its character's make AND break (and a shifted
+        # character's Shift pair with them), so no key and no modifier can be
+        # left latched for the next character to inherit.
+        if ($script:DefaultBatchedTextSend) {
+            if (-not (Send-ScanCode -Keyboard $kb -Codes $resetCodes)) {
+                # Single-shot reset failed -- continue anyway; per-char
+                # writes may still succeed, and warning surfaces the
+                # divergence in the cycle log.
+                Write-Warning "Send-TextHyperV: modifier-reset prefix failed; proceeding without it."
+            }
         }
-        # --- REGION: https://yuruna.link/host-io#hyper-v-ps2-scancode-behavior
-        # The whole payload goes in ONE Send-ScanCode CIM call, which makes
-        # CharDelayMs a settle budget applied AFTER the batch rather than a
-        # per-char delay. True per-char pacing (for a guest agetty that drops
-        # bursts) would need vmCommunication.batchedTextSend=false, which is
-        # not wired today.
+        # --- REGION: docs/host-io.md#hyper-v-ps2-scancode-behavior
+        # Batched, the whole payload goes in ONE Send-ScanCode CIM call and
+        # CharDelayMs is a settle budget applied AFTER the batch rather than a
+        # per-char delay. Per-char, each character is its own call and
+        # CharDelayMs paces them -- the shape an ARM64 Hyper-V host needs,
+        # where a batched payload reaches the guest as nothing at all.
+        # $script:DefaultBatchedTextSend carries the host default and
+        # vmCommunication.batchedTextSend overrides it.
+        $batched = $script:DefaultBatchedTextSend
         $codeList = [System.Collections.Generic.List[byte]]::new()
         $charCount = 0
         foreach ($ch in $Text.ToCharArray()) {
@@ -988,13 +1084,27 @@ function Send-TextHyperV {
             }
             $scan = [byte]$entry[0]
             $shifted = $entry[1]
-            if ($shifted) { $codeList.Add(0x2A) }            # LShift make
-            $codeList.Add($scan)                              # char make
-            $codeList.Add([byte]($scan -bor 0x80))            # char break
-            if ($shifted) { $codeList.Add(0xAA) }            # LShift break
+            [byte[]]$charCodes = @()
+            if ($shifted) { $charCodes += [byte]0x2A }           # LShift make
+            $charCodes += $scan                                   # char make
+            $charCodes += [byte]($scan -bor 0x80)                 # char break
+            if ($shifted) { $charCodes += [byte]0xAA }           # LShift break
+            if ($batched) {
+                $codeList.AddRange($charCodes)
+            } else {
+                # One call per character, and the shift pair travels WITH its
+                # character: splitting them would leave Shift held across a
+                # pacing sleep, and the guest's next character would arrive
+                # upshifted.
+                if (-not (Send-ScanCode -Keyboard $kb -Codes $charCodes)) {
+                    Write-Warning "Hyper-V TypeScancodes per-char send failed after $charCount char(s)"
+                    return $false
+                }
+                if ($CharDelayMs -gt 0) { Start-Sleep -Milliseconds $CharDelayMs }
+            }
             $charCount++
         }
-        if ($codeList.Count -gt 0) {
+        if ($batched -and $codeList.Count -gt 0) {
             $ok = Send-ScanCode -Keyboard $kb -Codes ([byte[]]$codeList.ToArray())
             if (-not $ok) {
                 Write-Warning "Hyper-V TypeScancodes batch send failed ($charCount chars)"
@@ -1010,11 +1120,12 @@ function Send-TextHyperV {
         # tune via test.config.yml's vmCommunication.settleMs for guests
         # that need more (slow agetty) or less (KVM/SeaBIOS, where the
         # buffer is faster).
-        if ($CharDelayMs -gt 0 -and $charCount -gt 0) {
+        if ($batched -and $CharDelayMs -gt 0 -and $charCount -gt 0) {
             $settleMs = [Math]::Min($script:DefaultSettleMs, $CharDelayMs * $charCount)
             Start-Sleep -Milliseconds $settleMs
         }
-        Write-Debug "      TypeScancodes: $charCount chars sent in 1 batch (${CharDelayMs}ms per-char budget; post-batch settle capped at ${script:DefaultSettleMs}ms)"
+        $shape = $batched ? '1 batch' : "$charCount call(s), ${CharDelayMs}ms apart"
+        Write-Debug "      TypeScancodes: $charCount chars sent in $shape (post-batch settle capped at ${script:DefaultSettleMs}ms)"
         return $true
     } catch {
         Write-Warning "Hyper-V TypeScancodes (text) failed: $_"
@@ -1463,7 +1574,7 @@ var up = `$.CGEventCreateMouseEvent(null, `$.kCGEventLeftMouseUp,   pt, `$.kCGMo
 # transport. Kept as private functions (their docstrings record the finding)
 # rather than deleted, so the knowledge survives without shipping a dead
 # public entry point.
-Export-ModuleMember -Function Get-HyperVKeyboard, Read-VncBuffer, Connect-VNC, Disconnect-VNC, `
+Export-ModuleMember -Function Get-HyperVKeyboard, Clear-HyperVKeyboard, Read-VncBuffer, Connect-VNC, Disconnect-VNC, `
     Send-VncKeyEvent, Send-KeyVNC, Send-TextVNC, `
     Send-ScanCode, Send-KeyHyperV, Send-KeyUTM, Send-ChordUTM, Send-KeyKvm, `
     Send-TextKvm, Send-TextHyperV, Test-HardCharsInText, ConvertTo-ShellEscapedText, `

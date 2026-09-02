@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.08.25
+# Version: 2026.09.01
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -366,8 +366,14 @@ _yuruna_net_is_physical() {
 # a global IPv4 are left untouched -- the repair is for the ones with nothing
 # to lose, and re-kicking a healthy sibling would trade its live lease for a
 # fresh transaction.
+#
+# YURUNA_NET_RELOAD_SETTLE_SECONDS bounds the pause between the reload and the
+# reconfigure below. Read inline rather than assigned at file scope:
+# fetch-and-execute SOURCES this file, so a top-level assignment here would
+# land in the caller's shell.
 yuruna_net_repair_ipv4() {
-    local sysfs="${YURUNA_NET_SYSFS:-/sys/class/net}" ifc
+    local sysfs="${YURUNA_NET_SYSFS:-/sys/class/net}" ifc waited
+    local settle="${YURUNA_NET_RELOAD_SETTLE_SECONDS:-10}"
     if command -v networkctl >/dev/null 2>&1; then
         # Reload first, so a .network file or drop-in written after the daemon
         # started is in force before any link is asked to reconfigure
@@ -376,7 +382,33 @@ yuruna_net_repair_ipv4() {
         for ifc in "$sysfs"/*; do
             ifc=$(basename "$ifc")
             _yuruna_net_is_physical "$ifc" || continue
-            [ -n "$(ip -4 -o address show dev "$ifc" scope global 2>/dev/null)" ] && continue
+            # Give the reload's own acquisition time to land before deciding
+            # this link still needs a reconfigure. networkctl reload re-runs
+            # address acquisition on any link whose configuration changed, so
+            # acquisition can already be in flight by the time it returns. A
+            # reconfigure issued on top of that restarts a DHCP client that is
+            # mid-configuration, and networkd settles at "degraded
+            # (configuring)" holding the lease's DNS but no address and no
+            # route on the link -- a state the client believes is finished, so
+            # nothing retries and the guest holds no IPv4 until something else
+            # re-kicks it. Waiting first is what keeps this repair from
+            # producing the exact condition it exists to clear.
+            #
+            # Costs nothing where there was nothing to wait for: a link that
+            # the reload did not touch is as address-less at the end of the
+            # wait as at the start, and reaches the reconfigure below anyway.
+            waited=0
+            while [ "$waited" -lt "$settle" ] && \
+                  [ -z "$(ip -4 -o address show dev "$ifc" scope global 2>/dev/null)" ]; do
+                waited=$((waited + 1))
+                sleep 1
+            done
+            if [ -n "$(ip -4 -o address show dev "$ifc" scope global 2>/dev/null)" ]; then
+                if [ "$waited" -gt 0 ]; then
+                    echo "   $ifc: address landed ${waited}s after the reload; no reconfigure needed"
+                fi
+                continue
+            fi
             # What the client believed BEFORE the nudge, on the console, while
             # it is still true. The reconfigure below restarts the client, so
             # every field it would have answered with is gone a moment later --

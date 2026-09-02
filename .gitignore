@@ -426,6 +426,10 @@ test/sequences/captures/
 **/resources.output.yml
 **/website-tls.crt
 **/website-tls.key
+# Fido is external code fetched to a temp directory at the moment of need and
+# deleted after use, so it is never enlistment content -- and Get-Image.ps1
+# clears any copy sitting beside it. The rule is the safety net for one pulled
+# in by hand: external code must stay uncommittable.
 Fido.ps1
 
 # Rust/Cargo

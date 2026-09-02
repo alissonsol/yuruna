@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 42273fc7-eee1-4ff4-9191-32ad482e41dd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -2810,7 +2810,7 @@ function Remove-PoolStorageStaleAliasMount {
 
 <#
 .SYNOPSIS
-Ensures the network path's TARGET SUBFOLDER exists on the share, creating it when missing. A share configured as '\\server\share\yuruna.stash' targets a SUBFOLDER, not the share root, and New-SmbMapping to a non-existent subfolder fails ("network name cannot be found" / "device is no longer available"), which the operator sees only as a vague unreachable-mount. The subfolder cannot be created through a mount of itself, so this mounts the PARENT share, creates the leaf, then releases the parent mount. No-op (ok, nothing to create) for a bare share root. Bounded + best-effort; returns @{ ok; created; folder; error }. Run AFTER any stale-alias mapping is cleared so the parent mount is not pre-empted by a dead-name session to the same NAS.
+Ensures the network path's TARGET SUBFOLDER exists on the share, creating it when missing. A share configured as '\\server\share\yuruna.stash' targets a SUBFOLDER, not the share root, and New-SmbMapping to a non-existent subfolder fails ("network name cannot be found" / "device is no longer available"), which the operator sees only as a vague unreachable-mount. The subfolder cannot be created through a mount of itself, so this mounts the PARENT share, creates the leaf, then releases the parent mount. No-op (ok, nothing to create) for a bare share root. Bounded + best-effort; returns @{ ok; created; folder; error }. Run AFTER any stale-alias mapping is cleared so the parent mount is not preempted by a dead-name session to the same NAS.
 #>
 function Initialize-PoolStorageTargetFolder {
     [CmdletBinding(SupportsShouldProcess)]

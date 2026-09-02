@@ -29,9 +29,19 @@ component:
   # their chance first, so a stale viewer is fixed as a viewer rather than typed
   # at. Note the contrast with the login: nudge below -- agetty redraws on a bare
   # Enter and this prompt does not, so the same recovery does not serve both.
+  # The budget is sized for the SLOWEST host that runs this guest, not the
+  # typical one. A timeout is a ceiling rather than a delay -- a host that
+  # reaches the prompt in a minute matches and moves on, and pays nothing for
+  # the headroom -- so the only cost of a generous value is how long a guest
+  # that is genuinely never coming back takes to say so. An ARM64 Hyper-V host
+  # matches this prompt at around 720 s, which is close enough to 900 that a
+  # slower cycle would have spent the whole budget on a guest that was working.
+  # A guest that does NOT reach the prompt there is not slow, it is wedged in
+  # the VMBus heartbeat channel, and no budget reaches that -- see
+  # docs/host-hyperv.md.
   - action: waitForAndEnter
     pattern: "Continue with autoinstall?"
-    timeoutSeconds: 900
+    timeoutSeconds: 1800
     text: "yes"
     blindAfterSeconds: 120
     description: "OCR: Continue with autoinstall?"
@@ -43,18 +53,17 @@ component:
       # The nudge comes BEFORE the wait, and that ordering is the whole point.
       # agetty prints "login:" once and does not reprint it; the installer's
       # closing console writes land after it and scroll it away. The prompt is
-      # then gone from a screen that never changes again, so an OCR wait for it
-      # can only spend its budget -- 1800 s per attempt here, three attempts, an
-      # hour and a half to reach a foregone conclusion. An ordering that waited
-      # first and nudged second would put the recovery downstream of the very
-      # step it exists to unblock, and since a retry attempt restarts at this
-      # step, no attempt would ever reach it.
+      # then gone from a screen that never changes again, so an OCR-only wait
+      # can only spend its budget. The first redraw still leads the wait; the
+      # wait itself then repeats that harmless redraw once a minute under the
+      # SAME 1800 s wall-clock deadline. That makes recovery reachable without
+      # shortening the install budget or multiplying password attempts.
       #
       # Enter is safe to send unconditionally: at a prompt it draws a fresh one,
       # and mid-boot it is discarded. The autoinstall prompt is already answered
       # by the waitForAndEnter ahead of this block, so nothing here can consume
-      # it. Every retry attempt issues the nudge, so a prompt overwritten during
-      # one attempt is recovered by the next.
+      # it. Every retry attempt issues the first nudge, and the wait keeps doing
+      # so while subiquity finishes and the installed agetty comes up.
       - action: pressKey
         name: Enter
         description: "Push agetty to redraw a fresh login"
@@ -63,9 +72,36 @@ component:
         seconds: 2
         description: "Let agetty redraw"
 
-      - action: waitForText
-        pattern: "login:"
+      # The prompt is matched on the installed system's host name, not on a
+      # bare "login:". This step straddles the installer-to-first-boot
+      # reboot, and the console the installer leaves behind can present its
+      # own login prompt seconds before the installed system exists. A bare
+      # six-character token matches that dying console, and every step below
+      # then types into a surface that is about to be replaced: the username
+      # goes nowhere, and the password wait that follows spends its whole
+      # budget on an agetty that was never given one. The host name only
+      # appears once the installed system's getty is up, so anchoring on it
+      # is what makes the match mean "the guest we are about to log into".
+      # freshMatch confines the match to the console tail for the same
+      # reason -- a prompt that has scrolled away is not one to type at.
+      #
+      # ${hostLabel} and not ${hostname}: the two differ whenever a guest is
+      # named after its VM, because a VM name carries dots and agetty prints
+      # only the first label. The full name reaches the console in exactly one
+      # place, the /etc/issue banner directly above the prompt, so a pattern
+      # built from ${hostname} matches only while that banner is on screen. It
+      # stops matching the moment the banner scrolls -- with the prompt it is
+      # waiting for still sitting there -- and then cannot fail fast either:
+      # it spends the whole budget, and only the retry's Enter nudge, which
+      # redraws the banner, recovers it. The label keeps every property the
+      # anchor exists for; an installer console answering to a different name
+      # is still rejected.
+      - action: waitForTextWithNudge
+        pattern: "${hostLabel} login:"
         timeoutSeconds: 1800
+        nudgeKey: Enter
+        nudgeIntervalSeconds: 60
+        freshMatch: true
         # Fast-fail OCR scan: if subiquity crashed the installer drops to
         # a shell and the login: prompt will never appear -- short-circuit
         # so the inner runner's yuruna_retry backoff can auto-retry on a
@@ -74,12 +110,13 @@ component:
           - "install_fail.crash"
           - "Press enter to start a shell"
           - "An error occurred"
-        description: "OCR: login:"
+        description: "OCR: ${hostLabel} login:"
 
       - action: passwdPrompt
-        pattern: "login:"
+        pattern: "${hostLabel} login:"
+        freshMatch: true
         text: "${username}"
-        description: "OCR: login:"
+        description: "OCR: ${hostLabel} login:"
 
       - action: passwdPrompt
         pattern: "Password:"
@@ -107,6 +144,63 @@ component:
           Username: "${username}"
           NewPassword: "${newPassword}"
         description: "Commit new password to auth system"
+
+  # Prove a shell exists before anything types a command at it. Every step
+  # above matches a prompt, types, and returns; none of them establishes that
+  # the rotation ended in a session rather than back at agetty. It can end at
+  # agetty for ordinary reasons -- login's own LOGIN_TIMEOUT expiring, or a
+  # keystroke landing while PAM has flushed the input queue -- and the console
+  # then looks almost identical, because a freshly redrawn /etc/issue carries
+  # the same hostname the steps above matched on. A workload typed into that
+  # is consumed as a username and its output never appears, so the wait that
+  # follows can only spend its whole budget before saying so. The shell prompt
+  # is the one token agetty cannot produce, which is why it is the thing to
+  # wait for; the sibling workload sequence guards its own fetchAndExecute the
+  # same way. Bounded short: a session that exists shows its prompt at once,
+  # and one that does not is not going to appear later.
+  #
+  # The prompt itself is not the thing to match, and cannot be. OCR matching
+  # splits a pattern on the characters it strips -- "@" among them -- and
+  # accepts it when every segment turns up somewhere in the text, in any
+  # order, so "user@host" is two loose tokens that the line "host login:
+  # user" already satisfies. Anchoring on the colon a shell prints before its
+  # working directory does not rescue it either: normalization folds "." onto
+  # ":", so a guest whose name carries a dot puts the very same token in the
+  # /etc/issue banner sitting one line above the login prompt. The banner is
+  # inside the freshMatch window too, so confining the match does not
+  # separate them. A prompt-shaped pattern is a check that cannot fail here.
+  #
+  # So make the shell prove itself by computing something. agetty echoes a
+  # typed line back verbatim and can produce nothing else; only a live shell
+  # expands the substitution, so the expanded token on screen is proof a
+  # session exists. The token is deliberately free of every character the
+  # matcher splits on, which keeps segment matching out of it entirely and
+  # leaves only the order-sensitive strategies -- and it differs from the
+  # typed line by far more than the 15% of characters the match threshold
+  # forgives, so the echo of the command cannot be mistaken for its output.
+  - action: waitForSeconds
+    seconds: 3
+    description: "Let the login shell finish drawing before typing at it"
+
+  # The leading space is a sacrificial character. On an ARM64 Hyper-V host the
+  # first keystroke sent to a console that has just come up is dropped -- the
+  # console shows "echo" arriving as "cho" and the shell answering "Command
+  # 'cho' not found" -- and one lost character is enough to turn any typed
+  # command into a different one. A space absorbs that loss: dropped, the
+  # command still starts at "echo"; delivered, the shell ignores leading
+  # whitespace. It costs nothing on a host that does not drop it. Being the
+  # first thing typed after a login, this step also absorbs the loss on
+  # behalf of every step below it, which type commands that a missing first
+  # character would quietly turn into different ones.
+  - action: inputTextAndEnter
+    text: " echo yuruna_$(seq -s '' 1 9)_ok"
+    description: "Ask the shell to expand a token agetty cannot"
+
+  - action: waitForText
+    pattern: "yuruna_123456789_ok"
+    timeoutSeconds: 90
+    freshMatch: true
+    description: "OCR: yuruna_123456789_ok"
 
 workload:
   - action: fetchAndExecute

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 421157f0-4a70-494a-a09e-b13c89c002b4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -960,6 +960,102 @@ Describe 'Yuruna.DownloadAgent image request' {
         }
     }
 
+    It 'refuses an artifact of a shape the caller cannot stage, before moving any bytes' {
+        # The Amazon Linux 2023 case: the publisher's `hyperv` platform is
+        # x86-64 only, so an ARM64 Hyper-V host takes the ARM64 qcow2 and
+        # converts it. An agent that answers that identity with the x86-64
+        # .vhdx.zip hands a zip to a qcow2 converter, and the SHA-256 gate
+        # would pass -- it proves the agent served the artifact it described,
+        # not that the artifact is the one the host asked for.
+        $bytes = Get-FakeArtifactByte -Length 8192
+        $sha = Get-FakeArtifactHash -Bytes $bytes
+        $plan = Get-FakeAgentPlan
+        $plan.FileBytes = $bytes
+        $agent = Get-FakeAgent -Plan $plan
+        $staging = Join-Path (Get-DownloadAgentScratchDir) 'shape.qcow2'
+        Remove-Item -LiteralPath $staging -Force -ErrorAction SilentlyContinue
+        try {
+            $wrong = 'al2023-hyperv-2023.12.20260817.0-kernel-6.1-x86_64.xfs.gpt.vhdx.zip'
+            $entry = Get-FakeCatalogEntry -BaseUrl $agent.BaseUrl -Filename $wrong -ByteCount $bytes.Length -Sha256 $sha
+            [void]$plan.EnsureQueue.Add(@{ Status = 200; Json = (Get-FakeEnsureJson -State 'ready' -Image $entry) })
+
+            $result = Request-DownloadAgentImage -BaseUrl $agent.BaseUrl -HostType 'windows.hyper-v' `
+                -ImageKey 'guest.amazon.linux.2023' -Arch 'arm64' -StagingPath $staging `
+                -ExpectedFilenamePattern '\.qcow2$' -DeadlineSeconds 30
+
+            Assert-StringEqual 'failed' $result.outcome -Because 'an agent naming the wrong platform is a broken agent, not an absent one'
+            Assert-True ($result.error -match [regex]::Escape($wrong)) "the error names the artifact that was refused; got '$($result.error)'"
+            Assert-True (@($plan.Requests | Where-Object { $_ -match '/file/' }).Count -eq 0) `
+                'the refusal happens before the transfer, not after gigabytes have moved'
+            Assert-True (-not (Test-Path -LiteralPath $staging)) 'nothing reaches the staging path the converter reads'
+        } finally {
+            Remove-Item -LiteralPath $staging -Force -ErrorAction SilentlyContinue
+            Close-FakeAgent -Agent $agent
+        }
+    }
+
+    It 'refuses to skip against a pooled artifact of the wrong shape' {
+        # "Current" is measured against the agent's own entry, so an entry built
+        # from the wrong platform makes the host copy that matches it wrong too.
+        # Refusing the skip is what sends the caller to the origin path, where
+        # the source URL comparison downloads the artifact it actually wants.
+        $bytes = Get-FakeArtifactByte -Length 4096
+        $sha = Get-FakeArtifactHash -Bytes $bytes
+        $plan = Get-FakeAgentPlan
+        $plan.FileBytes = $bytes
+        $agent = Get-FakeAgent -Plan $plan
+        $staging = Join-Path (Get-DownloadAgentScratchDir) 'shape-skip.qcow2'
+        Remove-Item -LiteralPath $staging -Force -ErrorAction SilentlyContinue
+        try {
+            $wrong = 'al2023-hyperv-2023.12.20260817.0-kernel-6.1-x86_64.xfs.gpt.vhdx.zip'
+            $entry = Get-FakeCatalogEntry -BaseUrl $agent.BaseUrl -Filename $wrong -ByteCount $bytes.Length -Sha256 $sha
+            [void]$plan.EnsureQueue.Add(@{ Status = 200; Json = (Get-FakeEnsureJson -State 'ready' -Image $entry -LocalCurrent) })
+
+            $result = Request-DownloadAgentImage -BaseUrl $agent.BaseUrl -HostType 'windows.hyper-v' `
+                -ImageKey 'guest.amazon.linux.2023' -Arch 'arm64' `
+                -LocalFilename $wrong -LocalByteCount $bytes.Length -StagingPath $staging `
+                -ExpectedFilenamePattern '\.qcow2$' -DeadlineSeconds 30
+
+            Assert-StringEqual 'failed' $result.outcome -Because 'a skip would leave the wrong-platform image in place forever'
+        } finally {
+            Remove-Item -LiteralPath $staging -Force -ErrorAction SilentlyContinue
+            Close-FakeAgent -Agent $agent
+        }
+    }
+
+    It 'takes the agent answer unchanged when no shape is stated, and when the shape matches' {
+        $bytes = Get-FakeArtifactByte -Length 4096
+        $sha = Get-FakeArtifactHash -Bytes $bytes
+        $plan = Get-FakeAgentPlan
+        $plan.FileBytes = $bytes
+        $agent = Get-FakeAgent -Plan $plan
+        $staging = Join-Path (Get-DownloadAgentScratchDir) 'shape-ok.qcow2'
+        Remove-Item -LiteralPath $staging -Force -ErrorAction SilentlyContinue
+        try {
+            $right = 'al2023-kvm-2023.12.20260817.0-kernel-6.1-arm64.xfs.gpt.qcow2'
+            $entry = Get-FakeCatalogEntry -BaseUrl $agent.BaseUrl -Filename $right -ByteCount $bytes.Length -Sha256 $sha
+            [void]$plan.EnsureQueue.Add(@{ Status = 200; Json = (Get-FakeEnsureJson -State 'ready' -Image $entry -LocalCurrent) })
+            $matched = Request-DownloadAgentImage -BaseUrl $agent.BaseUrl -HostType 'windows.hyper-v' `
+                -ImageKey 'guest.amazon.linux.2023' -Arch 'arm64' `
+                -LocalFilename $right -LocalByteCount $bytes.Length -StagingPath $staging `
+                -ExpectedFilenamePattern '\.qcow2$' -DeadlineSeconds 30
+            Assert-StringEqual 'skipped' $matched.outcome -Because 'the ARM64 qcow2 is exactly what this host stages'
+
+            # The parameter is opt-in: a caller that states no shape keeps the
+            # behavior every other family already relies on.
+            $plan.EnsureQueue.Clear()
+            $wrongEntry = Get-FakeCatalogEntry -BaseUrl $agent.BaseUrl -Filename 'anything.at.all' -ByteCount $bytes.Length -Sha256 $sha
+            [void]$plan.EnsureQueue.Add(@{ Status = 200; Json = (Get-FakeEnsureJson -State 'ready' -Image $wrongEntry -LocalCurrent) })
+            $unstated = Request-DownloadAgentImage -BaseUrl $agent.BaseUrl -HostType 'windows.hyper-v' `
+                -ImageKey 'guest.amazon.linux.2023' -Arch 'arm64' `
+                -LocalFilename 'anything.at.all' -LocalByteCount $bytes.Length -StagingPath $staging -DeadlineSeconds 30
+            Assert-StringEqual 'skipped' $unstated.outcome -Because 'no pattern means no expectation to violate'
+        } finally {
+            Remove-Item -LiteralPath $staging -Force -ErrorAction SilentlyContinue
+            Close-FakeAgent -Agent $agent
+        }
+    }
+
     It 'gives up on a deadline instead of throwing when a 202 never turns ready' {
         $plan = Get-FakeAgentPlan
         $agent = Get-FakeAgent -Plan $plan
@@ -1134,5 +1230,69 @@ Describe 'Download-agent pins agree across languages' {
                     -Because "the pool page must name the same choice ('$choice') as $($e.Script), or the pool fills with an edition no host asked for"
             }
         }
+    }
+}
+
+Describe 'Fido is fetched at the moment of need, never enlistment content' {
+    # Fido is external code on somebody else's release cadence. Both host
+    # scripts fetch and hash-verify a copy per run and the guest daemon
+    # installs one into its own filesystem, so the copy that executes is always
+    # one this run just verified. A copy written next to a host script instead
+    # would be scanned as repository source, would answer a lint sweep with
+    # roughly ninety findings nobody may fix (editing it breaks the hash gate
+    # that authorizes it to run), and is one `git add` away from being carried
+    # by the enlistment and never re-verified again.
+
+    # Inlined per It, not hoisted to the Describe body: that body runs during
+    # discovery, so a variable set there reads as $null in the run phase and
+    # every foreach over it would iterate zero times -- a guard that passes
+    # while asserting nothing.
+    It 'fetches into a per-run temp directory and deletes it, in every host script' {
+        $sites = @(
+            'host/windows.hyper-v/guest.windows.11/Get-Image.ps1',
+            'host/macos.utm/guest.windows.11/Get-Image.ps1'
+        )
+        Assert-True ($sites.Count -eq 2) 'both Fido-fetching host scripts are under test'
+        foreach ($s in $sites) {
+            $text = Get-Content -Raw -LiteralPath (Join-Path $AgentRepoRoot $s)
+            Assert-True ($text -match "\`$fidoWork\s*=\s*Join-Path\s*\(\[System\.IO\.Path\]::GetTempPath\(\)\)\s*\('yuruna-fido-") `
+                -Because "$s must name a per-run temp directory for the fetch"
+            Assert-True ($text -match '\$fidoScript\s*=\s*Join-Path\s+\$fidoWork') `
+                -Because "$s must fetch Fido into that directory"
+            Assert-True ($text -notmatch '\$fidoScript\s*=\s*Join-Path\s+\$PSScriptRoot') `
+                -Because "$s would leave external code sitting in the enlistment"
+            Assert-True ($text -match '(?s)\}\s*finally\s*\{[^{}]*Remove-Item -LiteralPath \$fidoWork -Recurse -Force') `
+                -Because "$s must delete the fetched copy however its Fido block exits, including the success path's exit"
+        }
+    }
+
+    It 'clears a copy left beside the script, in every host script' {
+        # Self-healing rather than a chore left to the operator: a host that
+        # already carries one keeps answering lint with it until something
+        # removes it, and this runs on every invocation whether or not the
+        # Fido path is the one taken.
+        $sites = @(
+            'host/windows.hyper-v/guest.windows.11/Get-Image.ps1',
+            'host/macos.utm/guest.windows.11/Get-Image.ps1'
+        )
+        Assert-True ($sites.Count -eq 2) 'both Fido-fetching host scripts are under test'
+        foreach ($s in $sites) {
+            $text = Get-Content -Raw -LiteralPath (Join-Path $AgentRepoRoot $s)
+            Assert-True ($text -match "Remove-Item -LiteralPath \(Join-Path \`$PSScriptRoot 'Fido\.ps1'\)") `
+                -Because "$s must clear a Fido copy sitting next to it"
+        }
+    }
+
+    It 'tracks no Fido copy anywhere in the tree' {
+        if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+            Set-ItResult -Skipped -Because 'git is not installed on this host, and tracked-ness is what this asserts'
+            return
+        }
+        $tracked = @(& git -C $AgentRepoRoot ls-files --cached)
+        if ($LASTEXITCODE -ne 0) { throw "git ls-files failed (exit $LASTEXITCODE) in $AgentRepoRoot" }
+        Assert-True ($tracked.Count -gt 0) 'git ls-files returned nothing -- the guard would pass vacuously'
+        $fido = @($tracked | Where-Object { $_ -match '(^|/)Fido\.ps1$' })
+        Assert-True ($fido.Count -eq 0) `
+            -Because "Fido is fetched per run, so a tracked copy is stale external code the enlistment would carry; found: $($fido -join ', ')"
     }
 }

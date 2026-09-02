@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 42bd6583-4d45-42df-b3b7-3411df4c5af9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -86,15 +86,21 @@ $script:RecommendationEnum = @(
 #
 # WHICH failures the runner may retry without an operator, and HOW MANY times.
 # The list lives here, beside the registry that classifies failures, because
-# the outer loop previously carried its own four-class literal -- so the set
-# that CLASSIFIES a failure and the set that may ACT on one could drift, and
-# had: the literal omitted three classes whose handlers already recommend a
-# retry, and nothing reconciled them.
+# keeping it beside the registry prevents the set that CLASSIFIES a failure
+# from drifting away from the set that may ACT on one. In particular, all
+# classes whose handlers recommend a harmless retry must be represented here.
 #
 # A class earns a place here only when retrying is the whole repair and a
 # repeat is harmless. Everything else -- a bad plan, a missing payload, an
 # expired vault, a full disk -- stays advisory, because retrying it either
 # cannot help or destroys the evidence an operator needs.
+#
+# credential_expired is deliberately absent: an expired vault stays advisory.
+# No production path calls the available re-authentication primitive, and the
+# class's registered handler asks for an operator rather than a retry.
+# Membership does not dispatch a repair in any case; its only
+# effect is to end the post-failure pause early, which is the wrong answer for
+# a credential nobody has fixed yet.
 $script:AutoRemediationAllowList = [ordered]@{
     # The transient four: the condition is external and usually gone by the
     # next attempt, so the retry IS the repair.
@@ -105,7 +111,6 @@ $script:AutoRemediationAllowList = [ordered]@{
     # Backed by a Repair-* primitive that is safe to run twice.
     'instrumentation_failure' = 'Repair-ScreenshotRing restores capture; a repeat is idempotent'
     'host_io_blocked'         = 'Repair-VncConnection reconnects the console; reconnecting twice is harmless'
-    'credential_expired'      = 'Repair-Credential re-authenticates; the vault, not the cycle, holds the state'
 }
 
 function Get-AutoRemediationAllowList {

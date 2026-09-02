@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 4271255a-d0dd-4c45-8932-15f35ae51cf4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -57,6 +57,13 @@
     works on non-English installs), the `admin` group on macOS, and the
     `sudo` group on Ubuntu.
 
+    On Windows the account is also left able to run scripts: its CurrentUser
+    execution policy is set to RemoteSigned. That policy lives in the
+    account's own profile, so it is set from a session that runs as the new
+    account -- a one-shot logon here when the password is usable, and a
+    first-sign-in scheduled task when -NoPassword or -ForcePasswordChange
+    rules a logon out.
+
     The same logical account name is registered in the runtime
     authentication mapping, status/extension/authentication/users.yml,
     with empty corporate / vault fields so the entry behaves as a
@@ -69,8 +76,13 @@
     A name already declared in users.yml is reused, not refused: the
     entry stays exactly as it is, along with whatever vault credential
     it points at, and the run continues. An OS account that already
-    exists is the one hard stop, and -Force is the way through it --
-    the account is deleted, home directory included, and recreated.
+    exists is not a stop either: the run reports what deleting it takes
+    with it and asks to confirm, then deletes the account -- home
+    directory and everything under it -- and creates it again from
+    scratch. -Force answers that confirmation in advance, which is what
+    lets an unattended run recreate the account in one call. Three cases
+    are refused outright, -Force included: a system account, the account
+    running the script, and an account with an open login session.
 
     Elevation is requested before anything is changed. On Windows an
     unelevated run asks for consent and then relaunches itself through
@@ -117,11 +129,12 @@
     log in until the operator sets one out-of-band.
 
 .PARAMETER Force
-    Skip this script's own confirmation prompts, and repair what the
-    script otherwise refuses: an OS account that already exists is
-    DELETED -- home directory and everything under it -- and recreated
-    with the password and group membership asked for. The operating
-    system may still prompt (UAC consent, sudo password).
+    Answer this script's own confirmation prompts in advance, so a run
+    that would stop to ask completes unattended. That includes the
+    consent to DELETE an OS account that already exists -- home
+    directory and everything under it -- and recreate it with the
+    password and group membership asked for. The operating system may
+    still prompt (UAC consent, sudo password).
 
     Three cases are refused even with -Force: the account running the
     script, a system account (a built-in Windows principal, macOS
@@ -146,10 +159,12 @@
 
 .EXAMPLE
     .\New-LocalTestUser.ps1 -Admin -Force
-    # Re-create the default test account: an existing `yurunatest` OS
-    # account and its home directory are deleted first, while the Yuruna
-    # users.yml entry and any vault password it points at are reused.
-    # Add -WhatIf the first time to see exactly what would be removed.
+    # Re-create the default test account without stopping to ask: an
+    # existing `yurunatest` OS account and its home directory are deleted
+    # first, while the Yuruna users.yml entry and any vault password it
+    # points at are reused. The same run without -Force does the same
+    # thing, after confirming the deletion with the operator. Add -WhatIf
+    # the first time to see exactly what would be removed.
 
 .NOTES
     Requires Administrator (Windows) or sudo (macOS / Ubuntu).
@@ -459,12 +474,67 @@ function Get-OsUserFact {
     return $fact
 }
 
+function Remove-OsUserHome {
+    <#
+        Second pass over the home directory, because every platform's
+        account delete has a way of leaving it behind: a Windows profile
+        whose ProfileList entry is unreadable, `userdel` reporting exit 12,
+        a macOS home with files still open in it. What survives is not
+        cosmetic -- the recreated account cannot read files owned by an id
+        that no longer resolves, and on Windows it is handed a second,
+        `.000`-suffixed profile directory beside the old one.
+
+        The path comes from the OS itself (Win32_UserProfile.LocalPath,
+        the passwd record, dscl), never from the account name, so this
+        removes the directory the account really had.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    param([string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path)) { return }
+    if (-not (Test-Path -LiteralPath $Path))  { return }
+    # A path at or beside the filesystem root is a damaged account record
+    # rather than a home directory -- '/', '/home' and C:\Users hold every
+    # other account's files, and a recursive delete of one of those is not
+    # recoverable. DirectoryInfo rather than Split-Path: Split-Path errors
+    # on a root path instead of returning nothing, and the error abandons
+    # the statement that was supposed to be the guard. Anything the check
+    # cannot resolve is refused for the same reason.
+    $parent = $null
+    try { $parent = ([System.IO.DirectoryInfo]::new($Path)).Parent } catch { $parent = $null }
+    if ($null -eq $parent -or $null -eq $parent.Parent) {
+        Write-Warning "Not removing '$Path': a home directory does not sit at, or one level below, the filesystem root. Whatever the account left there needs a pair of eyes."
+        return
+    }
+    if (-not $PSCmdlet.ShouldProcess($Path, 'Remove the home directory the account delete left behind')) { return }
+
+    try {
+        if ($IsWindows) {
+            Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction Stop
+        } else {
+            $out = & sudo rm -rf $Path 2>&1
+            if ($LASTEXITCODE -ne 0) { throw "rm -rf exited $LASTEXITCODE`: $out" }
+        }
+    } catch {
+        Write-Warning "The account is deleted but $Path could not be removed: $($_.Exception.Message)"
+        Write-Warning "Remove it by hand before the recreated account uses it: its files belong to an id that no longer exists."
+        return
+    }
+    if (Test-Path -LiteralPath $Path) {
+        Write-Warning "$Path still exists after the removal. Remove it by hand: its files belong to an id that no longer exists."
+    } else {
+        Write-Information "Removed the leftover home directory $Path."
+    }
+}
+
 function Remove-OsUser {
     <#
         Delete an existing account and its home directory, so the account
         recreated over it starts clean. A home directory left behind keeps
         the old owner's uid, which the new account cannot read and cannot
-        be given without a recursive chown nobody asked for.
+        be given without a recursive chown nobody asked for. Each platform's
+        delete takes the directory with it; Remove-OsUserHome is what makes
+        that true when it does not.
     #>
     [CmdletBinding(SupportsShouldProcess)]
     param([string]$Name, [hashtable]$Fact)
@@ -484,14 +554,11 @@ function Remove-OsUser {
                 $stored = Get-CimInstance -ClassName Win32_UserProfile -Filter "SID='$($Fact.Id)'" -ErrorAction Stop
                 if ($stored) { Remove-CimInstance -InputObject $stored -ErrorAction Stop }
             } catch {
-                Write-Warning "Deleted the account but could not remove its profile at $($Fact.Home): $($_.Exception.Message)"
-                Write-Warning "Remove it by hand, or the recreated account gets a second profile directory beside it."
+                Write-Warning "Deleted the account but could not remove its profile instance for SID $($Fact.Id): $($_.Exception.Message)"
+                Write-Warning "The files are cleared below, but the ProfileList registry entry is not: remove it by hand, or the recreated account gets a second profile directory, suffixed .000, beside the old one."
             }
         }
-        return
-    }
-
-    if ($IsMacOS) {
+    } elseif ($IsMacOS) {
         # -deleteUser takes the home directory with it; -keepHome would
         # leave it owned by a uid that no longer resolves.
         $out = & sudo sysadminctl -deleteUser $Name 2>&1
@@ -501,19 +568,19 @@ function Remove-OsUser {
         if (Test-OsUser -Name $Name) {
             throw "sysadminctl -deleteUser did not remove '$Name' (exit $rc): $out"
         }
-        return
+    } else {
+        # -r takes the home directory and the mail spool with the account.
+        $out = & sudo userdel -r $Name 2>&1
+        $rc  = $LASTEXITCODE
+        if ($rc -ne 0) {
+            if (Test-OsUser -Name $Name) { throw "userdel -r exited $rc`: $out" }
+            # Exit 12 is "account removed, home directory could not be": the
+            # recreate still works, on a directory the sweep below clears.
+            Write-Warning "userdel -r exited $rc but '$Name' is gone: $out"
+        }
     }
 
-    # -r takes the home directory and the mail spool with the account.
-    $out = & sudo userdel -r $Name 2>&1
-    $rc  = $LASTEXITCODE
-    if ($rc -ne 0) {
-        if (Test-OsUser -Name $Name) { throw "userdel -r exited $rc`: $out" }
-        # Exit 12 is "account removed, home directory could not be": the
-        # recreate below still works, on a directory that needs cleaning up.
-        Write-Warning "userdel -r exited $rc but '$Name' is gone: $out"
-        Write-Warning "Check $($Fact.Home) -- it may have survived the deletion."
-    }
+    Remove-OsUserHome -Path $Fact.Home
 }
 
 $Recreated   = $false
@@ -523,41 +590,47 @@ if (Test-OsUser -Name $AccountName) {
     $existing = Get-OsUserFact -Name $AccountName
     $homeNote = if ($existing.Home) { $existing.Home } else { 'not found' }
 
-    if (-not $Force) {
-        throw @"
-OS account '$AccountName' already exists on this host (home: $homeNote).
-This script creates accounts; it does not adopt one it did not create,
-because it cannot tell a stale test account from one in use. Recover by
-either:
-  1. re-running with -Force, which DELETES '$AccountName' -- home
-     directory included -- and recreates it with the password and rights
-     asked for here. See what that removes first with:  -Force -WhatIf
-  2. re-running with a different -AccountName, leaving this one alone.
-The Yuruna users.yml entry is not the obstacle: an entry that already
-declares '$AccountName' is reused as-is, never overwritten.
-"@
-    }
-
     $invokingAccount = if ($IsWindows) { $env:USERNAME } else { $env:USER }
     if ([string]::IsNullOrWhiteSpace($invokingAccount) -and -not $IsWindows) { $invokingAccount = & id -un }
 
+    # The three refusals come before the question, and hold with -Force too:
+    # none of them is an operator's to answer, and asking about a deletion
+    # that will not happen trains the reader to say yes to a question that
+    # decides nothing.
     if ($existing.IsSystem) {
-        throw "OS account '$AccountName' is a system account (id $($existing.Id)); -Force will not delete it. Deleting it would break the host, not reset a test account. Choose a different -AccountName."
+        throw "OS account '$AccountName' is a system account (id $($existing.Id)); this script will not delete it, with or without -Force. Deleting it would break the host, not reset a test account. Choose a different -AccountName."
     }
     # Windows account names are case-insensitive; POSIX ones are not, so
     # `-ceq` there keeps a legitimately distinct name out of this guard.
     $isInvoker = if ($IsWindows) { $AccountName -eq $invokingAccount } else { $AccountName -ceq $invokingAccount }
     if ($isInvoker) {
-        throw "'$AccountName' is the account running this script; -Force will not delete the account it is running as. Re-run from another administrator account, or choose a different -AccountName."
+        throw "'$AccountName' is the account running this script; it will not delete the account it is running as, with or without -Force. Re-run from another administrator account, or choose a different -AccountName."
     }
     if ($existing.Active) {
         throw "OS account '$AccountName' has an open login session. Sign every session of it out and re-run: deleting it now would leave that session pointing at a uid and a home directory that no longer exist."
     }
 
+    # Recreating is the whole point of running this against a name that
+    # already exists, so the run offers it rather than refusing and telling
+    # the operator which switch to add. What it cannot do is decide on their
+    # behalf: the account may be a stale test account or one in use, and only
+    # the operator can tell which. -Force is that answer given in advance,
+    # which is what makes an unattended recreate possible.
+    $consentTarget = if ($existing.Home) { "'$AccountName' and $($existing.Home)" } else { "'$AccountName'" }
     Write-Information ""
-    Write-Warning "-Force: '$AccountName' already exists and is being deleted, then recreated from scratch."
-    if ($existing.Home) {
-        Write-Warning "This removes $($existing.Home) and everything under it. Nothing of the old account survives."
+    Write-Warning "'$AccountName' already exists on this host (home: $homeNote)."
+    Write-Warning "Recreating it DELETES the account and everything under its home directory. Nothing of the old account survives."
+    Write-Warning "The Yuruna users.yml entry is not touched: an entry that already declares '$AccountName' is reused as-is."
+    if ($WhatIfPreference) {
+        # A dry run has no consent to ask for -- it deletes nothing.
+        Write-Information "-WhatIf: a real run would ask to confirm this deletion; -Force answers it in advance."
+    } else {
+        if ($Force) {
+            Write-Warning "-Force: the confirmation is answered in advance -- deleting now."
+        }
+        if (-not (Confirm-Step "Delete $consentTarget and recreate the account")) {
+            throw "Declined: '$AccountName' is untouched and nothing was created. Re-run with -Force to answer that confirmation in advance, or with a different -AccountName to leave this account alone."
+        }
     }
     Remove-OsUser -Name $AccountName -Fact $existing
     $Recreated   = $true
@@ -905,6 +978,290 @@ if     ($IsWindows) { New-WindowsLocalUser @osArgs }
 elseif ($IsMacOS)   { New-MacLocalUser     @osArgs }
 elseif ($IsLinux)   { New-LinuxLocalUser   @osArgs }
 
+# --- REGION: Let the new Windows account run scripts
+# A fresh Windows account starts at the shell default -- Restricted on
+# client SKUs -- so the first .ps1 the operator runs interactively as this
+# account is refused. The CurrentUser policy lives inside the account's own
+# profile (PowerShell 7 keeps it in
+# Documents\PowerShell\powershell.config.json, Windows PowerShell 5.1 in
+# HKCU), and neither store exists until the account has signed in once:
+# setting it from this elevated session would only change the policy of the
+# operator running the script. So it is set from a session that really runs
+# as the new account -- a one-shot logon here when the account has a usable
+# password, and a first-sign-in scheduled task when it does not.
+#
+# Framework entry points do not depend on this: they all launch with
+# -ExecutionPolicy Bypass. It is the account's own interactive sessions
+# that are otherwise refused.
+
+# The read-back is the verdict: `exit 3` says the write did not land. The
+# closing `exit 0` is what keeps a successful run from reading as a failure
+# -- a PowerShell host returns 1 whenever anything reached the error stream,
+# and Set-ExecutionPolicy writes an error record when a Group Policy already
+# outranks the scope it just wrote to, which is not this script's problem.
+$PolicyCommand = "Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force; if ((Get-ExecutionPolicy -Scope CurrentUser) -ne 'RemoteSigned') { exit 3 }; exit 0"
+
+# Named after the account so a host can carry one per test account, and so a
+# run that reaches the policy by logon can clear a task an earlier run left.
+$PolicyTaskName = "YurunaExecutionPolicy-$AccountName"
+
+function ConvertTo-EncodedCommand {
+    <#
+        -EncodedCommand rather than -Command: the payload becomes a single
+        argument with no spaces or quotes in it, which both Start-Process
+        and the Task Scheduler's flat argument string carry through
+        unchanged. A -Command string has to survive their re-quoting, and
+        a command with quotes in it does not.
+    #>
+    [OutputType([string])]
+    param([string]$Command)
+    return [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($Command))
+}
+
+function Test-PathUnderDirectory {
+    [OutputType([bool])]
+    param([string]$Path, [string]$Directory)
+
+    if ([string]::IsNullOrWhiteSpace($Path) -or [string]::IsNullOrWhiteSpace($Directory)) { return $false }
+    try {
+        $full = [System.IO.Path]::GetFullPath($Path)
+        $root = [System.IO.Path]::GetFullPath($Directory).TrimEnd([System.IO.Path]::DirectorySeparatorChar) +
+                [System.IO.Path]::DirectorySeparatorChar
+    } catch {
+        return $false
+    }
+    return $full.StartsWith($root, [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+function Get-WindowsShellCandidate {
+    <#
+        One entry per host -- the CurrentUser policy is stored per host, so
+        setting one leaves the other at its default -- and whether the new
+        account can execute it at all.
+
+        A PowerShell installed for a single user lives under that user's
+        profile: a per-user MSI under AppData\Local\Programs, or a Store
+        execution alias under AppData\Local\Microsoft\WindowsApps. No other
+        account can run it. Handing such a path to a logon as the new
+        account fails with "Access is denied" before the command starts,
+        and a scheduled task pointed at the same path fails the same way at
+        that account's own sign-in -- so a path under a profile is reported
+        to the operator, never used.
+    #>
+    [OutputType([hashtable[]])]
+    param()
+
+    # Every account's profile lives under this root, including the profile
+    # of the operator running the script, so an executable under it belongs
+    # to one account rather than to the machine.
+    $profileRoot = Split-Path -Parent $env:USERPROFILE
+    $found       = New-Object System.Collections.Generic.List[hashtable]
+
+    foreach ($exe in @('pwsh.exe', 'powershell.exe')) {
+        $paths  = New-Object System.Collections.Generic.List[string]
+        $onPath = Get-Command -Name $exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($onPath) { $null = $paths.Add($onPath.Source) }
+        if ($exe -eq 'pwsh.exe') {
+            # A machine-wide 7 that PATH does not reach yet -- installed in
+            # this same session, or reached by full path -- is still the one
+            # the new account can run, so look where the MSI puts it.
+            foreach ($programs in @($env:ProgramFiles, ${env:ProgramFiles(x86)})) {
+                if ($programs) { $null = $paths.Add((Join-Path $programs 'PowerShell\7\pwsh.exe')) }
+            }
+            # This process is a pwsh (`#requires -version 7`), and it may be
+            # the only one this operator has.
+            $self = $null
+            try { $self = (Get-Process -Id $PID).Path } catch { $self = $null }
+            if ($self) { $null = $paths.Add($self) }
+        }
+
+        # First usable path wins; an unusable one is remembered only if no
+        # usable path for the same host turns up after it.
+        $pick = $null
+        foreach ($candidate in $paths) {
+            if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { continue }
+            if (-not (Test-PathUnderDirectory -Path $candidate -Directory $profileRoot)) {
+                $pick = @{ Leaf = $exe; Path = $candidate; Usable = $true }
+                break
+            }
+            if (-not $pick) { $pick = @{ Leaf = $exe; Path = $candidate; Usable = $false } }
+        }
+        if ($pick) { $null = $found.Add($pick) }
+    }
+    return $found.ToArray()
+}
+
+function Set-WindowsUserExecutionPolicy {
+    <#
+        Log the account on once, right here, and let it set its own policy.
+        The logon is what creates the profile and loads the account's hive,
+        so both stores are written where the account will read them from.
+        Returns the hosts whose policy is confirmed set.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([string[]])]
+    param([string]$Name, [string]$Secret, [string]$Command, [hashtable[]]$Shell)
+
+    $applied = New-Object System.Collections.Generic.List[string]
+    if (-not $PSCmdlet.ShouldProcess($Name, 'Set the CurrentUser execution policy to RemoteSigned (one-shot logon)')) {
+        return $applied.ToArray()
+    }
+
+    # ".\" pins the logon to this machine: an unqualified name lets a
+    # same-named domain account answer first on a joined host.
+    $cred    = [pscredential]::new(".\$Name", (ConvertTo-SecureString -String $Secret -AsPlainText -Force))
+    $encoded = ConvertTo-EncodedCommand -Command $Command
+
+    foreach ($entry in $Shell) {
+        # -WindowStyle, not -NoNewWindow: -Credential belongs to a parameter
+        # set that has no -NoNewWindow.
+        # -WorkingDirectory: without it the child inherits the caller's
+        # directory, and an elevated operator's directory is regularly one
+        # the new account cannot read -- which fails the launch itself,
+        # before any of the command runs.
+        $launch = @{
+            FilePath         = $entry.Path
+            Credential       = $cred
+            WorkingDirectory = $env:SystemRoot
+            ArgumentList     = @('-NoProfile', '-NonInteractive', '-EncodedCommand', $encoded)
+            WindowStyle      = 'Hidden'
+            Wait             = $true
+            PassThru         = $true
+            ErrorAction      = 'Stop'
+        }
+        $errorLog = Join-Path ([System.IO.Path]::GetTempPath()) "yuruna-execpolicy-$($entry.Leaf)-$PID.log"
+        $proc     = $null
+        try {
+            $proc = Start-Process @launch -RedirectStandardError $errorLog
+        } catch {
+            # The redirect is a diagnostic, not the job. A host that refuses
+            # the redirected handle still gets its policy set, just without
+            # the child's own words if it fails.
+            $errorLog = ''
+            try {
+                $proc = Start-Process @launch
+            } catch {
+                Write-Warning "Could not run $($entry.Leaf) as '$Name': $($_.Exception.Message)"
+                continue
+            }
+        }
+
+        $said = ''
+        if ($errorLog -and (Test-Path -LiteralPath $errorLog)) {
+            $said = @(Get-Content -LiteralPath $errorLog -ErrorAction SilentlyContinue |
+                Where-Object { -not [string]::IsNullOrWhiteSpace($_) })[0]
+            Remove-Item -LiteralPath $errorLog -Force -ErrorAction SilentlyContinue
+        }
+
+        # An unreadable exit code means the launch worked and the result is
+        # unknown; only a code that is present and non-zero is a failure.
+        $code = $null
+        try { $code = $proc.ExitCode } catch { $code = $null }
+        if ($null -ne $code -and $code -ne 0) {
+            $detail = if ($said) { " $said" } else { '' }
+            Write-Warning "$($entry.Leaf) exited $code setting the execution policy for '$Name'; its CurrentUser policy for that host may still be the default.$detail"
+        } else {
+            $null = $applied.Add($entry.Leaf)
+        }
+    }
+    return $applied.ToArray()
+}
+
+function Register-WindowsUserExecutionPolicyTask {
+    <#
+        The no-usable-password path: an account created with -NoPassword, or
+        flagged to change its password at the first login, cannot be logged
+        on from here at all. A logon-triggered task carries the same command
+        into the account's first sign-in, where the session is its own.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param([string]$Name, [string]$TaskName, [string]$Command, [hashtable[]]$Shell)
+
+    if (-not $PSCmdlet.ShouldProcess($Name, "Register scheduled task '$TaskName' to set RemoteSigned at first sign-in")) { return $false }
+    if (-not $Shell -or $Shell.Count -eq 0) { return $false }
+
+    $encoded   = ConvertTo-EncodedCommand -Command $Command
+    $qualified = "$env:COMPUTERNAME\$Name"
+    try {
+        # One action per host; a task runs its actions in order, in the same
+        # logon session.
+        $actions = foreach ($entry in $Shell) {
+            New-ScheduledTaskAction -Execute $entry.Path -Argument "-NoProfile -NonInteractive -EncodedCommand $encoded"
+        }
+        $trigger = New-ScheduledTaskTrigger -AtLogOn -User $qualified
+        # An end boundary plus DeleteExpiredTaskAfter is the only self-cleanup
+        # the task can count on: the account it runs as is not elevated at
+        # sign-in and cannot unregister a task an administrator registered.
+        # Until it expires the task re-runs at every sign-in, writing the same
+        # value again.
+        $trigger.EndBoundary = (Get-Date).AddDays(30).ToString('yyyy-MM-ddTHH:mm:ss')
+        $principal = New-ScheduledTaskPrincipal -UserId $qualified -LogonType Interactive
+        $settings  = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -StartWhenAvailable
+        $settings.DeleteExpiredTaskAfter = 'PT0S'
+        $null = Register-ScheduledTask -TaskName $TaskName -Force `
+            -Action $actions -Trigger $trigger -Principal $principal -Settings $settings
+        return $true
+    } catch {
+        Write-Warning "Could not register '$TaskName' for '$Name': $($_.Exception.Message)"
+        return $false
+    }
+}
+
+# 'skipped' off Windows; the epilogue reports each of the other states, and
+# the three lists below are what it reports them with.
+$PolicyState       = 'skipped'
+$PolicyAppliedHost = @()   # hosts whose policy is set now
+$PolicyPendingHost = @()   # hosts a first-sign-in task will set
+$PolicyOneUserHost = @()   # hosts no account but their owner's can run
+if ($IsWindows) {
+    $PolicyShell       = @(Get-WindowsShellCandidate)
+    $PolicyOneUserHost = @($PolicyShell | Where-Object { -not $_.Usable })
+    $PolicyUsableShell = @($PolicyShell | Where-Object { $_.Usable })
+    foreach ($entry in $PolicyOneUserHost) {
+        Write-Warning "$($entry.Leaf) is installed for one user only ($($entry.Path)), so '$AccountName' cannot run it and its policy for that host cannot be set from here."
+    }
+
+    if ($WhatIfPreference) {
+        $PolicyState = 'whatif'
+    } elseif ($PolicyUsableShell.Count -eq 0) {
+        $PolicyState = 'manual'
+    } else {
+        Write-Information ""
+        Write-Information "Enabling script execution for '$AccountName' (RemoteSigned, CurrentUser) ..."
+        # A password the account cannot log in with yet -- none at all, or one
+        # the first sign-in has to replace -- rules the direct logon out.
+        if ($HasPassword -and -not $ShouldForceChange) {
+            $PolicyAppliedHost = @(Set-WindowsUserExecutionPolicy -Name $AccountName -Secret $Password `
+                -Command $PolicyCommand -Shell $PolicyUsableShell)
+        }
+        $PolicyPendingHost = @($PolicyUsableShell | Where-Object { $PolicyAppliedHost -notcontains $_.Leaf })
+
+        if ($PolicyPendingHost.Count -eq 0) {
+            $PolicyState = 'applied'
+        } elseif (Register-WindowsUserExecutionPolicyTask -Name $AccountName -TaskName $PolicyTaskName `
+                    -Command $PolicyCommand -Shell $PolicyPendingHost) {
+            $PolicyState = 'deferred'
+        } else {
+            $PolicyState = 'manual'
+        }
+
+        if ($PolicyState -eq 'applied') {
+            # A task left by an earlier passwordless run would keep firing at
+            # sign-in against a principal a recreated account no longer is.
+            # Inside the try with the lookup: a host without the ScheduledTasks
+            # module raises a command-not-found that -ErrorAction cannot reach.
+            try {
+                if (Get-ScheduledTask -TaskName $PolicyTaskName -ErrorAction SilentlyContinue) {
+                    Unregister-ScheduledTask -TaskName $PolicyTaskName -Confirm:$false -ErrorAction Stop
+                }
+            } catch {
+                Write-Warning "The policy is set, but the older task '$PolicyTaskName' could not be removed: $($_.Exception.Message)"
+            }
+        }
+    }
+}
+
 # --- REGION: Register in the runtime users.yml
 # YAML literal preserves the exact formatting used by the committed
 # users.yml.template entries (2-space indent under `users:`, inline-
@@ -1061,9 +1418,10 @@ if ($Admin) {
     Write-Information "     The group list is fixed when a session starts, so sign"
     Write-Information "     '$AccountName' out and back in before retrying -- a session"
     Write-Information "     opened before the grant keeps the list it started with."
-    Write-Information "     Re-running with -Force is the other way out: it deletes the"
-    Write-Information "     account, home directory included, and recreates it with the"
-    Write-Information "     rights asked for. The grant above keeps the home directory."
+    Write-Information "     Re-running is the other way out: it offers to delete the"
+    Write-Information "     account, home directory included, and recreate it with the"
+    Write-Information "     rights asked for (-Force answers that in advance). The grant"
+    Write-Information "     above keeps the home directory."
     Write-Information ""
     $step++
 }
@@ -1078,6 +1436,64 @@ if ($ShouldForceChange) {
         Write-Information "     for a new password."
     } elseif ($IsLinux) {
         Write-Information "     chage -d 0 forces a password change on the next login."
+    }
+    Write-Information ""
+    $step++
+}
+
+if ($PolicyState -ne 'skipped') {
+    $appliedIn = ($PolicyAppliedHost -join ', ')
+    $pendingIn = (@($PolicyPendingHost | ForEach-Object { $_.Leaf }) -join ', ')
+    switch ($PolicyState) {
+        'applied' {
+            Write-Information "  $step. The account can run scripts: its CurrentUser execution policy"
+            Write-Information "     is RemoteSigned in $appliedIn."
+            Write-Information "     It was set through a one-shot logon as '$AccountName', which is"
+            Write-Information "     also what created the profile the policy is stored in."
+        }
+        'deferred' {
+            $why = if (-not $HasPassword) {
+                       @('The account has no password this run could log it on with.')
+                   } elseif ($ShouldForceChange) {
+                       @('The account must change its password at the first login, so',
+                         'this run could not log it on.')
+                   } else {
+                       @('Logging the account on from here did not work -- the warnings',
+                         'above say why.')
+                   }
+            Write-Information "  $step. The account cannot run scripts YET in $pendingIn."
+            foreach ($line in $why) { Write-Information "     $line" }
+            Write-Information "     A scheduled task sets the CurrentUser execution policy to"
+            Write-Information "     RemoteSigned at the account's first sign-in instead"
+            Write-Information "     ('$PolicyTaskName', which expires after 30 days)."
+            if ($appliedIn) {
+                Write-Information "     Already set now in $appliedIn."
+            }
+            Write-Information "     Nothing to do; confirm after signing in with:"
+            Write-Information "       Get-ExecutionPolicy -Scope CurrentUser"
+        }
+        'manual' {
+            Write-Information "  $step. The account CANNOT run scripts: its execution policy is still"
+            Write-Information "     the Windows default, and this run could not set it for the"
+            Write-Information "     account -- the warnings above say why. Signed in as"
+            Write-Information "     '$AccountName', run:"
+            Write-Information "       Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser -Force"
+        }
+        'whatif' {
+            Write-Information "  $step. A real run would set the account's CurrentUser execution policy"
+            Write-Information "     to RemoteSigned from a session running as '$AccountName': a"
+            Write-Information "     one-shot logon when it has a usable password, a first-sign-in"
+            Write-Information "     scheduled task when it does not."
+        }
+    }
+    foreach ($entry in $PolicyOneUserHost) {
+        Write-Information "     $($entry.Leaf) is installed for one user only:"
+        Write-Information "       $($entry.Path)"
+        Write-Information "     No other account on this host can run it, so '$AccountName' has"
+        Write-Information "     no execution policy for that host and nothing here can give it"
+        Write-Information "     one. Install PowerShell 7 for all users and re-run:"
+        Write-Information "       winget uninstall --id Microsoft.PowerShell"
+        Write-Information "       winget install --id Microsoft.PowerShell --scope machine"
     }
     Write-Information ""
     $step++

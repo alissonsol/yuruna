@@ -1,7 +1,7 @@
 # OCR providers
 
 Yuruna polls the guest framebuffer for text to drive `waitForText`,
-`waitForAndEnter`, `passwdPrompt`, and `tapOn`. The matching engine is
+`waitForTextWithNudge`, `waitForAndEnter`, `passwdPrompt`, and `tapOn`. The matching engine is
 pluggable: three built-in providers ship today, each with a per-platform
 availability check and a private invocation backend.
 
@@ -150,6 +150,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.25
+Last review: 2026.09.01
 
 Back to [Yuruna](../README.md)

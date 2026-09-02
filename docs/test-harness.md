@@ -579,6 +579,7 @@ Today (see the `Register-SequenceAction` calls in
 | `inputTextAndEnter`      | `Send-Text`, `Send-Key`   | no           |
 | `tapOn`                  | `Send-Click`              | yes          |
 | `waitForText`            | _(none)_                  | yes          |
+| `waitForTextWithNudge`   | `Send-Key`                | yes          |
 | `waitForAndEnter`        | `Send-Text`, `Send-Key`   | yes          |
 | `passwdPrompt`           | `Send-Text`, `Send-Key`   | yes          |
 | `fetchAndExecute`        | `Send-Text`, `Send-Key`   | yes          |
@@ -994,6 +995,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.25
+Last review: 2026.09.01
 
 Back to [Yuruna](../README.md)

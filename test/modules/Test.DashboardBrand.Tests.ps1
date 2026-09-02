@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 42536ec8-4d7e-4727-b52e-55f7f0ca8688
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 <#
 .SYNOPSIS
-    Guards the brand tile the caching-proxy VM stamps into its Grafana
+    Guards the brand banner the caching-proxy VM stamps into its Grafana
     dashboards, and the identity the host seeds it with.
 .DESCRIPTION
     Two claims are worth defending, and both are about a dashboard telling the
@@ -30,15 +30,16 @@
     pages use would put two different answers in front of one operator. So the
     derivation is asserted against the same cases the pages' own rule produces.
 
-    The second is that the tile is free. It was accepted on the promise that it
-    costs no vertical space, which holds only while the first row still ends at
-    the grid's right edge after the tile has taken four units out of it -- and
-    that is a property of a fitting algorithm running against dashboards whose
-    layouts change, so it is asserted rather than assumed.
+    The second is that the banner costs one line and nothing else. It spans the
+    full grid width above the first row, so every panel on the board moves down
+    by its height and none of them is resized -- including on the community
+    board, whose layout is fetched at build time and is not ours to predict.
+    The panel autofit stacks from below the banner for the same reason, and the
+    two are asserted together: they write the same file.
 
     The guest script is not restated here: it is lifted out of the cloud-init
     seed and executed, so these run the code the VM actually gets. Same for the
-    two seeded placeholders -- a tile is only as correct as the values the three
+    two seeded placeholders -- a banner is only as correct as the values the three
     New-VM.ps1 scripts pass, and a host that forgets one ships an unbranded VM.
 
     Throw-based assertions (no Should), so the file runs standalone.
@@ -54,11 +55,14 @@ Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1')
 $script:RepoRoot = $repoRoot
 $script:SeedPath = Join-Path $repoRoot 'host/vmconfig/caching-proxy-service.base.user-data'
 
-# The tile's geometry, restated from the guest script so a change to either
+# The banner's geometry, restated from the guest script so a change to either
 # side has to be a deliberate change to both.
-$script:BrandW = 4
-$script:BrandH = 4
 $script:GridW  = 24
+$script:BrandW = $script:GridW
+$script:BrandH = 2
+# Ordinary spaces collapse in rendered HTML, so the parts are held apart by
+# non-breaking ones. The guest script writes them as a \u00a0 escape.
+$script:Separator = [string][char]0x00A0 * 4
 
 Import-Module (Join-Path $here 'Test.FrameworkSource.psm1') -Force
 
@@ -98,13 +102,41 @@ $script:BranderPath = Join-Path $script:WorkRoot 'yuruna-brand-dashboards.py'
 [System.IO.File]::WriteAllText($script:BranderPath,
     (Get-SeedFileContent -SeedPath $script:SeedPath -GuestPath '/usr/local/bin/yuruna-brand-dashboards.py'))
 
+# The autofit rewrites the same file the banner is stamped into, so it is run
+# here too. Its counts come from Prometheus and Loki, which no test host has, so
+# the driver replaces the one function that reaches for them and leaves every
+# geometry decision to the guest script itself.
+$script:FitterPath = Join-Path $script:WorkRoot 'yuruna-fit-pool-dashboard.py'
+[System.IO.File]::WriteAllText($script:FitterPath,
+    (Get-SeedFileContent -SeedPath $script:SeedPath -GuestPath '/usr/local/bin/yuruna-fit-pool-dashboard.py'))
+$script:FitDriverPath = Join-Path $script:WorkRoot 'drive-fitter.py'
+[System.IO.File]::WriteAllText($script:FitDriverPath, @'
+import importlib.util, sys
+
+spec = importlib.util.spec_from_file_location("fit", sys.argv[1])
+fit = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(fit)
+fit.DASHBOARD = sys.argv[2]
+hosts = int(sys.argv[3])
+fit.query = lambda url, expr: hosts
+sys.exit(fit.main())
+'@)
+
+function Invoke-Fitter {
+    param(
+        [Parameter(Mandatory)][string]$DashboardPath,
+        [int]$Hosts = 3
+    )
+    & $script:Python.Source $script:FitDriverPath $script:FitterPath $DashboardPath $Hosts 2>&1 | Out-String
+}
+
 # Run the guest script over a directory of dashboards, with the identity it
 # would read from the seeded env file.
 function Invoke-Brander {
     param(
         [Parameter(Mandatory)][string]$DashboardDir,
         [string]$Name = 'Yurunadev',
-        [string]$Version = '2026.08.25',
+        [string]$Version = '2026.09.01',
         [switch]$NoEnvFile
     )
     $envFile = Join-Path $DashboardDir '..' | Join-Path -ChildPath 'brand.env'
@@ -143,9 +175,32 @@ $script:RealDashboards = [ordered]@{
     'squid'        = Get-SeedFileContent -SeedPath $script:SeedPath -GuestPath '/var/lib/grafana/dashboards/squid.json'
 }
 
-function Get-TopRow {
+# Every panel's place on the grid, keyed by id: what must be identical before
+# and after a stamp, one band lower.
+function Get-Layout {
     param([Parameter(Mandatory)]$Dashboard)
-    return @($Dashboard.panels | Where-Object { $_.gridPos.y -eq 0 } | Sort-Object { $_.gridPos.x })
+    $layout = [ordered]@{}
+    foreach ($panel in $Dashboard.panels) {
+        $layout["$($panel.id)"] = "$($panel.gridPos.x),$($panel.gridPos.y),$($panel.gridPos.w),$($panel.gridPos.h)"
+    }
+    return $layout
+}
+
+# Every grid cell a panel claims, so an overlap is a duplicate key rather than
+# a geometry argument restated in the test.
+function Get-GridOverlap {
+    param([Parameter(Mandatory)]$Dashboard)
+    $cells = @{}
+    $clashes = [System.Collections.Generic.List[string]]::new()
+    foreach ($panel in $Dashboard.panels) {
+        for ($y = $panel.gridPos.y; $y -lt ($panel.gridPos.y + $panel.gridPos.h); $y++) {
+            for ($x = $panel.gridPos.x; $x -lt ($panel.gridPos.x + $panel.gridPos.w); $x++) {
+                if ($cells.ContainsKey("$x,$y")) { $clashes.Add("panels $($cells["$x,$y"]) and $($panel.id) both claim $x,$y") }
+                $cells["$x,$y"] = $panel.id
+            }
+        }
+    }
+    return $clashes
 }
 
 function Get-BrandPanel {
@@ -162,83 +217,80 @@ AfterAll {
     }
 }
 
-Describe 'the brand tile costs no vertical space on the dashboards this VM serves' {
+Describe 'the brand banner is one line across the top of the dashboards this VM serves' {
 
-    It 'lands top-left of every dashboard with the first row still filling the grid' {
+    It 'spans the full width above everything the dashboard already had' {
         if (-not $script:Python) { Set-ItResult -Skipped -Because 'python3 is not installed on this host'; return }
 
-        # Every real dashboard's first row already fills the 24-unit width, so
-        # this is the case the promise rests on: room for the tile can only come
-        # out of the row itself.
         $dir = Get-DashboardFixture -Dashboard $script:RealDashboards
-        $before = @{}
-        foreach ($name in $script:RealDashboards.Keys) {
-            $doc = Get-Content -Raw (Join-Path $dir "$name.json") | ConvertFrom-Json
-            $before[$name] = @(Get-TopRow -Dashboard $doc | ForEach-Object { $_.gridPos.h }) | Sort-Object -Unique
-        }
-
         Invoke-Brander -DashboardDir $dir | Out-Null
 
         foreach ($name in $script:RealDashboards.Keys) {
             $doc   = Get-Content -Raw (Join-Path $dir "$name.json") | ConvertFrom-Json
             $brand = Get-BrandPanel -Dashboard $doc
-            Assert-True ($null -ne $brand) -Because "$name must carry the brand tile"
-            Assert-Equal -Expected 0 -Actual $brand.gridPos.x -Because "$name's tile must sit at the left edge"
-            Assert-Equal -Expected 0 -Actual $brand.gridPos.y -Because "$name's tile must sit in the first row"
-            Assert-Equal -Expected $script:BrandW -Actual $brand.gridPos.w -Because "$name's tile width"
-            Assert-Equal -Expected $script:BrandH -Actual $brand.gridPos.h -Because "$name's tile height"
+            Assert-True ($null -ne $brand) -Because "$name must carry the banner"
+            Assert-Equal -Expected 0 -Actual $brand.gridPos.x -Because "$name's banner must start at the left edge"
+            Assert-Equal -Expected 0 -Actual $brand.gridPos.y -Because "$name's banner must sit above everything else"
+            Assert-Equal -Expected $script:BrandW -Actual $brand.gridPos.w -Because "$name's banner must span the grid"
+            Assert-Equal -Expected $script:BrandH -Actual $brand.gridPos.h -Because "$name's banner must be one line tall"
 
-            $top = Get-TopRow -Dashboard $doc
-            $rightEdge = ($top | ForEach-Object { $_.gridPos.x + $_.gridPos.w } | Measure-Object -Maximum).Maximum
-            Assert-Equal -Expected $script:GridW -Actual $rightEdge `
-                -Because "$name's first row must still reach the grid's right edge, or the tile has cost layout"
+            $intruders = @($doc.panels | Where-Object { $_.id -ne $brand.id -and $_.gridPos.y -lt $script:BrandH })
+            Assert-Equal -Expected 0 -Actual $intruders.Count `
+                -Because "$name keeps $($intruders.Count) panel(s) inside the banner's own band"
 
-            # The row's height is what vertical space means here: the tile is
-            # only free while the panels beside it are as tall as they were.
-            $after = @($top | Where-Object { $_.gridPos.w -ne $script:BrandW -or $_.gridPos.x -ne 0 } |
-                ForEach-Object { $_.gridPos.h }) | Sort-Object -Unique
-            Assert-Equal -Expected ($before[$name] -join ',') -Actual ($after -join ',') `
-                -Because "$name's first-row panels must keep their heights"
-
-            # No two panels may claim the same cell, or Grafana reflows the row
-            # and the tile stops being free after all.
-            $occupied = @{}
-            foreach ($p in $top) {
-                for ($x = $p.gridPos.x; $x -lt ($p.gridPos.x + $p.gridPos.w); $x++) {
-                    Assert-True (-not $occupied.ContainsKey($x)) -Because "$name has two first-row panels over column $x"
-                    $occupied[$x] = $true
-                }
-            }
+            # Grafana reflows a grid whose panels collide, which would undo the
+            # layout the shift was careful to preserve.
+            $clashes = @(Get-GridOverlap -Dashboard $doc)
+            Assert-Equal -Expected 0 -Actual $clashes.Count -Because "$name overlaps: $($clashes -join '; ')"
         }
     }
 
-    It 'leaves the panels below the first row exactly where they were' {
+    It 'moves the whole layout down by the banner and resizes none of it' {
         if (-not $script:Python) { Set-ItResult -Skipped -Because 'python3 is not installed on this host'; return }
 
-        # yuruna-fit-pool-dashboard.py re-stacks the pool dashboard's per-host
-        # panels from a hard-coded first-row height. A tile that pushed anything
-        # down would put the two in a fight neither could win.
+        # The banner takes a band of its own rather than a corner of the first
+        # row, so the only thing it may do to a dashboard is move it down.
         $dir = Get-DashboardFixture -Dashboard $script:RealDashboards
         $before = @{}
         foreach ($name in $script:RealDashboards.Keys) {
-            $doc = Get-Content -Raw (Join-Path $dir "$name.json") | ConvertFrom-Json
-            $before[$name] = @($doc.panels | Where-Object { $_.gridPos.y -ne 0 } |
-                ForEach-Object { "$($_.id):$($_.gridPos.x),$($_.gridPos.y),$($_.gridPos.w),$($_.gridPos.h)" }) -join '|'
+            $before[$name] = Get-Layout -Dashboard (Get-Content -Raw (Join-Path $dir "$name.json") | ConvertFrom-Json)
         }
 
         Invoke-Brander -DashboardDir $dir | Out-Null
 
         foreach ($name in $script:RealDashboards.Keys) {
+            $after = Get-Layout -Dashboard (Get-Content -Raw (Join-Path $dir "$name.json") | ConvertFrom-Json)
+            foreach ($id in $before[$name].Keys) {
+                $was = $before[$name][$id] -split ','
+                $expected = "$($was[0]),$([int]$was[1] + $script:BrandH),$($was[2]),$($was[3])"
+                Assert-Equal -Expected $expected -Actual $after[$id] `
+                    -Because "$name's panel $id must keep its column, width and height, one band lower"
+            }
+        }
+    }
+
+    It 'reads as one line: name, version and provenance side by side' {
+        if (-not $script:Python) { Set-ItResult -Skipped -Because 'python3 is not installed on this host'; return }
+
+        # A line that broke would need a taller banner to be legible, which is
+        # the whole cost the layout was chosen to avoid.
+        $dir = Get-DashboardFixture -Dashboard $script:RealDashboards
+        Invoke-Brander -DashboardDir $dir -Name 'Yurunadev' -Version '2026.09.01' | Out-Null
+
+        foreach ($name in $script:RealDashboards.Keys) {
             $doc = Get-Content -Raw (Join-Path $dir "$name.json") | ConvertFrom-Json
-            $after = @($doc.panels | Where-Object { $_.gridPos.y -ne 0 } |
-                ForEach-Object { "$($_.id):$($_.gridPos.x),$($_.gridPos.y),$($_.gridPos.w),$($_.gridPos.h)" }) -join '|'
-            Assert-Equal -Expected $before[$name] -Actual $after `
-                -Because "$name's panels below the first row must not move"
+            $content = "$((Get-BrandPanel -Dashboard $doc).options.content)"
+            # The sentinel is an HTML comment on its own line: it renders to
+            # nothing, so it is not part of the line being measured.
+            $rendered = ($content -replace '(?s)^.*?-->\s*', '')
+            Assert-True ($rendered -notmatch '[\r\n]') -Because "$name's banner must be a single line: got [$rendered]"
+            Assert-Equal -Expected ("**Yurunadev**" + $script:Separator + '`v2026.09.01`') -Actual $rendered `
+                -Because "$name's banner must hold the name and version apart with non-breaking spaces"
         }
     }
 }
 
-Describe 'the brand tile says which dashboards are not ours' {
+Describe 'the brand banner says which dashboards are not ours' {
 
     It 'marks a community dashboard as unmodified upstream content, and leaves ours unmarked' {
         if (-not $script:Python) { Set-ItResult -Skipped -Because 'python3 is not installed on this host'; return }
@@ -263,9 +315,11 @@ Describe 'the brand tile says which dashboards are not ours' {
         $ours = Get-BrandPanel -Dashboard (Get-Content -Raw (Join-Path $dir 'squid.json') | ConvertFrom-Json)
         $theirs = Get-BrandPanel -Dashboard (Get-Content -Raw (Join-Path $dir 'zot-official.json') | ConvertFrom-Json)
 
-        Assert-True ($null -ne $theirs) 'the community dashboard still gets a tile'
-        Assert-True ("$($theirs.options.content)" -match 'Community dashboard, unmodified') `
-            'the community tile says the board is unmodified upstream content'
+        Assert-True ($null -ne $theirs) 'the community dashboard still gets a banner'
+        Assert-True ("$($theirs.options.content)" -match [regex]::Escape($script:Separator + '_Community dashboard, unmodified_')) `
+            'the community banner says the board is unmodified upstream content, on the same line as the rest'
+        Assert-True ("$($theirs.options.content)" -notmatch '(?m)^_Community') `
+            'the note must not be a line of its own'
         Assert-True ("$($ours.options.content)" -notmatch 'Community') `
             'a seeded dashboard is not labeled as community content'
     }
@@ -306,13 +360,13 @@ Describe 'the brand tile says which dashboards are not ours' {
     }
 }
 
-Describe 'the brand tile is safe to re-run' {
+Describe 'the brand banner is safe to re-run' {
 
     It 'rewrites nothing on a dashboard that already carries it' {
         if (-not $script:Python) { Set-ItResult -Skipped -Because 'python3 is not installed on this host'; return }
 
         # The timer fires every 15 minutes for the life of the VM. A pass that
-        # was not a no-op would walk the first row four units left each time.
+        # was not a no-op would push the board another band down each time.
         $dir = Get-DashboardFixture -Dashboard $script:RealDashboards
         Invoke-Brander -DashboardDir $dir | Out-Null
         $first = @{}
@@ -322,7 +376,7 @@ Describe 'the brand tile is safe to re-run' {
             Invoke-Brander -DashboardDir $dir | Out-Null
             foreach ($name in $script:RealDashboards.Keys) {
                 Assert-Equal -Expected $first[$name] -Actual (Get-Content -Raw (Join-Path $dir "$name.json")) `
-                    -Because "pass $pass rewrote $name; the tile must be idempotent byte for byte"
+                    -Because "pass $pass rewrote $name; the banner must be idempotent byte for byte"
             }
         }
     }
@@ -331,32 +385,32 @@ Describe 'the brand tile is safe to re-run' {
         if (-not $script:Python) { Set-ItResult -Skipped -Because 'python3 is not installed on this host'; return }
 
         $dir = Get-DashboardFixture -Dashboard $script:RealDashboards
-        Invoke-Brander -DashboardDir $dir -Name 'Yurunadev' -Version '2026.08.25' | Out-Null
+        Invoke-Brander -DashboardDir $dir -Name 'Yurunadev' -Version '2026.09.01' | Out-Null
         $doc = Get-Content -Raw (Join-Path $dir 'pool.json') | ConvertFrom-Json
-        $geometry = @(Get-TopRow -Dashboard $doc | ForEach-Object { "$($_.gridPos.x),$($_.gridPos.w)" }) -join '|'
+        $geometry = (Get-Layout -Dashboard $doc).Values -join '|'
 
         Invoke-Brander -DashboardDir $dir -Name 'Yuruna' -Version '2026.09.01' | Out-Null
         $doc = Get-Content -Raw (Join-Path $dir 'pool.json') | ConvertFrom-Json
 
         $content = "$((Get-BrandPanel -Dashboard $doc).options.content)"
         # The boundary matters, not the markup: "Yuruna" must not match inside
-        # "Yurunadev", which is the name the tile carried a moment ago. The tile
-        # emits the name in bold rather than as a markdown heading -- a heading
-        # made it the FIRST heading on every provisioned dashboard, an <h4> with
-        # no h1/h2/h3 above it, and the brand name is a label, not a section.
-        Assert-True ($content -match 'Yuruna(\*\*|\r|\n|$)') -Because 'the refreshed tile must carry the new name'
-        Assert-True ($content -match 'v2026\.09\.01') -Because 'the refreshed tile must carry the new version'
-        Assert-Equal -Expected $geometry `
-            -Actual (@(Get-TopRow -Dashboard $doc | ForEach-Object { "$($_.gridPos.x),$($_.gridPos.w)" }) -join '|') `
-            -Because 'a text refresh must not re-fit the row a second time'
+        # "Yurunadev", which is the name the banner carried a moment ago. The
+        # banner emits the name in bold rather than as a markdown heading -- a
+        # heading made it the FIRST heading on every provisioned dashboard, an
+        # <h4> with no h1/h2/h3 above it, and the brand name is a label, not a
+        # section.
+        Assert-True ($content -match 'Yuruna(\*\*|\r|\n|$)') -Because 'the refreshed banner must carry the new name'
+        Assert-True ($content -match 'v2026\.09\.01') -Because 'the refreshed banner must carry the new version'
+        Assert-Equal -Expected $geometry -Actual ((Get-Layout -Dashboard $doc).Values -join '|') `
+            -Because 'a text refresh must not move the board a second time'
     }
 
     It 'stamps nothing rather than an empty identity' {
         if (-not $script:Python) { Set-ItResult -Skipped -Because 'python3 is not installed on this host'; return }
 
         # A seed that could not resolve a name leaves the file absent or its
-        # value empty. A tile reading "v" over a blank line claims an identity
-        # nobody can act on; no tile at least says nothing.
+        # value empty. A banner reading a bare "v" claims an identity nobody
+        # can act on; no banner at least says nothing.
         $dir = Get-DashboardFixture -Dashboard $script:RealDashboards
         Invoke-Brander -DashboardDir $dir -NoEnvFile | Out-Null
         $doc = Get-Content -Raw (Join-Path $dir 'pool.json') | ConvertFrom-Json
@@ -380,14 +434,14 @@ Describe 'the brand tile is safe to re-run' {
     }
 }
 
-Describe 'the brand tile survives a layout it cannot narrow' {
+Describe 'the brand banner leaves a layout it did not write alone' {
 
-    It 'gives itself a row when the first row opens with a row header' {
+    It 'moves a dashboard that opens with a row header down whole' {
         if (-not $script:Python) { Set-ItResult -Skipped -Because 'python3 is not installed on this host'; return }
 
         # The community Zot dashboard is fetched from grafana.com at build time,
         # so its layout is not ours to predict. A row header spans the full
-        # width and is not a panel that can be narrowed.
+        # width and leaves nothing beside it; a band above it needs nothing.
         $dir = Get-DashboardFixture -Dashboard @{ 'rowfirst' = @'
 {"title":"row first","panels":[
   {"id":1,"type":"row","gridPos":{"x":0,"y":0,"w":24,"h":1}},
@@ -397,19 +451,19 @@ Describe 'the brand tile survives a layout it cannot narrow' {
         $doc = Get-Content -Raw (Join-Path $dir 'rowfirst.json') | ConvertFrom-Json
 
         $brand = Get-BrandPanel -Dashboard $doc
-        Assert-True ($null -ne $brand) -Because 'the tile must still land'
-        Assert-Equal -Expected 0 -Actual $brand.gridPos.y -Because 'the tile takes the first row'
+        Assert-True ($null -ne $brand) -Because 'the banner must still land'
+        Assert-Equal -Expected 0 -Actual $brand.gridPos.y -Because 'the banner takes the top band'
         $row = @($doc.panels | Where-Object { $_.type -eq 'row' })[0]
-        Assert-Equal -Expected $script:BrandH -Actual $row.gridPos.y -Because 'the row header moves down whole, never narrowed'
+        Assert-Equal -Expected $script:BrandH -Actual $row.gridPos.y -Because 'the row header moves down whole'
         Assert-Equal -Expected 24 -Actual $row.gridPos.w -Because 'a row header spans the full width'
     }
 
-    It 'gives itself a row rather than squeezing tiles into illegibility' {
+    It 'leaves a crowded first row at the widths it was written with' {
         if (-not $script:Python) { Set-ItResult -Skipped -Because 'python3 is not installed on this host'; return }
 
-        # Twelve two-unit tiles have nothing left to give: narrowing them to fit
-        # the tile would leave every one of them showing an ellipsis instead of
-        # a number, which is a worse trade than one row of vertical space.
+        # Twelve two-unit tiles have nothing to give: any of them narrowed shows
+        # an ellipsis instead of a number, which is why the banner asks for
+        # height it can always have rather than width it sometimes cannot.
         $panels = (0..11 | ForEach-Object {
             '{"id":' + $_ + ',"type":"stat","gridPos":{"x":' + ($_ * 2) + ',"y":0,"w":2,"h":3}}'
         }) -join ','
@@ -417,9 +471,9 @@ Describe 'the brand tile survives a layout it cannot narrow' {
         Invoke-Brander -DashboardDir $dir | Out-Null
         $doc = Get-Content -Raw (Join-Path $dir 'crowded.json') | ConvertFrom-Json
 
-        Assert-True ($null -ne (Get-BrandPanel -Dashboard $doc)) -Because 'the tile must still land'
+        Assert-True ($null -ne (Get-BrandPanel -Dashboard $doc)) -Because 'the banner must still land'
         foreach ($p in $doc.panels | Where-Object { $_.type -eq 'stat' }) {
-            Assert-Equal -Expected 2 -Actual $p.gridPos.w -Because 'a tile that cannot be narrowed must not be'
+            Assert-Equal -Expected 2 -Actual $p.gridPos.w -Because 'a stat tile must keep the width it was given'
             Assert-Equal -Expected $script:BrandH -Actual $p.gridPos.y -Because 'the row moves down instead'
         }
     }
@@ -439,6 +493,37 @@ Describe 'the brand tile survives a layout it cannot narrow' {
             -Because 'an unparseable file must be left as it was'
         Assert-True ((Get-Content -Raw (Join-Path $dir 'pool.json')) -match 'yuruna-brand') `
             -Because 'the dashboards beside it must still be branded'
+    }
+}
+
+Describe 'the panel autofit stacks below the banner' {
+
+    It 'sizes the per-host panels without climbing into the banner or the tiles' {
+        if (-not $script:Python) { Set-ItResult -Skipped -Because 'python3 is not installed on this host'; return }
+
+        # Two scripts own parts of the same file: the banner takes the top band
+        # and moves everything down, the autofit re-stacks the three per-host
+        # panels below the summary tiles. An autofit that stacked from a height
+        # it had been told rather than one it read would put the tables over the
+        # tiles the moment the banner moved them.
+        $dir  = Get-DashboardFixture -Dashboard @{ 'pool' = $script:RealDashboards['pool'] }
+        $pool = Join-Path $dir 'pool.json'
+        Invoke-Brander -DashboardDir $dir | Out-Null
+        Invoke-Fitter -DashboardPath $pool | Out-Null
+
+        $doc   = Get-Content -Raw $pool | ConvertFrom-Json
+        $brand = Get-BrandPanel -Dashboard $doc
+        Assert-Equal -Expected 0 -Actual $brand.gridPos.y -Because 'the autofit must not move the banner'
+        $clashes = @(Get-GridOverlap -Dashboard $doc)
+        Assert-Equal -Expected 0 -Actual $clashes.Count -Because "the fitted dashboard overlaps: $($clashes -join '; ')"
+
+        # The stack begins where the tiles end, wherever the banner has put them.
+        $tiles = @($doc.panels | Where-Object { $_.type -eq 'stat' } |
+            ForEach-Object { $_.gridPos.y + $_.gridPos.h } | Sort-Object -Unique)
+        $stack = @($doc.panels | Where-Object { $_.id -in 6, 7, 17 } |
+            ForEach-Object { $_.gridPos.y } | Sort-Object)
+        Assert-Equal -Expected ($tiles[-1]) -Actual $stack[0] `
+            -Because 'the per-host stack must start immediately below the summary tiles'
     }
 }
 
@@ -530,7 +615,7 @@ Describe 'the seeded identity names the enlistment the VM was built from' {
 Describe 'every host that builds a cache VM seeds the identity into it' {
 
     It 'passes both halves from all three New-VM.ps1 scripts' {
-        # The tile is only as correct as the values the seed is rendered with,
+        # The banner is only as correct as the values the seed is rendered with,
         # and New-CloudInitUserData throws on a placeholder no caller supplied,
         # so a host that forgets one cannot build a proxy at all.
         foreach ($host_ in @('ubuntu.kvm', 'windows.hyper-v', 'macos.utm')) {

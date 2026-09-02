@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 42a337f9-dcb7-4dfa-9c51-9ddba462035e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -64,6 +64,12 @@ $defaultDownloadDir = "C:\ProgramData\Microsoft\Windows\Virtual Hard Disks"
 $fidoUrl        = "https://raw.githubusercontent.com/pbatard/Fido/v1.70/Fido.ps1"
 $fidoSha256     = "24c86067fa399d2fd75ef0693a2ec79ca8db162827f808caac03541cbf640c13"
 $languageFilter = "English"
+
+# Fido is external code on its own release cadence, never enlistment content: a
+# copy sitting next to this script would be scanned as repository source and is
+# one `git add` away from being committed. Clear any that is present -- the
+# verified copy this run executes is fetched to a temp directory below.
+Remove-Item -LiteralPath (Join-Path $PSScriptRoot 'Fido.ps1') -Force -ErrorAction SilentlyContinue
 
 function Show-ManualDownloadInstruction {
     param([string]$TargetPath, [string]$TargetDir)
@@ -139,10 +145,24 @@ if ($downloadDir -ne $defaultDownloadDir -and (Test-Path -LiteralPath $baseImage
     exit 0
 }
 
-# Check if a Windows 11 ISO was placed in the download directory with any name
-$existingIso = Get-ChildItem -Path $downloadDir -Filter "Win11*.iso" -ErrorAction SilentlyContinue | Select-Object -First 1
+# Check if a Windows 11 ISO was placed in the download directory with any name.
+# The architecture predicate is not optional: Hyper-V has no cross-architecture
+# emulation, and an ISO for the other architecture is adopted, renamed to the
+# host-standard name and then handed to New-VM, which does not re-check it. The
+# guest boots to a firmware screen that says nothing about architecture, so the
+# mismatch surfaces as an OCR timeout tens of minutes later rather than here.
+# The two directions are deliberately asymmetric. Microsoft always spells ARM64
+# media with "Arm64" in the file name, so an ARM64 host can demand that token.
+# An AMD64 host cannot demand "x64" in return: a hand-renamed or
+# differently-published x64 ISO carries no architecture token at all, and
+# requiring one would refuse media that has always been accepted here. Absence
+# of an ARM token is the test that direction can actually make.
+$adoptArchPattern = if ($hostArch -eq 'arm64') { '(?i)arm' } else { '(?i)^(?!.*arm).+' }
+$existingIso = Get-ChildItem -Path $downloadDir -Filter "Win11*.iso" -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -match $adoptArchPattern } |
+    Select-Object -First 1
 if ($existingIso) {
-    Write-Output "Found Windows 11 ISO: $($existingIso.FullName)"
+    Write-Output "Found Windows 11 $hostArch ISO: $($existingIso.FullName)"
     Write-Output "Renaming to: $baseImageFile"
     $previousFile = Join-Path $downloadDir "$baseImageName.previous.iso"
     Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
@@ -182,9 +202,15 @@ if ((Get-Command -Name Resolve-DownloadAgentEndpoint -ErrorAction SilentlyContin
         $agentResult = $null
         try {
             Remove-Item $agentStagingFile -Force -ErrorAction SilentlyContinue
+            # ExpectedFilenamePattern for the same reason the adopt-any-name
+            # filter above carries one: an answer naming the other
+            # architecture's media is staged under the host-standard name and
+            # New-VM does not re-check it, so the mismatch only shows up as a
+            # guest that never installs.
             $agentResult = Request-DownloadAgentImage -BaseUrl $agentBaseUrl -HostType 'windows.hyper-v' `
                 -ImageKey 'guest.windows.11' -Arch $hostArch -Variant 'stable' `
-                -StagingPath $agentStagingFile -DeadlineSeconds 7200
+                -StagingPath $agentStagingFile -DeadlineSeconds 7200 `
+                -ExpectedFilenamePattern $adoptArchPattern
         } catch {
             Write-Warning "Download agent at $agentBaseUrl failed ($($_.Exception.Message)); falling back to the Fido path."
             $agentResult = $null
@@ -222,11 +248,17 @@ if ($agentIsoServed) { exit 0 }
 # --- REGION: Try Fido (automated)
 Write-Output ""
 Write-Output "--- Attempting automated download via Fido ---"
-$fidoScript = Join-Path $PSScriptRoot "Fido.ps1"
+# Fetched per run into a throwaway directory: the only copy that executes is
+# the one this invocation just fetched and hash-verified, and no external code
+# is left behind in the enlistment. The finally below clears the directory
+# whichever way this block leaves -- including the `exit 0` on success.
+$fidoWork   = Join-Path ([System.IO.Path]::GetTempPath()) ('yuruna-fido-' + [Guid]::NewGuid().ToString('N'))
+$fidoScript = Join-Path $fidoWork "Fido.ps1"
 $downloadUrl  = $null
 $downloadFile = $null
 
 try {
+    New-Item -ItemType Directory -Path $fidoWork -Force -ErrorAction Stop | Out-Null
     Write-Output "[Step 1/3] Downloading Fido script..."
     Write-Output "  URL: $fidoUrl"
     Invoke-WebRequest -Uri $fidoUrl -OutFile $fidoScript -UseBasicParsing -ErrorAction Stop
@@ -316,6 +348,8 @@ try {
     if ($downloadFile -and (Test-Path $downloadFile)) {
         Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
     }
+} finally {
+    Remove-Item -LiteralPath $fidoWork -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 # --- REGION: Fallback: manual download instructions

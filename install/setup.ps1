@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 42801635-2de0-4574-8b48-dbac5d2347c2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -2289,7 +2289,7 @@ function Write-SetupReport {
         Write-SetupMessage 'Skipped:'
         foreach ($s in $Script:Skipped) { Write-SetupMessage "  - $s" }
     }
-    # Printed, and not counted towards the exit code. A warning the closing report
+    # Printed, and not counted toward the exit code. A warning the closing report
     # never shows is a warning that scrolled past twenty minutes ago, which is how
     # a host settles into running permanently degraded while every run says it is
     # set up.
@@ -2298,7 +2298,7 @@ function Write-SetupReport {
         Write-SetupMessage 'Done, with something still unmet:'
         foreach ($w in $Script:Warned) { Write-SetupMessage "  - $w" }
     }
-    # Between Skipped and Failed, and never counted towards the exit code: a
+    # Between Skipped and Failed, and never counted toward the exit code: a
     # blocked step is the CONSEQUENCE of a failure that is already in the Failed
     # list, so counting it again would report one broken thing as two.
     if ($Script:Blocked.Count -gt 0) {

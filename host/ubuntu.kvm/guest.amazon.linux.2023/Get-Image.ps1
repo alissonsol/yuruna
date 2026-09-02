@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 42c371c0-e0ee-4286-a715-488384b98c2a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -83,6 +83,9 @@ if ((Get-Command -Name Resolve-DownloadAgentEndpoint -ErrorAction SilentlyContin
             Variant         = 'stable'
             StagingPath     = $downloadFile
             DeadlineSeconds = 7200
+            # Both KVM platforms publish a native qcow2; anything else would be
+            # promoted to the base image as-is and fail at first boot.
+            ExpectedFilenamePattern = '\.qcow2$'
         }
         if ((Test-Path -LiteralPath $baseImageFile) -and (Test-Path -LiteralPath $baseImageOrigin)) {
             $sentinelLines = @(Get-Content -LiteralPath $baseImageOrigin -ErrorAction SilentlyContinue)

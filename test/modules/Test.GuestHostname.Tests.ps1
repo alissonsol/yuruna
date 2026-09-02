@@ -192,10 +192,30 @@ Describe 'agetty nudge ordering -- the redraw precedes the wait it unblocks' {
         # Only sequences that carry BOTH a redraw nudge and a login wait are in
         # scope; the rest have nothing to order.
         $nudge = [regex]::Match($src, '(?m)^\s*-\s*action:\s*pressKey\s*$.*?redraw a fresh login', 'Singleline')
-        $wait  = [regex]::Match($src, '(?m)^\s*-\s*action:\s*waitForText\s*$\s*\n\s*pattern:\s*"login:"')
+        $wait  = [regex]::Match($src, '(?m)^\s*-\s*action:\s*(?:waitForText|waitForTextWithNudge)\s*$\r?\n\s*pattern:\s*"[^"]*login:"')
         if (-not ($nudge.Success -and $wait.Success)) { return }
         Assert-True ($nudge.Index -lt $wait.Index) `
             ("$name waits for 'login:' before nudging agetty; a prompt already scrolled away can never appear, " +
              'and a retry restarts at the wait so the nudge below it is unreachable')
+    }
+}
+
+Describe 'agetty periodic redraw -- Ubuntu cold installs keep one wait deadline' {
+    It 'nudges inside the 1800-second login wait in <name>' -TestCases @(
+        @{ name = 'Ubuntu Server 24'; path = Join-Path $discoveryRepoRoot 'test/sequences/start.guest.ubuntu.server.24.yml' }
+        @{ name = 'Ubuntu Server 26'; path = Join-Path $discoveryRepoRoot 'test/sequences/start.guest.ubuntu.server.26.yml' }
+    ) {
+        param($name, $path)
+        $src = Get-Content -Raw -LiteralPath $path
+        $wait = [regex]::Match($src, '(?ms)^\s*-\s*action:\s*waitForTextWithNudge\s*\r?\n(?<body>.*?^\s*description:\s*"OCR:\s*\$\{hostLabel\}\s+login:"\s*$)')
+        Assert-True $wait.Success "$name must use the bounded periodic-nudge login wait"
+        $body = $wait.Groups['body'].Value
+        Assert-True ($body -match '(?m)^\s*timeoutSeconds:\s*1800\s*$') "$name must preserve the existing per-attempt install budget"
+        Assert-True ($body -match '(?m)^\s*nudgeKey:\s*Enter\s*$') "$name must redraw agetty with Enter"
+        Assert-True ($body -match '(?m)^\s*nudgeIntervalSeconds:\s*60\s*$') "$name must recover a hidden prompt within about one minute"
+        Assert-True ($body -match '(?m)^\s*freshMatch:\s*true\s*$') "$name must not match stale installer-console residue"
+        foreach ($failurePattern in 'install_fail.crash', 'Press enter to start a shell', 'An error occurred') {
+            Assert-True ($body -match [regex]::Escape($failurePattern)) "$name must retain installer fast-fail pattern '$failurePattern'"
+        }
     }
 }

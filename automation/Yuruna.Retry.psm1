@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 4257205b-1908-49c3-840b-b2b3559b3337
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -65,7 +65,21 @@ $script:RetryDefaults = @{
 # a bare 500; "unexpected EOF", a trailing ": EOF") while embedded digits
 # ("1500", "2500") and EOF inside an unrelated token (EOFError in a stack trace)
 # do not.
-$script:TransientFailurePattern = '(?i)(failed to fetch|i/o timeout|no such host|connection refused|connection reset|client\.timeout|\bEOF\b|TLS handshake|temporary failure|\b(?:429|500|502|503|504)\b|too many requests|error acquiring the state lock|ConditionalCheckFailedException)'
+#
+# A refused connection reaches this classifier in two unrelated wordings, and
+# matching only the Go-runtime one leaves the tool this policy exists to cover
+# failing fast on the very symptom it is meant to ride out. Go prints the
+# errno form, "connect: connection refused"; kubectl catches the same errno
+# and reformats it around the URL's host -- "The connection to the server
+# <host> was refused - did you specify the right host or port?" -- which shares
+# no contiguous substring with the first. Both name a peer that was not
+# listening, which is what a restarting proxy or registry looks like.
+#
+# "server misbehaving" is the Go resolver's wording for an upstream that
+# answered with neither a record nor a clean NXDOMAIN. It is transient for the
+# same reason "no such host" beside it is: a resolver that is coming back
+# answers on a later attempt.
+$script:TransientFailurePattern = '(?i)(failed to fetch|i/o timeout|no such host|server misbehaving|connection refused|connection to the server \S+ was refused|connection reset|client\.timeout|\bEOF\b|TLS handshake|temporary failure|\b(?:429|500|502|503|504)\b|too many requests|error acquiring the state lock|ConditionalCheckFailedException)'
 
 <#
 .SYNOPSIS

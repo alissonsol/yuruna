@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 421a49fd-aa32-431c-979f-99704a673b48
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -653,9 +653,9 @@ Export-ModuleMember -Function `
     Register-HostConditionProvider, Get-HostConditionProvider, Get-HostConditionProviderMatrix, Clear-HostConditionProvider, `
     Assert-HostConditionSet, Test-HostGuestNetworkHealth, Initialize-HostDisplay, Remove-HostDisplay, `
     Get-HostClockSkew, Get-HostClockSkewLimit, Write-HostClockDriftWarning, Reset-HostClockReport, Sync-HostClock, `
-    Assert-ScreenLock, Get-MacScreenLockIssue, Initialize-SudoCache, `
+    Assert-ScreenLock, Get-MacScreenLockIssue, Get-MacDisplayScaleProfile, Get-MacDisplayScaleIssue, Initialize-SudoCache, `
     Get-MacPmsetGuardList, Set-MacHostConditionSet, Set-MacUtmctlLink, Get-MacUtmctlRemediation, Set-MacScreenLockState, Get-MacScreenLockManualCommand, `
     Get-MacSessionKind, Get-MacTccSubjectName, Get-MacOperatorGrant, Get-MacOperatorGrantState, Get-MacOperatorGrantInstruction, Assert-MacOperatorGrant, Invoke-MacOperatorGrantAssist, `
     Assert-Accessibility, Assert-ScreenRecording, Assert-MacHostConditionSet, Test-MacHostMinimum, Sync-MacHostClock, `
-    Set-WindowsHostConditionSet, Assert-WindowsHostConditionSet, Test-WindowsHostMinimum, Test-WindowsGuestNetworkHealth, Sync-WindowsHostClock, `
+    Set-WindowsHostConditionSet, Assert-WindowsHostConditionSet, Test-WindowsHostMinimum, Test-WindowsGuestNetworkHealth, Sync-WindowsHostClock, Get-WindowsDisplayScaleSetting, Get-WindowsDisplayScaleIssue, `
     Assert-LinuxHostConditionSet, Test-LinuxHostMinimum, Sync-LinuxHostClock

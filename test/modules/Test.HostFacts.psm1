@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 42d14c70-0d75-4092-84e4-29debef3a34b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -439,7 +439,10 @@ function Get-MacStorageVolume {
     [OutputType([pscustomobject[]])]
     param()
     $device = @{}
-    foreach ($row in (ConvertFrom-MacMountTable -Line (& mount 2>$null))) {
+    # `/sbin/mount` path-qualified so PSScriptAnalyzer's PSAvoidUsingCmdletAliases
+    # doesn't confuse it with the `mount` alias for New-PSDrive, which exists on
+    # Windows. Only macOS reaches here, where that path is the real binary.
+    foreach ($row in (ConvertFrom-MacMountTable -Line (& '/sbin/mount' 2>$null))) {
         $device[(Get-MountPointKey -Path $row.MountPoint)] = $row
     }
     # One verdict per pool: the same container backs several mounts, and

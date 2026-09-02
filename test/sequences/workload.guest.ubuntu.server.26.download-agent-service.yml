@@ -42,10 +42,39 @@ component:
         text: "${ext:authentication.GetPassword(${username})}"
         description: "OCR: Password:"
 
+  # Prove a shell exists before typing a workload at it, by making it compute
+  # something agetty cannot. A prompt-shaped pattern cannot do this job: OCR
+  # matching splits on the characters it strips, "@" included, and accepts
+  # segments in any order, so "user@host" is satisfied by the line "host
+  # login: user"; and normalization folds "." onto ":", so the colon a shell
+  # prints before its working directory is also present in the /etc/issue
+  # banner of any guest whose name carries a dot. agetty echoes a typed line
+  # verbatim and can produce nothing else, so the expanded token is the proof.
+  # It carries no character the matcher splits on, which keeps segment
+  # matching out of it and leaves order enforced.
+  - action: waitForSeconds
+    seconds: 3
+    description: "Let the login shell finish drawing before typing at it"
+
+  # The leading space is a sacrificial character. On an ARM64 Hyper-V host the
+  # first keystroke sent to a console that has just come up is dropped -- the
+  # console shows "echo" arriving as "cho" and the shell answering "Command
+  # 'cho' not found" -- and one lost character is enough to turn any typed
+  # command into a different one. A space absorbs that loss: dropped, the
+  # command still starts at "echo"; delivered, the shell ignores leading
+  # whitespace. It costs nothing on a host that does not drop it. Being the
+  # first thing typed after a login, this step also absorbs the loss on
+  # behalf of every step below it, which type commands that a missing first
+  # character would quietly turn into different ones.
+  - action: inputTextAndEnter
+    text: " echo yuruna_$(seq -s '' 1 9)_ok"
+    description: "Ask the shell to expand a token agetty cannot"
+
   - action: waitForText
-    pattern: "${username}@${hostname}"
+    pattern: "yuruna_123456789_ok"
     timeoutSeconds: 90
-    description: "OCR: ${username}@${hostname}"
+    freshMatch: true
+    description: "OCR: yuruna_123456789_ok"
 
 workload:
   - action: fetchAndExecute

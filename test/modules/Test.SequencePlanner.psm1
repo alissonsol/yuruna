@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 423c7308-8393-45aa-a74f-97c52bf1c3df
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -362,6 +362,7 @@ function Add-CyclePlanEntriesForTopLevel {
         # New-VM.ps1 on its built-in default.
         $effectiveMemoryStartupBytes = if ($effectiveVars.Contains('memoryStartupBytes')) { [string]$effectiveVars['memoryStartupBytes'] } else { '' }
         $effectiveCores    = if ($effectiveVars.Contains('cores')) { [string]$effectiveVars['cores'] } else { '' }
+        $effectiveExposeVirtualizationExtensions = if ($effectiveVars.Contains('exposeVirtualizationExtensions')) { [string]$effectiveVars['exposeVirtualizationExtensions'] } else { '' }
         $Entries.Add([pscustomobject]@{
             topLevel            = $TopName
             guestKey            = $guestKey
@@ -373,6 +374,7 @@ function Add-CyclePlanEntriesForTopLevel {
             effectiveHostname   = $effectiveHostname
             effectiveMemoryStartupBytes = $effectiveMemoryStartupBytes
             effectiveCores      = $effectiveCores
+            effectiveExposeVirtualizationExtensions = $effectiveExposeVirtualizationExtensions
             keystrokeMechanism  = $guestKsm
         })
     }
@@ -598,6 +600,7 @@ function Get-CyclePlanSequencesForGuest {
     # VM sizing overrides merge under the same first-appearance rule as username.
     $mergedMemoryStartupBytes = ''
     $mergedCores    = ''
+    $mergedExposeVirtualizationExtensions = ''
     # Per-guest keystrokeMechanism (set only on pool/test-set plans). First
     # non-null across this guest's entries wins -- same first-appearance rule as
     # effectiveUsername. $null on the legacy single-host path (the field is absent
@@ -620,6 +623,7 @@ function Get-CyclePlanSequencesForGuest {
         if (-not $mergedHostname -and ($e.PSObject.Properties.Name -contains 'effectiveHostname') -and $e.effectiveHostname) { $mergedHostname = $e.effectiveHostname }
         if (-not $mergedMemoryStartupBytes -and ($e.PSObject.Properties.Name -contains 'effectiveMemoryStartupBytes') -and $e.effectiveMemoryStartupBytes) { $mergedMemoryStartupBytes = $e.effectiveMemoryStartupBytes }
         if (-not $mergedCores -and ($e.PSObject.Properties.Name -contains 'effectiveCores') -and $e.effectiveCores) { $mergedCores = $e.effectiveCores }
+        if (-not $mergedExposeVirtualizationExtensions -and ($e.PSObject.Properties.Name -contains 'effectiveExposeVirtualizationExtensions') -and $e.effectiveExposeVirtualizationExtensions) { $mergedExposeVirtualizationExtensions = $e.effectiveExposeVirtualizationExtensions }
         if (-not $mergedKsm -and ($e.PSObject.Properties.Name -contains 'keystrokeMechanism') -and $e.keystrokeMechanism) { $mergedKsm = $e.keystrokeMechanism }
     }
     return @{
@@ -630,6 +634,7 @@ function Get-CyclePlanSequencesForGuest {
         effectiveHostname   = $mergedHostname
         effectiveMemoryStartupBytes = $mergedMemoryStartupBytes
         effectiveCores      = $mergedCores
+        effectiveExposeVirtualizationExtensions = $mergedExposeVirtualizationExtensions
         keystrokeMechanism  = $mergedKsm
     }
 }
@@ -645,7 +650,8 @@ function Get-CyclePlanSequencesForGuest {
     have emitted for that sequence:
       topLevel / guestKey / fullChain / startSequences / workloadSequences
       / effectiveVariables / effectiveUsername / effectiveHostname
-      / effectiveMemoryStartupBytes / effectiveCores / chainPaths
+      / effectiveMemoryStartupBytes / effectiveCores
+      / effectiveExposeVirtualizationExtensions / chainPaths
 
     When the named sequence has no `baseline:` block (rare -- the framework
     convention is that every workload declares the prereq it needs), the
@@ -707,6 +713,7 @@ function Resolve-NamedSequenceChain {
         $hname = if ($vars -is [System.Collections.IDictionary] -and $vars.Contains('hostname')) { [string]$vars['hostname'] } else { '' }
         $mem   = if ($vars -is [System.Collections.IDictionary] -and $vars.Contains('memoryStartupBytes')) { [string]$vars['memoryStartupBytes'] } else { '' }
         $cores = if ($vars -is [System.Collections.IDictionary] -and $vars.Contains('cores')) { [string]$vars['cores'] } else { '' }
+        $exposeVirt = if ($vars -is [System.Collections.IDictionary] -and $vars.Contains('exposeVirtualizationExtensions')) { [string]$vars['exposeVirtualizationExtensions'] } else { '' }
         $paths = [ordered]@{ $SequenceName = $topPath }
         return [pscustomobject]@{
             topLevel            = $SequenceName
@@ -719,6 +726,7 @@ function Resolve-NamedSequenceChain {
             effectiveHostname   = $hname
             effectiveMemoryStartupBytes = $mem
             effectiveCores      = $cores
+            effectiveExposeVirtualizationExtensions = $exposeVirt
             chainPaths          = $paths
         }
     }
@@ -775,6 +783,7 @@ function Resolve-NamedSequenceChain {
     $effectiveHostname = if ($effectiveVars.Contains('hostname')) { [string]$effectiveVars['hostname'] } else { '' }
     $effectiveMemoryStartupBytes = if ($effectiveVars.Contains('memoryStartupBytes')) { [string]$effectiveVars['memoryStartupBytes'] } else { '' }
     $effectiveCores    = if ($effectiveVars.Contains('cores')) { [string]$effectiveVars['cores'] } else { '' }
+    $effectiveExposeVirtualizationExtensions = if ($effectiveVars.Contains('exposeVirtualizationExtensions')) { [string]$effectiveVars['exposeVirtualizationExtensions'] } else { '' }
 
     return [pscustomobject]@{
         topLevel            = $SequenceName
@@ -787,6 +796,7 @@ function Resolve-NamedSequenceChain {
         effectiveHostname   = $effectiveHostname
         effectiveMemoryStartupBytes = $effectiveMemoryStartupBytes
         effectiveCores      = $effectiveCores
+        effectiveExposeVirtualizationExtensions = $effectiveExposeVirtualizationExtensions
         chainPaths          = $paths
     }
 }

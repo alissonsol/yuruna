@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 42b84cc3-7873-4cc2-800e-3d90a4776081
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,6 +38,12 @@ $spiceDownloadUrl = "https://getutm.app/downloads/utm-guest-tools-latest.iso"
 $fidoUrl = "https://raw.githubusercontent.com/pbatard/Fido/v1.70/Fido.ps1"
 $fidoSha256 = "24c86067fa399d2fd75ef0693a2ec79ca8db162827f808caac03541cbf640c13"
 $languageFilter = "English"
+
+# Fido is external code on its own release cadence, never enlistment content: a
+# copy sitting next to this script would be scanned as repository source and is
+# one `git add` away from being committed. Clear any that is present -- the
+# verified copy this run executes is fetched to a temp directory below.
+Remove-Item -LiteralPath (Join-Path $PSScriptRoot 'Fido.ps1') -Force -ErrorAction SilentlyContinue
 
 # Manual download fallback
 $downloadPageUrl = "https://www.microsoft.com/en-us/software-download/windows11arm64"
@@ -149,11 +155,18 @@ if (-not $windowsOk) {
     # --- REGION: Try Fido (automated)
     Write-Output ""
     Write-Output "Attempting automated download via Fido..."
-    $fidoScript = Join-Path $PSScriptRoot "Fido.ps1"
+    # Fetched per run into a throwaway directory: the only copy that executes
+    # is the one this invocation just fetched, hash-verified and then patched
+    # for the platform gate, and no external code -- least of all a patched
+    # copy -- is left behind in the enlistment. The finally below clears the
+    # directory whichever way this block leaves.
+    $fidoWork   = Join-Path ([System.IO.Path]::GetTempPath()) ('yuruna-fido-' + [Guid]::NewGuid().ToString('N'))
+    $fidoScript = Join-Path $fidoWork "Fido.ps1"
     $downloadUrl  = $null
     $downloadFile = $null
 
     try {
+        New-Item -ItemType Directory -Path $fidoWork -Force -ErrorAction Stop | Out-Null
         Write-Output "[Step 1/3] Downloading Fido script..."
         Write-Output "  URL: $fidoUrl"
         Invoke-WebRequest -Uri $fidoUrl -OutFile $fidoScript -UseBasicParsing -ErrorAction Stop
@@ -249,6 +262,8 @@ if (-not $windowsOk) {
         if ($downloadFile -and (Test-Path $downloadFile)) {
             Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
         }
+    } finally {
+        Remove-Item -LiteralPath $fidoWork -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 

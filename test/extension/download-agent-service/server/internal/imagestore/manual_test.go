@@ -46,7 +46,7 @@ func brokenFido(t *testing.T) FidoConfig {
 }
 
 func TestAHandPlacedISOBecomesTheServedArtifact(t *testing.T) {
-	a := newTestAgent(t, Options{PoolDir: t.TempDir(), Fido: brokenFido(t), AgentVersion: "2026.08.25"})
+	a := newTestAgent(t, Options{PoolDir: t.TempDir(), Fido: brokenFido(t), AgentVersion: "2026.09.01"})
 	body := []byte("bytes an operator downloaded from Microsoft by hand")
 	dropFile(t, a.store, windowsID, signedName, body, 10*time.Minute)
 
@@ -186,13 +186,18 @@ func TestTheRowCarriesTheWayOutOnlyWhileItNeedsOne(t *testing.T) {
 		Fido:            brokenFido(t),
 	})
 
+	// A both-arch host type carries a row per arch, and the wording below is the
+	// amd64 one; TestAnArm64RowIsSentToTheArm64Download covers its counterpart.
 	rows, _ := a.Catalog(fixedNow)
 	var win, ubuntu *CatalogEntry
 	for i := range rows {
-		switch {
-		case rows[i].ImageKey == KeyWindows11 && rows[i].HostType == HostTypeHyperV:
+		if rows[i].HostType != HostTypeHyperV || rows[i].Arch != ArchAMD64 {
+			continue
+		}
+		switch rows[i].ImageKey {
+		case KeyWindows11:
 			win = &rows[i]
-		case rows[i].ImageKey == KeyUbuntuServer26 && rows[i].HostType == HostTypeHyperV:
+		case KeyUbuntuServer26:
 			ubuntu = &rows[i]
 		}
 	}

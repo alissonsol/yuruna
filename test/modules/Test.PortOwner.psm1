@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 4238bc78-c11a-402a-968a-b632c68efcf0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -496,8 +496,12 @@ function Stop-ProcessWithElevation {
         [switch]$AsRoot
     )
     $PSNativeCommandUseErrorActionPreference = $false
-    if ($AsRoot) { & kill "-$Signal" @ProcessId 2>$null | Out-Null }
-    else         { & sudo -n kill "-$Signal" @ProcessId 2>$null | Out-Null }
+    # `/bin/kill` path-qualified so PSScriptAnalyzer's PSAvoidUsingCmdletAliases
+    # doesn't confuse it with the `kill` alias for Stop-Process, which exists on
+    # Windows -- and which would be the wrong call anyway, since it cannot send
+    # SIGTERM separately from SIGKILL. Windows returns before this is reached.
+    if ($AsRoot) { & '/bin/kill' "-$Signal" @ProcessId 2>$null | Out-Null }
+    else         { & sudo -n '/bin/kill' "-$Signal" @ProcessId 2>$null | Out-Null }
 }
 
 function Invoke-PortTakeover {

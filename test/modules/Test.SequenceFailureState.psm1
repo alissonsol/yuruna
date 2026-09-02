@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 428d5583-549b-428b-9150-dfe8fe3266a4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -167,6 +167,8 @@ function New-SequenceFailureRecord {
     [OutputType([hashtable])]
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Pure builder: constructs and returns the failure record; changes no system state.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
+        Justification = 'global:__YurunaCycleIdentity / __YurunaCycleFolder are the cross-module cycle handles set by Start-LogFile; read here to stamp the cycle identity on the failure record.')]
     param(
         [Parameter(Mandatory)][ValidateSet('step', 'crash')][string]$Reason,
         [Parameter(Mandatory)][string]$VMName,
@@ -345,8 +347,26 @@ function New-SequenceFailureRecord {
 
     $tsFile        = (Get-Date).ToUniversalTime().ToString('yyyy-MM-dd HH:mm:ss')
     $tsEvent       = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
-    $failScreenName = "failure_screenshot_${VMName}.png"
-    $failOcrName    = "failure_ocr_${VMName}.txt"
+    # Cycle-dir-relative, naming where the artifacts actually land. The flat
+    # root-level form these carried was keyed only by VM name, so every cycle
+    # that failed on the same guest rewrote the same two files: a pointer read
+    # later could resolve to a DIFFERENT cycle's screenshot and give no sign
+    # that it had, which is worse than a path that resolves to nothing.
+    $failScreenName = "$VMName/failure_screenshot.png"
+    $failOcrName    = "$VMName/failure_ocr.txt"
+
+    # The cycle's stable identity, the same string the NDJSON stream stamps on
+    # every record, so a consumer holding this file can join it to the events
+    # and locate the folder on disk. The shared log ROOT was neither of those:
+    # it is identical for every cycle on the host, so it identified nothing and
+    # pointed at a directory containing all of them.
+    $cycleIdentity = if ($global:__YurunaCycleIdentity) {
+        [string]$global:__YurunaCycleIdentity
+    } elseif ($global:__YurunaCycleFolder -and (Get-Command Get-CycleFolderIdentity -ErrorAction SilentlyContinue)) {
+        Get-CycleFolderIdentity -Path $global:__YurunaCycleFolder
+    } else {
+        $LogDir
+    }
 
     if ($Reason -eq 'crash') {
         $file = [ordered]@{
@@ -412,7 +432,7 @@ function New-SequenceFailureRecord {
                 hostType              = $HostType
                 matchedFailurePattern = $matchedFailPattern
                 sequencePath          = $SequencePath
-                cycleFolder           = $LogDir
+                cycleFolder           = $cycleIdentity
                 failureScreenshotPath = $failScreenName
                 failureOcrPath        = $failOcrName
                 # What was on screen vs what was sought at the wait/OCR failure

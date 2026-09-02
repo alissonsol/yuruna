@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 4204dc0d-3f1d-4015-b639-9480d7186c23
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -592,6 +592,9 @@ chmod +x "$stubdir"/*
 export YRN_STUB_LOG="$stubdir/calls.log"; : > "$YRN_STUB_LOG"
 PATH="$stubdir:$PATH"
 YURUNA_NET_SYSFS="$root"
+# The settle between reload and reconfigure is what this case is NOT about;
+# zero keeps the dispatch assertion off the wall clock.
+YURUNA_NET_RELOAD_SETTLE_SECONDS=0
 YRN_HAS_V4=1 yuruna_net_repair_ipv4 >/dev/null
 echo "WITH_V4:$(grep -c reconfigure "$YRN_STUB_LOG")"
 : > "$YRN_STUB_LOG"
@@ -603,6 +606,75 @@ rm -rf "$root" "$stubdir"
         if ($null -eq $out) { Set-ItResult -Skipped -Because 'bash is unavailable'; return }
         Assert-True ($out -match 'WITH_V4:0')    'a held lease must not be re-kicked'
         Assert-True ($out -match 'WITHOUT_V4:1') 'an addressless physical link must be reconfigured'
+    }
+
+    It 'waits for the reload to land an address before reconfiguring on top of it' {
+        # networkctl reload re-runs acquisition on any link whose configuration
+        # changed, so acquisition can still be in flight when it returns.
+        # Reconfiguring on top of that restarts a DHCP client that is
+        # mid-configuration: networkd then settles at "degraded (configuring)"
+        # holding the lease's DNS but no address and no route, believing it has
+        # finished asking, so nothing retries. The repair would be manufacturing
+        # the state it exists to clear. The address here lands on the third
+        # look, which must produce no reconfigure at all.
+        $fn = Get-ShellFunctionText -Path $script:netLib -Name '_yuruna_net_sudo', '_yuruna_net_is_physical', 'yuruna_net_repair_ipv4'
+        $driver = @'
+
+root=$(mktemp -d)
+mkdir -p "$root/enfixture0/device"
+stubdir=$(mktemp -d)
+printf '#!/bin/bash\necho "networkctl $*" >> "$YRN_STUB_LOG"\nexit 0\n' > "$stubdir/networkctl"
+printf '#!/bin/bash\nexit 1\n' > "$stubdir/nmcli"
+# Empty for the first two looks, an address from the third on -- a lease the
+# reload had already put in flight.
+printf '#!/bin/bash\nn=$(cat "$YRN_IP_CALLS" 2>/dev/null || echo 0)\nn=$((n+1))\necho "$n" > "$YRN_IP_CALLS"\nif [ "$n" -ge 3 ]; then echo "inet 192.0.2.9/24"; fi\nexit 0\n' > "$stubdir/ip"
+printf '#!/bin/bash\n"$@"\n' > "$stubdir/sudo"
+chmod +x "$stubdir"/*
+export YRN_STUB_LOG="$stubdir/calls.log"; : > "$YRN_STUB_LOG"
+export YRN_IP_CALLS="$stubdir/ip.calls"; echo 0 > "$YRN_IP_CALLS"
+PATH="$stubdir:$PATH"
+YURUNA_NET_SYSFS="$root"
+YURUNA_NET_RELOAD_SETTLE_SECONDS=3 yuruna_net_repair_ipv4 > "$stubdir/out.txt"
+echo "RECONFIGURES:$(grep -c reconfigure "$YRN_STUB_LOG")"
+echo "RELOADS:$(grep -c 'networkctl reload' "$YRN_STUB_LOG")"
+grep -q 'address landed' "$stubdir/out.txt" && echo "REPORTED:1" || echo "REPORTED:0"
+rm -rf "$root" "$stubdir"
+'@
+        $out = Invoke-ShellDriver -FunctionText $fn -Driver $driver
+        if ($null -eq $out) { Set-ItResult -Skipped -Because 'bash is unavailable'; return }
+        Assert-True ($out -match 'RELOADS:1')      'the reload must still be issued'
+        Assert-True ($out -match 'RECONFIGURES:0') 'an address that lands during the settle must not be reconfigured away'
+        Assert-True ($out -match 'REPORTED:1')     'a silent wait is indistinguishable from one that never ran'
+    }
+
+    It 'still reconfigures a link the settle leaves address-less' {
+        # The settle must bound the wait, not replace the re-kick: a client in
+        # lost-DISCOVER backoff never lands an address on its own, and that is
+        # the case the repair exists for.
+        $fn = Get-ShellFunctionText -Path $script:netLib -Name '_yuruna_net_sudo', '_yuruna_net_is_physical', 'yuruna_net_repair_ipv4'
+        $driver = @'
+
+root=$(mktemp -d)
+mkdir -p "$root/enfixture0/device"
+stubdir=$(mktemp -d)
+printf '#!/bin/bash\necho "networkctl $*" >> "$YRN_STUB_LOG"\nexit 0\n' > "$stubdir/networkctl"
+printf '#!/bin/bash\nexit 1\n' > "$stubdir/nmcli"
+printf '#!/bin/bash\nexit 0\n' > "$stubdir/ip"
+printf '#!/bin/bash\n"$@"\n' > "$stubdir/sudo"
+chmod +x "$stubdir"/*
+export YRN_STUB_LOG="$stubdir/calls.log"; : > "$YRN_STUB_LOG"
+PATH="$stubdir:$PATH"
+YURUNA_NET_SYSFS="$root"
+start=$(date +%s)
+YURUNA_NET_RELOAD_SETTLE_SECONDS=2 yuruna_net_repair_ipv4 >/dev/null
+echo "ELAPSED:$(( $(date +%s) - start ))"
+echo "RECONFIGURES:$(grep -c reconfigure "$YRN_STUB_LOG")"
+rm -rf "$root" "$stubdir"
+'@
+        $out = Invoke-ShellDriver -FunctionText $fn -Driver $driver
+        if ($null -eq $out) { Set-ItResult -Skipped -Because 'bash is unavailable'; return }
+        Assert-True ($out -match 'RECONFIGURES:1') 'a link with no address after the settle must still be re-kicked'
+        Assert-True ($out -match 'ELAPSED:[2-9]')  'the settle must actually be waited, not skipped'
     }
 
     It 'samples the client state before it restarts the client' {

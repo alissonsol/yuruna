@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 425315a1-f9bf-4a7b-98ca-d7dfb8a509a4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -223,11 +223,30 @@ function Invoke-PoolEventPush {
     )
     $summary = @{ sent = 0; batches = 0; lastStatus = 0; reason = '' }
     try {
-        $eventsFile = Join-Path $CycleFolder 'cycle.events.ndjson'
-        if (-not (Test-Path -LiteralPath $eventsFile)) { $summary.reason = 'no events file'; return $summary }
+        # A cycle that ran host-action stages keeps its child runs' events in
+        # nested/<node>/cycle.events.ndjson, written there so each sub-run's
+        # transcript and its stream stay together. Those records describe
+        # work done inside THIS cycle and carry its identity, so reading only
+        # the top-level file drops the bulk of such a cycle's telemetry --
+        # and drops it invisibly, because the top-level file is always
+        # present and a short stream looks like a short cycle rather than a
+        # truncated one.
+        $eventFiles = [System.Collections.Generic.List[string]]::new()
+        $topFile = Join-Path $CycleFolder 'cycle.events.ndjson'
+        if (Test-Path -LiteralPath $topFile) { $eventFiles.Add($topFile) }
+        $nestedRoot = Join-Path $CycleFolder 'nested'
+        if (Test-Path -LiteralPath $nestedRoot) {
+            foreach ($nf in @(Get-ChildItem -LiteralPath $nestedRoot -Filter 'cycle.events.ndjson' -File -Recurse -ErrorAction SilentlyContinue | Sort-Object FullName)) {
+                $eventFiles.Add($nf.FullName)
+            }
+        }
+        if ($eventFiles.Count -eq 0) { $summary.reason = 'no events file'; return $summary }
         $caPath = Get-PoolCaCertPath -ProxyIp $ProxyIp -RuntimeDir $RuntimeDir -TimeoutSeconds $TimeoutSeconds -Confirm:$false
         if (-not $caPath) { $summary.reason = 'pool CA unavailable (cannot pin -> not pushing the token)'; return $summary }
-        $lines = @(Get-Content -LiteralPath $eventsFile -ErrorAction Stop)
+        # Per-file read is tolerant: one unreadable nested stream must not
+        # cost the cycle the events it can still deliver.
+        $lines = @(foreach ($ef in $eventFiles) { Get-Content -LiteralPath $ef -ErrorAction SilentlyContinue })
+        if ($lines.Count -eq 0) { $summary.reason = 'no events file'; return $summary }
         $batches = Get-PoolPushBatch -Lines $lines -MaxLines $MaxLines
         $ingestUrl = "https://${ProxyIp}:$Port/ingest"
         $refreshed = $false

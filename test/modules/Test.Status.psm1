@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 42994da6-e051-4570-a609-afe6e87fdcf8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -976,7 +976,27 @@ function Get-CycleContext {
     param()
     $raw = $env:YURUNA_CYCLE_CONTEXT
     if ([string]::IsNullOrWhiteSpace($raw)) { return $null }
-    try { return ($raw | ConvertFrom-Json -AsHashtable) } catch { return $null }
+    $ctx = $null
+    try { $ctx = $raw | ConvertFrom-Json -AsHashtable } catch { return $null }
+    if ($null -eq $ctx) { return $null }
+    # cycleStartUtc is published as text and comes back as a [DateTime]:
+    # the JSON reader promotes anything ISO-8601-shaped. Casting that
+    # object to [string] renders it in the process's current culture, so
+    # the correlation key a nested run stamps on its events and status
+    # nodes stops matching the one the owner wrote -- the two describe the
+    # same instant in two different notations, and every join on them
+    # silently returns nothing. Re-normalize at the single point the
+    # coercion happens, so callers keep receiving the string they published.
+    if ($ctx.Contains('cycleStartUtc') -and $ctx['cycleStartUtc'] -is [DateTime]) {
+        $dt = [DateTime]$ctx['cycleStartUtc']
+        # An Unspecified kind is already the UTC instant that was written;
+        # only a Local/Utc value carries an offset worth converting.
+        $utc = if ($dt.Kind -eq [DateTimeKind]::Unspecified) {
+            [DateTime]::SpecifyKind($dt, [DateTimeKind]::Utc)
+        } else { $dt.ToUniversalTime() }
+        $ctx['cycleStartUtc'] = $utc.ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+    }
+    return $ctx
 }
 
 function Publish-CycleContext {

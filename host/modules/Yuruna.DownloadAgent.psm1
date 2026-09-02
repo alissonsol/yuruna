@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 4221a024-d615-4d3e-9f0b-4a285f85b611
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -655,6 +655,45 @@ function Copy-DownloadAgentStream {
     return (Get-Item -LiteralPath $OutFile).Length
 }
 
+function Test-DownloadAgentArtifactShape {
+    <#
+    .SYNOPSIS
+        Does the artifact the agent named have the shape the caller can stage?
+    .DESCRIPTION
+        A Get-Image script stages agent bytes under a fixed local name and then
+        unpacks or converts them by that name, so the upstream filename is the
+        only thing between an agent that resolved the wrong publisher platform
+        and a corrupt base image. Amazon Linux 2023 is the case that bites: the
+        publisher's `hyperv` platform is x86-64 only, so an ARM64 Hyper-V host
+        takes the ARM64 qcow2 and converts it, and bytes answered from the
+        x86-64 .vhdx.zip instead would reach a qcow2 converter.
+
+        The check is worth its own gate rather than folding into the SHA-256
+        comparison that follows: the hash proves the agent served the artifact
+        it described, not that the artifact it described is the one asked for.
+
+        An empty pattern means the caller states no expectation and everything
+        passes, so the check stays opt-in per family.
+    .PARAMETER Filename
+        Upstream filename the agent published for the artifact.
+    .PARAMETER Pattern
+        Regex the filename must match, or '' to accept anything.
+    .OUTPUTS
+        [bool]
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [AllowEmptyString()][string]$Filename,
+        [AllowEmptyString()][string]$Pattern
+    )
+    if ([string]::IsNullOrWhiteSpace($Pattern)) { return $true }
+    # An agent that publishes no filename cannot be checked, and an unverifiable
+    # artifact is not worth taking when the origin path is right there.
+    if ([string]::IsNullOrWhiteSpace($Filename)) { return $false }
+    return ($Filename -match $Pattern)
+}
+
 # --- REGION: Image request protocol
 
 function Get-DownloadAgentImageMetadata {
@@ -756,9 +795,11 @@ function Request-DownloadAgentImage {
                        family, or a deadline that expired while the agent was
                        still downloading. The caller falls back to the origin.
           failed       A definite negative verdict: the agent reported a failed
-                       download, or the bytes it served did not verify. Same
-                       caller action as unavailable -- fall back -- but it names
-                       a broken agent rather than an absent one.
+                       download, the bytes it served did not verify, or the
+                       artifact it named is not the shape the caller asked for
+                       via -ExpectedFilenamePattern. Same caller action as
+                       unavailable -- fall back -- but it names a broken agent
+                       rather than an absent one.
 
         Never throws. A staging file is removed whenever the outcome is not
         'downloaded', so a bogus artifact can never be promoted by a caller that
@@ -782,6 +823,13 @@ function Request-DownloadAgentImage {
         Hash the host already holds. Normally '': the 4-line sentinel carries no
         hash, and filename + byte count is exactly the agent's fallback
         comparison.
+    .PARAMETER ExpectedFilenamePattern
+        Regex the agent's upstream filename must match for its answer to be
+        taken, or '' (the default) to accept whatever the agent names. Callers
+        whose staging step is shape-specific -- it unzips, or converts a
+        container format -- pass the shape here so an agent that resolved the
+        wrong publisher platform falls back to the origin instead of feeding a
+        multi-gigabyte artifact of the wrong kind to the unpacker.
     .PARAMETER StagingPath
         Where downloaded bytes land. The caller's existing staging file, so the
         promote path that follows is unchanged.
@@ -813,6 +861,7 @@ function Request-DownloadAgentImage {
         [AllowEmptyString()][string]$LocalFilename = '',
         [int64]$LocalByteCount = 0,
         [AllowEmptyString()][string]$LocalSha256 = '',
+        [AllowEmptyString()][string]$ExpectedFilenamePattern = '',
         [Parameter(Mandatory)][string]$StagingPath,
         [int]$DeadlineSeconds = 7200
     )
@@ -875,8 +924,17 @@ function Request-DownloadAgentImage {
             # "what this host holds IS the current artifact", so a stale entry
             # under refresh still skips instead of blocking on work whose result
             # this run would not use anyway.
-            $result.outcome = 'skipped'
             Copy-DownloadAgentOriginMetadata -Result $result -Image $body.image
+            if (-not (Test-DownloadAgentArtifactShape -Filename $result.filename -Pattern $ExpectedFilenamePattern)) {
+                # "Current" is measured against the agent's own entry, so an
+                # entry built from the wrong platform makes the host's matching
+                # local copy wrong too. Refusing the skip sends the caller to
+                # the origin, where the source URL comparison re-downloads.
+                $result.outcome = 'failed'
+                $result.error = "the agent holds '$($result.filename)' for $identity, which is not the artifact this host stages (expected a name matching '$ExpectedFilenamePattern')"
+                return $result
+            }
+            $result.outcome = 'skipped'
             Write-Verbose "Request-DownloadAgentImage: $identity is already current locally; nothing to transfer."
             return $result
         }
@@ -913,6 +971,14 @@ function Request-DownloadAgentImage {
         return $result
     }
     Copy-DownloadAgentOriginMetadata -Result $result -Image $image
+    if (-not (Test-DownloadAgentArtifactShape -Filename $result.filename -Pattern $ExpectedFilenamePattern)) {
+        # Checked before the transfer, not after: the bytes are multi-gigabyte
+        # and the SHA-256 gate below would pass, because it proves only that the
+        # agent served the artifact it described.
+        $result.outcome = 'failed'
+        $result.error = "the agent offers '$($result.filename)' for $identity, which is not the artifact this host stages (expected a name matching '$ExpectedFilenamePattern')"
+        return $result
+    }
 
     $fileUrl = [string]$image.fileUrl
     if ([string]::IsNullOrWhiteSpace($fileUrl)) {

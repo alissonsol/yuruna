@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 42f7b3b7-64ca-41c6-96ad-88a15026c482
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -68,6 +68,26 @@ switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) {
 }
 Write-Output "Host architecture: $hostArch (Amazon Linux 2023 platform: $platformDir)"
 
+# --- REGION: docs/host-hyperv.md#the-converted-arm64-image-does-not-boot
+# The ARM64 artifact downloads and converts cleanly and still produces a guest
+# that cannot run here: Amazon's aarch64 kernel package ships no drivers/hv/
+# and no drivers/net/hyperv/, so a Gen2 guest -- whose every device is
+# synthetic and reached over VMBus -- enumerates neither its root disk nor a
+# NIC. GRUB runs (the firmware reads the disk through UEFI), then dracut waits
+# on a by-uuid device that cannot appear until the step budget is gone. The
+# warning is here rather than a refusal because the fetch itself is sound and
+# an operator may want the staged VHDX; what it must not do is look like a
+# guest that merely failed to start this once.
+if ($hostArch -eq 'arm64') {
+    Write-Warning "Amazon Linux 2023 has no Hyper-V-capable ARM64 image: the KVM qcow2 fetched below converts fine but boots to a dracut device wait, because its aarch64 kernel carries no Hyper-V drivers. Run this guest on host.macos.utm or host.ubuntu.kvm for ARM64 coverage. See docs/host-hyperv.md."
+}
+
+# The extension is the only property of a downloaded artifact the staging
+# step depends on, so it is also the whole test for "is this the platform
+# this run asked for". A pooled copy served under the other platform would
+# otherwise reach the unzip-or-convert branch below named as this one.
+$expectedArtifactPattern = '\.{0}$' -f [regex]::Escape($downloadExtension)
+
 # --- REGION: Configuration
 $sourceUrl = "https://cdn.amazonlinux.com/al2023/os-images/latest/$platformDir/"
 $downloadDir = (Get-VMHost).VirtualHardDiskPath
@@ -113,6 +133,10 @@ if ((Get-Command -Name Resolve-DownloadAgentEndpoint -ErrorAction SilentlyContin
             Variant         = 'stable'
             StagingPath     = $downloadFile
             DeadlineSeconds = 7200
+            # The staging step below is chosen by architecture -- unzip a native
+            # VHDX, or convert a qcow2 -- so an answer naming the other
+            # platform's artifact must not be taken.
+            ExpectedFilenamePattern = $expectedArtifactPattern
         }
         if ((Test-Path -LiteralPath $baseImageFile) -and (Test-Path -LiteralPath $baseImageOrigin)) {
             $sentinelLines = @(Get-Content -LiteralPath $baseImageOrigin -ErrorAction SilentlyContinue)

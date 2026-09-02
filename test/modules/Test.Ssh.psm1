@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.08.25
+.VERSION 2026.09.01
 .GUID 4292b140-f5e0-474e-8de4-bb7e802db56d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -483,7 +483,7 @@ function Clear-GuestSshUserOverride {
 .DESCRIPTION
     The Inner runner is spawned fresh per cycle, so the script-scoped
     map is already empty in practice. Debug-TestSequence (and any future
-    long-lived runner) re-uses the same process across multiple plans,
+    long-lived runner) reuses the same process across multiple plans,
     so an explicit reset prevents a prior run's override from leaking
     into the next one.
 #>

@@ -94,9 +94,9 @@ reading as a guest that never printed.
   `variables:` block or the planner cascade overwrites it when
   declared.
 
-### New-VM-consumed variables (`username`, `hostname`, `memoryStartupBytes`, `cores`)
+### New-VM-consumed variables
 
-Four sequence `variables:` are also forwarded to the per-guest `New-VM.ps1`
+Five sequence `variables:` are also forwarded to the per-guest `New-VM.ps1`
 when it declares the matching parameter (a "declare-or-drop" rule -- a guest
 that does not take the parameter ignores it, logged on the Verbose
 stream). They cascade top-down like any other variable, so a top-level
@@ -108,18 +108,30 @@ sequence sets the value for its whole chain:
 | `hostname` | `-Hostname` | cloud-init `local-hostname` | the VM name |
 | `memoryStartupBytes` | `-MemoryStartupBytes` | VM RAM | 12 GB (Hyper-V / UTM), 8 GB (KVM) |
 | `cores` | `-Cores` | vCPU count (overrules the host/2 default) | `max(4, host/2)` (Hyper-V / UTM), `min(host-1, max(2, host/2))` (KVM) |
+| `exposeVirtualizationExtensions` | `-ExposeVirtualizationExtensions` | nested virtualization (Hyper-V guests only) | `false` |
 
 `memoryStartupBytes` accepts a raw byte count or a binary `KB`/`MB`/`GB`/`TB`
 suffix (`34359738368`, `32768MB`, and `32GB` are equivalent) -- normalized by
 `ConvertTo-MemoryStartupBytes` in `automation/Yuruna.Common.psm1`. `cores` is a
 positive integer, clamped to the host's physical core count. Both are honored
 by the `guest.ubuntu.server.24` scripts on all three hosts; other guests adopt
-them by adding the parameter (the plumbing already forwards it). Example:
+them by adding the parameter (the plumbing already forwards it).
+
+`exposeVirtualizationExtensions: true` exposes virtualization extensions to
+the guest so it can run its own hypervisor (a nested host running KVM, a
+Windows guest running WSL2). It is consumed by the Hyper-V guest scripts
+(`guest.windows.11`, `guest.ubuntu.server.24`, `guest.ubuntu.server.26`);
+KVM and UTM guests drop it (nested virtualization is a host-level setting
+on KVM and unavailable on UTM). Hyper-V supports it only on AMD64 hosts:
+on an ARM64 host a `true` request fails the New-VM step fast, before any
+VM state is created, instead of failing later at VM start with
+"this platform does not support nested virtualization". Example:
 
 ```yaml
 variables:
   memoryStartupBytes: 32GB   # a nested host that runs inner guests
   cores: 8
+  exposeVirtualizationExtensions: true
 ```
 
 ## Failure artifacts
@@ -683,6 +695,20 @@ crash fails the cycle in ~20s instead of waiting the full
 | `freshMatchTailLines` | number | Default `12`. |
 | `failurePatterns` | string or string[] | Anti-patterns; matching any fails the step with a label naming the matched pattern. |
 
+### waitForTextWithNudge
+
+Use this for a one-shot console prompt that a harmless keypress can redraw.
+It has the same OCR matching and failure-pattern behavior as `waitForText`,
+but periodically presses `nudgeKey` without restarting or extending the
+configured wall-clock deadline. Each poll checks the positive and failure
+patterns before pressing the key.
+
+| Parameter | Type | Notes |
+|---|---|---|
+| `pattern`, `timeoutSeconds`, `pollSeconds`, `freshMatch`, `freshMatchTailLines`, `failurePatterns` | same as `waitForText` | |
+| `nudgeKey` | string | Required key name; typically `Enter` for agetty. |
+| `nudgeIntervalSeconds` | integer | Required; must be at least `1`. The first periodic nudge occurs after this interval. |
+
 ---
 
 ## Handler contract
@@ -1023,6 +1049,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.08.25
+Last review: 2026.09.01
 
 Back to [Yuruna](../README.md)

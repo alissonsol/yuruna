@@ -79,10 +79,10 @@ func (s *Server) IngestText(text, title, username, clientIP string) (*IngestResu
 	return s.finishIngest(id, target, dayDir, stagingDir, buffered, username, false, []string{origName}, "", truncated)
 }
 
-// IngestMulti stores several uploaded files as ONE ZIP archive, mirroring
-// the legacy multi-file grouping (section 5.2 / SSsection 5.3): one ID, one record. A
-// single-element slice is handled by IngestSingle's single-file path
-// instead (callers should route accordingly).
+// IngestMulti stores several uploaded files as ONE ZIP archive, mirroring the
+// legacy multi-file grouping (section 5.2 / stash-service section 5.3): one ID,
+// one record. A single-element slice uses IngestSingle's single-file path;
+// callers should route accordingly.
 func (s *Server) IngestMulti(files []NamedReader, username, clientIP, pathMeta, source string) (*IngestResult, error) {
 	if len(files) == 0 {
 		return nil, fmt.Errorf("ingest: no files")
@@ -173,8 +173,8 @@ func (s *Server) finishIngest(id string, target *store.Store, dayDir, stagingDir
 }
 
 // writeCapped streams content into path, enforcing the 100 MB per-file cap
-// (section 5.5 / SSsection 5.5): bytes past the cap are discarded and truncated=true is
-// returned, but the read is drained so the caller's request body completes.
+// (section 5.5 / stash-service section 5.5): bytes past the cap are discarded,
+// and truncated=true is returned, but the read is drained so the request completes.
 func writeCapped(path string, content io.Reader) (truncated bool, err error) {
 	f, err := os.Create(path)
 	if err != nil {

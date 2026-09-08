@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.01
+# Version: 2026.09.08
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Yuruna macOS UTM bootstrap installer.
@@ -11,11 +11,11 @@ set -euo pipefail
 YURUNA_REPO_PUBLIC="https://github.com/alissonsol/yuruna.git"
 YURUNA_REPO_PRIVATE="https://github.com/alissonsol/yurunadev.git"
 YURUNA_REPO="${YURUNA_REPO:-$YURUNA_REPO_PUBLIC}"
-# --- REGION: https://yuruna.link/install/explained#development-repo-tracks-latest-main
+# --- REGION: https://yuruna.link/429fb30b-0008
 YURUNA_BRANCH_EXPLICIT=0
 [[ -n "${YURUNA_BRANCH:-}" ]] && YURUNA_BRANCH_EXPLICIT=1
 YURUNA_BRANCH="${YURUNA_BRANCH:-main}"
-# --- REGION: https://yuruna.link/install/explained#release-pinning--signed-integrity
+# --- REGION: https://yuruna.link/429fb30b-0006
 PIN_VERSION="${PIN_VERSION:-0}"
 for _yuruna_arg in "$@"; do
   [[ "$_yuruna_arg" == "--pin-version" ]] && PIN_VERSION=1
@@ -43,7 +43,7 @@ die()  { printf '\033[1;31mXX \033[0m %s\n' "$*" >&2; exit 1; }
 YURUNA_ISSUES=()
 note_issue() { YURUNA_ISSUES+=("$*"); warn "$*"; }
 
-# --- REGION: https://yuruna.link/install/explained#install-log
+# --- REGION: https://yuruna.link/429fb30b-0003
 if [[ -z "${YURUNA_INSTALL_LOG:-}" ]]; then
   _yuruna_log_dir="$HOME/Library/Logs/Yuruna"
   mkdir -p "$_yuruna_log_dir" 2>/dev/null || _yuruna_log_dir="${TMPDIR:-/tmp}"
@@ -236,7 +236,7 @@ else
   die "Homebrew installation failed -- 'brew' not found on PATH."
 fi
 
-# --- REGION: https://yuruna.link/install/explained#multi-user-homebrew-ownership-repair
+# --- REGION: https://yuruna.link/429fb30b-0026
 # Best-effort ownership/.git repair; sudo already cached, no-op on a healthy prefix.
 BREW_PREFIX="$(brew --prefix 2>/dev/null || true)"
 if [[ -z "$BREW_PREFIX" ]]; then
@@ -332,7 +332,7 @@ quit_mac_app() {
   fi
 }
 
-# --- REGION: https://yuruna.link/install/explained#stop-running-yuruna-processes-before-updating
+# --- REGION: https://yuruna.link/429fb30b-000a
 # Stop the runner/inner/status-service and WAIT before the checkout rename.
 # VMs (the yuruna-caching-proxy-service cache, a UTM domain) are never touched here;
 # UTM quit is gated separately on PRESERVE_SERVICE_VM.
@@ -393,7 +393,7 @@ stop_yuruna_processes() {
     fi
   done
 
-  # --- REGION: https://yuruna.link/install/explained#pid-identity-validation-before-kill
+  # --- REGION: https://yuruna.link/429fb30b-000b
   # Keep only pids whose executable (comm) is pwsh; never kill a recycled or self-matched pid.
   local -a uniq_pids=()
   local seen=" " pcomm
@@ -453,7 +453,7 @@ stop_yuruna_processes() {
 }
 
 # --- REGION: Preserve running service VMs
-# --- REGION: https://yuruna.link/install/explained#preserve-the-yuruna-caching-proxy-service-vm
+# --- REGION: https://yuruna.link/429fb30b-000c
 # Quitting UTM is never confined to the VM the installer cares about: UTM
 # saves the state of EVERY running VM on its way out, and they come back
 # suspended rather than started. That makes any running service VM -- the
@@ -746,7 +746,7 @@ restore_test_status() {
 }
 
 # --- REGION: Tolerate a v / no-v tag mismatch
-# --- REGION: https://yuruna.link/install/explained#tolerating-a-v-prefixed-tag-ref
+# --- REGION: https://yuruna.link/429fb30b-0007
 # Echoes the ref on stdout; warn -> stderr, so a warning never pollutes the
 # captured stdout used to set YURUNA_BRANCH.
 resolve_yuruna_ref() {
@@ -769,7 +769,7 @@ resolve_yuruna_ref() {
 }
 
 # --- REGION: Development repo pulls latest main, not a release tag
-# --- REGION: https://yuruna.link/install/explained#development-repo-tracks-latest-main
+# --- REGION: https://yuruna.link/429fb30b-0008
 use_dev_branch_if_needed() {
   local basename="$1"
   if [[ "$basename" == "yurunadev" && "$YURUNA_BRANCH_EXPLICIT" -eq 0 && "$YURUNA_BRANCH" != "main" ]]; then
@@ -877,7 +877,7 @@ if [[ -d "$YURUNA_DIR/.git" ]]; then
 fi
 
 # --- REGION: Pin to the current release (opt-in)
-# --- REGION: https://yuruna.link/install/explained#release-pinning--signed-integrity
+# --- REGION: https://yuruna.link/429fb30b-0006
 if [[ "$PIN_VERSION" != "0" && "$YURUNA_BRANCH_EXPLICIT" -eq 0 && -d "$YURUNA_DIR/.git" ]]; then
   if [[ -f "$YURUNA_DIR/VERSION" ]]; then
     pin_tag="$(tr -d '[:space:]' < "$YURUNA_DIR/VERSION")"

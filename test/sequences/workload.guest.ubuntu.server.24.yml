@@ -71,7 +71,9 @@ workload:
   # 1800 s for this same script on this same guest. The console variant asking
   # for a third of that was an inconsistency, not a tighter estimate: the script
   # installs a headless JDK and then Visual Studio Code with its GTK and X11
-  # dependency closure -- around seventy packages to unpack and configure -- and
+  # dependency closure -- 24 packages for the JDK and 149 for Code to unpack and
+  # configure, the latter a ceiling now that Code is asked for with
+  # --no-install-recommends -- and
   # what that costs is a property of the host, not of how the harness is
   # driving it. A slow host has been observed still unpacking the last of those
   # packages at 615 s, progressing steadily, with the configure phase entirely

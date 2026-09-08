@@ -1,13 +1,7 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
-// Yuruna stash service daemon. Guide: https://yuruna.link/stash-guide.
-//
-// Single binary with two listeners: the SCP/SFTP sink on TCP/22 and the
-// UI/API HTTP server (default :80). In production the daemon is
-// supervised by a systemd unit (Restart=on-failure) installed during
-// bring-up (section 4.6); it can also be launched directly for local runs.
-// Operational logs go to stderr, which journald captures under systemd.
+// Yuruna stash service daemon; see docs/stash-guide.md#good-to-know.
 package main
 
 import (
@@ -102,8 +96,10 @@ func main() {
 
 	// Seed the allocator from BOTH the share and the buffer so a restart
 	// mid-outage cannot reissue an ID a not-yet-flushed buffered artifact
-	// already claims (section 7, section 8.4).
-	ids := id.New(st.FilesRoot(), buf.FilesRoot())
+	// already claims (section 7, section 8.4), and give it the index lookup so
+	// it cannot hand out an ID an older day's row still owns -- the index's id
+	// column is a primary key spanning every day, not just today's folder.
+	ids := id.New(m.Exists, st.FilesRoot(), buf.FilesRoot())
 
 	srv, err := sshsrv.New(st, buf, m, ids)
 	if err != nil {

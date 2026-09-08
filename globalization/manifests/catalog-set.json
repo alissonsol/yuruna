@@ -1,0 +1,219 @@
+{
+  "schema": "yuruna.catalog-set/v1",
+  "compilerVersion": "2026.09.08",
+  "catalogSchema": "yuruna.catalog/v1",
+  "localeManifest": "834cf02adf1bbe4e7dc1b90919ef3fe3cc220e58c39fecbd042bef8185a885de",
+  "inputs": {
+    "globalization/schema/catalog.schema.json": "acde4717041273b4a75c6fb5773c2ffffe097b916cb50d3beaeb95becccb5a91",
+    "globalization/locale-manifest.json": "834cf02adf1bbe4e7dc1b90919ef3fe3cc220e58c39fecbd042bef8185a885de",
+    "globalization/catalogs/en-US/pool.json": "a5adbb4b522a9a630af403fae4d04f819cdc567a47851e3afe91717c58ddfcaf",
+    "globalization/catalogs/en-US/status.json": "ed4d91cd18645aa095432c773e583b138174f23cb7cddb98cb07af87713ce167"
+  },
+  "messageSources": {
+    "pool.pool_project_denied": {
+      "domain": "pool",
+      "source": "catalogs/en-US/pool.json",
+      "inputHash": "a5adbb4b522a9a630af403fae4d04f819cdc567a47851e3afe91717c58ddfcaf",
+      "sourceHash": "fa0ee58c2daee62d3bd561602b2a6e5682520703933c1f33402d398fe691e5da"
+    },
+    "pool.pool_project_unreachable": {
+      "domain": "pool",
+      "source": "catalogs/en-US/pool.json",
+      "inputHash": "a5adbb4b522a9a630af403fae4d04f819cdc567a47851e3afe91717c58ddfcaf",
+      "sourceHash": "4397cd638219e5f0db5d6c5e7d60c818ca205b32f22b56451aa73e891c6b2513"
+    },
+    "pool.repo_denied_detail": {
+      "domain": "pool",
+      "source": "catalogs/en-US/pool.json",
+      "inputHash": "a5adbb4b522a9a630af403fae4d04f819cdc567a47851e3afe91717c58ddfcaf",
+      "sourceHash": "832c94e93ee3310b6efc21fc8d3e6101e82b2e94796bf4a47f7f85ac58d6fd75"
+    },
+    "pool.repo_held_detail": {
+      "domain": "pool",
+      "source": "catalogs/en-US/pool.json",
+      "inputHash": "a5adbb4b522a9a630af403fae4d04f819cdc567a47851e3afe91717c58ddfcaf",
+      "sourceHash": "8d1ad4e97407c40a6ca1397ae0f1aad7a9f82c2dceec0a56fcc2b4f1bb9e6940"
+    },
+    "pool.repo_no_access": {
+      "domain": "pool",
+      "source": "catalogs/en-US/pool.json",
+      "inputHash": "a5adbb4b522a9a630af403fae4d04f819cdc567a47851e3afe91717c58ddfcaf",
+      "sourceHash": "fcb9692150dc3ab8964ffa52f732592fb6f25900009317d3c38644b0b1e84bf6"
+    },
+    "pool.repo_unconfigured_detail": {
+      "domain": "pool",
+      "source": "catalogs/en-US/pool.json",
+      "inputHash": "a5adbb4b522a9a630af403fae4d04f819cdc567a47851e3afe91717c58ddfcaf",
+      "sourceHash": "b89fbb6076a62dca937d3149901a8da77d469c4991993bf9d79c6ad6a160c647"
+    },
+    "pool.test_set_label": {
+      "domain": "pool",
+      "source": "catalogs/en-US/pool.json",
+      "inputHash": "a5adbb4b522a9a630af403fae4d04f819cdc567a47851e3afe91717c58ddfcaf",
+      "sourceHash": "bbbe7b9dae0605e0d113e34fa693c7ff1376a225e0c06946e873ec22a4b3a4e8"
+    },
+    "status.cycle_duration": {
+      "domain": "status",
+      "source": "catalogs/en-US/status.json",
+      "inputHash": "ed4d91cd18645aa095432c773e583b138174f23cb7cddb98cb07af87713ce167",
+      "sourceHash": "503bc5d76241836291610f8139f8bc9535a1bda7920100c37d6ab9c1a7d1b023"
+    },
+    "status.cycle_paused": {
+      "domain": "status",
+      "source": "catalogs/en-US/status.json",
+      "inputHash": "ed4d91cd18645aa095432c773e583b138174f23cb7cddb98cb07af87713ce167",
+      "sourceHash": "2e718d4e03a915ba41f37acd0383fdfc8db90840b248f85f8cbd7d2290239d3d"
+    },
+    "status.cycle_resume_action": {
+      "domain": "status",
+      "source": "catalogs/en-US/status.json",
+      "inputHash": "ed4d91cd18645aa095432c773e583b138174f23cb7cddb98cb07af87713ce167",
+      "sourceHash": "b9c75dac11d355f2c51777c38d161ef74cf67043478c57eea982476db032520f"
+    },
+    "status.cycle_resuming": {
+      "domain": "status",
+      "source": "catalogs/en-US/status.json",
+      "inputHash": "ed4d91cd18645aa095432c773e583b138174f23cb7cddb98cb07af87713ce167",
+      "sourceHash": "76889a5357c4a962204071c9b8d0cfd0eececd3dbe0165019dd59c652df947f8"
+    },
+    "status.directory_column_modified_utc": {
+      "domain": "status",
+      "source": "catalogs/en-US/status.json",
+      "inputHash": "ed4d91cd18645aa095432c773e583b138174f23cb7cddb98cb07af87713ce167",
+      "sourceHash": "f37d441ca975e0e9363deeed97da4b01e73b55cc85fca46975c856e4923141f1"
+    },
+    "status.directory_column_name": {
+      "domain": "status",
+      "source": "catalogs/en-US/status.json",
+      "inputHash": "ed4d91cd18645aa095432c773e583b138174f23cb7cddb98cb07af87713ce167",
+      "sourceHash": "9c3d15263ad664fd8cbd155c4bd7a678e3b3c82b88c10e925a109a8a333312da"
+    },
+    "status.directory_column_size": {
+      "domain": "status",
+      "source": "catalogs/en-US/status.json",
+      "inputHash": "ed4d91cd18645aa095432c773e583b138174f23cb7cddb98cb07af87713ce167",
+      "sourceHash": "cc3dbfd0d4684034125f2ae43364ebc00ac4cd82b3915e54a7acfe51d4a1dcad"
+    },
+    "status.directory_contents_caption": {
+      "domain": "status",
+      "source": "catalogs/en-US/status.json",
+      "inputHash": "ed4d91cd18645aa095432c773e583b138174f23cb7cddb98cb07af87713ce167",
+      "sourceHash": "4d3b29e813a0502d5336c02e6c5949f41a9da3794d30c1c6b0825a1d738d1c61"
+    },
+    "status.directory_index_title": {
+      "domain": "status",
+      "source": "catalogs/en-US/status.json",
+      "inputHash": "ed4d91cd18645aa095432c773e583b138174f23cb7cddb98cb07af87713ce167",
+      "sourceHash": "ab192220ceaabe23563e382a8c1efede64086a5407737649c5e9e4b3e3718bc1"
+    },
+    "status.directory_parent": {
+      "domain": "status",
+      "source": "catalogs/en-US/status.json",
+      "inputHash": "ed4d91cd18645aa095432c773e583b138174f23cb7cddb98cb07af87713ce167",
+      "sourceHash": "b13cfdc3d53159ea3c3883418d71917c97c4b25e948b8c0f67fc07b5ac63eb7a"
+    },
+    "status.error_file_too_large": {
+      "domain": "status",
+      "source": "catalogs/en-US/status.json",
+      "inputHash": "ed4d91cd18645aa095432c773e583b138174f23cb7cddb98cb07af87713ce167",
+      "sourceHash": "eb882db44ba0c8ccf3fcc9b2a966196e99cbf2657e633837b1d7cab792912918"
+    },
+    "status.error_not_found": {
+      "domain": "status",
+      "source": "catalogs/en-US/status.json",
+      "inputHash": "ed4d91cd18645aa095432c773e583b138174f23cb7cddb98cb07af87713ce167",
+      "sourceHash": "d986992f935069a0478130d19d0b27e456eb994a8fc808077451e4daa95048ac"
+    },
+    "status.external_detail": {
+      "domain": "status",
+      "source": "catalogs/en-US/status.json",
+      "inputHash": "ed4d91cd18645aa095432c773e583b138174f23cb7cddb98cb07af87713ce167",
+      "sourceHash": "0e170252dc136b5efb624111cebf305a81efef1aa7ee125a239eb4a4490ca648"
+    },
+    "status.file_size_bytes": {
+      "domain": "status",
+      "source": "catalogs/en-US/status.json",
+      "inputHash": "ed4d91cd18645aa095432c773e583b138174f23cb7cddb98cb07af87713ce167",
+      "sourceHash": "b46fe7fb367a1e6faa1350899108126a532c85b588147b71076a1a12addf44ea"
+    },
+    "status.file_size_gigabytes": {
+      "domain": "status",
+      "source": "catalogs/en-US/status.json",
+      "inputHash": "ed4d91cd18645aa095432c773e583b138174f23cb7cddb98cb07af87713ce167",
+      "sourceHash": "73f672f056add1cbdde41e5f76a92644f7cd07771608a7e333adf086a453b518"
+    },
+    "status.file_size_kilobytes": {
+      "domain": "status",
+      "source": "catalogs/en-US/status.json",
+      "inputHash": "ed4d91cd18645aa095432c773e583b138174f23cb7cddb98cb07af87713ce167",
+      "sourceHash": "25addcc3fe876c3e228f8b06c5ce05c081b95d4d82fa0dc34f1553f62a43eae3"
+    },
+    "status.file_size_megabytes": {
+      "domain": "status",
+      "source": "catalogs/en-US/status.json",
+      "inputHash": "ed4d91cd18645aa095432c773e583b138174f23cb7cddb98cb07af87713ce167",
+      "sourceHash": "53b66a475f81fd195f7c24ca34e5315909212c074a55e45eeb840a9f0234b508"
+    },
+    "status.host_online_count": {
+      "domain": "status",
+      "source": "catalogs/en-US/status.json",
+      "inputHash": "ed4d91cd18645aa095432c773e583b138174f23cb7cddb98cb07af87713ce167",
+      "sourceHash": "178f5a3cbbb43587fef11f48baed0388d0e80e436f0b6301958119c3c91e7e4f"
+    },
+    "status.step_timing_unavailable": {
+      "domain": "status",
+      "source": "catalogs/en-US/status.json",
+      "inputHash": "ed4d91cd18645aa095432c773e583b138174f23cb7cddb98cb07af87713ce167",
+      "sourceHash": "b3c1f896245de178abdece38029ae73b396712d0404df5959debb1c478b6277d"
+    }
+  },
+  "translations": {},
+  "artifacts": {
+    "globalization/generated/browser/en-US.pool.js": "ec506ac4f7bc2ebc74fb53b9aaaab71e15160a59af2383a0407646cc253accf8",
+    "globalization/generated/browser/en-US.status.js": "9370ffa467ab484ca9e0ea99d67b01b55cdbda82a9a38ad24556b81daf3d2f57",
+    "globalization/generated/browser/qps-Ploc.pool.js": "054629aa972930372dfa6a5cdcb4e04debc0381382f4d75369abd94eee085db6",
+    "globalization/generated/browser/qps-Ploc.status.js": "9cf97825e772251d01650c693863d35046c31125cd2d7bf9cf1f77a4aa3aa306",
+    "globalization/generated/browser/qps-Plocm.pool.js": "f861e5b68590f33166855631a96131cbc91885dd4b346cd2a76c7834f2a7a49d",
+    "globalization/generated/browser/qps-Plocm.status.js": "7d5e950bfd4d254560622f0740bea533bc86b89c52743fa50d45b7b8b0b71f93",
+    "globalization/generated/go/catalog/enUS_pool.go": "595a05ca23323680d06fb7716bb5b972b9a71adaba9ef89f197184a35ee510ea",
+    "globalization/generated/go/catalog/enUS_status.go": "575ce29e129df901939446789f48c9f7ef4250284bd82ce36798732799421165",
+    "globalization/generated/go/catalog/qpsPloc_pool.go": "66b8ef56421aac560229cf19805d463002641dc69bf7ba20741cbad4b1f47312",
+    "globalization/generated/go/catalog/qpsPloc_status.go": "4bf63e6ccd6c3903a70cf1519417a0aea656ef68debdd8103cbf89b6d4278559",
+    "globalization/generated/go/catalog/qpsPlocm_pool.go": "0b032b9cfd625c39cc20f206bba55dc12f0b5cb8e6ec4d4a2acd620d671cdfb3",
+    "globalization/generated/go/catalog/qpsPlocm_status.go": "13772d286300d7b3c55b99905e600ca82d5f7e37cbe2d013b3d9f766bbbaf45d",
+    "globalization/generated/powershell/en-US.pool.psd1": "c7defa0efebd045ca268eb332a4325d5725b10a603a7ad520df3fae122044d94",
+    "globalization/generated/powershell/en-US.status.psd1": "8fb5b35daf6edca5f30215e14d901d8e81cf901a427fb4c3f0c14dd192f4f337",
+    "globalization/generated/powershell/qps-Ploc.pool.psd1": "a1bb8d6cb4e740956c3a88228d2276b31e43213bea94fbd0b2a4bc7cef024a77",
+    "globalization/generated/powershell/qps-Ploc.status.psd1": "e64f1121508b14735ff918eb011b6108695f46fd239f1f5429f213849c40ae42",
+    "globalization/generated/powershell/qps-Plocm.pool.psd1": "0ab0354966ae37e8a9c50a4bdfc94e50e7ae1c0112760ee28bb42089849fe945",
+    "globalization/generated/powershell/qps-Plocm.status.psd1": "e3801eb9f3af61b23355332f1eb8523e5761eac489e884581da343adc79e71ab",
+    "globalization/manifests/inventory.json": "c7a31ed891273c8bbf5be649a171f4841cc7e8a79edd8d3e76d5044a83032ff3"
+  },
+  "artifactBytes": {
+    "globalization/generated/browser/en-US.pool.js": 1990,
+    "globalization/generated/browser/en-US.status.js": 1821,
+    "globalization/generated/browser/qps-Ploc.pool.js": 6749,
+    "globalization/generated/browser/qps-Ploc.status.js": 3053,
+    "globalization/generated/browser/qps-Plocm.pool.js": 6921,
+    "globalization/generated/browser/qps-Plocm.status.js": 3316,
+    "globalization/generated/go/catalog/enUS_pool.go": 2208,
+    "globalization/generated/go/catalog/enUS_status.go": 2416,
+    "globalization/generated/go/catalog/qpsPloc_pool.go": 3566,
+    "globalization/generated/go/catalog/qpsPloc_status.go": 2909,
+    "globalization/generated/go/catalog/qpsPlocm_pool.go": 3660,
+    "globalization/generated/go/catalog/qpsPlocm_status.go": 3052,
+    "globalization/generated/powershell/en-US.pool.psd1": 2578,
+    "globalization/generated/powershell/en-US.status.psd1": 3083,
+    "globalization/generated/powershell/qps-Ploc.pool.psd1": 3936,
+    "globalization/generated/powershell/qps-Ploc.status.psd1": 3611,
+    "globalization/generated/powershell/qps-Plocm.pool.psd1": 4029,
+    "globalization/generated/powershell/qps-Plocm.status.psd1": 3753,
+    "globalization/manifests/inventory.json": 2236
+  },
+  "counts": {
+    "sourceCatalogs": 2,
+    "sourceMessages": 26,
+    "generatedArtifacts": 19,
+    "generatedBytes": 64887
+  }
+}

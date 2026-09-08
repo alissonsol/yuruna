@@ -115,39 +115,27 @@ func (s *Server) IngestMulti(files []NamedReader, username, clientIP, pathMeta, 
 
 // beginIngest allocates the ID, picks the share/buffer target, creates the
 // day + staging dirs, and writes the up-front pending row (section 8.2 step 2).
+// The UI has no stderr channel to announce the ID on, so it draws silently;
+// an ID lost to a collision is redrawn inside beginPending and the caller
+// only ever sees the one it keeps.
 func (s *Server) beginIngest(username, clientIP, pathMeta, source string) (id string, target *store.Store, buffered bool, dayDir, stagingDir string, err error) {
 	now := time.Now().UTC()
-	id, err = s.IDs.Allocate(now)
+	pending, _, err := s.beginPending(now, nil, func(drawn string, isBuffered bool) *meta.Record {
+		return &meta.Record{
+			ID:              drawn,
+			Username:        username,
+			PathMetadata:    pathMeta,
+			ClientAddress:   clientIP,
+			CreatedAt:       now,
+			Status:          meta.StatusPending,
+			LocallyBuffered: isBuffered,
+			Source:          source,
+		}
+	})
 	if err != nil {
 		return "", nil, false, "", "", err
 	}
-	tgt, buffered, err := s.chooseTarget(id)
-	if err != nil {
-		return "", nil, false, "", "", err
-	}
-	dayDir, err = tgt.DayDir(now)
-	if err != nil {
-		return "", nil, false, "", "", err
-	}
-	stagingDir, err = tgt.StagingDir(now, id)
-	if err != nil {
-		return "", nil, false, "", "", err
-	}
-	rec := &meta.Record{
-		ID:              id,
-		Username:        username,
-		PathMetadata:    pathMeta,
-		ClientAddress:   clientIP,
-		CreatedAt:       now,
-		Status:          meta.StatusPending,
-		LocallyBuffered: buffered,
-		Source:          source,
-	}
-	if err := s.Meta.InsertPending(rec); err != nil {
-		_ = os.RemoveAll(stagingDir)
-		return "", nil, false, "", "", err
-	}
-	return id, tgt, buffered, dayDir, stagingDir, nil
+	return pending.id, pending.target, pending.buffered, pending.dayDir, pending.stagingDir, nil
 }
 
 // finishIngest finalizes the staged files into the artifact and commits the

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 422e4357-5c4b-4d6a-a0e1-938418a006fb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,7 +19,7 @@
 <#
 .SYNOPSIS
     Report ES2015+ syntax and APIs in browser JavaScript that the Yuruna UI
-    baseline (Safari iOS 9.3 / Safari 9.1) cannot run.
+    baseline (Safari iOS 9.0 / Safari 9.0) cannot run.
 .DESCRIPTION
     The browser baseline in docs/definition.md is a HARD floor, and the way it
     is broken is silent: an iOS 9 parser rejects a file carrying one arrow
@@ -82,14 +82,18 @@ $RepoRoot = Split-Path -Parent $PSScriptRoot
 # status pages. *.test.js is excluded -- those run under node
 # (tools/Invoke-JsTest.ps1) and no page loads one, so the baseline does not
 # reach them.
+# The roots come from the shared registry rather than from a list kept here.
+# A directory named in one tool's private list and missing from another's is a
+# file that passes only the check somebody remembered to point at it, and that
+# is how a shipped source drops out of a sweep entirely.
 if (-not $Path -or $Path.Count -eq 0) {
-    $Path = @(
-        'test/extension/pool-control-service/server/internal/httpsrv/web/assets'
-        'test/extension/stash-service/server/internal/httpsrv/web/assets'
-        'test/extension/download-agent-service/server/internal/httpsrv/web/assets'
-        'test/extension/extension-sdk/webui/assets'
-        'test/status'
-    )
+    $registryPath = Join-Path $RepoRoot 'globalization/manifests/browser-sources.json'
+    if (-not (Test-Path -LiteralPath $registryPath -PathType Leaf)) {
+        throw "The browser-source registry is missing: $registryPath"
+    }
+    $registry = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($registryPath))
+    $Path = @($registry.roots | ForEach-Object { [string]$_.path })
+    if ($Path.Count -eq 0) { throw 'The browser-source registry lists no roots.' }
 }
 
 # Keywords after which a slash opens a regex rather than dividing. `of` and
@@ -140,6 +144,31 @@ $ApiRules = @(
     @{ Name = 'URL constructor';       Pattern = '\bnew\s+URL\s*\(';                       Since = 'Safari 10' }
     @{ Name = 'URLSearchParams';       Pattern = '\bnew\s+URLSearchParams\b';               Since = 'Safari 10.1' }
     @{ Name = 'NodeList.forEach';      Pattern = '\bquerySelectorAll\([^)]*\)\.forEach\b';  Since = 'Safari 10' }
+    # A page that reads or writes the palette at run time cannot be compiled to
+    # the literal fallback Safari 9 needs.  Keep the palette declarative: the
+    # resolver sees every value, and the floor and current browser follow the
+    # same cascade.
+    @{ Name = 'CSSStyleDeclaration.setProperty'; Pattern = '\.setProperty\s*\(';              Since = 'outside the static palette contract' }
+    @{ Name = 'CSSStyleDeclaration.getPropertyValue'; Pattern = '\.getPropertyValue\s*\(';    Since = 'outside the static palette contract' }
+)
+
+# Present at the floor, and wrong there. These are not post-floor APIs -- a
+# Safari 9.0 browser has every one of them -- but each answers in the browser's
+# OWN locale and ignores the locale it is handed, so a page served in one
+# language renders half its values in another. The result is a page whose
+# formatting depends on the reader's device instead of on the language the
+# server decided, and nothing on the page says so.
+#
+# The replacements live in the catalog kernel, which formats from the locale
+# manifest: YurunaI18n.formatNumber for a count, formatArgument for a typed
+# value, fmtLocal for a wall-clock stamp in a fixed shape.
+$LocaleRules = @(
+    @{ Name = 'Date/Number.toLocaleString';     Pattern = '\.toLocaleString\s*\(' }
+    @{ Name = 'Date.toLocaleDateString';        Pattern = '\.toLocaleDateString\s*\(' }
+    @{ Name = 'Date.toLocaleTimeString';        Pattern = '\.toLocaleTimeString\s*\(' }
+    @{ Name = 'String.localeCompare';           Pattern = '\.localeCompare\s*\(' }
+    @{ Name = 'String.normalize';               Pattern = '\.normalize\s*\(' }
+    @{ Name = 'Intl';                           Pattern = '\bIntl\s*\.' }
 )
 
 # Split-JsLexeme walks one file and returns, per source line, only the text that
@@ -252,6 +281,11 @@ function Split-JsLexeme {
     return @{ Code = $code.ToString(); Escapes = $escapes }
 }
 
+# A unit is one thing to scan: a whole .js file, or one inline <script> body
+# lifted out of a page. They are scanned identically -- a browser does not care
+# which container the code arrived in, and neither does the floor.
+$units = [Collections.Generic.List[object]]::new()
+
 $targets = [Collections.Generic.List[string]]::new()
 foreach ($p in $Path) {
     $full = if ([IO.Path]::IsPathRooted($p)) { $p } else { Join-Path $RepoRoot $p }
@@ -270,11 +304,47 @@ if ($targets.Count -eq 0) {
     exit 2
 }
 
+foreach ($file in $targets) {
+    $units.Add([pscustomobject]@{
+            Label = ([IO.Path]::GetRelativePath($RepoRoot, $file) -replace '\\', '/')
+            Text  = (Get-Content -Raw -LiteralPath $file)
+        })
+}
+
+# The inline producers, unless the caller named explicit paths -- a targeted run
+# is asking about those files, not about the whole registered surface.
+if (-not $PSBoundParameters.ContainsKey('Path') -and $registry -and $registry.inlineScriptProducers) {
+    foreach ($producer in $registry.inlineScriptProducers) {
+        $producerPath = Join-Path $RepoRoot ([string]$producer.path)
+        if (-not (Test-Path -LiteralPath $producerPath -PathType Leaf)) {
+            Write-Error "the registry names an inline-script producer that is not in the tree: $($producer.path)" -ErrorAction Continue
+            exit 2
+        }
+        $producerText = [IO.File]::ReadAllText($producerPath)
+        # A block that names a src is a reference, not a body.
+        $blocks = [regex]::Matches($producerText, '(?s)<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>')
+        $n = 0
+        foreach ($block in $blocks) {
+            $body = $block.Groups[1].Value
+            if (-not $body.Trim()) { continue }
+            $n++
+            $units.Add([pscustomobject]@{
+                    Label = "$($producer.path)#script$n"
+                    Text  = $body
+                })
+        }
+        if ($n -eq 0) {
+            Write-Error "the registry names $($producer.path) as an inline-script producer, and it carries none" -ErrorAction Continue
+            exit 2
+        }
+    }
+}
+
 $findings = [Collections.Generic.List[object]]::new()
 
-foreach ($file in $targets) {
-    $rel = [IO.Path]::GetRelativePath($RepoRoot, $file) -replace '\\', '/'
-    $text = Get-Content -Raw -LiteralPath $file
+foreach ($unit in $units) {
+    $rel = $unit.Label
+    $text = $unit.Text
     if ($null -eq $text) { continue }
     $lex = Split-JsLexeme -Text $text
     $lines = $lex.Code -split "`n"
@@ -295,6 +365,16 @@ foreach ($file in $targets) {
                 $findings.Add([pscustomobject]@{
                         File = $rel; Line = $k + 1; Class = 'Api'
                         Name = $rule.Name; Since = $rule.Since; Text = $lines[$k].Trim()
+                    })
+            }
+        }
+    }
+    foreach ($rule in $LocaleRules) {
+        for ($k = 0; $k -lt $lines.Count; $k++) {
+            if ($lines[$k] -match $rule.Pattern) {
+                $findings.Add([pscustomobject]@{
+                        File = $rel; Line = $k + 1; Class = 'Locale'
+                        Name = $rule.Name; Since = 'locale-blind at the floor'; Text = $lines[$k].Trim()
                     })
             }
         }
@@ -359,7 +439,8 @@ if (-not $Quiet) {
 $syntax = @($findings | Where-Object Class -EQ 'Syntax').Count
 $api = @($findings | Where-Object Class -EQ 'Api').Count
 $bar = @($findings | Where-Object Class -EQ 'Bar').Count
-Write-Information "$($targets.Count) file(s), $syntax syntax break(s), $api API break(s), $bar outside the ES5 bar" -InformationAction Continue
+$locale = @($findings | Where-Object Class -EQ 'Locale').Count
+Write-Information "$($units.Count) unit(s) from $($targets.Count) file(s), $syntax syntax break(s), $api API break(s), $locale locale-blind call(s), $bar outside the ES5 bar" -InformationAction Continue
 
 if ($findings.Count -gt 0) { exit 1 }
 exit 0

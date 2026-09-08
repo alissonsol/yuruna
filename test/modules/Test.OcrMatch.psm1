@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42623d37-5542-4fd6-8bd7-fcd92f20175d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -125,9 +125,20 @@ function Get-OCRNormalized {
     - Punctuation confusion (:<->;<->.)
     - Dash normalization (-, --, -, - all stripped)
     - Spurious spaces from courier/monospace OCR
+.PARAMETER NoSegmentMatch
+    Drops Strategy 3, leaving the two per-line, span-bounded strategies.
+    Strategy 3 asks only whether every normalized segment of the pattern
+    appears somewhere in the text -- in any order, on any line, at any
+    distance apart -- so a multi-word pattern whose segments normalize to
+    two- and four-character tokens is satisfied by coincidence once the
+    screen carries a few KB of dense output such as a package or asset
+    fetch listing URLs. That looseness is affordable where a miss costs a
+    wait its timeout and nothing else. It is not affordable for an
+    anti-pattern, where a match ends a run that was healthy, so callers
+    matching anti-patterns pass this.
 #>
 function Test-OCRMatch {
-    param([string]$Text, [string]$Pattern)
+    param([string]$Text, [string]$Pattern, [switch]$NoSegmentMatch)
     $normPattern = $script:OcrPatternCache[$Pattern]
     if ($null -eq $normPattern) {
         $normPattern = Get-OCRNormalized $Pattern
@@ -214,6 +225,13 @@ function Test-OCRMatch {
     # on characters that are stripped during normalization (@, -, etc.) to get
     # meaningful segments, normalize each, and check that every segment appears
     # somewhere in the full normalized text (across all lines).
+    #
+    # Unlike the two strategies above this one is bounded by nothing: no line,
+    # no order, no span. Every segment merely has to exist somewhere. A caller
+    # whose match decides that something has gone wrong asks for it to be
+    # skipped, because for that caller a coincidence is not a slow answer, it
+    # is a wrong one.
+    if ($NoSegmentMatch) { return $false }
     $normFull = Get-OCRNormalized $Text
     $splitPattern = [regex]::Split($Pattern, '[\s@\-\[\]$~"''`]+') | Where-Object { $_.Length -gt 0 }
     if ($splitPattern.Count -gt 1) {

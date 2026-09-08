@@ -8,15 +8,18 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"pool-control-service/internal/intent"
+	"yuruna.com/test/extension/extension-sdk/i18n"
 	"yuruna.com/test/extension/extension-sdk/labgate"
 )
 
@@ -109,6 +112,28 @@ func boardPayload(t *testing.T, s *Server, query string) map[string]any {
 	return out
 }
 
+func boardResponseForLocale(t *testing.T, s *Server, locale string) (*httptest.ResponseRecorder, map[string]any) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodGet, "/api/board", nil)
+	req.Header.Set("Accept-Language", locale)
+	rec := httptest.NewRecorder()
+	s.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("localized board status %d: %s", rec.Code, rec.Body.String())
+	}
+	var out map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode localized board: %v", err)
+	}
+	return rec, out
+}
+
+func boardPayloadForLocale(t *testing.T, s *Server, locale string) map[string]any {
+	t.Helper()
+	_, out := boardResponseForLocale(t, s, locale)
+	return out
+}
+
 func cardsByID(t *testing.T, payload map[string]any) map[string]map[string]any {
 	t.Helper()
 	out := map[string]map[string]any{}
@@ -117,6 +142,380 @@ func cardsByID(t *testing.T, payload map[string]any) map[string]map[string]any {
 		out[m["poolId"].(string)] = m
 	}
 	return out
+}
+
+func localizedBoardAggStub(t *testing.T) *httptest.Server {
+	t.Helper()
+	base := ""
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/pool-status"):
+			_, _ = w.Write([]byte(`{"hosts":[{"hostId":"42cc","control":"ready","baseUrl":"` + base + `/42cc"}]}`))
+		case strings.HasSuffix(r.URL.Path, "/pool-stats"):
+			_, _ = w.Write([]byte(`{"range":"24h","hosts":[]}`))
+		case r.URL.Path == "/42cc/runtime/host.registration.json":
+			_, _ = w.Write([]byte(`{
+                "hostId":"42cc",
+                "projectUrl":"https://example.test/proj.git",
+                "testSets":[{
+                  "name":"smoke",
+                  "displayName":"Quick smoke",
+                  "displayNameLocalized":{"qps-Ploc":"[Quick smoke ~]","qps-Plocm":"[RTL Quick smoke ~]"},
+                  "description":"Fast signal",
+                  "descriptionLocalized":{"qps-Ploc":"[Fast signal ~]","qps-Plocm":"[RTL Fast signal ~]"},
+                  "sequences":["website"]
+                }]
+              }`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	base = "http://" + srv.Listener.Addr().String()
+	srv.Start()
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+type projectPseudoFixture struct {
+	Schema  string   `json:"schema"`
+	Locales []string `json:"locales"`
+	Entries []struct {
+		Path        string            `json:"path"`
+		FieldPath   string            `json:"fieldPath"`
+		ScalarField string            `json:"scalarField"`
+		Scalar      string            `json:"scalar"`
+		SourceHash  string            `json:"sourceHash"`
+		Localized   map[string]string `json:"localized"`
+	} `json:"entries"`
+}
+
+type projectPseudoValues struct {
+	displayName          string
+	displayNameLocalized map[string]string
+	description          string
+	descriptionLocalized map[string]string
+}
+
+func readProjectPseudoFixture(t *testing.T, path string) projectPseudoValues {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read project pseudo fixture: %v", err)
+	}
+	var fixture projectPseudoFixture
+	if err := json.Unmarshal(b, &fixture); err != nil {
+		t.Fatalf("decode project pseudo fixture: %v", err)
+	}
+	if fixture.Schema != "yuruna.project-locale-pseudo-fixture/v1" {
+		t.Fatalf("project pseudo fixture schema = %q", fixture.Schema)
+	}
+	values := projectPseudoValues{}
+	for _, entry := range fixture.Entries {
+		hash := sha256.Sum256([]byte(entry.Scalar))
+		if got := hex.EncodeToString(hash[:]); got != entry.SourceHash {
+			t.Fatalf("%s sourceHash = %q, want %q", entry.FieldPath, entry.SourceHash, got)
+		}
+		switch entry.FieldPath {
+		case "/testSets/name=smoke/displayName":
+			values.displayName = entry.Scalar
+			values.displayNameLocalized = entry.Localized
+		case "/testSets/name=smoke/description":
+			values.description = entry.Scalar
+			values.descriptionLocalized = entry.Localized
+		}
+	}
+	if values.displayName == "" || values.description == "" {
+		t.Fatalf("project pseudo fixture did not carry the official smoke fields: %+v", values)
+	}
+	for _, locale := range []string{"qps-Ploc", "qps-Plocm"} {
+		if values.displayNameLocalized[locale] == "" || values.descriptionLocalized[locale] == "" {
+			t.Fatalf("project pseudo fixture has no %s smoke values", locale)
+		}
+	}
+	return values
+}
+
+const projectBoundaryIntent = `{"ok":true,
+ "pools":[
+  {"poolId":"localized","poolGuid":"42-new","displayName":"Localized project","members":["42new"],
+   "testSet":{"name":"yuruna-project.smoke","frameworkUrl":"https://example.test/yuruna","projectUrl":"https://example.test/yuruna-project"}},
+  {"poolId":"old-project","poolGuid":"42-old","displayName":"Old project","members":["42old"],
+   "testSet":{"name":"old-project.smoke","frameworkUrl":"https://example.test/yuruna","projectUrl":"https://example.test/old-project"}}
+ ],"testSets":[],"autoEnrollment":{"enabled":false,"targetPoolId":"","excluded":[]}}`
+
+func projectBoundaryAggStub(t *testing.T, values projectPseudoValues) *httptest.Server {
+	t.Helper()
+	base := ""
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/pool-status"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"hosts": []map[string]any{
+				{"hostId": "42new", "control": "ready", "baseUrl": base + "/42new"},
+				{"hostId": "42old", "control": "ready", "baseUrl": base + "/42old"},
+			}})
+		case strings.HasSuffix(r.URL.Path, "/pool-stats"):
+			_, _ = w.Write([]byte(`{"range":"24h","hosts":[]}`))
+		case r.URL.Path == "/42new/runtime/host.registration.json":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"hostId": "42new", "projectUrl": "https://example.test/yuruna-project.git",
+				"testSets": []map[string]any{{
+					"name": "smoke", "displayName": values.displayName,
+					"displayNameLocalized": values.displayNameLocalized,
+					"description":          values.description, "descriptionLocalized": values.descriptionLocalized,
+					"sequences": []string{"website"},
+				}},
+			})
+		case r.URL.Path == "/42old/runtime/host.registration.json":
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"hostId": "42old", "projectUrl": "https://example.test/old-project.git",
+				"testSets": []map[string]any{{
+					"name": "smoke", "displayName": values.displayName,
+					"description": values.description, "sequences": []string{"website"},
+				}},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	base = "http://" + srv.Listener.Addr().String()
+	srv.Start()
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestBoardResolvesTheExactProjectMapAndVariesTheResponse(t *testing.T) {
+	agg := localizedBoardAggStub(t)
+	s := New(&boardIntent{doc: intentTwoPools}, Options{AggregatorURL: agg.URL, AllowPseudoLocale: true})
+
+	for locale, want := range map[string]string{
+		"qps-Ploc":  "[Quick smoke ~]",
+		"qps-Plocm": "[RTL Quick smoke ~]",
+	} {
+		rec, payload := boardResponseForLocale(t, s, locale)
+		if got := rec.Header().Get("Content-Language"); got != locale {
+			t.Errorf("%s Content-Language = %q", locale, got)
+		}
+		if vary := strings.ToLower(strings.Join(rec.Header().Values("Vary"), ",")); !strings.Contains(vary, "accept-language") {
+			t.Errorf("%s Vary = %q, want Accept-Language", locale, rec.Header().Values("Vary"))
+		}
+		if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+			t.Errorf("%s Cache-Control = %q, want no-store", locale, got)
+		}
+		offers := payload["offers"].([]any)
+		var found map[string]any
+		for _, raw := range offers {
+			offer := raw.(map[string]any)
+			if offer["name"] == "proj.smoke" {
+				found = offer
+				break
+			}
+		}
+		if found == nil || found["displayName"] != want {
+			t.Errorf("%s offer = %v, want localized displayName %q", locale, found, want)
+		}
+		if got := cardsByID(t, payload)["lab"]["testSetLabel"]; got != want {
+			t.Errorf("%s assigned label = %v, want %q", locale, got, want)
+		}
+	}
+}
+
+func TestBoardUsesTheEnglishScalarFromAnOldProject(t *testing.T) {
+	got, localized := localizedProjectText("Quick smoke", nil, projectDisplayNameMax, i18n.Context{ResolvedTag: "qps-Ploc"})
+	if got != "Quick smoke" || localized {
+		t.Errorf("old-project fallback = %q/%v, want the English scalar", got, localized)
+	}
+}
+
+func untrustedProjectAggStub(t *testing.T, registration map[string]any) *httptest.Server {
+	t.Helper()
+	base := ""
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/pool-status"):
+			_ = json.NewEncoder(w).Encode(map[string]any{"hosts": []map[string]any{{
+				"hostId": "42bad", "control": "ready", "baseUrl": base + "/42bad",
+			}}})
+		case strings.HasSuffix(r.URL.Path, "/pool-stats"):
+			_, _ = w.Write([]byte(`{"range":"24h","hosts":[]}`))
+		case r.URL.Path == "/42bad/runtime/host.registration.json":
+			_ = json.NewEncoder(w).Encode(registration)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	base = "http://" + srv.Listener.Addr().String()
+	srv.Start()
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+const untrustedProjectIntent = `{"ok":true,
+ "pools":[{"poolId":"lab","poolGuid":"42l","members":["42bad"],
+   "testSet":{"name":"proj.smoke","projectUrl":"https://example.test/proj"}}],
+ "testSets":[],"autoEnrollment":{"enabled":false,"targetPoolId":"","excluded":[]}}`
+
+func TestBoardRejectsUntrustedProjectTextOutsideTheMapContract(t *testing.T) {
+	validMap := func(value string) map[string]string {
+		return map[string]string{"qps-Ploc": value}
+	}
+	tooMany := map[string]string{}
+	for i := 0; i < projectLocaleMapMax+1; i++ {
+		tooMany["aa-"+strconv.Itoa(10+i)] = "translated"
+	}
+	decomposedBoundary := strings.Repeat("e"+string(rune(0x0301)), projectDisplayNameMax/2)
+	astralBoundary := strings.Repeat(string(rune(0x1F642)), projectDisplayNameMax)
+
+	tests := []struct {
+		name             string
+		display          string
+		displayLocalized map[string]string
+		description      string
+		descLocalized    map[string]string
+		wantDisplay      string
+		wantDescription  string
+	}{
+		{
+			name: "valid Unicode scalar bounds count code points", display: decomposedBoundary,
+			displayLocalized: validMap(astralBoundary),
+			description:      "Fast signal", descLocalized: validMap("Pseudo description"),
+			wantDisplay: astralBoundary, wantDescription: "Pseudo description",
+		},
+		{
+			name: "overlong English display invalidates its map", display: strings.Repeat("x", projectDisplayNameMax+1),
+			displayLocalized: validMap("Pseudo label"), description: "Fast signal",
+			wantDisplay: "proj.smoke", wantDescription: "Fast signal",
+		},
+		{
+			name: "overlong localized display falls back", display: "Quick smoke",
+			displayLocalized: validMap(strings.Repeat("x", projectDisplayNameMax+1)), description: "Fast signal",
+			wantDisplay: "Quick smoke", wantDescription: "Fast signal",
+		},
+		{
+			name: "map entry bound applies to the whole map", display: "Quick smoke",
+			displayLocalized: tooMany, description: "Fast signal",
+			wantDisplay: "Quick smoke", wantDescription: "Fast signal",
+		},
+		{
+			name: "noncanonical tag invalidates the map", display: "Quick smoke",
+			displayLocalized: map[string]string{"qps-Ploc": "Pseudo label", "pt-br": "Rotulo"}, description: "Fast signal",
+			wantDisplay: "Quick smoke", wantDescription: "Fast signal",
+		},
+		{
+			name: "English is forbidden in the additive map", display: "Quick smoke",
+			displayLocalized: map[string]string{"qps-Ploc": "Pseudo label", "en-US": "Override"}, description: "Fast signal",
+			wantDisplay: "Quick smoke", wantDescription: "Fast signal",
+		},
+		{
+			name: "blank map value invalidates the map", display: "Quick smoke",
+			displayLocalized: map[string]string{"qps-Ploc": "Pseudo label", "fr-FR": " \t"}, description: "Fast signal",
+			wantDisplay: "Quick smoke", wantDescription: "Fast signal",
+		},
+		{
+			name: "overlong English description invalidates its map", display: "Quick smoke",
+			displayLocalized: validMap("Pseudo label"), description: strings.Repeat("x", projectDescriptionMax+1),
+			descLocalized: validMap("Pseudo description"), wantDisplay: "Pseudo label", wantDescription: "",
+		},
+		{
+			name: "overlong localized description falls back", display: "Quick smoke",
+			displayLocalized: validMap("Pseudo label"), description: "Fast signal",
+			descLocalized: validMap(strings.Repeat("x", projectDescriptionMax+1)),
+			wantDisplay:   "Pseudo label", wantDescription: "Fast signal",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			registration := map[string]any{
+				"hostId": "42bad", "projectUrl": "https://example.test/proj.git",
+				"testSets": []map[string]any{{
+					"name": "smoke", "displayName": tc.display,
+					"displayNameLocalized": tc.displayLocalized,
+					"description":          tc.description, "descriptionLocalized": tc.descLocalized,
+				}},
+			}
+			agg := untrustedProjectAggStub(t, registration)
+			s := New(&boardIntent{doc: untrustedProjectIntent}, Options{
+				AggregatorURL: agg.URL, AllowPseudoLocale: true,
+			})
+			payload := boardPayloadForLocale(t, s, "qps-Ploc")
+			offer := payload["offers"].([]any)[0].(map[string]any)
+			if got := offer["displayName"]; got != tc.wantDisplay {
+				t.Errorf("displayName = %q, want %q", got, tc.wantDisplay)
+			}
+			if got := offer["description"]; got != tc.wantDescription {
+				t.Errorf("description = %q, want %q", got, tc.wantDescription)
+			}
+			if got := cardsByID(t, payload)["lab"]["testSetLabel"]; got != tc.wantDisplay {
+				t.Errorf("card label = %q, want %q", got, tc.wantDisplay)
+			}
+		})
+	}
+}
+
+// TestWriteOfficialProjectLocaleBoundaryFixture is also a narrow cross-runtime
+// harness for Test.PoolGlobalizationSlice.Tests.ps1. That suite first asks the
+// project-map authority to derive an ephemeral pseudo map from the adjacent
+// official project, then sets these two paths. The response written here has
+// traversed the real request negotiator, registration reader and /api/board
+// handler; the browser test does not get to inject a localized label directly.
+func TestWriteOfficialProjectLocaleBoundaryFixture(t *testing.T) {
+	fixturePath := os.Getenv("YURUNA_PROJECT_PSEUDO_FIXTURE")
+	outputPath := os.Getenv("YURUNA_BOARD_BOUNDARY_OUTPUT")
+	if fixturePath == "" && outputPath == "" {
+		t.Skip("cross-runtime boundary fixture paths were not requested")
+	}
+	if fixturePath == "" || outputPath == "" {
+		t.Fatal("both YURUNA_PROJECT_PSEUDO_FIXTURE and YURUNA_BOARD_BOUNDARY_OUTPUT are required")
+	}
+	locale := os.Getenv("YURUNA_PROJECT_PSEUDO_LOCALE")
+	if locale == "" {
+		locale = "qps-Ploc"
+	}
+	if locale != "qps-Ploc" && locale != "qps-Plocm" {
+		t.Fatalf("unsupported boundary fixture locale %q", locale)
+	}
+
+	values := readProjectPseudoFixture(t, fixturePath)
+	agg := projectBoundaryAggStub(t, values)
+	s := New(&boardIntent{doc: projectBoundaryIntent}, Options{
+		AggregatorURL: agg.URL, AllowPseudoLocale: true,
+	})
+	rec, payload := boardResponseForLocale(t, s, locale)
+	if got := rec.Header().Get("Content-Language"); got != locale {
+		t.Fatalf("Content-Language = %q, want %q", got, locale)
+	}
+	if vary := strings.ToLower(strings.Join(rec.Header().Values("Vary"), ",")); !strings.Contains(vary, "accept-language") {
+		t.Fatalf("Vary = %q, want Accept-Language", rec.Header().Values("Vary"))
+	}
+	if got := rec.Header().Get("Cache-Control"); got != "no-store" {
+		t.Fatalf("Cache-Control = %q, want no-store", got)
+	}
+
+	want := values.displayNameLocalized[locale]
+	cards := cardsByID(t, payload)
+	if got := cards["localized"]["testSetLabel"]; got != want {
+		t.Fatalf("localized card label = %v, want %q", got, want)
+	}
+	if got := cards["old-project"]["testSetLabel"]; got != values.displayName {
+		t.Fatalf("old-project card label = %v, want English scalar %q", got, values.displayName)
+	}
+	foundLocalized := false
+	foundOld := false
+	for _, raw := range payload["offers"].([]any) {
+		offer := raw.(map[string]any)
+		switch offer["name"] {
+		case "yuruna-project.smoke":
+			foundLocalized = offer["displayName"] == want
+		case "old-project.smoke":
+			foundOld = offer["displayName"] == values.displayName
+		}
+	}
+	if !foundLocalized || !foundOld {
+		t.Fatalf("boundary offers did not preserve localized/old-reader values: %v", payload["offers"])
+	}
+	if err := os.WriteFile(outputPath, rec.Body.Bytes(), 0o600); err != nil {
+		t.Fatalf("write board boundary output: %v", err)
+	}
 }
 
 func TestBoardJoinsStatsOntoMembers(t *testing.T) {
@@ -185,8 +584,11 @@ func TestBoardTargetPoolCannotBeAssigned(t *testing.T) {
 	if cards["default"]["assignAllowed"].(bool) {
 		t.Error("the auto-enrollment target pool must not be assignable")
 	}
-	if cards["default"]["reason"].(string) == "" {
-		t.Error("a disabled control must carry a reason, not be silently omitted")
+	if cards["default"]["assignDisabledDetail"].(string) == "" {
+		t.Error("a disabled control must carry display detail, not be silently omitted")
+	}
+	if _, mixed := cards["default"]["reason"]; mixed {
+		t.Error("board prose must not reuse the machine-readable reason field")
 	}
 	if !cards["lab"]["assignAllowed"].(bool) {
 		t.Error("an ordinary pool must remain assignable")

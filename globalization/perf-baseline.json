@@ -1,0 +1,349 @@
+{
+  "schema": "yuruna.perf-baseline/v2",
+  "note": "Every shipped asset and page has a fail-new deterministic budget. Executable scenario ceilings are provisional until the release evidence run records its controlled measurements.",
+  "tolerance": {
+    "bytePercent": 5,
+    "byteAbsolute": 512,
+    "requests": 0
+  },
+  "assets": {
+    "test/status/qps-Ploc.status.js": {
+      "rawBytes": 3053,
+      "gzipBytes": 944,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "test/status/qps-Plocm.status.js": {
+      "rawBytes": 3316,
+      "gzipBytes": 966,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "test/status/yuruna.common.css": {
+      "rawBytes": 31599,
+      "gzipBytes": 10673,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "test/status/yuruna.common.js": {
+      "rawBytes": 168539,
+      "gzipBytes": 48972,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "test/extension/extension-sdk/webui/assets/yuruna.core.js": {
+      "rawBytes": 69462,
+      "gzipBytes": 22920,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "test/extension/pool-control-service/server/internal/httpsrv/web/assets/board.css": {
+      "rawBytes": 6603,
+      "gzipBytes": 2646,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "test/extension/pool-control-service/server/internal/httpsrv/web/assets/board.js": {
+      "rawBytes": 13280,
+      "gzipBytes": 4893,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "test/extension/pool-control-service/server/internal/httpsrv/web/assets/common.js": {
+      "rawBytes": 9601,
+      "gzipBytes": 3725,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "test/extension/pool-control-service/server/internal/httpsrv/web/assets/diagnostics.js": {
+      "rawBytes": 5843,
+      "gzipBytes": 2120,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js": {
+      "rawBytes": 22352,
+      "gzipBytes": 8065,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "test/extension/pool-control-service/server/internal/httpsrv/web/assets/index.js": {
+      "rawBytes": 6552,
+      "gzipBytes": 2674,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "test/extension/pool-control-service/server/internal/httpsrv/web/assets/pools.js": {
+      "rawBytes": 14247,
+      "gzipBytes": 5050,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "test/extension/pool-control-service/server/internal/httpsrv/web/assets/qps-Ploc.pool.js": {
+      "rawBytes": 6749,
+      "gzipBytes": 1056,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "test/extension/pool-control-service/server/internal/httpsrv/web/assets/qps-Plocm.pool.js": {
+      "rawBytes": 6921,
+      "gzipBytes": 1071,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "test/extension/pool-control-service/server/internal/httpsrv/web/assets/scan.js": {
+      "rawBytes": 12198,
+      "gzipBytes": 4392,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "test/extension/pool-control-service/server/internal/httpsrv/web/assets/style.css": {
+      "rawBytes": 29741,
+      "gzipBytes": 9806,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "test/extension/pool-control-service/server/internal/httpsrv/web/assets/test-sets.js": {
+      "rawBytes": 4509,
+      "gzipBytes": 1777,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "test/extension/stash-service/server/internal/httpsrv/web/assets/common.js": {
+      "rawBytes": 6662,
+      "gzipBytes": 2764,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "test/extension/stash-service/server/internal/httpsrv/web/assets/index.js": {
+      "rawBytes": 18381,
+      "gzipBytes": 6760,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "test/extension/stash-service/server/internal/httpsrv/web/assets/new.js": {
+      "rawBytes": 3017,
+      "gzipBytes": 1336,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "test/extension/stash-service/server/internal/httpsrv/web/assets/stash.js": {
+      "rawBytes": 10395,
+      "gzipBytes": 3745,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "test/extension/stash-service/server/internal/httpsrv/web/assets/style.css": {
+      "rawBytes": 30711,
+      "gzipBytes": 9380,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "test/extension/download-agent-service/server/internal/httpsrv/web/assets/common.js": {
+      "rawBytes": 1087,
+      "gzipBytes": 667,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "test/extension/download-agent-service/server/internal/httpsrv/web/assets/diagnostics.js": {
+      "rawBytes": 8035,
+      "gzipBytes": 2893,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js": {
+      "rawBytes": 20516,
+      "gzipBytes": 7005,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "test/extension/download-agent-service/server/internal/httpsrv/web/assets/sort.js": {
+      "rawBytes": 4615,
+      "gzipBytes": 2030,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "test/extension/download-agent-service/server/internal/httpsrv/web/assets/style.css": {
+      "rawBytes": 24784,
+      "gzipBytes": 7984,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "globalization/generated/browser/en-US.pool.js": {
+      "rawBytes": 1990,
+      "gzipBytes": 728,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "globalization/generated/browser/en-US.status.js": {
+      "rawBytes": 1821,
+      "gzipBytes": 704,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "globalization/generated/browser/qps-Ploc.pool.js": {
+      "rawBytes": 6749,
+      "gzipBytes": 1056,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "globalization/generated/browser/qps-Ploc.status.js": {
+      "rawBytes": 3053,
+      "gzipBytes": 944,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "globalization/generated/browser/qps-Plocm.pool.js": {
+      "rawBytes": 6921,
+      "gzipBytes": 1071,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "globalization/generated/browser/qps-Plocm.status.js": {
+      "rawBytes": 3316,
+      "gzipBytes": 966,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "globalization/kernel/yuruna.fetch-shim.js": {
+      "rawBytes": 3748,
+      "gzipBytes": 1706,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "globalization/kernel/yuruna.i18n.js": {
+      "rawBytes": 14196,
+      "gzipBytes": 5169,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
+    "globalization/kernel/yuruna.rawpage.js": {
+      "rawBytes": 3206,
+      "gzipBytes": 1457,
+      "transferDisposition": "deterministic-gzip-estimate"
+    }
+  },
+  "pages": {
+    "test/status/index.html": {
+      "disposition": "budgeted",
+      "requests": 2,
+      "rawBytes": 15672,
+      "gzipBytes": 4729
+    },
+    "test/status/performance.html": {
+      "disposition": "budgeted",
+      "requests": 2,
+      "rawBytes": 7953,
+      "gzipBytes": 2887
+    },
+    "test/status/config.html": {
+      "disposition": "budgeted",
+      "requests": 2,
+      "rawBytes": 16922,
+      "gzipBytes": 4657
+    },
+    "test/status/diagnostics.html": {
+      "disposition": "budgeted",
+      "requests": 2,
+      "rawBytes": 3799,
+      "gzipBytes": 1612
+    },
+    "test/status/share-cycle.html": {
+      "disposition": "budgeted",
+      "requests": 2,
+      "rawBytes": 6636,
+      "gzipBytes": 2771
+    },
+    "test/extension/pool-control-service/server/internal/httpsrv/web/board.html": {
+      "disposition": "budgeted",
+      "requests": 5,
+      "rawBytes": 4561,
+      "gzipBytes": 1855
+    },
+    "test/extension/pool-control-service/server/internal/httpsrv/web/hosts.html": {
+      "disposition": "budgeted",
+      "requests": 4,
+      "rawBytes": 4628,
+      "gzipBytes": 1673
+    },
+    "test/extension/pool-control-service/server/internal/httpsrv/web/pools.html": {
+      "disposition": "budgeted",
+      "requests": 4,
+      "rawBytes": 3835,
+      "gzipBytes": 1452
+    },
+    "test/extension/pool-control-service/server/internal/httpsrv/web/index.html": {
+      "disposition": "budgeted",
+      "requests": 4,
+      "rawBytes": 3738,
+      "gzipBytes": 1455
+    },
+    "test/extension/pool-control-service/server/internal/httpsrv/web/diagnostics.html": {
+      "disposition": "budgeted",
+      "requests": 4,
+      "rawBytes": 3890,
+      "gzipBytes": 1602
+    },
+    "test/extension/pool-control-service/server/internal/httpsrv/web/scan.html": {
+      "disposition": "budgeted",
+      "requests": 4,
+      "rawBytes": 5188,
+      "gzipBytes": 2020
+    },
+    "test/extension/pool-control-service/server/internal/httpsrv/web/test-sets.html": {
+      "disposition": "budgeted",
+      "requests": 4,
+      "rawBytes": 3715,
+      "gzipBytes": 1395
+    },
+    "test/extension/download-agent-service/server/internal/httpsrv/web/index.html": {
+      "disposition": "budgeted",
+      "requests": 5,
+      "rawBytes": 7827,
+      "gzipBytes": 2692
+    },
+    "test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html": {
+      "disposition": "budgeted",
+      "requests": 4,
+      "rawBytes": 6604,
+      "gzipBytes": 2445
+    },
+    "test/extension/stash-service/server/internal/httpsrv/web/index.html": {
+      "disposition": "budgeted",
+      "requests": 4,
+      "rawBytes": 7344,
+      "gzipBytes": 2647
+    },
+    "test/extension/stash-service/server/internal/httpsrv/web/new.html": {
+      "disposition": "budgeted",
+      "requests": 4,
+      "rawBytes": 4067,
+      "gzipBytes": 1576
+    },
+    "test/extension/stash-service/server/internal/httpsrv/web/stash.html": {
+      "disposition": "budgeted",
+      "requests": 4,
+      "rawBytes": 3313,
+      "gzipBytes": 1458
+    }
+  },
+  "executableBudgets": {
+    "browserFloorColdFirstUsable": {
+      "coverage": "every registered page",
+      "markerContract": "locale, direction, above-fold text/controls, and primary data or accessible state are ready",
+      "samples": 30,
+      "statistic": "median",
+      "relativePercent": 10,
+      "absoluteToleranceMs": 100
+    },
+    "browserCapabilityOffFirstUsable": {
+      "coverage": "every registered page",
+      "markerContract": "same first-usable marker as the floor-browser row, with optional APIs disabled",
+      "samples": 100,
+      "statistic": "p95",
+      "relativePercent": 15,
+      "absoluteToleranceMs": 100
+    },
+    "browserSteadyRender": {
+      "coverage": "every registered page with poll-driven rendering",
+      "samples": 100,
+      "statistic": "median-and-p95",
+      "relativePercent": 10,
+      "absoluteToleranceMs": 25
+    },
+    "powershellCli": {
+      "coverage": "cold-start, warm-import, and post-catalog working-set rows",
+      "samples": 100,
+      "statistic": "median-and-p95",
+      "relativePercent": 10,
+      "absoluteTolerance": "recorded-before-candidate"
+    },
+    "transcriptThroughput": {
+      "coverage": "representative cycle-log lines per second",
+      "samples": 100,
+      "statistic": "median-and-p95",
+      "relativePercent": 10,
+      "absoluteTolerance": "recorded-before-candidate"
+    },
+    "goService": {
+      "coverage": "startup, steady RSS, binary size, lookup, allocation, and concurrent-render rows",
+      "samples": 100,
+      "statistic": "median-and-p95",
+      "relativePercent": 10,
+      "absoluteTolerance": "recorded-before-candidate"
+    },
+    "httpLatency": {
+      "coverage": "loopback or recorded network-profile median and p95 after the G2-10/G3-04 harness lands",
+      "samples": 100,
+      "statistic": "median-and-p95",
+      "relativePercent": 10,
+      "absoluteTolerance": "recorded-before-candidate",
+      "activation": "G2-10/G3-04"
+    }
+  }
+}

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 426d4c3d-0ae7-41c9-8bac-5f42f9255e5b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,14 +16,14 @@
 
 #requires -version 7
 
-# --- REGION: https://yuruna.link/network#defining-the-guest-to-guest-rail
+# --- REGION: https://yuruna.link/4220a755-0019
 # A second, stable libvirt-NAT address per guest, for guests that must reach
 # EACH OTHER. KVM-only: every consumer treats a rail address as an optimization
 # that may be absent, never as a dependency.
 # NOTHING CALLS THIS. Get-GuestRailAddress keys on the transient VM name, so
 # wiring it back as it stands breaks VM creation on the second guest of every
 # cycle. It is kept for the derivation and its tests --
-# https://yuruna.link/network#why-the-rail-is-not-wired-up
+# https://yuruna.link/4220a755-001a
 
 $script:RailNetwork = 'default'
 # The band reservations are allocated from. Inside libvirt's default DHCP range
@@ -51,9 +51,16 @@ function Test-GuestRailAvailable {
     [OutputType([bool])]
     param()
     if (-not (Get-Command virsh -ErrorAction SilentlyContinue)) { return $false }
-    $state = & virsh net-info $script:RailNetwork 2>$null | Where-Object { $_ -match '^\s*Active:\s*(\S+)' } |
-        ForEach-Object { $Matches[1] }
-    return ([string]$state -eq 'yes')
+    # net-list --name lists exactly the active networks, one name per line, and
+    # a network name is not translated. Reading net-info's "Active: yes" instead
+    # would put both the field label and the answer through gettext, so a host
+    # in another language would report every network inactive and quietly drop
+    # the rail on hosts that have one.
+    $active = & virsh net-list --name 2>$null
+    foreach ($name in @($active)) {
+        if ("$name".Trim() -eq $script:RailNetwork) { return $true }
+    }
+    return $false
 }
 
 function Get-GuestRailAddress {

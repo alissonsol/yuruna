@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42eaea7b-b54f-495c-bbdc-838c8758fced
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,7 +47,7 @@ function Publish-ComponentList {
     # (via $state, which the ForEach-Object child scope can mutate), and every
     # other line routes to the host via Out-Default so replayed phase output
     # cannot array-wrap the manifest returned to callers.
-    # --- REGION: https://yuruna.link/memory#why-publish-componentlist-splits-its-pipeline-through-a-state-hashtable
+    # --- REGION: https://yuruna.link/42d69dfa-003d
     $state = @{ manifest = $null }
     & {
     param($project_root, $config_subfolder)

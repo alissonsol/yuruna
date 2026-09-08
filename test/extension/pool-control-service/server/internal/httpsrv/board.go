@@ -9,8 +9,10 @@ import (
 	"net/url"
 	"sort"
 	"strings"
+	"unicode/utf8"
 
 	"pool-control-service/internal/intent"
+	"yuruna.com/test/extension/extension-sdk/i18n"
 )
 
 // The operator board's server side.
@@ -73,9 +75,12 @@ type boardCard struct {
 	TestSetLabel string `json:"testSetLabel"`
 	// AssignAllowed is false for the auto-enrollment target pool, which is
 	// structurally forbidden from carrying a test-set. The UI disables the
-	// control and shows Reason, rather than silently omitting it.
-	AssignAllowed bool   `json:"assignAllowed"`
-	Reason        string `json:"reason"`
+	// control and shows AssignDisabledDetail, rather than silently omitting it.
+	// This is prose, deliberately not the `reason` machine token used by error
+	// envelopes. Keeping the two fields distinct prevents a browser from ever
+	// branching on a sentence or rendering a code as if it were a sentence.
+	AssignAllowed        bool   `json:"assignAllowed"`
+	AssignDisabledDetail string `json:"assignDisabledDetail"`
 	// Blocked lists members that cannot read the assigned project. Advisory:
 	// the board flags the pool, nothing changes state automatically.
 	Blocked []string `json:"blocked"`
@@ -89,6 +94,10 @@ type boardOffer struct {
 	FrameworkURL string   `json:"frameworkUrl"`
 	ProjectURL   string   `json:"projectUrl"`
 	Sequences    []string `json:"sequences"`
+	// Request-local merge state, never serialized. A translated label learned
+	// from the project must not be replaced by an English-only library fallback.
+	displayLocalized     bool
+	descriptionLocalized bool
 }
 
 // intentDoc is the shape Get-PoolIntent.ps1 emits.
@@ -107,12 +116,14 @@ type intentDoc struct {
 		} `json:"testSet"`
 	} `json:"pools"`
 	TestSets []struct {
-		Name         string   `json:"name"`
-		DisplayName  string   `json:"displayName"`
-		Description  string   `json:"description"`
-		FrameworkURL string   `json:"frameworkUrl"`
-		ProjectURL   string   `json:"projectUrl"`
-		Sequences    []string `json:"sequences"`
+		Name                 string            `json:"name"`
+		DisplayName          string            `json:"displayName"`
+		DisplayNameLocalized map[string]string `json:"displayNameLocalized"`
+		Description          string            `json:"description"`
+		DescriptionLocalized map[string]string `json:"descriptionLocalized"`
+		FrameworkURL         string            `json:"frameworkUrl"`
+		ProjectURL           string            `json:"projectUrl"`
+		Sequences            []string          `json:"sequences"`
 	} `json:"testSets"`
 	AutoEnrollment struct {
 		Enabled      bool     `json:"enabled"`
@@ -133,16 +144,89 @@ type hostRegistration struct {
 	HostType   string `json:"hostType"`
 	ProjectURL string `json:"projectUrl"`
 	TestSets   []struct {
-		Name        string   `json:"name"`
-		DisplayName string   `json:"displayName"`
-		Description string   `json:"description"`
-		Sequences   []string `json:"sequences"`
+		Name                 string            `json:"name"`
+		DisplayName          string            `json:"displayName"`
+		DisplayNameLocalized map[string]string `json:"displayNameLocalized"`
+		Description          string            `json:"description"`
+		DescriptionLocalized map[string]string `json:"descriptionLocalized"`
+		Sequences            []string          `json:"sequences"`
 	} `json:"testSets"`
 	ProjectAccess *struct {
 		URL    string `json:"url"`
 		Status string `json:"status"`
 		Detail string `json:"detail"`
 	} `json:"projectAccess"`
+}
+
+const (
+	projectDisplayNameMax = 160
+	projectDescriptionMax = 2000
+	projectLocaleMapMax   = 16
+)
+
+// The manifest is the spelling authority for the pseudo tags too. Plocm is a
+// deliberately manifest-declared five-letter subtag, so the generic BCP 47
+// casing algorithm alone would spell it qps-plocm and reject the generated
+// Wave-1 fixture. Build this immutable lookup once, not once per board read.
+var declaredProjectLocaleTags = func() map[string]string {
+	manifest := i18n.DefaultManifest()
+	result := make(map[string]string, len(manifest.Data))
+	for tag := range manifest.Data {
+		result[strings.ToLower(tag)] = tag
+	}
+	return result
+}()
+
+func canonicalProjectLocaleTag(tag string) string {
+	canonical := i18n.CanonicalTag(tag, 35)
+	if canonical == "" {
+		return ""
+	}
+	if declared, ok := declaredProjectLocaleTags[strings.ToLower(canonical)]; ok {
+		return declared
+	}
+	return canonical
+}
+
+func validProjectText(value string, maxRunes int) bool {
+	return utf8.ValidString(value) && strings.TrimSpace(value) != "" &&
+		utf8.RuneCountInString(value) <= maxRunes
+}
+
+func validProjectLocaleMap(values map[string]string, maxRunes int) bool {
+	if len(values) < 1 || len(values) > projectLocaleMapMax {
+		return false
+	}
+	for tag, value := range values {
+		canonical := canonicalProjectLocaleTag(tag)
+		if canonical == "" || tag != canonical || canonical == "en-US" ||
+			!validProjectText(value, maxRunes) {
+			return false
+		}
+	}
+	return true
+}
+
+// localizedProjectText applies the additive project-map read rule. Only an
+// exact resolved tag wins; the required English scalar remains the fallback
+// for an old project, a missing translation, and the default locale. Both the
+// scalar and map came from an unauthenticated host registration, so this is a
+// trust boundary as well as a locale lookup: an invalid scalar invalidates its
+// additive map, and one invalid map entry invalidates the complete map.
+func localizedProjectText(fallback string, values map[string]string, maxRunes int, locale i18n.Context) (string, bool) {
+	if !validProjectText(fallback, maxRunes) {
+		return "", false
+	}
+	if locale.ResolvedTag != "" && locale.ResolvedTag != "en-US" {
+		if validProjectLocaleMap(values, maxRunes) {
+			value, ok := values[locale.ResolvedTag]
+			if !ok {
+				return fallback, false
+			}
+			return value, true
+		}
+	}
+	return fallback, false
 }
 
 // projectSlug turns a projectUrl into the library-name prefix. Discovered set
@@ -176,6 +260,10 @@ func projectSlug(projectURL string) string {
 // handleBoard serves the board's whole payload: the cards, the offers, and the
 // range actually used. One request so a phone does a single round trip.
 func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
+	locale := i18n.FromRequest(r)
+	if locale.ResolvedTag == "" {
+		locale = s.negotiator().Resolve(r)
+	}
 	window := r.URL.Query().Get("range")
 	if window == "" {
 		window = "24h"
@@ -262,14 +350,15 @@ func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
 		}
 		for _, ts := range reg.TestSets {
 			key := slug + "." + ts.Name
-			label := ts.DisplayName
+			label, displayLocalized := localizedProjectText(ts.DisplayName, ts.DisplayNameLocalized, projectDisplayNameMax, locale)
 			if label == "" {
 				label = key
 			}
-			labelFor[key] = label
+			description, descriptionLocalized := localizedProjectText(ts.Description, ts.DescriptionLocalized, projectDescriptionMax, locale)
 			offers[key] = boardOffer{
-				Name: key, DisplayName: label, Description: ts.Description,
+				Name: key, DisplayName: label, Description: description,
 				ProjectURL: reg.ProjectURL, Sequences: ts.Sequences,
+				displayLocalized: displayLocalized, descriptionLocalized: descriptionLocalized,
 			}
 		}
 	}
@@ -278,14 +367,17 @@ func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
 	for _, ts := range doc.TestSets {
 		o := offers[ts.Name]
 		o.Name = ts.Name
-		if ts.DisplayName != "" {
-			o.DisplayName = ts.DisplayName
-			labelFor[ts.Name] = ts.DisplayName
+		libraryDisplay, libraryDisplayLocalized := localizedProjectText(ts.DisplayName, ts.DisplayNameLocalized, projectDisplayNameMax, locale)
+		if libraryDisplay != "" && (libraryDisplayLocalized || !o.displayLocalized) {
+			o.DisplayName = libraryDisplay
+			o.displayLocalized = libraryDisplayLocalized
 		} else if o.DisplayName == "" {
 			o.DisplayName = ts.Name
 		}
-		if ts.Description != "" {
-			o.Description = ts.Description
+		libraryDescription, libraryDescriptionLocalized := localizedProjectText(ts.Description, ts.DescriptionLocalized, projectDescriptionMax, locale)
+		if libraryDescription != "" && (libraryDescriptionLocalized || !o.descriptionLocalized) {
+			o.Description = libraryDescription
+			o.descriptionLocalized = libraryDescriptionLocalized
 		}
 		if ts.FrameworkURL != "" {
 			o.FrameworkURL = ts.FrameworkURL
@@ -297,6 +389,9 @@ func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
 			o.Sequences = ts.Sequences
 		}
 		offers[ts.Name] = o
+	}
+	for name, offer := range offers {
+		labelFor[name] = offer.DisplayName
 	}
 
 	target := strings.TrimSpace(doc.AutoEnrollment.TargetPoolID)
@@ -333,7 +428,7 @@ func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
 		}
 		if target != "" && p.PoolID == target {
 			c.AssignAllowed = false
-			c.Reason = "Hosts land here automatically and keep running their own project."
+			c.AssignDisabledDetail = "Hosts land here automatically and keep running their own project."
 		}
 		cards = append(cards, c)
 	}
@@ -349,6 +444,11 @@ func (s *Server) handleBoard(w http.ResponseWriter, r *http.Request) {
 		offerList = append(offerList, offers[n])
 	}
 
+	// The project labels in this representation were selected from the request's
+	// locale maps. Keep a shared cache from handing those selected values to a
+	// reader in another language; no-store remains the stricter storage policy,
+	// while these headers still describe the response correctly to every client.
+	i18n.Apply(w.Header(), locale)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok":         true,
 		"range":      window,

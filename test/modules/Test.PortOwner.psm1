@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 4238bc78-c11a-402a-968a-b632c68efcf0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,7 +16,7 @@
 
 #requires -version 7
 
-# --- REGION: https://yuruna.link/memory#why-port-ownership-diagnostics-live-in-one-module
+# --- REGION: https://yuruna.link/42d69dfa-0012
 # Shared port-ownership diagnostics: the Windows HTTP.sys / netsh vs Unix lsof
 # dispatch, and the classification Start-StatusService refuses to start on.
 # Each function's contract is in its own .SYNOPSIS block below.

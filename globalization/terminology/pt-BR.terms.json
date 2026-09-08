@@ -1,0 +1,230 @@
+{
+  "schema": "yuruna.terminology/v1",
+  "locale": "pt-BR",
+  "status": "approved",
+  "sources": {
+    "definitions": {
+      "path": "docs/definition.md",
+      "hashAlgorithm": "sha256-file-bytes-v1",
+      "sha256": "81c9a336b0e4e4b46f966abb6689c27d9b1b91b4463525c140be5516a7d87518"
+    },
+    "retiredNames": {
+      "path": "tools/githooks/pre-commit",
+      "startMarker": "retired_names='",
+      "endMarker": "'",
+      "hashAlgorithm": "sha256-utf8-lf-retired-pairs-v1",
+      "sha256": "2aed548ac7985155b975897390a123ad2e03e775718306f1ece74b961d040d2d",
+      "entryCount": 65
+    }
+  },
+  "approvals": {
+    "translator": {
+      "status": "approved",
+      "approvedBy": "A Sol",
+      "approvedAt": "2026-09-08",
+      "evidence": {
+        "releaseVersion": "2026.09.07"
+      }
+    },
+    "independentReviewer": {
+      "status": "approved",
+      "approvedBy": "Alisson Sol",
+      "approvedAt": "2026-09-08",
+      "evidence": {
+        "releaseVersion": "2026.09.07"
+      }
+    }
+  },
+  "terms": [
+    {
+      "sourceTerm": "host",
+      "meaning": "The physical machine that runs Yuruna host automation, provisions guests, and exposes host-side services.",
+      "sourceHeadings": [
+        "Defining fetch-and-execute host environment variables",
+        "Defining the VM core-count policy"
+      ],
+      "ptBRDecision": {
+        "status": "translated",
+        "targetTerm": "hospedeiro"
+      }
+    },
+    {
+      "sourceTerm": "guest",
+      "meaning": "A virtual machine provisioned and driven by a host to run a test or service workload.",
+      "sourceHeadings": [
+        "Defining the VM memory policy"
+      ],
+      "ptBRDecision": {
+        "status": "translated",
+        "targetTerm": "convidado"
+      }
+    },
+    {
+      "sourceTerm": "pool",
+      "meaning": "The multi-host coordination scope in which consumers join cycles and shared services serve participating hosts.",
+      "sourceHeadings": [
+        "Defining the cycle.events.ndjson record shape",
+        "Defining the runner-state enum"
+      ],
+      "ptBRDecision": {
+        "status": "translated",
+        "targetTerm": "grupo"
+      }
+    },
+    {
+      "sourceTerm": "cycle",
+      "meaning": "One test-run lifecycle, identified by its start time and on-disk cycle folder, with ordered events and captured artifacts.",
+      "sourceHeadings": [
+        "Defining the cycle folder identity",
+        "Defining the cycle.events.ndjson event-name catalog"
+      ],
+      "ptBRDecision": {
+        "status": "translated",
+        "targetTerm": "ciclo"
+      }
+    },
+    {
+      "sourceTerm": "workload",
+      "meaning": "A Helm-driven deployment of one or more components.",
+      "sourceHeadings": [
+        "Canonical yuruna concepts"
+      ],
+      "ptBRDecision": {
+        "status": "translated",
+        "targetTerm": "carga de trabalho"
+      }
+    },
+    {
+      "sourceTerm": "component",
+      "meaning": "A container image that Yuruna builds and pushes to a registry.",
+      "sourceHeadings": [
+        "Canonical yuruna concepts"
+      ],
+      "ptBRDecision": {
+        "status": "translated",
+        "targetTerm": "componente"
+      }
+    },
+    {
+      "sourceTerm": "resource",
+      "meaning": "Infrastructure deployed with OpenTofu that produces resources.output.yml for components to consume.",
+      "sourceHeadings": [
+        "Canonical yuruna concepts"
+      ],
+      "ptBRDecision": {
+        "status": "translated",
+        "targetTerm": "recurso"
+      }
+    },
+    {
+      "sourceTerm": "stash",
+      "meaning": "The storage service that receives artifacts as streams and writes them beside its SQLite metadata.",
+      "sourceHeadings": [
+        "Defining the VM memory policy"
+      ],
+      "ptBRDecision": {
+        "status": "translated",
+        "targetTerm": "stash"
+      }
+    },
+    {
+      "sourceTerm": "pause",
+      "meaning": "An operator request that stops test progress at either the next step boundary or the next cycle boundary.",
+      "sourceHeadings": [
+        "Defining the status-page banner",
+        "Defining the runner-state enum"
+      ],
+      "ptBRDecision": {
+        "status": "translated",
+        "targetTerm": "pausa"
+      }
+    },
+    {
+      "sourceTerm": "drain",
+      "meaning": "To consume a child process's standard input completely before that process returns its response.",
+      "sourceHeadings": [
+        "Defining the tofu external hook shell choice"
+      ],
+      "ptBRDecision": {
+        "status": "translated",
+        "targetTerm": "drenar"
+      }
+    },
+    {
+      "sourceTerm": "cache",
+      "meaning": "The local container-registry mirror used as an optimization for image pulls; when configured it is part of the pull path.",
+      "sourceHeadings": [
+        "Defining containerd hosts.toml cache mirror"
+      ],
+      "ptBRDecision": {
+        "status": "retained"
+      }
+    },
+    {
+      "sourceTerm": "operation",
+      "meaning": "One of the three umbrella CLI stages: resources, components, or workloads.",
+      "sourceHeadings": [
+        "Canonical yuruna concepts"
+      ],
+      "ptBRDecision": {
+        "status": "translated",
+        "targetTerm": "operação"
+      }
+    },
+    {
+      "sourceTerm": "forwarder",
+      "meaning": "The host-side Squid TCP forwarder used by the caching-proxy service.",
+      "sourceHeadings": [
+        "Canonical yuruna concepts"
+      ],
+      "ptBRDecision": {
+        "status": "translated",
+        "targetTerm": "encaminhador"
+      }
+    },
+    {
+      "sourceTerm": "lab token",
+      "meaning": "The six-character rotating code an operator redeems once for the internal authentication key.",
+      "sourceHeadings": [
+        "Defining the two lab secrets"
+      ],
+      "ptBRDecision": {
+        "status": "translated",
+        "targetTerm": "token do laboratório"
+      }
+    },
+    {
+      "sourceTerm": "internal authentication key",
+      "meaning": "The 48-character stable key used for control proofs, ingest authorization, and cross-host credential fetch.",
+      "sourceHeadings": [
+        "Defining the two lab secrets"
+      ],
+      "ptBRDecision": {
+        "status": "translated",
+        "targetTerm": "chave de autenticação interna"
+      }
+    }
+  ],
+  "retiredNameRulings": [
+    {
+      "retired": "status server",
+      "current": "status service",
+      "translationPolicy": "preserve-exact-english"
+    },
+    {
+      "retired": "stash appliance",
+      "current": "stash service",
+      "translationPolicy": "preserve-exact-english"
+    },
+    {
+      "retired": "HostConfigService",
+      "current": "ConfigService",
+      "translationPolicy": "preserve-exact-english"
+    },
+    {
+      "retired": "stash-server",
+      "current": "stash-service",
+      "translationPolicy": "preserve-exact-english"
+    }
+  ]
+}

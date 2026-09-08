@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 4264541c-67da-418e-bf26-a11eb9662af8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -69,7 +69,7 @@ function Sync-LinuxHostClock {
     .DESCRIPTION
         libvirt seeds each guest's clock from this host at power-on. What a
         drifted clock then does to a guest:
-        https://yuruna.link/test/harness#the-host-clock
+        https://yuruna.link/42d38664-001a
 
         `timedatectl set-ntp true` is the durable half. Restarting the
         active sync daemon afterwards is the immediate half: enabling NTP
@@ -146,7 +146,7 @@ function Assert-LinuxHostConditionSet {
     [OutputType([bool])]
     param([string]$HostType)
     if ($HostType -ne 'host.ubuntu.kvm') { return $true }
-    # --- REGION: https://yuruna.link/test/harness#the-host-clock
+    # --- REGION: https://yuruna.link/42d38664-001a
     # Warn-only and once per cycle: the repair needs a privilege this process
     # cannot ask for, so a drifted host runs and says so rather than refusing
     # every cycle until an operator notices.

@@ -1,3 +1,5 @@
+<a id="42ffbeba-0001"></a>
+
 # Yuruna Contributor Opportunities
 
 Prioritized work the project would welcome help on, ranked by **return on
@@ -20,6 +22,8 @@ and OCR/capture (4+); several a-priori "big" items (IP-pool exhaustion,
 proxy 5xx, disk) show **zero** occurrences on one host and only become
 real under multi-host fan-out -- which is why they sit in Low ROI.
 
+<a id="42ffbeba-0002"></a>
+
 ## Roadmap
 
 **Yuruna asserts resources are configured to verify components against
@@ -27,11 +31,15 @@ anticipated workloads.** The horizons below are coarse product
 milestones (dates are targets); the ROI-ranked sections that follow
 track finer-grained infrastructure and reliability work.
 
+<a id="42ffbeba-0003"></a>
+
 ### Horizon: 1-2 months (target 2026-07)
 
 - Mobile example
 - Chatbot example
 - Yuruna stash: service to receive SCP files
+
+<a id="42ffbeba-0004"></a>
 
 ### Horizon: 2-3 months (target 2026-08)
 
@@ -39,11 +47,15 @@ track finer-grained infrastructure and reliability work.
 - Yuruna Hub
 - Drift detection
 
+<a id="42ffbeba-0005"></a>
+
 ### Horizon: 3+ months (target 2026-09+)
 
 - Cloud support
 - Yuruna AI assistant
 - Guide (Book)
+
+<a id="42ffbeba-0006"></a>
 
 ## High ROI
 
@@ -93,6 +105,8 @@ validation, or small changes against real recurring pain.
   invoking it as a hard precondition in the release script (the
   authoritative backstop). A UTF-8 BOM on `windows.hyper-v.ps1` makes PS5.1
   `irm | iex` die at line 1 -- denial-of-bootstrap on every fresh host.
+
+<a id="42ffbeba-0007"></a>
 
 ## Medium ROI
 
@@ -165,6 +179,8 @@ Solid value, moderate effort -- the bulk of the everyday backlog.
 - **Document the Hyper-V Amazon Linux nested-virtualization setup**
   (`host/windows.hyper-v/guest.amazon.linux.2023/read.more.md`).
 
+<a id="42ffbeba-0008"></a>
+
 ## Low ROI
 
 Low current value, very high effort, or deliberately deferred. Worth doing
@@ -214,6 +230,8 @@ only when the enabling condition arrives.
   editor.
 - **Generate a topology graph from the YAML config** (e.g. Python
   graphviz) for an at-a-glance view of project structure.
+
+<a id="42ffbeba-0009"></a>
 
 ## Recently shipped
 
@@ -265,6 +283,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08
 
 Back to [Yuruna](../README.md)

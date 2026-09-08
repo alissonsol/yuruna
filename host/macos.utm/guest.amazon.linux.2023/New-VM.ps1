@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42f81a2e-d65b-4d01-a8b1-3eb5638207d8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -156,7 +156,7 @@ $UserData = New-CloudInitUserData `
 
 Set-Content -Path "$SeedDir/meta-data" -Value $MetaData -NoNewline
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
-# --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+# --- REGION: https://yuruna.link/4220a755-000b
 # Amazon Linux deliberately does NOT receive the shared seed network-config the
 # netplan guests get. Two facts combine badly here:
 #
@@ -211,10 +211,10 @@ $MacAddress = Get-YurunaGuestMacAddress -VMName $GuestHostname
 # keystrokes) agree without a sidecar file.
 $VncDisplay = Get-VncDisplayForVm -VMName $VMName
 
-# --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
+# --- REGION: https://yuruna.link/42fa6f45-0015
 $hostCores = [int](& /usr/sbin/sysctl -n hw.physicalcpu)
 if ($hostCores -lt 4) {
-    Write-Error "Host has $hostCores physical cores; Yuruna requires at least 4. See https://yuruna.link/definition#defining-the-vm-core-count-policy"
+    Write-Error "Host has $hostCores physical cores; Yuruna requires at least 4. See https://yuruna.link/42fa6f45-0015"
     exit 1
 }
 $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
@@ -233,7 +233,6 @@ $PlistContent = (Get-Content -Raw $TemplatePath) `
 
 Set-Content -Path "$UtmDir/config.plist" -Value $PlistContent
 
-# Validate the generated plist is well-formed (matches windows.11/New-VM.ps1).
 $lintOutput = & plutil -lint "$UtmDir/config.plist" 2>&1
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Generated config.plist failed plist validation: $lintOutput"

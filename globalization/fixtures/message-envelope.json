@@ -1,0 +1,77 @@
+{
+  "schema": "yuruna.message-fixtures/v1",
+  "messageSchema": "yuruna.message/v1",
+  "legacyReadUntilRelease": "2027.02",
+  "legacyReadUntilDate": "2027-02-28",
+  "maxArguments": 32,
+  "maxDetailLength": 4096,
+  "javascriptSafeInteger": 9007199254740991,
+  "legacyFields": ["failureClass", "reason", "errorMessage", "event", "diagnosticClass"],
+  "canonical": {
+    "largeInteger": { "$type": "integer", "value": "9007199254740992" },
+    "decimal": { "$type": "decimal", "value": "1234.5" },
+    "bytes": { "$type": "bytes", "value": "18446744073709551615" },
+    "duration": { "$type": "duration", "milliseconds": "90500" },
+    "datetime": { "$type": "datetime", "value": "2026-09-03T12:34:56.0000000Z" }
+  },
+  "unicodePreservation": {
+    "decomposed": "Cafe\u0301",
+    "argumentTypes": ["text", "identifier", "detail", "token"],
+    "detailSource": "tool.stderr"
+  },
+  "wireBounds": {
+    "longDecimalDigit": "9",
+    "longDecimalLength": 128,
+    "astral": "\ud83d\ude80",
+    "maxScalars": 4096
+  },
+  "invalidTypedArguments": [
+    {
+      "name": "integer retains negative zero",
+      "value": { "$type": "integer", "value": "-0" }
+    },
+    {
+      "name": "decimal retains a redundant fraction",
+      "value": { "$type": "decimal", "value": "1.0" }
+    },
+    {
+      "name": "decimal retains negative zero",
+      "value": { "$type": "decimal", "value": "-0" }
+    },
+    {
+      "name": "datetime names a day that does not exist",
+      "value": { "$type": "datetime", "value": "2026-02-30T12:34:56.0000000Z" }
+    }
+  ],
+  "redaction": {
+    "explicitSecret": "MixedCaseSecret42",
+    "mixedCaseText": "tool echoed mIXEDcASEsECRET42",
+    "unsafeDirectDetails": [
+      {
+        "name": "terminal escape",
+        "text": "tool failed\u001b[31m",
+        "secrets": []
+      },
+      {
+        "name": "authorization bearer",
+        "text": "Authorization: Bearer raw-credential",
+        "secrets": []
+      },
+      {
+        "name": "token assignment",
+        "text": "ToKeN=raw-credential",
+        "secrets": []
+      },
+      {
+        "name": "credential assignment",
+        "text": "CrEdEnTiAl=raw-secret",
+        "secrets": []
+      },
+      {
+        "name": "explicit secret with different case",
+        "text": "tool echoed mIXEDcASEsECRET42",
+        "secrets": ["MixedCaseSecret42"]
+      }
+    ]
+  }
+}

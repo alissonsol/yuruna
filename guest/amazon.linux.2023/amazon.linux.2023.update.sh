@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.01
+# Version: 2026.09.08
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -26,7 +26,7 @@ case "$ARCH" in
 esac
 
 # --- REGION: Load the yuruna retry lib
-# --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
+# --- REGION: https://yuruna.link/4220a755-0003
 . /usr/local/lib/yuruna/yuruna-retry.sh
 # Baked retry libs may bound dnf attempts on wall-clock -- the wrapped-apt
 # teardown-hang trap class (the package manager blocks at end-of-transaction
@@ -35,7 +35,7 @@ esac
 export YURUNA_DNF_STALL_TIMEOUT_SECONDS=0
 
 # --- REGION: Point dnf at the caching proxy
-# --- REGION: https://yuruna.link/caching#amazon-linux-2023-picks-the-cache-up-at-run-time
+# --- REGION: https://yuruna.link/42f6b05f-000d
 # The address is derived here rather than templated into cloud-init. This guest
 # boots a prebuilt cloud image, so a templated proxy would be written before
 # anything could confirm the address still answers, and a stale one strands
@@ -125,7 +125,7 @@ else
 fi
 
 # --- REGION: Ensure PowerShell is installed
-# --- REGION: https://yuruna.link/memory#why-ubuntu-guest-update-scripts-install-powershell-first
+# --- REGION: https://yuruna.link/42d69dfa-0036
 # AL2023 ships no first-party pwsh package; GitHub-release tarball (both arches).
 echo ""
 echo -e "\e[1;36m==== Ensure PowerShell is installed ====\e[0m"
@@ -202,7 +202,7 @@ fi
 pwsh --version
 
 # --- REGION: Install powershell-yaml module
-# --- REGION: https://yuruna.link/memory#why-ubuntu--al2023-guest-update-scripts-wrap-install-module-powershell-yaml-with-pwsh_retry
+# --- REGION: https://yuruna.link/42d69dfa-0038
 PWSH_YAML_LOG=/var/log/yuruna/pwsh-yaml-install.log
 sudo install -d -m 0755 -o "$USER" -g "$USER" /var/log/yuruna
 echo ""
@@ -264,7 +264,7 @@ if (-not (Get-Module -ListAvailable -Name powershell-yaml)) {
 PSEOF
 
 # --- REGION: Early yuruna framework extraction
-# --- REGION: https://yuruna.link/memory#why-ubuntu-guest-update-scripts-pre-extract-the-yuruna-tarball
+# --- REGION: https://yuruna.link/42d69dfa-0037
 # Tarball-only here: the git-clone fallback below needs git, which needs dnf.
 echo ""
 echo -e "\e[1;36m==== Early yuruna framework extraction ====\e[0m"
@@ -324,7 +324,7 @@ fi
 git --version
 
 # --- REGION: Resolve framework and project URLs
-# --- REGION: https://yuruna.link/definition#defining-the-two-source-scheme-for-framework-and-project-urls
+# --- REGION: https://yuruna.link/42fa6f45-000c
 echo -e "\e[1;32m==== Resolve framework and project URLs ====\e[0m"
 FRAMEWORK_URL=""
 PROJECT_URL=""
@@ -347,7 +347,7 @@ fi
 : "${PROJECT_URL:=${YURUNA_PROJECT_URL:-}}"
 
 # --- REGION: Keep git non-interactive
-# --- REGION: https://yuruna.link/network#why-git-never-prompts-here
+# --- REGION: https://yuruna.link/4220a755-004f
 export GIT_TERMINAL_PROMPT=0
 if [ -x /usr/local/lib/yuruna/git-askpass.sh ]; then
     export GIT_ASKPASS=/usr/local/lib/yuruna/git-askpass.sh
@@ -429,7 +429,7 @@ fi
 sudo chown -R "$REAL_USER:$REAL_USER" "$REAL_HOME/yuruna" 2>/dev/null || true
 
 # --- REGION: Wait for network convergence
-# --- REGION: https://yuruna.link/network#guest-update-network-convergence-before-handoff
+# --- REGION: https://yuruna.link/4220a755-0014
 # Settle the link (max 30 s, never fatal) before the first host->guest SSH.
 echo ""
 echo -e "\e[1;36m==== Wait for network convergence ====\e[0m"

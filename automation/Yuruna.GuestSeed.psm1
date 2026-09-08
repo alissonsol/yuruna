@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 428d485e-047b-4cc1-8ed5-93ab18e050f7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -68,7 +68,7 @@ function New-AptProxyBlock {
         [Parameter()][AllowNull()][AllowEmptyString()][string]$CachingProxyServiceUrl
     )
     $AptProxyLine = if ($CachingProxyServiceUrl) { "`n    proxy: $CachingProxyServiceUrl" } else { "" }
-    # --- REGION: https://yuruna.link/memory#why-the-guest-seeds-apt-acquire-retries-are-3-x-30s
+    # --- REGION: https://yuruna.link/42d69dfa-0007
     # The closing "@ must stay on its own line at column 0; inlining $(...)"@
     # raises "The string is missing the terminator" (PowerShell here-string rule).
     return @"
@@ -154,7 +154,7 @@ function New-WindowsGuestBootstrap {
         [Parameter()][AllowEmptyString()][string]$GhToken = ''
     )
 
-    # --- REGION: https://yuruna.link/network#defining-yuruna-host-locate-lib
+    # --- REGION: https://yuruna.link/4220a755-002d
     # Ambient defaults, read the same way the cloud-init seeds resolve theirs
     # so a Windows guest and a Linux guest provisioned in one cycle cannot
     # disagree about which host they belong to.

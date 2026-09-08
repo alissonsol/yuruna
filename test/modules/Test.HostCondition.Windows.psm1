@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42475b3f-e79e-40ac-8114-ff6104d9b316
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1645,7 +1645,7 @@ function Sync-WindowsHostClock {
     W32Time ships trigger-started: on a lab host that never joins a domain
     it can sit stopped for weeks, long enough to drift by hours. What a
     drifted clock then does to a guest:
-    https://yuruna.link/test/harness#the-host-clock
+    https://yuruna.link/42d38664-001a
 
     Reports rather than throws. Every step here needs Administrator, and
     a caller has to be free to carry on with a warning when it does not
@@ -1771,7 +1771,7 @@ function Assert-WindowsHostConditionSet {
         Write-Debug "Lock screen timeout check failed: $_"
     }
 
-    # --- REGION: https://yuruna.link/test/harness#the-host-clock
+    # --- REGION: https://yuruna.link/42d38664-001a
     # Warn-only and once per cycle: the repair needs a privilege this process
     # cannot ask for, so a drifted host runs and says so rather than refusing
     # every cycle until an operator notices.

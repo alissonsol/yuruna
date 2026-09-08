@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.01
+# Version: 2026.09.08
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # brew-doctor-fix.sh -- fixes common `brew doctor` issues on Apple Silicon:
@@ -76,7 +76,6 @@ BLOCK
 
     ok "PATH block written to ${ZSHRC}"
 
-    # Apply immediately in this session
     export PATH="${BREW_BIN}:${BREW_SBIN}:$(echo "$PATH" | tr ':' '\n' | grep -v "^${BREW_BIN}$" | grep -v "^${BREW_SBIN}$" | tr '\n' ':' | sed 's/:$//')"
     ok "PATH updated for current session"
     info "Current PATH order (first 5):"

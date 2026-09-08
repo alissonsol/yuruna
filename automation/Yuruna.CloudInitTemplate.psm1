@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 4234ea6a-ddae-4da7-be02-26d47d418045
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -356,7 +356,7 @@ function New-CloudInitUserData {
     if (-not $fullReplacement.ContainsKey('YURUNA_HOST_LOCATE_BASE64_PLACEHOLDER')) {
         $fullReplacement['YURUNA_HOST_LOCATE_BASE64_PLACEHOLDER'] = $b64.HostLocate
     }
-    # --- REGION: https://yuruna.link/network#defining-yuruna-host-locate-lib
+    # --- REGION: https://yuruna.link/4220a755-002d
     # The two identities that let a guest repair a host address that has gone
     # stale. Defaulted here rather than per-caller for the same reason the
     # script bodies are: every seed wants the identical answer, and a

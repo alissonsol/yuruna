@@ -15,7 +15,7 @@ users:
     sudo: ALL=(ALL) NOPASSWD:ALL
     shell: /bin/bash
     lock_passwd: false
-    # --- REGION: https://yuruna.link/vmconfig#unlocked-account-needs-plain_text_passwd
+    # --- REGION: https://yuruna.link/429f3d06-000d
     plain_text_passwd: PASSWORD_PLACEHOLDER
     ssh_authorized_keys:
       - SSH_AUTHORIZED_KEY_PLACEHOLDER
@@ -35,7 +35,7 @@ packages:
   - iputils-ping
   # === YURUNA_OVERLAY_HOST_AGENT_PKG ===
 write_files:
-  # --- REGION: https://yuruna.link/network#why-sshd-notices-a-client-that-left
+  # --- REGION: https://yuruna.link/4220a755-004c
   - path: /etc/ssh/sshd_config.d/60-yuruna-keepalive.conf
     permissions: '0644'
     owner: root:root
@@ -63,7 +63,7 @@ write_files:
     content: |
       username=YSTASH_NAS_NETWORK_USER_PLACEHOLDER
       password=YSTASH_NAS_PASSWORD_PLACEHOLDER
-  # --- REGION: https://yuruna.link/vmconfig#yuruna-host-coordinates
+  # --- REGION: https://yuruna.link/429f3d06-0029
   # Empty IP/PORT falls back to the public github mirror for the framework fetch.
   - path: /etc/yuruna/host.env
     permissions: '0644'
@@ -81,7 +81,7 @@ write_files:
     owner: root:root
     content: |
       YURUNA_AGGREGATOR_URL='YURUNA_AGGREGATOR_URL_PLACEHOLDER'
-  # --- REGION: https://yuruna.link/vmconfig#bring-up-driven-by-systemd-not-runcmd
+  # --- REGION: https://yuruna.link/429f3d06-0087
   - path: /usr/local/lib/yuruna/stash-bringup.sh
     permissions: '0755'
     owner: root:root
@@ -89,7 +89,7 @@ write_files:
       #!/bin/bash
       # Yuruna stash service bring-up, driven by the systemd unit below.
 
-      # --- REGION: https://yuruna.link/vmconfig#stash-nas-cifs-mount-options
+      # --- REGION: https://yuruna.link/429f3d06-0088
       # 1) Mount the stash share, persistent via fstab.
       set +e
       ENVF=/etc/yuruna/ystash-nas.env
@@ -121,7 +121,7 @@ write_files:
         echo "yuruna stash: stash storage not configured in the seed; the daemon will use local fallback storage." >&2
       fi
 
-      # --- REGION: https://yuruna.link/extensions-api#which-framework-snapshot-a-service-vm-is-built-from
+      # --- REGION: https://yuruna.link/42fffc2c-0013
       # 2) Fetch the framework from the host status service (coordinates sed-read from
       #    host.env, NOT sourced), falling back to a github clone so a bring-up works
       #    off-LAN. The fallback is not equivalent: the version is stamped at compile
@@ -225,7 +225,7 @@ write_files:
 
       [Install]
       WantedBy=multi-user.target
-  # --- REGION: https://yuruna.link/vmconfig#host-address-refresh-timer
+  # --- REGION: https://yuruna.link/429f3d06-002a
   # This VM is provisioned once and runs for weeks, so it accumulates host
   # renumbers a per-cycle test guest never sees.
   - path: /usr/local/lib/yuruna/yuruna-host-locate.sh
@@ -265,7 +265,7 @@ runcmd:
   # a reload to take effect on this boot rather than only on the next one.
   - systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true
   - systemctl enable --now yuruna-host-locate.service yuruna-host-locate.timer || true
-  # --- REGION: https://yuruna.link/vmconfig#host-agent-runs-first
+  # --- REGION: https://yuruna.link/429f3d06-0086
   # 0) Host-side guest agent FIRST, so host discovery never waits on the steps below.
   # === YURUNA_OVERLAY_RUNCMD_HOST_AGENT ===
   # 1) Hand the bring-up to systemd. `enable` is what survives a boot that dies

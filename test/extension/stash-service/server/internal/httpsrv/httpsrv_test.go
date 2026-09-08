@@ -33,7 +33,7 @@ const testHostID = "42aaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" // 32 hex, hostId-shaped
 // testVersion stands in for the framework version the guest build stamps in
 // through -ldflags. A daemon that loses that wiring reports the zero value and
 // the UI footer shows nothing, which no other assertion here would notice.
-const testVersion = "2026.09.01"
+const testVersion = "2026.09.08"
 
 func newTestUI(t *testing.T) (*httptest.Server, *Server, string) {
 	return newTestUIHost(t, testHostID)
@@ -68,7 +68,7 @@ func newTestUIWith(t *testing.T, hostID, aggregatorURL string) (*httptest.Server
 		t.Fatalf("meta.Open: %v", err)
 	}
 	t.Cleanup(func() { _ = m.Close() })
-	ids := id.New(st.FilesRoot(), buf.FilesRoot())
+	ids := id.New(m.Exists, st.FilesRoot(), buf.FilesRoot())
 	ssh, err := sshsrv.New(st, buf, m, ids)
 	if err != nil {
 		t.Fatalf("sshsrv.New: %v", err)

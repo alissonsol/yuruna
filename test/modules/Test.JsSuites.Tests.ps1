@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 421d8999-cae4-4164-90cd-fd5cc6a6e28f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -79,6 +79,27 @@ Describe 'Invoke-JsTest discovery' {
     It 'counts the files it reports' {
         Assert-Match -Pattern "$($script:Expected.Count) JavaScript test file\(s\)" -Actual $script:Output `
             -Because 'the summary count must match the files named above'
+    }
+
+    It 'finds an untracked candidate test but excludes ignored scratch output' {
+        $root = Join-Path $TestDrive 'js-candidate'
+        New-Item -ItemType Directory -Path (Join-Path $root 'test') -Force | Out-Null
+        & git -C $root init --quiet
+        [IO.File]::WriteAllText((Join-Path $root '.gitignore'), "test/ignored.test.js`n")
+        [IO.File]::WriteAllText((Join-Path $root 'test/candidate.test.js'),
+            "'use strict';`nconsole.log('PASS candidate');`n")
+        [IO.File]::WriteAllText((Join-Path $root 'test/ignored.test.js'),
+            "throw new Error('ignored');`n")
+        $output = & pwsh -NoProfile -File $script:Runner -Root $root 2>&1 | Out-String
+        $code = $LASTEXITCODE
+        Assert-Match -Pattern '1 JavaScript test file\(s\)' -Actual $output `
+            'candidate discovery omitted the untracked test or included ignored output'
+        Assert-Match -Pattern 'test/candidate\.test\.js' -Actual $output `
+            'the untracked JavaScript test was not named'
+        Assert-False ($output -match 'ignored\.test\.js') `
+            'ignored scratch output entered the JavaScript gate'
+        Assert-True ($code -in @(0, 2)) `
+            "candidate discovery should either execute with node or report node unavailable; exit was $code"
     }
 }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 425e6973-60a5-43b1-90b8-194b4331c1f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -11,7 +11,8 @@
     driver contract defined in host/Yuruna.Host.Contract.psm1 (rationale in docs/host-io.md).
 #>
 
-#requires -version 7
+# ZLibStream in the capture encoder is .NET 6, which arrives with PowerShell 7.2.
+#requires -version 7.2
 
 <#
 .SYNOPSIS
@@ -119,6 +120,21 @@ function Resolve-OscdimgPath {
         'Arm64' { 'arm64' }
         default { 'amd64' }
     }
+    # The tool lives under a Windows-only root. Off Windows there is no C:
+    # drive for Join-Path to build a candidate against, so it fails and hands
+    # the probe below a null path -- and Test-Path on null is an error that a
+    # caller running with ErrorActionPreference 'Stop' turns into a failed
+    # module load. This runs at import time, so the whole module then loads as
+    # nothing, and every consumer reports a missing command rather than a
+    # missing tool. RuntimeInformation rather than $IsWindows: the latter is
+    # undefined on PowerShell 5.1, where -not $IsWindows is true on the one
+    # platform this path is for.
+    $isWindowsHost = [System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
+        [System.Runtime.InteropServices.OSPlatform]::Windows)
+    if (-not $isWindowsHost) {
+        return "$script:OscdimgToolsRoot\$native\Oscdimg\Oscdimg.exe"
+    }
+
     $nativePath = Join-Path $script:OscdimgToolsRoot "$native\Oscdimg\Oscdimg.exe"
     foreach ($archDir in (@($native, 'amd64', 'x86') | Select-Object -Unique)) {
         $candidate = Join-Path $script:OscdimgToolsRoot "$archDir\Oscdimg\Oscdimg.exe"
@@ -187,7 +203,7 @@ function CreateIso {
 
 # --- REGION: Caching-proxy service IP discovery
 # Single source of truth for KVP+ARP discovery shared by guest.caching-proxy-service/
-# New-VM.ps1, ubuntu.server.24/New-VM.ps1, and test/service/Start-CachingProxyServiceVM.ps1.
+# New-VM.ps1, ../guest.ubuntu.server.24/New-VM.ps1, and test/service/Start-CachingProxyServiceVM.ps1.
 # Guards against the regression class where a KVP-only summary reports
 # "(discovery failed)" even though the ARP fallback has already found the
 # cache and it is serving -- by routing all three callers through the same
@@ -254,7 +270,7 @@ function Get-CacheVmCandidateIp {
             } | ForEach-Object { $_.IPAddress })
     }
 
-    # --- REGION: https://yuruna.link/memory#why-get-cachevmcandidateip-emits-a-bare-pipeline
+    # --- REGION: https://yuruna.link/42d69dfa-0023
     ($kvpIps + $arpIps) | Select-Object -Unique
 }
 
@@ -339,6 +355,43 @@ $script:UplinkVerdictOk = @('healthy', 'unknown')
 # property matches no single adapter -- so both are read everywhere a
 # switch has to be resolved back to the NIC(s) it bridges, and a match on
 # any team member counts.
+function Test-YurunaAdapterUp {
+    <#
+    .SYNOPSIS
+        Whether an adapter is operationally up, read from the value rather than
+        from the word Windows chose to display.
+    .DESCRIPTION
+        Get-NetAdapter's Status is a display string, and Windows translates it:
+        the same healthy NIC reads 'Up' in English and something else in every
+        other install language, so a comparison against 'Up' calls a working
+        uplink down on a host whose operator did not install in English.
+
+        ifOperStatus is the IF-MIB value underneath it and is 1 for up in every
+        language. It is read by name because a record that does not carry it --
+        a management-OS vNIC, or a test double standing in for one -- answers
+        $null for a missing property rather than raising, and $null is
+        indistinguishable from "down" once it has been compared.
+    .OUTPUTS
+        System.Boolean
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][AllowNull()][object]$Adapter)
+
+    if ($null -eq $Adapter) { return $false }
+    foreach ($name in @('ifOperStatus', 'InterfaceOperationalStatus')) {
+        $property = $Adapter.PSObject.Properties[$name]
+        if ($property -and $null -ne $property.Value) {
+            $value = 0
+            if ([int]::TryParse([string]$property.Value, [ref]$value)) { return ($value -eq 1) }
+        }
+    }
+    # Nothing numeric to read. The display string is all that is left, and on a
+    # non-English host it will not match -- which is why every real adapter path
+    # above has to resolve first.
+    return ("$($Adapter.Status)" -eq 'Up')
+}
+
 function Get-YurunaSwitchUplinkDescription {
     [CmdletBinding()]
     [OutputType([string[]])]
@@ -392,7 +445,7 @@ function Test-YurunaSwitchOnDefaultRoute {
     return (Test-YurunaAdapterOnSwitchSegment -SwitchRecord $SwitchRecord -Adapter $routeAdapter)
 }
 
-# --- REGION: https://yuruna.link/network#why-a-reused-external-vswitch-is-validated-before-it-is-handed-out
+# --- REGION: https://yuruna.link/4220a755-0021
 # The blank line below is load-bearing. A single-line comment that touches the
 # <# #> block gets absorbed into it, and PowerShell then no longer reads the
 # block as comment-based help -- Get-Help for this function returns nothing at
@@ -503,7 +556,7 @@ function Test-YurunaExternalSwitchUplink {
     # broken -- a team member list, a driver-supplied description change or
     # an enumeration in flight all land here -- so it fails open.
     if ($bound.Count -eq 0) { return 'unknown' }
-    if (@($bound | Where-Object { "$($_.Status)" -eq 'Up' }).Count -eq 0) { return 'uplink-down' }
+    if (@($bound | Where-Object { Test-YurunaAdapterUp -Adapter $_ }).Count -eq 0) { return 'uplink-down' }
 
     # A switch deliberately created without -AllowManagementOS has no
     # management vNIC by design; the host keeps its address on the bridged
@@ -803,7 +856,7 @@ function Get-YurunaBridgeableRouteAdapter {
         if (-not $nic) { return $null }
     }
     if ($nic.PhysicalMediaType -eq 'Native 802.11' -or $nic.PnPDeviceID -like 'USB\*') { return $null }
-    if ("$($nic.Status)" -ne 'Up') { return $null }
+    if (-not (Test-YurunaAdapterUp -Adapter $nic)) { return $null }
     return $nic
 }
 
@@ -1238,7 +1291,7 @@ function Get-OrCreateYurunaExternalSwitch {
     # `-SwitchName` binding (System.Object[] -> System.String coercion
     # failure).
 
-    # --- REGION: https://yuruna.link/network#why-hyper-v-never-bridges-wi-fi-or-usb-uplinks
+    # --- REGION: https://yuruna.link/4220a755-0020
     # 0. Not-bridgeable-uplink divert: return $null so the caller falls back to the Default Switch (NAT + DHCP).
     if (Test-WindowsUplinkNotBridgeable) {
         Write-Verbose "Host default-route uplink is not bridgeable (Wi-Fi 802.11, or a USB Ethernet adapter) -- Hyper-V can't carry a bridged guest MAC over it, so guests fail DHCP and boot with eth0 DOWN. Using the Default Switch (NAT); LAN export rides host port-forwarders."
@@ -1324,7 +1377,7 @@ function Get-OrCreateYurunaExternalSwitch {
         return $null
     }
 
-    if ($nic.Status -ne 'Up') {
+    if (-not (Test-YurunaAdapterUp -Adapter $nic)) {
         Write-Warning "Adapter '$($nic.InterfaceAlias)' is in state '$($nic.Status)', not Up. Cannot bridge."
         return $null
     }
@@ -2248,7 +2301,7 @@ function Restart-HyperVConnect {
 }
 
 # --- REGION: Host proxy helpers
-# Registry keys and marker semantics: https://yuruna.link/definition#defining-the-windows-host-proxy-registry-keys
+# Registry keys and marker semantics: https://yuruna.link/42fa6f45-000e
 
 $script:WinInetRegPath    = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings'
 $script:WinInetMarkerName = 'YurunaProxyManaged'
@@ -3118,38 +3171,30 @@ public class HyperVCapture {
         ihdr[8]=8; ihdr[9]=2;
         WriteChunk(s, "IHDR", ihdr);
         using (var ms = new MemoryStream()) {
-            using (var ds = new System.IO.Compression.DeflateStream(ms, System.IO.Compression.CompressionLevel.Fastest, true)) {
+            // One Write per scanline rather than three per pixel. The compression
+            // streams do not override WriteByte, so each of those calls allocates
+            // a single-element array -- six million of them for one 1920x1080
+            // frame, which costs far more than the compression itself.
+            var row = new byte[1 + w * 3];
+            using (var zs = new System.IO.Compression.ZLibStream(ms, System.IO.Compression.CompressionLevel.Optimal, true)) {
                 for (int y = 0; y < h; y++) {
-                    ds.WriteByte(0);
+                    row[0] = 0;
                     int rowOff = y * w * 4;
+                    int o = 1;
                     for (int x = 0; x < w; x++) {
                         int p = rowOff + x * 4;
-                        ds.WriteByte(bgra[p+2]);
-                        ds.WriteByte(bgra[p+1]);
-                        ds.WriteByte(bgra[p]);
+                        row[o++] = bgra[p+2];
+                        row[o++] = bgra[p+1];
+                        row[o++] = bgra[p];
                     }
+                    zs.Write(row, 0, row.Length);
                 }
             }
-            byte[] compressed = ms.ToArray();
-            using (var zlib = new MemoryStream()) {
-                zlib.WriteByte(0x78); zlib.WriteByte(0x01);
-                zlib.Write(compressed, 0, compressed.Length);
-                uint a1=1, a2=0;
-                for (int y=0; y<h; y++) {
-                    a1=(a1+0)%65521; a2=(a2+a1)%65521;
-                    int rowOff = y * w * 4;
-                    for (int x=0; x<w; x++) {
-                        int p = rowOff + x * 4;
-                        a1=(a1+bgra[p+2])%65521; a2=(a2+a1)%65521;
-                        a1=(a1+bgra[p+1])%65521; a2=(a2+a1)%65521;
-                        a1=(a1+bgra[p])%65521;   a2=(a2+a1)%65521;
-                    }
-                }
-                var adler = new byte[4];
-                WriteInt32BE(adler, 0, (int)((a2<<16)|a1));
-                zlib.Write(adler, 0, 4);
-                WriteChunk(s, "IDAT", zlib.ToArray());
-            }
+            // ZLibStream emits the zlib header and the Adler-32 trailer itself,
+            // and only flushes its final deflate block on dispose. Reading the
+            // buffer before that produces a stream some decoders accept and
+            // others reject outright -- so this must stay outside the using.
+            WriteChunk(s, "IDAT", ms.ToArray());
         }
         WriteChunk(s, "IEND", new byte[0]);
     }
@@ -3163,16 +3208,23 @@ public class HyperVCapture {
     static void WriteInt32BE(byte[] b, int off, int v) {
         b[off]=(byte)(v>>24); b[off+1]=(byte)(v>>16); b[off+2]=(byte)(v>>8); b[off+3]=(byte)v;
     }
+    // Table-driven CRC: the IDAT chunk for one 1920x1080 frame is large enough
+    // that a per-bit loop costs more than building this table once ever.
+    static readonly uint[] CrcTable = BuildCrcTable();
+    static uint[] BuildCrcTable() {
+        var t = new uint[256];
+        for (uint n = 0; n < 256; n++) {
+            uint c = n;
+            for (int k = 0; k < 8; k++) c = (c & 1) != 0 ? (c >> 1) ^ 0xEDB88320 : c >> 1;
+            t[n] = c;
+        }
+        return t;
+    }
     static uint Crc32(byte[] type, byte[] data) {
         uint c = 0xFFFFFFFF;
-        foreach (byte b in type) c = CrcByte(c, b);
-        foreach (byte b in data) c = CrcByte(c, b);
+        foreach (byte b in type) c = CrcTable[(c ^ b) & 0xFF] ^ (c >> 8);
+        foreach (byte b in data) c = CrcTable[(c ^ b) & 0xFF] ^ (c >> 8);
         return c ^ 0xFFFFFFFF;
-    }
-    static uint CrcByte(uint c, byte b) {
-        c ^= b;
-        for (int i=0;i<8;i++) c = (c&1)!=0 ? (c>>1)^0xEDB88320 : c>>1;
-        return c;
     }
 }
 "@
@@ -3224,7 +3276,14 @@ public class HyperVCapture {
                 $ok = [HyperVCapture]::SaveRawImageAsPng(
                     [byte[]]$result.ImageData, [int]$reqW, [int]$reqH, $OutputPath)
                 if ($ok -and (Test-Path $OutputPath)) {
-                    Copy-Item -Path $OutputPath -Destination (Join-Path $debugDir "wmi_full.png") -Force
+                    # A duplicate of every frame, on a path polled for the whole
+                    # length of a wait. Its value is comparing this capture with
+                    # the fallback's, which only matters while debugging -- and
+                    # a locked destination here raises a non-terminating error
+                    # into the transcript an operator is reading at the time.
+                    if ($global:DebugPreference -ne 'SilentlyContinue') {
+                        Copy-Item -Path $OutputPath -Destination (Join-Path $debugDir "wmi_full.png") -Force
+                    }
                     Write-Debug "Screenshot saved (WMI ${reqW}x${reqH}): $OutputPath"
                     return $OutputPath
                 }
@@ -3253,7 +3312,14 @@ public class HyperVCapture {
         $dpi = [HyperVCapture]::GetDpiForWindow($hWnd)
         $ok = [HyperVCapture]::CaptureToFile($hWnd, $OutputPath)
         if ($ok -and (Test-Path $OutputPath)) {
-            Copy-Item -Path $OutputPath -Destination (Join-Path $debugDir "printwindow_full.png") -Force
+            # Gated for the same reason as the WMI branch above. Both are gated
+            # rather than just one: this host takes the fallback path whenever
+            # the WMI thumbnail comes back empty, so gating only the primary
+            # would leave the duplicate running on the branch that is actually
+            # hot while losing the comparison the pair exists to provide.
+            if ($global:DebugPreference -ne 'SilentlyContinue') {
+                Copy-Item -Path $OutputPath -Destination (Join-Path $debugDir "printwindow_full.png") -Force
+            }
             $imgSize = (Get-Item $OutputPath).Length
             [System.IO.File]::WriteAllText((Join-Path $debugDir "printwindow_debug.txt"),
                 "dpi=$dpi fileSize=$imgSize")
@@ -3474,7 +3540,7 @@ function Rename-VM {
         Write-Warning "Rename-VM: Hyper-V Rename-VM failed: $($_.Exception.Message)"
         return $false
     }
-    # --- REGION: https://yuruna.link/network#defining-deterministic-guest-mac-addresses
+    # --- REGION: https://yuruna.link/4220a755-000a
     # A NIC still holding the address the OLD name derives is holding that
     # NAME's address rather than the guest's, and the name is being vacated --
     # leave it there and every guest promoted out of that slot ends up on one
@@ -4670,6 +4736,34 @@ function Assert-Virtualization {
     return [bool](Assert-HyperVEnabled)
 }
 
+function Get-YurunaVMAccountSid {
+    <#
+    .SYNOPSIS
+        The SID of a virtual machine's own virtual account, computed from its id.
+    .DESCRIPTION
+        Windows gives each VM an account under the NT VIRTUAL MACHINE authority,
+        and its SID is derived from the machine's GUID: S-1-5-83-1 followed by
+        the GUID's sixteen bytes read as four little-endian unsigned 32-bit
+        values. Computing it is exact and needs nothing from the machine.
+
+        The alternative -- asking Windows to translate the account NAME -- is
+        what this replaces. "NT VIRTUAL MACHINE" is a display name, and Windows
+        localizes it, so on a host installed in another language the lookup
+        throws, the caller cannot prove which entries are stale, and it skips
+        the cleanup entirely. That direction is safe, which is why nobody
+        noticed: the cleanup simply stopped happening, one warning at a time.
+    .OUTPUTS
+        System.String -- the SID in its S-1-5-... string form.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][guid]$VMId)
+
+    $bytes = $VMId.ToByteArray()
+    $parts = for ($i = 0; $i -lt 16; $i += 4) { [System.BitConverter]::ToUInt32($bytes, $i) }
+    return 'S-1-5-83-1-' + ($parts -join '-')
+}
+
 function Remove-OrphanedVMFileAccess {
     <#
     .SYNOPSIS
@@ -4684,7 +4778,7 @@ function Remove-OrphanedVMFileAccess {
         (S-1-5-83-0), capability SIDs, and live VMs' own ACEs stay, so it is
         safe to run while other VMs use the file. Set-Acl writes a SMALLER
         descriptor, so it succeeds even when the on-disk ACL is already at
-        the limit. See https://yuruna.link/vmconfig#hyper-v-iso-ace-bloat
+        the limit. See https://yuruna.link/429f3d06-0093
     .OUTPUTS
         System.Int32 -- the number of stale per-VM ACEs removed.
     #>
@@ -4705,12 +4799,10 @@ function Remove-OrphanedVMFileAccess {
     $liveSids = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
     try {
         foreach ($vm in (Hyper-V\Get-VM -ErrorAction Stop)) {
-            $acct = "NT VIRTUAL MACHINE\$($vm.Id.Guid)"
-            $sid  = ([System.Security.Principal.NTAccount]$acct).Translate([System.Security.Principal.SecurityIdentifier]).Value
-            [void]$liveSids.Add($sid)
+            [void]$liveSids.Add((Get-YurunaVMAccountSid -VMId $vm.Id))
         }
     } catch {
-        Write-Warning "Remove-OrphanedVMFileAccess: could not enumerate/translate live VM accounts ($($_.Exception.Message)); skipping ACL cleanup for '$Path' to avoid removing a live VM's access."
+        Write-Warning "Remove-OrphanedVMFileAccess: could not enumerate live VMs ($($_.Exception.Message)); skipping ACL cleanup for '$Path' to avoid removing a live VM's access."
         return 0
     }
 

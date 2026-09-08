@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42a8a29c-b477-4fc9-8825-b4aabcec2cc6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -44,7 +44,7 @@ BeforeAll {
 $here    = Split-Path -Parent $PSCommandPath
 $script = Join-Path $here 'Invoke-TestRunnerInnerLoop.ps1'
 
-# --- REGION: https://yuruna.link/memory#pester-file-scope-fixtures
+# --- REGION: https://yuruna.link/42d69dfa-0015
 function Get-ScriptAst {
     $errs = $null
     $ast = [System.Management.Automation.Language.Parser]::ParseFile($script, [ref]$null, [ref]$errs)

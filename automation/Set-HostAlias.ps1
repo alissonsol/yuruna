@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42de6dd0-d68a-40b1-a0d0-b2d21c4caf3c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -284,7 +284,7 @@ process {
         # BOM-less UTF-8 (a BOM breaks Linux/macOS resolvers), staged to a
         # sibling temp file and swapped in via [IO.File]::Replace so a
         # mid-write crash never truncates the live file and its ACLs survive.
-        # --- REGION: https://yuruna.link/memory#why-set-hostalias-writes-the-hosts-file-via-a-staged-sibling-swap
+        # --- REGION: https://yuruna.link/42d69dfa-0027
         $hostsDir = Split-Path -Parent -Path $script:HostsPath
         $tempFile = Join-Path -Path $hostsDir -ChildPath ('.hostalias.' + [System.IO.Path]::GetRandomFileName())
         try {

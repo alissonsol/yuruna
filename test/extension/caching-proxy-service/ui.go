@@ -6,6 +6,7 @@ package main
 import (
 	"io"
 	"net/http"
+	"strings"
 )
 
 // indexHTML is the page the dashboard's Extension hosts cell links to.
@@ -57,8 +58,8 @@ const indexHTML = `<!doctype html>
   th, td { text-align: left; padding: 3px 8px; border-bottom: 1px solid #1f2937;
            vertical-align: top; }
   th { color: #9ca3af; font-weight: 600; width: 26ch; }
-  tbody tr:nth-child(odd) { background: var(--band-odd); }
-  tbody tr:nth-child(even) { background: var(--band-even); }
+  tbody tr:nth-child(odd) { background: #111827; background: var(--band-odd); }
+  tbody tr:nth-child(even) { background: #0b1220; background: var(--band-even); }
   tr:hover td { background: #1f2937; }
   .ok    { color: #10b981; }
   .warn  { color: #fbbf24; }
@@ -115,7 +116,10 @@ function clear(id) {
   return t;
 }
 function refresh() {
-  fetch('/api/status').then(function (r) { return r.json(); }).then(function (s) {
+  // Bounded: this page refreshes on a timer, and a request that never
+  // settles would leave the table showing a state the proxy left minutes ago
+  // with nothing to say it is stale.
+  yurunaRequest('/api/status', 8000).then(function (s) {
     var sq = clear('squid');
     if (s.squid && s.squid.reachable) {
       row(sq, 'reachable', 'yes', 'ok');
@@ -159,7 +163,7 @@ function refresh() {
     }
 
     document.getElementById('meta').textContent =
-      '(' + s.mode + ' mode, v' + s.version + ', refreshed ' + new Date().toLocaleTimeString() + ')';
+      '(' + s.mode + ' mode, v' + s.version + ', refreshed ' + yurunaLocalTime(new Date()) + ')';
 
     // Remote mode cannot apply a switch at all; say so rather than offering a
     // command that would answer 501.
@@ -204,6 +208,21 @@ startPolling();
 </script>
 </body></html>`
 
+// indexPage is the served document: the request adapter is spliced into the
+// head so it is installed before the page's own script runs. Composed once at
+// startup rather than per request -- the result never varies, and a handler
+// that rebuilt it would pay for the concatenation on every hit.
+//
+// A page on a browser without fetch would otherwise render its shell and then
+// fill in nothing, which reads as a lab with no data rather than as a page
+// that failed.
+var indexPage = strings.Replace(
+	indexHTML,
+	"</head>",
+	"<script>"+requestAdapterScript+"</script>\n</head>",
+	1,
+)
+
 // handleIndex serves the page, and only at the root. The mux pattern already
 // anchors it, so anything else reaching here is a bug worth a 404 rather than a
 // page that pretends the path meant something.
@@ -222,5 +241,5 @@ func handleIndex(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Security-Policy",
 		"default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; "+
 			"connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
-	_, _ = io.WriteString(w, indexHTML)
+	_, _ = io.WriteString(w, indexPage)
 }

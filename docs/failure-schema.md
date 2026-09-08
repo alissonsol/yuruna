@@ -1,3 +1,5 @@
+<a id="42820e91-0001"></a>
+
 # Failure record schema
 
 When a sequence step fails (or the engine crashes mid-step), the runner
@@ -9,6 +11,8 @@ drift on classification or fields. The
 [remediation dispatcher](#remediation-dispatcher) routes on `failureClass`; the
 class/severity/recovery vocabulary comes from each verb's registration
 (see [handler contract](test-sequences.md#handler-contract)).
+
+<a id="42820e91-0002"></a>
 
 ## `last_failure.json` (schema v2)
 
@@ -32,6 +36,8 @@ Top-level fields, in order:
 | `sequenceName` | string | Failing sequence's base name (no `.yml`) -- first-class identity for routing and repro (the path is still under `context.sequencePath`). |
 | `repro` | object | Ready-to-run reproduction; see [repro](#repro). |
 
+<a id="42820e91-0003"></a>
+
 ### `repro`
 
 A reproduction an operator or autonomous remediator can run without reconstructing arguments.
@@ -43,6 +49,8 @@ A reproduction an operator or autonomous remediator can run without reconstructi
 | `sequenceName` | Same as the top-level field. |
 | `resumeFromStep` | The file-local failing step. Safe to pass as `-StartStep` only when the sequence has no unbuilt baseline (the warm / `requiresSnapshot` path, or a baseline-less sequence). |
 
+<a id="42820e91-0004"></a>
+
 ### Replay-boundary + inner-cause fields
 
 These appear on **both** step and crash records (a crash after step N began still has a safe replay boundary and, if it bubbled through an exhausted `retry`, an inner cause worth routing on):
@@ -51,6 +59,8 @@ These appear on **both** step and crash records (a crash after step N began stil
 |---|---|---|
 | `lastSucceededStepNumber` | int | Replay boundary -- step N succeeded; the failure landed on N+1. A "what's safe to replay past" marker, not an auto-resume pointer. |
 | `innerActionVerb` / `innerFailureClass` / `innerSeverity` / `innerSuggestedRecoveries` | string / string / string / string[] | Set only when the failure bubbled through an exhausted `retry`; carry the deepest inner verb's classification so a remediator routes on the inner cause rather than the outer `retry_exhausted`. The [dispatcher](#remediation-dispatcher) routes on `innerFailureClass` when the outer class is `retry_exhausted` and an inner handler exists. `null` (array empty) otherwise. |
+
+<a id="42820e91-0005"></a>
 
 ### `context`
 
@@ -64,6 +74,8 @@ These appear on **both** step and crash records (a crash after step N began stil
 | `causeDetail` | Step records only: `{ ocrTail, patternsSought }` -- the freshest on-screen OCR text (bounded tail, <=1200 chars) and the patterns the wait was seeking at the failure site. Lets a consumer see the runtime cause behind a verb-static `failureClass`. Mirrored flat on the event as `causeOcrTail` / `causePatternsSought`. Also carries `freshWindowNearMiss`, `consoleFlood`, `consoleStaticSeconds`, `pauseBeforeStepSeconds` and `pauseReleasedAtUtc` (below). |
 | `crash` | Crash records only: `{ error, origin, stack }`. |
 
+<a id="42820e91-0006"></a>
+
 #### `causeDetail` fields that describe the screen
 
 | Field | Notes |
@@ -76,6 +88,8 @@ These appear on **both** step and crash records (a crash after step N began stil
 The write is atomic (temp-file + rename via `Write-YurunaStateFile`) so a
 remediator or the status service never observes a truncated record.
 
+<a id="42820e91-0007"></a>
+
 ## `step_failure` NDJSON event
 
 Emitted alongside the file so a stream consumer (status service,
@@ -86,6 +100,8 @@ It carries the same values, flattened (no nested `context`), plus
 field). It also carries `reason`, `classificationSource`, `sequenceName`,
 `reproCommand` (the `repro.command` string), and `matchedFailurePattern`
 (the nested-context field lifted flat). A crash event adds `crashError`.
+
+<a id="42820e91-0008"></a>
 
 ## `last_remediation.json` (the dispatcher's decision, persisted)
 
@@ -124,10 +140,14 @@ it as `kind` = `remediation`, and the pool replication copies the whole
 cycle folder -- so the recommendation travels with the failure to the pool
 without a dedicated push.
 
+<a id="42820e91-0009"></a>
+
 ## Synthetic & infra records
 
 Two record variants reuse the schema-v2 shape for failures outside a
 normal step:
+
+<a id="42820e91-000a"></a>
 
 ### Infra-stage records
 
@@ -151,6 +171,8 @@ finishes). The runner never clobbers a richer
 engine-written record and the write is fully guarded so telemetry cannot
 fail the cycle.
 
+<a id="42820e91-000b"></a>
+
 ### Synthetic (watchdog-kill) record
 
 When the outer watchdog SIGKILLs a wedged inner, the inner's failure path
@@ -160,6 +182,8 @@ cannot run, so the outer synthesizes a schema-v2 record: `reason` =
 `stepNumber` (`0`) and `sequenceName` (`''`) are intentionally unresolved
 -- the SIGKILL destroyed the only structured step location -- not omitted,
 so the contract stays satisfied and a remediator stays null-safe.
+
+<a id="42820e91-000c"></a>
 
 ## `degradation` event (non-failure observability)
 
@@ -176,6 +200,8 @@ Fields:
 (alternative taken), `reason`, and `severity` (`soft` by nature). The emit is
 best-effort (`Send-CycleEventSafely`) and never fails the cycle. A stream
 consumer that counts only failures should skip this event type.
+
+<a id="42820e91-000d"></a>
 
 ## `guest_quarantined` event (circuit breaker)
 
@@ -197,6 +223,8 @@ flagged on `status.json` (`guests[].quarantined` +
 `quarantinedUntilCommit`) so the dashboard shows a **quarantined** pill -- the
 skip is loud, never a silent pass. The emit is best-effort
 (`Send-CycleEventSafely`) and never fails the cycle.
+
+<a id="42820e91-000e"></a>
 
 ## The lab-health gate (`lab_health_*` events)
 
@@ -255,6 +283,8 @@ The hold's flag (`control.lab-hold`) is deliberately **not** the operator's
 the operator's flag, a service coming back would un-pause a cycle its operator
 had parked and walked away from.
 
+<a id="42820e91-000f"></a>
+
 ## `warm_resume` event (checkpoint resume)
 
 Warm-resume checkpointing (`Test.WarmResume.psm1`) turns a late-step transient
@@ -272,6 +302,8 @@ to disable. Each attempt emits a `warm_resume` event: `event` = `warm_resume`,
 `timestamp`, `guestKey`, `sequenceName`, `resumeFromStep`, `attempt`, plus
 `failureClass` / `vmName` / `hostType` when known -- so a run that only passed
 because it resumed stays queryable, never a silent pass.
+
+<a id="42820e91-0010"></a>
 
 ### Rewind to a restore boundary
 
@@ -307,6 +339,8 @@ file** (`Invoke-SequenceByName` -> `Invoke-Sequence`), so `resumeFromStep`
 the "warm / no unbuilt baseline" case the [`repro`](#repro) note calls out --
 Debug-TestSequence's chain runner concatenates baselines and is *not* this
 case, which is why `repro.command` still omits `-StartStep`.
+
+<a id="42820e91-0011"></a>
 
 ## `retry_attempt` / `retry_exhausted` events (retry telemetry)
 
@@ -345,6 +379,8 @@ The cross-language fetch-and-execute failure sentinel `NONZERO SCRIPT EXIT:`
 a declared constant on each side (`Get-NonzeroScriptExitSentinel` + the bash
 producer) with a drift-guard test, so the two sides can't silently diverge.
 
+<a id="42820e91-0012"></a>
+
 ## `sequence_paused` / `sequence_resumed` events (operator holds)
 
 Both pause gates report both ends of a hold, so a cycle that spent most of its
@@ -372,6 +408,8 @@ the scope is on the event at all:
   hold is also carried into the failure record as
   `causeDetail.pauseBeforeStepSeconds`.
 
+<a id="42820e91-0013"></a>
+
 ## status.json `lastFailure` summary
 
 For the live dashboard, `Set-LastFailureSummary` records a denormalized
@@ -384,6 +422,8 @@ folder URL). `Complete-Run` snapshots it into the history row (alongside
 per-guest `failureClass` / `errorMessage` in `guestSummary`) so a row is
 self-describing. `status.json`'s own `schemaVersion` stays `1`; the field
 is additive (old readers ignore it).
+
+<a id="42820e91-0014"></a>
 
 ## Remediation dispatcher
 
@@ -402,6 +442,8 @@ the caller's job. Nothing in the tree calls `Repair-Credential`, for
 instance. Acting automatically needs a class allow-list and an attempt
 cap first, so that a misclassified failure cannot drive a repair in a
 loop -- which is why the detection half shipped ahead of the acting half.
+
+<a id="42820e91-0015"></a>
 
 ### Why each infra failure class exists
 
@@ -501,6 +543,8 @@ broke" from a distance -- so each one's reason is recorded here.
   repeating is what names the cause. Absent from the transient retry allow-lists:
   a longer timeout cannot make a self-overwriting surface readable.
 
+<a id="42820e91-0016"></a>
+
 ### Public surface
 
 | Function | Signature | Used by |
@@ -512,6 +556,8 @@ broke" from a distance -- so each one's reason is recorded here.
 | `Get-RecoveryRecommendationName` | (no args) | Canonical recommendation vocabulary (shared with each verb's SuggestedRecoveries) |
 | `Invoke-Remediation` | `-FailureRecord [-LastFailurePath]` | Operator / autonomous loop; returns the recommendation hashtable |
 | `Clear-RecoveryHandler` | (no args) | Tests only |
+
+<a id="42820e91-0017"></a>
 
 ### Recommendation taxonomy
 
@@ -529,6 +575,8 @@ a small finite set instead of free-text matching:
 | `operator_intervention_required` | The runner cannot self-recover (vault password wrong, image unsigned). |
 | `escalate` | Reserved -- an external handler may return it to flag a novel case for the framework to learn. No built-in handler emits it; the no-handler / handler-error fallback is `operator_intervention_required`. |
 
+<a id="42820e91-0018"></a>
+
 ### Inner-cause routing past `retry_exhausted`
 
 An exhausted `retry` reports the outer class `retry_exhausted`, which
@@ -542,12 +590,16 @@ visible as `RoutedFromFailureClass` on the result and `outerFailureClass`
 on the `remediation_recommended` event. With no inner class (or no inner
 handler) the dispatcher routes on the outer class unchanged.
 
+<a id="42820e91-0019"></a>
+
 ### Advisory by design
 
 Handlers return **what the caller should do**, not what they **did**. A
 future iteration can flip individual handlers to act directly (call
 `Repair-VncConnection`, `Wait-SshReady`, `Restore-VMDiskSnapshot`
 themselves) once the autonomous loop's blast radius is bounded.
+
+<a id="42820e91-001a"></a>
 
 ### Registry shape
 
@@ -558,6 +610,8 @@ primitive, so it appears in `Get-YurunaRegistryDirectory` alongside
 [`HostCondition`](test-harness.md#host-condition-registry) -- autonomous
 tooling enumerates every routing surface through one API.
 
+<a id="42820e91-001b"></a>
+
 ### Event emission
 
 Every dispatch emits a `remediation_recommended` NDJSON event
@@ -566,6 +620,8 @@ streaming consumer follows what the dispatcher chose without parsing
 the recommendation object. Schema lives in
 [`Test.EventSchema`](../test/modules/Test.EventSchema.psm1) -- the same
 validator that gates the cycle event stream.
+
+<a id="42820e91-001c"></a>
 
 ### Adding a new failure class
 
@@ -599,6 +655,8 @@ validator that gates the cycle event stream.
    because the validator at module load throws if any enum value is
    missing a handler.
 
+<a id="42820e91-001d"></a>
+
 ## Related
 
 - [Handler contract](test-sequences.md#handler-contract) -- where the class / severity / recovery vocabulary is declared.
@@ -613,6 +671,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08
 
 Back to [Yuruna](../README.md)

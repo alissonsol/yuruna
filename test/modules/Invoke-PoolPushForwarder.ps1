@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 421654e8-21f9-45e4-9613-5c67d4e4290f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -99,7 +99,7 @@ if ([string]::IsNullOrWhiteSpace($CycleFolder)) {
 }
 
 # --- REGION: Single-instance lock (atomic CreateNew; reclaim a stale lock once)
-# --- REGION: https://yuruna.link/test/harness#single-instance-locks
+# --- REGION: https://yuruna.link/42d38664-001e
 # Ticks, not a formatted timestamp: a JSON ISO-8601 field round-trips as a
 # [datetime] whose string form is locale-formatted, so every live lock would
 # read as stale.

@@ -1,3 +1,5 @@
+<a id="42fffc2c-0001"></a>
+
 # Extensions API
 
 The harness defers eight classes of swappable behavior to **extension
@@ -16,6 +18,8 @@ one Go SDK for talking to the pool and gating writes, and one host-side module
 for the runtime marker. A new extension service implements that interface and
 is discovered by existing; it adds no case to any list in the framework.
 
+<a id="42fffc2c-0002"></a>
+
 ## Areas today
 
 | Area                   | Active default | What it controls |
@@ -28,6 +32,8 @@ is discovered by existing; it adds no case to any list in the framework.
 | `pool-aggregator-service`      | `default`      | Read-only multi-host **pool view** (`Get-PoolAggregatorServiceManifest`) plus the pool half of the service lookup below (`Get-PoolExtensionHost`). Ships a stdlib-only Go daemon that runs on the caching-proxy-service machine (pool services host): it auto-discovers pool members from the Squid access log, probes each one's status service, identifies on the stable `hostId`, and pushes cycle-status transitions to Loki. See [`pool-aggregator-service/README.md`](../test/extension/pool-aggregator-service/README.md). |
 | `pool-control-service` | `default`      | The operator board for **pool configuration**: which pools exist, which hosts belong to them, which test-set each one runs. Ships a stdlib-only Go daemon on its own `yuruna-pool-control-service` VM that drives the pool-intent git store by shelling out to the pool-admin CLIs, with a web UI whose mutating actions unlock with the dashboard's rotating Lab token. The PowerShell `default.psm1` is the host-side pair -- `Get-PoolControlServiceInfo` (status stub) and `Test-PoolControlServiceHost` (the `/healthz` preflight). See [pool-admin.md](pool-admin.md#pool-control-service). |
 | `download-agent-service`       | `default`      | Pool-wide **guest-image downloader**: a stdlib-only Go daemon on its own `yuruna-download-agent-service` VM that keeps a Download pool on the pool share fresh and serves the artifacts to hosts over HTTP, with a web UI whose mutating actions unlock with the dashboard's rotating Lab token. The PowerShell `default.psm1` is the host-side pair -- `Get-DownloadAgentServiceInfo` (status stub) and `Test-DownloadAgentServiceHost` (the `/healthz` preflight). See [download-agent.md](download-agent.md). |
+
+<a id="42fffc2c-0003"></a>
 
 ## Filesystem layout
 
@@ -125,6 +131,8 @@ Per-area state (vault file, transport credentials) lives under
 [`test/status/extension/<area>/`](../test/status/) -- gitignored, never
 shipped.
 
+<a id="42fffc2c-0004"></a>
+
 ## The loader API
 
 ```
@@ -146,6 +154,8 @@ and looks up the loaded module by **absolute path**, not module name.
 Two areas can ship a `default.psm1`; the path-based lookup keeps each
 area's exports unambiguous.
 
+<a id="42fffc2c-0005"></a>
+
 ## The extension interface
 
 Four service extensions exist, and each new one used to mean copying the same
@@ -156,6 +166,8 @@ retry, another with a `clientIP` that mangles IPv6, and the one service that
 rewrites pool configuration with no credential at all.
 
 The interface is three layers, each with one source of truth.
+
+<a id="42fffc2c-0006"></a>
 
 ### 1. The manifest -- what the area declares
 
@@ -204,6 +216,8 @@ restarts its service VMs, and a prefix-matching cleanup can no longer prove it
 will skip them. The schema constrains the block to a flat mapping of scalars, so
 `key: value` at two spaces of indent is the whole grammar the reader handles.
 
+<a id="42fffc2c-0007"></a>
+
 ### 2. The Go SDK -- talking to the pool, and gating writes
 
 [`test/extension/extension-sdk/`](../test/extension/extension-sdk/) is its own
@@ -232,6 +246,8 @@ module, shared; no service holds a copy. In the enlistment the SDK sits one
 directory further out than that, which is why `tools/Invoke-GoTest.ps1` builds
 each service in a throwaway copy of the guest's layout instead of where the
 module lives. See [the SDK README](../test/extension/extension-sdk/README.md).
+
+<a id="42fffc2c-0008"></a>
 
 ### 3. The host-side module — the runtime marker
 
@@ -276,6 +292,8 @@ is merely unfinished.
 `Get-ActiveExtensionService` into the record's `activeExtensions` /
 `extensionTargets` -- no hardcoded block per service, so a new extension reaches
 the pool without an edit to the registration writer.
+
+<a id="42fffc2c-0009"></a>
 
 ### The Lab token rule
 
@@ -338,6 +356,8 @@ Three properties come with the gate:
 by self-identity binding, a health probe, bounded state, and being
 telemetry-only ([below](#post-announce-pool-aggregator-service)).
 
+<a id="42fffc2c-000a"></a>
+
 ### Building a new extension service
 
 1. `test/extension/<area>/` with `<area>.config.yml` (`active:` + the `service:`
@@ -363,6 +383,8 @@ telemetry-only ([below](#post-announce-pool-aggregator-service)).
 The roster, the capability matrix, the registration record, the pool lookup and
 the reboot sweep pick it up with no further edits.
 
+<a id="42fffc2c-000b"></a>
+
 ### Service scripts run at `$ErrorActionPreference` Continue
 
 Every service bring-up and teardown script leaves `$ErrorActionPreference` at
@@ -381,6 +403,8 @@ Where a condition really must stop the script, it says so itself with an
 explicit `Write-Error` followed by `exit`, the way the preflight hard gates do.
 That keeps every stopping decision at the point that makes it, instead of
 spreading it across every helper the script happens to call.
+
+<a id="42fffc2c-000c"></a>
 
 ### A service that never served fails loudly
 
@@ -414,6 +438,8 @@ look for a long in-guest build behind a failure that took seconds. Name every
 address this host dialed, because the reader's next move is to check the guest's
 own address against them, and one left out of the line is one they cannot rule
 out.
+
+<a id="42fffc2c-000d"></a>
 
 ## Bring-up knobs
 
@@ -450,6 +476,8 @@ the value -- for as long as the guest ITSELF answers over SSH that cloud-init is
 still running, so a slow host is not failed for a build that was progressing.
 The usual reason to set one is the opposite case: a short value for a quick
 re-check against a VM already up.
+
+<a id="42fffc2c-000e"></a>
 
 ## Running the caching-proxy service from another host
 
@@ -490,6 +518,8 @@ need it (loopback is already allowed by the stock `allow localhost manager`),
 and opening Squid's manager interface to the LAN is a posture change no VM
 should get for a mode it is not running.
 
+<a id="42fffc2c-000f"></a>
+
 ## MCP endpoints
 
 Every Go daemon serves the Model Context Protocol at `POST /mcp` on the port it
@@ -518,6 +548,8 @@ suites assert the two match.
 all, so there is no gate for a mutating tool to inherit and nothing to make
 read-only tools a considered decision rather than a default.
 
+<a id="42fffc2c-0010"></a>
+
 ### What a tool may do, and who decides
 
 The annotation on each tool is the same claim its route makes:
@@ -544,6 +576,8 @@ mount, not just its own; and the download agent's `ensure` route is
 mirror its route's gate and honor the rule that a mutating tool takes the lab
 token. Reconciling that contradiction comes before it gets a tool.
 
+<a id="42fffc2c-0011"></a>
+
 ### Why stdio for the core, and only stdio
 
 The core framework's entry points are scripts an operator runs on their own
@@ -560,6 +594,8 @@ exits 0, so a zero means the report was produced and never that the host is
 well; `Check-DependencyVersion` emits JSON natively and is passed through; and
 `Set-HostAlias` writes no transcript, so a thrown error is its only failure
 signal. Reading any of those by exit code alone reports the wrong thing.
+
+<a id="42fffc2c-0012"></a>
 
 ### Connecting a client
 
@@ -579,6 +615,8 @@ signal. Reading any of those by exit code alone reports the wrong thing.
 A JSON-RPC error is still HTTP `200`: the RPC layer answered, and a non-200
 would say the transport failed, which is a different fact and sends a reader
 looking in the wrong place. Notifications get `202` and no body.
+
+<a id="42fffc2c-0013"></a>
 
 ## Which framework snapshot a service VM is built from
 
@@ -649,6 +687,26 @@ to have deployed this enlistment, so that is what fails. `-AllowMirrorSource` is
 the deliberate escape for an off-LAN bring-up: it downgrades both checks to a
 warning, and the service then runs published code on purpose.
 
+Both bracket checks name a *version*, which is a release number many commits
+share. Naming the *commit* needs something else, because `git archive` strips
+`.git/` and a guest brought up from the tarball has no repository to ask. The
+archive therefore carries two sidecars at its root, written by the one streamer
+both archive endpoints share: `.yuruna-origin` records the repository the tree
+came from, and `.yuruna-revision` records the full object name of the commit the
+archive was cut from. The commit is resolved before the archive is taken and the
+archive is taken of that object name rather than of `HEAD`, so a commit landing
+mid-request cannot leave the sidecar describing a tree the tarball does not
+contain.
+
+Pool-control diagnostics reads them in that order: `git rev-parse` when the
+checkout is a repository, `.yuruna-revision` when it is an extracted archive. A
+malformed sidecar, or one that contradicts a working `git rev-parse`, reports no
+revision and fails the `framework-revision` check rather than offering a value
+that cannot be trusted -- a tree carrying both a repository and a contradicting
+sidecar is a mix of sources, and neither half then describes what is deployed.
+
+<a id="42fffc2c-0014"></a>
+
 ## Finding a service this host does not run
 
 A host that needs a network service -- the stash service, pool-control service,
@@ -710,6 +768,8 @@ The stash extension's `Resolve-Host` (what
 `${ext:stash-service.ResolveHost(<vm>)}` expands to) consults it last,
 after the local VM and the address the cycle's preflight already verified.
 
+<a id="42fffc2c-0015"></a>
+
 #### Asking the pool directly, and why an empty answer is not one answer
 
 Source 3 is the pool-aggregator area's own module, and a caller that wants only
@@ -736,6 +796,8 @@ looking for a service that was running the whole time.
 lookup**, so read it immediately after the call it belongs to. A transport
 failure also warns rather than logging verbosely, because it is the shape that
 stops cycles.
+
+<a id="42fffc2c-0016"></a>
 
 ### Only an address the pool has reached is answered
 
@@ -781,6 +843,8 @@ what the pool holds -- including a registration it has refused, and one it
 still advertises that this host cannot reach -- so the whole class is
 visible before a cycle starts rather than after one fails.
 
+<a id="42fffc2c-0017"></a>
+
 ## Why `@(Get-ActiveExtensionName)` wrap
 
 PowerShell's pipeline unrolls a single-element array to a scalar. A
@@ -792,6 +856,8 @@ $names = @(Get-ActiveExtensionName -Area 'authentication')
 $extName = $names[0]
 ```
 
+<a id="42fffc2c-0018"></a>
+
 ## Why `Import-Extension` matches by absolute path
 
 When two areas ship a `default.psm1`, both modules register under the
@@ -800,6 +866,8 @@ returns whichever was imported last, so `Get-Command -Module default
 Get-Password` can resolve to the wrong area's module.
 `Resolve-ExtensionMethod` matches modules by absolute `.psm1` path
 instead, so the intended exports are always found.
+
+<a id="42fffc2c-0019"></a>
 
 ## Adding a new extension to an existing area
 
@@ -813,6 +881,8 @@ For `notification`, multiple active extensions iterate in declaration
 order -- every transport sees every event. For `authentication`, the
 loader expects **exactly one** active extension and throws on
 ambiguity (`-RequireSingle`).
+
+<a id="42fffc2c-001a"></a>
 
 ## Adding a new area
 
@@ -832,6 +902,8 @@ ambiguity (`-RequireSingle`).
 For an area that is a **service on the network** rather than code the cycle
 loads, follow [Building a new extension service](#building-a-new-extension-service)
 instead: it adds the manifest, the SDK and the marker on top of these steps.
+
+<a id="42fffc2c-001b"></a>
 
 ## POST /announce (pool-aggregator-service)
 
@@ -907,6 +979,8 @@ the flag -- on an older proxy, check
 `pool-aggregator-service -h | grep host-ttl` before adding it, or the service crash-loops
 on `flag provided but not defined`.
 
+<a id="42fffc2c-001c"></a>
+
 ### When the caching proxy is rebuilt
 
 The beacon's aggregator URL is baked into the guest seed at `New-VM` time
@@ -933,6 +1007,8 @@ Hosts themselves need neither: host-side consumers re-resolve the proxy on every
 run. Enrollment is separate -- a rebuilt proxy mints a new internal authentication key, so
 each host stays *onsite* until `Set-LabToken.ps1` re-enrolls it
 ([control-routes.md](control-routes.md#enabling-remote-control-on-a-host)).
+
+<a id="42fffc2c-001d"></a>
 
 ## POST /api/v1/host-announce (pool-aggregator-service)
 
@@ -966,6 +1042,8 @@ Containment mirrors `/announce`, with one gate deliberately stronger:
 could not route to, an address that did not serve `status.json`, and an address
 that served a *different* hostId. `503` when `-announce-ttl` is `0`. As with
 `/announce`, a 2xx means **recorded**, not merely received.
+
+<a id="42fffc2c-001e"></a>
 
 ## POST /api/v1/lab-token (pool-aggregator-service)
 

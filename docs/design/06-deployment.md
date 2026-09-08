@@ -2,8 +2,6 @@
 
 This topology places the current runner, providers, guests, optional lab services, storage shares, and deployment targets on their runtime nodes.
 
-[Yuruna Architecture](../architecture.md) | [Design index](00-index.md) | [Data flows](03-data-flows.md)
-
 ```mermaid
 flowchart LR
   subgraph operator-workstation["Operator Workstation"]
@@ -177,6 +175,12 @@ flowchart LR
 
 ## Optional topology
 
+The diagram labels guest-side service ports in a directly reachable LAN topology.
+UTM shared-NAT launchers publish different host endpoints: pool HTTP `8081 -> 80`,
+download-agent HTTP `8082 -> 80`, and stash SSH `2222 -> 22`. The mappings are in
+the corresponding `test/service/Start-*VM.ps1` launchers; an external browser or
+SSH client uses the published host endpoint in that topology.
+
 The dashed links and their adjacent `%% optional` comments are current feature
 gates, not planned work. Guided `install/setup.ps1` brings up the cache VM, but a
 standalone runner can run cycles with no caching proxy,
@@ -184,3 +188,22 @@ pool, extension VM, or network share. In that shape, guests fetch framework byte
 from the host status service or commit-pinned GitHub source, package and image pulls
 go directly upstream, results remain local, and notification dispatch remains
 provider/threshold dependent.
+
+## Locale assets stay with their services
+
+Globalization adds no network daemon, translation API, or catalog CDN. The compiler
+and embedder run as repository tooling. Status consumes generated local catalog
+files and serves its browser payloads; pool-control embeds Go/browser assets and
+serves them from its own HTTP endpoint. English is resident in the shared browser
+scripts, while an enabled pseudo page adds one same-origin, content-hashed catalog
+request. Other services loading compatibility helpers are not automatically
+localized.
+
+Sources: `tools/Invoke-CatalogEmbed.ps1`, `test/service/Start-StatusService.ps1`,
+pool-control `server/internal/httpsrv/{assets.go,i18nwire.go}`, and SDK
+`webui/assets/yuruna.core.js`. Configuration propagation, runtime selection, and
+cache behavior are expanded in [Globalization](07-globalization.md).
+
+---
+
+[Yuruna Architecture](../architecture.md) | [Design index](00-index.md) | [Data flows](03-data-flows.md)

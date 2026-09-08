@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 4269e850-8f14-4f24-8d83-52240f2bc8e0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,12 +42,12 @@ param(
 
 $InformationPreference = 'Continue'
 
-# --- REGION: https://yuruna.link/extensions-api#service-scripts-run-at-erroractionpreference-continue
+# --- REGION: https://yuruna.link/42fffc2c-000b
 # Left at the inherited 'Continue' deliberately, and it must stay that way:
 # 'Stop' is not scoped to this script and would promote every host-contract
 # helper's non-terminating error. Hard stops here are explicit Write-Error + exit.
 
-# --- REGION: https://yuruna.link/loglevels#propagation-across-pwsh-boundaries
+# --- REGION: https://yuruna.link/42162449-0004
 # After the preference assignments above on purpose: an explicit level is the
 # operator's choice and replaces this script's own default. $InformationPreference
 # is re-read afterwards because the script-scoped assignment above shadows the

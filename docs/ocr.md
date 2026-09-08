@@ -1,3 +1,5 @@
+<a id="42607283-0001"></a>
+
 # OCR providers
 
 Yuruna polls the guest framebuffer for text to drive `waitForText`,
@@ -8,6 +10,8 @@ availability check and a private invocation backend.
 Provider registry lives in
 [`test/modules/Test.OcrEngine.psm1`](../test/modules/Test.OcrEngine.psm1).
 
+<a id="42607283-0002"></a>
+
 ## Built-in providers
 
 | Provider       | Platform        | Backend |
@@ -15,6 +19,8 @@ Provider registry lives in
 | `tesseract`    | any             | Local `tesseract` binary; cross-platform fallback. |
 | `winrt`        | Windows 10+     | `Windows.Media.Ocr` via a persistent `powershell.exe` (5.1) worker. |
 | `macos-vision` | macOS 10.15+    | Apple Vision via `swift script.swift`, with a `swiftc -O` pre-compile cache. |
+
+<a id="42607283-0003"></a>
 
 ## Per-platform default ordering
 
@@ -32,6 +38,8 @@ short-circuits on the first engine that finds the search pattern. The
 first engine listed is therefore the primary; later engines are
 fallbacks invoked only when the primary's text did not match.
 
+<a id="42607283-0004"></a>
+
 ## Operator overrides
 
 | Variable                  | Effect |
@@ -39,6 +47,8 @@ fallbacks invoked only when the primary's text did not match.
 | `YURUNA_OCR_ENGINES`      | Comma-separated provider list. Reorders or restricts the active set. Example: `tesseract,winrt`. |
 | `YURUNA_OCR_COMBINE`      | `Or` (default -- first match wins) or `And` (every enabled provider must match). |
 | `YURUNA_OCR_WORKER`       | `0` disables the persistent WinRT worker and reverts to one-shot `powershell.exe` spawns per OCR call (slower; debug only). |
+
+<a id="42607283-0005"></a>
 
 ## Why a persistent WinRT worker
 
@@ -78,6 +88,8 @@ fails the spawned worker is killed and the call falls back to the
 one-shot path, so a degraded environment never leaks an orphaned
 worker.
 
+<a id="42607283-0006"></a>
+
 ## Why the Vision Swift script is so opinionated
 
 Two non-obvious transforms protect every macOS UTM screenshot before
@@ -99,6 +111,8 @@ Two non-obvious transforms protect every macOS UTM screenshot before
 (hostnames with dashes, cloud-init timestamps, `ttyl` vs `tty1`) is
 not natural language, and language correction rewrites valid OCR into
 nonsense.
+
+<a id="42607283-0007"></a>
 
 ## Why Tesseract runs at --psm 6
 
@@ -123,6 +137,8 @@ Every neighboring mode drops text the harness depends on:
 - **`--psm 11`** (sparse text): fragments every word onto its own output
   line, which breaks the `Wait-ForText -ContainsString` substring match
   the test harness relies on.
+
+<a id="42607283-0008"></a>
 
 ## Adding a new provider
 
@@ -150,6 +166,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08
 
 Back to [Yuruna](../README.md)

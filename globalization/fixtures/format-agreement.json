@@ -1,0 +1,94 @@
+{
+  "schema": "yuruna.format-fixtures/v1",
+  "description": "One number, one duration, one timestamp -- written the same way by every runtime that writes it. A count rendered by a PowerShell command lands in a transcript; the same count rendered by a browser lands on the page above it; a Go service writes it into a report. A reader comparing those three has no way to tell a formatting difference from a real one, so the three agree here or one of them is wrong. The expected strings are the contract, not a recording of what any implementation currently happens to do.",
+  "cases": [
+    {
+      "name": "integer below the first group",
+      "why": "No separator appears until there is something to separate.",
+      "type": "integer", "value": 999, "locale": "en-US", "expect": "999"
+    },
+    {
+      "name": "integer at the first group boundary",
+      "why": "Exactly four digits is where an off-by-one in the grouping loop shows up.",
+      "type": "integer", "value": 1000, "locale": "en-US", "expect": "1,000"
+    },
+    {
+      "name": "integer across several groups",
+      "type": "integer", "value": 1234567, "locale": "en-US", "expect": "1,234,567"
+    },
+    {
+      "name": "the same integer in a locale that groups with a period",
+      "why": "pt-BR swaps both separators. A runtime reading its own locale database rather than the manifest is most visible here.",
+      "type": "integer", "value": 1234567, "locale": "pt-BR", "expect": "1.234.567"
+    },
+    {
+      "name": "zero",
+      "type": "integer", "value": 0, "locale": "en-US", "expect": "0"
+    },
+    {
+      "name": "a negative integer keeps its sign outside the grouping",
+      "why": "Grouping from the right over a string that still carries the minus produces '-1,234,567' or '-,123,456,7' depending on where the sign was stripped.",
+      "type": "integer", "value": -1234567, "locale": "en-US", "expect": "-1,234,567"
+    },
+    {
+      "name": "a decimal groups the whole part and not the fraction",
+      "type": "decimal", "value": 1234.5, "locale": "en-US", "expect": "1,234.50"
+    },
+    {
+      "name": "the same decimal with the separators exchanged",
+      "type": "decimal", "value": 1234.5, "locale": "pt-BR", "expect": "1.234,50"
+    },
+    {
+      "name": "a negative decimal",
+      "type": "decimal", "value": -9876.5, "locale": "en-US", "expect": "-9,876.50"
+    },
+    {
+      "name": "a decimal rounds to two places rather than truncating",
+      "type": "decimal", "value": 2.345, "locale": "en-US", "expect": "2.35"
+    },
+    {
+      "name": "an hour and a half floors to the hour",
+      "why": "The whole-hours part is where rounding is least likely to be questioned, and rounding up reports more time than actually passed.",
+      "type": "duration", "value": 5400, "locale": "en-US", "expect": "1h 30m"
+    },
+    {
+      "name": "just under an hour stays in minutes",
+      "type": "duration", "value": 3599, "locale": "en-US", "expect": "59m 59s"
+    },
+    {
+      "name": "exactly an hour",
+      "type": "duration", "value": 3600, "locale": "en-US", "expect": "1h 0m"
+    },
+    {
+      "name": "a minute and a half",
+      "type": "duration", "value": 90, "locale": "en-US", "expect": "1m 30s"
+    },
+    {
+      "name": "under a minute",
+      "type": "duration", "value": 45, "locale": "en-US", "expect": "45s"
+    },
+    {
+      "name": "zero duration",
+      "type": "duration", "value": 0, "locale": "en-US", "expect": "0s"
+    },
+    {
+      "name": "a duration does not change shape with the locale",
+      "why": "The hour and minute letters are English, and stay so until a catalog carries a translated duration pattern. What must not happen is one runtime translating them while another does not.",
+      "type": "duration", "value": 5400, "locale": "pt-BR", "expect": "1h 30m"
+    },
+    {
+      "name": "a timestamp is written in UTC in a fixed shape",
+      "why": "A timestamp read off a page and pasted into a transcript search has to be the string the transcript holds, in every locale.",
+      "type": "datetime", "value": "2026-09-02T14:05:09Z", "locale": "en-US", "expect": "2026-09-02 14:05:09 UTC"
+    },
+    {
+      "name": "the same timestamp in another locale",
+      "type": "datetime", "value": "2026-09-02T14:05:09Z", "locale": "pt-BR", "expect": "2026-09-02 14:05:09 UTC"
+    },
+    {
+      "name": "an external string is placed exactly as given",
+      "why": "Third-party text is shown and never parsed back into state, so no runtime may trim, case-fold or re-encode it.",
+      "type": "detail", "value": "Connection refused: 10.0.0.5:22", "locale": "en-US", "expect": "Connection refused: 10.0.0.5:22"
+    }
+  ]
+}

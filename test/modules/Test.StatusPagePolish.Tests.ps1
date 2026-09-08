@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42ada5a7-c360-4c5f-80be-7d4773345016
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,11 +26,15 @@
     for low-vision users, and the default gray-400 (#9ca3af) failed even the 3:1
     large-text floor. These tests recompute the WCAG relative-luminance contrast of
     the light and dark --fg-faint against a representative background of each theme
-    and require >= 4.5:1. Separately, a heading containing a '+' slugs ambiguously
-    (the '+' collapses to a hyphen inconsistently across renderers), silently
-    breaking the REGION deep-link; the anchor test slugifies the target heading and
-    requires it to equal the css anchor, so a reintroduced '+' or a drifted rename
-    is caught.
+    and require >= 4.5:1.
+
+    Separately, the stylesheet points into definition.md, and that pointer used to
+    carry the heading's own slug -- which a rename broke silently, and which a '+'
+    in the heading broke ambiguously, because renderers disagree on whether it
+    collapses to a hyphen. The pointer now carries an opaque id that does not
+    change with the wording, so what is checked is that the id in the stylesheet
+    is the one written above that heading, and that the heading is still there.
+    A deleted heading or a pointer aimed elsewhere still fails.
 
     The throw-based Assert-* helpers live in the file's BeforeAll, which is the
     scope Pester 5 shares with the It blocks; defining them at script scope
@@ -95,14 +99,24 @@ Describe 'status-page polish: WCAG contrast + REGION anchor integrity' {
         Assert-True ($c -ge 4.5) "dark --fg-faint $($script:faint[1]) has $([Math]::Round($c,2)):1, needs >= 4.5:1"
     }
 
-    It 'the mobile/dark-mode REGION anchor matches its definition.md heading slug' {
-        $m = [regex]::Match($css, 'definition#(defining-the-status-page-mobile[^\s]*hardening)')
-        Assert-True $m.Success 'the mobile/dark-mode REGION pointer is present in the css'
-        $anchor = $m.Groups[1].Value
+    It 'the mobile/dark-mode REGION pointer still names that heading' {
+        # The pointer used to carry the heading's own slug, so a rename or a
+        # '+' in the heading silently broke it and this test compared the two
+        # spellings. Pointers now carry an opaque id instead, which cannot
+        # drift with the wording -- so what has to be proved is that the id in
+        # the stylesheet is the one sitting above that heading in
+        # definition.md, and that the heading is still there to point at.
+        $m = [regex]::Match($css, 'yuruna\.link/(42[0-9a-f]{6}-[0-9a-f]{4})')
+        Assert-True $m.Success 'the css carries no REGION pointer in the id form'
+
         $def = Get-Content -Raw -LiteralPath $script:defPath
-        $h = [regex]::Match($def, '(?m)^###\s+(Defining the status-page mobile[^\r\n]*hardening)\s*$')
-        Assert-True $h.Success 'the mobile/dark-mode heading is present in definition.md'
-        $slug = ConvertTo-Slug $h.Groups[1].Value
-        Assert-Equal -Expected $slug -Actual $anchor -Because 'a "+" in the heading (or a drifted rename) breaks the REGION deep-link'
+        $h = [regex]::Match($def,
+            '(?m)^<a id="(42[0-9a-f]{6}-[0-9a-f]{4})"></a>\r?\n\r?\n###\s+Defining the status-page mobile[^\r\n]*hardening\s*$')
+        Assert-True $h.Success 'the mobile/dark-mode heading, with its anchor id, is present in definition.md'
+
+        $ids = @([regex]::Matches($css, 'yuruna\.link/(42[0-9a-f]{6}-[0-9a-f]{4})') |
+            ForEach-Object { $_.Groups[1].Value })
+        Assert-True ($ids -contains $h.Groups[1].Value) `
+            "the stylesheet does not point at the mobile/dark-mode heading (its id is $($h.Groups[1].Value))"
     }
 }

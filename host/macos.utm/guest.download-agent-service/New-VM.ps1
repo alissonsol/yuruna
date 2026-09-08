@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 4219b9e1-52b6-463b-b9d7-5d2aecaadd27
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -111,7 +111,7 @@ New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 # meta-data is shared under host/vmconfig/ (byte-identical across all 3 host platforms).
 $hostVmConfigDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) 'host/vmconfig'
 Copy-Item -Path (Join-Path $hostVmConfigDir 'download-agent-service.meta-data') -Destination "$SeedDir/meta-data"
-# --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+# --- REGION: https://yuruna.link/4220a755-000b
 Copy-Item -Path (Join-Path $hostVmConfigDir 'guest-dhcp.network-config') -Destination "$SeedDir/network-config"
 
 # --- REGION: Yuruna harness SSH key
@@ -128,7 +128,7 @@ Write-Output "Password came from authentication mechanism: $_authActiveName"
 Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
 
 # --- REGION: Pick a UTM network mode (BEFORE building user-data)
-# --- REGION: https://yuruna.link/network#cache-vm-seed-host-binding
+# --- REGION: https://yuruna.link/4220a755-001b
 # Host coordinates (status service, for the in-VM source fetch) + pool storage
 # coordinates (the NAS that holds the download pool), baked into the seed. The
 # network mode and the host address are a matched pair -- the address only works
@@ -246,7 +246,7 @@ if (-not (Test-Path $TemplatePath)) {
 $VmUuid  = [guid]::NewGuid().ToString().ToUpper()
 $DiskId  = [guid]::NewGuid().ToString().ToUpper()
 $SeedId  = [guid]::NewGuid().ToString().ToUpper()
-# --- REGION: https://yuruna.link/network#defining-deterministic-guest-mac-addresses
+# --- REGION: https://yuruna.link/4220a755-000a
 $MacAddress = Get-YurunaGuestMacAddress -VMName $VMName
 
 Import-Module (Join-Path (Split-Path -Parent $ScriptDir) "modules/Yuruna.Host.psm1") -Force
@@ -272,11 +272,11 @@ if ($NetworkMode -eq 'Shared') {
     Write-Output "Bridge interface: $BridgeInterface (download-agent-service VM will request DHCP on this LAN)"
 }
 
-# --- REGION: https://yuruna.link/definition#defining-the-vm-memory-policy
-# --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
+# --- REGION: https://yuruna.link/42fa6f45-0016
+# --- REGION: https://yuruna.link/42fa6f45-0015
 $hostCores = [int](& /usr/sbin/sysctl -n hw.physicalcpu)
 if ($hostCores -lt 4) {
-    Write-Error "Host has $hostCores physical cores; Yuruna requires at least 4. See https://yuruna.link/definition#defining-the-vm-core-count-policy"
+    Write-Error "Host has $hostCores physical cores; Yuruna requires at least 4. See https://yuruna.link/42fa6f45-0015"
     exit 1
 }
 $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))

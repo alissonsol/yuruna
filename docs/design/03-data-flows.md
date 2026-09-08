@@ -2,7 +2,10 @@
 
 This page traces the current high-frequency deployment, runner, fetch, cache, stash, and storage exchanges without restating the architecture narrative.
 
-[Yuruna Architecture](../architecture.md) | [Design index](00-index.md) | [Lifecycle state](04-lifecycle-state.md)
+Locale-dependent page delivery has its own sequences in
+[Globalization](07-globalization.md#4-server-decision-and-browser-execution).
+Those views distinguish pool startup-prepared representations from status
+request-time rewriting and show the browser catalog execution order.
 
 ## A. Three-phase deployment
 
@@ -235,7 +238,7 @@ sequenceDiagram
     download-agent->>pool-share: check image state
     alt refresh required
       download-agent->>image-origin: HEAD metadata
-      image-origin-->>download-agent: size and checksum
+      image-origin-->>download-agent: size and modification
       %% optional -- image bytes use the configured proxy first
       alt proxy configured
         download-agent->>squid-proxy: GET image bytes
@@ -250,6 +253,12 @@ sequenceDiagram
       else proxy unavailable
         download-agent->>image-origin: direct image GET
         image-origin-->>download-agent: image bytes
+      end
+      %% optional -- publisher checksum is verified when available
+      opt checksum URL available
+        download-agent->>image-origin: GET publisher checksum
+        image-origin-->>download-agent: checksum or unavailable
+        download-agent->>download-agent: verify available checksum
       end
       download-agent->>pool-share: commit image state
     end
@@ -280,6 +289,12 @@ the directory lookup so the sequence remains at seven participants.
 The image refresh path reads origin metadata directly, tries configured Squid for
 the body, and restarts from the origin after any proxy or midstream failure. Pool
 lookup is provided by `test/extension/pool-aggregator-service/`.
+Direct fallback also covers agent protocol/download failures after successful
+health discovery, not only failure to find an agent. The client's verification
+checks downloaded bytes against agent metadata; a publisher checksum is an
+additional check when available. HEAD supplies size and Last-Modified, while a
+separate origin GET retrieves the publisher checksum. These paths are implemented
+in `imagestore/refresh.go` and `host/modules/Yuruna.UbuntuImage.psm1`.
 
 ## F. Stash address and transfer
 
@@ -324,7 +339,7 @@ sequenceDiagram
       sequence-engine->>guest-vm: run transfer command
       guest-vm->>stash-service: SCP or SFTP
       alt stash share mounted
-        stash-service->>stash-store: commit artifact sidecar
+        stash-service->>stash-store: store artifact
       else share unavailable
         stash-service->>stash-store: buffer VM local
       end
@@ -339,6 +354,8 @@ fallback are in `test/extension/stash-service/default.psm1` and
 `test/extension/stash-service/server/internal/{sshsrv,scp,store}`. No shipped
 sequence currently calls the resolver, so the entire supported path is explicitly
 optional in the diagram rather than presented as an unconditional cycle exchange.
+The share receives artifact bytes; the SQLite metadata index remains VM-local,
+as shown separately in the stash storage description below.
 
 ## G. Pool storage
 
@@ -383,7 +400,9 @@ bring-up script
 
 Pool storage is optional and independently configured. The caching-proxy VM,
 pool-control service, download agent, and runner mount only this share when their
-respective features are enabled.
+respective features are enabled. The Ubuntu service VMs mount the configured
+share at `/mnt/yuruna-pool`; `yuruna.pool/` in the diagram is the share-root
+layout, not a second storage system.
 
 ## H. Stash storage
 
@@ -409,3 +428,7 @@ The separate stash layout is set by
 buffer remain VM-local under `/var/lib/stash-service/`; neither is a share child.
 The stash service does not write these artifacts into `yuruna.pool/`, and the
 caching-proxy VM does not mount the stash share.
+
+---
+
+[Yuruna Architecture](../architecture.md) | [Design index](00-index.md) | [Lifecycle state](04-lifecycle-state.md)

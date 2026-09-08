@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.09.01
+  Version: 2026.09.08
 
   Framework-free checks for test/status/yuruna.common.js. Run: node yuruna.common.test.js
   (exit 0 = pass). No package.json / test runner in the repo, so this uses the Node
@@ -193,6 +193,22 @@ assert.strictEqual(pbt(true, false, 'running', { line: '[1/5] Paused (waiting fo
 assert.strictEqual(pbt(true, false, 'running', pausedAction, false, [], ageMinutes(35)),
   'Test paused -- 30m+, guest test-guest.ubuntu.server.24-01 running',
   'a live guest under the hold is named alongside its age');
+
+// The runner states the pause in a code. That is what makes the sentence
+// beside it ordinary prose again: reword it, or translate it, and the badge
+// still flips, because nothing reads the words to decide.
+assert.strictEqual(pbt(true, false, 'running',
+    { code: 'sequence_paused_waiting_resume', line: 'Pausado, aguardando retomada.' }, false, [], ageMinutes(0)),
+  'Test paused',
+  'the code decides, so a translated sentence is still a recognised pause');
+assert.strictEqual(pbt(true, false, 'running',
+    { code: 'step_running', line: '[3/9] Paused (waiting for resume)' }, false, [], ageMinutes(0)),
+  'Test pausing (after step)',
+  'a different code keeps the armed pause from being upgraded by the stale sentence');
+assert.strictEqual(pbt(true, false, 'running',
+    { line: '[1/5] Paused (waiting for resume)' }, false, [], ageMinutes(0)),
+  'Test paused',
+  'a sidecar from a runner older than the code field is still read correctly');
 assert.strictEqual(pbt(true, false, 'running', pausedAction, false, [], ageMinutes(150)),
   'Test paused -- 2h+, guest test-guest.ubuntu.server.24-01 running',
   'holds past an hour read in hours');

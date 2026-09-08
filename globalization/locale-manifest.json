@@ -1,0 +1,50 @@
+{
+  "schema": "yuruna.locale-manifest/v1",
+  "default": "en-US",
+  "locales": {
+    "en-US": {
+      "direction": "ltr",
+      "status": "supported",
+      "displayName": "English (United States)",
+      "pluralCategories": ["one", "other"],
+      "pluralRule": "one-if-1",
+      "numberFormat": { "group": ",", "decimal": ".", "groupSize": 3 }
+    },
+    "pt-BR": {
+      "direction": "ltr",
+      "status": "planned",
+      "displayName": "Portugues (Brasil)",
+      "pluralCategories": ["one", "other"],
+      "pluralRule": null,
+      "numberFormat": { "group": ".", "decimal": ",", "groupSize": 3 }
+    },
+    "qps-Ploc": {
+      "direction": "ltr",
+      "status": "pseudo",
+      "displayName": "Pseudo (expanded Latin)",
+      "pluralCategories": ["one", "other"],
+      "pluralRule": "one-if-1",
+      "numberFormat": { "group": ",", "decimal": ".", "groupSize": 3 }
+    },
+    "qps-Plocm": {
+      "direction": "rtl",
+      "status": "pseudo",
+      "displayName": "Pseudo (mirrored RTL)",
+      "pluralCategories": ["one", "other"],
+      "pluralRule": "one-if-1",
+      "numberFormat": { "group": ",", "decimal": ".", "groupSize": 3 }
+    }
+  },
+  "aliases": {
+    "en": "en-US",
+    "pt": "pt-BR",
+    "pt-PT": "pt-BR"
+  },
+  "pluralRules": {
+    "one-if-1": "The count takes the 'one' form when it is exactly 1, and 'other' in every other case, zero included."
+  },
+  "pluralRulesNote": "A locale whose pluralRule is null has no rule pinned yet, and every runtime refuses it rather than borrowing another locale's -- English and Portuguese disagree about zero, and a borrowed rule reads as fluent, confident, wrong grammar to anyone who does not speak the language. Pinning a rule means transcribing it from a CLDR release and naming it here, so all three runtimes select the same form for the same count.",
+  "numberFormatNote": "Separators are declared here rather than read from each runtime's own locale database. The browser floor has no Intl at all, and the ICU version behind a server runtime changes between releases; a table that lives in one place is the only way the same number reaches every reader identically.",
+  "maxTagLength": 35,
+  "maxHeaderLength": 512
+}

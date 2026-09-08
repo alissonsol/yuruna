@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42e621ac-ad54-49e2-8681-64687c21a8c8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 <#
 .SYNOPSIS
-    Run every tracked JavaScript self-test with node.
+    Run every candidate JavaScript self-test with node.
 .DESCRIPTION
     The browser assets under test/status and the stash-service web directory
     carry their own checks in *.test.js, and this script is the only thing in
@@ -32,9 +32,9 @@
     discovery and reporting around it. __dirname is also why the working
     directory is irrelevant here: each file is invoked by absolute path.
 
-    Discovery is `git ls-files` rather than a filesystem walk so an untracked
-    scratch copy or an ignored nested checkout cannot slip a look-alike test
-    into a gate, and a new *.test.js is covered the day it is committed.
+    Discovery uses Git's tracked and untracked, non-ignored candidate set rather
+    than a filesystem walk. An ignored scratch copy or nested checkout cannot
+    slip in, while a new *.test.js is covered before its first commit.
 
     A run that could not happen is reported as SKIPPED, never as success: on a
     host without node every discovered file is named and the exit code is the
@@ -43,6 +43,9 @@
 
 .PARAMETER Path
     Repo-relative root to search for *.test.js. Default: test.
+.PARAMETER Root
+    Repository candidate root. Defaults to this tool's repository. The
+    override exists for isolated discovery mutation tests.
 .PARAMETER Quiet
     Print only the summary line.
 .EXAMPLE
@@ -53,20 +56,22 @@
 [CmdletBinding()]
 param(
     [string]$Path = 'test',
+    [string]$Root,
     [switch]$Quiet
 )
 
 $ErrorActionPreference = 'Stop'
 
-$RepoRoot = Split-Path -Parent $PSScriptRoot
+$RepoRoot = if ($Root) { [IO.Path]::GetFullPath($Root) } else { Split-Path -Parent $PSScriptRoot }
 $pathspec = ($Path -replace '\\', '/').TrimEnd('/') + '/*.test.js'
 
-$tests = @(& git -C $RepoRoot ls-files -- $pathspec)
+$tests = @(& git -C $RepoRoot ls-files --cached --others --exclude-standard -- $pathspec |
+    Sort-Object -Unique)
 if ($LASTEXITCODE -ne 0 -or $tests.Count -eq 0) {
     # -ErrorAction Continue, because $ErrorActionPreference = 'Stop' turns a
     # Write-Error into a terminating error that ends the script with exit 1 --
     # the code that means "a test failed" -- before `exit 2` is ever reached.
-    Write-Error "no tracked *.test.js under $Path" -ErrorAction Continue
+    Write-Error "no candidate *.test.js under $Path" -ErrorAction Continue
     exit 2
 }
 

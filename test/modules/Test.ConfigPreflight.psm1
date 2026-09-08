@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 426aeda1-aa39-4af4-ab2d-2e9d00f2ca45
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,7 +16,7 @@
 
 #requires -version 7
 
-# --- REGION: https://yuruna.link/test/harness#testconfig-role-pyramid
+# --- REGION: https://yuruna.link/42d38664-0006
 
 # Pre-cycle config gate: spawn Test-Config.ps1 in a fresh pwsh so an
 # Out-Of-Order ::Stop / early exit inside Test-Config can't unwind the
@@ -29,6 +29,14 @@
 # Debug-TestSequence, and Invoke-TestProject agreeing on the same gate semantics --
 # a new gate parameter reaches every caller from one place instead of
 # drifting between near-identical copy-pastes.
+
+# One-release compatibility window for Test-Config producers that predate the
+# structured sidecar. Remove the stdout FAILURES-block reader in release
+# 2026.11, no later than 2026-11-30. Naming both boundaries here makes the
+# fallback mechanically discoverable instead of leaving an immortal "legacy"
+# branch with no owner or deadline.
+$script:LegacyFailureBlockRemovalRelease = '2026.11'
+$script:LegacyFailureBlockRemovalDate = '2026-11-30'
 
 function Invoke-ConfigGate {
     <#
@@ -126,10 +134,30 @@ function Invoke-ConfigGate {
     $gateArgument = @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', $gateScript,
                       '-SkipSend', '-ConfigPath', $ConfigPath)
     if ($ExpectStorageConfigured) { $gateArgument += '-ExpectStorageConfigured' }
-    # --- REGION: https://yuruna.link/memory#why-the-preflight-gate-child-gets-empty-pipeline-stdin-plus--noninteractive
-    @() | & $pwshExe @gateArgument 2>&1 |
-        ForEach-Object { [void]$capturedLines.Add("$_") }
-    $gateExit = $LASTEXITCODE
+    # The child reports its failures as data here, and the block it prints
+    # stays what it always was: text for a person. The parent used to recover
+    # that block by matching the English in its header and footer, which made a
+    # sentence a wire format -- reword it, or run on a host that renders it in
+    # another language, and the parent finds no failures in a child that failed.
+    $sidecarPath = Join-Path ([IO.Path]::GetTempPath()) ("yuruna-preflight-" + [Guid]::NewGuid().ToString('n') + '.json')
+    $priorSidecar = $env:YURUNA_FAILURE_SIDECAR
+    $env:YURUNA_FAILURE_SIDECAR = $sidecarPath
+
+    # --- REGION: https://yuruna.link/42d69dfa-0018
+    try {
+        @() | & $pwshExe @gateArgument 2>&1 |
+            ForEach-Object { [void]$capturedLines.Add("$_") }
+        $gateExit = $LASTEXITCODE
+    } finally {
+        $env:YURUNA_FAILURE_SIDECAR = $priorSidecar
+    }
+
+    $sidecar = $null
+    if (Test-Path -LiteralPath $sidecarPath -PathType Leaf) {
+        try { $sidecar = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($sidecarPath)) }
+        catch { $sidecar = $null }
+        Remove-Item -LiteralPath $sidecarPath -Force -ErrorAction SilentlyContinue
+    }
     if ($gateExit -ne 0) {
         # Pull the FAILURES block (the section between the "FAILURES (N) --"
         # header and the matching "END OF FAILURES (N)" footer, including
@@ -142,6 +170,10 @@ function Invoke-ConfigGate {
         $failureLines = [System.Collections.Generic.List[string]]::new()
         $startIdx = -1
         $endIdx = -1
+        # The text scan below stays as a fallback for one release: a gate
+        # built before the sidecar, or a stand-in a test substitutes for it,
+        # still reports through the block it prints. It is reached only when
+        # the child wrote no sidecar.
         for ($i = 0; $i -lt $capturedLines.Count; $i++) {
             if ($startIdx -lt 0 -and $capturedLines[$i] -match 'FAILURES \(\d+\) -- ') {
                 $startIdx = if ($i -gt 0 -and $capturedLines[$i-1] -match '^={5,}$') { $i - 1 } else { $i }
@@ -155,10 +187,38 @@ function Invoke-ConfigGate {
         Write-Warning "========"
         Write-Warning "  [$CallerName] Pre-cycle config gate FAILED (Test-Config.ps1 exit $gateExit)."
         Write-Warning "========"
-        if ($startIdx -ge 0) {
+        if ($sidecar -and $sidecar.failures) {
+            # Rendered from the child's own data. What the operator reads is
+            # the same information the block carried, and what this function
+            # RETURNS no longer depends on a sentence surviving unchanged.
+            Write-Information "" -InformationAction Continue
+            $n = 0
+            $total = @($sidecar.failures).Count
+            foreach ($f in @($sidecar.failures)) {
+                $n++
+                foreach ($line in @(
+                        ("  [{0}/{1}] in section: {2}" -f $n, $total, $f.section),
+                        ("        {0}" -f $f.message))) {
+                    Write-Information $line -InformationAction Continue
+                    [void]$failureLines.Add($line)
+                }
+                if ($f.fullPath) {
+                    $line = "        File: $($f.fullPath)"
+                    Write-Information $line -InformationAction Continue
+                    [void]$failureLines.Add($line)
+                }
+                foreach ($w in @($f.warnings)) {
+                    $line = "          [WARN] $w"
+                    Write-Information $line -InformationAction Continue
+                    [void]$failureLines.Add($line)
+                }
+            }
+        } elseif ($startIdx -ge 0) {
             # If the closing footer was missed (truncated output, child
             # crash mid-print), surface from the header to the end of
             # capture rather than swallowing the partial block.
+            Write-Warning ("Test-Config used the N-1 stdout compatibility reader; remove it in release {0} by {1}." -f
+                $script:LegacyFailureBlockRemovalRelease, $script:LegacyFailureBlockRemovalDate)
             $blockEnd = if ($endIdx -gt $startIdx) { $endIdx } else { $capturedLines.Count - 1 }
             Write-Information "" -InformationAction Continue
             for ($i = $startIdx; $i -le $blockEnd; $i++) {

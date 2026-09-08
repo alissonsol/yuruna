@@ -1,9 +1,9 @@
 <#PSScriptInfo
-.VERSION 2026.07.20
+.VERSION 2026.09.02
 .GUID 42904e1e-c247-4036-a38b-fb377e975d26
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
-.TAGS yuruna test guest hostname cloud-init contract pester
+.TAGS yuruna test guest hostname cloud-init credential contract pester
 .LICENSEURI https://yuruna.link/license
 .PROJECTURI https://yuruna.com
 .ICONURI
@@ -18,8 +18,8 @@
 
 <#
 .SYNOPSIS
-    Structural Pester guard on the guest-hostname contract: a sequence's
-    `variables.hostname` must reach the guest's cloud-init local-hostname.
+    Structural Pester guards on guest hostname propagation and first-login
+    credential persistence.
 .DESCRIPTION
     The value crosses four files per guest (planner -> runner -> the
     Invoke-PerGuestNewVm dispatcher -> the per-guest New-VM.ps1), and the
@@ -35,6 +35,10 @@
     into their template (caching-proxy-service, stash-service) never substitute the
     placeholder and are correctly out of scope.
 
+    The credential guard keeps SetPassword out of password-rotation retries,
+    requires the resulting shell to compute a freshly observed token first,
+    and rejects login logic that tries both the old and new passwords.
+
     Source-text only -- no host driver is imported and no VM is touched.
     Throw-based assertions so the file runs under Pester 3.4 and Pester 5+.
 #>
@@ -44,6 +48,21 @@ $here     = Split-Path -Parent $PSCommandPath
 $repoRoot = Split-Path -Parent (Split-Path -Parent $here)
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.SequenceResolve.psm1') -Force -Global -DisableNameChecking
+
+function Get-SequenceStepRecord {
+    param($Steps, [int]$Depth = 0, [int]$TopIndex = -1)
+    $items = @($Steps)
+    for ($i = 0; $i -lt $items.Count; $i++) {
+        $step = $items[$i]
+        if ($step -isnot [System.Collections.IDictionary]) { continue }
+        $rootIndex = if ($Depth -eq 0) { $i } else { $TopIndex }
+        [pscustomobject]@{ Step = $step; Depth = $Depth; TopIndex = $rootIndex }
+        if ($step.Contains('steps')) {
+            Get-SequenceStepRecord -Steps ($step['steps']) -Depth ($Depth + 1) -TopIndex $rootIndex
+        }
+    }
+}
 
 # Guest scripts in scope: those that actually template a hostname. The Its that
 # iterate them are fed by the file-scope case list below; this run-phase copy
@@ -91,6 +110,19 @@ $seqFile = @(
     }
 )
 $seqCase = @($seqFile | ForEach-Object { @{ name = $_.Name; path = $_.FullName } })
+
+# Discover rotation independently of SetPassword. If a commit is accidentally
+# removed from one file, that file must stay in the test instead of selecting
+# itself out of the guard.
+$passwordSequenceCase = @(
+    'start.guest.amazon.linux.2023.yml'
+    'start.guest.ubuntu.server.24.yml'
+    'start.guest.ubuntu.server.26.yml'
+) | ForEach-Object {
+    @{ name = $_; path = Join-Path $discoveryRepoRoot "test/sequences/$_" }
+}
+$expectedPasswordSequencePath = @($passwordSequenceCase.path | ForEach-Object { [IO.Path]::GetFullPath($_) } | Sort-Object)
+$allFrameworkSequenceFile = @(Get-ChildItem -Path (Join-Path $discoveryRepoRoot 'test/sequences') -Filter '*.yml' -File)
 
 # A glob that stops matching would silently retire its whole Describe, so an
 # empty list fails the file outright instead of going quiet.
@@ -217,5 +249,88 @@ Describe 'agetty periodic redraw -- Ubuntu cold installs keep one wait deadline'
         foreach ($failurePattern in 'install_fail.crash', 'Press enter to start a shell', 'An error occurred') {
             Assert-True ($body -match [regex]::Escape($failurePattern)) "$name must retain installer fast-fail pattern '$failurePattern'"
         }
+    }
+}
+
+Describe 'credential rotation -- persist only after a confirmed shell login' {
+    BeforeAll {
+        # The file-scope lists above exist for -TestCases, which is read during
+        # discovery. This block reads them from inside an It instead, and a
+        # discovery-time variable is not in scope there -- it arrives as $null,
+        # which makes the guard enumerate nothing and pass while checking no
+        # file at all. Re-derive at run time so what is asserted is the tree.
+        $sequenceRoot = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))) 'test/sequences'
+        $script:runtimeSequenceFile = @(Get-ChildItem -Path $sequenceRoot -Filter '*.yml' -File)
+        $script:runtimeExpectedPasswordPath = @(
+            'start.guest.amazon.linux.2023.yml'
+            'start.guest.ubuntu.server.24.yml'
+            'start.guest.ubuntu.server.26.yml'
+        ) | ForEach-Object { [IO.Path]::GetFullPath((Join-Path $sequenceRoot $_)) } | Sort-Object
+
+        if ($script:runtimeSequenceFile.Count -lt 3) {
+            throw "Expected the start sequences under $sequenceRoot, found $($script:runtimeSequenceFile.Count)."
+        }
+    }
+
+    It 'confines SetPassword to the three password-rotating start sequences' {
+        $allFrameworkSequenceFile = $script:runtimeSequenceFile
+        $expectedPasswordSequencePath = $script:runtimeExpectedPasswordPath
+        $inlineWrites = @($allFrameworkSequenceFile | Where-Object {
+                (Get-Content -Raw -LiteralPath $_.FullName) -match '\$\{ext:authentication\.SetPassword\('
+            })
+        Assert-Equal -Expected 0 -Actual $inlineWrites.Count `
+            -Because 'an inline extension expression would persist a password without the post-login write guard'
+
+        $actual = @(foreach ($file in $allFrameworkSequenceFile) {
+                $sequence = Read-SequenceFile -Path $file.FullName -NoCache
+                $records = if ($sequence -is [System.Collections.IDictionary] -and $sequence.Contains('steps')) {
+                    @(Get-SequenceStepRecord -Steps ($sequence['steps']))
+                } else { @() }
+                if ($records | Where-Object {
+                        $_.Step['action'] -eq 'callExtension' -and $_.Step['method'] -eq 'authentication.SetPassword'
+                    }) {
+                    [IO.Path]::GetFullPath($file.FullName)
+                }
+            })
+        $actual = @($actual | Sort-Object)
+        Assert-Equal -Expected ($expectedPasswordSequencePath -join "`n") -Actual ($actual -join "`n") `
+            -Because 'adding or removing a password commit requires an explicit review of its post-login confirmation'
+    }
+
+    It 'puts the sole SetPassword call after the computed shell token in <name>' -TestCases $passwordSequenceCase {
+        param($name, $path)
+        $sequence = Read-SequenceFile -Path $path -NoCache
+        $steps = @($sequence['steps'])
+        $records = @(Get-SequenceStepRecord -Steps $steps)
+
+        $commits = @($records | Where-Object {
+                $_.Step['action'] -eq 'callExtension' -and $_.Step['method'] -eq 'authentication.SetPassword'
+            })
+        $tokenInputs = @($records | Where-Object {
+                $_.Depth -eq 0 -and $_.Step['action'] -eq 'inputTextAndEnter' -and
+                $_.Step['text'] -eq ' echo yuruna_$(seq -s '''' 1 9)_ok'
+            })
+        $tokenWaits = @($records | Where-Object {
+                $_.Depth -eq 0 -and $_.Step['action'] -eq 'waitForText' -and
+                $_.Step['pattern'] -eq 'yuruna_123456789_ok' -and [bool]$_.Step['freshMatch']
+            })
+        $rotationRetries = @($records | Where-Object {
+                $_.Depth -eq 0 -and $_.Step['action'] -eq 'retry' -and
+                @($_.Step['steps'] | Where-Object { $_['action'] -eq 'passwdPrompt' -and $_['text'] -eq '${newPassword}' }).Count -ge 2
+            })
+        $loginPasswordPrompts = @($records | Where-Object {
+                $_.Step['action'] -eq 'passwdPrompt' -and $_.Step['pattern'] -eq 'Password:'
+            })
+
+        Assert-Equal -Expected 1 -Actual $commits.Count -Because "$name must have exactly one password commit"
+        Assert-Equal -Expected 0 -Actual $commits[0].Depth -Because "$name must not commit from inside the retry block"
+        Assert-Equal -Expected 1 -Actual $rotationRetries.Count -Because "$name must retain its new/retype-password rotation"
+        Assert-Equal -Expected 1 -Actual $tokenInputs.Count -Because "$name must ask a live shell to compute the confirmation token"
+        Assert-Equal -Expected 1 -Actual $tokenWaits.Count -Because "$name must freshly observe the computed confirmation token"
+        Assert-True ($rotationRetries[0].TopIndex -lt $tokenInputs[0].TopIndex) "$name computes the token before password rotation finishes"
+        Assert-True ($tokenInputs[0].TopIndex -lt $tokenWaits[0].TopIndex) "$name waits for the token before asking the shell to produce it"
+        Assert-True ($tokenWaits[0].TopIndex -lt $commits[0].TopIndex) "$name persists the new password before login success is confirmed"
+        Assert-True (@($loginPasswordPrompts | Where-Object { $_.Step['text'] -ne '${currentPassword}' }).Count -eq 0) `
+            "$name must not try both old and new passwords at the login prompt"
     }
 }

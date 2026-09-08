@@ -7,6 +7,7 @@ import (
 	"context"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -267,5 +268,191 @@ func TestDiagnosticsStateDirDisabledIsNotAFailure(t *testing.T) {
 	c := checkByName(t, s.collectDiagnostics(context.Background()), "state-dir")
 	if !c.OK {
 		t.Errorf("state-dir reported failure when persistence is simply off: %+v", c)
+	}
+}
+
+// initGitRepo makes dir a real repository with exactly one commit and returns
+// that commit's full object name. A real repository rather than a fake .git/
+// because the check runs `git rev-parse` and nothing else would exercise it.
+func initGitRepo(t *testing.T, dir string) string {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not on PATH")
+	}
+	run := func(args ...string) string {
+		cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@example.invalid",
+			"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@example.invalid")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+		return strings.TrimSpace(string(out))
+	}
+	run("init", "--quiet")
+	if err := os.WriteFile(filepath.Join(dir, "VERSION"), []byte("0.0.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run("add", "VERSION")
+	run("commit", "--quiet", "-m", "seed")
+	return run("rev-parse", "HEAD")
+}
+
+func writeRevisionSidecar(t *testing.T, dir, value string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, frameworkRevisionSidecar), []byte(value), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A normal checkout answers from Git itself, and the reported value is the full
+// object name a candidate commit can be compared against.
+func TestFrameworkRevisionFromGitCheckout(t *testing.T) {
+	dir := t.TempDir()
+	want := initGitRepo(t, dir)
+	s := New(&fakeIntent{}, Options{Version: "test", RepoDir: dir})
+
+	d := s.collectDiagnostics(context.Background())
+	if c := checkByName(t, d, "framework-revision"); !c.OK {
+		t.Fatalf("framework-revision failed inside a real checkout: %+v", c)
+	}
+	if d.Environment.FrameworkRevision != want {
+		t.Errorf("frameworkRevision = %q, want %q", d.Environment.FrameworkRevision, want)
+	}
+}
+
+// The deployment this check exists for: the guest extracts a `git archive`
+// tarball, so there is no .git/ to interrogate and the sidecar is the only
+// remaining proof of which commit is running.
+func TestFrameworkRevisionFallsBackToSidecarWithoutGit(t *testing.T) {
+	dir := t.TempDir()
+	want := "0123456789abcdef0123456789abcdef01234567"
+	writeRevisionSidecar(t, dir, want+"\n")
+	s := New(&fakeIntent{}, Options{Version: "test", RepoDir: dir})
+
+	d := s.collectDiagnostics(context.Background())
+	c := checkByName(t, d, "framework-revision")
+	if !c.OK {
+		t.Fatalf("archive-only checkout with a valid sidecar failed: %+v", c)
+	}
+	if d.Environment.FrameworkRevision != want {
+		t.Errorf("frameworkRevision = %q, want %q", d.Environment.FrameworkRevision, want)
+	}
+	if !strings.Contains(c.Detail, frameworkRevisionSidecar) {
+		t.Errorf("detail does not name the source of the value: %q", c.Detail)
+	}
+}
+
+// A sidecar that is not a full object name is not weak evidence, it is no
+// evidence: reporting it would let an unverifiable string pass as provenance.
+func TestFrameworkRevisionRejectsMalformedSidecar(t *testing.T) {
+	for _, bad := range []string{"", "not-a-revision", "0123456", "0123456789ABCDEF0123456789abcdef0123456789"} {
+		dir := t.TempDir()
+		writeRevisionSidecar(t, dir, bad)
+		s := New(&fakeIntent{}, Options{Version: "test", RepoDir: dir})
+
+		d := s.collectDiagnostics(context.Background())
+		c := checkByName(t, d, "framework-revision")
+		if c.OK {
+			t.Errorf("sidecar %q passed the check: %+v", bad, c)
+		}
+		// Named as a corrupt record rather than as an absent one: the two need
+		// different remediation, and only one of them says the tree was touched.
+		if !strings.Contains(c.Detail, "malformed") {
+			t.Errorf("sidecar %q was not reported as malformed: %q", bad, c.Detail)
+		}
+		if d.Environment.FrameworkRevision != "" {
+			t.Errorf("sidecar %q was still reported as %q", bad, d.Environment.FrameworkRevision)
+		}
+	}
+}
+
+// A tree whose sidecar and .git/ name different commits is a mix of sources, so
+// neither value describes what is actually deployed.
+func TestFrameworkRevisionRejectsConflictingSidecar(t *testing.T) {
+	dir := t.TempDir()
+	head := initGitRepo(t, dir)
+	writeRevisionSidecar(t, dir, "fedcba9876543210fedcba9876543210fedcba98\n")
+	s := New(&fakeIntent{}, Options{Version: "test", RepoDir: dir})
+
+	d := s.collectDiagnostics(context.Background())
+	c := checkByName(t, d, "framework-revision")
+	if c.OK {
+		t.Fatalf("a contradicting sidecar passed the check: %+v", c)
+	}
+	if d.Environment.FrameworkRevision != "" {
+		t.Errorf("a contradicted revision was still reported: %q", d.Environment.FrameworkRevision)
+	}
+	if !strings.Contains(c.Detail, head) {
+		t.Errorf("detail does not name both revisions: %q", c.Detail)
+	}
+}
+
+// A sidecar that agrees with Git is not a conflict; the check must not fail a
+// checkout that simply carries both sources.
+func TestFrameworkRevisionAcceptsAgreeingSidecar(t *testing.T) {
+	dir := t.TempDir()
+	head := initGitRepo(t, dir)
+	writeRevisionSidecar(t, dir, strings.ToUpper(head)+"\n")
+	s := New(&fakeIntent{}, Options{Version: "test", RepoDir: dir})
+
+	d := s.collectDiagnostics(context.Background())
+	if c := checkByName(t, d, "framework-revision"); !c.OK {
+		t.Fatalf("an agreeing sidecar failed the check: %+v", c)
+	}
+	if d.Environment.FrameworkRevision != head {
+		t.Errorf("frameworkRevision = %q, want %q", d.Environment.FrameworkRevision, head)
+	}
+}
+
+// Neither source present means the deployment cannot be tied to any commit. It
+// is reported as a failure rather than as an empty field, which a reader would
+// otherwise have to interpret.
+func TestFrameworkRevisionFailsWithNoSource(t *testing.T) {
+	dir := t.TempDir()
+	s := New(&fakeIntent{}, Options{Version: "test", RepoDir: dir})
+
+	d := s.collectDiagnostics(context.Background())
+	c := checkByName(t, d, "framework-revision")
+	if c.OK {
+		t.Fatalf("a checkout with no revision source passed: %+v", c)
+	}
+	if c.Hint == "" {
+		t.Error("failing framework-revision check carries no remediation hint")
+	}
+	if d.Environment.FrameworkRevision != "" {
+		t.Errorf("a revision was reported with no source: %q", d.Environment.FrameworkRevision)
+	}
+	if d.OK {
+		t.Error("report is OK while the deployed revision is unprovable")
+	}
+}
+
+// An extracted archive placed under some other working tree is still an
+// archive-only checkout. Repository discovery walks upward, so without a
+// toplevel comparison the enclosing tree's HEAD would be reported as this
+// deployment's commit -- a revision the checkout does not contain.
+func TestFrameworkRevisionIgnoresAnEnclosingRepository(t *testing.T) {
+	outer := t.TempDir()
+	enclosing := initGitRepo(t, outer)
+	inner := filepath.Join(outer, "extracted")
+	if err := os.MkdirAll(inner, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	want := "0123456789abcdef0123456789abcdef01234567"
+	writeRevisionSidecar(t, inner, want+"\n")
+	s := New(&fakeIntent{}, Options{Version: "test", RepoDir: inner})
+
+	d := s.collectDiagnostics(context.Background())
+	c := checkByName(t, d, "framework-revision")
+	if !c.OK {
+		t.Fatalf("an archive-only tree inside another repository failed: %+v", c)
+	}
+	if d.Environment.FrameworkRevision == enclosing {
+		t.Fatalf("the enclosing repository's HEAD %q was reported as this checkout's revision", enclosing)
+	}
+	if d.Environment.FrameworkRevision != want {
+		t.Errorf("frameworkRevision = %q, want the sidecar value %q", d.Environment.FrameworkRevision, want)
 	}
 }

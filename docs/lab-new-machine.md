@@ -1,3 +1,5 @@
+<a id="4218e2fb-0001"></a>
+
 # Adding a machine to a lab -- detailed walkthrough
 
 The [lab operator guide](lab-operator.md) enrolls an additional machine
@@ -24,6 +26,8 @@ rotates about once a minute and stays redeemable for about three, so
 read it fresh at each step that needs it rather than writing it down.
 
 ---
+
+<a id="4218e2fb-0002"></a>
 
 ## 1. Create the account the harness runs as
 
@@ -53,6 +57,8 @@ handing out the stored password until you update
 (`users.<key>.password`). The script warns when it sees that mismatch;
 that warning is the one to act on rather than scroll past.
 
+<a id="4218e2fb-0003"></a>
+
 ## 2. Sign in as the test account
 
 Sign out and back in as the new account (default `yurunatest`).
@@ -65,6 +71,8 @@ will be the middle of a cycle. **Stay on the release channel while you
 do it**: no Insider or beta builds, no optional preview updates. The
 harness drives and reads this machine's screen, so a preview build moves
 the host under it, on somebody else's release schedule.
+
+<a id="4218e2fb-0004"></a>
 
 ## 3. Have the GitHub credential ready
 
@@ -100,6 +108,8 @@ your lab's private one -- ask git:
 git config --get remote.origin.url
 ```
 
+<a id="4218e2fb-0005"></a>
+
 ## 4. Re-run the installer one-liner as this account
 
 The clone is per user, so the test account needs its own. Run the
@@ -123,6 +133,8 @@ notepad on `test.config.yml` -- the last only while that file is still
 identical to the template. On a machine joining a lab you can close
 notepad without editing anything: the next step replaces the file with
 the lab's configuration.
+
+<a id="4218e2fb-0006"></a>
 
 ## 5. Sync the configuration from a machine already in the lab
 
@@ -162,6 +174,8 @@ the lab now provides -- which otherwise keep winning the lookup and
 quietly serve this machine's cycles while everything still looks green
 ([B.7](lab-operator.md#b7-each-additional-machine)).
 
+<a id="4218e2fb-0007"></a>
+
 ## 6. Enable test automation
 
 ```
@@ -176,6 +190,8 @@ Windows, TCC grants on macOS. It is idempotent and supports `-WhatIf`.
 
 On Windows, sign out and back in if it reports display-scaling changes:
 OCR needs 100% scaling, and a session keeps the scaling it started with.
+
+<a id="4218e2fb-0008"></a>
 
 ## 7. Enroll with the Lab token, on the record
 
@@ -192,6 +208,8 @@ has no config file yet. `-BounceStatusService` restarts the status
 service so the change is live now rather than at the next cycle. Safe to
 re-run at any time -- a rotated token, a rebuilt proxy, or a doubtful
 state is fixed by reading the current code and running it again.
+
+<a id="4218e2fb-0009"></a>
 
 ## 8. Validate, and recognize what a first run looks like
 
@@ -220,6 +238,8 @@ never cycled looks like, and neither is worth chasing on this pass:
 Everything else in that report is about this machine specifically and
 deserves a look.
 
+<a id="4218e2fb-000a"></a>
+
 ## 9. One cycle, then the runner
 
 ```
@@ -246,6 +266,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08
 
 Back to [Yuruna](../README.md)

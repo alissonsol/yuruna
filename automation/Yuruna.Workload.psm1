@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 420897b3-ba3c-4550-ba93-63e8deebf8a9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -116,7 +116,7 @@ function Invoke-WorkloadChartDeployment {
     # Lint gate: a helm lint failure WILL cascade to a failed install, so
     # abort BEFORE attempting install. The chart path '.' must be passed
     # explicitly (required argument on helm 4).
-    # --- REGION: https://yuruna.link/memory#why-the-chart-deploy-lints-before-installing
+    # --- REGION: https://yuruna.link/42d69dfa-003e
     Write-Debug "Helm lint"
     $lintOutput = helm lint . *>&1
     $lintExit = $LASTEXITCODE
@@ -133,7 +133,7 @@ function Invoke-WorkloadChartDeployment {
     # Pre-flight: a process kill mid-upgrade leaves the release pending-*
     # (helm's atomic rollback fires only on helm-detected failures), wedging
     # every later upgrade. Detect and clear it via rollback before installing.
-    # --- REGION: https://yuruna.link/memory#why-the-chart-deploy-rolls-back-pending-helm-releases-pre-flight
+    # --- REGION: https://yuruna.link/42d69dfa-003f
     Write-Debug "Helm status probe for $installName"
     $statusOutput = helm status $installName 2>&1
     $statusExit   = $LASTEXITCODE
@@ -165,7 +165,7 @@ function Invoke-WorkloadChartDeployment {
     # helm-detected failures auto-roll back. Non-zero exit is authoritative,
     # and the output is ALSO scanned for "Error:" lines because helm can
     # return 0 on post-render admission rejections; either signal aborts.
-    # --- REGION: https://yuruna.link/memory#why-chart-deploys-use-one-atomic-helm-upgrade
+    # --- REGION: https://yuruna.link/42d69dfa-0040
     Write-Debug "Helm upgrade --install --atomic $installName"
     $installOutput = helm upgrade --install --atomic $installName . --debug *>&1
     $installExit = $LASTEXITCODE

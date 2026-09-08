@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 4246a89e-2ebb-49a1-87a4-31d719f44bf1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -90,7 +90,7 @@ $script:StepTimeoutSecondsDefault = 2700        # watchdog: kill inner when hear
 $script:PreambleTimeoutSecondsDefault = 600
 $script:WatchdogPollSeconds       = 30        # how often the watchdog re-checks the heartbeat file
 
-# --- REGION: https://yuruna.link/memory#why-yuruna-env-vars-are-snapshotted-and-re-asserted-across-inner-spawns
+# --- REGION: https://yuruna.link/42d69dfa-000d
 $script:ForwardEnvNames = @(
     'YURUNA_CACHING_PROXY_SERVICE_IP',  # Test-CachingProxyService / external-cache branch
     'YURUNA_RUNTIME_DIR',         # Test.YurunaDir override

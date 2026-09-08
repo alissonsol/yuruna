@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42f7b3b7-64ca-41c6-96ad-88a15026c482
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -112,7 +112,7 @@ Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yurun
 # origin-only branch.
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Yuruna.Image.psm1") -Force
 
-# --- REGION: https://yuruna.link/guest-image-setup#agent-first-image-downloads
+# --- REGION: https://yuruna.link/42ec97cd-0004
 $agentServed = $false
 $agentLastModified = ''
 if ((Get-Command -Name Resolve-DownloadAgentEndpoint -ErrorAction SilentlyContinue) -and
@@ -185,7 +185,7 @@ if (-not $agentServed) {
     }
     $downloadUrl = $sourceUrl + $artifactLink
 
-    # --- REGION: https://yuruna.link/guest-image-setup#skip-if-same-source-guard
+    # --- REGION: https://yuruna.link/42ec97cd-0006
     if (Test-DownloadAlreadyCurrent -SourceUrl $downloadUrl -BaseImageFile $baseImageFile -OriginFile $baseImageOrigin) {
         $skipLines = @(Get-Content -LiteralPath $baseImageOrigin -ErrorAction SilentlyContinue)
         $msg = @(
@@ -277,7 +277,7 @@ if (Test-Path $baseImageFile) {
 }
 Move-Item -Path $extractedFile -Destination $baseImageFile
 
-# --- REGION: https://yuruna.link/guest-image-setup#skip-if-same-source-guard
+# --- REGION: https://yuruna.link/42ec97cd-0006
 # Only Write-ImageSentinel emits the 4-line shape the reader matches. On the
 # agent path the Last-Modified comes from the agent's record of the origin
 # response, so the origin the agent path exists to spare is not re-probed here.

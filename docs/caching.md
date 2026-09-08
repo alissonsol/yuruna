@@ -1,3 +1,5 @@
+<a id="42f6b05f-0001"></a>
+
 # Caching
 
 Two independent layers that compose: keeping `YurunaCacheContent` unset
@@ -8,6 +10,8 @@ lets the Squid VM serve cached copies of install scripts.
 2. **[Squid cache VM](#squid-cache-vm)** -- optional VM that caches
    HTTP/HTTPS for test VMs. First install populates; subsequent installs
    pull from LAN.
+
+<a id="42f6b05f-0002"></a>
 
 ## The `YurunaCacheContent` cache-buster
 
@@ -52,10 +56,14 @@ guest install scripts.
 
 ---
 
+<a id="42f6b05f-0003"></a>
+
 ## Squid cache VM
 
 Optional local HTTP/HTTPS caching-proxy-service packaged as a standalone VM.
 Works identically on Windows Hyper-V, macOS UTM, and Ubuntu KVM/libvirt.
+
+<a id="42f6b05f-0004"></a>
 
 ### What it does
 
@@ -67,6 +75,8 @@ anything fetched over plain HTTP). This is a *dedicated* VM -- the
 memory budget is sized around Squid's hot-object LRU plus the zot OCI
 registry pull-through cache; the full breakdown is in
 [Cache VM sizing](#cache-vm-sizing).
+
+<a id="42f6b05f-0005"></a>
 
 ### Why Squid over apt-cacher-ng
 
@@ -80,7 +90,11 @@ registry pull-through cache; the full breakdown is in
 Rate-limiting bites macOS faster: Apple Virtualization's Shared NAT
 egresses every UTM VM through the host's single public IP.
 
+<a id="42f6b05f-0006"></a>
+
 ## Setup
+
+<a id="42f6b05f-0007"></a>
 
 ### Windows Hyper-V
 
@@ -93,13 +107,17 @@ pwsh .\New-VM.ps1
 ```
 
 - [Get-Image.ps1](../host/windows.hyper-v/guest.caching-proxy-service/Get-Image.ps1)
-  downloads Ubuntu Server Resolute (amd64), converts qcow2->VHDX via
-  `qemu-img`, resizes to 512 GB.
+  downloads Ubuntu Server Resolute for the host's own architecture (amd64 or
+  arm64 -- Hyper-V has no cross-architecture emulation, so the host's
+  architecture is the guest's), converts qcow2->VHDX via `qemu-img`, resizes
+  to 512 GB.
 - [New-VM.ps1](../host/windows.hyper-v/guest.caching-proxy-service/New-VM.ps1)
   creates Gen 2 VM `yuruna-caching-proxy-service` on the Yuruna-External vSwitch
   (falling back to the Default Switch when no LAN-routable NIC is
   available), attaches a cloud-init seed ISO that installs and configures
   squid, and waits until port 3128 responds. Prints the proxy URL on ready.
+
+<a id="42f6b05f-0008"></a>
 
 ### macOS UTM
 
@@ -118,6 +136,8 @@ pwsh ./New-VM.ps1
   `Data/disk.qcow2` (APFS-clone of the qcow2 image),
   `Data/seed.iso` (cloud-init via `hdiutil`). Double-click the `.utm` to
   register it with UTM, then start.
+
+<a id="42f6b05f-0009"></a>
 
 ### Ubuntu KVM/libvirt
 
@@ -144,6 +164,8 @@ The bridged `yuruna-external` network is auto-provisioned by
 [Squid Cache VM (Ubuntu KVM)](../host/ubuntu.kvm/guest.caching-proxy-service/README.md)
 for manual bridge setup and rollback.
 
+<a id="42f6b05f-000a"></a>
+
 ### Finding the cache VM's IP
 
 | Host | Method |
@@ -151,6 +173,8 @@ for manual bridge setup and rollback.
 | **Hyper-V** | `Get-VM yuruna-caching-proxy-service \| Get-VMNetworkAdapter`, or reuse the IP `New-VM.ps1` printed. |
 | **UTM** | (a) read `eth0: <ip>` at the console login; (b) `awk -F'[ =]' '/name=yuruna-caching-proxy-service/{f=1} f && /ip_address/{print $NF; exit}' /var/db/dhcpd_leases`; (c) port-scan 192.168.64.2-30 for `:3128`. `utmctl ip-address` does **not** work for Apple Virtualization-backed VMs. |
 | **KVM/libvirt** | `virsh -c qemu:///system domifaddr --source agent yuruna-caching-proxy-service` (preferred, requires qemu-guest-agent which the cloud-init user-data installs); falls back to `--source lease` for the NAT `default` network and `--source arp` for bridged networks. `Get-VMIp` in `host/ubuntu.kvm/modules/Yuruna.Host.psm1` runs the same source-of-sources lookup with loopback/link-local filtering. |
+
+<a id="42f6b05f-000b"></a>
 
 ### Pre-warm on first boot
 
@@ -164,6 +188,8 @@ this, the *first* guest install still races the 429 rate limiter for
 Expect **5-15 min** for first-boot prewarm. Cloud-init then flips squid
 into [offline_mode](#offline_mode).
 
+<a id="42f6b05f-000c"></a>
+
 ## How guests use it
 
 At seed-ISO creation time, each guest's `New-VM.ps1` discovers the cache
@@ -171,6 +197,8 @@ and writes its URL into autoinstall `apt.proxy` plus a persistent apt
 proxy drop-in inside the installed target. Subiquity, cloud-init's
 first-boot `openssh-server` install, and every subsequent `apt-get` flow
 through the cache.
+
+<a id="42f6b05f-000d"></a>
 
 ### Amazon Linux 2023 picks the cache up at run time
 
@@ -203,6 +231,8 @@ terminal because containerd is configured to pull *only* from zot; here
 nothing routes exclusively through the cache, so its absence costs
 bandwidth rather than the run.
 
+<a id="42f6b05f-000e"></a>
+
 ### Discovery
 
 | Host | Method |
@@ -210,6 +240,8 @@ bandwidth rather than the run.
 | **Hyper-V** | `Get-VM yuruna-caching-proxy-service` -> IP via ARP on Default Switch (matched by MAC) or KVP, then TCP-probe `:3128`. |
 | **UTM** | `utmctl status yuruna-caching-proxy-service` -> if `started`, subnet-probe 192.168.64.2-30. Fallback subnet probe runs even without `utmctl`. |
 | **KVM/libvirt** | `virsh domifaddr --source agent\|lease\|arp` cascade (see `Get-VMIp` in `host/ubuntu.kvm/modules/Yuruna.Host.psm1`), filtering loopback and link-local. The cache VM's IP is then persisted under `test/status/runtime/yuruna-caching-proxy-service.yml` for fast-path lookup on subsequent calls. |
+
+<a id="42f6b05f-000f"></a>
 
 ### Severity policy
 
@@ -220,6 +252,8 @@ Silent fallback-to-CDN can't mask a 429:
 
 See the [test-harness operator reference](#caching-proxy-service--test-harness-operator-reference)
 below for the wrappers that expose the cache and preflight it.
+
+<a id="42f6b05f-0010"></a>
 
 ## Cache configuration
 
@@ -233,6 +267,8 @@ plus the per-host `caching-proxy-service.{hyperv,kvm,utm}.overlay.yml` (the over
 swaps only the arch-specific package list; New-VM merges them via
 `New-CloudInitUserData`).
 
+<a id="42f6b05f-0011"></a>
+
 ### Never release unless needed
 
 - `cache_swap_high 99` / `cache_swap_low 98` -- eviction only above 99%;
@@ -243,6 +279,8 @@ swaps only the arch-specific package list; New-VM merges them via
 - `quick_abort_min -1 KB` -- finish fetches even when the client
   disconnects, so the next client gets a cache hit.
 
+<a id="42f6b05f-0012"></a>
+
 ### Serve stale, never serve failures
 
 - `negative_ttl 0 seconds` -- do not cache 4xx/5xx. A transient blip
@@ -252,6 +290,8 @@ swaps only the arch-specific package list; New-VM merges them via
   `override-expire override-lastmod ignore-reload ignore-no-store
   ignore-private`. Apt metadata uses a shorter
   TTL so apt still sees fresh package lists.
+
+<a id="42f6b05f-0013"></a>
 
 ### OpenTofu provider + binary caching
 
@@ -290,6 +330,8 @@ cached responses without the install scripts knowing about the proxy.
 Source: the `refresh_pattern` block in
 [`host/vmconfig/caching-proxy-service.base.user-data`](../host/vmconfig/caching-proxy-service.base.user-data).
 
+<a id="42f6b05f-0014"></a>
+
 ### Metered metadata endpoints
 
 Version-lookup endpoints -- "what is the latest X" -- are asked
@@ -321,6 +363,8 @@ The floor covers **anonymous** callers only -- an authenticated request is
 unstorable by a shared cache regardless (see
 [Keeping tag resolution off a metered upstream](#keeping-tag-resolution-off-a-metered-upstream)).
 
+<a id="42f6b05f-0015"></a>
+
 ### offline_mode
 
 After prewarm, cloud-init writes `/etc/squid/conf.d/yuruna-offline.conf`
@@ -336,6 +380,8 @@ Keeping it on is still what holds revalidation traffic off the metered
 upstreams, which is why the flip happens after prewarm rather than
 before: it costs nothing on a warm cache and saves a conditional request
 per object.
+
+<a id="42f6b05f-0016"></a>
 
 ### no-upstream mode
 
@@ -368,6 +414,8 @@ demand hits that often. Leave it off for normal runs; turn it on to prove
 a workflow is genuinely self-contained, or to hard-stop egress during an
 incident.
 
+<a id="42f6b05f-0017"></a>
+
 ### Refreshing the cache
 
 Temporary -- let stored objects revalidate against origin for one burst,
@@ -398,7 +446,11 @@ rm -rf ~/yuruna/guest.nosync/yuruna-caching-proxy-service.utm
 pwsh ./New-VM.ps1
 ```
 
+<a id="42f6b05f-0018"></a>
+
 ## Workload registry pulls
+
+<a id="42f6b05f-0019"></a>
 
 ### Workload registry pull-through
 
@@ -471,6 +523,8 @@ Reporting all of them as the timeout wording sends every reader after a
 sync that is still running, which is the wrong place to look for a cache
 that is still booting.
 
+<a id="42f6b05f-001a"></a>
+
 ### Workload registry local-first
 
 `docker build` resolves every `FROM` tag inside a single invocation
@@ -512,6 +566,8 @@ pulled, that seed step is the single place that still touches a
 registry over the network, with the same cache-first source order.
 (The Dockerfiles' `RUN` package restores remain a separate, per-build
 network dependency.)
+
+<a id="42f6b05f-001b"></a>
 
 ## Monitoring
 
@@ -605,6 +661,8 @@ speaks Squid's cache-manager protocol on `localhost:3128`. Built from
 source during cloud-init (`go install`); `golang-go` is purged once
 the static binary lands in `/usr/local/bin/squid-exporter`.
 
+<a id="42f6b05f-001c"></a>
+
 ### Alert rules
 
 Grafana unified alerting is provisioned from
@@ -640,6 +698,8 @@ a number somebody has to notice into a condition with a state, a start
 time, and history. To wire real delivery, add a `contactPoints:` block and
 a `policies:` block to the same file -- nothing else has to change.
 
+<a id="42f6b05f-001d"></a>
+
 ### Loki + Promtail boot-order traps
 
 `runcmd` brings Loki and Promtail up explicitly (not just relying on
@@ -673,6 +733,8 @@ the debs' enable-by-default postinst). Three traps to respect:
   already enabled by then. Idempotent
   `id zot >/dev/null 2>&1 || useradd ...` up front.
 
+<a id="42f6b05f-001e"></a>
+
 ## Zot OCI registry
 
 Squid catches digest-pinned blob / manifest URLs (immutable,
@@ -702,6 +764,8 @@ Guests reach `zot` at `http://<cache-vm>:5000` and configure
 time). Plain HTTP (no TLS) -- intra-LAN, same trust boundary as the
 SSL-bump CA the guests already trust. The `zot` binary is fetched
 from GitHub releases by `runcmd`.
+
+<a id="42f6b05f-001f"></a>
 
 ### Registry routing, glob syntax, and retry budgets
 
@@ -743,6 +807,8 @@ mid-copy and a guest is minutes into waiting for it. The canary cannot show that
 state, by construction: any tag it can measure cheaply and repeatedly is one the
 cache already holds. The warm-set residency counts are the reading that shows
 it.
+
+<a id="42f6b05f-0020"></a>
 
 ### Warm sets and the cold-sync reading
 
@@ -823,6 +889,8 @@ every platform in the index, so the lab stores roughly five architectures to run
 one. Pre-warming does not remove that; it moves it off the path a guest is
 waiting on.
 
+<a id="42f6b05f-0021"></a>
+
 ### Keeping tag resolution off a metered upstream
 
 Docker Hub is the only upstream here that meters. Anonymously it allows
@@ -889,6 +957,8 @@ review that greps only for `FATAL`/`ERROR` will not see it. So Squid
 cannot be made the manifest store for a token-authenticated registry:
 Squid gates and accounts, zot stores.
 
+<a id="42f6b05f-0022"></a>
+
 ### Optional Docker Hub account for the sync
 
 `zot` syncs from the first `registries[]` entry whose content filter
@@ -920,6 +990,8 @@ account's own budget. It is optional and off by default:
 `/cache-health` reports which budget the numbers describe --
 authenticated or anonymous -- but never the account name: that page
 takes no login.
+
+<a id="42f6b05f-0023"></a>
 
 ### Upstreams that appear twice
 
@@ -954,12 +1026,16 @@ carry different retry budgets and cannot be collapsed into one.
    registry image resident, so the revalidation a client request still
    triggers settles as a fast no-op.
 
+<a id="42f6b05f-0024"></a>
+
 ## macOS UTM platform notes
 
 Apple Virtualization Framework (AVF) and UTM Shared NAT introduce
 several traps that the cache-VM `user-data` accounts for. They only
 fire on `host/macos.utm/`; the same image on Hyper-V or KVM doesn't
 need any of this.
+
+<a id="42f6b05f-0025"></a>
 
 ### Disable NIC TX offloads on AVF bridge
 
@@ -990,6 +1066,8 @@ The Hyper-V build of the same `user-data` does **not** include
 either step -- the Hyper-V virtual NIC handles offloads correctly in
 kernel.
 
+<a id="42f6b05f-0026"></a>
+
 ### UTM Shared NAT topology
 
 UTM's Shared mode hands out `192.168.64.0/24` with a gateway of
@@ -1009,6 +1087,8 @@ UTM's Shared mode hands out `192.168.64.0/24` with a gateway of
   source) -- one of the reasons Squid's broader caching matters most
   on this platform.
 
+<a id="42f6b05f-0027"></a>
+
 ### Cache-VM disk sizing for the macOS install image
 
 `maximum_object_size 65 GB` is sized so the cache covers **every**
@@ -1019,6 +1099,8 @@ dev VM templates). Squid's `maximum_object_size` is **inclusive** --
 anything strictly larger is silently not cached, so the 1 GB
 headroom on top of 64 GB matters. Raising the value does not
 allocate disk on its own; it only changes the rejection threshold.
+
+<a id="42f6b05f-0028"></a>
 
 ### CA cert published over Apache without ACL
 
@@ -1043,6 +1125,8 @@ sudo squidclient mgr:info | mgr:utilization | mgr:5min
 sudo tail -f /var/log/squid/access.log   # 3rd-to-last field: TCP_HIT/MISS/OFFLINE_HIT
 ```
 
+<a id="42f6b05f-0029"></a>
+
 ### Purging a single cached entry
 
 The `yuruna.conf` drop-in enables the `PURGE` method for RFC1918:
@@ -1057,6 +1141,8 @@ curl -x http://<cache-vm-ip>:3128 -X PURGE http://<origin>:<port>/<path>
 
 `200` = purged; `404` = wasn't cached (safe no-op). For total wipes:
 stop squid, `rm -rf /var/spool/squid/*`, `squid -z`.
+
+<a id="42f6b05f-002a"></a>
 
 ## Access / credentials
 
@@ -1083,6 +1169,8 @@ suppresses ubuntu creation):
 - **Sudo** -- passwordless (`NOPASSWD:ALL`). VM is on a private switch,
   RFC1918-only.
 
+<a id="42f6b05f-002b"></a>
+
 ### Reaching the cache from outside the host (port 8022)
 
 `Start-CachingProxyServiceVM.ps1` adds an `8022 -> 22` host port forward
@@ -1096,6 +1184,8 @@ Port 8022 (not 22) avoids colliding with the host's own sshd. Managed
 the same way as :80 / :3000 -- netsh portproxy + Yuruna firewall rule on
 Windows, detached pwsh TcpListener on macOS -- re-applied by every caller
 of `Add-PortMap` (test runner, status service, repair script).
+
+<a id="42f6b05f-002c"></a>
 
 ### Real client IPs in the access log: PROXY protocol on :3128 / :3129
 
@@ -1112,6 +1202,8 @@ and the access log.
 Both platforms preserve the source IP, via different plumbing forced by
 what each host's network stack allows.
 
+<a id="42f6b05f-002d"></a>
+
 #### macOS: pwsh forwarder + PROXY v1
 
 Apple VZ Shared NAT isolates guest<->guest traffic on `192.168.64.0/24`,
@@ -1121,6 +1213,8 @@ on `0.0.0.0:3128` / `:3129`, accepts each LAN client's TCP connection,
 opens an upstream connection to the cache VM's `:3138` / `:3139` (Squid
 binds with `require-proxy-header`), prepends the PROXY v1 line, and
 bridges bytes. Squid logs the supplied client IP.
+
+<a id="42f6b05f-002e"></a>
 
 #### Windows: External vSwitch (bridged cache VM)
 
@@ -1189,6 +1283,8 @@ vSwitch.
 only. The macOS host forwarder is on a private network, but the
 deny-by-default posture costs nothing.
 
+<a id="42f6b05f-002f"></a>
+
 #### Windows fallback: Default Switch + netsh portproxy
 
 When `Get-OrCreateYurunaExternalSwitch` cannot bridge the uplink (no
@@ -1203,6 +1299,8 @@ a fallback, not a default. The runtime detection switch is
 `Test-CacheVMOnExternalNetwork`, the Yuruna.Host contract function built
 on `Test-CacheVmOnYurunaExternalSwitch` in
 [`host/windows.hyper-v/modules/Yuruna.Host.psm1`](../host/windows.hyper-v/modules/Yuruna.Host.psm1).
+
+<a id="42f6b05f-0030"></a>
 
 #### Windows: App Execution Alias self-heal (latent)
 
@@ -1236,10 +1334,14 @@ proxy use to RFC1918. The VM is most often debugged before cloud-init
 finishes (Apache, Squid, Grafana, Prometheus all install over apt) --
 console fallback via `vmconnect` is the normal path during that window.
 
+<a id="42f6b05f-0031"></a>
+
 ## Management
 
 The cache VM is independent of the test harness -- **not** created or
 destroyed by [Start-TestRunner.ps1](../test/Start-TestRunner.ps1).
+
+<a id="42f6b05f-0032"></a>
 
 ### Windows Hyper-V
 
@@ -1248,11 +1350,15 @@ destroyed by [Start-TestRunner.ps1](../test/Start-TestRunner.ps1).
   `<HyperVVHDPath>\yuruna-caching-proxy-service`.
 - Auto-start on host boot: `Set-VM yuruna-caching-proxy-service -AutomaticStartAction Start`
 
+<a id="42f6b05f-0033"></a>
+
 ### macOS UTM
 
 - Start/Stop: `utmctl start yuruna-caching-proxy-service` / `utmctl stop yuruna-caching-proxy-service`.
 - Delete: stop, right-click -> Delete in UTM, then
   `rm -rf ~/yuruna/guest.nosync/yuruna-caching-proxy-service.utm`.
+
+<a id="42f6b05f-0034"></a>
 
 ### Both hosts
 
@@ -1266,6 +1372,8 @@ sudo systemctl start squid
 
 - Reload config: `sudo squid -k reconfigure` inside the VM.
 - Watch hits/misses: `sudo tail -f /var/log/squid/access.log`.
+
+<a id="42f6b05f-0035"></a>
 
 ### The management service (`:9310`)
 
@@ -1298,6 +1406,8 @@ The daemon can also run on a different host in a read-only mode; see
 [Running the caching-proxy-service from another host](extensions-api.md#running-the-caching-proxy-service-from-another-host)
 for what that costs and the one squid ACL it needs.
 
+<a id="42f6b05f-0036"></a>
+
 ## HTTPS caching
 
 Shipped on Hyper-V, UTM, and Ubuntu KVM. A second squid listener on `:3129`
@@ -1306,6 +1416,8 @@ caches plaintext bodies through the same `refresh_pattern` and
 `offline_mode` pipeline, and re-encrypts with a per-SNI leaf cert minted
 on the fly. Guests that trust the CA get cached HTTPS apt traffic; the
 rest stays on `:3128` with CONNECT tunneling (no caching).
+
+<a id="42f6b05f-0037"></a>
 
 ### Key / cert material
 
@@ -1320,6 +1432,8 @@ Generated once by cloud-init on first boot (idempotent -- re-runs do
 | `/var/www/html/yuruna-squid-ca.crt`  | Public cert, served by Apache. |
 
 Public cert published at `http://<cache-vm-ip>/yuruna-squid-ca.crt`.
+
+<a id="42f6b05f-0038"></a>
 
 ### Guest trust flow
 
@@ -1354,6 +1468,8 @@ splices it into the seed as `CA_CERT_BASE64_PLACEHOLDER`. Guest
 
 Empty placeholder -> HTTPS apt bypasses the cache.
 
+<a id="42f6b05f-0039"></a>
+
 ### Where caching actually kicks in
 
 - **Subiquity in-install HTTPS** (kernel, firmware) -- `:3128` CONNECT,
@@ -1363,6 +1479,8 @@ Empty placeholder -> HTTPS apt bypasses the cache.
   bumped, lands in cache alongside HTTP content.
 - **Non-apt HTTPS** (browsers, curl, snap, Go) -- untouched.
 
+<a id="42f6b05f-003a"></a>
+
 ### ssl_bump rules
 
 Minimum viable: `peek step1` -> `bump all`. Squid reads the TLS
@@ -1370,6 +1488,8 @@ ClientHello for SNI, then intercepts. For pin-checking clients (snap,
 Go HTTPS), add `acl nobump dstdomain ...` + `ssl_bump splice nobump`
 **above** `bump all` rather than disabling bumping. See
 `/etc/squid/conf.d/yuruna.conf`.
+
+<a id="42f6b05f-003b"></a>
 
 ### Squid 6 parser traps
 
@@ -1423,12 +1543,16 @@ link to it:
 Always run `squid -k parse` before `squid -k reconfigure` to surface
 these at deploy time rather than after a restart that fails to bind.
 
+<a id="42f6b05f-003c"></a>
+
 ## Caching-proxy service — test-harness operator reference
 
 Wrappers around the Squid cache VM: exposing it to remote clients,
 pointing a test host at a remote cache, preflighting before a run.
 Cache-VM concepts (setup, config, HTTPS/SSL-bump, monitoring,
 credentials, `YurunaCacheContent`) are covered above.
+
+<a id="42f6b05f-003d"></a>
 
 ### Why a separate cache VM
 
@@ -1444,6 +1568,8 @@ and serves the same bytes from disk on every cycle; only the cache VM
 contacts the CDN, so the test guests stay network-isolated and the
 upstream rate limit applies once per cache miss rather than once per
 guest install.
+
+<a id="42f6b05f-003e"></a>
 
 ### Rebuild, adopt-if-healthy, and the bring-up lock
 
@@ -1514,6 +1640,8 @@ state plus a health probe, wrapped by a thin I/O layer that resolves
 `Get-VMState` / `Read-CachingProxyServiceState` / `Invoke-CachingProxyServiceProbe` at call
 time behind `Get-Command` guards, so the decision stays testable without a VM.
 
+<a id="42f6b05f-003f"></a>
+
 #### yuruna-external bridge bring-up (KVM, Step 1.5)
 
 libvirt's NAT `default` network keeps the cache VM host-only
@@ -1526,6 +1654,8 @@ The step runs unattended (`-Confirm:$false`) because Step 0's
 `Get-YurunaExternalNetworkPlan` already showed the operator the full
 host-networking impact and rollback recipe.
 `YURUNA_EXTERNAL_BRIDGE_SKIP=1` short-circuits it for the host-only path.
+
+<a id="42f6b05f-0040"></a>
 
 ### Cache VM sizing
 
@@ -1571,6 +1701,8 @@ carry a percentage across.
 the vCPU count without raising RAM wouldn't help. If you tune `cache_mem`
 upward, raise the VM total proportionally.
 
+<a id="42f6b05f-0041"></a>
+
 ### Cache-VM password persistence
 
 The cache VM's `caching-proxy-service-admin` password must survive rebuilds
@@ -1593,6 +1725,8 @@ Order of operations in every caching-proxy-service `New-VM.ps1`:
 2. `Get-Password 'caching-proxy-service-admin'` returns either the rehydrated value or a fresh
    random one (first-ever install).
 3. Write the value back to the runtime state file (idempotent on rebuild).
+
+<a id="42f6b05f-0042"></a>
 
 ### Cache-VM NAS and config service
 
@@ -1634,6 +1768,8 @@ Values containing a single quote (share path / user) or a newline / quote
 (token) are refused with a warning instead of baked -- they would
 unbalance the guest's single-quoted, sourced `/etc/yuruna/ypool-nas.env`
 or corrupt the baked token file and the runner's bearer header.
+
+<a id="42f6b05f-0043"></a>
 
 ### Serving remote clients
 
@@ -1678,6 +1814,8 @@ Remote clients point at `http://<host-lan-ip>:3128` (apt) or
 **Squid ACL** accepts only RFC1918 sources (`10/8`, `172.16/12`,
 `192.168/16`). Public-IP clients stay denied even if firewall + portproxy
 let the packets through. Not an open internet proxy.
+
+<a id="42f6b05f-0044"></a>
 
 ### The bare :80 redirect, and what must not be redirected
 
@@ -1748,6 +1886,8 @@ daemon behind the proxy sees the address the operator actually typed and builds
 every link from it; without it the backend would see `127.0.0.1` and publish a
 page of links that work only for a browser running on the VM itself.
 
+<a id="42f6b05f-0045"></a>
+
 ### Pinning the cache VM's IP (stable MAC + DHCP reservation)
 
 Every `Start-CachingProxyServiceVM.ps1` rebuild recreates the VM with a fresh
@@ -1782,6 +1922,8 @@ Rules of thumb:
   a cache VM must not share one.
 - Some Wi-Fi access points drop locally-administered MACs, the same
   limitation that already applies to bridged cache networking on Wi-Fi.
+
+<a id="42f6b05f-0046"></a>
 
 ### External cache override
 
@@ -1823,6 +1965,8 @@ When both sources are empty -- or both fail their `:3128` probes (the
 env var is then cleared) -- local discovery runs unchanged: a host
 running its own cache VM falls back to it, and a host with none
 proceeds without a caching-proxy-service.
+
+<a id="42f6b05f-0047"></a>
 
 ### Port-map dispatch by host topology
 
@@ -1898,6 +2042,8 @@ the Grafana dashboard so modern terminals (Windows Terminal, VS Code)
 can ctrl-click into the caching-proxy-service view. Terminals without OSC 8
 drop the escapes silently.
 
+<a id="42f6b05f-0048"></a>
+
 ### Updating the pool dashboard without a rebuild
 
 The Yuruna hosts dashboard the proxy serves on `:3000` is baked into the VM at
@@ -1955,6 +2101,8 @@ anything more than the dashboard JSON -- the inline copy in
 `host/vmconfig/caching-proxy-service.base.user-data` is what a rebuilt proxy
 reads, and the two copies are kept byte-identical for exactly that reason.
 
+<a id="42f6b05f-0049"></a>
+
 ### Validating before a run
 
 [Test-CachingProxyService.ps1](../test/Test-CachingProxyService.ps1) probes every port the
@@ -1980,6 +2128,8 @@ never publishes the winner into `$Env:YURUNA_CACHING_PROXY_SERVICE_IP`
 arbitrary IP. Exit 1 on any required-port failure -- suitable for a
 `&&` chain.
 
+<a id="42f6b05f-004a"></a>
+
 ### Promoting to the host system proxy
 
 `Test-CachingProxyService.ps1 -SetHostProxy` repoints WinINet (Windows) or
@@ -1997,6 +2147,8 @@ backup turns every subsequent `Stop-CachingProxyServiceVM` +
 the contaminated snapshot keeps getting restored. `Start-CachingProxyServiceVM.ps1`
 also clears any leftover Yuruna proxy state at startup, so a fresh
 provision never inherits a stale `ProxyServer` from a prior cycle.
+
+<a id="42f6b05f-004b"></a>
 
 ### In-process proxy env var hygiene at provision time
 
@@ -2027,6 +2179,8 @@ what `Remove-HostProxy` cannot reach. The behavior is uniform across
 ubuntu.kvm / windows.hyper-v / macos.utm -- all three run the same
 .NET `HttpClient`.
 
+<a id="42f6b05f-004c"></a>
+
 ### Migrating to a replacement cache VM
 
 How to replace the Squid cache VM (host retirement, resize, newer base
@@ -2037,6 +2191,8 @@ misses from the OLD cache's warm store at LAN speed -- and later tears
 it down and retires the old VM. Short link:
 <https://yuruna.link/caching-proxy-service-migration>.
 
+<a id="42f6b05f-004d"></a>
+
 #### Why migrate warm
 
 A cold cache re-fights the battle the cache VM exists to win: 429
@@ -2045,6 +2201,8 @@ outright (see [why a separate cache VM](#why-a-separate-cache-vm)).
 Warming the new cache from the old one keeps every hot object served
 from disk on the LAN, and only true misses go to the origin -- once,
 from one VM.
+
+<a id="42f6b05f-004e"></a>
 
 #### How it works
 
@@ -2095,6 +2253,8 @@ Every configuration write on either VM is validated with
 error fed to a reconfigure can kill the running squid); a failed parse
 restores the exact prior state of both VMs.
 
+<a id="42f6b05f-004f"></a>
+
 #### Prerequisites
 
 - Control machine: PowerShell 7 and OpenSSH client 8.4+ (any machine;
@@ -2108,6 +2268,8 @@ restores the exact prior state of both VMs.
   host NAT (Hyper-V Default Switch, libvirt default network) is
   invisible to the other VM even when its host forwards `:3128`.
 - squid active on both VMs (the script verifies this and stops if not).
+
+<a id="42f6b05f-0050"></a>
 
 #### Starting the copy cycle
 
@@ -2152,6 +2314,8 @@ them to the new cache VM**:
 
 Re-running `-Start` is safe: it rewrites the same drop-ins.
 
+<a id="42f6b05f-0051"></a>
+
 #### While the hierarchy runs
 
 As clients use the new cache, its misses fill from the old cache and
@@ -2164,6 +2328,8 @@ sudo tail -f /var/log/squid/access.log
 ```
 
 Both VMs also expose their Grafana dashboards on `:3000`.
+
+<a id="42f6b05f-0052"></a>
 
 #### Ending the copy cycle
 
@@ -2194,6 +2360,8 @@ The script then:
 
 Re-running `-End` is safe: already-done parts are skipped with a note.
 
+<a id="42f6b05f-0053"></a>
+
 #### Resilience model
 
 - **Parse-gate + rollback.** Every write is `squid -k parse`-validated
@@ -2213,6 +2381,8 @@ Re-running `-End` is safe: already-done parts are skipped with a note.
   helper (temp directory ACLed to the current user, deleted on exit)
   and via sudo's stdin -- never on a command line, never in output.
 
+<a id="42f6b05f-0054"></a>
+
 #### Troubleshooting
 
 | Symptom | Likely cause / action |
@@ -2230,6 +2400,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08
 
 Back to [Yuruna](../README.md)

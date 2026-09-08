@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 4242f187-1ce6-46a5-a5a4-7c2435ed1ac1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -183,7 +183,7 @@ New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 
 Copy-Item -Path (Join-Path $hostVmConfigDir 'caching-proxy-service.meta-data') -Destination "$SeedDir/meta-data"
 
-# --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+# --- REGION: https://yuruna.link/4220a755-000b
 Copy-Item -Path (Join-Path $hostVmConfigDir 'guest-dhcp.network-config') -Destination "$SeedDir/network-config"
 
 # --- REGION: Yuruna harness SSH key
@@ -197,7 +197,7 @@ $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
 # --- REGION: Cache-VM admin password
-# --- REGION: https://yuruna.link/caching-proxy-service#cache-vm-password-persistence
+# --- REGION: https://yuruna.link/42f6b05f-0041
 # The runtime state file <track>/yuruna-caching-proxy-service.yml is the source of
 # truth; Set-Password rehydrates the vault from it before Get-Password.
 $_repoRootForExt = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
@@ -246,7 +246,7 @@ if (-not $switchName) {
     Write-Information "  Cache VM will not be reachable from LAN by its own IP, and remote clients routed via netsh portproxy will appear as the host's vEthernet IP in squid's access.log (see docs/caching.md)."
 }
 
-# --- REGION: https://yuruna.link/network#cache-vm-seed-host-binding
+# --- REGION: https://yuruna.link/4220a755-001b
 # Hyper-V: the host IP comes from the vSwitch picked above (Get-GuestReachableHostIp -SwitchName); empty -> github fallback.
 $YurunaHostIp = Get-GuestReachableHostIp -SwitchName $switchName
 if (-not $YurunaHostIp) { $YurunaHostIp = '' }
@@ -256,7 +256,7 @@ $YurunaHostPort = $_statusSeed.Port
 $tc = $_statusSeed.Config
 
 # --- REGION: networkStorage pool (ypool-nas) service replication
-# --- REGION: https://yuruna.link/caching-proxy-service#cache-vm-nas-and-config-service
+# --- REGION: https://yuruna.link/42f6b05f-0042
 # Bake the networkUser credential name, share path, and host id, resolved
 # here on the host (networkStorage pool config + vault).
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.PoolStorage.psm1') -Force
@@ -279,7 +279,7 @@ if (($ypoolNasNetPath -match "'") -or ($ypoolNasUser -match "'")) {
 $ypoolNasReplicate = if ($ypoolNasCfg -and $ypoolNasUser -and $ypoolNasNetPath) { 'true' } else { 'false' }
 
 # --- REGION: Internal authentication key (control proofs + push-ingest + lab-token exchange)
-# --- REGION: https://yuruna.link/caching-proxy-service#cache-vm-nas-and-config-service
+# --- REGION: https://yuruna.link/42f6b05f-0042
 # Empty vaultKey means the token is unset: do NOT call Get-Password then (it
 # would auto-generate a junk per-host key). 'internal-auth-key' first, then the
 # legacy 'lab-auth-token' and 'pool-auth-token' names, so a host enrolled under
@@ -391,7 +391,7 @@ if ((-not $dockerHubUsername) -or (-not $dockerHubToken)) {
 }
 
 # --- REGION: Config service mTLS materials
-# --- REGION: https://yuruna.link/caching-proxy-service#cache-vm-nas-and-config-service
+# --- REGION: https://yuruna.link/42f6b05f-0042
 # Mint a per-VM client leaf signed by THIS host's Config CA; PEMs are baked
 # base64 so they survive the cloud-init write_files block scalar.
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.ConfigServiceCA.psm1') -Force
@@ -470,7 +470,7 @@ Write-Output "  and log in with the credentials above to inspect cloud-init stat
 Write-Output ""
 
 # --- REGION: Create and configure the Hyper-V VM
-# --- REGION: https://yuruna.link/caching-proxy-service#cache-vm-sizing
+# --- REGION: https://yuruna.link/42f6b05f-0040
 # RAM comes from the caller, paired with squid's cache_mem by
 # Get-CachingProxyMemoryProfile -- the two are budgeted against each other
 # and swap is masked, so undersizing is an unrecoverable OOM. The default
@@ -478,7 +478,7 @@ Write-Output ""
 Write-Output "Creating new VM '$VMName' on switch '$switchName'..."
 Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes ($MemoryMb * 1MB) -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
 
-# --- REGION: https://yuruna.link/network#defining-deterministic-guest-mac-addresses
+# --- REGION: https://yuruna.link/4220a755-000a
 # Hyper-V takes bare hex, no separators.
 $YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $VMName
 Hyper-V\Set-VMNetworkAdapter -VMName $VMName -StaticMacAddress ($YurunaGuestMac -replace ':','')
@@ -495,11 +495,20 @@ if ($MacAddress) {
 Set-VM -Name $VMName -MemoryStartupBytes ($MemoryMb * 1MB) -MemoryMinimumBytes ($MemoryMb * 1MB) -MemoryMaximumBytes ($MemoryMb * 1MB) -AutomaticCheckpointsEnabled $false | Out-Null
 Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
 Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
+
+# --- REGION: docs/host-hyperv.md#arm64-hosts-the-heartbeat-channel-wedges-a-linux-guest
+# No-op on AMD64. On ARM64 the heartbeat channel drives a Linux guest into
+# repeated soft lockups before hv_storvsc registers, so the root disk never
+# enumerates and the guest never reaches squid at all. Set before the DVD is
+# attached so the guest's first boot is already free of it. The readiness
+# summary below reads Heartbeat and has to tolerate its absence as a result.
+$null = Disable-HyperVHeartbeatForLinuxGuest -VMName $VMName -Confirm:$false
+
 Add-VMDvdDrive -VMName $VMName -Path $SeedIso | Out-Null
-# --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
+# --- REGION: https://yuruna.link/42fa6f45-0015
 $hostCores = (Get-CimInstance -ClassName Win32_Processor | Measure-Object -Property NumberOfCores -Sum).Sum
 if ($hostCores -lt 4) {
-    Write-Error "Host has $hostCores physical cores; Yuruna requires at least 4. See https://yuruna.link/definition#defining-the-vm-core-count-policy"
+    Write-Error "Host has $hostCores physical cores; Yuruna requires at least 4. See https://yuruna.link/42fa6f45-0015"
     exit 1
 }
 $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
@@ -616,6 +625,10 @@ for ($i = 0; $i -lt $maxIterations; $i++) {
     $vmInfo   = Get-VM -Name $VMName -ErrorAction SilentlyContinue
     $cpu      = if ($vmInfo) { $vmInfo.CPUUsage } else { 0 }
     $hb       = if ($vmInfo) { $vmInfo.Heartbeat } else { 'Unknown' }
+    # Get-VM reports no Heartbeat at all once the integration service is off,
+    # which is the ARM64 case above. Name that state rather than rendering an
+    # empty field, which reads as a failed probe instead of an absent one.
+    if (-not $hb) { $hb = 'n/a' }
     if ($null -eq $cpu) { $cpu = 0 }
     $sizeMB   = [math]::Round((Get-Item $vhdxFile).Length / 1MB, 0)
     $deltaMB  = $sizeMB - $baselineSizeMB

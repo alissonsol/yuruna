@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42b0f1a0-585e-4f1d-8e6b-453c54b16950
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -201,7 +201,7 @@ $build      = $fields[1].Trim()
 $version    = $fields[2].Trim()
 Write-Output "Apple published macOS $version (build $build): $sourceUrl"
 
-# --- REGION: https://yuruna.link/guest-image-setup#skip-if-same-source-guard
+# --- REGION: https://yuruna.link/42ec97cd-0006
 if (Test-DownloadAlreadyCurrent -SourceUrl $sourceUrl -BaseImageFile $baseImageFile -OriginFile $baseImageOrigin) {
     $msg = "Skipping download: $sourceUrl URL and expected size match the prior run for $baseImageFile. To force a re-download, delete or rename: $baseImageFile"
     Write-Information $msg -InformationAction Continue

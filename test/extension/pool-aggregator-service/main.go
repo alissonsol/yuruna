@@ -107,7 +107,7 @@ const (
 	defaultAnnounceTtl = 45 * time.Minute
 	maxAnnounce        = 512     // distinct (hostId,area) announce entries kept in memory
 	maxAnnounceBody    = 4 << 10 // bytes read from one announce POST
-	// --- REGION: https://yuruna.link/extensions-api#only-an-address-the-pool-has-reached-is-answered
+	// --- REGION: https://yuruna.link/42fffc2c-0016
 	//
 	// A confirmed target that goes quiet is kept for extensionHealthGrace -- a
 	// service restart, a lost packet or a DHCP renewal must not empty the panel
@@ -1390,10 +1390,18 @@ func fetchRunnerStopped(client *http.Client, base string) (bool, error) {
 	return rs.Running != nil && !*rs.Running, nil
 }
 
-// stepPauseMarker is the substring Invoke-Sequence writes into the current-action
-// sidecar while it is blocked at a step boundary. The host's own status page keys
-// its "Test paused" badge off the same substring (yuruna.common.js
-// pauseBannerText), so both surfaces flip from "pausing" to "paused" together.
+// stepPauseCode is what Invoke-Sequence writes into the current-action sidecar's
+// `code` field while it is blocked at a step boundary. The host's own status page
+// branches on the same code (yuruna.common.js isWaitingForResume), so both
+// surfaces flip from "pausing" to "paused" together.
+const stepPauseCode = "sequence_paused_waiting_resume"
+
+// stepPauseMarker is the sentence that used to carry that condition, before the
+// code existed. Matching it made the English wording a wire format shared across
+// three languages: rewording it here, or translating it for an operator who does
+// not read English, silently stopped this service and the status page from
+// seeing a paused runner. It is kept ONLY to read a sidecar written by a runner
+// older than the code field, and is never consulted once a code is present.
 const stepPauseMarker = "Paused (waiting for resume)"
 
 // fetchCurrentAction reads /runtime/current-action.json and reports ONLY whether
@@ -1417,9 +1425,13 @@ func fetchCurrentAction(client *http.Client, base string) (bool, error) {
 	}
 	var doc struct {
 		Line string `json:"line"`
+		Code string `json:"code"`
 	}
 	if err := json.Unmarshal(body, &doc); err != nil {
 		return false, fmt.Errorf("current-action.json parse: %w", err)
+	}
+	if doc.Code != "" {
+		return doc.Code == stepPauseCode, nil
 	}
 	return strings.Contains(doc.Line, stepPauseMarker), nil
 }
@@ -1428,7 +1440,7 @@ func fetchCurrentAction(client *http.Client, base string) (bool, error) {
 // served by the status service at /yuruna-repo/VERSION -- the SAME source the
 // host's own status pages read for their header (their getHostInfo() fetches
 // yuruna-repo/VERSION via JS, so the version is not embedded in the HTML). A tiny
-// plain-text file (one CalVer line, e.g. "2026.09.01"), so it is lighter than any
+// plain-text file (one CalVer line, e.g. "2026.09.08"), so it is lighter than any
 // status HTML page and fetchable server-side without a JS engine. Returns
 // ("", err) on any failure; the caller keeps the prior version on a transient
 // miss (the version is stable across polls). The value is capped + first-line

@@ -2,8 +2,6 @@
 
 This level-1 view shows the seven current system blocks and only the dependencies that cross their boundaries.
 
-[Yuruna Architecture](../architecture.md) | [Design index](00-index.md) | [Component breakdown](02-component-breakdown.md)
-
 ```mermaid
 flowchart LR
   subgraph provisioning["Provisioning"]
@@ -68,7 +66,9 @@ flowchart LR
   view.
 - **Shared Modules** comes from the reusable `automation/Import.Yaml.psm1` and
   `automation/Yuruna.{Common,Validation,VariableExpansion,DeploymentKind,Result,Retry,Log,LogLevel,CredentialProvider,Component.Registry}.psm1`
-  modules.
+  modules, plus locale/catalog/message libraries in
+  `test/modules/Test.{Locale,Catalog,Message}.psm1`, the Go extension SDK's `i18n/`,
+  and the browser kernel under `globalization/kernel/`.
 - **External Systems** maps to current call sites in the resource, component,
   workload, installer, image-download, caching, storage, source-fetch, and
   notification code. `global/config/gcp/gcp-access-key.json` and Google Artifact
@@ -78,3 +78,14 @@ flowchart LR
 The boundary is intentionally role-based: `automation/` contains both phase logic
 and libraries shared by installers, providers, and the test harness. The next page
 expands the seven blocks without pretending each is a single directory.
+
+Globalization crosses Shared Modules, Test Harness, and Project Data rather than
+forming an eighth service. Catalog compilation/distribution is build-time tooling;
+locale negotiation and rendering run inside existing status/pool services and
+browser pages. [Globalization and future localization](07-globalization.md)
+distinguishes these implemented mechanisms from partial UI conversion and planned
+additional runtime languages.
+
+---
+
+[Yuruna Architecture](../architecture.md) | [Design index](00-index.md) | [Component breakdown](02-component-breakdown.md)

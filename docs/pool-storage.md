@@ -1,3 +1,5 @@
+<a id="428405a0-0001"></a>
+
 # poolStorage (ypool-nas) -- NAS-backed durable replication
 
 Hosts in the Yuruna pool are **reimageable at any time**, exactly like the guests
@@ -32,6 +34,8 @@ It is for **local** storage only: a NAS owns its own accounts and permissions,
 which have to be created on the device itself. See
 [operator.md](operator.md#b7-local-shares-for-pool-and-stash-storage).
 
+<a id="428405a0-0002"></a>
+
 ## The model
 
 - **Local stays local while a cycle runs.** The runner writes cycle folders to
@@ -60,6 +64,8 @@ which have to be created on the device itself. See
   `poolStorageNetworkUser`, `poolStorageLocalPath` left empty is a complete no-op:
   no mount, no copy, no background work. Populating all three turns archiving on;
   `moveLogsToPoolStorage` then selects copy vs move.
+
+<a id="428405a0-0003"></a>
 
 ## How replication works -- the PoolStorageReplicator
 
@@ -121,6 +127,8 @@ writes the vault or auto-generates). The fix is the recommended vault setup in
 [test-config.md](test-config.md#setting-the-smb-passwords-in-the-vault):
 map a non-empty `vaultKey` and `Set-Password` it.
 
+<a id="428405a0-0004"></a>
+
 ## On-share layout
 
 ```
@@ -176,6 +184,8 @@ a new `runtime/host.uuid`, so its later cycles land under a new `<hostId>/` root
 old archives are never overwritten. Orphaned roots from retired hosts accrete on the
 share; pruning them is a manual housekeeping task.
 
+<a id="428405a0-0005"></a>
+
 ## The local ledger
 
 `runtime/poolstorage.state.json` is the **source of truth** for what has been
@@ -215,6 +225,8 @@ alarming: the pending set is *local folders minus the ledger*, so a folder that 
 gone locally can never re-enter it. The durable record of what was archived is the
 share itself -- each committed folder carries a `.yuruna-complete` sentinel.
 
+<a id="428405a0-0006"></a>
+
 ## Move mode: the share holds the only copy
 
 With `networkStorage.moveLogsToPoolStorage: true`, each finished cycle is copied,
@@ -246,6 +258,8 @@ in `.incomplete`. Rotated `history.YYYY-MM-DD/` buckets **are** archived, flatte
 into `test-cycles/` -- on-share leaves are always the bare cycle identity, with
 `.incomplete` / `.aborted.<UTC>` suffixes stripped.
 
+<a id="428405a0-0007"></a>
+
 ### Free space, and what a full share does
 
 A share with no room is the one archiving failure that **fails the cycle**, because
@@ -274,6 +288,8 @@ whose remedy is a human deleting old archives -- which is exactly what the failu
 message says. `test/pool/Remove-PoolHost.ps1` removes a retired host's whole archive
 root (and its pre-unification one, if any).
 
+<a id="428405a0-0008"></a>
+
 ## Reading archived results after the local copy is gone
 
 Every link in the product still names the local URL (`log/<cycle>/...`), recorded in
@@ -299,6 +315,8 @@ those after the fact, two read paths resolve them against the share:
 
 Neither path changes any recorded URL, so `Test.Status.psm1`, `Test.Log.psm1` and the
 dashboard JS are untouched.
+
+<a id="428405a0-0009"></a>
 
 ## Host identity & reimage reclaim
 
@@ -338,6 +356,8 @@ and fork the host's pool history. To avoid that:
   prompt with a warning; re-run `Enable-TestAutomation` in a terminal to configure
   poolStorage and reclaim. The prompt is also skipped under `-WhatIf`.
 
+<a id="428405a0-000a"></a>
+
 ## Per-OS mount + the Linux sudo precondition
 
 The mount is idempotent (a correctly-mounted share is a no-op) and every native
@@ -374,6 +394,8 @@ detected via `sudo -n -l`), Linux-only (macOS mounts via `mount_smbfs -N` and
 Windows via SMB mappings need no sudo), and skipped under `-NonInteractive` (which
 falls back to printing the drop-in to install by hand). The same step is available
 directly as `Set-PoolStorageSudoers`.
+
+<a id="428405a0-000b"></a>
 
 ### Guest-side pool NAS CIFS mount options
 
@@ -422,6 +444,8 @@ pool is ASCII. `nofail` and `_netdev` keep a NAS outage from wedging boot -- the
 daemons are written to start without the share and report it as unavailable rather
 than refusing to run.
 
+<a id="428405a0-000c"></a>
+
 ## What is -- and isn't -- replicated
 
 - **Replicated:** each host's finished **cycle output** (logs, screenshots, NDJSON
@@ -433,6 +457,8 @@ than refusing to run.
   data -- archived to ypool-nas by the guest itself (see *Service replication* below).
   The **stash** service is deferred (no data dir yet); zot's OCI cache is excluded
   too (rebuildable).
+
+<a id="428405a0-000d"></a>
 
 ## Service replication (caching-proxy-service)
 
@@ -472,6 +498,8 @@ CIFS-mounts the share, and an hourly `ypool-nas-replicate.timer` rsyncs the data
   (`last_attempt=... mounted=0|1 rc_loki=... rc_prometheus=... rc_grafana=...`) and logs to
   `journalctl -u ypool-nas-replicate`.
 
+<a id="428405a0-000e"></a>
+
 ### Restoring the caching-proxy-service after a reimage (manual)
 Replication is one-way; restore is a documented manual step. On the fresh proxy, with
 the share mounted at `/mnt/ypool-nas`:
@@ -491,7 +519,11 @@ writing to the pre-unification `/mnt/ypool-nas/<hostId>/services/...` path. Rest
 from whichever of the two roots actually holds data; the proxy moves to the
 `hosts/` root on its next rebuild.
 
+<a id="428405a0-000f"></a>
+
 ## Syncing a new host's config from a reference host
+
+<a id="428405a0-0010"></a>
 
 ### A reference host on older key names
 
@@ -513,6 +545,8 @@ The translation is **per sync**. The reference keeps serving old names to
 everything else, so the sync warns and points at the permanent fix -- run
 `pwsh tools/Update-TestConfigNaming.ps1` then `pwsh test/Test-Config.ps1` on the
 reference host.
+
+<a id="428405a0-0011"></a>
 
 ### The copy itself
 
@@ -594,6 +628,8 @@ What it does, in order:
 `-WhatIf` previews. A repeat run with nothing to change writes nothing; re-run
 it to pull updated values (a moved NAS, a rotated password) from the reference
 host.
+
+<a id="428405a0-0012"></a>
 
 ## Operating & troubleshooting
 
@@ -722,6 +758,8 @@ Common findings:
   the `ip=` option should name an address the guest can route to. The host-side
   preflight passes in this case, because on the host the alias is correct.
 
+<a id="428405a0-0013"></a>
+
 ## Security notes
 
 The SMB password lives only in the per-host, gitignored vault
@@ -733,6 +771,8 @@ replicator neither writes the vault nor alters the password alphabet, length,
 or storage.
 
 ---
+
+<a id="428405a0-0014"></a>
 
 ## Pool harness -- membership, intent, and test-set execution
 
@@ -758,6 +798,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08
 
 Back to [Yuruna](../README.md)

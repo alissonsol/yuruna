@@ -1,6 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
-# --- REGION: https://yuruna.link/vmconfig#how-user-data-is-rendered
+# --- REGION: https://yuruna.link/429f3d06-0002
 # instance-id tracks the VM name, not the hostname: a change re-runs per-instance
 # modules, and two VMs may legitimately share a pinned hostname.
 instance-id: INSTANCE_ID_PLACEHOLDER

@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.01
+# Version: 2026.09.08
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -7,11 +7,11 @@
 # standalone by the periodic refresh unit. cloud-init deploys this file at
 # /usr/local/lib/yuruna/yuruna-host-locate.sh at install time.
 #
-# --- REGION: https://yuruna.link/network#defining-yuruna-host-locate-lib
+# --- REGION: https://yuruna.link/4220a755-002d
 # Nothing here throws: the caller degrades on a return code, so a guest that
 # cannot resolve ends up exactly where it would have been without this file.
 
-# --- REGION: https://yuruna.link/network#defining-host-locate-file-targets
+# --- REGION: https://yuruna.link/4220a755-002e
 # The three files that carry the host's address into the guest's runtime.
 # Overridable so a test can drive the persistence against a fixture tree;
 # unset, these are the real paths and behavior is identical.
@@ -53,7 +53,7 @@ __yhl_note() {
     >&2 echo "$1"
 }
 
-# --- REGION: https://yuruna.link/network#defining-host-locate-http
+# --- REGION: https://yuruna.link/4220a755-002f
 # One bounded, proxy-free GET to stdout; non-zero when the peer did not
 # answer. --no-proxy/-x '' matter: the caching proxy and the host are both
 # on the LAN and both sit in the guest's no_proxy list, but a project script
@@ -85,7 +85,7 @@ __yhl_livecheck() {
     __yhl_http_get "${base%/}/livecheck" "$YURUNA_LOCATE_PROBE_TIMEOUT" >/dev/null 2>&1
 }
 
-# --- REGION: https://yuruna.link/network#defining-host-locate-plausible
+# --- REGION: https://yuruna.link/4220a755-0030
 # Refuse an address that is wrong on its face, before spending a probe on
 # it. A directory answer is a claim from another machine about where a third
 # machine lives; loopback and link-local are the two forms that would
@@ -109,7 +109,7 @@ __yhl_plausible() {
     return 0
 }
 
-# --- REGION: https://yuruna.link/network#defining-host-locate-directory-read
+# --- REGION: https://yuruna.link/4220a755-0031
 # Ask the pool aggregator where this hostId is now.
 #
 # Deliberately NOT /go/host, which answers the same question in one 302 and
@@ -161,7 +161,7 @@ __yhl_query_directory() {
     printf '%s' "$base"
 }
 
-# --- REGION: https://yuruna.link/network#defining-host-locate-persist
+# --- REGION: https://yuruna.link/4220a755-0032
 # Write the resolved address into the three files that carry it, each write
 # independent and best-effort.
 #
@@ -230,7 +230,7 @@ __yhl_persist() {
     fi
 }
 
-# --- REGION: https://yuruna.link/network#defining-host-locate-entrypoint
+# --- REGION: https://yuruna.link/4220a755-0033
 # Resolve this guest's host coordinates, refreshing them if they have gone
 # stale. Exports YURUNA_STATUS_SERVICE_IP / _PORT and returns 0 when they
 # are known-good; returns 1 when they could not be established, which the

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 429e4813-bf0c-4e56-8d42-899a9859af6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,11 +31,14 @@
 
 .PARAMETER VMName
     Name of the Hyper-V VM. Default: yuruna-pool-control-service.
+.PARAMETER AllowPseudoLocale
+    Open pseudo-locale negotiation for an explicit reference run. Off by default.
 #>
 
 param(
     [Parameter(Position = 0)]
-    [string]$VMName = "yuruna-pool-control-service"
+    [string]$VMName = "yuruna-pool-control-service",
+    [switch]$AllowPseudoLocale
 )
 
 # Honor logLevel from Start-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
@@ -130,7 +133,7 @@ if (Test-Path -LiteralPath $SeedDir) { Remove-Item -LiteralPath $SeedDir -Recurs
 New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 
 Copy-Item -Path (Join-Path $hostVmConfigDir 'pool-control-service.meta-data') -Destination "$SeedDir/meta-data"
-# --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+# --- REGION: https://yuruna.link/4220a755-000b
 Copy-Item -Path (Join-Path $hostVmConfigDir 'guest-dhcp.network-config') -Destination "$SeedDir/network-config"
 
 # --- REGION: Yuruna harness SSH key
@@ -183,18 +186,27 @@ if (-not $switchName) {
     Write-Information "  The pool-control-service VM won't be reachable from LAN by its own IP, and the NAS may be unreachable."
 }
 
-# --- REGION: https://yuruna.link/network#cache-vm-seed-host-binding
+# --- REGION: https://yuruna.link/4220a755-001b
 # Host coordinates (status service, for the in-VM source fetch) + pool storage
 # coordinates (the NAS the daemon persists state to), baked into the seed.
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.PoolStorage.psm1')  -Global -Force
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.YurunaDir.psm1')    -Global -Force
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.Config.psm1')       -Global -Force
+Import-Module (Join-Path $_repoRoot 'test/modules/Test.Locale.psm1')       -Global -Force
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.CachingProxyService.psm1') -Global -Force
 $YurunaHostIp = Get-GuestReachableHostIp -SwitchName $switchName
 if (-not $YurunaHostIp) { $YurunaHostIp = '' }
 $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $_repoRoot
 $YurunaHostPort = $_statusSeed.Port
 $tc = $_statusSeed.Config
+$languageRaw = [string](Get-TestConfigValue -Config $tc -Path 'language')
+$poolControlLanguage = if ([string]::IsNullOrWhiteSpace($languageRaw) -or $languageRaw -ieq 'auto') {
+    'auto'
+} else {
+    ConvertTo-CanonicalLocaleTag -Tag $languageRaw
+}
+if (-not $poolControlLanguage) { throw "Invalid configured language '$languageRaw'." }
+$allowPseudoLocaleValue = if ($AllowPseudoLocale) { 'true' } else { 'false' }
 $poolNas = Get-YurunaPoolSeedValue -Config $tc -GuestReachableAddress $YurunaHostIp
 # Pool-aggregator service base URL for the daemon's presence beacon + remote-host
 # resolution; '' (no caching-proxy service known) leaves those features off in-guest.
@@ -228,6 +240,8 @@ $UserData = New-CloudInitUserData `
         YURUNA_HOST_ID_PLACEHOLDER     = $poolNas.HostId
         YURUNA_AGGREGATOR_URL_PLACEHOLDER      = $aggregatorSeedUrl
         YURUNA_POOL_INTENT_GIT_URL_PLACEHOLDER = $intentGitUrl
+        YURUNA_LANGUAGE_PLACEHOLDER       = $poolControlLanguage
+        YURUNA_ALLOW_PSEUDO_LOCALE_PLACEHOLDER = $allowPseudoLocaleValue
         POOL_NAS_NETWORK_PATH_PLACEHOLDER  = $poolNas.NetworkPath
         POOL_NAS_NETWORK_IP_PLACEHOLDER    = $poolNas.NetworkIp
         POOL_NAS_NETWORK_USER_PLACEHOLDER  = $poolNas.NetworkUser
@@ -250,11 +264,11 @@ Write-Output "  and log in with the credentials above to inspect cloud-init stat
 Write-Output ""
 
 # --- REGION: Create and configure the Hyper-V VM
-# --- REGION: https://yuruna.link/definition#defining-the-vm-memory-policy
+# --- REGION: https://yuruna.link/42fa6f45-0016
 Write-Output "Creating new VM '$VMName' on switch '$switchName'..."
 Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 2GB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
 
-# --- REGION: https://yuruna.link/network#defining-deterministic-guest-mac-addresses
+# --- REGION: https://yuruna.link/4220a755-000a
 # Hyper-V takes bare hex, no separators.
 $YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $VMName
 Hyper-V\Set-VMNetworkAdapter -VMName $VMName -StaticMacAddress ($YurunaGuestMac -replace ':','')
@@ -263,11 +277,19 @@ Write-Verbose "Deterministic guest MAC for '$VMName': $YurunaGuestMac"
 Set-VM -Name $VMName -MemoryStartupBytes 2GB -MemoryMinimumBytes 2GB -MemoryMaximumBytes 2GB -AutomaticCheckpointsEnabled $false | Out-Null
 Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
 Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
+
+# --- REGION: docs/host-hyperv.md#arm64-hosts-the-heartbeat-channel-wedges-a-linux-guest
+# No-op on AMD64. On ARM64 the heartbeat channel drives a Linux guest into
+# repeated soft lockups before hv_storvsc registers, so the root disk never
+# enumerates and the guest never reaches the service it exists to run. Set
+# before the DVD is attached so the guest's first boot is already free of it.
+$null = Disable-HyperVHeartbeatForLinuxGuest -VMName $VMName -Confirm:$false
+
 Add-VMDvdDrive -VMName $VMName -Path $SeedIso | Out-Null
-# --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
+# --- REGION: https://yuruna.link/42fa6f45-0015
 $hostCores = (Get-CimInstance -ClassName Win32_Processor | Measure-Object -Property NumberOfCores -Sum).Sum
 if ($hostCores -lt 4) {
-    Write-Error "Host has $hostCores physical cores; Yuruna requires at least 4. See https://yuruna.link/definition#defining-the-vm-core-count-policy"
+    Write-Error "Host has $hostCores physical cores; Yuruna requires at least 4. See https://yuruna.link/42fa6f45-0015"
     exit 1
 }
 $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42d07272-8c12-4ba7-807e-c0b201076d87
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,7 +41,7 @@ param(
 $global:InformationPreference = "Continue"
 $global:ProgressPreference    = "SilentlyContinue"
 
-# --- REGION: https://yuruna.link/loglevels#propagation-across-pwsh-boundaries
+# --- REGION: https://yuruna.link/42162449-0004
 # After the preference assignments above on purpose: an explicit level is the
 # operator's choice and replaces this script's own default.
 Import-Module (Join-Path $PSScriptRoot '../modules/Test.LogLevel.psm1') -Global -Force -DisableNameChecking
@@ -173,7 +173,7 @@ if (-not (Test-Path -LiteralPath $newVm)) {
 }
 
 # --- REGION: Host status service (serves the local repo to the guest) -- BEFORE the build
-# --- REGION: https://yuruna.link/extensions-api#which-framework-snapshot-a-service-vm-is-built-from
+# --- REGION: https://yuruna.link/42fffc2c-0013
 # The second consumer is the pool-aggregator-service, which reads this host's
 # registration over the same port to list it under Extension hosts.
 # Honors statusService.enabled + port; a healthy server is left running.
@@ -190,7 +190,7 @@ try {
 } catch { Write-Verbose "status service ensure: $($_.Exception.Message)" }
 
 # --- REGION: Framework source -- refuse to build from a snapshot older than this enlistment
-# --- REGION: https://yuruna.link/extensions-api#which-framework-snapshot-a-service-vm-is-built-from
+# --- REGION: https://yuruna.link/42fffc2c-0013
 # Stopping here costs the operator a message; not stopping costs a half-hour
 # build and a service nobody has reason to re-examine. The snapshot is captured
 # for the post-boot check too, which is the half that can prove what got
@@ -260,7 +260,7 @@ if ($HostType -eq 'host.macos.utm') {
     $bundleMode = Get-UtmNetworkModeFromBundle -VMName $VMName
     $uplinkMode = Resolve-UtmNetworkMode
     if ($bundleMode -and $uplinkMode -and $bundleMode -ne $uplinkMode) {
-        Write-Warning "'$VMName' was built for '$bundleMode' networking but this host's uplink now wants '$uplinkMode' (Wi-Fi and Ethernet differ). The VM's baked addresses are for the old topology; re-run this script with -ForceRebuild to rebuild it."
+        Write-Warning "'$VMName' was built for '$bundleMode' networking but this host's uplink now wants '$uplinkMode' (Wi-Fi and Ethernet differ). The VM's baked addresses are for the old topology; run Stop-StashServiceVM.ps1 and then this script again to rebuild it."
     }
     if ($bundleMode -eq 'Shared') {
         $stashVmIp = Get-VMIp -VMName $VMName
@@ -274,7 +274,7 @@ if ($HostType -eq 'host.macos.utm') {
     }
 }
 
-# --- REGION: https://yuruna.link/extensions-api#3-the-host-side-module--the-runtime-marker
+# --- REGION: https://yuruna.link/42fffc2c-0008
 # Advertise that THIS host actively runs a stash service, so the pool-aggregator-service
 # lists it in the dashboard's Extension hosts table. The marker (stash-service.json)
 # is folded into host.registration.json (activeExtensions + extensionTargets) by
@@ -295,7 +295,7 @@ try {
 } catch { Write-Verbose "stash-service marker write: $($_.Exception.Message)" }
 
 # --- REGION: Post-boot readiness probe on :80 + on-failure guest diagnostics
-# --- REGION: https://yuruna.link/memory#why-stash-service-bring-up-waits-for-the-daemon-not-just-the-vm
+# --- REGION: https://yuruna.link/42d69dfa-0024
 # Same contract as Get-DownloadAgentServiceReadyTimeoutSeconds, kept inline
 # here; test/service/README.md records the divergence.
 $stashReadyTimeoutSeconds = 2700
@@ -461,7 +461,7 @@ try {
 } catch { Write-Verbose "registration refresh: $($_.Exception.Message)" }
 
 # --- REGION: The daemon never served -- gather the evidence, then FAIL
-# --- REGION: https://yuruna.link/extensions-api#a-service-that-never-served-fails-loudly
+# --- REGION: https://yuruna.link/42fffc2c-000c
 if ($stashVerdict.IsFailure) {
     $stashWaitedMinutes = if ($stashEndpoint) { [int]($stashEndpoint.WaitedSeconds / 60) } else { 0 }
     $stashObserved = if ($stashEndpoint -and $stashEndpoint.ObservedState) { [string]$stashEndpoint.ObservedState } else { 'nothing' }
@@ -611,7 +611,7 @@ if ($stashVerdict.Outcome -eq 'StillBuilding') {
 }
 
 # --- REGION: What actually got deployed
-# --- REGION: https://yuruna.link/extensions-api#which-framework-snapshot-a-service-vm-is-built-from
+# --- REGION: https://yuruna.link/42fffc2c-0013
 # The daemon is serving, so this is the first point where the framework it was
 # built from can be answered from evidence rather than prediction.
 if (-not (Assert-ServiceVmFrameworkSource -Address ([string]$stashVmIp) -Port 80 `

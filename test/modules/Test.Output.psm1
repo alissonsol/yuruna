@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42c69a51-1c69-4dba-ad62-2dda7b368e9c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -199,6 +199,60 @@ function Write-Section {
     Write-Output "`n=== $Message ==="
 }
 
+function Write-FailureSidecar {
+    <#
+    .SYNOPSIS
+        Write the failures as data, for a parent process that has to act on
+        them rather than only show them.
+    .DESCRIPTION
+        The block below is written for a person. A parent process used to
+        recover it by matching the English words in its header and footer,
+        which made a sentence a wire format: rewording it -- or running on a
+        host that rendered it in another language -- would silently produce a
+        parent that found no failures in a child that failed.
+
+        The path arrives in an environment variable rather than a parameter so
+        that a caller which does not set it, and every stand-in gate script the
+        tests substitute for this one, keep working untouched.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Writes only the file the caller explicitly named in the environment.')]
+    [CmdletBinding()]
+    param()
+
+    $path = $env:YURUNA_FAILURE_SIDECAR
+    if (-not $path) { return }
+
+    $payload = [ordered]@{
+        schema    = 'yuruna.preflight-failures/v1'
+        failCount = [int]$script:State.FailCount
+        warnCount = [int]$script:State.WarnCount
+        failures  = @(foreach ($f in $script:State.Failures) {
+                [ordered]@{
+                    section  = [string]$f.Section
+                    message  = [string]$f.Message
+                    fullPath = [string]$f.FullPath
+                    warnings = @(
+                        if ($f.Section -and $script:State.WarningsBySection.Contains($f.Section)) {
+                            $script:State.WarningsBySection[$f.Section] | ForEach-Object { [string]$_ }
+                        })
+                }
+            })
+    }
+    try {
+        $dir = Split-Path -Parent $path
+        if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+        [IO.File]::WriteAllText($path, (ConvertTo-Json -InputObject $payload -Depth 6),
+            [Text.UTF8Encoding]::new($false))
+    } catch {
+        # The sidecar is a convenience for the parent, not the verdict. A run
+        # that could not write it still reports through its exit code and its
+        # printed summary, and failing here would turn a reporting problem into
+        # a gate failure.
+        Write-Verbose "Could not write the failure sidecar to '$path': $($_.Exception.Message)"
+    }
+}
+
 function Write-Summary {
     <#
     .SYNOPSIS
@@ -243,6 +297,8 @@ function Write-Summary {
             Write-Output "========"
         }
     }
+    Write-FailureSidecar
+
     if ($script:State.FailCount -gt 0) {
         Write-Output ""
         Write-Output "========"
@@ -290,4 +346,4 @@ function Exit-WithSummary {
     exit $Code
 }
 
-Export-ModuleMember -Function Reset-OutputState, Initialize-OutputState, Get-OutputState, Write-Pass, Write-Fail, Write-Warn, Write-Info, Write-Section, Write-Summary, Exit-WithSummary
+Export-ModuleMember -Function Write-FailureSidecar, Reset-OutputState, Initialize-OutputState, Get-OutputState, Write-Pass, Write-Fail, Write-Warn, Write-Info, Write-Section, Write-Summary, Exit-WithSummary

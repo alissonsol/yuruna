@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 422c7a57-c395-4a3c-9648-066af9dbee1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -81,7 +81,7 @@ if (-not (Test-Path -LiteralPath $winIso)) {
     }
 }
 if (-not (Test-Path -LiteralPath $winIso)) {
-    # --- REGION: https://yuruna.link/guest-image-setup#windows-11-the-agent-is-asked-last-and-only-sometimes-answers
+    # --- REGION: https://yuruna.link/42ec97cd-0005
     $agentStagingFile = Join-Path $downloadDir 'downloaded.iso'
     # The host driver carries the download-agent client. It is imported again
     # further down for the virtio-win fetch; here the import is guarded because
@@ -186,7 +186,7 @@ $virtioUrl = 'https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/a
 Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yuruna.Host.psm1") -Force
 Import-Module -Name (Join-Path $PSScriptRoot '../../../automation/Yuruna.Retry.psm1') -Force
 
-# --- REGION: https://yuruna.link/guest-image-setup#agent-first-image-downloads
+# --- REGION: https://yuruna.link/42ec97cd-0004
 # Unlike the Windows media above, virtio-win is a plain pinned URL the agent can
 # always resolve, so it is a pooled family like the Ubuntu and AL2023 images: ask
 # before the origin is HEAD-probed, fingerprint the local copy from its 4-line

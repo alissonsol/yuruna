@@ -70,7 +70,10 @@ workload:
   # 3000 s, sized from measurement rather than estimate. On this lab's ARM64
   # Hyper-V host the script completes in 1373 s with the host otherwise quiet
   # -- 456 s for the JDK, 20 s for the .NET SDK, 897 s for Code and its GTK and
-  # X11 closure, around seventy packages in all. The same script on the same
+  # X11 closure: 24 packages for the JDK and 149 for Code. Those durations were
+  # measured with Code's full RECOMMENDED closure installed, so they are an
+  # upper bound on what the script costs now that it asks for Code with
+  # --no-install-recommends. The same script on the same
   # guest was still short of finishing at 1810 s when a cycle ran with the host
   # busy, and its JDK phase alone took 854 s there against 456 s quiet. Host
   # contention, not the guest, is what moves this number, and it moves it by

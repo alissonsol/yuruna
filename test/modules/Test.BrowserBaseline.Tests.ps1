@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 427765c1-3491-491c-8ca6-00baf0708bec
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 <#
 .SYNOPSIS
-    Holds every shipped browser asset to the Safari iOS 9.3 baseline the UI
+    Holds every shipped browser asset to the Safari iOS 9.0 baseline the UI
     documents, and holds the checker that enforces it to being able to fail.
 .DESCRIPTION
     The baseline in docs/definition.md is a hard floor, and it is broken
@@ -102,6 +102,29 @@ Describe 'every shipped browser asset stays on the documented baseline' {
         foreach ($shim in @('window.fetch', 'Y.key', 'Element.prototype.closest')) {
             Assert-True ($text -match [regex]::Escape($shim)) "the runtime no longer installs $shim"
         }
+    }
+}
+
+Describe 'the static palette cannot acquire a JavaScript-only value' {
+
+    It 'rejects a custom-property write' {
+        $sample = New-Sample -Name 'set-property.js' -Body `
+            "document.documentElement.style.setProperty('--surface', '#fff');"
+        $run = Invoke-Checker -Target $sample
+        Assert-Equal -Expected 1 -Actual $run.ExitCode `
+            -Because "a runtime palette write has no generated Safari 9 literal:`n$($run.Output)"
+        Assert-Match -Pattern 'CSSStyleDeclaration.setProperty' -Actual $run.Output `
+            'the finding does not identify the forbidden write'
+    }
+
+    It 'rejects a custom-property read' {
+        $sample = New-Sample -Name 'get-property.js' -Body `
+            "var surface = window.getComputedStyle(document.body).getPropertyValue('--surface');"
+        $run = Invoke-Checker -Target $sample
+        Assert-Equal -Expected 1 -Actual $run.ExitCode `
+            -Because "a runtime palette read makes the compiled fallback incomplete:`n$($run.Output)"
+        Assert-Match -Pattern 'CSSStyleDeclaration.getPropertyValue' -Actual $run.Output `
+            'the finding does not identify the forbidden read'
     }
 }
 

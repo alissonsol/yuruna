@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42c30a62-cbee-46de-84c0-e6f2b967b3ec
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -70,6 +70,8 @@ function Get-CachingProxyServiceInfo {
             'registry.go',
             'mcp.go',
             'ui.go',
+            'requestadapter.go',
+            'landing.go',
             'caching-proxy-service.service'
         )
         ListenPort  = 9310

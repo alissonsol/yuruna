@@ -1,3 +1,5 @@
+<a id="4222e5f2-0001"></a>
+
 # Host I/O registry
 
 Every sequence step that drives the guest GUI (keystrokes, text input,
@@ -11,6 +13,8 @@ The registry pattern mirrors the OCR provider model
 [capability matrix](test-harness.md#capability-matrix-and-cycle-plan-gate): every (host, action) pair
 is enumerable at startup.
 
+<a id="4222e5f2-0002"></a>
+
 ## The public surface
 
 | Function   | Signature                                                          | Used by |
@@ -21,6 +25,8 @@ is enumerable at startup.
 
 Each dispatcher is a five-line `try { Invoke-HostIOAction ... } catch
 { Write-Warning; return $false }` wrapper over `Test.HostIO`.
+
+<a id="4222e5f2-0003"></a>
 
 ## Why the registry over inline dispatch
 
@@ -44,6 +50,8 @@ eviction-safe global-anchor pattern but is hand-rolled in
 [`automation/Yuruna.CredentialProvider.psm1`](../automation/Yuruna.CredentialProvider.psm1)
 (so it is not in `Get-YurunaRegistryDirectory`), which keeps it out of
 `test/`, where `New-YurunaRegistry` lives.
+
+<a id="4222e5f2-0004"></a>
 
 ## Backends today
 
@@ -71,6 +79,8 @@ single code per name and every backend dereferences them as a scalar,
 so a chord cannot live there. On macOS a chord takes the CGEvent path
 even when AppleScript would serve a plain key -- `key code` cannot hold
 a modifier down across the base key.
+
+<a id="4222e5f2-0005"></a>
 
 ## Hyper-V PS/2 scancode behavior
 
@@ -133,6 +143,8 @@ so nothing can be left latched for the next character to inherit. The prefix
 therefore runs only in batched mode, where a single call cannot self-correct
 mid-payload and a latched modifier really would upshift the rest of it.
 
+<a id="4222e5f2-0006"></a>
+
 ## The registry API
 
 ```
@@ -145,6 +157,8 @@ Clear-HostIOProvider       # for tests
 
 Each `Implementation` is a `param([hashtable]$a)` scriptblock returning
 `[bool]`. The dispatcher passes named arguments through the hashtable.
+
+<a id="4222e5f2-0007"></a>
 
 ## Adding a new host
 
@@ -167,6 +181,8 @@ Each `Implementation` is a `param([hashtable]$a)` scriptblock returning
    sequences referencing actions your backend does not implement
    fail the cycle gate with a list of what IS available on the host.
 
+<a id="4222e5f2-0008"></a>
+
 ## Adding a new action
 
 1. Pick a verb name (`Send-Scroll`, `Send-Drag`, etc.).
@@ -180,6 +196,8 @@ Each `Implementation` is a `param([hashtable]$a)` scriptblock returning
 5. Add a dispatcher (`Send-Scroll`, three-line wrapper) and export it
    from `Test.SequenceEngine.psm1` so the
    `Yuruna.Host\Send-Scroll` contract can route through it.
+
+<a id="4222e5f2-0009"></a>
 
 ## Why the registry uses a global anchor
 
@@ -198,6 +216,8 @@ in the cross-domain introspection directory
 anchor name (`$global:YurunaScreenshotProviders`,
 `$global:YurunaVncProviders`, ...) as the backing store so registrations
 survive `-Force` re-imports and cross-module eviction.
+
+<a id="4222e5f2-000a"></a>
 
 ## Backend module layout
 
@@ -227,6 +247,8 @@ registry; the registered scriptblocks in the per-host
 which resolve via the global session table once `Test.Transport` is
 imported with `-Global`.
 
+<a id="4222e5f2-000b"></a>
+
 ## Transport config reload at module load
 
 `Test.Transport` reads transport-level defaults (`charDelayMs`,
@@ -250,6 +272,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08
 
 Back to [Yuruna](../README.md)

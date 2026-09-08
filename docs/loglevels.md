@@ -1,3 +1,5 @@
+<a id="42162449-0001"></a>
+
 # Log-level cascade
 
 Every Yuruna entry point shares one resolved log level that gates which
@@ -9,6 +11,8 @@ The canonical implementation lives in
 This module is the single source of truth for the rank table +
 preference cascade, so it is not duplicated across the 60+ scripts and
 runner files that depend on it.
+
+<a id="42162449-0002"></a>
 
 ## Levels
 
@@ -23,6 +27,8 @@ runner files that depend on it.
 Each level shows itself **and every higher-priority level**. `-logLevel
 Warning` shows Error + Warning; `-logLevel Verbose` shows everything
 except Debug.
+
+<a id="42162449-0003"></a>
 
 ## Three-state resolution
 
@@ -47,6 +53,8 @@ run nobody watched all of.
 The cmdline override wins over a hot-reload: start a runner at
 `Information` and a config edit to `Warning` will not promote it. Stop
 the runner and restart without `-logLevel` to release the override.
+
+<a id="42162449-0004"></a>
 
 ## Propagation across pwsh boundaries
 
@@ -83,6 +91,8 @@ pid and the caller's captured `ProgressPreference` -- are anchored in the
 runspace `$global:` scope rather than in module scope for the same
 reason.
 
+<a id="42162449-0005"></a>
+
 ### A setup run is the deepest chain of it
 
 `install/setup.ps1` resolves the level, then starts a dozen repo scripts,
@@ -110,6 +120,8 @@ writes. A script-scoped assignment shadows the global for the rest of
 the file, so without the re-read `-logLevel Error` would quiet every
 child but not the lines of the script that set it.
 
+<a id="42162449-0006"></a>
+
 ## Why `$ErrorActionPreference` stays at `Continue`
 
 `Set-LogLevelPreference` writes `$global:WarningPreference`,
@@ -121,6 +133,8 @@ semantics depend on the inherited default -- silencing the preference
 would suppress the throw-on-error contract that many `try/catch`
 blocks rely on.
 
+<a id="42162449-0007"></a>
+
 ## Why `ProgressPreference` collapses at Verbose+
 
 `Write-Progress` overwrites the bottom line of the terminal. At Verbose
@@ -128,6 +142,8 @@ or Debug the per-poll OCR text would scroll past and the progress bar
 would replay each tick, making the transcript unreadable. The cascade
 silences it past Information so `-logLevel Verbose` gives clean,
 line-oriented output.
+
+<a id="42162449-0008"></a>
 
 ## Progress regions are separate from the level
 
@@ -147,6 +163,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08
 
 Back to [Yuruna](../README.md)

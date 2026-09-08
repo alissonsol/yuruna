@@ -156,4 +156,42 @@ if [ -n "$staged" ]; then
         fi
     done
 fi
+
+# Fourth pass: derived catalog artifacts. The compiled catalog set and the
+# runtime copies that carry it are generated from the sources under
+# globalization/, and a commit that edits a source without regenerating them
+# leaves no local trace -- nothing reads the stale copy until the release gate
+# rejects the candidate pair minutes into a publish run, by which time the
+# author has moved on and the drift has to be reconstructed from a gate report.
+# Both checks together cost about a second, so pay it here.
+#
+# This pass blocks where the retired-name pass only warns: an artifact either
+# matches the sources it was generated from or it does not, so there is no
+# author judgment to defer to. It reads the working tree rather than the index,
+# because the generators have no staged mode -- the same tradeoff the whole-tree
+# ASCII pass above makes.
+#
+# Order matters: the embed reads what the compiler produced, so a stale compile
+# would make the embed report a difference that regenerating the embed alone
+# cannot settle.
+if git diff --cached --name-only --diff-filter=ACM | grep -q '^globalization/'; then
+    compile_gate="$repo_root/tools/Invoke-CatalogCompile.ps1"
+    embed_gate="$repo_root/tools/Invoke-CatalogEmbed.ps1"
+    if [ -f "$compile_gate" ] &&
+        ! pwsh -NoProfile -ExecutionPolicy Bypass -File "$compile_gate" -Check -Quiet; then
+        echo "" >&2
+        echo "pre-commit: the compiled catalog set is stale (see above)." >&2
+        echo "  Run 'pwsh tools/Invoke-CatalogCompile.ps1 -Update', stage what it writes," >&2
+        echo "  or bypass with 'git commit --no-verify' (discouraged)." >&2
+        exit 1
+    fi
+    if [ -f "$embed_gate" ] &&
+        ! pwsh -NoProfile -ExecutionPolicy Bypass -File "$embed_gate" -Check -Quiet; then
+        echo "" >&2
+        echo "pre-commit: a runtime copy no longer matches the catalog sources (see above)." >&2
+        echo "  Run 'pwsh tools/Invoke-CatalogEmbed.ps1', stage what it writes," >&2
+        echo "  or bypass with 'git commit --no-verify' (discouraged)." >&2
+        exit 1
+    fi
+fi
 exit 0

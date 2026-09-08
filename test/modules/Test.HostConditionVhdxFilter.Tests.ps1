@@ -1,6 +1,6 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
-.GUID ced8ac22-83a2-4f49-98da-014cf4d4ce85
+.VERSION 2026.09.08
+.GUID 42dd9774-3fb6-49d6-bbf8-2c38c8ffd5a2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
 .TAGS yuruna test host condition vhdx filter antivirus shadow copy

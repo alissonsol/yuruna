@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42008bcd-66da-4584-84a4-c4454a7f8958
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,7 +36,7 @@ param(
 $global:InformationPreference = "Continue"
 $global:ProgressPreference    = "SilentlyContinue"
 
-# --- REGION: https://yuruna.link/loglevels#propagation-across-pwsh-boundaries
+# --- REGION: https://yuruna.link/42162449-0004
 # After the preference assignments above on purpose: an explicit level is the
 # operator's choice and replaces this script's own default.
 Import-Module (Join-Path $PSScriptRoot '../modules/Test.LogLevel.psm1') -Global -Force -DisableNameChecking

@@ -1,3 +1,5 @@
+<a id="42b11c32-0001"></a>
+
 # test.config.yml -- runner configuration reference
 
 `test/test.config.yml` is the per-host runner configuration. On first run it is
@@ -13,6 +15,8 @@ Top-level sections: `configService`, `downloadAgentService`, `guestSequence`,
 `logLevel`, `networkStorage`, `notification`, `pool`, `repositories`,
 `statusService`, `testCycle`, `vmCommunication`, `vmImage`, `vmStart`. Most are
 self-describing; the ones carrying non-obvious behavior are documented below.
+
+<a id="42b11c32-0002"></a>
 
 ## Key names
 
@@ -34,6 +38,8 @@ present in both forms. The retired-key table it reads is
 `test/modules/Test.ConfigNaming.psm1`; the rules behind the names are in
 [naming conventions](design/naming.md).
 
+<a id="42b11c32-0003"></a>
+
 ## Template reconciliation
 
 `test.config.yml.template` is the schema source of truth. `Test-Config`
@@ -53,6 +59,8 @@ schema -> WARN or FAIL per `-OnConfigSchemaDrift` (recover from the
 `Update-TestConfigFromTemplate`, which additionally STOPS the run when a
 populated value no longer maps; `-ApplyConfigMigration` runs that
 stop-on-unmappable variant immediately.
+
+<a id="42b11c32-0004"></a>
 
 ### The file keeps the template's comments
 
@@ -87,6 +95,8 @@ Two consequences: the operator-managed `secrets` node is emitted as real YAML
 adds by hand outside the obsolete block are not preserved, because the
 template -- not the previous file -- is the skeleton.
 
+<a id="42b11c32-0005"></a>
+
 ## configService -- host mTLS credential service
 
 `configService.enabled` / `configService.port` (default `8443`) control the
@@ -95,6 +105,8 @@ the VMs this host provisions so they don't have to ship in each seed. When
 enabled, the runner ensures it per cycle (given a Config CA exists); VMs fetch
 over the `yuruna-config-fetch.sh` mTLS path and fall back to baked creds only
 if it is unreachable.
+
+<a id="42b11c32-0006"></a>
 
 ## downloadAgentService — the pool-wide image downloader
 
@@ -119,6 +131,8 @@ flag line in the guest seed, so changing one takes effect on the next
 stop->start of the agent VM, not on the next cycle. The same defaults are
 hardcoded in the daemon (`server/internal/config`), so a host with no
 `downloadAgentService` block and a bare daemon behave identically.
+
+<a id="42b11c32-0007"></a>
 
 ## networkStorage -- optional NAS-backed durable tiers
 
@@ -156,6 +170,8 @@ This section is the parameter reference; for the architecture (the async,
 fail-fast, atomic, backlog-draining replicator), the on-share layout, the Linux
 passwordless-sudo precondition, and operations/troubleshooting, see
 [pool-storage.md](pool-storage.md).
+
+<a id="42b11c32-0008"></a>
 
 ### Pool storage (cycle-output archiving)
 
@@ -210,6 +226,8 @@ literal and the mount silently fails. The macOS/Linux mount point needs no quoti
 > YAML treats backslashes in a plain scalar literally, but `'\\server.local\work'` (single
 > quotes) is equally fine.
 
+<a id="42b11c32-0009"></a>
+
 ### Stash storage (the stash service's own durable store)
 
 The **stash service** uses an **isolated** storage tier: its own NAS share, its
@@ -238,6 +256,8 @@ networkStorage:
 ```
 
 The passwords are **never** stored in `test.config.yml` -- they live in the vault.
+
+<a id="42b11c32-000a"></a>
 
 ### Setting the SMB passwords in the vault
 
@@ -307,6 +327,8 @@ starting**) instead of replication silently never happening. See
 characters: `a-z A-Z 0-9` and `! @ # $ % ^ & * ( ) - _ = +`; avoid quotes,
 backslash, and YAML/shell separators (``: , < > | ; ~ ` ``).
 
+<a id="42b11c32-000b"></a>
+
 ### Extension services (pool registry) — where THIS host's stash actually is
 
 The `stash*` keys above say this host could build a stash service. A cycle
@@ -338,6 +360,8 @@ Several hosts each running their own stash service is normal and reports as
 several PASS lines. A host with no caching-proxy-service has no aggregator to
 ask; the section says so and skips.
 
+<a id="42b11c32-000c"></a>
+
 ## pool -- optional multi-host pool intent (default-off)
 
 Joins this host to a **pool**: it PULLs the slow-changing pool intent (membership
@@ -362,6 +386,8 @@ cycling as a single host (it never blocks on the pull). `desiredState`
 cycle, `drain` stops after the current one -- and any **test-sets** the pool
 assigns drive what this host runs.
 
+<a id="42b11c32-000d"></a>
+
 ## testCycle.autoRemediation
 
 ```yaml
@@ -378,6 +404,8 @@ waiting up to the failure-pause cap for a human commit. Capped per
 consecutive-failure streak (`maxAttemptsPerCycle`) so a deterministic failure
 still escalates to the normal wait-for-human pause after that many auto-retries.
 A pool may override the whole block through its `config.testCycle`.
+
+<a id="42b11c32-000e"></a>
 
 ## testCycle.labHealth -- hold the cycle while a lab service is away
 
@@ -420,6 +448,8 @@ names extra areas to probe even where this host has never seen them healthy.
 its `status.json` fields:
 [failure-schema.md](failure-schema.md#the-lab-health-gate-lab_health_-events).
 
+<a id="42b11c32-000f"></a>
+
 ## vmStart.cachingProxyIp -- external cache source (probed first)
 
 Names the external caching-proxy-service this host should route guest installs
@@ -437,6 +467,8 @@ discovery). The status-page editor validates the value at save time:
 it must parse as an IPv4/IPv6 address **and** answer on TCP `:3128`,
 so a dead IP is rejected before it is persisted. Full cache-source
 story: [caching.md](caching.md#external-cache-override).
+
+<a id="42b11c32-0010"></a>
 
 ## users.yml — authentication users mapping
 
@@ -460,6 +492,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08
 
 Back to [Yuruna](../README.md)

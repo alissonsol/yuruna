@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42746513-f859-4478-b773-07a4c13848b4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -86,6 +86,43 @@ Get:1 http://archive.ubuntu.com/ubuntu noble InRelease [256 kB]
 Reading package lists... Done
 '@
 
+# A healthy step several seconds in, doing the loudest thing a step does: a
+# container build restoring web assets. Nothing here is a shell refusal, and
+# the shell that would have issued one accepted its command line long ago.
+#
+# This screen is kept verbatim because it, and not merely a screen of its
+# size, satisfies "No such file or directory" through the matcher's unbounded
+# strategy -- the one asking only whether each word of the pattern turns up
+# SOMEWHERE. Normalization folds each word to a short token, and the tokens
+# are then supplied by text that has nothing to do with any of the words:
+# 'No' by a run of hex inside a sha256 digest, 'such' by a line OCR garbled
+# beyond reading, 'file' by "profile", 'or' by "WORKDIR", and only
+# 'directory' by an actual directory. Thin out any of those five and the
+# coincidence stops reproducing, which is the point -- it never needed a
+# screen that said anything like the pattern.
+#
+# Reproduced ASCII-only, garbled line included: that line is what a real
+# frame's noise looks like, and it is load-bearing here.
+$script:BuildFloodEcho = @'
+#4 transferring context: 359B done
+#4 DONE 0.0s
+#S WehsrenLidrcdteald opzboxd une
+#5 DONE 0.0s
+#6 [base 1/2] FROM localhost:5000/dotnet/aspnet:10.0@sha256:7fdba0abo2ebda03988f15a5ec83873f9504lebd51ae1dd4aed1daad
+#6 DONE 0.1s
+#8 [base 2/2] WORKDIR /app
+#8 DONE 0.7s
+#15 [build 7/9] RUN dotnet tool install -g Microsoft.Web.LibraryManager.Cli
+#15 1.292 Tools directory '/root/.dotnet/tools' is not currently on the PATH environment variable.
+#15 1.292 If you are using bash, you can add it to your profile by running the following command:
+#15 1.293 Tool 'microsoft.web.librarymanager.cli' (version '3.0.114') was successfully installed.
+#16 [build 8/9] RUN ~/.dotnet/tools/libman restore
+#16 0.689 Restoring library twitter-bootstrap@5.3.8...
+#16 0.695 Downloading file https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/5.3.8/css/bootstrap-grid.css...
+#16 0.696 Downloading file https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/5.3.8/css/bootstrap-grid.min.css...
+#16 0.797 Downloading file https://cdnjs.cloudflare.com/ajax/libs/twitter-bootstrap/5.3.8/css/bootstrap-reboot.min.css...
+'@
+
 # The fetchAndExecute branch of the step schema, isolated from its neighbors so
 # a field declared on a different action cannot satisfy an assertion here.
 $m = [regex]::Match($script:schemaText, '(?s)const:\s*fetchAndExecute\b(.*?)(?=\n      - if:)')
@@ -124,6 +161,34 @@ Describe 'Shell-rejection fast-fail: the captured failure' {
             Assert-True (-not (Test-OCRMatch -Text $script:HealthyEcho -Pattern $p)) `
                 "A healthy console must not match the shell-rejection pattern '$p'."
         }
+    }
+
+    It 'stays silent on a healthy step whose own output is dense' {
+        # The anti-pattern side of the anchor above. A step that reaches a
+        # noisy build inside the window must not have its own output read as
+        # the shell refusing to start it: the run was working, and a match
+        # here ends it as a hard failure with the guest still building.
+        foreach ($p in @('No such file or directory', 'command not found')) {
+            Assert-True (-not (Test-OCRMatch -Text $script:BuildFloodEcho -Pattern $p -NoSegmentMatch)) `
+                "A healthy build screen must not read as the shell refusal '$p'."
+        }
+    }
+
+    It 'reads the refusal off one line rather than off the whole screen' {
+        # Why the strategy is dropped rather than the pattern retuned: the
+        # evidence a shell refusal leaves is one contiguous line, so the
+        # bounded strategies lose nothing, while the unbounded one is the only
+        # thing that can answer yes to a screen that never said it.
+        Assert-True (Test-OCRMatch -Text $script:RejectedEcho -Pattern 'No such file or directory' -NoSegmentMatch) `
+            'The refusal must still match when only the line-bounded strategies are allowed.'
+        Assert-True (Test-OCRMatch -Text $script:BuildFloodEcho -Pattern 'No such file or directory') `
+            'Without the restriction the same screen matches -- which is the reason the restriction exists.'
+    }
+
+    It 'matches the early set with the unbounded strategy disabled' {
+        # The wiring, in the engine, where the early set is consulted.
+        Assert-True ($script:engineText -match '-NoSegmentMatch:') `
+            'The anti-pattern check must pass -NoSegmentMatch for the early set.'
     }
 
     It 'carries both of the shell refusals' {

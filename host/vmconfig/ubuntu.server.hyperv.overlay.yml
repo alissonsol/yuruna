@@ -3,7 +3,7 @@
 # Hyper-V overlay for ubuntu.server.base.user-data.
 # Anchor sections in base-file order. An empty section emits nothing at that anchor.
 # === YURUNA_OVERLAY_NETWORK ===
-  # --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+  # --- REGION: https://yuruna.link/4220a755-000b
   # The installer runs its OWN DHCP client, before /target exists, so the
   # in-target netplan patch in late-commands cannot reach it: without a pin here
   # the INSTALL asks under a machine-id DUID while the installed system asks
@@ -31,7 +31,7 @@
         dhcp-identifier: mac
 # === YURUNA_OVERLAY_EARLY_COMMANDS ===
   early-commands:
-    # --- REGION: https://yuruna.link/vmconfig#console-quiet
+    # --- REGION: https://yuruna.link/429f3d06-0025
     # The INSTALLED system gets `quiet loglevel=3` from a grub drop-in in
     # late-commands. That drop-in cannot help the INSTALLER: it governs the kernel
     # the guest boots after this, while the phase a host has to read by OCR is
@@ -48,12 +48,18 @@
     # wait has to classify that case rather than only time out on it.
     - dmesg -n 1 2>/dev/null || true
 # === YURUNA_OVERLAY_GRUB_PRE_CONSOLE_QUIET ===
-    # --- REGION: https://yuruna.link/vmconfig#hv_balloon-denylist
+    # --- REGION: https://yuruna.link/429f3d06-001e
+    - |
+      mkdir -p /target/etc/dpkg/dpkg.cfg.d
+      cat > /target/etc/dpkg/dpkg.cfg.d/99-yuruna-unsafe-io << 'DPKGCFG'
+      force-unsafe-io
+      DPKGCFG
+    # --- REGION: https://yuruna.link/429f3d06-001f
     - |
       cat > /target/etc/modprobe.d/denylist-hv-balloon.conf << 'MODPROBE'
       blacklist hv_balloon
       MODPROBE
-    # --- REGION: https://yuruna.link/vmconfig#hyperv_fb-framebuffer-pin
+    # --- REGION: https://yuruna.link/429f3d06-0020
     - |
       cat > /target/etc/default/grub.d/99-yuruna-hyperv-fb.cfg << 'GRUBCFG'
       GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} video=hyperv_fb:1024x768"

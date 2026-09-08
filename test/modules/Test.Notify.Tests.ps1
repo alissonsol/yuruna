@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42f41a3a-96b8-4ab6-ac90-5f5f7b020de7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -42,7 +42,7 @@ Import-Module (Join-Path $here 'Test.Notify.psm1') -Force -DisableNameChecking
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
-# --- REGION: https://yuruna.link/memory#pester-file-scope-fixtures
+# --- REGION: https://yuruna.link/42d69dfa-0015
 
 function Initialize-TestCycleFolder {
     <#
@@ -543,6 +543,13 @@ Describe 'Send-EmailViaResend -- the message every subscriber actually reads' {
     # assertions run in module scope. Loading it non-Global keeps the module's
     # own Send-Notification from shadowing the dispatcher for the suites above.
     BeforeAll {
+        # Eight extension areas each ship a module named 'default', and the
+        # suite shares one runspace. With more than one resident, Pester cannot
+        # tell which module a -ModuleName 'default' mock or an InModuleScope
+        # block means, and refuses -- so this file's module is made the only
+        # one loaded. The failure is order-dependent, which is why it shows up
+        # in a full run and not when this file is run by itself.
+        Get-Module -Name 'default' -All | Remove-Module -Force -ErrorAction SilentlyContinue
         $script:ResendModule = Join-Path (Split-Path -Parent (Split-Path -Parent $PSCommandPath)) 'extension/notification/default.psm1'
         Import-Module $script:ResendModule -Force -DisableNameChecking
     }

@@ -32,11 +32,17 @@ import (
 
 	"stash-service/internal/config"
 	"stash-service/internal/detect"
-	"stash-service/internal/id"
 	"stash-service/internal/meta"
 	"stash-service/internal/scp"
 	"stash-service/internal/store"
 )
+
+// IDSource hands out the section 7 upload ID. An interface rather than the
+// concrete allocator so a test can pin the exact IDs a session draws and
+// exercise the collision ladder without racing a random generator.
+type IDSource interface {
+	Allocate(t time.Time) (string, error)
+}
 
 // Server pulls together every layer the daemon needs: share + VM-local
 // buffer storage, metadata DB, ID allocator, the SSH host key, the
@@ -45,7 +51,7 @@ type Server struct {
 	Store    *store.Store
 	Buffer   *store.Store
 	Meta     *meta.Store
-	IDs      *id.Allocator
+	IDs      IDSource
 	Detector detect.Detector
 	sshCfg   *ssh.ServerConfig
 	listener net.Listener
@@ -79,7 +85,7 @@ type Server struct {
 // New wires everything up. The host key is loaded from
 // <StashFolder>/hostkey/ (durable, section 4.4); if the share is offline at startup
 // it falls back to a VM-local key so the daemon still comes up (section 8.4).
-func New(s *store.Store, buffer *store.Store, m *meta.Store, ids *id.Allocator) (*Server, error) {
+func New(s *store.Store, buffer *store.Store, m *meta.Store, ids IDSource) (*Server, error) {
 	localHostKey := filepath.Join(buffer.Folder, config.HostKeyDirName, config.HostKeyFileName)
 	hostKey, err := loadOrGenerateHostKey(s.HostKeyPath(), localHostKey)
 	if err != nil {
@@ -247,68 +253,44 @@ func (s *Server) runCommand(ch ssh.Channel, rawCmd, username, remote string) {
 		writeExit(ch, 1)
 		return
 	}
-	// section 7: allocate ID before file content streams; section 9: emit
-	// YURUNA-STASH-ID to stderr at the start of the SCP exchange so
-	// the client's terminal shows it even on a failed transfer.
 	now := time.Now().UTC()
-	allocated, err := s.IDs.Allocate(now)
-	if err != nil {
-		log.Printf("alloc id: %v", err)
-		fmt.Fprintln(ch.Stderr(), "stash-service: internal error (ID allocation).")
-		writeExit(ch, 1)
-		return
-	}
-	fmt.Fprintf(ch.Stderr(), config.StderrIDFormat, allocated)
-
-	// section 8.4: stage on the share when it is a live writable network mount;
-	// otherwise fall back to the VM-local buffer and flush later. The
-	// target store is fixed before any bytes stream so a single upload
-	// never straddles the two.
-	target, buffered, err := s.chooseTarget(allocated)
-	if err != nil {
-		if errors.Is(err, errBufferFull) {
-			fmt.Fprintln(ch.Stderr(), "stash-service: storage offline and local buffer full; upload rejected.")
-		}
-		writeExit(ch, 1)
-		return
-	}
-
-	dayDir, err := target.DayDir(now)
-	if err != nil {
-		log.Printf("day dir: %v", err)
-		writeExit(ch, 1)
-		return
-	}
-	stagingDir, err := target.StagingDir(now, allocated)
-	if err != nil {
-		log.Printf("staging dir: %v", err)
-		writeExit(ch, 1)
-		return
-	}
-
-	// section 8.2 step 2: pending record up front. storedPath and
-	// originalFilename are placeholder until FinalizeStaging produces
-	// the real values.
 	clientIP := hostOnly(remote)
-	pendingRec := &meta.Record{
-		ID:               allocated,
-		StoredPath:       "",
-		OriginalFilename: "",
-		IsArchive:        false,
-		Username:         username,
-		PathMetadata:     parsed.DestPath,
-		ClientAddress:    clientIP,
-		CreatedAt:        now,
-		Status:           meta.StatusPending,
-		SizeBytes:        0,
-		LocallyBuffered:  buffered,
-		Source:           config.SourceSCP,
-	}
-	if err := s.Meta.InsertPending(pendingRec); err != nil {
-		log.Printf("insert pending: %v", err)
+	pending, failedAt, err := s.beginPending(now,
+		func(drawn string) {
+			// section 7: the ID is allocated before file content streams;
+			// section 9: it goes to stderr at the start of the SCP exchange so
+			// the client's terminal shows it even on a failed transfer. An
+			// attempt that loses its ID to a collision announced that ID too --
+			// the LAST of these lines names the artifact that was stored.
+			fmt.Fprintf(ch.Stderr(), config.StderrIDFormat, drawn)
+		},
+		func(drawn string, buffered bool) *meta.Record {
+			// section 8.2 step 2: pending record up front. storedPath and
+			// originalFilename are placeholder until FinalizeStaging produces
+			// the real values.
+			return &meta.Record{
+				ID:               drawn,
+				StoredPath:       "",
+				OriginalFilename: "",
+				IsArchive:        false,
+				Username:         username,
+				PathMetadata:     parsed.DestPath,
+				ClientAddress:    clientIP,
+				CreatedAt:        now,
+				Status:           meta.StatusPending,
+				SizeBytes:        0,
+				LocallyBuffered:  buffered,
+				Source:           config.SourceSCP,
+			}
+		})
+	if err != nil {
+		log.Printf("begin upload (user=%s): %v", username, err)
+		fmt.Fprintln(ch.Stderr(), failedAt.clientReason(err))
 		writeExit(ch, 1)
 		return
 	}
+	allocated, target, buffered := pending.id, pending.target, pending.buffered
+	dayDir, stagingDir := pending.dayDir, pending.stagingDir
 
 	res, scpErr := scp.Receive(ch, ch, stagingDir)
 	if scpErr != nil {
@@ -333,6 +315,7 @@ func (s *Server) runCommand(ch ssh.Channel, rawCmd, username, remote string) {
 		log.Printf("finalize (id=%s): %v", allocated, err)
 		_ = os.RemoveAll(stagingDir) // don't leave an orphan <id>.staging tree on finalize failure
 		_ = s.Meta.UpdateOnPartial(allocated, res.TotalBytes, time.Now().UTC())
+		fmt.Fprintln(ch.Stderr(), "stash-service: storage unavailable (assembling the artifact); upload not stored.")
 		writeExit(ch, 1)
 		return
 	}
@@ -342,6 +325,10 @@ func (s *Server) runCommand(ch ssh.Channel, rawCmd, username, remote string) {
 	}
 	if err := s.commit(allocated, status, final, buffered, username); err != nil {
 		log.Printf("commit (id=%s): %v", allocated, err)
+		// The artifact itself is stored; what failed is the record that makes it
+		// findable and rebuildable. Say so, because the exit code alone reads as
+		// "nothing arrived" and would send the operator to re-upload.
+		fmt.Fprintln(ch.Stderr(), "stash-service: artifact stored, but its metadata record failed; report the ID above.")
 		writeExit(ch, 1)
 		return
 	}
@@ -351,6 +338,122 @@ func (s *Server) runCommand(ch ssh.Channel, rawCmd, username, remote string) {
 // errBufferFull signals the VM-local buffer is at its ceiling while the
 // share is offline (section 8.4) -- the upload must be rejected.
 var errBufferFull = errors.New("local buffer full")
+
+// idCollisionAttempts bounds the redraw loop when the index refuses an ID it
+// already holds. The allocator marks a candidate as drawn before handing it
+// back, so every attempt gets a different ID and a short ladder is enough:
+// the loop covers a lost race between two sessions that drew and inserted
+// concurrently, not a saturated ID space, which no number of attempts saves.
+const idCollisionAttempts = 5
+
+// uploadStage names the opening step an upload failed at, so the SCP session
+// can tell its client which layer refused without the caller unwrapping a
+// driver error.
+type uploadStage int
+
+const (
+	stageNone uploadStage = iota
+	stageAllocate
+	stageTarget
+	stageDayDir
+	stageStaging
+	stageIndex
+)
+
+// clientReason is the one line the client is shown for a failure at this
+// stage. Categorical on purpose: filesystem paths and driver text describe
+// the server's insides to a party that cannot act on them and should not see
+// them, and the operator has the log line carrying the detail.
+func (u uploadStage) clientReason(err error) string {
+	switch u {
+	case stageAllocate:
+		return "stash-service: internal error (ID allocation)."
+	case stageTarget:
+		if errors.Is(err, errBufferFull) {
+			return "stash-service: storage offline and local buffer full; upload rejected."
+		}
+		return "stash-service: storage unavailable (no writable target)."
+	case stageDayDir:
+		return "stash-service: storage unavailable (day directory)."
+	case stageStaging:
+		return "stash-service: storage unavailable (staging directory)."
+	case stageIndex:
+		if errors.Is(err, meta.ErrDuplicateID) {
+			return "stash-service: could not reserve an ID; retry the upload."
+		}
+		return "stash-service: internal error (metadata index)."
+	}
+	return "stash-service: internal error."
+}
+
+// pendingUpload is the opening every ingest path shares once it succeeds: the
+// ID, the store the artifact lands in, and the two directories it is
+// assembled in, with the pending index row already written.
+type pendingUpload struct {
+	id         string
+	target     *store.Store
+	buffered   bool
+	dayDir     string
+	stagingDir string
+}
+
+// beginPending runs the allocate -> choose target -> create dirs -> insert
+// pending row sequence shared by the SCP, SFTP and UI ingest paths, and
+// returns the stage that refused when it cannot.
+//
+// newRecord builds the pending row for the ID that attempt drew. onID, when
+// non-nil, is called with each drawn ID before anything is staged under it,
+// for a path that announces the ID to its client up front.
+//
+// The redraw loop exists because the two namespaces an ID lives in are not
+// the same size: the allocator's day scan covers one yyyy/mm/dd folder while
+// the index's id column is a primary key over every day it holds. The
+// allocator consults the index too, so reaching the insert with a taken ID
+// now means only that another session claimed it in between -- recoverable by
+// drawing again, and never by failing the upload.
+func (s *Server) beginPending(now time.Time, onID func(id string), newRecord func(id string, buffered bool) *meta.Record) (*pendingUpload, uploadStage, error) {
+	var lastErr error
+	for attempt := 1; attempt <= idCollisionAttempts; attempt++ {
+		drawn, err := s.IDs.Allocate(now)
+		if err != nil {
+			return nil, stageAllocate, fmt.Errorf("alloc id: %w", err)
+		}
+		if onID != nil {
+			onID(drawn)
+		}
+		// section 8.4: stage on the share when it is a live writable network mount;
+		// otherwise fall back to the VM-local buffer and flush later. The
+		// target store is fixed before any bytes stream so a single upload
+		// never straddles the two.
+		target, buffered, err := s.chooseTarget(drawn)
+		if err != nil {
+			return nil, stageTarget, err
+		}
+		dayDir, err := target.DayDir(now)
+		if err != nil {
+			return nil, stageDayDir, fmt.Errorf("day dir: %w", err)
+		}
+		stagingDir, err := target.StagingDir(now, drawn)
+		if err != nil {
+			return nil, stageStaging, fmt.Errorf("staging dir: %w", err)
+		}
+		if err := s.Meta.InsertPending(newRecord(drawn, buffered)); err != nil {
+			// The staging tree is named by the ID, so an attempt that does not
+			// keep its ID must take the directory with it: the allocator's disk
+			// scan counts an orphan <id>.staging as a claim forever, holding that
+			// ID out of the day's pool for nothing.
+			_ = os.RemoveAll(stagingDir)
+			if !errors.Is(err, meta.ErrDuplicateID) {
+				return nil, stageIndex, fmt.Errorf("insert pending: %w", err)
+			}
+			lastErr = err
+			log.Printf("id %s already in the index; redrawing (attempt %d of %d)", drawn, attempt, idCollisionAttempts)
+			continue
+		}
+		return &pendingUpload{id: drawn, target: target, buffered: buffered, dayDir: dayDir, stagingDir: stagingDir}, stageNone, nil
+	}
+	return nil, stageIndex, fmt.Errorf("every one of %d ids collided with an existing index row: %w", idCollisionAttempts, lastErr)
+}
 
 // chooseTarget returns the store an upload should stage into: the share
 // when it is a live writable network mount, else the VM-local buffer

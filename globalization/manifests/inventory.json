@@ -1,0 +1,65 @@
+{
+  "schema": "yuruna.catalog-inventory/v1",
+  "entries": [
+    {
+      "locale": "en-US",
+      "domain": "pool",
+      "source": "catalogs/en-US/pool.json",
+      "inputHash": "a5adbb4b522a9a630af403fae4d04f819cdc567a47851e3afe91717c58ddfcaf",
+      "generatedFrom": null,
+      "activeKeys": 7,
+      "compiledHash": "638856a990f6a95bd79b0f7927e3aecdefda44c13cbfc595560a7d1a6ee8560c",
+      "bytes": 1831
+    },
+    {
+      "locale": "en-US",
+      "domain": "status",
+      "source": "catalogs/en-US/status.json",
+      "inputHash": "ed4d91cd18645aa095432c773e583b138174f23cb7cddb98cb07af87713ce167",
+      "generatedFrom": null,
+      "activeKeys": 19,
+      "compiledHash": "2af449a677198ae48242867dc85e56e4fcb95dcbee0f1bbc4915a8508bc35f45",
+      "bytes": 2033
+    },
+    {
+      "locale": "qps-Ploc",
+      "domain": "pool",
+      "source": "catalogs/en-US/pool.json",
+      "inputHash": "a5adbb4b522a9a630af403fae4d04f819cdc567a47851e3afe91717c58ddfcaf",
+      "generatedFrom": "en-US",
+      "activeKeys": 7,
+      "compiledHash": "f79d3f92b06a2f692d615f7e0e1147caae251708886a293203f996a2bc2ecced",
+      "bytes": 3180
+    },
+    {
+      "locale": "qps-Ploc",
+      "domain": "status",
+      "source": "catalogs/en-US/status.json",
+      "inputHash": "ed4d91cd18645aa095432c773e583b138174f23cb7cddb98cb07af87713ce167",
+      "generatedFrom": "en-US",
+      "activeKeys": 19,
+      "compiledHash": "7c083807effb834db51517a9e8905060e78ff72c4fd189a4889663cdc18a7633",
+      "bytes": 2517
+    },
+    {
+      "locale": "qps-Plocm",
+      "domain": "pool",
+      "source": "catalogs/en-US/pool.json",
+      "inputHash": "a5adbb4b522a9a630af403fae4d04f819cdc567a47851e3afe91717c58ddfcaf",
+      "generatedFrom": "en-US",
+      "activeKeys": 7,
+      "compiledHash": "5b4efaece2c7a3ef51821b36040381a306cfc3dadf151a5fdb90c55c4f2d21ed",
+      "bytes": 3271
+    },
+    {
+      "locale": "qps-Plocm",
+      "domain": "status",
+      "source": "catalogs/en-US/status.json",
+      "inputHash": "ed4d91cd18645aa095432c773e583b138174f23cb7cddb98cb07af87713ce167",
+      "generatedFrom": "en-US",
+      "activeKeys": 19,
+      "compiledHash": "2dff1601699da0447dcfa4e0ca5f8c73e21abf8960065eedde2a281c744af3a1",
+      "bytes": 2657
+    }
+  ]
+}

@@ -1,3 +1,5 @@
+<a id="42ad660e-0001"></a>
+
 # Yuruna operator guide
 
 Bring-up runbook for a single Yuruna test machine: OS baseline to a
@@ -16,6 +18,8 @@ each machine, then continue with the
 
 ---
 
+<a id="42ad660e-0002"></a>
+
 ## Section A: Quickstart
 
 Start from a freshly installed Windows 11 Pro/Enterprise/Education (or
@@ -24,7 +28,11 @@ disk, 16+ physical cores, virtualization enabled in firmware, OS
 activated and updated, network access to github.com
 ([B.1](#b1-operating-system-baseline-assumed)-[B.2](#b2-preflight-dependencies)).
 "Elevated" means an Administrator PowerShell on Windows, `sudo` on
-macOS / Ubuntu.
+macOS / Ubuntu. Follow each step's platform instructions: on macOS and
+Ubuntu, run `install/setup.ps1` without `sudo`; it requests elevation
+only for the operations that need it.
+
+<a id="42ad660e-0003"></a>
 
 ### A.0 Shortcut: the standalone setup script
 
@@ -50,6 +58,8 @@ Parameters, `-WhatIf`, unattended runs, coverage, and failure behavior:
 
 The steps below are the by-hand path -- read them when a step needs
 judgment, fails under `setup.ps1`, or you are repairing a host.
+
+<a id="42ad660e-0004"></a>
 
 ### A.1 Install the framework
 
@@ -77,6 +87,8 @@ bash <(curl -fsSL "https://raw.githubusercontent.com/alissonsol/yuruna/refs/head
 in `~/git/yuruna` (`%USERPROFILE%\git\yuruna` on Windows); run every
 command below from that folder.
 
+<a id="42ad660e-0005"></a>
+
 ### A.2 Create the test user
 
 Elevated ([B.4](#b4-create-the-yuruna-test-user)):
@@ -97,9 +109,12 @@ is quick.
 > **Lab?** Switch to the [Lab operator guide](lab-operator.md) now --
 > it picks up after this step.
 
+<a id="42ad660e-0006"></a>
+
 ### A.3 Enable test automation
 
-Elevated ([B.5](#b5-enable-test-automation)):
+Elevated on Windows; without `sudo` on macOS and Ubuntu
+([B.5](#b5-enable-test-automation)):
 
 ```
 pwsh test/lab/Enable-TestAutomation.ps1
@@ -110,6 +125,8 @@ changes.
 
 *Run for you by [A.0](#a0-shortcut-the-standalone-setup-script),
 unless this machine only hosts services.*
+
+<a id="42ad660e-0007"></a>
 
 ### A.4 Configure and validate
 
@@ -127,10 +144,13 @@ Fix every FAIL before moving on.
 runs this validation, but the edits are still yours -- it never touches
 `guestSequence` or `GH_TOKEN`.*
 
+<a id="42ad660e-0008"></a>
+
 ### A.5 Create pool and stash storage
 
-**Storage on this machine (no NAS)** -- elevated, one idempotent
-command creates the folders, accounts, shares, mounts, and config
+**Storage on this machine (no NAS)** -- elevated on Windows, without
+`sudo` on macOS and Ubuntu. One idempotent command creates the folders,
+accounts, shares, mounts, and config
 ([B.7](#b7-local-shares-for-pool-and-stash-storage)):
 
 ```
@@ -175,6 +195,8 @@ Then fill `networkStorage.*` in `test.config.yml` and store both share
 passwords in the host vault
 ([Setting the SMB passwords in the vault](test-config.md#setting-the-smb-passwords-in-the-vault)).
 
+<a id="42ad660e-0009"></a>
+
 ### A.6 Start the caching-proxy service
 
 Elevated on Windows, unelevated on macOS
@@ -190,6 +212,8 @@ IP, then re-run `pwsh test/Test-Config.ps1`.
 *[A.0](#a0-shortcut-the-standalone-setup-script) does all of that,
 including writing the IP.*
 
+<a id="42ad660e-000a"></a>
+
 ### A.7 Start the stash service
 
 Elevated on Windows ([B.9](#b9-start-the-stash-service)):
@@ -201,6 +225,8 @@ pwsh test/service/Start-StashServiceVM.ps1
 *Run for you by [A.0](#a0-shortcut-the-standalone-setup-script),
 unless storage was skipped.*
 
+<a id="42ad660e-000b"></a>
+
 ### A.8 Run one test cycle
 
 Debug here until green ([B.10](#b10-run-one-test-cycle)):
@@ -208,6 +234,8 @@ Debug here until green ([B.10](#b10-run-one-test-cycle)):
 ```
 pwsh test/Invoke-TestProject.ps1
 ```
+
+<a id="42ad660e-000c"></a>
 
 ### A.9 Run continuous cycles
 
@@ -222,12 +250,16 @@ Watch progress on the status dashboard it starts at
 
 ---
 
+<a id="42ad660e-000d"></a>
+
 ## Section B: Deep dive
 
 The quickstart order is deliberate: each step validates the one before
 it, and cheap checks run before expensive ones (config validation
 before the caching-proxy-service VM build). Every step below names its
 script and links the reference doc owning the details.
+
+<a id="42ad660e-000e"></a>
 
 ### B.0 The guided setup script
 
@@ -261,6 +293,8 @@ answering `local` runs `New-LocalLabStorage.ps1`, which writes the six
 ([A.5](#a5-create-pool-and-stash-storage)). Nothing touches
 `guestSequence` or `GH_TOKEN`.
 
+<a id="42ad660e-000f"></a>
+
 #### Re-running, and the service-VM exception
 
 Every step runs in a child `pwsh`, and a step that can tell it is
@@ -274,6 +308,8 @@ replacement that applies changed seed-time configuration. Budget roughly
 15 minutes for rebuilding the proxy. A run only removes a service it will
 rebuild, so a standalone re-run leaves a former lab's pool-control service
 running.
+
+<a id="42ad660e-0010"></a>
 
 #### What ends a run
 
@@ -301,6 +337,8 @@ report, separately from **Skipped**: skipped is a decision, blocked
 is a consequence. Blocked steps do not add to the exit code -- the
 failure they came from already did.
 
+<a id="42ad660e-0011"></a>
+
 #### Parameters
 
 The script declares `-AnswerFile`, `-logLevel`, `-LogPath` and
@@ -325,6 +363,8 @@ failed inside a child script. The run log is always written in full;
 the level only decides what also reaches the terminal. `-LogPath`
 continues an existing run log (used by the Windows elevated
 relaunch).
+
+<a id="42ad660e-0012"></a>
 
 #### Unattended runs: the answer file
 
@@ -380,12 +420,16 @@ the file can set up the next machine. If a key is missing for an
 unattended replay, the run says so when it writes the file rather than
 letting the next machine discover it.
 
+<a id="42ad660e-0013"></a>
+
 ### B.1 Operating-system baseline (assumed)
 
 A freshly installed Windows 11 Pro/Enterprise/Education (or Windows
 Server), macOS 26+, or Ubuntu 26+ host. Tested baseline: 32 GB RAM,
 512 GB free disk, 16+ physical cores. The tool stack the framework
 expects is listed in [B.2](#b2-preflight-dependencies).
+
+<a id="42ad660e-0014"></a>
 
 ### B.2 Preflight dependencies
 
@@ -404,6 +448,8 @@ Windows, which is reported as a recommendation and never prompts. Some
 examples also assume a registered domain whose DNS you control. Before
 installing certificates on localhost, run `mkcert -install` once (may
 require elevation).
+
+<a id="42ad660e-0015"></a>
 
 #### Required tools
 
@@ -438,6 +484,8 @@ used in testing
 - Install [mkcert](https://github.com/FiloSottile/mkcert) in the path.
   - Run `mkcert -install`
 
+<a id="42ad660e-0016"></a>
+
 #### Cloud tools
 
 Needed only for the examples that deploy to a cloud; a local-only host
@@ -457,6 +505,8 @@ can skip this list.
   - Instructions for [Azure DNS](https://learn.microsoft.com/en-us/azure/dns/dns-getstarted-portal)
   - Instructions for [Google Cloud DNS](https://cloud.google.com/dns/docs/records)
 
+<a id="42ad660e-0017"></a>
+
 #### Recommended tools
 
 - Install the latest version of [Visual Studio Code](https://code.visualstudio.com/)
@@ -466,6 +516,8 @@ can skip this list.
 - Install [K9S](https://k9scli.io/topics/install/) in the path.
 
 Scripts may work with older versions, but tests used the pinned ones.
+
+<a id="42ad660e-0018"></a>
 
 ### B.3 Install the framework
 
@@ -477,6 +529,8 @@ First-time Hyper-V enablement triggers RESTART REQUIRED -- reboot
 before continuing. Alternatively `git clone` and run the matching
 `install/<host>.{ps1,sh}` yourself; signature-checked installs and
 release pinning: [install/README.md](../install/README.md).
+
+<a id="42ad660e-0019"></a>
 
 ### B.4 Create the Yuruna test user
 
@@ -518,6 +572,8 @@ per-user -- hence A.2 repeats the install one-liner in the test-user
 session; the heavyweight work is already done, so that run only
 clones and seeds the config.
 
+<a id="42ad660e-001a"></a>
+
 ### B.5 Enable test automation
 
 ```
@@ -526,11 +582,14 @@ pwsh test/lab/Enable-TestAutomation.ps1
 
 Explicit opt-in that turns this machine into a test host: display
 sleep, screen saver, screen lock, display scaling (Windows), TCC
-grants (macOS). Elevated (Administrator / sudo); idempotent; supports
+grants (macOS). Administrator on Windows; unelevated on macOS and
+Ubuntu -- the script requests `sudo` when needed. Idempotent; supports
 `-WhatIf`. On Windows, sign out and back in if it reports display-scaling
 changes -- OCR needs 100% scaling. Details:
 `host/<platform>/Enable-TestAutomation.ps1`. To undo it, see
 [Putting the machine back](#putting-the-machine-back).
+
+<a id="42ad660e-001b"></a>
 
 ### B.6 Configure and validate
 
@@ -548,6 +607,8 @@ Checks the config and the `test/extension/*` configs, probes GitHub and
 Resend reachability, and fires a smoke-test notification (`-SkipSend`
 to validate only). Fix every FAIL before moving on -- this takes seconds
 and the next step takes many minutes.
+
+<a id="42ad660e-001c"></a>
 
 ### B.7 Local shares for pool and stash storage
 
@@ -622,6 +683,8 @@ the three `networkStorage.poolStorage*` paths to archive cycles to the share (ad
 `moveLogsToPoolStorage: true` to have each cycle's local folder deleted once its
 copy is verified).
 
+<a id="42ad660e-001d"></a>
+
 ### B.8 Start the caching-proxy service + dashboards
 
 ```
@@ -633,6 +696,8 @@ Builds the `yuruna-caching-proxy-service` VM and exposes ports 80 (CA cert),
 unelevated on macOS. Set `vmStart.cachingProxyIp` in
 `test.config.yml` to the proxy's IP so cycles find it. The cache VM
 survives framework reinstalls. Details: [caching.md](caching.md#caching-proxy-service--test-harness-operator-reference).
+
+<a id="42ad660e-001e"></a>
 
 ### B.9 Start the stash service
 
@@ -647,6 +712,8 @@ and snippets (web UI + scp). Elevated on Windows. It mounts the
 first. No login; trusted networks only. User guide:
 [stash-guide.md](stash-guide.md).
 
+<a id="42ad660e-001f"></a>
+
 ### B.10 Run one test cycle
 
 ```
@@ -657,6 +724,8 @@ One-shot cycle: wipes `project/`, re-clones `repositories.projectUrl`,
 runs a single cycle exactly as the runner would, and exits. Debug here
 until green -- one cycle with no loop around it is the cheapest place
 to debug.
+
+<a id="42ad660e-0020"></a>
 
 ### B.11 Run continuous cycles
 
@@ -671,6 +740,8 @@ status dashboard at `http://<host>:8080/` -- no separate
 `Start-StatusService.ps1` step.
 
 ---
+
+<a id="42ad660e-0021"></a>
 
 ## Bringing service VMs back after a host reboot
 
@@ -710,6 +781,8 @@ and [A.7](#a7-start-the-stash-service), which adopt a healthy VM rather
 than rebuilding it.
 
 ---
+
+<a id="42ad660e-0022"></a>
 
 ## Putting the machine back
 
@@ -763,6 +836,8 @@ cycle would blank capture mid-run. Stop the runner first.
 
 ---
 
+<a id="42ad660e-0023"></a>
+
 ## VM administrator accounts
 
 Each service VM is seeded with its own administrator, and each password
@@ -809,6 +884,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08
 
 Back to [Yuruna](../README.md)

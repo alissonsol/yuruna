@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42539052-a22b-452d-ad7f-0bbf053904ff
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -127,7 +127,26 @@ function Invoke-Virsh {
     [CmdletBinding()]
     [OutputType([System.Object[]])]
     param([Parameter(Mandatory)][string[]]$VirshArgs)
-    $output = & virsh --connect $script:VirshUri @VirshArgs 2>&1
+    # virsh puts its own output through gettext -- domain states, field labels
+    # and error text alike -- and the callers below read those words. On a host
+    # whose operator runs a non-English locale, "running" arrives translated and
+    # every state comparison silently answers 'unknown'.
+    #
+    # LC_MESSAGES rather than LC_ALL: it pins the words while leaving encoding
+    # and collation on the operator's own locale, so a name with an accent in it
+    # still survives the round trip. LC_ALL has to be cleared for the duration
+    # because it outranks LC_MESSAGES -- an operator who exports it would
+    # otherwise get translated output regardless.
+    $priorAll = $env:LC_ALL
+    $priorMessages = $env:LC_MESSAGES
+    try {
+        $env:LC_ALL = $null
+        $env:LC_MESSAGES = 'C'
+        $output = & virsh --connect $script:VirshUri @VirshArgs 2>&1
+    } finally {
+        $env:LC_ALL = $priorAll
+        $env:LC_MESSAGES = $priorMessages
+    }
     if (-not $output) { return @() }
     return @($output | ForEach-Object { "$_" })
 }
@@ -334,7 +353,7 @@ function Remove-VM {
     # Force-stop first; ignore errors (VM may be absent or already stopped).
     Invoke-Virsh -VirshArgs @('destroy', $VMName) | Out-Null
 
-    # --- REGION: https://yuruna.link/memory#why-remove-vm-on-kvm-omits-remove-all-storage
+    # --- REGION: https://yuruna.link/42d69dfa-001e
     # libvirt refuses to undefine a domain that still owns per-domain
     # metadata, and each kind needs its own opt-in flag: snapshot metadata
     # ("cannot delete inactive domain with N snapshots"), checkpoint
@@ -442,7 +461,7 @@ function Get-VMState {
     Return $DomainXml with its first NIC address set to the deterministic
     MAC for $VMName. Input is returned unchanged when there is no NIC.
 .DESCRIPTION
-    See https://yuruna.link/network#defining-deterministic-guest-mac-addresses
+    See https://yuruna.link/4220a755-000a
     for the address itself. A domain is normally pinned at BUILD time to the
     identity its guest keeps for life, and then this rewrite is never needed.
     It exists for the domain that was pinned to the per-kind slot name instead
@@ -1227,7 +1246,7 @@ function Get-KvmNeighborIp {
     # because the kernel has no address for them; PERMANENT/NOARP are included
     # because a statically configured entry is as good as a probed one.
     $usableState = @('REACHABLE', 'STALE', 'DELAY', 'PROBE', 'PERMANENT', 'NOARP')
-    # --- REGION: https://yuruna.link/network#why-neighbor-entries-are-ranked-not-taken-in-order
+    # --- REGION: https://yuruna.link/4220a755-0043
     # A guest that renumbers leaves its OLD address in this table under the same
     # MAC, and the kernel does not remove it -- it ages to STALE and sits there.
     # Taking the first matching line therefore returns whichever entry the hash
@@ -1302,7 +1321,7 @@ function Update-GuestNeighborCache {
         Write-Verbose "Update-GuestNeighborCache: '$VMName' is '$state', not running; no sweep."
         return $false
     }
-    # --- REGION: https://yuruna.link/network#why-the-sweep-remembers-the-last-known-prefix
+    # --- REGION: https://yuruna.link/4220a755-0044
     # A host between leases has no default-route IPv4 for a few seconds, and
     # Get-HostIpv4Prefix answers with nothing. That window is not a reason to
     # skip the sweep -- it is the window the sweep exists for, because a host
@@ -1420,7 +1439,7 @@ function Get-VMIp {
             }
             Select-VirshDomifaddrIp -Line $lines -Mac $s.Mac -HostPrefix $s.HostPrefix
         }
-        # --- REGION: https://yuruna.link/network#why-the-guest-agent-is-asked-first
+        # --- REGION: https://yuruna.link/4220a755-0045
         # Agent first, then the caches. The agent asks the guest what addresses
         # it holds RIGHT NOW, over a virtio-serial channel that carries no IP and
         # so cannot itself be broken by the renumbering this exists to survive.
@@ -1843,7 +1862,7 @@ function Write-YurunaNmcliFailure {
     }
 }
 
-# --- REGION: https://yuruna.link/memory#why-the-bridge-residue-sweep-covers-three-backends
+# --- REGION: https://yuruna.link/42d69dfa-0020
 # Callers invoke this ONLY when $Nic is not enslaved to $BridgeName, so
 # nothing removed here can be carrying the host's connectivity: an
 # uplink-less bridge forwards no traffic by construction.
@@ -1998,7 +2017,7 @@ function Wait-YurunaBridgeUplink {
     }
 }
 
-# --- REGION: https://yuruna.link/memory#why-the-libvirt-bridge-self-heal-probes-brif-and-activates-the-slave
+# --- REGION: https://yuruna.link/42d69dfa-001f
 function Repair-YurunaExternalBridgeSlave {
     <#
     .SYNOPSIS

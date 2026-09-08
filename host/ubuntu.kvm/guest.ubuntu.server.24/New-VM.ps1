@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42f12da2-1112-4de8-b565-c97a7434c2c2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -197,7 +197,7 @@ $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $repoRoot
 $hostPort = $_statusSeed.Port
 
 # --- REGION: Build the autoinstall apt block
-# --- REGION: https://yuruna.link/vmconfig#apt-proxy-block
+# --- REGION: https://yuruna.link/429f3d06-000a
 # Always emit `geoip: false` plus a pinned `primary:` mirror -- deterministic
 # election, and `primary:` rather than `sources_list:`. See
 # feedback_macos_utm_apt_block_resolute_curtin_trap.md.
@@ -210,7 +210,7 @@ Import-Module (Join-Path $repoRoot 'automation/Yuruna.GuestSeed.psm1') -Force
 $AptProxyBlock = New-AptProxyBlock -PrimaryUri $primaryUri -CachingProxyServiceUrl $CachingProxyServiceUrl
 
 # --- REGION: Fetch caching-proxy-service CA cert (base64-embedded in seed)
-# --- REGION: https://yuruna.link/network#caching-proxy-service-ca-cert-rc60-gate
+# --- REGION: https://yuruna.link/4220a755-0015
 # An empty $CaCertBase64 is NOT a harmless no-op (curl rc=60 SSL-bump gate).
 # See feedback_sslbump_rc60_untrusted_chain_and_ca_gate_trap and
 # project_sslbump_ca_gating_durable_fix.
@@ -241,7 +241,7 @@ foreach ($f in @($baseUserData, $overlayUserData, $metaDataTemplate)) {
     }
 }
 Import-Module (Join-Path $repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
-# --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
+# --- REGION: https://yuruna.link/4220a755-0003
 # Bake the guest-side lib scripts into the seed as base64-encoded write_files
 # entries. Eliminates the legacy network-dependent wget+wget bootstrap and
 # ensures the files are on disk before any guest script runs.
@@ -270,7 +270,7 @@ $seedDir = Join-Path $vmDir 'seed.src'
 New-Item -ItemType Directory -Force -Path $seedDir | Out-Null
 Set-Content -LiteralPath (Join-Path $seedDir 'user-data') -Value $userData -NoNewline
 Set-Content -LiteralPath (Join-Path $seedDir 'meta-data') -Value $metaData -NoNewline
-# --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+# --- REGION: https://yuruna.link/4220a755-000b
 # Governs the INSTALLER's own DHCP request, and subiquity carries the network
 # config it installed with into the target -- so the pin is present from the
 # very first lease this guest ever asks for. The late-command in the
@@ -334,7 +334,7 @@ if ($stillDefined) {
 }
 
 # --- REGION: Define + start the VM via virt-install
-# --- REGION: https://yuruna.link/memory#why-osinfo-db-variant-detection-parses-canonical-token-first
+# --- REGION: https://yuruna.link/42d69dfa-0008
 $osVariant = 'linux2022'
 $osList = & virt-install --osinfo list 2>$null
 if ($LASTEXITCODE -eq 0) {
@@ -352,10 +352,10 @@ if ($LASTEXITCODE -eq 0) {
     }
 }
 
-# --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
+# --- REGION: https://yuruna.link/42fa6f45-0015
 $hostCores = [int](& nproc --all)
 if ($hostCores -lt 4) {
-    Write-Error "Host has $hostCores cores; Yuruna requires at least 4. See https://yuruna.link/definition#defining-the-vm-core-count-policy"
+    Write-Error "Host has $hostCores cores; Yuruna requires at least 4. See https://yuruna.link/42fa6f45-0015"
     exit 1
 }
 # Floor-half of the host is the target, clamped so a guest never takes
@@ -381,12 +381,12 @@ if ($Cores) {
     $vmCores = $coresInt
 }
 
-# --- REGION: https://yuruna.link/definition#defining-the-vm-memory-policy
+# --- REGION: https://yuruna.link/42fa6f45-0016
 # virt-install --memory is in MB, so convert from the canonical byte count.
 try { $vmMemoryBytes = ConvertTo-MemoryStartupBytes $MemoryStartupBytes } catch { Write-Error $_.Exception.Message; exit 1 }
 $vmMemoryMb = if ($vmMemoryBytes -gt 0) { [int]($vmMemoryBytes / 1MB) } else { 8192 }
 
-# --- REGION: https://yuruna.link/network#defining-deterministic-guest-mac-addresses
+# --- REGION: https://yuruna.link/4220a755-000a
 # Keyed on the guest's durable identity, not on the name the VM carries now: a
 # guest is built in a per-kind slot and renamed to its real name when its
 # baseline is snapshotted, and an address that moved with that rename would
@@ -434,7 +434,7 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# --- REGION: https://yuruna.link/memory#why-we-patch-virt-installs-phase-1-xml-on-kvm
+# --- REGION: https://yuruna.link/42d69dfa-0003
 # Force on_reboot=restart so subiquity's post-install reboot doesn't kill
 # the domain. Sanity-check the substitution actually fired -- if a future
 # virt-install version stops emitting the destroy literal we want a noisy
@@ -446,7 +446,7 @@ if ($patchedXml -eq $installXml -and $installXml -notmatch '<on_reboot>restart</
     exit 1
 }
 
-# --- REGION: https://yuruna.link/memory#why-we-swap-boot-order-1-and-2-in-the-install-xml
+# --- REGION: https://yuruna.link/42d69dfa-0004
 $preBootSwap = $patchedXml
 if ($patchedXml -match "<boot order='1'/>" -and $patchedXml -match "<boot order='2'/>") {
     $patchedXml = $patchedXml -replace "<boot order='1'/>", "<boot order='__YURUNA_BOOT_SWAP__'/>"

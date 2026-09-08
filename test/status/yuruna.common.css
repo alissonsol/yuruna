@@ -1,10 +1,10 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.09.01
-  --- REGION: https://yuruna.link/definition#defining-the-status-page-browser-baseline
-  --- REGION: https://yuruna.link/definition#defining-the-status-page-header-anatomy
-  --- REGION: https://yuruna.link/definition#defining-the-status-page-mobile-and-dark-mode-hardening
+  Version: 2026.09.08
+  --- REGION: https://yuruna.link/42fa6f45-0018
+  --- REGION: https://yuruna.link/42fa6f45-001d
+  --- REGION: https://yuruna.link/42fa6f45-0019
 */
 
 :root {
@@ -99,7 +99,8 @@
   --touch-min:    2.75rem;
   /* Single source of truth for the monospace stack used by badges,
      timestamps, IP fields, code blocks, and chart axis labels.
-     Safari 9.1+ / iOS 9.3+ resolve var() in font-family.
+     An engine without custom properties drops the var() declaration and
+     keeps the generated literal in front of it, so the face still resolves.
      --mono is the name the shared page-chrome block below reads; the two are
      one stack under two names so the header version and the footer IP field
      render in the same face here as they do in the service UIs. */
@@ -211,7 +212,8 @@ body {
   /* Same family list as the service UIs, so the chrome's `font: inherit`
      controls -- the menu button above all -- resolve to one face everywhere. */
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-  background: var(--bg-primary); color: var(--fg-primary); font-size: 14px; line-height: 1.5;
+  background: #f9fafb;
+  background: var(--bg-primary); color: #111827; color: var(--fg-primary); font-size: 14px; line-height: 1.5;
 }
 
 /* ===========================================================================
@@ -228,7 +230,8 @@ body {
    Test.ExtensionUiChrome.Tests.ps1 fails when the copies stop matching.
    =========================================================================== */
 header.app {
-  background: var(--chrome-bg); color: var(--chrome-fg);
+  background: #111827;
+  background: var(--chrome-bg); color: #f9fafb; color: var(--chrome-fg);
   display: flex; align-items: center; flex-wrap: nowrap;
   /* Fold the iPhone safe-area-inset into the horizontal padding so the
      full-bleed bar stays readable under the notch (every page sets
@@ -243,20 +246,20 @@ header.app > * + * { margin-left: 1rem; }
 header.app .brand { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
 header.app .brand .name { font-size: 1rem; font-weight: 600; white-space: nowrap; }
 header.app .brand a { color: inherit; text-decoration: none; }
-header.app .version { color: var(--chrome-muted); font-family: var(--mono); font-size: .72rem; font-weight: 400; }
+header.app .version { color: #9ca3af; color: var(--chrome-muted); font-family: ui-monospace, Menlo, Consolas, monospace; font-family: var(--mono); font-size: .72rem; font-weight: 400; }
 header.app .spacer { flex: 1; }
 /* The host id is the header's one variable-width item, so it is the one that
    gives: it truncates rather than pushing the menu button off a phone. */
-header.app .machine { color: var(--chrome-muted); font-family: var(--mono); font-size: .8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+header.app .machine { color: #9ca3af; color: var(--chrome-muted); font-family: ui-monospace, Menlo, Consolas, monospace; font-family: var(--mono); font-size: .8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 /* A plain header action sits on the black bar and cannot inherit the page's
    light button styling. :not(.primary) leaves the accent-filled ones alone --
    they already read on black. Scoped to .btn, never to bare `button`: a
    `header.app button` selector would outrank .menu-button's own rules below and
    flatten its open state. */
 header.app .btn:not(.primary) {
-  background: transparent; color: var(--chrome-fg); border-color: var(--chrome-line);
+  background: transparent; color: #f9fafb; color: var(--chrome-fg); border-color: #374151; border-color: var(--chrome-line);
 }
-header.app .btn:not(.primary):hover { background: var(--chrome-raised); }
+header.app .btn:not(.primary):hover { background: #1f2937; background: var(--chrome-raised); }
 
 /* Right-hand page menu. Every service carries the same control in the same
    corner, so moving between pages does not change from one Yuruna UI to the
@@ -267,16 +270,20 @@ header.app .btn:not(.primary):hover { background: var(--chrome-raised); }
   display: inline-flex; align-items: center; justify-content: center;
   min-height: 2rem; padding: .3rem .6rem;
   font: inherit; font-size: .85rem; line-height: 1;
+  color: #f9fafb;
   color: var(--chrome-fg); background: transparent;
+  border: 1px solid #374151;
   border: 1px solid var(--chrome-line); border-radius: 6px; cursor: pointer;
 }
-.menu-button:hover, .menu-button[aria-expanded="true"] { background: var(--chrome-raised); }
+.menu-button:hover, .menu-button[aria-expanded="true"] { background: #1f2937; background: var(--chrome-raised); }
 .menu-button .menu-icon { font-size: 1rem; line-height: 1; }
 .menu-button .menu-icon + .menu-label { margin-left: .4rem; }
 .menu-panel {
   position: absolute; top: calc(100% + .45rem); right: 0;
   min-width: 12rem; padding: .3rem;
-  background: var(--chrome-raised); color: var(--chrome-fg);
+  background: #1f2937;
+  background: var(--chrome-raised); color: #f9fafb; color: var(--chrome-fg);
+  border: 1px solid #374151;
   border: 1px solid var(--chrome-line); border-radius: 8px;
   box-shadow: 0 10px 28px rgba(0,0,0,.45);
   /* Above the fixed footer bar (3), any sticky page furniture (1) and the
@@ -286,22 +293,24 @@ header.app .btn:not(.primary):hover { background: var(--chrome-raised); }
 }
 .menu-panel a {
   display: block; padding: .5rem .6rem; border-radius: 6px;
+  color: #f9fafb;
   color: var(--chrome-fg); font-size: .9rem; text-decoration: none; white-space: nowrap;
 }
-.menu-panel a:hover, .menu-panel a:focus { background: var(--chrome-hover); text-decoration: none; }
+.menu-panel a:hover, .menu-panel a:focus { background: #374151; background: var(--chrome-hover); text-decoration: none; }
 .menu-panel a[aria-current="page"] { font-weight: 600; }
 .menu-panel a[aria-current="page"]::after { content: "\2713"; float: right; margin-left: 1.5rem; }
 /* The trailing link leaves the service; the rule says so before it is followed. */
-.menu-panel .menu-out { margin-top: .3rem; padding-top: .4rem; border-top: 1px solid var(--chrome-line); border-radius: 0 0 6px 6px; }
+.menu-panel .menu-out { margin-top: .3rem; padding-top: .4rem; border-top: 1px solid #374151; border-top: 1px solid var(--chrome-line); border-radius: 0 0 6px 6px; }
 
 /* Footer bar (server IPs - loaded - refresh countdown), the same surface as the
    header above -- fixed at the bottom, with a readonly mono textarea for the
    (possibly long) IP list. main pads its bottom so the fixed bar never covers
    the last row of a table. margin-top/text-align are restated because one page
-   carries this id on a <footer class="app"> that centres its flow content. */
+   carries this id on a <footer class="app"> that centers its flow content. */
 #footer-bar {
   position: fixed; bottom: 0; left: 0; right: 0;
-  background: var(--chrome-bg); color: var(--chrome-muted);
+  background: #111827;
+  background: var(--chrome-bg); color: #9ca3af; color: var(--chrome-muted);
   margin-top: 0; text-align: left;
   /* Fixed bar: pad left/right and bottom by the safe-area-inset so it clears
      the iPhone home indicator and the landscape notch. */
@@ -317,14 +326,16 @@ header.app .btn:not(.primary):hover { background: var(--chrome-raised); }
   z-index: 3;
 }
 #footer-bar > * + * { margin-left: .75rem; }
-#footer-bar a { color: var(--chrome-muted); }
+#footer-bar a { color: #9ca3af; color: var(--chrome-muted); }
 #footer-ips { flex: 0 1 33%; max-width: 33%; min-width: 0; display: flex; align-items: center; }
 #footer-ips > * + * { margin-left: .5rem; }
 #footer-ips .label { flex-shrink: 0; }
 textarea#footer-ip-list {
   flex: 1 1 auto; min-width: 0;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
   font-family: var(--mono); font-size: .6875rem;
-  color: var(--chrome-muted); background: var(--chrome-input-bg); border: 1px solid var(--chrome-control-edge);
+  color: #9ca3af;
+  color: var(--chrome-muted); background: #0b1220; background: var(--chrome-input-bg); border: 1px solid #8b93a1; border: 1px solid var(--chrome-control-edge);
   border-radius: 3px; padding: .15rem .35rem;
   resize: none; overflow: auto; white-space: pre;
   line-height: 1.25; vertical-align: middle;
@@ -337,13 +348,14 @@ body.has-footer-bar main { padding-bottom: 3rem; padding-bottom: calc(3rem + env
 
 /* The in-flow footer of a page with no data feed of its own (create, detail).
    Same surface, same padding and same type scale as the fixed bar above, so a
-   page that ends early ends on a bar of identical height and colour instead of
+   page that ends early ends on a bar of identical height and color instead of
    trailing off into the page background. */
 footer.app {
-  background: var(--chrome-bg); color: var(--chrome-muted);
+  background: #111827;
+  background: var(--chrome-bg); color: #9ca3af; color: var(--chrome-muted);
   /* Deliberately NOT a flex container: this variant holds a run of inline text
      around its link, and flex would promote each text run to its own anonymous
-     item and eat the spaces at their edges. The taller padding centres that one
+     item and eat the spaces at their edges. The taller padding centers that one
      line inside the shared min-height instead. */
   padding: .6rem 1rem;
   padding: .6rem max(1rem, env(safe-area-inset-right)) max(.6rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
@@ -351,12 +363,12 @@ footer.app {
   /* Same floor as the fixed bar above -- these are one bar in two placements. */
   min-height: 2.25rem;
 }
-footer.app a { color: var(--chrome-muted); }
+footer.app a { color: #9ca3af; color: var(--chrome-muted); }
 
 /* Phone: the menu is how you leave a page, so it keeps a full touch target
    while its label drops -- the glyph alone survives a 320px viewport. */
 @media (max-width: 600px) {
-  .menu-button { min-height: var(--touch-min); min-width: var(--touch-min); font-size: 16px; }
+  .menu-button { min-height: 2.75rem; min-height: var(--touch-min); min-width: 2.75rem; min-width: var(--touch-min); font-size: 16px; }
   .menu-button .menu-label { display: none; }
   .menu-panel a { padding: .65rem .6rem; }
   header.app .btn { padding: .4rem .6rem; font-size: .85rem; }
@@ -379,10 +391,10 @@ footer.app a { color: var(--chrome-muted); }
 #footer-bar .linkish {
   appearance: none; -webkit-appearance: none;
   background: none; border: 0; padding: 0; margin: 0;
-  font: inherit; color: var(--chrome-muted);
+  font: inherit; color: #9ca3af; color: var(--chrome-muted);
   text-decoration: underline; cursor: pointer;
 }
-#footer-bar .linkish[aria-pressed="true"] { color: var(--chrome-fg); font-weight: 600; }
+#footer-bar .linkish[aria-pressed="true"] { color: #f9fafb; color: var(--chrome-fg); font-weight: 600; }
 /* === end page chrome ====================================================== */
 
 /* The status pages put a two-line host identity where a service UI puts one
@@ -395,7 +407,7 @@ footer.app a { color: var(--chrome-muted); }
 }
 .hm-stack .hm-host { opacity: .75; }
 a.hm-name { color: inherit; text-decoration: none; }
-a.hm-name:hover { color: var(--chrome-fg); text-decoration: underline; }
+a.hm-name:hover { color: #f9fafb; color: var(--chrome-fg); text-decoration: underline; }
 
 /* Banded rows, shared with the service UIs so a table reads the same wherever
    an operator meets one. A row here is a run of near-identical mono text
@@ -406,8 +418,8 @@ a.hm-name:hover { color: var(--chrome-fg); text-decoration: underline; }
    Scoped to tbody: a thead/tfoot row is not part of the alternation. A cell
    that paints its own background -- a page's row-hover rule, a verdict cell --
    still wins, because a td's background paints over its tr's. */
-tbody tr:nth-child(odd) { background: var(--band-odd); }
-tbody tr:nth-child(even) { background: var(--band-even); }
+tbody tr:nth-child(odd) { background: #f6f8fa; background: var(--band-odd); }
+tbody tr:nth-child(even) { background: #ffffff; background: var(--band-even); }
 
 /* Touch-friendly button base. Per-page .meta-btn / .delete-array / etc.
    inherit min-height + min-width from .yuruna-touchable; pages that need a
@@ -417,7 +429,9 @@ tbody tr:nth-child(even) { background: var(--band-even); }
 .yuruna-touchable,
 .meta-btn,
 button {
+  min-height: 2.75rem;
   min-height: var(--touch-min);
+  min-width: 2.75rem;
   min-width:  var(--touch-min);
   /* Pre-fill the inline padding so a single-word button reads as a
      comfortable touch target rather than a 28 px sliver. */
@@ -442,12 +456,12 @@ button {
    only safe because every fill below is a banner-specific token dark enough to
    carry it. Pointing these at the badge-text tokens instead -- which is what
    they used to do -- put white on the dark scheme's pale #fecaca. */
-#banner.idle    { background: var(--banner-idle-bg); color: var(--fg-header); }
-#banner.running { background: var(--banner-running-bg); color: var(--fg-header); }
-#banner.pass    { background: var(--banner-pass-bg); color: var(--fg-header); }
-#banner.fail    { background: var(--banner-fail-bg); color: var(--fg-header); }
-#banner.paused  { background: var(--banner-paused-bg); color: var(--fg-header); }
-#banner.stopped { background: var(--banner-stopped-bg); color: var(--fg-header); }
+#banner.idle    { background: #6b7280; background: var(--banner-idle-bg); color: #ffffff; color: var(--fg-header); }
+#banner.running { background: #2563eb; background: var(--banner-running-bg); color: #ffffff; color: var(--fg-header); }
+#banner.pass    { background: #15803d; background: var(--banner-pass-bg); color: #ffffff; color: var(--fg-header); }
+#banner.fail    { background: #dc2626; background: var(--banner-fail-bg); color: #ffffff; color: var(--fg-header); }
+#banner.paused  { background: #a16207; background: var(--banner-paused-bg); color: #ffffff; color: var(--fg-header); }
+#banner.stopped { background: #374151; background: var(--banner-stopped-bg); color: #ffffff; color: var(--fg-header); }
 #banner .dot {
   width: .625rem; height: .625rem; border-radius: 50%;
   background: currentColor; display: inline-block; flex-shrink: 0;
@@ -459,13 +473,13 @@ button {
    yuruna.common.js emits) so a page that reuses a status word for an
    unrelated element -- e.g. performance.html's .cycle-dur.fail duration cell --
    is not tinted. */
-.badge.idle,    .step-pill.idle,    .idle-bg    { background: var(--bg-hover); color: var(--badge-muted-fg); }
-.badge.pending, .step-pill.pending, .pending-bg { background: var(--bg-hover); color: var(--badge-muted-fg); }
-.badge.running, .step-pill.running, .running-bg { background: var(--running-bg); color: var(--running-fg); }
-.badge.pass,    .step-pill.pass,    .pass-bg    { background: var(--pass-bg); color: var(--pass-fg); }
-.badge.fail,    .step-pill.fail,    .fail-bg    { background: var(--fail-bg); color: var(--fail-fg); }
-.badge.skipped, .step-pill.skipped, .skipped-bg { background: var(--skipped-bg); color: var(--skipped-fg); }
-.badge.paused,  .step-pill.paused,  .paused-bg  { background: var(--pending-bg); color: var(--pending-fg); }
+.badge.idle,    .step-pill.idle,    .idle-bg    { background: #f3f4f6; background: var(--bg-hover); color: #5b6472; color: var(--badge-muted-fg); }
+.badge.pending, .step-pill.pending, .pending-bg { background: #f3f4f6; background: var(--bg-hover); color: #5b6472; color: var(--badge-muted-fg); }
+.badge.running, .step-pill.running, .running-bg { background: #dbeafe; background: var(--running-bg); color: #1d4ed8; color: var(--running-fg); }
+.badge.pass,    .step-pill.pass,    .pass-bg    { background: #dcfce7; background: var(--pass-bg); color: #15803d; color: var(--pass-fg); }
+.badge.fail,    .step-pill.fail,    .fail-bg    { background: #fee2e2; background: var(--fail-bg); color: #b91c1c; color: var(--fail-fg); }
+.badge.skipped, .step-pill.skipped, .skipped-bg { background: #fef9c3; background: var(--skipped-bg); color: #a16207; color: var(--skipped-fg); }
+.badge.paused,  .step-pill.paused,  .paused-bg  { background: #fef3c7; background: var(--pending-bg); color: #854d0e; color: var(--pending-fg); }
 /* prefers-reduced-motion: respect the OS-level accessibility hint so a
    user who has set "Reduce motion" (vestibular disorder, focus mode,
    battery saver on iOS) does not see a continuously pulsing dot. The
@@ -555,7 +569,8 @@ svg.cycle-flame { width: 100%; height: auto; max-width: 100%; }
 
 .section-title {
   font-size: .6875rem; font-weight: 700; text-transform: uppercase;
-  letter-spacing: .07em; color: var(--fg-muted);
+  letter-spacing: .07em; color: #6b7280; color: var(--fg-muted);
+  border-bottom: 1px solid #e5e7eb;
   border-bottom: 1px solid var(--border); padding-bottom: .4rem; margin-bottom: .875rem;
 }
 .section-title.with-controls {
@@ -568,6 +583,7 @@ svg.cycle-flame { width: 100%; height: auto; max-width: 100%; }
   margin-left: auto; flex: 0 0 auto;
   font-size: .8125rem; font-weight: 500;
   text-transform: none; letter-spacing: normal;
+  color: #2563eb;
   color: var(--section-link); text-decoration: underline dotted;
 }
 .section-title.with-controls .section-title-link:hover { text-decoration: underline; }
@@ -577,14 +593,16 @@ svg.cycle-flame { width: 100%; height: auto; max-width: 100%; }
    button into the cycle/header area gets a consistent affordance.
    .paused-active flips color to signal an armed pause/resume state. */
 .meta-btn {
-  background: var(--meta-btn-bg); color: var(--meta-btn-fg);
+  background: #f3f4f6;
+  background: var(--meta-btn-bg); color: #111827; color: var(--meta-btn-fg);
+  border: 1px solid #d1d5db;
   border: 1px solid var(--meta-btn-border);
   border-radius: .375rem;
   font-weight: 600;
   font-family: inherit; cursor: pointer;
   transition: background .15s, opacity .15s;
 }
-.meta-btn:hover:not([disabled]) { background: var(--meta-btn-hover-bg); }
+.meta-btn:hover:not([disabled]) { background: #e5e7eb; background: var(--meta-btn-hover-bg); }
 .meta-btn[disabled] { cursor: default; opacity: .45; }
 /* The armed state inverts the button: an amber fill in light, a darker amber
    in dark. --meta-btn-fg is the colour for the RESTING fill and follows the
@@ -594,16 +612,21 @@ svg.cycle-flame { width: 100%; height: auto; max-width: 100%; }
    schemes. */
 .meta-btn.paused-active,
 .meta-btn.paused-active:hover:not([disabled]) {
-  background: var(--meta-btn-active-bg); color: var(--meta-btn-active-fg);
+  background: #fbbf24;
+  background: var(--meta-btn-active-bg); color: #111827; color: var(--meta-btn-active-fg);
+  border-color: #b45309;
   border-color: var(--meta-btn-active-border);
 }
 
 /* Empty-state panel shared by index.html and performance.html. */
 .no-data {
-  text-align: center; padding: 3.5rem 1rem; color: var(--fg-faint);
+  text-align: center; padding: 3.5rem 1rem; color: #6b7280; color: var(--fg-faint);
 }
-.no-data h3 { font-size: 1.125rem; margin-bottom: .5rem; color: var(--fg-muted); }
+.no-data h3 { font-size: 1.125rem; margin-bottom: .5rem; color: #6b7280; color: var(--fg-muted); }
 .no-data code {
-  background: var(--bg-code); padding: .125rem .375rem; border-radius: .25rem;
+  background: #f3f4f6;
+  background: var(--bg-code); color: #111827; color: var(--fg-primary);
+  padding: .125rem .375rem; border-radius: .25rem;
+  font-family: ui-monospace, Menlo, Consolas, monospace;
   font-family: var(--font-mono); font-size: .8125rem;
 }

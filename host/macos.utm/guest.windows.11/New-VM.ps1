@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 4224d5e4-9d07-4231-afd5-1a7a005a431d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -160,7 +160,7 @@ if (-not (Test-Path $AnswerFileTemplate)) {
     exit 1
 }
 
-# --- REGION: https://yuruna.link/network#defining-yuruna-host-locate-lib
+# --- REGION: https://yuruna.link/4220a755-002d
 # Coordinates for the first-logon bootstrap, resolved for the network this VM
 # is actually getting. Under Shared (VZ NAT) the host answers at a gateway
 # address no DHCP lease can move, so the seeded address stays true on its own;
@@ -210,10 +210,10 @@ $SeedId = [guid]::NewGuid().ToString().ToUpper()
 # so the DHCP server returns the SAME lease instead of consuming a new one.
 $MacAddress = Get-YurunaGuestMacAddress -VMName $VMName
 
-# --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
+# --- REGION: https://yuruna.link/42fa6f45-0015
 $hostCores = [int](& /usr/sbin/sysctl -n hw.physicalcpu)
 if ($hostCores -lt 4) {
-    Write-Error "Host has $hostCores physical cores; Yuruna requires at least 4. See https://yuruna.link/definition#defining-the-vm-core-count-policy"
+    Write-Error "Host has $hostCores physical cores; Yuruna requires at least 4. See https://yuruna.link/42fa6f45-0015"
     exit 1
 }
 $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))

@@ -3,12 +3,12 @@
 # Hyper-V overlay for amazon.linux.2023.base.user-data.
 # Anchor sections in base-file order. An empty section emits nothing at that anchor.
 # === YURUNA_OVERLAY_RUNCMD_CONSOLEBLANK ===
-  # --- REGION: https://yuruna.link/vmconfig#hyperv_fb-framebuffer-pin
+  # --- REGION: https://yuruna.link/429f3d06-0020
   - bash -c 'command -v grubby >/dev/null 2>&1 && grubby --update-kernel=ALL --args="video=hyperv_fb:1024x768" || true'
 # === YURUNA_OVERLAY_RUNCMD_QUIET_LOGLEVEL ===
-  # --- REGION: https://yuruna.link/vmconfig#console-quiet
+  # --- REGION: https://yuruna.link/429f3d06-0025
   - bash -c 'command -v grubby >/dev/null 2>&1 && grubby --update-kernel=ALL --args="quiet loglevel=3 systemd.show_status=no rd.systemd.show_status=no" || true'
-  # --- REGION: https://yuruna.link/vmconfig#headless-host-reboot-on-framebuffer-collapse
+  # --- REGION: https://yuruna.link/429f3d06-0030
   - |
     if [ -r /sys/class/graphics/fb0/virtual_size ]; then
       VS=$(cat /sys/class/graphics/fb0/virtual_size)
@@ -20,7 +20,7 @@
     fi
 # === YURUNA_OVERLAY_POWER_STATE ===
 
-# --- REGION: https://yuruna.link/vmconfig#headless-host-reboot-on-framebuffer-collapse
+# --- REGION: https://yuruna.link/429f3d06-0030
 power_state:
   delay: now
   mode: reboot

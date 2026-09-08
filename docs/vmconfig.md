@@ -1,3 +1,5 @@
+<a id="429f3d06-0001"></a>
+
 # vmconfig topic reference
 
 This file collects the rationale behind every non-trivial line in the
@@ -25,6 +27,8 @@ per-stanza rationale is in
 Everything before that section covers the shared *guest* user-data.
 
 ---
+
+<a id="429f3d06-0002"></a>
 
 ## How user-data is rendered
 
@@ -71,6 +75,8 @@ Rows marked *Auto-populated* are filled in by `New-CloudInitUserData` itself,
 so a `New-VM.ps1` spells them out in `-Replacement` only to override the
 value the module would have resolved.
 
+<a id="429f3d06-0003"></a>
+
 ### Three-stage rendering
 
 | Stage | Function | Inputs | Output |
@@ -85,6 +91,8 @@ base64 entries plus the host-identity and GitHub-source entries listed
 above, and optionally writes the result to `-OutputPath` (see "Output
 encoding" below).
 
+<a id="429f3d06-0004"></a>
+
 ### Placeholder safety net
 
 `Resolve-CloudInitPlaceholder` iterates the caller's hashtable and
@@ -96,6 +104,8 @@ This catches typos at New-VM time -- a forgotten entry in the caller's
 hashtable, or a new placeholder no caller supplies a value for -- instead
 of letting a literal placeholder ship to the guest and fail
 mid-autoinstall with a confusing diagnostic.
+
+<a id="429f3d06-0005"></a>
 
 ### Files on disk
 
@@ -110,6 +120,8 @@ mid-autoinstall with a confusing diagnostic.
 | `host/vmconfig/amazon.linux.2023.kvm.overlay.yml` | Per-host AL2023 overlay (KVM): `consoleblank=0` runcmd. |
 | `host/vmconfig/amazon.linux.2023.utm.overlay.yml` | Per-host AL2023 overlay (UTM). |
 | `automation/yuruna-retry.sh`, `automation/yuruna-versions.sh`, `automation/fetch-and-execute.sh`, `automation/yuruna-network.sh`, `automation/yuruna-host-locate.sh` | Guest-side helper scripts baked into the seed as base64 `write_files` entries. `yuruna-versions.sh` holds the pinned dependency versions and is sourced by `yuruna-retry.sh`. `yuruna-host-locate.sh` decides where the guest fetches code from, so it is seeded rather than fetched. |
+
+<a id="429f3d06-0006"></a>
 
 ### Overlay anchor contract
 
@@ -143,6 +155,8 @@ Anchors not represented in the overlay are a hard error -- a silent miss
 would leak the literal marker into the final user-data and confuse
 cloud-init.
 
+<a id="429f3d06-0007"></a>
+
 ### Output encoding
 
 `New-CloudInitUserData -OutputPath <file>` writes UTF-8 without a BOM and
@@ -151,6 +165,8 @@ on CR-sensitive shell heredocs in the rendered `late-commands` block, so
 LF-only output is the durable choice.
 
 ---
+
+<a id="429f3d06-0008"></a>
 
 ## Topic order in user-data
 
@@ -173,23 +189,28 @@ Recommended order (a guest may omit topics that don't apply):
 5. Passwordless sudo for harness user
 6. Disable swap
 7. Disable MOTD
-8. hv_balloon denylist *(Hyper-V)*
-9. hyperv_fb framebuffer pin *(Hyper-V)*
-10. AL2023 framebuffer console *(amazon.linux.2023)*
-11. consoleblank kernel cmdline *(KVM ubuntu.server.24)*
-12. Console quiet
-13. update-grub
-14. Console: hold getty until cloud-init signals done *(ubuntu.server.24)*
-15. Yuruna host coordinates
-16. wget no_proxy
-17. Install yuruna lib
-18. Timezone via IP geolocation and NTP
-19. Quiet post-install reboot teardown *(ubuntu.server.24)*
-20. Headless host reboot on framebuffer collapse *(Hyper-V amazon.linux.2023)*
+8. dpkg unsafe I/O *(Hyper-V)*
+9. hv_balloon denylist *(Hyper-V)*
+10. hyperv_fb framebuffer pin *(Hyper-V)*
+11. AL2023 framebuffer console *(amazon.linux.2023)*
+12. consoleblank kernel cmdline *(KVM ubuntu.server.24)*
+13. Console quiet
+14. update-grub
+15. Console: hold getty until cloud-init signals done *(ubuntu.server.24)*
+16. Yuruna host coordinates
+17. wget no_proxy
+18. Install yuruna lib
+19. Timezone via IP geolocation and NTP
+20. Quiet post-install reboot teardown *(ubuntu.server.24)*
+21. Headless host reboot on framebuffer collapse *(Hyper-V amazon.linux.2023)*
 
 ---
 
+<a id="429f3d06-0009"></a>
+
 ## Topics
+
+<a id="429f3d06-000a"></a>
 
 ### apt proxy block
 
@@ -219,6 +240,8 @@ index fetch on noble; on resolute's curtin (subiquity snap 7227) it aborts
 multi-line YAML would splice into the wrong place and subiquity would
 silently drop back to the interactive installer.
 
+<a id="429f3d06-000b"></a>
+
 ### Why server-ISO over desktop-ISO
 
 The cloud-init `autoinstall:` schema requires the Ubuntu **server** ISO;
@@ -227,6 +250,8 @@ equivalent unattended-install mechanism. The test framework drives
 provisioning by attaching a NoCloud seed (user-data + meta-data), and
 only the server ISO's subiquity reads it. Image selection happens
 in `Get-Image.ps1` per host.
+
+<a id="429f3d06-000c"></a>
 
 ### chpasswd list schema
 
@@ -249,6 +274,8 @@ the first-login current/new/retype dialog still fires.
 
 Do NOT add spaces after `ec2-user:` -- they become part of the password.
 
+<a id="429f3d06-000d"></a>
+
 ### Unlocked account needs plain_text_passwd
 
 *(service seeds: caching-proxy-service, download-agent-service,
@@ -264,6 +291,8 @@ greets anyone reading the guest diagnostics for an unrelated fault. The
 value is the same one `chpasswd` applies, so the effective credential is
 unchanged.
 
+<a id="429f3d06-000e"></a>
+
 ### ssh_authorized_keys at top level
 
 *(amazon.linux.2023)*
@@ -271,6 +300,8 @@ unchanged.
 Top-level `ssh_authorized_keys:` (rather than under a `users:` block)
 keeps cloud-init from silently merging or dropping the key when the
 username matches the distro-default user (`ec2-user`).
+
+<a id="429f3d06-000f"></a>
 
 ### Pass-through user-data: silence SSH fingerprints
 
@@ -297,6 +328,8 @@ These are distinct from `autoinstall.ssh` above (subiquity's
 installer-side SSH config), which leaves `authorized-keys` / `install-server`
 intact.
 
+<a id="429f3d06-0010"></a>
+
 ### LVM sizing policy
 
 ```
@@ -312,6 +345,8 @@ as little as ~12.5% on >200 G disks. Without it the node
 ephemeral-storage filesystem on a 64 G qcow2 lands at ~14 GiB and trips
 kubelet's eviction watermark during the website test.
 
+<a id="429f3d06-0011"></a>
+
 ### Empty interactive-sections
 
 *(autoinstall)*
@@ -320,6 +355,8 @@ Disables every interactive step so the install runs fully unattended.
 Subiquity's unconditional "Continue with autoinstall?" confirmation
 still fires; the GUI test sequence's first step uses it as a match
 point.
+
+<a id="429f3d06-0012"></a>
 
 ### Disable VT blanking on the LIVE installer kernel
 
@@ -343,6 +380,8 @@ autoinstall reference), so this fires before any 10-min quiet window can
 elapse. KVM-only concern; harmless on Hyper-V's `hyperv_fb` and Apple
 Virtualization's virtio-gpu.
 
+<a id="429f3d06-0013"></a>
+
 ### Apt cache: persist proxy
 
 Belt-and-suspenders write of `/target/etc/apt/apt.conf.d/99yuruna-apt-cache`,
@@ -361,6 +400,8 @@ and pointing `Acquire::https::Proxy` at the `:3129` ssl-bump listener:
   so the CA fetch happens on the HOST inside `New-VM.ps1` and the bytes
   arrive base64-embedded via `CA_CERT_BASE64_PLACEHOLDER`. An empty
   placeholder is a graceful no-op: HTTPS apt bypasses the cache.
+
+<a id="429f3d06-0014"></a>
 
 ### Enforce proxy egress
 
@@ -391,6 +432,8 @@ loopback+conntrack so netfilter-persistent has a valid file to load
 
 <a id="pin-ipv4-dhcp-refuse-ipv6-ra"></a>
 
+<a id="429f3d06-0015"></a>
+
 ### Pin IPv4-only DHCP, refuse IPv6 router advertisements
 
 Anchor: `pin-ipv4-dhcp-refuse-ipv6-ra`
@@ -419,6 +462,8 @@ forever. The Apple Virtualization backend emits no such RAs, so
 subiquity's auto-detection is safe there; Hyper-V and KVM guests see no
 such RA stream either, so they keep auto-detection.
 
+<a id="429f3d06-0016"></a>
+
 ### Cap systemd-networkd-wait-online
 
 ```
@@ -441,6 +486,8 @@ cloud-init failure or minutes of delay before login.
   arrive; without the cap the service blocks forever.
 - **libvirt 'default' NAT (KVM):** can stall on IPv6 RA waits and
   delay cloud-init via `network-online.target`.
+
+<a id="429f3d06-0017"></a>
 
 ### Password hashing: argv leading-dash trap
 
@@ -485,6 +532,8 @@ stdin, where argv parsing is not involved. The AL2023 guest path --
 which substitutes plaintext directly into `chpasswd.list:` rather than
 computing a hash -- is therefore safe by construction.
 
+<a id="429f3d06-0018"></a>
+
 ### Force first-login password change
 
 *(ubuntu.server.24)*
@@ -504,6 +553,8 @@ AL2023's cloud-init default (`chpasswd.expire: true`), so the GUI test
 sequence's first login fires the same Current/New/Retype dialog on every
 supported host.
 
+<a id="429f3d06-0019"></a>
+
 ### login session budget
 
 ```
@@ -521,6 +572,8 @@ the append, so the change is idempotent.
 The `bash -c` wrapper exists because cloud-init's YAML parser treats
 the bare regex `/^[#[:space:]]*LOGIN_TIMEOUT/d` as a path; quoting it
 inside `bash -c` keeps it as one shell argument.
+
+<a id="429f3d06-001a"></a>
 
 ### Passwordless sudo for harness user
 
@@ -545,6 +598,8 @@ without a TTY, so any sudo prompt would block. The drop-in uses the
 standard `sudoers.d` form (mode 440, owner root:root) so `visudo -c`
 accepts it.
 
+<a id="429f3d06-001b"></a>
+
 ### Disable swap
 
 ```
@@ -556,6 +611,8 @@ Test VMs run with enough RAM that paging is never desirable, and a hung
 swap-target during shutdown adds seconds to every cycle. Comment the
 fstab entry AND mask `swap.target` so neither the regular boot nor a
 late `swapon -a` re-enables it.
+
+<a id="429f3d06-001c"></a>
 
 ### Mask snapd seeded
 
@@ -585,6 +642,8 @@ consumes. Mask only the seed-wait, NOT `snapd.service` / `snapd.socket`:
 that removes the boot-time gate while keeping on-demand `snap install`
 available to workload scripts via socket activation.
 
+<a id="429f3d06-001d"></a>
+
 ### Disable MOTD
 
 ```
@@ -598,6 +657,50 @@ Canonical advertising). They scroll the OCR harness past the
 `Password:` prompt before it can be matched, AND clutter every SSH
 session's stdout. Stripping the executable bit and disabling
 `motd-news` zeroes both.
+
+<a id="429f3d06-001e"></a>
+
+### dpkg unsafe I/O
+
+*(Hyper-V)*
+
+```
+# /etc/dpkg/dpkg.cfg.d/99-yuruna-unsafe-io
+force-unsafe-io
+```
+
+dpkg fsyncs each unpacked file before renaming it into place. On a virtual
+disk every one of those becomes a flush round trip, and unpack cost then
+tracks the number of files rather than their size: a 13 kB, ten-file package
+can cost as much as a large one. A guest caught mid-install shows `dpkg` in
+state `Ds+` blocked on `jbd2_log_wait_commit`, with the journal thread
+`jbd2/dm-0-8` above `dpkg` itself in the guest's own CPU ranking. The control
+is the .NET SDK, which extracts a comparable volume through a tarball with no
+dpkg and no fsync and does not slow down under the same conditions.
+
+`force-unsafe-io` drops the fsync-before-rename only. The status-database
+commit and the configure phase still sync, so this shortens unpack and leaves
+the rest -- it is a fix for the spread between a quiet and a contended run
+rather than for the floor.
+
+The trade is crash durability during package operations: a guest that loses
+power mid-unpack can come back with a partially written file where dpkg would
+otherwise have guaranteed one or the other. That is acceptable here because
+these guests are reprovisioned from the installer every cycle. It is worth
+knowing that a guest restored by `loadDiskSnapshot` inherits whatever its last
+stop left behind, so a baseline captured from a force-stopped VM carries
+slightly more risk of a missing tail than it did before.
+
+Emitted from the Hyper-V overlay rather than the shared base, so it reaches
+Hyper-V guests on both host architectures and does not reach KVM or UTM. The
+architecture is deliberately not the gate: this lab runs aarch64 guests on
+UTM as well, so a `uname -m` test would change durability on a host family
+that gains nothing from it.
+
+The filename carries no dot on purpose -- dpkg ignores fragments in
+`dpkg.cfg.d` whose names contain one, which would disable this silently.
+
+<a id="429f3d06-001f"></a>
 
 ### hv_balloon denylist
 
@@ -613,6 +716,8 @@ console and pollute OCR. The
 file is inert on KVM/QEMU and macOS UTM, where `hv_balloon` never
 loads -- kept for cross-host symmetry of the runcmd / write_files
 shape.
+
+<a id="429f3d06-0020"></a>
 
 ### hyperv_fb framebuffer pin
 
@@ -643,6 +748,8 @@ in-guest driver use it regardless of host display state.
   "Headless host reboot" topic for the conditional reboot that applies
   the new arg.
 
+<a id="429f3d06-0021"></a>
+
 ### Enable sshd on first boot
 
 *(amazon.linux.2023)*
@@ -655,6 +762,8 @@ AL2023's `sshd.service` is installed but not enabled by default in the
 cloud image. The harness drives the guest over SSH once the GUI test
 sequence finishes its login dance, so the service must be up before
 that SSH-side handoff.
+
+<a id="429f3d06-0022"></a>
 
 ### AL2023 framebuffer console
 
@@ -698,6 +807,8 @@ cmdline is overridden --
 UTM omits this block entirely: its display window reads the serial
 console directly, with no framebuffer dependency.
 
+<a id="429f3d06-0023"></a>
+
 ### GNOME auto-open terminal on login
 
 *(amazon.linux.2023)*
@@ -723,6 +834,8 @@ login-and-type dance. `NoDisplay=true` keeps the launcher out of the
 applications menu while still honoring the autostart, and
 `X-GNOME-Autostart-enabled=true` opts it back in for GNOME.
 
+<a id="429f3d06-0024"></a>
+
 ### consoleblank kernel cmdline
 
 *(KVM ubuntu.server.24)*
@@ -743,6 +856,8 @@ calls survive.
 
 KVM-specific: the Hyper-V variant uses `hyperv_fb:1024x768` instead, and
 macos.utm's virtio-ramfb does not blank the same way.
+
+<a id="429f3d06-0025"></a>
 
 ### Console quiet
 
@@ -771,6 +886,8 @@ line and never matches `Current password:`.
 
 <a id="console-fb-safe"></a>
 
+<a id="429f3d06-0026"></a>
+
 ### Console: bochs-DRM framebuffer safety (KVM)
 
 Anchor: `console-fb-safe`
@@ -794,6 +911,8 @@ biting on the subsequent boots the harness drives. `nomodeset` disables
 KMS so no DRM driver loads at all; the serial console gives a diagnostic
 channel that doesn't depend on the framebuffer.
 
+<a id="429f3d06-0027"></a>
+
 ### update-grub
 
 ```
@@ -806,6 +925,8 @@ Regenerates `/boot/grub/grub.cfg` so the GRUB drop-ins above
 the post-install reboot, and must come AFTER all of them. AL2023 ships
 no `update-grub` wrapper; `grubby` does the same job inline and is
 called per-arg above.
+
+<a id="429f3d06-0028"></a>
 
 ### Console: hold getty until cloud-init signals done
 
@@ -840,6 +961,8 @@ the VM hangs at "Finished cloud-final.service" with no login prompt
 forever (cloud-init issue #2158, lp #1804957). `status --wait` in
 `ExecStartPre` avoids the race.
 
+<a id="429f3d06-0029"></a>
+
 ### Yuruna host coordinates
 
 ```
@@ -863,6 +986,8 @@ Two artifacts written for the dev iteration loop:
   Rebuild the guest if `Test-YurunaHost.ps1` fails after a host reboot.
 - **libvirt 'default' (KVM):** the gateway is stable at
   `192.168.122.1` -- no rebuild needed.
+
+<a id="429f3d06-002a"></a>
 
 ### Host address refresh timer
 
@@ -916,6 +1041,8 @@ rather than before DHCP has answered.
 Source: [`automation/yuruna-host-locate.sh`](../automation/yuruna-host-locate.sh),
 [`host/vmconfig/pool-control-service.base.user-data`](../host/vmconfig/pool-control-service.base.user-data).
 
+<a id="429f3d06-002b"></a>
+
 ### wget no_proxy
 
 ```
@@ -934,6 +1061,8 @@ silently falls through to GitHub.
 
 MUST come BEFORE the fetch-and-execute download and the timezone wget
 (both rely on the same `/etc/wgetrc`).
+
+<a id="429f3d06-002c"></a>
 
 ### Install yuruna lib
 
@@ -957,7 +1086,7 @@ All five `automation/*.sh` helpers land in the canonical
 
 - `yuruna-retry.sh` -- sourced by every guest provisioning script for
   `apt_retry` / `dnf_retry` / `curl_retry`. See
-  [Defining yuruna retry lib](https://yuruna.link/network#defining-yuruna-retry-lib).
+  [Defining yuruna retry lib](https://yuruna.link/4220a755-0003).
 - `yuruna-versions.sh` -- the pinned dependency versions, sourced in turn
   by `yuruna-retry.sh`.
 - `fetch-and-execute.sh` -- the harness's invocation point; the
@@ -974,6 +1103,8 @@ base64-encoded, and embedded as cloud-init `write_files:` content, so
 they are on disk before any provisioning script runs. Single source of
 truth: `automation/` in the framework repo.
 
+<a id="429f3d06-002d"></a>
+
 ### Timezone via IP geolocation and NTP
 
 ```
@@ -989,6 +1120,8 @@ with UTC.
 - **ubuntu.server.24:** wget-based.
 - **amazon.linux.2023:** curl-based (AL2023 ships curl by default but not
   wget on the cloud image).
+
+<a id="429f3d06-002e"></a>
 
 ### Quiet post-install reboot teardown
 
@@ -1010,6 +1143,8 @@ the installer (last late-command, against `/cdrom` NOT
 no-op, and a non-zero exit here would fail the entire install.
 
 MUST be the final two late-commands.
+
+<a id="429f3d06-002f"></a>
 
 ### error-commands installer log upload
 
@@ -1037,6 +1172,8 @@ of being lost when the installer drops to a shell.
 Bucket layout on the status service:
 `installer-fail/<hostname>/<UTC-timestamp>/<file>`.
 
+<a id="429f3d06-0030"></a>
+
 ### Headless host reboot on framebuffer collapse
 
 *(Hyper-V amazon.linux.2023)*
@@ -1063,6 +1200,8 @@ test sequence's first `login:` capture proceeds on the first boot.
 cloud-init's per-instance lifecycle keeps this from re-firing on later
 boots even if the sentinel file were recreated: `cc_power_state_change`
 is marked done for the instance after its first successful run.
+
+<a id="429f3d06-0031"></a>
 
 ### Universe packages go in late-commands, not `packages:`
 
@@ -1093,6 +1232,8 @@ reason, because an aborted late-command phase fails the entire install while a
 missing optional agent only sends discovery down to its next rung.
 
 ---
+
+<a id="429f3d06-0032"></a>
 
 ## Caching-proxy-service seed topics
 
@@ -1130,6 +1271,8 @@ the running VM. This section covers the cloud-init-level structural rationale.
 Topics follow the top-to-bottom flow of the user-data (cloud-config keys, then
 `write_files`, then `runcmd`), so the file and this section read side by side.
 
+<a id="429f3d06-0033"></a>
+
 ### Squid-cache hostname vs template name
 
 ```
@@ -1143,6 +1286,8 @@ source-tree directory `guest.caching-proxy-service/` and the image filename keep
 template, not the running VM. The split prevents a rename cascade across the
 repo when the runtime VM is renamed.
 
+<a id="429f3d06-0034"></a>
+
 ### Users replace cloud image default with a per VM admin account
 
 Replace the Ubuntu cloud image's default `ubuntu` user with `caching-proxy-service-admin`. A `users:` block WITHOUT `- default` suppresses ubuntu creation entirely -- only the listed users land in /etc/passwd. Each VM family gets its OWN administrator name (`caching-proxy-service-admin`, `download-agent-service-admin`, `pool-control-service-admin`, `stash-admin`) so their vault entries stay independent: under a shared name the vault holds one password and the most recently built VM invalidates the console credential of the others. `caching-proxy-service-admin` gets:
@@ -1150,13 +1295,19 @@ Replace the Ubuntu cloud image's default `ubuntu` user with `caching-proxy-servi
 - The yuruna harness SSH key for passwordless `ssh caching-proxy-service-admin@<cache-ip>`.
 - lock_passwd: false so chpasswd below can set a known random password for console fallback (the host VM console) while cloud-init is unfinished and SSH is not up yet.
 
+<a id="429f3d06-0035"></a>
+
 ### Grafana apt repo inline GPG key
 
 Grafana OSS repo: inline ASCII-armored key (keyserver.ubuntu.com is intermittently unreliable; an inline key avoids cascade failures during package-update). Rotate by refetching from https://apt.grafana.com/gpg.key when Grafana publishes a new key (verify fingerprint B53A E77B ADB6 30A6 8304 6005 963F A277 1045 8545).
 
+<a id="429f3d06-0036"></a>
+
 ### Package squid-openssl not squid
 
 squid-openssl: OpenSSL-linked build. Ubuntu's default `squid` package is built WITHOUT --with-openssl (Debian packaging split over OpenSSL vs GPL licensing), so its http_port parser rejects `ssl-bump`, `tls-cert=`, etc. with a "Bungled" FATAL at config-load and squid.service never binds a socket. squid-openssl ships the same /usr/sbin/squid and squid.service unit, and Conflicts: squid.
+
+<a id="429f3d06-0037"></a>
 
 ### squidclient and apache2
 
@@ -1164,45 +1315,65 @@ squidclient (/usr/bin/squidclient) ships in squid-common (already pulled in by s
 
 `squid-cgi` (the cachemgr.cgi web UI) is deliberately NOT in the package list, and there is no `yuruna-cachemgr.conf` apache drop-in. Ubuntu dropped the package in 26.04 (Squid 7), so requesting it finds no installation candidate and FAILS the entire cloud-init package transaction. Reach cache-manager data with `squidclient mgr:<page>` on the VM instead; `cachemgr_passwd` stays set in squid.conf.
 
+<a id="429f3d06-0038"></a>
+
 ### Monitoring stack packages
 
 Monitoring stack: Prometheus scrapes squid-exporter (localhost:9301); Grafana on :3000 (anonymous Viewer). squid-exporter has no apt package and no stable GitHub release-asset URL, so golang-go is pulled in just long enough to `go install` it; both build tools are purged at the end of runcmd (~400 MB reclaimed). The compiled binary stays.
 
 loki + promtail back the "Recent 100 requests" Grafana panel -- Prometheus stores only aggregates, so per-request client IP / target URL are not available there. Promtail tails /var/log/squid/yuruna_access.log (squid's custom `logformat yuruna` stream) and ships to Loki on localhost:3100. Both come from apt.grafana.com (same repo as grafana) -- no extra source needed.
 
+<a id="429f3d06-0039"></a>
+
 ### Package acl for promtail log read
 
 acl: needed by the post-zot setfacl step that grants promtail read access on /var/log/zot/zot.log (zot writes mode 0600, so group-read alone isn't enough -- promtail can't tail it without an ACL).
+
+<a id="429f3d06-003a"></a>
 
 ### Network debugging tool packages
 
 Network debugging tools for interactive triage via console/SSH. The server cloud image ships `ip` but not `ifconfig` or `ping`; cheap to install, big quality-of-life win.
 
+<a id="429f3d06-003b"></a>
+
 ### Package openssl for CA generation
 
 openssl for the CA-generation step in runcmd. The cloud image ships libssl but not the /usr/bin/openssl CLI, so `req -x509` would fail with "command not found" and leave squid's http_port 3129 unable to load tls-cert/tls-key. Kept top-level (not apt-get in runcmd) so failure surfaces in the package-install phase, not halfway through cache setup.
+
+<a id="429f3d06-003c"></a>
 
 ### Package unattended-upgrades
 
 unattended-upgrades: applies security + LTS-point patches daily via the stock apt-daily.timer + apt-daily-upgrade.timer units that the package's postinst enables. With the 20auto-upgrades drop-in below it gives the long-lived cache VM a self-maintained patch cadence, so it does not accumulate CVEs between cache rebuilds. A first-boot `apt-get -y upgrade` at the end of runcmd clears the backlog between the cloud image's build date and now.
 
+<a id="429f3d06-003d"></a>
+
 ### Packages cifs-utils and sqlite3 for NAS replication
 
 cifs-utils + sqlite3 back the optional networkStorage pool (ypool-nas) service replication: the ypool-nas-replicate.timer mounts the NAS share over SMB3 (cifs) and uses sqlite3's online .backup to copy Grafana's live grafana.db consistently. Both are tiny Ubuntu-main packages with no kernel-version dependency, so they stay top-level (failure surfaces in the package phase, not mid-runcmd); the timer is only enabled when the seed was built with replication configured.
+
+<a id="429f3d06-003e"></a>
 
 ### Apt retries on transient errors
 
 Retry apt fetches on transient network errors. Cloud-init's default is one-shot; a single timeout or TCP reset against archive.ubuntu.com fails the whole package install and leaves the VM without squid -- the "Exit code: 100 / Stdout: -" failure seen against `apt-get install apache2 squid`. Retries=5 covers transient hiccups but does NOT paper over 4xx (429/404) -- apt treats those as fatal and they need operator attention via /var/log/cloud-init-output.log.
 
+<a id="429f3d06-003f"></a>
+
 ### Unattended-upgrades schedule
 
 unattended-upgrades enable flags. Both timers (apt-daily.timer + apt-daily-upgrade.timer) ship with the apt package and are enabled by default -- this drop-in turns the upgrade phase on. Update-Package-Lists = run `apt-get update` daily; Unattended-Upgrade = run the upgrade phase daily. Auto-clean keeps /var/cache/apt bounded between cycles. The default /etc/apt/apt.conf.d/50unattended-upgrades scopes upgrades to the security pocket only -- leave that conservative; widening to all pockets risks pulling in a kernel that needs a reboot we can't schedule on a long-lived cache box.
+
+<a id="429f3d06-0040"></a>
 
 ### Pool intent store over read-only HTTP
 
 Pool intent store: serve the bare git repo READ-ONLY over the LAN via apache's static (dumb-HTTP) git protocol. Pooled hosts clone/pull http://<proxy>/pool-intent.git to learn pool membership + desiredState. The repo holds only NON-SECRET intent (pools.yml / test-sets / guests.compatibility); writes go through the admin CLI on the proxy (a local/file:// path), never this HTTP route. RFC1918 only, mirroring the cachemgr access policy.
 
 The `Alias` points at the pool NAS, not a proxy-local copy: the pool-control-service daemon runs on its own VM and can only PUSH to a location it mounts, and this share is the one both it and this proxy mount read-write. Pointing apache at the same bytes keeps one store, so an operator writing intent in the UI and a runner pulling it cannot diverge. The route 404s while the NAS is unmounted, which is the honest answer; a stale local copy would hide the outage from every runner.
+
+<a id="429f3d06-0041"></a>
 
 ### Squid drop-in config approach
 
@@ -1211,6 +1382,8 @@ Drop-in overrides on top of Ubuntu's stock /etc/squid/squid.conf. conf.d files i
 Squid is a generic HTTP proxy/cache for test-VM installs. It replaced apt-cacher-ng, which cached only `.deb` URLs and still let security.ubuntu.com 429s bubble up to subiquity (its pre-install kernel fetch went direct). Squid caches any cacheable HTTP response, so the installer's own `apt-get --download-only` of linux-firmware etc. hits cache on subsequent installs.
 
 Do NOT declare `http_port 3128` in the drop-in. Ubuntu's stock /etc/squid/squid.conf already declares it, and /etc/squid/conf.d/* is INCLUDED (not overlaid) -- a duplicate makes squid bind twice, the second failing with EADDRINUSE (`listen ... (98) Address already in use`) while squid still appears 'running'. The default binding (all interfaces, :3128) is what we want.
+
+<a id="429f3d06-0042"></a>
 
 ### Snapshot cache tuning
 
@@ -1290,6 +1463,8 @@ registry-1.docker.io, public.ecr.aws, us-east4-docker.pkg.dev, and the
 CDNs they 307-redirect to (cloudfront, S3, R2 cloudflarestorage) -- all
 of which carry the `sha256:` segment in the redirected path.
 
+<a id="429f3d06-0043"></a>
+
 ### Upstream stall and fetch pooling guards
 
 Four directives that together keep one bad origin from taking a whole
@@ -1344,6 +1519,8 @@ state rather than the on-disk drop-in (which can be stale between an edit
 and `squid -k reconfigure`). The stock `http_access allow localhost
 manager` ACL in squid.conf keeps the dump off the LAN.
 
+<a id="429f3d06-0044"></a>
+
 ### GitHub release and Helm chart pinning
 
 **GitHub release assets** (kubectl, helm, gh, jq, terraform-provider-*,
@@ -1370,6 +1547,8 @@ short-lived but cacheable: 60 minutes freshness with a 20%
 last-modified factor, so back-to-back cycles inside an hour hit cache
 while new chart versions still land the same day. The rule is scoped to
 known helm-repo hosts so unrelated YAML is not over-cached.
+
+<a id="429f3d06-0045"></a>
 
 ### Squid access log and self-scrape filtering
 
@@ -1401,13 +1580,19 @@ loopback removes only self-scrapes and local health probes.
 Squid 7 requires the module prefix on `access_log`; without `stdio:` the
 parser emits a deprecation warning at every config load.
 
+<a id="429f3d06-0046"></a>
+
 ### Prometheus loopback only
 
 Prometheus: loopback-only so its open UI isn't LAN-exposed; Grafana on :3000 is the entry point.
 
+<a id="429f3d06-0047"></a>
+
 ### Loki tiered retention
 
 Loki: loopback-only (same 0.0.0.0 default as Prometheus). Tiered retention: 30d for transitions (src=cycle) + incidents (src=incident) -- the dashboard's count_over_time Pass/Fail + incident history span a month -- and 7d for per-step events (src=event), the recent-focused drill-down (caps disk). Pre-written here because cloud-init's --force-confold preserves it through package upgrades.
+
+<a id="429f3d06-0048"></a>
 
 ### Promtail timestamp only labels
 
@@ -1415,12 +1600,16 @@ Promtail: only timestamp in labels (client IP/URL in labels = stream explosion);
 
 **Why the zot pipeline forces a `NO_HTTP_PATH` sentinel.** zot's sync extension (pull-through) logs internal errors like "failed to commit image" / "failed to get repo index" with NO `path` field, so the JSON stage extracts no `path` for those entries -- and a `drop source: path expression: '^$'` does NOT match them, because promtail's drop stage skips entries whose source key is absent from `extracted_data`. A `template` stage forces the sentinel value first, then an exact-value `drop` removes it, catching both "no path key at all" (sync errors) and "path is the empty string" (defensive). Mirrors the intent of squid's `!yuruna_selfscrape` access-log filter above.
 
+<a id="429f3d06-0049"></a>
+
 ### Promtail supplementary groups drop-in
 
 Promtail drop-in: SupplementaryGroups grants read on the upstream access logs:
 - proxy:  /var/log/squid/yuruna_access.log (proxy:proxy 640)
 - zot:    /var/log/zot/zot.log             (zot:zot     640)
 Can't use Group= -- the promtail postinst falls back to `nogroup` (no `promtail` group created), so referencing it would fail.
+
+<a id="429f3d06-004a"></a>
 
 ### Squid metadata exporter
 
@@ -1433,6 +1622,8 @@ The internet-connectivity probe is an HTTPS GET to Google's well-known 204 endpo
 Two reasons NOT to fold this into squid-exporter:
 - squid-exporter taps squid's cachemgr counters; offline_mode is a config directive, not a counter, so surfacing it would need a fork.
 - When squid is DOWN, squid-exporter's metrics stop publishing and Grafana shows "No data" -- exactly when the operator needs to know whether offline_mode was supposed to be on. This exporter publishes independently of squid, so the signal survives a crashed squid.
+
+<a id="429f3d06-004b"></a>
 
 ### zot manifest canary exporter
 
@@ -1458,6 +1649,8 @@ Only a successful read is persisted. Caching a failure would republish it for th
 
 **Authenticated vs anonymous budget.** Hub meters an authenticated sync against the account and an anonymous one against the egress IP; the two allowances differ in both size and in who else is spending them, so a remaining count means nothing until the mode is stated alongside it. A token minted with the account reports the budget zot's pulls actually spend, and the lookup is strictly best-effort -- a rotated or revoked credential must cost the reading its precision, not its existence, so any failure falls through to the anonymous request and the page says which budget it ended up reporting. The credential is passed through a 0600 netrc file rather than on the command line: argv is readable by every account on this VM through `/proc`, and the whole point of the credential's mode is that the token is not. Fields are extracted with `sed` rather than `jq` because this probe has to keep reporting on a boot where package installation is incomplete, and one field out of a flat object does not justify the dependency.
 
+<a id="429f3d06-004c"></a>
+
 ### zot prewarm
 
 `zot-prewarm.sh`, driven by `zot-prewarm.timer`, keeps the image sets a Kubernetes guest pulls resident in this cache and times every fetch, so the health page can report the path a real pull walks. Operator-facing detail -- the resolved sets, the published reading, and the cold-sync watermark -- is in [caching.md](caching.md#warm-sets-and-the-cold-sync-reading); what follows is why the unit is shaped this way.
@@ -1476,21 +1669,31 @@ Only a successful read is persisted. Caching a failure would republish it for th
 
 **The warm set is resolved, never pinned in the seed.** Every input is read from the same source the guest reads, so the warm set cannot drift from the set a guest pulls; naming versions in this file would create a second pin that goes stale silently, and the staleness would surface only as a cold cache during a provisioning run. Those resolution fetches go direct: routing them through this VM's own ssl-bump listener would make a source fetch depend on the proxy it is meant to keep stocked.
 
+<a id="429f3d06-004d"></a>
+
 ### Squid exporter unit
 
 squid-exporter unit: binary go-installed in runcmd, loopback-only (Prometheus scrapes it).
+
+<a id="429f3d06-004e"></a>
 
 ### Grafana anonymous Viewer
 
 Grafana: anonymous Viewer (no login/sign-up); admin/admin still editable. GF_* env vars applied via systemd drop-in.
 
+<a id="429f3d06-004f"></a>
+
 ### Grafana datasources pinned UIDs
 
 Grafana datasources: UIDs pinned for stable cross-reference in the provisioned dashboard.
 
+<a id="429f3d06-0050"></a>
+
 ### Grafana dashboard rewriter
 
 Rewriter for community Grafana dashboards downloaded from grafana.com. Upstream dashboards use a $DS_PROMETHEUS templating placeholder whose embedded default points at the original author's datasource (e.g. "VictoriaMetrics Bagno") -- unrewritten, the dashboard loads but every panel renders "No data" until someone clicks through the picker. This script strips the picker, pins every panel's datasource to yuruna-prometheus, and assigns a stable uid so re-runs are idempotent. Generic across any prometheus-only dashboard; the only caller today is the Zot dashboard install below.
+
+<a id="429f3d06-0051"></a>
 
 ### Grafana dashboard rewriter panel repairs
 
@@ -1510,9 +1713,13 @@ Beyond the datasource rebind above, the rewriter carries a numbered repair pass.
 
 **Storage lock latency panel replacement.** The upstream "Storage lock latency" heatmap (panel 47) does not render under Grafana 13: the Prometheus data path returns valid `le`-labeled frames, but the legacy-heatmap migration leaves this panel blank, and neither stripping its `repeat: "storageName"`, nor normalizing `target.format` to heatmap, nor cloning render fields from a working sibling heatmap (panel 30) fixes it. The rewriter REPLACES the panel with a timeseries showing P50/P90/P99 of the same metric via `histogram_quantile`, split by `lockType`: strictly more informative (the numbers are readable off the legend), and timeseries is Grafana's most battle-tested panel type. Panels are matched by query content, not panel id, so an upstream re-numbering does not break this.
 
+<a id="429f3d06-0052"></a>
+
 ### Grafana dashboard provider
 
 watches /var/lib/grafana/dashboards for JSON; syncs post-boot edits.
+
+<a id="429f3d06-0053"></a>
 
 ### Grafana pull budget alert
 
@@ -1524,23 +1731,33 @@ Provisioned Grafana unified-alerting rule (`Yuruna` folder) that fires when the 
 
 **No contact point.** The rule routes to Grafana's default notification policy, and with no SMTP configured, delivery is a no-op that logs a send failure when it fires. The rule earns its place without one: it turns a number somebody has to notice into a condition with a state, a start time, and history, and its `__dashboardUid__`/`__panelId__` annotations render that state directly on the *Upstream pull budget left* panel. Adding `contactPoints:` and `policies:` to the same file is the whole change needed for real delivery.
 
+<a id="429f3d06-0054"></a>
+
 ### Yuruna host coordinates for source fetch
 
 Yuruna host (status service) coordinates. Baked into the seed by the platform New-VM.ps1 (Get-GuestReachableHostIp + statusService.port). The runcmd build block below sources this to fetch the collector + parser source from the LOCAL host working tree (http://IP:PORT/yuruna-repo/) -- the host repo is the source of truth, so a rebuild never waits on the private->public GitHub mirror. Same resolution as fetch-and-execute.sh. Empty IP/PORT (coordinates unavailable, e.g. status service disabled) fall back to GitHub raw.
 
 `--no-proxy` is required on the host path: the host IP is private and this VM's own squid is in `offline_mode`, so routing that fetch through a proxy would fail. Sourcing `host.env` is safe here -- host-baked IP/PORT only, never operator free-text (a malformed value would abort the runcmd phase).
 
+<a id="429f3d06-0055"></a>
+
 ### Yuruna hosts dashboard inlined
 
 Yuruna hosts dashboard. INLINED (like squid.json) so it deploys from the local user-data -- independent of the pool-aggregator-service binary build AND of any GitHub fetch/mirror -- and so shows from first boot ("No data" until the collector is up). Keep in sync with the lintable canonical copy at test/extension/pool-aggregator-service/grafana-pool-dashboard.json.
+
+<a id="429f3d06-0056"></a>
 
 ### Yuruna hosts dashboard panel autofit
 
 Panel heights are fixed in dashboard JSON, and one fixed height per row does not scale across pool sizes. `yuruna-fit-pool-dashboard.py` reads the host count the collector is reporting (Prometheus + Loki on loopback), recomputes each panel's height from the dashboard grid geometry (a panel of `h` units is `38h - 8` px tall, less the chrome, the table header row, and -- on the timeline -- the x-axis and legend), re-stacks the panels below it, and rewrites `/var/lib/grafana/dashboards/pool.json` atomically. Only the three per-host panels move: the summary tiles across the top -- including "Lab token" (panel id 18), which folds in the collector's own health -- are a fixed 4 units tall and the stack starts at their bottom edge, read off the dashboard rather than assumed, because [the brand banner](#grafana-dashboard-brand-tile) sits above them and moves them down. Heights round UP: a panel a few px too tall shows blank space, one a few px too short shows a scrollbar, and only the scrollbar is a defect. The `gridPos.h` values inlined above are only the pre-collector default. A collector that is down reports no hosts, indistinguishable from an empty pool, so a zero count leaves the file untouched rather than collapsing every panel to its header. Row counts track the dashboard's DEFAULT 24h window; a wider range picked in the time picker can still surface an older host and scroll.
 
+<a id="429f3d06-0057"></a>
+
 ### Dashboard brand identity
 
 `/etc/yuruna/brand.env` carries the name and version the dashboards are branded with: the framework repository this VM was built from (`Yuruna`, `Yurunadev`, ...) and the VERSION of that enlistment. Seeded because the guest cannot work it out for itself -- it is handed built artifacts and never the framework repository -- and frozen for the life of the VM, like every other build-time fact about it. The host resolves both through `Get-YurunaBrandIdentity` (test/modules/Test.FrameworkSource.psm1), which reads `repositories.frameworkUrl` when the config names one and the enlistment's own origin remote otherwise -- the order the status pages resolve it in, so a page and a dashboard cannot name different repositories. Both values are reduced to characters that are safe inside the single-quoted env file; a name that survives nothing falls back to `Yuruna`, and an unreadable VERSION reports empty rather than a guess.
+
+<a id="429f3d06-0058"></a>
 
 ### Grafana dashboard brand tile
 
@@ -1550,9 +1767,13 @@ The banner costs one line of height and no width at all. Grafana's time-range pi
 
 Idempotent by construction: a dashboard already carrying the banner has only its text refreshed, never its geometry, so the timer cannot push the board further down on each pass. Files are rewritten only when their content changes and always through a same-directory rename, so the dashboard provider never reads a partial file. [The panel autofit](#yuruna-hosts-dashboard-panel-autofit) rewrites the same file, and the two agree without coordinating: the autofit stacks from the bottom edge of whatever sits above the per-host panels, which is the banner plus the summary tiles when the banner is there and the tiles alone when it is not.
 
+<a id="429f3d06-0059"></a>
+
 ### Squid dashboard inlined
 
 Minimal squid dashboard: panels show "No data" gracefully if metric names drift between exporter releases.
+
+<a id="429f3d06-005a"></a>
 
 ### Cache health dashboard
 
@@ -1560,17 +1781,25 @@ Grafana dashboard (`uid: yuruna-cache-health`, "Yuruna cache health (registry pa
 
 The panel thresholds encode the point of the exporter. Manifest latency turns red at 30s because that is where dockerd abandons a pull whose response headers have not arrived -- a cache can sit green on every liveness check and still be past this line. The companion "fast enough for a real pull?" stat reads `yuruna_zot_manifest_ok_under_client_patience`: the latency stat measures the stall, this one says whether what it measured is survivable.
 
+<a id="429f3d06-005b"></a>
+
 ### zot systemd unit
 
 Runs zot as an unprivileged service user with ProtectSystem=strict + ReadWritePaths confining writes to /var/lib/zot (blob store) and /var/log/zot. There is no apt package for zot on Resolute, so a binary install plus a hand-written systemd unit is the simplest path. The binary lands at /usr/local/bin/zot via runcmd.
+
+<a id="429f3d06-005c"></a>
 
 ### NetworkStorage pool replication config
 
 networkStorage pool (ypool-nas) service replication: config + SMB credential + the timer-driven rsync of observability data to the NAS. All values are baked by New-VM.ps1 from the host's networkStorage pool config + vault (empty / REPLICATE=false when off).
 
+<a id="429f3d06-005d"></a>
+
 ### NAS cifs credentials
 
 cifs credentials (0600 root). The networkUser account -- the single NAS account, ACL-scoped storage-only by the operator (write access to the share, nothing else).
+
+<a id="429f3d06-005e"></a>
 
 ### Config service client materials and NAS credential fetch
 
@@ -1630,9 +1859,13 @@ The stable TLS hostname (SAN) is mapped to the host's current IP via
 `curl --connect-to`, so a host DHCP change never invalidates the server
 leaf.
 
+<a id="429f3d06-005f"></a>
+
 ### Internal authentication key
 
 the internal authentication key that gates remote control, the aggregator's POST /ingest push surface, and cross-host credential fetch. Baked into `/etc/yuruna/internal-auth.key` (the `INTERNAL_AUTH_KEY_PLACEHOLDER` substitution) by New-VM from the building host's vault -- logical user `internal-auth-key`, with the older `lab-auth-token` and the legacy `pool-auth-token` vault entries accepted as fallbacks so a host enrolled under either logical name keeps working; the daemons reading the file fall back to the older `/etc/yuruna/lab-auth.token` path when the new one is absent, so a VM still carrying the older path keeps working until it is rebuilt. When the vault holds none of the three, New-VM mints a random internal authentication key and stores it before baking, so a proxy is never built with an empty key; an empty-key proxy (mints no control proofs, /ingest answers 503, dashboard Lab token tile shows "off") is a diagnosable failure state, not a normal early one. The aggregator trims surrounding whitespace. Mode 0640 root:proxy: readable by the proxy-run aggregator, not world-readable.
+
+<a id="429f3d06-0060"></a>
 
 ### runcmd errexit leaks across items
 
@@ -1643,9 +1876,13 @@ Two conventions keep that contained, both load-bearing rather than stylistic:
 - **Wrap any `set -e` block in a subshell** `( ... ) || echo "== YURUNA: ... FAILED =="`. The parentheses keep errexit local and give the step its own diagnosable failure line. A subshell also scopes a bare `exit 0`, which at top level would end the entire runcmd script rather than just that step.
 - **Append `|| true` to commands that may legitimately fail**, notably `systemctl start squid`. Without it a failed start aborts the rest of the phase and leaves a start failure with no diagnosis behind; with it, the bind-wait step below is what reports and diagnoses the failure.
 
+<a id="429f3d06-0061"></a>
+
 ### Stop squid before CA bootstrap
 
 Stop the squid that apt's postinst started: it either FATALs (yuruna.conf references ca.pem before we generate it) or runs on a partial/default config. Don't run `squid -z` here -- it also parses yuruna.conf and FATALs on the missing cert, leaving nothing but a scary log entry.
+
+<a id="429f3d06-0062"></a>
 
 ### SSL-bump capable squid binary
 
@@ -1668,6 +1905,8 @@ verifies the selected binary reports `--with-openssl`, and installs
 failed, and without the reset systemd's restart limiter refuses the real start
 at the end of `runcmd`.
 
+<a id="429f3d06-0063"></a>
+
 ### SSL-bump CA bootstrap
 
 both steps idempotent so re-runs don't rotate the CA (rotating would orphan guests that already trusted it). Private key stays proxy:proxy 700; public cert served by Apache. CN includes a timestamp to distinguish deliberate rebuilds.
@@ -1676,9 +1915,13 @@ both steps idempotent so re-runs don't rotate the CA (rotating would orphan gues
 
 **Why the CommonName is hard-truncated to 64 characters.** X.509 caps CommonName at 64 characters (`ub-common-name`) and openssl rejects the WHOLE request past it: "ASN1_mbstring_ncopy: string too long ... maxsize=64". The failure is silent end-to-end -- no `ca.pem` is written and squid can never bind :3129. `$(hostname)` alone already runs close to the cap, so any literal prefix overflows it; the script truncates with `printf '%.64s'` rather than trusting the components to stay short.
 
+<a id="429f3d06-0064"></a>
+
 ### Pool-aggregator service TLS leaf
 
 pool-aggregator-service TLS leaf: mint a server cert for the aggregator's :9400 surface (metrics + ingest), signed by the squid CA above (reused -- no new CA), so the LAN hop is encrypted + authenticated. Idempotent (no rotate). SAN carries the proxy's LAN IP (runners connect by IP) + 127.0.0.1 (loopback Prometheus). Key stays proxy:proxy 600 (the aggregator runs as proxy). Best-effort: a mint failure leaves no leaf and the aggregator falls back to plain HTTP.
+
+<a id="429f3d06-0065"></a>
 
 ### Resolve pool dashboard aggregator URL
 
@@ -1686,19 +1929,27 @@ Resolve the Yuruna hosts dashboard's aggregator base URL. The timeline's "open c
 
 **Always plain http, even once the aggregator has its TLS leaf.** The dashboard links only reach the aggregator's `/go/*` redirects, which land the operator's browser on plain-http host status pages. An https hop here would put a proxy-CA interstitial (operator browsers do not trust the proxy CA) in front of every host click while protecting nothing the next hop does not already carry in clear. The aggregator answers both protocols on :9400, so token-bearing clients keep their TLS.
 
+<a id="429f3d06-0066"></a>
+
 ### Squid ssl_db initialization
 
 security_file_certgen's `-c` is create-new and errors if the DB already exists, so the existence check guards re-runs. DB holds leaf certs minted per SNI hostname -- 4 MB is generous (each entry ~1 KB).
 
 The `install -d` for /var/lib/squid is NOT redundant: on Ubuntu the squid-openssl postinst does not guarantee this directory, and security_file_certgen's Create() makes only the leaf `ssl_db/` dir, not the parent. Without it the helper FATALs with "Cannot create /var/lib/squid/ssl_db", sslcrtd children crash-loop on every spawn, squid bails with "The sslcrtd_program helpers are crashing too rapidly, need help!" and squid-parent blocks restart for 3600s. Running as `proxy` avoids a follow-up chown and confirms write access.
 
+<a id="429f3d06-0067"></a>
+
 ### Publish squid CA cert
 
 Publish the CA public cert at http://<cache>/yuruna-squid-ca.crt so guests can fetch and trust it during install. Only the public cert is copied -- ca.key stays in /etc/squid/ssl_cert/. Mode 644 is deliberate: RFC1918 reachability is enforced at the network layer (the host switch/bridge/NAT), so trust distribution works without an extra cachemgr-style `Require ip` drop-in.
 
+<a id="429f3d06-0068"></a>
+
 ### Publish pool CA cert
 
 Publish the SAME CA under a pool-specific name so a runner can pin the pool-aggregator-service's TLS leaf (it is signed by this CA) without coupling to the squid CA filename. Public cert only; the key never leaves /etc/squid/ssl_cert.
+
+<a id="429f3d06-0069"></a>
 
 ### Pre-warm the cache
 
@@ -1706,21 +1957,31 @@ security.ubuntu.com rate-limits linux-firmware (~330 MB) hard enough that every 
 
 Wait up to 60s for squid's listener. apt's postinst usually has it up, but start can be slow on first boot.
 
+<a id="429f3d06-006a"></a>
+
 ### Route VM apt through local squid
 
 Only NOW route this VM's own apt through local squid -- squid is confirmed listening, so the self-proxy loop is safe. Writing this drop-in during write_files (before `packages:` runs) deadlocks apt: it fetches squid itself through 127.0.0.1:3128, which is not listening yet, and the install bombs with Exit 100.
+
+<a id="429f3d06-006b"></a>
 
 ### Prewarm download loop
 
 Each call: --reinstall --download-only first (forces re-fetch of already-installed packages like linux-firmware); fall back to plain download-only for not-yet-installed packages (linux-generic-hwe-24.04 and friends). `|| true` on the fallback so one miss doesn't abort the loop.
 
+<a id="429f3d06-006c"></a>
+
 ### Reclaim apt cache after prewarm
 
 Squid now has the large .debs cached under /var/spool/squid. Clear /var/cache/apt (squid's store is separate) to reclaim ~1 GB.
 
+<a id="429f3d06-006d"></a>
+
 ### Remove prewarm apt proxy dropin
 
 Remove the apt proxy drop-in so future apt inside this VM doesn't loop through its own squid. Guests still reach squid at 3128 over network.
+
+<a id="429f3d06-006e"></a>
 
 ### Flip squid into offline mode
 
@@ -1728,21 +1989,31 @@ Flip squid into offline_mode now that prewarm is done. With offline_mode on, squ
 
 Must be AFTER prewarm -- with offline_mode on, a cold-cache first request returns 504 and prewarm populates nothing. Dropped as a separate conf.d file so an operator can refresh against origin by removing that one file and running `squid -k reconfigure`.
 
+<a id="429f3d06-006f"></a>
+
 ### offline_mode echo YAML mapping trap
 
 Single-quote the echo so YAML doesn't parse `cache:` as a mapping key. cloud-init's shellify() chokes on a dict in runcmd and aborts the ENTIRE runcmd phase -- which happened once, leaving a VM with Apache's default page, no cachemgr, no offline_mode, no monitoring even though write_files and packages ran.
+
+<a id="429f3d06-0070"></a>
 
 ### Build squid-exporter and caching-proxy-parser-service
 
 Build and install squid-exporter + caching-proxy-parser-service. No apt package for either; `go install` (squid-exporter) and `go build` against fetched source (caching-proxy-parser-service) keep this cross-arch path working -- amd64 on Hyper-V/KVM, arm64 on UTM, no URL guessing. squid-exporter is pinned to v1.13.0, the cutoff release: it dropped legacy `cache_mgr://` URI support and switched to Squid 7's `/squid-internal-mgr/` HTTP path. Ubuntu 26.04 (Resolute) ships Squid 7.x, which rejects the old URI; earlier pins (v1.10.5 and below) install fine and scrape clean (squid_up still publishes) but report squid_up=0 and zero counter metrics because the request path to squid is unreachable -- every Grafana panel querying `squid_client_http_*_total` ends up empty. See https://github.com/boynux/squid-exporter/releases/tag/v1.13.0 for the cache_mgr -> squid-internal-mgr swap. Both runs happen AFTER the prewarm proxy cleanup so the Go module fetch (HTTPS to proxy.golang.org + GitHub) doesn't traverse squid -- HTTP squid can't cache HTTPS without SSL-bump.
 
+<a id="429f3d06-0071"></a>
+
 ### Purge Go toolchain after builds
 
 Reclaim ~400 MB: the Go toolchain is only needed for the builds above, and both squid-exporter and caching-proxy-parser-service are static binaries.
 
+<a id="429f3d06-0072"></a>
+
 ### Start the monitoring stack
 
 daemon-reload picks up the squid-exporter unit + grafana-server drop-in written via write_files. Grafana is restarted (not just enabled) so the anonymous-Viewer env vars take effect even if the deb postinst already started it.
+
+<a id="429f3d06-0073"></a>
 
 ### Start the caching proxy management service
 
@@ -1754,21 +2025,31 @@ fails to start must not fail the boot of the VM whose traffic it does not carry.
 The proxy keeps serving either way; what is lost is the ability to ask this VM
 about itself, and the offline / no-upstream switches go back to being SSH-only.
 
+<a id="429f3d06-0074"></a>
+
 ### Enable squid metadata exporter timer
 
 Squid meta exporter: timer drives a oneshot that writes /var/www/html/squid-meta every 30s. Started AFTER apache2 (already active by the packages phase) so the first scrape doesn't 404.
+
+<a id="429f3d06-0075"></a>
 
 ### Prime squid metadata exporter once
 
 Run the script once immediately so /var/www/html/squid-meta exists before Prometheus's first scrape, avoiding a 15-second "No data" window on the dashboard at boot.
 
+<a id="429f3d06-0076"></a>
+
 ### Enable zot metadata exporter timer
 
 Armed here, primed after the zot install below: a first run against a registry that does not exist yet would publish a DOWN reading as the service's opening data point.
 
+<a id="429f3d06-0077"></a>
+
 ### Enable caching-proxy-parser service
 
 caching-proxy-parser-service fails closed (the binary may not be present if the build above failed); `|| true` keeps the rest of runcmd going so loki+promtail+grafana still come up.
+
+<a id="429f3d06-0078"></a>
 
 ### Enable pool-aggregator service
 
@@ -1782,45 +2063,67 @@ Restarting is not free, and for this knob it partly works against you. On startu
 
 This 24h is neither the dashboard's default time range above nor the last-seen window `Remove-PoolHost.ps1` enforces before it will forget a record. Three different 24-hour values, three different meanings.
 
+<a id="429f3d06-0079"></a>
+
 ### Pool intent store seeding
 
 Yuruna pool intent store: a bare git repo pooled hosts clone + pull READ-ONLY over HTTP (the yuruna-pool-intent apache conf) to learn pool membership + desiredState. The admin CLI (run on the proxy) pushes intent here. Seeded with an empty, schema-valid pools.yml on 'main' so the first clone is non-empty and deterministic. The post-update hook keeps the dumb-HTTP info current on every push. Idempotent (a re-run skips an existing repo) and soft-fail (each fallible step is `|| true`), so it can never abort the phase.
+
+<a id="429f3d06-007a"></a>
 
 ### Wait for grafana-server to bind
 
 Wait for grafana-server to bind :3000 and dump the journal if it doesn't. On a slow first boot, grafana can take ~15s to come up after `restart` returns. Without this check, a failed start surfaces only when an operator tries the dashboard and gets "connection refused" -- by which time cloud-init logs may be rotated. Mirrors the squid:3128 diagnostic net so both failure modes surface the same way in /var/log/cloud-init-output.log.
 
+<a id="429f3d06-007b"></a>
+
 ### Enable yuruna hosts dashboard panel autofit
 
 Enable the timer that keeps the Yuruna hosts dashboard's per-host panels sized to the pool (see "Yuruna hosts dashboard panel autofit" above). It first fires 3min after boot -- by then the collector has polled the pool at least once -- and every 5min after, so a host that joins or leaves shows up within one tick plus the dashboard provider's 30s reload. `--now` also runs it once here: two loopback queries, a no-op on a pool that has not registered yet.
+
+<a id="429f3d06-007c"></a>
 
 ### Install community Zot dashboard
 
 Install the community Zot dashboard (Grafana ID 20501) alongside the hand-crafted Yuruna caching-proxy-service dashboard. The write_files rewriter (see "Grafana dashboard rewriter" above) pins it to yuruna-prometheus with a stable uid and a friendly title, so re-runs are idempotent. The dashboard provisioner under /etc/grafana/provisioning/dashboards/yuruna.yaml picks the file up on its next 30s tick. The `else` branch keeps cycling: a transient grafana.com outage degrades to "missing extra dashboard" rather than failing the whole runcmd phase.
 
+<a id="429f3d06-007d"></a>
+
 ### Enable grafana dashboard brand tile
 
 Enable the timer that keeps [the brand tile](#grafana-dashboard-brand-tile) on every dashboard, then stamp them once here. Last of the dashboard steps, so the community Zot dashboard is already on disk and gets branded in the same pass as the three inlined ones. The explicit `start` is what brands them now -- enabling the timer only schedules the next tick, and a proxy whose dashboards are anonymous through the first minutes of its life is exactly the window an operator watches it in. The timer (2min after boot, every 15min after) is the backstop for a dashboard that lands later; it rewrites nothing when there is nothing to change. The `|| echo` degrades a failed stamp to unbranded dashboards rather than failing the runcmd phase, and it is a block scalar because the message carries a colon-space, which a plain YAML scalar would read as a mapping.
+
+<a id="429f3d06-007e"></a>
 
 ### Enable NAS replication timer conditionally
 
 networkStorage pool (ypool-nas) service replication: enable the timer only when the seed was built with replication configured (REPLICATE=true). Read it with an exact-line grep, NOT by sourcing -- a malformed value would abort the whole runcmd phase, since the `.`-parse error fires before any `|| true`. The block scalar dodges the colon-space YAML trap; grep dodges the source-time abort.
 
+<a id="429f3d06-007f"></a>
+
 ### Verify promtail supplementary groups
 
 Verify promtail picked up BOTH supplementary groups. The drop-in writes "SupplementaryGroups=proxy zot"; missing either keeps the corresponding Recent-100 panel empty. The check must verify each group explicitly: grepping only for `proxy` lets a missing `zot` group slip past observability.
+
+<a id="429f3d06-0080"></a>
 
 ### First-boot security upgrade
 
 unattended-upgrades + the daily apt timers keep pulling fixes from here on; this run flushes the backlog between the cloud image's build date and boot day. Routed through 127.0.0.1:3128 (squid is up by now and the prewarm-proxy drop-in already enabled this VM's apt-via-self loop) so the upgrade hits cache for anything other guests have pulled before. `|| true` so a transient archive.ubuntu.com hiccup cannot fail the whole cycle -- the daily apt-daily-upgrade.timer retries within 24 h.
 
+<a id="429f3d06-0081"></a>
+
 ### Confirm apt daily timers armed
 
 Confirm the timers that drive the 24-hour cadence are armed. If the apt package's postinst did not enable them (rare on Ubuntu but seen on minimized cloud images), surface a clear breadcrumb so an operator notices BEFORE CVEs pile up.
 
+<a id="429f3d06-0082"></a>
+
 ### zot install binary and activation
 
 zot install (binary fetch + systemd activation). ZOT_VERSION is pinned for reproducibility. To bump: read https://github.com/project-zot/zot/releases, verify the asset names still match `zot-linux-{amd64,arm64}` (NOT `-minimal` -- the sync extension is required for on-demand pull-through caching), then change ZOT_VERSION here. The binary download goes DIRECT to GitHub (not through this VM's own squid -- chicken-and-egg) and is one-shot per VM build, so the ~220 MB transfer doesn't recur.
+
+<a id="429f3d06-0083"></a>
 
 ### Service readiness summary
 
@@ -1829,26 +2132,36 @@ the operator -- and `Test-CachingProxyService.ps1` -- depends on. Without it a
 partially-failed boot looks identical to a good one until something downstream
 breaks, far from the cause.
 
+<a id="429f3d06-0084"></a>
+
 ### Ready banner YAML mapping trap
 
 Single-quoted: the bare `: ` after "ready" makes YAML parse the scalar as a mapping, shellify() gets a dict instead of a string, and the ENTIRE runcmd phase aborts (CA gen, ssl_db init, prewarm, squid-exporter, monitoring -- none run). Same trap as the offline_mode echo above, and equally silent in systemctl output because write_files still ran; only `cloud-init status --long` surfaces the TypeError.
 
 ---
 
+<a id="429f3d06-0085"></a>
+
 ## Stash-service seed topics
 
 Topics for `host/vmconfig/stash-service.base.user-data`, reached from the seed as
 `# --- REGION: https://yuruna.link/vmconfig#<topic-slug>`.
 
+<a id="429f3d06-0086"></a>
+
 ### Host agent runs first
 
 On a bridged network the host observes no DHCP lease, so it cannot report this VM's address until the guest agent answers -- and every later runcmd step can run for minutes. The agent overlay goes first so host-side discovery does not wait on the rest of the boot.
+
+<a id="429f3d06-0087"></a>
 
 ### Bring-up driven by systemd, not runcmd
 
 The bring-up is a script driven by a systemd unit rather than inline `runcmd` steps. `runcmd` is a PER-INSTANCE cloud-init module and this seed's instance-id is a constant, so `runcmd` gets exactly ONE attempt in the life of the VM: a bring-up interrupted partway -- the VM stopped while cloud-init is still compiling the daemon -- is never retried. Every later boot skips it, cloud-init still reports `status: done, errors: []`, and the VM stays permanently half-built with no daemon, no unit, and nothing naming the cause. Driven by systemd instead, an interrupted bring-up finishes next boot.
 
 The script is therefore idempotent by construction and safe to re-run; it is the ONLY thing that installs the daemon. Each stage sets `+e` and reports rather than aborting, so a stage that cannot finish (an unreachable share, a host status service that is down) leaves the later stages free to do what they still can.
+
+<a id="429f3d06-0088"></a>
 
 ### Stash NAS cifs mount options
 
@@ -1862,10 +2175,14 @@ A Linux guest often cannot resolve a bare NetBIOS name (e.g. `wserver`), so `ip=
 
 ---
 
+<a id="429f3d06-0089"></a>
+
 ## Download-agent-service seed topics
 
 Topics for `host/vmconfig/download-agent-service.base.user-data`, reached from the seed as
 `# --- REGION: https://yuruna.link/vmconfig#<topic-slug>`.
+
+<a id="429f3d06-008a"></a>
 
 ### PowerShell install is best effort
 
@@ -1877,6 +2194,8 @@ Microsoft's prod apt repo is tried first. It publishes a suite per Ubuntu releas
 
 Latest-stable is resolved by following `/releases/latest`, not the GitHub API: unauthenticated API calls are capped at 60/hr lab-wide.
 
+<a id="429f3d06-008b"></a>
+
 ### PowerShell tarball hash verification
 
 The tarball is verified against the release's published hashes before unpacking, because this interpreter runs Fido with the daemon's privileges.
@@ -1884,6 +2203,8 @@ The tarball is verified against the release's published hashes before unpacking,
 The `hashes.sha256` asset is UTF-16 LE (Windows-generated), so it is normalized to UTF-8 before parsing -- a byte-order-mark probe picks the branch.
 
 A **mismatch aborts** the install and leaves nothing behind. A hashes file that cannot be fetched or parsed only **warns** and proceeds, so a GitHub blip does not cost the family.
+
+<a id="429f3d06-008c"></a>
 
 ### Fido pinned tag and hash
 
@@ -1894,6 +2215,8 @@ Like the PowerShell step this is best effort, and the step's last line names the
 The destination must stay one of the paths the daemon searches when `--fido-script` is empty. Moving it elsewhere disables the family **silently**, since a missing Fido is a supported state rather than an error.
 
 ---
+
+<a id="429f3d06-008d"></a>
 
 ## Maintenance notes
 
@@ -1910,6 +2233,8 @@ The destination must stay one of the paths the daemon searches when `--fido-scri
   there's a real dependency, but document why in a one-line comment
   beside the out-of-order step.
 
+<a id="429f3d06-008e"></a>
+
 ### Caching-proxy-service seed maintenance
 
 - New topic: add a `### <topic name>` section under
@@ -1924,6 +2249,8 @@ The destination must stay one of the paths the daemon searches when `--fido-scri
   units) intentionally stay in the user-data; document subsystem-level rationale
   here and leave the line-level "why" beside the code it ships with.
 
+<a id="429f3d06-008f"></a>
+
 ### Adding a new placeholder
 
 1. Add the literal `<NAME>_PLACEHOLDER` token to
@@ -1933,6 +2260,8 @@ The destination must stay one of the paths the daemon searches when `--fido-scri
 3. If the value derives from the repo (a new bundled helper script), add
    it to `Get-YurunaGuestScriptBase64` and let `New-CloudInitUserData`
    auto-populate.
+
+<a id="429f3d06-0090"></a>
 
 ### Adding a new platform overlay
 
@@ -1946,6 +2275,8 @@ The destination must stay one of the paths the daemon searches when `--fido-scri
 
 ---
 
+<a id="429f3d06-0091"></a>
+
 ## Image acquisition and provisioning
 
 Rationale for the `Get-Image.ps1` / `New-VM.ps1` image pipeline that is
@@ -1953,6 +2284,8 @@ shared across hosts but too long to keep inline. (The download
 skip-if-same-source guard and the image sentinel's Last-Modified capture
 live in
 [guest-image-setup.md -> Skip-if-same-source guard](guest-image-setup.md#skip-if-same-source-guard).)
+
+<a id="429f3d06-0092"></a>
 
 ### macOS UTM qcow2 punchhole alignment
 
@@ -1979,9 +2312,13 @@ conversion. The `Get-Image.ps1` resize step works on a staging copy of
 the downloaded qcow2 and promotes it in the finalize block, so a failed
 resize never corrupts the base image.
 
+<a id="429f3d06-0093"></a>
+
 ### Hyper-V ISO ACE bloat
 
 Hyper-V base-image ACL bloat from per-VM ACE accumulation.
+
+<a id="429f3d06-0094"></a>
 
 #### Symptom
 
@@ -1998,6 +2335,8 @@ could not be built.' ('0x8007053C').
 
 It appears suddenly on a host that has run many cycles, and **persists
 even when PowerShell is elevated (Run as Administrator)**.
+
+<a id="429f3d06-0095"></a>
 
 #### Root cause: the ISO's ACL is full, not a permissions problem
 
@@ -2031,6 +2370,8 @@ a larger ACL for the next VM's ACE -> **`0x8007053C`
 VM worker account can't open the file -> **`0x80070005`
 (Access denied)**.
 
+<a id="429f3d06-0096"></a>
+
 ##### Why elevation is irrelevant
 
 Your admin token authorizes *you* to call `Add-VMDvdDrive`. The operations
@@ -2038,6 +2379,8 @@ that fail are (1) Hyper-V/VMMS writing the new ACE into the file and (2) the
 VM's virtual account (`NT VIRTUAL MACHINE\<guid>`) opening the file -- both
 gated by the **file's ACL**, which is full. Elevation can't shrink an
 oversized ACL.
+
+<a id="429f3d06-0097"></a>
 
 ##### Why only shared base images are affected
 
@@ -2052,6 +2395,8 @@ Measured on a developer host after many cycles: the
 Windows 11 base ISO already carried **1,412 ACEs** (1,020 raw-SID +
 387 name-form per-VM entries) totaling **~56.5 KB / 64 KB**, with **zero**
 live VMs on the host. The Linux base ISOs were accumulating the same way.
+
+<a id="429f3d06-0098"></a>
 
 #### Fix
 
@@ -2081,6 +2426,8 @@ Two call sites keep the DACL bounded:
   before the deletion prompt because it is safe maintenance: it only removes
   access for VMs that no longer exist.
 
+<a id="429f3d06-0099"></a>
+
 ##### Manual remediation (already-failing host)
 
 Run elevated. Either prune just the dead VMs (preferred -- keeps live VMs):
@@ -2100,6 +2447,8 @@ icacls "C:\ProgramData\Microsoft\Windows\Virtual Hard Disks\host.windows.hyper-v
 The next `Add-VMDvdDrive` re-adds just the current VM's ACE. Do the same for
 the `...ubuntu.server.24/26.iso` base images.
 
+<a id="429f3d06-009a"></a>
+
 ##### Diagnostics
 
 ```powershell
@@ -2108,6 +2457,8 @@ $acl = Get-Acl $iso
 $acl.Access.Count                                        # total ACEs
 $acl.GetSecurityDescriptorBinaryForm().Length            # bytes -- approaching 65535 is the cause
 ```
+
+<a id="429f3d06-009b"></a>
 
 #### Scope
 
@@ -2121,6 +2472,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08
 
 Back to [Yuruna](../README.md)

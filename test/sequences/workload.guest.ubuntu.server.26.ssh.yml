@@ -26,7 +26,9 @@ component:
 workload:
   # Kept equal to the console variant's budget for the same script on the same
   # guest: what this costs is dominated by how fast the guest unpacks and
-  # configures seventy packages, which is a property of the host. The console
+  # configures the JDK's 24 packages and Code's 149, which is a property of the
+  # host. Code is asked for with --no-install-recommends, so that second count
+  # is the ceiling rather than the current figure. The console
   # twin carries the measurement the number comes from. Driving over SSH does
   # appear to be the cheaper of the two -- the update script on this guest ran
   # 153 s over SSH against 253-288 s on the console -- but that was measured

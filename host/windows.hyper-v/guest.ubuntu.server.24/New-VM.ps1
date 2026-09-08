@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42303d37-2208-46b9-ad37-c8c5638af258
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -322,7 +322,7 @@ To intentionally skip the cache:
 }
 
 # --- REGION: Build the autoinstall apt block
-# --- REGION: https://yuruna.link/vmconfig#apt-proxy-block
+# --- REGION: https://yuruna.link/429f3d06-000a
 # Always emit `geoip: false` plus a pinned `primary:` mirror -- deterministic
 # election, and `primary:` rather than `sources_list:`. See
 # feedback_macos_utm_apt_block_resolute_curtin_trap.md.
@@ -390,7 +390,7 @@ $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot (Split-Path -Parent (Split-
 $YurunaHostPort = $_statusSeed.Port
 
 # --- REGION: Fetch caching-proxy-service CA cert (base64-embedded in seed)
-# --- REGION: https://yuruna.link/network#caching-proxy-service-ca-cert-rc60-gate
+# --- REGION: https://yuruna.link/4220a755-0015
 # An empty $CaCertBase64 is NOT a harmless no-op (curl rc=60 SSL-bump gate).
 $CaCertBase64 = ""
 if ($CachingProxyServiceUrl) {
@@ -405,7 +405,7 @@ if ($CachingProxyServiceUrl) {
 }
 
 # --- REGION: Render user-data / meta-data
-# --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
+# --- REGION: https://yuruna.link/4220a755-0003
 # Bake yuruna-retry.sh + fetch-and-execute.sh into the seed as base64-encoded
 # write_files entries. Eliminates the legacy network-dependent wget+wget
 # bootstrap and ensures both files are on disk before any guest script runs.
@@ -430,7 +430,7 @@ $MetaData = (Get-Content -Raw $MetaDataTemplate) `
     -replace 'INSTANCE_ID_PLACEHOLDER', $VMName `
     -replace 'HOSTNAME_PLACEHOLDER', $GuestHostname
 Set-Content -Path "$SeedDir/meta-data" -Value $MetaData -NoNewline
-# --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+# --- REGION: https://yuruna.link/4220a755-000b
 # Governs the INSTALLER's own DHCP request, and subiquity carries the network
 # config it installed with into the target -- so the pin is present from the
 # very first lease this guest ever asks for. The late-command in the
@@ -451,7 +451,7 @@ $SeedIso = Join-Path $vmDir "seed.iso"
 Write-Verbose "Generating seed.iso with autoinstall configuration..."
 CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId "cidata"
 
-# --- REGION: https://yuruna.link/definition#defining-the-vm-memory-policy
+# --- REGION: https://yuruna.link/42fa6f45-0016
 # Static (min=max=startup, dynamic disabled) so a hung swap/paging never
 # distorts a cycle -- see docs/vmconfig.md#disable-swap.
 try { $vmMemoryBytes = ConvertTo-MemoryStartupBytes $MemoryStartupBytes } catch { Write-Error $_.Exception.Message; exit 1 }
@@ -462,7 +462,7 @@ Write-Verbose "VM memory: $([math]::Round($vmMemoryBytes / 1GB, 2)) GB ($vmMemor
 Write-Verbose "Creating new VM '$VMName' on switch '$switchName'..."
 Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes $vmMemoryBytes -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
 
-# --- REGION: https://yuruna.link/network#defining-deterministic-guest-mac-addresses
+# --- REGION: https://yuruna.link/4220a755-000a
 # Hyper-V takes bare hex, no separators.
 # Keyed on the guest's durable identity, not on the name the VM carries now: a
 # guest is built in a per-kind slot and renamed to its real name when its
@@ -488,7 +488,7 @@ Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
 # already free of it.
 $null = Disable-HyperVHeartbeatForLinuxGuest -VMName $VMName -Confirm:$false
 
-# --- REGION: https://yuruna.link/vmconfig#hyper-v-iso-ace-bloat
+# --- REGION: https://yuruna.link/429f3d06-0093
 # Prune stale per-VM ACEs accumulated on this SHARED base image before
 # Hyper-V appends this VM's ACE on attach; the DACL otherwise grows unbounded
 # across runs and the attach fails with 0x8007053C.
@@ -501,10 +501,10 @@ Add-VMDvdDrive -VMName $VMName -Path $SeedIso | Out-Null
 $dvdDrive = Get-VMDvdDrive -VMName $VMName | Where-Object { $_.Path -eq $baseImageFile }
 Set-VMFirmware -VMName $VMName -FirstBootDevice $dvdDrive
 
-# --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
+# --- REGION: https://yuruna.link/42fa6f45-0015
 $hostCores = (Get-CimInstance -ClassName Win32_Processor | Measure-Object -Property NumberOfCores -Sum).Sum
 if ($hostCores -lt 4) {
-    Write-Error "Host has $hostCores physical cores; Yuruna requires at least 4. See https://yuruna.link/definition#defining-the-vm-core-count-policy"
+    Write-Error "Host has $hostCores physical cores; Yuruna requires at least 4. See https://yuruna.link/42fa6f45-0015"
     exit 1
 }
 $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))

@@ -1,3 +1,5 @@
+<a id="428e4df6-0001"></a>
+
 # Sequence actions and host contracts
 
 Authoritative reference for the actions available in sequence files
@@ -14,6 +16,8 @@ backing those with non-trivial cross-host divergence.
   [`actions.yml`](../test/sequences/actions.yml); this file is its
   prose-style complement.
 
+<a id="428e4df6-0002"></a>
+
 ## How a sequence step runs
 
 Every step is a YAML map with at least an `action` field plus a free-form
@@ -23,6 +27,8 @@ references (sequence-level `variables`, built-ins `${vmName}`,
 calls) before dispatching to the per-action handler. A step succeeds
 when its handler returns `$true`; the sequence stops on the first
 failure (with retry-wrapping as documented under `retry`).
+
+<a id="428e4df6-0003"></a>
 
 ### Pause gates and consumable prompts
 
@@ -56,6 +62,8 @@ A hold that ended just before a failing step is recorded on that step's failure
 as `causeDetail.pauseBeforeStepSeconds`, so the record says so rather than
 reading as a guest that never printed.
 
+<a id="428e4df6-0004"></a>
+
 ## Built-in variables
 
 | Name | Value |
@@ -63,6 +71,8 @@ reading as a guest that never printed.
 | `${vmName}` | Current VM name. Updated mid-sequence by `saveDiskSnapshot` after a successful rename -- see [saveDiskSnapshot](#savedisksnapshot). |
 | `${hostType}` | `host.windows.hyper-v` / `host.macos.utm` / `host.ubuntu.kvm`. |
 | `${guestKey}` | `guest.<os>` key the sequence is bound to. |
+
+<a id="428e4df6-0005"></a>
 
 ### Variable substitution rules
 
@@ -93,6 +103,8 @@ reading as a guest that never printed.
   the shell prompt on `${hostname}` unconditionally; the sequence's own
   `variables:` block or the planner cascade overwrites it when
   declared.
+
+<a id="428e4df6-0006"></a>
 
 ### New-VM-consumed variables
 
@@ -134,6 +146,8 @@ variables:
   exposeVirtualizationExtensions: true
 ```
 
+<a id="428e4df6-0007"></a>
+
 ## Failure artifacts
 
 When a step fails, the engine writes the following under the cycle's
@@ -149,12 +163,16 @@ The per-cycle `manifest.json` ([`Stop-LogFile`](../test/modules/Test.Log.psm1)) 
 
 ---
 
+<a id="428e4df6-0008"></a>
+
 ## Sequence-level fields
 
 Top-level keys in a sequence YAML, complementing `description:`,
 `keystrokeMechanism:` (gui|ssh, default gui), `resource:`, `variables:`,
 `component:`, and `workload:`. Full schema:
 [`test/schemas/sequence.schema.yml`](../test/schemas/sequence.schema.yml).
+
+<a id="428e4df6-0009"></a>
 
 ### requiresSnapshot
 
@@ -195,6 +213,8 @@ variable, delete the persisted VM + snapshot to force a cold rebuild.
 
 ---
 
+<a id="428e4df6-000a"></a>
+
 ## Snippets (reusable step lists)
 
 A **snippet** is a named, reusable list of steps spliced into a sequence
@@ -217,6 +237,8 @@ steps:
         text: "${username}"
 ```
 
+<a id="428e4df6-000b"></a>
+
 ### Where snippets live
 
 Snippets are defined in a `_snippets.yml` library -- a map of
@@ -238,6 +260,8 @@ firstLoginPrime:
 ```
 
 Schema: [`test/schemas/snippets.schema.yml`](../test/schemas/snippets.schema.yml).
+
+<a id="428e4df6-000c"></a>
 
 ### Resolution and rules
 
@@ -262,6 +286,8 @@ Every sequence in the framework and the project tree is read (and thus
 snippet-expanded) by [`Test-Config.ps1`](../test/Test-Config.ps1), so a
 broken or missing snippet reference is caught before a cycle starts.
 
+<a id="428e4df6-000d"></a>
+
 #### firstLoginPrime
 
 The bundled gui snippet. Wakes a freshly rebooted agetty before a
@@ -274,7 +300,11 @@ prompt) and pausing lets the prompt settle before the
 
 ---
 
+<a id="428e4df6-000e"></a>
+
 ## Action reference
+
+<a id="428e4df6-000f"></a>
 
 ### break
 
@@ -309,6 +339,8 @@ a real snapshot name such as the workload's `requiresSnapshot` /
   then [`Start-VM`](#yurunahost-contract) (snapshot restore always
   leaves the VM stopped) before resuming.
 
+<a id="428e4df6-0010"></a>
+
 #### restoreOnContinue (opt-in rewind)
 
 Set `restoreOnContinue: true` on a `break` to rewind the disk to
@@ -322,6 +354,8 @@ The Continue button is driven by `/runtime/break-active.json`, a sidecar
 the action writes on entry and removes on exit. Not a failure -- the
 step succeeds either way. `YURUNA_BREAK_DISABLED=1` turns the action
 into a no-op for unattended runs.
+
+<a id="428e4df6-0011"></a>
 
 #### Programmatic Continue (matches the UI button)
 
@@ -373,6 +407,8 @@ similar steps after the break.
 > takes `-StartStep` / `-StopStep` and indexes into the concatenated
 > baseline chain.
 
+<a id="428e4df6-0012"></a>
+
 ### callExtension
 
 Side-effecting call into the active extension for a given area (the
@@ -383,6 +419,8 @@ side-effect-free).
 |---|---|---|
 | `method` | string | `'area.Method'`; the `area` selects which extension family loads. |
 | `args` | object | Named parameters forwarded to the extension method; string values support `${var}` and `${ext:...}` substitution. |
+
+<a id="428e4df6-0013"></a>
 
 ### fetchAndExecute
 
@@ -397,6 +435,8 @@ Type a command + Enter, then wait for `waitPattern` to appear on screen
 | `waitPattern` | string | Required completion marker. |
 | `timeoutSeconds` | number | Default `vmCommunication.timeoutSeconds`. |
 | `pollSeconds` | number | Default `vmCommunication.pollSeconds`. |
+
+<a id="428e4df6-0014"></a>
 
 ### The fetchAndExecute typing length budget
 
@@ -420,6 +460,8 @@ fallback repo and commit), so a 276-character `text:` is really a
 ~500-character send. Keeping `text:` near 120 characters leaves comfortable
 headroom.
 
+<a id="428e4df6-0015"></a>
+
 ### inputText
 
 Type a text string.
@@ -429,6 +471,8 @@ Type a text string.
 | `text` | string | |
 | `sensitive` | boolean | Masks output in logs. |
 | `charDelayMs` | number | Default `50`. Hyper-V uses `Msvm_Keyboard.TypeText`. |
+
+<a id="428e4df6-0016"></a>
 
 ### inputTextAndEnter
 
@@ -440,6 +484,8 @@ Type, wait, press Enter.
 | `sensitive` | boolean | |
 | `charDelayMs` | number | Default `50`. |
 | `delaySeconds` | number | Default `2`. |
+
+<a id="428e4df6-0017"></a>
 
 ### loadDiskSnapshot
 
@@ -457,6 +503,8 @@ on `waitForText` for the login prompt).
 |---|---|---|
 | `id` | string | Required. Snapshot name previously written by `saveDiskSnapshot`. |
 
+<a id="428e4df6-0018"></a>
+
 ### networkRelease
 
 Release the guest DHCP lease and network resources at the end of a
@@ -472,6 +520,8 @@ Windows.11 is a no-op reminder (TODO). Uses the `Send-Text` and
 | `text` | string | Optional override of the typed command. Default `bash /usr/local/lib/yuruna/yuruna-network.sh release` (Ubuntu / Amazon only). |
 | `charDelayMs` | number | Per-character delay; default `50`. |
 
+<a id="428e4df6-0019"></a>
+
 ### passwdPrompt
 
 Like `waitForAndEnter`, but `text` is always treated as sensitive -- for
@@ -479,6 +529,8 @@ PAM prompts (`Current password:`, `Retype new password:`) whose
 non-newline-terminated lines get overwritten on the framebuffer by late
 console messages. Parameters are the same as
 `waitForAndEnter`, minus the explicit `sensitive` flag.
+
+<a id="428e4df6-001a"></a>
 
 ### recoverFromSnapshot
 
@@ -501,6 +553,8 @@ missing manifest is warn-only (`snapshot_manifest_missing`, legacy
 snapshots). On any restore failure the step returns failure and
 downstream steps see the prior-failure markers untouched.
 
+<a id="428e4df6-001b"></a>
+
 ### pressKey
 
 Send a single keystroke. Supported names: `Enter`, `Tab`, `Space`,
@@ -509,6 +563,8 @@ Send a single keystroke. Supported names: `Enter`, `Tab`, `Space`,
 | Parameter | Type | Notes |
 |---|---|---|
 | `name` | string | |
+
+<a id="428e4df6-001c"></a>
 
 ### retry
 
@@ -523,6 +579,8 @@ may nest.
 |---|---|---|
 | `maxAttempts` | integer | Default `3`, must be `>= 1`. |
 | `steps` | array | Step objects, recursive (same shape as a top-level `steps:`). |
+
+<a id="428e4df6-001d"></a>
 
 ### saveDiskSnapshot
 
@@ -547,6 +605,8 @@ start the VM. Pre-existing snapshots with the same id are overwritten.
 Per-host backend and rename support: see
 [Save-VMDiskSnapshot + Rename-VM](#save-vmdisksnapshot--rename-vm).
 
+<a id="428e4df6-001e"></a>
+
 ### saveSystemDiagnostic
 
 Mid-sequence checkpoint dump. SSHes into the guest, runs
@@ -558,6 +618,8 @@ sequence. Capture is opt-in; the runner does not auto-invoke it.
 | Parameter | Type | Notes |
 |---|---|---|
 | `id` | string | Required. Appended to the saved filename so two captures in the same cycle don't collide. |
+
+<a id="428e4df6-001f"></a>
 
 ### sshExec
 
@@ -573,6 +635,8 @@ unless `allowFailure=true`.
 | `detach` | boolean | Default **false** here. See [Surviving a dropped session](#surviving-a-dropped-session). Off by default for this verb because it runs whatever the YAML names, and a detached run stages that command to a file on the guest -- which the deploy sequence's password piping must not do. |
 | `transportRetries` | number | Default `0`. Reconnects to spend when the session dies mid-command. Only consulted when the step is not detached. Raise it only for a command that is safe to run twice. |
 
+<a id="428e4df6-0020"></a>
+
 ### sshFetchAndExecute
 
 Long-lived command over SSH (SSH counterpart to `fetchAndExecute`). No
@@ -585,6 +649,8 @@ the command handles its own auth.
 | `timeoutSeconds` | number | Default `vmCommunication.timeoutSeconds`. |
 | `detach` | boolean | Default **true** here. See [Surviving a dropped session](#surviving-a-dropped-session). Set `false` to run in a plain session instead. |
 | `transportRetries` | number | Default `0`, and ignored while `detach` is true -- a detached step re-attaches rather than re-running, which needs no judgment about whether the payload is safe to repeat. |
+
+<a id="428e4df6-0021"></a>
 
 ### Surviving a dropped session
 
@@ -612,6 +678,8 @@ from a session that died.
 Each re-attach is recorded as a `guest_run_reattach` event, and the number of
 host address changes that fell inside a cycle is recorded on its `cycle_end`.
 
+<a id="428e4df6-0022"></a>
+
 ### sshWaitReady
 
 Wait until the guest accepts SSH with the yuruna harness key --
@@ -623,6 +691,8 @@ reboot or a snapshot restore before any consumer that talks SSH.
 | `timeoutSeconds` | number | Default `vmCommunication.timeoutSeconds`. |
 | `pollSeconds` | number | Default `vmCommunication.pollSeconds`. |
 
+<a id="428e4df6-0023"></a>
+
 ### takeScreenshot
 
 Capture a screenshot for debugging.
@@ -630,6 +700,8 @@ Capture a screenshot for debugging.
 | Parameter | Type | Notes |
 |---|---|---|
 | `label` | string | Used in filename; default `step<n>`. |
+
+<a id="428e4df6-0024"></a>
 
 ### tapOn
 
@@ -644,6 +716,8 @@ at the label's center. Hyper-V uses `vmconnect` + SendInput
 | `timeoutSeconds` | number | Default `vmCommunication.timeoutSeconds`. |
 | `pollSeconds` | number | Default `vmCommunication.pollSeconds`. |
 | `offsetX`, `offsetY` | number | Pixel offset from the center; default `0`. |
+
+<a id="428e4df6-0025"></a>
 
 ### waitForAndEnter
 
@@ -668,6 +742,8 @@ something other than this step's prompt, is left alone. If the answer is not
 warranted, or is sent and nothing changes, the step spends the rest of its
 budget on the wait it was asked for and fails on its own terms.
 
+<a id="428e4df6-0026"></a>
+
 ### waitForSeconds
 
 Wait a fixed number of seconds.
@@ -675,6 +751,8 @@ Wait a fixed number of seconds.
 | Parameter | Type | Notes |
 |---|---|---|
 | `seconds` | number | |
+
+<a id="428e4df6-0027"></a>
 
 ### waitForText
 
@@ -695,6 +773,8 @@ crash fails the cycle in ~20s instead of waiting the full
 | `freshMatchTailLines` | number | Default `12`. |
 | `failurePatterns` | string or string[] | Anti-patterns; matching any fails the step with a label naming the matched pattern. |
 
+<a id="428e4df6-0028"></a>
+
 ### waitForTextWithNudge
 
 Use this for a one-shot console prompt that a harmless keypress can redraw.
@@ -710,6 +790,8 @@ patterns before pressing the key.
 | `nudgeIntervalSeconds` | integer | Required; must be at least `1`. The first periodic nudge occurs after this interval. |
 
 ---
+
+<a id="428e4df6-0029"></a>
 
 ## Handler contract
 
@@ -734,6 +816,8 @@ Two modules carry the contract:
 - **[`Test.SequenceHandler.psm1`](../test/modules/Test.SequenceHandler.psm1)** --
   the Handler bodies for built-in verbs. Adding a new verb is a local
   edit here, not a merge-conflict magnet on the engine.
+
+<a id="428e4df6-002a"></a>
 
 ### The `$Context` hashtable
 
@@ -770,6 +854,8 @@ Handlers should treat `$Context` as read-mostly. The mutable fields are
 `$Context.Vars` (write a captured value back for later steps) and the
 screenshot/log directories (side-effect writes are expected).
 
+<a id="428e4df6-002b"></a>
+
 ### Return-value contract
 
 A Handler returns `[bool]`:
@@ -784,6 +870,8 @@ A Handler returns `[bool]`:
   `FailureClass = 'script_error'` regardless of the registered class.
 
 A bare `return` (no value) is coerced to `$false`. Always be explicit.
+
+<a id="428e4df6-002c"></a>
 
 ### `Register-SequenceAction` parameters
 
@@ -810,6 +898,8 @@ overwritten, with nothing failing. Today `waitForText`, `waitForAndEnter` and
 `passwdPrompt` set both; `sshWaitReady` sets only `UsesWaitSignals`;
 `fetchAndExecute` sets only `CapturesOwnFailureScreenshot`.
 `Test.SequenceEngineFlags.Tests.ps1` pins those sets.
+
+<a id="428e4df6-002d"></a>
 
 ### Example registrations
 
@@ -855,6 +945,8 @@ Register-SequenceAction -Name 'pressKey' `
 The `Test.SequenceEngine\Send-Key` qualified call is mandatory, not
 stylistic -- see [Naming collisions to watch](#naming-collisions-to-watch).
 
+<a id="428e4df6-002e"></a>
+
 ### How a new verb gets added
 
 1. Pick a Name (camelCase, present-tense imperative) and decide which
@@ -883,6 +975,8 @@ the engine discovers the registration via `$global:YurunaSequenceActions`.
 
 ---
 
+<a id="428e4df6-002f"></a>
+
 ## Yuruna.Host contract
 
 Actions that touch the VM lifecycle, snapshots, screen I/O, networking,
@@ -897,6 +991,8 @@ Below are the contract functions whose **per-host behavior diverges in
 operationally significant ways** -- where a sequence author needs to
 know what happens on each host.
 
+<a id="428e4df6-0030"></a>
+
 ### `Save-VMDiskSnapshot` + `Rename-VM`
 
 Backs the [`saveDiskSnapshot`](#savedisksnapshot) action. Two
@@ -905,6 +1001,8 @@ the VM out of the `test-*` namespace so it survives the next cycle's
 cleanup sweep. The rename is **part of the contract** -- calling the
 contract function commits to both legs and returns `$false` if either
 fails.
+
+<a id="428e4df6-0031"></a>
 
 #### Hyper-V -- full support
 
@@ -921,6 +1019,8 @@ fails.
   [`Remove-OrphanedVMFiles.ps1`](../host/windows.hyper-v/Remove-OrphanedVMFiles.ps1)
   on the next cycle would reclaim the orphan dir and kill the persisted
   snapshot.
+
+<a id="428e4df6-0032"></a>
 
 #### KVM (Ubuntu / libvirt) -- full support
 
@@ -941,6 +1041,8 @@ fails.
   `"$VMName."` (with the trailing dot to bound the match). Safe for the
   cloud-init naming convention the test harness uses; would over-replace
   if a guest's name were a substring of an unrelated XML token.
+
+<a id="428e4df6-0033"></a>
 
 #### UTM (macOS) -- full support via plist surgery
 
@@ -970,6 +1072,8 @@ Rename-VM performs direct on-disk surgery while UTM is offline:
   Source VM must be stopped (UTM holds an exclusive lock on the bundle
   while running); `Save-VMDiskSnapshot` stops it before calling.
 
+<a id="428e4df6-0034"></a>
+
 ### `Restore-VMDiskSnapshot`
 
 Backs the [`loadDiskSnapshot`](#loaddisksnapshot) action.
@@ -985,6 +1089,8 @@ start the VM again, and gate any SSH/console step on
 [`sshWaitReady`](#sshwaitready) because a fresh-from-snapshot boot
 re-DHCPs and re-handshakes SSH.
 
+<a id="428e4df6-0035"></a>
+
 ### `Test-VMDiskSnapshot`
 
 Probe used by Debug-TestSequence's [`requiresSnapshot`](#requiressnapshot)
@@ -997,6 +1103,8 @@ Pure read; never stops the VM, never mutates state.
 | Hyper-V | `Hyper-V\Get-VMCheckpoint -VMName <name> -Name <id>` after a `Get-VMState`-not-`absent` guard. |
 | KVM | `virsh snapshot-info --domain <name> --snapshotname <id>` after a `Get-VMState`-not-`absent` guard; exit 0 means present. |
 | UTM | `qemu-img snapshot -l` on every `*.qcow2` in the bundle's `Data/`; all disks must list `<id>` for the answer to be true. |
+
+<a id="428e4df6-0036"></a>
 
 ### `Send-Text`, `Send-Key`, `Send-Click`
 
@@ -1012,6 +1120,8 @@ per host (and per the sequence's own `keystrokeMechanism`):
 The ssh variant of a sequence is a distinct `<name>.ssh.yml` file; the
 per-host driver routes the gui vs ssh backend.
 
+<a id="428e4df6-0037"></a>
+
 ### Other contract surface
 
 For VM lifecycle (`New-VM`, `Start-VM`, `Stop-VM`, `Remove-VM`,
@@ -1024,6 +1134,8 @@ summary, and each driver's source under
 canonical signatures.
 
 ---
+
+<a id="428e4df6-0038"></a>
 
 ## Naming collisions to watch
 
@@ -1049,6 +1161,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42f17d0e-cf42-4655-b11b-a34a4a0b449c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -62,13 +62,13 @@ param(
 
 $InformationPreference = 'Continue'
 
-# --- REGION: https://yuruna.link/extensions-api#service-scripts-run-at-erroractionpreference-continue
+# --- REGION: https://yuruna.link/42fffc2c-000b
 # Left at the inherited 'Continue' deliberately, and it must stay that way:
 # 'Stop' is not scoped to this script and would promote every helper's
 # non-terminating error. Hard stops here are explicit Write-Error + exit, as the
 # pre-flight hard gates below do.
 
-# --- REGION: https://yuruna.link/loglevels#propagation-across-pwsh-boundaries
+# --- REGION: https://yuruna.link/42162449-0004
 # After the preference assignments above on purpose: an explicit level is the
 # operator's choice and replaces this script's own default. $InformationPreference
 # is re-read afterwards because the script-scoped assignment above shadows the
@@ -209,7 +209,7 @@ if (-not (Test-Path -LiteralPath $newVm)) {
 }
 
 # --- REGION: Host status service (serves the local repo to the guest) -- BEFORE the build
-# --- REGION: https://yuruna.link/extensions-api#which-framework-snapshot-a-service-vm-is-built-from
+# --- REGION: https://yuruna.link/42fffc2c-0013
 # Best-effort; honors statusService.enabled + port. The {ShouldStart; Port}
 # record is kept rather than discarded: the framework-source gate below probes
 # the port THIS decision resolved, so it cannot disagree with the config reading
@@ -224,7 +224,7 @@ try {
 } catch { Write-Verbose "status service ensure: $($_.Exception.Message)" }
 
 # --- REGION: Framework source -- refuse to build from a snapshot older than this enlistment
-# --- REGION: https://yuruna.link/extensions-api#which-framework-snapshot-a-service-vm-is-built-from
+# --- REGION: https://yuruna.link/42fffc2c-0013
 # Stopping here costs the operator a message; not stopping costs a half-hour
 # build and a service nobody has reason to re-examine. The snapshot is captured
 # for the post-boot check too, which is the half that can prove what got
@@ -455,7 +455,7 @@ if ($vmIp) {
 # next, which is the most expensive place to look for this one.
 $verdict = Get-ServiceVmReadinessVerdict -Endpoint $endpoint
 
-# --- REGION: https://yuruna.link/network#why-a-mac-sweep-is-spent-only-on-a-failed-bring-up
+# --- REGION: https://yuruna.link/4220a755-0046
 # Spent here and nowhere else: the sweep costs about two minutes, and this is
 # the one place where the alternative is calling a healthy daemon failed.
 $recoveredIp = ''
@@ -574,7 +574,7 @@ To hold this script longer next time:
 # never fail the bring-up. Write-HostRegistrationRecord reads
 # $global:__YurunaHostId; Set-Variable -Scope Global keeps PSAvoidGlobalVars quiet.
 #
-# --- REGION: https://yuruna.link/extensions-api#3-the-host-side-module--the-runtime-marker
+# --- REGION: https://yuruna.link/42fffc2c-0008
 #
 # Here the readiness verdict decides whether peers route image requests at an
 # endpoint that is not serving instead of falling back to their own download
@@ -613,7 +613,7 @@ if ($stillBuilding) {
 
 if ($daemonReady) {
     # --- REGION: What actually got deployed
-    # --- REGION: https://yuruna.link/extensions-api#which-framework-snapshot-a-service-vm-is-built-from
+    # --- REGION: https://yuruna.link/42fffc2c-0013
     # The daemon is serving, so this is the first point where the framework it
     # was built from can be answered from evidence rather than prediction.
     if (-not (Assert-ServiceVmFrameworkSource -Address ([string]$vmIp) -Port 80 `
@@ -648,7 +648,7 @@ if ($daemonReady) {
 }
 
 # --- REGION: The daemon never served -- gather the evidence, then FAIL
-# --- REGION: https://yuruna.link/extensions-api#a-service-that-never-served-fails-loudly
+# --- REGION: https://yuruna.link/42fffc2c-000c
 # -User pins the account the cloud-init seed created: Get-GuestSshUser would
 # otherwise return a per-cycle cascade override that an earlier run in this same
 # shell session left registered for guest.download-agent-service.

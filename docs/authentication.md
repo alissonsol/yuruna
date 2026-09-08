@@ -1,12 +1,18 @@
+<a id="427ac634-0001"></a>
+
 # Yuruna Authentication Instructions
 
 How an operator authenticates to each supported cloud, how the
 component-push pipeline authenticates to a container registry
 unattended, and the threat model for the test harness's credential store.
 
+<a id="427ac634-0002"></a>
+
 ## Docker Desktop
 
 - No need to authenticate!
+
+<a id="427ac634-0003"></a>
 
 ## AWS
 
@@ -16,6 +22,8 @@ unattended, and the threat model for the test harness's credential store.
   - Show [current configuration](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html): `aws configure list`.
   - Verify the account is ready: `aws eks list-clusters`.
 
+<a id="427ac634-0004"></a>
+
 ## Azure
 
 - Login and select a subscription (once per PowerShell session):
@@ -24,6 +32,8 @@ unattended, and the threat model for the test harness's credential store.
     - `az account list -o table`
     - `az account set --subscription xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxx`
     - Show current: `az account show --query "{name:name, isDefault:isDefault, id:id, user:user.name}" -o tsv`
+
+<a id="427ac634-0005"></a>
 
 ## Google Cloud
 
@@ -52,6 +62,8 @@ unattended, and the threat model for the test harness's credential store.
   - Active project: `gcloud projects list`; then `gcloud config set project [project]`.
   - Authorize the SDK: `gcloud auth application-default login`.
 
+<a id="427ac634-0006"></a>
+
 ## Component registry login
 
 The steps above are what an operator types once per session. The
@@ -77,6 +89,8 @@ kind (ECR, GAR, Docker Hub, Harbor, Nexus, ...) is one
 `Register-CredentialProvider` call; nothing in `Yuruna.Component`
 changes.
 
+<a id="427ac634-0007"></a>
+
 ### Layering
 
 Both `Yuruna.Component` and the credential-provider registry live in
@@ -93,6 +107,8 @@ which imports the automation module `-Global` and re-exposes
 `Register`/`Get` to test callers. The bridge file
 [`automation/Yuruna.Component.Registry.psm1`](../automation/Yuruna.Component.Registry.psm1)
 concentrates the dispatch in one place.
+
+<a id="427ac634-0008"></a>
 
 ### Public surface
 
@@ -116,6 +132,8 @@ Each provider exposes two scriptblocks:
   push pipeline pipes through its own logging wrapper, or `$null`
   when the environment doesn't have the credentials.
 
+<a id="427ac634-0009"></a>
+
 ### Built-in providers
 
 | Type | Pattern | Login command shape |
@@ -129,6 +147,8 @@ Each provider exposes two scriptblocks:
 Order matters and is preserved: more specific patterns precede the
 catch-all `docker-generic`. The path-suffix tolerance (`(/|$)`) lets
 `foo.azurecr.io/myimage` match the same provider as the bare host.
+
+<a id="427ac634-000a"></a>
 
 ### Credential env vars
 
@@ -147,6 +167,8 @@ operator's pre-existing docker credential helper handles the push.
 This is the "no login needed" default for any registry without
 provider-supplied credentials.
 
+<a id="427ac634-000b"></a>
+
 ### Adding a new registry kind
 
 1. Pick a `Type` name (`harbor`, `nexus`, `quay`, ...) and a regex
@@ -159,11 +181,15 @@ provider-supplied credentials.
 4. The push pipeline picks up the new provider on the next outer
    restart.
 
+<a id="427ac634-000c"></a>
+
 ### Related registries
 
 - [Host-condition registry](test-harness.md#host-condition-registry) -- same `New-YurunaRegistry` primitive, different domain.
 - [Host I/O registry](host-io.md) -- the older, two-level registry that established the pattern.
 - [Remediation dispatcher](failure-schema.md#remediation-dispatcher) -- classifies a 401 as `credential_expired` and RECOMMENDS re-authentication. It does not call `Repair-Credential`; applying the recommendation is the caller's job.
+
+<a id="427ac634-000d"></a>
 
 ## Test-harness vault — threat model
 
@@ -204,6 +230,8 @@ Implementation:
 
 ---
 
+<a id="427ac634-000e"></a>
+
 ## MCP adds no credential kind
 
 Every Yuruna Go daemon and the core framework serve the Model Context Protocol
@@ -233,6 +261,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08
 
 Back to [Yuruna](../README.md)

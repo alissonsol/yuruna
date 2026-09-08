@@ -1,8 +1,12 @@
+<a id="42aaf735-0001"></a>
+
 # Yuruna Workarounds and FAQ
 
 Notes, frequently asked questions, and workarounds from development,
 followed by per-guest-OS troubleshooting. Host-side issues live in the
 host docs: [Windows Hyper-V](host-hyperv.md) - [macOS UTM](host-macos.md).
+
+<a id="42aaf735-0002"></a>
 
 ## Connectivity
 
@@ -39,6 +43,8 @@ use ([SO](https://stackoverflow.com/questions/69818376/localhost5000-unavailable
 exec into `kube-proxy`, install `ping` if needed (see **Debugging from inside
 a minimal container** below), and ping outward.
 
+<a id="42aaf735-0003"></a>
+
 ## General
 
 **What is the answer to the ultimate question of life, the universe, and
@@ -68,6 +74,8 @@ per-user. Fix it from an elevated prompt:
 winget uninstall --id Microsoft.PowerShell
 winget install --id Microsoft.PowerShell --scope machine
 ```
+
+<a id="42aaf735-0004"></a>
 
 ## Development notes
 
@@ -150,6 +158,8 @@ a `.10`+ point release `ubuntu-24.04.10-...` sorts BEFORE
 Keep the version-keyed sort (and its unparseable-value fallback) in any
 rewrite; one edit in the shared module affects every per-guest caller.
 
+<a id="42aaf735-0005"></a>
+
 ## A detached grandchild pins the caller's pipe on Windows
 
 Spawning a child pwsh with any std stream redirected (including
@@ -180,6 +190,8 @@ Unix has no `ShellExecute`, but its detached service is `nohup`'d onto
 `/dev/null` + `server.err` and cannot pin the caller's streams, so
 redirecting the child's own streams to files there is safe and gives the same
 live tail.
+
+<a id="42aaf735-0006"></a>
 
 ## Nested non-global import evicts a caller's view of a module
 
@@ -229,6 +241,8 @@ surrounding `try` usually swallows the resolution error:
 
 Durable capture: `feedback_module_force_import_evicts_global`.
 
+<a id="42aaf735-0007"></a>
+
 ## `utmctl start` exits 0 without starting the VM
 
 On a freshly imported bundle, `utmctl start` can return 0 at the RPC layer
@@ -245,16 +259,22 @@ anything downstream. Do not hand-roll `open` + `utmctl start`; that path
 also skips the custom-QEMU-args dialog watchdog, without which UTM blocks
 on a modal and the bring-up cannot run unattended.
 
+<a id="42aaf735-0008"></a>
+
 ## Guest troubleshooting
 
 Notes for problems that surface inside a provisioned guest rather than on
 the host.
+
+<a id="42aaf735-0009"></a>
 
 ### Amazon Linux 2023
 
 **"Display Output Is Not Active"** -- confirm a GUI is installed. Amazon
 Linux's first boot (especially on macOS UTM) has only an attached
 terminal; switch to that window to log in.
+
+<a id="42aaf735-000a"></a>
 
 ### Ubuntu Server
 
@@ -297,6 +317,8 @@ timedatectl list-timezones | grep <region>
 sudo timedatectl set-timezone America/Los_Angeles
 timedatectl                       # verify
 ```
+
+<a id="42aaf735-000b"></a>
 
 ### Windows 11
 
@@ -347,6 +369,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08
 
 Back to [Yuruna](../README.md)

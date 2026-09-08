@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42a11720-948f-47cf-8739-5beedf5f7176
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,7 +30,7 @@ $script:FailureClassEnum = @(
     'host_io_blocked', 'pattern_matched_failure', 'retry_exhausted',
     'snapshot_restore_failed', 'script_error', 'wait_timeout',
     'extension_error', 'instrumentation_failure', 'provisioning_failure',
-    # --- REGION: https://yuruna.link/failure-schema#why-each-infra-failure-class-exists
+    # --- REGION: https://yuruna.link/42820e91-0015
     # Each name below is a distinct class only where retry policy, or the person
     # who can fix it, differs from every other class; the per-class derivation
     # lives in the doc.

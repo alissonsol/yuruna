@@ -39,14 +39,24 @@
     if (maxAddresses && size > maxAddresses) {
       return {
         ok: false,
-        message: '/' + bits + ' covers ' + size.toLocaleString() + ' addresses; this service scans at most '
-          + maxAddresses.toLocaleString() + '. Use a narrower network (a larger prefix length).'
+        // Grouped from the locale manifest, like every other number the
+        // project writes. toLocaleString would punctuate from the browser's
+        // own locale regardless of the page's, so the same count would be
+        // written one way here and another way in the transcript.
+        message: '/' + bits + ' covers ' + num(size) + ' addresses; this service scans at most '
+          + num(maxAddresses) + '. Use a narrower network (a larger prefix length).'
       };
     }
     // Said plainly rather than left to be inferred: the count is what tells an
     // operator whether they typed the network they meant.
     var hosts = bits <= 30 ? size - 2 : size;
-    return { ok: true, message: 'Scans ' + hosts.toLocaleString() + (hosts === 1 ? ' address.' : ' addresses.') };
+    return { ok: true, message: 'Scans ' + num(hosts) + (hosts === 1 ? ' address.' : ' addresses.') };
+  }
+
+  // One place to reach the shared formatter, so a call site cannot quietly
+  // fall back to the browser's own locale.
+  function num(value) {
+    return window.YurunaI18n.formatNumber(value, 0, window.YurunaI18n.locale());
   }
 
   function syncField() {
@@ -67,7 +77,7 @@
   function fmtTime(iso) {
     if (!iso) { return '--'; }
     var d = new Date(iso);
-    return isNaN(d.getTime()) ? iso : d.toLocaleString();
+    return isNaN(d.getTime()) ? iso : window.YurunaI18n.fmtLocal(d);
   }
 
   function renderProgress(scan) {

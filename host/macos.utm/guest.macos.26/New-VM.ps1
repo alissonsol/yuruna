@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42f70b5c-df30-487c-a638-ea7b52866f97
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -51,7 +51,7 @@
     vCPU count exposed to the guest. When omitted (or set to 0),
     defaults to the yuruna VM core-count policy:
     max(4, floor(hostCores / 2)). See
-    https://yuruna.link/definition#defining-the-vm-core-count-policy
+    https://yuruna.link/42fa6f45-0015
 .PARAMETER MemoryMb
     Guest RAM in MiB. Defaults to 8192.
 .PARAMETER DiskSizeGb
@@ -76,13 +76,13 @@ if (-not $IsMacOS) {
     exit 1
 }
 
-# --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
+# --- REGION: https://yuruna.link/42fa6f45-0015
 $hostCores = [int](& /usr/sbin/sysctl -n hw.physicalcpu)
 if ($CpuCount -eq 0) {
     $CpuCount = [math]::Max(4, [math]::Floor($hostCores / 2))
 }
 if ($hostCores -lt 4 -or $CpuCount -lt 4) {
-    Write-Error "Host has $hostCores physical cores, -CpuCount=$CpuCount; Yuruna requires at least 4 cores on the host AND at least 4 vCPU assigned. See https://yuruna.link/definition#defining-the-vm-core-count-policy"
+    Write-Error "Host has $hostCores physical cores, -CpuCount=$CpuCount; Yuruna requires at least 4 cores on the host AND at least 4 vCPU assigned. See https://yuruna.link/42fa6f45-0015"
     exit 1
 }
 

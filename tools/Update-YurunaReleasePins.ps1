@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 428d9261-f6c4-49d0-94e9-7a19661cc048
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -106,6 +106,28 @@ if ($SkipSign -and ($Commit -or $Tag)) {
     throw "-SkipSign cannot be combined with -Commit/-Tag/-Push: a published release must carry a fresh signature. Drop -SkipSign."
 }
 
+# --- REGION: Signing key preconditions
+# Checked up here, before the gate, the pins and the manifest rewrite, because
+# the signer itself runs last: a key this process cannot read has to fail while
+# the tree is still untouched. Existence is not readability -- Test-Path only
+# stats the inode, so a key whose permission bits carry no read bit passes it and
+# then fails deep inside openssl. Name the mode as well: a key at 0600 that picks
+# up a stray digit (06000) keeps its owner but loses every rwx bit, and the
+# openssl error alone does not say so.
+if (-not $SkipSign) {
+    if (-not $PrivateKeyPath) { throw "-PrivateKeyPath is required to sign (or pass -SkipSign for a dry-run)." }
+    if (-not (Test-Path -LiteralPath $PrivateKeyPath)) { throw "Release private key not found at $PrivateKeyPath" }
+    try { [System.IO.File]::OpenRead($PrivateKeyPath).Dispose() }
+    catch {
+        $modeText = ''
+        if (-not $IsWindows) {
+            $mode = (Get-Item -LiteralPath $PrivateKeyPath).UnixFileMode
+            if ($null -ne $mode) { $modeText = " (mode $([Convert]::ToString([int]$mode, 8)); a signing key needs 0600)" }
+        }
+        throw "Release private key at $PrivateKeyPath is not readable$modeText. $($_.Exception.Message)"
+    }
+}
+
 if (-not $RepoRoot) { $RepoRoot = Split-Path -Parent $PSScriptRoot }
 $installDir   = Join-Path $RepoRoot 'install'
 $versionFile  = Join-Path $RepoRoot 'VERSION'
@@ -207,8 +229,6 @@ if ($SkipSign) {
     Write-Warning "-SkipSign: install.sha256 regenerated but NOT signed; $sigFile is now stale."
     return 0
 }
-if (-not $PrivateKeyPath) { throw "-PrivateKeyPath is required to sign (or pass -SkipSign for a dry-run)." }
-if (-not (Test-Path -LiteralPath $PrivateKeyPath)) { throw "Release private key not found at $PrivateKeyPath" }
 $openssl = (Get-Command openssl -ErrorAction SilentlyContinue)?.Source
 if (-not $openssl) {
     # On Windows the release machine often carries openssl only under Git for Windows.
@@ -222,7 +242,14 @@ if (-not $openssl) {
 if (-not $openssl) { throw "openssl not found on PATH or under Git for Windows; required to sign the release manifest." }
 
 & $openssl dgst -sha256 -sign $PrivateKeyPath -out $sigFile $sha256File
-if ($LASTEXITCODE -ne 0) { throw "openssl signing failed (exit $LASTEXITCODE)." }
+if ($LASTEXITCODE -ne 0) {
+    # openssl creates -out before it opens the key, so a signing failure leaves a
+    # zero-byte .sig beside a freshly written manifest. Drop it: an empty signature
+    # in a reused work tree is indistinguishable from a stale one, and -SkipSign
+    # only warns that the file is stale.
+    Remove-Item -LiteralPath $sigFile -Force -ErrorAction SilentlyContinue
+    throw "openssl signing failed (exit $LASTEXITCODE)."
+}
 
 # Self-verify against the bundled public key so a release never ships a
 # signature the verify path would reject.

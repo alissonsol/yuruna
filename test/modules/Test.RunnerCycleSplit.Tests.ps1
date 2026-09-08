@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 424757c6-0173-447c-a3d1-c814f73109f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -160,7 +160,7 @@ Describe 'Wait-OuterInterruptible' {
 }
 
 Describe 'The inner spawn inherits the console rather than a pipe' {
-    # --- REGION: https://yuruna.link/runner-outer-loop#why-the-cycle-call-must-not-capture-the-inner-runners-stdout
+    # --- REGION: https://yuruna.link/42f909ad-0010
     # Regression guard: capturing the enclosing function's success stream makes
     # EOF -- not the inner's exit -- release the cycle, and the status service
     # holds the write end for its unbounded life.

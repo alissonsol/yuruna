@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 4210c3aa-ab5b-4b2b-9259-5c68ad1cb72e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1201,13 +1201,25 @@ function Wait-ForText {
             # anti-pattern -- the window governs WHEN a pattern is consulted,
             # never what happens once it fires.
             $activeFailurePattern = @($FailurePattern)
+            # The early set is matched without Test-OCRMatch's segment strategy.
+            # Its members are short, ordinary phrases, and that strategy asks
+            # only whether each of their words turns up somewhere on the screen
+            # -- which a healthy step's own output supplies by accident as soon
+            # as it prints a few KB of URLs or paths. A permanent anti-pattern
+            # is chosen by a step author against the one script that step runs
+            # and keeps the full matcher; these are matched against every guest
+            # in the fleet, so they are held to evidence that sits on one line.
+            $strictFailurePattern = @{}
             if ($EarlyFailurePattern.Count -gt 0 -and $elapsed -le $EarlyFailureSeconds) {
-                $activeFailurePattern += $EarlyFailurePattern
+                foreach ($efp in $EarlyFailurePattern) {
+                    $activeFailurePattern += $efp
+                    if ($FailurePattern -notcontains $efp) { $strictFailurePattern[$efp] = $true }
+                }
             }
             if ($activeFailurePattern.Count -gt 0 -and $lastOcrText) {
                 foreach ($fp in $activeFailurePattern) {
                     if ([string]::IsNullOrWhiteSpace($fp)) { continue }
-                    if (Test-OCRMatch -Text $lastOcrText -Pattern $fp) {
+                    if (Test-OCRMatch -Text $lastOcrText -Pattern $fp -NoSegmentMatch:([bool]$strictFailurePattern[$fp])) {
                         $script:Fail.WaitForTextMatchedFailurePattern = $fp
                         Write-Warning "      Failure pattern matched: '$fp' -- aborting wait early (elapsed ${elapsed}s / ${TimeoutSeconds}s)"
                         if ($lastCapturePath -and (Test-Path $lastCapturePath)) {
@@ -2036,8 +2048,20 @@ function Invoke-Sequence {
     # at the end of a successful sequence with the "[All N steps completed]"
     # summary.
     $currentActionFile = Join-Path $runtimeDir 'current-action.json'
+    # $Code names a branchable condition; $Line is the sentence a person reads.
+    # They are separate because every reader of this sidecar used to recover the
+    # condition by matching the sentence -- the status page and the pool
+    # aggregator both tested for "Paused (waiting for resume)" -- which makes
+    # the English wording a wire format that cannot be reworded or translated
+    # without breaking a consumer in another language. A reader now branches on
+    # the code and renders whatever prose it likes.
     $writeCurrentAction = {
-        param([string]$Line)
+        # Line is what a reader sees when nothing can render the code -- an old
+        # page, a log tail, a transcript. Code and Label are what a surface that
+        # CAN render reads: the sentence comes from its own catalog and the
+        # label is data, so the reader's language is decided where the reader
+        # is rather than here.
+        param([string]$Line, [string]$Code = '', [string]$Label = '')
         $attempts = 0
         $lastErr  = $null
         while ($attempts -lt 3) {
@@ -2047,6 +2071,8 @@ function Invoke-Sequence {
                     guestKey  = $GuestKey
                     vmName    = $VMName
                     line      = $Line
+                    code      = $Code
+                    label     = $Label
                     updatedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
                 }
                 # Route through the shared atomic writer: a fixed "$Path.tmp"
@@ -2119,7 +2145,7 @@ function Invoke-Sequence {
                     event     = 'sequence_paused'
                 })
             }
-            & $writeCurrentAction "$Label Paused (waiting for resume)"
+            & $writeCurrentAction "$Label Paused (waiting for resume)" 'sequence_paused_waiting_resume' $Label
             Write-Information "    $Label Paused (status-service request). Waiting for resume..."
             $heldFromUtc  = [DateTime]::UtcNow
             $pauseAttempt = 1

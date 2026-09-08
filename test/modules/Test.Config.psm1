@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42c1e552-e3c2-4c54-b73a-ac2577a100fc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,7 +21,7 @@
 # calls below resolve wherever Test.Config is loaded (including its ad-hoc importers).
 Import-Module (Join-Path $PSScriptRoot 'Test.Hash.psm1') -Global -Force
 
-# --- REGION: https://yuruna.link/memory#why-the-testconfigyml-cache-key-includes-a-content-hash
+# --- REGION: https://yuruna.link/42d69dfa-0017
 # Single source of truth for reading test.config.yml. Cache key is path +
 # mtime + SHA-256 of the first 64 KB; -NoCache forces a fresh read.
 

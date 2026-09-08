@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42e9bd8a-5257-4459-82a4-765455c96fe3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -144,9 +144,17 @@ if (-not $Path -or $Path.Count -eq 0) {
     # every tracked JSON and YAML document are ASCII today, so this gate is
     # green on adoption and stays a real signal rather than a backlog.
     $trackedTypes = @('*.ps1', '*.psm1', '*.psd1', '*.sh', '*.bash', '*.css', '*.json', '*.yml', '*.yaml')
+    # The message catalogs and everything generated from them are the one tree
+    # that has to carry non-ASCII text: a translated sentence is the content,
+    # and escaping it would make the source unreadable to the translator who
+    # has to review it. They are held to UTF-8 rules instead, by
+    # tools/Test-Utf8Catalog.ps1 -- including the BOM ban this gate enforces
+    # everywhere else, so nothing is merely dropped here.
+    $utf8Tree = @('globalization/')
     $tracked = @(& git -C $RepoRoot ls-files --cached --others --exclude-standard 2>$null)
     if ($LASTEXITCODE -eq 0 -and $tracked.Count -gt 0) {
         $Path = @($tracked |
+            Where-Object { $rel = $_ -replace '\\', '/'; -not (@($utf8Tree | Where-Object { $rel.StartsWith($_) })) } |
             Where-Object { $n = [IO.Path]::GetFileName($_); $trackedTypes | Where-Object { $n -like $_ } } |
             ForEach-Object { Join-Path $RepoRoot $_ } |
             Where-Object { Test-Path -LiteralPath $_ -PathType Leaf })

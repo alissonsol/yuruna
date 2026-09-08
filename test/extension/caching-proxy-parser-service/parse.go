@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -219,8 +220,8 @@ const indexHTML = `<!doctype html>
   /* Scoped to tbody so the sticky header keeps its own opaque background. The
      hover rule below still shows through: it paints the td, and a td's
      background paints over its tr's. */
-  tbody tr:nth-child(odd) { background: var(--band-odd); }
-  tbody tr:nth-child(even) { background: var(--band-even); }
+  tbody tr:nth-child(odd) { background: #111827; background: var(--band-odd); }
+  tbody tr:nth-child(even) { background: #0b1220; background: var(--band-even); }
   tr:hover td { background: #1f2937; }
   .ok   { color: #10b981; } /* 2xx / 3xx */
   .red  { color: #f87171; } /* 4xx / 5xx */
@@ -252,7 +253,9 @@ function statusClass(s) {
   return 'gray';
 }
 function refresh() {
-  fetch('/recent-requests').then(function(r){ return r.json(); }).then(function(rows){
+  // Bounded for the same reason the page refreshes on a timer: a request
+  // that never settles leaves a stale table with nothing to say so.
+  yurunaRequest('/recent-requests', 8000).then(function(rows){
     var t = document.querySelector('#t tbody');
     while (t.firstChild) t.removeChild(t.firstChild);
     rows.forEach(function(r){
@@ -275,7 +278,7 @@ function refresh() {
       t.appendChild(tr);
     });
     document.getElementById('meta').textContent =
-      '(' + rows.length + ' rows, refreshed ' + new Date().toLocaleTimeString() + ')';
+      '(' + rows.length + ' rows, refreshed ' + yurunaLocalTime(new Date()) + ')';
     document.getElementById('err').textContent = '';
   }).catch(function(){
     document.getElementById('meta').textContent = '(refresh failed)';
@@ -307,6 +310,21 @@ startPolling();
 </script>
 </body></html>`
 
+// indexPage is the served document: the request adapter is spliced into the
+// head so it is installed before the page's own script runs. Composed once at
+// startup rather than per request -- the result never varies, and a handler
+// that rebuilt it would pay for the concatenation on every hit.
+//
+// A page on a browser without fetch would otherwise render its shell and then
+// fill in nothing, which reads as a lab with no data rather than as a page
+// that failed.
+var indexPage = strings.Replace(
+	indexHTML,
+	"</head>",
+	"<script>"+requestAdapterScript+"</script>\n</head>",
+	1,
+)
+
 func handleHTML(w http.ResponseWriter, req *http.Request) {
 	if req.URL.Path != "/" && req.URL.Path != "/index.html" {
 		http.NotFound(w, req)
@@ -314,7 +332,7 @@ func handleHTML(w http.ResponseWriter, req *http.Request) {
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
-	_, _ = io.WriteString(w, indexHTML)
+	_, _ = io.WriteString(w, indexPage)
 }
 
 // handleHealth reports liveness plus the follower's counters and last-

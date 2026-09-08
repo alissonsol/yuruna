@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 4232820e-f96a-47ea-863b-f94b73f9c76f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -116,7 +116,7 @@ $script:ShellRejectedCommandPattern = @(
 # strings become its ordinary output.
 $script:ShellRejectionWindowSeconds = 20
 
-# --- REGION: https://yuruna.link/test/sequences#the-fetchandexecute-typing-length-budget
+# --- REGION: https://yuruna.link/428e4df6-0014
 # Console-typed length above which a fetchAndExecute step is flagged. A WARNING,
 # not a cap: the fix for a long step is to move the work into the fetched
 # script, never to raise this number.
@@ -1081,7 +1081,7 @@ function Get-FetchExecuteEnvPrefix {
     # guest refuses if it does not also receive a matching E_SHA, so a
     # served-root/working-tree drift or a bad path fails closed, not open.
     #
-    # --- REGION: https://yuruna.link/definition#defining-the-fetch-and-execute-typed-envelope
+    # --- REGION: https://yuruna.link/42fa6f45-0005
     # This one name is NOT shortened, and that is the point: a guest imaged
     # before the rename knows only the EXEC_* spellings, so it would ignore a
     # short-named digest and run the bytes UNVERIFIED. Seeing this flag with no
@@ -1461,7 +1461,7 @@ Register-SequenceAction -Name 'sshFetchAndExecute' -HostIORequirement @() -OcrRe
         $script:Fail.StepGuestTransportLost     = $null
         $script:Fail.StepGuestRunLost           = $null
         $script:Fail.StepGuestPayloadUnavailable = $null
-        # --- REGION: https://yuruna.link/network#why-detached-is-the-default-for-fetched-scripts
+        # --- REGION: https://yuruna.link/4220a755-0041
         # Detached by default. The payload runs under a supervisor on the guest
         # and outlives the session, so a renumber costs a re-attach instead of
         # the step -- and, unlike a re-run, that is sound for a payload that

@@ -52,6 +52,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"yuruna.com/test/extension/extension-sdk/i18n"
 )
 
 const (
@@ -95,11 +97,17 @@ const (
 	// ReasonUnavailable is the machine-readable token for "the check itself
 	// could not be made", which is never the same answer as "wrong code".
 	ReasonUnavailable = "lab-token-unavailable"
+	// CodeUnavailable is the canonical message identity written beside the
+	// legacy reason during the N/N-1 compatibility window.
+	CodeUnavailable = "auth.lab_token_unavailable"
 
 	// ReasonUnconfigured is the machine-readable token for a service with
 	// neither way in configured. Its mutating routes answer 503, never an
 	// ungated write.
 	ReasonUnconfigured = "auth-unconfigured"
+	// CodeUnconfigured is the canonical message identity written beside the
+	// legacy reason during the N/N-1 compatibility window.
+	CodeUnconfigured = "auth.unconfigured"
 )
 
 // labTokenRE is the aggregator's own shape for a code. Matching it locally keeps
@@ -694,5 +702,26 @@ func writeErr(w http.ResponseWriter, status int, msg string) {
 }
 
 func writeReason(w http.ResponseWriter, status int, reason, msg string) {
-	writeJSON(w, status, map[string]any{"ok": false, "reason": reason, "error": msg})
+	code := ""
+	switch reason {
+	case ReasonUnavailable:
+		code = CodeUnavailable
+	case ReasonUnconfigured:
+		code = CodeUnconfigured
+	}
+	message, err := i18n.NewMessageEnvelope(code, nil, &i18n.MessageDetail{Text: msg, Source: "labgate"})
+	if err != nil {
+		// Every caller supplies one of the constants above. Treat any future
+		// unregistered value as a producer defect instead of silently emitting
+		// another prose-shaped protocol.
+		writeErr(w, http.StatusInternalServerError, "the gate could not encode its refusal")
+		return
+	}
+	writeJSON(w, status, map[string]any{
+		"ok":      false,
+		"message": message,
+		// N/N-1 compatibility fields. New consumers branch on message.code.
+		"reason": reason,
+		"error":  msg,
+	})
 }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42871662-c8fc-4b5a-9380-fa9ff5c48ae5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -68,6 +68,9 @@ if ($plan.recordPath) {
     $record = [ordered]@{ skipSend = [bool]$SkipSend; configPath = $ConfigPath }
     Set-Content -LiteralPath $plan.recordPath -Value ($record | ConvertTo-Json)
 }
+if ($plan.sidecar -and $env:YURUNA_FAILURE_SIDECAR) {
+    Set-Content -LiteralPath $env:YURUNA_FAILURE_SIDECAR -Value ($plan.sidecar | ConvertTo-Json -Depth 6)
+}
 if ($null -ne $plan.stdout) { foreach ($line in @($plan.stdout)) { Write-Output $line } }
 if ($null -ne $plan.stderr) { foreach ($line in @($plan.stderr)) { [Console]::Error.WriteLine($line) } }
 exit ([int]$plan.exit)
@@ -85,12 +88,13 @@ function New-GatePlan {
         [Parameter(Mandatory)][string]$Name,
         [string[]]$Stdout = @(),
         [string[]]$Stderr = @(),
-        [int]$ExitCode = 0
+        [int]$ExitCode = 0,
+        $Sidecar = $null
     )
     $recordPath = Join-Path $Root "$Name.invocation.json"
     $configPath = Join-Path $Root "$Name.config.json"
     if (Test-Path -LiteralPath $recordPath) { Remove-Item -LiteralPath $recordPath -Force }
-    $plan = [ordered]@{ recordPath = $recordPath; stdout = $Stdout; stderr = $Stderr; exit = $ExitCode }
+    $plan = [ordered]@{ recordPath = $recordPath; stdout = $Stdout; stderr = $Stderr; exit = $ExitCode; sidecar = $Sidecar }
     Set-Content -LiteralPath $configPath -Value ($plan | ConvertTo-Json -Depth 5)
     return @{ ConfigPath = $configPath; RecordPath = $recordPath }
 }
@@ -214,6 +218,49 @@ Describe 'Invoke-ConfigGate' {
             Assert-True ($o.Text -match 'END OF FAILURES \(2\)') 'the excerpt runs through the closing footer'
             Assert-True ($o.Text -notmatch 'UNRELATED-CHATTER') 'only the FAILURES block is repeated, not the whole ~80-line child transcript'
             Assert-True ($o.Text -match '-NoConfigGate') 'the bypass hint tells the operator how to proceed on an in-progress edit'
+        }
+
+        It 'reads the failures as data when the child reports them that way' {
+            # The property this exists for: what the parent recovers no longer
+            # depends on a sentence in the child's output surviving unchanged.
+            $sidecar = [ordered]@{
+                schema    = 'yuruna.preflight-failures/v1'
+                failCount = 2
+                warnCount = 1
+                failures  = @(
+                    [ordered]@{ section = 'storage'; message = 'poolStorageNetworkPath is not reachable'
+                                fullPath = '/mnt/ypool-nas'; warnings = @('share responded slowly') }
+                    [ordered]@{ section = 'project'; message = 'projectUrl is empty'; fullPath = ''; warnings = @() }
+                )
+            }
+            # The printed block is deliberately in another language, and says
+            # nothing this assertion looks for. A parent still matching English
+            # would report no failures at all for a child that failed.
+            $foreign = @('========', '  FALHAS (2) -- o portao recusa:', '========',
+                         '  [1/2] secao: storage', '        caminho inacessivel',
+                         '========', '  FIM DAS FALHAS (2)', '========')
+            $plan = New-GatePlan -Root $script:planRoot -Name 'red-sidecar' -Stdout $foreign -ExitCode 5 -Sidecar $sidecar
+            $o = Get-GateOutcome -TestRoot $script:gateRoot -ConfigPath $plan.ConfigPath -CallerName 'Start-TestRunner'
+
+            Assert-Equal -Expected $false -Actual $o.Result.passed
+            Assert-Equal -Expected 5 -Actual $o.Result.exitCode
+            Assert-True ($o.Text -match 'poolStorageNetworkPath is not reachable') 'the first failure is reported'
+            Assert-True ($o.Text -match 'projectUrl is empty') 'the second failure is reported'
+            Assert-True ($o.Text -match 'share responded slowly') 'the warning the failure pointed at travels with it'
+            Assert-True ($o.Text -match '/mnt/ypool-nas') 'the path the operator has to look at is reported'
+            Assert-True ((@($o.Result.failureLines) -join "`n") -match 'projectUrl is empty') `
+                'the returned failure lines come from the data, not from the printed text'
+        }
+
+        It 'still reads the printed block from a gate that reports no data' {
+            # The bounded fallback. A gate built before the sidecar, and every
+            # stand-in a test substitutes for one, reports only what it prints.
+            $plan = New-GatePlan -Root $script:planRoot -Name 'red-nosidecar' -Stdout $script:failuresTranscript -ExitCode 7
+            $o = Get-GateOutcome -TestRoot $script:gateRoot -ConfigPath $plan.ConfigPath -CallerName 'Start-TestRunner'
+            Assert-Equal -Expected $false -Actual $o.Result.passed
+            Assert-True ($o.Text -match 'poolStorageNetworkPath is not reachable') 'the printed block is still recovered'
+            Assert-True ($o.Text -match 'N-1 stdout compatibility reader') 'using the fallback must be visible'
+            Assert-True ($o.Text -match 'release 2026\.11 by 2026-11-30') 'the compatibility reader needs an executable release and calendar deadline'
         }
 
         It 'finds the FAILURES block even when the child wrote it to stderr' {

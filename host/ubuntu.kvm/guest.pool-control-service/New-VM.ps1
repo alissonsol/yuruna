@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42cb87f4-7e53-4a64-bea3-4c874894dd2d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,11 +31,14 @@
 
 .PARAMETER VMName
     libvirt domain name. Default: yuruna-pool-control-service.
+.PARAMETER AllowPseudoLocale
+    Open pseudo-locale negotiation for an explicit reference run. Off by default.
 #>
 
 param(
     [Parameter(Position = 0)]
-    [string]$VMName = 'yuruna-pool-control-service'
+    [string]$VMName = 'yuruna-pool-control-service',
+    [switch]$AllowPseudoLocale
 )
 
 # Honor logLevel from Start-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
@@ -196,12 +199,13 @@ uplink NIC). Nothing was created; the pool-control-service VM was not started.
     }
 }
 
-# --- REGION: https://yuruna.link/network#cache-vm-seed-host-binding
+# --- REGION: https://yuruna.link/4220a755-001b
 # Host coordinates (status service, for the in-VM source fetch) + pool storage
 # coordinates (the NAS), baked into the seed. Honor an explicit override.
 Import-Module (Join-Path $repoRoot 'test/modules/Test.PoolStorage.psm1')  -Global -Force
 Import-Module (Join-Path $repoRoot 'test/modules/Test.YurunaDir.psm1')    -Global -Force
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Config.psm1')       -Global -Force
+Import-Module (Join-Path $repoRoot 'test/modules/Test.Locale.psm1')       -Global -Force
 Import-Module (Join-Path $repoRoot 'test/modules/Test.CachingProxyService.psm1') -Global -Force
 Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
 if ($env:YURUNA_GUEST_REACHABLE_HOST_IP) {
@@ -215,6 +219,14 @@ if (-not $YurunaHostIp) { $YurunaHostIp = '' }
 $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $repoRoot
 $YurunaHostPort = $_statusSeed.Port
 $tc = $_statusSeed.Config
+$languageRaw = [string](Get-TestConfigValue -Config $tc -Path 'language')
+$poolControlLanguage = if ([string]::IsNullOrWhiteSpace($languageRaw) -or $languageRaw -ieq 'auto') {
+    'auto'
+} else {
+    ConvertTo-CanonicalLocaleTag -Tag $languageRaw
+}
+if (-not $poolControlLanguage) { throw "Invalid configured language '$languageRaw'." }
+$allowPseudoLocaleValue = if ($AllowPseudoLocale) { 'true' } else { 'false' }
 $poolNas = Get-YurunaPoolSeedValue -Config $tc -GuestReachableAddress $YurunaHostIp
 # Pool-aggregator service base URL for the daemon's presence beacon + remote-host
 # resolution; '' (no caching-proxy service known) leaves those features off in-guest.
@@ -248,6 +260,8 @@ $userData = New-CloudInitUserData `
         YURUNA_HOST_ID_PLACEHOLDER     = $poolNas.HostId
         YURUNA_AGGREGATOR_URL_PLACEHOLDER      = $aggregatorSeedUrl
         YURUNA_POOL_INTENT_GIT_URL_PLACEHOLDER = $intentGitUrl
+        YURUNA_LANGUAGE_PLACEHOLDER       = $poolControlLanguage
+        YURUNA_ALLOW_PSEUDO_LOCALE_PLACEHOLDER = $allowPseudoLocaleValue
         POOL_NAS_NETWORK_PATH_PLACEHOLDER  = $poolNas.NetworkPath
         POOL_NAS_NETWORK_IP_PLACEHOLDER    = $poolNas.NetworkIp
         POOL_NAS_NETWORK_USER_PLACEHOLDER  = $poolNas.NetworkUser
@@ -260,7 +274,7 @@ $seedDir = Join-Path $vmDir 'seed.src'
 New-Item -ItemType Directory -Force -Path $seedDir | Out-Null
 Set-Content -LiteralPath (Join-Path $seedDir 'user-data') -Value $userData -NoNewline
 Set-Content -LiteralPath (Join-Path $seedDir 'meta-data') -Value $metaData -NoNewline
-# --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+# --- REGION: https://yuruna.link/4220a755-000b
 Copy-Item -Path (Join-Path $repoRoot 'host/vmconfig/guest-dhcp.network-config') `
     -Destination (Join-Path $seedDir 'network-config')
 
@@ -301,16 +315,16 @@ if ($LASTEXITCODE -eq 0) {
     }
 }
 
-# --- REGION: https://yuruna.link/definition#defining-the-vm-memory-policy
-# --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
+# --- REGION: https://yuruna.link/42fa6f45-0016
+# --- REGION: https://yuruna.link/42fa6f45-0015
 $hostCores = [int](& nproc --all)
 if ($hostCores -lt 4) {
-    Write-Error "Host has $hostCores cores; Yuruna requires at least 4. See https://yuruna.link/definition#defining-the-vm-core-count-policy"
+    Write-Error "Host has $hostCores cores; Yuruna requires at least 4. See https://yuruna.link/42fa6f45-0015"
     exit 1
 }
 $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
 
-# --- REGION: https://yuruna.link/network#defining-deterministic-guest-mac-addresses
+# --- REGION: https://yuruna.link/4220a755-000a
 $YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $VMName
 Write-Verbose "Deterministic guest MAC for '$VMName': $YurunaGuestMac"
 

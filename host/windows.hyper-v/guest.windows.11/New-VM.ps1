@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 427027e4-02aa-49bd-8f50-95db47263320
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -183,7 +183,7 @@ if (-not $switchName) {
     Write-Information "External vSwitch unavailable -- the VM is attached to '$switchName' (NAT + DHCP). It gets no LAN-bridged address: the host answers only at that switch's gateway address, and anything on the LAN reaches the guest only through a host port-forwarder."
 }
 
-# --- REGION: https://yuruna.link/network#defining-yuruna-host-locate-lib
+# --- REGION: https://yuruna.link/4220a755-002d
 # This guest's Yuruna coordinates, split by whether DHCP can invalidate them.
 #
 # The seed ISO is burned BEFORE Windows Setup runs, and Setup takes longer than
@@ -259,7 +259,7 @@ Enable-VMTPM -VMName $VMName
 # Hyper-V appends this VM's ACE on attach. Without it the file's DACL grows
 # unbounded across runs (Hyper-V never revokes on Remove-VM) and eventually
 # hits the ~64 KB ACL limit, failing the attach with 0x8007053C ("does not
-# have permission to open attachment"). See https://yuruna.link/vmconfig#hyper-v-iso-ace-bloat
+# have permission to open attachment"). See https://yuruna.link/429f3d06-0093
 $prunedAce = Remove-OrphanedVMFileAccess -Path $baseImageFile
 if ($prunedAce -gt 0) { Write-Verbose "Pruned $prunedAce stale per-VM ACE(s) from base image before attach." }
 Add-VMDvdDrive -VMName $VMName -Path $baseImageFile | Out-Null
@@ -269,10 +269,10 @@ Add-VMDvdDrive -VMName $VMName -Path $SeedIso | Out-Null
 $dvdDrive = Get-VMDvdDrive -VMName $VMName | Where-Object { $_.Path -eq $baseImageFile }
 Set-VMFirmware -VMName $VMName -FirstBootDevice $dvdDrive
 
-# --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
+# --- REGION: https://yuruna.link/42fa6f45-0015
 $hostCores = (Get-CimInstance -ClassName Win32_Processor | Measure-Object -Property NumberOfCores -Sum).Sum
 if ($hostCores -lt 4) {
-    Write-Error "Host has $hostCores physical cores; Yuruna requires at least 4. See https://yuruna.link/definition#defining-the-vm-core-count-policy"
+    Write-Error "Host has $hostCores physical cores; Yuruna requires at least 4. See https://yuruna.link/42fa6f45-0015"
     exit 1
 }
 $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))

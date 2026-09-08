@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42a4a080-e1cd-4a2a-98ba-ffdbe804c002
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -519,12 +519,22 @@ function Write-HostRegistrationRecord {
                 # registration write would be noise.
                 $sets = Get-ProjectTestSet -RepoRoot $repoRootForProject -WarningAction SilentlyContinue
                 $projectTestSets = @(foreach ($s in $sets) {
-                    [ordered]@{
+                    $testSet = [ordered]@{
                         name        = [string]$s['name']
                         displayName = [string]$s['displayName']
                         description = [string]$s['description']
                         sequences   = @($s['sequences'])
                     }
+                    # Carry the complete validated map. Locale is a property of
+                    # the HTTP reader, not of this background registration
+                    # write; resolving here would freeze every later browser to
+                    # the service account's process culture.
+                    foreach ($mapKey in @('displayNameLocalized', 'descriptionLocalized')) {
+                        if ($s.Contains($mapKey) -and $s[$mapKey] -is [System.Collections.IDictionary]) {
+                            $testSet[$mapKey] = $s[$mapKey]
+                        }
+                    }
+                    $testSet
                 })
             }
         } catch { Write-Verbose "project test-set discovery: $($_.Exception.Message)" }

@@ -18,6 +18,7 @@ import (
 	"pool-control-service/internal/hostctl"
 	"pool-control-service/internal/intent"
 	"pool-control-service/internal/state"
+	"yuruna.com/test/extension/extension-sdk/i18n"
 	"yuruna.com/test/extension/extension-sdk/labgate"
 	"yuruna.com/test/extension/extension-sdk/pool"
 )
@@ -66,6 +67,15 @@ type Options struct {
 	// an operator can act on -- "this service can prove control to no host" --
 	// names the file THIS daemon was launched with rather than the default.
 	AuthTokenFile string
+	// Language is the operator's lab-wide lock on the reader's language, from
+	// test.config.yml. Empty or "auto" means no lock, and a browser's own
+	// Accept-Language decides. A tag this binary did not compile in is refused
+	// rather than obeyed: a typo must not select a catalog that is not here.
+	Language string
+	// AllowPseudoLocale opens the pseudo locales to negotiation. Off in a
+	// release launch. A reference run turns it on so expanded and mirrored
+	// text can be exercised against this service rather than against a fixture.
+	AllowPseudoLocale bool
 	// ScanCIDR is the network the discovery sweep walks. Empty means the /24
 	// around this service's own address, which is the network an operator means
 	// when they have not said otherwise.
@@ -79,10 +89,16 @@ type Options struct {
 
 // Server is the pool-control-service UI/API HTTP server.
 type Server struct {
+	// assets is built once during New and read-only thereafter: a handler
+	// never rereads embed.FS, recompresses a body, or rebuilds a map.
+	assets assetStore
 	intent IntentAPI
 	state  *state.Store
 	opts   Options
 	gate   *labgate.Gate
+	// localeNegotiator is narrowed to this binary's embedded catalogs once in
+	// New. Request handlers read it but never rebuild or mutate its maps.
+	localeNegotiator *i18n.Negotiator
 	// pool reads the aggregator for the board's cycle counts and the
 	// auto-enrollment sweep's candidate list.
 	pool *pool.Client
@@ -102,6 +118,8 @@ type Server struct {
 // New builds a Server over the given intent API.
 func New(api IntentAPI, opts Options) *Server {
 	s := &Server{intent: api, state: opts.Store, opts: opts, started: time.Now()}
+	s.localeNegotiator = newServiceNegotiator(opts.Language, opts.AllowPseudoLocale)
+	s.assets.preparePages(s.localeNegotiator)
 	s.gate = labgate.New(labgate.Options{
 		AggregatorURL: opts.AggregatorURL,
 		BearerToken:   opts.AuthToken,

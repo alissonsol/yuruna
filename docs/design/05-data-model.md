@@ -2,8 +2,6 @@
 
 This page models the deployment-project records and the separate test-authentication records that current code reads and writes.
 
-[Yuruna Architecture](../architecture.md) | [Design index](00-index.md) | [Data flows](03-data-flows.md)
-
 ## Deployment project
 
 ```mermaid
@@ -152,3 +150,24 @@ The harness vault does not supply cloud or component-registry credentials. Those
 are resolved separately by `automation/Yuruna.CredentialProvider.psm1` and
 `automation/Yuruna.Component.Registry.psm1`, so no vault-to-cloud or
 vault-to-registry edge is present.
+
+## Human text and stable identifiers
+
+Project test metadata in `yuruna-project/test/test.runner.yml` adds optional
+`displayNameLocalized` and `descriptionLocalized` maps beside required English
+scalars. Test-set `name`, sequence references, deployment command keys, and vault
+keys remain machine identifiers; these maps do not rename them or alter their
+relationships.
+
+`test/modules/Test.SequencePlanner.psm1` preserves validated maps for discovery;
+the pool board selects an exact resolved locale per request and falls back to the
+English scalar. `tools/Invoke-ProjectLocaleMap.ps1` validates bounds and the separate
+`yuruna-project/globalization/project-locale-source-hashes.json` sidecar. Runtime
+readers do not consult sidecar freshness/review status, and ordinary validation
+permits unreviewed entries. The project-map flow and its review boundary are shown
+in [Globalization](07-globalization.md#7-project-owned-labels-are-a-separate-translation-channel),
+separately from framework catalogs and document translations.
+
+---
+
+[Yuruna Architecture](../architecture.md) | [Design index](00-index.md) | [Data flows](03-data-flows.md)

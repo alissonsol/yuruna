@@ -4,6 +4,11 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.09.08
+
+- **Globalization.** Work on globalization of the UI ahead
+  of first localized version.
+
 ## 2026.09.01
 
 - **First-time setup.** Fixes in `install/setup.ps1` and
@@ -475,6 +480,6 @@ LICENSEURI <https://yuruna.link/license>
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08
 
 Back to [Yuruna](README.md)

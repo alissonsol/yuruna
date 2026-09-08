@@ -30,17 +30,33 @@
 
     /* The facts of the cycle being shared, as a definition list: the operator
        arrived from a click on a timeline and should be able to confirm they
-       landed on the cycle they meant before anything is sent anywhere. */
+       landed on the cycle they meant before anything is sent anywhere.
+
+       Block flow first. An engine without grid stacks each term above its
+       value, which still reads as a list of facts and needs only the row
+       rhythm restated as a margin. The two-column form follows behind the
+       @supports guard, where the row gap replaces that margin. The legacy
+       grid-*-gap longhands (NOT the `gap:` shorthand) cover the engines that
+       have grid but not the unified property. */
     #share-facts {
-      display: grid; grid-template-columns: max-content 1fr; gap: .35rem 1rem;
       margin: 0 0 1.25rem; font-size: .8rem;
     }
-    #share-facts dt { color: var(--fg-faint); }
-    #share-facts dd { margin: 0; font-family: var(--font-mono); word-break: break-all; }
+    #share-facts dt { color: #6b7280; color: var(--fg-faint); }
+    #share-facts dd { margin: 0 0 .35rem; font-family: ui-monospace, Menlo, Consolas, monospace; font-family: var(--font-mono); word-break: break-all; }
+
+    @supports (display: grid) {
+      #share-facts {
+        display: grid; grid-template-columns: max-content 1fr;
+        grid-column-gap: 1rem; column-gap: 1rem;
+        grid-row-gap: .35rem; row-gap: .35rem;
+      }
+      #share-facts dd { margin: 0; }
+    }
 
     #share-go {
       font: inherit; font-weight: 600; cursor: pointer;
       padding: .5rem 1rem; border-radius: .375rem;
+      background: #2563eb;
       background: var(--accent, #2563eb); color: #fff; border: 1px solid transparent;
       /* Comfortably past the 44px touch minimum on a phone, where this page is
          one button and nothing else. */
@@ -49,11 +65,11 @@
     #share-go[disabled] { cursor: default; opacity: .55; }
 
     #share-status { margin-top: 1rem; font-size: .8rem; line-height: 1.5; }
-    #share-status.error { color: var(--fail-fg); }
+    #share-status.error { color: #b91c1c; color: var(--fail-fg); }
 
     #share-status code {
       background: rgba(0,0,0,.06); padding: .05rem .3rem;
-      border-radius: .2rem; font-family: var(--font-mono);
+      border-radius: .2rem; font-family: ui-monospace, Menlo, Consolas, monospace; font-family: var(--font-mono);
     }
 
     /* Numbered because the order matters: a draft opened before the file has
@@ -63,12 +79,13 @@
     #share-steps li { margin-bottom: .35rem; }
     #share-steps a {
       display: inline-block; padding: .35rem 0; min-height: 1.75rem;
+      font-family: ui-monospace, Menlo, Consolas, monospace;
       font-family: var(--font-mono); word-break: break-all;
     }
     /* Body-sized and in the primary foreground: the second sentence is an
        instruction the operator has to act on before the message is worth
        sending, so it cannot read as fine print. */
-    .share-note { color: var(--fg-primary); font-size: 1rem; line-height: 1.55; margin-top: 1.5rem; }
+    .share-note { color: #111827; color: var(--fg-primary); font-size: 1rem; line-height: 1.55; margin-top: 1.5rem; }
   </style>
 </head>
 <body>

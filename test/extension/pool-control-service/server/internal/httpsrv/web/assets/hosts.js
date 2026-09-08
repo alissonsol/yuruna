@@ -41,16 +41,43 @@
   var REPO_ACCESS_LABEL = { frameworkAccess: 'framework', projectAccess: 'project' };
   // Where each column's repository lives, reported beside the name it belongs to.
   var REPO_URL_KEY = { frameworkAccess: 'frameworkUrl', projectAccess: 'projectUrl' };
-  var NO_ACCESS = 'No access';
+  // The English phrase this column used to print. It is kept only to read a
+  // host too old to send a state -- see isRepoDenied -- and is never rendered:
+  // what a reader sees comes from the catalog.
+  var LEGACY_NO_ACCESS = 'No access';
+
+  function t(key, args) { return window.YurunaI18n.t(key, args || null); }
+  // The condition behind each column, reported as a stable token beside the
+  // name. The column's own value carries a repository name in one case and the
+  // words "No access" in another, so asking whether a host is denied used to
+  // mean comparing that English phrase -- which made the phrase a contract
+  // between the host's PowerShell, the relay and this page.
+  var REPO_STATE_KEY = { frameworkAccess: 'frameworkAccessState', projectAccess: 'projectAccessState' };
+
+  // A host older than the state field reports none, and its phrase is still
+  // read. Once a state is present it is the whole answer, so the phrase can be
+  // reworded or translated without this test noticing.
+  function isRepoDenied(h, key, value) {
+    var state = h[REPO_STATE_KEY[key]];
+    if (state) { return state === 'denied'; }
+    return value === LEGACY_NO_ACCESS;
+  }
 
   // The pool's separate question -- can this MEMBER read what its pool assigned
   // -- is answered in the host's registration record, and denied is the one
   // value that needs an operator. It rides the project cell's tooltip: the
   // column itself shows what the host holds, which is a different fact.
-  var POOL_ACCESS_HINT = {
-    denied: 'The pool assigned this host a project its git credential cannot read -- grant its GH_TOKEN access to that repo, or reassign the pool to one every member can read. Its cycles fail until then, and no retry can fix it.',
-    unreachable: 'The project this host\'s pool assigned did not answer -- network, not permission. Transient: the cycle\'s clone retries through the normal backoff.'
+  // Keyed by the state the host reported, so the words are chosen by a value
+  // rather than matched from one.
+  var POOL_ACCESS_KEY = {
+    denied: 'pool.pool_project_denied',
+    unreachable: 'pool.pool_project_unreachable'
   };
+
+  function poolAccessHint(state) {
+    var key = state ? POOL_ACCESS_KEY[state] : null;
+    return key ? t(key) : '';
+  }
 
   // Raw value for a repository column, or '' when the host did not report one.
   function accessValue(h, key) {
@@ -108,25 +135,29 @@
     // The url ends the tooltip rather than sitting inside it: the cell shows a
     // name, and where that name came from is what an operator checks before
     // following the link.
-    var where = url ? ' ' + url : '';
-    var poolHint = key === 'projectAccess' ? POOL_ACCESS_HINT[h.access] : '';
-    if (value === NO_ACCESS) {
+    var where = url ? ' ' + Y.bidiIsolate(url) : '';
+    var poolHint = key === 'projectAccess' ? poolAccessHint(h.access) : '';
+    if (isRepoDenied(h, key, value)) {
       // Linked to the url it could NOT read, which is the one an operator
       // checks first: a url naming the wrong repository looks exactly like a
       // credential that is missing one until someone follows it.
+      // Each description is a whole sentence chosen by which repository this
+      // is, not one assembled around the word for it. A sentence built by
+      // dropping a noun into a slot cannot be reordered by a translator, and
+      // several languages need to reorder it.
       return repoEl(url, {
-        title: 'This host cannot read the ' + what + ' repository it is configured with -- check its git credential and the url in test.config.yml.' + where
-      }, Y.el('strong', { text: NO_ACCESS }));
+        title: t('pool.repo_denied_detail', { repo: what }) + where
+      }, Y.el('strong', { text: t('pool.repo_no_access') }));
     }
     if (value) {
       return repoEl(url, {
-        title: (poolHint ? poolHint + ' ' : '') + 'The ' + what + ' repository this host holds.' + where
-      }, value);
+        title: (poolHint ? poolHint + ' ' : '') + t('pool.repo_held_detail', { repo: what }) + where
+      }, Y.bidiIsolate(value));
     }
     return Y.el('span', {
       class: 'muted', text: '--',
-      title: poolHint || error ||
-        'This host has no ' + what + ' repository and none configured, or it has not answered yet.'
+      title: poolHint || (error ? Y.bidiIsolate(error) : '') ||
+        t('pool.repo_unconfigured_detail', { repo: what })
     });
   }
 
@@ -174,7 +205,10 @@
   // Takes a formatted string or a raw number (the Cores column).
   function factCell(value, error) {
     if (value !== null && value !== undefined && value !== '') { return Y.el('span', { text: String(value) }); }
-    return Y.el('span', { class: 'muted', text: '--', title: error || 'This host has not reported hardware facts.' });
+    return Y.el('span', {
+      class: 'muted', text: '--',
+      title: error ? Y.bidiIsolate(error) : 'This host has not reported hardware facts.'
+    });
   }
 
   // The identity a row's facts arrive under. A discovered host that could not
@@ -245,12 +279,13 @@
     if (!h.discovered) { return Y.hostLink(h.hostId, h.pool, goBaseUrl); }
     var box = Y.el('span', { class: 'discovered-host' });
     if (h.hostId) box.appendChild(Y.el('span', { class: 'mono', text: Y.shortHost(h.hostId), title: Y.guid(h.hostId) }));
-    var seen = h.lastSeen ? ', last seen ' + new Date(h.lastSeen).toLocaleString() : '';
+    var seen = h.lastSeen ? ', last seen ' + window.YurunaI18n.fmtLocal(new Date(h.lastSeen)) : '';
     if (h.baseUrl) {
       box.appendChild(Y.el('a', {
         class: 'mono', href: h.baseUrl, target: '_blank', rel: 'noopener',
-        title: 'Open this host\'s own status page at ' + h.baseUrl + ' (found by a network scan' + seen + ')'
-      }, h.address));
+        title: 'Open this host\'s own status page at ' + Y.bidiIsolate(h.baseUrl) +
+          ' (found by a network scan' + seen + ')'
+      }, Y.bidiIsolate(h.address)));
     } else {
       box.appendChild(Y.el('span', { class: 'mono', text: h.address, title: 'Found by a network scan' + seen }));
     }
@@ -259,11 +294,16 @@
   }
 
   function rowEl(h, n) {
-    var sel = Y.el('select', { 'aria-label': 'Pool for host ' + (h.hostId || h.address) });
+    var sel = Y.el('select', {
+      'aria-label': 'Pool for host ' + Y.bidiIsolate(h.hostId || h.address)
+    });
     sel.appendChild(Y.el('option', { value: '', text: '(none)' }));
     for (var i = 0; i < pools.length; i++) {
       var p = pools[i];
-      var o = Y.el('option', { value: p, text: p + (p === targetPoolId ? ' -- auto-enrollment target' : '') });
+      var o = Y.el('option', {
+        value: p,
+        text: Y.bidiIsolate(p) + (p === targetPoolId ? ' -- auto-enrollment target' : '')
+      });
       if (p === h.pool) { o.selected = true; }
       sel.appendChild(o);
     }
@@ -273,7 +313,8 @@
       // (none) also records an exclusion, or the sweep would undo this within a
       // minute and the UI would look broken. Say so, rather than surprise them.
       var extra = to ? '' : '\n\nIt will also be excluded from auto-enrollment, so the sweep will not add it back.';
-      if (!window.confirm('Move host ' + Y.guid(h.hostId) + ' to ' + label + '?' + extra)) {
+      if (!window.confirm('Move host ' + Y.bidiIsolate(Y.guid(h.hostId)) + ' to ' +
+          Y.bidiIsolate(label) + '?' + extra)) {
         sel.value = h.pool || '';
         return;
       }
@@ -282,12 +323,12 @@
         // Beside the picker as well as in the banner: on a twelve-column table
         // at high zoom the banner at the top of <main> is not on screen with
         // the row that produced it.
-        Y.rowFeedback(sel.closest('tr'), 'ok', 'Moved to ' + label + '.');
+        Y.rowFeedback(sel.closest('tr'), 'ok', 'Moved to ' + Y.bidiIsolate(label) + '.');
         return load();
       }, function (e) {
         sel.value = h.pool || '';
         Y.notice('error', e.message);
-        Y.rowFeedback(sel.closest('tr'), 'error', 'Move failed: ' + e.message);
+        Y.rowFeedback(sel.closest('tr'), 'error', 'Move failed: ' + Y.bidiIsolate(e.message));
       });
     });
 
@@ -392,7 +433,7 @@
       hostnamesVisible = !!d.hostnamesVisible;
       render();
       if (d.statusError) {
-        Y.notice('warn', 'Aggregator unavailable (' + d.statusError + '); control state is unknown. Moving hosts still works.');
+        Y.notice('warn', 'Aggregator unavailable (' + Y.bidiIsolate(d.statusError) + '); control state is unknown. Moving hosts still works.');
       } else {
         Y.clearNotice();
       }

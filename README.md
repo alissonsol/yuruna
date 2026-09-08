@@ -1,3 +1,5 @@
+<a id="42913bde-0001"></a>
+
 # Yuruna
 
 **Yuruna asserts resources are configured to verify components against anticipated workloads.**
@@ -6,9 +8,13 @@ Three capabilities: reproducible host/guest VM setups for development
 workspaces, Kubernetes deployment across multiple clouds, and a VM-based
 test harness. Architecture and conventions: [Yuruna Architecture](docs/architecture.md).
 
+<a id="42913bde-0002"></a>
+
 ## Safestart
 
 Read the online drafts of chapters [0](https://yuruna.link/book/2026/ch00) and [1](https://yuruna.link/book/2026/ch01) of an upcoming book about the Yuruna framework.
+
+<a id="42913bde-0003"></a>
 
 ## Quickstart
 
@@ -49,6 +55,8 @@ single-machine runbook, including the dedicated test user;
 [lab operator guide](docs/lab-operator.md) -- several machines as one
 lab.
 
+<a id="42913bde-0004"></a>
+
 ## Host / guest support
 
 - [macOS UTM](host/macos.utm/README.md) host
@@ -78,6 +86,8 @@ After the guest OS is up, test workloads:
   - [Ubuntu Server 26.04](guest/ubuntu.server.26/README.md)
   - [Windows 11](guest/windows.11/README.md)
 
+<a id="42913bde-0005"></a>
+
 ## Read More
 
 - **[All documentation](docs/README.md)** -- what every doc under `docs/` covers
@@ -95,4 +105,4 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08

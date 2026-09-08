@@ -1,3 +1,5 @@
+<a id="42f5e921-0001"></a>
+
 # Yuruna Stash -- user guide
 
 The **stash** is a shared drop box for files and snippets. You put content
@@ -15,6 +17,8 @@ Two addresses for the same VM:
 - **Uploads (scp/sftp):** `<vm-ip>` port 22
 
 ---
+
+<a id="42f5e921-0002"></a>
 
 ## Stash from the command line
 
@@ -54,6 +58,8 @@ take things out from the UI.
 
 ---
 
+<a id="42f5e921-0003"></a>
+
 ## Stash from the browser
 
 Open `http://<vm-ip>/` and click **+ New stash**:
@@ -67,6 +73,8 @@ Open `http://<vm-ip>/` and click **+ New stash**:
 Click **Create** and you land on the new stash.
 
 ---
+
+<a id="42f5e921-0004"></a>
 
 ## Find and view
 
@@ -96,6 +104,8 @@ On a stash's page:
 
 ---
 
+<a id="42f5e921-0005"></a>
+
 ## Short links
 
 Every stash has a short link -- the host and its 4-character ID:
@@ -107,6 +117,8 @@ http://<vm-ip>/h775
 Open or share that and it jumps straight to the stash (`/v/h775` works
 too). The stash's page shows its short link under the details.
 
+<a id="42f5e921-0006"></a>
+
 ## Download
 
 Every stash has a **Download** button that always gives you the complete
@@ -114,6 +126,8 @@ file (or the `.zip` for a multi-file / folder stash), regardless of type
 or status.
 
 ---
+
+<a id="42f5e921-0007"></a>
 
 ## Delete
 
@@ -167,14 +181,32 @@ should not need to do that anymore, though -- that is what this page is for.
 
 ---
 
+<a id="42f5e921-0008"></a>
+
 ## Good to know
 
 - **Same object either way.** A pasted stash and an `scp` upload are
   identical -- same ID format, same storage, same listing.
-- **Durable.** Stashes live on shared pool storage, so they survive a VM
+- **Durable.** Stashes live on the separate stash share, so they survive a VM
   restart or rebuild.
 - **Type detection** is automatic from the content, so a file's type is
   recognized without an extension.
+
+**Service process.** One daemon binary runs both the SCP/SFTP upload listener
+(default TCP port 22) and the HTTP UI/API (default port 80). Production bring-up
+installs a systemd unit with `Restart=on-failure`; the binary can also run
+directly for local development. Operational logs go to stderr, captured by
+journald when the daemon runs under systemd.
+
+**Staging and stored names.** The store's `FinalizeStaging` step turns recursive
+SCP input, multiple files, or any directory entry into
+`<id>.yuruna.archive.zip`. Exactly one root-level file with no directory entry
+is renamed to `<id>[.ext]`, using its normalized filename extension. The returned
+`OriginalFilename` preserves the client's original-case filename for a single
+file, uses the top-level directory name for recursive input, and falls back to
+the first received filename for a multi-file upload without a directory name.
+Successful finalization attempts to remove the staging directory; a cleanup
+failure is logged without invalidating the stored artifact.
 
 ---
 
@@ -182,6 +214,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08
 
 Back to [Yuruna](../README.md)

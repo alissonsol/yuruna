@@ -2,50 +2,57 @@
 
 This level-2 view expands every level-1 block into seven or fewer current scripts, modules, directories, or named aggregates.
 
-[Yuruna Architecture](../architecture.md) | [Design index](00-index.md) | [Context and components](01-context-and-components.md)
-
 ## Provisioning
 
 ```mermaid
 flowchart LR
   %% optional -- signed release verification is user selected
   release-verification["Release verification"] -.-> platform-installers["Platform installers"]
-  platform-installers --> setup-dispatcher["Setup dispatcher"]
+  %% optional -- the operator separately invokes guided post-install setup
+  platform-installers -.->|"operator handoff"| setup-dispatcher["Setup dispatcher"]
   setup-dispatcher --> host-bootstrap["Host bootstrap"]
-  host-bootstrap --> guest-seeds["Guest seeds"]
-  guest-seeds --> service-builders["Service builders"]
+  setup-dispatcher --> service-builders["Service builders"]
+  service-builders -->|"consume"| guest-seeds["Guest seeds"]
   validation-tools["Validation tools"]
 ```
 
 The boxes map, in order, to `install/install.sha256`,
 `install/install.sha256.sig`, and `install/keys/`; the platform installers
 `install/{macos.utm.sh,ubuntu.kvm.sh,windows.hyper-v.ps1}`; `install/setup.ps1`;
-`automation/Yuruna.{HostSetup,HostRedirect}.psm1`; the
-`CloudInitTemplate` and `GuestSeed` modules; provider folders named
+`automation/Yuruna.{HostSetup,HostRedirect}.psm1`; provider folders named
 `guest.{caching-proxy-service,stash-service,pool-control-service,download-agent-service}`;
-and `tools/`. Service builders are folded across all three host implementations.
+the `CloudInitTemplate` and `GuestSeed` modules; and `tools/`. Service builders are
+folded across all three host implementations.
+The platform installers do not invoke `install/setup.ps1`; its guided setup is a
+separate operator step. Setup calls host configuration and service starters, whose
+provider builders consume the seed modules.
 
 ## Deploy Engine
 
 ```mermaid
 flowchart LR
-  automation-cli["Automation CLI"] --> resource-phase["Resource phase"]
-  automation-cli --> component-phase["Component phase"]
-  automation-cli --> workload-phase["Workload phase"]
-  automation-cli --> clear-phase["Clear phase"]
-  resource-phase --> phase-modules["Phase modules"]
+  automation-cli["Automation CLI"]
+  resource-phase["Resource entry"]
+  component-phase["Component entry"]
+  workload-phase["Workload entry"]
+  clear-phase["Clear entry"]
+  automation-cli --> phase-modules["Phase modules"]
+  resource-phase --> phase-modules
   component-phase --> phase-modules
   workload-phase --> phase-modules
   clear-phase --> phase-modules
-  automation-cli --> phase-diagnostics["Phase diagnostics"]
+  automation-cli -->|"validate and requirements"| phase-diagnostics["Phase diagnostics"]
 ```
 
-`automation/yuruna.ps1` dispatches the command surface. The four phase boxes map to
+`automation/yuruna.ps1` dispatches directly to module functions, not through the
+`Set-*` wrappers. The four alternate entry boxes map to
 `Set-Resource.ps1`, `Set-Component.ps1`, `Set-Workload.ps1`, and
 `Invoke-Clear.ps1`; their implementation aggregate is
 `Yuruna.{Resource,Component,Workload,Clear}.psm1`. Diagnostics combines
 `Test-{Configuration,Requirement,Runtime}.ps1`, `Check-DependencyVersion.ps1`, and
-`Get-SystemDiagnostic.ps1`. The three deployment entry points are independent;
+`Get-SystemDiagnostic.ps1`. Only the validation/requirements subset is dispatched
+by `yuruna.ps1`; the other diagnostics have their own entry scripts.
+The three deployment entry points are independent;
 their caller supplies the Resources, Components, Workloads ordering shown in the
 data-flow page.
 
@@ -130,20 +137,30 @@ is a test-only fixture folded into Test Content.
 
 ```mermaid
 flowchart TD
-  common-paths["Common paths"] --> yaml-expressions["YAML expressions"]
-  common-paths --> validation-variables["Validation variables"]
-  common-paths --> deployment-kinds["Deployment kinds"]
-  common-paths --> result-retry["Result and retry"]
-  common-paths --> logging["Logging"]
-  common-paths --> credentials-registry["Credentials registry"]
+  common-paths["Common paths"]
+  yaml-expressions["YAML expressions"]
+  validation-variables["Validation variables"]
+  deployment-kinds["Deployment kinds"]
+  result-retry["Result and retry"]
+  logging["Logging and locale"]
+  credentials-registry["Credentials registry"]
 ```
 
 These seven boxes map to `automation/Yuruna.Common.psm1`;
 `Import.Yaml.psm1` plus `Invoke-DynamicExpression.psm1`;
 `Yuruna.{Validation,VariableExpansion}.psm1`; `Yuruna.DeploymentKind.psm1`;
 `Yuruna.{Result,Retry}.psm1` plus `automation/yuruna-retry.sh`;
-`Yuruna.{Log,LogLevel}.psm1`; and
+`Yuruna.{Log,LogLevel}.psm1` plus the globalization libraries; and
 `Yuruna.{CredentialProvider,Component.Registry}.psm1`.
+
+These are peer responsibility groups, not a claim that every module depends on
+`Yuruna.Common`. Logging and Locale also includes
+`test/modules/Test.{Locale,Catalog,Message}.psm1`,
+`test/extension/extension-sdk/i18n/`, and `globalization/kernel/`. Their location
+under `test/` does not make them test-only: status and pool services consume the
+locale/catalog libraries. Adoption is still partial; envelope helpers are not yet
+a general runner-to-UI translation pipeline. Build-time catalog tooling and the
+implemented/future boundaries are expanded in [Globalization](07-globalization.md).
 
 ## External Systems
 
@@ -169,3 +186,7 @@ in `test/modules/Test.PoolStorage.psm1`; and notification dispatch in
 provider, but no GCP resource/provider tree exists, so no GCP service box is shown.
 The tracked `global/config/gcp/gcp-access-key.json` is a credential placeholder, not
 a deployable GCP resource template.
+
+---
+
+[Yuruna Architecture](../architecture.md) | [Design index](00-index.md) | [Context and components](01-context-and-components.md)

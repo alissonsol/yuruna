@@ -1,4 +1,8 @@
+<a id="42dc5bb9-0001"></a>
+
 # Windows Hyper-V host -- troubleshooting
+
+<a id="42dc5bb9-0002"></a>
 
 ## ARM64 hosts: `$env:PROCESSOR_ARCHITECTURE` reports the wrong answer
 
@@ -23,6 +27,8 @@ hand:
 An image fetched for the wrong architecture does not fail at download time.
 It fails when the VM is started, as a guest that never boots.
 
+<a id="42dc5bb9-0003"></a>
+
 ## ARM64 hosts: Amazon Linux 2023 needs qemu-img
 
 Amazon publishes its `hyperv` platform (a zipped VHDX) for x86-64 only.
@@ -41,6 +47,8 @@ through `Resolve-QemuImgCommand`, which falls back to `%ProgramFiles%\qemu`,
 so conversion works on a machine where `qemu-img --version` fails at a
 prompt. If a report says `qemu-img` is missing, confirm with
 `Test-Path "$env:ProgramFiles\qemu\qemu-img.exe"` before reinstalling.
+
+<a id="42dc5bb9-0004"></a>
 
 ### The converted ARM64 image does not boot
 
@@ -95,6 +103,8 @@ For ARM64 coverage of this guest use `host.macos.utm` or `host.ubuntu.kvm`,
 which present the virtio devices the image drives. On Hyper-V it is an
 AMD64-only guest.
 
+<a id="42dc5bb9-0005"></a>
+
 ## ARM64 hosts: the heartbeat channel wedges a Linux guest
 
 **Symptom:** a Linux guest boots as far as its VMBus drivers and stops dead.
@@ -139,6 +149,8 @@ on an AMD64 host, and still takes occasional soft lockups elsewhere
 the difference between a guest that never boots and one that installs, not
 between a slow guest and a fast one -- which is why the autoinstall wait is
 budgeted in tens of minutes rather than one.
+
+<a id="42dc5bb9-0006"></a>
 
 ## ARM64 Hyper-V host: a Linux guest loses half its CPU to hypervisor intercepts
 
@@ -198,6 +210,8 @@ more virtual processors raise the intercept rate without delivering more
 guest compute, so the cap makes single-threaded work -- boot, install,
 `dpkg` -- finish sooner rather than later.
 
+<a id="42dc5bb9-0007"></a>
+
 ### Budgeting a step on this host
 
 Two ceilings bound a step and they are not interchangeable. A sequence step's
@@ -208,7 +222,10 @@ heartbeat goes older than that. **Keep every step budget below the watchdog**,
 or a slow step costs an unattributed runner kill instead of a precise failure.
 
 Measured on this host for `ubuntu.server.26.code.sh` -- a JDK, the .NET SDK,
-and Code with its GTK and X11 closure, about seventy packages:
+and Code with its GTK and X11 closure: 24 packages for the JDK and 149 for
+Code. The durations below were measured with Code's full RECOMMENDED closure
+installed and are an upper bound on the current script, which asks for Code
+with `--no-install-recommends`:
 
 | condition | duration |
 |---|---|
@@ -221,6 +238,8 @@ measured this step at 2828 s and passed, so the step is budgeted at 3000 s and
 2700 s default would have killed that successful run a hundred seconds short
 of the end -- as a watchdog kill of the whole inner runner, which names
 nothing, rather than a failure naming the step.
+
+<a id="42dc5bb9-0008"></a>
 
 ## ARM64 Hyper-V host: the first keystroke after a fresh login is dropped
 
@@ -249,9 +268,13 @@ Related PS/2 delivery traps on this host are in
 one `TypeScancodes` call arrives as nothing, and a character sent after a
 modifier-release burst is swallowed. All three return success.
 
+<a id="42dc5bb9-0009"></a>
+
 ## Cleaning up old files
 
 Run `Remove-OrphanedVMFiles.ps1`. It removes per-VM artifacts (VHDX, seed ISOs, NVRAM, etc.) for any VM that no longer exists in Hyper-V. Downloaded base images (named `host.windows.hyper-v.guest.<name>.*`) are KEPT so later `Get-Image.ps1` runs don't re-download them; refresh a base image with the matching `Get-Image.ps1`.
+
+<a id="42dc5bb9-000a"></a>
 
 ## Screen capture / OCR fails when no monitor is connected to the host
 
@@ -351,6 +374,8 @@ If auto-provisioning fails, the per-cycle `Initialize-HostDisplay` step
 falls back to a one-line warning, and `Get-HyperVScreenshot` warns when the
 WMI thumbnail comes back all-black -- both point back at this section.
 
+<a id="42dc5bb9-000b"></a>
+
 ## Host windows open on an invisible monitor (virtual display extends instead of duplicating)
 
 **Symptom:** With a physical monitor attached (e.g. via a KVM switch),
@@ -416,6 +441,8 @@ After changing the interop in that module, **restart the runner**: the
 `Yuruna.DisplayConfig` interop type is compiled once per process, so a new
 method only appears in a fresh process.
 
+<a id="42dc5bb9-000c"></a>
+
 ## Add-VMDvdDrive fails: "service account does not have permission to open attachment"
 
 `New-VM.ps1` fails attaching the base ISO with `0x8007053C` / `0x80070005`,
@@ -425,6 +452,8 @@ it, so the file's DACL eventually hits the ~64 KB limit and Hyper-V can no
 longer add the next VM's ACE. The harness prunes stale per-VM ACEs
 before each attach and during cleanup. Full explanation, manual
 remediation, and diagnostics: [Hyper-V base-image ACL bloat](vmconfig.md#hyper-v-iso-ace-bloat).
+
+<a id="42dc5bb9-000d"></a>
 
 ## Display text scale must be 100% for OCR
 
@@ -445,6 +474,8 @@ fires if any value changed.
 | System-wide DPI fallback (non-per-monitor-aware processes) | `HKCU:\Control Panel\Desktop\LogPixels` + `Win8DpiScaling` | 96 + 1 |
 | Win11 text size (Settings -> Accessibility -> Text size) | `HKCU:\Software\Microsoft\Accessibility\TextScaleFactor` | 100 |
 
+<a id="42dc5bb9-000e"></a>
+
 ## ICMP echo (ping) and the host firewall
 
 For `ping <host>` to work two conditions must hold: (a) an enabled Allow
@@ -460,6 +491,8 @@ the built-in echo-request rules across all profiles. This opens ping on
 the LAN NIC too (expected -- operators also ping the host from peers for
 diagnostics); no TCP is exposed. A custom scoped rule is still created
 in case built-ins are missing (stripped server SKUs, GPO).
+
+<a id="42dc5bb9-000f"></a>
 
 ## Host clock skew reaches the guests
 
@@ -505,6 +538,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08
 
 Back to [Yuruna](../README.md)

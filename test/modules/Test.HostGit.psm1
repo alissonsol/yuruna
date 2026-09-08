@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42bb2613-9d4e-4ac0-aeb2-0784a83e7a8a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1154,9 +1154,18 @@ function Get-HostRepositoryAccess {
         the network: a caller answering a request under a deadline runs the
         local read inline and defers the probe.
     .OUTPUTS
-        [pscustomobject] @{ Access; Source; Url }.
+        [pscustomobject] @{ Access; AccessState; Source; Url }.
           Access -- the repository name, 'No access', or '' (nothing configured,
-                   or the probe was not run).
+                   or the probe was not run). One field doing two jobs: it
+                   carries data in one case and a condition in another, which
+                   is why AccessState exists beside it. Retained so a reader
+                   older than AccessState keeps working.
+          AccessState -- 'readable' | 'denied' | 'unconfigured' | 'unprobed'.
+                   The condition, as a stable token. Read this, not Access:
+                   matching the words 'No access' made an English phrase the
+                   contract between PowerShell, Go and the browser, so it
+                   could not be reworded or translated without a consumer in
+                   another language quietly stopping.
           Source -- 'clone' | 'probe' | 'denied' | 'unreachable' | 'unconfigured'
                    | 'unprobed', which is the reason behind Access.
           Url    -- where that repository lives, normalized for linking by
@@ -1183,24 +1192,24 @@ function Get-HostRepositoryAccess {
     }
     $name = Get-GitRepositoryName -Url $originUrl
     if ($name) {
-        return [pscustomobject]@{ Access = $name; Source = 'clone'; Url = (Resolve-GitRemoteLink -Url $originUrl).Url }
+        return [pscustomobject]@{ Access = $name; AccessState = 'readable'; Source = 'clone'; Url = (Resolve-GitRemoteLink -Url $originUrl).Url }
     }
 
     $url = "$ConfiguredUrl".Trim()
-    if (-not $url) { return [pscustomobject]@{ Access = ''; Source = 'unconfigured'; Url = '' } }
+    if (-not $url) { return [pscustomobject]@{ Access = ''; AccessState = 'unconfigured'; Source = 'unconfigured'; Url = '' } }
     # Nothing to point at while the answer is still pending: the caller renders
     # a blank for this, and a link under a blank name leads somewhere the
     # operator has not been told about yet.
-    if (-not $Probe) { return [pscustomobject]@{ Access = ''; Source = 'unprobed'; Url = '' } }
+    if (-not $Probe) { return [pscustomobject]@{ Access = ''; AccessState = 'unprobed'; Source = 'unprobed'; Url = '' } }
 
     $link = (Resolve-GitRemoteLink -Url $url).Url
     $result = Test-GitRemoteAccess -Url $url -TimeoutSeconds $TimeoutSeconds
     if ($result.Reachable) {
         # Reachable but not cloned: the configured URL names the repository this
         # host is about to hold, and it is the same name the clone will report.
-        return [pscustomobject]@{ Access = (Get-GitRepositoryName -Url $url); Source = 'probe'; Url = $link }
+        return [pscustomobject]@{ Access = (Get-GitRepositoryName -Url $url); AccessState = 'readable'; Source = 'probe'; Url = $link }
     }
-    return [pscustomobject]@{ Access = 'No access'; Source = $result.Reason; Url = $link }
+    return [pscustomobject]@{ Access = 'No access'; AccessState = 'denied'; Source = $result.Reason; Url = $link }
 }
 
 # Shared PSGallery module-install policy for the two dependency bootstrappers below:

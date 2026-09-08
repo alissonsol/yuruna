@@ -1,3 +1,5 @@
+<a id="42d43217-0001"></a>
+
 # Yuruna documentation
 
 What each document under `docs/` covers. Start with
@@ -5,7 +7,13 @@ What each document under `docs/` covers. Start with
 other doc builds on, or [Operator runbook](operator.md) if you are bringing
 up a test machine.
 
+<a id="42d43217-0002"></a>
+
 ## Start here
+
+Portuguese (Brazil): [documentação em português](pt-BR/index.md) -- a
+machine-produced first draft of the operator subset, pending native review.
+English remains the source of truth.
 
 - **[architecture.md](architecture.md)** -- the three capabilities and the
   three-phase Resources -> Components -> Workloads model, plus the CLI entry
@@ -39,6 +47,8 @@ up a test machine.
 - **[opportunities.md](opportunities.md)** -- work the project would welcome
   help on, ranked by return on investment, with a roadmap.
 
+<a id="42d43217-0003"></a>
+
 ## Deploying applications
 
 - **[kubernetes.md](kubernetes.md)** -- the user-facing quick start: deploy a
@@ -51,6 +61,8 @@ up a test machine.
   plus the test-harness vault threat model.
 - **[cleanup is in kubernetes.md](kubernetes.md#cleaning-up-cloud-resources)** --
   destroying cloud resources automatically or by hand, per cloud.
+
+<a id="42d43217-0004"></a>
 
 ## Test harness
 
@@ -93,6 +105,8 @@ up a test machine.
   surfaces in and out of scope, an operator keyboard reference, and the two
   gates that hold the line.
 
+<a id="42d43217-0005"></a>
+
 ## Failures and self-healing
 
 - **[failure-schema.md](failure-schema.md)** -- the `last_failure.json` record and
@@ -108,6 +122,8 @@ up a test machine.
   Amazon Linux, Ubuntu Server, and Windows 11.
 - **[memory.md](memory.md)** -- load-bearing rationale that used to live inline in
   the code, kept here so long explanations do not drift out of date.
+
+<a id="42d43217-0006"></a>
 
 ## Hosts and guests
 
@@ -129,6 +145,8 @@ up a test machine.
   the [caching-proxy-service seed](vmconfig.md#caching-proxy-service-seed-topics)
   that builds the cache VM.
 
+<a id="42d43217-0007"></a>
+
 ## Caching, network, and storage
 
 - **[caching.md](caching.md)** -- the two composable caching layers: the
@@ -144,6 +162,8 @@ up a test machine.
   guest scripts and the host harness.
 - **[pool-storage.md](pool-storage.md)** -- the optional NAS-backed durable tier,
   and why host-local storage is treated as ephemeral.
+
+<a id="42d43217-0008"></a>
 
 ## Pools and services
 
@@ -164,6 +184,8 @@ up a test machine.
   snippets: put content in over `scp` or the browser, then manage it in the web
   UI.
 
+<a id="42d43217-0009"></a>
+
 ## Design
 
 - **[design/00-index.md](design/00-index.md)** -- entry point to the generated
@@ -180,13 +202,19 @@ up a test machine.
   adjectives, acronyms are words in camelCase -- plus the foreign contracts
   (Kubernetes, .NET, squid) that are deliberately exempt.
 
+<a id="42d43217-000a"></a>
+
 ## Further reading
 
 External documentation for the tools Yuruna uses, grouped by topic.
 
+<a id="42d43217-000b"></a>
+
 ### AWS
 
 - [Getting started with Amazon ECR using the AWS CLI](https://docs.aws.amazon.com/AmazonECR/latest/userguide/getting-started-cli.html)
+
+<a id="42d43217-000c"></a>
 
 ### Azure
 
@@ -194,6 +222,8 @@ External documentation for the tools Yuruna uses, grouped by topic.
 - [Create an ingress controller with a static public IP address in Azure Kubernetes Service (AKS)](https://learn.microsoft.com/en-us/azure/aks/ingress-static-ip)
 - [Use a static public IP address and DNS label with the Azure Kubernetes Service (AKS) load balancer](https://learn.microsoft.com/en-us/azure/aks/static-ip)
 - [AKS with multiple nginx ingress controllers, Application Gateway and Key Vault certificates](https://web.archive.org/web/2023/https://blog.hjgraca.com/aks-with-multiple-nginx-ingress-controllers-application-gateway-and-key-vault-certificates)
+
+<a id="42d43217-000d"></a>
 
 ### GCP
 
@@ -206,10 +236,14 @@ External documentation for the tools Yuruna uses, grouped by topic.
   - Notice that this doesn't apply when using [Ingress with NGINX controller on Google Kubernetes Engine](https://cloud.google.com/community/tutorials/nginx-ingress-gke)
   - [Configuring domain names with static IP addresses](https://cloud.google.com/kubernetes-engine/docs/tutorials/configuring-domain-name-static-ip)
 
+<a id="42d43217-000e"></a>
+
 ### Kubernetes
 
 - [OpenTofu Documentation](https://opentofu.org/docs/)
 - [Declarative Management of Kubernetes Objects Using Kustomize](https://kubernetes.io/docs/tasks/manage-kubernetes-objects/kustomization/)
+
+<a id="42d43217-000f"></a>
 
 ### Ingress
 
@@ -217,10 +251,14 @@ External documentation for the tools Yuruna uses, grouped by topic.
 - [Redirect to www with an nginx ingress](https://www.informaticsmatters.com/blog/2020/06/03/redirecting-to-www.html)
 - [How To Set Up an Nginx Ingress on DigitalOcean Kubernetes Using Helm](https://www.digitalocean.com/community/tutorials/how-to-set-up-an-nginx-ingress-on-digitalocean-kubernetes-using-helm)
 
+<a id="42d43217-0010"></a>
+
 ### Certificates
 
 - [cert-manager](https://cert-manager.io/docs/installation/) documentation
 - NGINX Ingress Controller [TLS termination](https://kubernetes.github.io/ingress-nginx/examples/tls-termination/)
+
+<a id="42d43217-0011"></a>
 
 ### PowerShell
 
@@ -231,6 +269,8 @@ External documentation for the tools Yuruna uses, grouped by topic.
   - `Invoke-ScriptAnalyzer -Path . -Recurse | Select-Object -Property Line, Column, ScriptPath, RuleName, Message`
   - BOM-only spot check: `Invoke-ScriptAnalyzer -Path . -Recurse | Where-Object RuleName -eq 'PSUseBOMForUnicodeEncodedFile'`
 - [Quickstart: Configure Terraform using Azure PowerShell](https://learn.microsoft.com/en-us/azure/developer/terraform/get-started-powershell) (applicable to OpenTofu)
+
+<a id="42d43217-0012"></a>
 
 ### Ubuntu
 
@@ -245,6 +285,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08
 
 Back to [Yuruna](../README.md)

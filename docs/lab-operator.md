@@ -1,3 +1,5 @@
+<a id="42383647-0001"></a>
+
 # Yuruna lab operator guide
 
 Bring-up runbook for a Yuruna lab: several machines sharing one
@@ -34,24 +36,28 @@ machine; every other machine points at them.
 
 ---
 
+<a id="42383647-0002"></a>
+
 ## Section A: Quickstart
 
-"Elevated" means an Administrator PowerShell on Windows and `sudo` on
-Ubuntu. Run commands from the `yuruna` folder. The one Windows
+"Elevated" means an Administrator PowerShell on Windows. Run commands
+from the `yuruna` folder. The one Windows
 exception is `install/setup.ps1`: start it from any PowerShell and it
 relaunches itself elevated once, up front.
 
-**On macOS, do not put `sudo` in front of these scripts.** They run
-unelevated and request `sudo` for the operations that need it. Running
-one as root breaks two things: root has no GUI session, so UTM
-registration, `utmctl`, and the dialog watchdog fail; and every file
-written lands root-owned, which UTM, running as you, cannot open.
+**On macOS and Ubuntu, do not put `sudo` in front of these scripts.**
+They run unelevated and request `sudo` for the operations that need it.
+Running one as root leaves files root-owned. On macOS, root also has
+no GUI session, so UTM registration, `utmctl`, and the dialog watchdog
+fail; UTM, running as you, cannot open the root-owned files.
 Recover with `sudo chown -R "$USER" ~/yuruna` and re-run unelevated;
 the scripts are idempotent.
 
+<a id="42383647-0003"></a>
+
 ### A.1 Enable test automation (every machine)
 
-Elevated, on each lab machine
+On each lab machine: elevated on Windows; without `sudo` on macOS and Ubuntu
 ([B.1](#b1-enable-test-automation-every-machine)):
 
 ```
@@ -64,6 +70,8 @@ changes.
 **Guided path** -- on the beacon, `install/setup.ps1` runs this step
 (skipped if the machine only hosts services). Every other lab machine
 runs the command above by hand.
+
+<a id="42383647-0004"></a>
 
 ### A.2 Create lab storage
 
@@ -126,6 +134,8 @@ asks whether to stop or fall back to local shares; unattended,
 shared storage: the stash service and the pool intent store both need
 it.
 
+<a id="42383647-0005"></a>
+
 ### A.3 Start the caching-proxy service (one per lab)
 
 On the shared-services machine; elevated on Windows, unelevated on
@@ -148,6 +158,8 @@ pool aggregator, and writes **this** machine's
 `vmStart.cachingProxyIp`. Every other machine gets the value by hand
 or through the sync.
 
+<a id="42383647-0006"></a>
+
 ### A.4 Start the stash service
 
 Elevated on Windows, unelevated on macOS; needs the A.2 configuration
@@ -159,6 +171,8 @@ pwsh test/service/Start-StashServiceVM.ps1
 
 **Guided path** -- `install/setup.ps1` starts it once storage is
 configured; otherwise it lists the stash service as skipped.
+
+<a id="42383647-0007"></a>
 
 ### A.5 Start the pool-control service
 
@@ -176,10 +190,12 @@ enrolls this host in the lab.
 
 **Guided path** -- `install/setup.ps1` does both lines, reading the
 rotating token from the aggregator's metrics endpoint -- no tile to
-copy -- and printing a copy-pasteable command if it could not. It can
-also create the `default` pool and validate the intent store,
-otherwise left to [pool-admin.md](pool-admin.md). It does not turn on
+copy -- and printing a copy-pasteable command if it could not. It
+also ensures the `default` pool exists and validates the intent store;
+[pool-admin.md](pool-admin.md) covers manual administration. It does not turn on
 auto-enrollment ([B.5](#b5-start-the-pool-control-service)).
+
+<a id="42383647-0008"></a>
 
 ### A.6 Bring up the first machine
 
@@ -211,6 +227,8 @@ the [A.5](#a5-start-the-pool-control-service) enrollment also seeds
 `pool.enabled` and `pool.intentGitUrl`. `guestSequence` and `GH_TOKEN`
 are never touched. It runs no cycles -- `Invoke-TestProject.ps1` and
 `Start-TestRunner.ps1` are left to you.
+
+<a id="42383647-0009"></a>
 
 ### A.7 Enroll each additional machine
 
@@ -253,7 +271,11 @@ here belongs to no pool until you put it in one.
 
 ---
 
+<a id="42383647-000a"></a>
+
 ## Section B: Deep dive
+
+<a id="42383647-000b"></a>
 
 ### B.0 The guided setup script on a beacon
 
@@ -267,8 +289,8 @@ Reference for the shortcut at the top of this guide. In lab mode
 enrollment -- reading the rotating token from the pool-aggregator's open
 metrics endpoint on the proxy (`<proxy-ip>:9400/metrics`) -- and the
 `test.config.yml` work and validation gate from
-[A.6](#a6-bring-up-the-first-machine), plus, if you ask for it, the
-`default` pool. Host settings are skipped if the machine only hosts
+[A.6](#a6-bring-up-the-first-machine), and ensures the `default` pool
+exists. Host settings are skipped if the machine only hosts
 services; the stash service is skipped unless storage is configured.
 
 **It deliberately leaves to you:** installing and cloning (run the OS
@@ -306,6 +328,8 @@ machine back, see
 [test/lab/Disable-TestAutomation.ps1](../test/lab/Disable-TestAutomation.ps1)
 ([B.1](#b1-enable-test-automation-every-machine)).
 
+<a id="42383647-000c"></a>
+
 ### B.1 Enable test automation (every machine)
 
 ```
@@ -333,6 +357,8 @@ stop the runner first -- and it knows nothing about **enrollment**: the
 `pool.*` keys and the internal authentication key stay where they are. To leave a pool,
 use the pool admin commands ([pool-admin.md](pool-admin.md)); to drop
 a host from the dashboard, `test/pool/Remove-PoolHost.ps1`.
+
+<a id="42383647-000d"></a>
 
 ### B.2 Lab storage: pool and stash shares (ideally on a NAS)
 
@@ -395,6 +421,8 @@ already present rather than minting a second set -- see
 **It is for local storage only.** A NAS owns its own accounts -- create
 them on the device, then point `networkStorage.*` at it as above.
 
+<a id="42383647-000e"></a>
+
 ### B.3 Start the caching-proxy service + dashboards
 
 ```
@@ -411,6 +439,8 @@ internal authentication key into this host's vault when none exists, and the
 token" later steps redeem to enroll hosts. The cache VM survives
 framework reinstalls. Details:
 [caching.md](caching.md#caching-proxy-service--test-harness-operator-reference).
+
+<a id="42383647-000f"></a>
 
 ### B.4 Start the stash service
 
@@ -434,6 +464,8 @@ Mac's own sshd owns 22) rather than `<vm-ip>:22`. Plugging into
 Ethernet -- including a USB Ethernet adapter, which vmnet bridges
 fine -- switches it back to bridged on the next rebuild; the script
 warns when the VM's mode no longer matches the host's uplink.
+
+<a id="42383647-0010"></a>
 
 ### B.5 Start the pool-control service
 
@@ -467,6 +499,8 @@ directly on this host (UI at `http://<host>:8090/`, needs `go` +
 Each service VM has its own administrator account and vault key -- see
 [VM administrator accounts](operator.md#vm-administrator-accounts).
 
+<a id="42383647-0011"></a>
+
 ### B.6 Configure the first machine
 
 On the machine that will run cycles first (any of them):
@@ -489,6 +523,8 @@ On the machine that will run cycles first (any of them):
 4. **Continuous cycles** -- `pwsh test/Start-TestRunner.ps1`; it
    auto-starts the status dashboard at `http://<host>:8080/`
    ([runner-outer-loop.md](runner-outer-loop.md)).
+
+<a id="42383647-0012"></a>
 
 ### B.7 Each additional machine
 
@@ -577,6 +613,8 @@ credential, reading the first validation report):
 
 ---
 
+<a id="42383647-0013"></a>
+
 ## Troubleshooting bring-up
 
 Symptoms specific to this runbook. Storage-mount problems in general
@@ -634,6 +672,8 @@ then re-run unelevated.
 
 ---
 
+<a id="42383647-0014"></a>
+
 ## Two pools running two different test-sets
 
 A worked example: one lab, two groups of hosts, each running a
@@ -646,6 +686,8 @@ the pool-control-service VM
 ([B.5](#b5-start-the-pool-control-service)). `<intent-url>` is the
 writable pool-intent git URL; every command that mutates intent takes
 it.
+
+<a id="42383647-0015"></a>
 
 ### 1. Define the two test-sets
 
@@ -662,6 +704,8 @@ pwsh test/pool/Set-PoolTestSetDefinition.ps1 -Name testset1 -FrameworkUrl <frame
 pwsh test/pool/Set-PoolTestSetDefinition.ps1 -Name testset2 -FrameworkUrl <framework-url> -ProjectUrl <project-b-url> -IntentGitUrl <intent-url>
 ```
 
+<a id="42383647-0016"></a>
+
 ### 2. Create both pools
 
 ```powershell
@@ -672,6 +716,8 @@ pwsh test/pool/New-Pool.ps1 -PoolId poolb -DisplayName 'Pool B' -IntentGitUrl <i
 `-PoolId` is permanent -- `New-Pool.ps1` mints a stable `poolGuid` for
 it (the dashboard's "Pool ID"), so renaming later means a new pool
 and forks the telemetry history.
+
+<a id="42383647-0017"></a>
 
 ### 3. Split the hosts between them
 
@@ -685,6 +731,8 @@ pwsh test/pool/Add-HostToPool.ps1 -PoolId poolb -HostId <host-3-uuid> -IntentGit
 pwsh test/pool/Add-HostToPool.ps1 -PoolId poolb -HostId <host-4-uuid> -IntentGitUrl <intent-url>
 ```
 
+<a id="42383647-0018"></a>
+
 ### 4. Assign one test-set to each pool
 
 ```powershell
@@ -695,6 +743,8 @@ pwsh test/pool/Set-PoolTestSet.ps1 -PoolId poolb -Name testset2 -FrameworkUrl <f
 A pool holds exactly one `testSet`; assigning replaces the previous
 one. Members do not split the work: every `poola` member clones
 `<project-a-url>` and runs its full plan, reporting under the pool.
+
+<a id="42383647-0019"></a>
 
 ### 5. Verify before the next cycle
 
@@ -709,6 +759,8 @@ pwsh test/pool/Get-PoolStatus.ps1  -PoolId poolb -IntentGitUrl <intent-url>
 test-set. Neither probes the repo URLs -- a typo first surfaces when a
 member's next cycle clones. Each runner pulls intent at cycle start,
 so assignments take effect next cycle with no restart.
+
+<a id="42383647-001a"></a>
 
 ### 6. Operate the two pools independently
 
@@ -741,6 +793,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08
 
 Back to [Yuruna](../README.md)

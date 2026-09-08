@@ -22,7 +22,7 @@ import (
 	"strings"
 	"time"
 
-	_ "modernc.org/sqlite"
+	"modernc.org/sqlite"
 
 	"stash-service/internal/config"
 	"stash-service/internal/fsutil"
@@ -177,9 +177,59 @@ CREATE INDEX IF NOT EXISTS idx_uploads_receivedAt   ON uploads(receivedAt);
 CREATE INDEX IF NOT EXISTS idx_uploads_contentClass ON uploads(contentClass);
 `
 
+// ErrDuplicateID reports that the uploads table already holds a row for the
+// id being inserted. The id column is the primary key over the WHOLE table,
+// so it is a claim on that id for all time -- a caller that draws ids from a
+// narrower scope must be able to tell this apart from a storage failure and
+// draw again.
+var ErrDuplicateID = errors.New("upload id already present in the index")
+
+// SQLite extended result codes for the two constraint kinds that mean "this
+// row is already here". The primary code (19, SQLITE_CONSTRAINT) also covers
+// NOT NULL and CHECK violations, which are bugs rather than collisions, so
+// the extended code is the one to match. Spelled out locally: the driver's
+// generated constants live in a very large subpackage this store has no other
+// use for.
+const (
+	sqliteConstraintPrimaryKey = 1555
+	sqliteConstraintUnique     = 2067
+)
+
+// classifyInsert maps a driver error onto ErrDuplicateID when, and only when,
+// the write lost to an existing row. Anything else is returned untouched so a
+// real storage failure keeps failing the upload.
+func classifyInsert(err error) error {
+	if err == nil {
+		return nil
+	}
+	var serr *sqlite.Error
+	if errors.As(err, &serr) {
+		switch serr.Code() {
+		case sqliteConstraintPrimaryKey, sqliteConstraintUnique:
+			return fmt.Errorf("%w: %w", ErrDuplicateID, err)
+		}
+	}
+	return err
+}
+
+// Exists reports whether the index already holds a row for id. The check
+// spans every day the index covers, which is the scope the id column enforces.
+func (s *Store) Exists(id string) (bool, error) {
+	var one int
+	err := s.db.QueryRow(`SELECT 1 FROM uploads WHERE id = ?`, id).Scan(&one)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // InsertPending writes the up-front pending record per section 8.2 step 2.
 // storedPath is the operator's best-known intended location at this
 // point; FinalizeStaging will rewrite it via UpdateOnComplete.
+// A collision with an id already in the index returns ErrDuplicateID.
 func (s *Store) InsertPending(r *Record) error {
 	if r.Status == "" {
 		r.Status = StatusPending
@@ -192,7 +242,7 @@ VALUES (?,  ?,         ?,                ?,         ?,        ?,            ?,  
 		r.Username, r.PathMetadata, r.ClientAddress,
 		r.CreatedAt.UTC().Format(time.RFC3339Nano), r.Status, r.SizeBytes, boolInt(r.LocallyBuffered), r.Source,
 	)
-	return err
+	return classifyInsert(err)
 }
 
 // UpdateType writes the section 10 detection fields onto an existing row. Called

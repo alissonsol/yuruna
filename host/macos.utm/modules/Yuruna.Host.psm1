@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42bd906d-30b3-44f2-9020-fea9dbf0805f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1628,7 +1628,7 @@ function Disable-MacHostProxy {
     Aggressively wipe networksetup proxy state and the marker file.
 #>
 function Remove-MacHostProxy {
-    # --- REGION: https://yuruna.link/memory#why-remove-machostproxy-sets-state-off-as-the-last-step
+    # --- REGION: https://yuruna.link/42d69dfa-0021
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute(
         'PSUseShouldProcessForStateChangingFunctions', '',
         Justification = 'Module-private helper; public Remove-HostProxy gates ShouldProcess.')]
@@ -1797,7 +1797,7 @@ function Set-VncDisplayInBundle {
     Write the deterministic MAC for $VMName into that VM bundle's first NIC.
     Returns $true when the bundle now carries that address.
 .DESCRIPTION
-    See https://yuruna.link/network#defining-deterministic-guest-mac-addresses
+    See https://yuruna.link/4220a755-000a
     for the address itself. A bundle is normally written at BUILD time with the
     identity its guest keeps for life, and then this rewrite is never needed.
     It exists for the bundle written with the per-kind slot name instead (a
@@ -2759,7 +2759,7 @@ function Rename-VM {
     $bundleMac = [string]((Get-UtmBundleNetwork -VMName $NewName).MacAddress)
     if (Test-YurunaGuestMacMatchesName -MacAddress $bundleMac -VMName $VMName) {
         if (-not (Set-GuestMacInBundle -VMName $NewName -Confirm:$false)) {
-            Write-Warning "Rename-VM: could not move the '$VMName' address off '$NewName'; it keeps that name's address and will collide with the next guest built under it. See https://yuruna.link/network#defining-deterministic-guest-mac-addresses"
+            Write-Warning "Rename-VM: could not move the '$VMName' address off '$NewName'; it keeps that name's address and will collide with the next guest built under it. See https://yuruna.link/4220a755-000a"
         }
     }
 

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# Version: 2026.09.01
+# Version: 2026.09.08
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
-# --- REGION: https://yuruna.link/definition#defining-the-tofu-external-hook-shell-choice
+# --- REGION: https://yuruna.link/42fa6f45-000f
 # tofu data "external" hook: copy the kube context bundle at the stdin query's sourceContext under destinationContext inside ~/.kube/config.
 set -euo pipefail
 

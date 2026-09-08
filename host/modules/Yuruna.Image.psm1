@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42b38afa-a30f-4806-9948-a381706b1765
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -725,7 +725,7 @@ function Convert-Qcow2ToVhdx {
         Write-Information "  convert-only: VHDX left at the cloud image's native capacity." -InformationAction Continue
         return $true
     }
-    # See https://yuruna.link/memory#why-cache-vhdx-uses-resize-vhd-instead-of-qemu-img-resize
+    # See https://yuruna.link/42d69dfa-000b
     $sizeGb = [math]::Round($SizeBytes / 1GB)
     Write-Information "Resizing VHDX to ${sizeGb}GB..." -InformationAction Continue
     $resized = $false
@@ -749,7 +749,7 @@ function Convert-Qcow2ToVhdx {
     return $resized
 }
 
-# --- REGION: https://yuruna.link/guest-image-setup#shared-extension-service-base-image
+# --- REGION: https://yuruna.link/42ec97cd-0014
 # One shared cloud image for every extension-service VM; NOT the
 # guest.ubuntu.server.26 installer ISO. Bump the codename and the stem together.
 $script:UbuntuExtensionImageCodename = 'resolute'
@@ -802,7 +802,7 @@ function Get-UbuntuExtensionImageInfo {
         'macos.utm' {
             # UTM runs on Apple Silicon via Apple Virtualization / HVF.
             $arch   = 'arm64'
-            # --- REGION: https://yuruna.link/vmconfig#macos-utm-qcow2-punchhole-alignment
+            # --- REGION: https://yuruna.link/429f3d06-0092
             # Stays qcow2: a raw disk trips the macOS F_PUNCHHOLE 4 KiB-alignment
             # EINVAL under UTM's discard=unmap.
             $format = 'qcow2'
@@ -910,7 +910,7 @@ function Save-UbuntuExtensionImage {
     # interleave writes into a single partial file.
     $downloadFile = Join-Path $Image.DownloadDir "$($Image.BaseImageName).downloading.$PID.img"
 
-    # --- REGION: https://yuruna.link/guest-image-setup#agent-first-image-downloads
+    # --- REGION: https://yuruna.link/42ec97cd-0004
     # Ask the download agent before the origin is touched at all. The hook lands
     # ahead of the same-source guard and the single Save-ImageWithChecksum call
     # below, so this chain consults the agent exactly once; every other answer --
@@ -978,7 +978,7 @@ function Save-UbuntuExtensionImage {
     }
 
     if (-not $agentServed) {
-        # --- REGION: https://yuruna.link/guest-image-setup#skip-if-same-source-guard
+        # --- REGION: https://yuruna.link/42ec97cd-0006
         if (Test-DownloadAlreadyCurrent -SourceUrl $Image.SourceUrl -BaseImageFile $Image.BaseImageFile -OriginFile $Image.OriginFile -Verbose:($VerbosePreference -ne 'SilentlyContinue')) {
             $skipLines = @(Get-Content -LiteralPath $Image.OriginFile -ErrorAction SilentlyContinue)
             $msg = @(
@@ -1051,7 +1051,7 @@ function Save-UbuntuExtensionImage {
     }
     Move-Item -LiteralPath $stagedFile -Destination $Image.BaseImageFile
 
-    # --- REGION: https://yuruna.link/guest-image-setup#skip-if-same-source-guard
+    # --- REGION: https://yuruna.link/42ec97cd-0006
     if ($agentServed) {
         # Describe the bytes that actually landed: the agent reports the origin
         # URL and Last-Modified it downloaded from, and HEAD-ing the origin here
@@ -1097,7 +1097,7 @@ function Expand-ExtensionVmDisk {
         # Resize-VHD refuses a sparse file with 0xC03A001A.
         # See feedback_qemu_img_vhdx_sparse.md.
         & fsutil sparse setflag $Path 0 2>&1 | Out-Null
-        # See https://yuruna.link/memory#why-cache-vhdx-uses-resize-vhd-instead-of-qemu-img-resize
+        # See https://yuruna.link/42d69dfa-000b
         try {
             Resize-VHD -Path $Path -SizeBytes $SizeBytes -ErrorAction Stop
             return $true

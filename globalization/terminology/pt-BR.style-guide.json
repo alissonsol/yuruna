@@ -1,0 +1,85 @@
+{
+  "schema": "yuruna.style-guide/v1",
+  "locale": "pt-BR",
+  "status": "approved",
+  "terminologySource": {
+    "path": "globalization/terminology/pt-BR.terms.json",
+    "hashAlgorithm": "sha256-file-bytes-v1",
+    "sha256": "3104e32321109c51382d415d134dfa9b4af19593e42b4530126436a7bb74da4d"
+  },
+  "approvals": {
+    "translator": {
+      "status": "approved",
+      "approvedBy": "A Sol",
+      "approvedAt": "2026-09-08",
+      "evidence": {
+        "releaseVersion": "2026.09.07"
+      }
+    },
+    "independentReviewer": {
+      "status": "approved",
+      "approvedBy": "Alisson Sol",
+      "approvedAt": "2026-09-08",
+      "evidence": {
+        "releaseVersion": "2026.09.07"
+      }
+    }
+  },
+  "rules": [
+    {
+      "id": "terminology",
+      "topic": "Terminology",
+      "guidance": "Use one approved pt-BR term for each Yuruna concept across UI, CLI, MCP, email, transcripts, and documentation. Resolve a new concept in the terminology source before translating it in bulk."
+    },
+    {
+      "id": "tone",
+      "topic": "Tone and address",
+      "guidance": "Use direct, respectful, concise operator language. State the action or condition first, avoid blame and unnecessary idiom, and address the reader only when the reader must act."
+    },
+    {
+      "id": "punctuation-capitalization",
+      "topic": "Punctuation and capitalization",
+      "guidance": "Use normal pt-BR punctuation and sentence case for prose and labels. Preserve the exact capitalization of product names, commands, paths, identifiers, placeholders, and protocol values. Do not infer severity or machine state from capitalization."
+    },
+    {
+      "id": "commands-files-identifiers",
+      "topic": "Commands, filenames, and identifiers",
+      "guidance": "Do not translate commands, switches, filenames, paths, environment variables, configuration keys, code identifiers, URLs, or serialized values. Format them as code when the surface supports it, and translate only the explanatory prose around them."
+    },
+    {
+      "id": "keyboard-shortcuts",
+      "topic": "Keyboard shortcuts",
+      "guidance": "Preserve the key labels produced by the target platform and keep their order and separator unambiguous. Translate the action description, not literal key names that the operator must locate."
+    },
+    {
+      "id": "numbers-dates-times-zones",
+      "topic": "Numbers, dates, times, and zones",
+      "guidance": "Render human-facing numbers with pt-BR conventions. Prefer unambiguous dates, show a time-zone label whenever a time is not explicitly local, preserve machine timestamps as protocol, and never parse a localized display string back into machine state."
+    },
+    {
+      "id": "measurement-units",
+      "topic": "SI and IEC units",
+      "guidance": "Keep the source quantity and unit system unchanged. Use SI symbols for decimal quantities and IEC symbols for binary quantities, with consistent spacing and without translating standardized unit symbols."
+    },
+    {
+      "id": "placeholders",
+      "topic": "Placeholders and inserted values",
+      "guidance": "Preserve every placeholder exactly once and place it where pt-BR grammar requires. Never change a placeholder name or format specifier. Treat external placeholder values as untrusted text and preserve the runtime's escaping and bidi-isolation boundary."
+    },
+    {
+      "id": "inclusive-accessible-language",
+      "topic": "Inclusive and accessible language",
+      "guidance": "Describe controls and outcomes by purpose rather than color, location, ability, or assumed gender. Keep accessible names equivalent to visible actions, expand unexplained abbreviations where space permits, and make errors state both the condition and the next safe action."
+    },
+    {
+      "id": "machine-matched-literals",
+      "topic": "Machine-matched English literals",
+      "guidance": "Never translate either side of a retired-name ruling copied from tools/githooks/pre-commit. Those exact English strings are machine search keys. Translate only surrounding explanation and keep the terminology source's preserve-exact-english policy unchanged."
+    },
+    {
+      "id": "destructive-actions",
+      "topic": "Destructive actions",
+      "guidance": "Name the affected object and consequence before asking for confirmation. Do not soften a destructive result, and mention recovery or irreversibility when that information is known."
+    }
+  ]
+}

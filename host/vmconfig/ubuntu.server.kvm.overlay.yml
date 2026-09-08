@@ -3,7 +3,7 @@
 # KVM/libvirt overlay for ubuntu.server.base.user-data.
 # Anchor sections in base-file order. An empty section emits nothing at that anchor.
 # === YURUNA_OVERLAY_NETWORK ===
-  # --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+  # --- REGION: https://yuruna.link/4220a755-000b
   # The installer runs its OWN DHCP client, before /target exists, so the
   # in-target netplan patch in late-commands cannot reach it: without a pin here
   # the INSTALL asks under a machine-id DUID while the installed system asks
@@ -30,10 +30,10 @@
         dhcp4: true
         dhcp-identifier: mac
 # === YURUNA_OVERLAY_EARLY_COMMANDS ===
-  # --- REGION: https://yuruna.link/vmconfig#disable-vt-blanking-on-the-live-installer-kernel
+  # --- REGION: https://yuruna.link/429f3d06-0012
   early-commands:
     - setterm --blank 0 --powersave off --cursor on > /dev/tty1 2>/dev/null || true
-    # --- REGION: https://yuruna.link/vmconfig#console-quiet
+    # --- REGION: https://yuruna.link/429f3d06-0025
     # The INSTALLED system gets `quiet loglevel=3` from a grub drop-in in
     # late-commands. That drop-in cannot help the INSTALLER: it governs the kernel
     # the guest boots after this, while the phase a host has to read by OCR is
@@ -50,24 +50,24 @@
     # wait has to classify that case rather than only time out on it.
     - dmesg -n 1 2>/dev/null || true
 # === YURUNA_OVERLAY_GRUB_PRE_CONSOLE_QUIET ===
-    # --- REGION: https://yuruna.link/vmconfig#consoleblank-kernel-cmdline
+    # --- REGION: https://yuruna.link/429f3d06-0024
     - |
       cat > /target/etc/default/grub.d/99-yuruna-consoleblank.cfg << 'GRUBCFG'
       GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} consoleblank=0"
       GRUBCFG
 # === YURUNA_OVERLAY_GRUB_POST_CONSOLE_QUIET ===
-    # --- REGION: https://yuruna.link/vmconfig#console-bochs-drm-framebuffer-safety-kvm
+    # --- REGION: https://yuruna.link/429f3d06-0026
     - |
       cat > /target/etc/default/grub.d/99-yuruna-fb-safe.cfg << 'GRUBCFG'
       GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} nomodeset console=tty0 console=ttyS0,115200"
       GRUBCFG
 # === YURUNA_OVERLAY_HOST_AGENT_PKG ===
-    # --- REGION: https://yuruna.link/vmconfig#universe-packages-go-in-late-commands-not-packages
+    # --- REGION: https://yuruna.link/429f3d06-0031
     # Deliberately empty: a retrieval failure in `packages:` is FATAL and loses
     # the whole build over an optimization.
 # === YURUNA_OVERLAY_LATE_HOST_AGENT ===
-    # --- REGION: https://yuruna.link/vmconfig#universe-packages-go-in-late-commands-not-packages
-    # --- REGION: https://yuruna.link/network#why-the-guest-agent-is-asked-first
+    # --- REGION: https://yuruna.link/429f3d06-0031
+    # --- REGION: https://yuruna.link/4220a755-0045
     # Both commands tolerate failure by design: discovery degrades to the host
     # neighbor rung, while an aborted late-command fails the entire install.
     - curtin in-target --target=/target -- env DEBIAN_FRONTEND=noninteractive apt-get install -y qemu-guest-agent || true

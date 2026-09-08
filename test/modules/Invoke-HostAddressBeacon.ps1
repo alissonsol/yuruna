@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 421ff7ed-6fcc-4816-b558-d052d6a39c1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -85,7 +85,7 @@ if ([string]::IsNullOrWhiteSpace($RuntimeDir) -or -not (Test-Path -LiteralPath $
 }
 
 # --- REGION: Single-instance lock (OS-held exclusive handle)
-# --- REGION: https://yuruna.link/test/harness#single-instance-locks
+# --- REGION: https://yuruna.link/42d38664-001e
 # An OS-HELD exclusive handle, not a parsed PID file: opened FileShare::None and
 # kept open for the whole run, so the kernel releases it even on SIGKILL. Taken
 # BEFORE the module imports below, which pull in the host driver and take

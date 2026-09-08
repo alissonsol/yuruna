@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 421157f0-4a70-494a-a09e-b13c89c002b4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,7 +39,7 @@
 BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 
-# --- REGION: https://yuruna.link/test/harness#pester-discovery-and-file-scope-variables
+# --- REGION: https://yuruna.link/42d38664-000a
 # The runtime dir is named from $PID and held in an UNQUALIFIED file-scope
 # variable. Both are load-bearing -- see the doc before changing either.
 $AgentTestRuntime = Join-Path ([System.IO.Path]::GetTempPath()) "yrn-dlagent-$PID"

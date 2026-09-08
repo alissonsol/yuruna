@@ -5,10 +5,13 @@ package httpsrv
 
 import (
 	"context"
+	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -210,9 +213,9 @@ func (s *Server) collectDiagnostics(ctx context.Context) Diagnostics {
 		if b, err := os.ReadFile(filepath.Join(s.opts.RepoDir, "VERSION")); err == nil {
 			env.FrameworkVersion = strings.TrimSpace(string(b))
 		}
-		if rev, err := runProbe(ctx, "git", "-C", s.opts.RepoDir, "rev-parse", "--short", "HEAD"); err == nil {
-			env.FrameworkRevision = rev
-		}
+		rev, revCheck := s.frameworkRevision(ctx)
+		env.FrameworkRevision = rev
+		d.Checks = append(d.Checks, revCheck)
 	}
 
 	// 4. git -- the CLIs clone and push the pool-intent store through it.
@@ -288,6 +291,110 @@ func (s *Server) collectDiagnostics(ctx context.Context) Diagnostics {
 		}
 	}
 	return d
+}
+
+// frameworkRevisionSidecar is the file the status service's archive endpoint
+// carries at tree root. `git archive` strips .git/, so a guest that was brought
+// up from a tarball has no repository to interrogate and every `git rev-parse`
+// there fails; the sidecar is the only thing that can still name the commit the
+// checkout was cut from.
+const frameworkRevisionSidecar = ".yuruna-revision"
+
+// A revision is a full object name or it is not provenance: an abbreviated
+// value cannot be compared against a candidate commit without ambiguity, and
+// two different commits can share a short prefix.
+var fullObjectName = regexp.MustCompile(`^[0-9a-f]{40}$`)
+
+// readRevisionSidecar returns the recorded commit, or an error naming why the
+// file that is present cannot be trusted. An absent sidecar is neither: a
+// normal Git checkout carries no sidecar and does not need one.
+func readRevisionSidecar(repoDir string) (string, error) {
+	f, err := os.Open(filepath.Join(repoDir, frameworkRevisionSidecar))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	defer f.Close()
+	// Bounded: a diagnostics request must not be able to pull an arbitrarily
+	// large file into memory because something else was left at that path. One
+	// object name plus a line ending fits many times over, and anything longer
+	// fails the shape check below rather than being read to its end.
+	b, err := io.ReadAll(io.LimitReader(f, 4096))
+	if err != nil {
+		return "", err
+	}
+	rev := strings.ToLower(strings.TrimSpace(string(b)))
+	if !fullObjectName.MatchString(rev) {
+		return "", errors.New("malformed revision " + strconv.Quote(truncate(rev, 80)) +
+			"; expected one 40-character object name")
+	}
+	return rev, nil
+}
+
+// repoDirIsItsOwnGitCheckout reports whether RepoDir is the root of the working
+// tree git would answer for, rather than a plain directory sitting inside
+// someone else's repository. Symbolic links are resolved on both sides because
+// a temp or home path is routinely a link to the real one, and the string forms
+// would then differ for two names of the same directory.
+func (s *Server) repoDirIsItsOwnGitCheckout(ctx context.Context) bool {
+	out, err := runProbe(ctx, "git", "-C", s.opts.RepoDir, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return false
+	}
+	top, err := filepath.EvalSymlinks(strings.TrimSpace(out))
+	if err != nil {
+		return false
+	}
+	repo, err := filepath.EvalSymlinks(s.opts.RepoDir)
+	if err != nil {
+		return false
+	}
+	return filepath.Clean(top) == filepath.Clean(repo)
+}
+
+// frameworkRevision resolves the commit the framework checkout holds and the
+// check that reports how it was established. Git is authoritative when it can
+// run; the sidecar answers for an archive-only checkout. The two disagreeing
+// means the tree was overwritten from a different source than the sidecar
+// describes, and an unresolvable revision means the deployment cannot be tied to
+// any commit at all -- both are reported as failures with no revision rather
+// than as a value a reader would take for proof.
+func (s *Server) frameworkRevision(ctx context.Context) (string, Check) {
+	const name = "framework-revision"
+	gitRev := ""
+	// Only when the repository git finds IS this checkout. Repository discovery
+	// walks upward, so an extracted archive placed anywhere beneath a working
+	// tree gets that tree's HEAD -- a commit this checkout does not contain, and
+	// one that would otherwise be reported as proof or collide with the sidecar
+	// as a false "mix of sources".
+	if s.repoDirIsItsOwnGitCheckout(ctx) {
+		if out, err := runProbe(ctx, "git", "-C", s.opts.RepoDir, "rev-parse", "HEAD"); err == nil {
+			if v := strings.ToLower(strings.TrimSpace(out)); fullObjectName.MatchString(v) {
+				gitRev = v
+			}
+		}
+	}
+	sidecar, err := readRevisionSidecar(s.opts.RepoDir)
+	switch {
+	case err != nil:
+		return "", Check{Name: name, OK: false,
+			Detail: frameworkRevisionSidecar + ": " + err.Error(),
+			Hint:   "The revision sidecar is corrupt, so the deployed commit is unprovable. Re-fetch the framework archive from the status service and restart pool-control-service.service."}
+	case gitRev != "" && sidecar != "" && gitRev != sidecar:
+		return "", Check{Name: name, OK: false,
+			Detail: "git reports " + gitRev + " but " + frameworkRevisionSidecar + " records " + sidecar,
+			Hint:   "The checkout and its revision sidecar describe different commits; the tree is a mix of sources. Re-fetch the framework archive from the status service and restart pool-control-service.service."}
+	case gitRev != "":
+		return gitRev, Check{Name: name, OK: true, Detail: gitRev + " (Git checkout)"}
+	case sidecar != "":
+		return sidecar, Check{Name: name, OK: true, Detail: sidecar + " (" + frameworkRevisionSidecar + ", archive-only checkout)"}
+	default:
+		return "", Check{Name: name, OK: false,
+			Detail: "no Git checkout and no " + frameworkRevisionSidecar,
+			Hint:   "Nothing in the checkout names a commit, so this deployment cannot be tied to reviewed source. Re-fetch the framework archive from the status service and restart pool-control-service.service."}
+	}
 }
 
 func (s *Server) checkRepoDir() Check {

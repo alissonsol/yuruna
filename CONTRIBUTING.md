@@ -188,7 +188,7 @@ stays out of `~/.gitconfig`, out of remote URLs, and out of the process list.
 the empty `ghToken: ""` in the template is.
 
   - If you modify files that guest VMs fetch
-   via the [fetch-and-execution contract](https://yuruna.link/definition#fetch-and-execution-contract),
+   via the [fetch-and-execution contract](https://yuruna.link/42fa6f45-0002),
    commit your changes before testing
    so the VM can download them via the status service "interceptor" (see
    [Testing changes from a branch](#testing-changes-from-a-branch)).
@@ -329,7 +329,7 @@ workarounds collected during development live in [Yuruna Workarounds](docs/worka
 
 **Interceptor**
 
-  The interceptor lets you test local commits without pushing them. If you used the "fetch-and-execute" pattern, the status service "intercepts" your requests and serves the local commits affecting the framework. Even for the development repository, you don't want to push untested changes. More details in the "[Fetch-and-execution contract](https://yuruna.link/definition#fetch-and-execution-contract)" definition.
+  The interceptor lets you test local commits without pushing them. If you used the "fetch-and-execute" pattern, the status service "intercepts" your requests and serves the local commits affecting the framework. Even for the development repository, you don't want to push untested changes. More details in the "[Fetch-and-execution contract](https://yuruna.link/42fa6f45-0002)" definition.
 
 **Testing workload scripts** (self-contained):
 
@@ -371,6 +371,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08
 
 Back to [Yuruna](README.md)

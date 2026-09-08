@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Version: 2026.09.01
+# Version: 2026.09.08
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -37,7 +37,7 @@ esac
 
 # Optional shared retry helpers (present once update.sh has run).
 if [ -r /usr/local/lib/yuruna/yuruna-retry.sh ]; then
-  # --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
+  # --- REGION: https://yuruna.link/4220a755-0003
   . /usr/local/lib/yuruna/yuruna-retry.sh
   # Baked retry libs may bound apt attempts on wall-clock -- the wrapped-apt
   # teardown-hang trap class (apt blocks at end-of-transaction under a timeout(1)
@@ -188,7 +188,7 @@ sudo install -m 0755 -o root -g root "$BUILD/server/download-agent-service" /usr
 # Fallback for a DIRECT (non-systemd) launch only: under the unit's
 # NoNewPrivileges=true the grant that reaches the daemon is AmbientCapabilities,
 # so a failure here is not fatal.
-# --- REGION: https://yuruna.link/memory#why-the-service-daemons-bind-low-ports-with-ambientcapabilities-not-setcap
+# --- REGION: https://yuruna.link/42d69dfa-0025
 sudo setcap 'cap_net_bind_service=+ep' /usr/local/bin/download-agent-service || true
 
 # --- REGION: Storage dirs
@@ -199,7 +199,7 @@ if [[ -n "$POOL_NAS_UNC" ]]; then
   # Every part is load-bearing: the open modes plus noperm are an ownership
   # MAPPING that must match the parent share, not a hardening choice, and
   # iocharset=utf8 is absent because nls_utf8 fails the mount with error(79).
-  # --- REGION: https://yuruna.link/pool-storage#guest-side-pool-nas-cifs-mount-options
+  # --- REGION: https://yuruna.link/428405a0-000b
   MOUNT_OPTS="credentials=/etc/yuruna/pool-nas.cifs.cred,vers=3.0,uid=$(id -u "$SERVICE_USER"),gid=$(id -g "$SERVICE_USER"),file_mode=0666,dir_mode=0777,noperm,nofail,_netdev"
   # ip= carries the mount past a server name the guest has no way to resolve.
   [ -n "$POOL_NAS_IP" ] && MOUNT_OPTS="$MOUNT_OPTS,ip=$POOL_NAS_IP"

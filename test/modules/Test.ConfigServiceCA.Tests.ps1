@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42845e56-1775-4a56-8dcc-254ef57bcd50
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,7 +30,7 @@
 BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 
-# --- REGION: https://yuruna.link/test/harness#pester-discovery-and-file-scope-variables
+# --- REGION: https://yuruna.link/42d38664-000a
 # The runtime dir is named from $PID and held in an UNQUALIFIED file-scope
 # variable. Both are load-bearing -- see the doc before changing either.
 $CaTestRuntime = Join-Path ([System.IO.Path]::GetTempPath()) "yrn-configca-$PID"

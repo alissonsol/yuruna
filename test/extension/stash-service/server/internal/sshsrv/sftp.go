@@ -137,49 +137,44 @@ type sftpUpload struct {
 // path, stored verbatim as pathMetadata (section 5.1).
 func (s *Server) newSFTPUpload(reqPath, username, clientIP string) (*sftpUpload, error) {
 	now := time.Now().UTC()
-	id, err := s.IDs.Allocate(now)
-	if err != nil {
-		return nil, err
-	}
-	target, buffered, err := s.chooseTarget(id)
-	if err != nil {
-		return nil, err // errBufferFull surfaces to the client as a write error
-	}
-	dayDir, err := target.DayDir(now)
-	if err != nil {
-		return nil, err
-	}
-	stagingDir, err := target.StagingDir(now, id)
+	// The staging FILE is opened after the row is written, not before: an ID
+	// refused by the index is redrawn under a different staging directory, and
+	// a file opened under the losing ID would be left holding a handle into a
+	// tree beginPending has already removed. errBufferFull still surfaces to
+	// the client as a write error, as every error from here does.
+	pending, _, err := s.beginPending(now, nil, func(drawn string, buffered bool) *meta.Record {
+		return &meta.Record{
+			ID:              drawn,
+			Username:        username,
+			PathMetadata:    reqPath,
+			ClientAddress:   clientIP,
+			CreatedAt:       now,
+			Status:          meta.StatusPending,
+			LocallyBuffered: buffered,
+			Source:          config.SourceSCP,
+		}
+	})
 	if err != nil {
 		return nil, err
 	}
 	origName := sanitizeUploadName(path.Base(reqPath))
 	if origName == "" {
-		origName = id
+		origName = pending.id
 	}
-	f, err := os.Create(filepath.Join(stagingDir, origName))
+	f, err := os.Create(filepath.Join(pending.stagingDir, origName))
 	if err != nil {
+		// Nothing was received, so the row must go the way the section 5.5
+		// empty-filename path takes it: no artifact, no record.
+		if derr := s.Meta.Delete(pending.id); derr != nil {
+			log.Printf("sftp: delete pending row after staging-file failure id=%s: %v", pending.id, derr)
+		}
+		_ = os.RemoveAll(pending.stagingDir)
 		return nil, err
 	}
-	rec := &meta.Record{
-		ID:              id,
-		Username:        username,
-		PathMetadata:    reqPath,
-		ClientAddress:   clientIP,
-		CreatedAt:       now,
-		Status:          meta.StatusPending,
-		LocallyBuffered: buffered,
-		Source:          config.SourceSCP,
-	}
-	if err := s.Meta.InsertPending(rec); err != nil {
-		_ = f.Close()
-		_ = os.RemoveAll(stagingDir)
-		return nil, err
-	}
-	log.Printf("sftp upload start: id=%s user=%s path=%q buffered=%v", id, username, reqPath, buffered)
+	log.Printf("sftp upload start: id=%s user=%s path=%q buffered=%v", pending.id, username, reqPath, pending.buffered)
 	return &sftpUpload{
-		srv: s, now: now, id: id, target: target, buffered: buffered,
-		dayDir: dayDir, stagingDir: stagingDir, origName: origName,
+		srv: s, now: now, id: pending.id, target: pending.target, buffered: pending.buffered,
+		dayDir: pending.dayDir, stagingDir: pending.stagingDir, origName: origName,
 		username: username, f: f,
 	}, nil
 }

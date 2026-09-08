@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42ba7625-4a32-4a9d-9627-423df940b755
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,11 +41,59 @@ param()
     here -- they belong in the other two.
 #>
 
+# The one definition of what a step rule looks like.
+#
+# The transcript's document outline is built from these lines, and until this
+# was shared the shape lived twice: once in the orchestrator that writes the
+# rule and once in a regex here that recovers it. Two copies of a format drift,
+# and the failure is silent in the worst way -- the transcript still renders,
+# it simply has no headings, so a reader navigating tens of kilobytes of one
+# <pre> loses every landmark and nothing reports a problem.
+#
+# Recovering structure from rendered text is the weaker half of the answer and
+# is kept only for the accessibility affordance on the page itself. The
+# machine-readable outline is emitted as structured events beside the
+# transcript, where a consumer never has to read prose at all.
+function Test-YurunaStepRuleLine {
+    <#
+    .SYNOPSIS
+        Whether one transcript line is a step rule.
+    .OUTPUTS
+        System.Boolean
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
+    return ($Text -match '^-+ \[\d+/\d+\] .* -+$')
+}
+
+function New-YurunaStepRuleLine {
+    <#
+    .SYNOPSIS
+        The step rule for one entry, in the one shape the recognizer knows.
+    .DESCRIPTION
+        Callers build the line through this rather than writing the dashes
+        themselves, so a change to the shape cannot leave the recognizer behind.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Builds and returns a string; changes nothing.')]
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][int]$Index,
+        [Parameter(Mandatory)][int]$Total,
+        [Parameter(Mandatory)][string]$Name,
+        [string]$Outcome = ''
+    )
+    $tail = if ($Outcome) { " : $Outcome" } else { '' }
+    return "----- [$Index/$Total] $Name$tail -----"
+}
+
 # Append one already-stringified line to the per-cycle transcript: AppendAllText
 # for per-call durability without pipeline overhead; a failed append degrades to
 # Verbose so logging never breaks the caller. Severity rides as a CSS class on a
 # wrapping <span> (body HtmlEncode'd, markup verbatim; unknown -> 'log-output').
-# --- REGION: https://yuruna.link/memory#why-the-log-tee-writes-html-encoded-severity-spans
+# --- REGION: https://yuruna.link/42d69dfa-0011
 function Add-YurunaLogLine {
     param(
         [Parameter(Mandatory)][AllowEmptyString()][string]$Text,
@@ -62,7 +110,7 @@ function Add-YurunaLogLine {
         # wants to jump to.
         $class = "log-$Severity"
         $extra = ''
-        if ($Text -match '^-+ \[\d+/\d+\] .* -+$') {
+        if (Test-YurunaStepRuleLine -Text $Text) {
             $class = "$class log-step"
             $extra = ' role="heading" aria-level="2"'
         }
@@ -272,4 +320,5 @@ function Write-Information {
     }
 }
 
-Export-ModuleMember -Function Write-Output, Write-Error, Write-Warning, Write-Debug, Write-Verbose, Write-Information
+Export-ModuleMember -Function Write-Output, Write-Error, Write-Warning, Write-Debug, Write-Verbose, Write-Information, `
+    Test-YurunaStepRuleLine, New-YurunaStepRuleLine

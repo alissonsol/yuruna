@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 423c7308-8393-45aa-a74f-97c52bf1c3df
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -85,6 +85,111 @@ function Get-CycleConfig {
 
 <#
 .SYNOPSIS
+    A project's label for a reader's language, or the English scalar when the
+    project offers none.
+.DESCRIPTION
+    The contract is additive on purpose. `displayName:` stays exactly what it
+    always was -- a scalar, in English -- and a project may add a sibling map
+    keyed by locale tag:
+
+        - name: smoke
+          displayName: Quick smoke test
+          displayNameLocalized:
+            pt-BR: Teste rapido
+
+    That shape survives all three pairings the project boundary has to keep
+    working. A framework older than this ignores a key it does not know and
+    reads the scalar. A project older than this ships no map and the scalar is
+    all there is. Only when both are new does the map decide, and even then the
+    scalar is the fallback for a locale the project did not translate.
+
+    Publishing validates the complete map, its bounds and source-hash sidecar.
+    The live reader remains total: it accepts only the exact canonical resolved
+    tag it was handed and otherwise returns the scalar. A malformed optional
+    map can therefore fail a release gate without stopping an unrelated cycle.
+.OUTPUTS
+    System.String -- the localized label, or the scalar, or ''.
+#>
+function Resolve-ProjectLabel {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][AllowNull()]$Entry,
+        [Parameter(Mandatory)][string]$ScalarKey,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Locale
+    )
+
+    if ($null -eq $Entry -or $Entry -isnot [System.Collections.IDictionary]) { return '' }
+    $scalarValue = $Entry[$ScalarKey]
+    $scalar = if ($scalarValue -is [string]) { $scalarValue.Trim() } else { '' }
+
+    $mapKey = $ScalarKey + 'Localized'
+    if (-not $Locale -or -not $Entry.Contains($mapKey)) { return $scalar }
+    # A LocaleContext hands this function an already resolved canonical tag.
+    # Refusing a noncanonical caller value is safer than teaching this product
+    # boundary a second locale matcher that can drift from the shared one.
+    if ($Locale.Length -gt 35 -or
+        ($Locale -cne 'qps-Plocm' -and
+            $Locale -cnotmatch '^[a-z]{2,3}(?:-(?:[A-Z]{2}|[A-Z][a-z]{3}|[0-9][a-z0-9]{3}|[a-z0-9]{3}|[a-z0-9]{5,8}))*$')) {
+        return $scalar
+    }
+    if ($Locale -ceq 'en-US') { return $scalar }
+    $map = Get-ProjectLabelMap -Entry $Entry -ScalarKey $ScalarKey
+    foreach ($tag in $map.Keys) {
+        if ([string]::Equals("$tag", $Locale, [StringComparison]::Ordinal)) { return [string]$map[$tag] }
+    }
+    return $scalar
+}
+
+function Get-ProjectLabelMap {
+    <#
+    .SYNOPSIS
+        A bounded canonical map safe to carry through discovery transports.
+    .DESCRIPTION
+        The publisher is authoritative and fails malformed project metadata.
+        This live projection remains total: one bad optional entry makes the
+        map unavailable, not the cycle. Keeping the whole map lets the HTTP
+        boundary resolve per request instead of freezing it in the runner's
+        process culture.
+    #>
+    [CmdletBinding()]
+    [OutputType([System.Collections.Specialized.OrderedDictionary])]
+    param(
+        [Parameter(Mandatory)][AllowNull()]$Entry,
+        [Parameter(Mandatory)][ValidateSet('displayName', 'description')][string]$ScalarKey
+    )
+
+    $result = [ordered]@{}
+    if ($Entry -isnot [System.Collections.IDictionary]) { return $result }
+    $mapKey = $ScalarKey + 'Localized'
+    if (-not $Entry.Contains($mapKey)) { return $result }
+    $map = $Entry[$mapKey]
+    if ($map -isnot [System.Collections.IDictionary] -or @($map.Keys).Count -lt 1 -or @($map.Keys).Count -gt 16) {
+        return $result
+    }
+    $max = if ($ScalarKey -eq 'displayName') { 160 } else { 2000 }
+    foreach ($tag in @($map.Keys | ForEach-Object { [string]$_ } | Sort-Object)) {
+        if ($tag -ceq 'en-US') { return [ordered]@{} }
+        if ($tag.Length -gt 35 -or
+            ($tag -cne 'qps-Plocm' -and
+                $tag -cnotmatch '^[a-z]{2,3}(?:-(?:[A-Z]{2}|[A-Z][a-z]{3}|[0-9][a-z0-9]{3}|[a-z0-9]{3}|[a-z0-9]{5,8}))*$')) {
+            return [ordered]@{}
+        }
+        $value = $map[$tag]
+        if ($value -isnot [string] -or [string]::IsNullOrWhiteSpace($value)) {
+            return [ordered]@{}
+        }
+        $normalizedValue = $value.Normalize([Text.NormalizationForm]::FormC)
+        $scalarCount = 0
+        foreach ($rune in $normalizedValue.EnumerateRunes()) { $scalarCount++ }
+        if ($scalarCount -gt $max) { return [ordered]@{} }
+        $result[$tag] = $normalizedValue
+    }
+    return $result
+}
+
+<#
+.SYNOPSIS
     The named test sets a project offers, read from its test.runner.yml.
 .DESCRIPTION
     A project may group its top-level sequences into named sets:
@@ -123,7 +228,7 @@ function Get-CycleConfig {
 function Get-ProjectTestSet {
     [CmdletBinding()]
     [OutputType([hashtable[]], [object[]])]
-    param([Parameter(Mandatory)][string]$RepoRoot)
+    param([Parameter(Mandatory)][string]$RepoRoot, [string]$Locale = '')
 
     $cfg = Get-CycleConfig -RepoRoot $RepoRoot
     $namePattern = '^[a-z0-9][a-z0-9._-]*$'
@@ -175,12 +280,17 @@ function Get-ProjectTestSet {
             Write-Warning "test.runner.yml: skipping testSet '$name' -- it lists no sequences."
             continue
         }
-        [void]$sets.Add([ordered]@{
+        $set = [ordered]@{
             name        = $name
-            displayName = "$($raw['displayName'])".Trim()
-            description = "$($raw['description'])".Trim()
+            displayName = Resolve-ProjectLabel -Entry $raw -ScalarKey 'displayName' -Locale $Locale
+            description = Resolve-ProjectLabel -Entry $raw -ScalarKey 'description' -Locale $Locale
             sequences   = $seqs
-        })
+        }
+        $displayMap = Get-ProjectLabelMap -Entry $raw -ScalarKey 'displayName'
+        $descriptionMap = Get-ProjectLabelMap -Entry $raw -ScalarKey 'description'
+        if ($displayMap.Count -gt 0) { $set['displayNameLocalized'] = $displayMap }
+        if ($descriptionMap.Count -gt 0) { $set['descriptionLocalized'] = $descriptionMap }
+        [void]$sets.Add($set)
     }
     return ,@($sets.ToArray())
 }
@@ -801,4 +911,4 @@ function Resolve-NamedSequenceChain {
     }
 }
 
-Export-ModuleMember -Function Get-CycleConfigPath, Get-CycleConfig, Get-ProjectTestSet, Resolve-CyclePlan, Get-CycleOrchestrationList, Resolve-TestSetCyclePlan, Get-CyclePlanGuestList, Get-CyclePlanSequenceList, Get-CyclePlanSequencesForGuest, Resolve-NamedSequenceChain
+Export-ModuleMember -Function Resolve-ProjectLabel, Get-ProjectLabelMap, Get-CycleConfigPath, Get-CycleConfig, Get-ProjectTestSet, Resolve-CyclePlan, Get-CycleOrchestrationList, Resolve-TestSetCyclePlan, Get-CyclePlanGuestList, Get-CyclePlanSequenceList, Get-CyclePlanSequencesForGuest, Resolve-NamedSequenceChain

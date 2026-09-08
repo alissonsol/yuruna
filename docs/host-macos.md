@@ -1,12 +1,18 @@
+<a id="42885ada-0001"></a>
+
 # macOS UTM host -- troubleshooting
 
 **Warning:** Instructions are intentionally brief -- don't follow them unless you know what you are doing.
+
+<a id="42885ada-0002"></a>
 
 ## Packages, PATH, and Homebrew issues
 
 - Non-Homebrew packages (e.g. PowerShell) aren't covered by `brew update`/`upgrade`.
 - Different install methods can shadow each other via PATH order.
 - For most cases, use `brew-doctor-fix.sh`; occasionally you'll need manual steps like `brew uninstall powershell && brew install powershell`.
+
+<a id="42885ada-0003"></a>
 
 ## The unified screen lock asks for your account password, not sudo's
 
@@ -36,6 +42,8 @@ printf 'macOS account password: ' && read -rs YPW && echo && \
 The state persists across reboots, so this is a one-time step. The same
 command with a number instead of `off` restores a delay in seconds -- which is
 what `Disable-TestAutomation.ps1` does from the captured pre-automation state.
+
+<a id="42885ada-0004"></a>
 
 ## The permissions only a person can give (and why no password replaces them)
 
@@ -85,6 +93,8 @@ without fully quitting the terminal afterwards; or the check is running in an
 SSH session, which cannot hold these grants at all (the gate says so instead of
 failing, since it is describing the wrong session).
 
+<a id="42885ada-0005"></a>
+
 ## `utmctl missing on PATH` -- the gate fails on a Mac where UTM is installed
 
 `Test-Config.ps1` reports `[PASS] UTM.app installed.` and, one line later,
@@ -121,6 +131,8 @@ If the link is in place and `utmctl` *still* does not resolve, the shell profile
 on this account is replacing `PATH` rather than adding to it -- check
 `~/.zprofile` and `~/.zshrc` for a bare `export PATH=...`.
 
+<a id="42885ada-0006"></a>
+
 ## PowerShell, .NET, and nested `sudo pwsh`
 
 `install/macos.utm.sh` prefers the Homebrew **formula** for PowerShell, which is
@@ -145,6 +157,8 @@ echo "$(brew --prefix dotnet)/libexec" | sudo tee /etc/dotnet/install_location_$
 needs nothing preserved, and a `NOSETENV` sudoers rule there rejects `-E`
 outright.
 
+<a id="42885ada-0007"></a>
+
 ## Do not run the harness scripts under `sudo`
 
 They are built to run unelevated and to elevate individual operations. Under
@@ -158,9 +172,13 @@ Recovery: `sudo chown -R "$USER" ~/yuruna` (the whole tree -- removing a
 directory needs write permission on its *parent*, and `guest.nosync` is shared
 by every builder), then re-run unelevated.
 
+<a id="42885ada-0008"></a>
+
 ## Cleaning up old files
 
 Run `Remove-OrphanedVMFiles.ps1`. It removes per-VM artifacts (bundles, ISOs, etc.) for any VM that no longer exists. Downloaded base images are KEPT so later `Get-Image.ps1` runs don't re-download them; refresh one with the matching `Get-Image.ps1`.
+
+<a id="42885ada-0009"></a>
 
 ## `tapOn` loops on "UTM window for `<vm>` not found"
 
@@ -199,6 +217,8 @@ Case (2) needs no action. If `Window bounds query (fallback)` also
 returns `not_found`, UTM's window isn't open: double-click the `.utm`
 bundle or click the VM in UTM's sidebar.
 
+<a id="42885ada-000a"></a>
+
 ## `screencapture -l` returns black, or "UTM window for `<vm>` not found", on a different macOS Space
 
 If you switched Spaces and the runner started failing screen captures
@@ -223,6 +243,8 @@ or window-id lookups, verify:
 
 QEMU+VNC guests (any guest opting into `-vnc` in `AdditionalArguments`)
 are Space-independent and need none of the above.
+
+<a id="42885ada-000b"></a>
 
 ## `Assert-ScreenRecording` false positive -- toggle is on but harness refuses to start
 
@@ -256,6 +278,8 @@ Open an issue with:
   ObjC.import("CoreGraphics"); ObjC.import("Foundation");
   $.CFArrayGetCount($.CGWindowListCopyWindowInfo(1, 0));'
   ```
+
+<a id="42885ada-000c"></a>
 
 ## Unrelated UTM VMs split test guests onto a second vmnet-shared bridge
 
@@ -304,6 +328,8 @@ A persisted snapshot-renamed VM (e.g. `k8s.text-to-sql`) is safe while
 stopped -- only **running** UTM VMs occupy a vmnet-shared session and
 trigger the split.
 
+<a id="42885ada-000d"></a>
+
 ## `pmset` guards keep UTM visible across multi-hour runs
 
 Even with `sleep=0`, macOS can blank the display or suspend UTM via
@@ -348,6 +374,8 @@ absent: a Mac with no lid never surfaces the key, and failing the gate
 on a setting that host cannot have would block a working desktop test
 host. A laptop that drifts back to 0 does list the key, so the gate
 still catches it.
+
+<a id="42885ada-000e"></a>
 
 ## Service VMs come back `suspended` after UTM is quit
 
@@ -403,6 +431,8 @@ lock, and `qemu-img info -U` bypasses that lock for *reading* only):
 qemu-img convert -O qcow2 efi_vars.fd efi_vars.fd.new && mv efi_vars.fd.new efi_vars.fd
 ```
 
+<a id="42885ada-000f"></a>
+
 ## A service VM answers, but the dashboard links to a dead address
 
 Symptom: the stash service is up and reachable at its real address, the
@@ -448,6 +478,8 @@ registration was last written, and the runner writes it *before* it refreshes
 the marker (the refresh needs `Get-VMIp`, wired later in startup). A corrected
 address therefore reaches the dashboard on the next cycle, not the current one.
 
+<a id="42885ada-0010"></a>
+
 ## macOS guest install: embedded Swift VZMacOSInstaller helper
 
 The macOS 26 guest is restored by an embedded Swift helper
@@ -472,6 +504,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08
 
 Back to [Yuruna](../README.md)

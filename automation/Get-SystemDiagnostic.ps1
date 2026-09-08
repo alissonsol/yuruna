@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 420783b4-e34a-4b51-b88e-e01fa3738a91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,6 +25,7 @@
 .DESCRIPTION
     Sections (each gracefully skipped if its tool is unavailable):
       1. HOST    -- hostname, OS, kernel, uptime, PowerShell, time
+     1b. BIOS    -- complete PowerShell BIOS inventory in a fixed field order
       2. CPU     -- model, core count, load average / busy %
       3. MEMORY  -- total / used / available / swap
       4. DISK    -- free space per filesystem; flag any > 90% full
@@ -94,9 +95,9 @@
     Side-effect-free: nothing is started, stopped, or modified.
 
     Implementation details (what each section reports + helper contracts):
-        https://yuruna.link/definition#defining-get-systemdiagnostic
+        https://yuruna.link/42fa6f45-0013
     Incident-driven design rationale (per-section "Why ..." entries):
-        https://yuruna.link/memory#system-diagnostics
+        https://yuruna.link/42d69dfa-0029
 
 .PARAMETER OutFile
     Optional: also tee output to this path.
@@ -165,19 +166,13 @@ function Write-Sub {
 }
 function Add-Problem {
     param(
-        [string]$Message,
-        # Machine-readable classifier for the JSON sidecar. Callers pass an
-        # explicit class where the message prefix would be ambiguous (the four
-        # GAP heuristics all share the "GAP:" prose prefix but are distinct
-        # failure modes). When omitted, the class is derived from the leading
-        # uppercase token of the message (e.g. "DISK: ..." -> "DISK"); a message
-        # with no such prefix falls back to "OTHER".
-        [string]$Class = $null
+        [Parameter(Mandatory)][string]$Message,
+        # Machine-readable classifier for the JSON sidecar. It is mandatory:
+        # a class recovered from the capitalization or wording of Message
+        # would make translated prose a protocol again.
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Class
     )
     $script:Problems.Add($Message) | Out-Null
-    if ([string]::IsNullOrWhiteSpace($Class)) {
-        if ($Message -match '^([A-Z][A-Z0-9]*):') { $Class = $Matches[1] } else { $Class = 'OTHER' }
-    }
     $script:ProblemRecords.Add(@{ class = $Class; message = $Message }) | Out-Null
 }
 
@@ -250,11 +245,11 @@ function Invoke-DiagnosticSection {
             $firstPosLine = ($_.InvocationInfo.PositionMessage -split "`r?`n" | Select-Object -First 1)
             if ($firstPosLine) { Write-Output ("   {0}" -f $firstPosLine.Trim()) }
         }
-        Add-Problem ("Section '{0}' aborted: {1}" -f $Title, $_.Exception.Message)
+        Add-Problem ("Section '{0}' aborted: {1}" -f $Title, $_.Exception.Message) -Class 'DIAG.section-aborted'
     }
 }
 
-# --- REGION: https://yuruna.link/system-diagnostic#invoke-withdeadline
+# --- REGION: https://yuruna.link/423ef7f5-0003
 function Invoke-WithDeadline {
     param(
         [Parameter(Mandatory)][scriptblock]$ScriptBlock,
@@ -291,7 +286,7 @@ function Invoke-WithDeadline {
     # The native exit code is recovered by Invoke-Tool from the tail of Output
     # (its scriptblock appends $LASTEXITCODE), not from this result -- so there is
     # deliberately no ExitCode key here to imply a signal this never populated.
-    # --- REGION: https://yuruna.link/system-diagnostic#invoke-withdeadline
+    # --- REGION: https://yuruna.link/423ef7f5-0003
     return @{ TimedOut = $false; Output = $out }
 }
 
@@ -318,7 +313,7 @@ function Get-FileTreeWithDeadline {
     )
     $result = Invoke-WithDeadline -TimeoutSeconds $TimeoutSeconds -ArgumentList $ArgumentList -ScriptBlock $ScriptBlock -InProcess
     if ($result.TimedOut) {
-        Add-Problem ("DIAG: {0} recursive walk timed out after {1}s; results below may be incomplete." -f $Label, $TimeoutSeconds)
+        Add-Problem ("DIAG: {0} recursive walk timed out after {1}s; results below may be incomplete." -f $Label, $TimeoutSeconds) -Class 'DIAG.walk-timeout'
         return @{ TimedOut = $true; TimeoutSeconds = $TimeoutSeconds; Label = $Label; Items = @() }
     }
     return @{ TimedOut = $false; TimeoutSeconds = $TimeoutSeconds; Label = $Label; Items = @($result.Output) }
@@ -355,7 +350,7 @@ function Invoke-Tool {
     if ($null -eq $resolved -or
         (($resolved.CommandType -eq 'Application') -and -not (Test-ExecutableFile -Path $resolved.Source))) {
         Write-Output "  ($Tool is not runnable -- missing, a dangling symlink, or not executable)"
-        if ($ProblemTag) { Add-Problem "$($ProblemTag): '$Tool' is not a runnable executable." }
+        if ($ProblemTag) { Add-Problem "$($ProblemTag): '$Tool' is not a runnable executable." -Class $ProblemTag }
         return
     }
     try {
@@ -367,7 +362,7 @@ function Invoke-Tool {
             }
             if ($result.TimedOut) {
                 Write-Output ("  ({0} probe timed out after {1}s -- daemon likely wedged)" -f $Tool, $TimeoutSeconds)
-                if ($ProblemTag) { Add-Problem "$($ProblemTag): probe timeout after ${TimeoutSeconds}s from '$Tool $($ToolArgs -join ' ')'." }
+                if ($ProblemTag) { Add-Problem "$($ProblemTag): probe timeout after ${TimeoutSeconds}s from '$Tool $($ToolArgs -join ' ')'." -Class $ProblemTag }
                 return
             }
             $lines = @($result.Output)
@@ -381,16 +376,16 @@ function Invoke-Tool {
             }
             $lines | ForEach-Object { Write-Output ([string]$_) }
             if ($exit -ne 0 -and $ProblemTag) {
-                Add-Problem "$($ProblemTag): exit code $exit from '$Tool $($ToolArgs -join ' ')'."
+                Add-Problem "$($ProblemTag): exit code $exit from '$Tool $($ToolArgs -join ' ')'." -Class $ProblemTag
             }
             return
         }
         & $Tool @ToolArgs 2>&1 | ForEach-Object { Write-Output ($_.ToString()) }
         if ($LASTEXITCODE -ne 0 -and $ProblemTag) {
-            Add-Problem "$($ProblemTag): exit code $LASTEXITCODE from '$Tool $($ToolArgs -join ' ')'."
+            Add-Problem "$($ProblemTag): exit code $LASTEXITCODE from '$Tool $($ToolArgs -join ' ')'." -Class $ProblemTag
         }
     } catch {
-        if ($ProblemTag) { Add-Problem "$($ProblemTag): $($_.Exception.Message)" }
+        if ($ProblemTag) { Add-Problem "$($ProblemTag): $($_.Exception.Message)" -Class $ProblemTag }
         Write-Output "  (error: $($_.Exception.Message))"
     }
 }
@@ -476,6 +471,40 @@ function Test-CommandAvailable {
 # nothing. This script also runs inside guests, which have no Hyper-V cmdlets
 # at all, and an unelevated run has the cmdlets but no access, so a missing
 # answer is the normal case rather than a finding.
+function Test-AdapterUp {
+    <#
+    .SYNOPSIS
+        Whether an adapter is operationally up, read from the value rather than
+        from the word Windows chose to display.
+    .DESCRIPTION
+        Get-NetAdapter's Status is translated with the install language, so
+        comparing it against 'Up' calls a working uplink down on any host that
+        was not installed in English. ifOperStatus is the IF-MIB value
+        underneath, and is 1 for up in every language.
+
+        This is deliberately the same predicate the Hyper-V host module applies,
+        because the ladder below has to reach the same verdict the driver
+        already acted on. A copy is what a script that runs on every host type
+        can have -- it cannot import a Windows-only module -- and the suite
+        holds the two answers together.
+    .OUTPUTS
+        System.Boolean
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][AllowNull()][object]$Adapter)
+
+    if ($null -eq $Adapter) { return $false }
+    foreach ($name in @('ifOperStatus', 'InterfaceOperationalStatus')) {
+        $property = $Adapter.PSObject.Properties[$name]
+        if ($property -and $null -ne $property.Value) {
+            $value = 0
+            if ([int]::TryParse([string]$property.Value, [ref]$value)) { return ($value -eq 1) }
+        }
+    }
+    return ("$($Adapter.Status)" -eq 'Up')
+}
+
 function Write-VirtualSwitchFingerprint {
     [CmdletBinding()]
     param()
@@ -624,7 +653,7 @@ function Write-VirtualSwitchFingerprint {
             # broken -- a teamed member set can name adapters this enumeration
             # does not expose -- so it must not demote a working host.
             $verdict = 'unknown'
-        } elseif (@($bound | Where-Object { [string]$_.Status -eq 'Up' }).Count -eq 0) {
+        } elseif (@($bound | Where-Object { Test-AdapterUp -Adapter $_ }).Count -eq 0) {
             $verdict = 'uplink-down'
         } elseif ($sw.AllowManagementOS -ne $true) {
             # A switch deliberately created without -AllowManagementOS has no
@@ -808,6 +837,135 @@ function Format-ByteCount {
     return ('{0:N2} {1}' -f $v, $units[$i])
 }
 
+# Get-ComputerInfo's BIOS surface is a stable comparison contract, not a
+# formatting-system dump. Keep every known field here even when a provider
+# reports null, then let Get-BiosDiagnosticLine append future Bios* fields.
+# This makes two artifacts directly diffable without Format-List reordering or
+# truncating array values such as BiosCharacteristics.
+function Get-BiosPropertyOrder {
+    [OutputType([string[]])]
+    param()
+    return [string[]]@(
+        'BiosCharacteristics'
+        'BiosBIOSVersion'
+        'BiosBuildNumber'
+        'BiosCaption'
+        'BiosCodeSet'
+        'BiosCurrentLanguage'
+        'BiosDescription'
+        'BiosEmbeddedControllerMajorVersion'
+        'BiosEmbeddedControllerMinorVersion'
+        'BiosFirmwareType'
+        'BiosIdentificationCode'
+        'BiosInstallableLanguages'
+        'BiosInstallDate'
+        'BiosLanguageEdition'
+        'BiosListOfLanguages'
+        'BiosManufacturer'
+        'BiosName'
+        'BiosOtherTargetOS'
+        'BiosPrimaryBIOS'
+        'BiosReleaseDate'
+        'BiosSerialNumber'
+        'BiosSMBIOSBIOSVersion'
+        'BiosSMBIOSMajorVersion'
+        'BiosSMBIOSMinorVersion'
+        'BiosSMBIOSPresent'
+        'BiosSoftwareElementState'
+        'BiosStatus'
+        'BiosSystemBiosMajorVersion'
+        'BiosSystemBiosMinorVersion'
+        'BiosTargetOperatingSystem'
+        'BiosVersion'
+    )
+}
+
+function Format-BiosDiagnosticValue {
+    [OutputType([string])]
+    param([AllowNull()][object]$Value)
+
+    if ($null -eq $Value) { return '(not reported)' }
+
+    if ($Value -is [datetimeoffset]) {
+        return $Value.UtcDateTime.ToString(
+            "yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'",
+            [System.Globalization.CultureInfo]::InvariantCulture)
+    }
+
+    if ($Value -is [datetime]) {
+        $utc = if ($Value.Kind -eq [System.DateTimeKind]::Unspecified) {
+            [datetime]::SpecifyKind($Value, [System.DateTimeKind]::Utc)
+        } else {
+            $Value.ToUniversalTime()
+        }
+        return $utc.ToString(
+            "yyyy-MM-dd'T'HH:mm:ss.fffffff'Z'",
+            [System.Globalization.CultureInfo]::InvariantCulture)
+    }
+
+    if ($Value -is [bool]) {
+        if ($Value) { return 'true' }
+        return 'false'
+    }
+
+    if ($Value.GetType().IsEnum) {
+        return ('{0} ({1})' -f $Value.ToString('D'), $Value.ToString('G'))
+    }
+
+    if ($Value -is [System.Collections.IEnumerable] -and $Value -isnot [string]) {
+        $items = @(foreach ($item in $Value) {
+            Format-BiosDiagnosticValue -Value $item
+        })
+        return ('[{0}]' -f ($items -join ', '))
+    }
+
+    if ($Value -is [string] -or $Value -is [char]) {
+        # JSON string escaping preserves embedded CR/LF/tab characters on one
+        # line and distinguishes an empty string from a missing value.
+        return (ConvertTo-Json -InputObject ([string]$Value) -Compress)
+    }
+
+    if ($Value -is [System.IFormattable]) {
+        return $Value.ToString($null, [System.Globalization.CultureInfo]::InvariantCulture)
+    }
+
+    return (ConvertTo-Json -InputObject ([string]$Value) -Compress)
+}
+
+function Get-BiosDiagnosticLine {
+    [OutputType([string[]])]
+    param([Parameter(Mandatory)][AllowNull()][object]$ComputerInfo)
+
+    $properties = [System.Collections.Generic.Dictionary[string,object]]::new(
+        [System.StringComparer]::OrdinalIgnoreCase)
+    if ($null -ne $ComputerInfo) {
+        foreach ($property in $ComputerInfo.PSObject.Properties) {
+            if ($property.Name.StartsWith('Bios', [System.StringComparison]::OrdinalIgnoreCase)) {
+                $properties[$property.Name] = $property.Value
+            }
+        }
+    }
+
+    $canonicalNames = @(Get-BiosPropertyOrder)
+    $canonicalSet = [System.Collections.Generic.HashSet[string]]::new(
+        [System.StringComparer]::OrdinalIgnoreCase)
+    foreach ($name in $canonicalNames) { [void]$canonicalSet.Add($name) }
+
+    foreach ($name in $canonicalNames) {
+        $value = if ($properties.ContainsKey($name)) { $properties[$name] } else { $null }
+        '{0,-36} : {1}' -f $name, (Format-BiosDiagnosticValue -Value $value)
+    }
+
+    $additionalNames = [System.Collections.Generic.List[string]]::new()
+    foreach ($name in $properties.Keys) {
+        if (-not $canonicalSet.Contains($name)) { $additionalNames.Add($name) }
+    }
+    $additionalNames.Sort([System.StringComparer]::Ordinal)
+    foreach ($name in $additionalNames) {
+        '{0,-36} : {1}' -f $name, (Format-BiosDiagnosticValue -Value $properties[$name])
+    }
+}
+
 $transcriptStarted = $false
 if ($OutFile) {
     try {
@@ -828,7 +986,7 @@ try {
     Write-Output ("Time (UTC)   : {0}" -f (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'"))
     Write-Output ("Time (local) : {0}" -f (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK'))
 
-    # --- REGION: https://yuruna.link/system-diagnostic#1-host--software-probe-resilience
+    # --- REGION: https://yuruna.link/423ef7f5-0008
     Write-Sub "Software"
     function Get-VersionLine {
         param(
@@ -869,7 +1027,7 @@ try {
     Get-VersionLine 'npm' {
         if (Get-Command npm -ErrorAction SilentlyContinue) { & npm --version 2>$null }
     }
-    # --- REGION: https://yuruna.link/system-diagnostic#per-tool-request-timeouts (docker --version)
+    # --- REGION: https://yuruna.link/423ef7f5-0004 (docker --version)
     Get-VersionLine 'Docker' {
         if (Get-Command docker -ErrorAction SilentlyContinue) {
             ((& docker --version 2>$null) -replace '^Docker version ','' -replace ',\s*build.*$','')
@@ -892,7 +1050,7 @@ try {
     }
     Get-VersionLine 'Kubernetes' {
         if (Get-Command kubectl -ErrorAction SilentlyContinue) {
-            # --- REGION: https://yuruna.link/system-diagnostic#per-tool-request-timeouts (kubectl --client)
+            # --- REGION: https://yuruna.link/423ef7f5-0004 (kubectl --client)
             $j = & kubectl version --client -o json --request-timeout=5s 2>$null
             if ($LASTEXITCODE -eq 0 -and $j) {
                 (($j -join "`n") | ConvertFrom-Json).clientVersion.gitVersion
@@ -1019,7 +1177,7 @@ try {
     }
     Get-VersionLine 'Google Cloud' {
         if (Get-Command gcloud -ErrorAction SilentlyContinue) {
-            # --- REGION: https://yuruna.link/system-diagnostic#per-tool-request-timeouts (gcloud -v)
+            # --- REGION: https://yuruna.link/423ef7f5-0004 (gcloud -v)
             & gcloud -v 2>$null | Select-Object -First 1
         }
     }
@@ -1057,6 +1215,30 @@ try {
     }
     }
 
+    # --- REGION: 1b. BIOS
+    Invoke-DiagnosticSection "BIOS" {
+    if (-not $IsWindows) {
+        Write-Output '(BIOS information is available through Get-ComputerInfo on Windows only.)'
+    } elseif (-not (Get-Command -Name Get-ComputerInfo -ErrorAction SilentlyContinue)) {
+        Write-Output '(BIOS information unavailable: Get-ComputerInfo is not installed.)'
+    } else {
+        try {
+            # One wildcard query captures PowerShell's complete BIOS surface,
+            # including BiosFirmwareType, while the renderer fixes row order.
+            $biosInfo = Get-ComputerInfo -Property 'Bios*' -ErrorAction Stop
+            if ($null -eq $biosInfo) {
+                Write-Output '(BIOS information unavailable: Get-ComputerInfo returned no data.)'
+            } else {
+                Get-BiosDiagnosticLine -ComputerInfo $biosInfo |
+                    ForEach-Object { Write-Output $_ }
+            }
+        } catch {
+            Write-Output ('(BIOS information unavailable: Get-ComputerInfo failed: {0})' -f
+                $_.Exception.Message)
+        }
+    }
+    }
+
     # --- REGION: 2. CPU
     Invoke-DiagnosticSection "CPU" {
     if ($IsWindows) {
@@ -1069,8 +1251,41 @@ try {
                 Write-Output ("Load %    : {0}" -f $c.LoadPercentage)
                 Write-Output ""
             }
+            # --- REGION: Processor power policy
+            # A capped maximum processor state throttles every guest on the host,
+            # and nothing above reveals it: Win32_Processor reports the RATED
+            # clock, not the permitted one. Recording it per cycle is what lets a
+            # slow run be told apart from a throttled host without a rerun.
+            $scheme = powercfg /getactivescheme 2>$null |
+                Select-String 'GUID:\s+([0-9a-fA-F-]+)\s+\((.+)\)' | Select-Object -First 1
+            if ($scheme) {
+                Write-Output ("Power plan: {0} ({1})" -f
+                    $scheme.Matches[0].Groups[2].Value.Trim(), $scheme.Matches[0].Groups[1].Value)
+            }
+            $throttleMaxAc = $null
+            foreach ($setting in 'PROCTHROTTLEMAX', 'PROCTHROTTLEMIN') {
+                $q = powercfg /query SCHEME_CURRENT SUB_PROCESSOR $setting 2>$null
+                $acHit = $q | Select-String 'Current AC Power Setting Index:\s+0x([0-9a-fA-F]+)' | Select-Object -First 1
+                $dcHit = $q | Select-String 'Current DC Power Setting Index:\s+0x([0-9a-fA-F]+)' | Select-Object -First 1
+                $acText = 'n/a'
+                $dcText = 'n/a'
+                if ($acHit) {
+                    $acVal = [Convert]::ToInt32($acHit.Matches[0].Groups[1].Value, 16)
+                    $acText = "$acVal%"
+                    if ($setting -eq 'PROCTHROTTLEMAX') { $throttleMaxAc = $acVal }
+                }
+                if ($dcHit) { $dcText = "$([Convert]::ToInt32($dcHit.Matches[0].Groups[1].Value, 16))%" }
+                Write-Output ("{0,-16}: AC {1} / DC {2}" -f $setting, $acText, $dcText)
+            }
+            Write-Output ""
+            # AC only. A machine with no battery never reaches its DC values, so
+            # alarming on those reports a cap that cannot apply.
+            if ($null -ne $throttleMaxAc -and $throttleMaxAc -lt 100) {
+                Add-Problem "CPU: maximum processor state capped at $throttleMaxAc% on the active power scheme (AC)." -Class 'CPU.power-limit'
+            }
+
             $busy = ($cpus | Measure-Object LoadPercentage -Average).Average
-            if ($busy -ge 90) { Add-Problem "CPU: average load $([math]::Round($busy,1))% across all logical processors (>=90)." }
+            if ($busy -ge 90) { Add-Problem "CPU: average load $([math]::Round($busy,1))% across all logical processors (>=90)." -Class 'CPU.high-load' }
         }
     } elseif ($IsMacOS) {
         Write-Sub "sysctl -n machdep.cpu.brand_string / hw.ncpu"
@@ -1096,7 +1311,7 @@ try {
             Write-Output "Load  : $load"
             $load1m = [double](($load -split '\s+')[0])
             if ($cores -gt 0 -and $load1m -gt ($cores * 1.5)) {
-                Add-Problem "CPU: 1-min load $load1m exceeds 1.5x cores ($cores)."
+                Add-Problem "CPU: 1-min load $load1m exceeds 1.5x cores ($cores)." -Class 'CPU.high-load'
             }
         }
     }
@@ -1117,7 +1332,7 @@ try {
             Write-Output ("Free  : {0}" -f (Format-ByteCount $free))
             $pct = ($used / $total) * 100
             Write-Output ("Used%: {0:N1}%" -f $pct)
-            if ($pct -ge 90) { Add-Problem ("MEMORY: {0:N1}% used (>=90%)." -f $pct) }
+            if ($pct -ge 90) { Add-Problem ("MEMORY: {0:N1}% used (>=90%)." -f $pct) -Class 'MEMORY.high-usage' }
             Write-Output ("Page file total : {0}" -f (Format-ByteCount ($os.SizeStoredInPagingFiles * 1KB)))
             Write-Output ("Page file free  : {0}" -f (Format-ByteCount ($os.FreeSpaceInPagingFiles * 1KB)))
         }
@@ -1139,7 +1354,7 @@ try {
             if ($totalKb -gt 0) {
                 $usedPct = (1 - ($availKb / $totalKb)) * 100
                 Write-Output ("Available%: {0:N1}% used (1 - MemAvailable/MemTotal)" -f $usedPct)
-                if ($usedPct -ge 90) { Add-Problem ("MEMORY: {0:N1}% used (>=90%)." -f $usedPct) }
+                if ($usedPct -ge 90) { Add-Problem ("MEMORY: {0:N1}% used (>=90%)." -f $usedPct) -Class 'MEMORY.high-usage' }
             }
         }
     }
@@ -1157,7 +1372,7 @@ try {
                 $pct = if ($tot -gt 0) { ($used / $tot) * 100 } else { 0 }
                 Write-Output ("{0}  size={1}  free={2}  used={3:N1}%  fs={4}" -f `
                     $_.DeviceID, (Format-ByteCount $tot), (Format-ByteCount $fre), $pct, $_.FileSystem)
-                if ($pct -ge 90) { Add-Problem ("DISK: {0} is {1:N1}% full." -f $_.DeviceID, $pct) }
+                if ($pct -ge 90) { Add-Problem ("DISK: {0} is {1:N1}% full." -f $_.DeviceID, $pct) -Class 'DISK.high-usage' }
             }
         }
     } else {
@@ -1180,7 +1395,7 @@ try {
             if ($cols.Count -ge 6) {
                 $usePct = $cols[4] -replace '%',''
                 if ($usePct -as [int] -and [int]$usePct -ge 90) {
-                    Add-Problem ("DISK: {0} is {1}% full (mounted at {2})." -f $cols[0], $usePct, $cols[5])
+                    Add-Problem ("DISK: {0} is {1}% full (mounted at {2})." -f $cols[0], $usePct, $cols[5]) -Class 'DISK.high-usage'
                 }
             }
         }
@@ -1250,18 +1465,61 @@ try {
             Invoke-Tool -Tool 'ip' -ToolArgs @('-4','route','show','default')
         }
     }
+    # --- REGION: DHCP wire capture readiness
+    # tcpdump opens a bridge only while it holds CAP_NET_RAW, and that grant is
+    # a property of the binary rather than of the account: a package upgrade
+    # that replaces the file silently takes it away. The capture that needs it
+    # is armed on every VM start and read only when a guest failed to get a
+    # lease, so a host that lost the grant learns about it inside the one
+    # post-mortem whose evidence it was supposed to supply -- by which point
+    # the guest is gone and the wire cannot be re-read. Checking here costs one
+    # process and turns a silent gap into a fix the operator can make before it
+    # is needed.
+    if ($IsLinux) {
+        Write-Sub "DHCP wire capture (tcpdump CAP_NET_RAW)"
+        $tcpdumpCmd = Get-Command 'tcpdump' -ErrorAction SilentlyContinue
+        if (-not $tcpdumpCmd) {
+            Write-Output "  tcpdump is not installed -- guest DHCP failures capture no wire evidence."
+            Add-Problem "NETWORK: tcpdump is not installed; a guest that fails to get a DHCP lease will leave no wire evidence. Install tcpdump and grant it: sudo setcap cap_net_raw,cap_net_admin=eip `$(command -v tcpdump)" -Class 'NETWORK.dhcp-capture-unavailable'
+        } else {
+            # getcap ships in /usr/sbin, which is off the PATH of an ordinary
+            # login on several distributions. Resolving it by name alone would
+            # report "unknown" on hosts that have it, so the known location is
+            # tried second -- the probe has to resolve the tool the same way
+            # the tool's own package puts it there.
+            $getcapPath = (Get-Command 'getcap' -ErrorAction SilentlyContinue)?.Source
+            if (-not $getcapPath -and (Test-Path -LiteralPath '/usr/sbin/getcap')) { $getcapPath = '/usr/sbin/getcap' }
+            $capText = ''
+            if ($getcapPath) {
+                try {
+                    $capText = (& $getcapPath $tcpdumpCmd.Source 2>$null | Out-String).Trim()
+                } catch { $capText = '' }
+            }
+            if ($capText -match 'cap_net_raw') {
+                Write-Output ("  granted: {0}" -f $capText)
+            } elseif (-not $getcapPath) {
+                # No getcap means no verdict, not a failing one. Saying so
+                # keeps a host with libcap absent from reading as a host that
+                # was checked and found wanting.
+                Write-Output "  getcap is not installed -- capability state of $($tcpdumpCmd.Source) is unknown."
+            } else {
+                Write-Output "  NOT granted on $($tcpdumpCmd.Source) -- guest DHCP failures capture no wire evidence."
+                Add-Problem "NETWORK: tcpdump lacks CAP_NET_RAW, so a guest that fails to get a DHCP lease leaves no wire evidence. Grant it: sudo setcap cap_net_raw,cap_net_admin=eip `$(command -v tcpdump)" -Class 'NETWORK.dhcp-capture-ungranted'
+            }
+        }
+    }
     Write-Sub "DNS resolution probe (one.one.one.one)"
     try {
         $r = [System.Net.Dns]::GetHostAddresses('one.one.one.one')
         if ($r) { $r | ForEach-Object { Write-Output ("  {0}" -f $_.IPAddressToString) } }
     } catch {
         Write-Output "  FAILED: $($_.Exception.Message)"
-        Add-Problem "NETWORK: DNS resolution of 'one.one.one.one' failed -- check resolver configuration."
+        Add-Problem "NETWORK: DNS resolution of 'one.one.one.one' failed -- check resolver configuration." -Class 'NETWORK.dns-unavailable'
     }
 
     Write-Sub "Connectivity"
 
-    # --- REGION: https://yuruna.link/system-diagnostic#probe-via-proxy-when-egress-is-locked
+    # --- REGION: https://yuruna.link/423ef7f5-0005
     $proxyUrl  = $null
     $proxyHost = $null
     $proxyPort = 0
@@ -1310,13 +1568,13 @@ try {
     if (-not $gateOk) {
         if ($proxyUrl) {
             Write-Output "(egress proxy ${proxyHost}:${proxyPort} unreachable: $gateMsg -- skipping endpoint probes)"
-            Add-Problem "NETWORK: egress proxy ${proxyHost}:${proxyPort} unreachable ($gateMsg)."
+            Add-Problem "NETWORK: egress proxy ${proxyHost}:${proxyPort} unreachable ($gateMsg)." -Class 'NETWORK.egress-unavailable'
         } elseif ($gateRejected) {
             Write-Output "(direct TCP/443 to 8.8.8.8 refused by local egress filter; no http(s)_proxy in env -- skipping endpoint probes)"
-            Add-Problem "NETWORK: direct TCP/443 refused by local egress filter and no http(s)_proxy is set."
+            Add-Problem "NETWORK: direct TCP/443 refused by local egress filter and no http(s)_proxy is set." -Class 'NETWORK.egress-unavailable'
         } else {
             Write-Output "(no outbound connectivity to 8.8.8.8:443 within 1500 ms -- skipping endpoint probes)"
-            Add-Problem "NETWORK: no outbound connectivity (gate probe to 8.8.8.8:443 failed: $gateMsg)."
+            Add-Problem "NETWORK: no outbound connectivity (gate probe to 8.8.8.8:443 failed: $gateMsg)." -Class 'NETWORK.egress-unavailable'
         }
     } else {
         $connectivityEndpoints = @(
@@ -1353,7 +1611,7 @@ try {
         )
 
         if ($proxyUrl) {
-            # --- REGION: https://yuruna.link/system-diagnostic#probe-via-proxy-when-egress-is-locked
+            # --- REGION: https://yuruna.link/423ef7f5-0005
             Write-Output ("Egress goes through ${proxyHost}:${proxyPort} ({0}); reporting round-trip via HTTP CONNECT." -f $proxyUrl)
             $probeTimeoutMs = 4000
             $probeDeadline  = [System.Environment]::TickCount + $probeTimeoutMs
@@ -1518,10 +1776,10 @@ try {
         $connectFailures = @($connectResults | Where-Object { $null -eq $_.RTT })
         if ($connectFailures.Count -gt 0) {
             Add-Problem ("NETWORK: {0}/{1} endpoint(s) unreachable: {2}" -f `
-                $connectFailures.Count, $connectResults.Count, (($connectFailures.Target) -join ', '))
+                $connectFailures.Count, $connectResults.Count, (($connectFailures.Target) -join ', ')) -Class 'NETWORK.endpoint-unavailable'
         }
 
-        # --- REGION: https://yuruna.link/system-diagnostic#probe-via-proxy-when-egress-is-locked
+        # --- REGION: https://yuruna.link/423ef7f5-0005
         # Package managers use the http_proxy GET/cache path, which wedges
         # independently of CONNECT; forced revalidation exercises the
         # proxy's upstream fetch instead of a cache hit.
@@ -1659,15 +1917,15 @@ try {
             $plainPathLabel = if ($plainProxyUrl) { "the caching proxy at $plainProxyUrl" } else { 'a direct connection (no http_proxy)' }
             if ($plainFailures.Count -gt 0) {
                 Add-Problem ("NETWORK: package-mirror fetch over {0} failed for {1}/{2} origin(s): {3} -- guests install and update over this path, so a failure here breaks OS installs before any guest diagnostic can run." -f `
-                    $plainPathLabel, $plainFailures.Count, $plainTargets.Count, ($plainFailures -join ', '))
+                    $plainPathLabel, $plainFailures.Count, $plainTargets.Count, ($plainFailures -join ', ')) -Class 'NETWORK.package-mirror-unavailable'
             }
             if ($plainSlow.Count -gt 0) {
                 Add-Problem ("NETWORK: package-mirror fetch over {0} answered but took over {1}s for {2}/{3} origin(s): {4} -- apt blocks on these fetches, so a slow origin exhausts a step's timeout the same way an unreachable one does." -f `
-                    $plainPathLabel, [int]($plainSlowMs / 1000), $plainSlow.Count, $plainTargets.Count, ($plainSlow -join ', '))
+                    $plainPathLabel, [int]($plainSlowMs / 1000), $plainSlow.Count, $plainTargets.Count, ($plainSlow -join ', ')) -Class 'NETWORK.package-mirror-slow'
             }
         }
 
-        # --- REGION: https://yuruna.link/system-diagnostic#container-registry-route
+        # --- REGION: https://yuruna.link/423ef7f5-0006
         # The OCI counterpart of the package-mirror probe above, and for the same
         # reason: image pulls leave through a different door than apt does, and a
         # cache can be perfectly healthy on one while unusable on the other.
@@ -1719,7 +1977,7 @@ try {
             } catch {
                 $sw.Stop()
                 Write-Output ("  {0,-52} FAILED after {1} ms: {2}" -f "$registryBase/v2/", $sw.ElapsedMilliseconds, $_.Exception.Message)
-                Add-Problem ("REGISTRY: the pull-through cache at {0} did not answer /v2/ -- guests pull only from it, so every image pull on this machine fails until it is back." -f $registryBase)
+                Add-Problem ("REGISTRY: the pull-through cache at {0} did not answer /v2/ -- guests pull only from it, so every image pull on this machine fails until it is back." -f $registryBase) -Class 'REGISTRY.unavailable'
             }
 
             # Prefer the cache's own published reading over measuring here, and
@@ -1765,13 +2023,13 @@ try {
                 # so the number has to be lifted into the problems summary or a
                 # reader has no reason to look at it.
                 if ($healthText -match 'NO ANSWER within\s+(\d+)s') {
-                    Add-Problem ("REGISTRY: the cache reports its own manifest probe getting NO ANSWER within {0}s while /v2/ liveness stays healthy. Image pulls resolve a manifest first, so they fail here even though every reachability check passes." -f $Matches[1])
+                    Add-Problem ("REGISTRY: the cache reports its own manifest probe getting NO ANSWER within {0}s while /v2/ liveness stays healthy. Image pulls resolve a manifest first, so they fail here even though every reachability check passes." -f $Matches[1]) -Class 'REGISTRY.manifest-unavailable'
                 } elseif ($healthText -match 'zot manifest\s+\S+\s*:\s*HTTP\s+(\d+)\s+in\s+([0-9.]+)s') {
                     $reportedCode = $Matches[1]
                     $reportedSec  = [double]$Matches[2]
                     if ($reportedCode -ne '200' -or $reportedSec -ge ($registrySlowMs / 1000)) {
                         Add-Problem ("REGISTRY: the cache reports its own manifest probe answering HTTP {0} in {1}s. A container runtime abandons a pull whose response headers have not arrived in roughly 30s, so a cache in this state fails pulls while passing every liveness check." -f `
-                            $reportedCode, $reportedSec)
+                            $reportedCode, $reportedSec) -Class 'REGISTRY.manifest-slow'
                     }
                 }
                 # Residency is the only reading here that can show a COLD cache.
@@ -1790,7 +2048,7 @@ try {
                         $total = [int]$Matches[2]
                         if ($total -gt 0 -and $held -lt $total) {
                             Add-Problem ("REGISTRY: the cache holds {0} of {1} images in the {2} set ({3}) a guest pulls. Each missing image is copied from upstream while the guest waits on its manifest request, which costs minutes apiece and outlasts a provisioning step's budget -- while every liveness and manifest reading above stays green." -f `
-                                $held, $total, $residencySet.Name, $residencySet.Version)
+                                $held, $total, $residencySet.Name, $residencySet.Version) -Class 'REGISTRY.image-set-incomplete'
                         }
                         $residencySet = $null
                     }
@@ -1798,7 +2056,7 @@ try {
                 if ($healthText -match 'Docker Hub budget[^:]*:\s*(\d+)\s+of\s+(\d+)\s+left') {
                     $budgetLeft = [int]$Matches[1]
                     if ($budgetLeft -le 0) {
-                        Add-Problem ("REGISTRY: the shared upstream pull budget is exhausted (0 of {0}). Every guest behind this egress IP draws on it, and the pull-through retries upstream before answering, so exhaustion surfaces to a guest as a cache that stopped answering in time rather than as a rate-limit error." -f $Matches[2])
+                        Add-Problem ("REGISTRY: the shared upstream pull budget is exhausted (0 of {0}). Every guest behind this egress IP draws on it, and the pull-through retries upstream before answering, so exhaustion surfaces to a guest as a cache that stopped answering in time rather than as a rate-limit error." -f $Matches[2]) -Class 'REGISTRY.upstream-budget-exhausted'
                     }
                 }
             } else {
@@ -1813,13 +2071,13 @@ try {
                     Write-Output ("  {0,-52} HTTP 200 in {1} ms{2}" -f "manifest $canaryRepo`:$canaryTag", $sw.ElapsedMilliseconds, $slowNote)
                     if ($sw.ElapsedMilliseconds -ge $registrySlowMs) {
                         Add-Problem ("REGISTRY: the cache answered a manifest request in {0} ms (liveness {1} ms). A container runtime gives up on a pull whose response headers have not arrived in roughly 30s, so a cache in this state fails pulls while passing every liveness check." -f `
-                            $sw.ElapsedMilliseconds, $(if ($null -ne $livenessMs) { $livenessMs } else { 'n/a' }))
+                            $sw.ElapsedMilliseconds, $(if ($null -ne $livenessMs) { $livenessMs } else { 'n/a' })) -Class 'REGISTRY.manifest-slow'
                     }
                 } catch {
                     $sw.Stop()
                     Write-Output ("  {0,-52} FAILED after {1} ms (cap {2}s): {3}" -f "manifest $canaryRepo`:$canaryTag", $sw.ElapsedMilliseconds, $registryCapSec, $_.Exception.Message)
                     Add-Problem ("REGISTRY: the cache did not serve a manifest within {0}s while /v2/ liveness was {1}. Image pulls resolve manifests first, so they fail here even though the registry is reachable." -f `
-                        $registryCapSec, $(if ($null -ne $livenessMs) { "healthy at $livenessMs ms" } else { 'also failing' }))
+                        $registryCapSec, $(if ($null -ne $livenessMs) { "healthy at $livenessMs ms" } else { 'also failing' })) -Class 'REGISTRY.manifest-unavailable'
                 }
             }
 
@@ -1912,7 +2170,7 @@ try {
             if ($sysErr) {
                 $sysErr | Select-Object TimeCreated, Id, ProviderName, @{n='Message';e={$_.Message -replace "`r?`n",' '}} |
                     Format-Table -AutoSize -Wrap | Out-String | ForEach-Object { Write-Output $_ }
-                if ($sysErr.Count -ge 5) { Add-Problem "EVENTS: $($sysErr.Count)+ System Error events in the last hour." }
+                if ($sysErr.Count -ge 5) { Add-Problem "EVENTS: $($sysErr.Count)+ System Error events in the last hour." -Class 'EVENTS.system-errors' }
             } else {
                 Write-Output "(no errors in the last hour)"
             }
@@ -1944,7 +2202,7 @@ try {
                 if ($suppressed -gt 0) {
                     Write-Output ("({0} of {1} error entries are this harness's own polling -- not counted as a problem)" -f $suppressed, $entryCount)
                 }
-                if ($realCount -ge 10) { Add-Problem "EVENTS: $realCount journalctl error entries in the last hour." }
+                if ($realCount -ge 10) { Add-Problem "EVENTS: $realCount journalctl error entries in the last hour." -Class 'EVENTS.journal-errors' }
             } else { Write-Output "(no error entries in the last hour)" }
         } elseif (Test-Path '/var/log/syslog') {
             Write-Sub "tail /var/log/syslog (last 30 lines)"
@@ -2034,17 +2292,17 @@ try {
         # Other absent tools in this script are already reported this way.
         Write-Output "docker command not found in PATH (or present but not executable)."
     } else {
-        # --- REGION: https://yuruna.link/system-diagnostic#wedged-daemon-protection
+        # --- REGION: https://yuruna.link/423ef7f5-0002
         $probe = Invoke-WithDeadline -TimeoutSeconds 5 -ScriptBlock {
             $null = & docker info --format '{{.ServerVersion}}' 2>&1
             $LASTEXITCODE
         }
         if ($probe.TimedOut) {
             Write-Output "(docker info probe timed out after 5s -- daemon likely wedged)"
-            Add-Problem "DOCKER: probe timeout (docker info did not return within 5s; daemon likely wedged)."
+            Add-Problem "DOCKER: probe timeout (docker info did not return within 5s; daemon likely wedged)." -Class 'DOCKER.probe-timeout'
         } elseif ((@($probe.Output) | Select-Object -Last 1) -ne 0) {
             Write-Output "Docker CLI present but daemon unreachable."
-            Add-Problem "DOCKER: daemon unreachable (`docker info` failed)."
+            Add-Problem "DOCKER: daemon unreachable (`docker info` failed)." -Class 'DOCKER.daemon-unavailable'
         } else {
             Write-Sub "docker version (client+server)"
             Invoke-Tool -Tool 'docker' -ToolArgs @('version','--format','Client: {{.Client.Version}} ({{.Client.Os}}/{{.Client.Arch}})`nServer: {{.Server.Version}} ({{.Server.Os}}/{{.Server.Arch}})') -TimeoutSeconds 5
@@ -2055,7 +2313,7 @@ try {
             $info = $null
             if ($infoProbe.TimedOut) {
                 Write-Output "(docker info probe timed out after 5s -- daemon likely wedged)"
-                Add-Problem "DOCKER: probe timeout (docker info --format json did not return within 5s)."
+                Add-Problem "DOCKER: probe timeout (docker info --format json did not return within 5s)." -Class 'DOCKER.probe-timeout'
             } else {
                 $info = ($infoProbe.Output -join "`n") | ConvertFrom-Json -ErrorAction SilentlyContinue
             }
@@ -2069,7 +2327,7 @@ try {
                 Write-Output ("Operating sys  : {0}" -f $info.OperatingSystem)
                 if ($info.Warnings -and $info.Warnings.Count -gt 0) {
                     Write-Output "Warnings:"
-                    foreach ($w in $info.Warnings) { Write-Output "  - $w"; Add-Problem "DOCKER: warning -- $w" }
+                    foreach ($w in $info.Warnings) { Write-Output "  - $w"; Add-Problem "DOCKER: warning -- $w" -Class 'DOCKER.warning' }
                 }
             }
             Write-Sub "docker ps -a (all containers)"
@@ -2080,7 +2338,7 @@ try {
             $rows = @()
             if ($psProbe.TimedOut) {
                 Write-Output "(docker ps probe timed out after 5s -- daemon likely wedged)"
-                Add-Problem "DOCKER: probe timeout (docker ps -a did not return within 5s)."
+                Add-Problem "DOCKER: probe timeout (docker ps -a did not return within 5s)." -Class 'DOCKER.probe-timeout'
             } else {
                 $rows = @($psProbe.Output)
             }
@@ -2089,7 +2347,7 @@ try {
                 if ($parts.Count -ne 2) { continue }
                 $name = $parts[0]; $status = $parts[1]
                 if ($status -match '^Restarting' -or $status -match 'unhealthy' -or $status -match 'Dead') {
-                    Add-Problem "DOCKER: container '$name' status: $status"
+                    Add-Problem "DOCKER: container '$name' status: $status" -Class 'DOCKER.container-unhealthy'
                 }
             }
             Write-Sub "docker images (top 100 by size)"
@@ -2101,7 +2359,7 @@ try {
             $imgsExit = 0
             if ($imgsProbe.TimedOut) {
                 Write-Output "(docker images probe timed out after 5s -- daemon likely wedged)"
-                Add-Problem "DOCKER: probe timeout (docker images did not return within 5s)."
+                Add-Problem "DOCKER: probe timeout (docker images did not return within 5s)." -Class 'DOCKER.probe-timeout'
                 $imgsExit = -1
             } else {
                 $imgsOutput = @($imgsProbe.Output)
@@ -2160,7 +2418,7 @@ try {
                 Write-Output "Repositories ($($repos.Count)):"
                 foreach ($repo in $repos) { Write-Output ("  {0}" -f $repo) }
                 if ($repos.Count -eq 0) {
-                    Add-Problem "REGISTRY: local registry on :5000 is reachable but its catalog is empty -- no images have been pushed (or the registry's storage was reset)."
+                    Add-Problem "REGISTRY: local registry on :5000 is reachable but its catalog is empty -- no images have been pushed (or the registry's storage was reset)." -Class 'REGISTRY.catalog-empty'
                 }
             }
         }
@@ -2180,12 +2438,12 @@ try {
         Write-Output "kubectl command not found in PATH (or present but not executable -- e.g. a dangling /usr/local/bin symlink)."
     } else {
         Write-Sub "kubectl version"
-        # --- REGION: https://yuruna.link/system-diagnostic#per-tool-request-timeouts (kubectl --request-timeout)
+        # --- REGION: https://yuruna.link/423ef7f5-0004 (kubectl --request-timeout)
         $kv = & kubectl version --output=json --request-timeout=5s 2>$null | ConvertFrom-Json -ErrorAction SilentlyContinue
         if ($kv) {
             if ($kv.clientVersion) { Write-Output ("Client : {0}" -f $kv.clientVersion.gitVersion) }
             if ($kv.serverVersion) { Write-Output ("Server : {0}" -f $kv.serverVersion.gitVersion) }
-            else { Write-Output "Server : (unreachable)" ; Add-Problem "KUBE: server version unavailable -- cluster may be unreachable." }
+            else { Write-Output "Server : (unreachable)" ; Add-Problem "KUBE: server version unavailable -- cluster may be unreachable." -Class 'KUBE.server-unavailable' }
         }
         Write-Sub "Current context"
         Invoke-Tool -Tool 'kubectl' -ToolArgs @('config','current-context')
@@ -2196,7 +2454,7 @@ try {
         foreach ($n in $nodes) {
             $cols = $n -split '\s+'
             if ($cols.Count -ge 2 -and $cols[1] -notmatch '^Ready') {
-                Add-Problem "KUBE: node '$($cols[0])' status: $($cols[1])"
+                Add-Problem "KUBE: node '$($cols[0])' status: $($cols[1])" -Class 'KUBE.node-unhealthy'
             }
         }
 
@@ -2217,9 +2475,9 @@ try {
             $restartCount = 0
             [int]::TryParse($restarts, [ref]$restartCount) | Out-Null
             if ($status -notin @('Running','Completed','Succeeded')) {
-                Add-Problem "KUBE: pod $ns/$name status: $status (ready $ready)"
+                Add-Problem "KUBE: pod $ns/$name status: $status (ready $ready)" -Class 'KUBE.pod-unhealthy'
             } elseif ($restartCount -ge 5) {
-                Add-Problem "KUBE: pod $ns/$name has $restartCount restarts."
+                Add-Problem "KUBE: pod $ns/$name has $restartCount restarts." -Class 'KUBE.pod-restarts'
             }
         }
 
@@ -2262,7 +2520,7 @@ try {
         }
         $warnings = & kubectl get events -A --field-selector type=Warning --no-headers --request-timeout=5s 2>$null
         if ($warnings -and $warnings.Count -gt 0) {
-            Add-Problem "KUBE: $($warnings.Count) Warning events present (see kubectl get events -A)."
+            Add-Problem "KUBE: $($warnings.Count) Warning events present (see kubectl get events -A)." -Class 'KUBE.warning-events'
         }
 
         Write-Sub "helm releases (all namespaces)"
@@ -2272,13 +2530,13 @@ try {
             if ($rels) {
                 foreach ($r in $rels) {
                     if ($r.status -notin @('deployed','superseded')) {
-                        Add-Problem ("HELM: release '{0}' (ns: {1}) status: {2}" -f $r.name, $r.namespace, $r.status)
+                        Add-Problem ("HELM: release '{0}' (ns: {1}) status: {2}" -f $r.name, $r.namespace, $r.status) -Class 'HELM.release-unhealthy'
                     }
                 }
             }
         } else {
             Write-Output "(helm not in PATH -- chart-based workloads will not have been deployed)"
-            Add-Problem "HELM: helm not installed (or not in PATH / not executable)."
+            Add-Problem "HELM: helm not installed (or not in PATH / not executable)." -Class 'HELM.command-unavailable'
         }
 
         Write-Sub "Namespaces that exist but have no Pods/Deployments"
@@ -2290,7 +2548,7 @@ try {
         if ($emptyNs.Count -gt 0) {
             foreach ($n in $emptyNs) {
                 Write-Output ("  $n")
-                Add-Problem "KUBE: namespace '$n' exists but has no Pods or Deployments -- a workload (helm/kubectl) for this namespace likely failed to land."
+                Add-Problem "KUBE: namespace '$n' exists but has no Pods or Deployments -- a workload (helm/kubectl) for this namespace likely failed to land." -Class 'KUBE.namespace-empty'
             }
         } else {
             Write-Output "(none)"
@@ -2315,7 +2573,7 @@ try {
     }
 
     # --- REGION: 11. Host detail
-    # --- REGION: https://yuruna.link/system-diagnostic#11-host-detail--runner-process-tree
+    # --- REGION: https://yuruna.link/423ef7f5-0009
     Invoke-DiagnosticSection "HOST DETAIL" {
 
         # --- REGION: Runner process tree (all platforms)
@@ -2367,7 +2625,7 @@ try {
                     Write-Output "(Get-CimInstance Win32_Process failed: $($_.Exception.Message))"
                 }
             } elseif ($IsLinux -or $IsMacOS) {
-                # --- REGION: https://yuruna.link/system-diagnostic#ps--ww-is-mandatory-on-macos--linux
+                # --- REGION: https://yuruna.link/423ef7f5-000a
                 try {
                     $psLines = & '/bin/ps' -ww -axo 'pid=,ppid=,etime=,pcpu=,args=' 2>$null
                     foreach ($line in $psLines) {
@@ -2557,7 +2815,7 @@ try {
                         Write-Output "  compile probe: OK (binary produced; Vision OCR fast path can build)"
                     } else {
                         Write-Output "  compile probe: FAILED (no binary produced)"
-                        Add-Problem "SWIFT: swiftc cannot produce a binary -- the Vision OCR fast path is down (ocr_vision_slowpath). Usual fix: reinstall the Command Line Tools (xcode-select --install) or repoint them (sudo xcode-select -s <developer dir>)."
+                        Add-Problem "SWIFT: swiftc cannot produce a binary -- the Vision OCR fast path is down (ocr_vision_slowpath). Usual fix: reinstall the Command Line Tools (xcode-select --install) or repoint them (sudo xcode-select -s <developer dir>)." -Class 'SWIFT.compiler-unavailable'
                     }
                 } finally {
                     Remove-Item -LiteralPath $probeDir -Recurse -Force -ErrorAction SilentlyContinue
@@ -2597,7 +2855,7 @@ try {
             Get-Content -LiteralPath '/etc/resolv.conf' -ErrorAction SilentlyContinue | ForEach-Object { Write-Output $_ }
         } else {
             Write-Output "(missing)"
-            Add-Problem "LINUX: /etc/resolv.conf is missing -- name resolution will fail."
+            Add-Problem "LINUX: /etc/resolv.conf is missing -- name resolution will fail." -Class 'LINUX.resolver-missing'
         }
 
         Write-Sub "/etc/hosts"
@@ -2701,7 +2959,7 @@ try {
             $pingExit = $LASTEXITCODE
             $pingOut | ForEach-Object { Write-Output $_ }
             if ($pingExit -ne 0) {
-                Add-Problem "LINUX: ping to 1.1.1.1 failed (exit $pingExit) -- check default route, NAT, or upstream connectivity."
+                Add-Problem "LINUX: ping to 1.1.1.1 failed (exit $pingExit) -- check default route, NAT, or upstream connectivity." -Class 'LINUX.network-unavailable'
             }
         } else {
             Write-Output "(ping not installed)"
@@ -2753,11 +3011,11 @@ try {
                 $dmesgOut | Select-Object -Last 100 | ForEach-Object { Write-Output $_ }
                 $oomHits = @($dmesgOut | Where-Object { $_ -match 'Out of memory|oom-kill|killed process' })
                 if ($oomHits.Count -gt 0) {
-                    Add-Problem ("LINUX: dmesg shows {0} OOM-killer event(s) -- memory pressure has killed a process. Review dmesg for details." -f $oomHits.Count)
+                    Add-Problem ("LINUX: dmesg shows {0} OOM-killer event(s) -- memory pressure has killed a process. Review dmesg for details." -f $oomHits.Count) -Class 'LINUX.oom-events'
                 }
                 $hwHits = @($dmesgOut | Where-Object { $_ -match 'I/O error|Hardware Error|MCE:|EDAC' })
                 if ($hwHits.Count -gt 0) {
-                    Add-Problem ("LINUX: dmesg shows {0} hardware/driver error line(s) (I/O error, MCE, EDAC, etc.)." -f $hwHits.Count)
+                    Add-Problem ("LINUX: dmesg shows {0} hardware/driver error line(s) (I/O error, MCE, EDAC, etc.)." -f $hwHits.Count) -Class 'LINUX.hardware-errors'
                 }
             }
         } else {
@@ -2834,7 +3092,7 @@ try {
             }
         }
 
-        # --- REGION: https://yuruna.link/system-diagnostic#11c-libvirt-guest-networks
+        # --- REGION: https://yuruna.link/423ef7f5-000c
         # Where libvirt runs the guest network, this host IS the DHCP server
         # its guests talk to, and nothing above says anything about it: the
         # interface, route and socket dumps describe the host's own addressing,
@@ -2969,7 +3227,7 @@ try {
                 $cniBin | ForEach-Object { Write-Output ("  {0}" -f $_.Name) }
             } else {
                 Write-Output "(/opt/cni/bin/ exists but is empty)"
-                Add-Problem "LINUX: /opt/cni/bin/ is empty -- no CNI plugins installed; pods cannot get network."
+                Add-Problem "LINUX: /opt/cni/bin/ is empty -- no CNI plugins installed; pods cannot get network." -Class 'LINUX.cni-binaries-missing'
             }
         } else {
             Write-Output "(no /opt/cni/bin -- Kubernetes node or CNI not installed here)"
@@ -2986,7 +3244,7 @@ try {
                 }
             } else {
                 Write-Output "(/etc/cni/net.d/ exists but is empty)"
-                Add-Problem "LINUX: /etc/cni/net.d/ is empty -- kubelet will fail to set up pod networks."
+                Add-Problem "LINUX: /etc/cni/net.d/ is empty -- kubelet will fail to set up pod networks." -Class 'LINUX.cni-config-missing'
             }
         } else {
             Write-Output "(no /etc/cni/net.d -- Kubernetes not configured here)"
@@ -2994,7 +3252,7 @@ try {
     }
 
     # --- REGION: 11b. Install and early-boot timeline (Linux)
-    # --- REGION: https://yuruna.link/system-diagnostic#11b-install--early-boot-timeline-linux
+    # --- REGION: https://yuruna.link/423ef7f5-000b
     if ($IsLinux) {
         Invoke-DiagnosticSection "INSTALL & EARLY-BOOT TIMELINE (Linux)" {
             Write-Sub "/var/log/installer/ (dir listing)"
@@ -3028,7 +3286,7 @@ try {
                 Write-Output ("_send_update lines: {0}" -f $sendUpdate.Count)
                 Write-Output ("CHANGE <iface>   : {0}" -f $changeIfaces.Count)
                 if ($sendUpdate.Count -ge 200) {
-                    Add-Problem ("INSTALL: subiquity _send_update fired {0} times -- network model is being re-emitted, classic CHANGE-loop signature (IPv6 RAs, mirror retry storm, or VF flap)." -f $sendUpdate.Count)
+                    Add-Problem ("INSTALL: subiquity _send_update fired {0} times -- network model is being re-emitted, classic CHANGE-loop signature (IPv6 RAs, mirror retry storm, or VF flap)." -f $sendUpdate.Count) -Class 'INSTALL.subiquity-change-loop'
                 }
                 $mirrorRetry = @($sub | Where-Object { $_ -match 'Retrying|mirror.*retry|elect.*mirror|geoip' })
                 if ($mirrorRetry.Count -gt 0) {
@@ -3049,7 +3307,7 @@ try {
                 $retries = @($curtin | Where-Object { $_ -match 'Retrying|retry|TimeoutError|ConnectionError|temporary failure' })
                 Write-Output ("Retry/Timeout/Connection-error lines: {0}" -f $retries.Count)
                 if ($retries.Count -ge 5) {
-                    Add-Problem ("INSTALL: curtin saw {0} retry/timeout/connection-error lines -- proxy or mirror was slow/unreachable; check apt block in autoinstall-user-data." -f $retries.Count)
+                    Add-Problem ("INSTALL: curtin saw {0} retry/timeout/connection-error lines -- proxy or mirror was slow/unreachable; check apt block in autoinstall-user-data." -f $retries.Count) -Class 'INSTALL.curtin-retries'
                     Write-Output "First 10 retry/error lines:"
                     $retries | Select-Object -First 10 | ForEach-Object { Write-Output $_ }
                 }
@@ -3169,7 +3427,7 @@ try {
     }
 
     # --- REGION: 11c. Guest provisioning (Linux)
-    # --- REGION: https://yuruna.link/definition#defining-get-systemdiagnostic (section 11c)
+    # --- REGION: https://yuruna.link/42fa6f45-0013 (section 11c)
     if ($IsLinux) {
         Invoke-DiagnosticSection "GUEST PROVISIONING (Linux)" {
             Write-Sub "/var/log/yuruna/ (dir listing)"
@@ -3200,7 +3458,7 @@ try {
                             ForEach-Object { Write-Output $_ }
                         $body = Get-Content -LiteralPath $log.FullName -Raw -ErrorAction SilentlyContinue
                         if ($body -and ($body -match 'all \d+ attempts exhausted')) {
-                            Add-Problem ("PROVISIONING: {0} records exhausted pwsh_retry attempts -- the wrapped pwsh action failed every retry, cycle aborted." -f $log.Name)
+                            Add-Problem ("PROVISIONING: {0} records exhausted pwsh_retry attempts -- the wrapped pwsh action failed every retry, cycle aborted." -f $log.Name) -Class 'PROVISIONING.retry-exhausted'
                         }
                     }
                 }
@@ -3225,7 +3483,7 @@ try {
                     ForEach-Object { Write-Output $_ }
             } catch {
                 Write-Output ("Get-PSRepository ERROR: {0}" -f $_.Exception.Message)
-                Add-Problem "PROVISIONING: Get-PSRepository threw -- PSGallery registration is unhealthy; Install-Module will fail with 'No match was found'."
+                Add-Problem "PROVISIONING: Get-PSRepository threw -- PSGallery registration is unhealthy; Install-Module will fail with 'No match was found'." -Class 'PROVISIONING.repository-unavailable'
             }
             Write-Output "--- PackageProvider -ListAvailable ---"
             try {
@@ -3296,7 +3554,7 @@ try {
         }
         if ([string]::IsNullOrWhiteSpace($yurunaVersion)) {
             Write-Output "Yuruna version: (not found at $yurunaVerFile)"
-            Add-Problem "YURUNA: VERSION file missing or empty at $yurunaVerFile"
+            Add-Problem "YURUNA: VERSION file missing or empty at $yurunaVerFile" -Class 'YURUNA.version-missing'
         } else {
             $yurunaOrigin = Get-RemoteOriginUrl -RepoPath $yurunaRoot
             if ([string]::IsNullOrWhiteSpace($yurunaOrigin)) {
@@ -3312,7 +3570,7 @@ try {
         }
         if ([string]::IsNullOrWhiteSpace($projectVersion)) {
             Write-Output "Project version: (not found at $projectVerFile)"
-            Add-Problem "YURUNA: project VERSION file missing or empty at $projectVerFile"
+            Add-Problem "YURUNA: project VERSION file missing or empty at $projectVerFile" -Class 'YURUNA.project-version-missing'
         } else {
             $projectOrigin = Get-RemoteOriginUrl -RepoPath $projectRoot
             if ([string]::IsNullOrWhiteSpace($projectOrigin)) {
@@ -3344,7 +3602,7 @@ try {
                 }
                 if ([string]::IsNullOrWhiteSpace($content)) {
                     Write-Output "  (file is empty)"
-                    Add-Problem ("YURUNA: {0} is empty" -f $of.FullName)
+                    Add-Problem ("YURUNA: {0} is empty" -f $of.FullName) -Class 'YURUNA.output-empty'
                     continue
                 }
                 Write-Output $content
@@ -3390,7 +3648,7 @@ try {
                     Write-Output "  Detected issues:"
                     foreach ($iss in $issues) {
                         Write-Output ("    * {0}" -f $iss)
-                        Add-Problem ("YURUNA: {0} -- {1}" -f $of.FullName, $iss)
+                        Add-Problem ("YURUNA: {0} -- {1}" -f $of.FullName, $iss) -Class 'YURUNA.output-problem'
                     }
                 }
             }
@@ -3478,7 +3736,7 @@ try {
             Write-Output ""
             Write-Output ("(scanned $filesScanned files, skipped $filesSkipped, $totalMatches lines matched, $linesFiltered filtered by denylist)")
             if ($totalMatches -gt 0) {
-                Add-Problem ("YURUNA: {0} error/fail/warning lines across .yuruna/ working folders (see YURUNA PROJECT section above)" -f $totalMatches)
+                Add-Problem ("YURUNA: {0} error/fail/warning lines across .yuruna/ working folders (see YURUNA PROJECT section above)" -f $totalMatches) -Class 'YURUNA.project-problems'
             }
 
             Write-Sub "Most recently modified files under .yuruna/ (top 100 by mtime)"
@@ -3509,7 +3767,7 @@ try {
     }
 
     # --- REGION: 13. Gap heuristics
-    # --- REGION: https://yuruna.link/system-diagnostic#13-gap-heuristics
+    # --- REGION: https://yuruna.link/423ef7f5-000e
     Invoke-DiagnosticSection "GAP HEURISTICS" {
         if ($SkipProjectGaps) {
             Write-Output "(skipped via -SkipProjectGaps)"
@@ -3529,7 +3787,7 @@ try {
         $helmReady    = $null -ne (Get-Command 'helm'    -ErrorAction SilentlyContinue)
 
         # --- REGION: Heuristic 1: tofu.tfstate exists but helm has zero releases
-        # --- REGION: https://yuruna.link/system-diagnostic#heuristic-1-tofu-state-without-helm-releases
+        # --- REGION: https://yuruna.link/423ef7f5-000f
         Write-Sub "Heuristic 1: tofu state without helm releases"
         $tfStateWalk = Get-FileTreeWithDeadline -Label 'tofu.tfstate scan' -ArgumentList @($projectRoot) -ScriptBlock {
             param($root)
@@ -3560,7 +3818,7 @@ try {
         }
 
         # --- REGION: Heuristic 2: resources.output.yml declares a namespace that doesn't exist in the cluster
-        # --- REGION: https://yuruna.link/system-diagnostic#heuristic-2-declared-namespaces-missing-from-cluster
+        # --- REGION: https://yuruna.link/423ef7f5-0010
         Write-Sub "Heuristic 2: declared namespaces missing from cluster"
         $nsOutputWalk = Get-FileTreeWithDeadline -Label 'resources.output.yml scan' -ArgumentList @($projectRoot) -ScriptBlock {
             param($root)
@@ -3578,7 +3836,7 @@ try {
                 try {
                     $content = Get-Content -LiteralPath $of.FullName -Raw -ErrorAction Stop
                 } catch { continue }
-                # --- REGION: https://yuruna.link/system-diagnostic#heuristic-2-declared-namespaces-missing-from-cluster (regex rationale)
+                # --- REGION: https://yuruna.link/423ef7f5-0010 (regex rationale)
                 $inGlobals = $false
                 foreach ($raw in ($content -split "`r?`n")) {
                     if ($raw -match '^globalVariables:\s*$') { $inGlobals = $true; continue }
@@ -3604,7 +3862,7 @@ try {
         }
 
         # --- REGION: Heuristic 3: nodes Ready but zero user-namespace pods
-        # --- REGION: https://yuruna.link/system-diagnostic#heuristic-3-cluster-ready-but-no-user-namespace-pods
+        # --- REGION: https://yuruna.link/423ef7f5-0011
         Write-Sub "Heuristic 3: cluster Ready but no user-namespace pods"
         if (-not $kubectlReady) {
             Write-Output "(kubectl not in PATH; cannot check)"
@@ -3628,7 +3886,7 @@ try {
         }
 
         # --- REGION: Heuristic 4: image in local registry but no pod references it
-        # --- REGION: https://yuruna.link/system-diagnostic#heuristic-4-local-registry-image-not-referenced-by-any-pod
+        # --- REGION: https://yuruna.link/423ef7f5-0012
         Write-Sub "Heuristic 4: local registry image not referenced by any pod"
         if (-not $kubectlReady) {
             Write-Output "(kubectl not in PATH; cannot check)"
@@ -3669,7 +3927,7 @@ try {
                 if ($null -ne $allImages) {
                     $orphans = @()
                     foreach ($repo in $registryRepos) {
-                        # --- REGION: https://yuruna.link/system-diagnostic#heuristic-4-local-registry-image-not-referenced-by-any-pod (image-ref shape)
+                        # --- REGION: https://yuruna.link/423ef7f5-0012 (image-ref shape)
                         $needle = "/$repo`:"
                         $matched = @($allImages | Where-Object { $_ -like "*$needle*" })
                         if ($matched.Count -eq 0) {

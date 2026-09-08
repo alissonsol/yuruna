@@ -1,0 +1,135 @@
+{
+  "schema": "yuruna.catalog/v1",
+  "domain": "status",
+  "locale": "en-US",
+  "messages": {
+    "status.cycle_paused": {
+      "message": "Paused, waiting for resume.",
+      "description": "Banner on the status overview while the operator has paused a running cycle. The page decides it is paused from the reported state, never by matching this sentence.",
+      "lifecycle": "active"
+    },
+    "status.cycle_resuming": {
+      "message": "Continuing...",
+      "description": "Label on the resume control after the operator activates it and before the runner confirms. Kept short: it replaces the control's own label in place.",
+      "lifecycle": "active"
+    },
+    "status.cycle_resume_action": {
+      "message": "Continue",
+      "description": "Label on the control that resumes a paused cycle.",
+      "lifecycle": "active"
+    },
+    "status.host_online_count": {
+      "description": "Summary above the host table. Counts hosts the pool currently reaches.",
+      "lifecycle": "active",
+      "placeholders": {
+        "count": { "type": "integer", "trust": "internal", "example": 3 }
+      },
+      "plural": {
+        "selector": "count",
+        "variants": {
+          "one": "{count} host online.",
+          "other": "{count} hosts online."
+        }
+      }
+    },
+    "status.step_timing_unavailable": {
+      "message": "No per-step timing was recorded for this cycle.",
+      "description": "Shown in place of the timing breakdown when a cycle finished without step-level timings, so an empty panel does not read as a load failure.",
+      "lifecycle": "active"
+    },
+    "status.cycle_duration": {
+      "message": "Duration: {elapsed}",
+      "description": "Total wall-clock time of the cycle, shown under the timing breakdown.",
+      "lifecycle": "active",
+      "placeholders": {
+        "elapsed": { "type": "duration", "trust": "internal", "example": 5400 }
+      }
+    },
+    "status.external_detail": {
+      "message": "The tool reported: {detail}",
+      "description": "Frames text produced by a program outside Yuruna. The detail is shown as given and is never read back as state.",
+      "lifecycle": "active",
+      "placeholders": {
+        "detail": { "type": "detail", "trust": "external", "example": "Connection refused" }
+      }
+    },
+    "status.directory_index_title": {
+      "message": "Index of {path}",
+      "description": "Title and heading on a generated status-service directory listing.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": { "type": "detail", "trust": "external", "example": "/log/cycle/" }
+      }
+    },
+    "status.directory_contents_caption": {
+      "message": "Contents of {path}",
+      "description": "Accessible caption on a generated status-service directory listing.",
+      "lifecycle": "active",
+      "placeholders": {
+        "path": { "type": "detail", "trust": "external", "example": "/log/cycle/" }
+      }
+    },
+    "status.directory_column_name": {
+      "message": "Name",
+      "description": "Name column heading on a generated directory listing.",
+      "lifecycle": "active"
+    },
+    "status.directory_column_size": {
+      "message": "Size",
+      "description": "File-size column heading on a generated directory listing.",
+      "lifecycle": "active"
+    },
+    "status.directory_column_modified_utc": {
+      "message": "Modified (UTC)",
+      "description": "Last-modified column heading on a generated directory listing.",
+      "lifecycle": "active"
+    },
+    "status.directory_parent": {
+      "message": "Parent directory",
+      "description": "Accessible expansion of the ../ link on a generated directory listing.",
+      "lifecycle": "active"
+    },
+    "status.file_size_bytes": {
+      "message": "{size} B",
+      "description": "A directory-listing file size below one kibibyte.",
+      "lifecycle": "active",
+      "placeholders": {
+        "size": { "type": "text", "trust": "internal", "example": "512" }
+      }
+    },
+    "status.file_size_kilobytes": {
+      "message": "{size} KB",
+      "description": "A directory-listing file size expressed in kibibytes.",
+      "lifecycle": "active",
+      "placeholders": {
+        "size": { "type": "text", "trust": "internal", "example": "1.5" }
+      }
+    },
+    "status.file_size_megabytes": {
+      "message": "{size} MB",
+      "description": "A directory-listing file size expressed in mebibytes.",
+      "lifecycle": "active",
+      "placeholders": {
+        "size": { "type": "text", "trust": "internal", "example": "3.3" }
+      }
+    },
+    "status.file_size_gigabytes": {
+      "message": "{size} GB",
+      "description": "A directory-listing file size expressed in gibibytes.",
+      "lifecycle": "active",
+      "placeholders": {
+        "size": { "type": "text", "trust": "internal", "example": "2.0" }
+      }
+    },
+    "status.error_file_too_large": {
+      "message": "File too large",
+      "description": "Plain-text status-service response when a requested file exceeds the serving bound.",
+      "lifecycle": "active"
+    },
+    "status.error_not_found": {
+      "message": "Not found",
+      "description": "Plain-text status-service response when a requested path does not exist.",
+      "lifecycle": "active"
+    }
+  }
+}

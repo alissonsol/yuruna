@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://yuruna.com/schema/yuruna.project-locale-map/v1",
+  "title": "Normalized Yuruna project locale map",
+  "type": "object",
+  "required": ["schema", "path", "fieldPath", "scalarField", "scalar", "localized"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "yuruna.project-locale-map/v1" },
+    "path": { "type": "string", "minLength": 1, "maxLength": 512 },
+    "fieldPath": { "type": "string", "pattern": "^/", "maxLength": 1024 },
+    "scalarField": { "enum": ["displayName", "description"] },
+    "scalar": { "type": "string", "minLength": 1, "maxLength": 2000 },
+    "localized": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 16,
+      "propertyNames": {
+        "pattern": "^(?:qps-Plocm|[a-z]{2,3}(?:-(?:[A-Z]{2}|[A-Z][a-z]{3}|[0-9][a-z0-9]{3}|[a-z0-9]{3}|[a-z0-9]{5,8}))*)$",
+        "maxLength": 35,
+        "not": { "pattern": "^[Ee][Nn]-[Uu][Ss]$" }
+      },
+      "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 2000 }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "scalarField": { "const": "displayName" } } },
+      "then": {
+        "properties": {
+          "scalar": { "maxLength": 160 },
+          "localized": { "additionalProperties": { "type": "string", "minLength": 1, "maxLength": 160 } }
+        }
+      }
+    }
+  ]
+}

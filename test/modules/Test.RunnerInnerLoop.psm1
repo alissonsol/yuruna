@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42479415-ffbe-4fef-9daa-15edda547208
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -945,7 +945,7 @@ function Complete-CycleRun {
         [AllowNull()][string]$FailedStep,
         [string]$HostType = ''
     )
-    # --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+    # --- REGION: https://yuruna.link/4220a755-000b
     # A guest that was rebuilt under its own identity and came back on a
     # different address has broken the one property that makes a long lease
     # survivable, and it has already spent the address by the time anyone could
@@ -1189,7 +1189,7 @@ function Remove-CycleTeardownOrphanVM {
         }
     }
 
-    # --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+    # --- REGION: https://yuruna.link/4220a755-000b
     # Stated every cycle, like the release line above and for the same reason:
     # "checked nine, all bounded" and "could check none" are wildly different
     # facts, and a line that appears only on violation reports them identically

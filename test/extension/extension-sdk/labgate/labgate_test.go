@@ -21,6 +21,34 @@ import (
 // labCode is a code shaped exactly like one the dashboard tile shows.
 const labCode = "k3f9qz"
 
+type refusalBody struct {
+	OK      bool   `json:"ok"`
+	Reason  string `json:"reason"`
+	Error   string `json:"error"`
+	Message struct {
+		Schema string         `json:"schema"`
+		Code   string         `json:"code"`
+		Args   map[string]any `json:"args"`
+		Detail struct {
+			Text   string `json:"text"`
+			Source string `json:"source"`
+		} `json:"detail"`
+	} `json:"message"`
+}
+
+func assertRefusalContract(t *testing.T, body refusalBody, code, legacyReason string) {
+	t.Helper()
+	if body.OK || body.Message.Schema != "yuruna.message/v1" || body.Message.Code != code || body.Message.Args == nil {
+		t.Fatalf("message = %+v, want canonical %s envelope", body.Message, code)
+	}
+	if body.Message.Detail.Text == "" || body.Message.Detail.Source != "labgate" {
+		t.Fatalf("message detail = %+v, want bounded labgate detail", body.Message.Detail)
+	}
+	if body.Reason != legacyReason || body.Error != body.Message.Detail.Text {
+		t.Fatalf("legacy fields = reason:%q error:%q, want %q and derived detail", body.Reason, body.Error, legacyReason)
+	}
+}
+
 // fakeAggregator stands in for the pool-aggregator's two verification routes --
 // /api/v1/lab-token for a dashboard code and /api/v1/control-proof for a proof
 // carried in from its redirect -- with the same statuses, the same opaque sealed
@@ -355,11 +383,9 @@ func TestAnUnavailableAggregatorLeavesAProofUnjudged(t *testing.T) {
 	if resp.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("unreachable validator = %d, want 503", resp.StatusCode)
 	}
-	var body struct{ Reason string }
+	var body refusalBody
 	_ = json.NewDecoder(resp.Body).Decode(&body)
-	if body.Reason != ReasonUnavailable {
-		t.Fatalf("reason = %q, want %q", body.Reason, ReasonUnavailable)
-	}
+	assertRefusalContract(t, body, CodeUnavailable, ReasonUnavailable)
 }
 
 // A gate with neither a token to check against nor an aggregator to ask cannot
@@ -426,13 +452,9 @@ func TestAnUnavailableAggregatorFailsClosedNamingTheReason(t *testing.T) {
 	if resp.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("login against a broken validator = %d, want 503", resp.StatusCode)
 	}
-	var body struct {
-		Reason string `json:"reason"`
-	}
+	var body refusalBody
 	_ = json.NewDecoder(resp.Body).Decode(&body)
-	if body.Reason != ReasonUnavailable {
-		t.Fatalf("reason = %q, want %q", body.Reason, ReasonUnavailable)
-	}
+	assertRefusalContract(t, body, CodeUnavailable, ReasonUnavailable)
 }
 
 func TestAMalformedLabTokenNeverReachesTheAggregator(t *testing.T) {
@@ -537,13 +559,9 @@ func TestAnUnconfiguredGateRefusesEveryMutation(t *testing.T) {
 	if resp.StatusCode != http.StatusServiceUnavailable {
 		t.Fatalf("mutation with no gate configured = %d, want 503", resp.StatusCode)
 	}
-	var body struct {
-		Reason string `json:"reason"`
-	}
+	var body refusalBody
 	_ = json.NewDecoder(resp.Body).Decode(&body)
-	if body.Reason != ReasonUnconfigured {
-		t.Fatalf("reason = %q, want %q", body.Reason, ReasonUnconfigured)
-	}
+	assertRefusalContract(t, body, CodeUnconfigured, ReasonUnconfigured)
 }
 
 // An expired or forged cookie is not a session, and a cookie signed by ANOTHER

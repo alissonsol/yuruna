@@ -3,8 +3,8 @@
 # macOS/UTM (QEMU) overlay for ubuntu.server.base.user-data.
 # Anchor sections in base-file order. An empty section emits nothing at that anchor.
 # === YURUNA_OVERLAY_NETWORK ===
-  # --- REGION: https://yuruna.link/vmconfig#pin-ipv4-only-dhcp-refuse-ipv6-router-advertisements
-  # --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+  # --- REGION: https://yuruna.link/429f3d06-0015
+  # --- REGION: https://yuruna.link/4220a755-000b
   # dhcp-identifier belongs here and not only in the in-target netplan patch:
   # the installer runs its own DHCP client before /target exists, so a pin
   # applied in late-commands leaves the INSTALL asking under a machine-id DUID
@@ -20,7 +20,7 @@
         dhcp-identifier: mac
 # === YURUNA_OVERLAY_EARLY_COMMANDS ===
   early-commands:
-    # --- REGION: https://yuruna.link/vmconfig#console-quiet
+    # --- REGION: https://yuruna.link/429f3d06-0025
     # The INSTALLED system gets `quiet loglevel=3` from a grub drop-in in
     # late-commands. That drop-in cannot help the INSTALLER: it governs the kernel
     # the guest boots after this, while the phase a host has to read by OCR is

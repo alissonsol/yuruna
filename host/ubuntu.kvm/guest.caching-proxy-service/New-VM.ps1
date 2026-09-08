@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42f8395b-50cf-4a59-bfc3-49af26e60079
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -214,7 +214,7 @@ $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
 # --- REGION: Cache-VM admin password
-# --- REGION: https://yuruna.link/caching-proxy-service#cache-vm-password-persistence
+# --- REGION: https://yuruna.link/42f6b05f-0041
 # The runtime state file <track>/yuruna-caching-proxy-service.yml is the source of
 # truth; Set-Password rehydrates the vault from it before Get-Password.
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Extension.psm1')    -Global -Force -Verbose:$false
@@ -240,7 +240,7 @@ foreach ($f in @($baseUserData, $overlayUserData, $metaDataTemplate)) {
     }
 }
 # --- REGION: Pick a libvirt network (BEFORE building user-data)
-# --- REGION: https://yuruna.link/network#cache-vm-seed-host-binding
+# --- REGION: https://yuruna.link/4220a755-001b
 # KVM: Resolve-GuestHostBinding pairs the libvirt network + host IP (NAT 'default' -> 192.168.122.1); the resolved $networkName is reused below for virt-install.
 Import-Module (Join-Path $repoRoot 'host/ubuntu.kvm/modules/Yuruna.Host.psm1') -Force -DisableNameChecking
 $guestBinding = Resolve-GuestHostBinding
@@ -252,7 +252,7 @@ $YurunaHostPort = $_statusSeed.Port
 $tc = $_statusSeed.Config
 
 # --- REGION: networkStorage pool (ypool-nas) service replication
-# --- REGION: https://yuruna.link/caching-proxy-service#cache-vm-nas-and-config-service
+# --- REGION: https://yuruna.link/42f6b05f-0042
 # Bake the networkUser credential name, share path, and host id, resolved
 # here on the host (networkStorage pool config + vault).
 Import-Module (Join-Path $repoRoot 'test/modules/Test.PoolStorage.psm1') -Force
@@ -275,7 +275,7 @@ if (($ypoolNasNetPath -match "'") -or ($ypoolNasUser -match "'")) {
 $ypoolNasReplicate = if ($ypoolNasCfg -and $ypoolNasUser -and $ypoolNasNetPath) { 'true' } else { 'false' }
 
 # --- REGION: Internal authentication key (control proofs + push-ingest + lab-token exchange)
-# --- REGION: https://yuruna.link/caching-proxy-service#cache-vm-nas-and-config-service
+# --- REGION: https://yuruna.link/42f6b05f-0042
 # Empty vaultKey means the token is unset: do NOT call Get-Password then (it
 # would auto-generate a junk per-host key). 'internal-auth-key' first, then the
 # legacy 'lab-auth-token' and 'pool-auth-token' names, so a host enrolled under
@@ -387,7 +387,7 @@ if ((-not $dockerHubUsername) -or (-not $dockerHubToken)) {
 }
 
 # --- REGION: Config service mTLS materials
-# --- REGION: https://yuruna.link/caching-proxy-service#cache-vm-nas-and-config-service
+# --- REGION: https://yuruna.link/42f6b05f-0042
 # Mint a per-VM client leaf signed by THIS host's Config CA; PEMs are baked
 # base64 so they survive the cloud-init write_files block scalar.
 Import-Module (Join-Path $repoRoot 'test/modules/Test.ConfigServiceCA.psm1') -Force
@@ -452,7 +452,7 @@ New-Item -ItemType Directory -Force -Path $seedDir | Out-Null
 Set-Content -LiteralPath (Join-Path $seedDir 'user-data') -Value $userData -NoNewline
 Set-Content -LiteralPath (Join-Path $seedDir 'meta-data') -Value $metaData -NoNewline
 
-# --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+# --- REGION: https://yuruna.link/4220a755-000b
 Copy-Item -Path (Join-Path $repoRoot 'host/vmconfig/guest-dhcp.network-config') `
     -Destination (Join-Path $seedDir 'network-config')
 
@@ -566,20 +566,20 @@ if ($LASTEXITCODE -eq 0) {
     }
 }
 
-# --- REGION: https://yuruna.link/caching-proxy-service#cache-vm-sizing
+# --- REGION: https://yuruna.link/42f6b05f-0040
 # RAM comes from the caller, paired with squid's cache_mem by
 # Get-CachingProxyMemoryProfile -- the two are budgeted against each other
 # and swap is masked, so undersizing is an unrecoverable OOM. The default
 # below is the beacon pairing, matched across all three hosts. 4 vCPU.
-# --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
+# --- REGION: https://yuruna.link/42fa6f45-0015
 $hostCores = [int](& nproc --all)
 if ($hostCores -lt 4) {
-    Write-Error "Host has $hostCores cores; Yuruna requires at least 4. See https://yuruna.link/definition#defining-the-vm-core-count-policy"
+    Write-Error "Host has $hostCores cores; Yuruna requires at least 4. See https://yuruna.link/42fa6f45-0015"
     exit 1
 }
 $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
 
-# --- REGION: https://yuruna.link/network#defining-deterministic-guest-mac-addresses
+# --- REGION: https://yuruna.link/4220a755-000a
 $YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $VMName
 Write-Verbose "Deterministic guest MAC for '$VMName': $YurunaGuestMac"
 
@@ -610,7 +610,7 @@ $installArgs = @(
 # x86_64 cloud images boot fine with the libvirt default (i440fx + SeaBIOS)
 # from the qcow2's hybrid GRUB MBR, so no --boot uefi here for x86_64
 # (avoids the NVRAM-empty fallback issue described at
-# https://yuruna.link/memory#why-the-amazonlinux-kvm-guest-uses-seabios-not-uefi).
+# https://yuruna.link/42d69dfa-0009).
 if ($arch -eq 'aarch64') {
     $installArgs += @('--machine', 'virt', '--boot', 'uefi')
 }

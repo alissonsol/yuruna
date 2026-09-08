@@ -1,3 +1,5 @@
+<a id="4220a755-0001"></a>
+
 # Yuruna network workarounds
 
 This file collects rationale for network-related workarounds in guest
@@ -22,7 +24,11 @@ convention is used in all four.
 
 ---
 
+<a id="4220a755-0002"></a>
+
 ## Package-manager and curl retries
+
+<a id="4220a755-0003"></a>
 
 ### Defining yuruna retry lib
 
@@ -70,7 +76,7 @@ source of truth. cloud-init's `write_files:` deploys it
 script runs. Guest scripts source it after their arch-detection block:
 
 ```
-# --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
+# --- REGION: https://yuruna.link/4220a755-0003
 . /usr/local/lib/yuruna/yuruna-retry.sh
 ```
 
@@ -82,7 +88,7 @@ The library exports five functions:
 | `dnf_retry`  | `dnf ...`     | Amazon Linux 2023 guests |
 | `curl_retry` | `curl ...`    | Any caller; prepends `--retry 3 --retry-connrefused --retry-delay 5` so curl handles transient HTTP 5xx + connection-refused in-process before the outer attempt loop fires. Deliberately NOT `--retry-all-errors`: that would also retry 4xx (auth failures, 404s), which are non-transient and only waste attempts. |
 | `wget_try`   | `wget ...`    | wget analog of `curl_retry`: prepends `--tries=3 --waitretry=5 --retry-connrefused` for in-process transient handling and shares the transient/permanent gate below. |
-| `pwsh_retry` | `sudo pwsh ...` | Body on stdin (here-doc), piped to `sudo pwsh -NoProfile -Command -`. All pwsh streams (stdout, stderr, verbose, warning, information) appended to a caller-supplied log file under `/var/log/yuruna/` with a UTC-stamped per-attempt header. The log is the failure-collector handoff -- see [`Defining Get-SystemDiagnostic`](definition.md#defining-get-systemdiagnostic), GUEST PROVISIONING section. Body must `throw` / `exit 1` on its own failure conditions (retry is driven by pwsh's exit code). Stdin pipe instead of a positional `-Command` arg avoids both the argv-length-cap class (32 K on Windows `CreateProcess`, `ARG_MAX` on Linux) and the quote-escaping pit. |
+| `pwsh_retry` | `sudo pwsh ...` | Reads the body from stdin (here-doc), writes a temporary `.ps1`, and invokes `sudo pwsh -NoProfile -File <script>`. This preserves multi-line execution and the script's exit code; `-Command -` can skip incomplete constructs and report success. All pwsh streams append to a caller-supplied log under `/var/log/yuruna/` with a UTC-stamped per-attempt header. The log is the failure-collector handoff -- see [`Defining Get-SystemDiagnostic`](definition.md#defining-get-systemdiagnostic), GUEST PROVISIONING section. The body must `throw` / `exit 1` on failure. A script file avoids command-line length limits (32 K on Windows `CreateProcess`, `ARG_MAX` on Linux) and argument quoting pitfalls. |
 
 **Outer-loop behavior** (all five wrappers share `_yuruna_retry`):
 
@@ -108,9 +114,10 @@ The library exports five functions:
    collapse every HTTP error to one exit code, so on that code the gate
    re-probes the status (a bounded, output-discarding GET through the
    same proxy env) to tell a permanent 4xx from a retryable one; `429`,
-   `5xx`, timeouts, and network/SSL errors still retry. Conservative by
-   design -- any ambiguity retries, so a healthy fetch is never hardened
-   into a failure. `YURUNA_RETRY_NO_TRANSIENT_GATE=1` restores
+   `5xx`, timeouts, and network errors still retry. Certificate-verification
+   failures (curl `60`, wget `5`) retry only if the bump CA repair succeeds;
+   an unchanged or still-untrusted anchor stops the ladder. Other ambiguous
+   failures retry. `YURUNA_RETRY_NO_TRANSIENT_GATE=1` restores
    retry-everything; `apt_retry`/`dnf_retry` keep retry-everything (they
    funnel every failure into one generic exit code, so a package-not-
    found gate would need stderr classification -- not implemented).
@@ -121,6 +128,16 @@ The library exports five functions:
    stream; the host-side stacks (`Yuruna.Retry`, the sequence `retry`
    verb) emit the same `retry_attempt` / `retry_exhausted` events
    directly. See [Failure record schema](failure-schema.md).
+
+**wget exit codes.** `_yuruna_classify_wget` mirrors the curl classifier:
+
+| Exit code | Meaning | Handling |
+|---|---|---|
+| `2`, `6` | Command-line/parse error; authentication failure | Permanent; stop |
+| `3`, `4`, `7` | File I/O; network; protocol error | Retry |
+| `5` | SSL verification failure | Repair the bump CA, like curl `60`; retry only after successful repair |
+| `8` | Server error response | Re-probe the HTTP status, like curl `22` |
+| `1` or unclassified | Generic or unknown failure | Retry |
 
 For `curl_retry`, curl's own `--retry 3 --retry-connrefused` fires
 first (sub-30 s for transient 5xx + ECONNREFUSED). Combined budget:
@@ -165,6 +182,8 @@ Install-Module powershell-yaml with pwsh_retry?`](memory.md#why-ubuntu--al2023-g
 (present since curl 7.52, December 2016). Ubuntu 24/26, Amazon
 Linux 2023, and macOS 26 all ship newer.
 
+<a id="4220a755-0004"></a>
+
 ### Why the stall bound hoists timeout inside sudo and stays foreground
 
 `_yuruna_retry` supports a per-attempt wall-clock bound
@@ -178,8 +197,11 @@ fails LOUD and unbounded, not silently unbounded -- silence would leave
 the operator believing a bound is active.
 
 The bound mode is invariant across attempts: none | direct | sudo.
-`timeout(1)` can only exec real commands, so shell-function attempts
-(`pwsh_retry`'s helper) always run unbounded. When the command is a
+`timeout(1)` can only exec real commands, so the generic wrapper leaves
+shell-function attempts unbounded. `pwsh_retry`'s helper separately bounds
+its inner `pwsh` process with `YURUNA_PWSH_STALL_TIMEOUT_SECONDS` (default
+600 seconds; `0` disables it), using the same foreground and sudo-hoist
+rules. When the command is a
 plain `sudo <tool> ...`, the bound is hoisted INSIDE sudo so the
 expiry TERM -- and the unrelayable KILL backstop -- land on the
 privileged tool itself; signaling sudo from outside can reap sudo
@@ -200,6 +222,8 @@ phantom 600 s "stall" (the background-pgrp tty-stop trap class). With
 tradeoff -- expiry signals only the direct child, not a group -- is
 what the sudo-hoist already assumes.
 
+<a id="4220a755-0005"></a>
+
 ### Why apt and dnf attempts run unbounded by default
 
 Package-manager attempts run UNBOUNDED by default (opt in via
@@ -218,6 +242,8 @@ wait under a `timeout(1)` parent), the safe default is the plain
 unwrapped invocation; the mirror-stall exposure is instead bounded at
 the transfer layer (curl/wget/git low-speed aborts, apt's own
 `Acquire::http::Timeout`, and the caching-proxy-service's `read_timeout`).
+
+<a id="4220a755-0006"></a>
 
 ### Bounding apt-get update without bounding dpkg
 
@@ -265,7 +291,11 @@ everything below that point runs real dpkg transactions.
 
 ---
 
+<a id="4220a755-0007"></a>
+
 ## Guest dependency version pins
+
+<a id="4220a755-0008"></a>
 
 ### Defining yuruna versions pins
 
@@ -312,7 +342,11 @@ newer stable release upstream, edit the matching number here.
 
 ---
 
+<a id="4220a755-0009"></a>
+
 ## Guest network diagnostics and DHCP lease release
+
+<a id="4220a755-000a"></a>
 
 ### Defining deterministic guest MAC addresses
 
@@ -391,6 +425,8 @@ two leases rather than passing one between them. That is the point -- an address
 next guest can take is an address the previous guest cannot be found at -- and it is
 still bounded and still reclaimed, because the identities are declared in the
 sequences and a rebuild of one presents the same address again.
+
+<a id="4220a755-000b"></a>
 
 ### Defining guest DHCP client identity
 
@@ -475,6 +511,8 @@ future installer that stops carrying its own network config into the target. It
 cannot replace the seed, for the timing reason above: by the time a late-command
 runs, the installer has already taken a lease.
 
+<a id="4220a755-000c"></a>
+
 ### Why the NetworkManager guest gets no seed network-config
 
 Amazon Linux is the one Linux guest built with no `network-config` on its seed.
@@ -509,6 +547,8 @@ guest. [Test.GuestDhcpIdentity](../test/modules/Test.GuestDhcpIdentity.Tests.ps1
 asserts the seed carries no `network-config` by any name, because the earlier
 guard named one source file and a differently-named one passed straight through
 it.
+
+<a id="4220a755-000d"></a>
 
 ### Reading a guest that has no IPv4
 
@@ -551,6 +591,8 @@ A failing run leaves both halves without anyone being at the console:
 By hand on a live guest the same questions are `networkctl status <if>` and
 `nmcli device show <if>`; on the host, `tcpdump -i <bridge> -n 'port 67 or port
 68'` while a failing guest boots.
+
+<a id="4220a755-000e"></a>
 
 ### Reading the DHCP server a libvirt host runs
 
@@ -596,6 +638,8 @@ table, and the last 30 minutes of dnsmasq transactions. That section is
 read-only by construction -- a diagnostic that could define, start or destroy a
 network could cause the outage it was run to explain.
 
+<a id="4220a755-000f"></a>
+
 ### Defining lease release on teardown
 
 **The guest returns its own lease.** `yuruna-dhcp-release.service`, installed by
@@ -638,6 +682,8 @@ for the bound that does. Release shortens how long an abandoned address stays
 abandoned; it cannot reduce how many are abandoned, because it can always miss.
 
 
+<a id="4220a755-0010"></a>
+
 ### Defining yuruna network lib
 
 The guest network helper lives in
@@ -650,6 +696,8 @@ systemd-networkd DHCP client. The file is `source`d by
 `network_diag`, so a failing guest step can attach that diagnostic to
 its failure output) and invoked by the `networkRelease` sequence action
 (for `network_release`).
+
+<a id="4220a755-0011"></a>
 
 ### Defining network diag
 
@@ -725,6 +773,8 @@ journal is itself reported: an empty block would read as a probe that did not
 run. `YURUNA_NET_JOURNAL` overrides the journal command for tests, the same way
 `YURUNA_NET_SYSFS` overrides the walk.
 
+<a id="4220a755-0012"></a>
+
 ### Defining network release
 
 `network_release` releases DHCP leases (and any other transient network
@@ -740,6 +790,8 @@ not installed is skipped:
 - **classic dhclient** stacks: `dhclient -r` releases all held leases.
 - **dhcpcd** stacks: `dhcpcd -k`.
 
+<a id="4220a755-0013"></a>
+
 ### Defining yuruna network cli
 
 The file is dual-use: `source` it to get the functions, or run it
@@ -748,6 +800,8 @@ it by path on the guest console
 (`bash /usr/local/lib/yuruna/yuruna-network.sh release`). The
 entrypoint dispatches `diag` -> `network_diag` and `release` ->
 `network_release`; any other argument prints usage and exits 2.
+
+<a id="4220a755-0014"></a>
 
 ## Guest-update network convergence before handoff
 
@@ -768,6 +822,8 @@ manager silently no-ops -- skipping the settle entirely -- or blocks its
 full timeout for nothing, so the scripts branch on the active manager.
 Every branch is capped at 30 s so a broken stack cannot hang the cycle,
 and non-zero exits are swallowed so `set -e` does not abort.
+
+<a id="4220a755-0015"></a>
 
 ## Caching-proxy service CA cert rc60 gate
 
@@ -851,7 +907,11 @@ scripts must also resolve **which IP** serves the CA:
   instead of silently skipping the fetch; the guest boots CA-less and
   relies on the update-time self-heal above.
 
+<a id="4220a755-0016"></a>
+
 ## UTM cache-VM bridged discovery
+
+<a id="4220a755-0017"></a>
 
 ### Defining utm cache vm bridged discovery
 
@@ -874,7 +934,11 @@ Severity policy:
   interface or DHCP problem).
 - Cache VM not registered / not started -> WARNING, proceed direct.
 
+<a id="4220a755-0018"></a>
+
 ## Guest-to-guest addressing on KVM
+
+<a id="4220a755-0019"></a>
 
 ### Defining the guest-to-guest rail
 
@@ -910,6 +974,8 @@ KVM-only by construction. The same workload runs on macOS/UTM and Hyper-V hosts
 that have no libvirt network at all, so every consumer must treat a rail address
 as an optimization that may be absent, never as a dependency.
 
+<a id="4220a755-001a"></a>
+
 ### Why the rail is not wired up
 
 Nothing calls `host/ubuntu.kvm/modules/Yuruna.GuestRail.psm1`. It is kept for
@@ -929,6 +995,8 @@ A working version must key on an identity that survives a rename and is unique
 per guest -- the domain UUID, or a MAC allocated at creation and registered under
 the final name once `saveDiskSnapshot` assigns it. Until then this stays
 disconnected.
+
+<a id="4220a755-001b"></a>
 
 ## Cache-VM seed host binding
 
@@ -1034,7 +1102,11 @@ service's **marker** carries the published endpoint instead:
 address on a bridged one. A Shared NAT Mac is still a reduced-value
 placement for the agent; prefer a bridged host.
 
+<a id="4220a755-001c"></a>
+
 ## Registry rate limits disguised as 400
+
+<a id="4220a755-001d"></a>
 
 ### Defining registry rate limit 400
 
@@ -1056,6 +1128,8 @@ clear on a 10-30 s retry, so the scripts surface operator guidance
 guest base, or check the caching-proxy-service's zot endpoint) and exit
 immediately instead of burning the remaining retry budget on a
 foregone conclusion.
+
+<a id="4220a755-001e"></a>
 
 ## Apt signing-key fingerprint verification
 
@@ -1083,6 +1157,8 @@ allow-set of PRIMARY-key fingerprints before it is trusted:
   [install/ubuntu.kvm.sh](../install/ubuntu.kvm.sh); keep the two in
   sync when the pinning scheme changes.
 
+<a id="4220a755-001f"></a>
+
 ## Helm installer fetch
 
 The Ubuntu `*.k8s.sh` scripts install Helm via upstream's **`get-helm-4`**
@@ -1098,6 +1174,8 @@ capture the installer script once with `curl_retry`, run it under
 verify the binary actually landed: a swallowed failure here otherwise
 surfaces far away as a `helm: not recognized` abort in the k8s.website
 workload.
+
+<a id="4220a755-0020"></a>
 
 ## Why Hyper-V never bridges Wi-Fi or USB uplinks
 
@@ -1135,6 +1213,8 @@ cycle while asking the operator to do nothing.
 That severity policy is specific to the divert and does **not** carry
 over to the reuse validation below: a wired host whose External switch
 lost its uplink is an anomaly an operator has to act on, so it warns.
+
+<a id="4220a755-0021"></a>
 
 ## Why a reused External vSwitch is validated before it is handed out
 
@@ -1236,6 +1316,8 @@ unattended, and the failure mode of getting it wrong is that the host
 loses its own management path with nothing left running to restore it.
 Yuruna detects and degrades; an operator repairs.
 
+<a id="4220a755-0022"></a>
+
 ### Diagnosing the switch by hand
 
 Read-only, safe to run at any time (substitute the switch name):
@@ -1258,6 +1340,8 @@ lists `SwitchType External` and `AllowManagementOS True`,
 `Get-VMNetworkAdapter -ManagementOS -SwitchName` returns nothing, and
 the host's IPv4 plus default route sit on a bare physical NIC
 (`Ethernet`) rather than on a `vEthernet (...)` alias.
+
+<a id="4220a755-0023"></a>
 
 ### Repairing the switch by hand
 
@@ -1313,6 +1397,8 @@ single-NIC host that adapter is the only management path, which is
 why this is an operator action with eyes on the console and not
 something the runner does on its own.
 
+<a id="4220a755-0024"></a>
+
 ## KVM host bridge netplan: identity pins
 
 The generated netplan that moves the NIC onto the yuruna bridge
@@ -1334,6 +1420,8 @@ identity/ownership pins so it behaves the same on every host:
   machine-id-derived DUID, so even with the cloned MAC a server keying
   leases on client-id would renumber the host.
 
+<a id="4220a755-0025"></a>
+
 ## Host address stability, and what happens without it
 
 A host that renumbers under DHCP strands every guest it provisioned. Guests
@@ -1344,6 +1432,8 @@ in for it when the framework repository is private.
 
 Two independent things address this. Pin the address where the lab allows
 it; the discovery path below is the safety net for the labs that do not.
+
+<a id="4220a755-0026"></a>
 
 ### What an unpinned host costs the whole lab
 
@@ -1374,6 +1464,8 @@ the DHCP server ignores looks like a working pin from the configuration and
 like no pin at all from the address log; only the pair separates "nobody pinned
 it" (fix it here) from "it is pinned and the server does not care" (no pin will
 help -- reserve or go static).
+
+<a id="4220a755-0027"></a>
 
 ### Pinning the host address
 
@@ -1425,6 +1517,8 @@ A netplan-managed bridge is reported, never changed: fixing that one means
 rewriting `/etc/netplan` and running `netplan apply`, which re-plumbs the
 host's IP stack -- an operator action with eyes on the console.
 
+<a id="4220a755-0028"></a>
+
 ### When the address moves anyway
 
 Identity is the constant, not the address. Each guest is seeded with two
@@ -1454,6 +1548,8 @@ Two properties are worth knowing:
 - **A lab with no caching-proxy machine has no directory.** Those guests keep
   the seeded hint and behave exactly as they did before this mechanism
   existed, so pinning the host address is the whole answer there.
+
+<a id="4220a755-0029"></a>
 
 ### Surviving a move that lands mid-step
 
@@ -1491,6 +1587,8 @@ resort before dialing a bare VM name. The neighbor sweep also falls back to the
 last prefix the host held, so it still works during the seconds between leases --
 which is exactly when it is needed.
 
+<a id="4220a755-002a"></a>
+
 ### Knowing whether any of it was exercised
 
 A cycle that passes on a renumbering host is only evidence that the harness
@@ -1506,6 +1604,8 @@ test does not depend on the router's mood. It needs permission to activate the
 connection -- `test/lab/yuruna-churn.sudoers` grants exactly that -- and refuses
 to start without it, rather than running all cycle and injecting nothing.
 
+<a id="4220a755-002b"></a>
+
 ### Diagnosing it
 
 From inside a guest, `automation/Test-YurunaHost.ps1` reports whether
@@ -1516,7 +1616,11 @@ From the host, `runtime/ipaddresses.txt` is refreshed by the beacon on every
 change; if it disagrees with `ip -4 addr`, the beacon is not running and the
 pool's view of this host is as old as the file.
 
+<a id="4220a755-002c"></a>
+
 ## Host coordinate resolution
+
+<a id="4220a755-002d"></a>
 
 ### Defining yuruna host locate lib
 
@@ -1577,6 +1681,8 @@ host answers at a gateway address no lease can move and the seeded address
 stays true on its own; under Bridged the guest takes a LAN lease alongside
 the host, which is the case the resolver exists for.
 
+<a id="4220a755-002e"></a>
+
 ### Defining host locate file targets
 
 `YURUNA_HOST_ENV_FILE`, `YURUNA_HOSTS_FILE` and `YURUNA_WGETRC_FILE` name
@@ -1608,6 +1714,8 @@ pool view grows with the member count and this parse runs during bootstrap
 on a guest with no tooling installed -- a bounded read keeps a pathological
 (or hostile) body from becoming this guest's problem.
 
+<a id="4220a755-002f"></a>
+
 ### Defining host locate http
 
 `__yhl_http_get` is one bounded, proxy-free GET to stdout, non-zero when the
@@ -1631,6 +1739,8 @@ from `PIPESTATUS[0]` so the fetcher's own status is reported rather than
 in this file -- does a status service answer at this base URL -- onto that
 primitive, discarding the body and keeping only the verdict.
 
+<a id="4220a755-0030"></a>
+
 ### Defining host locate plausible
 
 A directory answer is a claim from another machine about where a third
@@ -1651,6 +1761,8 @@ The Windows peer applies the same rule set through `System.Uri`, so the two
 implementations accept and reject the same answers -- a guest that adopts an
 address its sibling would have refused is a divergence that could only be
 diagnosed on one platform.
+
+<a id="4220a755-0031"></a>
 
 ### Defining host locate directory read
 
@@ -1684,6 +1796,8 @@ If the shape ever changes in a way this cannot read, the function finds
 nothing and the caller degrades to the seeded hint. A wrong address is the
 one outcome that must not be possible here, so silence is the safe failure.
 
+<a id="4220a755-0032"></a>
+
 ### Defining host locate persist
 
 The resolved address is written into three files, each write independent and
@@ -1713,6 +1827,8 @@ the only safe form of asking here.
   address. The environment's `no_proxy` already covers the RFC1918 ranges,
   but a single stale literal here sends a plain `wget` at the host through
   Squid, which then caches a status-service response.
+
+<a id="4220a755-0033"></a>
 
 ### Defining host locate entrypoint
 
@@ -1757,7 +1873,11 @@ ticks and a oneshot cannot wedge, with `TimeoutStartSec=30` as the backstop
 for the day one of the internal bounds is not honored. Windows guests get
 the same cadence from a SYSTEM scheduled task instead.
 
+<a id="4220a755-0034"></a>
+
 ## The yuruna-run supervisor
+
+<a id="4220a755-0035"></a>
 
 ### Defining yuruna run supervisor
 
@@ -1783,6 +1903,8 @@ because the host counts stdout lines to know where to resume, and a
 supervisor line on stdout would both corrupt that count and land in the
 transcript the OCR and checkpoint scanners read.
 
+<a id="4220a755-0036"></a>
+
 ### Why the run directory is scoped to the boot id
 
 The run directory is `${TMPDIR:-/tmp}/yuruna-run/<token>.<boot>`, keyed on
@@ -1803,6 +1925,8 @@ caller wins the claim and starts a clean run. `noboot` is the fallback when
 the file is unreadable, which degrades to token-only scoping rather than
 failing.
 
+<a id="4220a755-0037"></a>
+
 ### Why `mkdir` is the claim
 
 Which caller starts the payload is decided by whether its `mkdir` of the run
@@ -1820,6 +1944,8 @@ offset. The only genuine failure is losing the race and then finding no
 directory there at all, which means the base path is not writable rather
 than that someone else claimed it; that is reported as exit 74 instead of
 being treated as a reason to start a second copy.
+
+<a id="4220a755-0038"></a>
 
 ### Why a run directory is never removed
 
@@ -1843,6 +1969,8 @@ half-written status, and every later attach reads that value, reports it,
 and runs nothing. Reclaiming the space is left to the boot-scoped directory
 going away with `/tmp`.
 
+<a id="4220a755-0039"></a>
+
 ### Why the claim is confirmed before it is used
 
 `mkdir` is decided by exactly one caller on any POSIX filesystem, and the
@@ -1861,6 +1989,8 @@ the check is this cheap. It also makes the property testable rather than
 assumed: on a filesystem whose `mkdir` is not atomic, the claim alone would
 admit two starters, and the tiebreak is what keeps a double winner from
 becoming a double run.
+
+<a id="4220a755-003a"></a>
 
 ### Why the payload gets its own process group
 
@@ -1884,6 +2014,8 @@ util-linux is absent) keeps the SSH hangup from reaching the runner. Neither
 path changes how the payload is bounded or reaped -- that comes from `set -m`
 in the runner either way.
 
+<a id="4220a755-003b"></a>
+
 ### Why the replay counts only complete lines
 
 Replay is by complete lines only, on both ends. `wc -l` counts newlines, so
@@ -1905,7 +2037,11 @@ the payload merely failed to terminate; the supervisor appends the newline
 itself before the last drain, so that line is delivered rather than held
 back forever by the complete-lines rule.
 
+<a id="4220a755-003c"></a>
+
 ## Driving a guest over SSH across an address change
+
+<a id="4220a755-003d"></a>
 
 ### Why a proven address is remembered
 
@@ -1935,6 +2071,8 @@ SSH user overrides: the harness re-imports this module with `-Force`
 mid-cycle, and a memo wiped at that moment is empty exactly when a renumber
 is in progress.
 
+<a id="4220a755-003e"></a>
+
 ### Why a detached step is bounded by a deadline
 
 Detached mode changes what an attempt costs, so it cannot reuse the
@@ -1957,6 +2095,8 @@ When the deadline passes while reconnecting, the step reports the timeout
 with everything already streamed, and says the guest may still be running
 the payload -- the host stopped watching, which is not the same as the work
 having stopped.
+
+<a id="4220a755-003f"></a>
 
 ### Why the supervisor status outranks `ssh`
 
@@ -1981,6 +2121,8 @@ as lost, with a preface saying the output is everything it produced. That
 is a different fault with a different owner than a script that ran and
 failed.
 
+<a id="4220a755-0040"></a>
+
 ### Why a started run with no exit is a lost session
 
 When the exit marker is absent, its absence is itself the evidence. The
@@ -2002,6 +2144,8 @@ output. Payload bytes arrive on stdout by the supervisor's contract, so
 merging them in buries a one-line client message under kilobytes of
 provisioning output -- and the rule that treats a silent 255 as a transport
 loss can then never fire at all, because the output is never empty.
+
+<a id="4220a755-0041"></a>
 
 ### Why detached is the default for fetched scripts
 
@@ -2027,7 +2171,11 @@ than restarting it.
 judgment about whether the payload is safe to repeat. `detach: false`
 opts a step out.
 
+<a id="4220a755-0042"></a>
+
 ## Finding a guest's address on KVM
+
+<a id="4220a755-0043"></a>
 
 ### Why neighbor entries are ranked, not taken in order
 
@@ -2061,6 +2209,8 @@ entry only while a link-layer address is published for it, so a guest
 that is up and serving traffic vanishes from that source for as long as
 its entry sits in `FAILED` or `INCOMPLETE`.
 
+<a id="4220a755-0044"></a>
+
 ### Why the sweep remembers the last known prefix
 
 Both `--source arp` and the neighbor rung are passive reads of a cache
@@ -2087,6 +2237,8 @@ width-checked: the sweep is defensible on a `/24` and nothing wider. At
 lookup. Two cheaper guards sit ahead of it -- a per-VM cooldown, so a
 polling caller cannot turn its poll interval into a sweep interval, and
 a running-state check, so a stopped or absent domain never pays.
+
+<a id="4220a755-0045"></a>
 
 ### Why the guest agent is asked first
 
@@ -2116,6 +2268,8 @@ server, so it is silent for a guest on a bridge-forward network with no
 `<dhcp>` element. Where both agent and lease are silent, the arp and
 neighbor rungs are the whole of discovery.
 
+<a id="4220a755-0046"></a>
+
 ### Why a MAC sweep is spent only on a failed bring-up
 
 Address discovery is the step that fails first, and it can fail without the
@@ -2137,7 +2291,11 @@ An address it recovers is also worth naming in the failure line, since a reader
 comparing the guest's own address against the ones this host dialed cannot rule
 out a candidate that was never printed.
 
+<a id="4220a755-0047"></a>
+
 ## Proving the lab survives address churn
+
+<a id="4220a755-0048"></a>
 
 ### Why churn is injected rather than waited for
 
@@ -2167,6 +2325,8 @@ out from under every running guest -- a harsher event than the renumber
 this is meant to model, and one that would test something other than
 address instability.
 
+<a id="4220a755-0049"></a>
+
 ### Why the privilege check runs before the first sleep
 
 The injector's loop sleeps first and renews second, so with the default
@@ -2192,6 +2352,8 @@ which would also permit `connection modify`, `connection delete` and
 permanently rather than for the second a renewal costs. Because the probe
 precedes the `ShouldProcess` gate, `-WhatIf` confirms the privilege is in
 place without touching the network.
+
+<a id="4220a755-004a"></a>
 
 ### Why a cycle records the churn it met
 
@@ -2219,7 +2381,11 @@ imports nothing itself, so there is no import cycle to fear. The count is
 announced out loud on a pass -- that is the case where a low number quietly
 weakens the claim, while a failing cycle already has a louder problem.
 
+<a id="4220a755-004b"></a>
+
 ## Guest-side fetch and session behavior
+
+<a id="4220a755-004c"></a>
 
 ### Why sshd notices a client that left
 
@@ -2246,6 +2412,8 @@ worth spending, which is the case for disabling transport retries
 altogether. `TCPKeepAlive yes` stays on as the second, kernel-level path
 to the same verdict.
 
+<a id="4220a755-004d"></a>
+
 ### Why host coordinates are re-read per use
 
 `/etc/yuruna/host.env` is a moving target. `yuruna-host-locate.timer`
@@ -2268,6 +2436,8 @@ relocates in between -- so a host that is genuinely gone still falls
 through to the git-clone path instead of looping on a resolver that has
 no better answer.
 
+<a id="4220a755-004e"></a>
+
 ### Why the single-VM fallback is gated
 
 The amisad fulfillment scenario resolves the edge VM's address -- the KVM
@@ -2287,6 +2457,8 @@ it is genuinely useful for working on the scenario without a second VM,
 but entering it has to be a deliberate choice. Refusing rather than
 degrading is what keeps a green cycle meaning that the thing the
 scenario exists to test was the thing that ran.
+
+<a id="4220a755-004f"></a>
 
 ### Why git never prompts here
 
@@ -2312,6 +2484,8 @@ non-login shells, either of which drops what `/etc/profile.d` exported,
 and a guest built from an older seed has no such export to drop in the
 first place.
 
+<a id="4220a755-0050"></a>
+
 ## Local Subnet Connectivity
 
 During `setup.ps1` execution, service VMs (such as the caching-proxy-service or stash service) must reach the host across the local subnet (typically a `/24`). If host-level firewall rules or network isolation block that traffic, the `setup.ps1` preflight fails.
@@ -2320,7 +2494,11 @@ Follow the instructions below for your operating system.
 
 ---
 
+<a id="4220a755-0051"></a>
+
 ## Ubuntu / Linux (UFW & iptables)
+
+<a id="4220a755-0052"></a>
 
 ### 1. Check Firewall Status
 
@@ -2332,6 +2510,8 @@ sudo ufw status verbose
 ```
 
 If `ufw` is active and contains outbound block rules (e.g., `DENY OUT` or `REJECT OUT` targeting a `/24` subnet such as `192.168.7.0/24`), service VMs on that subnet cannot reach the host.
+
+<a id="4220a755-0053"></a>
 
 ### 2. Allow Local Subnet Traffic
 
@@ -2350,6 +2530,8 @@ sudo ufw reload
 
 ```
 
+<a id="4220a755-0054"></a>
+
 ### 3. Verify Connectivity
 
 Test reachability to the local network interface or router:
@@ -2361,7 +2543,11 @@ ping -c 3 192.168.7.1
 
 ---
 
+<a id="4220a755-0055"></a>
+
 ## Windows (Hyper-V & Windows Defender Firewall)
+
+<a id="4220a755-0056"></a>
 
 ### 1. Check Outbound Rules
 
@@ -2371,6 +2557,8 @@ Open PowerShell as **Administrator** and inspect active outbound block rules:
 Get-NetFirewallRule -Direction Outbound -Enabled True -Action Block | Format-Table Name, DisplayName
 
 ```
+
+<a id="4220a755-0057"></a>
 
 ### 2. Add Firewall Exception for Local Subnet
 
@@ -2394,6 +2582,8 @@ New-NetFirewallRule -DisplayName "Yuruna Service Ports" `
 
 ```
 
+<a id="4220a755-0058"></a>
+
 ### 3. Verify Connectivity
 
 Test reachability from PowerShell:
@@ -2405,7 +2595,11 @@ Test-Connection -TargetName 192.168.7.1 -Count 2
 
 ---
 
+<a id="4220a755-0059"></a>
+
 ## macOS (UTM & PF Firewall)
+
+<a id="4220a755-005a"></a>
 
 ### 1. Check Packet Filter (PF) Status
 
@@ -2422,6 +2616,8 @@ View active rules:
 sudo pfctl -s rules
 
 ```
+
+<a id="4220a755-005b"></a>
 
 ### 2. Allow Local Traffic
 
@@ -2448,6 +2644,8 @@ sudo pfctl -e
 
 ```
 
+<a id="4220a755-005c"></a>
+
 ### 3. Check macOS Application Firewall
 
 Ensure `socketfilterfw` is not blocking incoming service connections:
@@ -2458,6 +2656,8 @@ sudo /usr/libexec/ApplicationFirewall/socketfilterfw --getglobalstate
 ```
 
 ---
+
+<a id="4220a755-005d"></a>
 
 ## Related Links & Further Reading
 
@@ -2471,6 +2671,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.04
 
 Back to [Yuruna](../README.md)

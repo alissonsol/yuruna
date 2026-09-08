@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 420b9d4a-e9ff-472b-9afa-d978ada39114
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -56,6 +56,18 @@
     the checks that need live rows are the reason -Url exists.
 .PARAMETER Url
     Measure these already-running pages instead of serving the working tree.
+.PARAMETER StripCustomProperties
+    Serve every stylesheet and inline <style> with custom properties removed:
+    each `--name:` definition and each declaration whose value contains var()
+    is deleted, which is what a browser without custom properties does to
+    them. What renders is then what the documented floor renders. Paired with
+    -PaletteSnapshot it turns "the floor still paints" into a comparison
+    rather than a judgment.
+.PARAMETER PaletteSnapshot
+    Write the computed background and text color of a fixed set of elements,
+    per page and width, as JSON. Two runs -- one plain, one
+    -StripCustomProperties -- produce identical files when every var() has a
+    correct literal in front of it, and differ exactly where one is missing.
 .PARAMETER Serve
     Directories to serve and measure. Defaults to the four service web roots
     and the host status pages.
@@ -65,6 +77,20 @@
 .PARAMETER Scheme
     Color schemes to measure. Defaults to both, because a token defined once
     in the light block is exactly the defect this catches.
+.PARAMETER PageFilter
+    File-name filter for served pages. Defaults to every HTML page. The
+    reference-slice suite uses it to run the composed pseudo-locale matrix
+    without repeating unrelated generated pages.
+.PARAMETER RequireDirection
+    Require each measured document to declare ltr or rtl before scripts run.
+.PARAMETER ExpectedLanguage
+    Require the exact documentElement.lang value on every measured URL.
+.PARAMETER ExpectedDirection
+    Require the exact documentElement.dir value on every measured URL.
+.PARAMETER CheckFocusTargets
+    Focus every visible interactive control and fail when it cannot accept
+    focus. This is a rendered focus-target check, not evidence of native Tab
+    order or keyboard activation; those require the real-browser operator row.
 .PARAMETER Quiet
     Print the summary only.
 .EXAMPLE
@@ -90,7 +116,6 @@
 # Int32" -- an error naming a parameter the operator never typed. PowerShell
 # will not bind a space-separated list to an array parameter either way; the
 # comma form in the examples is the one that works.
-[CmdletBinding()]
 param(
     [Parameter(Position = 0)]
     [string[]]$Url,
@@ -99,23 +124,70 @@ param(
     [int[]]$Width = @(320, 1280),
     [ValidateSet('light', 'dark')]
     [string[]]$Scheme = @('light', 'dark'),
+    [string]$PageFilter = '*.html',
+    [switch]$RequireDirection,
+    [string]$ExpectedLanguage,
+    [ValidateSet('ltr', 'rtl')]
+    [string]$ExpectedDirection,
+    [switch]$CheckFocusTargets,
+    [switch]$StripCustomProperties,
+    [string]$PaletteSnapshot,
     [switch]$Quiet
 )
 
 $ErrorActionPreference = 'Stop'
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 
+if ($Serve -and $Url) {
+    Write-Error '-Serve and -Url are mutually exclusive; live URLs may not share the relaxed local-file browser session.' -ErrorAction Continue
+    exit 2
+}
+
 function Write-Line { param([string]$Text) Write-Information $Text -InformationAction Continue }
+
+function Start-A11yBrowserProcess {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Starts only the explicitly discovered browser for this diagnostic and returns its exact process handle.')]
+    param(
+        [Parameter(Mandatory)][string]$FilePath,
+        [Parameter(Mandatory)][string[]]$ArgumentList
+    )
+
+    $startInfo = [Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $FilePath
+    $startInfo.UseShellExecute = $false
+    $startInfo.CreateNoWindow = $true
+    $startInfo.RedirectStandardError = $true
+    foreach ($argument in $ArgumentList) { [void]$startInfo.ArgumentList.Add($argument) }
+    $process = [Diagnostics.Process]::new()
+    $process.StartInfo = $startInfo
+    try {
+        if (-not $process.Start()) { throw "Browser process did not start: $FilePath" }
+        return [pscustomobject]@{
+            Process = $process
+            StandardErrorTask = $process.StandardError.ReadToEndAsync()
+        }
+    } catch {
+        $process.Dispose()
+        throw
+    }
+}
 
 # --- REGION: targets ---------------------------------------------------------
 
 if (-not $Serve -and -not $Url) {
-    $Serve = @(
-        'test/extension/pool-control-service/server/internal/httpsrv/web'
-        'test/extension/download-agent-service/server/internal/httpsrv/web'
-        'test/extension/stash-service/server/internal/httpsrv/web'
-        'test/status'
-    ) | ForEach-Object { Join-Path $RepoRoot $_ }
+    # The page roots come from the shared registry rather than a list kept
+    # here. A service added to the tree and missing from one tool's private
+    # list is a UI nobody renders for contrast, focus order or reflow, and the
+    # gate reports a clean run over it -- which is the same output a genuinely
+    # accessible UI produces.
+    $registryPath = Join-Path $RepoRoot 'globalization/manifests/browser-sources.json'
+    if (-not (Test-Path -LiteralPath $registryPath -PathType Leaf)) {
+        throw "The browser-source registry is missing: $registryPath"
+    }
+    $registry = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($registryPath))
+    $Serve = @($registry.pageRoots | ForEach-Object { Join-Path $RepoRoot ([string]$_.path) })
+    if ($Serve.Count -eq 0) { throw 'The browser-source registry lists no page roots.' }
 
     # Five surfaces are GENERATED and have no .html file to discover: two service
     # UIs that live as Go raw-string constants, the cycle transcript, the log
@@ -143,7 +215,7 @@ foreach ($d in @($Serve)) {
 # left unmeasured instead of reporting an empty nothing.
 $pages = [Collections.Generic.List[object]]::new()
 foreach ($r in $roots) {
-    foreach ($f in (Get-ChildItem -LiteralPath $r -Filter '*.html' -File | Sort-Object Name)) {
+    foreach ($f in (Get-ChildItem -LiteralPath $r -Filter $PageFilter -File | Sort-Object Name)) {
         # Three of the default roots are called "web", so a leaf-name label
         # makes findings from different services indistinguishable -- which is
         # worse than verbose, because it sends the reader to the wrong file.
@@ -176,6 +248,12 @@ if (-not $chrome) {
     Write-Line ("{0} page(s), 0 measured -- SKIPPED: no Chrome or Chromium on PATH" -f $pages.Count)
     exit 2
 }
+$browserVersion = (& $chrome --version 2>&1 | Out-String).Trim()
+if ($LASTEXITCODE -ne 0 -or $browserVersion -notmatch '\d+(?:\.\d+){1,3}') {
+    Write-Line ("{0} page(s), 0 measured -- SKIPPED: browser version could not be established" -f $pages.Count)
+    exit 2
+}
+Write-Line "browser: $browserVersion"
 
 # --- REGION: the measurement, as it runs inside the page ---------------------
 
@@ -251,7 +329,27 @@ $probe = @'
     add('reflow', 'document scrolls in two dimensions: scrollWidth ' + de.scrollWidth + ' > viewport ' + window.innerWidth + '.' + who);
   }
 
-  if (!document.documentElement.getAttribute('lang')) { add('lang', '<html> has no lang attribute'); }
+  var language = document.documentElement.getAttribute('lang') || '';
+  if (!language) { add('lang', '<html> has no lang attribute'); }
+  if (__EXPECTED_LANGUAGE__ && language !== __EXPECTED_LANGUAGE__) {
+    add('lang', '<html> declares lang="' + language + '"; expected "' + __EXPECTED_LANGUAGE__ + '"');
+  }
+  var direction = document.documentElement.getAttribute('dir') || '';
+  if (__REQUIRE_DIRECTION__ && direction !== 'ltr' && direction !== 'rtl') {
+    add('direction', '<html> must declare dir="ltr" or dir="rtl" before scripts run');
+  }
+  if (__REQUIRE_DIRECTION__ && window.YurunaI18n && window.YurunaI18n.direction) {
+    var expectedDirection = window.YurunaI18n.direction();
+    if ((expectedDirection === 'ltr' || expectedDirection === 'rtl') && direction !== expectedDirection) {
+      add('direction', '<html> declares dir="' + direction + '" but its resolved locale requires dir="' + expectedDirection + '"');
+    }
+  }
+  if (__EXPECTED_DIRECTION__ && direction !== __EXPECTED_DIRECTION__) {
+    add('direction', '<html> declares dir="' + direction + '"; expected "' + __EXPECTED_DIRECTION__ + '"');
+  }
+  (window.__yurunaCspViolations || []).forEach(function (violation) {
+    add('csp-violation', violation);
+  });
 
   var seen = Object.create(null);
   Array.prototype.forEach.call(document.querySelectorAll('[id]'), function (e) {
@@ -277,6 +375,14 @@ $probe = @'
       add('focusable-aria-hidden', sel(e) + ' is focusable and inside aria-hidden="true"');
     }
     if (!shown(e)) { return; }
+    if (__CHECK_FOCUS_TARGETS__) {
+      try { e.focus(); } catch (focusError) {
+        add('focus-target', sel(e) + ' threw when focused: ' + focusError.message);
+      }
+      if (document.activeElement !== e) {
+        add('focus-target', sel(e) + ' is visible but did not accept focus');
+      }
+    }
     var r = e.getBoundingClientRect();
     // 2.5.8 exempts targets whose 24px circles do not overlap a neighbor's,
     // and inline targets inside a sentence. Neither is cheap to prove here, so
@@ -302,6 +408,20 @@ $probe = @'
       }
     }
   });
+
+  var reference = document.querySelector('[data-yuruna-globalization-reference]');
+  if (reference) {
+    var referenceText = (reference.textContent || '').replace(/\s+/g, ' ').trim();
+    if (!shown(reference) || !referenceText) {
+      add('locale-render', 'the globalization reference state did not render visibly');
+    } else if (/^qps-/i.test(de.getAttribute('lang') || '')) {
+      var expectedMarkers = parseInt(reference.getAttribute('data-yuruna-pseudo-markers') || '1', 10);
+      var actualMarkers = (referenceText.match(/\[/g) || []).length;
+      if (actualMarkers < expectedMarkers) {
+        add('locale-render', 'the pseudo-locale reference state rendered no generated pseudo text');
+      }
+    }
+  }
 
   var walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
   var node, reported = Object.create(null);
@@ -330,9 +450,34 @@ $probe = @'
           ' = ' + r2.toFixed(2) + ':1, under ' + floor + ':1 (' + px + 'px/' + weight + ')');
     }
   }
+  // A fixed sample of the surfaces a palette is responsible for. Recorded
+  // rather than judged: the same list rendered with and without custom
+  // properties has to produce the same colors, and any element where it does
+  // not is one whose literal fallback is missing or wrong. Bounded and
+  // ordered so two runs line up entry for entry.
+  out.palette = [];
+  var wanted = ['body', 'header.app', 'footer.app', '#banner', '#footer-bar',
+                'main', 'table', 'th', 'td', 'button', 'a', 'input',
+                '.badge', '.card', '.menu-panel', 'code'];
+  for (var w = 0; w < wanted.length; w++) {
+    var node = document.querySelector(wanted[w]);
+    if (!node) { continue; }
+    var pcs = getComputedStyle(node);
+    out.palette.push({
+      sel: wanted[w],
+      bg: pcs.backgroundColor,
+      fg: pcs.color,
+      bc: pcs.borderTopColor,
+      ff: pcs.fontFamily
+    });
+  }
   return JSON.stringify(out);
 })()
 '@
+$probe = $probe.Replace('__REQUIRE_DIRECTION__', ([bool]$RequireDirection).ToString().ToLowerInvariant())
+$probe = $probe.Replace('__CHECK_FOCUS_TARGETS__', ([bool]$CheckFocusTargets).ToString().ToLowerInvariant())
+$probe = $probe.Replace('__EXPECTED_LANGUAGE__', (ConvertTo-Json -InputObject ([string]$ExpectedLanguage) -Compress))
+$probe = $probe.Replace('__EXPECTED_DIRECTION__', (ConvertTo-Json -InputObject ([string]$ExpectedDirection) -Compress))
 
 # --- REGION: static file server ----------------------------------------------
 
@@ -356,7 +501,25 @@ if ($roots.Count -gt 0) {
     $listener.Start()
 
     $serve = {
-        param($listener, $rootPort)
+        param($listener, $rootPort, $strip)
+
+        # What a browser without custom properties is left with: a definition
+        # it cannot store, and a declaration it cannot resolve, are both
+        # invalid, and an invalid declaration is dropped while the rest of the
+        # rule stands. Deleting them here reproduces that exactly, without
+        # needing the engine that does it.
+        function Get-CssWithoutCustomProperty {
+            param([string]$Css)
+            $out = [Text.StringBuilder]::new()
+            foreach ($chunk in ($Css -split '(?<=[;{}])')) {
+                $decl = $chunk -replace '(?s)/\*.*?\*/', ''
+                if ($decl -match '^\s*--[A-Za-z0-9_-]+\s*:') { continue }
+                if ($decl -match ':[^;{}]*\bvar\s*\(') { continue }
+                [void]$out.Append($chunk)
+            }
+            return $out.ToString()
+        }
+
         $mime = @{
             '.html' = 'text/html; charset=utf-8'; '.css' = 'text/css; charset=utf-8'
             '.js' = 'text/javascript; charset=utf-8'; '.json' = 'application/json'
@@ -375,13 +538,36 @@ if ($roots.Count -gt 0) {
                     $candidate = Join-Path $root ($rel -replace '/', [IO.Path]::DirectorySeparatorChar)
                     $full = [IO.Path]::GetFullPath($candidate)
                     # Never serve outside the root the port named.
-                    if ($full.StartsWith(([IO.Path]::GetFullPath($root))) -and (Test-Path -LiteralPath $full -PathType Leaf)) {
+                    $rootFull = [IO.Path]::GetFullPath($root).TrimEnd(
+                        [IO.Path]::DirectorySeparatorChar, [IO.Path]::AltDirectorySeparatorChar)
+                    $comparison = if ([Runtime.InteropServices.RuntimeInformation]::IsOSPlatform(
+                            [Runtime.InteropServices.OSPlatform]::Windows)) {
+                        [StringComparison]::OrdinalIgnoreCase
+                    } else { [StringComparison]::Ordinal }
+                    $prefix = $rootFull + [IO.Path]::DirectorySeparatorChar
+                    if ($full.StartsWith($prefix, $comparison) -and
+                        (Test-Path -LiteralPath $full -PathType Leaf)) {
                         $file = $full
                     }
                 }
                 if ($file) {
                     $bytes = [IO.File]::ReadAllBytes($file)
                     $ext = [IO.Path]::GetExtension($file).ToLowerInvariant()
+                    if ($strip -and ($ext -eq '.css' -or $ext -eq '.html')) {
+                        $text = [Text.UTF8Encoding]::new($false).GetString($bytes)
+                        if ($ext -eq '.css') {
+                            $text = Get-CssWithoutCustomProperty -Css $text
+                        } else {
+                            # Inline styles are part of the same cascade and
+                            # fail the same way, so a page whose palette lives
+                            # in its own <style> has to be transformed too.
+                            $text = [regex]::Replace($text, '(?is)(<style[^>]*>)(.*?)(</style>)', {
+                                param($m)
+                                $m.Groups[1].Value + (Get-CssWithoutCustomProperty -Css $m.Groups[2].Value) + $m.Groups[3].Value
+                            })
+                        }
+                        $bytes = [Text.UTF8Encoding]::new($false).GetBytes($text)
+                    }
                     $ctx.Response.ContentType = if ($mime.ContainsKey($ext)) { $mime[$ext] } else { 'application/octet-stream' }
                     $ctx.Response.ContentLength64 = $bytes.Length
                     $ctx.Response.OutputStream.Write($bytes, 0, $bytes.Length)
@@ -392,7 +578,7 @@ if ($roots.Count -gt 0) {
         }
     }
     $ps = [PowerShell]::Create()
-    $null = $ps.AddScript($serve).AddArgument($listener).AddArgument($rootPort)
+    $null = $ps.AddScript($serve).AddArgument($listener).AddArgument($rootPort).AddArgument([bool]$StripCustomProperties)
     $null = $ps.BeginInvoke()
     $serverRunspace = $ps
 }
@@ -401,10 +587,15 @@ if ($roots.Count -gt 0) {
 
 $socket = $null
 $chromeProc = $null
+$chromeErrorTask = $null
 $profileDir = Join-Path ([IO.Path]::GetTempPath()) ("yuruna-a11y-" + [Guid]::NewGuid().ToString('N').Substring(0, 12))
+$chromeLog = Join-Path -Path ([IO.Path]::GetTempPath()) -ChildPath 'yuruna-a11y-chrome.log'
 $nextId = 0
 $findings = [Collections.Generic.List[string]]::new()
+$paletteRow = [Collections.Generic.List[object]]::new()
 $measured = 0
+$browserReady = $false
+$browserPrerequisiteFailure = $null
 
 function Send-Cdp {
     param([string]$Method, [hashtable]$Params = @{}, [string]$SessionId)
@@ -437,30 +628,43 @@ function Send-Cdp {
 }
 
 try {
-    $dbgPort = 0
-    $p2 = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
-    $p2.Start(); $dbgPort = $p2.LocalEndpoint.Port; $p2.Stop()
-
-    # --disable-web-security: the services send no CORS headers, so a page
-    # served from this gate's own origin cannot complete its own fetches and an
-    # unpopulated page measures nothing. Deliberate, scoped to a throwaway
-    # profile, and this process only ever loads this repository's own pages.
+    # Chrome selects and owns its DevTools port atomically. The chosen port is
+    # reported through DevToolsActivePort below; pre-allocating then releasing
+    # a port leaves a race in which another process can impersonate Chrome.
     $chromeArgs = @(
         '--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check',
-        '--disable-web-security', '--hide-scrollbars', '--force-device-scale-factor=1',
-        "--user-data-dir=$profileDir", "--remote-debugging-port=$dbgPort", 'about:blank'
+        '--hide-scrollbars', '--force-device-scale-factor=1',
+        "--user-data-dir=$profileDir", '--remote-debugging-port=0', 'about:blank'
     )
-    if ($env:YURUNA_A11Y_NO_SANDBOX -eq '1' -or $IsLinux) { $chromeArgs = @('--no-sandbox') + $chromeArgs }
-    $chromeLog = Join-Path -Path ([IO.Path]::GetTempPath()) -ChildPath 'yuruna-a11y-chrome.log'
-    $chromeProc = Start-Process -FilePath $chrome -ArgumentList $chromeArgs -PassThru -RedirectStandardError $chromeLog -ErrorAction Stop
+    # Local -Serve pages may call their repository APIs without CORS headers.
+    # Live -Url checks stay inside the browser security model.
+    if ($roots.Count -gt 0) { $chromeArgs = @('--disable-web-security') + $chromeArgs }
+    # Disabling Chrome's sandbox is an explicit opt-in for a constrained CI
+    # environment; it is never inferred merely from the operating system.
+    if ($env:YURUNA_A11Y_NO_SANDBOX -eq '1') { $chromeArgs = @('--no-sandbox') + $chromeArgs }
+    $launch = Start-A11yBrowserProcess -FilePath $chrome -ArgumentList $chromeArgs
+    $chromeProc = $launch.Process
+    $chromeErrorTask = $launch.StandardErrorTask
 
     $wsUrl = $null
+    $dbgPort = 0
+    $activePortPath = Join-Path $profileDir 'DevToolsActivePort'
     for ($i = 0; $i -lt 80; $i++) {
         try {
-            $ver = Invoke-RestMethod "http://127.0.0.1:$dbgPort/json/version" -TimeoutSec 2
-            $wsUrl = $ver.webSocketDebuggerUrl
-            if ($wsUrl) { break }
-        } catch { Start-Sleep -Milliseconds 250 }
+            if (Test-Path -LiteralPath $activePortPath -PathType Leaf) {
+                $active = [IO.File]::ReadAllLines($activePortPath)
+                $parsedPort = 0
+                if ($active.Count -ge 1 -and [int]::TryParse($active[0], [ref]$parsedPort) -and
+                    $parsedPort -ge 1 -and $parsedPort -le 65535) {
+                    $dbgPort = $parsedPort
+                    $ver = Invoke-RestMethod "http://127.0.0.1:$dbgPort/json/version" -TimeoutSec 2
+                    $candidateWs = [uri]$ver.webSocketDebuggerUrl
+                    if ($candidateWs.Scheme -eq 'ws' -and $candidateWs.Host -in @('127.0.0.1', 'localhost') -and
+                        $candidateWs.Port -eq $dbgPort) { $wsUrl = $candidateWs.AbsoluteUri; break }
+                }
+            }
+        } catch { Write-Verbose "DevTools endpoint probe: $($_.Exception.Message)" }
+        Start-Sleep -Milliseconds 250
     }
     if (-not $wsUrl) {
         Write-Line ("{0} page(s), 0 measured -- SKIPPED: Chrome did not open a DevTools endpoint" -f $pages.Count)
@@ -471,6 +675,7 @@ try {
     if (-not $socket.ConnectAsync([Uri]$wsUrl, [Threading.CancellationToken]::None).Wait(15000)) {
         throw 'could not connect to the DevTools endpoint'
     }
+    $browserReady = $true
 
     foreach ($page in $pages) {
         $pageUrl = if ($null -eq $page.Root) { $page.File } else {
@@ -485,6 +690,15 @@ try {
                         width = $w; height = 900; deviceScaleFactor = 1; mobile = $false } | Out-Null
                     Send-Cdp -Method 'Emulation.setEmulatedMedia' -SessionId $sid -Params @{
                         features = @(@{ name = 'prefers-color-scheme'; value = $sch }) } | Out-Null
+                    Send-Cdp -Method 'Page.addScriptToEvaluateOnNewDocument' -SessionId $sid -Params @{
+                        source = @'
+window.__yurunaCspViolations = [];
+window.addEventListener('securitypolicyviolation', function (event) {
+  window.__yurunaCspViolations.push(
+    'blocked ' + (event.blockedURI || 'inline') + ' by ' + (event.effectiveDirective || event.violatedDirective || 'unknown directive'));
+});
+'@
+                    } | Out-Null
                     Send-Cdp -Method 'Page.navigate' -SessionId $sid -Params @{ url = $pageUrl } | Out-Null
                     Start-Sleep -Milliseconds 1600
                     $res = Send-Cdp -Method 'Runtime.evaluate' -SessionId $sid -Params @{
@@ -493,6 +707,15 @@ try {
                     $data = $res.result.value | ConvertFrom-Json
                     $measured++
                     $tag = "$($page.Label) [$($w)px $sch]"
+                    if ($PaletteSnapshot -and $data.palette) {
+                        foreach ($entry in $data.palette) {
+                            $paletteRow.Add([ordered]@{
+                                page = $page.Label; width = $w; scheme = $sch
+                                selector = $entry.sel; background = $entry.bg
+                                color = $entry.fg; border = $entry.bc; font = $entry.ff
+                            })
+                        }
+                    }
                     if ($data.findings.Count -eq 0) {
                         if (-not $Quiet) { Write-Line "ok   $tag" }
                     } else {
@@ -510,17 +733,45 @@ try {
             }
         }
     }
+    if ($PaletteSnapshot) {
+        # Sorted, so two runs are comparable byte for byte rather than in the
+        # order Chrome happened to finish the pages.
+        $ordered = @($paletteRow | Sort-Object { $_.page }, { $_.width }, { $_.scheme }, { $_.selector })
+        $json = ($ordered | ConvertTo-Json -Depth 6).Replace("`r`n", "`n").TrimEnd() + "`n"
+        [IO.File]::WriteAllText($PaletteSnapshot, $json, [Text.UTF8Encoding]::new($false))
+        if (-not $Quiet) { Write-Line ("palette snapshot: {0} row(s) -> {1}" -f $ordered.Count, $PaletteSnapshot) }
+    }
+} catch {
+    if (-not $browserReady) {
+        $browserPrerequisiteFailure = $_
+    } else { throw }
 } finally {
     # Teardown runs after a failure as well as after a clean pass, so each step
     # is independent: one that cannot complete must not strand the next one, and
     # a teardown error must never replace the finding that caused it.
     if ($socket) { try { $socket.Dispose() } catch { Write-Verbose "socket dispose: $($_.Exception.Message)" } }
-    if ($chromeProc -and -not $chromeProc.HasExited) { try { $chromeProc.Kill() } catch { Write-Verbose "chrome kill: $($_.Exception.Message)" } }
+    if ($chromeProc -and -not $chromeProc.HasExited) {
+        try { $chromeProc.Kill(); [void]$chromeProc.WaitForExit(5000) }
+        catch { Write-Verbose "chrome kill: $($_.Exception.Message)" }
+    }
+    if ($chromeProc -and $chromeProc.HasExited -and $chromeErrorTask) {
+        try {
+            $chromeError = $chromeErrorTask.GetAwaiter().GetResult()
+            [IO.File]::WriteAllText($chromeLog, $chromeError, [Text.UTF8Encoding]::new($false))
+        } catch { Write-Verbose "chrome stderr: $($_.Exception.Message)" }
+    }
+    if ($chromeProc) { try { $chromeProc.Dispose() } catch { Write-Verbose "chrome dispose: $($_.Exception.Message)" } }
     if ($listener) { try { $listener.Stop(); $listener.Close() } catch { Write-Verbose "listener stop: $($_.Exception.Message)" } }
     if ($serverRunspace) { try { $serverRunspace.Dispose() } catch { Write-Verbose "runspace dispose: $($_.Exception.Message)" } }
     if (Test-Path -LiteralPath $profileDir) {
         Remove-Item -LiteralPath $profileDir -Recurse -Force -ErrorAction SilentlyContinue
     }
+}
+
+if ($browserPrerequisiteFailure) {
+    Write-Line ("{0} page(s), 0 measured -- SKIPPED: browser launch/CDP setup failed: {1}" -f
+        $pages.Count, $browserPrerequisiteFailure.Exception.Message)
+    exit 2
 }
 
 Write-Line ("{0} page-view(s) measured across {1} page(s), {2} finding(s)" -f $measured, $pages.Count, $findings.Count)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 423bf361-3c2d-4eec-ac8d-50aca4319afe
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -123,7 +123,16 @@ foreach ($module in $modules) {
         foreach ($phase in $phases) {
             Push-Location $runIn
             try {
-                $output = & go $phase './...' 2>&1
+                # -buildvcs=false because a staged module is a copy in a temp
+                # directory with no repository above it. Go treats a VCS query
+                # it cannot answer as a build failure, so without this every
+                # SDK-consuming service fails the gate for a reason that has
+                # nothing to do with its code -- and a gate that always fails
+                # is read as broken tooling and then ignored.
+                $goArgs = @($phase)
+                if ($stage) { $goArgs += '-buildvcs=false' }
+                $goArgs += './...'
+                $output = & go @goArgs 2>&1
                 $ok = ($LASTEXITCODE -eq 0)
             } finally {
                 Pop-Location

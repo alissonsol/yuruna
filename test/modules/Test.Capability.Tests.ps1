@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42b063c4-f3bc-4a1f-885e-8a2c257e7130
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -99,6 +99,43 @@ Describe 'Write-HostRegistrationRecord' {
             [void](Write-HostRegistrationRecord -HostType 'host.macos.utm' -RepoRoot $fx.Tmp)
             $utm = (Get-Content -Raw $regPath | ConvertFrom-Json).hypervisor
             Assert-Equal -Expected 'utm' -Actual $utm -Because 'host.macos.utm -> utm'
+        } finally { Remove-RegFixture -Fixture $fx }
+    }
+
+    It 'carries project locale maps intact for request-boundary resolution' {
+        $fx = New-RegFixture
+        try {
+            Import-Module (Join-Path $here 'Test.SequencePlanner.psm1') -Global -Force -DisableNameChecking
+            $root = Join-Path $fx.Tmp 'checkout'
+            $runtimeDir = Join-Path $root 'runtime/host'
+            $projectTestDir = Join-Path $root 'project/test'
+            New-Item -ItemType Directory -Path $runtimeDir -Force | Out-Null
+            New-Item -ItemType Directory -Path $projectTestDir -Force | Out-Null
+            $env:YURUNA_RUNTIME_DIR = $runtimeDir
+            $runner = @'
+sequences: [workload.example]
+testSets:
+  - name: smoke
+    displayName: Quick smoke test
+    displayNameLocalized:
+      pt-BR: Teste rapido
+    description: Fast signal
+    descriptionLocalized:
+      pt-BR: Sinal rapido
+    sequences: [workload.example]
+'@
+            [IO.File]::WriteAllText((Join-Path $projectTestDir 'test.runner.yml'), $runner,
+                [Text.UTF8Encoding]::new($false))
+
+            [void](Write-HostRegistrationRecord -HostType 'host.ubuntu.kvm' -RepoRoot $fx.Tmp)
+            $rec = Get-Content -Raw (Join-Path $runtimeDir 'host.registration.json') | ConvertFrom-Json
+            $smoke = @($rec.testSets | Where-Object name -EQ 'smoke')[0]
+            Assert-StringEqual -Expected 'Quick smoke test' -Actual $smoke.displayName `
+                'the background registration resolved a reader-facing scalar'
+            Assert-StringEqual -Expected 'Teste rapido' -Actual $smoke.displayNameLocalized.'pt-BR' `
+                'the registration dropped the localized display name'
+            Assert-StringEqual -Expected 'Sinal rapido' -Actual $smoke.descriptionLocalized.'pt-BR' `
+                'the registration dropped the localized description'
         } finally { Remove-RegFixture -Fixture $fx }
     }
 

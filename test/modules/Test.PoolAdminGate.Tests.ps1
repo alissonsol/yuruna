@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42074735-e5df-4b56-b216-96e6299e53f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -48,7 +48,7 @@ if (-not (Get-Command ConvertFrom-Yaml -ErrorAction SilentlyContinue)) {
     $script:yamlShimmed = $true
 }
 
-# --- REGION: https://yuruna.link/memory#pester-file-scope-fixtures
+# --- REGION: https://yuruna.link/42d69dfa-0015
 function Get-FileAst {
     param([string]$Path)
     $errs = $null

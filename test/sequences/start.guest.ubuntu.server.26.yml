@@ -4,7 +4,7 @@
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 
 sequenceGuid: 427b2ba5-58ee-4873-9737-869138b121fe
-sequenceRevision: 2
+sequenceRevision: 3
 
 description: "Ubuntu Server 26.04: first login, change password, run update script, reboot."
 keystrokeMechanism: gui
@@ -48,7 +48,7 @@ component:
 
   - action: retry
     maxAttempts: 3
-    description: "Login, password rotation, and vault commit (restart on timeout)"
+    description: "Login and password rotation (restart on timeout)"
     steps:
       # The nudge comes BEFORE the wait, and that ordering is the whole point.
       # agetty prints "login:" once and does not reprint it; the installer's
@@ -138,13 +138,6 @@ component:
         text: "${newPassword}"
         description: "OCR: Retype new password"
 
-      - action: callExtension
-        method: authentication.SetPassword
-        args:
-          Username: "${username}"
-          NewPassword: "${newPassword}"
-        description: "Commit new password to auth system"
-
   # Prove a shell exists before anything types a command at it. Every step
   # above matches a prompt, types, and returns; none of them establishes that
   # the rotation ended in a session rather than back at agetty. It can end at
@@ -201,6 +194,14 @@ component:
     timeoutSeconds: 90
     freshMatch: true
     description: "OCR: yuruna_123456789_ok"
+
+  # Persist only after the shell has proved that the rotated login completed.
+  - action: callExtension
+    method: authentication.SetPassword
+    args:
+      Username: "${username}"
+      NewPassword: "${newPassword}"
+    description: "Commit confirmed new password to auth system"
 
 workload:
   - action: fetchAndExecute

@@ -36,6 +36,15 @@ type hostFactsRow struct {
 	// one in no pool at all.
 	FrameworkAccess string `json:"frameworkAccess,omitempty"`
 	ProjectAccess   string `json:"projectAccess,omitempty"`
+	// The condition behind those two, as a stable token: "readable", "denied",
+	// "unconfigured" or "unprobed". The fields above conflate data with a
+	// condition -- one carries a repository name, the other carries the words
+	// "No access" -- so recovering the condition meant matching English prose,
+	// and that made the phrase a contract spanning PowerShell, this relay and
+	// the browser. Empty from a host older than these fields, which is why the
+	// page still falls back to the phrase.
+	FrameworkAccessState string `json:"frameworkAccessState,omitempty"`
+	ProjectAccessState   string `json:"projectAccessState,omitempty"`
 	// Where each of those repositories lives, already normalized by the host
 	// into a form a browser can be pointed at (and with any credential written
 	// into the remote stripped there, before it reached this relay). Empty when

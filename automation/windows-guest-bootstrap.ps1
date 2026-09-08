@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42ae98ea-d3b9-46df-ad7b-f011055484ff
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,7 +41,7 @@ $ErrorActionPreference = 'Stop'
 $dir = 'C:\ProgramData\yuruna'
 New-Item -ItemType Directory -Force -Path $dir | Out-Null
 
-# --- REGION: https://yuruna.link/network#defining-yuruna-host-locate-lib
+# --- REGION: https://yuruna.link/4220a755-002d
 # Coordinates, split by whether DHCP can invalidate them. The seed ISO
 # carrying this script was burned before Windows Setup ran, and Setup takes
 # longer than a short lease, so the address below may already name a host
@@ -88,7 +88,7 @@ try {
     Write-Output "yuruna-host-locate: scheduled task registration failed -- $($_.Exception.Message)"
 }
 
-# --- REGION: https://yuruna.link/definition#defining-the-two-source-scheme-for-framework-and-project-urls
+# --- REGION: https://yuruna.link/42fa6f45-000c
 # git does NOT read GH_TOKEN -- that name is a gh(1) convention -- so the token
 # alone leaves a private-repo `git clone` prompting for a username, which hangs
 # an unattended guest. GIT_ASKPASS is what makes clone/fetch/pull authenticate

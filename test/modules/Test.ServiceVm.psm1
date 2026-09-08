@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 426c2f81-86df-422e-8db7-a94bd7ff61fe
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,7 +16,7 @@
 
 #requires -version 7
 
-# --- REGION: https://yuruna.link/operator#bringing-service-vms-back-after-a-host-reboot
+# --- REGION: https://yuruna.link/42ad660e-0021
 # Host-neutral by construction: every driver implements the same VM contract
 # (Get-VMState / Start-VM / Get-VMIp), and those names are resolved at CALL
 # time, so a caller that has not run Initialize-YurunaHost degrades to a

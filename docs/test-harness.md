@@ -1,7 +1,11 @@
+<a id="42d38664-0001"></a>
+
 # Test harness -- architecture
 
 How `test/` is put together. See [Yuruna Architecture](architecture.md) for project-wide
 architecture and [Yuruna Test ...](../test/README.md) for operator usage.
+
+<a id="42d38664-0002"></a>
 
 ## Entry points
 
@@ -29,6 +33,8 @@ caching-proxy-service operations), `test/check/` (standalone sanity checks), `te
 internals, not invoked directly). The repo-wide encoding gate lives at
 `tools/Test-AsciiNoBom.ps1`.
 
+<a id="42d38664-0003"></a>
+
 ## Cycle
 
 Each iteration of `Start-TestRunner.ps1`:
@@ -50,6 +56,8 @@ the lab's declared services and **holds** the cycle -- the same parked state the
 returns. A service this host has never reached never holds, so a host with no
 stash still fails fast rather than parking.
 
+<a id="42d38664-0004"></a>
+
 ## Modes
 
 Each sequence declares its own `keystrokeMechanism` (gui|ssh, default
@@ -61,6 +69,8 @@ gui), selecting how the harness drives the guest:
 
 Sequences live flat under `sequences/<name>.yml`; an SSH variant is a
 distinct `<name>.ssh.yml` selected by its own name.
+
+<a id="42d38664-0005"></a>
 
 ## Module responsibilities
 
@@ -214,6 +224,8 @@ cycle runs:
 | `Test.Hash`            | Byte array -> lowercase hex, so every hashing caller shares one encoding |
 | `Test.Assert`          | The suite assertion vocabulary and test scaffolds -- see [One assertion vocabulary](#one-assertion-vocabulary). Imported by suites only, never by harness code |
 
+<a id="42d38664-0006"></a>
+
 ### Test.Config* role pyramid
 
 The three `Test.Config*` modules in the table split by role:
@@ -222,6 +234,8 @@ The three `Test.Config*` modules in the table split by role:
 rules layer), reusable across callers; `Test.ConfigPreflight` is the
 pre-cycle gate that spawns `Test-Config.ps1` and refuses the cycle on
 FAIL items (the policy layer).
+
+<a id="42d38664-0007"></a>
 
 ### Yuruna.Host contract
 
@@ -260,6 +274,8 @@ Sequences whose name starts with `start.` run during the runner's
 Start-GuestOS step; everything else runs during Start-GuestWorkload. No
 per-OS `.ps1` glue is required. Full architecture:
 [Test Modules](../test/modules/README.md).
+
+<a id="42d38664-0008"></a>
 
 ## Runtime directories
 
@@ -300,6 +316,8 @@ test/
 Per-action reference (verb-by-verb behavior and per-host contract
 notes) lives in [Test Sequences](test-sequences.md).
 
+<a id="42d38664-0009"></a>
+
 ### Extension areas
 
 Each area under `test/extension/<area>/` ships a committed
@@ -328,6 +346,8 @@ list). To override, drop a sibling `<name>.psm1` next to
 Override runtime and log directories via `$env:YURUNA_RUNTIME_DIR` and
 `$env:YURUNA_LOG_DIR` before launch; the status service remaps the URL
 prefixes.
+
+<a id="42d38664-000a"></a>
 
 ## Pester discovery and file-scope variables
 
@@ -362,6 +382,8 @@ rule, including the three placements that look like the trap and are correct.
 `Test.SuiteHelperAdoption.Tests.ps1` fails any suite that declares no
 `BeforeAll`.
 
+<a id="42d38664-000b"></a>
+
 ## Running the suites
 
 The suites are **not** part of a test cycle. They run beside the harness:
@@ -393,6 +415,8 @@ thing standing between the suite set and a slow leak of coverage.
 `tools/Invoke-GoTest.ps1` is the same idea for the extension services: `go
 build`, `go vet` and `go test` per module, discovered by walking for `go.mod`.
 
+<a id="42d38664-000c"></a>
+
 ## One assertion vocabulary
 
 Suites import [`Test.Assert.psm1`](../test/modules/Test.Assert.psm1) rather than
@@ -409,6 +433,8 @@ zeros, whitespace, float rendering, `$null` against an empty string, and, most
 sharply, on arrays, where `-ne` filters element-wise instead of comparing and so
 REJECTS two identical arrays. They are NOT separated by type strictness:
 `1 -ne '1'` is false in both.
+
+<a id="42d38664-000d"></a>
 
 ## Self-healing extension points
 
@@ -461,6 +487,8 @@ Cloud-init seed rendering goes through the
 [cloud-init template pipeline](vmconfig.md#how-user-data-is-rendered) -- shared base
 + per-host overlay + placeholder safety net.
 
+<a id="42d38664-000e"></a>
+
 ## Sequence engine layering
 
 Three modules share the sequence-engine surface:
@@ -479,6 +507,8 @@ Three modules share the sequence-engine surface:
   shared module would cost more complexity than the merge-conflict
   surface it buys back.
 
+<a id="42d38664-000f"></a>
+
 ## Capability matrix and cycle-plan gate
 
 At every cycle start the inner runner publishes a single banner naming
@@ -496,6 +526,8 @@ Surfaces three underlying registries:
 [OCR providers](ocr.md),
 [host I/O providers](host-io.md), and
 [extension areas](extensions-api.md).
+
+<a id="42d38664-0010"></a>
 
 ### The banner
 
@@ -516,6 +548,8 @@ Yuruna capability matrix (host.windows.hyper-v)
 Printed once per cycle, right after `Resolve-CyclePlan` succeeds. Lands
 in the per-cycle HTML log via the Information stream, so post-mortem
 readers see what was wired at cycle start without re-running.
+
+<a id="42d38664-0011"></a>
 
 ### The cycle-plan gate
 
@@ -557,6 +591,8 @@ and the cycle finalizes with `$OverallPassed=false`. This bumps
 `ConsecutiveFailures` and fires notifications on the same threshold
 as any other failure.
 
+<a id="42d38664-0012"></a>
+
 ### Unknown verbs are warnings, not failures
 
 When a sequence references a verb not registered in
@@ -566,6 +602,8 @@ switch in
 [`Test.SequenceEngine.psm1`](../test/modules/Test.SequenceEngine.psm1)
 throws at runtime; the warning surfaces the typo / new-verb-in-progress
 before the slow path.
+
+<a id="42d38664-0013"></a>
 
 ### What's in the requirements table
 
@@ -590,6 +628,8 @@ Today (see the `Register-SequenceAction` calls in
 Adding a new verb means one `Register-SequenceAction` call that
 declares its capabilities -- the gate picks it up on the next cycle.
 
+<a id="42d38664-0014"></a>
+
 ### Guest coverage caveats
 
 One Apple-licensing exception breaks the harness's assumption that
@@ -599,6 +639,8 @@ and `host/ubuntu.kvm/guest.macos.26/` do not exist by design;
 `host/macos.utm/guest.macos.26/` is the only path. Cycle plans that
 target `guest.macos.26` on a non-macOS host fail at planner time,
 when the guest folder proves undiscoverable, not deep inside a step.
+
+<a id="42d38664-0015"></a>
 
 ### Calling the matrix outside a cycle
 
@@ -616,6 +658,8 @@ $matrix.extensions    # ordered dict: area -> [active...]
 
 Used by future health-checks, CI smoke tests, and the upcoming
 `/control/capability` endpoint on the status service.
+
+<a id="42d38664-0016"></a>
 
 ## Host-condition registry
 
@@ -649,6 +693,8 @@ dispatch needs two edits in two files per new host; the registry needs
 one `Register-HostConditionProvider` call. Callers keep
 `Import-Module Test.HostCondition` and resolve names as before.
 
+<a id="42d38664-0017"></a>
+
 ### Public surface
 
 | Function | Used by |
@@ -664,6 +710,8 @@ one `Register-HostConditionProvider` call. Callers keep
 | `Sync-HostClock -HostType` | `Test-Config` fix offer; `Enable-TestAutomation.ps1` -- never a running cycle |
 | `Test-ElevationRequired -HostType` | Cleanup helpers ([`Test.HostDetection`](../test/modules/Test.HostDetection.psm1)) |
 | `Test-HostRequirement -HostType [-Quiet]` | One-off operator helpers ([`Test.HostDetection`](../test/modules/Test.HostDetection.psm1)) |
+
+<a id="42d38664-0018"></a>
 
 ### Provider record shape
 
@@ -687,6 +735,8 @@ called multiple times per cycle. `AssertMinimum` is lighter than
 `Assert` (no display-timeout / screen-lock / TCC-grant checks), for
 cleanup helpers that legitimately run during interactive maintenance.
 
+<a id="42d38664-0019"></a>
+
 ### Three platforms today
 
 | HostType | RequiresElevation | What `Assert` gates on | `ClockSync` |
@@ -702,6 +752,8 @@ The Linux `Assert` diagnostic distinguishes "kvm missing" from
 "libvirtd down" from "stale group set" from "not in libvirt group at
 all" so the operator gets actionable steps, not a generic
 "permission denied".
+
+<a id="42d38664-001a"></a>
 
 ### The host clock
 
@@ -735,6 +787,8 @@ are not ours to choose. It returns `$null` -- never `0` -- when nothing
 answers, so "unreachable network" can never be mistaken for
 "disciplined clock".
 
+<a id="42d38664-001b"></a>
+
 ### Registry shape
 
 The facade calls
@@ -747,6 +801,8 @@ facade because the backing store is anchored under
 pattern `Test.HostIO`, `Test.SequenceAction`, and `Test.CredentialProvider`
 use. `Assert-HostConditionSet`, `Test-ElevationRequired`, and
 `Test-HostRequirement` are therefore pure registry lookups.
+
+<a id="42d38664-001c"></a>
 
 ### Adding a new host
 
@@ -778,6 +834,8 @@ built on `New-YurunaRegistry`; [Host I/O registry](host-io.md) -- the older
 two-level registry that established the pattern. Per-platform deep
 dives: [macOS host](host-macos.md), [Hyper-V host](host-hyperv.md).
 
+<a id="42d38664-001d"></a>
+
 ## State sidecars
 
 Every harness state sidecar (pidfile, JSON sidecar, runtime marker) goes
@@ -804,6 +862,8 @@ both flushing `status.json`) rename each other's half-written temp.
 `PID + GUID` keeps each writer's temp private; the rename to the final
 path stays atomic. The `.tmp` suffix is preserved so any `*.tmp`
 cleanup/ignore rules still match.
+
+<a id="42d38664-001e"></a>
 
 ## Single-instance locks
 
@@ -851,6 +911,8 @@ would leave the synchronous mover free to race a detached drain still working
 through an earlier backlog, one deleting local folders the other is mid-copy
 from.
 
+<a id="42d38664-001f"></a>
+
 ## status.json history schema
 
 Each history entry's `guestSummary` is an `[ordered]@{}` so the JSON
@@ -894,6 +956,8 @@ row written months ago still links to the right framework + project
 commits even if the runner has since picked up a new repo URL or
 added/removed a project clone.
 
+<a id="42d38664-0020"></a>
+
 ## Status-service port-orphan resolution
 
 The PID-file checks in `Start-StatusService.ps1` know only about the
@@ -924,6 +988,8 @@ makes the dispatch reusable by future callers (health-check,
 `Stop-StatusService`, `Test-CachingProxyService`) without pulling in the
 status service's full module.
 
+<a id="42d38664-0021"></a>
+
 ## Status-service port and the host firewall
 
 `Start-StatusService` binds `http://*:<port>/` (every interface), but a
@@ -939,6 +1005,8 @@ Windows Defender Firewall (`New-NetFirewallRule`) and Linux ufw.
 Reported but never touched: nftables/iptables without ufw, and the macOS
 application firewall (application-scoped, not port-scoped -- the port is
 not blocked by default).
+
+<a id="42d38664-0022"></a>
 
 ## Per-cycle diagnostic capture
 
@@ -974,6 +1042,8 @@ so a near-deadline call cannot push the cycle past the
 `$SaveGuestDiagnosticTotalTimeoutSeconds` cap. 180 s covers ARP probe
 (~5 s) + typical Linux post-reboot bring-up (60-120 s) + slack.
 
+<a id="42d38664-0023"></a>
+
 ## Watchdog and per-cycle resilience
 
 The outer runner's job is to keep the inner running forever. Stale
@@ -981,6 +1051,8 @@ heartbeat detection, single-instance guard, and the failure-pause
 backoff protocol all live in
 [Watchdog](runner-outer-loop.md#watchdog-and-heartbeat-protocol). Per-step
 log-stream visibility is controlled by [Log levels](loglevels.md).
+
+<a id="42d38664-0024"></a>
 
 ## Exit codes
 
@@ -995,6 +1067,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08
 
 Back to [Yuruna](../README.md)

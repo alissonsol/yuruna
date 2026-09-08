@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42b84cc3-7873-4cc2-800e-3d90a4776081
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -93,7 +93,7 @@ if (Test-Path -Path $baseImageFile) {
 }
 
 if (-not $windowsOk) {
-    # --- REGION: https://yuruna.link/guest-image-setup#windows-11-the-agent-is-asked-last-and-only-sometimes-answers
+    # --- REGION: https://yuruna.link/42ec97cd-0005
     $agentStagingFile = Join-Path $downloadDir "downloaded.iso"
     # The host driver carries the download-agent client. This script has no other
     # reason to load a driver, so the import is guarded: a driver that cannot

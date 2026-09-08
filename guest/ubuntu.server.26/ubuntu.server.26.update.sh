@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.01
+# Version: 2026.09.08
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -29,7 +29,7 @@ case "$ARCH" in
 esac
 
 # --- REGION: Load the yuruna retry lib
-# --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
+# --- REGION: https://yuruna.link/4220a755-0003
 . /usr/local/lib/yuruna/yuruna-retry.sh
 # Default every apt call that runs a dpkg transaction to unbounded: killing one
 # on wall-clock is the wrapped-apt teardown-hang trap class (apt blocks after
@@ -39,7 +39,7 @@ esac
 export YURUNA_APT_STALL_TIMEOUT_SECONDS=0
 
 # --- REGION: Bound package index fetches
-# --- REGION: https://yuruna.link/network#bounding-apt-get-update-without-bounding-dpkg
+# --- REGION: https://yuruna.link/4220a755-0006
 # Written per cycle rather than trusted from the autoinstall seed: 99- sorts
 # after curtin's own drop-ins and none of these keys overlap its proxy one.
 sudo tee /etc/apt/apt.conf.d/99yuruna-acquire >/dev/null <<'EOF'
@@ -50,7 +50,7 @@ Acquire::Languages "none";
 EOF
 
 # --- REGION: Re-read host coordinates per use
-# --- REGION: https://yuruna.link/network#why-host-coordinates-are-re-read-per-use
+# --- REGION: https://yuruna.link/4220a755-004d
 yuruna_host_env() {
     [ -r /etc/yuruna/host.env ] || return 1
     # shellcheck disable=SC1091
@@ -78,7 +78,7 @@ yuruna_host_relocate() {
 }
 
 # --- REGION: Recover the caching-proxy CA
-# --- REGION: https://yuruna.link/network#caching-proxy-service-ca-cert-rc60-gate
+# --- REGION: https://yuruna.link/4220a755-0015
 # An untrusted ssl-bump -- a CA-less seed, or a cache rebuilt since this guest
 # last anchored to it -- would rc=60 the first HTTPS below. yuruna_ca_selfheal
 # (yuruna-retry.sh) re-fetches the current CA from the host status service and
@@ -88,7 +88,7 @@ yuruna_host_relocate() {
 yuruna_ca_selfheal || true
 
 # --- REGION: Ensure PowerShell is installed
-# --- REGION: https://yuruna.link/memory#why-ubuntu-guest-update-scripts-install-powershell-first
+# --- REGION: https://yuruna.link/42d69dfa-0036
 echo ""
 echo -e "\e[1;36m==== Ensure PowerShell is installed ====\e[0m"
 if ! command -v pwsh >/dev/null 2>&1; then
@@ -154,7 +154,7 @@ fi
 pwsh --version
 
 # --- REGION: Install powershell-yaml module
-# --- REGION: https://yuruna.link/memory#why-ubuntu--al2023-guest-update-scripts-wrap-install-module-powershell-yaml-with-pwsh_retry
+# --- REGION: https://yuruna.link/42d69dfa-0038
 PWSH_YAML_LOG=/var/log/yuruna/pwsh-yaml-install.log
 sudo install -d -m 0755 -o "$USER" -g "$USER" /var/log/yuruna
 echo ""
@@ -216,7 +216,7 @@ if (-not (Get-Module -ListAvailable -Name powershell-yaml)) {
 PSEOF
 
 # --- REGION: Early yuruna framework extraction
-# --- REGION: https://yuruna.link/memory#why-ubuntu-guest-update-scripts-pre-extract-the-yuruna-tarball
+# --- REGION: https://yuruna.link/42d69dfa-0037
 echo ""
 echo -e "\e[1;36m==== Early yuruna framework extraction ====\e[0m"
 REAL_USER="${SUDO_USER:-$USER}"
@@ -263,7 +263,7 @@ APT::Periodic::Unattended-Upgrade "0";
 EOF
 
 # --- REGION: Update system packages
-# --- REGION: https://yuruna.link/network#bounding-apt-get-update-without-bounding-dpkg
+# --- REGION: https://yuruna.link/4220a755-0006
 echo ""
 echo -e "\e[1;36m==== Update system packages ====\e[0m"
 # Index fetches only, so a wall-clock kill costs a re-fetch rather than a
@@ -306,7 +306,7 @@ fi
 git --version
 
 # --- REGION: Resolve framework and project URLs
-# --- REGION: https://yuruna.link/definition#defining-the-two-source-scheme-for-framework-and-project-urls
+# --- REGION: https://yuruna.link/42fa6f45-000c
 echo -e "\e[1;32m==== Resolve framework and project URLs ====\e[0m"
 FRAMEWORK_URL=""
 PROJECT_URL=""
@@ -329,7 +329,7 @@ fi
 : "${PROJECT_URL:=${YURUNA_PROJECT_URL:-}}"
 
 # --- REGION: Keep git non-interactive
-# --- REGION: https://yuruna.link/network#why-git-never-prompts-here
+# --- REGION: https://yuruna.link/4220a755-004f
 export GIT_TERMINAL_PROMPT=0
 if [ -x /usr/local/lib/yuruna/git-askpass.sh ]; then
     export GIT_ASKPASS=/usr/local/lib/yuruna/git-askpass.sh
@@ -448,7 +448,7 @@ fi
 sudo chown -R "$REAL_USER:$REAL_USER" "$REAL_HOME/yuruna" 2>/dev/null || true
 
 # --- REGION: Wait for network convergence
-# --- REGION: https://yuruna.link/network#guest-update-network-convergence-before-handoff
+# --- REGION: https://yuruna.link/4220a755-0014
 # apt transactions can bounce the DHCP lease at the transaction tail;
 # settle the link (max 30 s, never fatal) before the first host->guest SSH.
 echo ""

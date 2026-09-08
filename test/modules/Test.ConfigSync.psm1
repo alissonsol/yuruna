@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 4250f9af-bcc6-41b0-85fb-2c2f4e968e7d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -391,7 +391,7 @@ The run is stopping so you can review. Restarting will then proceed normally.
     return $merged
 }
 
-# --- REGION: https://yuruna.link/test-config#template-reconciliation
+# --- REGION: https://yuruna.link/42b11c32-0003
 # Rendering the live config from the TEMPLATE TEXT, not from ConvertTo-Yaml.
 # YAML was chosen for this file so each knob could carry its explanation, but a
 # ConvertFrom-Yaml/ConvertTo-Yaml round-trip drops every comment -- an operator's

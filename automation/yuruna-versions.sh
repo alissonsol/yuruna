@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.01
+# Version: 2026.09.08
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -11,7 +11,7 @@
 # so Check-DependencyVersion.ps1 can parse it with a line regex instead of
 # sourcing a shell. The linked section explains each pin and how to bump it.
 #
-# --- REGION: https://yuruna.link/network#defining-yuruna-versions-pins
+# --- REGION: https://yuruna.link/4220a755-0008
 
 export YURUNA_K8S_MINOR=1.36
 export YURUNA_OPENTOFU_VERSION=1.12.5

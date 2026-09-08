@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Version: 2026.09.01
+# Version: 2026.09.08
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -34,7 +34,7 @@ esac
 
 # Optional shared retry helpers (present once update.sh has run).
 if [ -r /usr/local/lib/yuruna/yuruna-retry.sh ]; then
-  # --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
+  # --- REGION: https://yuruna.link/4220a755-0003
   . /usr/local/lib/yuruna/yuruna-retry.sh
   # Baked retry libs may bound apt attempts on wall-clock -- the wrapped-apt
   # teardown-hang trap class (apt blocks at end-of-transaction under a timeout(1)
@@ -79,6 +79,14 @@ SCAN_INTERVAL="${POOL_CONTROL_SCAN_INTERVAL-15m}"
 # error, which turns an operator's off switch into a service that will not start.
 [ -n "$SCAN_INTERVAL" ] || SCAN_INTERVAL=0
 
+# The host validates and canonicalizes the lab-wide language before baking it
+# into pool.env. Pseudo negotiation is a separate, explicit reference-run gate
+# and stays false in every ordinary VM seed.
+POOL_CONTROL_LANGUAGE="$(sed -n 's/^YURUNA_LANGUAGE=//p' /etc/yuruna/pool.env 2>/dev/null | head -1 || true)"
+[ -n "$POOL_CONTROL_LANGUAGE" ] || POOL_CONTROL_LANGUAGE=auto
+POOL_CONTROL_ALLOW_PSEUDO_LOCALE="$(sed -n 's/^YURUNA_ALLOW_PSEUDO_LOCALE=//p' /etc/yuruna/pool.env 2>/dev/null | head -1 || true)"
+[ "$POOL_CONTROL_ALLOW_PSEUDO_LOCALE" = true ] || POOL_CONTROL_ALLOW_PSEUDO_LOCALE=false
+
 # Aggregator URL + host id + host ip from the shared env files (same as stash).
 AGGREGATOR_URL="$(sed -n 's/^YURUNA_AGGREGATOR_URL=//p' /etc/yuruna/pool.env 2>/dev/null | head -1 || true)"
 HOST_ID="$(sed -n 's/^YURUNA_HOST_ID=//p' /etc/yuruna/host.env 2>/dev/null | head -1 || true)"
@@ -112,7 +120,7 @@ else
   sudo apt-get install -y golang-go git cifs-utils wget ca-certificates libcap2-bin
 fi
 go version
-# --- REGION: https://yuruna.link/memory#why-ubuntu-guest-update-scripts-install-powershell-first
+# --- REGION: https://yuruna.link/42d69dfa-0036
 # PowerShell (the daemon shells out to the pool-admin CLIs). Install from the
 # GitHub-release tarball, NOT packages.microsoft.com: the prod repo publishes a
 # resolute suite but ships no `powershell` package in it, so the apt path leaves
@@ -270,7 +278,7 @@ sudo install -m 0755 -o root -g root "$BUILD/server/pool-control-service" /usr/l
 # Fallback for a DIRECT (non-systemd) launch only: under the unit's
 # NoNewPrivileges=true the grant that reaches the daemon is AmbientCapabilities,
 # so a failure here is not fatal.
-# --- REGION: https://yuruna.link/memory#why-the-service-daemons-bind-low-ports-with-ambientcapabilities-not-setcap
+# --- REGION: https://yuruna.link/42d69dfa-0025
 sudo setcap 'cap_net_bind_service=+ep' /usr/local/bin/pool-control-service || true
 
 # --- REGION: Storage dirs
@@ -281,7 +289,7 @@ if [[ -n "$POOL_NAS_UNC" ]]; then
   # Every part is load-bearing: the open modes plus noperm are an ownership
   # MAPPING that must match the parent share, not a hardening choice, and
   # iocharset=utf8 is absent because nls_utf8 fails the mount with error(79).
-  # --- REGION: https://yuruna.link/pool-storage#guest-side-pool-nas-cifs-mount-options
+  # --- REGION: https://yuruna.link/428405a0-000b
   MOUNT_OPTS="credentials=/etc/yuruna/pool-nas.cifs.cred,vers=3.0,uid=$(id -u "$SERVICE_USER"),gid=$(id -g "$SERVICE_USER"),file_mode=0666,dir_mode=0777,noperm,nofail,_netdev"
   # ip= carries the mount past a server name the guest has no way to resolve.
   [ -n "$POOL_NAS_IP" ] && MOUNT_OPTS="$MOUNT_OPTS,ip=$POOL_NAS_IP"
@@ -406,6 +414,8 @@ POOL_CONTROL_AUTH_TOKEN_FILE=$AUTH_TOKEN_FILE
 POOL_CONTROL_SCAN_CIDR=$SCAN_CIDR
 POOL_CONTROL_SCAN_PORT=$SCAN_PORT
 POOL_CONTROL_SCAN_INTERVAL=$SCAN_INTERVAL
+POOL_CONTROL_LANGUAGE=$POOL_CONTROL_LANGUAGE
+POOL_CONTROL_ALLOW_PSEUDO_LOCALE=$POOL_CONTROL_ALLOW_PSEUDO_LOCALE
 EOF
 
 # --- REGION: systemd unit
@@ -425,7 +435,7 @@ Wants=network-online.target
 Type=simple
 User=$SERVICE_USER
 EnvironmentFile=/etc/yuruna/pool-control-service.env
-ExecStart=/usr/local/bin/pool-control-service --http-addr=\${POOL_CONTROL_HTTP_ADDR} --repo-dir=\${POOL_CONTROL_REPO_DIR} --pwsh=\${POOL_CONTROL_PWSH} --aggregator-url=\${POOL_CONTROL_AGGREGATOR_URL} --host-id=\${POOL_CONTROL_HOST_ID} --intent-git-url=\${POOL_CONTROL_INTENT_GIT_URL} --state-dir=\${POOL_CONTROL_STATE_DIR} --presence-interval=\${POOL_CONTROL_PRESENCE_INTERVAL} --auth-token-file=\${POOL_CONTROL_AUTH_TOKEN_FILE} --scan-cidr=\${POOL_CONTROL_SCAN_CIDR} --scan-port=\${POOL_CONTROL_SCAN_PORT} --scan-interval=\${POOL_CONTROL_SCAN_INTERVAL}
+ExecStart=/usr/local/bin/pool-control-service --http-addr=\${POOL_CONTROL_HTTP_ADDR} --repo-dir=\${POOL_CONTROL_REPO_DIR} --pwsh=\${POOL_CONTROL_PWSH} --aggregator-url=\${POOL_CONTROL_AGGREGATOR_URL} --host-id=\${POOL_CONTROL_HOST_ID} --intent-git-url=\${POOL_CONTROL_INTENT_GIT_URL} --state-dir=\${POOL_CONTROL_STATE_DIR} --presence-interval=\${POOL_CONTROL_PRESENCE_INTERVAL} --auth-token-file=\${POOL_CONTROL_AUTH_TOKEN_FILE} --scan-cidr=\${POOL_CONTROL_SCAN_CIDR} --scan-port=\${POOL_CONTROL_SCAN_PORT} --scan-interval=\${POOL_CONTROL_SCAN_INTERVAL} --language=\${POOL_CONTROL_LANGUAGE} --allow-pseudo-locale=\${POOL_CONTROL_ALLOW_PSEUDO_LOCALE}
 Restart=on-failure
 RestartSec=5
 AmbientCapabilities=CAP_NET_BIND_SERVICE

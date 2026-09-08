@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42cfa437-bd81-47fb-8d48-e2ca1335fa07
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -404,7 +404,7 @@ function Reset-GuestDhcpReleaseTally {
     $script:DhcpReleaseSucceeded = 0
 }
 
-# --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+# --- REGION: https://yuruna.link/4220a755-000b
 # Releasing a lease is an optimization and can always miss; the BOUND is what
 # decides whether a long lease is survivable. The bound says a guest asks for a
 # new address only when its identity is new -- so the way to test it is to

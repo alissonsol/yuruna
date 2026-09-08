@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.01
+# Version: 2026.09.08
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -28,9 +28,9 @@ case "$ARCH" in
     ;;
 esac
 
-# --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
+# --- REGION: https://yuruna.link/4220a755-0003
 . /usr/local/lib/yuruna/yuruna-retry.sh
-# --- REGION: https://yuruna.link/network#why-apt-and-dnf-attempts-run-unbounded-by-default
+# --- REGION: https://yuruna.link/4220a755-0005
 # Re-asserted here because a baked retry lib may still carry a wall-clock bound.
 export YURUNA_APT_STALL_TIMEOUT_SECONDS=0
 
@@ -62,7 +62,7 @@ fi
 dotnet --version || echo "dotnet: version probe failed (non-fatal)"
 
 echo ""
-# --- REGION: https://yuruna.link/network#apt-signing-key-fingerprint-verification
+# --- REGION: https://yuruna.link/4220a755-001e
 # arg1 = key file; remaining args = ALLOWED primary fingerprints, FIRST also required.
 _yuruna_verify_key_fpr() {
     local keyfile="$1"; shift
@@ -89,7 +89,15 @@ gpg --dearmor < /tmp/microsoft.asc | sudo tee /etc/apt/keyrings/packages.microso
 rm -f /tmp/microsoft.asc
 echo "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" | sudo tee /etc/apt/sources.list.d/vscode.list > /dev/null
 apt_retry sudo apt-get update
-apt_retry sudo apt-get install -y code
+# Recommends drag in VS Code's full desktop closure -- the xdg-utils perl/LWP/X11
+# chain, mesa Vulkan, an icon theme, a second terminal emulator -- on a guest that
+# never renders a desktop. Unpack cost tracks package COUNT rather than bytes, so
+# dropping them is most of this step's time.
+#
+# The two additions are not optional. libgl1 and libgl1-mesa-dri are what an
+# Electron binary genuinely needs. Kubernetes owns its own prerequisites and
+# no longer relies on this unrelated Code workload to provide socat.
+apt_retry sudo apt-get install -y --no-install-recommends code libgl1 libgl1-mesa-dri
 
 # --- REGION: Installation summary
 echo ""

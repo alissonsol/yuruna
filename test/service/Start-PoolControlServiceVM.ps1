@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 421a21ac-638b-4121-a908-7c26df6a9e86
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -56,6 +56,9 @@
     refused rather than deploying code older than the operator is working in.
     Legitimate off-LAN, where the mirror is the only source there is. VM path
     only; -HostSideProof builds from this enlistment by definition.
+.PARAMETER AllowPseudoLocale
+    Open expanded and mirrored pseudo locales for an explicit reference run.
+    Disabled by default for both VM and host-side deployments.
 #>
 
 [CmdletBinding(SupportsShouldProcess)]
@@ -64,18 +67,19 @@ param(
     [switch]$HostSideProof,
     [int]$Port = 8090,
     [string]$AggregatorUrl = '',
-    [switch]$AllowMirrorSource
+    [switch]$AllowMirrorSource,
+    [switch]$AllowPseudoLocale
 )
 
 $InformationPreference = 'Continue'
 
-# --- REGION: https://yuruna.link/extensions-api#service-scripts-run-at-erroractionpreference-continue
+# --- REGION: https://yuruna.link/42fffc2c-000b
 # Left at the inherited 'Continue' deliberately, and it must stay that way:
 # 'Stop' is not scoped to this script and would promote every helper's
 # non-terminating error. Hard stops here are explicit Write-Error + exit, as the
 # pre-flight hard gates below do.
 
-# --- REGION: https://yuruna.link/loglevels#propagation-across-pwsh-boundaries
+# --- REGION: https://yuruna.link/42162449-0004
 # After the preference assignments above on purpose: an explicit level is the
 # operator's choice and replaces this script's own default. $InformationPreference
 # is re-read afterwards because the script-scoped assignment above shadows the
@@ -98,6 +102,8 @@ $ModulesDir = $paths.ModulesDir
 # <testRoot>/status/runtime when $env:YURUNA_RUNTIME_DIR is unset, so the marker
 # always has a home on a fresh shell instead of depending on an inherited env var.
 Import-Module (Join-Path $ModulesDir 'Test.YurunaDir.psm1') -Global -Force
+Import-Module (Join-Path $ModulesDir 'Test.Config.psm1') -Global -Force
+Import-Module (Join-Path $ModulesDir 'Test.Locale.psm1') -Global -Force
 $runtimeDir = Initialize-YurunaRuntimeDir
 if ([string]::IsNullOrWhiteSpace($runtimeDir)) { Write-Error 'No runtime dir (YURUNA_RUNTIME_DIR).'; exit $ExitFailure }
 
@@ -216,7 +222,7 @@ $remedy
     }
 
     # --- REGION: Host status service (serves the local repo to the guest) -- BEFORE the build
-    # --- REGION: https://yuruna.link/extensions-api#which-framework-snapshot-a-service-vm-is-built-from
+    # --- REGION: https://yuruna.link/42fffc2c-0013
     # Best-effort; honors statusService.enabled + port. The {ShouldStart; Port}
     # record is kept rather than discarded: the framework-source gate below
     # probes the port THIS decision resolved, so it cannot disagree with the
@@ -231,7 +237,7 @@ $remedy
     } catch { Write-Verbose "status service ensure: $($_.Exception.Message)" }
 
     # --- REGION: Framework source -- refuse to build from a snapshot older than this enlistment
-    # --- REGION: https://yuruna.link/extensions-api#which-framework-snapshot-a-service-vm-is-built-from
+    # --- REGION: https://yuruna.link/42fffc2c-0013
     # Stopping here costs the operator a message; not stopping costs a half-hour
     # build and a service nobody has reason to re-examine. The snapshot is
     # captured for the post-boot check too, which is the half that can prove what
@@ -248,7 +254,9 @@ $remedy
     # prior VM, creates the new one, and (Hyper-V + KVM) starts it. UTM only builds the
     # bundle -- register + start below.
     Write-Information "== Bringing up '$VMName' on $HostType ==" -InformationAction Continue
-    & pwsh -NoProfile -File $newVm -VMName $VMName
+    $newVmArgs = @('-NoProfile', '-File', $newVm, '-VMName', $VMName)
+    if ($AllowPseudoLocale) { $newVmArgs += '-AllowPseudoLocale' }
+    & pwsh @newVmArgs
     $rc = $LASTEXITCODE
     if ($rc -ne 0) {
         Write-Error "$newVm exited $rc -- aborting."
@@ -298,7 +306,7 @@ $remedy
         $bundleMode = Get-UtmNetworkModeFromBundle -VMName $VMName
         $uplinkMode = Resolve-UtmNetworkMode
         if ($bundleMode -and $uplinkMode -and $bundleMode -ne $uplinkMode) {
-            Write-Warning "'$VMName' was built for '$bundleMode' networking but this host's uplink now wants '$uplinkMode' (Wi-Fi and Ethernet differ). The VM's baked addresses are for the old topology; re-run this script with -ForceRebuild to rebuild it."
+            Write-Warning "'$VMName' was built for '$bundleMode' networking but this host's uplink now wants '$uplinkMode' (Wi-Fi and Ethernet differ). The VM's baked addresses are for the old topology; run Stop-PoolControlServiceVM.ps1 and then this script again to rebuild it."
         }
         # Host port 8081, not 80: on a shared-services machine the caching-proxy
         # already forwards host :80 (its CA-cert endpoint), and asking for the
@@ -463,7 +471,7 @@ $remedy
     # whatever breaks next, which is the most expensive place to look for it.
     $verdict = Get-ServiceVmReadinessVerdict -Endpoint $endpoint
 
-    # --- REGION: https://yuruna.link/network#why-a-mac-sweep-is-spent-only-on-a-failed-bring-up
+    # --- REGION: https://yuruna.link/4220a755-0046
     # Spent here and nowhere else: the sweep costs about two minutes, and this
     # is the one place where the alternative is calling a healthy daemon failed.
     $recoveredIp = ''
@@ -578,7 +586,7 @@ To hold this script longer next time:
     # telemetry and must never fail the bring-up. Write-HostRegistrationRecord reads
     # $global:__YurunaHostId; Set-Variable -Scope Global keeps PSAvoidGlobalVars quiet.
     #
-    # --- REGION: https://yuruna.link/extensions-api#3-the-host-side-module--the-runtime-marker
+    # --- REGION: https://yuruna.link/42fffc2c-0008
     #
     # Here the readiness verdict decides whether the dashboard deep-links
     # operators to a UI that is not serving -- so `active` carries the verdict,
@@ -618,7 +626,7 @@ To hold this script longer next time:
 
     if ($daemonReady) {
         # --- REGION: What actually got deployed
-        # --- REGION: https://yuruna.link/extensions-api#which-framework-snapshot-a-service-vm-is-built-from
+        # --- REGION: https://yuruna.link/42fffc2c-0013
         # The daemon is serving, so this is the first point where the framework
         # it was built from can be answered from evidence rather than prediction.
         #
@@ -675,7 +683,7 @@ To hold this script longer next time:
     }
 
     # --- REGION: The daemon never served -- gather the evidence, then FAIL
-    # --- REGION: https://yuruna.link/extensions-api#a-service-that-never-served-fails-loudly
+    # --- REGION: https://yuruna.link/42fffc2c-000c
     # -User pins the account the cloud-init seed created: Get-GuestSshUser would
     # otherwise return a per-cycle cascade override that an earlier run in this
     # same shell session left registered for guest.pool-control-service.
@@ -808,10 +816,28 @@ try {
 # $global: reference (keeps PSAvoidGlobalVars quiet); absent -> $null.
 $hostId = [string](Get-Variable -Name '__YurunaHostId' -Scope Global -ValueOnly -ErrorAction SilentlyContinue)
 
-$goArgs = @('--http-addr', "0.0.0.0:$Port", '--repo-dir', $repoRoot, '--pwsh', $pwshExe)
+# Read the same validated lab-wide language used to build a service-VM seed.
+# Canonicalizing at this launcher boundary also keeps the native argument free
+# of shell/path syntax; unsupported-but-well-formed tags remain a deliberate
+# config lock and are refused by the daemon's compiled locale authority.
+$hostStatusSeed = Get-YurunaStatusServiceSeed -RepoRoot $repoRoot
+$languageRaw = [string](Get-TestConfigValue -Config $hostStatusSeed.Config -Path 'language')
+$poolControlLanguage = if ([string]::IsNullOrWhiteSpace($languageRaw) -or $languageRaw -ieq 'auto') {
+    'auto'
+} else {
+    ConvertTo-CanonicalLocaleTag -Tag $languageRaw
+}
+if (-not $poolControlLanguage) {
+    Write-Error "Invalid language '$languageRaw' in test/test.config.yml."
+    exit $ExitFailure
+}
+
+$goArgs = @('--http-addr', "0.0.0.0:$Port", '--repo-dir', $repoRoot, '--pwsh', $pwshExe,
+    '--language', $poolControlLanguage)
 if ($intentGitUrl)  { $goArgs += @('--intent-git-url', $intentGitUrl) }
 if ($AggregatorUrl) { $goArgs += @('--aggregator-url', $AggregatorUrl) }
 if ($hostId)        { $goArgs += @('--host-id', $hostId) }
+if ($AllowPseudoLocale) { $goArgs += '--allow-pseudo-locale' }
 
 if ($PSCmdlet.ShouldProcess($binPath, "launch pool-control-service on :$Port")) {
     $proc = Start-Process -FilePath $binPath -ArgumentList $goArgs -PassThru -WindowStyle Hidden

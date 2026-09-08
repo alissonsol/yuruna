@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 424e571a-0f6b-4eef-b112-0794f8d85952
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,7 +24,7 @@
 # fast-path capturer (e.g., a delta-only frame grabber) or a fallback
 # (e.g., when WMI / virsh screenshot times out).
 #
-# --- REGION: https://yuruna.link/host-io#why-the-registry-uses-a-global-anchor
+# --- REGION: https://yuruna.link/4222e5f2-0009
 # Storage: shared Test.Registry primitive; the $global:YurunaScreenshotProviders
 # anchor keeps registrations eviction-safe across -Force re-imports.
 # The paired self-healing primitive is Repair-ScreenshotRing (see its help).

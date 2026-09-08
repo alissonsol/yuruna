@@ -108,3 +108,59 @@ properties:
     description: Guest identifiers this host can run. Reserved for the pool-planner; null until populated.
     items:
       type: string
+
+  testSets:
+    type: array
+    description: >
+      Project-authored test-set offers. English scalars remain required for old
+      consumers; optional locale maps are carried intact so an HTTP consumer
+      resolves the exact request locale instead of inheriting the runner
+      account's process culture.
+    items:
+      type: object
+      required: [name, displayName, description, sequences]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          pattern: "^[a-z0-9][a-z0-9._-]*$"
+        displayName:
+          type: string
+          maxLength: 160
+        description:
+          type: string
+          maxLength: 2000
+        displayNameLocalized:
+          $ref: "#/$defs/projectLocaleDisplayNameMap"
+        descriptionLocalized:
+          $ref: "#/$defs/projectLocaleDescriptionMap"
+        sequences:
+          type: array
+          items: { type: string }
+
+$defs:
+  projectLocaleDisplayNameMap:
+    type: object
+    minProperties: 1
+    maxProperties: 16
+    propertyNames:
+      pattern: "^(?:qps-Plocm|[a-z]{2,3}(?:-(?:[A-Z]{2}|[A-Z][a-z]{3}|[0-9][a-z0-9]{3}|[a-z0-9]{3}|[a-z0-9]{5,8}))*)$"
+      maxLength: 35
+      not: { const: en-US }
+    additionalProperties:
+      type: string
+      minLength: 1
+      maxLength: 160
+
+  projectLocaleDescriptionMap:
+    type: object
+    minProperties: 1
+    maxProperties: 16
+    propertyNames:
+      pattern: "^(?:qps-Plocm|[a-z]{2,3}(?:-(?:[A-Z]{2}|[A-Z][a-z]{3}|[0-9][a-z0-9]{3}|[a-z0-9]{3}|[a-z0-9]{5,8}))*)$"
+      maxLength: 35
+      not: { const: en-US }
+    additionalProperties:
+      type: string
+      minLength: 1
+      maxLength: 2000

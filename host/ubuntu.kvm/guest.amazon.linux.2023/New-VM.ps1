@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 4264b221-526c-4487-9f9f-8d58b28b11dd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -167,7 +167,7 @@ $seedDir = Join-Path $vmDir 'seed.src'
 New-Item -ItemType Directory -Force -Path $seedDir | Out-Null
 Set-Content -LiteralPath (Join-Path $seedDir 'user-data') -Value $userData -NoNewline
 Set-Content -LiteralPath (Join-Path $seedDir 'meta-data') -Value $metaData -NoNewline
-# --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+# --- REGION: https://yuruna.link/4220a755-000b
 # Amazon Linux deliberately does NOT receive the shared seed network-config the
 # netplan guests get. Two facts combine badly here:
 #
@@ -243,7 +243,7 @@ if ($stillDefined) {
     throw "virsh destroy + undefine left '$VMName' defined; aborting before re-creation.`ndominfo:`n$dominfo"
 }
 
-# --- REGION: https://yuruna.link/memory#why-osinfo-db-variant-detection-parses-canonical-token-first
+# --- REGION: https://yuruna.link/42d69dfa-0008
 $osVariant = 'linux2022'
 $osList = & virt-install --osinfo list 2>$null
 if ($LASTEXITCODE -eq 0) {
@@ -271,10 +271,10 @@ if ($LASTEXITCODE -eq 0) {
 # sibling) -- with `restart`, QEMU performs
 # system_reset rather than exiting, the VNC socket stays alive, and the
 # harness's screenshot loop / virt-viewer window survive the reboot.
-# --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
+# --- REGION: https://yuruna.link/42fa6f45-0015
 $hostCores = [int](& nproc --all)
 if ($hostCores -lt 4) {
-    Write-Error "Host has $hostCores cores; Yuruna requires at least 4. See https://yuruna.link/definition#defining-the-vm-core-count-policy"
+    Write-Error "Host has $hostCores cores; Yuruna requires at least 4. See https://yuruna.link/42fa6f45-0015"
     exit 1
 }
 # Floor-half of the host is the target, clamped so a guest never takes
@@ -321,7 +321,7 @@ $installArgs = @(
     # to, which would put every boot of this guest past that window.
     '--noreboot'
 )
-# --- REGION: https://yuruna.link/memory#why-the-amazonlinux-kvm-guest-uses-seabios-not-uefi
+# --- REGION: https://yuruna.link/42d69dfa-0009
 if ($arch -eq 'aarch64') {
     $installArgs += @('--boot', 'uefi')
     $installArgs += @('--machine', 'virt')

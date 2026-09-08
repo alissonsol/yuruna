@@ -219,6 +219,46 @@ func TestFetchCurrentActionStepPause(t *testing.T) {
 	}
 }
 
+// The pause is stated in a code, so the sentence beside it is ordinary prose:
+// it can be reworded, or written in the operator's own language, without this
+// service losing sight of a parked runner. The sentence is still read when no
+// code is present, because a runner older than the field writes none.
+func TestFetchCurrentActionPauseCode(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{"code says parked, sentence is translated",
+			`{"line":"Pausado, aguardando retomada.","code":"sequence_paused_waiting_resume"}`, true},
+		{"code says running, stale sentence must not override it",
+			`{"line":"[3/9] Paused (waiting for resume)","code":"step_running"}`, false},
+		{"no code: a runner older than the field is still read",
+			`{"line":"[3/9] Paused (waiting for resume)"}`, true},
+		{"no code and not parked", `{"line":"[3/9] takeScreenshot"}`, false},
+	}
+	for _, c := range cases {
+		body := c.body
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path != "/runtime/current-action.json" {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(body))
+		}))
+		got, err := fetchCurrentAction(srv.Client(), srv.URL)
+		srv.Close()
+		if err != nil {
+			t.Errorf("%s: unexpected error: %v", c.name, err)
+			continue
+		}
+		if got != c.want {
+			t.Errorf("%s: fetchCurrentAction = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
 // Only an explicit running:false is evidence of a stopped runner. A host that
 // predates the route (404) or answers without the field cannot say, and must not be
 // reported stopped -- otherwise a route that moved would blank every real status in

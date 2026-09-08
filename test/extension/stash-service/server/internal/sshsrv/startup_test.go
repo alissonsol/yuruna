@@ -40,7 +40,7 @@ func TestNewStartsWhenShareUnwritable(t *testing.T) {
 		t.Fatalf("meta.Open: %v", err)
 	}
 	defer m.Close()
-	ids := id.New(st.FilesRoot(), buf.FilesRoot())
+	ids := id.New(m.Exists, st.FilesRoot(), buf.FilesRoot())
 
 	srv, err := New(st, buf, m, ids)
 	if err != nil {

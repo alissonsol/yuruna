@@ -1,0 +1,946 @@
+{
+  "schema": "yuruna.affected-slice-map/v1",
+  "authoritySchema": "yuruna.affected-slice-authority/v1",
+  "codeRegistrySchema": "yuruna.code-registry/v1",
+  "slices": [
+    {
+      "id": "pool-repository-project",
+      "domains": [
+        "extension-sdk",
+        "pool-aggregator",
+        "pool-control",
+        "project-config"
+      ],
+      "nextOwner": "G2-02",
+      "reachableBlockers": [
+        "B-07",
+        "P-02",
+        "P-03",
+        "P-04-M-01",
+        "T-01-T-07",
+        "T-02",
+        "T-03",
+        "T-04",
+        "WINDOWS-BOOTSTRAP"
+      ],
+      "openBlockers": [],
+      "seedOpen": true
+    },
+    {
+      "id": "status-pause-generated",
+      "domains": [
+        "runner",
+        "status-service",
+        "status-ui"
+      ],
+      "nextOwner": "G2-01",
+      "reachableBlockers": [
+        "B-07",
+        "M-02",
+        "P-01",
+        "P-04-M-01",
+        "T-01-T-07",
+        "T-02",
+        "T-03",
+        "T-04",
+        "TRANSCRIPT-EVENTS",
+        "WINDOWS-BOOTSTRAP"
+      ],
+      "openBlockers": [],
+      "seedOpen": true
+    }
+  ],
+  "rows": [
+    {
+      "id": "B-07",
+      "kind": "blocker",
+      "status": "closed",
+      "owner": "G1-08",
+      "slices": [
+        "pool-repository-project",
+        "status-pause-generated"
+      ],
+      "domains": [
+        "extension-sdk",
+        "pool-aggregator",
+        "pool-control",
+        "project-config",
+        "runner",
+        "status-service",
+        "status-ui"
+      ],
+      "consumers": [
+        "signature:b07-independent-timeout"
+      ]
+    },
+    {
+      "id": "L-03-REMAINDER",
+      "kind": "display-only-census",
+      "status": "deferred",
+      "owner": "G2-05",
+      "slices": [
+        "pool-repository-project",
+        "status-pause-generated"
+      ],
+      "domains": [
+        "extension-sdk",
+        "pool-aggregator",
+        "pool-control",
+        "project-config",
+        "runner",
+        "status-service",
+        "status-ui"
+      ],
+      "consumers": [
+        "signature:l03-residual-external-parser-census"
+      ]
+    },
+    {
+      "id": "L-04-REMAINDER",
+      "kind": "display-only-census",
+      "status": "deferred",
+      "owner": "G2-05",
+      "slices": [
+        "pool-repository-project",
+        "status-pause-generated"
+      ],
+      "domains": [
+        "extension-sdk",
+        "pool-aggregator",
+        "pool-control",
+        "project-config",
+        "runner",
+        "status-service",
+        "status-ui"
+      ],
+      "consumers": [
+        "signature:l04-ssh-prose-classifier-census"
+      ]
+    },
+    {
+      "id": "M-02",
+      "kind": "blocker",
+      "status": "closed",
+      "owner": "G1-08",
+      "slices": [
+        "status-pause-generated"
+      ],
+      "domains": [
+        "runner",
+        "status-service",
+        "status-ui"
+      ],
+      "consumers": [
+        "signature:m02-diagnostic-explicit-class",
+        "signature:m02-diagnostic-schema-consumer"
+      ]
+    },
+    {
+      "id": "M-03",
+      "kind": "display-only-census",
+      "status": "deferred",
+      "owner": "G2-07",
+      "slices": [
+        "status-pause-generated"
+      ],
+      "domains": [
+        "runner",
+        "status-service",
+        "status-ui"
+      ],
+      "consumers": [
+        "signature:m03-visual-heading-census"
+      ]
+    },
+    {
+      "id": "M-04",
+      "kind": "display-only-census",
+      "status": "deferred",
+      "owner": "G2-06",
+      "slices": [
+        "pool-repository-project",
+        "status-pause-generated"
+      ],
+      "domains": [
+        "extension-sdk",
+        "pool-aggregator",
+        "pool-control",
+        "project-config",
+        "runner",
+        "status-service",
+        "status-ui"
+      ],
+      "consumers": [
+        "signature:m04-prose-assertion-census"
+      ]
+    },
+    {
+      "id": "P-01",
+      "kind": "blocker",
+      "status": "closed",
+      "owner": "G1-08",
+      "slices": [
+        "status-pause-generated"
+      ],
+      "domains": [
+        "runner",
+        "status-service",
+        "status-ui"
+      ],
+      "consumers": [
+        "code:sequence.sequence_paused_waiting_resume:consumer:test/extension/pool-aggregator-service/main.go",
+        "code:sequence.sequence_paused_waiting_resume:consumer:test/status/yuruna.common.js",
+        "code:sequence.sequence_paused_waiting_resume:producer:test/modules/Test.SequenceEngine.psm1"
+      ]
+    },
+    {
+      "id": "P-02",
+      "kind": "blocker",
+      "status": "closed",
+      "owner": "G1-08",
+      "slices": [
+        "pool-repository-project"
+      ],
+      "domains": [
+        "extension-sdk",
+        "pool-aggregator",
+        "pool-control",
+        "project-config"
+      ],
+      "consumers": [
+        "code:repository_access.denied:consumer:test/extension/pool-control-service/server/internal/httpsrv/board.go",
+        "code:repository_access.denied:consumer:test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js",
+        "code:repository_access.denied:producer:test/modules/Test.HostGit.psm1",
+        "code:repository_access.denied:producer:test/modules/Test.RunnerInnerLoop.psm1",
+        "code:repository_access.readable:producer:test/modules/Test.HostGit.psm1",
+        "code:repository_access.unconfigured:producer:test/modules/Test.HostGit.psm1",
+        "code:repository_access.unprobed:consumer:test/service/Start-StatusService.ps1",
+        "code:repository_access.unprobed:producer:test/modules/Test.HostGit.psm1"
+      ]
+    },
+    {
+      "id": "P-03",
+      "kind": "blocker",
+      "status": "closed",
+      "owner": "G1-08",
+      "slices": [
+        "pool-repository-project"
+      ],
+      "domains": [
+        "extension-sdk",
+        "pool-aggregator",
+        "pool-control",
+        "project-config"
+      ],
+      "consumers": [
+        "code:auth.lab_token_unavailable:consumer:test/modules/Test.MessageHttpMigration.Tests.ps1",
+        "code:auth.lab_token_unavailable:producer:test/extension/extension-sdk/labgate/labgate.go",
+        "code:auth.unconfigured:consumer:test/extension/pool-control-service/server/internal/httpsrv/web/assets/common.js",
+        "code:auth.unconfigured:consumer:test/modules/Test.MessageHttpMigration.Tests.ps1",
+        "code:auth.unconfigured:producer:test/extension/extension-sdk/labgate/labgate.go",
+        "signature:p03-canonical-code-consumer",
+        "signature:p03-legacy-reason-consumer",
+        "signature:p03-message-envelope-producer"
+      ]
+    },
+    {
+      "id": "P-04-M-01",
+      "kind": "blocker",
+      "status": "closed",
+      "owner": "G1-08",
+      "slices": [
+        "pool-repository-project",
+        "status-pause-generated"
+      ],
+      "domains": [
+        "extension-sdk",
+        "pool-aggregator",
+        "pool-control",
+        "project-config",
+        "runner",
+        "status-service",
+        "status-ui"
+      ],
+      "consumers": [
+        "signature:p04-legacy-reader-deletion-date",
+        "signature:p04-preflight-sidecar-consumer",
+        "signature:p04-preflight-sidecar-producer"
+      ]
+    },
+    {
+      "id": "P-05-DOWNLOAD",
+      "kind": "display-only-census",
+      "status": "deferred",
+      "owner": "G2-03",
+      "slices": [],
+      "domains": [
+        "download-agent"
+      ],
+      "consumers": [
+        "signature:p05-download-state-census"
+      ]
+    },
+    {
+      "id": "P-05-STATUS",
+      "kind": "display-only-census",
+      "status": "deferred",
+      "owner": "G2-01",
+      "slices": [
+        "status-pause-generated"
+      ],
+      "domains": [
+        "runner",
+        "status-service",
+        "status-ui"
+      ],
+      "consumers": [
+        "signature:p05-status-state-census"
+      ]
+    },
+    {
+      "id": "P-06-DOWNLOAD",
+      "kind": "display-only-census",
+      "status": "deferred",
+      "owner": "G2-03",
+      "slices": [],
+      "domains": [
+        "download-agent"
+      ],
+      "consumers": [
+        "signature:p06-download-error-detail-census"
+      ]
+    },
+    {
+      "id": "P-06-POOL",
+      "kind": "display-only-census",
+      "status": "deferred",
+      "owner": "G2-02",
+      "slices": [
+        "pool-repository-project"
+      ],
+      "domains": [
+        "extension-sdk",
+        "pool-aggregator",
+        "pool-control",
+        "project-config"
+      ],
+      "consumers": [
+        "signature:p06-pool-error-detail-census"
+      ]
+    },
+    {
+      "id": "T-01-T-07",
+      "kind": "blocker",
+      "status": "closed",
+      "owner": "G1-08",
+      "slices": [
+        "pool-repository-project",
+        "status-pause-generated"
+      ],
+      "domains": [
+        "extension-sdk",
+        "pool-aggregator",
+        "pool-control",
+        "project-config",
+        "runner",
+        "status-service",
+        "status-ui"
+      ],
+      "consumers": [
+        "signature:l03-kvm-locale-neutral-tool-output"
+      ]
+    },
+    {
+      "id": "T-02",
+      "kind": "blocker",
+      "status": "closed",
+      "owner": "G1-08",
+      "slices": [
+        "pool-repository-project",
+        "status-pause-generated"
+      ],
+      "domains": [
+        "extension-sdk",
+        "pool-aggregator",
+        "pool-control",
+        "project-config",
+        "runner",
+        "status-service",
+        "status-ui"
+      ],
+      "consumers": [
+        "signature:t02-sid-acl"
+      ]
+    },
+    {
+      "id": "T-03",
+      "kind": "blocker",
+      "status": "closed",
+      "owner": "G1-08",
+      "slices": [
+        "pool-repository-project",
+        "status-pause-generated"
+      ],
+      "domains": [
+        "extension-sdk",
+        "pool-aggregator",
+        "pool-control",
+        "project-config",
+        "runner",
+        "status-service",
+        "status-ui"
+      ],
+      "consumers": [
+        "signature:t03-hyperv-numeric-status"
+      ]
+    },
+    {
+      "id": "T-04",
+      "kind": "blocker",
+      "status": "closed",
+      "owner": "G1-08",
+      "slices": [
+        "pool-repository-project",
+        "status-pause-generated"
+      ],
+      "domains": [
+        "extension-sdk",
+        "pool-aggregator",
+        "pool-control",
+        "project-config",
+        "runner",
+        "status-service",
+        "status-ui"
+      ],
+      "consumers": [
+        "signature:t04-config-invariant-float",
+        "signature:t04-prometheus-invariant-float"
+      ]
+    },
+    {
+      "id": "T-05-REMAINDER",
+      "kind": "display-only-census",
+      "status": "deferred",
+      "owner": "G2-05",
+      "slices": [
+        "pool-repository-project",
+        "status-pause-generated"
+      ],
+      "domains": [
+        "extension-sdk",
+        "pool-aggregator",
+        "pool-control",
+        "project-config",
+        "runner",
+        "status-service",
+        "status-ui"
+      ],
+      "consumers": [
+        "signature:t05-machine-timestamp-census"
+      ]
+    },
+    {
+      "id": "T-06-REMAINDER",
+      "kind": "display-only-census",
+      "status": "deferred",
+      "owner": "G2-06",
+      "slices": [
+        "pool-repository-project",
+        "status-pause-generated"
+      ],
+      "domains": [
+        "extension-sdk",
+        "pool-aggregator",
+        "pool-control",
+        "project-config",
+        "runner",
+        "status-service",
+        "status-ui"
+      ],
+      "consumers": [
+        "signature:t06-sort-census"
+      ]
+    },
+    {
+      "id": "TRANSCRIPT-EVENTS",
+      "kind": "blocker",
+      "status": "closed",
+      "owner": "G1-08",
+      "slices": [
+        "status-pause-generated"
+      ],
+      "domains": [
+        "runner",
+        "status-service",
+        "status-ui"
+      ],
+      "consumers": [
+        "code:step.end:producer:test/modules/Test.Orchestrator.psm1",
+        "code:step.start:producer:test/modules/Test.Orchestrator.psm1"
+      ]
+    },
+    {
+      "id": "WINDOWS-BOOTSTRAP",
+      "kind": "blocker",
+      "status": "closed",
+      "owner": "G1-08",
+      "slices": [
+        "pool-repository-project",
+        "status-pause-generated"
+      ],
+      "domains": [
+        "extension-sdk",
+        "pool-aggregator",
+        "pool-control",
+        "project-config",
+        "runner",
+        "status-service",
+        "status-ui"
+      ],
+      "consumers": [
+        "signature:windows-bootstrap-numeric-edition"
+      ]
+    }
+  ],
+  "consumers": [
+    {
+      "id": "code:auth.lab_token_unavailable:consumer:test/modules/Test.MessageHttpMigration.Tests.ps1",
+      "finding": "P-03",
+      "source": "code-registry",
+      "path": "test/modules/Test.MessageHttpMigration.Tests.ps1",
+      "code": "auth.lab_token_unavailable",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:auth.lab_token_unavailable:producer:test/extension/extension-sdk/labgate/labgate.go",
+      "finding": "P-03",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/labgate/labgate.go",
+      "code": "auth.lab_token_unavailable",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:auth.unconfigured:consumer:test/extension/pool-control-service/server/internal/httpsrv/web/assets/common.js",
+      "finding": "P-03",
+      "source": "code-registry",
+      "path": "test/extension/pool-control-service/server/internal/httpsrv/web/assets/common.js",
+      "code": "auth.unconfigured",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:auth.unconfigured:consumer:test/modules/Test.MessageHttpMigration.Tests.ps1",
+      "finding": "P-03",
+      "source": "code-registry",
+      "path": "test/modules/Test.MessageHttpMigration.Tests.ps1",
+      "code": "auth.unconfigured",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:auth.unconfigured:producer:test/extension/extension-sdk/labgate/labgate.go",
+      "finding": "P-03",
+      "source": "code-registry",
+      "path": "test/extension/extension-sdk/labgate/labgate.go",
+      "code": "auth.unconfigured",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:repository_access.denied:consumer:test/extension/pool-control-service/server/internal/httpsrv/board.go",
+      "finding": "P-02",
+      "source": "code-registry",
+      "path": "test/extension/pool-control-service/server/internal/httpsrv/board.go",
+      "code": "repository_access.denied",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:repository_access.denied:consumer:test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js",
+      "finding": "P-02",
+      "source": "code-registry",
+      "path": "test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js",
+      "code": "repository_access.denied",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:repository_access.denied:producer:test/modules/Test.HostGit.psm1",
+      "finding": "P-02",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostGit.psm1",
+      "code": "repository_access.denied",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:repository_access.denied:producer:test/modules/Test.RunnerInnerLoop.psm1",
+      "finding": "P-02",
+      "source": "code-registry",
+      "path": "test/modules/Test.RunnerInnerLoop.psm1",
+      "code": "repository_access.denied",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:repository_access.readable:producer:test/modules/Test.HostGit.psm1",
+      "finding": "P-02",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostGit.psm1",
+      "code": "repository_access.readable",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:repository_access.unconfigured:producer:test/modules/Test.HostGit.psm1",
+      "finding": "P-02",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostGit.psm1",
+      "code": "repository_access.unconfigured",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:repository_access.unprobed:consumer:test/service/Start-StatusService.ps1",
+      "finding": "P-02",
+      "source": "code-registry",
+      "path": "test/service/Start-StatusService.ps1",
+      "code": "repository_access.unprobed",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:repository_access.unprobed:producer:test/modules/Test.HostGit.psm1",
+      "finding": "P-02",
+      "source": "code-registry",
+      "path": "test/modules/Test.HostGit.psm1",
+      "code": "repository_access.unprobed",
+      "role": "producer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:sequence.sequence_paused_waiting_resume:consumer:test/extension/pool-aggregator-service/main.go",
+      "finding": "P-01",
+      "source": "code-registry",
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "code": "sequence.sequence_paused_waiting_resume",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:sequence.sequence_paused_waiting_resume:consumer:test/status/yuruna.common.js",
+      "finding": "P-01",
+      "source": "code-registry",
+      "path": "test/status/yuruna.common.js",
+      "code": "sequence.sequence_paused_waiting_resume",
+      "role": "consumer",
+      "matchCount": 2
+    },
+    {
+      "id": "code:sequence.sequence_paused_waiting_resume:producer:test/modules/Test.SequenceEngine.psm1",
+      "finding": "P-01",
+      "source": "code-registry",
+      "path": "test/modules/Test.SequenceEngine.psm1",
+      "code": "sequence.sequence_paused_waiting_resume",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:step.end:producer:test/modules/Test.Orchestrator.psm1",
+      "finding": "TRANSCRIPT-EVENTS",
+      "source": "code-registry",
+      "path": "test/modules/Test.Orchestrator.psm1",
+      "code": "step.end",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "code:step.start:producer:test/modules/Test.Orchestrator.psm1",
+      "finding": "TRANSCRIPT-EVENTS",
+      "source": "code-registry",
+      "path": "test/modules/Test.Orchestrator.psm1",
+      "code": "step.start",
+      "role": "producer",
+      "matchCount": 1
+    },
+    {
+      "id": "signature:b07-independent-timeout",
+      "finding": "B-07",
+      "source": "source-signature",
+      "path": "globalization/kernel/yuruna.rawpage.js",
+      "code": "",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "signature:l03-kvm-locale-neutral-tool-output",
+      "finding": "T-01-T-07",
+      "source": "source-signature",
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
+      "code": "",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "signature:l03-residual-external-parser-census",
+      "finding": "L-03-REMAINDER",
+      "source": "source-signature",
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
+      "code": "",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "signature:l04-ssh-prose-classifier-census",
+      "finding": "L-04-REMAINDER",
+      "source": "source-signature",
+      "path": "test/modules/Test.Ssh.psm1",
+      "code": "",
+      "role": "consumer",
+      "matchCount": 2
+    },
+    {
+      "id": "signature:m02-diagnostic-explicit-class",
+      "finding": "M-02",
+      "source": "source-signature",
+      "path": "automation/Get-SystemDiagnostic.ps1",
+      "code": "",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "signature:m02-diagnostic-schema-consumer",
+      "finding": "M-02",
+      "source": "source-signature",
+      "path": "test/modules/Test.RunnerInnerLoop.psm1",
+      "code": "",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "signature:m03-visual-heading-census",
+      "finding": "M-03",
+      "source": "source-signature",
+      "path": "automation/Yuruna.Log.psm1",
+      "code": "",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "signature:m04-prose-assertion-census",
+      "finding": "M-04",
+      "source": "source-signature",
+      "path": "test/modules/Test.ConsoleSecondOpinion.Tests.ps1",
+      "code": "",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "signature:p03-canonical-code-consumer",
+      "finding": "P-03",
+      "source": "source-signature",
+      "path": "test/extension/pool-control-service/server/internal/httpsrv/web/assets/common.js",
+      "code": "",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "signature:p03-legacy-reason-consumer",
+      "finding": "P-03",
+      "source": "source-signature",
+      "path": "test/extension/pool-control-service/server/internal/httpsrv/web/assets/common.js",
+      "code": "",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "signature:p03-message-envelope-producer",
+      "finding": "P-03",
+      "source": "source-signature",
+      "path": "test/extension/extension-sdk/labgate/labgate.go",
+      "code": "",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "signature:p04-legacy-reader-deletion-date",
+      "finding": "P-04-M-01",
+      "source": "source-signature",
+      "path": "test/modules/Test.ConfigPreflight.psm1",
+      "code": "",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "signature:p04-preflight-sidecar-consumer",
+      "finding": "P-04-M-01",
+      "source": "source-signature",
+      "path": "test/modules/Test.ConfigPreflight.psm1",
+      "code": "",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "signature:p04-preflight-sidecar-producer",
+      "finding": "P-04-M-01",
+      "source": "source-signature",
+      "path": "test/modules/Test.Output.psm1",
+      "code": "",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "signature:p05-download-state-census",
+      "finding": "P-05-DOWNLOAD",
+      "source": "source-signature",
+      "path": "test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js",
+      "code": "",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "signature:p05-status-state-census",
+      "finding": "P-05-STATUS",
+      "source": "source-signature",
+      "path": "test/status/yuruna.common.js",
+      "code": "",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "signature:p06-download-error-detail-census",
+      "finding": "P-06-DOWNLOAD",
+      "source": "source-signature",
+      "path": "test/extension/download-agent-service/server/internal/httpsrv/handlers.go",
+      "code": "",
+      "role": "consumer",
+      "matchCount": 2
+    },
+    {
+      "id": "signature:p06-pool-error-detail-census",
+      "finding": "P-06-POOL",
+      "source": "source-signature",
+      "path": "test/extension/pool-control-service/server/internal/httpsrv/board.go",
+      "code": "",
+      "role": "consumer",
+      "matchCount": 3
+    },
+    {
+      "id": "signature:t02-sid-acl",
+      "finding": "T-02",
+      "source": "source-signature",
+      "path": "test/modules/Test.Ssh.psm1",
+      "code": "",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "signature:t03-hyperv-numeric-status",
+      "finding": "T-03",
+      "source": "source-signature",
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
+      "code": "",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "signature:t04-config-invariant-float",
+      "finding": "T-04",
+      "source": "source-signature",
+      "path": "test/modules/Test.ConfigNaming.psm1",
+      "code": "",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "signature:t04-prometheus-invariant-float",
+      "finding": "T-04",
+      "source": "source-signature",
+      "path": "test/modules/Test.PoolNotifier.psm1",
+      "code": "",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "signature:t05-machine-timestamp-census",
+      "finding": "T-05-REMAINDER",
+      "source": "source-signature",
+      "path": "test/modules/Test.Status.psm1",
+      "code": "",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "signature:t06-sort-census",
+      "finding": "T-06-REMAINDER",
+      "source": "source-signature",
+      "path": "test/modules/Test.ConfigServiceSync.psm1",
+      "code": "",
+      "role": "consumer",
+      "matchCount": 3
+    },
+    {
+      "id": "signature:windows-bootstrap-numeric-edition",
+      "finding": "WINDOWS-BOOTSTRAP",
+      "source": "source-signature",
+      "path": "install/windows.hyper-v.ps1",
+      "code": "",
+      "role": "consumer",
+      "matchCount": 3
+    }
+  ],
+  "literalExclusions": [
+    {
+      "wireCode": "repository_access.denied",
+      "path": "test/modules/Test.HostCondition.Mac.psm1",
+      "matchCount": 2,
+      "reason": "The macOS TCC grant state uses the same generic word but is not a repository-access protocol consumer."
+    },
+    {
+      "wireCode": "repository_access.denied",
+      "path": "tools/Export-GeneratedPages.ps1",
+      "matchCount": 2,
+      "reason": "The exporter writes deterministic reference-page fixture data and does not consume a live repository-access boundary."
+    },
+    {
+      "wireCode": "repository_access.readable",
+      "path": "tools/Export-GeneratedPages.ps1",
+      "matchCount": 1,
+      "reason": "The exporter writes deterministic reference-page fixture data and does not consume a live repository-access boundary."
+    },
+    {
+      "wireCode": "repository_access.unconfigured",
+      "path": "test/modules/Test.PoolNotifier.psm1",
+      "matchCount": 7,
+      "reason": "Pool notification transport readiness is a separate local state machine, not the repository-access protocol."
+    },
+    {
+      "wireCode": "repository_access.unprobed",
+      "path": "test/modules/Test.HostCondition.Mac.psm1",
+      "matchCount": 2,
+      "reason": "The macOS TCC grant state uses the same generic word but is not a repository-access protocol consumer."
+    },
+    {
+      "wireCode": "repository_access.unprobed",
+      "path": "test/Test-Config.ps1",
+      "matchCount": 1,
+      "reason": "The configuration report displays macOS TCC probe state, not repository-access state."
+    },
+    {
+      "wireCode": "sequence.sequence_paused_waiting_resume",
+      "path": "tools/Export-GeneratedPages.ps1",
+      "matchCount": 3,
+      "reason": "The exporter writes deterministic status reference-page fixture data and does not consume a live sequence event."
+    }
+  ],
+  "summary": {
+    "sliceCount": 2,
+    "blockerCount": 12,
+    "openBlockerCount": 0,
+    "displayOnlyCount": 10,
+    "consumerCount": 43,
+    "literalExclusionCount": 7
+  }
+}

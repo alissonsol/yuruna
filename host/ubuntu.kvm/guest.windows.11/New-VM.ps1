@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 4210ad59-ce3d-4890-bc1a-eb6a22a42087
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -99,7 +99,7 @@ if (-not (Test-Path -LiteralPath $autoTemplate)) {
     Write-Error "Template missing: $autoTemplate"
     exit 1
 }
-# --- REGION: https://yuruna.link/network#defining-yuruna-host-locate-lib
+# --- REGION: https://yuruna.link/4220a755-002d
 # Coordinates for the first-logon bootstrap. This guest is attached to
 # libvirt's `default` NAT network (see --network below), so the address it
 # reaches the host at is that network's gateway -- a host-owned constant that
@@ -182,10 +182,10 @@ if ($stillDefined) {
     throw "virsh destroy + undefine left '$VMName' defined; aborting before re-creation.`ndominfo:`n$dominfo"
 }
 
-# --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
+# --- REGION: https://yuruna.link/42fa6f45-0015
 $hostCores = [int](& nproc --all)
 if ($hostCores -lt 4) {
-    Write-Error "Host has $hostCores cores; Yuruna requires at least 4. See https://yuruna.link/definition#defining-the-vm-core-count-policy"
+    Write-Error "Host has $hostCores cores; Yuruna requires at least 4. See https://yuruna.link/42fa6f45-0015"
     exit 1
 }
 # Floor-half of the host is the target, clamped so a guest never takes

@@ -22,7 +22,7 @@ server/
 +-- internal/
 |   +-- config/config.go                  # spec section 10 constants in one place
 |   +-- fsutil/fsutil.go                  # crash-durability primitives (SyncDir, AtomicCommit) shared by store + meta
-|   +-- id/id.go                          # per-day 4-char allocator, scans share+buffer (section 7)
+|   +-- id/id.go                          # 4-char allocator, scans share+buffer, checks the index (section 7)
 |   +-- store/store.go                    # share/buffer layout, extension extraction, mount probe (section 6.3, section 8.4, section 13)
 |   +-- meta/meta.go                      # VM-local SQLite index + sidecars + rebuild (section 8, section 8.5)
 |   +-- scp/scp.go                        # legacy SCP sink-mode wire protocol (section 5)
@@ -230,10 +230,14 @@ Coverage focuses on the spec-driven pure-logic bits:
 - `internal/store/` -- section 6.3 extension-extraction rules + section 13 boundaries;
   mountinfo parsing (the cifs-nofail trap), DirSize, AtomicCopyFile (section 8.4).
 - `internal/id/id_test.go` -- per-day uniqueness, on-disk scan picks up
-  pre-existing IDs incl. sidecars (restart safety), cross-day reuse (section 12).
+  pre-existing IDs incl. sidecars (restart safety), and the index check that
+  keeps an ID an older day's row still owns out of a later day's draws.
 - `internal/meta/` -- sidecar write -> reimage rebuild round-trip (section 8.5);
-  buffered lifecycle (UpdateOnComplete preserves the flag, section 8.4).
-- `internal/sshsrv/` -- flush worker (move+sidecar+clear+remove, offline
+  buffered lifecycle (UpdateOnComplete preserves the flag, section 8.4);
+  a duplicate ID is reported as such and a schema violation is not.
+- `internal/sshsrv/` -- the redraw ladder that keeps an upload alive when an
+  ID is claimed between the draw and the index write, and the categorical
+  reason every post-ID abort owes the client; flush worker (move+sidecar+clear+remove, offline
   no-op, idempotent, section 8.4); SFTP ingest (store+sidecar+metadata,
   truncation, offline buffering, section 4.1).
 - `internal/detect/` -- heuristic classification (extension/sniff/text,
@@ -267,14 +271,6 @@ typically taken by sshd, so a local daemon can't bind it; use
 - The magika detection backend is built only with `-tags magika` (the
   default is the pure-Go heuristic); ONNX Runtime + model vendoring is a
   VM-image-build concern (ui section 6.1, section 14).
-- **Cross-day ID reuse vs the global SQLite PRIMARY KEY**:
-  the allocator's uniqueness scope is per-UTC-day (section 7/section 12, IDs may repeat
-  across days), but `uploads.id` is a global `PRIMARY KEY`, so a 4-char ID
-  reused on a later day collides with a surviving older-day row and fails
-  the upload (clean rejection -- SCP exit 1 / UI 500 -- no corruption). Rare
-  at this tool's volume; a proper fix is a composite `(day, id)` key plus
-  date-scoped `Get`/`Delete` (resolve is already date-scoped, ui section 4.4), or a
-  bounded re-allocate-on-collision retry.
 - Cleanup / retention / aging (section 12).
 - Backup / restore beyond the durable share + sidecars (section 12).
 
@@ -290,6 +286,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08
 
 Back to [Yuruna](../../../../README.md)

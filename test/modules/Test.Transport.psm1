@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 426cd98f-b5bd-4102-91d1-1cc3b6887155
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1034,7 +1034,7 @@ function Send-TextHyperV {
     $kb = Get-HyperVKeyboard -VMName $VMName
     if (-not $kb) { return $false }
     try {
-        # --- REGION: https://yuruna.link/host-io#hyper-v-ps2-scancode-behavior
+        # --- REGION: https://yuruna.link/4222e5f2-0005
         # Break codes for every modifier are issued first: a leftover held
         # modifier makes every later char land shifted, and break-for-not-pressed
         # is a no-op on PS/2, so the prefix is idempotent.

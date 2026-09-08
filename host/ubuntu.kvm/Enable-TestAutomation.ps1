@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 4202d0ff-c419-4c17-bf82-ec1f841f72c7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -502,7 +502,7 @@ if ($gsettings) {
     Write-Output "gsettings not present -- headless server, skipping GNOME idle/lock tweaks."
 }
 
-# --- REGION: https://yuruna.link/memory#why-the-group-membership-probe-uses-getent-rather-than-the-id-command
+# --- REGION: https://yuruna.link/42d69dfa-0022
 $activeGroups = (& id -nG 2>$null) -split '\s+'
 foreach ($grp in @('libvirt','kvm')) {
     $line    = & getent group $grp 2>$null

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 4202eb15-d68a-475f-9f7f-9e84da9b500a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -91,7 +91,7 @@ if (-not $yamlOk) {
 Write-Output "<<< PowerShell module: powershell-yaml installation complete."
 
 # --- REGION: Early yuruna framework extraction
-# --- REGION: https://yuruna.link/memory#why-ubuntu-guest-update-scripts-pre-extract-the-yuruna-tarball
+# --- REGION: https://yuruna.link/42d69dfa-0037
 # Tarball-only here; the git-clone fallback lives in the Materialize section below.
 Write-Output ""
 Write-Output ">>> Pre-fetching yuruna framework tarball (for diagnostic availability)..."
@@ -193,7 +193,7 @@ git --version
 Write-Output "<<< Git ready."
 
 # --- REGION: Resolve framework and project URLs
-# --- REGION: https://yuruna.link/definition#defining-the-two-source-scheme-for-framework-and-project-urls
+# --- REGION: https://yuruna.link/42fa6f45-000c
 # The $yurunaRoot existence guards make this a no-op when the early
 # extract already succeeded.
 $frameworkUrl = ''
@@ -210,7 +210,7 @@ if ($env:YURUNA_STATUS_SERVICE_IP -and $env:YURUNA_STATUS_SERVICE_PORT) {
 }
 
 # --- REGION: Keep git non-interactive
-# --- REGION: https://yuruna.link/network#why-git-never-prompts-here
+# --- REGION: https://yuruna.link/4220a755-004f
 # Belt to the seed's braces. This guest is driven by OCR of a console, so a git
 # credential prompt is a HANG rather than an error: the clone ladders below
 # never fire because the process never exits, and the step spends its whole

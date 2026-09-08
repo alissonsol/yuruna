@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42273fc7-eee1-4ff4-9191-32ad482e41dd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -2284,7 +2284,7 @@ function Format-PoolStorageSize {
 }
 
 # --- REGION: Single-instance lock (pidfile, hardened)
-# --- REGION: https://yuruna.link/test/harness#single-instance-locks
+# --- REGION: https://yuruna.link/42d38664-001e
 # The lock lives HERE, in the orchestrator, rather than in the detached wrapper
 # script: move mode calls the function directly and in-process, so a lock held
 # only by the script would leave the synchronous mover free to race a detached

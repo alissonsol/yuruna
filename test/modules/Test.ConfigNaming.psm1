@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 424e6b7b-ee0a-4ebd-a491-d47db10eedbc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -275,8 +275,18 @@ function Update-RetiredConfigKey {
         }
 
         if ([int]$entry.Factor -ne 1) {
+            # Invariant, explicitly. The value comes out of a config FILE, so
+            # it is machine input and its decimal point is a dot wherever the
+            # file was written. A bare parse reads it through the host's own
+            # culture instead: on a host that writes decimals with a comma,
+            # "1.5" parses as 15, and this line then multiplies that by the
+            # factor and writes the result back -- a migration that silently
+            # scales a setting by ten, in a file the operator will not re-read.
             $n = 0.0
-            if ([double]::TryParse("$value", [ref]$n)) { $value = [int][math]::Round($n * [int]$entry.Factor) }
+            if ([double]::TryParse("$value", [Globalization.NumberStyles]::Float,
+                    [Globalization.CultureInfo]::InvariantCulture, [ref]$n)) {
+                $value = [int][math]::Round($n * [int]$entry.Factor)
+            }
         }
         if (Set-ConfigNamingValueAtPath -Config $Config -Segment $newSeg -Value $value -Confirm:$false) {
             [void]$done.Add([pscustomobject]@{

@@ -19,7 +19,7 @@ import (
 // SHIPPED OFF (--auto-enroll). Turn it on once the pieces it depends on are
 // observed working.
 //
-// --- REGION: https://yuruna.link/pool-admin#auto-enrollment
+// --- REGION: https://yuruna.link/4207d71a-0014
 //
 // Two invariants the `inAPool || excluded` skip below encodes: a host already
 // in a pool is never touched, which keeps "a host belongs to at most one pool"

@@ -1,3 +1,5 @@
+<a id="429fb30b-0001"></a>
+
 # Yuruna install scripts -- rationale
 
 This file collects the load-bearing rationale for the three bootstrap
@@ -23,7 +25,11 @@ used by [memory.md](memory.md), [definition.md](definition.md),
 
 ---
 
+<a id="429fb30b-0002"></a>
+
 ## All hosts (shared rationale)
+
+<a id="429fb30b-0003"></a>
 
 ### Install log
 
@@ -46,6 +52,8 @@ elevated stage to a file under a standard, discoverable location
 and forwarded through every relaunch via `-LogPath`, so the line printed
 before the UAC relaunch names the exact file the elevated window writes,
 and every stage appends to that one file.
+
+<a id="429fb30b-0004"></a>
 
 ### Outcome buckets and the facts store
 
@@ -74,6 +82,8 @@ two ways a fact can be absent -- `declined` (nobody asked for it) and
 the collapse prints "a prerequisite failed" over a run where the
 operator chose not to have the thing.
 
+<a id="429fb30b-0005"></a>
+
 ### Two-repo split
 
 The installer ships in TWO repos that share the same script:
@@ -88,9 +98,11 @@ regardless of which copy runs, so the existing-checkout logic below can
 recognize the remote a previous run cloned from -- and skip a pull that
 would stall waiting for GitHub credentials this run doesn't have.
 
+<a id="429fb30b-0006"></a>
+
 ### Release pinning + signed integrity
 
-`VERSION` (bare CalVer, e.g. `2026.09.01`) is the source of truth for releases.
+`VERSION` (bare CalVer, `YYYY.MM.DD`) is the source of truth for releases.
 At release time `tools/Update-YurunaReleasePins.ps1` regenerates
 `install/install.sha256`, signs it (`install/install.sha256.sig`, RSA-4096),
 runs the ASCII/no-BOM gate as a hard precondition, and bumps the one tag still
@@ -113,6 +125,8 @@ The convenience one-liners stay on `refs/heads/main` (latest, UNVERIFIED). The
 on Windows PowerShell), then the hash, then run -- is documented in
 [install/README.md](../install/README.md); the signing-key fingerprint is in
 [install/keys/README.md](../install/keys/README.md).
+
+<a id="429fb30b-0007"></a>
 
 ### Tolerating a v-prefixed tag ref
 
@@ -140,6 +154,8 @@ In the shell installers the resolver returns the ref on **stdout**, so every
 warning is written to stderr -- otherwise the warning text would be captured
 into `YURUNA_BRANCH` along with the ref.
 
+<a id="429fb30b-0008"></a>
+
 ### Development repo tracks latest main
 
 The private development repo (`yurunadev`) is tagged only at the weekly
@@ -150,6 +166,8 @@ tag. So each installer records whether the ref was supplied explicitly
 (`$script:YurunaBranchExplicit` / `YURUNA_BRANCH_EXPLICIT`) at the top
 rather than comparing against the default value later; an explicit
 request always wins over this fallback.
+
+<a id="429fb30b-0009"></a>
 
 ### System-requirements preflight
 
@@ -169,6 +187,8 @@ prompts, because a host below 16 runs the harness correctly, only slower,
 and no ARM64 Windows machine reaches 16. The check is otherwise silent
 when every requirement is met. On Windows it is gated by `-SkipPreflight`
 so self-relaunches (UAC elevation, PS5->PS7 bootstrap) do not re-prompt.
+
+<a id="429fb30b-000a"></a>
 
 ### Stop running Yuruna processes before updating
 
@@ -218,6 +238,8 @@ to actually exit, and pins the checkout the whole time -- the exact
 "the install proceeds while the runner is still up" failure this step
 guards against.
 
+<a id="429fb30b-000b"></a>
+
 ### PID identity validation before kill
 
 Candidate PIDs are deduplicated, the installer's own PID is dropped,
@@ -251,6 +273,8 @@ kept rather than silently disabling the stop (a degrade to the
 pre-validation behavior). This mirrors the PowerShell side's
 PID-identity check (the `Start-TestRunner.ps1` stale-pid guard).
 
+<a id="429fb30b-000c"></a>
+
 ### Preserve the yuruna-caching-proxy-service VM
 
 The cache VM (`yuruna-caching-proxy-service`) holds tens
@@ -278,6 +302,8 @@ If the cache is running OR its state is uncertain, the macOS installer
 skips the UTM cask upgrade so a quit-UTM window does not let the
 orphaned-bundle sweep delete the multi-GB Squid spool.
 
+<a id="429fb30b-000d"></a>
+
 ### Directory rename that stays a rename
 
 `Move-Item` degrades a failed directory rename into a recursive
@@ -291,6 +317,8 @@ over `[System.IO.Directory]::Move`, which is a rename and nothing else --
 it either succeeds or throws with both paths exactly as they were. Every
 destination is a sibling of its source, so the same-volume restriction
 on `[System.IO.Directory]::Move` never applies.
+
+<a id="429fb30b-000e"></a>
 
 ### Checkout not held open
 
@@ -338,6 +366,8 @@ early return, because either shape can leave `.git` itself on the probe
 side -- and a checkout without `.git` reads as never-cloned, which sends
 the update path into a `git clone` onto a non-empty directory.
 
+<a id="429fb30b-000f"></a>
+
 ### Pull from the local repo's remote, not the script's default
 
 For an existing checkout the installer pulls from whatever remote the
@@ -357,6 +387,8 @@ unauthenticated session can still keep iterating with the last-known-good
 code on disk. `GIT_TERMINAL_PROMPT=0` fails fast on missing credentials
 instead of blocking the installer on an interactive `Username:` prompt.
 
+<a id="429fb30b-0010"></a>
+
 ### Backup-and-reclone on non-ff pull
 
 When `git pull --ff-only` cannot advance the local repo (uncommitted
@@ -367,6 +399,8 @@ surfaces the backup path loudly so the operator can
 salvage local edits before deleting it. The `test/status` runtime state
 was already captured to TEMP by the preservation block above, so cycle
 history survives this path.
+
+<a id="429fb30b-0011"></a>
 
 ### Renormalize line endings under .gitattributes
 
@@ -397,6 +431,8 @@ renormalized (`git add --renormalize .`) so the installer does not
 clobber local edits. Otherwise the index is emptied and `git reset
 --hard HEAD` rebuilds every file under the current `.gitattributes`.
 
+<a id="429fb30b-0012"></a>
+
 ### Preserve test/status runtime state across clone-update
 
 Re-running the installer on a host that has been executing test cycles
@@ -419,6 +455,8 @@ All harness runtime state lives under `test/status/<sub>/`:
 so cycle history, perf JSONL, vault state, training/sequence captures,
 and the generated SSH key pair all survive a clone/update.
 
+<a id="429fb30b-0013"></a>
+
 ### Baseline reset removes test-* VMs
 
 An install is a return-to-baseline operation. Status service + runner
@@ -438,6 +476,8 @@ or `newgrp`, so `virsh` fails with "Permission denied" on
 `/var/run/libvirt/libvirt-sock` the very first time after group add.
 The cleanup therefore runs under `sg libvirt` -- see
 [sg libvirt for the first-run cleanup](#sg-libvirt-for-the-first-run-cleanup).
+
+<a id="429fb30b-0014"></a>
 
 ### Root-artifact sweep — what a sudo run leaves behind
 
@@ -462,6 +502,8 @@ Unix-only by construction. Windows setup runs elevated on purpose, and an
 elevated Windows run writes files the operator's account can still modify,
 so there is no equivalent trap to sweep.
 
+<a id="429fb30b-0015"></a>
+
 ### Enable-TestAutomation.ps1 is NOT auto-run
 
 `host/<platform>/Enable-TestAutomation.ps1` is the explicit opt-in step
@@ -470,6 +512,8 @@ saver, screen-lock registry edits, storage-pool tweaks, Accessibility /
 Screen Recording grants on macOS). Those are host-policy changes the
 operator may not want, so they are left for manual invocation after
 install.
+
+<a id="429fb30b-0016"></a>
 
 ### powershell-yaml install
 
@@ -487,7 +531,11 @@ bootstraps.
 
 ---
 
+<a id="429fb30b-0017"></a>
+
 ## Windows Hyper-V
+
+<a id="429fb30b-0018"></a>
 
 ### ASCII-only constraint
 
@@ -511,6 +559,8 @@ equivalent (e.g. `--` instead of an em-dash) rather than adding a BOM.
 Also captured in
 [memory.md](memory.md#why-the-bootstrap-installer-must-stay-ascii-only).
 
+<a id="429fb30b-0019"></a>
+
 ### param() default + irm | iex compatibility
 
 The `[CmdletBinding()]` + `param()` block is at line 29 (after
@@ -519,6 +569,8 @@ accepts `param()` as a top-of-script construct ONLY when the input has
 no leading BOM and `param()` is positioned after the comment-based help
 blocks. Both conditions are constraints on the file's byte layout, not
 on PowerShell syntax.
+
+<a id="429fb30b-001a"></a>
 
 ### Single-fetch materialization
 
@@ -535,6 +587,8 @@ match the canonical installer.
 Before materializing, the installer sweeps stale materialization temps
 left by a crashed prior run -- only temps older than one hour, so the
 age guard never touches a concurrent run's fresh temp.
+
+<a id="429fb30b-001b"></a>
 
 ### Self-elevation and PS5 -> PS7 bootstrap
 
@@ -567,6 +621,8 @@ top level terminates the hosting PowerShell process, which would close
 the user's own shell when the script is invoked via `irm | iex` in
 their non-admin console.
 
+<a id="429fb30b-001c"></a>
+
 ### winget --source winget pinning
 
 Without `--source winget` on every call, winget searches every
@@ -584,6 +640,8 @@ When that happens winget refuses to pick a source automatically and
 aborts with "Please specify one of them using the `--source` option to
 proceed." Pinning sidesteps the disambiguation.
 
+<a id="429fb30b-001d"></a>
+
 ### DISM.exe direct call, not Get-/Enable-WindowsOptionalFeature
 
 `Get-WindowsOptionalFeature` / `Enable-WindowsOptionalFeature` dispatch
@@ -595,6 +653,8 @@ returned `$feature` becomes `$null` and the enable step is skipped
 without the user noticing, leaving Hyper-V off. `DISM.exe` is a
 plain Win32 tool with no COM dependency and is what the cmdlets wrap
 internally.
+
+<a id="429fb30b-001e"></a>
 
 ### DISM "Enabled" cross-check against vmms presence
 
@@ -608,6 +668,8 @@ the presence of `vmms` and `virtmgmt.msc`; if either is missing, the
 script treats it as just-enabled and sets `$script:RestartNeeded` so
 the finally-block "RESTART REQUIRED" path gives the user one clear
 message.
+
+<a id="429fb30b-001f"></a>
 
 ### try/catch/finally with summary banner
 
@@ -625,6 +687,8 @@ hosting PowerShell process, closing the user's own window when they
 invoked the script directly. Falling through the finally block leaves
 the user at their shell prompt.
 
+<a id="429fb30b-0020"></a>
+
 ### Handoff window with EncodedCommand
 
 All NEXT STEPS guidance lives inside the spawned pwsh window's welcome
@@ -640,12 +704,16 @@ the handoff window doesn't open, the same guidance is printed in the
 admin console with a 60-second `Start-Sleep` to keep the window readable
 (no `Read-Host`, so an accidental Enter cannot end things early).
 
+<a id="429fb30b-0021"></a>
+
 ### Test-SystemRequirement is silent on success
 
 The Windows preflight prints only when something is below baseline, so
 an operator on a tested box gets no extra noise. It uses
 `Get-CimInstance` (more portable than WMI) and converts
 `TotalVisibleMemorySize` (KB) to GB via `/ 1MB`.
+
+<a id="429fb30b-0022"></a>
 
 ### Display scaling check
 
@@ -696,7 +764,11 @@ not in code.
 
 ---
 
+<a id="429fb30b-0023"></a>
+
 ## macOS UTM
+
+<a id="429fb30b-0024"></a>
 
 ### Xcode CLT prereq for Homebrew
 
@@ -705,11 +777,15 @@ because `xcode-select --install` triggers a GUI prompt that the
 operator has to dismiss. Skipping this would leave Homebrew unable to
 build any source-only formula.
 
+<a id="429fb30b-0025"></a>
+
 ### Homebrew architecture detection
 
 `brew shellenv` lives at `/opt/homebrew/bin/brew` on Apple Silicon and
 `/usr/local/bin/brew` on Intel. The installer probes both and `eval`s
 the right one so subsequent steps see `brew` on PATH regardless of CPU.
+
+<a id="429fb30b-0026"></a>
 
 ### Multi-user Homebrew ownership repair
 
@@ -738,6 +814,8 @@ like `etc/bash_completion.d`, `lib/pkgconfig`, or the `share/*`
 man/completion/locale trees, so the installer samples the brew
 install/upgrade write targets directly.
 
+<a id="429fb30b-0027"></a>
+
 ### Quit UTM before cask upgrade, preserve cache if running
 
 `brew upgrade --cask utm` requires UTM closed. The installer
@@ -747,12 +825,16 @@ running (see [Preserve the yuruna-caching-proxy-service VM](#preserve-the-yuruna
 the UTM cask upgrade is skipped this run; it upgrades on the next re-run
 when the cache is stopped (or when the operator quits UTM manually).
 
+<a id="429fb30b-0028"></a>
+
 ### brew_ensure_formula vs brew_ensure_cask
 
 PowerShell ships as a brew formula on some taps and a cask on others.
 The installer tries the formula first via `brew_ensure_formula
 powershell`; if that fails it falls back to `brew_ensure_cask
 powershell`. Either path leaves `pwsh` on PATH for subsequent steps.
+
+<a id="429fb30b-0029"></a>
 
 ### Version floors are repaired, not reported
 
@@ -796,6 +878,8 @@ reach is reported WITH the binary the name resolves to -- a floor no
 build can reach and a newer copy hidden behind an older one on PATH read
 identically without it.
 
+<a id="429fb30b-002a"></a>
+
 ### TCC permissions stay manual
 
 macOS TCC (Privacy & Security -> Accessibility, Screen Recording)
@@ -803,6 +887,8 @@ requires a human click in System Settings -- no script (even with sudo)
 can toggle Accessibility for another process. The installer prints
 the System Settings path in the NEXT STEPS banner instead of trying
 to automate.
+
+<a id="429fb30b-002b"></a>
 
 ### sudo announcement + keepalive
 
@@ -821,6 +907,8 @@ A single `EXIT` trap (`yuruna_install_cleanup`) releases the sudo
 keepalive AND any test/status temp backup on every exit path: normal
 completion, Ctrl-C, `set -e` abort.
 
+<a id="429fb30b-002c"></a>
+
 ### Activate Homebrew PATH in the caller's shell
 
 The installer runs in its own subshell, so `brew`, `pwsh`, `git` from
@@ -831,7 +919,11 @@ patch the current session.
 
 ---
 
+<a id="429fb30b-002d"></a>
+
 ## Ubuntu KVM/libvirt
+
+<a id="429fb30b-002e"></a>
 
 ### ERR trap + _yuruna_step tracking
 
@@ -844,6 +936,8 @@ fires before exit and prints the location (`$BASH_LINENO[0]`),
 command (`$BASH_COMMAND`), and captured exit status. The next failure
 is actionable instead of silent.
 
+<a id="429fb30b-002f"></a>
+
 ### CPU virtualization preflight (vmx/svm)
 
 KVM acceleration requires Intel VT-x or AMD-V. The hard preflight
@@ -852,6 +946,8 @@ harness is unusable, so the installer refuses to burn time on apt/repo
 work when the host cannot host VMs. On aarch64 hosts where
 `/proc/cpuinfo` does not expose `vmx`/`svm`, the check defers to the
 post-install `/dev/kvm` assertion in the final preflight.
+
+<a id="429fb30b-0030"></a>
 
 ### Refresh apt index BEFORE probing for qemu-system-<arch>-hwe
 
@@ -862,6 +958,8 @@ though the HWE one is available. `apt-get update -q` (one quiet, not
 a hung mirror or a signature verification failure aborts the script with
 zero output, making the silent exit "just after Refreshing apt index"
 impossible to diagnose without re-running with `-x`.
+
+<a id="429fb30b-0031"></a>
 
 ### qemu-kvm split on Ubuntu 26.04 (resolute)
 
@@ -878,6 +976,8 @@ assignments" error. Operator override: `YURUNA_QEMU_PKG=qemu-system-x86-hwe`
 to try `-hwe` anyway once a future LTS ships matching `-hwe` libvirt
 and ovmf.
 
+<a id="429fb30b-0032"></a>
+
 ### apt simulate-first
 
 The installer runs apt's solver in `--simulate` mode FIRST. If a
@@ -887,6 +987,8 @@ BEFORE we start installing anything, with the same "X depends
 Y but it is not going to be installed" diagnostic the real install
 would emit. `set -e` + the ERR trap means a non-zero apt-get exit
 prints the abort block naming this step.
+
+<a id="429fb30b-0033"></a>
 
 ### osinfo-db refresh from pagure
 
@@ -910,6 +1012,8 @@ output. Each line is `<canonical-id>, <alias1> <alias2>` -- so a naive
 tail before exact-matching -- a naive exact match masks the
 upstream-import success and keeps the warning printing in
 perpetuity.
+
+<a id="429fb30b-0034"></a>
 
 ### PowerShell apt vs tarball by architecture
 
@@ -940,6 +1044,8 @@ source that gives up ends the upgrade attempt, not the install -- the
 host still has a working interpreter, and the closing summary carries
 the version it is stuck at.
 
+<a id="429fb30b-0035"></a>
+
 ### Version floors on an Ubuntu host
 
 PowerShell is the only tool in the Ubuntu floor list whose sources lead
@@ -955,6 +1061,8 @@ defect on a correctly provisioned machine, every run, with nothing able
 to clear it. A floor here says the host is provisioned, not that it is
 current; Ubuntu also backports security fixes without moving the
 upstream number, so patch level is a separate question from this check.
+
+<a id="429fb30b-0036"></a>
 
 ### libvirt-qemu traverse ACL on $HOME
 
@@ -972,12 +1080,16 @@ default of 0600 would always fail the cross-user read regardless of
 traverse), then `sudo -u libvirt-qemu test -r <probe>`. The test
 isolates the directory-traverse question from the file-mode question.
 
+<a id="429fb30b-0037"></a>
+
 ### Default libvirt network -- start + autostart
 
 The `default` NAT network (`192.168.122.0/24`) is shipped by
 `libvirt-daemon-system` but starts disabled. The installer ensures
 it's autostart + up so `virt-install` can attach guests without a
 manual `virsh net-start`.
+
+<a id="429fb30b-0038"></a>
 
 ### Final preflight — every check is a hard requirement
 
@@ -999,6 +1111,8 @@ seed builder (`genisoimage` or `cloud-localds`), `pwsh` on PATH,
 request, architecture-specific UEFI firmware (`ovmf` /
 `qemu-efi-aarch64`), swtpm + swtpm_setup, GitHub CLI on PATH.
 
+<a id="429fb30b-0039"></a>
+
 ### GitHub CLI via cli.github.com apt repo
 
 `gh` is not pinned to a current version in Ubuntu's default archive.
@@ -1008,6 +1122,8 @@ keyring under `/etc/apt/keyrings`, repo source under
 re-runs -- an existing keyring or source-list file triggers a no-op.
 The binary lands on PATH but is unauthenticated -- run `gh auth login`
 once per host.
+
+<a id="429fb30b-003a"></a>
 
 ### sg libvirt for the first-run cleanup
 
@@ -1031,6 +1147,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08
 
 Back to [Yuruna](../README.md)

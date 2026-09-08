@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42536ec8-4d7e-4727-b52e-55f7f0ca8688
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -136,7 +136,7 @@ function Invoke-Brander {
     param(
         [Parameter(Mandatory)][string]$DashboardDir,
         [string]$Name = 'Yurunadev',
-        [string]$Version = '2026.09.01',
+        [string]$Version = '2026.09.08',
         [switch]$NoEnvFile
     )
     $envFile = Join-Path $DashboardDir '..' | Join-Path -ChildPath 'brand.env'
@@ -275,7 +275,7 @@ Describe 'the brand banner is one line across the top of the dashboards this VM 
         # A line that broke would need a taller banner to be legible, which is
         # the whole cost the layout was chosen to avoid.
         $dir = Get-DashboardFixture -Dashboard $script:RealDashboards
-        Invoke-Brander -DashboardDir $dir -Name 'Yurunadev' -Version '2026.09.01' | Out-Null
+        Invoke-Brander -DashboardDir $dir -Name 'Yurunadev' -Version '2026.09.08' | Out-Null
 
         foreach ($name in $script:RealDashboards.Keys) {
             $doc = Get-Content -Raw (Join-Path $dir "$name.json") | ConvertFrom-Json
@@ -284,7 +284,7 @@ Describe 'the brand banner is one line across the top of the dashboards this VM 
             # nothing, so it is not part of the line being measured.
             $rendered = ($content -replace '(?s)^.*?-->\s*', '')
             Assert-True ($rendered -notmatch '[\r\n]') -Because "$name's banner must be a single line: got [$rendered]"
-            Assert-Equal -Expected ("**Yurunadev**" + $script:Separator + '`v2026.09.01`') -Actual $rendered `
+            Assert-Equal -Expected ("**Yurunadev**" + $script:Separator + '`v2026.09.08`') -Actual $rendered `
                 -Because "$name's banner must hold the name and version apart with non-breaking spaces"
         }
     }
@@ -384,12 +384,17 @@ Describe 'the brand banner is safe to re-run' {
     It 'refreshes the text without moving anything when the identity changes' {
         if (-not $script:Python) { Set-ItResult -Skipped -Because 'python3 is not installed on this host'; return }
 
+        # The version is a variable, not a literal repeated in the assertion.
+        # Written twice, the two copies drift the first time the version moves,
+        # and the assertion then checks for a string the test never asked for.
+        $version = '2026.09.08'
+
         $dir = Get-DashboardFixture -Dashboard $script:RealDashboards
-        Invoke-Brander -DashboardDir $dir -Name 'Yurunadev' -Version '2026.09.01' | Out-Null
+        Invoke-Brander -DashboardDir $dir -Name 'Yurunadev' -Version $version | Out-Null
         $doc = Get-Content -Raw (Join-Path $dir 'pool.json') | ConvertFrom-Json
         $geometry = (Get-Layout -Dashboard $doc).Values -join '|'
 
-        Invoke-Brander -DashboardDir $dir -Name 'Yuruna' -Version '2026.09.01' | Out-Null
+        Invoke-Brander -DashboardDir $dir -Name 'Yuruna' -Version $version | Out-Null
         $doc = Get-Content -Raw (Join-Path $dir 'pool.json') | ConvertFrom-Json
 
         $content = "$((Get-BrandPanel -Dashboard $doc).options.content)"
@@ -400,7 +405,7 @@ Describe 'the brand banner is safe to re-run' {
         # <h4> with no h1/h2/h3 above it, and the brand name is a label, not a
         # section.
         Assert-True ($content -match 'Yuruna(\*\*|\r|\n|$)') -Because 'the refreshed banner must carry the new name'
-        Assert-True ($content -match 'v2026\.09\.01') -Because 'the refreshed banner must carry the new version'
+        Assert-True ($content -match ('v' + [regex]::Escape($version))) -Because 'the refreshed banner must carry the new version'
         Assert-Equal -Expected $geometry -Actual ((Get-Layout -Dashboard $doc).Values -join '|') `
             -Because 'a text refresh must not move the board a second time'
     }

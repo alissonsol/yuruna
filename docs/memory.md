@@ -1,3 +1,5 @@
+<a id="42d69dfa-0001"></a>
+
 # Yuruna memory
 
 This file collects load-bearing rationale comments that used to live
@@ -36,7 +38,11 @@ Adding a new entry:
 
 ---
 
+<a id="42d69dfa-0002"></a>
+
 ## Build / install path
+
+<a id="42d69dfa-0003"></a>
 
 ### Why we patch virt-install's phase-1 XML on KVM
 
@@ -98,6 +104,8 @@ some virt-install versions warn about the combination.
 Source:
 [`host/ubuntu.kvm/guest.ubuntu.server.24/New-VM.ps1`](../host/ubuntu.kvm/guest.ubuntu.server.24/New-VM.ps1).
 
+<a id="42d69dfa-0004"></a>
+
 ### Why we swap boot order 1 and 2 in the install XML?
 
 Even with `on_reboot=restart` patched in, subiquity's post-install
@@ -143,6 +151,8 @@ silent regression back into the `virsh screenshot failed` reboot loop.
 Source:
 [`host/ubuntu.kvm/guest.ubuntu.server.24/New-VM.ps1`](../host/ubuntu.kvm/guest.ubuntu.server.24/New-VM.ps1).
 
+<a id="42d69dfa-0005"></a>
+
 ### Why the bootstrap installer must stay ASCII-only?
 
 `install/windows.hyper-v.ps1` is invoked from a fresh Windows where
@@ -170,6 +180,8 @@ instead of an em-dash) rather than adding a BOM.
 
 Source:
 [`install/windows.hyper-v.ps1`](../install/windows.hyper-v.ps1).
+
+<a id="42d69dfa-0006"></a>
 
 ### Why the arm64 autoinstall apt block writes a curtin-owned sources.list.d entry?
 
@@ -215,6 +227,8 @@ disabling `geoip` makes the mirror election succeed on the first try.
 Source:
 [`host/macos.utm/guest.ubuntu.server.24/New-VM.ps1`](../host/macos.utm/guest.ubuntu.server.24/New-VM.ps1).
 
+<a id="42d69dfa-0007"></a>
+
 ### Why the guest seed's apt Acquire retries are 3 x 30s?
 
 Acquire tuning is a step-budget decision, not a networking preference.
@@ -246,6 +260,8 @@ before any guest script has run.
 Source:
 [`automation/Yuruna.GuestSeed.psm1`](../automation/Yuruna.GuestSeed.psm1).
 
+<a id="42d69dfa-0008"></a>
+
 ### Why osinfo-db variant detection parses canonical-token-first?
 
 Ubuntu 24.04 may not be in the host's `osinfo-db` yet (the shipped
@@ -263,6 +279,8 @@ lookup never matches even when the variant is present.
 
 Source:
 [`host/ubuntu.kvm/guest.ubuntu.server.24/New-VM.ps1`](../host/ubuntu.kvm/guest.ubuntu.server.24/New-VM.ps1).
+
+<a id="42d69dfa-0009"></a>
 
 ### Why the amazonlinux KVM guest uses SeaBIOS, not UEFI?
 
@@ -288,6 +306,8 @@ aarch64 has no BIOS option in QEMU, so UEFI is mandatory there.
 Source:
 [`host/ubuntu.kvm/guest.amazon.linux.2023/New-VM.ps1`](../host/ubuntu.kvm/guest.amazon.linux.2023/New-VM.ps1).
 
+<a id="42d69dfa-000a"></a>
+
 ### Why the macOS UTM ubuntu-server guest uses QEMU and HVF
 
 This guest runs on QEMU+HVF (see the `config.plist.template` comment) to
@@ -299,6 +319,8 @@ guests).
 
 Source:
 [`host/macos.utm/guest.ubuntu.server.24/New-VM.ps1`](../host/macos.utm/guest.ubuntu.server.24/New-VM.ps1).
+
+<a id="42d69dfa-000b"></a>
 
 ### Why cache VHDX uses Resize-VHD instead of qemu-img resize?
 
@@ -321,7 +343,11 @@ Source:
 
 ---
 
+<a id="42d69dfa-000c"></a>
+
 ## Test harness path
+
+<a id="42d69dfa-000d"></a>
 
 ### Why YURUNA env vars are snapshotted and re-asserted across inner spawns?
 
@@ -365,6 +391,8 @@ per-spawn, not snapshotted).
 Source:
 [`test/Start-TestRunner.ps1`](../test/Start-TestRunner.ps1).
 
+<a id="42d69dfa-000e"></a>
+
 ### Why the inner spawn uses the call operator instead of Start-Process?
 
 The outer test runner invokes the inner `pwsh` via the call operator
@@ -385,6 +413,8 @@ redirection, control returns cleanly to the outer.
 Source:
 [`test/Start-TestRunner.ps1`](../test/Start-TestRunner.ps1).
 
+<a id="42d69dfa-000f"></a>
+
 ### Why the diagnostic shows recent .yuruna/ file mtime as cycle footprint?
 
 The yuruna runner streams its real-time log to a `GetTempFileName`
@@ -404,6 +434,8 @@ is, and the last few files hint at which stage was reached:
 Source:
 [`automation/Get-SystemDiagnostic.ps1`](../automation/Get-SystemDiagnostic.ps1).
 
+<a id="42d69dfa-0010"></a>
+
 ### Why the installer's baseline reset removes legacy test VMs?
 
 An install is a "return-to-baseline" operation. Status service +
@@ -421,6 +453,8 @@ the remaining VMs.
 
 Source:
 [`install/windows.hyper-v.ps1`](../install/windows.hyper-v.ps1).
+
+<a id="42d69dfa-0011"></a>
 
 ### Why the log tee writes HTML-encoded severity spans?
 
@@ -445,6 +479,8 @@ tag is additive and never gates whether a line is written.
 
 Source:
 [`automation/Yuruna.Log.psm1`](../automation/Yuruna.Log.psm1).
+
+<a id="42d69dfa-0012"></a>
 
 ### Why port-ownership diagnostics live in one module?
 
@@ -487,6 +523,8 @@ best-effort identity helpers those classifications report with.
 Source:
 [`test/modules/Test.PortOwner.psm1`](../test/modules/Test.PortOwner.psm1).
 
+<a id="42d69dfa-0013"></a>
+
 ### Why warm resume is sound?
 
 On an eligible transient workload failure the runner re-runs the failed
@@ -523,6 +561,8 @@ record.
 Source:
 [`test/modules/Test.WarmResume.psm1`](../test/modules/Test.WarmResume.psm1).
 
+<a id="42d69dfa-0014"></a>
+
 ### Why warm resume rewinds to a snapshot?
 
 A checkpoint names the step that FAILED, and its class says why that step
@@ -555,6 +595,8 @@ than no answer at all.
 
 Source:
 [`test/modules/Test.WarmResume.psm1`](../test/modules/Test.WarmResume.psm1).
+
+<a id="42d69dfa-0015"></a>
 
 ### Pester file-scope fixtures
 
@@ -589,6 +631,8 @@ Source:
 [`test/modules/Test.SingleInstance.Tests.ps1`](../test/modules/Test.SingleInstance.Tests.ps1),
 [`test/modules/Test.SuiteHelperAdoption.Tests.ps1`](../test/modules/Test.SuiteHelperAdoption.Tests.ps1).
 
+<a id="42d69dfa-0016"></a>
+
 ### Why the guest SSH-user overrides are anchored in the global scope?
 
 `$GuestSshUserOverrides` holds per-cycle overrides for `Get-GuestSshUser`, populated by the runner (`Invoke-TestRunnerInnerLoop` / `Debug-TestSequence`) from the cycle plan's `effectiveUsername`. That is how a workload's `variables.username:` cascade reaches every SSH callsite routed through `Get-GuestSshUser`: `Wait-SshReady`, `Invoke-GuestSsh`, `Save-GuestDiagnostic`, the host driver `Send-Text` / `Send-Key` SSH-mode dispatchers, and the inner runner's fetchAndExecute SSH path. The alternative -- a `-Username` parameter threaded through every public signature -- would touch every callsite and the host contract for the same outcome.
@@ -596,6 +640,8 @@ Source:
 The table is anchored in the GLOBAL scope because `Save-GuestDiagnostic` and several host drivers `-Force` re-import `Test.Ssh` defensively. A module-scoped `$script:GuestSshUserOverrides = @{}` would be re-initialized on every re-import, wiping the cascade value registered at plan-resolution time and falling SSH auth back to the per-guest default (e.g. `yauser1`) -- breaking exactly the workloads `variables.username:` was meant to serve. This is the same eviction-safe pattern `Test.Output` and the `Test.Registry`-based registries already use. `Set-Variable` / `Get-Variable -Scope Global` is used instead of `$global:` so PSSA's `PSAvoidGlobalVars` stays quiet for the rest of that large module.
 
 Source: [`test/modules/Test.Ssh.psm1`](../test/modules/Test.Ssh.psm1).
+
+<a id="42d69dfa-0017"></a>
 
 ### Why the test.config.yml cache key includes a content hash?
 
@@ -606,6 +652,8 @@ The cache key is absolute path + `LastWriteTimeUtc` + a SHA-256 of the first 64 
 64 KB covers the entire repo's YAML files (the current largest is under 8 KB); reading more on every cache check would negate the benefit of caching for big files. Callers that need a guaranteed fresh read -- the outer loop's failure-pause config-mtime trigger, for instance -- pass `-NoCache`.
 
 Source: [`test/modules/Test.Config.psm1`](../test/modules/Test.Config.psm1).
+
+<a id="42d69dfa-0018"></a>
 
 ### Why the preflight gate child gets empty-pipeline stdin plus -NonInteractive?
 
@@ -642,6 +690,8 @@ edit -- a stale `$LASTEXITCODE` of 0 turns a FAILING gate into
 Source:
 [`test/modules/Test.ConfigPreflight.psm1`](../test/modules/Test.ConfigPreflight.psm1).
 
+<a id="42d69dfa-0019"></a>
+
 ### Why the SSH readiness probe runs in-process with its own wall-clock cap?
 
 `ConnectTimeout=5` only bounds TCP setup. If the SSH banner /
@@ -664,6 +714,8 @@ shorten in-flight detection of a half-dead session to ~6 s, so most
 probes complete well under the cap on a healthy guest.
 
 Source: [`test/modules/Test.Ssh.psm1`](../test/modules/Test.Ssh.psm1).
+
+<a id="42d69dfa-001a"></a>
 
 ### Why the status service exposes a /log-upload/ write endpoint?
 
@@ -691,7 +743,11 @@ Source: [`test/service/Start-StatusService.ps1`](../test/service/Start-StatusSer
 
 ---
 
+<a id="42d69dfa-001b"></a>
+
 ## Host orchestration
+
+<a id="42d69dfa-001c"></a>
 
 ### Why orphaned VM cleanup skips Hyper-V's VirtualMachinePath root?
 
@@ -707,6 +763,8 @@ all of `VirtualHardDiskPath`.
 
 Source:
 [`host/windows.hyper-v/Remove-OrphanedVMFiles.ps1`](../host/windows.hyper-v/Remove-OrphanedVMFiles.ps1).
+
+<a id="42d69dfa-001d"></a>
 
 ### Why utmctl list needs a UUID-anchored parser?
 
@@ -724,6 +782,8 @@ regex avoids the spacing trap entirely.
 
 Source:
 [`host/macos.utm/Remove-OrphanedVMFiles.ps1`](../host/macos.utm/Remove-OrphanedVMFiles.ps1).
+
+<a id="42d69dfa-001e"></a>
 
 ### Why Remove-VM on KVM omits remove-all-storage?
 
@@ -747,6 +807,8 @@ everything we created under `~/yuruna/vms/<vmname>/`, so plain
 
 Source:
 [`host/ubuntu.kvm/modules/Yuruna.Host.psm1`](../host/ubuntu.kvm/modules/Yuruna.Host.psm1).
+
+<a id="42d69dfa-001f"></a>
 
 ### Why the libvirt bridge self-heal probes brif and activates the slave?
 
@@ -773,6 +835,8 @@ name and let the operator see the downstream timeout in full context.
 Source:
 [`host/ubuntu.kvm/modules/Yuruna.Host.psm1`](../host/ubuntu.kvm/modules/Yuruna.Host.psm1).
 
+<a id="42d69dfa-0020"></a>
+
 ### Why the bridge residue sweep covers three backends
 
 `Clear-YurunaExternalBridgeResidue` removes every stranded artifact a
@@ -796,6 +860,8 @@ way:
 Source:
 [`host/ubuntu.kvm/modules/Yuruna.Host.psm1`](../host/ubuntu.kvm/modules/Yuruna.Host.psm1).
 
+<a id="42d69dfa-0021"></a>
+
 ### Why Remove-MacHostProxy sets state-off as the LAST step?
 
 `networksetup` has no "remove server" verb; setting `0.0.0.0:0` is
@@ -815,6 +881,8 @@ private helper suppresses to avoid a double-prompt.
 Source:
 [`host/macos.utm/modules/Yuruna.Host.psm1`](../host/macos.utm/modules/Yuruna.Host.psm1).
 
+<a id="42d69dfa-0022"></a>
+
 ### Why the group-membership probe uses getent rather than the id command?
 
 `id -nG` reports the RUNNING shell's group set, which was sampled at
@@ -830,6 +898,8 @@ member?") without depending on the shell's snapshot.
 
 Source:
 [`host/ubuntu.kvm/Enable-TestAutomation.ps1`](../host/ubuntu.kvm/Enable-TestAutomation.ps1).
+
+<a id="42d69dfa-0023"></a>
 
 ### Why Get-CacheVmCandidateIp emits a bare pipeline?
 
@@ -851,6 +921,8 @@ pipeline shape avoids three traps:
 
 Source:
 [`host/windows.hyper-v/modules/Yuruna.Host.psm1`](../host/windows.hyper-v/modules/Yuruna.Host.psm1).
+
+<a id="42d69dfa-0024"></a>
 
 ### Why stash-service bring-up waits for the daemon, not just the VM?
 
@@ -880,6 +952,8 @@ runtime dir must still be told its daemon never started.
 
 Source:
 [`test/service/Start-StashServiceVM.ps1`](../test/service/Start-StashServiceVM.ps1).
+
+<a id="42d69dfa-0025"></a>
 
 ### Why the service daemons bind low ports with AmbientCapabilities, not setcap
 
@@ -927,6 +1001,8 @@ Source:
 [`guest/ubuntu.server.26/ubuntu.server.26.pool-control-service.sh`](../guest/ubuntu.server.26/ubuntu.server.26.pool-control-service.sh),
 [`guest/ubuntu.server.26/ubuntu.server.26.download-agent-service.sh`](../guest/ubuntu.server.26/ubuntu.server.26.download-agent-service.sh).
 
+<a id="42d69dfa-0026"></a>
+
 ### Why the stash guest masks the OS sshd instead of disabling it
 
 The stash daemon IS the guest's SSH endpoint: it speaks the SCP/SFTP
@@ -967,6 +1043,8 @@ service first.
 Source:
 [`guest/ubuntu.server.26/ubuntu.server.26.stash-service.sh`](../guest/ubuntu.server.26/ubuntu.server.26.stash-service.sh).
 
+<a id="42d69dfa-0027"></a>
+
 ### Why Set-HostAlias writes the hosts file via a staged sibling swap?
 
 The rewritten hosts file is written UTF-8 WITHOUT a BOM: a leading
@@ -986,6 +1064,8 @@ would bind as an empty path and fault.
 Source:
 [`automation/Set-HostAlias.ps1`](../automation/Set-HostAlias.ps1).
 
+<a id="42d69dfa-0028"></a>
+
 ### Why the networkStorage vault sync probes before prompting, and rewrites on drift?
 
 `Sync-ConfigSyncVaultCredential` converges every networkStorage user's vault entry onto the credential the REFERENCE host holds, fetched over the token-gated, encrypted endpoint, prompting the operator only for what the reference cannot supply. Two rules earn their keep:
@@ -999,7 +1079,11 @@ Source: [`test/modules/Test.ConfigServiceSync.psm1`](../test/modules/Test.Config
 
 ---
 
+<a id="42d69dfa-0029"></a>
+
 ## System diagnostics
+
+<a id="42d69dfa-002a"></a>
 
 ### Why Get-SystemDiagnostic wraps each section in Invoke-DiagnosticSection?
 
@@ -1017,6 +1101,8 @@ operator can jump straight to the failing line.
 
 Source:
 [`automation/Get-SystemDiagnostic.ps1`](../automation/Get-SystemDiagnostic.ps1).
+
+<a id="42d69dfa-002b"></a>
 
 ### Why the CPU section guards against /proc/cpuinfo AutomationNull?
 
@@ -1038,6 +1124,8 @@ break the downstream `.Count` comparison.
 Source:
 [`automation/Get-SystemDiagnostic.ps1`](../automation/Get-SystemDiagnostic.ps1).
 
+<a id="42d69dfa-002c"></a>
+
 ### Why Get-SystemDiagnostic flags helm releases not in deployed/superseded states?
 
 `helm install` is the most common cycle-aborting step in this
@@ -1057,6 +1145,8 @@ upgrade). Anything else -- `failed`, `pending-*`, `uninstalling`,
 Source:
 [`automation/Get-SystemDiagnostic.ps1`](../automation/Get-SystemDiagnostic.ps1).
 
+<a id="42d69dfa-002d"></a>
+
 ### Why empty namespaces are flagged as "helm install never landed"?
 
 On a yuruna cycle the namespace is created early (often by
@@ -1074,6 +1164,8 @@ smoking gun for "helm install never landed".
 Source:
 [`automation/Get-SystemDiagnostic.ps1`](../automation/Get-SystemDiagnostic.ps1).
 
+<a id="42d69dfa-002e"></a>
+
 ### Why the journalctl sample redacts Get-SystemDiagnostic's own script echo?
 
 PowerShell's `ScriptBlock_Compile_Detail` logging emits the body of
@@ -1088,6 +1180,8 @@ lines carrying the source.
 
 Source:
 [`automation/Get-SystemDiagnostic.ps1`](../automation/Get-SystemDiagnostic.ps1).
+
+<a id="42d69dfa-002f"></a>
 
 ### Why the .yuruna/ grep filters trigger-word identifiers via a denylist?
 
@@ -1118,6 +1212,8 @@ unexpectedly quiet section still shows the denylist did its job.
 Source:
 [`automation/Get-SystemDiagnostic.ps1`](../automation/Get-SystemDiagnostic.ps1).
 
+<a id="42d69dfa-0030"></a>
+
 ### Why SUMMARY is outside Invoke-DiagnosticSection?
 
 SUMMARY sits OUTSIDE `Invoke-DiagnosticSection` deliberately: if it
@@ -1130,7 +1226,11 @@ Source:
 
 ---
 
+<a id="42d69dfa-0031"></a>
+
 ## Resource / project pipeline
+
+<a id="42d69dfa-0032"></a>
 
 ### Why Set-Resource fails fast on empty tofu outputs?
 
@@ -1149,6 +1249,8 @@ not on a confused kubelet event.
 
 Source:
 [`automation/Yuruna.Resource.psm1`](../automation/Yuruna.Resource.psm1).
+
+<a id="42d69dfa-0033"></a>
 
 ### Why tofu init retries before failing?
 
@@ -1170,6 +1272,8 @@ retry sits **inside** the per-resource helper so the captured
 
 Source:
 [`automation/Yuruna.Resource.psm1`](../automation/Yuruna.Resource.psm1).
+
+<a id="42d69dfa-0034"></a>
 
 ### Why Set-Resource uses a saved planfile for apply?
 
@@ -1195,6 +1299,8 @@ rather than hard-failing.
 Source:
 [`automation/Yuruna.Resource.psm1`](../automation/Yuruna.Resource.psm1).
 
+<a id="42d69dfa-0035"></a>
+
 ### Why tofu failure throws include the stderr tail?
 
 The per-resource `tofu.stderr.log` lives inside the guest VM and gets
@@ -1216,6 +1322,8 @@ Source:
 [`automation/Yuruna.Resource.psm1`](../automation/Yuruna.Resource.psm1).
 
 ---
+
+<a id="42d69dfa-0036"></a>
 
 ### Why ubuntu guest update scripts install PowerShell first?
 
@@ -1241,6 +1349,8 @@ Source:
 [`guest/amazon.linux.2023/amazon.linux.2023.update.sh`](../guest/amazon.linux.2023/amazon.linux.2023.update.sh).
 
 ---
+
+<a id="42d69dfa-0037"></a>
 
 ### Why ubuntu guest update scripts pre-extract the yuruna tarball?
 
@@ -1281,6 +1391,8 @@ Source:
 [`guest/windows.11/windows.11.update.ps1`](../guest/windows.11/windows.11.update.ps1).
 
 ---
+
+<a id="42d69dfa-0038"></a>
 
 ### Why ubuntu / AL2023 guest update scripts wrap Install-Module powershell-yaml with pwsh_retry?
 
@@ -1337,6 +1449,8 @@ Source:
 
 ---
 
+<a id="42d69dfa-0039"></a>
+
 ### Why fetch-and-execute tees into a well-known per-run log?
 
 [`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh)
@@ -1364,6 +1478,8 @@ Source:
 
 ---
 
+<a id="42d69dfa-003a"></a>
+
 ### Why fetch-and-execute self-heals the yuruna_retry library?
 
 [`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh)
@@ -1382,6 +1498,8 @@ Source:
 [`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh).
 
 ---
+
+<a id="42d69dfa-003b"></a>
 
 ### Why the Yuruna result-manifest is shaped this way?
 
@@ -1413,6 +1531,8 @@ literal hashtable.
 Source:
 [`automation/Yuruna.Result.psm1`](../automation/Yuruna.Result.psm1).
 
+<a id="42d69dfa-003c"></a>
+
 ### Why Set-Resource pre-seeds TF_PLUGIN_CACHE_DIR?
 
 `Publish-ResourceList` points `TF_PLUGIN_CACHE_DIR` at an on-disk
@@ -1435,6 +1555,8 @@ because every resource is its own working dir with its own
 Source:
 [`automation/Yuruna.Resource.psm1`](../automation/Yuruna.Resource.psm1).
 
+<a id="42d69dfa-003d"></a>
+
 ### Why Publish-ComponentList splits its pipeline through a state hashtable?
 
 `Invoke-ComponentCommand` replays each phase's captured streams via
@@ -1453,6 +1575,8 @@ mutate it; a plain `$manifest = $_` would only write the child scope.
 
 Source:
 [`automation/Yuruna.Component.psm1`](../automation/Yuruna.Component.psm1).
+
+<a id="42d69dfa-003e"></a>
 
 ### Why the chart deploy lints before installing?
 
@@ -1473,6 +1597,8 @@ and fails the cycle before install.
 Source:
 [`automation/Yuruna.Workload.psm1`](../automation/Yuruna.Workload.psm1).
 
+<a id="42d69dfa-003f"></a>
+
 ### Why the chart deploy rolls back pending helm releases pre-flight?
 
 A watchdog SIGKILL of helm mid-upgrade (or a host crash) leaves the
@@ -1491,6 +1617,8 @@ then falls through to `helm uninstall --no-hooks` so the next
 
 Source:
 [`automation/Yuruna.Workload.psm1`](../automation/Yuruna.Workload.psm1).
+
+<a id="42d69dfa-0040"></a>
 
 ### Why chart deploys use one atomic helm upgrade?
 
@@ -1515,7 +1643,11 @@ Source:
 
 ---
 
+<a id="42d69dfa-0041"></a>
+
 ## Kubernetes guest bootstrap
+
+<a id="42d69dfa-0042"></a>
 
 ### Why the k8s guest configures the docker registry mirror before installing docker-ce?
 
@@ -1540,6 +1672,8 @@ Source:
 
 ---
 
+<a id="42d69dfa-0043"></a>
+
 ### Why the k8s guest fetches the Flannel manifest from the in-tree path at the latest-release tag?
 
 The install tracks the newest Flannel release but fetches the in-tree
@@ -1563,6 +1697,8 @@ Source:
 (and its `ubuntu.server.26` sibling).
 
 ---
+
+<a id="42d69dfa-0044"></a>
 
 ### Why the k8s guest wraps the OpenTofu install in a retry with a pinned version?
 
@@ -1594,6 +1730,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08
 
 Back to [Yuruna](../README.md)

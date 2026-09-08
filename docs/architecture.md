@@ -1,6 +1,10 @@
+<a id="42e568c8-0001"></a>
+
 # Yuruna Architecture
 
 Cross-cutting concepts every other doc links to rather than repeats.
+
+<a id="42e568c8-0002"></a>
 
 ## Three capabilities
 
@@ -15,6 +19,8 @@ Cross-cutting concepts every other doc links to rather than repeats.
 3. **Test harness** -- continuous VM creation + validation across hosts
    and guests, with status service, notifications, and extensible
    sequences. See [Test harness](test-harness.md).
+
+<a id="42e568c8-0003"></a>
 
 ## Three-phase deployment model
 
@@ -33,6 +39,8 @@ next:
 | Resources  | `resources.yml`  | Provision clusters, registries, IPs |
 | Components | `components.yml` | Build and push Docker images |
 | Workloads  | `workloads.yml`  | Deploy Helm charts |
+
+<a id="42e568c8-0004"></a>
 
 ## CLI entry points
 
@@ -63,6 +71,8 @@ Test-Runtime.ps1
 [Yuruna Authentication](authentication.md). Which streams reach the
 console is set by `-logLevel`: [Yuruna Log Levels](loglevels.md).
 
+<a id="42e568c8-0005"></a>
+
 ## Project layout
 
 ```
@@ -85,7 +95,11 @@ the deploy engine, and `project/` is re-cloned every cycle rather than tracked.
 [Context and components](design/01-context-and-components.md) draws the blocks
 and names every place the boundaries diverge.
 
+<a id="42e568c8-0006"></a>
+
 ## Reusable conventions
+
+<a id="42e568c8-0007"></a>
 
 ### `YurunaCacheContent` cache-buster
 
@@ -95,15 +109,21 @@ One-liners (`irm ...$nc | iex`, `fetch-and-execute.sh`) read
 shell profiles), and the companion Squid VM:
 [Caching](caching.md).
 
+<a id="42e568c8-0008"></a>
+
 ### Cost warning
 
 Cloud resources incur charges. Always [clean up](kubernetes.md#cleaning-up-cloud-resources) what
 you stop using.
 
+<a id="42e568c8-0009"></a>
+
 ### Windows line endings
 
 Before cloning on Windows:
 `git config --global core.autocrlf input`
+
+<a id="42e568c8-000a"></a>
 
 ### Per-phase `*.stderr.log` catalog
 
@@ -117,6 +137,8 @@ each `*.rc` against in-cluster state to flag a silent success-without-effect
 
 Per-phase paths, the producer of each pair, and how the diagnostic reads them:
 [the sidecar contract](design/03-data-flows.md#the-stderrlog--rc-sidecar-contract).
+
+<a id="42e568c8-000b"></a>
 
 ### Atomic resource work-folder staging
 
@@ -142,6 +164,8 @@ Three properties are load-bearing:
   between the two moves leaves only `<workFolder>.old`; without the guard the
   next `tofu apply` runs against a folder with no provider state and usually
   destroys live cloud resources.
+
+<a id="42e568c8-000c"></a>
 
 ### Shared transient-failure retry policy
 
@@ -208,6 +232,8 @@ Multiple hosts sharing one Squid egress IP can fail inside a
 sub-second window -- that is a shared upstream event, not per-host
 configuration.
 
+<a id="42e568c8-000d"></a>
+
 ## License
 
 Scripts and examples are provided "as is". See [Yuruna License](../LICENSE.md).
@@ -218,6 +244,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08
 
 Back to [Yuruna](../README.md)

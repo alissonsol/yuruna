@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42c9925e-2253-438b-b583-954a89683f39
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -45,7 +45,7 @@ function Invoke-DiagPicker {
     } $Current $Candidate
 }
 
-# --- REGION: https://yuruna.link/memory#pester-file-scope-fixtures
+# --- REGION: https://yuruna.link/42d69dfa-0015
 function Get-DiagModuleAst {
     $errs = $null
     $ast = [System.Management.Automation.Language.Parser]::ParseFile($modPath, [ref]$null, [ref]$errs)

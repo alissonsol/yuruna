@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42551ffa-1dbb-4832-a894-196282de212c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,7 +19,7 @@
 # Finds and clears the durable state a `sudo` run of the entry points leaves
 # behind. Unix-only: an elevated Windows run writes files the operator's
 # account can still modify, so there is no equivalent trap to sweep.
-# --- REGION: https://yuruna.link/install/explained#root-artifact-sweep--what-a-sudo-run-leaves-behind
+# --- REGION: https://yuruna.link/429fb30b-0014
 
 $script:RootArtifactProcessTimeoutSeconds = 20
 

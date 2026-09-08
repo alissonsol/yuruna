@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 4234ee0c-21ea-43ed-ad32-56a9835e71aa
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -45,12 +45,12 @@ param(
 $global:InformationPreference = "Continue"
 $global:ProgressPreference    = "SilentlyContinue"
 
-# --- REGION: https://yuruna.link/extensions-api#service-scripts-run-at-erroractionpreference-continue
+# --- REGION: https://yuruna.link/42fffc2c-000b
 # Left at the inherited 'Continue' deliberately, and it must stay that way:
 # 'Stop' is not scoped to this script and would promote every host-contract
 # helper's non-terminating error. Hard stops here are explicit Write-Error + exit.
 
-# --- REGION: https://yuruna.link/loglevels#propagation-across-pwsh-boundaries
+# --- REGION: https://yuruna.link/42162449-0004
 # After the preference assignments above on purpose: an explicit level is the
 # operator's choice and replaces this script's own default.
 Import-Module (Join-Path $PSScriptRoot '../modules/Test.LogLevel.psm1') -Global -Force -DisableNameChecking

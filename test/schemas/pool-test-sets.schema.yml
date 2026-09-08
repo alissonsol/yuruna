@@ -63,6 +63,7 @@ properties:
             type: string
         displayName:
           type: string
+          maxLength: 160
           description: >
             Human-readable label for the operator board. The derived `name` is
             built for uniqueness, which is the wrong property for something a
@@ -71,10 +72,46 @@ properties:
             to `name` when absent.
         description:
           type: string
+          maxLength: 2000
           description: One line shown under displayName on the operator board.
+        displayNameLocalized:
+          $ref: "#/$defs/projectLocaleDisplayNameMap"
+          description: >
+            Optional project-authored translations carried without resolving
+            them in the runner process. HTTP consumers select only the exact
+            canonical locale already resolved for their request.
+        descriptionLocalized:
+          $ref: "#/$defs/projectLocaleDescriptionMap"
         discovered:
           type: boolean
           description: >
             True when this entry was learned from a host's self-report rather
             than authored by an operator. Lets the UI distinguish the two and
             lets a re-scan avoid clobbering hand-authored rows.
+
+$defs:
+  projectLocaleDisplayNameMap:
+    type: object
+    minProperties: 1
+    maxProperties: 16
+    propertyNames:
+      pattern: "^(?:qps-Plocm|[a-z]{2,3}(?:-(?:[A-Z]{2}|[A-Z][a-z]{3}|[0-9][a-z0-9]{3}|[a-z0-9]{3}|[a-z0-9]{5,8}))*)$"
+      maxLength: 35
+      not: { const: en-US }
+    additionalProperties:
+      type: string
+      minLength: 1
+      maxLength: 160
+
+  projectLocaleDescriptionMap:
+    type: object
+    minProperties: 1
+    maxProperties: 16
+    propertyNames:
+      pattern: "^(?:qps-Plocm|[a-z]{2,3}(?:-(?:[A-Z]{2}|[A-Z][a-z]{3}|[0-9][a-z0-9]{3}|[a-z0-9]{3}|[a-z0-9]{5,8}))*)$"
+      maxLength: 35
+      not: { const: en-US }
+    additionalProperties:
+      type: string
+      minLength: 1
+      maxLength: 2000

@@ -3,16 +3,16 @@
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #vim:syntax=yaml
 # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service
-# --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#squid-cache-hostname-vs-template-name
+# --- REGION: https://yuruna.link/429f3d06-0033
 hostname: yuruna-caching-proxy-service
-# --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#users-replace-cloud-image-default-with-a-per-vm-admin-account
+# --- REGION: https://yuruna.link/429f3d06-0034
 users:
   - name: caching-proxy-service-admin
     gecos: caching-proxy-service debug user
     sudo: ALL=(ALL) NOPASSWD:ALL
     shell: /bin/bash
     lock_passwd: false
-    # --- REGION: https://yuruna.link/vmconfig#unlocked-account-needs-plain_text_passwd
+    # --- REGION: https://yuruna.link/429f3d06-000d
     plain_text_passwd: PASSWORD_PLACEHOLDER
     ssh_authorized_keys:
       - SSH_AUTHORIZED_KEY_PLACEHOLDER
@@ -23,7 +23,7 @@ chpasswd:
       password: PASSWORD_PLACEHOLDER
       type: text
 ssh_pwauth: true
-# --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#grafana-apt-repo-inline-gpg-key
+# --- REGION: https://yuruna.link/429f3d06-0035
 apt:
   sources:
     grafana.list:
@@ -72,11 +72,11 @@ apt:
         -----END PGP PUBLIC KEY BLOCK-----
 package_update: true
 packages:
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#package-squid-openssl-not-squid
+  # --- REGION: https://yuruna.link/429f3d06-0036
   - squid-openssl
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#squidclient-and-apache2
+  # --- REGION: https://yuruna.link/429f3d06-0037
   - apache2
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#monitoring-stack-packages
+  # --- REGION: https://yuruna.link/429f3d06-0038
   - prometheus
   # Host-level CPU/memory/disk/network: answers "is the box starved or is the
   # service blocked?" -- the first question a stalled cache raises.
@@ -84,24 +84,24 @@ packages:
   - grafana
   - loki
   - promtail
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#package-acl-for-promtail-log-read
+  # --- REGION: https://yuruna.link/429f3d06-0039
   - acl
   - golang-go
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#network-debugging-tool-packages
+  # --- REGION: https://yuruna.link/429f3d06-003a
   - net-tools       # ifconfig, netstat, route, arp
   - iputils-ping    # ping, ping6
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#package-openssl-for-ca-generation
+  # --- REGION: https://yuruna.link/429f3d06-003b
   - openssl
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#package-unattended-upgrades
+  # --- REGION: https://yuruna.link/429f3d06-003c
   - unattended-upgrades
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#packages-cifs-utils-and-sqlite3-for-nas-replication
+  # --- REGION: https://yuruna.link/429f3d06-003d
   - cifs-utils
   - sqlite3
   # jq: parse the config service JSON (NAS creds) without shell-quoting the password.
   - jq
   # === YURUNA_OVERLAY_HOST_AGENT_PKG ===
 write_files:
-  # --- REGION: https://yuruna.link/network#why-sshd-notices-a-client-that-left
+  # --- REGION: https://yuruna.link/4220a755-004c
   - path: /etc/ssh/sshd_config.d/60-yuruna-keepalive.conf
     permissions: '0644'
     owner: root:root
@@ -110,7 +110,7 @@ write_files:
       ClientAliveCountMax 4
       TCPKeepAlive yes
   # === YURUNA_OVERLAY_NIC_OFFLOAD ===
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#apt-retries-on-transient-errors
+  # --- REGION: https://yuruna.link/429f3d06-003e
   - path: /etc/apt/apt.conf.d/80-yuruna-retries
     permissions: '0644'
     owner: root:root
@@ -121,7 +121,7 @@ write_files:
       // installs unattended-upgrades and arms the apt-daily timers, which can
       // hold the lock during first boot.
       DPkg::Lock::Timeout "300";
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#unattended-upgrades-schedule
+  # --- REGION: https://yuruna.link/429f3d06-003f
   - path: /etc/apt/apt.conf.d/20auto-upgrades
     permissions: '0644'
     owner: root:root
@@ -129,7 +129,7 @@ write_files:
       APT::Periodic::Update-Package-Lists "1";
       APT::Periodic::Unattended-Upgrade "1";
       APT::Periodic::AutocleanInterval "7";
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#pool-intent-store-over-read-only-http
+  # --- REGION: https://yuruna.link/429f3d06-0040
   - path: /etc/apache2/conf-available/yuruna-pool-intent.conf
     permissions: '0644'
     owner: root:root
@@ -142,12 +142,12 @@ write_files:
           Require ip 172.16.0.0/12
           Require ip 192.168.0.0/16
       </Directory>
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#squidclient-and-apache2
+  # --- REGION: https://yuruna.link/429f3d06-0037
   - path: /etc/apache2/conf-available/yuruna-landing.conf
     permissions: '0644'
     owner: root:root
     content: |
-      # --- REGION: https://yuruna.link/caching#the-bare-80-redirect-and-what-must-not-be-redirected
+      # --- REGION: https://yuruna.link/42f6b05f-0044
       # Bare :80 serves the landing page: an index of this lab's dashboards and
       # extension services, each linked only where it is actually reachable.
       #
@@ -184,7 +184,7 @@ write_files:
       # The daemon being down must read as an error on the landing page alone,
       # not as a proxy that retries forever while the operator waits.
       ProxyTimeout 5
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#squid-drop-in-config-approach
+  # --- REGION: https://yuruna.link/429f3d06-0041
   - path: /etc/squid/conf.d/yuruna.conf
     permissions: '0644'
     owner: root:root
@@ -207,7 +207,7 @@ write_files:
 
       http_access allow yuruna_local
 
-      # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#snapshot-cache-tuning
+      # --- REGION: https://yuruna.link/429f3d06-0042
       # cache_replacement_policy MUST appear before cache_dir (squid binds
       # the policy at cache_dir parse time; a later override has no effect).
       cache_replacement_policy heap LFUDA
@@ -249,7 +249,7 @@ write_files:
       # squid-meta-exporter.sh; the stock `localhost manager` ACL keeps it off the LAN.
       cachemgr_passwd none config
 
-      # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#upstream-stall-and-fetch-pooling-guards
+      # --- REGION: https://yuruna.link/429f3d06-0043
       # Never abort a partial download -- the next client still gets a hit.
       quick_abort_min -1 KB
       # Bound upstream inactivity (squid's default is 15 minutes); matches the
@@ -283,12 +283,12 @@ write_files:
       refresh_pattern -i /dep11/.+\.yml(\.gz|\.xz)?$    0 0%  60
 
       # --- REGION: Container registry caching (OCI + Docker v2)
-      # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#snapshot-cache-tuning
+      # --- REGION: https://yuruna.link/429f3d06-0042
       # Digest-pinned URLs only (the `sha256:` path segment is immutable);
       # tag-based manifest URLs are governed by the gate below -- tags ARE mutable.
       refresh_pattern -i /(manifests|blobs)/sha256:[0-9a-f]+ 525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
 
-      # --- REGION: https://yuruna.link/caching#keeping-tag-resolution-off-a-metered-upstream
+      # --- REGION: https://yuruna.link/42f6b05f-0021
       # Freshness floor on tag -> digest resolution, the metered operation.
       # Reaches only registries that answer a manifest without a bearer token
       # (Docker Hub always sends one, so Hub is NOT governed here). Deliberately
@@ -321,7 +321,7 @@ write_files:
       cache deny yuruna_registry_token_path
 
       # --- REGION: OpenTofu / Terraform provider + binary caching
-      # --- REGION: https://yuruna.link/caching#opentofu-provider--binary-caching
+      # --- REGION: https://yuruna.link/42f6b05f-0013
       refresh_pattern -i \.zip$                                            525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
       refresh_pattern -i ^https?://registry\.opentofu\.org/                525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
       refresh_pattern -i ^https?://releases\.opentofu\.org/                525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
@@ -329,14 +329,14 @@ write_files:
       refresh_pattern -i ^https?://get\.opentofu\.org/                     525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
 
       # --- REGION: GitHub release binary caching
-      # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#github-release-and-helm-chart-pinning
+      # --- REGION: https://yuruna.link/429f3d06-0044
       # Release assets are immutable per tag; whole-host match so non-extensioned
       # binaries (raw `kubectl`, `helm`) are covered too.
       refresh_pattern -i ^https?://github\.com/[^/]+/[^/]+/releases/download/ 525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
       refresh_pattern -i ^https?://objects\.githubusercontent\.com/        525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
 
       # --- REGION: Helm chart + repo index caching
-      # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#github-release-and-helm-chart-pinning
+      # --- REGION: https://yuruna.link/429f3d06-0044
       # `.tgz` is NOT matched by the `\.tar\.gz$` pattern above; chart packages
       # are version-tagged and immutable, so pin the full year.
       refresh_pattern -i \.tgz$                                            525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
@@ -345,7 +345,7 @@ write_files:
       refresh_pattern -i ^https?://kubernetes\.github\.io/.*/index\.yaml$  60     20%  60
       refresh_pattern -i ^https?://charts\.jetstack\.io/.*/index\.yaml$    60     20%  60
 
-      # --- REGION: https://yuruna.link/caching#metered-metadata-endpoints
+      # --- REGION: https://yuruna.link/42f6b05f-0014
       # One-hour freshness floor for metered version-lookup endpoints. Each host
       # needs its own entry: these URLs carry a query string, and the stock
       # `refresh_pattern -i (/cgi-bin/|\?) 0 0% 0` parsed after this file would
@@ -359,8 +359,8 @@ write_files:
 
       logfile_rotate 2
 
-      # --- REGION: https://yuruna.link/caching#ssl_bump-rules
-      # --- REGION: https://yuruna.link/caching#squid-6-parser-traps
+      # --- REGION: https://yuruna.link/42f6b05f-003a
+      # --- REGION: https://yuruna.link/42f6b05f-003b
       acl step1 at_step SslBump1
       http_port 3129 ssl-bump generate-host-certificates=on tls-cert=/etc/squid/ssl_cert/ca.pem tls-key=/etc/squid/ssl_cert/ca.key
       sslcrtd_program /usr/lib/squid/security_file_certgen -s /var/lib/squid/ssl_db -M 4MB
@@ -378,7 +378,7 @@ write_files:
       http_port 3138 require-proxy-header
       http_port 3139 require-proxy-header ssl-bump generate-host-certificates=on tls-cert=/etc/squid/ssl_cert/ca.pem tls-key=/etc/squid/ssl_cert/ca.key
 
-      # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#squid-access-log-and-self-scrape-filtering
+      # --- REGION: https://yuruna.link/429f3d06-0045
       logformat yuruna %ts.%03tu %6tr %>a %Ss/%03>Hs %<st %rm %ru %[un %Sh/%<a %mt "%{User-Agent}>h"
       # Match the exporter by src, not urlpath: a urlpath ACL floods cache.log
       # on every request-less log event (CONNECT tunnels, TLS-bump errors).
@@ -388,7 +388,7 @@ write_files:
       # would clutter the client log, but without it the VM's own egress leaves
       # no trace and a stalled local service cannot be told from a stalled client.
       access_log stdio:/var/log/squid/yuruna_loopback.log yuruna yuruna_selfscrape
-  # --- REGION: https://yuruna.link/caching#no-upstream-mode
+  # --- REGION: https://yuruna.link/42f6b05f-0016
   # The page a refused fetch returns. Squid resolves an unlocalized template
   # name from this directory, so no error_directory override is needed -- and
   # overriding it would replace the whole stock set, not add to it.
@@ -465,7 +465,7 @@ write_files:
           exit 2
           ;;
       esac
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#prometheus-loopback-only
+  # --- REGION: https://yuruna.link/429f3d06-0046
   - path: /etc/default/prometheus
     permissions: '0644'
     owner: root:root
@@ -523,7 +523,7 @@ write_files:
             insecure_skip_verify: true
           static_configs:
             - targets: ['localhost:9400']
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#loki-tiered-retention
+  # --- REGION: https://yuruna.link/429f3d06-0047
   - path: /etc/loki/config.yml
     permissions: '0644'
     owner: root:root
@@ -567,7 +567,7 @@ write_files:
         working_directory: /var/lib/loki/compactor
         retention_enabled: true
         delete_request_store: filesystem
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#promtail-timestamp-only-labels
+  # --- REGION: https://yuruna.link/429f3d06-0048
   - path: /etc/promtail/config.yml
     permissions: '0644'
     owner: root:root
@@ -644,14 +644,14 @@ write_files:
                 source: path
                 value: /metrics
                 drop_counter_reason: metrics_poll
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#promtail-supplementary-groups-drop-in
+  # --- REGION: https://yuruna.link/429f3d06-0049
   - path: /etc/systemd/system/promtail.service.d/yuruna.conf
     permissions: '0644'
     owner: root:root
     content: |
       [Service]
       SupplementaryGroups=proxy zot
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#squid-metadata-exporter
+  # --- REGION: https://yuruna.link/429f3d06-004a
   - path: /usr/local/bin/squid-meta-exporter.sh
     permissions: '0755'
     owner: root:root
@@ -716,7 +716,7 @@ write_files:
       Unit=squid-meta-exporter.service
       [Install]
       WantedBy=timers.target
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#zot-manifest-canary-exporter
+  # --- REGION: https://yuruna.link/429f3d06-004b
   - path: /usr/local/bin/zot-meta-exporter.sh
     permissions: '0755'
     owner: root:root
@@ -939,16 +939,29 @@ write_files:
       [ -r "$PW_META" ] && . "$PW_META" 2>/dev/null
       PW_HAVE=0
       K8S_TOTAL=0; K8S_HELD=0; CNI_TOTAL=0; CNI_HELD=0
+      K8S_LOCAL=0; K8S_COLDSYNC=0; CNI_LOCAL=0; CNI_COLDSYNC=0
       PW_SLOW_SEC=""; PW_SLOW_REF=""
       if [ -r "$PW_ROWS" ]; then
           PW_HAVE=1
           # A row reaching "cold" completed its fetch: the content moved and is
           # now held. Only timeout/failed rows are images a guest would still
           # have to wait for.
+          #
+          # Held and resident are two different facts and are counted apart
+          # here, because one number cannot answer both questions a reader has.
+          # "Held" is what a guest about to pull cares about. "Answered from
+          # storage" is what says whether the cache was already stocked when the
+          # run asked: a set reported entirely held, every image of which the run
+          # had to copy in, was cold for the whole of that run -- and a guest
+          # pulling during it waited out every one of those copies.
           K8S_TOTAL=$(awk -F'\t' '$1=="k8s"{n++} END{print n+0}' "$PW_ROWS")
           K8S_HELD=$(awk  -F'\t' '$1=="k8s" && ($5=="resident"||$5=="cold"){n++} END{print n+0}' "$PW_ROWS")
+          K8S_LOCAL=$(awk -F'\t' '$1=="k8s" && $5=="resident"{n++} END{print n+0}' "$PW_ROWS")
+          K8S_COLDSYNC=$(awk -F'\t' '$1=="k8s" && $5=="cold"{n++} END{print n+0}' "$PW_ROWS")
           CNI_TOTAL=$(awk -F'\t' '$1=="cni"{n++} END{print n+0}' "$PW_ROWS")
           CNI_HELD=$(awk  -F'\t' '$1=="cni" && ($5=="resident"||$5=="cold"){n++} END{print n+0}' "$PW_ROWS")
+          CNI_LOCAL=$(awk -F'\t' '$1=="cni" && $5=="resident"{n++} END{print n+0}' "$PW_ROWS")
+          CNI_COLDSYNC=$(awk -F'\t' '$1=="cni" && $5=="cold"{n++} END{print n+0}' "$PW_ROWS")
           PW_SLOW=$(awk -F'\t' 'BEGIN{m=-1}
               ($5=="resident"||$5=="cold") && ($4+0)>m { m=$4+0; r=$2 }
               END{ if (m>=0) printf "%.3f\t%s", m, r }' "$PW_ROWS")
@@ -977,6 +990,58 @@ write_files:
           PW_LAST_EPOCH=$(date -u -d "$YURUNA_PREWARM_LAST_RUN" +%s 2>/dev/null || echo 0)
       fi
 
+      # --- REGION: Guest-path canary
+      # The request a guest's containerd actually issues, which the canary above
+      # does not make. That one asks for dotnet/sdk:10.0 with no ns=, so zot
+      # resolves the upstream by walking its registry list in file order, and the
+      # entry it lands on has a scheduled poll keeping that tag's content
+      # current: the on-demand sync it triggers finds nothing to copy and settles
+      # as a fast no-op. A guest sends GET with ns=<upstream>, and for the
+      # control-plane set that upstream is registry.k8s.io, whose only entry is
+      # on-demand with no poll behind it. That leg runs in the tens of seconds
+      # whenever the sync has anything to check, against the 30s a pull waits
+      # for response headers -- close enough to the deadline that it has to be
+      # timed rather than inferred from a line that never walks it.
+      #
+      # Asked only for an image the last warm run recorded as held, which keeps
+      # this a revalidation rather than a copy: probing an image the cache does
+      # not hold would spend a full cold sync on every timer tick. ns= also pins
+      # the upstream, so the request cannot fall through to the Docker Hub
+      # catch-all and spend the one metered budget in the lab -- and
+      # registry.k8s.io meters nothing, so the revalidation itself is free.
+      GP_REF=""
+      GP_HAVE=0
+      GP_CODE=0
+      GP_SECONDS=0
+      GP_OK=0
+      GP_UNDER_PATIENCE=0
+      if [ -r "$PW_ROWS" ]; then
+          GP_REF=$(awk -F'\t' '($5=="resident"||$5=="cold") && $2 ~ /^registry\.k8s\.io\// {print $2; exit}' "$PW_ROWS")
+      fi
+      if [ -n "$GP_REF" ]; then
+          GP_HAVE=1
+          GP_UPSTREAM=${GP_REF%%/*}
+          GP_REST=${GP_REF#*/}
+          GP_TAG=${GP_REST##*:}
+          GP_REPO=${GP_REST%:*}
+          # GET, not HEAD: a pull reads the index body and follows it, and a
+          # cache that answers the head of a manifest it cannot then produce
+          # would pass a HEAD-only probe.
+          GP_READ=$(curl -s -o /dev/null --noproxy '*' -m "$PROBE_MAX" \
+                        -H "Accept: ${ACCEPT}" \
+                        -w '%{http_code} %{time_total}' \
+                        "${ZOT}/v2/${GP_REPO}/manifests/${GP_TAG}?ns=${GP_UPSTREAM}" 2>/dev/null)
+          GP_CODE=$(printf '%s' "$GP_READ" | awk '{print $1+0}')
+          GP_SECONDS=$(printf '%s' "$GP_READ" | awk '{printf "%.3f", $2+0}')
+          [ -n "$GP_SECONDS" ] || GP_SECONDS=0
+          [ "$GP_CODE" = "200" ] && GP_OK=1
+          # Same awk comparison as the canary above, for the same reason: the
+          # shell's test builtin errors outright on a fractional operand.
+          if [ "$GP_OK" = 1 ] && awk -v s="$GP_SECONDS" -v p="$CLIENT_PATIENCE" 'BEGIN{exit !(s<=p)}'; then
+              GP_UNDER_PATIENCE=1
+          fi
+      fi
+
       cat > "$TMP" <<EOF_METRICS
       # HELP yuruna_zot_v2_up 1 if zot answers GET /v2/ within 10s (liveness only -- says nothing about the manifest path)
       # TYPE yuruna_zot_v2_up gauge
@@ -987,10 +1052,22 @@ write_files:
       # HELP yuruna_zot_manifest_ok_under_client_patience 1 if the canary returned 200 AND did so within the response-header deadline a real pull applies; 0 whenever a pull against this manifest would have been abandoned, however healthy the answer eventually was
       # TYPE yuruna_zot_manifest_ok_under_client_patience gauge
       yuruna_zot_manifest_ok_under_client_patience $MANIFEST_UNDER_PATIENCE
-      # HELP yuruna_zot_manifest_latency_seconds Elapsed time of a HEAD on the canary tag, which re-runs the on-demand upstream sync
+      # HELP yuruna_zot_manifest_latency_seconds Elapsed time of a HEAD on the canary tag, asked for without ns= and kept current by a scheduled poll, so the sync it re-runs finds nothing to copy; the ns= form a guest sends is yuruna_zot_guest_path_latency_seconds
       # TYPE yuruna_zot_manifest_latency_seconds gauge
       yuruna_zot_manifest_latency_seconds{repo="$CANARY_REPO",tag="$CANARY_TAG"} $MANIFEST_SECONDS
-      # HELP yuruna_zot_manifest_probe_timeout_seconds Cap applied to the canary probe; a latency at this value means it never answered
+      # HELP yuruna_zot_guest_path_probe_available 1 if the last warm run left a held registry.k8s.io image to ask for; 0 means the three readings below are absent, not failing
+      # TYPE yuruna_zot_guest_path_probe_available gauge
+      yuruna_zot_guest_path_probe_available $GP_HAVE
+      # HELP yuruna_zot_guest_path_ok 1 if a GET of that image's manifest carrying ns= returned 200 within the probe cap
+      # TYPE yuruna_zot_guest_path_ok gauge
+      yuruna_zot_guest_path_ok $GP_OK
+      # HELP yuruna_zot_guest_path_ok_under_client_patience 1 if that request also answered within the response-header deadline a real pull applies
+      # TYPE yuruna_zot_guest_path_ok_under_client_patience gauge
+      yuruna_zot_guest_path_ok_under_client_patience $GP_UNDER_PATIENCE
+      # HELP yuruna_zot_guest_path_latency_seconds Elapsed time of a GET carrying ns= against an on-demand upstream with no scheduled poll behind it, which is the request containerd issues for every image a guest pulls
+      # TYPE yuruna_zot_guest_path_latency_seconds gauge
+      yuruna_zot_guest_path_latency_seconds{image="$GP_REF"} $GP_SECONDS
+      # HELP yuruna_zot_manifest_probe_timeout_seconds Cap applied to both canary probes; a latency at this value means the probe never answered
       # TYPE yuruna_zot_manifest_probe_timeout_seconds gauge
       yuruna_zot_manifest_probe_timeout_seconds $PROBE_MAX
       # HELP yuruna_zot_manifest_client_patience_seconds Response-header deadline a real pull applies; latency past this value fails the pull whatever the cache answers afterwards
@@ -1027,10 +1104,14 @@ write_files:
       # TYPE yuruna_prewarm_images_total gauge
       yuruna_prewarm_images_total{set="k8s"} $K8S_TOTAL
       yuruna_prewarm_images_total{set="cni"} $CNI_TOTAL
-      # HELP yuruna_prewarm_images_resident Images of that set the cache holds; every shortfall is an upstream copy a guest waits out inside its own step budget
+      # HELP yuruna_prewarm_images_resident Images of that set the cache HOLDS -- those that answered from local storage plus those the last warm run copied in; every shortfall is an upstream copy a guest waits out inside its own step budget
       # TYPE yuruna_prewarm_images_resident gauge
       yuruna_prewarm_images_resident{set="k8s"} $K8S_HELD
       yuruna_prewarm_images_resident{set="cni"} $CNI_HELD
+      # HELP yuruna_prewarm_images_cold_synced Images of that set the last warm run had to copy from upstream rather than find in storage; they are held now, but the cache was cold for them when that run started and a guest pulling during it waited out each copy
+      # TYPE yuruna_prewarm_images_cold_synced gauge
+      yuruna_prewarm_images_cold_synced{set="k8s"} $K8S_COLDSYNC
+      yuruna_prewarm_images_cold_synced{set="cni"} $CNI_COLDSYNC
       # HELP yuruna_prewarm_cold_sync_watermark_seconds Slowest fetch that moved content at the currently resolved versions -- what a guest pays per image when the set is not held
       # TYPE yuruna_prewarm_cold_sync_watermark_seconds gauge
       yuruna_prewarm_cold_sync_watermark_seconds $YURUNA_PREWARM_WATERMARK
@@ -1077,7 +1158,33 @@ write_files:
           fi
           echo "  A cache that answers /v2/ instantly can still take minutes here."
           echo "  Pulls fail around the ${CLIENT_PATIENCE}s mark: dockerd stops waiting for response headers."
-          echo "  Scope: this tag is held locally, so the line above times the upstream leg."
+          echo "  Scope: ${CANARY_REPO}:${CANARY_TAG} is asked for WITHOUT ns=, so the upstream is picked by"
+          echo "  walking the registry list, and a scheduled poll keeps that tag's content current -- the"
+          echo "  sync it triggers has nothing to copy. This line times a revalidation of content already"
+          echo "  held. It walks neither a cold copy nor the ns= form a guest sends: the next line does."
+          # The request a guest's containerd actually issues, on the upstream
+          # that has no scheduled poll behind it. Reported as its own line
+          # because the two readings can disagree, and the one above is the
+          # optimistic half: it stays fast while this leg is what a pull gives
+          # up on.
+          if [ "$GP_HAVE" = 0 ]; then
+              echo "zot guest-path request       : not probed -- no warm run has left a held registry.k8s.io image to ask for"
+          elif [ "$GP_CODE" = "0" ]; then
+              echo "zot guest-path request       : did not answer inside ${PROBE_MAX}s for ${GP_REF}"
+          else
+              echo "zot guest-path request       : HTTP ${GP_CODE} in ${GP_SECONDS}s for ${GP_REF} (cap ${PROBE_MAX}s)"
+          fi
+          if [ "$GP_HAVE" = 1 ]; then
+              if [ "$GP_UNDER_PATIENCE" = 1 ]; then
+                  echo "  OK -- answered inside the ${CLIENT_PATIENCE}s a pull waits for response headers."
+              else
+                  echo "  FAILING -- a pull of that image gives up after ${CLIENT_PATIENCE}s, whatever the cache answers later."
+              fi
+              echo "  Scope: GET /v2/<repo>/manifests/<tag>?ns=registry.k8s.io, the form containerd sends."
+              echo "  ns= pins the upstream, and that upstream is on-demand with no poll behind it, so this"
+              echo "  walks the sync leg the line above skips. Asked only for an image the last warm run"
+              echo "  left held, so it revalidates and never pays a cold copy on this ten-minute cadence."
+          fi
           echo "  What a COLD image costs is the warm-set section below."
           echo
           # The cold path, measured on the images the lab actually pulls.
@@ -1090,16 +1197,29 @@ write_files:
           elif [ "$PW_HAVE" = 1 ]; then
               echo "Warm sets, last warmed ${YURUNA_PREWARM_LAST_RUN:-never} (versions resolved via ${YURUNA_PREWARM_RESOLVE_SRC:-unknown}):"
               echo "  Kubernetes image set (${YURUNA_PREWARM_K8S_PATCH:-unresolved}, pinned minor ${YURUNA_PREWARM_K8S_MINOR:-unknown}):"
+              # The count is images the cache HOLDS, so the word held is on the
+              # line carrying it: a row that arrived cold completed its copy and
+              # is held now, and reporting that number as residency alone tells
+              # a reader the cache was stocked when it was not. The split below
+              # each count is the half that says which.
               if [ "$K8S_TOTAL" -gt 0 ] && [ "$K8S_HELD" -lt "$K8S_TOTAL" ]; then
-                  echo "    resident                 : ${K8S_HELD} of ${K8S_TOTAL}   <-- a kubeadm init pays $((K8S_TOTAL - K8S_HELD)) cold sync(s)"
+                  echo "    resident                 : ${K8S_HELD} of ${K8S_TOTAL} held   <-- a kubeadm init pays $((K8S_TOTAL - K8S_HELD)) cold sync(s)"
               else
-                  echo "    resident                 : ${K8S_HELD} of ${K8S_TOTAL}"
+                  echo "    resident                 : ${K8S_HELD} of ${K8S_TOTAL} held"
               fi
+              echo "      answered from storage  : ${K8S_LOCAL}"
+              echo "      copied in by that run  : ${K8S_COLDSYNC}"
               echo "  CNI image set (flannel ${YURUNA_PREWARM_FLANNEL_TAG:-unresolved}):"
               if [ "$CNI_TOTAL" -gt 0 ] && [ "$CNI_HELD" -lt "$CNI_TOTAL" ]; then
-                  echo "    resident                 : ${CNI_HELD} of ${CNI_TOTAL}   <-- the CNI rollout pays $((CNI_TOTAL - CNI_HELD)) cold sync(s)"
+                  echo "    resident                 : ${CNI_HELD} of ${CNI_TOTAL} held   <-- the CNI rollout pays $((CNI_TOTAL - CNI_HELD)) cold sync(s)"
               else
-                  echo "    resident                 : ${CNI_HELD} of ${CNI_TOTAL}"
+                  echo "    resident                 : ${CNI_HELD} of ${CNI_TOTAL} held"
+              fi
+              echo "      answered from storage  : ${CNI_LOCAL}"
+              echo "      copied in by that run  : ${CNI_COLDSYNC}"
+              if [ "$((K8S_COLDSYNC + CNI_COLDSYNC))" -gt 0 ]; then
+                  echo "  A copied-in image was NOT held when that run asked for it -- the run paid the cold"
+                  echo "  sync itself. It is held now, but a guest pulling during that window waited it out."
               fi
               if [ -n "$PW_SLOW_SEC" ]; then
                   echo "  slowest in last warm       : ${PW_SLOW_SEC}s (${PW_SLOW_REF})"
@@ -1160,6 +1280,16 @@ write_files:
       After=apache2.service zot.service
       [Service]
       Type=oneshot
+      # Stated rather than left to the systemd default, which is far below what
+      # this script can legitimately take: two manifest probes capped at 120s
+      # each, eight upstream reads at 10s, and the hub budget reads. A run
+      # killed at the default deadline never reaches the install that publishes
+      # the page, so /var/www/html/cache-health silently keeps the previous
+      # run's readings -- and it stalls exactly when the cache is stalling,
+      # which is when a reader most needs the numbers to be current. Set above
+      # the worst case and well under the timer's 10-minute period, so a wedged
+      # run is still reaped before the next one is due.
+      TimeoutStartSec=360
       ExecStart=/usr/local/bin/zot-meta-exporter.sh
   - path: /etc/systemd/system/zot-meta-exporter.timer
     permissions: '0644'
@@ -1178,7 +1308,7 @@ write_files:
       Unit=zot-meta-exporter.service
       [Install]
       WantedBy=timers.target
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#zot-prewarm
+  # --- REGION: https://yuruna.link/429f3d06-004c
   - path: /usr/local/bin/zot-prewarm.sh
     permissions: '0755'
     owner: root:root
@@ -1475,7 +1605,7 @@ write_files:
       Unit=zot-prewarm.service
       [Install]
       WantedBy=timers.target
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#squid-exporter-unit
+  # --- REGION: https://yuruna.link/429f3d06-004d
   - path: /etc/systemd/system/squid-exporter.service
     permissions: '0644'
     owner: root:root
@@ -1493,7 +1623,7 @@ write_files:
       RestartSec=5
       [Install]
       WantedBy=multi-user.target
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#grafana-anonymous-viewer
+  # --- REGION: https://yuruna.link/429f3d06-004e
   - path: /etc/systemd/system/grafana-server.service.d/yuruna.conf
     permissions: '0644'
     owner: root:root
@@ -1501,7 +1631,7 @@ write_files:
       [Service]
       Environment=GF_AUTH_ANONYMOUS_ENABLED=true
       Environment=GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#grafana-datasources-pinned-uids
+  # --- REGION: https://yuruna.link/429f3d06-004f
   - path: /etc/grafana/provisioning/datasources/yuruna.yaml
     permissions: '0644'
     owner: root:root
@@ -1521,7 +1651,7 @@ write_files:
           access: proxy
           url: http://localhost:3100
           editable: false
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#grafana-dashboard-rewriter
+  # --- REGION: https://yuruna.link/429f3d06-0050
   - path: /usr/local/bin/yuruna-rewrite-zot-dashboard.py
     permissions: '0755'
     owner: root:root
@@ -1550,7 +1680,7 @@ write_files:
       d['templating']['list'] = [v for v in tlist
           if not (v.get('type') == 'datasource' and v.get('name') == 'DS_PROMETHEUS')]
 
-      # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#grafana-dashboard-rewriter-panel-repairs
+      # --- REGION: https://yuruna.link/429f3d06-0051
       # 3) Drop panels whose metric doesn't exist on zot v2.x. Add further names here.
       BAD_METRICS = ('zot_scheduler_workers_tasks_duration_seconds_bucket',)
       def uses_bad_metric(p):
@@ -1693,7 +1823,7 @@ write_files:
       for k in ('id', '__inputs', '__elements', '__requires'):
           d.pop(k, None)
       json.dump(d, sys.stdout, indent=2)
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#grafana-dashboard-provider
+  # --- REGION: https://yuruna.link/429f3d06-0052
   - path: /etc/grafana/provisioning/dashboards/yuruna.yaml
     permissions: '0644'
     owner: root:root
@@ -1707,7 +1837,7 @@ write_files:
           updateIntervalSeconds: 30
           options:
             path: /var/lib/grafana/dashboards
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#grafana-pull-budget-alert
+  # --- REGION: https://yuruna.link/429f3d06-0053
   # The rule is a PRODUCT of two conditions: an unread budget publishes
   # remaining=0 too, so gating on the probe gauge keeps a refused credential or
   # broken egress from being announced as exhaustion.
@@ -1792,7 +1922,7 @@ write_files:
                   registries[] -- a tag-addressed pull re-runs the upstream sync
                   on every single request, so a handful of guests looping on one
                   image holds the hourly allowance at zero indefinitely.
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#yuruna-host-coordinates-for-source-fetch
+  # --- REGION: https://yuruna.link/429f3d06-0054
   - path: /etc/yuruna/host.env
     permissions: '0644'
     owner: root:root
@@ -1801,7 +1931,7 @@ write_files:
       YURUNA_STATUS_SERVICE_PORT=YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER
       YURUNA_HOST_ID=YURUNA_HOST_ID_PLACEHOLDER
       YURUNA_CACHING_PROXY_SERVICE_IP=127.0.0.1
-  # --- REGION: https://yuruna.link/vmconfig#host-address-refresh-timer
+  # --- REGION: https://yuruna.link/429f3d06-002a
   # This VM resolves its host through the pool directory like every other
   # guest -- the difference is that the directory is running on THIS machine,
   # so the address it asks is loopback. That is not the loopback case the
@@ -1841,7 +1971,7 @@ write_files:
 
       [Install]
       WantedBy=timers.target
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#config-service-client-materials-and-nas-credential-fetch
+  # --- REGION: https://yuruna.link/429f3d06-005e
   - path: /etc/yuruna/host-config/config.env
     permissions: '0644'
     owner: root:root
@@ -1974,7 +2104,7 @@ write_files:
       Unit=yuruna-config-fetch@%i.service
       [Install]
       WantedBy=timers.target
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#yuruna-hosts-dashboard-inlined
+  # --- REGION: https://yuruna.link/429f3d06-0055
   - path: /var/lib/grafana/dashboards/pool.json
     permissions: '0644'
     owner: root:root
@@ -2450,7 +2580,7 @@ write_files:
           }
         ]
       }
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#yuruna-hosts-dashboard-panel-autofit
+  # --- REGION: https://yuruna.link/429f3d06-0056
   - path: /usr/local/bin/yuruna-fit-pool-dashboard.py
     permissions: '0755'
     owner: root:root
@@ -2467,7 +2597,7 @@ write_files:
       in the window but no live Prometheus series still lands a row.
 
       Grid geometry, the round-UP rule, the 24h-window caveat and the zero-count no-op:
-      https://yuruna.link/vmconfig/caching-proxy-service#yuruna-hosts-dashboard-panel-autofit
+      https://yuruna.link/429f3d06-0056
       """
 
       import json
@@ -2698,7 +2828,7 @@ write_files:
       Unit=yuruna-fit-pool-dashboard.service
       [Install]
       WantedBy=timers.target
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#dashboard-brand-identity
+  # --- REGION: https://yuruna.link/429f3d06-0057
   # Which enlistment built this cache. Nothing else on the VM records it: the
   # guest is handed built artifacts, never the framework repository, so the
   # answer has to be seeded or it is unavailable for the life of the VM.
@@ -2708,7 +2838,7 @@ write_files:
     content: |
       YURUNA_BRAND_NAME='YURUNA_BRAND_NAME_PLACEHOLDER'
       YURUNA_BRAND_VERSION='YURUNA_BRAND_VERSION_PLACEHOLDER'
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#grafana-dashboard-brand-tile
+  # --- REGION: https://yuruna.link/429f3d06-0058
   - path: /usr/local/bin/yuruna-brand-dashboards.py
     permissions: '0755'
     owner: root:root
@@ -2975,8 +3105,8 @@ write_files:
       Unit=yuruna-brand-dashboards.service
       [Install]
       WantedBy=timers.target
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#squid-dashboard-inlined
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#cache-health-dashboard
+  # --- REGION: https://yuruna.link/429f3d06-0059
+  # --- REGION: https://yuruna.link/429f3d06-005a
   - path: /var/lib/grafana/dashboards/cache-health.json
     permissions: '0644'
     owner: root:root
@@ -3474,7 +3604,7 @@ write_files:
           }
         ]
       }
-  # --- REGION: https://yuruna.link/caching#registry-routing-glob-syntax-and-retry-budgets
+  # --- REGION: https://yuruna.link/42f6b05f-001f
   # ORDER IS THE ROUTING TABLE and the match is first-wins with NO fallthrough:
   # anything ahead of the Docker Hub "**" catch-all owns its glob outright.
   - path: /etc/zot/config.json
@@ -3649,7 +3779,7 @@ write_files:
           "password": "YURUNA_DOCKERHUB_TOKEN_PLACEHOLDER"
         }
       }
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#zot-systemd-unit
+  # --- REGION: https://yuruna.link/429f3d06-005b
   - path: /etc/systemd/system/zot.service
     permissions: '0644'
     owner: root:root
@@ -3667,7 +3797,7 @@ write_files:
       Type=simple
       User=zot
       Group=zot
-      # --- REGION: https://yuruna.link/caching#no-upstream-mode
+      # --- REGION: https://yuruna.link/42f6b05f-0016
       # Upstream sync is routed through the local ssl-bump listener to put this
       # registry behind the same choke point as everything else on the VM -- NOT
       # for caching (a manifest fetch carries a bearer token, and a shared cache
@@ -3699,7 +3829,7 @@ write_files:
 
       [Install]
       WantedBy=multi-user.target
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#networkstorage-pool-replication-config
+  # --- REGION: https://yuruna.link/429f3d06-005c
   - path: /etc/yuruna/ypool-nas.env
     permissions: '0644'
     owner: root:root
@@ -3712,7 +3842,7 @@ write_files:
   # /etc/yuruna/ypool-nas.cifs.cred is deliberately NOT baked: yuruna-config-fetch.sh
   # writes it (0600) at runtime from the config service (/v1/nas/pool), so
   # rotation needs no rebuild and the plaintext pool password never ships in the seed.iso.
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#internal-authentication-key
+  # --- REGION: https://yuruna.link/429f3d06-005f
   - path: /etc/yuruna/internal-auth.key
     permissions: '0640'
     owner: root:proxy
@@ -3817,9 +3947,9 @@ runcmd:
   # coordinates true, and the bring-up below fetches framework sources from
   # exactly those coordinates.
   - systemctl enable --now yuruna-host-locate.service yuruna-host-locate.timer || true
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#stop-squid-before-ca-bootstrap
+  # --- REGION: https://yuruna.link/429f3d06-0061
   - systemctl stop squid || true
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#ssl-bump-capable-squid-binary
+  # --- REGION: https://yuruna.link/429f3d06-0062
   - |
     # Pin the squid alternative to the OpenSSL build; install order alone
     # leaves the GnuTLS binary selected and squid.service permanently failed.
@@ -3839,9 +3969,9 @@ runcmd:
     # The doomed postinst start left squid.service failed; clear it so the
     # start at the end of runcmd is not refused by systemd's restart limiter.
     systemctl reset-failed squid 2>/dev/null || true
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#ssl-bump-ca-bootstrap
+  # --- REGION: https://yuruna.link/429f3d06-0063
   - |
-    # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#runcmd-errexit-leaks-across-items
+    # --- REGION: https://yuruna.link/429f3d06-0060
     # Subshell keeps errexit local. Without the CA squid cannot bind :3129, so say so loudly.
     (
     set -e
@@ -3865,9 +3995,9 @@ runcmd:
     fi
     ) || echo "== YURUNA: squid ssl-bump CA bootstrap FAILED -- :3129 cannot bind =="
     [ -f /etc/squid/ssl_cert/ca.pem ] && echo "yuruna: squid ssl-bump CA present"
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#pool-aggregator-service-tls-leaf
+  # --- REGION: https://yuruna.link/429f3d06-0064
   - |
-    # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#runcmd-errexit-leaks-across-items
+    # --- REGION: https://yuruna.link/429f3d06-0060
     # Subshell keeps errexit local.
     (
     set -e
@@ -3890,7 +4020,7 @@ runcmd:
       chmod 644 "$LEAF.crt"
     fi
     ) || echo "== YURUNA: pool-aggregator-service TLS leaf FAILED =="
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#resolve-pool-dashboard-aggregator-url
+  # --- REGION: https://yuruna.link/429f3d06-0065
   - |
     (
     set -e
@@ -3903,7 +4033,7 @@ runcmd:
       sed -i "s#AGGREGATOR_BASE_PLACEHOLDER#http://${AGG_IP}:9400#g" "$POOL_DASH"
     fi
     ) || echo "== YURUNA: pool dashboard aggregator URL rewrite FAILED =="
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#squid-ssl_db-initialization
+  # --- REGION: https://yuruna.link/429f3d06-0066
   - |
     # Built as root then handed to proxy: running security_file_certgen under
     # `sudo -u proxy` fails with "Cannot create /var/lib/squid/ssl_db", and
@@ -3923,18 +4053,18 @@ runcmd:
     # tls-cert/ssl_db paths it validates already exist.
     /usr/sbin/squid -k parse || echo "== YURUNA: squid config parse FAILED (see above) =="
   - systemctl enable squid
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#runcmd-errexit-leaks-across-items
+  # --- REGION: https://yuruna.link/429f3d06-0060
   # `|| true` is load-bearing: the bind-wait below is what reports a failed start.
   - systemctl start squid || true
   # === YURUNA_OVERLAY_RUNCMD_HOST_AGENT ===
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#squidclient-and-apache2
+  # --- REGION: https://yuruna.link/429f3d06-0037
   # No `a2enmod cgi` / `a2enconf yuruna-cachemgr`: squid-cgi (cachemgr.cgi) is gone in
   # Ubuntu 26.04. Apache still serves the CA cert + pool-intent.
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#publish-squid-ca-cert
+  # --- REGION: https://yuruna.link/429f3d06-0067
   - install -m 0644 /etc/squid/ssl_cert/ca.pem /var/www/html/yuruna-squid-ca.crt
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#publish-pool-ca-cert
+  # --- REGION: https://yuruna.link/429f3d06-0068
   - install -m 0644 /etc/squid/ssl_cert/ca.pem /var/www/html/yuruna-pool-ca.crt
-  # --- REGION: https://yuruna.link/caching#no-upstream-mode
+  # --- REGION: https://yuruna.link/42f6b05f-0016
   # This VM trusts its own bump CA, so its own services can be pointed at the
   # ssl-bump listener and have their TLS verify. The OCI registry's upstream
   # sync is the consumer that matters: unbumped, its fetches are an opaque
@@ -3945,7 +4075,7 @@ runcmd:
   # yields a trust store that silently never gained the certificate.
   - install -m 0644 /etc/squid/ssl_cert/ca.pem /usr/local/share/ca-certificates/yuruna-squid-ca.crt
   - update-ca-certificates
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#squidclient-and-apache2
+  # --- REGION: https://yuruna.link/429f3d06-0037
   - |
     # rewrite is not among Ubuntu's default-enabled apache2 modules, and a
     # RewriteEngine directive from an unloaded module is a hard parse error
@@ -3963,7 +4093,7 @@ runcmd:
     fi
   - systemctl enable apache2
   - systemctl restart apache2
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#pre-warm-the-cache
+  # --- REGION: https://yuruna.link/429f3d06-0069
   - |
     for i in $(seq 1 60); do
       ss -ltn 'sport = :3128' 2>/dev/null | grep -q 3128 && break
@@ -3986,10 +4116,10 @@ runcmd:
       systemctl --no-pager -l status squid || true
       journalctl --no-pager -u squid -n 80 || true
     fi
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#route-vm-apt-through-local-squid
+  # --- REGION: https://yuruna.link/429f3d06-006a
   - echo 'Acquire::http::Proxy "http://127.0.0.1:3128";' > /etc/apt/apt.conf.d/99yuruna-prewarm-proxy
   - apt-get update
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#prewarm-download-loop
+  # --- REGION: https://yuruna.link/429f3d06-006b
   - |
     # === YURUNA_OVERLAY_FIRMWARE_PKGS ===
       echo "== yuruna prewarm: $pkg =="
@@ -3997,11 +4127,11 @@ runcmd:
         || apt-get install --download-only -y "$pkg" 2>/dev/null \
         || echo "yuruna prewarm: skipped $pkg"
     done
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#reclaim-apt-cache-after-prewarm
+  # --- REGION: https://yuruna.link/429f3d06-006c
   - apt-get clean
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#remove-prewarm-apt-proxy-dropin
+  # --- REGION: https://yuruna.link/429f3d06-006d
   - rm -f /etc/apt/apt.conf.d/99yuruna-prewarm-proxy
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#flip-squid-into-offline-mode
+  # --- REGION: https://yuruna.link/429f3d06-006e
   - |
     cat > /etc/squid/conf.d/yuruna-offline.conf << 'EOF'
     # Serve only from cache; never contact origin. Miss returns 504. To
@@ -4010,9 +4140,9 @@ runcmd:
     offline_mode on
     EOF
   - squid -k reconfigure
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#offline_mode-echo-yaml-mapping-trap
+  # --- REGION: https://yuruna.link/429f3d06-006f
   - 'echo "caching-proxy-service offline_mode ON - serving cached content only"'
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#build-squid-exporter-and-caching-proxy-parser-service
+  # --- REGION: https://yuruna.link/429f3d06-0070
   - |
     export GOPATH=/root/go HOME=/root
     # squid-exporter: Prometheus scraper for squid cachemgr counters.
@@ -4024,7 +4154,7 @@ runcmd:
     else
         echo "== YURUNA: squid-exporter build failed -- Grafana squid panels will stay empty until the binary is provided by hand =="
     fi
-    # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#yuruna-host-coordinates-for-source-fetch
+    # --- REGION: https://yuruna.link/429f3d06-0054
     # Prefer the LOCAL host status service; fall back to github raw.
     YR_BASE="https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/"
     YR_FLAGS=""
@@ -4050,7 +4180,7 @@ runcmd:
     mkdir -p /opt/caching-proxy-parser-service
     cd /opt/caching-proxy-parser-service
     CPP_OK=1
-    for f in parse.go main_linux.go main_other.go go.mod caching-proxy-parser-service.service; do
+    for f in parse.go requestadapter.go main_linux.go main_other.go go.mod caching-proxy-parser-service.service; do
       wget $YR_FLAGS --no-cache --timeout=15 --tries=3 -q -O "$f" "${YR_BASE}test/extension/caching-proxy-parser-service/$f" || CPP_OK=0
       if [ ! -s "$f" ]; then CPP_OK=0; echo "== YURUNA: caching-proxy-parser-service source '$f' empty/missing from ${YR_BASE}test/extension/caching-proxy-parser-service/$f (source=${YR_SRC}) =="; fi
     done
@@ -4068,10 +4198,15 @@ runcmd:
     # holds in the enlistment, which is why the module also builds there
     # untouched. Staged here rather than beside the caching-proxy build below
     # because this block runs first.
-    mkdir -p /opt/pool-aggregator-service /opt/extension-sdk/beacon /opt/extension-sdk/labgate /opt/extension-sdk/pool /opt/extension-sdk/mcp
+    #
+    # The staged set is what `go build` RESOLVES, not what the daemons name in
+    # their own import blocks: i18n is here because labgate imports it, and a
+    # package reached only that way is compiled just the same. wget -O cannot
+    # create a directory, so every package staged below needs its mkdir here.
+    mkdir -p /opt/pool-aggregator-service /opt/extension-sdk/beacon /opt/extension-sdk/labgate /opt/extension-sdk/pool /opt/extension-sdk/mcp /opt/extension-sdk/i18n
     cd /opt/pool-aggregator-service
     PA_OK=1
-    for f in go.mod beacon/beacon.go labgate/labgate.go pool/pool.go mcp/mcp.go; do
+    for f in go.mod beacon/beacon.go labgate/labgate.go pool/pool.go mcp/mcp.go i18n/catalog.go i18n/format.go i18n/http.go i18n/locale.go i18n/localedata.go i18n/message.go; do
       wget $YR_FLAGS --no-cache --timeout=15 --tries=3 -q -O "/opt/extension-sdk/$f" "${YR_BASE}test/extension/extension-sdk/$f" || PA_OK=0
       if [ ! -s "/opt/extension-sdk/$f" ]; then PA_OK=0; echo "== YURUNA: extension-sdk source '$f' empty/missing from ${YR_BASE}test/extension/extension-sdk/$f (source=${YR_SRC}) =="; fi
     done
@@ -4104,12 +4239,12 @@ runcmd:
     mkdir -p /opt/caching-proxy-service
     cd /opt/caching-proxy-service
     CPS_OK=1
-    for f in go.mod main.go squid.go switches.go registry.go mcp.go ui.go landing.go caching-proxy-service.service; do
+    for f in go.mod main.go squid.go switches.go registry.go mcp.go ui.go requestadapter.go landing.go caching-proxy-service.service; do
       wget $YR_FLAGS --no-cache --timeout=15 --tries=3 -q -O "$f" "${YR_BASE}test/extension/caching-proxy-service/$f" || CPS_OK=0
       if [ ! -s "$f" ]; then CPS_OK=0; echo "== YURUNA: caching-proxy-service source '$f' empty/missing from ${YR_BASE}test/extension/caching-proxy-service/$f (source=${YR_SRC}) =="; fi
     done
     # The SDK was staged by the aggregator block above, which runs first.
-    for f in go.mod beacon/beacon.go labgate/labgate.go pool/pool.go mcp/mcp.go; do
+    for f in go.mod beacon/beacon.go labgate/labgate.go pool/pool.go mcp/mcp.go i18n/catalog.go i18n/format.go i18n/http.go i18n/locale.go i18n/localedata.go i18n/message.go; do
       if [ ! -s "/opt/extension-sdk/$f" ]; then CPS_OK=0; echo "== YURUNA: extension-sdk source '$f' was not staged; the aggregator block above should have fetched it =="; fi
     done
     # VERSION_STR the way every other service derives it: first line, whitespace
@@ -4140,10 +4275,7 @@ runcmd:
         CPS_HOST_ID="$(sed -nE "s/^YURUNA_HOST_ID='?([^']*)'?$/\1/p" /etc/yuruna/host.env 2>/dev/null | head -1 || true)"
         install -m 0644 /dev/null /etc/yuruna/caching-proxy-service.env
         cat > /etc/yuruna/caching-proxy-service.env << EOF
-    # Written at bring-up. The daemon is LOCAL mode here: it runs on the box it
-    # reports on, so it reads squid over loopback and can apply the switches.
-    # Remote mode is the same binary with --mode=remote and a --squid-addr that
-    # is not loopback.
+    # Local mode reads squid on loopback and applies switches; remote mode uses --mode=remote with a non-loopback --squid-addr.
     CACHING_PROXY_HTTP_ADDR=0.0.0.0:9310
     CACHING_PROXY_MODE=local
     CACHING_PROXY_SQUID_ADDR=127.0.0.1:3128
@@ -4166,17 +4298,17 @@ runcmd:
     fi
     cd /
     rm -rf /root/go /opt/caching-proxy-parser-service /opt/pool-aggregator-service /opt/caching-proxy-service /opt/extension-sdk
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#purge-go-toolchain-after-builds
+  # --- REGION: https://yuruna.link/429f3d06-0071
   - DEBIAN_FRONTEND=noninteractive apt-get purge -y golang-go || true
   - DEBIAN_FRONTEND=noninteractive apt-get autoremove -y
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#start-the-monitoring-stack
+  # --- REGION: https://yuruna.link/429f3d06-0072
   - systemctl daemon-reload
   - systemctl enable --now squid-exporter.service
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#enable-squid-metadata-exporter-timer
+  # --- REGION: https://yuruna.link/429f3d06-0074
   - systemctl enable --now squid-meta-exporter.timer
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#prime-squid-metadata-exporter-once
+  # --- REGION: https://yuruna.link/429f3d06-0075
   - /usr/local/bin/squid-meta-exporter.sh || true
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#enable-zot-metadata-exporter-timer
+  # --- REGION: https://yuruna.link/429f3d06-0076
   # Armed here, primed after the zot install below: a first run against a
   # registry that does not exist yet would publish a DOWN reading as the
   # service's opening data point.
@@ -4186,15 +4318,15 @@ runcmd:
   - systemctl restart prometheus-node-exporter.service || true
   - systemctl enable prometheus-node-exporter.service || true
   - systemctl enable --now prometheus.service
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#enable-caching-proxy-parser-service
+  # --- REGION: https://yuruna.link/429f3d06-0077
   - systemctl enable --now caching-proxy-parser-service.service || true
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#enable-pool-aggregator-service
+  # --- REGION: https://yuruna.link/429f3d06-0078
   - systemctl enable --now pool-aggregator-service.service || true
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#start-the-caching-proxy-management-service
+  # --- REGION: https://yuruna.link/429f3d06-0073
   # `|| true` like its two neighbors: a management plane that fails to start
   # must not fail the boot of the VM whose traffic it does not carry.
   - systemctl enable --now caching-proxy-service.service || true
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#pool-intent-store-seeding
+  # --- REGION: https://yuruna.link/429f3d06-0079
   - |
     # Seed on the pool NAS, where the apache alias above points and where the
     # pool-control-service VM can also write. Skipped entirely when the share is not
@@ -4236,7 +4368,7 @@ runcmd:
     systemctl reload apache2 || systemctl restart apache2 || true
   - systemctl enable grafana-server.service
   - systemctl restart grafana-server.service
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#wait-for-grafana-server-to-bind
+  # --- REGION: https://yuruna.link/429f3d06-007a
   - |
     for i in $(seq 1 60); do
       systemctl is-active --quiet grafana-server.service && \
@@ -4248,9 +4380,9 @@ runcmd:
       systemctl --no-pager -l status grafana-server.service || true
       journalctl --no-pager -u grafana-server.service -n 80 || true
     fi
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#enable-yuruna-hosts-dashboard-panel-autofit
+  # --- REGION: https://yuruna.link/429f3d06-007b
   - systemctl enable --now yuruna-fit-pool-dashboard.timer
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#install-community-zot-dashboard
+  # --- REGION: https://yuruna.link/429f3d06-007c
   - |
     if curl -fsSL --retry 3 --retry-delay 5 --max-time 30 \
          https://grafana.com/api/dashboards/20501/revisions/latest/download \
@@ -4263,7 +4395,7 @@ runcmd:
     else
         echo "== YURUNA: failed to fetch Grafana dashboard 20501 from grafana.com -- the 'Zot (official)' dashboard will be missing until the next boot retries =="
     fi
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#enable-grafana-dashboard-brand-tile
+  # --- REGION: https://yuruna.link/429f3d06-007d
   # Last of the dashboard steps, so the community Zot dashboard is already on
   # disk and gets branded in the same pass as the three inlined ones. The
   # explicit start is what brands them NOW: enabling the timer only schedules
@@ -4275,7 +4407,7 @@ runcmd:
   - |
     systemctl start yuruna-brand-dashboards.service \
       || echo "== YURUNA: dashboard brand tile not stamped -- the timer retries within 15 minutes =="
-  # --- REGION: https://yuruna.link/caching#loki--promtail-boot-order-traps
+  # --- REGION: https://yuruna.link/42f6b05f-001d
   - id zot >/dev/null 2>&1 || useradd --system --no-create-home --shell /usr/sbin/nologin zot
   - install -d -o promtail -m 0755 /var/lib/promtail
   - install -d -o loki -m 0755 /var/lib/loki
@@ -4284,7 +4416,7 @@ runcmd:
   - systemctl enable --now loki.service
   - systemctl enable --now promtail.service
   - systemctl restart loki.service promtail.service
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#enable-nas-replication-timer-conditionally
+  # --- REGION: https://yuruna.link/429f3d06-007e
   - |
     if grep -qx "YPOOL_NAS_REPLICATE='true'" /etc/yuruna/ypool-nas.env 2>/dev/null; then
       systemctl daemon-reload
@@ -4303,7 +4435,7 @@ runcmd:
   # This VM does NOT mount ystash-nas: extension-host discovery is registration-driven
   # (activeExtensions in host.registration.json, polled by the pool-aggregator-service),
   # so the dashboard needs no @stash fetch and no cross-host credential dependency.
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#verify-promtail-supplementary-groups
+  # --- REGION: https://yuruna.link/429f3d06-007f
   - |
     sleep 2
     GROUPS=$(systemctl show -p SupplementaryGroups --value promtail.service)
@@ -4317,10 +4449,10 @@ runcmd:
           ;;
       esac
     done
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#first-boot-security-upgrade
+  # --- REGION: https://yuruna.link/429f3d06-0080
   - DEBIAN_FRONTEND=noninteractive apt-get update || true
   - DEBIAN_FRONTEND=noninteractive apt-get -y -o Dpkg::Options::="--force-confdef" -o Dpkg::Options::="--force-confold" upgrade || true
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#confirm-apt-daily-timers-armed
+  # --- REGION: https://yuruna.link/429f3d06-0081
   - |
     for t in apt-daily.timer apt-daily-upgrade.timer; do
       systemctl enable --now "$t" 2>/dev/null || true
@@ -4398,7 +4530,7 @@ runcmd:
         echo "== YURUNA: could not reconcile /etc/zot/sync-credentials.json with /etc/zot/config.json (exit $RC) -- zot will not start while credentialsFile names a file it cannot read =="
         ;;
     esac
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#zot-install-binary-and-activation
+  # --- REGION: https://yuruna.link/429f3d06-0082
   - |
     # Subshell keeps errexit local AND scopes the `exit 0` below, which at top
     # level would end the whole runcmd script.
@@ -4455,7 +4587,7 @@ runcmd:
     # here, which still puts it ahead of the first guest.
     systemctl enable --now zot-prewarm.timer || true
     ) || echo "== YURUNA: zot install/activation FAILED -- :5000 pull-through unavailable =="
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#service-readiness-summary
+  # --- REGION: https://yuruna.link/429f3d06-0083
   - |
     # Final self-check: a partially-failed boot must not look like a good one.
     echo "== YURUNA: caching-proxy-service readiness =="
@@ -4467,8 +4599,11 @@ runcmd:
     # passes every other line of this summary. Residency is carried too: a
     # freshly built cache holds none of the images a guest pulls, and that is a
     # property of the boot worth stating rather than discovering mid-provision.
+    # The residency alternative matches leading whitespace by shape rather than
+    # by count: the page nests those lines under a set header, and a fixed
+    # indent here silently stops matching the moment that nesting changes.
     if [ -r /var/www/html/cache-health ]; then
-      grep -E '^zot (/v2/|manifest|resident-tag)|^  resident ' /var/www/html/cache-health | sed 's/^/  /'
+      grep -E '^zot (/v2/|manifest|resident-tag|guest-path)|^ +resident ' /var/www/html/cache-health | sed 's/^/  /'
     fi
     for hp in 3128 3129 80 3000 9090 3100 5000; do
       if ss -ltn 2>/dev/null | grep -q ":$hp "; then st=listening; else st="NOT LISTENING"; fi
@@ -4476,5 +4611,5 @@ runcmd:
     done
     [ -f /etc/squid/ssl_cert/ca.pem ] || echo "  MISSING /etc/squid/ssl_cert/ca.pem"
     [ -d /var/lib/squid/ssl_db ]      || echo "  MISSING /var/lib/squid/ssl_db"
-  # --- REGION: https://yuruna.link/vmconfig/caching-proxy-service#ready-banner-yaml-mapping-trap
+  # --- REGION: https://yuruna.link/429f3d06-0084
   - 'echo "caching-proxy-service ready: :3128 HTTP + CONNECT, :3129 HTTPS SSL-bump (pre-warmed); zot :5000 OCI pull-through"'

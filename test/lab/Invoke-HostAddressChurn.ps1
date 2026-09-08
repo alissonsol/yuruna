@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 425762d1-bc4e-40e3-b368-b17d66f8461a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -36,7 +36,7 @@
     hands back the same address produces an honest "no change" line rather than
     a silent success.
 
-    --- REGION: https://yuruna.link/network#why-churn-is-injected-rather-than-waited-for
+    --- REGION: https://yuruna.link/4220a755-0048
 
 .PARAMETER IntervalSeconds
     Seconds between renewals. The default puts three or more changes inside a
@@ -117,7 +117,7 @@ if (-not $before) {
 }
 Write-ChurnLine "churn injector: bridge '$BridgeName' currently at $before; interval ${IntervalSeconds}s; count $(if ($Count -eq 0) { 'unbounded' } else { $Count })"
 
-# --- REGION: https://yuruna.link/network#why-the-privilege-check-runs-before-the-first-sleep
+# --- REGION: https://yuruna.link/4220a755-0049
 # Probe the privilege NOW rather than discovering it is missing at the first
 # tick. A sidecar that starts cleanly and then silently fails to renew for the
 # whole cycle is worse than one that refuses to start: the cycle would pass and

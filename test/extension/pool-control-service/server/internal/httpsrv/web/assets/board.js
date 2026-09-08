@@ -21,6 +21,7 @@
   var timer = null;
 
   function $(id) { return document.getElementById(id); }
+  function t(key, args) { return window.YurunaI18n.t(key, args || null); }
 
   // The class carries the look; aria-pressed carries the state. Setting only
   // the class leaves the selected range visible and unannounced. Written with
@@ -75,14 +76,16 @@
     var assigned = Y.el('p', { class: 'assigned' });
     assigned.appendChild(document.createTextNode('Running: '));
     if (c.testSet) {
-      assigned.appendChild(Y.el('strong', { text: c.testSetLabel || c.testSet }));
+      assigned.appendChild(Y.el('strong', { text: Y.bidiIsolate(c.testSetLabel || c.testSet) }));
     } else {
       assigned.appendChild(Y.el('span', { class: 'none', text: 'the hosts\' own projects' }));
     }
     kids.push(assigned);
 
     if (c.assignAllowed) {
-      var sel = Y.el('select', { 'aria-label': 'Test set for ' + c.displayName });
+      var sel = Y.el('select', {
+        'aria-label': t('pool.test_set_label', { name: Y.bidiIsolate(c.displayName) })
+      });
       sel.appendChild(Y.el('option', { value: '', text: 'Change test set...' }));
       for (var i = 0; i < state.offers.length; i++) {
         var o = state.offers[i];
@@ -100,7 +103,7 @@
       });
       kids.push(sel);
     } else {
-      kids.push(Y.el('p', { class: 'locked', text: c.reason }));
+      kids.push(Y.el('p', { class: 'locked', text: c.assignDisabledDetail }));
     }
 
     if (c.blocked && c.blocked.length) {
@@ -147,11 +150,13 @@
 
   function askConfirm(card, offer, selectEl) {
     pending = { card: card, offer: offer, selectEl: selectEl };
-    $('confirm-title').textContent = 'Assign "' + offerLabel(offer) + '" to ' + card.displayName + '?';
+    $('confirm-title').textContent = 'Assign "' + Y.bidiIsolate(offerLabel(offer)) +
+      '" to ' + Y.bidiIsolate(card.displayName) + '?';
     var n = card.hostsTotal;
     $('confirm-body').textContent =
       n + (n === 1 ? ' host will switch to ' : ' hosts will switch to ') +
-      (offer.projectUrl || 'the assigned project') + ' on their next cycle.';
+      (offer.projectUrl ? Y.bidiIsolate(offer.projectUrl) : 'the assigned project') +
+      ' on their next cycle.';
     confirmOpener = document.activeElement;
     $('confirm').hidden = false;
     // Cancel, not Assign: the sheet guards a change the user has not committed
@@ -199,7 +204,7 @@
       return load();
     }, function (e) {
       closeConfirm(true);
-      window.alert('Could not assign: ' + e.message);
+      window.alert('Could not assign: ' + Y.bidiIsolate(e.message));
     });
   }
 
@@ -240,7 +245,7 @@
       if (d.statsError) {
         // Numbers gray out; assignment still works, because it goes through the
         // intent CLIs and never touches the aggregator.
-        b.textContent = 'Live numbers unavailable (' + d.statsError + '). Assigning still works.';
+        b.textContent = 'Live numbers unavailable (' + Y.bidiIsolate(d.statsError) + '). Assigning still works.';
         b.hidden = false;
       } else {
         b.hidden = true;
@@ -262,7 +267,7 @@
     host.textContent = '';
     host.appendChild(Y.el('p', {
       class: 'muted load-error',
-      text: 'Could not load the board: ' + msg + '. Retrying on the next refresh.'
+      text: 'Could not load the board: ' + Y.bidiIsolate(msg) + '. Retrying on the next refresh.'
     }));
   }
 

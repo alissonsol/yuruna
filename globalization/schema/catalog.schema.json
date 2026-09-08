@@ -1,0 +1,144 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://yuruna.com/schema/yuruna.catalog/v1",
+  "title": "Yuruna source catalog",
+  "description": "One domain's messages in one locale. en-US owns the source contract; every translation owns only translated forms and the exact per-message source hash it was reviewed against.",
+  "type": "object",
+  "required": ["schema", "domain", "locale", "messages"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "yuruna.catalog/v1" },
+    "domain": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9]*)*$",
+      "description": "Namespace every key in this file shares."
+    },
+    "locale": { "type": "string", "pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$" },
+    "messages": {
+      "type": "object",
+      "minProperties": 1,
+      "propertyNames": { "pattern": "^[a-z][a-z0-9]*(\\.[a-z][a-z0-9_]*)+$" }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "locale": { "const": "en-US" } } },
+      "then": {
+        "properties": {
+          "messages": { "additionalProperties": { "$ref": "#/definitions/sourceMessage" } }
+        }
+      },
+      "else": {
+        "properties": {
+          "messages": { "additionalProperties": { "$ref": "#/definitions/translationMessage" } }
+        }
+      }
+    }
+  ],
+  "definitions": {
+    "sourceMessage": {
+      "type": "object",
+      "required": ["lifecycle"],
+      "additionalProperties": false,
+      "properties": {
+        "message": { "type": "string", "minLength": 1 },
+        "description": { "type": "string", "minLength": 1 },
+        "lifecycle": { "enum": ["active", "deprecated", "tombstone"] },
+        "replacedBy": { "type": "string" },
+        "placeholders": {
+          "type": "object",
+          "propertyNames": { "pattern": "^[a-z][A-Za-z0-9]*$" },
+          "additionalProperties": { "$ref": "#/definitions/placeholder" }
+        },
+        "plural": { "$ref": "#/definitions/sourceVariants" },
+        "select": { "$ref": "#/definitions/sourceSelectVariants" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "lifecycle": { "const": "tombstone" } } },
+          "then": {
+            "not": {
+              "anyOf": [
+                { "required": ["message"] },
+                { "required": ["plural"] },
+                { "required": ["select"] }
+              ]
+            }
+          },
+          "else": {
+            "oneOf": [
+              { "required": ["message"] },
+              { "required": ["plural"] },
+              { "required": ["select"] }
+            ]
+          }
+        }
+      ]
+    },
+    "translationMessage": {
+      "type": "object",
+      "required": ["sourceHash"],
+      "additionalProperties": false,
+      "oneOf": [
+        { "required": ["message"] },
+        { "required": ["plural"] },
+        { "required": ["select"] }
+      ],
+      "properties": {
+        "sourceHash": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+        "message": { "type": "string", "minLength": 1 },
+        "plural": { "$ref": "#/definitions/translationVariants" },
+        "select": { "$ref": "#/definitions/translationSelectVariants" }
+      }
+    },
+    "placeholder": {
+      "type": "object",
+      "required": ["type", "trust", "example"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": ["text", "identifier", "detail", "integer", "decimal", "bytes", "duration", "datetime", "token"]
+        },
+        "trust": { "enum": ["internal", "external"] },
+        "example": { "description": "A representative value visible to the translator." }
+      }
+    },
+    "sourceVariants": {
+      "type": "object",
+      "required": ["selector", "variants"],
+      "additionalProperties": false,
+      "properties": {
+        "selector": { "type": "string", "pattern": "^[a-z][A-Za-z0-9]*$" },
+        "variants": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "sourceSelectVariants": {
+      "allOf": [
+        { "$ref": "#/definitions/sourceVariants" },
+        { "properties": { "variants": { "required": ["other"] } } }
+      ]
+    },
+    "translationVariants": {
+      "type": "object",
+      "required": ["variants"],
+      "additionalProperties": false,
+      "properties": {
+        "variants": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "translationSelectVariants": {
+      "allOf": [
+        { "$ref": "#/definitions/translationVariants" },
+        { "properties": { "variants": { "required": ["other"] } } }
+      ]
+    }
+  }
+}

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 425b1941-f370-4155-9842-47cbe6837b47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,7 +30,7 @@ param(
     [string]$YurunaDir    = (Join-Path $HOME 'git/yuruna'),
     [string]$YurunaRepo   = 'https://github.com/alissonsol/yuruna.git',
     [string]$YurunaBranch = 'main',
-    # --- REGION: https://yuruna.link/install/explained#release-pinning--signed-integrity
+    # --- REGION: https://yuruna.link/429fb30b-0006
     [switch]$PinVersion,
     [switch]$SkipPreflight,
     # On-disk transcript for this run. Generated once at first launch and
@@ -53,7 +53,7 @@ $PSNativeCommandUseErrorActionPreference = $false
 $script:YurunaRepoPublic  = 'https://github.com/alissonsol/yuruna.git'
 $script:YurunaRepoPrivate = 'https://github.com/alissonsol/yurunadev.git'
 
-# --- REGION: https://yuruna.link/install/explained#development-repo-tracks-latest-main
+# --- REGION: https://yuruna.link/429fb30b-0008
 $script:YurunaBranchExplicit = $PSBoundParameters.ContainsKey('YurunaBranch')
 
 function Write-Step { param([string]$m) Write-Output "==> $m" }
@@ -89,7 +89,7 @@ try {
     Write-Warn "Could not resolve -YurunaDir '$YurunaDir' to a full path: $($_.Exception.Message)"
 }
 
-# --- REGION: https://yuruna.link/install/explained#install-log
+# --- REGION: https://yuruna.link/429fb30b-0003
 $script:InstallLogActive = $false
 
 function Resolve-InstallLogPath {
@@ -166,13 +166,12 @@ function Assert-HyperVCapableEdition {
     }
     if (-not $os) { return }
     $caption = [string]$os.Caption
-    # Consumer SKUs with no Hyper-V platform: Core/Home family = 98-101,
-    # Cloud / "S mode" = 178-179. Match by SKU number (language-independent),
-    # with the caption "Home" as a readable secondary signal.
-    $incapableSkus = 98, 99, 100, 101, 178, 179
-    if (($os.OperatingSystemSKU -notin $incapableSkus) -and ($caption -notmatch '\bHome\b')) {
-        return
-    }
+    # Editions known not to ship the Hyper-V platform. The CIM
+    # value is language-independent; Caption is display-only and must never
+    # decide whether installation continues.
+    $incapableSkus = 2, 3, 5, 11, 26, 34, 36, 37, 38, 39, 40, 41, 47, 64,
+        98, 99, 100, 101, 178, 179, 183, 185
+    if ([int]$os.OperatingSystemSKU -notin $incapableSkus) { return }
     Write-Die @"
 This Windows edition cannot run Hyper-V, which the Yuruna test harness requires.
 
@@ -257,8 +256,19 @@ function Test-SystemRequirement {
     try { $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop } catch { $null = $issues.Add("could not read Win32_OperatingSystem: $($_.Exception.Message)") }
     $caption = if ($os) { $os.Caption } else { 'unknown' }
     if ($os) {
-        $isWindows11ProClass = $caption -match 'Windows 11 (Pro|Enterprise|Education)'
-        $isWindowsServer     = $caption -match 'Windows Server'
+        $build = 0
+        [void][int]::TryParse(
+            [string]$os.BuildNumber,
+            [Globalization.NumberStyles]::Integer,
+            [Globalization.CultureInfo]::InvariantCulture,
+            [ref]$build)
+        $productType = [int]$os.ProductType
+        $incapableSkus = 2, 3, 5, 11, 26, 34, 36, 37, 38, 39, 40, 41, 47, 64,
+            98, 99, 100, 101, 178, 179, 183, 185
+        $isWindows11ProClass = $productType -eq 1 -and $build -ge 22000 -and
+            [int]$os.OperatingSystemSKU -notin $incapableSkus
+        $isWindowsServer = $productType -in 2, 3 -and
+            [int]$os.OperatingSystemSKU -notin $incapableSkus
         if (-not ($isWindows11ProClass -or $isWindowsServer)) {
             $null = $issues.Add("Windows edition '$caption' detected (need Windows 11 Pro/Enterprise/Education or Windows Server with Hyper-V)")
         }
@@ -335,7 +345,7 @@ if (-not $SkipPreflight) {
 }
 
 # --- REGION: Preflight: display scaling
-# --- REGION: https://yuruna.link/install/explained#display-scaling-check
+# --- REGION: https://yuruna.link/429fb30b-0022
 function Test-DisplayScaling {
     $asSignedDword = {
         param($raw)
@@ -408,7 +418,7 @@ if (-not $SkipPreflight) {
 }
 
 # --- REGION: Single-fetch materialization (irm|iex path)
-# --- REGION: https://yuruna.link/install/explained#single-fetch-materialization
+# --- REGION: https://yuruna.link/429fb30b-001a
 Get-ChildItem -LiteralPath $env:TEMP -Filter 'yuruna-windows-hyper-v-*.ps1' -ErrorAction SilentlyContinue |
     Where-Object { $_.LastWriteTime -lt (Get-Date).AddHours(-1) } |
     ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
@@ -604,7 +614,7 @@ function Get-StatusServicePort {
     return 0
 }
 
-# --- REGION: https://yuruna.link/install/explained#stop-running-yuruna-processes-before-updating
+# --- REGION: https://yuruna.link/429fb30b-000a
 # taskkill /T /F is deliberate: a soft Ctrl+C only requests "exit after the
 # current cycle", which can pin the checkout for a full VM cycle. VMs untouched.
 function Stop-YurunaProcess {
@@ -717,7 +727,7 @@ function Stop-YurunaProcess {
     }
 }
 
-# --- REGION: https://yuruna.link/install/explained#directory-rename-that-stays-a-rename
+# --- REGION: https://yuruna.link/429fb30b-000d
 # Invariant: always [System.IO.Directory]::Move; sibling destinations only.
 function Move-YurunaDirectory {
     [CmdletBinding(SupportsShouldProcess)]
@@ -741,7 +751,7 @@ function Move-YurunaDirectory {
 }
 
 # --- REGION: Preflight: the checkout is not held open
-# --- REGION: https://yuruna.link/install/explained#checkout-not-held-open
+# --- REGION: https://yuruna.link/429fb30b-000e
 # A failed probe WARNS and the install continues -- it never vetoes the run.
 function Test-YurunaPathInside {
     [CmdletBinding()]
@@ -900,7 +910,7 @@ function Assert-YurunaCheckoutMovable {
 }
 
 # --- REGION: Preserve running service VMs
-# --- REGION: https://yuruna.link/install/explained#preserve-the-yuruna-caching-proxy-service-vm
+# --- REGION: https://yuruna.link/429fb30b-000c
 function Test-CachingProxyServiceRunning {
     [CmdletBinding()]
     [OutputType([bool])]
@@ -1146,7 +1156,7 @@ function Restore-YurunaStatus {
 Backup-YurunaStatus
 
 # --- REGION: Tolerate a v / no-v tag mismatch
-# --- REGION: https://yuruna.link/install/explained#tolerating-a-v-prefixed-tag-ref
+# --- REGION: https://yuruna.link/429fb30b-0007
 function Resolve-YurunaRef {
     [OutputType([string])]
     param([string]$GitExe, [string]$Remote, [string]$Ref)
@@ -1176,7 +1186,7 @@ function Resolve-YurunaRef {
 }
 
 # --- REGION: Development repo pulls latest main, not a release tag
-# --- REGION: https://yuruna.link/install/explained#development-repo-tracks-latest-main
+# --- REGION: https://yuruna.link/429fb30b-0008
 function Resolve-YurunaDevBranch {
     [OutputType([string])]
     param([string]$Basename, [string]$Ref)
@@ -1340,7 +1350,7 @@ if (Test-Path (Join-Path $YurunaDir '.git')) {
 }
 
 # --- REGION: Pin to the current release (opt-in)
-# --- REGION: https://yuruna.link/install/explained#release-pinning--signed-integrity
+# --- REGION: https://yuruna.link/429fb30b-0006
 if ($PinVersion -and -not $script:YurunaBranchExplicit -and (Test-Path (Join-Path $YurunaDir '.git'))) {
     $versionFile = Join-Path $YurunaDir 'VERSION'
     if (Test-Path -LiteralPath $versionFile) {
@@ -1399,7 +1409,7 @@ $script:InstallSucceeded = $true
     $script:InstallError = $_
 } finally {
     # --- REGION: Done summary
-    # --- REGION: https://yuruna.link/install/explained#trycatchfinally-with-summary-banner
+    # --- REGION: https://yuruna.link/429fb30b-001f
     Write-Output ''
     Write-Output '========'
     if ($script:InstallSucceeded) {
@@ -1465,7 +1475,7 @@ $script:InstallSucceeded = $true
     }
     else {
         # --- REGION: Handoff window
-        # --- REGION: https://yuruna.link/install/explained#handoff-window-with-encodedcommand
+        # --- REGION: https://yuruna.link/429fb30b-0020
         Write-Step 'Finishing up -- opening handoff windows'
 
         $hypervOpened = $false

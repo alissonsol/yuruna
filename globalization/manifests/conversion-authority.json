@@ -1,0 +1,64 @@
+{
+  "schema": "yuruna.conversion-authority/v1",
+  "description": "Zero-gap ratchets for source regions whose operator wording has moved to catalogs, plus the explicitly temporary prose compatibility readers at machine boundaries.",
+  "convertedScopes": [
+    {
+      "path": "test/status/yuruna.common.js",
+      "startMarker": "var ACTION_CODE_KEY =",
+      "endMarker": "function isWaitingForResume",
+      "requiredTokens": [
+        "sequence_paused_waiting_resume",
+        "status.cycle_paused"
+      ],
+      "allowedProse": []
+    },
+    {
+      "path": "test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js",
+      "startMarker": "function accessCell(",
+      "endMarker": "function hostnameCell(",
+      "requiredTokens": [
+        "pool.repo_denied_detail",
+        "pool.repo_no_access",
+        "pool.repo_held_detail",
+        "pool.repo_unconfigured_detail"
+      ],
+      "allowedProse": []
+    }
+  ],
+  "legacyProtocolPhrases": [
+    "No access",
+    "Paused (waiting for resume)"
+  ],
+  "protocolExceptions": [
+    {
+      "path": "test/modules/Test.SequenceEngine.psm1",
+      "text": "Paused (waiting for resume)",
+      "removeAfter": "2026-10-01",
+      "reason": "One-release compatibility payload beside sequence_paused_waiting_resume."
+    },
+    {
+      "path": "test/modules/Test.HostGit.psm1",
+      "text": "No access",
+      "removeAfter": "2026-10-01",
+      "reason": "One-release compatibility payload beside repository_access=denied."
+    },
+    {
+      "path": "test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js",
+      "text": "No access",
+      "removeAfter": "2026-10-01",
+      "reason": "One-release reader for hosts that do not yet emit repository_access codes."
+    },
+    {
+      "path": "test/extension/pool-aggregator-service/main.go",
+      "text": "Paused (waiting for resume)",
+      "removeAfter": "2026-10-01",
+      "reason": "One-release reader for runners that do not yet emit sequence_paused_waiting_resume."
+    },
+    {
+      "path": "test/status/yuruna.common.js",
+      "text": "Paused (waiting for resume)",
+      "removeAfter": "2026-10-01",
+      "reason": "One-release reader for archived and N-1 action payloads without sequence_paused_waiting_resume."
+    }
+  ]
+}

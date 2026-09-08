@@ -1,3 +1,5 @@
+<a id="4207d71a-0001"></a>
+
 # Yuruna pool admin guide -- assign test sequences to a host pool
 
 > **Who this is for.** A **pool administrator / operator** running several Yuruna test
@@ -5,6 +7,8 @@
 > test sequences or harness code, and assumes the test **sequences already exist** (the
 > ones a single host runs from `test.runner.yml`); your job here is to point a set of
 > hosts at the project that runs them.
+
+<a id="4207d71a-0002"></a>
 
 ## What a pool is
 
@@ -28,6 +32,8 @@ Intent has three parts:
 
 The intent repo holds **only non-secret** files (`pools.yml`, the `test-sets.yml`
 library, `guests.compatibility.yml`). No credential is ever routed through it.
+
+<a id="4207d71a-0003"></a>
 
 ## Before you start
 
@@ -55,6 +61,8 @@ library, `guests.compatibility.yml`). No credential is ever routed through it.
 
 Run the commands below from the repo root.
 
+<a id="4207d71a-0004"></a>
+
 ## Step 1 -- Create the pool
 
 ```powershell
@@ -65,6 +73,8 @@ pwsh test/pool/New-Pool.ps1 -PoolId lab -DisplayName 'Lab pool' -IntentGitUrl <w
   label** for this pool's telemetry on the dashboard, so pick it deliberately -- renaming it
   later forks the history.
 - The pool starts empty (`desiredState: run`, no members, no test-set).
+
+<a id="4207d71a-0005"></a>
 
 ## Step 2 -- Add the hosts
 
@@ -80,6 +90,8 @@ pwsh test/pool/Add-HostToPool.ps1 -PoolId lab -HostId 42abcdef0123456789abcdef01
   copied off the panel works as pasted, and each command echoes it back the same way.
   Membership is the single source of truth; re-adding a host is a no-op.
 - To remove a host later, see **Step 6** below (drain it first if it is running).
+
+<a id="4207d71a-0006"></a>
 
 ## Step 3 -- Define the test-set (a framework/project repo pair)
 
@@ -99,6 +111,8 @@ pwsh test/pool/Set-PoolTestSetDefinition.ps1 -Name smoke -FrameworkUrl <framewor
   optional -- Step 4's `Set-PoolTestSet.ps1` takes the URLs directly.
 - Full field reference: [`test/schemas/pool-test-sets.schema.yml`](../test/schemas/pool-test-sets.schema.yml).
 
+<a id="4207d71a-0007"></a>
+
 ## Step 4 -- Assign the test-set to the pool
 
 ```powershell
@@ -112,6 +126,8 @@ pwsh test/pool/Set-PoolTestSet.ps1 -PoolId lab -Name smoke -FrameworkUrl <framew
 - Nothing probes the URLs at assignment time: a typo first surfaces when a
   member's next cycle tries to clone.
 
+<a id="4207d71a-0008"></a>
+
 ## Step 5 -- Verify
 
 ```powershell
@@ -123,6 +139,8 @@ There is nothing to "deploy": each runner picks up the new intent at the start o
 **next cycle**, so no host restart is needed. Once a pooled host completes a cycle,
 confirm it took effect on the **Yuruna hosts** Grafana dashboard (it groups every host under
 your `poolId`), or directly: `curl -sk https://<proxy>:9400/api/v1/pool-status`.
+
+<a id="4207d71a-0009"></a>
 
 ## Step 6 -- Operate the pool
 
@@ -139,6 +157,8 @@ pwsh test/pool/Remove-HostFromPool.ps1  -PoolId lab -HostId 42<...30 hex...> -In
 - **Removing a running host:** set `drain` first, let it stop, then `Remove-HostFromPool`.
 
 In-flight cycles always finish, so pause/drain never corrupt an accumulating run.
+
+<a id="4207d71a-000a"></a>
 
 ## Purging a stale host
 
@@ -167,6 +187,8 @@ is still live is re-discovered on the aggregator's next poll, so stop/drain it
 before forgetting. It refuses this host's own uuid, or a record last seen < 24 h
 ago, unless `-Force`. Run it on a host with the pool share mounted.
 
+<a id="4207d71a-000b"></a>
+
 ## Command summary
 
 Every command below lives in `test/pool/`.
@@ -193,12 +215,16 @@ command discards it -- recover by re-running from a writable location (on the pr
 or local path to the bare repo), or delete the admin clone dir to discard the local change and
 re-clone from the remote. Every command has full help: e.g. `Get-Help test/pool/Set-PoolTestSet.ps1 -Full`.
 
+<a id="4207d71a-000c"></a>
+
 ## Pool-control service
 
 The Pool-control service is the operator UI + API for the LAN pool intent. It
 drives the pool-intent git store; runners only
 PULL that store read-only. Every button routes through the admin CLIs above,
 so the UI and the command line cannot diverge.
+
+<a id="4207d71a-000d"></a>
 
 ### What it does
 
@@ -243,6 +269,8 @@ whatever the sort, which is how many pools, hosts or test-sets there are.
 Assigning copies the chosen library triple into the pool's inline `testSet`;
 members then behave exactly as on the CLI path in Steps 3-4 above.
 
+<a id="4207d71a-000e"></a>
+
 ### Framework and Project -- which repositories is each host on?
 
 The two repository columns on `/hosts` are each host's own account of what it
@@ -277,6 +305,8 @@ answer is sent, so it can never make a host's other columns time out with it,
 and such a host reads `--` for one refresh before its answer arrives. Like the
 hardware columns, these are read on page load and on **Refresh**, not on the
 footer countdown.
+
+<a id="4207d71a-000f"></a>
 
 ### Project access -- can each host read what its pool assigned?
 
@@ -314,6 +344,8 @@ One timing caveat: a host publishes `host.registration.json` before the pool's
 repositories override it, so this answer describes the *previous* cycle's view.
 Immediately after an assignment, expect one cycle in which it has not caught up
 yet.
+
+<a id="4207d71a-0010"></a>
 
 ### Pool Status — pausing and continuing every member at once
 
@@ -361,6 +393,8 @@ powered off, or holds a different Lab token fails on its own without costing the
 others their change. Every fan-out is written to the audit log with how much of
 it landed.
 
+<a id="4207d71a-0011"></a>
+
 ### Architecture
 
 A small Go daemon (`test/extension/pool-control-service/server`, module `pool-control-service`) that:
@@ -403,6 +437,8 @@ A small Go daemon (`test/extension/pool-control-service/server`, module `pool-co
   `poolStorageNetworkPath/pool-control-service/` (the pool NAS), surviving restarts. `/healthz`
   serves that status. A monitor loop probes the intent every `--monitor-interval`.
 
+<a id="4207d71a-0012"></a>
+
 ### Unlocking the actions
 
 Everything this service changes **is** pool configuration &mdash; which pools
@@ -431,6 +467,8 @@ An aggregator that is down means the board cannot be unlocked &mdash; a
 deliberate fail-closed, reported as `503` with reason `lab-token-unavailable`
 rather than as a wrong code, so an operator does not retype a correct one until
 they give up.
+
+<a id="4207d71a-0013"></a>
 
 ### Running it
 
@@ -472,6 +510,8 @@ pwsh test/service/Start-PoolControlServiceVM.ps1 -HostSideProof [-Port 8090] [-A
 Needs `go` + `pwsh` on PATH and the framework checkout (the CLIs live at
 `<repo>/test/*.ps1`).
 
+<a id="4207d71a-0014"></a>
+
 ### Auto-enrollment
 
 A host that has enrolled its Lab token, and is in **no pool at all**, can join a
@@ -499,6 +539,8 @@ Once on, each tick does exactly this and no more:
 Failure is **bounded, not atomic**. Each host is its own CLI run, commit and
 push, so a failure partway through leaves the earlier hosts enrolled. Enrollment
 is idempotent and resumable, so the next tick finishes the job.
+
+<a id="4207d71a-0015"></a>
 
 ### Network scan -- finding hosts nobody registered
 
@@ -557,6 +599,8 @@ The list is this service's own, kept beside the audit log under `--state-dir`
 the case it exists for. With no state dir it lives in memory and is rebuilt by
 the next sweep.
 
+<a id="4207d71a-0016"></a>
+
 ## Download-agent service
 
 The Download-agent service is the pool's shared guest-image downloader. It keeps
@@ -565,6 +609,8 @@ image against its origin on a schedule, and serves the artifacts to hosts over
 HTTP -- so a lab pulls an ISO or cloud image from the internet once instead of
 once per host. It needs pool storage configured -- without a share the service
 is skipped.
+
+<a id="4207d71a-0017"></a>
 
 ### What it does
 
@@ -588,6 +634,8 @@ is skipped.
   `runtime/download-agent-service.json` marker put it in the dashboard's
   Extension hosts table as "Download-agent service", deep-linking to its UI.
 
+<a id="4207d71a-0018"></a>
+
 ### The UI and its three actions
 
 The daemon serves a single-page UI at `http://<agent-vm-ip>/` -- the agent
@@ -609,6 +657,8 @@ share". Reads are open on the LAN. Three per-row actions are gated:
 Each action is appended to `<pool root>/download-agent-service/audit.jsonl`. The
 same three exist as API routes for automation, which also accept the shared
 internal authentication key as a bearer.
+
+<a id="4207d71a-0019"></a>
 
 ### Unlocking the actions
 
@@ -639,6 +689,8 @@ it is worth having because it expires on its own.
 With neither an aggregator to ask nor an internal authentication key configured the mutating
 routes answer `503` -- never an ungated write.
 
+<a id="4207d71a-001a"></a>
+
 ### Running it
 
 ```powershell
@@ -657,6 +709,8 @@ stop/start pair for you in both modes whenever storage is configured, and never
 fails setup on it. Config keys:
 [test-config.md](test-config.md#downloadagentservice--the-pool-wide-image-downloader).
 
+<a id="4207d71a-001b"></a>
+
 ## Design choices
 
 - **One test-set per pool** -- split hosts into two pools to run two bodies of
@@ -665,6 +719,8 @@ fails setup on it. Config keys:
   cloning them, and `Test-PoolIntent.ps1` checks shape, not reachability.
 - **Members do not split the work** -- every member runs the assigned project's
   full `test.runner.yml` plan; there is no per-guest scheduling across members.
+
+<a id="4207d71a-001c"></a>
 
 ## Advanced: two more optional `pools.yml` blocks
 
@@ -677,12 +733,16 @@ These have no dedicated command yet -- author them directly in `pools.yml` (vali
   pool is flagged "degraded"). Advisory: it drives alerting + the dashboard, never gating a
   cycle. Delivery is configured separately on the alert host (see the notifier docs).
 
+<a id="4207d71a-001d"></a>
+
 ## Default-off + safety
 
 The pool layer is entirely opt-in: a host with no `pool` block, or a pool with no
 members or no assigned test-set, runs its local `test.runner.yml` exactly as a
 standalone host. An unreachable intent store falls back to the last good copy,
 then to standalone -- a pool never stops a host from testing.
+
+<a id="4207d71a-001e"></a>
 
 ## See also
 
@@ -700,6 +760,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08
 
 Back to [Yuruna](../README.md)

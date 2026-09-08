@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 4276263e-b3ef-4219-b17d-1c87a3cfa238
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -59,7 +59,7 @@
     script did not exist".
 #>
 
-# --- REGION: https://yuruna.link/network#defining-yuruna-host-locate-lib
+# --- REGION: https://yuruna.link/4220a755-002d
 [CmdletBinding()]
 [OutputType([bool])]
 param(
@@ -67,7 +67,7 @@ param(
     [Parameter()][string]$HostsFilePath = "$env:SystemRoot\System32\drivers\etc\hosts"
 )
 
-# --- REGION: https://yuruna.link/network#defining-host-locate-file-targets
+# --- REGION: https://yuruna.link/4220a755-002e
 # Wall-clock caps, in seconds. Backstops for an unreachable peer, not
 # normal-path budgets: each is a LAN round trip that completes in
 # milliseconds when the peer is up. The livecheck cap is tightest because it
@@ -90,7 +90,7 @@ $script:RetryDelaySec = 3
 if ($env:YURUNA_LOCATE_RETRY_ATTEMPTS -match '^\d+$') { $script:RetryAttempts = [int]$env:YURUNA_LOCATE_RETRY_ATTEMPTS }
 if ($env:YURUNA_LOCATE_RETRY_DELAY -match '^\d+$')    { $script:RetryDelaySec = [int]$env:YURUNA_LOCATE_RETRY_DELAY }
 
-# --- REGION: https://yuruna.link/network#defining-host-locate-http
+# --- REGION: https://yuruna.link/4220a755-002f
 function Get-YhlHttpString {
 <#
 .SYNOPSIS
@@ -151,7 +151,7 @@ function Test-YhlLivecheck {
     return ($null -ne $probe)
 }
 
-# --- REGION: https://yuruna.link/network#defining-host-locate-plausible
+# --- REGION: https://yuruna.link/4220a755-0030
 function Test-YhlPlausibleBaseUrl {
 <#
 .SYNOPSIS
@@ -180,7 +180,7 @@ function Test-YhlPlausibleBaseUrl {
     return $true
 }
 
-# --- REGION: https://yuruna.link/network#defining-host-locate-directory-read
+# --- REGION: https://yuruna.link/4220a755-0031
 function Get-YhlDirectoryAnswer {
 <#
 .SYNOPSIS
@@ -232,7 +232,7 @@ function Get-YhlDirectoryAnswer {
     return $null
 }
 
-# --- REGION: https://yuruna.link/network#defining-host-locate-persist
+# --- REGION: https://yuruna.link/4220a755-0032
 function Set-YhlHostsAlias {
 <#
 .SYNOPSIS
@@ -293,7 +293,7 @@ function Set-YhlHostEnvAddress {
     }
 }
 
-# --- REGION: https://yuruna.link/network#defining-host-locate-entrypoint
+# --- REGION: https://yuruna.link/4220a755-0033
 function Invoke-YurunaHostLocate {
 <#
 .SYNOPSIS

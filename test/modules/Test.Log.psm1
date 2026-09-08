@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 429770ab-d272-43a0-985e-672863545e2c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -252,12 +252,10 @@ function Get-YurunaLogPreamble {
 :root { color-scheme: light; }
 body { background: #fff; color: #111827; }
 h1 { font: inherit; font-weight: 700; margin: 0 0 8px; }
-/* Severity rides as a CSS class on every line, and until this block existed
-   nothing rendered it -- warning, error and ordinary output looked identical to
-   every reader, sighted or not. Each cue is a WORD before it is a color: the
-   prefix survives a monochrome display, a color-vision difference and a
-   screen reader, none of which a hue reaches. The colors are secondary and
-   each clears 4.5:1 on the white above. */
+/* Severity rides as a CSS class on every line. Each cue is a WORD before it
+   is a color: the prefix survives a monochrome display, a color-vision
+   difference and a screen reader, none of which a hue reaches. The colors
+   are secondary and each clears 4.5:1 on the white above. */
 .log-error::before   { content: "ERROR "; }
 .log-warning::before { content: "WARNING "; }
 .log-debug::before   { content: "DEBUG "; }
@@ -729,7 +727,7 @@ function Stop-LogFile {
             # cycle.events.ndjson. NDJSON write is best-effort; the
             # gap-sentinel inside Write-CycleNdjsonEvent surfaces
             # any failure.
-            # --- REGION: https://yuruna.link/network#why-a-cycle-records-the-churn-it-met
+            # --- REGION: https://yuruna.link/4220a755-004a
             # How many times this host's address moved while the cycle ran. On a
             # host whose lease is deliberately short, that number is what makes
             # the verdict mean something: a pass with three changes inside it is
@@ -807,7 +805,7 @@ function Stop-LogFile {
             } elseif ($Outcome -eq 'pass') {
                 Write-Information "Cycle passed with $addressChanges host address change(s) inside it." -InformationAction Continue
             }
-            # --- REGION: https://yuruna.link/network#why-a-cycle-records-the-churn-it-met
+            # --- REGION: https://yuruna.link/4220a755-004a
             # The count above says what this ONE cycle met. The verdict says
             # whether the host is bounded at all, which is the question a
             # week-long lease makes urgent and which no single cycle can answer.

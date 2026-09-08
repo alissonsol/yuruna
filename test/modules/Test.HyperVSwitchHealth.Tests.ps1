@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 4274f795-11a9-4183-b8be-e0da0ebdbc52
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -128,11 +128,17 @@ function Get-AdapterRecord {
         [string]$Mac = '',
         [int]$Index = 0
     )
+    # A real Get-NetAdapter record carries both the translated display string
+    # and the IF-MIB value it was rendered from, and the classifier reads the
+    # value. A double that carried only the string would exercise the fallback
+    # branch and prove nothing about the path a Windows host actually takes,
+    # so the number is derived here from what the case asked for.
     return [pscustomobject]@{
         Name                 = $Alias
         InterfaceAlias       = $Alias
         InterfaceDescription = $Description
         Status               = $Status
+        ifOperStatus         = if ($Status -eq 'Up') { 1 } else { 2 }
         MacAddress           = $Mac
         InterfaceIndex       = $Index
     }

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 422a68fe-a953-4858-a4d5-e3de9fbbbaf8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -73,7 +73,7 @@ function New-TempConfigFile {
     return $p
 }
 
-# --- REGION: https://yuruna.link/memory#pester-file-scope-fixtures
+# --- REGION: https://yuruna.link/42d69dfa-0015
 
 # --- REGION: AST helpers for the control-flow golden below (walk the real .psm1, not a mirror)
 function Get-AstNearestLoop {

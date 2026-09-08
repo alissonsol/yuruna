@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.01
+# Version: 2026.09.08
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -28,9 +28,9 @@ case "$ARCH" in
     ;;
 esac
 
-# --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
+# --- REGION: https://yuruna.link/4220a755-0003
 . /usr/local/lib/yuruna/yuruna-retry.sh
-# --- REGION: https://yuruna.link/network#why-apt-and-dnf-attempts-run-unbounded-by-default
+# --- REGION: https://yuruna.link/4220a755-0005
 # Re-asserted here because a baked retry lib may still carry a wall-clock bound.
 export YURUNA_APT_STALL_TIMEOUT_SECONDS=0
 

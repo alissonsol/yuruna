@@ -15,7 +15,7 @@ import (
 	"pool-control-service/internal/intent"
 	"pool-control-service/internal/state"
 
-	"yuruna.com/test/extension/extension-sdk/webui"
+	"yuruna.com/test/extension/extension-sdk/i18n"
 )
 
 func (s *Server) routes() http.Handler {
@@ -87,7 +87,11 @@ func (s *Server) routes() http.Handler {
 	// Assign lives at /assign, not "/": the root slot serves the board.
 	mux.HandleFunc("GET /assign", s.servePage("index.html"))
 	mux.HandleFunc("GET /{$}", s.servePage("board.html"))
-	return mux
+	// Negotiation wraps everything so one request resolves its language once.
+	// A page and the API calls it then makes must not each decide separately:
+	// a board rendered in one language listing states named in another is a
+	// difference no reader can attribute to anything real.
+	return s.negotiator().Middleware(mux)
 }
 
 // --- JSON helpers -----------------------------------------------------------
@@ -149,42 +153,45 @@ func (s *Server) handleDiagnostics(w http.ResponseWriter, r *http.Request) {
 
 // --- page + asset serving ---------------------------------------------------
 
+// servePage serves one embedded document in the reader's language.
+//
+// The language is decided here, at the boundary, and written into the markup
+// before it leaves: the document arrives already correct rather than being
+// corrected by script after first paint. The representation is negotiated, so
+// it carries Content-Language and varies on Accept-Language -- without that, a
+// shared cache hands whichever language was asked for first to everyone.
 func (s *Server) servePage(name string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		b, err := webFS.ReadFile("web/" + name)
-		if err != nil {
-			http.NotFound(w, r)
+		locale := i18n.FromRequest(r)
+		if locale.ResolvedTag == "" {
+			locale = s.negotiator().Resolve(r)
+		}
+		page, ok := s.assets.page(name, locale)
+		if !ok {
+			http.Error(w, "prepared page representation unavailable", http.StatusInternalServerError)
 			return
 		}
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		w.Header().Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'")
-		_, _ = w.Write(b)
+
+		h := w.Header()
+		h.Set("Content-Security-Policy", "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self'; base-uri 'none'; form-action 'none'")
+		i18n.Apply(h, locale)
+		serveAsset(w, r, page)
 	}
 }
 
+// handleAsset serves a prepared static file. An asset is the same bytes in
+// every language, so it is not negotiated and does not vary on the language
+// header -- claiming it did would split every cache entry on a header that
+// changes nothing about the response.
 func (s *Server) handleAsset(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimPrefix(r.URL.Path, "/assets/")
 	clean := strings.TrimPrefix(filepath.ToSlash(filepath.Clean("/"+name)), "/")
-	b, err := webFS.ReadFile("web/assets/" + clean)
-	if err != nil {
-		// Not one of this service's own files, so try the shared ones. The
-		// runtime every page loads first lives in the SDK precisely so there is
-		// one copy of it; a service overrides a shared name by shipping a file
-		// of that name itself, which is why its own directory is searched first.
-		shared, ct, ok := webui.Asset(clean)
-		if !ok {
-			http.NotFound(w, r)
-			return
-		}
-		w.Header().Set("Content-Type", ct)
-		w.Header().Set("X-Content-Type-Options", "nosniff")
-		_, _ = w.Write(shared)
+	a, ok := s.assets.asset(clean)
+	if !ok {
+		http.NotFound(w, r)
 		return
 	}
-	w.Header().Set("Content-Type", webui.ContentType(name))
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	_, _ = w.Write(b)
+	serveAsset(w, r, a)
 }
 
 // --- request decoding -------------------------------------------------------

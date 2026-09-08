@@ -1,3 +1,5 @@
+<a id="420f54a5-0001"></a>
+
 # Install scripts
 
 One bootstrap installer per host. Each is idempotent, prompts for
@@ -18,6 +20,8 @@ host settings alone, `host/<platform>/Enable-TestAutomation.ps1`.
 | macOS UTM | [macos.utm.sh](macos.utm.sh) | [macOS UTM ...](../host/macos.utm/README.md) |
 | Windows Hyper-V | [windows.hyper-v.ps1](windows.hyper-v.ps1) | [Windows Hyper-V ...](../host/windows.hyper-v/README.md) |
 | Ubuntu KVM/libvirt | [ubuntu.kvm.sh](ubuntu.kvm.sh) | [Ubuntu KVM/libvirt ...](../host/ubuntu.kvm/README.md) |
+
+<a id="420f54a5-0002"></a>
 
 ## Guided setup
 
@@ -70,6 +74,8 @@ a child.
 
 For what a lab is and how hosts join one, see [docs/lab-operator.md](../docs/lab-operator.md).
 
+<a id="420f54a5-0003"></a>
+
 ### Putting a machine back
 
 [test/lab/Disable-TestAutomation.ps1](../test/lab/Disable-TestAutomation.ps1) restores the
@@ -94,6 +100,8 @@ still a change nobody asked for.
 
 It refuses to run while a test runner owns the host's runtime directory. Full
 breakdown in [docs/operator.md](../docs/operator.md#putting-the-machine-back).
+
+<a id="420f54a5-0004"></a>
 
 ## Remote one-liners
 
@@ -134,6 +142,8 @@ sidesteps a stdin/sudo-prompt edge case some Ubuntu terminals trip on.
 > They fetch the moving `refs/heads/main`, and the resulting clone **tracks
 > `main` and auto-updates every cycle** (see **Pin to a release** below). For a
 > signature-checked install, prefer the **verified** path below.
+
+<a id="420f54a5-0005"></a>
 
 ## Pin to a release (disable auto-update)
 
@@ -181,11 +191,13 @@ To pin to a *specific other* release instead of this installer's baked one,
 pass the tag directly: `-YurunaBranch 2026.06.20` /
 `YURUNA_BRANCH=2026.06.20`.
 
+<a id="420f54a5-0006"></a>
+
 ## Verified install (signed release)
 
 > Available for published release **tags**. The signing artifacts
-> (`install.sha256.sig`, `install/keys/`) first ship in release `2026.09.01`;
-> until that tag is cut, use the convenience one-liners above.
+> (`install.sha256.sig`, `install/keys/`) first ship in release `2026.06.12`;
+> for an older tag, use the convenience one-liners above.
 
 A tagged release publishes, next to each installer:
 
@@ -204,7 +216,7 @@ SHA-256(DER public key) = 14fce044df5de1ebbac6fdeae8d4f87abac618393f06e32748b7ef
 **Windows Hyper-V** (PowerShell 5.1+; uses .NET, no extra tooling):
 
 ```
-$base='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.09.01'; $t=Join-Path $env:TEMP 'yuruna-install'; New-Item -ItemType Directory -Force $t|Out-Null
+$base='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.09.08'; $t=Join-Path $env:TEMP 'yuruna-install'; New-Item -ItemType Directory -Force $t|Out-Null
 'install/windows.hyper-v.ps1','install/install.sha256','install/install.sha256.sig','install/keys/yuruna-release-signing.pub.xml'|%{ irm "$base/$_" -OutFile (Join-Path $t (Split-Path $_ -Leaf)) }
 $k=New-Object System.Security.Cryptography.RSACryptoServiceProvider; $k.FromXmlString((Get-Content "$t\yuruna-release-signing.pub.xml" -Raw))
 if(-not $k.VerifyData([IO.File]::ReadAllBytes("$t\install.sha256"),'SHA256',[IO.File]::ReadAllBytes("$t\install.sha256.sig"))){throw 'SIGNATURE INVALID -- do not run'}
@@ -215,7 +227,7 @@ $h=(Get-FileHash "$t\windows.hyper-v.ps1" -Algorithm SHA256).Hash.ToLower(); if(
 **macOS UTM / Ubuntu KVM** (uses `openssl`, present on both):
 
 ```
-BASE='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.09.01'; S=install/macos.utm.sh   # or install/ubuntu.kvm.sh
+BASE='https://raw.githubusercontent.com/alissonsol/yuruna/refs/tags/2026.09.08'; S=install/macos.utm.sh   # or install/ubuntu.kvm.sh
 t=$(mktemp -d); for f in "$S" install/install.sha256 install/install.sha256.sig install/keys/yuruna-release-signing.pub.pem; do curl -fsSL "$BASE/$f" -o "$t/$(basename "$f")"; done
 openssl dgst -sha256 -verify "$t/yuruna-release-signing.pub.pem" -signature "$t/install.sha256.sig" "$t/install.sha256" || { echo 'SIGNATURE INVALID -- do not run'; exit 1; }
 grep -qF "$(sha256sum "$t/$(basename "$S")" | cut -d' ' -f1)" "$t/install.sha256" || { echo 'INSTALLER HASH MISMATCH -- do not run'; exit 1; }
@@ -226,6 +238,8 @@ The detached signature is produced at release time by `tools/Update-YurunaReleas
 
 Each link in the table above goes to the per-host README with post-install
 steps (group membership, screen-saver settings, TCC grants, etc.).
+
+<a id="420f54a5-0007"></a>
 
 ## GitHub CLI (`gh`)
 
@@ -248,6 +262,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08
 
 Back to [Yuruna](../README.md)

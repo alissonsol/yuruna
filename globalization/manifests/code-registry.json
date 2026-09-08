@@ -1,0 +1,143 @@
+{
+  "schema": "yuruna.code-registry/v1",
+  "codeSchemaVersion": "yuruna.code/v1",
+  "retiredCodes": [],
+  "description": "Every stable code a surface may branch on. A code is what crosses a boundary; the sentence a reader sees is rendered from it at the last moment, in their language. This file exists because the codes were bare literals repeated across PowerShell, Go and JavaScript with nothing naming them: a code added on one side and forgotten on another stops being recognized, and the surface that missed it reports the state as unknown rather than as an error anyone chases.",
+  "rules": [
+    "A code is lower-case, underscore-separated, and never contains a word a translator would touch.",
+    "Every runtime listed under consumedBy must carry the literal. That is the drift this file is checked for: one side learning a code and another not.",
+    "rendersAs names the catalog key a reader-facing surface shows for the code. A code with no key is machine-only and says so.",
+    "Adding a value to an enumeration is adding a code. It goes here, or some consumer will silently treat it as unknown.",
+    "Every entry has one owner, schema version and lifecycle. Deprecation names a replacement and removal release/date; removal moves the wireCode to retiredCodes, and a retired code is never reused."
+  ],
+  "codes": [
+    {
+      "code": "sequence_paused_waiting_resume",
+      "wireCode": "sequence.sequence_paused_waiting_resume",
+      "namespace": "sequence",
+      "owner": "runner",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The runner is parked at a step boundary and will not continue until an operator resumes it. The guest stays up and keeps printing, which is why this is a distinct state rather than an absence of progress.",
+      "producedBy": ["test/modules/Test.SequenceEngine.psm1"],
+      "consumedBy": [
+        "test/status/yuruna.common.js",
+        "test/extension/pool-aggregator-service/main.go"
+      ],
+      "rendersAs": "status.cycle_paused"
+    },
+    {
+      "code": "readable",
+      "wireCode": "repository_access.readable",
+      "namespace": "repository_access",
+      "owner": "host_git",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host's git credential can read the repository it is configured with.",
+      "producedBy": ["test/modules/Test.HostGit.psm1"],
+      "consumedBy": [],
+      "rendersAs": "pool.repo_held_detail"
+    },
+    {
+      "code": "denied",
+      "wireCode": "repository_access.denied",
+      "namespace": "repository_access",
+      "owner": "host_git",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The repository answered and refused. A credential problem, not a network one, and no retry fixes it.",
+      "producedBy": [
+        "test/modules/Test.HostGit.psm1",
+        "test/modules/Test.RunnerInnerLoop.psm1"
+      ],
+      "consumedBy": [
+        "test/extension/pool-control-service/server/internal/httpsrv/board.go",
+        "test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js"
+      ],
+      "rendersAs": "pool.repo_denied_detail"
+    },
+    {
+      "code": "unconfigured",
+      "wireCode": "repository_access.unconfigured",
+      "namespace": "repository_access",
+      "owner": "host_git",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The host was given no repository to read. Distinct from denied: there is nothing to grant access to.",
+      "producedBy": ["test/modules/Test.HostGit.psm1"],
+      "consumedBy": [],
+      "rendersAs": "pool.repo_unconfigured_detail"
+    },
+    {
+      "code": "unprobed",
+      "wireCode": "repository_access.unprobed",
+      "namespace": "repository_access",
+      "owner": "host_git",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "Nothing has asked yet. An absence of evidence, which a surface must not render as a failure.",
+      "producedBy": ["test/modules/Test.HostGit.psm1"],
+      "consumedBy": [
+        "test/service/Start-StatusService.ps1"
+      ],
+      "rendersAs": ""
+    },
+    {
+      "code": "auth.lab_token_unavailable",
+      "wireCode": "auth.lab_token_unavailable",
+      "namespace": "auth",
+      "owner": "extension_auth",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The service could not reach the authority needed to validate the supplied lab token. This is an availability condition, not a rejected credential.",
+      "producedBy": [
+        "test/extension/extension-sdk/labgate/labgate.go"
+      ],
+      "consumedBy": [
+        "test/modules/Test.MessageHttpMigration.Tests.ps1"
+      ],
+      "rendersAs": ""
+    },
+    {
+      "code": "auth.unconfigured",
+      "wireCode": "auth.unconfigured",
+      "namespace": "auth",
+      "owner": "extension_auth",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "The service has no configured authority with which to validate a credential, so state-changing operations remain disabled.",
+      "producedBy": [
+        "test/extension/extension-sdk/labgate/labgate.go"
+      ],
+      "consumedBy": [
+        "test/extension/pool-control-service/server/internal/httpsrv/web/assets/common.js",
+        "test/modules/Test.MessageHttpMigration.Tests.ps1"
+      ],
+      "rendersAs": ""
+    },
+    {
+      "code": "step.start",
+      "wireCode": "step.start",
+      "namespace": "cycle_event",
+      "owner": "orchestrator",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "A cycle entry began. Carries index, total, name and kind, so a consumer can build a transcript outline without reading the rendered rule.",
+      "producedBy": ["test/modules/Test.Orchestrator.psm1"],
+      "consumedBy": [],
+      "rendersAs": ""
+    },
+    {
+      "code": "step.end",
+      "wireCode": "step.end",
+      "namespace": "cycle_event",
+      "owner": "orchestrator",
+      "schemaVersion": "yuruna.code/v1",
+      "lifecycle": "active",
+      "means": "A cycle entry finished, with its outcome as a lower-case token rather than the word the transcript prints.",
+      "producedBy": ["test/modules/Test.Orchestrator.psm1"],
+      "consumedBy": [],
+      "rendersAs": ""
+    }
+  ]
+}

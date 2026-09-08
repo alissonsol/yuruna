@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42801635-2de0-4574-8b48-dbac5d2347c2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -638,7 +638,7 @@ function Add-SetupDecision {
 
 Initialize-SetupLog -Path $LogPath
 
-# --- REGION: https://yuruna.link/install/explained#outcome-buckets-and-the-facts-store
+# --- REGION: https://yuruna.link/429fb30b-0004
 # Every step lands in one of five buckets (Done/Skipped/Warned/Blocked/Failed)
 # and the closing report prints all five; the linked section explains why each
 # bucket exists and why none can be folded into another.
@@ -1705,7 +1705,7 @@ function Test-NetworkSubnetConnectivity {
     [CmdletBinding()]
     [OutputType([bool])]
     param(
-        [string]$DocumentationUrl = 'https://yuruna.link/network#local-subnet-connectivity'
+        [string]$DocumentationUrl = 'https://yuruna.link/4220a755-0050'
     )
 
     Write-SetupDetail 'Checking machine network subnet connectivity...'

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42483736-4c90-4f3e-b602-9b7c1511b13e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -79,7 +79,7 @@ $script:RepoRoot      = $RepoRoot
 $script:AutomationDir = Join-Path $RepoRoot 'automation'
 $script:ProtocolVersion = '2025-06-18'
 
-# --- REGION: https://yuruna.link/extensions-api#mcp-endpoints
+# --- REGION: https://yuruna.link/42fffc2c-000f
 
 <#
 .SYNOPSIS

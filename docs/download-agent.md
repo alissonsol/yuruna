@@ -1,3 +1,5 @@
+<a id="4268e4cb-0001"></a>
+
 # Yuruna download-agent service -- one download for the whole lab
 
 > **Who this is for.** An operator running Yuruna test hosts against a shared
@@ -6,6 +8,8 @@
 > **pool storage tier is already configured** (`networkStorage.pool*` in
 > `test/test.config.yml`); without a share there is nowhere for the image pool to
 > live and the service is skipped.
+
+<a id="4268e4cb-0002"></a>
 
 ## What it is
 
@@ -40,6 +44,8 @@ the answer is in
 holding the current artifact stops immediately, a host that needs bytes takes
 them from the LAN, and anything else falls back to the publisher path with the
 same output and exit codes as a lab that runs no agent.
+
+<a id="4268e4cb-0003"></a>
 
 ## Activating it
 
@@ -83,6 +89,8 @@ If `:80` never comes up, the script SSHes into the guest with the harness key an
 prints `cloud-init status`, the unit's journal, the listener table, the pool
 mount state, and the tail of `/var/log/cloud-init-output.log` -- so a failed build
 shows the reason instead of a dead URL.
+
+<a id="4268e4cb-0004"></a>
 
 ## The Download pool
 
@@ -139,6 +147,8 @@ holder and reports `leaseHolder` in its status. Correctness never depends on the
 lease -- generation-addressed storage makes concurrent writers safe on its own;
 the lease only makes duplicate work rare.
 
+<a id="4268e4cb-0005"></a>
+
 ## Freshness and the scanner
 
 An image is **fresh** for `freshnessSeconds` after its `lastVerifiedAt`, which is
@@ -189,6 +199,8 @@ folder -- for each architecture, which costs nothing until an operator fills it.
 virtio-win is the exception that stays x86-64 only, because the bundle carries
 no ARM64 drivers to offer.
 
+<a id="4268e4cb-0006"></a>
+
 ## Windows 11: a best-effort family, and what it is worth
 
 Microsoft publishes no fetchable URL for the Windows 11 media. The page mints a
@@ -232,6 +244,8 @@ When any of that fails, the agent reports the family **absent** and the hosts
 silently do what they always do: Hyper-V and UTM run Fido themselves, KVM asks
 for a manual download. An agent that does not hold Windows media is an
 ordinary state, not a fault -- nothing regresses, and nothing warns.
+
+<a id="4268e4cb-0007"></a>
 
 ### When the resolver is refused: the drop folder
 
@@ -280,12 +294,16 @@ them has no PowerShell and no Fido; rebuild it (`Stop-` then
 `Start-DownloadAgentServiceVM.ps1`, which is what a setup re-run does anyway) to
 pick them up.
 
+<a id="4268e4cb-0008"></a>
+
 ## The web UI
 
 The daemon serves a single-page UI at `/`, reachable from the Extension hosts
 table's deep-link or directly at the base URL the marker publishes. Reads are
 open on the LAN; the page polls the same `GET /api/v1/images` that automation
 uses, so the UI has no private endpoints.
+
+<a id="4268e4cb-0009"></a>
 
 ### The per-image API
 
@@ -305,6 +323,8 @@ its own by the `{hostType}/{imageKey}` pair the pool catalog names it with:
 `POST /api/v1/refresh` (below) is the pool-wide counterpart to the per-image
 `refresh`, and is the one route gated by the shared **bearer** token rather
 than a UI session -- it is meant for automation, not a button.
+
+<a id="4268e4cb-000a"></a>
 
 ### What you can see
 
@@ -327,6 +347,8 @@ time; auto-seed status and the last seed outcome.
 
 **Totals row** -- pool bytes used, with per-hostType subtotals: the answer to
 "what is eating the share".
+
+<a id="4268e4cb-000b"></a>
 
 ### Sorting the table
 
@@ -351,6 +373,8 @@ the question:
 oldest end. Rows that tie on the sorted column fall back to their identity, so
 the order does not shuffle under the cursor while the page polls.
 
+<a id="4268e4cb-000c"></a>
+
 ### The three actions, and when to use each
 
 All three are per-row and gated (an unlocked session or a bearer). Each appends
@@ -368,6 +392,8 @@ address), so the trail shows who opened the board as well as what they changed.
 
 `POST /api/v1/refresh` re-verifies the whole pool in one call. That one is
 **bearer-only** (the internal authentication key): an automation route, not a button.
+
+<a id="4268e4cb-000d"></a>
 
 ## Diagnostics
 
@@ -405,6 +431,8 @@ without waiting out the TTL or rebuilding.
 `GET /api/v1/diagnostics` serves the same report as JSON;
 `POST /api/v1/diagnostics/fido-test?arch=amd64|arm64` is the test route
 (gated), and both land in the audit log like every other action.
+
+<a id="4268e4cb-000e"></a>
 
 ## Unlocking the actions
 
@@ -455,6 +483,8 @@ dashboard can read it. That is the point: the gate stops a stray click on a
 Delete button, it is not a secret. Its value is the rotation -- unlike a stored
 passcode, a code that walks out of the lab expires by itself.
 
+<a id="4268e4cb-000f"></a>
+
 ## Discovery, ports, and the Extension hosts row
 
 The daemon listens on `0.0.0.0:80` in the guest, plain HTTP on the trusted LAN,
@@ -471,6 +501,8 @@ dashboard row:
   than deep-linking operators to a dead UI.
 - **The beacon.** The daemon posts to the aggregator's `/announce` at boot, every
   15 minutes, and once more as a goodbye on shutdown.
+
+<a id="4268e4cb-0010"></a>
 
 ### UTM Shared NAT and port 8082
 
@@ -492,11 +524,15 @@ address from the request's source IP, which NAT rewrites to the Mac's address
 comes from the marker. A Shared NAT Mac is a **reduced-value placement**: prefer
 a bridged host for the agent.
 
+<a id="4268e4cb-0011"></a>
+
 ### Pinning an endpoint by hand
 
 `YURUNA_EXTENSION_HOST_DOWNLOAD_AGENT_SERVICE=<address>` pins the endpoint for a
 host, ahead of any discovery -- the escape hatch for a lab whose agent lives
 somewhere discovery cannot see.
+
+<a id="4268e4cb-0012"></a>
 
 ## Configuration
 
@@ -521,6 +557,8 @@ so a bare daemon and one with no config block behave identically.
 Joining lab hosts need **no** new config key -- discovery rides the aggregator,
 with the environment pin above as the manual override.
 
+<a id="4268e4cb-0013"></a>
+
 ## The agent's vault user
 
 The agent VM's login is `download-agent-service-admin`, declared in
@@ -538,6 +576,8 @@ a value under that key in `vault.yml`. Neither grants access
 to anything -- no daemon compares against them and no seed carries them -- so
 leaving them is harmless. Delete both by hand if you would rather the vault
 held only live credentials.
+
+<a id="4268e4cb-0014"></a>
 
 ## Troubleshooting
 
@@ -564,6 +604,8 @@ The manual smoke test for the daemon build itself is
 is standalone and deliberately **not** wired into any automated test-set: run it
 by hand to verify the daemon compiles and starts on a vanilla guest.
 
+<a id="4268e4cb-0015"></a>
+
 ## See also
 
 - [pool-admin.md](pool-admin.md#download-agent-service) -- the service in the
@@ -583,6 +625,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08
 
 Back to [Yuruna](../README.md)

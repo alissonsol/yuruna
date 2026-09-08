@@ -2,8 +2,6 @@
 
 These state diagrams separate the six persisted runner states from the seven guest-provisioning stages executed inside a cycle.
 
-[Yuruna Architecture](../architecture.md) | [Design index](00-index.md) | [Data flows](03-data-flows.md)
-
 ## Persisted runner state
 
 ```mermaid
@@ -21,7 +19,7 @@ stateDiagram-v2
   [*] --> fault: stale recovery
   idle --> cycle_start: begin cycle
   idle --> fault: startup fault
-  cycle_start --> in_cycle: watchdog armed
+  cycle_start --> in_cycle: worker spawning
   cycle_start --> paused: pool hold
   cycle_start --> fault: preflight failure
   in_cycle --> cycle_end: exit zero
@@ -36,10 +34,12 @@ stateDiagram-v2
 The enum and allowed adjacency are defined in
 `test/modules/Test.RunnerState.psm1`: `idle`, `cycle-start`, `in-cycle`,
 `cycle-end`, `fault`, and `paused`. `Test.RunnerOuterLoop.psm1` writes
-`cycle-start` before pool and preflight work, `in-cycle` after the watchdog is
-armed, `cycle-end` then `idle` on exit zero, and `fault` then `paused` on a failed
+`cycle-start` before pool and preflight work, `in-cycle` after the watchdog launch
+attempt, `cycle-end` then `idle` on exit zero, and `fault` then `paused` on a failed
 cycle. A pool hold moves from `cycle-start` to `paused`; a later intent poll can
 return directly to `cycle-start`.
+Watchdog startup failure warns but does not prevent worker launch; `in-cycle`
+therefore does not prove that watchdog protection is active.
 
 Startup recovery is shown as a second initial path because the state module emits
 synthetic `<prior-state> -> fault -> idle` events for a stale prior runner; a clean
@@ -77,6 +77,8 @@ stateDiagram-v2
   power_on --> guest_setup
   guest_setup --> verify
   verify --> validate
+  %% optional -- eligible transient workloads resume within the same VM
+  validate --> validate: warm resume
   validate --> teardown
   teardown --> [*]
   cleanup --> [*]: cleanup fault
@@ -113,13 +115,35 @@ unhandled exception returns nonzero, driving the persisted `in-cycle` to `fault`
 edge above. `Copy-FailureArtifactsToStatusLog` records diagnostics before the
 policy branch; diagnosis is a status/artifact side effect, not an eighth state.
 
+Workload validation can warm-resume an eligible transient failure on the same VM,
+bounded by `WarmResumeMaxAttempts`. The inner loop rewinds to a preceding
+`loadDiskSnapshot` when available and refuses unsafe replay without a restoration
+boundary. Teardown or retention follows the final result, not necessarily the first
+workload failure. The self-loop models this retry without adding a persisted state.
+
 ## Watchdog and restart
 
 `test/modules/Test.RunnerWatchdog.psm1` verifies the inner PID plus process start
 time and polls `runner.stepHeartbeat`. A stale, still-matching process tree is
 killed; the watchdog does not write runner state itself. The resulting nonzero
 worker exit drives `in-cycle` to `fault`, then the outer loop enters `paused`.
-Missing or unverifiable process identity emits a lapsed-watchdog event and leaves
-the worker running. Pause exit conditions in `Test.RunnerOuterLoop.psm1` include
+Missing/unreadable identity while arming writes a log and
+`runner.watchdog.lapsed` sentinel, leaving the cycle unguarded; the outer loop
+reports that sentinel after regaining control. After arming, repeated identity
+mismatch disarms without killing, while a transient failed probe can keep polling.
+Pause exit conditions in `Test.RunnerOuterLoop.psm1` include
 source/config changes, a UI restart request, auto-remediation, the configured cap,
 or cancellation; a later cycle starts through `idle` or the pool-intent retry edge.
+
+## State identity and localized labels
+
+Persisted states, `failureClass`, and action codes remain machine values across
+locales. For example, `Test.SequenceEngine.psm1` separates the current action's
+stable `code` from its external `label` and compatibility `line`; the status
+browser maps the paused code to a catalog key. Translation changes human display,
+not the adjacency or failure decisions above. The partial message-envelope
+migration is detailed in [Globalization](07-globalization.md#6-machine-identity-and-the-message-migration-boundary).
+
+---
+
+[Yuruna Architecture](../architecture.md) | [Design index](00-index.md) | [Data flows](03-data-flows.md)

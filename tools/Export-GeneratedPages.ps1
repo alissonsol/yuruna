@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42df925f-3353-4a16-aae2-7e8a097c522c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,13 +40,13 @@
     code the day after it was written, and would then certify a page nobody
     serves.
 
-    The one deliberate substitution is the data source. Both Go pages fetch
-    their rows from a daemon that is not running here, so a stub `fetch` is
-    injected ahead of the page's own script and answers with a representative
-    payload -- including the pathological values that matter for reflow: a
-    request URL and a user-agent long enough to blow out a table cell. The
-    markup, the stylesheet and the rendering JavaScript under test are byte
-    for byte what the daemon serves.
+    The one deliberate substitution is the data source. Both Go pages request
+    rows from a daemon that is not running here, so the canonical request
+    adapter is replaced, after it has loaded, with a fixture transport that
+    answers with a representative payload -- including the pathological
+    values that matter for reflow. The exporter never creates a missing
+    browser global: doing that would make a page appear compatible because its
+    test supplied a production prerequisite.
 .PARAMETER OutputDirectory
     Where to write the pages. Defaults to a new folder under the temp path.
     The directory is created if missing and its .html files are replaced.
@@ -99,27 +99,60 @@ function Get-GoRawStringConstant {
     return $text.Substring($bodyAt, $end - $bodyAt)
 }
 
-function Add-FetchStub {
+function Add-FailingRequestTransport {
     <#
     .SYNOPSIS
-        Insert a fetch stub ahead of the page's own script.
+        Replace the canonical request function with a rejecting fixture.
     .DESCRIPTION
-        Placed before the page script rather than after it: the page calls
-        refresh() at parse time, so a stub defined later would never be reached
-        and the gate would silently measure an empty table -- a page that
-        renders nothing passes every check it should have failed.
+        Both pages carry a visible error state -- a banner saying the values
+        below are from the last successful read -- and a stub that always
+        succeeded meant that text was never rendered, never measured for
+        contrast, and never checked for the shape a screen reader gets. An
+        outage is exactly when an operator reads this page, so it is exactly
+        the state that has to be legible.
+    #>
+    param([Parameter(Mandatory)][string]$Html)
+
+    if (($Html -split '<script>').Count -lt 2) { throw 'expected at least one <script> in the page' }
+    $stub = @'
+<script>
+window.yurunaRequest = function () { return Promise.reject(new Error('exported failure state')); };
+</script>
+'@
+    $at = $Html.IndexOf('</script>', [StringComparison]::OrdinalIgnoreCase)
+    if ($at -lt 0) { throw 'expected the request adapter script in the page' }
+    $after = $at + '</script>'.Length
+    return $Html.Insert($after, "`n$stub")
+}
+
+function Add-RequestTransport {
+    <#
+    .SYNOPSIS
+        Replace the canonical request function with a fixture transport.
+    .DESCRIPTION
+        Placed after the adapter and before the page script: the page calls
+        refresh() at parse time, so a fixture defined later would never be
+        reached. Installing `window.fetch` here used to make the adapter's
+        feature test positive even on a capability-off page, masking exactly
+        the compatibility defect the generated-page gate is meant to expose.
     #>
     param([Parameter(Mandatory)][string]$Html, [Parameter(Mandatory)][string]$Json)
 
-    if (($Html -split '<script>').Count -ne 2) { throw 'expected exactly one <script> in the page' }
+    # The page carries two script blocks: the request adapter the service
+    # splices in, and the page's own. Override only the adapter's public seam;
+    # never supply fetch, XMLHttpRequest, Promise, or another browser global.
+    if (($Html -split '<script>').Count -lt 2) { throw 'expected at least one <script> in the page' }
     $stub = @"
 <script>
-window.fetch = function () {
-  return Promise.resolve({ ok: true, json: function () { return Promise.resolve($Json); } });
+window.yurunaRequest = function () {
+  return Promise.resolve($Json);
 };
 </script>
 "@
-    return ($Html -replace '<script>', ($stub + '<script>'))
+    $at = $Html.IndexOf('</script>', [StringComparison]::OrdinalIgnoreCase)
+    if ($at -lt 0) { throw 'expected the request adapter script in the page' }
+    $after = $at + '</script>'.Length
+    return $Html.Insert($after, "`n$stub")
 }
 
 # A long URL and a long user-agent are the whole point of this row: they are the
@@ -150,15 +183,158 @@ $proxyStatus = @'
 
 $goPages = @(
     @{ File = 'caching-proxy-parser-ui.html'
-       Source = 'test/extension/caching-proxy-parser-service/parse.go'; Json = $parserRows }
+       Source = 'test/extension/caching-proxy-parser-service/parse.go'
+       Adapter = 'test/extension/caching-proxy-parser-service/requestadapter.go'; Json = $parserRows }
     @{ File = 'caching-proxy-ui.html'
-       Source = 'test/extension/caching-proxy-service/ui.go'; Json = $proxyStatus }
+       Source = 'test/extension/caching-proxy-service/ui.go'
+       Adapter = 'test/extension/caching-proxy-service/requestadapter.go'; Json = $proxyStatus }
 )
 foreach ($p in $goPages) {
+    # The served document, not the constant it is built from. The service
+    # splices its request adapter into the head before sending, and a gate that
+    # measured the pre-splice constant would be measuring a page nobody gets --
+    # including missing the adapter's own bytes and its script block.
     $html = Get-GoRawStringConstant -Path (Join-Path $RepoRoot $p.Source) -Name 'indexHTML'
+    $adapter = Get-GoRawStringConstant -Path (Join-Path $RepoRoot $p.Adapter) -Name 'requestAdapterScript'
+    # A plain string replace: -replace would read $ sequences in the adapter as
+    # capture-group references and silently drop them.
+    $html = $html.Replace('</head>', '<script>' + $adapter + "</script>`n</head>")
     $out = Join-Path $OutputDirectory $p.File
-    [IO.File]::WriteAllText($out, (Add-FetchStub -Html $html -Json $p.Json))
+    [IO.File]::WriteAllText($out, (Add-RequestTransport -Html $html -Json $p.Json))
     Write-Line "  wrote $($p.File)  <- $($p.Source)"
+
+    # The same page with its request refused, so the error banner is a measured
+    # surface rather than text nobody has ever rendered.
+    $failFile = $p.File -replace '\.html$', '-failed.html'
+    [IO.File]::WriteAllText((Join-Path $OutputDirectory $failFile), (Add-FailingRequestTransport -Html $html))
+    Write-Line "  wrote $failFile  <- $($p.Source)"
+}
+
+# --- REGION: the two globalization reference slices -------------------------
+
+# The ordinary accessibility sweep renders English source pages. These four
+# pages keep the same shipped builders and assets but apply the server decision
+# and fixture data for each pseudo locale, so reflow, contrast, direction and
+# focus targets are measured on the expanded/RTL states operators will use to
+# find untranslated or direction-sensitive code.
+function ConvertTo-ReferencePageLocale {
+    param(
+        [Parameter(Mandatory)][string]$Html,
+        [Parameter(Mandatory)][string]$Tag,
+        [Parameter(Mandatory)][ValidateSet('ltr', 'rtl')][string]$Direction,
+        [Parameter(Mandatory)][string]$RuntimeTag,
+        [Parameter(Mandatory)][string]$CatalogTag
+    )
+
+    if (-not $Html.Contains('<html lang="en">')) { throw 'reference page has no canonical html language marker' }
+    if (-not $Html.Contains($RuntimeTag)) { throw "reference page has no runtime marker: $RuntimeTag" }
+    $root = '<html lang="' + $Tag + '" dir="' + $Direction +
+        '" data-yuruna-requested-language="' + $Tag + '" data-yuruna-locale-source="http">'
+    $localized = $Html.Replace('<html lang="en">', $root)
+    return $localized.Replace($RuntimeTag, $RuntimeTag + "`n" + $CatalogTag)
+}
+
+$statusSource = Join-Path $RepoRoot 'test/status'
+foreach ($asset in @('yuruna.common.css', 'yuruna.common.js', 'qps-Ploc.status.js', 'qps-Plocm.status.js')) {
+    Copy-Item -LiteralPath (Join-Path $statusSource $asset) -Destination (Join-Path $OutputDirectory $asset) -Force
+}
+$statusFixture = @'
+<script>
+(function () {
+  var persisted = {
+    code: 'sequence_paused_waiting_resume',
+    label: '[2/11] workload.guest.example',
+    line: '[2/11] workload.guest.example Paused (waiting for resume)'
+  };
+  function renderReference() {
+    var target = document.getElementById('globalization-status-reference');
+    target.textContent = window.Yuruna.actionText(persisted);
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', renderReference);
+  } else {
+    renderReference();
+  }
+}());
+</script>
+'@
+foreach ($locale in @(
+        @{ Tag = 'qps-Ploc'; Direction = 'ltr' }
+        @{ Tag = 'qps-Plocm'; Direction = 'rtl' })) {
+    $tag = [string]$locale.Tag
+    $statusHtml = [IO.File]::ReadAllText((Join-Path $statusSource 'index.html'))
+    $statusHtml = $statusHtml.Replace('</main>', @'
+  <section aria-labelledby="globalization-status-title">
+    <h2 id="globalization-status-title">Reference state</h2>
+    <p id="globalization-status-reference" data-yuruna-globalization-reference data-yuruna-pseudo-markers="2"></p>
+  </section>
+</main>
+'@)
+    $statusHtml = ConvertTo-ReferencePageLocale -Html $statusHtml -Tag $tag -Direction $locale.Direction `
+        -RuntimeTag '<script src="yuruna.common.js"></script>' `
+        -CatalogTag ("<script src=`"$tag.status.js`"></script>" + "`n" + $statusFixture.Trim())
+    $statusName = "status-reference-$tag.html"
+    [IO.File]::WriteAllText((Join-Path $OutputDirectory $statusName), $statusHtml)
+    Write-Line "  wrote $statusName  <- status/index.html + served $tag catalog"
+}
+
+$poolWeb = Join-Path $RepoRoot 'test/extension/pool-control-service/server/internal/httpsrv/web'
+$poolAssetsOut = Join-Path $OutputDirectory 'assets'
+$null = New-Item -ItemType Directory -Path $poolAssetsOut -Force
+foreach ($asset in @('style.css', 'common.js', 'hosts.js', 'qps-Ploc.pool.js', 'qps-Plocm.pool.js')) {
+    Copy-Item -LiteralPath (Join-Path $poolWeb "assets/$asset") -Destination (Join-Path $poolAssetsOut $asset) -Force
+}
+Copy-Item -LiteralPath (Join-Path $RepoRoot 'test/extension/extension-sdk/webui/assets/yuruna.core.js') `
+    -Destination (Join-Path $poolAssetsOut 'yuruna.core.js') -Force
+
+$poolTransport = @'
+<script>
+(function () {
+  try { delete window.fetch; } catch (e) { window.fetch = undefined; }
+  window.XMLHttpRequest = function () {
+    var self = this;
+    this.open = function (method, url) { self.url = url; };
+    this.setRequestHeader = function () {};
+    this.abort = function () { if (self.onabort) { self.onabort(); } };
+    this.send = function () {
+      var data;
+      if (self.url === '/api/hosts') {
+        data = { ok: true, pools: ['lab'], targetPoolId: '', hostnamesVisible: false,
+          hosts: [{ hostId: '42cc', hostname: '', type: 'ubuntu.kvm', control: 'ready', access: 'denied', pool: 'lab' }] };
+      } else if (self.url === '/api/hosts/facts') {
+        data = { ok: true, hosts: { '42cc': { ok: true,
+          frameworkAccess: 'yuruna', frameworkAccessState: 'readable',
+          projectAccess: 'No access', projectAccessState: 'denied',
+          projectUrl: 'https://example.test/private' } } };
+      } else if (self.url === '/api/hostinfo') {
+        data = { ok: true, goBaseUrl: '' };
+      } else {
+        data = { ok: false, error: 'unexpected fixture request ' + self.url };
+      }
+      self.status = data.ok === false ? 500 : 200;
+      self.statusText = data.ok === false ? 'Error' : 'OK';
+      self.responseText = JSON.stringify(data);
+      window.setTimeout(function () { if (self.onload) { self.onload(); } }, 0);
+    };
+  };
+}());
+</script>
+'@
+foreach ($locale in @(
+        @{ Tag = 'qps-Ploc'; Direction = 'ltr' }
+        @{ Tag = 'qps-Plocm'; Direction = 'rtl' })) {
+    $tag = [string]$locale.Tag
+    $poolHtml = [IO.File]::ReadAllText((Join-Path $poolWeb 'hosts.html'))
+    $poolHtml = $poolHtml.Replace('<tbody id="host-rows">',
+        '<tbody id="host-rows" data-yuruna-globalization-reference data-yuruna-pseudo-markers="1">')
+    $poolHtml = $poolHtml.Replace('<script src="/assets/yuruna.core.js"></script>',
+        $poolTransport.Trim() + "`n" + '<script src="/assets/yuruna.core.js"></script>')
+    $poolHtml = ConvertTo-ReferencePageLocale -Html $poolHtml -Tag $tag -Direction $locale.Direction `
+        -RuntimeTag '<script src="/assets/common.js"></script>' `
+        -CatalogTag "<script src=`"/assets/$tag.pool.js`"></script>"
+    $poolName = "pool-reference-$tag.html"
+    [IO.File]::WriteAllText((Join-Path $OutputDirectory $poolName), $poolHtml)
+    Write-Line "  wrote $poolName  <- pool hosts builder + served $tag catalog"
 }
 
 # --- REGION: the per-cycle transcript ----------------------------------------
@@ -212,6 +388,7 @@ Write-Line '  wrote cycle-transcript.html  <- Test.Log.psm1 + Yuruna.Log.psm1'
 # runtime variable is backtick-escaped. Extracting the block and undoing that
 # escaping runs the CHARACTERS THAT DEPLOY -- a re-implementation here would
 # certify markup no service emits.
+Import-Module (Join-Path $RepoRoot 'test/modules/Test.Catalog.psm1') -Force -DisableNameChecking
 $serviceSource = [IO.File]::ReadAllText((Join-Path $RepoRoot 'test/service/Start-StatusService.ps1'))
 $blockStart = $serviceSource.IndexOf('`$sb = [System.Text.StringBuilder]::new()', [StringComparison]::Ordinal)
 $blockEnd = $serviceSource.IndexOf("'</main></body></html>')", [StringComparison]::Ordinal)
@@ -232,6 +409,12 @@ try {
         @{}, @(
             [psvariable]::new('entries', $entries)
             [psvariable]::new('origLocal', $origLocal)
+            # The block renders whatever locale it is handed. Supplying it here
+            # rather than letting the block resolve one keeps the extracted
+            # code free of the request it no longer has.
+            [psvariable]::new('listingLocale', @{
+                    Tag = 'en-US'; RequestedTag = 'en-US'; Direction = 'ltr'; Source = 'default'
+                })
         ))
     [IO.File]::WriteAllText((Join-Path $OutputDirectory 'log-directory-index.html'), ($listing -join ''))
 } finally {
@@ -296,13 +479,23 @@ Write-Line '  wrote notification-email.html  <- notification/default.psm1'
 # that the browser gate then reported clean. A fixture builder that cannot
 # detect its own empty output is worth less than no fixture at all.
 $expected = [ordered]@{
-    'caching-proxy-parser-ui.html' = @('<html lang="en"', 'id="pause"', 'class="scroller"', "fetch('/recent-requests')")
-    'caching-proxy-ui.html'        = @('<html lang="en"', 'id="pause"', "fetch('/api/status')")
+    'caching-proxy-parser-ui.html' = @('<html lang="en"', 'id="pause"', 'class="scroller"', "yurunaRequest('/recent-requests'")
+    'caching-proxy-ui.html'        = @('<html lang="en"', 'id="pause"', "yurunaRequest('/api/status'")
+    'caching-proxy-parser-ui-failed.html' = @('<html lang="en"', 'window.yurunaRequest', 'Promise.reject', 'Refresh failed.')
+    'caching-proxy-ui-failed.html'        = @('<html lang="en"', 'window.yurunaRequest', 'Promise.reject', 'Refresh failed.')
     'cycle-transcript.html'        = @('<html lang="en"', 'log-error::before', 'class="log-warning"',
                                        'class="log-information"', 'role="heading" aria-level="2"')
     'log-directory-index.html'     = @('<main>', '<caption>', 'scope="col"', 'Parent directory',
                                        '<time datetime=', 'class="scroller"')
     'notification-email.html'      = @('<html lang="en"', 'pre-wrap', 'background:#ffffff')
+    'status-reference-qps-Ploc.html' = @('<html lang="qps-Ploc" dir="ltr"',
+        'qps-Ploc.status.js', 'data-yuruna-globalization-reference', 'sequence_paused_waiting_resume')
+    'status-reference-qps-Plocm.html' = @('<html lang="qps-Plocm" dir="rtl"',
+        'qps-Plocm.status.js', 'data-yuruna-globalization-reference', 'sequence_paused_waiting_resume')
+    'pool-reference-qps-Ploc.html' = @('<html lang="qps-Ploc" dir="ltr"',
+        'qps-Ploc.pool.js', 'data-yuruna-globalization-reference', 'frameworkAccessState')
+    'pool-reference-qps-Plocm.html' = @('<html lang="qps-Plocm" dir="rtl"',
+        'qps-Plocm.pool.js', 'data-yuruna-globalization-reference', 'frameworkAccessState')
 }
 $missing = [Collections.Generic.List[string]]::new()
 foreach ($file in $expected.Keys) {

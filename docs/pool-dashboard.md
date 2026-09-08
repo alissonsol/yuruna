@@ -1,3 +1,5 @@
+<a id="422226cb-0001"></a>
+
 # Yuruna hosts dashboard -- what each panel means
 
 > **Who this is for.** An operator reading the **Yuruna hosts** Grafana dashboard --
@@ -5,6 +7,8 @@
 > **pool-aggregator-service** collector on the same VM, which polls every host and
 > publishes what it learns. The dashboard is viewable with no credential. Each panel's
 > (i) tooltip gives the short reading and links here; this page carries the full story.
+
+<a id="422226cb-0002"></a>
 
 ## Lab token
 
@@ -33,6 +37,8 @@ queries ever returns a series.
 **Gray "off".** The collector is up but the exchange is disabled: the aggregator holds
 no internal authentication key, or rotation is off (`-lab-token-rotate 0`).
 
+<a id="422226cb-0003"></a>
+
 ## Success%
 
 The share of terminal cycles across the whole lab that finished "pass", within the
@@ -47,6 +53,8 @@ With **no** terminal cycle in range the whole expression is empty and the tile s
 `n/a` -- deliberately not 100%, so an idle or freshly built pool cannot read as healthy.
 
 Thresholds: red below 95%, amber below 100%, green at exactly 100%.
+
+<a id="422226cb-0004"></a>
 
 ## Addresses in use
 
@@ -73,6 +81,8 @@ truncated, which lowers the floor further.
 **No thresholds are set, and the tile paints no color -- both deliberate**: any
 threshold here would have to assume a lease period and a scope size, and assuming them
 is what turns a measurement back into an estimate.
+
+<a id="422226cb-0005"></a>
 
 ## Extension hosts
 
@@ -107,6 +117,8 @@ token at all. The proof mechanics -- fragment delivery, minting, verification --
 Panel height tracks the extension-host count, maintained by
 `yuruna-fit-pool-dashboard.timer` on the proxy -- the `gridPos.h` in the dashboard file
 is only the pre-collector default.
+
+<a id="422226cb-0006"></a>
 
 ## Pool hosts
 
@@ -162,6 +174,8 @@ Panel height tracks the host count (`yuruna-fit-pool-dashboard.timer`) so the ta
 never scrolls -- the `gridPos.h` in the dashboard file is only the pre-collector
 default.
 
+<a id="422226cb-0007"></a>
+
 ## Cycle outcome over time (host x UTC time)
 
 Each row is a host, labeled with the first 8 characters of its Host ID; color is the
@@ -191,6 +205,8 @@ Panel height tracks the host count (`yuruna-fit-pool-dashboard.timer`) so rows k
 legible height instead of being squeezed -- the `gridPos.h` in the dashboard file is
 only the pre-collector default.
 
+<a id="422226cb-0008"></a>
+
 ## The smaller tiles
 
 These three keep their full story in the tooltip itself.
@@ -208,6 +224,8 @@ These three keep their full story in the tooltip itself.
   still running has no terminal status yet and is not in scope. The dashboard is
   lab-wide -- its pool filter is a match-all -- while per-pool figures live on the
   pool-control board, which joins the same counts onto pools.yml members[].
+
+<a id="422226cb-0009"></a>
 
 ## Drill-down: incidents & cycle events
 
@@ -233,6 +251,8 @@ The collapsed row under the timeline. Its panels share the dashboard time range:
   class, distinct from the step_failure histogram above, which counts events whether
   or not they formed an incident.
 
+<a id="422226cb-000a"></a>
+
 ## See also
 
 - [control-routes](https://yuruna.link/control-routes) -- who is allowed to drive a
@@ -249,6 +269,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08
 
 Back to [Yuruna](../README.md)

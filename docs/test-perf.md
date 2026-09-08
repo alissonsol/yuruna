@@ -1,3 +1,5 @@
+<a id="42185285-0001"></a>
+
 # Per-step perf log
 
 Append-only structured log of every step execution, designed for
@@ -13,6 +15,8 @@ computation against a rolling baseline -- never baked into the log.
 Source: [`test/modules/Test.Perf.psm1`](../test/modules/Test.Perf.psm1).
 
 ---
+
+<a id="42185285-0002"></a>
 
 ## File layout
 
@@ -51,6 +55,8 @@ regardless of history depth.
 
 ---
 
+<a id="42185285-0003"></a>
+
 ## Identity strategy
 
 | Entity        | Identity                                                    | Stability                                       |
@@ -65,6 +71,8 @@ regardless of history depth.
 | Code state    | `harnessCommit` + `projectCommit`                           | Two SHAs = the two repos that influence behavior. |
 | Host capture  | `hostInfoHash` -> content-addressed sidecar                  | Dedupes across hundreds of cycles. |
 | Guest capture | `guestInfoHash` -> content-addressed sidecar                 | Same. |
+
+<a id="42185285-0004"></a>
 
 ### Why a `42`-prefixed sequence GUID, but no step GUID
 
@@ -89,6 +97,8 @@ $r = [Guid]::NewGuid().ToString('N')
 '42' + $r.Substring(2,6) + '-' + $r.Substring(8,4) + '-' + $r.Substring(12,4) + '-' + $r.Substring(16,4) + '-' + $r.Substring(20,12)
 ```
 
+<a id="42185285-0005"></a>
+
 ### Sequence frontmatter
 
 Every sequence YAML carries two top-level keys (declared in
@@ -104,6 +114,8 @@ resource:
   ...
 ```
 
+<a id="42185285-0006"></a>
+
 ### GUI and SSH variants carry their own GUIDs
 
 The GUI (`<name>.yml`) and SSH (`<name>.ssh.yml`) variants of the same
@@ -114,6 +126,8 @@ stem (strip the `.ssh` suffix) at query time.
 
 If you split a logical sequence into two genuinely different ones,
 mint a fresh GUID for the new file.
+
+<a id="42185285-0007"></a>
 
 ### Step naming
 
@@ -131,6 +145,8 @@ at the time it ran -- a snapshot. If a step is inserted at position
 5, old position-5 rows keep their ordinal; new rows show ordinal 6.
 **Cross-cycle joins go on `stepName`, never on `stepOrdinal`.**
 
+<a id="42185285-0008"></a>
+
 ### Retry blocks
 
 When a `retry` block re-runs its inner steps, each inner attempt emits
@@ -140,6 +156,8 @@ outer retry's position and `parentAction = "retry"` so the wrapper is
 reconstructible at query time.
 
 ---
+
+<a id="42185285-0009"></a>
 
 ## The row schema
 
@@ -230,6 +248,8 @@ What is **not** in the row (intentional):
 
 ---
 
+<a id="42185285-000a"></a>
+
 ## Content-addressed sidecars
 
 `hostinfo/<sha256>.txt` is the full `Get-SystemDiagnostic` text, named
@@ -247,6 +267,8 @@ cycle files at query time (`JOIN` on hash, render once), honoring
 "hostinfo is assumed to be stable" without bloating per-step rows.
 
 ---
+
+<a id="42185285-000b"></a>
 
 ## Query model
 
@@ -305,6 +327,8 @@ for tomorrow's yellow tier.
 
 ---
 
+<a id="42185285-000c"></a>
+
 ## What changes when
 
 - **A sequence is renamed.** GUID stays; `sequenceName` changes; joins on
@@ -322,6 +346,8 @@ for tomorrow's yellow tier.
   the hash.
 
 ---
+
+<a id="42185285-000d"></a>
 
 ## Lifecycle hooks
 
@@ -345,6 +371,8 @@ Every entry point is defensive: a missing module, missing
 
 ---
 
+<a id="42185285-000e"></a>
+
 ## Phase plan
 
 - **Phase 1 (current).** Emit rows. Nothing reads them yet. Two weeks
@@ -357,6 +385,8 @@ Every entry point is defensive: a missing module, missing
   cycle tiles.
 - **Phase 4.** Central collector rsyncs each host's `perf/` into a
   shared store; cross-host queries become free without code change.
+
+<a id="42185285-000f"></a>
 
 ## Explicit non-goals
 
@@ -372,6 +402,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08
 
 Back to [Yuruna](../README.md)

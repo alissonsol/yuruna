@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 426a341c-7627-4ced-878b-96844d5d7165
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,7 +28,7 @@ Import-Module (Join-Path $PSScriptRoot 'Yuruna.Result.psm1') -Global -Force
 # timestamp format cannot drift between the three publishers.
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.Common.psm1') -Global -Force
 # Shared retry policy with the guest-side automation/yuruna-retry.sh.
-# --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
+# --- REGION: https://yuruna.link/4220a755-0003
 Import-Module (Join-Path $PSScriptRoot 'Yuruna.Retry.psm1') -Force
 
 $globalVariables = [ordered]@{}
@@ -36,7 +36,7 @@ $globalVariables = [ordered]@{}
 # Tail size sized to capture a typical tofu Error block (header + 1-2
 # frame lines + provider message) without flooding the test-runner log
 # on a multi-screen warning dump. Full rationale:
-# https://yuruna.link/memory#why-tofu-failure-throws-include-the-stderr-tail
+# https://yuruna.link/42d69dfa-0035
 $script:tofuStderrTailLines = 30
 
 function Get-TofuStderrTail {
@@ -233,7 +233,7 @@ function Publish-ResourceListHelper {
             # Publish-ResourceList before this helper runs) keeps every
             # later attempt off the network.
             # docs/architecture.md#shared-transient-failure-retry-policy
-            # --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
+            # --- REGION: https://yuruna.link/4220a755-0003
             $retryResult = Invoke-TofuInitWithRetry -ResourceName $resourceName -LogPath $tofuLogFile -RcFile $tofuRcFile
             if (-not $retryResult.Success) {
                 Pop-Location
@@ -241,7 +241,7 @@ function Publish-ResourceListHelper {
             }
 
             Write-Debug "Executing tofu command from $workFolder"
-            # --- REGION: https://yuruna.link/memory#why-set-resource-uses-a-saved-planfile-for-apply
+            # --- REGION: https://yuruna.link/42d69dfa-0034
             $planFile = Join-Path -Path $workFolder -ChildPath "tofu.planfile"
             # tofu plan and the saved-planfile apply are safe to re-run on a
             # transient failure: plan is read-only, and a saved-planfile apply
@@ -309,7 +309,7 @@ function Publish-ResourceListHelper {
                     throw "tofu output -json returned empty for resource '$resourceName' -- this codebase requires every resource to define at least one `output` block. Add one in $templateFolder/*.tf, or remove the resource from resources.yml if it is no longer needed."
                 }
                 $terraformYaml = $jsonOutput | ConvertFrom-Json
-                # --- REGION: https://yuruna.link/memory#why-set-resource-fails-fast-on-empty-tofu-outputs
+                # --- REGION: https://yuruna.link/42d69dfa-0032
                 $propsList = @($terraformYaml.PSObject.Properties)
                 if ($propsList.Count -eq 0) {
                     Pop-Location
@@ -340,7 +340,7 @@ function Publish-ResourceList {
     $sw = [Diagnostics.Stopwatch]::StartNew()
     Write-Debug "---- Publishing Resources"
     # Two-pass tofu run; see
-    # https://yuruna.link/memory#why-set-resource-uses-a-saved-planfile-for-apply
+    # https://yuruna.link/42d69dfa-0034
     if (!(Confirm-ResourceList $project_root $config_subfolder)) { return (New-YurunaResultManifest -Success $false -ErrorMessage "Confirm-ResourceList failed for $project_root / $config_subfolder" -FailureClass 'config_error' -DurationMs $sw.ElapsedMilliseconds); }
 
     # Unattended-mode signal: silences tofu's interactive hints and the
@@ -350,7 +350,7 @@ function Publish-ResourceList {
     # On-disk provider cache shared across resources and cycles, so later
     # `tofu init` calls reuse already-fetched plugins instead of re-downloading
     # (survives the registry-5xx-burst class a per-attempt retry cannot).
-    # --- REGION: https://yuruna.link/memory#why-set-resource-pre-seeds-tf_plugin_cache_dir
+    # --- REGION: https://yuruna.link/42d69dfa-003c
     if (-not $env:TF_PLUGIN_CACHE_DIR) {
         $defaultPluginCache = Join-Path -Path $project_root -ChildPath ".yuruna/tofu-plugin-cache"
         $null = New-Item -ItemType Directory -Force -Path $defaultPluginCache -ErrorAction SilentlyContinue

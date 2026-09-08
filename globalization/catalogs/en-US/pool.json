@@ -1,0 +1,91 @@
+{
+  "schema": "yuruna.catalog/v1",
+  "domain": "pool",
+  "locale": "en-US",
+  "messages": {
+    "pool.repo_no_access": {
+      "message": "No access",
+      "description": "Shown in a host's repository column when that host's git credential cannot read the repository it is configured with. Short because it sits in a table cell beside a repository name; the reason is in the cell's description.",
+      "lifecycle": "active"
+    },
+    "pool.repo_denied_detail": {
+      "description": "Description of a repository cell whose host is denied. Written whole per repository rather than composed from a noun: a sentence assembled around 'framework' or 'project' cannot be reordered or re-worded by a translator, and several languages need to.",
+      "lifecycle": "active",
+      "select": {
+        "selector": "repo",
+        "variants": {
+          "framework": "This host cannot read the framework repository it is configured with. Check its git credential and the url in test.config.yml.",
+          "project": "This host cannot read the project repository it is configured with. Check its git credential and the url in test.config.yml.",
+          "other": "This host cannot read the repository it is configured with. Check its git credential and the url in test.config.yml."
+        }
+      },
+      "placeholders": {
+        "repo": {
+          "type": "token",
+          "trust": "internal",
+          "example": "framework"
+        }
+      }
+    },
+    "pool.repo_held_detail": {
+      "description": "Description of a repository cell showing the repository a host actually has. The operator reads the table to see which machines are on which repository.",
+      "lifecycle": "active",
+      "select": {
+        "selector": "repo",
+        "variants": {
+          "framework": "The framework repository this host holds.",
+          "project": "The project repository this host holds.",
+          "other": "The repository this host holds."
+        }
+      },
+      "placeholders": {
+        "repo": {
+          "type": "token",
+          "trust": "internal",
+          "example": "framework"
+        }
+      }
+    },
+    "pool.repo_unconfigured_detail": {
+      "description": "Description of an empty repository cell. Deliberately covers both causes: a host that was never given one and a host that has not reported reads the same from here, and telling them apart needs the host itself.",
+      "lifecycle": "active",
+      "select": {
+        "selector": "repo",
+        "variants": {
+          "framework": "This host has no framework repository and none configured, or it has not answered yet.",
+          "project": "This host has no project repository and none configured, or it has not answered yet.",
+          "other": "This host has no repository and none configured, or it has not answered yet."
+        }
+      },
+      "placeholders": {
+        "repo": {
+          "type": "token",
+          "trust": "internal",
+          "example": "framework"
+        }
+      }
+    },
+    "pool.pool_project_denied": {
+      "message": "The pool assigned this host a project its git credential cannot read. Grant its token access to that repository, or reassign the pool to one every member can read. Its cycles fail until then, and no retry can fix it.",
+      "description": "Shown when the POOL's assignment is unreadable by a member, which is a different fact from what the host currently holds. Says plainly that retrying will not help, because the failure looks transient and is not.",
+      "lifecycle": "active"
+    },
+    "pool.pool_project_unreachable": {
+      "message": "The project this host's pool assigned did not answer. This is network, not permission, and the clone retries through the normal backoff.",
+      "description": "The transient counterpart to the denied case. Named as transient so an operator does not go looking for a credential problem that is not there.",
+      "lifecycle": "active"
+    },
+    "pool.test_set_label": {
+      "message": "Test set for {name}",
+      "description": "Accessible name for the test-set picker on one pool card. The name is the operator/project-authored pool display name, so it is placed as given and never parsed back.",
+      "lifecycle": "active",
+      "placeholders": {
+        "name": {
+          "type": "text",
+          "trust": "external",
+          "example": "workload.guest.example"
+        }
+      }
+    }
+  }
+}

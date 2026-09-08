@@ -13,7 +13,7 @@ import (
 
 // The write gate in front of the operator board.
 //
-// --- REGION: https://yuruna.link/extensions-api#the-lab-token-rule
+// --- REGION: https://yuruna.link/42fffc2c-0009
 //
 // Deliberately NOT per-user auth. It stops a stranger on the LAN and an
 // accidental visitor; it does not tell you WHO assigned something, which is why

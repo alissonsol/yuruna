@@ -1,3 +1,5 @@
+<a id="42fa6f45-0001"></a>
+
 # Yuruna definitions
 
 This file collects generic and yuruna-specific terms so definitions
@@ -42,7 +44,11 @@ Adding a new entry:
 
 ---
 
+<a id="42fa6f45-0002"></a>
+
 ## Fetch-and-execution contract
+
+<a id="42fa6f45-0003"></a>
 
 ### Defining fetch-and-execute base URL resolution
 
@@ -111,6 +117,8 @@ details under "host environment variables" below.
 
 Source: [`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh).
 
+<a id="42fa6f45-0004"></a>
+
 ### Defining fetch-and-execute host environment variables
 
 When `/etc/yuruna/host.env` defines `YURUNA_STATUS_SERVICE_IP` and
@@ -139,6 +147,8 @@ HEAD-RST regression in any handler can't silently push every guest
 back to GitHub.
 
 Source: [`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh).
+
+<a id="42fa6f45-0005"></a>
 
 ### Defining the fetch-and-execute typed envelope
 
@@ -205,6 +215,8 @@ work belongs inside the fetched script.
 Sources: [`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh),
 [`test/modules/Test.SequenceHandler.psm1`](../test/modules/Test.SequenceHandler.psm1).
 
+<a id="42fa6f45-0006"></a>
+
 ### Defining fetch-and-execute host-address mobility
 
 The coordinates in `/etc/yuruna/host.env` were written when this VM was
@@ -237,6 +249,8 @@ missing.
 
 Source: [`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh),
 [`automation/yuruna-host-locate.sh`](../automation/yuruna-host-locate.sh).
+
+<a id="42fa6f45-0007"></a>
 
 ### Defining fetch-and-execute host-unreachable warning
 
@@ -291,6 +305,8 @@ healthy run), and neither banner may grow enough to push the
 
 Source: [`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh).
 
+<a id="42fa6f45-0008"></a>
+
 ### Defining fetch-and-execute failure modes
 
 `fetch-and-execute.sh` separates fetch from execute so the operator
@@ -342,6 +358,8 @@ pass.
 
 Source: [`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh).
 
+<a id="42fa6f45-0009"></a>
+
 ### Defining fetch-and-execute end tags
 
 `fetch-and-execute.sh` emits two markers that bound the visible
@@ -381,6 +399,8 @@ or with normal `dnf`/`git`/PowerShell output. Keep the wrapper marker
 `FailurePattern` (`Test.SequenceHandler.psm1`) in sync.
 
 Source: [`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh).
+
+<a id="42fa6f45-000a"></a>
 
 ### Defining fetch-and-execute checkpoints
 
@@ -438,6 +458,8 @@ Source: [`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh),
 [`test/service/Start-StatusService.ps1`](../test/service/Start-StatusService.ps1),
 [`test/status/yuruna.common.js`](../test/status/yuruna.common.js).
 
+<a id="42fa6f45-000b"></a>
+
 ### Defining fetch-and-execute log timestamps
 
 Every line the fetched script writes is mirrored to the console unchanged and
@@ -459,6 +481,8 @@ them would be its own kind of slow. The origin is read from `EPOCHREALTIME`
 `tee` and the log carries no stamps.
 
 Source: [`automation/fetch-and-execute.sh`](../automation/fetch-and-execute.sh).
+
+<a id="42fa6f45-000c"></a>
 
 ### Defining the two-source scheme for framework and project URLs
 
@@ -531,7 +555,11 @@ re-implements this same scheme):
 
 ---
 
+<a id="42fa6f45-000d"></a>
+
 ## Host-side networking and registry contracts
+
+<a id="42fa6f45-000e"></a>
 
 ### Defining the Windows host-proxy registry keys
 
@@ -564,6 +592,8 @@ were the user's original.
 
 Source:
 [`host/windows.hyper-v/modules/Yuruna.Host.psm1`](../host/windows.hyper-v/modules/Yuruna.Host.psm1).
+
+<a id="42fa6f45-000f"></a>
 
 ### Defining the tofu external hook shell choice
 
@@ -612,7 +642,11 @@ The localhost hooks:
 
 ---
 
+<a id="42fa6f45-0010"></a>
+
 ## Guest-side container runtime contracts
+
+<a id="42fa6f45-0011"></a>
 
 ### Defining containerd hosts.toml cache mirror
 
@@ -689,12 +723,16 @@ Source:
 
 ---
 
+<a id="42fa6f45-0012"></a>
+
 ## System diagnostics
+
+<a id="42fa6f45-0013"></a>
 
 ### Defining Get-SystemDiagnostic
 
 `automation/Get-SystemDiagnostic.ps1` produces a read-only diagnostics
-dump grouped into 14 sections. The script's SYNOPSIS lists each
+dump grouped into 15 sections. The script's SYNOPSIS lists each
 section and what it reports; this entry covers HOW each section is
 implemented and the contracts of its helpers. Incident-driven design
 rationale for specific checks is in the
@@ -728,6 +766,18 @@ rationale for specific checks is in the
 - **`Format-ByteCount`** -- converts a byte count to a human-readable
   string (B / KB / MB / GB / TB / PB). PowerShell ships no built-in
   helper; this is small enough to inline.
+- **`Get-BiosPropertyOrder`** -- returns the fixed 31-field BIOS
+  contract. `Get-BiosDiagnosticLine` follows it with any newer
+  `Bios*` properties in ordinal name order, so a PowerShell upgrade
+  can add data without moving any established row.
+- **`Format-BiosDiagnosticValue`** -- renders nulls explicitly and
+  converts dates, arrays, enums, booleans, numbers, and strings to
+  invariant single-line text. It does not use PowerShell's formatting
+  views, terminal width, current culture, or enumeration limit.
+- **`Get-BiosDiagnosticLine`** -- maps one BIOS object onto the ordered
+  property list and emits one labeled line for every field. Missing
+  values remain visible, and unavailable/query-error results use stable
+  text so two captures remain structurally comparable.
 - **`-OutFile` transcript wrapper** -- when `-OutFile` is set, captures
   via `Start-Transcript` so the file mirrors the console verbatim;
   `Stop-Transcript` runs in a `finally` block. `Tee-Object` over the
@@ -743,6 +793,33 @@ rationale for specific checks is in the
 `Win32_OperatingSystem` for OS/version/uptime. macOS/Linux use
 `uname -a` + `uptime` (plus `sw_vers` on macOS, `/etc/os-release` on
 Linux).
+
+**1b. BIOS** -- occupies the same position after HOST on every platform.
+On Windows it makes one `Get-ComputerInfo -Property 'Bios*'` call, then
+renders the result without `Format-List` or the default object view. The
+canonical property order is:
+
+`BiosCharacteristics`, `BiosBIOSVersion`, `BiosBuildNumber`,
+`BiosCaption`, `BiosCodeSet`, `BiosCurrentLanguage`,
+`BiosDescription`, `BiosEmbeddedControllerMajorVersion`,
+`BiosEmbeddedControllerMinorVersion`, `BiosFirmwareType`,
+`BiosIdentificationCode`, `BiosInstallableLanguages`, `BiosInstallDate`,
+`BiosLanguageEdition`, `BiosListOfLanguages`, `BiosManufacturer`,
+`BiosName`, `BiosOtherTargetOS`, `BiosPrimaryBIOS`, `BiosReleaseDate`,
+`BiosSerialNumber`, `BiosSMBIOSBIOSVersion`, `BiosSMBIOSMajorVersion`,
+`BiosSMBIOSMinorVersion`, `BiosSMBIOSPresent`,
+`BiosSoftwareElementState`, `BiosStatus`,
+`BiosSystemBiosMajorVersion`, `BiosSystemBiosMinorVersion`,
+`BiosTargetOperatingSystem`, `BiosVersion`.
+
+Every canonical row is emitted even when PowerShell reports null; future
+`Bios*` properties are appended in ordinal order. Dates use UTC ISO 8601,
+arrays are complete rather than truncated by `$FormatEnumerationLimit`,
+and all values are escaped onto one invariant line. Non-Windows hosts and
+failed Windows queries retain the section with stable unavailable/error
+output. `BiosSerialNumber` and `BiosIdentificationCode` can uniquely
+identify hardware, so diagnostic captures containing this section are
+sensitive artifacts.
 
 **2. CPU** -- Windows: `Win32_Processor`. macOS: `sysctl` +
 `top -l 1`. Linux: parses `/proc/cpuinfo` and `/proc/loadavg`. The
@@ -895,7 +972,11 @@ Source:
 
 ---
 
+<a id="42fa6f45-0014"></a>
+
 ## VM provisioning policies
+
+<a id="42fa6f45-0015"></a>
 
 ### Defining the VM core-count policy
 
@@ -970,6 +1051,8 @@ Source files (each implements the policy in line):
 - `host/macos.utm/guest.<amazon.linux.2023|ubuntu.server.24|ubuntu.server.26|windows.11|caching-proxy-service|stash-service|download-agent-service|pool-control-service|macos.26>/New-VM.ps1`
 - `host/windows.hyper-v/guest.<amazon.linux.2023|ubuntu.server.24|ubuntu.server.26|windows.11|caching-proxy-service|stash-service|download-agent-service|pool-control-service>/New-VM.ps1`
 - `host/ubuntu.kvm/guest.<amazon.linux.2023|ubuntu.server.24|ubuntu.server.26|windows.11|caching-proxy-service|stash-service|download-agent-service|pool-control-service>/New-VM.ps1`
+
+<a id="42fa6f45-0016"></a>
 
 ### Defining the VM memory policy
 
@@ -1054,7 +1137,11 @@ VM without the host itself swapping.
 
 ---
 
+<a id="42fa6f45-0017"></a>
+
 ## Status pages (UI)
+
+<a id="42fa6f45-0018"></a>
 
 ### Defining the status-page browser baseline
 
@@ -1063,14 +1150,34 @@ This baseline governs **every Yuruna web UI**: the status pages
 page mounted under `test/status/`) AND the browser UI of every
 extension service under `test/extension/*/server/internal/httpsrv/web/`
 -- pool-control, stash, download-agent, and any service added later.
-All of them are written so they render correctly on **Safari iOS 9.3 /
-Safari 9.1** as well as current browsers.
+All of them are written so they render correctly on **Safari iOS 9.0 /
+Safari 9.0** -- the whole iOS 9.x line -- as well as current browsers.
 
-That is the real hard floor: every color token is a CSS custom property
-(`var(--...)`), and custom properties first ship in iOS 9.3 / Safari
-9.1 -- below that the palette is undefined and the pages do not render.
+Every color token is a CSS custom property (`var(--...)`), and custom
+properties do not ship until iOS 9.3 / Safari 9.1. They are still used,
+because the floor is held by generation rather than by avoidance: a
+declaration whose value contains `var()` is invalid on an engine without
+custom properties, so that engine DROPS it and keeps the declaration
+before it. `tools/Invoke-CssVarFallback.ps1` writes that preceding
+declaration -- the same property with the reference resolved to its
+literal light-palette value:
+
+```
+background: #f9fafb; background: var(--bg-primary);
+```
+
+An old engine keeps `#f9fafb`; a current one parses both and the later
+declaration wins. Resolution is single-valued because every custom
+property is defined in a `:root` block and the only redefinition sits
+behind `@media (prefers-color-scheme: dark)` -- a query far newer than
+custom properties, so an engine that cannot read `var()` can never match
+it either. Those generated literals are not hand-edited; the generator
+rewrites them when a palette value changes, and
+`test/modules/Test.BrowserPaletteFloor.Tests.ps1` fails when one is
+missing or stale.
+
 The JavaScript is authored to the stricter ES5-only bar (that bar
-predates the 9.3 baseline and costs nothing to keep), so the code
+predates any of these baselines and costs nothing to keep), so the code
 avoids:
 
 - **JavaScript:** ES2015+ syntax (arrow functions, template literals,
@@ -1080,11 +1187,13 @@ avoids:
   object.
 - **CSS:** the `inset` shorthand (iOS 14.5+), flex `gap` (iOS 14.5+),
   grid `gap` (iOS 10.3+), and CSS Grid (iOS 10.3+). Use margins,
-  explicit `top/right/bottom/left`, and flex-wrap instead. CSS custom
-  properties (iOS 9.3+) ARE used and define the baseline above.
+  explicit `top/right/bottom/left`, and flex-wrap instead; a Grid rule
+  is allowed behind `@supports (display: grid)` once a block or flex
+  layout already stands without it. CSS custom properties (iOS 9.3+)
+  ARE used, behind the generated literal fallbacks described above.
   `env()` / `max()` safe-area insets (iOS 11.2+) are a progressive
   enhancement: every rule that uses them declares a plain-value
-  `padding` fallback first, so iOS 9.3-11.1 keeps its gutter and only
+  `padding` fallback first, so iOS 9.0-11.1 keeps its gutter and only
   loses the notch inset.
 - **DOM API:** `KeyboardEvent.key` landed in iOS 10.3 -- read `.key`,
   fall through to `.keyCode` (`27 == Escape`) and `.which`. Use the
@@ -1122,6 +1231,8 @@ clean run. Run the script directly while changing a page:
 pwsh -NoProfile -File tools/Invoke-Es5Check.ps1
 ```
 
+<a id="42fa6f45-0019"></a>
+
 ### Defining the status-page mobile and dark-mode hardening
 
 Every status page reads its color tokens from CSS custom properties
@@ -1143,6 +1254,8 @@ on a 375 px portrait phone without horizontal scrolling. The header
 bar itself does not reflow: its one variable-width item (the machine
 identity) truncates rather than pushing the menu off the screen.
 
+<a id="42fa6f45-001a"></a>
+
 ### Defining the status-page visibility-aware polling
 
 Status pages that refresh on a `setInterval` / countdown would burn
@@ -1154,6 +1267,8 @@ loop, the controller checks `document.hidden` first, and while the
 tab is invisible the fetch is suppressed and the countdown freezes
 (rendered as `...`). On `visibilitychange` back to visible the
 countdown resets to 0 so the operator sees a fresh reload at once.
+
+<a id="42fa6f45-001b"></a>
 
 ### Defining the status-page cache policy
 
@@ -1173,6 +1288,8 @@ intermediaries that forward HTTP headers but not every client path.
 Other extensions (`.json`, `.txt`, `.css`, `.js`, `.sh`, `.ps1`,
 `.psm1`, `.yml`, `.yaml`, `.md`) are served `no-store` so polled
 data lands fresh.
+
+<a id="42fa6f45-001c"></a>
 
 ### Defining the status-page HostInfo aggregator
 
@@ -1200,6 +1317,8 @@ need to refresh the machine identity from live polled data (e.g. the
 dashboard's `renderStatus`) call
 `Yuruna.renderHeaderMachine(el, name, host)` directly with the
 freshly polled fields.
+
+<a id="42fa6f45-001d"></a>
 
 ### Defining the status-page header anatomy
 
@@ -1238,6 +1357,8 @@ Because the rem-sized chrome resolves against the root element, the
 base font size belongs on `body` and never on `html`: a `15px` root
 rescales the whole bar -- title, version, menu button, bar height --
 against every other Yuruna UI, with no rule anywhere saying so.
+
+<a id="42fa6f45-001e"></a>
 
 ### Defining the status-page hostinfo dump
 
@@ -1290,6 +1411,8 @@ operator reads at the top right of every page, so the affordance
 is styled (`a.hm-name`) to read as plain text at rest,
 underlining only on hover.
 
+<a id="42fa6f45-001f"></a>
+
 ### Defining the status-page caching-proxy-service banner
 
 `$env:YURUNA_RUNTIME_DIR/caching-proxy-service.txt` is rewritten at the start
@@ -1302,6 +1425,8 @@ Cycle" Dashboards link via `setAttribute` (not `innerHTML`, so the
 fetched markup is never injected). The dashboard re-fetches the
 file on every `loadStatus()` poll so a page left open sees the new
 cycle's cache state within one poll interval, even across cycles.
+
+<a id="42fa6f45-0020"></a>
 
 ### Defining the status-page banner
 
@@ -1372,6 +1497,8 @@ cycle`), a Continue button when a break action is parked
 (`runtime/break-active.json`), and the visible refresh countdown.
 Those are dashboard concerns; the other pages keep the banner
 display-only.
+
+<a id="42fa6f45-0021"></a>
 
 ### Defining the status-page dashboard
 
@@ -1475,6 +1602,8 @@ Page-specific behavior:
   `setAttribute('href', ...)` so the browser hits the actual URL on
   click.
 
+<a id="42fa6f45-0022"></a>
+
 ### Defining the nested-run subtree
 
 `status.json` carries a `nested` map (`nodeId` -> node) authored by
@@ -1490,6 +1619,8 @@ expands to show its children, to any depth. The authoring side is the
 [`test/modules/Test.Status.psm1`](../test/modules/Test.Status.psm1);
 the rendering side lives in
 [`test/status/yuruna.common.js`](../test/status/yuruna.common.js).
+
+<a id="42fa6f45-0023"></a>
 
 ### Defining the status-page config editor
 
@@ -1556,6 +1687,8 @@ Page-specific behavior:
   on the final "Cycle restarted / Runner started" message before
   navigating to the status page so the operator can read it before
   the dashboard takes over.
+
+<a id="42fa6f45-0024"></a>
 
 ### Defining the status-page perf chart
 
@@ -1634,7 +1767,11 @@ Page-specific behavior:
 
 ---
 
+<a id="42fa6f45-0025"></a>
+
 ## Lab credentials
+
+<a id="42fa6f45-0026"></a>
 
 ### Defining the two lab secrets
 
@@ -1665,6 +1802,8 @@ A host provisioned before this vocabulary still resolves through the legacy
 logical names `lab-auth-token` and `pool-auth-token`, which are read as
 fallbacks and retired the next time the key is written.
 
+<a id="42fa6f45-0027"></a>
+
 ## Canonical yuruna concepts
 
 The following terms are defined canonically inside PowerShell
@@ -1691,6 +1830,8 @@ For deeper architectural context see
 [Yuruna Architecture](architecture.md) and
 [Test harness -- architecture](test-harness.md).
 
+<a id="42fa6f45-0028"></a>
+
 ## Cycle-folder sidecar inventory
 
 Each cycle leaves a small set of well-known sidecar files alongside the
@@ -1700,6 +1841,8 @@ by walking directories. All paths are relative to the cycle folder
 (`<repo>/test/status/log/<cycleBaseName>/`) unless otherwise noted;
 runtime-only files live under `<runtimeDir>/` (typically
 `<repo>/test/status/runtime/`).
+
+<a id="42fa6f45-0029"></a>
 
 ### Defining the cycle-folder sidecar inventory
 
@@ -1742,6 +1885,8 @@ Conventions:
   `boot_recovery_completed` NDJSON event with the archived /
   cleared counts.
 
+<a id="42fa6f45-002a"></a>
+
 ## Cycle folder lifecycle
 
 A cycle's on-disk folder transitions through three named states.
@@ -1760,6 +1905,8 @@ per-host `hostId` (not the hostname), so the cycle-folder name (and the
 pool dashboard's `cycleFolderUrl` deep-link derived from it) discloses no
 hostnames.
 
+<a id="42fa6f45-002b"></a>
+
 ### Defining the cycle folder identity
 
 Every NDJSON event records `cycleFolder` as the bare `<base>` (no
@@ -1773,6 +1920,8 @@ above. Consumers that need to FIND on-disk artifacts try the bare
 `Get-CycleFolderIdentity` in [Test.Log.psm1](../test/modules/Test.Log.psm1)
 is the one-liner that strips any of the three suffixes from a path
 or leaf and returns the identity.
+
+<a id="42fa6f45-002c"></a>
 
 ### Defining the clean-close rename
 
@@ -1793,6 +1942,8 @@ WITH the marker file -- boot recovery handles it. A crash AT step 5
 marker file -- boot recovery handles that too (the folder suffix
 alone is the orphan signal).
 
+<a id="42fa6f45-002d"></a>
+
 ### Defining the boot-recovery folder rename
 
 `Resolve-OrphanIncompleteCycle` (Test.Recovery.psm1) handles both
@@ -1811,6 +1962,8 @@ recovery signals:
 Both end with the folder name carrying the `.aborted.<UTC>` suffix
 so a second boot sweep on the same host is an idempotent no-op.
 
+<a id="42fa6f45-002e"></a>
+
 ## Cycle-event NDJSON schema
 
 `cycle.events.ndjson` is the cycle-scoped append-only event stream
@@ -1818,6 +1971,8 @@ that drives every off-host consumer: the status dashboard, the
 remediation dispatcher, multi-host pool joins. Each line is a JSON
 object validated at the emit site by [Test.EventSchema.psm1](../test/modules/Test.EventSchema.psm1)
 before it reaches disk.
+
+<a id="42fa6f45-002f"></a>
 
 ### Defining the cycle.events.ndjson record shape
 
@@ -1872,6 +2027,8 @@ enums in [Test.SequenceAction.psm1](../test/modules/Test.SequenceAction.psm1):
 `guestKey`, `hostType`, `error`, `reason`, `hostname`, `handler`,
 `snapshotId` are typed as strings.
 
+<a id="42fa6f45-0030"></a>
+
 ### Defining the cycle.events.ndjson event-name catalog
 
 Every event name emitted into `cycle.events.ndjson` today. Order
@@ -1909,6 +2066,8 @@ New events MUST be added here in the same commit that introduces them
 (CONTRIBUTING gate), so a streaming consumer never discovers a new
 event name in production.
 
+<a id="42fa6f45-0031"></a>
+
 ### Defining the schema-violation contract
 
 When a record fails validation, Send-CycleEventSafely:
@@ -1927,11 +2086,15 @@ When a record fails validation, Send-CycleEventSafely:
 dashboards / CI / introspection tooling that needs the required +
 typed contract without re-deriving it.
 
+<a id="42fa6f45-0032"></a>
+
 ## Snapshot manifest sidecars
 
 [Test.SnapshotManifest.psm1](../test/modules/Test.SnapshotManifest.psm1)
 co-locates Yuruna-owned metadata next to every hypervisor-level
 snapshot so a restore can refuse a snapshot it doesn't recognize.
+
+<a id="42fa6f45-0033"></a>
 
 ### Defining the snapshot manifest
 
@@ -1950,6 +2113,8 @@ immediately after the hypervisor confirms the save. Payload:
 | `cycleStartUtc`        | The cycle that took it (joined with NDJSON events).     |
 | `runId`          | The runner spawn that took it.                          |
 | `manifestVersion`| Schema version (1).                                     |
+
+<a id="42fa6f45-0034"></a>
 
 ### Defining the snapshot restore contract
 
@@ -1970,11 +2135,15 @@ The handler emits `failureClass=snapshot_restore_failed,
 severity=hard` on a mismatch so the remediation dispatcher
 routes the operator straight to the snapshot subsystem.
 
+<a id="42fa6f45-0035"></a>
+
 ## Image-integrity gateway
 
 [Yuruna.Image.psm1](../host/modules/Yuruna.Image.psm1) generalizes
 the warn-only SHA-256 verification policy first established for the
 Ubuntu live-server ISOs.
+
+<a id="42fa6f45-0036"></a>
 
 ### Defining Save-ImageWithChecksum
 
@@ -2027,6 +2196,8 @@ flipping the default.
 keeps the codename resolver on top of this gateway and classifies
 the same three outcomes.
 
+<a id="42fa6f45-0037"></a>
+
 ## Log rotation
 
 [Test.LogRotation.psm1](../test/modules/Test.LogRotation.psm1) is
@@ -2034,6 +2205,8 @@ the general-purpose byte-bounded rotation primitive for the
 `Add-Content`-style append-only files outside the per-cycle log
 folder (which has its own rotation via
 `Invoke-CycleLogRotation`).
+
+<a id="42fa6f45-0038"></a>
 
 ### Defining the log-rotation policy
 
@@ -2061,6 +2234,8 @@ extension. Future `Add-Content` paths adopt the helper with one
 `Invoke-LogRotation -Path $logPath -Confirm:$false` call before each
 append.
 
+<a id="42fa6f45-0039"></a>
+
 ### Cycle-folder rotation policy (`Invoke-CycleLogRotation`)
 
 The per-host cycle-log directory is bounded so a long-running runner
@@ -2074,6 +2249,8 @@ between trims -- a large, mostly-idle backlog -- so the trigger is kept a
 small multiple of KEEP, holding the swing to KEEP..TRIGGER while
 trimming infrequently enough that the sort cost is negligible.
 
+<a id="42fa6f45-003a"></a>
+
 ## Runner state machine
 
 [Test.RunnerState.psm1](../test/modules/Test.RunnerState.psm1) gives
@@ -2083,6 +2260,8 @@ watchdog / dashboard / autonomous loop doesn't have to reconstruct
 presence, and cycle-folder existence. Each transition is atomically
 written to `<runtimeDir>/runner.state.json` AND emitted as a
 schema-validated `runner_state_transition` NDJSON event.
+
+<a id="42fa6f45-003b"></a>
 
 ### Defining the runner-state enum
 
@@ -2094,6 +2273,8 @@ schema-validated `runner_state_transition` NDJSON event.
 | `cycle-end`    | Inner exited 0; outer is in post-cycle cleanup.                    |
 | `fault`        | Inner exited non-zero or crashed before exit.                      |
 | `paused`       | Failure-pause loop waiting for new commit / cap elapsed.           |
+
+<a id="42fa6f45-003c"></a>
 
 ### Defining the valid transitions
 
@@ -2118,6 +2299,8 @@ to surface drift, never to lose telemetry. The schema validator
 ALSO enforces that `fromState` and `toState` values are in
 the canonical enum.
 
+<a id="42fa6f45-003d"></a>
+
 ### Defining the boot-time fault synthesis
 
 `Initialize-RunnerState` reads the prior `runner.state.json` at outer
@@ -2133,6 +2316,8 @@ A downstream consumer following the stream therefore sees the crash as
 a discrete event pair rather than a silent gap. Pairs with the
 filesystem-level boot-recovery sweep: filesystem artifacts get
 archived; the state machine narrates the semantic recovery.
+
+<a id="42fa6f45-003e"></a>
 
 ### Defining the runner.state.json shape
 
@@ -2154,6 +2339,8 @@ archived; the state machine narrates the semantic recovery.
 `history` is capped at the last 20 transitions; the canonical
 history is the cycle.events.ndjson stream.
 
+<a id="42fa6f45-003f"></a>
+
 ## Cycle remediation dispatcher
 
 [Test.Remediation.psm1](../test/modules/Test.Remediation.psm1) routes a
@@ -2161,6 +2348,8 @@ recorded failure to a recovery handler based on its `failureClass`.
 The FailureClass enum has been the routing key on the wire since
 schema v2 of `last_failure.json`; the dispatcher gives that key
 something to dispatch *to*.
+
+<a id="42fa6f45-0040"></a>
 
 ### Defining the remediation dispatcher contract
 
@@ -2212,6 +2401,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08
 
 Back to [Yuruna](../README.md)

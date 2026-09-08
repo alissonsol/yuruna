@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.01
+# Version: 2026.09.08
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -34,7 +34,7 @@ esac
 
 # Optional shared retry helpers (present once update.sh has run).
 if [ -r /usr/local/lib/yuruna/yuruna-retry.sh ]; then
-  # --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
+  # --- REGION: https://yuruna.link/4220a755-0003
   . /usr/local/lib/yuruna/yuruna-retry.sh
   # Baked retry libs may bound apt attempts on wall-clock -- the wrapped-apt
   # teardown-hang trap class (apt blocks at end-of-transaction under a timeout(1)
@@ -232,11 +232,11 @@ sudo install -m 0755 -o root -g root "$BUILD/server/stash-service" /usr/local/bi
 # bind :22 (SCP/SFTP sink) and :80 (UI/API); under the unit's
 # NoNewPrivileges=true the grant that reaches the daemon is AmbientCapabilities,
 # so a failure here is not fatal.
-# --- REGION: https://yuruna.link/memory#why-the-service-daemons-bind-low-ports-with-ambientcapabilities-not-setcap
+# --- REGION: https://yuruna.link/42d69dfa-0025
 sudo setcap 'cap_net_bind_service=+ep' /usr/local/bin/stash-service || true
 
 # --- REGION: Mask the OS sshd to free port 22
-# --- REGION: https://yuruna.link/memory#why-the-stash-guest-masks-the-os-sshd-instead-of-disabling-it
+# --- REGION: https://yuruna.link/42d69dfa-0026
 # The daemon binds :22 itself, so the OS sshd has to go. MASK, not disable: a
 # disabled unit is still pulled in by cloud-init-network.service's
 # `Wants=sshd.service`, and a masked one is symlinked to /dev/null.

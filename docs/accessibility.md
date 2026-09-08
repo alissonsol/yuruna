@@ -1,3 +1,5 @@
+<a id="42c8b468-0001"></a>
+
 # Accessibility
 
 Yuruna targets **WCAG 2.2 Level A and AA** on every web surface it serves, and
@@ -7,6 +9,8 @@ terminal.
 
 This document states the target, names what is deliberately outside it, gives
 operators a keyboard reference, and tells contributors which gates to run.
+
+<a id="42c8b468-0002"></a>
 
 ## Surfaces in scope
 
@@ -29,9 +33,13 @@ to open. That is not a footnote: it is why they went unaudited for so long, and
 why the browser gate materializes them rather than walking the tree for files.
 See [Contributor rules](#contributor-rules).
 
+<a id="42c8b468-0003"></a>
+
 ## Known exclusions, and why
 
 An exclusion is a decision, not an oversight. Each of these is one.
+
+<a id="42c8b468-0004"></a>
 
 ### Grafana's own application chrome
 
@@ -39,6 +47,8 @@ The project provisions dashboards; it does not ship Grafana. Panel content,
 titles, descriptions, color choices and value mappings are ours and are in
 scope. The navigation, time picker, settings drawers and login page are
 upstream's.
+
+<a id="42c8b468-0005"></a>
 
 ### The community Zot dashboard
 
@@ -53,6 +63,8 @@ as unmodified community content, so an operator can tell at a glance that it is
 not one of ours and is not covered by this document. The tag is the only
 reliable signal: the installer rewrites the board's uid into this project's
 namespace to give it a stable identity, and Grafana names the file.
+
+<a id="42c8b468-0006"></a>
 
 ### Canvas-rendered dashboard panels
 
@@ -90,12 +102,16 @@ takes no focus, while the equivalent wrapper on a timeseries panel renders with
 own DOM and no dashboard JSON can set an attribute on it, so it falls under the
 application-chrome exclusion above rather than being fixable here.
 
+<a id="42c8b468-0007"></a>
+
 ### Operator-uploaded media in the stash viewer
 
 The stash viewer renders files the operator uploads. Alternative text for
 someone else's screenshot cannot be synthesized, and the viewer does not invent
 one. The viewer chrome around the media -- controls, names, sizes, states -- is
 in scope and is covered.
+
+<a id="42c8b468-0008"></a>
 
 ### `project/poc/**` -- demonstration material
 
@@ -126,6 +142,8 @@ small addition. Excluding it means no off-the-shelf linter runs anywhere, and
 the project's automated coverage is entirely the two gates named below. That is
 defensible where `node` is absent on the lab hosts; it is not free.
 
+<a id="42c8b468-0009"></a>
+
 ### Two findings assessed and dropped
 
 - **Single-key shortcuts in the slide decks.** Bare `n`, `p` and `s` are bound
@@ -135,6 +153,8 @@ defensible where `node` is absent on the lab hosts; it is not free.
   then declined: the code tile is already plain DOM text that a screen reader
   announces, so the tool would have added a credential to an enumerable surface
   for no accessibility gain.
+
+<a id="42c8b468-000a"></a>
 
 ## Keyboard reference for operators
 
@@ -180,6 +200,8 @@ that need interrupting use `role="alert"`; routine progress uses
 `role="status"`. A refresh timestamp is deliberately *not* a live region --
 announcing a clock every few seconds is noise, not information.
 
+<a id="42c8b468-000b"></a>
+
 ## The terminal
 
 WCAG does not reach the terminal, and the terminal is this project's primary
@@ -205,6 +227,8 @@ or per-invocation. This is independent of the log level; see
 transcript whose step boundaries are exposed as headings, so it can be navigated
 by heading rather than scrolled. Severity is carried by a word (`ERROR`,
 `WARNING`) before it is carried by a color.
+
+<a id="42c8b468-000c"></a>
 
 ## Contributor rules
 
@@ -249,6 +273,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08
 
 Back to [Yuruna](../README.md)

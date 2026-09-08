@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 4204dc0d-3f1d-4015-b639-9480d7186c23
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -723,9 +723,40 @@ Describe 'fetch-and-execute: an address is held before a source is chosen' {
     # The host probe decides between the only source that can serve a private
     # repo and one that then cannot serve it at all, and it may run on an
     # address that arrived seconds earlier.
-    It 'gives the host livecheck probe more than one attempt' {
-        $fae = Get-Content -Raw -LiteralPath $script:faePath
-        Assert-True ($fae -match '--no-proxy --timeout=2 --tries=2 -O /dev/null') 'a verdict that cannot be revisited must not rest on one 2s exchange'
+    It 'gives the host livecheck probe more than one attempt, spaced apart' {
+        # Driven rather than read: what matters is how many times the probe
+        # actually asks and whether it waits between asks, and a wget stub
+        # counts both. A source match would pin one spelling of the retry and
+        # would pass just as happily on a loop that never loops.
+        #
+        # The spacing is half the point. A guest that has just been given an
+        # address is behind a bridge that has not learned it yet, and that
+        # clears in seconds -- so attempts stacked back to back all land
+        # inside the same dead moment and answer the same way.
+        $driver = @'
+
+ip()    { echo "2: yurunatest0    inet 10.0.0.5/24 scope global yurunatest0"; }
+attempts=0
+naps=0
+wget()  { attempts=$((attempts + 1)); return 1; }
+sleep() { naps=$((naps + 1)); }
+YURUNA_STATUS_SERVICE_IP=10.0.0.1
+YURUNA_STATUS_SERVICE_PORT=8080
+resolve_fetch_source >/dev/null 2>&1
+echo "ATTEMPTS=$attempts NAPS=$naps SOURCE=$FETCH_SOURCE"
+'@
+        $out = Invoke-ShellDriver -FunctionText (Get-ShellFunctionText -Path $script:faePath -Name 'resolve_fetch_source') -Driver $driver
+        if ($null -eq $out) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
+        $m = [regex]::Match($out, 'ATTEMPTS=(\d+) NAPS=(\d+) SOURCE=(\w*)')
+        Assert-True $m.Success "the driver must report its tallies; output was:`n$out"
+        $attempts = [int]$m.Groups[1].Value
+        $naps     = [int]$m.Groups[2].Value
+        Assert-True ($attempts -gt 1) `
+            "a verdict that cannot be revisited must not rest on one 2s exchange; the probe asked $attempts time(s)"
+        Assert-True ($naps -eq ($attempts - 1)) `
+            "the attempts must be spaced, so a settling path has time to come up; got $attempts attempt(s) and $naps gap(s)"
+        Assert-StringEqual -Actual $m.Groups[3].Value -Expected 'github' `
+            'a host that stays silent through the whole budget must still fall through rather than stall'
     }
 
     # Two call sites, one allowance. Without the shared budget the structural

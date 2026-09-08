@@ -1,4 +1,4 @@
-# --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+# --- REGION: https://yuruna.link/4220a755-000b
 # Shipped on the cidata seed as `network-config`, read by cloud-init's NoCloud
 # datasource before networking is configured.
 #

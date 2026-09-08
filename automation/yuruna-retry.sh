@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.01
+# Version: 2026.09.08
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -7,7 +7,7 @@
 # scripts. Sourced via /usr/local/lib/yuruna/yuruna-retry.sh after
 # cloud-init deploys this file at install time.
 #
-# --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
+# --- REGION: https://yuruna.link/4220a755-0003
 
 # Capability marker for the callers that ask for a wall-clock stall bound.
 # Setting one is only safe against a lib that wraps with `timeout --foreground`
@@ -35,7 +35,7 @@ _yuruna_retry() {
     # Per-attempt wall-clock bound (YURUNA_RETRY_STALL_TIMEOUT_SECONDS, whole
     # seconds; 0 = unbounded) so a stalled or trickling transfer fails into
     # the retry ladder; a malformed value fails LOUD and unbounded.
-    # --- REGION: https://yuruna.link/network#why-the-stall-bound-hoists-timeout-inside-sudo-and-stays-foreground
+    # --- REGION: https://yuruna.link/4220a755-0004
     case "$stall" in
         ''|*[!0-9]*)
             echo "!! ${label}: YURUNA_RETRY_STALL_TIMEOUT_SECONDS='$stall' is not a whole number of seconds; running unbounded" >&2
@@ -46,7 +46,7 @@ _yuruna_retry() {
     # timeout(1) only execs real commands (shell functions run unbounded);
     # a plain `sudo <tool> ...` hoists the bound INSIDE sudo, and
     # --foreground is load-bearing (background-pgrp tty-stop trap class).
-    # --- REGION: https://yuruna.link/network#why-the-stall-bound-hoists-timeout-inside-sudo-and-stays-foreground
+    # --- REGION: https://yuruna.link/4220a755-0004
     local bound_mode=none
     if [ "$stall" -gt 0 ] \
         && [ "$(type -t "$1")" != "function" ] \
@@ -155,7 +155,7 @@ _yuruna_retry() {
 # the priority directly instead of the frontend. The heal command gets the
 # same treatment: `dpkg --configure -a` runs the postinst scripts, so it can
 # block on the identical question it was invoked to clear.
-# --- REGION: https://yuruna.link/network#why-apt-and-dnf-attempts-run-unbounded-by-default
+# --- REGION: https://yuruna.link/4220a755-0005
 apt_retry() {
     local -a cmd=()
     if [ "${1:-}" = "sudo" ]; then
@@ -171,7 +171,7 @@ dnf_retry() {
         _yuruna_retry dnf_retry "$@"
 }
 
-# --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
+# --- REGION: https://yuruna.link/4220a755-0003
 # Shared HTTP-status classifier for the curl/wget gates. curl -f (exit 22) and
 # wget (exit 8) both collapse EVERY HTTP error to one exit code -- a 404 and a
 # 503 are indistinguishable at that level -- so we re-probe the status: a cheap,
@@ -194,7 +194,7 @@ _yuruna_http_status_class() {
     return 0
 }
 
-# --- REGION: https://yuruna.link/network#caching-proxy-service-ca-cert-rc60-gate
+# --- REGION: https://yuruna.link/4220a755-0015
 # Does bumped HTTPS verify from here? One spider request through whatever proxy
 # env this shell carries; the URL is overridable so a lab with no reachable
 # github.com can point it at something its cache does serve.
@@ -203,7 +203,7 @@ _yuruna_bump_trusted() {
         "${YURUNA_CA_PROBE_URL:-https://github.com/}" 2>/dev/null
 }
 
-# --- REGION: https://yuruna.link/network#caching-proxy-service-ca-cert-rc60-gate
+# --- REGION: https://yuruna.link/4220a755-0015
 # The ssl-bump CA is a trust anchor this guest holds a COPY of, and the copy is
 # only as current as the cache that minted it: a cache rebuilt from a blank disk
 # mints a fresh CA, after which every bumped HTTPS from here fails certificate
@@ -298,12 +298,7 @@ _yuruna_classify_curl() {
     return 0
 }
 
-# wget classifier, the exact analog of the curl one. wget has per-class exit
-# codes: 2 (command-line/parse) and 6 (authentication) are permanent; 3/4/7
-# (file I/O, network, protocol) are transient; 5 (SSL verification) re-anchors
-# the bump CA exactly as curl's 60 does; 8 ("server issued an error response")
-# is the HTTP-error analog of curl's 22 and re-probes the status. 1 (generic)
-# and anything else fall through to retry.
+# wget exit-code handling: ../docs/network.md#defining-yuruna-retry-lib.
 _yuruna_classify_wget() {
     local rc="$1"
     case "$rc" in
@@ -318,7 +313,7 @@ _yuruna_classify_wget() {
     return 0
 }
 
-# --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
+# --- REGION: https://yuruna.link/4220a755-0003
 # --speed-limit/--speed-time abort a transfer that drops below 1 KB/s for
 # 60s (curl exit 28), turning a stalled-after-headers or trickling download
 # into a retryable failure instead of an unbounded hang. Wall-clock bounds
@@ -336,7 +331,7 @@ curl_retry() {
         --speed-limit 1024 --speed-time 60 "$@"
 }
 
-# --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
+# --- REGION: https://yuruna.link/4220a755-0003
 # wget counterpart of curl_retry, for the scripts that pipe a remote
 # install.sh straight to bash (nvm, nodesource). The inner --tries/--waitretry
 # rides out a single connection blip; the outer _yuruna_retry loop re-runs the
@@ -353,7 +348,7 @@ wget_try() {
         --read-timeout=60 "$@"
 }
 
-# --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
+# --- REGION: https://yuruna.link/4220a755-0003
 pwsh_retry() {
     local log_file="$1"
     if [ -z "$log_file" ]; then

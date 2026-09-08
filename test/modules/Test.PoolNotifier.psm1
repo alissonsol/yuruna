@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42e65ede-af28-4c1f-8f0d-b5461e23110d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -114,8 +114,15 @@ function ConvertFrom-PrometheusPoolGauge {
         $metric = $m.Groups[1].Value
         $pool   = $m.Groups[2].Value
         $raw    = $m.Groups[3].Value
+        # Invariant, explicitly. This is Prometheus exposition text, whose
+        # format fixes the decimal point as a dot regardless of who reads it.
+        # Parsed through the host's culture instead, a healthy fraction of
+        # "0.75" becomes 75 on a host that writes decimals with a comma -- and
+        # the thresholds below compare against 1, so a healthy pool reads as
+        # alerting and a degraded one can read as fine.
         $val = 0.0
-        if (-not [double]::TryParse($raw, [ref]$val)) { continue }
+        if (-not [double]::TryParse($raw, [Globalization.NumberStyles]::Float,
+                [Globalization.CultureInfo]::InvariantCulture, [ref]$val)) { continue }
         if (-not $pools.ContainsKey($pool)) {
             $pools[$pool] = @{ pool = $pool; alertActive = $false; degraded = $false; healthyFraction = $null; healthyThreshold = $null; membersHealthy = $null; membersTotal = $null }
         }

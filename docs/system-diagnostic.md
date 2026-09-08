@@ -1,3 +1,5 @@
+<a id="423ef7f5-0001"></a>
+
 # Get-SystemDiagnostic -- design and per-section rationale
 
 [`automation/Get-SystemDiagnostic.ps1`](../automation/Get-SystemDiagnostic.ps1)
@@ -15,9 +17,11 @@ the script uses to stay bounded when the underlying daemons are wedged.
 
 > Side-effect-free: nothing is started, stopped, or modified.
 > Implementation contracts live at
-> [`yuruna.link/definition#defining-get-systemdiagnostic`](https://yuruna.link/definition#defining-get-systemdiagnostic).
+> [`yuruna.link/42fa6f45-0013`](https://yuruna.link/42fa6f45-0013).
 > Per-incident triggers live at
-> [`yuruna.link/memory#system-diagnostics`](https://yuruna.link/memory#system-diagnostics).
+> [`yuruna.link/42d69dfa-0029`](https://yuruna.link/42d69dfa-0029).
+
+<a id="423ef7f5-0002"></a>
 
 ## Wedged-daemon protection
 
@@ -25,6 +29,8 @@ A wedged daemon (dockerd stuck in a syscall, kubectl blocked on an
 unreachable apiserver, gcloud importing a broken bundled-python)
 can consume the entire outer SSH / console wall budget if invoked
 in-process. Three patterns keep `Get-SystemDiagnostic` bounded.
+
+<a id="423ef7f5-0003"></a>
 
 ### Invoke-WithDeadline
 
@@ -38,6 +44,8 @@ timeout, returns `@{ TimedOut = $true; Output = $null; ExitCode = -1 }`.
   it explicitly (parent-scope `$LASTEXITCODE` is unrelated to the
   job's runspace); callers that care must include `$LASTEXITCODE`
   in their block's final pipeline and recover it from `$Output`.
+
+<a id="423ef7f5-0004"></a>
 
 ### Per-tool request timeouts
 
@@ -59,6 +67,8 @@ fires:
   suppresses the apiserver round trip but kubectl still resolves
   kubeconfig; `--request-timeout` caps the fallback for unreachable
   clusters with broken contexts.
+
+<a id="423ef7f5-0005"></a>
 
 ### Probe via proxy when egress is locked
 
@@ -97,6 +107,8 @@ And a fetch that succeeds but takes longer than 5 s is flagged `SLOW`
 and raises a problem -- apt blocks on these fetches, so an origin
 answering in tens of seconds exhausts a step's timeout exactly as an
 unreachable one does.
+
+<a id="423ef7f5-0006"></a>
 
 ### Container-registry route
 
@@ -137,7 +149,11 @@ printed alongside, because a reading minutes old is still evidence but not
 a live one. See the [zot manifest canary
 exporter](vmconfig.md#zot-manifest-canary-exporter) for the publishing side.
 
+<a id="423ef7f5-0007"></a>
+
 ## Section-by-section rationale
+
+<a id="423ef7f5-0008"></a>
 
 ### 1. HOST — software-probe resilience
 
@@ -149,6 +165,8 @@ absent OR present-but-broken (e.g. Windows App Execution Alias for
 `python3` that resolves via `Get-Command` but refuses to execute) --
 a failure renders as `"(not installed)"` rather than aborting the
 whole HOST section.
+
+<a id="423ef7f5-0009"></a>
 
 ### 11. HOST DETAIL — runner process tree
 
@@ -167,6 +185,8 @@ logic.
   derived from the script location (the status service publishes its
   own copy of the env var to its child pwsh).
 
+<a id="423ef7f5-000a"></a>
+
 #### `ps -ww` is mandatory on macOS / Linux
 
 `/bin/ps` defaults to truncating the cmd column to the terminal
@@ -178,6 +198,8 @@ columns then avoid counting spaces in the cmd field. ETIME
 the raw string for human readability.
 
 Related: the `bsd_ps_args_truncation` trap class.
+
+<a id="423ef7f5-000b"></a>
 
 ### 11b. INSTALL & EARLY-BOOT TIMELINE (Linux)
 
@@ -191,6 +213,8 @@ eth0` loop on `host/windows.hyper-v/` -- the discriminating signal
 (RAs vs. apt mirror retries vs. `hv_netvsc` VF flap) only exists in
 `/var/log/installer/subiquity-server-debug.log` and the previous
 boot's journal, neither of which section 11 collects.
+
+<a id="423ef7f5-000c"></a>
 
 ### 11c. LIBVIRT GUEST NETWORKS
 
@@ -216,7 +240,9 @@ answer AND the one that stops the reader from looking.
 
 Per-guest evidence with a window pinned to one boot lands separately,
 beside the failure diagnostics; see
-[Reading the DHCP server a libvirt host runs](https://yuruna.link/network#reading-the-dhcp-server-a-libvirt-host-runs).
+[Reading the DHCP server a libvirt host runs](https://yuruna.link/4220a755-000e).
+
+<a id="423ef7f5-000d"></a>
 
 ### Journal windows exclude this harness's own polling
 
@@ -242,6 +268,8 @@ apparmor is matched on `STATUS` only. A profile load is bookkeeping; a
 `DENIED` line is a fault, and is exactly what a reader of this section
 is looking for.
 
+<a id="423ef7f5-000e"></a>
+
 ### 13. GAP HEURISTICS
 
 Cross-section sanity checks. Each catches a silent-failure mode
@@ -253,6 +281,8 @@ Runs AFTER YURUNA PROJECT so it shares the same `projectRoot`
 resolution; also re-queries `helm` / `kubectl` read-only so a stale
 variable from the KUBE section doesn't mislead.
 
+<a id="423ef7f5-000f"></a>
+
 #### Heuristic 1: tofu state without helm releases
 
 If `Set-Resource` (tofu) wrote state, the project intends to deploy
@@ -260,6 +290,8 @@ something; if the matching workloads phase didn't produce a single
 helm release across **all** namespaces, the wrapper script most
 likely exited 0 without invoking `Set-Workload` (or `Set-Workload`
 silently short-circuited).
+
+<a id="423ef7f5-0010"></a>
 
 #### Heuristic 2: declared namespaces missing from cluster
 
@@ -273,6 +305,8 @@ A cheap regex matches the two-space-indented `namespace:` key under
 `globalVariables:` rather than pulling in `powershell-yaml` for one
 field.
 
+<a id="423ef7f5-0011"></a>
+
 #### Heuristic 3: cluster Ready but no user-namespace pods
 
 Same shape as 1+2 but needs no project context, so it
@@ -282,6 +316,8 @@ kubeadm cluster only ships `kube-system` + `kube-flannel` +
 `kube-public` + `kube-node-lease`; anything outside that set is
 "user content" that should appear once `Set-Workload` /
 `Set-Component` land.
+
+<a id="423ef7f5-0012"></a>
 
 #### Heuristic 4: local registry image not referenced by any pod
 
@@ -305,6 +341,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08
 
 Back to [Yuruna](../README.md)

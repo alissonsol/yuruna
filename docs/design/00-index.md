@@ -2,8 +2,6 @@
 
 This page is the deterministic entry point for the current-source design diagrams and the grouping decisions that keep each view readable.
 
-[Yuruna Architecture](../architecture.md) | [Design index](00-index.md)
-
 The canonical design narrative remains in [Yuruna Architecture](../architecture.md).
 These pages only map that design to current scripts, modules, data files, runtime
 exchanges, and deployed processes.
@@ -18,10 +16,18 @@ exchanges, and deployed processes.
 | [Lifecycle state](04-lifecycle-state.md) | Which runner states persist, and which guest stages execute inside a cycle? | `test/modules/Test.RunnerState.psm1`, `Test.RunnerOuterLoop.psm1`, `Test.RunnerWatchdog.psm1`, and `Test.RunnerInnerLoop.psm1` |
 | [Configuration data model](05-data-model.md) | Which project and authentication records are read by the engine and harness? | `yuruna-project/template/`, `automation/Yuruna.Validation.psm1`, `automation/Yuruna.*.psm1`, and `test/{schemas,extension/authentication}` |
 | [Deployment topology](06-deployment.md) | Where do the processes run, and which network or storage links join them? | `test/service/`, `test/extension/`, `host/vmconfig/`, provider `New-VM.ps1` files, and guest setup scripts |
+| [Globalization and future localization](07-globalization.md) | How do locale authority, catalog delivery, safe rendering, project text, human review, and future language enablement fit together? | `globalization/`, `tools/Invoke-Catalog*.ps1`, `test/modules/Test.{Locale,Catalog,Message}.psm1`, `test/extension/extension-sdk/i18n/`, the HTTP services, review tools, and `yuruna-project/globalization/` |
+
+For globalization, read chapter 7 in dependency order: catalog contracts and
+distribution, locale matching and launch configuration, the distinct pool/status
+HTTP paths, then rendering and machine-message boundaries. Its final sections
+separate project labels, document review, validation gates, and remaining runtime
+localization work. The other views retain the whole-system context without
+duplicating those mechanisms.
 
 ## Source-boundary decisions
 
-The current tree changes four durable anchors from the prompt in ways the diagrams
+The current tree changes five durable anchors from the prompt in ways the diagrams
 make explicit:
 
 - The runner entry point is `test/Start-TestRunner.ps1`; the current child layers are
@@ -31,6 +37,12 @@ make explicit:
 - Localhost, AWS, and Azure project configurations exist. GCP deployment remains
   planned in `docs/architecture.md`, and there is no `global/resources/gcp/`, so
   these diagrams do not draw a GCP deployment target.
+- `globalization/locale-manifest.json` makes `en-US` the only supported release
+  locale. `pt-BR` is still planned and has no source or compiled catalog; the two
+  generated pseudo locales are test-only and require an explicit runtime flag.
+  Portuguese terminology/style are approved and 13 document translations are
+  recorded as reviewed, independently of runtime support. Catalog conversion
+  remains partial, and no live language selector is implemented.
 - `yuruna-project/template/` is itself a project root, while examples live below
   `yuruna-project/example/<project>/`.
 - Stash data is stored on the independently configured stash share. It is not a
@@ -63,6 +75,11 @@ Larger source sets are folded into named aggregates:
   configured shares. Pool Storage has seven boxes (its root and six direct
   areas); Stash Storage has four (share root, host root, host key, and dated
   files).
+- Globalization separates nine diagrams by responsibility. Build, resolver,
+  launch, lookup, and project-map views have seven nodes each; pool and status
+  requests have six participants each; machine-message examples use two
+  three-node groups; terminology/document review has six nodes. The separate
+  request views preserve their different config lifetimes and cache behavior.
 
 ## Deterministic rendering rules
 
@@ -75,3 +92,7 @@ the source enum's spelling. Optional flowchart links are dashed and preceded by 
 `%% optional` comment; dotted ER links retain Mermaid's non-identifying association
 meaning. No planned-only box is included. Source paths, rather than the previous
 contents of `docs/design/`, are the authority for every regeneration.
+
+---
+
+[Yuruna Architecture](../architecture.md) | [Design index](00-index.md)

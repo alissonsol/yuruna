@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42d0ee91-af77-4d3c-9e22-94d5edbc7661
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,11 +31,14 @@
 
 .PARAMETER VMName
     Name of the UTM VM. Default: yuruna-pool-control-service.
+.PARAMETER AllowPseudoLocale
+    Open pseudo-locale negotiation for an explicit reference run. Off by default.
 #>
 
 param(
     [Parameter(Position = 0)]
-    [string]$VMName = "yuruna-pool-control-service"
+    [string]$VMName = "yuruna-pool-control-service",
+    [switch]$AllowPseudoLocale
 )
 
 # Honor logLevel from Start-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
@@ -110,7 +113,7 @@ New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 # meta-data is shared under host/vmconfig/ (byte-identical across all 3 host platforms).
 $hostVmConfigDir = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) 'host/vmconfig'
 Copy-Item -Path (Join-Path $hostVmConfigDir 'pool-control-service.meta-data') -Destination "$SeedDir/meta-data"
-# --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+# --- REGION: https://yuruna.link/4220a755-000b
 Copy-Item -Path (Join-Path $hostVmConfigDir 'guest-dhcp.network-config') -Destination "$SeedDir/network-config"
 
 # --- REGION: Yuruna harness SSH key
@@ -127,7 +130,7 @@ Write-Output "Password came from authentication mechanism: $_authActiveName"
 Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
 
 # --- REGION: Pick a UTM network mode (BEFORE building user-data)
-# --- REGION: https://yuruna.link/network#cache-vm-seed-host-binding
+# --- REGION: https://yuruna.link/4220a755-001b
 # Host coordinates (status service, for the in-VM source fetch) + pool storage
 # coordinates (the NAS), baked into the seed. The network mode and the host
 # address are a matched pair -- the address only works from the network the VM
@@ -138,6 +141,7 @@ Import-Module (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.Host.ps
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.PoolStorage.psm1')  -Global -Force
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.YurunaDir.psm1')    -Global -Force
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.Config.psm1')       -Global -Force
+Import-Module (Join-Path $_repoRoot 'test/modules/Test.Locale.psm1')       -Global -Force
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.CachingProxyService.psm1') -Global -Force
 $NetworkMode = Resolve-UtmNetworkMode
 if ($env:YURUNA_GUEST_REACHABLE_HOST_IP) {
@@ -149,6 +153,14 @@ if (-not $YurunaHostIp) { $YurunaHostIp = '' }
 $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $_repoRoot
 $YurunaHostPort = $_statusSeed.Port
 $tc = $_statusSeed.Config
+$languageRaw = [string](Get-TestConfigValue -Config $tc -Path 'language')
+$poolControlLanguage = if ([string]::IsNullOrWhiteSpace($languageRaw) -or $languageRaw -ieq 'auto') {
+    'auto'
+} else {
+    ConvertTo-CanonicalLocaleTag -Tag $languageRaw
+}
+if (-not $poolControlLanguage) { throw "Invalid configured language '$languageRaw'." }
+$allowPseudoLocaleValue = if ($AllowPseudoLocale) { 'true' } else { 'false' }
 $poolNas = Get-YurunaPoolSeedValue -Config $tc -GuestReachableAddress $YurunaHostIp
 # Pool-aggregator service base URL for the daemon's presence beacon + remote-host
 # resolution; '' (no caching-proxy service known) leaves those features off in-guest.
@@ -183,6 +195,8 @@ $UserData = New-CloudInitUserData `
         YURUNA_HOST_ID_PLACEHOLDER     = $poolNas.HostId
         YURUNA_AGGREGATOR_URL_PLACEHOLDER      = $aggregatorSeedUrl
         YURUNA_POOL_INTENT_GIT_URL_PLACEHOLDER = $intentGitUrl
+        YURUNA_LANGUAGE_PLACEHOLDER       = $poolControlLanguage
+        YURUNA_ALLOW_PSEUDO_LOCALE_PLACEHOLDER = $allowPseudoLocaleValue
         POOL_NAS_NETWORK_PATH_PLACEHOLDER  = $poolNas.NetworkPath
         POOL_NAS_NETWORK_IP_PLACEHOLDER    = $poolNas.NetworkIp
         POOL_NAS_NETWORK_USER_PLACEHOLDER  = $poolNas.NetworkUser
@@ -210,7 +224,7 @@ if (-not (Test-Path $TemplatePath)) {
 $VmUuid  = [guid]::NewGuid().ToString().ToUpper()
 $DiskId  = [guid]::NewGuid().ToString().ToUpper()
 $SeedId  = [guid]::NewGuid().ToString().ToUpper()
-# --- REGION: https://yuruna.link/network#defining-deterministic-guest-mac-addresses
+# --- REGION: https://yuruna.link/4220a755-000a
 $MacAddress = Get-YurunaGuestMacAddress -VMName $VMName
 
 Import-Module (Join-Path (Split-Path -Parent $ScriptDir) "modules/Yuruna.Host.psm1") -Force
@@ -236,11 +250,11 @@ if ($NetworkMode -eq 'Shared') {
     Write-Output "Bridge interface: $BridgeInterface (pool-control-service VM will request DHCP on this LAN)"
 }
 
-# --- REGION: https://yuruna.link/definition#defining-the-vm-memory-policy
-# --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
+# --- REGION: https://yuruna.link/42fa6f45-0016
+# --- REGION: https://yuruna.link/42fa6f45-0015
 $hostCores = [int](& /usr/sbin/sysctl -n hw.physicalcpu)
 if ($hostCores -lt 4) {
-    Write-Error "Host has $hostCores physical cores; Yuruna requires at least 4. See https://yuruna.link/definition#defining-the-vm-core-count-policy"
+    Write-Error "Host has $hostCores physical cores; Yuruna requires at least 4. See https://yuruna.link/42fa6f45-0015"
     exit 1
 }
 $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42ed1667-e5c7-4bea-b28b-0e6c1706de72
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -2281,7 +2281,7 @@ function Sync-MacHostClock {
     .DESCRIPTION
     UTM/Virtualization.framework seeds each guest's clock from this host at
     power-on. What a drifted clock then does to a guest:
-    https://yuruna.link/test/harness#the-host-clock
+    https://yuruna.link/42d38664-001a
 
     `systemsetup -setusingnetworktime on` is the durable half (it survives
     reboots); `sntp -sS` is the immediate half, because turning the daemon
@@ -2343,7 +2343,7 @@ function Assert-MacHostConditionSet {
     if (-not (Assert-Accessibility    -HostType $HostType)) { return $false }
     if (-not (Assert-ScreenRecording  -HostType $HostType)) { return $false }
     if (-not (Assert-ScreenLock       -HostType $HostType)) { return $false }
-    # --- REGION: https://yuruna.link/test/harness#the-host-clock
+    # --- REGION: https://yuruna.link/42d38664-001a
     # Warn-only and once per cycle: the repair needs a privilege this process
     # cannot ask for, so a drifted host runs and says so rather than refusing
     # every cycle until an operator notices.

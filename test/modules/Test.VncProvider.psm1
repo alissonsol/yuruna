@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42c24ab4-c6de-46b2-84f3-6852dccf9a66
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -31,7 +31,7 @@
 # the cached handle is feeding frozen frames) and available to any
 # host_io_blocked recovery path.
 #
-# --- REGION: https://yuruna.link/host-io#why-the-registry-uses-a-global-anchor
+# --- REGION: https://yuruna.link/4222e5f2-0009
 # Storage: shared Test.Registry primitive; the $global:YurunaVncProviders
 # anchor keeps registrations eviction-safe across -Force re-imports.
 

@@ -36,7 +36,7 @@ func newTestServer(t *testing.T, online bool) *Server {
 		Store:        shareStore,
 		Buffer:       bufStore,
 		Meta:         m,
-		IDs:          id.New(shareStore.FilesRoot(), bufStore.FilesRoot()),
+		IDs:          id.New(m.Exists, shareStore.FilesRoot(), bufStore.FilesRoot()),
 		ShareOnline:  func() bool { return online },
 		flushTrigger: make(chan struct{}, 1),
 	}

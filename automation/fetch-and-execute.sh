@@ -1,9 +1,9 @@
 #!/bin/bash
-# Version: 2026.09.01
+# Version: 2026.09.08
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 
-# --- REGION: https://yuruna.link/definition#defining-the-fetch-and-execute-typed-envelope
+# --- REGION: https://yuruna.link/42fa6f45-0005
 # The host prepends a small env "envelope" to the command it TYPES into this
 # guest (VM console or SSH): E_SHA / E_RETRY_SHA carry the sha256 of the payload
 # and of the retry lib, E_FB_REPO / E_FB_REF carry the GitHub fallback repo and
@@ -16,7 +16,7 @@
 # of silently running unverified code -- and the legacy EXEC_* spellings are
 # still read below, so a current guest also works under an older host.
 
-# --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-base-url-resolution
+# --- REGION: https://yuruna.link/42fa6f45-0003
 # Two fetch sources, tried in order: the host status service, then GitHub. The
 # GitHub fallback is a repo slug + pinned commit supplied by the host, never a
 # fixed public URL -- the linked section explains why the integrity gate depends
@@ -25,6 +25,17 @@ FETCH_SOURCE=''   # 'host' | 'base' | 'github'
 HOST_BASE=''      # http://<ip>:<port>/yuruna-repo/  (host), or the EXEC_BASE_URL override
 GH_REPO=''        # owner/repo
 GH_REF=''         # exact commit sha
+
+# Budget for the status-service probe below. Rounds are spaced rather than
+# stacked back to back: what most often makes the host look dead to a guest
+# this young is a path that is still coming up -- a bridge that has not
+# learned the guest's MAC, an ARP entry not yet exchanged -- and that clears
+# on the order of seconds, so a probe that spends its whole budget inside one
+# dead second learns nothing a single attempt would not have. Worst case here
+# is HOST_PROBE_ROUNDS * 2s of connect timeout plus the gaps between them,
+# and it is spent only when the first attempt has already failed.
+HOST_PROBE_ROUNDS=4
+HOST_PROBE_GAP_SECONDS=3
 
 resolve_fetch_source() {
     if [ -r /etc/yuruna/host.env ]; then
@@ -50,7 +61,7 @@ resolve_fetch_source() {
         esac
         return
     fi
-    # --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-host-unreachable-warning
+    # --- REGION: https://yuruna.link/42fa6f45-0007
     # A guest holding no global IPv4 cannot reach the host status service OR
     # GitHub, and none of the host-side causes named further down can be true
     # of it -- the host may be perfectly healthy and still unreachable. Say
@@ -75,7 +86,7 @@ resolve_fetch_source() {
         FETCH_SOURCE='github'
         return
     fi
-    # --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-host-address-mobility
+    # --- REGION: https://yuruna.link/42fa6f45-0006
     # The coordinates in host.env were written when this VM was provisioned.
     # A host that renumbers under DHCP -- the norm wherever the site router
     # is the DHCP server and hands out short, non-sticky leases -- leaves
@@ -106,26 +117,50 @@ resolve_fetch_source() {
         fi
     fi
     if [ -n "${YURUNA_STATUS_SERVICE_IP:-}" ] && [ -n "${YURUNA_STATUS_SERVICE_PORT:-}" ]; then
-        # --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-host-environment-variables
-        # Two attempts, not one. This probe decides between the only source
-        # that can serve a private framework repository and one that then
-        # cannot serve it at all, and the caller may have reached here on an
-        # address that arrived seconds ago -- with bridge learning and ARP
+        # --- REGION: https://yuruna.link/42fa6f45-0004
+        # Several spaced attempts, not one. This probe decides between the only
+        # source that can serve a private framework repository and one that
+        # then cannot serve it at all, and the caller may have reached here on
+        # an address that arrived seconds ago -- with bridge learning and ARP
         # still settling, a single 2s exchange is thin evidence for a verdict
-        # that cannot be revisited. The cost is bounded and paid only on the
-        # path that is already failing.
-        if wget -q --no-proxy --timeout=2 --tries=2 -O /dev/null \
-            "http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/livecheck" 2>/dev/null; then
-            FETCH_SOURCE='host'
-            HOST_BASE="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/yuruna-repo/"
-            return
-        fi
-        # --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-host-unreachable-warning
+        # that cannot be revisited. Where the framework repository is private
+        # the alternative this falls through to cannot answer at all, so the
+        # seconds spent here are strictly cheaper than the cycle they save.
+        #
+        # The bounds are defaulted at the point of use rather than read from
+        # the file scope alone: this function is lifted out and driven on its
+        # own, and a bound it can only get from its surroundings arrives empty
+        # there -- which reads as a loop bound of zero, so the probe would
+        # silently stop probing wherever it is exercised in isolation.
+        _probe_rounds="${HOST_PROBE_ROUNDS:-4}"
+        _probe_gap="${HOST_PROBE_GAP_SECONDS:-3}"
+        _livecheck_url="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/livecheck"
+        _probe_round=1
+        while [ "$_probe_round" -le "$_probe_rounds" ]; do
+            if wget -q --no-proxy --timeout=2 --tries=1 -O /dev/null "$_livecheck_url" 2>/dev/null; then
+                if [ "$_probe_round" -gt 1 ]; then
+                    # Worth saying out loud: the host was reachable, but not
+                    # on the first ask. That is the signature of a guest path
+                    # that comes up late, and it is invisible once the fetch
+                    # below succeeds and the run goes green.
+                    >&2 echo "!! HOST ANSWERED LATE: ${_livecheck_url} responded on probe ${_probe_round}/${_probe_rounds}"
+                fi
+                FETCH_SOURCE='host'
+                HOST_BASE="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/yuruna-repo/"
+                return
+            fi
+            if [ "$_probe_round" -lt "$_probe_rounds" ]; then sleep "$_probe_gap"; fi
+            _probe_round=$((_probe_round + 1))
+        done
+        # --- REGION: https://yuruna.link/42fa6f45-0007
         >&2 echo ""
         >&2 echo "!! HOST UNREACHABLE"
         >&2 echo "!!   url:     http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/livecheck"
         >&2 echo "!!   source:  /etc/yuruna/host.env (provisioned at New-VM time)"
-        >&2 echo "!!   probe:   wget --no-proxy --timeout=2 -O /dev/null -> no response"
+        >&2 echo "!!   probe:   wget --no-proxy --timeout=2 -O /dev/null, ${_probe_rounds} attempts"
+        >&2 echo "!!            ${_probe_gap}s apart -> no response to any of them. A path still"
+        >&2 echo "!!            settling answers inside that spread, so this is a host or"
+        >&2 echo "!!            route that stayed dead, not one that was merely slow."
         >&2 echo "!!   common:  this guest holds an IPv4 but its path may still be dead --"
         >&2 echo "!!            bridged to a virtual switch with no live uplink, or landed"
         >&2 echo "!!            on another segment; see the NETWORK DIAGNOSTIC below. Or"
@@ -156,7 +191,7 @@ resolve_fetch_source() {
 # GitHub reads go through the Contents API (works for private repos); without
 # one, raw.githubusercontent.com (public only). Both pin $GH_REF. $QUERY_PARAMS
 # rides only the host route (a second '?' would corrupt the API URL's ?ref=).
-# --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-base-url-resolution
+# --- REGION: https://yuruna.link/42fa6f45-0003
 build_fetch_url() {
     _bu_path="$1"
     case "$FETCH_SOURCE" in
@@ -177,7 +212,7 @@ build_fetch_url() {
 # 0600 wgetrc via --config, never --header (argv is world-readable and a `ps`
 # snapshot in a diagnostic dump would publish it); the replaced system wgetrc
 # only holds the host's no_proxy entry, irrelevant when talking to GitHub.
-# --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-base-url-resolution
+# --- REGION: https://yuruna.link/42fa6f45-0003
 AUTH_CONFIG=''
 WGET_FETCH_FLAGS=()
 
@@ -211,7 +246,7 @@ cleanup_auth_config() {
 }
 trap cleanup_auth_config EXIT
 
-# --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-failure-modes
+# --- REGION: https://yuruna.link/42fa6f45-0008
 # Name what a wget exit code means, at the point the code is reported. wget
 # collapses DNS failure, "network is unreachable" and "connection refused"
 # into a single exit 4, which is the one code a reader most needs separated,
@@ -316,7 +351,7 @@ clear
 # -- the same reason the failure marker below avoids them.
 echo "About to download and run project code: $FILE_PATH"
 
-# --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-failure-modes
+# --- REGION: https://yuruna.link/42fa6f45-0008
 # Hold an address BEFORE choosing a source, then resolve once and fetch.
 #
 # Source resolution probes the host status service, and a guest holding no
@@ -456,7 +491,7 @@ byte_count=$(wc -c < "$fetch_tmp" 2>/dev/null | tr -d '[:space:]')
 echo "  url: $FULL_URL"
 echo "  source: $BASE_SOURCE"
 
-# --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-failure-modes
+# --- REGION: https://yuruna.link/42fa6f45-0008
 # Second chance for the one failure shape a second chance can fix: this guest
 # lost the address it had. The boot that STARTS without one is already handled
 # before source resolution above, which is the only place that repair is worth
@@ -543,7 +578,7 @@ if [ "$wget_rc" -ne 0 ] || [ "$byte_count" -eq 0 ]; then
         . /usr/local/lib/yuruna/yuruna-network.sh
         command -v network_diag >/dev/null 2>&1 && network_diag
     fi
-    # --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-failure-modes
+    # --- REGION: https://yuruna.link/42fa6f45-0008
     # The failure marker deliberately avoids the words "fetch"/"execute": the
     # host-side OCR FailurePattern matcher is fuzzy, and a marker containing
     # those words fuzzy-matches the echoed 'fetch-and-execute.sh ...' command
@@ -578,7 +613,7 @@ script_content="$(cat "$fetch_tmp")"
 rm -f "$fetch_tmp" 2>/dev/null || true
 echo ""
 
-# --- REGION: https://yuruna.link/memory#why-fetch-and-execute-self-heals-the-yuruna_retry-library
+# --- REGION: https://yuruna.link/42d69dfa-003a
 # The fetched scripts source this lib unconditionally under `set -e`, so the file
 # must exist before the script runs. Cloud-init bakes it into the image, so this
 # is a fallback for guests that lack it; run it only after the fetch above has
@@ -607,7 +642,7 @@ fi
 # shellcheck disable=SC1090
 [ -r "$YURUNA_RETRY_LIB" ] && . "$YURUNA_RETRY_LIB"
 
-# --- REGION: https://yuruna.link/network#caching-proxy-service-ca-cert-rc60-gate
+# --- REGION: https://yuruna.link/4220a755-0015
 # Re-anchor the ssl-bump CA before handing control to the payload. The guest's
 # copy of that CA is only as current as the cache that minted it, and a cache
 # rebuilt from a blank disk between two steps of the same run mints a fresh one:
@@ -623,10 +658,10 @@ if command -v yuruna_ca_selfheal >/dev/null 2>&1; then
     yuruna_ca_selfheal || true
 fi
 
-# --- REGION: https://yuruna.link/memory#why-fetch-and-execute-tees-into-a-well-known-per-run-log
+# --- REGION: https://yuruna.link/42d69dfa-0039
 fae_log='/tmp/yuruna-last-fetch-and-execute.log'
 
-# --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-checkpoints
+# --- REGION: https://yuruna.link/42fa6f45-000a
 # Optional per-phase profiling. A fetched script marks phase boundaries with a
 # line that starts with four equals signs:  ==== phase name ====  . Each such
 # line is captured with bash's high-resolution EPOCHREALTIME clock and later
@@ -647,7 +682,7 @@ if [ "$profile_enabled" = '1' ]; then
     if [ -z "$ckpt_file" ] || [ -z "$profile_file" ]; then profile_enabled=0; fi
 fi
 
-# --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-log-timestamps
+# --- REGION: https://yuruna.link/42fa6f45-000b
 # Elapsed-time origin for the per-line stamps written into the log below. Kept
 # as microseconds so the arithmetic stays integer -- the shell has no floats,
 # and a fork per output line to get one would be its own kind of slow.
@@ -753,7 +788,7 @@ fi
   echo "# ended:     $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 } >> "$fae_log" 2>/dev/null || true
 
-# --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-end-tags
+# --- REGION: https://yuruna.link/42fa6f45-0009
 # Emit the end-tag marker as a contiguous continuation of the script's output,
 # BEFORE the console-silent perf-checkpoint POST and temp-file cleanup below. On
 # a headless Hyper-V host the screen-capture surface stops repainting within a
@@ -780,7 +815,7 @@ else
 fi
 printf '\n'%.0s {1..6}
 
-# --- REGION: https://yuruna.link/definition#defining-fetch-and-execute-checkpoints
+# --- REGION: https://yuruna.link/42fa6f45-000a
 # Ship the collected checkpoints to the host AFTER the marker above. The host
 # joins a checkpoint sidecar to this step by its host-stamped arrival time
 # falling inside the step's [start,end] window, and that window stays open until

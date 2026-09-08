@@ -12,22 +12,22 @@ users:
     lock_passwd: false
     ssh_authorized_keys:
       - SSH_AUTHORIZED_KEY_PLACEHOLDER
-# --- REGION: https://yuruna.link/vmconfig#ssh_authorized_keys-at-top-level
+# --- REGION: https://yuruna.link/429f3d06-000e
 ssh_authorized_keys:
   - SSH_AUTHORIZED_KEY_PLACEHOLDER
-# --- REGION: https://yuruna.link/vmconfig#chpasswd-list-schema
+# --- REGION: https://yuruna.link/429f3d06-000c
 chpasswd:
   list: |
     USERNAME_PLACEHOLDER:PLAINTEXT_PASSWORD_PLACEHOLDER
 ssh_pwauth: true
 
-# --- REGION: https://yuruna.link/vmconfig#hv_balloon-denylist
+# --- REGION: https://yuruna.link/429f3d06-001f
 write_files:
   - path: /etc/modprobe.d/denylist-hv-balloon.conf
     content: |
       blacklist hv_balloon
     permissions: '0644'
-  # --- REGION: https://yuruna.link/vmconfig#install-yuruna-lib
+  # --- REGION: https://yuruna.link/429f3d06-002c
   - path: /usr/local/lib/yuruna/yuruna-retry.sh
     encoding: base64
     content: YURUNA_RETRY_LIB_BASE64_PLACEHOLDER
@@ -48,7 +48,7 @@ write_files:
     encoding: base64
     content: YURUNA_HOST_LOCATE_BASE64_PLACEHOLDER
     permissions: '0755'
-  # --- REGION: https://yuruna.link/vmconfig#host-address-refresh-timer
+  # --- REGION: https://yuruna.link/429f3d06-002a
   - path: /etc/systemd/system/yuruna-host-locate.service
     permissions: '0644'
     content: |
@@ -64,7 +64,7 @@ write_files:
 
       [Install]
       WantedBy=network-online.target
-  # --- REGION: https://yuruna.link/network#defining-lease-release-on-teardown
+  # --- REGION: https://yuruna.link/4220a755-000f
   # The guest returns its own lease. Asking for it from the host needs a login
   # user, a resolvable address and a guest that is still running -- and the
   # guests that hold leases longest are stopped while running and deleted while
@@ -107,7 +107,7 @@ write_files:
 
       [Install]
       WantedBy=timers.target
-  # --- REGION: https://yuruna.link/definition#defining-the-two-source-scheme-for-framework-and-project-urls
+  # --- REGION: https://yuruna.link/42fa6f45-000c
   # git does NOT read GH_TOKEN (a gh(1) convention); without this GIT_ASKPASS shim a private
   # clone hangs on a username prompt -- "Private repositories" in the REGION topic above.
   - path: /usr/local/lib/yuruna/git-askpass.sh
@@ -118,7 +118,7 @@ write_files:
           Username*) echo "x-access-token" ;;
           *)         echo "${GH_TOKEN}" ;;
       esac
-  # --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+  # --- REGION: https://yuruna.link/4220a755-000b
   # Safety net for the boot where cloud-init's fallback claims nothing.
   # networkd applies the FIRST matching file in lexical order, so 98- sorts
   # after the 10-cloud-init-* fallback and is inert on a healthy boot; it
@@ -142,7 +142,7 @@ write_files:
 
 runcmd:
   - rmmod hv_balloon 2>/dev/null || true
-  # --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+  # --- REGION: https://yuruna.link/4220a755-000b
   # This guest receives NO seed network-config at all -- not a name-matched
   # one, not a MAC-matched one. Supplying cloud-init any network-config
   # REPLACES the fallback it would otherwise generate, and a config the
@@ -225,18 +225,18 @@ runcmd:
         nmcli connection modify "$c" ipv4.dhcp-client-id mac || \
           echo "Yuruna => could not pin dhcp-client-id on connection $c" >&2
       done'
-  # --- REGION: https://yuruna.link/vmconfig#login-session-budget
+  # --- REGION: https://yuruna.link/429f3d06-0019
   - bash -c 'sed -i -E "/^[#[:space:]]*LOGIN_TIMEOUT/d" /etc/login.defs && echo "LOGIN_TIMEOUT 180" >> /etc/login.defs'
-  # --- REGION: https://yuruna.link/vmconfig#enable-sshd-on-first-boot
+  # --- REGION: https://yuruna.link/429f3d06-0021
   - systemctl enable --now sshd || true
-  # --- REGION: https://yuruna.link/vmconfig#al2023-framebuffer-console
+  # --- REGION: https://yuruna.link/429f3d06-0022
   - systemctl enable --now getty@tty1.service || true
   - chvt 1 2>/dev/null || true
   - bash -c 'setterm --blank 0 --powersave off --cursor on > /dev/tty1 2>/dev/null || true'
 # === YURUNA_OVERLAY_RUNCMD_CONSOLEBLANK ===
-  # --- REGION: https://yuruna.link/vmconfig#console-quiet
+  # --- REGION: https://yuruna.link/429f3d06-0025
 # === YURUNA_OVERLAY_RUNCMD_QUIET_LOGLEVEL ===
-  # --- REGION: https://yuruna.link/vmconfig#gnome-auto-open-terminal-on-login
+  # --- REGION: https://yuruna.link/429f3d06-0023
   - mkdir -p /etc/xdg/autostart
   - |
     cat > /etc/xdg/autostart/open-terminal.desktop << 'DESKTOP'
@@ -247,7 +247,7 @@ runcmd:
     X-GNOME-Autostart-enabled=true
     NoDisplay=true
     DESKTOP
-  # --- REGION: https://yuruna.link/vmconfig#yuruna-host-coordinates
+  # --- REGION: https://yuruna.link/429f3d06-0029
   # Baked host+repo coordinates a hand-run fetch-and-execute falls back to; the runner's per-step E_FB_REPO/E_FB_REF override these.
   #
   # The last two keys are a different kind of coordinate: an ADDRESS goes
@@ -276,7 +276,7 @@ runcmd:
   # unit that is running, so one enabled but not started would sit inert until
   # the reboot after this one and release nothing in between.
   - systemctl enable --now yuruna-dhcp-release.service || true
-  # --- REGION: https://yuruna.link/network#why-git-never-prompts-here
+  # --- REGION: https://yuruna.link/4220a755-004f
   # Never let git ask a question. There is no terminal to answer it: this guest
   # is driven by OCR of a console, so a credential prompt is not a failure but a
   # HANG, and the step's whole timeout is spent before anyone learns the clone
@@ -310,12 +310,12 @@ runcmd:
     EOF
     chown USERNAME_PLACEHOLDER:USERNAME_PLACEHOLDER /home/USERNAME_PLACEHOLDER/.bashrc
     fi
-  # --- REGION: https://yuruna.link/vmconfig#wget-no_proxy
+  # --- REGION: https://yuruna.link/429f3d06-002b
   - |
     cat >> /etc/wgetrc << 'EOF'
     no_proxy = YURUNA_STATUS_SERVICE_IP_PLACEHOLDER
     EOF
-  # --- REGION: https://yuruna.link/vmconfig#timezone-via-ip-geolocation-and-ntp
+  # --- REGION: https://yuruna.link/429f3d06-002d
   - timedatectl set-ntp true
   - |
     # Best-effort timezone from geo-IP; explicit branches so a failure names its

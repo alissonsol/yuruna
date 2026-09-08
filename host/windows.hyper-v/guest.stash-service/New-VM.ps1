@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 4231f6cf-af57-4818-b0ee-59ddbe571ffa
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -129,7 +129,7 @@ if (Test-Path -LiteralPath $SeedDir) { Remove-Item -LiteralPath $SeedDir -Recurs
 New-Item -ItemType Directory -Force -Path $SeedDir | Out-Null
 
 Copy-Item -Path (Join-Path $hostVmConfigDir 'stash-service.meta-data') -Destination "$SeedDir/meta-data"
-# --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+# --- REGION: https://yuruna.link/4220a755-000b
 Copy-Item -Path (Join-Path $hostVmConfigDir 'guest-dhcp.network-config') -Destination "$SeedDir/network-config"
 
 # --- REGION: Yuruna harness SSH key
@@ -182,7 +182,7 @@ if (-not $switchName) {
     Write-Information "  The stash-service VM won't be reachable from LAN by its own IP, and the NAS may be unreachable."
 }
 
-# --- REGION: https://yuruna.link/network#cache-vm-seed-host-binding
+# --- REGION: https://yuruna.link/4220a755-001b
 # Host coordinates (status service, for the in-VM source fetch) + stash storage
 # coordinates (the share the daemon writes to), baked into the seed.
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.PoolStorage.psm1')  -Global -Force
@@ -242,11 +242,11 @@ Write-Output "  and log in with the credentials above to inspect cloud-init stat
 Write-Output ""
 
 # --- REGION: Create and configure the Hyper-V VM
-# --- REGION: https://yuruna.link/definition#defining-the-vm-memory-policy
+# --- REGION: https://yuruna.link/42fa6f45-0016
 Write-Output "Creating new VM '$VMName' on switch '$switchName'..."
 Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 2GB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
 
-# --- REGION: https://yuruna.link/network#defining-deterministic-guest-mac-addresses
+# --- REGION: https://yuruna.link/4220a755-000a
 # Hyper-V takes bare hex, no separators.
 $YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $VMName
 Hyper-V\Set-VMNetworkAdapter -VMName $VMName -StaticMacAddress ($YurunaGuestMac -replace ':','')
@@ -255,11 +255,19 @@ Write-Verbose "Deterministic guest MAC for '$VMName': $YurunaGuestMac"
 Set-VM -Name $VMName -MemoryStartupBytes 2GB -MemoryMinimumBytes 2GB -MemoryMaximumBytes 2GB -AutomaticCheckpointsEnabled $false | Out-Null
 Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
 Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
+
+# --- REGION: docs/host-hyperv.md#arm64-hosts-the-heartbeat-channel-wedges-a-linux-guest
+# No-op on AMD64. On ARM64 the heartbeat channel drives a Linux guest into
+# repeated soft lockups before hv_storvsc registers, so the root disk never
+# enumerates and the guest never reaches the service it exists to run. Set
+# before the DVD is attached so the guest's first boot is already free of it.
+$null = Disable-HyperVHeartbeatForLinuxGuest -VMName $VMName -Confirm:$false
+
 Add-VMDvdDrive -VMName $VMName -Path $SeedIso | Out-Null
-# --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
+# --- REGION: https://yuruna.link/42fa6f45-0015
 $hostCores = (Get-CimInstance -ClassName Win32_Processor | Measure-Object -Property NumberOfCores -Sum).Sum
 if ($hostCores -lt 4) {
-    Write-Error "Host has $hostCores physical cores; Yuruna requires at least 4. See https://yuruna.link/definition#defining-the-vm-core-count-policy"
+    Write-Error "Host has $hostCores physical cores; Yuruna requires at least 4. See https://yuruna.link/42fa6f45-0015"
     exit 1
 }
 $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))

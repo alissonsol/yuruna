@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42fb91f9-ac3c-48ec-849f-108167698afd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -54,6 +54,53 @@ function Test-IsElevatedHost {
     if (-not $IsWindows) { return $true }
     $id = [Security.Principal.WindowsIdentity]::GetCurrent()
     return ([Security.Principal.WindowsPrincipal]$id).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function Write-CycleStepEvent {
+    <#
+    .SYNOPSIS
+        Record a step boundary as data, beside the transcript line that shows it.
+    .DESCRIPTION
+        The outcome travels as a stable lower-case token rather than the word
+        the rule prints. PASS and FAIL are what a reader sees; a consumer that
+        matched on them would be reading a rendered value, which is the shape
+        this exists to stop.
+
+        Best-effort by construction: the writer swallows its own failures, and
+        a cycle must not fail because a telemetry line could not be appended.
+        Guarded by Get-Command so an entry point whose module set omits
+        Test.Log runs exactly as it did before.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Append-only telemetry through a writer that is itself best-effort.')]
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][ValidateSet('start', 'end')][string]$Phase,
+        [Parameter(Mandatory)][int]$Index,
+        [Parameter(Mandatory)][int]$Total,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Name,
+        [AllowEmptyString()][string]$Kind = '',
+        [AllowEmptyString()][string]$Outcome = ''
+    )
+    if (-not (Get-Command Write-CycleNdjsonEvent -ErrorAction SilentlyContinue)) { return }
+    # Written out whole rather than composed from the phase. A code assembled
+    # at run time cannot be searched for: nobody grepping the tree for
+    # "step.start" finds the place that emits it, and the code registry cannot
+    # verify that this file carries what it claims to carry. Half the value of
+    # a stable code is that looking for it works.
+    $eventName = switch ($Phase) {
+        'start' { 'step.start' }
+        'end'   { 'step.end' }
+    }
+    $record = @{
+        event = $eventName
+        index = $Index
+        total = $Total
+        name  = $Name
+        kind  = $Kind
+    }
+    if ($Outcome) { $record['outcome'] = $Outcome.ToLowerInvariant() }
+    try { Write-CycleNdjsonEvent -EventRecord $record } catch { Write-Verbose "step event not recorded: $($_.Exception.Message)" }
 }
 
 function Write-OrchestratorLine {
@@ -541,6 +588,12 @@ function Invoke-OrchestrationSequence {
             }
             Write-OrchestratorLine ""
             Write-OrchestratorLine "----- [$($e.index)/$($entries.Count)] $($e.name) -----"
+            # The same boundary as data. The rule above gives the rendered page
+            # an outline; this gives a consumer one without reading prose at
+            # all -- and the aggregator already ships this stream off the host,
+            # so a step boundary becomes something the pool can see rather than
+            # something each reader has to re-derive from a line of dashes.
+            Write-CycleStepEvent -Phase 'start' -Index ([int]$e.index) -Total ([int]$entries.Count) -Name ([string]$e.name) -Kind ([string]$e.kind)
 
             # Operator pause wins over the lab hold: someone who has parked the
             # cycle is present, and re-probing a lab nobody is watching achieves
@@ -621,6 +674,7 @@ function Invoke-OrchestrationSequence {
                 Set-GuestStatus -GuestKey $e.name -Status $(if ($ok) { 'pass' } else { 'fail' }) -Confirm:$false
             }
             Write-OrchestratorLine "----- [$($e.index)/$($entries.Count)] $($e.name) : $outcome -----"
+            Write-CycleStepEvent -Phase 'end' -Index ([int]$e.index) -Total ([int]$entries.Count) -Name ([string]$e.name) -Kind ([string]$e.kind) -Outcome $outcome
             $results.Add([ordered]@{ index = $e.index; name = $e.name; kind = $e.kind; outcome = $outcome })
             if (-not $ok) {
                 $overall = 'fail'
@@ -709,4 +763,4 @@ function Invoke-OrchestrationSequence {
     if ($failCount -eq 0 -and $skipCount -eq 0) { return 0 } else { return 1 }
 }
 
-Export-ModuleMember -Function Test-IsOrchestrationSequence, Invoke-OrchestrationSequence
+Export-ModuleMember -Function Test-IsOrchestrationSequence, Invoke-OrchestrationSequence, Write-CycleStepEvent

@@ -1,0 +1,452 @@
+{
+  "schema": "yuruna.affected-slice-authority/v1",
+  "description": "Authoritative Wave-1 batch-C boundary ownership. Stable-code edges and undeclared exact source literals are reverse-discovered from code-registry.json; the signatures below cover bounded correctness fixes and display-only census rows that do not yet have stable codes. Generic same-word literals outside a protocol require an exact code/path/count/reason classification. Rows classify discoveries, never waive them.",
+  "seededSlices": [
+    {
+      "id": "status-pause-generated",
+      "domains": [
+        "runner",
+        "status-service",
+        "status-ui"
+      ],
+      "nextOwner": "G2-01"
+    },
+    {
+      "id": "pool-repository-project",
+      "domains": [
+        "extension-sdk",
+        "pool-aggregator",
+        "pool-control",
+        "project-config"
+      ],
+      "nextOwner": "G2-02"
+    }
+  ],
+  "literalExclusions": [
+    {
+      "wireCode": "repository_access.denied",
+      "path": "test/modules/Test.HostCondition.Mac.psm1",
+      "matchCount": 2,
+      "reason": "The macOS TCC grant state uses the same generic word but is not a repository-access protocol consumer."
+    },
+    {
+      "wireCode": "repository_access.denied",
+      "path": "tools/Export-GeneratedPages.ps1",
+      "matchCount": 2,
+      "reason": "The exporter writes deterministic reference-page fixture data and does not consume a live repository-access boundary."
+    },
+    {
+      "wireCode": "repository_access.readable",
+      "path": "tools/Export-GeneratedPages.ps1",
+      "matchCount": 1,
+      "reason": "The exporter writes deterministic reference-page fixture data and does not consume a live repository-access boundary."
+    },
+    {
+      "wireCode": "repository_access.unconfigured",
+      "path": "test/modules/Test.PoolNotifier.psm1",
+      "matchCount": 7,
+      "reason": "Pool notification transport readiness is a separate local state machine, not the repository-access protocol."
+    },
+    {
+      "wireCode": "repository_access.unprobed",
+      "path": "test/modules/Test.HostCondition.Mac.psm1",
+      "matchCount": 2,
+      "reason": "The macOS TCC grant state uses the same generic word but is not a repository-access protocol consumer."
+    },
+    {
+      "wireCode": "repository_access.unprobed",
+      "path": "test/Test-Config.ps1",
+      "matchCount": 1,
+      "reason": "The configuration report displays macOS TCC probe state, not repository-access state."
+    },
+    {
+      "wireCode": "sequence.sequence_paused_waiting_resume",
+      "path": "tools/Export-GeneratedPages.ps1",
+      "matchCount": 3,
+      "reason": "The exporter writes deterministic status reference-page fixture data and does not consume a live sequence event."
+    }
+  ],
+  "signatureConsumers": [
+    {
+      "id": "signature:b07-independent-timeout",
+      "path": "globalization/kernel/yuruna.rawpage.js",
+      "pattern": "finish\\(reject, new Error\\('The request took too long",
+      "minimumMatches": 1,
+      "maximumMatches": 1
+    },
+    {
+      "id": "signature:l03-kvm-locale-neutral-tool-output",
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
+      "pattern": "\\$env:LC_MESSAGES = 'C'",
+      "minimumMatches": 1,
+      "maximumMatches": 1
+    },
+    {
+      "id": "signature:l03-residual-external-parser-census",
+      "path": "host/ubuntu.kvm/modules/Yuruna.Host.psm1",
+      "pattern": "\\^\\\\s\\*Bridge:\\\\s\\*\\(\\\\S\\+\\)",
+      "minimumMatches": 1
+    },
+    {
+      "id": "signature:l04-ssh-prose-classifier-census",
+      "path": "test/modules/Test.Ssh.psm1",
+      "pattern": "Permission denied\\|publickey",
+      "minimumMatches": 1
+    },
+    {
+      "id": "signature:m02-diagnostic-explicit-class",
+      "path": "automation/Get-SystemDiagnostic.ps1",
+      "pattern": "\\[Parameter\\(Mandatory\\)\\]\\[ValidateNotNullOrEmpty\\(\\)\\]\\[string\\]\\$Class",
+      "minimumMatches": 1,
+      "maximumMatches": 1
+    },
+    {
+      "id": "signature:m02-diagnostic-schema-consumer",
+      "path": "test/modules/Test.RunnerInnerLoop.psm1",
+      "pattern": "\\$diagDoc\\['byClass'\\] -is \\[System\\.Collections\\.IDictionary\\]",
+      "minimumMatches": 1,
+      "maximumMatches": 1
+    },
+    {
+      "id": "signature:m03-visual-heading-census",
+      "path": "automation/Yuruna.Log.psm1",
+      "pattern": "function Test-YurunaStepRuleLine",
+      "minimumMatches": 1,
+      "maximumMatches": 1
+    },
+    {
+      "id": "signature:m04-prose-assertion-census",
+      "path": "test/modules/Test.ConsoleSecondOpinion.Tests.ps1",
+      "pattern": "Assert-Match 'capture pipeline is not the fault'",
+      "minimumMatches": 1,
+      "maximumMatches": 1
+    },
+    {
+      "id": "signature:p03-canonical-code-consumer",
+      "path": "test/extension/pool-control-service/server/internal/httpsrv/web/assets/common.js",
+      "pattern": "err\\.code === 'auth\\.unconfigured'",
+      "minimumMatches": 1,
+      "maximumMatches": 1
+    },
+    {
+      "id": "signature:p03-legacy-reason-consumer",
+      "path": "test/extension/pool-control-service/server/internal/httpsrv/web/assets/common.js",
+      "pattern": "!err\\.code && err\\.reason === 'auth-unconfigured'",
+      "minimumMatches": 1,
+      "maximumMatches": 1
+    },
+    {
+      "id": "signature:p03-message-envelope-producer",
+      "path": "test/extension/extension-sdk/labgate/labgate.go",
+      "pattern": "i18n\\.NewMessageEnvelope\\(code, nil, &i18n\\.MessageDetail",
+      "minimumMatches": 1,
+      "maximumMatches": 1
+    },
+    {
+      "id": "signature:p04-legacy-reader-deletion-date",
+      "path": "test/modules/Test.ConfigPreflight.psm1",
+      "pattern": "LegacyFailureBlockRemovalDate = '2026-11-30'",
+      "minimumMatches": 1,
+      "maximumMatches": 1
+    },
+    {
+      "id": "signature:p04-preflight-sidecar-consumer",
+      "path": "test/modules/Test.ConfigPreflight.psm1",
+      "pattern": "\\$env:YURUNA_FAILURE_SIDECAR = \\$sidecarPath",
+      "minimumMatches": 1,
+      "maximumMatches": 1
+    },
+    {
+      "id": "signature:p04-preflight-sidecar-producer",
+      "path": "test/modules/Test.Output.psm1",
+      "pattern": "yuruna\\.preflight-failures/v1",
+      "minimumMatches": 1,
+      "maximumMatches": 1
+    },
+    {
+      "id": "signature:p05-download-state-census",
+      "path": "test/extension/download-agent-service/server/internal/httpsrv/web/assets/images.js",
+      "pattern": "class: 'badge ' \\+ state, text: state",
+      "minimumMatches": 1,
+      "maximumMatches": 1
+    },
+    {
+      "id": "signature:p05-status-state-census",
+      "path": "test/status/yuruna.common.js",
+      "pattern": "var STATUS_CLASSES =",
+      "minimumMatches": 1,
+      "maximumMatches": 1
+    },
+    {
+      "id": "signature:p06-download-error-detail-census",
+      "path": "test/extension/download-agent-service/server/internal/httpsrv/handlers.go",
+      "pattern": "writeErr\\(w, http\\.StatusInternalServerError, err\\.Error\\(\\)\\)",
+      "minimumMatches": 1
+    },
+    {
+      "id": "signature:p06-pool-error-detail-census",
+      "path": "test/extension/pool-control-service/server/internal/httpsrv/board.go",
+      "pattern": "writeErr\\(w, http\\.StatusInternalServerError, err\\.Error\\(\\)\\)",
+      "minimumMatches": 1
+    },
+    {
+      "id": "signature:t02-sid-acl",
+      "path": "test/modules/Test.Ssh.psm1",
+      "pattern": "function Set-YurunaSshPrivateKeyAcl",
+      "minimumMatches": 1,
+      "maximumMatches": 1
+    },
+    {
+      "id": "signature:t03-hyperv-numeric-status",
+      "path": "host/windows.hyper-v/modules/Yuruna.Host.psm1",
+      "pattern": "function Test-YurunaAdapterUp",
+      "minimumMatches": 1,
+      "maximumMatches": 1
+    },
+    {
+      "id": "signature:t04-config-invariant-float",
+      "path": "test/modules/Test.ConfigNaming.psm1",
+      "pattern": "\\[Globalization\\.CultureInfo\\]::InvariantCulture, \\[ref\\]\\$n",
+      "minimumMatches": 1
+    },
+    {
+      "id": "signature:t04-prometheus-invariant-float",
+      "path": "test/modules/Test.PoolNotifier.psm1",
+      "pattern": "\\[Globalization\\.CultureInfo\\]::InvariantCulture, \\[ref\\]\\$val",
+      "minimumMatches": 1
+    },
+    {
+      "id": "signature:t05-machine-timestamp-census",
+      "path": "test/modules/Test.Status.psm1",
+      "pattern": "ToString\\('yyyy",
+      "minimumMatches": 1
+    },
+    {
+      "id": "signature:t06-sort-census",
+      "path": "test/modules/Test.ConfigServiceSync.psm1",
+      "pattern": "Sort-Object",
+      "minimumMatches": 1
+    },
+    {
+      "id": "signature:windows-bootstrap-numeric-edition",
+      "path": "install/windows.hyper-v.ps1",
+      "pattern": "\\$os\\.OperatingSystemSKU",
+      "minimumMatches": 2
+    }
+  ],
+  "rows": [
+    {
+      "id": "B-07",
+      "kind": "blocker",
+      "status": "closed",
+      "owner": "G1-08",
+      "slices": ["status-pause-generated", "pool-repository-project"],
+      "consumers": ["signature:b07-independent-timeout"]
+    },
+    {
+      "id": "L-03-REMAINDER",
+      "kind": "display-only-census",
+      "status": "deferred",
+      "owner": "G2-05",
+      "slices": ["status-pause-generated", "pool-repository-project"],
+      "consumers": ["signature:l03-residual-external-parser-census"]
+    },
+    {
+      "id": "L-04-REMAINDER",
+      "kind": "display-only-census",
+      "status": "deferred",
+      "owner": "G2-05",
+      "slices": ["status-pause-generated", "pool-repository-project"],
+      "consumers": ["signature:l04-ssh-prose-classifier-census"]
+    },
+    {
+      "id": "M-02",
+      "kind": "blocker",
+      "status": "closed",
+      "owner": "G1-08",
+      "slices": ["status-pause-generated"],
+      "consumers": [
+        "signature:m02-diagnostic-explicit-class",
+        "signature:m02-diagnostic-schema-consumer"
+      ]
+    },
+    {
+      "id": "M-03",
+      "kind": "display-only-census",
+      "status": "deferred",
+      "owner": "G2-07",
+      "slices": ["status-pause-generated"],
+      "consumers": ["signature:m03-visual-heading-census"]
+    },
+    {
+      "id": "M-04",
+      "kind": "display-only-census",
+      "status": "deferred",
+      "owner": "G2-06",
+      "slices": ["status-pause-generated", "pool-repository-project"],
+      "consumers": ["signature:m04-prose-assertion-census"]
+    },
+    {
+      "id": "P-01",
+      "kind": "blocker",
+      "status": "closed",
+      "owner": "G1-08",
+      "slices": ["status-pause-generated"],
+      "consumers": [
+        "code:sequence.sequence_paused_waiting_resume:producer:test/modules/Test.SequenceEngine.psm1",
+        "code:sequence.sequence_paused_waiting_resume:consumer:test/extension/pool-aggregator-service/main.go",
+        "code:sequence.sequence_paused_waiting_resume:consumer:test/status/yuruna.common.js"
+      ]
+    },
+    {
+      "id": "P-02",
+      "kind": "blocker",
+      "status": "closed",
+      "owner": "G1-08",
+      "slices": ["pool-repository-project"],
+      "consumers": [
+        "code:repository_access.denied:producer:test/modules/Test.HostGit.psm1",
+        "code:repository_access.denied:producer:test/modules/Test.RunnerInnerLoop.psm1",
+        "code:repository_access.denied:consumer:test/extension/pool-control-service/server/internal/httpsrv/board.go",
+        "code:repository_access.denied:consumer:test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js",
+        "code:repository_access.readable:producer:test/modules/Test.HostGit.psm1",
+        "code:repository_access.unconfigured:producer:test/modules/Test.HostGit.psm1",
+        "code:repository_access.unprobed:producer:test/modules/Test.HostGit.psm1",
+        "code:repository_access.unprobed:consumer:test/service/Start-StatusService.ps1"
+      ]
+    },
+    {
+      "id": "P-03",
+      "kind": "blocker",
+      "status": "closed",
+      "owner": "G1-08",
+      "slices": ["pool-repository-project"],
+      "consumers": [
+        "code:auth.lab_token_unavailable:producer:test/extension/extension-sdk/labgate/labgate.go",
+        "code:auth.lab_token_unavailable:consumer:test/modules/Test.MessageHttpMigration.Tests.ps1",
+        "code:auth.unconfigured:producer:test/extension/extension-sdk/labgate/labgate.go",
+        "code:auth.unconfigured:consumer:test/extension/pool-control-service/server/internal/httpsrv/web/assets/common.js",
+        "code:auth.unconfigured:consumer:test/modules/Test.MessageHttpMigration.Tests.ps1",
+        "signature:p03-canonical-code-consumer",
+        "signature:p03-legacy-reason-consumer",
+        "signature:p03-message-envelope-producer"
+      ]
+    },
+    {
+      "id": "P-04-M-01",
+      "kind": "blocker",
+      "status": "closed",
+      "owner": "G1-08",
+      "slices": ["status-pause-generated", "pool-repository-project"],
+      "consumers": [
+        "signature:p04-legacy-reader-deletion-date",
+        "signature:p04-preflight-sidecar-consumer",
+        "signature:p04-preflight-sidecar-producer"
+      ]
+    },
+    {
+      "id": "P-05-DOWNLOAD",
+      "kind": "display-only-census",
+      "status": "deferred",
+      "owner": "G2-03",
+      "slices": [],
+      "domains": ["download-agent"],
+      "consumers": ["signature:p05-download-state-census"]
+    },
+    {
+      "id": "P-05-STATUS",
+      "kind": "display-only-census",
+      "status": "deferred",
+      "owner": "G2-01",
+      "slices": ["status-pause-generated"],
+      "consumers": ["signature:p05-status-state-census"]
+    },
+    {
+      "id": "P-06-DOWNLOAD",
+      "kind": "display-only-census",
+      "status": "deferred",
+      "owner": "G2-03",
+      "slices": [],
+      "domains": ["download-agent"],
+      "consumers": ["signature:p06-download-error-detail-census"]
+    },
+    {
+      "id": "P-06-POOL",
+      "kind": "display-only-census",
+      "status": "deferred",
+      "owner": "G2-02",
+      "slices": ["pool-repository-project"],
+      "consumers": ["signature:p06-pool-error-detail-census"]
+    },
+    {
+      "id": "T-01-T-07",
+      "kind": "blocker",
+      "status": "closed",
+      "owner": "G1-08",
+      "slices": ["status-pause-generated", "pool-repository-project"],
+      "consumers": ["signature:l03-kvm-locale-neutral-tool-output"]
+    },
+    {
+      "id": "T-02",
+      "kind": "blocker",
+      "status": "closed",
+      "owner": "G1-08",
+      "slices": ["status-pause-generated", "pool-repository-project"],
+      "consumers": ["signature:t02-sid-acl"]
+    },
+    {
+      "id": "T-03",
+      "kind": "blocker",
+      "status": "closed",
+      "owner": "G1-08",
+      "slices": ["status-pause-generated", "pool-repository-project"],
+      "consumers": ["signature:t03-hyperv-numeric-status"]
+    },
+    {
+      "id": "T-04",
+      "kind": "blocker",
+      "status": "closed",
+      "owner": "G1-08",
+      "slices": ["status-pause-generated", "pool-repository-project"],
+      "consumers": [
+        "signature:t04-config-invariant-float",
+        "signature:t04-prometheus-invariant-float"
+      ]
+    },
+    {
+      "id": "T-05-REMAINDER",
+      "kind": "display-only-census",
+      "status": "deferred",
+      "owner": "G2-05",
+      "slices": ["status-pause-generated", "pool-repository-project"],
+      "consumers": ["signature:t05-machine-timestamp-census"]
+    },
+    {
+      "id": "T-06-REMAINDER",
+      "kind": "display-only-census",
+      "status": "deferred",
+      "owner": "G2-06",
+      "slices": ["status-pause-generated", "pool-repository-project"],
+      "consumers": ["signature:t06-sort-census"]
+    },
+    {
+      "id": "TRANSCRIPT-EVENTS",
+      "kind": "blocker",
+      "status": "closed",
+      "owner": "G1-08",
+      "slices": ["status-pause-generated"],
+      "consumers": [
+        "code:step.end:producer:test/modules/Test.Orchestrator.psm1",
+        "code:step.start:producer:test/modules/Test.Orchestrator.psm1"
+      ]
+    },
+    {
+      "id": "WINDOWS-BOOTSTRAP",
+      "kind": "blocker",
+      "status": "closed",
+      "owner": "G1-08",
+      "slices": ["status-pause-generated", "pool-repository-project"],
+      "consumers": ["signature:windows-bootstrap-numeric-edition"]
+    }
+  ]
+}

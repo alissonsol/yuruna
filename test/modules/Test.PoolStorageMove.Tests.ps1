@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42d76e1e-670d-4849-af41-08ce879f3532
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -58,7 +58,7 @@ Import-Module (Join-Path $here 'Test.StateFile.psm1')   -Force -DisableNameCheck
 
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
-# --- REGION: https://yuruna.link/memory#pester-file-scope-fixtures
+# --- REGION: https://yuruna.link/42d69dfa-0015
 # A host directory tree that looks like a real one: a log dir with finished cycle
 # folders, a runtime dir for the ledger, and a directory standing in for the mounted
 # share. The vault + reachability + mount gates are stubbed to succeed, because what

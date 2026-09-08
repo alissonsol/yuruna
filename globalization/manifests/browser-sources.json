@@ -1,0 +1,219 @@
+{
+  "schema": "yuruna.browser-sources/v1",
+  "description": "Every browser source the project ships, in one place. The floor checks, the byte budget and the asset gates all read this: a directory that appears in one tool's private list and not another's is a file that passes the check nobody pointed at it, and that is how a source drops out of a sweep. Adding a shipped asset means adding it here, once.",
+  "roots": [
+    {
+      "path": "test/status",
+      "surface": "host status pages",
+      "why": "Served by the host status service on every pool machine."
+    },
+    {
+      "path": "test/extension/extension-sdk/webui/assets",
+      "surface": "shared extension runtime",
+      "why": "Loaded first by every extension service UI, so a break here breaks all of them at once."
+    },
+    {
+      "path": "test/extension/pool-control-service/server/internal/httpsrv/web/assets",
+      "surface": "pool control UI",
+      "why": "The Wave-1 reference service."
+    },
+    {
+      "path": "test/extension/stash-service/server/internal/httpsrv/web/assets",
+      "surface": "stash UI"
+    },
+    {
+      "path": "test/extension/download-agent-service/server/internal/httpsrv/web/assets",
+      "surface": "download agent UI"
+    },
+    {
+      "path": "globalization/generated/browser",
+      "surface": "generated locale assets",
+      "why": "Generated files are shipped browser sources like any other, and a generator that started emitting newer syntax would break the floor exactly as a hand edit would."
+    },
+    {
+      "path": "globalization/kernel",
+      "surface": "shared browser kernels",
+      "why": "Copied verbatim into the shipped runtimes and into the raw Go pages, so a break here reaches every one of them at once. Checked at the source rather than only after it has been copied."
+    }
+  ],
+  "excludeSuffixes": [
+    ".test.js"
+  ],
+  "excludeReason": "*.test.js runs under node and no page loads one, so the browser floor does not reach it.",
+  "pages": [
+    {
+      "path": "test/status/index.html",
+      "surface": "host status overview"
+    },
+    {
+      "path": "test/status/performance.html",
+      "surface": "host status performance"
+    },
+    {
+      "path": "test/status/config.html",
+      "surface": "host status config"
+    },
+    {
+      "path": "test/status/diagnostics.html",
+      "surface": "host status diagnostics"
+    },
+    {
+      "path": "test/status/share-cycle.html",
+      "surface": "host status share cycle"
+    },
+    {
+      "path": "test/extension/pool-control-service/server/internal/httpsrv/web/board.html",
+      "surface": "pool control board"
+    },
+    {
+      "path": "test/extension/pool-control-service/server/internal/httpsrv/web/hosts.html",
+      "surface": "pool control hosts"
+    },
+    {
+      "path": "test/extension/pool-control-service/server/internal/httpsrv/web/pools.html",
+      "surface": "pool control pools"
+    },
+    {
+      "path": "test/extension/pool-control-service/server/internal/httpsrv/web/index.html",
+      "surface": "pool control overview"
+    },
+    {
+      "path": "test/extension/pool-control-service/server/internal/httpsrv/web/diagnostics.html",
+      "surface": "pool control diagnostics"
+    },
+    {
+      "path": "test/extension/pool-control-service/server/internal/httpsrv/web/scan.html",
+      "surface": "pool control scan"
+    },
+    {
+      "path": "test/extension/pool-control-service/server/internal/httpsrv/web/test-sets.html",
+      "surface": "pool control test sets"
+    },
+    {
+      "path": "test/extension/download-agent-service/server/internal/httpsrv/web/index.html",
+      "surface": "download agent images"
+    },
+    {
+      "path": "test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html",
+      "surface": "download agent diagnostics"
+    },
+    {
+      "path": "test/extension/stash-service/server/internal/httpsrv/web/index.html",
+      "surface": "stash overview"
+    },
+    {
+      "path": "test/extension/stash-service/server/internal/httpsrv/web/new.html",
+      "surface": "stash new upload"
+    },
+    {
+      "path": "test/extension/stash-service/server/internal/httpsrv/web/stash.html",
+      "surface": "stash item"
+    }
+  ],
+  "cssProducers": [
+    {
+      "path": "test/status/yuruna.common.css",
+      "kind": "Css",
+      "palette": "test/status/yuruna.common.css"
+    },
+    {
+      "path": "test/status/index.html",
+      "kind": "Html",
+      "palette": "test/status/yuruna.common.css"
+    },
+    {
+      "path": "test/status/config.html",
+      "kind": "Html",
+      "palette": "test/status/yuruna.common.css"
+    },
+    {
+      "path": "test/status/performance.html",
+      "kind": "Html",
+      "palette": "test/status/yuruna.common.css"
+    },
+    {
+      "path": "test/status/share-cycle.html",
+      "kind": "Html",
+      "palette": "test/status/yuruna.common.css"
+    },
+    {
+      "path": "test/status/diagnostics.html",
+      "kind": "Html",
+      "palette": "test/status/yuruna.common.css"
+    },
+    {
+      "path": "test/service/Start-StatusService.ps1",
+      "kind": "Html",
+      "palette": "test/status/yuruna.common.css",
+      "why": "The directory listing is built in a PowerShell here-string, so a search for stylesheets never finds it."
+    },
+    {
+      "path": "test/extension/pool-control-service/server/internal/httpsrv/web/assets/style.css",
+      "kind": "Css",
+      "palette": "test/extension/pool-control-service/server/internal/httpsrv/web/assets/style.css"
+    },
+    {
+      "path": "test/extension/pool-control-service/server/internal/httpsrv/web/assets/board.css",
+      "kind": "Css",
+      "palette": "test/extension/pool-control-service/server/internal/httpsrv/web/assets/style.css",
+      "why": "Loaded beside the pool-control stylesheet and resolves against its palette, not its own."
+    },
+    {
+      "path": "test/extension/stash-service/server/internal/httpsrv/web/assets/style.css",
+      "kind": "Css",
+      "palette": "test/extension/stash-service/server/internal/httpsrv/web/assets/style.css"
+    },
+    {
+      "path": "test/extension/download-agent-service/server/internal/httpsrv/web/assets/style.css",
+      "kind": "Css",
+      "palette": "test/extension/download-agent-service/server/internal/httpsrv/web/assets/style.css"
+    },
+    {
+      "path": "test/extension/caching-proxy-service/ui.go",
+      "kind": "Html",
+      "palette": "test/extension/caching-proxy-service/ui.go",
+      "why": "The page is a Go string literal that defines and uses its own palette in the same constant."
+    },
+    {
+      "path": "test/extension/caching-proxy-parser-service/parse.go",
+      "kind": "Html",
+      "palette": "test/extension/caching-proxy-parser-service/parse.go",
+      "why": "The page is a Go string literal that defines and uses its own palette in the same constant."
+    }
+  ],
+  "cssProducersNote": "Every file that produces CSS a browser will apply, whether it is a stylesheet, an HTML page with an inline block, a Go string literal or a PowerShell here-string. 'palette' names the file whose custom-property values a producer's var() calls resolve against, which is not always itself: a fallback written from the wrong file's values is still a wrong color. A search that globbed *.css would report a clean floor over a third of this surface.",
+  "inlineScriptProducers": [
+    {
+      "path": "test/extension/download-agent-service/server/internal/httpsrv/web/index.html"
+    },
+    {
+      "path": "test/extension/pool-control-service/server/internal/httpsrv/web/board.html"
+    },
+    {
+      "path": "test/extension/caching-proxy-service/ui.go"
+    },
+    {
+      "path": "test/extension/caching-proxy-parser-service/parse.go"
+    }
+  ],
+  "inlineScriptProducersNote": "Files that carry browser JavaScript inside something that is not a .js file: an HTML page with a script block, or a Go string literal holding a whole page. A sweep that looked for *.js would report a clean floor over every one of them, which is the same as not checking them at all. The floor check extracts each block and applies the same rules it applies to a file.",
+  "pageRoots": [
+    {
+      "path": "test/status",
+      "surface": "host status pages"
+    },
+    {
+      "path": "test/extension/pool-control-service/server/internal/httpsrv/web",
+      "surface": "pool control UI"
+    },
+    {
+      "path": "test/extension/download-agent-service/server/internal/httpsrv/web",
+      "surface": "download agent UI"
+    },
+    {
+      "path": "test/extension/stash-service/server/internal/httpsrv/web",
+      "surface": "stash UI"
+    }
+  ],
+  "pageRootsNote": "Directories the accessibility gate serves and walks. Separate from 'roots', which names where the scripts and stylesheets live: a page root holds the documents, and one service can have both. A service added to the tree and not added here is a UI nobody ever renders for contrast, focus order or reflow, and the gate reports a clean run over it."
+}

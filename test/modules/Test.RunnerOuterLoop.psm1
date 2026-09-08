@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42904a4e-7e96-4d32-883d-8326239ad090
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1237,7 +1237,7 @@ function Invoke-RunnerOuterCycle {
         Write-Output "[outer cycle $cycle] spawning inner pwsh... (local time: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss zzz'))"
         Write-OuterLog "[outer cycle $cycle] about to invoke inner pwsh"
         # Wipe last cycle's runtime files BEFORE arming the watchdog.
-        # --- REGION: https://yuruna.link/runner-outer-loop#pre-spawn-cleanup-ordering
+        # --- REGION: https://yuruna.link/42f909ad-000f
         $innerPidFile    = Join-Path $env:YURUNA_RUNTIME_DIR 'inner.pid'
         $stepHbFile      = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.stepHeartbeat'
         $phaseFile       = Join-Path $env:YURUNA_RUNTIME_DIR 'runner.phase'
@@ -1353,7 +1353,7 @@ function Invoke-RunnerOuterCycle {
             if (Get-Command Set-RunnerState -ErrorAction SilentlyContinue) {
                 $null = Set-RunnerState -To 'in-cycle' -Reason "inner spawning" -Confirm:$false
             }
-            # --- REGION: https://yuruna.link/memory#why-the-inner-spawn-uses-the-call-operator-instead-of-start-process
+            # --- REGION: https://yuruna.link/42d69dfa-000e
             $exitCode = 0
             try {
                 # Announce the relaunch to the child immediately before the spawn so

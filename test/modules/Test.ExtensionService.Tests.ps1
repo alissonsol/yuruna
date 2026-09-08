@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42b86905-6f08-4020-9f8c-68c7b31b76ef
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -421,14 +421,34 @@ Describe 'the caching-proxy seed fetches the sources it builds' {
         # `go build` never opens.
         $daemonAreas = @($loops | ForEach-Object { $_.Groups['area'].Value } |
                 Where-Object { $_ -ne 'extension-sdk' })
+        $sdkImportPattern = 'yuruna\.com/test/extension/extension-sdk/(?<pkg>[A-Za-z0-9._-]+)'
         $importedPackages = [Collections.Generic.HashSet[string]]::new()
         foreach ($area in $daemonAreas) {
             $dir = [IO.Path]::Combine($script:RepoRoot, 'test', 'extension', $area)
             if (-not (Test-Path -LiteralPath $dir)) { continue }
             foreach ($file in (Get-ChildItem -LiteralPath $dir -File -Filter '*.go' -Recurse -ErrorAction SilentlyContinue)) {
-                foreach ($m in [regex]::Matches((Get-Content -Raw -LiteralPath $file.FullName),
-                        'yuruna\.com/test/extension/extension-sdk/(?<pkg>[A-Za-z0-9._-]+)')) {
+                foreach ($m in [regex]::Matches((Get-Content -Raw -LiteralPath $file.FullName), $sdkImportPattern)) {
                     [void]$importedPackages.Add($m.Groups['pkg'].Value)
+                }
+            }
+        }
+        # The set has to be what `go build` RESOLVES, not what the daemons name.
+        # One SDK package importing another is compiled just the same, and a
+        # package reached only that way appears in no file this seed fetches --
+        # so a direct-imports-only set leaves it unstaged, the guest build fails
+        # on a package nothing here mentions, and this gate passes while it does.
+        # Walk to a fixed point. Test files are skipped: the guest compiles none
+        # of them, so an import that only a test makes is not the seed's to stage.
+        $sdkDir = [IO.Path]::Combine($script:RepoRoot, 'test', 'extension', 'extension-sdk')
+        $pending = [Collections.Generic.Queue[string]]::new()
+        foreach ($pkg in $importedPackages) { $pending.Enqueue($pkg) }
+        while ($pending.Count -gt 0) {
+            $pkgDir = [IO.Path]::Combine($sdkDir, $pending.Dequeue())
+            if (-not (Test-Path -LiteralPath $pkgDir)) { continue }
+            foreach ($file in (Get-ChildItem -LiteralPath $pkgDir -File -Filter '*.go' -Recurse -ErrorAction SilentlyContinue |
+                        Where-Object { $_.Name -notlike '*_test.go' })) {
+                foreach ($m in [regex]::Matches((Get-Content -Raw -LiteralPath $file.FullName), $sdkImportPattern)) {
+                    if ($importedPackages.Add($m.Groups['pkg'].Value)) { $pending.Enqueue($m.Groups['pkg'].Value) }
                 }
             }
         }

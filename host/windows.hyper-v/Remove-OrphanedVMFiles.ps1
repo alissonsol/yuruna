@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 420effcb-c2e1-4c95-b3b0-ddb550aecce4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -111,7 +111,7 @@ Write-CleanupMessage "Hyper-V VirtualHardDiskPath: $vhdPath"
 Write-CleanupMessage "Hyper-V VirtualMachinePath:  $vmPath"
 Write-CleanupMessage ""
 
-# --- REGION: https://yuruna.link/memory#why-orphaned-vm-cleanup-skips-hyper-vs-virtualmachinepath-root
+# --- REGION: https://yuruna.link/42d69dfa-001c
 $vmPathNormalized = $vmPath.TrimEnd('\', '/')
 $hyperVVmDataPath = (Join-Path $vmPathNormalized 'Virtual Machines').TrimEnd('\', '/')
 function Test-IsHyperVSystemPath {
@@ -293,7 +293,7 @@ if ($protectedFiles.Count -gt 0) {
 }
 
 # --- REGION: Strip stale per-VM ACEs from kept base images
-# --- REGION: https://yuruna.link/vmconfig#hyper-v-iso-ace-bloat
+# --- REGION: https://yuruna.link/429f3d06-0093
 # Runs every invocation, before the deletion prompt -- safe maintenance that
 # only removes access for VMs that no longer exist.
 foreach ($filePath in $protectedFiles) {

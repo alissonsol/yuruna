@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.01
+# Version: 2026.09.08
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Yuruna Ubuntu KVM/libvirt bootstrap installer.
@@ -12,11 +12,11 @@ set -euo pipefail
 YURUNA_REPO_PUBLIC="https://github.com/alissonsol/yuruna.git"
 YURUNA_REPO_PRIVATE="https://github.com/alissonsol/yurunadev.git"
 YURUNA_REPO="${YURUNA_REPO:-$YURUNA_REPO_PUBLIC}"
-# --- REGION: https://yuruna.link/install/explained#development-repo-tracks-latest-main
+# --- REGION: https://yuruna.link/429fb30b-0008
 YURUNA_BRANCH_EXPLICIT=0
 [[ -n "${YURUNA_BRANCH:-}" ]] && YURUNA_BRANCH_EXPLICIT=1
 YURUNA_BRANCH="${YURUNA_BRANCH:-main}"
-# --- REGION: https://yuruna.link/install/explained#release-pinning--signed-integrity
+# --- REGION: https://yuruna.link/429fb30b-0006
 PIN_VERSION="${PIN_VERSION:-0}"
 for _yuruna_arg in "$@"; do
   [[ "$_yuruna_arg" == "--pin-version" ]] && PIN_VERSION=1
@@ -45,7 +45,7 @@ die()  { printf '\033[1;31mXX \033[0m %s\n' "$*" >&2; exit 1; }
 YURUNA_ISSUES=()
 note_issue() { YURUNA_ISSUES+=("$*"); warn "$*"; }
 
-# --- REGION: https://yuruna.link/install/explained#install-log
+# --- REGION: https://yuruna.link/429fb30b-0003
 if [[ -z "${YURUNA_INSTALL_LOG:-}" ]]; then
   _yuruna_log_dir="${XDG_STATE_HOME:-$HOME/.local/state}/yuruna/logs"
   mkdir -p "$_yuruna_log_dir" 2>/dev/null || _yuruna_log_dir="${TMPDIR:-/tmp}"
@@ -75,7 +75,7 @@ else
   warn "Could not create an install log file; output goes to this terminal only."
 fi
 
-# --- REGION: https://yuruna.link/network#apt-signing-key-fingerprint-verification
+# --- REGION: https://yuruna.link/4220a755-001e
 # Verify a downloaded apt signing key before trusting it as an apt anchor (a
 # MITM that swaps the key fetch would otherwise plant a permanent trust root).
 # Works on armored .asc and binary .gpg key files.
@@ -246,7 +246,7 @@ if [[ $HAVE_VMX -eq 0 ]]; then
        unusable -- aborting before installing anything."
 fi
 
-# --- REGION: https://yuruna.link/install/explained#stop-running-yuruna-processes-before-updating
+# --- REGION: https://yuruna.link/429fb30b-000a
 # Stop the runner/inner/status-service and WAIT before the checkout rename.
 # VMs (the yuruna-caching-proxy-service cache, a libvirt domain) are never touched
 # here: this installer issues no domain stop/destroy.
@@ -307,7 +307,7 @@ stop_yuruna_processes() {
     fi
   done
 
-  # --- REGION: https://yuruna.link/install/explained#pid-identity-validation-before-kill
+  # --- REGION: https://yuruna.link/429fb30b-000b
   # Keep only pids whose executable (comm) is pwsh; never kill a recycled or self-matched pid.
   local -a uniq_pids=()
   local seen=" " pcomm
@@ -758,7 +758,7 @@ restore_test_status() {
 }
 
 # --- REGION: Tolerate a v / no-v tag mismatch
-# --- REGION: https://yuruna.link/install/explained#tolerating-a-v-prefixed-tag-ref
+# --- REGION: https://yuruna.link/429fb30b-0007
 # Echoes the ref on stdout; warn -> stderr, so a warning never pollutes the
 # captured stdout used to set YURUNA_BRANCH.
 resolve_yuruna_ref() {
@@ -781,7 +781,7 @@ resolve_yuruna_ref() {
 }
 
 # --- REGION: Development repo pulls latest main, not a release tag
-# --- REGION: https://yuruna.link/install/explained#development-repo-tracks-latest-main
+# --- REGION: https://yuruna.link/429fb30b-0008
 use_dev_branch_if_needed() {
   local basename="$1"
   if [[ "$basename" == "yurunadev" && "$YURUNA_BRANCH_EXPLICIT" -eq 0 && "$YURUNA_BRANCH" != "main" ]]; then
@@ -889,7 +889,7 @@ if [[ -d "$YURUNA_DIR/.git" ]]; then
 fi
 
 # --- REGION: Pin to the current release (opt-in)
-# --- REGION: https://yuruna.link/install/explained#release-pinning--signed-integrity
+# --- REGION: https://yuruna.link/429fb30b-0006
 if [[ "$PIN_VERSION" != "0" && "$YURUNA_BRANCH_EXPLICIT" -eq 0 && -d "$YURUNA_DIR/.git" ]]; then
   if [[ -f "$YURUNA_DIR/VERSION" ]]; then
     pin_tag="$(tr -d '[:space:]' < "$YURUNA_DIR/VERSION")"
@@ -1006,7 +1006,7 @@ if [[ ! -f "$TEST_DIR/test.config.yml" && -f "$TEST_DIR/test.config.yml.template
   cp "$TEST_DIR/test.config.yml.template" "$TEST_DIR/test.config.yml"
 fi
 
-# --- REGION: https://yuruna.link/network#pinning-the-host-address
+# --- REGION: https://yuruna.link/4220a755-0027
 # Grant the pre-cycle health check the one command it needs to repair a bridge
 # whose DHCP client identity is not pinned. Without the grant the check detects
 # the fault on every cycle and can do nothing about it, and a host that takes a
@@ -1096,7 +1096,7 @@ fi
 command -v gh >/dev/null 2>&1 || die "gh not found after install."
 
 # --- REGION: Preflight: final host readiness
-# --- REGION: https://yuruna.link/install/explained#final-preflight--every-check-is-a-hard-requirement
+# --- REGION: https://yuruna.link/429fb30b-0038
 log "Running final preflight checks"
 
 PREFLIGHT_ERRORS=()

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42aa791a-a124-4a3c-98f2-d6d34623c3d2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -80,6 +80,7 @@ function Get-InstallerFunctionText {
 
 $script:DetectorText  = Get-InstallerFunctionText 'Get-HostArchitecture'
 $script:RequirentText = Get-InstallerFunctionText 'Test-SystemRequirement'
+$script:EditionGateText = Get-InstallerFunctionText 'Assert-HyperVCapableEdition'
 
 # The two shapes the managed lookup takes under .NET Framework, built by
 # repointing the detector's own type name -- the guard code runs for real
@@ -136,6 +137,9 @@ $script:StubCores   = 32
 $script:StubMemGB   = 32
 $script:StubFreeGB  = 600
 $script:StubCaption = 'Microsoft Windows 11 Pro'
+$script:StubBuild = '26100'
+$script:StubProductType = 1
+$script:StubSku = 48
 $script:Said        = New-Object System.Collections.Generic.List[string]
 $script:Prompted    = $false
 
@@ -172,7 +176,13 @@ function Get-CimInstance {
     param([Parameter(Position = 0)][string]$ClassName, [string]$Filter)
     switch ($ClassName) {
         'Win32_OperatingSystem' {
-            [pscustomobject]@{ Caption = $script:StubCaption; TotalVisibleMemorySize = [double]$script:StubMemGB * 1MB }
+            [pscustomobject]@{
+                Caption = $script:StubCaption
+                TotalVisibleMemorySize = [double]$script:StubMemGB * 1MB
+                BuildNumber = $script:StubBuild
+                ProductType = $script:StubProductType
+                OperatingSystemSKU = $script:StubSku
+            }
         }
         'Win32_Processor' {
             if ($script:StubCores -gt 0) { 1..$script:StubCores | ForEach-Object { [pscustomobject]@{ NumberOfCores = 1 } } }
@@ -186,12 +196,16 @@ function Get-CimInstance {
 function Invoke-Preflight {
     [CmdletBinding()]
     param([string]$Arch = 'AMD64', [int]$Cores = 32, [int]$MemGB = 32, [int]$FreeGB = 600,
-          [string]$Caption = 'Microsoft Windows 11 Pro')
+          [string]$Caption = 'Microsoft Windows 11 Pro', [string]$Build = '26100',
+          [int]$ProductType = 1, [int]$Sku = 48)
     $script:StubArch    = $Arch
     $script:StubCores   = $Cores
     $script:StubMemGB   = $MemGB
     $script:StubFreeGB  = $FreeGB
     $script:StubCaption = $Caption
+    $script:StubBuild = $Build
+    $script:StubProductType = $ProductType
+    $script:StubSku = $Sku
     $script:Said.Clear()
     $script:Prompted = $false
     $env:SystemDrive = 'C:'
@@ -291,6 +305,50 @@ Describe 'installer preflight -- host architecture detection' {
 
 Describe 'installer preflight -- what blocks an install and what only advises' {
 
+    It 'decides edition support from stable CIM values, not the translated caption' {
+        Assert-False ($script:RequirentText -match '\$caption\s+-match') 'the requirements check still branches on translated caption prose'
+        Assert-False ($script:EditionGateText -match '\$caption\s+-match') 'the hard edition gate still branches on translated caption prose'
+
+        $said = Invoke-Preflight -Caption 'Microsoft Windows 11 Profissional' -Build '26100' -ProductType 1 -Sku 48
+        Assert-False $script:Prompted 'a supported edition became unsupported when only its caption language changed'
+        Assert-Match 'STEP System OK' $said
+    }
+
+    It 'lets stable values overrule a misleading English caption' {
+        $null = Invoke-Preflight -Caption 'Microsoft Windows 11 Pro' -Build '19045' -ProductType 1 -Sku 48
+        Assert-True $script:Prompted 'the English product name overruled the pre-Windows-11 build value'
+
+        $null = Invoke-Preflight -Caption 'Microsoft Windows 10 Home' -Build '26100' -ProductType 1 -Sku 101
+        Assert-True $script:Prompted 'a known incapable SKU was accepted because the build looked current'
+    }
+
+    It 'rejects server SKUs that do not contain the Hyper-V platform' {
+        foreach ($sku in 36, 37, 38, 39, 40, 41, 64) {
+            $null = Invoke-Preflight -Caption 'Microsoft Windows Server' -Build '26100' -ProductType 3 -Sku $sku
+            Assert-True $script:Prompted "server SKU $sku was accepted even though it cannot host Hyper-V"
+
+            $script:StubCaption = 'Microsoft Windows Server'
+            $script:StubProductType = 3
+            $script:StubSku = $sku
+            Assert-Throw {
+                . ([scriptblock]::Create($script:EditionGateText))
+                Assert-HyperVCapableEdition
+            } 'cannot run Hyper-V' "the hard edition gate accepted server SKU $sku"
+        }
+    }
+
+    It 'accepts a Hyper-V-capable Windows Server SKU' {
+        $said = Invoke-Preflight -Caption 'Microsoft Windows Server Standard' -Build '26100' -ProductType 3 -Sku 7
+        Assert-False $script:Prompted 'a Hyper-V-capable server SKU was rejected'
+        Assert-Match 'STEP System OK' $said
+
+        $script:StubCaption = 'Microsoft Windows Server Standard'
+        $script:StubProductType = 3
+        $script:StubSku = 7
+        . ([scriptblock]::Create($script:EditionGateText))
+        Assert-HyperVCapableEdition
+    }
+
     It 'an 8-core ARM64 host that meets everything else installs without a prompt' {
         $said = Invoke-Preflight -Arch 'ARM64' -Cores 8
         Assert-False $script:Prompted 'core count must never put the install behind a confirmation'
@@ -320,7 +378,7 @@ Describe 'installer preflight -- what blocks an install and what only advises' {
         $cases = @(
             @{ Name = 'RAM';          Splat = @{ MemGB = 16 } },
             @{ Name = 'free disk';    Splat = @{ FreeGB = 400 } },
-            @{ Name = 'edition';      Splat = @{ Caption = 'Microsoft Windows 10 Pro' } },
+            @{ Name = 'edition';      Splat = @{ Build = '19045' } },
             @{ Name = 'architecture'; Splat = @{ Arch = 'x86' } }
         )
         foreach ($case in $cases) {

@@ -152,21 +152,7 @@ type FinalizeResult struct {
 	SizeBytes        int64
 }
 
-// FinalizeStaging promotes the staging directory at stagingDir to its
-// final on-disk artifact based on what was received:
-//
-//   - Recursive flag set on the SCP command, OR more than one file, OR
-//     any directory entry: zip the whole tree into <id>.yuruna.archive.zip.
-//   - Exactly one file at the root and no directory entry: rename it
-//     to <id>[.ext] (extension extracted from its filename per section 6.3).
-//
-// The OriginalFilename returned mirrors section 8.1:
-//   - Single file: the client-supplied filename, original case.
-//   - Recursive: the top-level directory name received.
-//   - Multi-file: the first filename received (informative for the
-//     human reading the dashboard later).
-//
-// The staging directory is removed on success.
+// FinalizeStaging stores received files; see docs/stash-guide.md#good-to-know.
 func (s *Store) FinalizeStaging(stagingDir, dayDir, id string, recursive bool, fileNames []string, firstDirName string) (*FinalizeResult, error) {
 	wantArchive := recursive || firstDirName != "" || len(fileNames) > 1
 
@@ -196,7 +182,6 @@ func (s *Store) FinalizeStaging(stagingDir, dayDir, id string, recursive bool, f
 		}, nil
 	}
 
-	// Archive path.
 	finalName := id + config.ArchiveExtension
 	dst := filepath.Join(dayDir, finalName)
 	if err := zipDir(stagingDir, dst); err != nil {

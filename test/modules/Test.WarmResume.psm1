@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42ea34d8-15ca-4975-b90d-c0c44c40017d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,7 +16,7 @@
 
 #requires -version 7
 
-# --- REGION: https://yuruna.link/memory#why-warm-resume-is-sound
+# --- REGION: https://yuruna.link/42d69dfa-0013
 # Warm-resume checkpointing: the pure decision core, the checkpoint reader, and
 # the warm_resume event builder. The retry loop lives in Test.RunnerInnerLoop
 # and the re-invocation in Invoke-Sequence -StartStep.
@@ -188,7 +188,7 @@ function Get-WarmResumeDecision {
     return @{ ShouldResume = $false; Reason = "sequence-not-in-workload ($SequenceName)"; ResumeSequence = '' }
 }
 
-# --- REGION: https://yuruna.link/memory#why-warm-resume-rewinds-to-a-snapshot
+# --- REGION: https://yuruna.link/42d69dfa-0014
 # A checkpoint names the step that FAILED, and resuming there replays it against
 # a guest that step may already have half-changed: an install that unpacked
 # before its network call died, a seed script that wrote some rows. The step is

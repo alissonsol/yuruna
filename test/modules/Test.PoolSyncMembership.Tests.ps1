@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42f48182-9ec5-4e1c-bd71-e3bf9945ef6e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,7 +37,7 @@ Import-Module $modPath -Force
 # framework's own script scope and reads back $null once the run phase starts.
 $script:TestHostId = '42abcdef0123456789abcdef01234567'.Substring(0, 32)
 
-# --- REGION: https://yuruna.link/memory#pester-file-scope-fixtures
+# --- REGION: https://yuruna.link/42d69dfa-0015
 function Get-ModuleAst {
     $errs = $null
     $ast = [System.Management.Automation.Language.Parser]::ParseFile($modPath, [ref]$null, [ref]$errs)

@@ -4,7 +4,7 @@
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 
 sequenceGuid: 4224b44c-5e04-47e8-a61b-865d2a191b84
-sequenceRevision: 1
+sequenceRevision: 2
 
 description: "Amazon Linux 2023: first login, change password, run update script, reboot."
 keystrokeMechanism: gui
@@ -18,7 +18,7 @@ variables:
 component:
   - action: retry
     maxAttempts: 3
-    description: "Login, password rotation, and vault commit (restart on timeout)"
+    description: "Login and password rotation (restart on timeout)"
     steps:
       # The nudge comes BEFORE the wait, and that ordering is the whole point.
       # agetty prints "login:" once and does not reprint it; cloud-init's
@@ -70,12 +70,29 @@ component:
         text: "${newPassword}"
         description: "OCR: Retype new password"
 
-      - action: callExtension
-        method: authentication.SetPassword
-        args:
-          Username: "${username}"
-          NewPassword: "${newPassword}"
-        description: "Commit new password to auth system"
+  # Prompt handling only proves that input was sent. Make the resulting shell
+  # compute a token before persisting the rotated password, so a return to
+  # agetty cannot update the auth system.
+  - action: waitForSeconds
+    seconds: 3
+    description: "Let the login shell finish drawing before typing at it"
+
+  - action: inputTextAndEnter
+    text: " echo yuruna_$(seq -s '' 1 9)_ok"
+    description: "Ask the shell to expand a token agetty cannot"
+
+  - action: waitForText
+    pattern: "yuruna_123456789_ok"
+    timeoutSeconds: 90
+    freshMatch: true
+    description: "OCR: yuruna_123456789_ok"
+
+  - action: callExtension
+    method: authentication.SetPassword
+    args:
+      Username: "${username}"
+      NewPassword: "${newPassword}"
+    description: "Commit confirmed new password to auth system"
 
 workload:
   - action: fetchAndExecute

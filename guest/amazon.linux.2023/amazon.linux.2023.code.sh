@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.01
+# Version: 2026.09.08
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -25,9 +25,9 @@ case "$ARCH" in
     ;;
 esac
 
-# --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
+# --- REGION: https://yuruna.link/4220a755-0003
 . /usr/local/lib/yuruna/yuruna-retry.sh
-# --- REGION: https://yuruna.link/network#why-apt-and-dnf-attempts-run-unbounded-by-default
+# --- REGION: https://yuruna.link/4220a755-0005
 # Re-asserted here because a baked retry lib may still carry a wall-clock bound.
 export YURUNA_DNF_STALL_TIMEOUT_SECONDS=0
 
@@ -71,7 +71,7 @@ dotnet --version || echo "dotnet: version probe failed (non-fatal)"
 echo ""
 echo -e "\e[1;36m==== VS Code ====\e[0m"
 # The VS Code yum repo provides both x86_64 and aarch64 packages.
-# --- REGION: https://yuruna.link/network#apt-signing-key-fingerprint-verification
+# --- REGION: https://yuruna.link/4220a755-001e
 # Fetch the Microsoft signing key, fingerprint-pin it BEFORE trusting it, then
 # rpm --import the VERIFIED local copy and point the repo gpgkey at that local
 # file, so gpgcheck=1 never re-fetches an unverified URL. Fail closed on a

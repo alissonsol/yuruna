@@ -9,7 +9,7 @@
 // it asks this package only for the names it does not have. The point is that
 // there is one copy of the shared runtime rather than one per service. Copies
 // drift silently, and the drift is not cosmetic -- these assets carry a browser
-// baseline (Safari iOS 9.3, see docs/definition.md), and a service that has its
+// baseline (Safari iOS 9.0, see docs/definition.md), and a service that has its
 // own copy is a service that can fall off that baseline on its own.
 //
 // //go:embed cannot reach outside a module, which is why the shared files could

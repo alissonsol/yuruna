@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42944d84-a340-428d-8b14-0273934cf4fc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -124,7 +124,7 @@ being denied -- retry once UTM.app is responsive.
     exit 1
 }
 
-# --- REGION: https://yuruna.link/memory#why-utmctl-list-needs-a-uuid-anchored-parser
+# --- REGION: https://yuruna.link/42d69dfa-001d
 $registeredVMs = @{}
 $registeredUUIDs = @{}
 foreach ($line in $utmOutput) {

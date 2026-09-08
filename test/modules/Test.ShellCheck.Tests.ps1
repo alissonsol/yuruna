@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42fa2e2a-4fa0-4919-9c5c-c40875c57b71
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -70,7 +70,7 @@ BeforeAll {
         'broken/bad.sh'   = "#!/bin/bash`nset -euo pipefail`n`nif [ -n `"`$1`" ; then`n  echo `"yes`"`nfi`n"
         'noisy/noisy.sh'  = "#!/bin/bash`nset -euo pipefail`n`ntarget=`$1`necho `$target`n"
         'hook/pre-commit' = "#!/bin/sh`nif [ -z `"`$1`" ; then`n  exit 1`nfi`nexit 0`n"
-        'plain/VERSION'   = "2026.09.01`n"
+        'plain/VERSION'   = "2026.09.08`n"
         'plain/notes'     = "not a shell script`n"
     }
 

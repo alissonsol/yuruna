@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.01
+# Version: 2026.09.08
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -27,7 +27,7 @@ case "$ARCH" in
 esac
 
 # --- REGION: Ensure PowerShell is installed
-# --- REGION: https://yuruna.link/memory#why-ubuntu-guest-update-scripts-install-powershell-first
+# --- REGION: https://yuruna.link/42d69dfa-0036
 # macOS pwsh ships as a .pkg from the PowerShell releases. The version is
 # discovered at install time by resolving the GitHub /releases/latest redirect,
 # the same mechanism the Linux guests use, so both stay in step. curl and
@@ -57,7 +57,7 @@ fi
 pwsh --version
 
 # --- REGION: Install powershell-yaml module
-# --- REGION: https://yuruna.link/memory#why-ubuntu--al2023-guest-update-scripts-wrap-install-module-powershell-yaml-with-pwsh_retry
+# --- REGION: https://yuruna.link/42d69dfa-0038
 # macOS has no pwsh_retry library, so the PSGallery-flap ride-out is
 # inlined as the same 3-attempt / 60s loop this script uses for git
 # clone; the trailing Import-Module check is the real fail-fast gate
@@ -72,7 +72,7 @@ done
 sudo pwsh -NoProfile -Command "Import-Module powershell-yaml; ConvertFrom-Yaml 'k: v' | Out-Null"
 
 # --- REGION: Early yuruna framework extraction
-# --- REGION: https://yuruna.link/memory#why-ubuntu-guest-update-scripts-pre-extract-the-yuruna-tarball
+# --- REGION: https://yuruna.link/42d69dfa-0037
 # Tarball-only here (curl, since macOS base does not ship wget); the
 # git-clone fallback lives in the late Materialize section below, which
 # needs `git` from the Command Line Developer Tools install that runs
@@ -156,7 +156,7 @@ fi
 xcode-select -p || true
 
 # --- REGION: Resolve framework and project URLs
-# --- REGION: https://yuruna.link/definition#defining-the-two-source-scheme-for-framework-and-project-urls
+# --- REGION: https://yuruna.link/42fa6f45-000c
 echo -e "\e[1;32m==== Resolve framework and project URLs ====\e[0m"
 FRAMEWORK_URL=""
 PROJECT_URL=""
@@ -169,7 +169,7 @@ if [ -n "${YURUNA_STATUS_SERVICE_IP:-}" ] && [ -n "${YURUNA_STATUS_SERVICE_PORT:
 fi
 
 # --- REGION: Keep git non-interactive
-# --- REGION: https://yuruna.link/network#why-git-never-prompts-here
+# --- REGION: https://yuruna.link/4220a755-004f
 export GIT_TERMINAL_PROMPT=0
 if [ -x /usr/local/lib/yuruna/git-askpass.sh ]; then
     export GIT_ASKPASS=/usr/local/lib/yuruna/git-askpass.sh

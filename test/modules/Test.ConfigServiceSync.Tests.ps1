@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 424a2e17-dfe4-4ca3-ae90-6837265945f9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -321,12 +321,19 @@ Describe 'Yuruna control tag (dashboard Control column)' {
 # Its from BeforeAll/AfterAll rather than file scope -- a file-scope teardown
 # would fire during discovery and leave the Its writing fixtures into the
 # operator's live credential store. Why discovery runs it early:
-# https://yuruna.link/memory#pester-file-scope-fixtures
+# https://yuruna.link/42d69dfa-0015
 Describe 'internal-auth-key provisioning' {
     BeforeAll {
         # $PSScriptRoot, not the file-scope $here: discovery-phase variables are
         # not reliably visible from a run-phase block.
         $patAuthModule = Join-Path -Path $PSScriptRoot -ChildPath '..' -AdditionalChildPath 'extension', 'authentication', 'default.psm1'
+        # Eight extension areas each ship a module named 'default', and the
+        # suite shares one runspace. With more than one resident, Pester cannot
+        # tell which module a -ModuleName 'default' mock or an InModuleScope
+        # block means, and refuses -- so this file's module is made the only
+        # one loaded. The failure is order-dependent, which is why it shows up
+        # in a full run and not when this file is run by itself.
+        Get-Module -Name 'default' -All | Remove-Module -Force -ErrorAction SilentlyContinue
         Import-Module $patAuthModule -Global -Force -DisableNameChecking -ErrorAction SilentlyContinue
         $patTmpDir = Join-Path ([System.IO.Path]::GetTempPath()) ('yuruna-pat-' + [guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $patTmpDir -Force | Out-Null

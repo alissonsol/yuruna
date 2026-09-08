@@ -1,3 +1,5 @@
+<a id="42ec97cd-0001"></a>
+
 # Guest image setup -- common pattern
 
 > Shared lifecycle that every `host/<HOST>/guest.<GUEST>/` folder
@@ -13,11 +15,15 @@ Placeholders used in this document:
 | `<CODENAME>`   | OS release codename for Ubuntu guests                     | `noble` (24.04), `resolute` (26.04)               |
 | `<USERNAME>`   | The per-guest test user                                   | `yuuser24`, `yuuser26`, `yauser1`                 |
 
+<a id="42ec97cd-0002"></a>
+
 ## Lifecycle stages
 
 The same six stages apply across hosts. A per-host README that
 diverges is documenting host-specific knowledge -- keep that content;
 don't duplicate the common stages.
+
+<a id="42ec97cd-0003"></a>
 
 ### 1. Download / refresh the image
 
@@ -52,6 +58,8 @@ Image source by host:
 - **Ubuntu KVM** -- qcow2 cloud image for amazon.linux.2023; live-server
   ISO for ubuntu.server.\<N\>. The script resizes the qcow2 to the
   target size with `qemu-img resize`.
+
+<a id="42ec97cd-0004"></a>
 
 #### Agent-first image downloads
 
@@ -111,6 +119,8 @@ agent reachable" line to confirm which path a run took.
 Discovery, the pool layout, and the agent's own board are in
 [download-agent.md](download-agent.md).
 
+<a id="42ec97cd-0005"></a>
+
 #### Windows 11: the agent is asked last, and only sometimes answers
 
 The three `guest.windows.11` scripts differ from the rest in two
@@ -144,6 +154,8 @@ virtio-win ISO the same KVM script stages is *not* best effort: a plain
 pinned URL, pooled and fingerprinted like the Ubuntu images, so a host
 that already holds the current one transfers nothing.
 
+<a id="42ec97cd-0006"></a>
+
 #### Skip-if-same-source guard
 
 `Test-DownloadAlreadyCurrent` (host/modules/Yuruna.HostDownload.psm1) returns
@@ -173,6 +185,8 @@ strip the header; a missing header records an empty 4th line and the reader
 skips the date comparison in that direction (URL + size still gate the
 skip).
 
+<a id="42ec97cd-0007"></a>
+
 ### 2. Checksum verification
 
 When the upstream publisher provides a `SHA256SUMS` (or equivalent)
@@ -182,6 +196,8 @@ script-level error, not a silent retry. If the publisher does not
 publish a checksum (Apple IPSWs, some Windows ISO mirrors), the
 script falls back to size + timestamp and prints a one-line warning.
 
+<a id="42ec97cd-0008"></a>
+
 ### 3. Conversion (Hyper-V only, for cloud images)
 
 Hyper-V requires VHDX. The caching-proxy-service and any other cloud-image-based
@@ -189,6 +205,8 @@ Hyper-V guests run `qemu-img convert ... -O vhdx` and then clear the
 NTFS-sparse flag that qemu-img leaves on the output (otherwise
 `Resize-VHD` fails with `0xC03A001A`). `Get-Image.ps1` encapsulates the
 step for the hosts that need it.
+
+<a id="42ec97cd-0009"></a>
 
 ### 4. Create / install the VM
 
@@ -216,6 +234,8 @@ What `New-VM.ps1` does depends on the host:
   to import. The bundle ships the same cloud-init seed content as
   the KVM path.
 
+<a id="42ec97cd-000a"></a>
+
 ### 5. Unattended install + first boot
 
 The install method depends on the guest family:
@@ -229,6 +249,8 @@ The install method depends on the guest family:
 - **Windows 11** -- installer runs unattended via `autounattend.xml`
   (~15 min). First login auto-logs as `ywuser1`/`password`; a password
   change is forced at the next login.
+
+<a id="42ec97cd-000b"></a>
 
 ### 6. SSH ready / first-cycle readiness
 
@@ -257,6 +279,8 @@ ssh -i ../../../test/status/ssh/yuruna_ed25519 <USERNAME>@<ip>
 # IP via `arp -a` or the guest's serial console.
 ```
 
+<a id="42ec97cd-000c"></a>
+
 ## Keeping a guest patched: `<GUEST>.update.sh`
 
 Each `guest/<GUEST>/` folder ships a `<GUEST>.update.sh` script (e.g.
@@ -278,6 +302,8 @@ The scripts are idempotent -- they're safe to re-run when a GUI lock
 or settings-panel glitch needs a clean reboot to clear (the symptom in
 [host/README.md](../host/README.md#troubleshooting-themes)).
 
+<a id="42ec97cd-000d"></a>
+
 ## Guest workloads
 
 `<GUEST>.update.sh` is one of a family: every optional software
@@ -287,6 +313,8 @@ booted guest. The fetcher honors `YurunaCacheContent`. See
 [Yuruna Architecture](architecture.md) for the workload pattern, and each
 guest folder's `README.md` for which workloads that guest supports.
 Kubernetes has its own page ([kubernetes.md](kubernetes.md)).
+
+<a id="42ec97cd-000e"></a>
 
 ### Code
 
@@ -310,6 +338,8 @@ git config --global user.email "your@email.com"
 
 Then open VS Code and sign in to each extension that needs it.
 
+<a id="42ec97cd-000f"></a>
+
 ### n8n
 
 Installs [n8n](https://n8n.io/) workflow automation.
@@ -328,6 +358,8 @@ n8n start     # open http://localhost:5678
 ```
 
 Full docs: [n8n.io/docs](https://docs.n8n.io/).
+
+<a id="42ec97cd-0010"></a>
 
 ### OpenClaw
 
@@ -351,6 +383,8 @@ openclaw onboard --install-daemon
 
 See [Getting Started](https://docs.openclaw.ai/start/getting-started).
 
+<a id="42ec97cd-0011"></a>
+
 ### PostgreSQL
 
 Installs [PostgreSQL](https://www.postgresql.org/).
@@ -370,6 +404,8 @@ sudo -u postgres psql -c "SELECT version();"
 Download guides: [Ubuntu](https://www.postgresql.org/download/linux/ubuntu/) -
 [Red Hat](https://www.postgresql.org/download/linux/redhat/).
 
+<a id="42ec97cd-0012"></a>
+
 ## Credentials
 
 The per-cycle test password lives in the authentication extension's
@@ -382,6 +418,8 @@ sequence drives that rotation against the OS prompt.
 
 For ad-hoc runs outside a cycle, set `$env:YURUNA_GUEST_PASSWORD` to
 a known plaintext before `New-VM.ps1` to bypass the vault.
+
+<a id="42ec97cd-0013"></a>
 
 ## Caching-proxy-service
 
@@ -396,6 +434,8 @@ They still use the cache: `amazon.linux.2023.update.sh` derives its address
 at run time and points dnf at it once a probe answers. See the per-guest
 README files for feature availability, and
 [`docs/caching.md`](caching.md).
+
+<a id="42ec97cd-0014"></a>
 
 ## Shared extension-service base image
 
@@ -420,6 +460,8 @@ Go toolchain satisfies the stash / pool-control daemons' `go.mod` directive.
 The on-disk stem (`ubuntu.extension.26`) carries the release number too, so a
 codename bump moves both -- and the changed stem gives the new release a fresh
 artifact rather than silently overwriting the one running VMs were built from.
+
+<a id="42ec97cd-0015"></a>
 
 ### What each service VM folder holds
 
@@ -454,12 +496,16 @@ rationale that is not recoverable from the scripts. Read them per host:
 The parser that reads its access log has its own notes:
 [caching-proxy-parser-service](../test/extension/caching-proxy-parser-service/README.md).
 
+<a id="42ec97cd-0016"></a>
+
 ## Shared host-driver modules
 
 Modules under [`host/modules/`](../host/modules/) hold the parts of the
 `New-VM.ps1` / `Get-Image.ps1` stack that are identical across the host
 drivers, so a fix lands in one place instead of drifting between
 `windows.hyper-v`, `macos.utm`, and `ubuntu.kvm`.
+
+<a id="42ec97cd-0017"></a>
 
 ### Per-guest provisioning: `Yuruna.HostProvision.psm1`
 
@@ -497,6 +543,8 @@ or moved module surfaces at import instead of on the one
 caching-proxy-service probe per cycle -- where it would look like a cache
 outage.
 
+<a id="42ec97cd-0018"></a>
+
 ### Cache-routed downloads: `Yuruna.HostDownload.psm1`
 
 Holds the shared Squid caching-proxy-service download stack:
@@ -517,6 +565,8 @@ The driver's thin `Save-CachedHttpUri` wrapper passes
 `{ Resolve-CacheHostIp }` so the closure resolves the driver's own
 discovery while executing inside the shared module.
 
+<a id="42ec97cd-0019"></a>
+
 ### Ubuntu ISO downloads: `Yuruna.UbuntuImage.psm1`
 
 Centralizes the resolve / download / verify / swap workflow for
@@ -531,6 +581,8 @@ to a direct `Invoke-WebRequest` when no cache is reachable -- and
 reads/writes the shared 4-line sentinel. A bare caller that imports
 only this module, with no host driver, falls back to a direct
 `Invoke-WebRequest` with the inline 3-line same-source guard.
+
+<a id="42ec97cd-001a"></a>
 
 ### Download-agent client: `Yuruna.DownloadAgent.psm1`
 
@@ -548,6 +600,8 @@ that does not import this module never consults an agent and every
 module deliberately exports only its own uniquely-named functions and
 imports nothing globally itself, so it cannot displace the driver's
 cache-injecting `Save-CachedHttpUri` wrapper.
+
+<a id="42ec97cd-001b"></a>
 
 ## Cleanup
 
@@ -574,6 +628,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08
 
 Back to [Yuruna](../README.md)

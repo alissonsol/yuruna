@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 421b40b9-fcaf-4a1a-bb31-9464b1ad442a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -76,27 +76,42 @@ function Initialize-YurunaEntryPoint {
     }
 }
 
-# Canonical exit codes. 0 = success, 1 = anything else. Stop-WithReason
-# / Write-Summary surface the "why" in stdout; the numeric code is
-# binary by design so CI consumers do not need a per-script lookup.
-$script:ExitOk      = 0
-$script:ExitFailure = 1
+# Canonical exit codes. Stop-WithReason / Write-Summary surface the "why"
+# in stdout; the numeric code stays coarse so a consumer does not need a
+# per-script lookup.
+#
+# 2 is not a softer 1. It says the gate could not reach a verdict at all --
+# a missing tool, a missing input, an absent browser -- and it exists so
+# that state stops reading as success. A gate that cannot run has proved
+# nothing, so a caller that requires full evidence must treat 2 as fatal;
+# a caller that is deliberately advisory may let it through, but only by
+# naming that choice.
+$script:ExitOk        = 0
+$script:ExitFailure   = 1
+$script:ExitCannotRun = 2
 
 function Get-EntryPointExitCode {
     <#
     .SYNOPSIS
-        Return the canonical exit code for 'Ok' (0) or 'Failure' (1).
+        Return the canonical exit code for 'Ok' (0), 'Failure' (1) or
+        'CannotRun' (2).
     .DESCRIPTION
-        Centralized so a future change to the contract (e.g. introduce
-        a "needs operator action" code = 2) lands in one place.
+        Centralized so a change to the contract lands in one place.
+
+        'CannotRun' is for a gate that could not produce a verdict: its
+        input, tool or environment is missing. It is distinct from
+        'Failure', which means the gate ran and found a defect.
     #>
     [CmdletBinding()]
     [OutputType([int])]
     param(
-        [Parameter(Mandatory)][ValidateSet('Ok','Failure')][string]$Outcome
+        [Parameter(Mandatory)][ValidateSet('Ok','Failure','CannotRun')][string]$Outcome
     )
-    if ($Outcome -eq 'Ok') { return $script:ExitOk }
-    return $script:ExitFailure
+    switch ($Outcome) {
+        'Ok'        { return $script:ExitOk }
+        'CannotRun' { return $script:ExitCannotRun }
+        default     { return $script:ExitFailure }
+    }
 }
 
 function Initialize-YurunaEntryPointModuleSet {

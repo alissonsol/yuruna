@@ -9,7 +9,8 @@ Test-harness wrappers (`Start-CachingProxyServiceVM.ps1`,
 Scripts and config in this folder:
 
 - [Get-Image.ps1](Get-Image.ps1) -- base Ubuntu Server cloud image
-  (amd64, qcow2 -> VHDX, resized to 512 GB dynamic).
+  (the host's own architecture, amd64 or arm64; qcow2 -> VHDX, resized to
+  512 GB dynamic).
 - [New-VM.ps1](New-VM.ps1) -- creates the Hyper-V VM (12 GB RAM /
   core-count-policy vCPUs, min 4) and seeds via cloud-init. Dedicated cache box budgeted
   around Squid's 7 GB `cache_mem` (58 % of RAM).
@@ -25,6 +26,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08
 
 Back to [Yuruna](../../../README.md)

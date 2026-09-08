@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 4292b140-f5e0-474e-8de4-bb7e802db56d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -56,7 +56,7 @@ $script:TransportReapSeconds = 75
 # probe + icacls) when the cached path still resolves to an on-disk file.
 $script:CachedSshKey = $null
 
-# --- REGION: https://yuruna.link/memory#why-the-guest-ssh-user-overrides-are-anchored-in-the-global-scope
+# --- REGION: https://yuruna.link/42d69dfa-0016
 # Per-cycle overrides for Get-GuestSshUser. Global scope survives the defensive
 # -Force re-imports that would otherwise wipe the cascade mid-cycle.
 if (-not (Get-Variable -Name 'YurunaGuestSshUserOverrides' -Scope Global -ErrorAction SilentlyContinue)) {
@@ -64,7 +64,7 @@ if (-not (Get-Variable -Name 'YurunaGuestSshUserOverrides' -Scope Global -ErrorA
 }
 $script:GuestSshUserOverrides = Get-Variable -Name 'YurunaGuestSshUserOverrides' -Scope Global -ValueOnly
 
-# --- REGION: https://yuruna.link/network#why-a-proven-address-is-remembered
+# --- REGION: https://yuruna.link/4220a755-003d
 # Addresses that ssh has actually authenticated to, per VM. Global-anchored for
 # the same reason as the user overrides: the harness -Force re-imports this
 # module mid-cycle, and a memo wiped at that moment is a memo that is empty
@@ -149,6 +149,78 @@ Guest to forget. Omit to forget all.
     else { $script:ProvenGuestAddress.Clear() }
 }
 
+function Set-YurunaSshPrivateKeyAcl {
+<#
+.SYNOPSIS
+Restricts a Windows private key to the current account, sets its owner, and
+verifies the result.
+.DESCRIPTION
+Builds the DACL from security identifiers, never localized account display
+names. Any read, write, or verification failure is terminating: continuing
+with an ACL we did not prove would leave OpenSSH credentials exposed or make
+authentication fail later with a misleading transport error.
+#>
+    [CmdletBinding(SupportsShouldProcess)]
+    param([Parameter(Mandatory)][string]$Path)
+
+    if (-not $IsWindows) { return }
+
+    try {
+        $currentSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+        if ($null -eq $currentSid) { throw 'the current Windows account has no SID' }
+
+        $acl = Get-Acl -LiteralPath $Path -ErrorAction Stop
+        # Protect without preserving inherited rules, then remove every
+        # remaining explicit rule. This is a private key, so an allowlist is
+        # safer and more auditable than trying to name every group to remove.
+        $acl.SetAccessRuleProtection($true, $false)
+        foreach ($rule in @($acl.Access)) {
+            $acl.RemoveAccessRuleSpecific($rule)
+        }
+        # OpenSSH checks ownership as well as access rules. A copied or
+        # restored key can retain another account as owner even after its DACL
+        # is rebuilt, so make both decisions from the same stable SID.
+        $acl.SetOwner($currentSid)
+        $allow = [System.Security.AccessControl.FileSystemAccessRule]::new(
+            $currentSid,
+            [System.Security.AccessControl.FileSystemRights]::FullControl,
+            [System.Security.AccessControl.AccessControlType]::Allow)
+        $acl.AddAccessRule($allow)
+
+        if (-not $PSCmdlet.ShouldProcess($Path, 'Restrict the SSH private-key ACL to the current account SID')) { return }
+        Set-Acl -LiteralPath $Path -AclObject $acl -ErrorAction Stop
+
+        $written = Get-Acl -LiteralPath $Path -ErrorAction Stop
+        if (-not $written.AreAccessRulesProtected) {
+            throw 'access-rule inheritance is still enabled'
+        }
+        $writtenOwner = $written.GetOwner([System.Security.Principal.SecurityIdentifier])
+        if ($null -eq $writtenOwner -or $writtenOwner.Value -ne $currentSid.Value) {
+            $ownerValue = if ($null -eq $writtenOwner) { '<none>' } else { $writtenOwner.Value }
+            throw "the resulting owner SID is $ownerValue, expected $($currentSid.Value)"
+        }
+        $rules = @($written.Access)
+        if ($rules.Count -eq 0) { throw 'the resulting ACL has no access rule' }
+        foreach ($rule in $rules) {
+            $sid = if ($rule.IdentityReference -is [System.Security.Principal.SecurityIdentifier]) {
+                $rule.IdentityReference
+            } else {
+                $rule.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier])
+            }
+            if ($rule.IsInherited -or $sid.Value -ne $currentSid.Value -or
+                $rule.AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Allow) {
+                throw "unexpected access rule for SID $($sid.Value)"
+            }
+            $fullControl = [System.Security.AccessControl.FileSystemRights]::FullControl
+            if (($rule.FileSystemRights -band $fullControl) -ne $fullControl) {
+                throw "the access rule for SID $($sid.Value) does not grant FullControl"
+            }
+        }
+    } catch {
+        throw "Could not secure SSH private key '$Path': $($_.Exception.Message)"
+    }
+}
+
 function Initialize-YurunaSshKey {
 <#
 .SYNOPSIS
@@ -205,13 +277,12 @@ System.String. Absolute path to the private key file.
     # rejects keys readable by other principals, and a prior loose ACL would
     # silently break authentication.
     if ($IsWindows) {
-        & icacls $script:SshKeyPath /inheritance:r 2>&1 | Out-Null
-        foreach ($principal in @('Authenticated Users','Users','Everyone','BUILTIN\Users','BUILTIN\Administrators','Administrators','NT AUTHORITY\SYSTEM','SYSTEM')) {
-            & icacls $script:SshKeyPath /remove:g "$principal" 2>&1 | Out-Null
-        }
-        & icacls $script:SshKeyPath /grant:r "${env:USERNAME}:F" 2>&1 | Out-Null
+        Set-YurunaSshPrivateKeyAcl -Path $script:SshKeyPath -Confirm:$false
     } else {
-        & chmod 600 $script:SshKeyPath 2>&1 | Out-Null
+        $chmodText = & chmod 600 $script:SshKeyPath 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            throw "Could not secure SSH private key '$script:SshKeyPath': chmod exited $LASTEXITCODE ($($chmodText -join ' '))"
+        }
     }
     return $script:SshKeyPath
 }
@@ -615,7 +686,7 @@ System.Boolean. $true if SSH became ready, $false on timeout.
     # to where the address came from.
     $ipEverAnswered = $false
     # Per-probe wall-clock cap; ssh has no timeout of its own past TCP setup.
-    # --- REGION: https://yuruna.link/memory#why-the-ssh-readiness-probe-runs-in-process-with-its-own-wall-clock-cap
+    # --- REGION: https://yuruna.link/42d69dfa-0019
     $probeCapSeconds = 15
     # Adaptive backoff: first 3 attempts at 1 s catch the typical sshd-
     # becomes-ready window (1-2 s on a healthy guest) without sleeping
@@ -1180,7 +1251,7 @@ with a different owner, that is likewise invisible in the exit status.
         Write-Warning "Invoke-GuestSsh: no host-side probe discovered an address for '$VMName'; dialing the bare name as the last route left."
     }
     $cmd = [string]$Command
-    # --- REGION: https://yuruna.link/network#why-a-detached-step-is-bounded-by-a-deadline
+    # --- REGION: https://yuruna.link/4220a755-003e
     # Detached mode changes what an attempt costs. A re-run gets the full
     # TimeoutSeconds because it starts the work over; an attach does not, because
     # the work has been running the whole time and the step's budget has been
@@ -1374,7 +1445,7 @@ with a different owner, that is likewise invisible in the exit status.
             continue
         }
 
-        # --- REGION: https://yuruna.link/network#why-the-supervisor-status-outranks-ssh
+        # --- REGION: https://yuruna.link/4220a755-003f
         # Detached accounting. The supervisor keeps stdout to payload bytes and
         # puts its own markers on stderr, so the two can be told apart here: only
         # COMPLETE lines of stdout are banked, and the resume offset advances by
@@ -1414,7 +1485,7 @@ with a different owner, that is likewise invisible in the exit status.
                 linesConsumed   = [int]$runExitMatch.Groups[2].Value
             }
         }
-        # --- REGION: https://yuruna.link/network#why-a-started-run-with-no-exit-is-a-lost-session
+        # --- REGION: https://yuruna.link/4220a755-0040
         # No exit marker. The supervisor announces itself before it streams
         # anything, so a start or attach line with no exit line means the session
         # ended while the run was still live -- which is a lost transport by

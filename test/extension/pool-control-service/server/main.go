@@ -46,6 +46,8 @@ func main() {
 	autoEnrollInterval := flag.Duration("auto-enroll-interval", 60*time.Second, "how often the auto-enrollment sweep runs when --auto-enroll is set")
 	scanCIDR := flag.String("scan-cidr", "", "network to sweep for Yuruna hosts, in CIDR notation (empty = the /24 around this service's own address)")
 	scanPort := flag.Int("scan-port", discovery.DefaultPort, "host status-service port probed on each address during a scan")
+	language := flag.String("language", "", "lab-wide lock on the reader's language (a BCP 47 tag); empty or \"auto\" lets each browser's Accept-Language decide")
+	allowPseudoLocale := flag.Bool("allow-pseudo-locale", false, "let a request select a pseudo locale (expanded or mirrored text). For a reference run only: a reader who received one would read the page as broken")
 	scanInterval := flag.Duration("scan-interval", discovery.DefaultInterval, "how often the discovery sweep runs (0 disables the timer; the Scan page still scans on demand)")
 	flag.Parse()
 
@@ -67,6 +69,7 @@ func main() {
 		AggregatorURL: *aggregatorURL, HostID: *hostID, IntentGitURL: *intentGitURL,
 		AuthToken: authToken, AuthTokenFile: *authTokenFile,
 		ScanCIDR: *scanCIDR, ScanPort: *scanPort, ScanInterval: *scanInterval,
+		Language: *language, AllowPseudoLocale: *allowPseudoLocale,
 	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

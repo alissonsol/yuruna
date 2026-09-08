@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42523d00-1e52-4f07-92e7-2f54c6fa62da
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -990,7 +990,7 @@ function Read-ConfigSyncSecret {
     return (ConvertFrom-SecureString -SecureString $secure -AsPlainText).Trim()
 }
 
-# --- REGION: https://yuruna.link/definition#defining-the-two-lab-secrets
+# --- REGION: https://yuruna.link/42fa6f45-0026
 
 <#
 .SYNOPSIS
@@ -1111,7 +1111,7 @@ function Resolve-ConfigSyncInternalAuthKey {
     return @{ Key = $verdict.Token; Enrolled = $enrolled; Redeemed = $true; Error = $null }
 }
 
-# --- REGION: https://yuruna.link/memory#why-the-networkstorage-vault-sync-probes-before-prompting-and-rewrites-on-drift
+# --- REGION: https://yuruna.link/42d69dfa-0028
 
 <#
 .SYNOPSIS

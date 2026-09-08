@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42418995-a462-47f5-816a-8709623807f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -488,7 +488,7 @@ function Save-UbuntuServerImage {
     $baseImageOrigin = Join-Path $DownloadDir "$BaseImageName.txt"
     $downloadFile    = Join-Path $DownloadDir 'downloaded.iso'
 
-    # --- REGION: https://yuruna.link/guest-image-setup#agent-first-image-downloads
+    # --- REGION: https://yuruna.link/42ec97cd-0004
     # Ask the download agent before the origin is touched at all: when it
     # confirms the local copy IS the current artifact there is nothing to
     # resolve, HEAD-probe or transfer. Both the client module and a healthy
@@ -582,7 +582,7 @@ function Save-UbuntuServerImage {
 
         New-Item -ItemType Directory -Force -Path $DownloadDir | Out-Null
 
-        # --- REGION: https://yuruna.link/guest-image-setup#skip-if-same-source-guard
+        # --- REGION: https://yuruna.link/42ec97cd-0006
         # Same-source guard: prefer the host-shipped Test-DownloadAlreadyCurrent
         # (4-line sentinel; the writer below matches it), fall back to the bundled
         # Test-UbuntuServerImageAlreadyCurrent (3-line) for a bare caller with no

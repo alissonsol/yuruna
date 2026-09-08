@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.09.01
+  Version: 2026.09.08
 
   Framework-free structural check for the per-row status badge colors. Run:
   node status-badges.test.js (exit 0 = pass). No repo JS test runner and no
@@ -29,8 +29,8 @@ const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
 
 // status -> the exact var() pair its rule sets (background, then color).
 const STATUS = [
-  { name: 'idle',    bg: '--bg-hover',   fg: '--fg-muted' },
-  { name: 'pending', bg: '--bg-hover',   fg: '--fg-muted' },
+  { name: 'idle',    bg: '--bg-hover',   fg: '--badge-muted-fg' },
+  { name: 'pending', bg: '--bg-hover',   fg: '--badge-muted-fg' },
   { name: 'running', bg: '--running-bg', fg: '--running-fg' },
   { name: 'pass',    bg: '--pass-bg',    fg: '--pass-fg' },
   { name: 'fail',    bg: '--fail-bg',    fg: '--fail-fg' },

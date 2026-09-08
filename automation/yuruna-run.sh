@@ -1,12 +1,12 @@
 #!/bin/bash
-# Version: 2026.09.01
+# Version: 2026.09.08
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
 # Start-or-attach supervisor for a guest-side payload, so the work outlives the
 # ssh session that started it.
 #
-# --- REGION: https://yuruna.link/network#defining-yuruna-run-supervisor
+# --- REGION: https://yuruna.link/4220a755-0035
 # Contract:
 #   yuruna-run.sh --token T --from-line N --budget S --cmd-b64 B
 #   yuruna-run.sh --token T --cancel
@@ -48,7 +48,7 @@ case "$YR_BUDGET" in
     ''|*[!0-9]*) echo "yuruna-run: --budget must be a whole number of seconds" >&2; exit 64 ;;
 esac
 
-# --- REGION: https://yuruna.link/network#why-the-run-directory-is-scoped-to-the-boot-id
+# --- REGION: https://yuruna.link/4220a755-0036
 # The run directory is scoped to the boot, not just to the token. Guests in this
 # harness are restored from disk snapshots ten times a cycle, and a snapshot
 # taken while a run was in flight carries that run's directory -- pid file,
@@ -82,13 +82,13 @@ fi
 
 mkdir -p "$YR_BASE" 2>/dev/null
 
-# --- REGION: https://yuruna.link/network#why-mkdir-is-the-claim
+# --- REGION: https://yuruna.link/4220a755-0037
 # `mkdir` of the run directory is the claim, and it is the whole concurrency
 # story: it either creates the directory or fails, atomically, with no window in
 # which two callers both believe they are the starter. A test-then-create would
 # have that window, and two supervisors running the same payload against the
 # same output file is precisely the double-execution this script exists to stop.
-# --- REGION: https://yuruna.link/network#why-a-run-directory-is-never-removed
+# --- REGION: https://yuruna.link/4220a755-0038
 # Nothing below ever removes a run directory. It is created once and from then
 # on only gains files, so the mkdir claim is monotonic: no later invocation can
 # ever win a token that has already been claimed, whatever it concludes about
@@ -104,7 +104,7 @@ yr_terminate() {
     printf '%s' "$1" > "${YR_STATUS}.tmp" 2>/dev/null && mv "${YR_STATUS}.tmp" "$YR_STATUS" 2>/dev/null
 }
 
-# --- REGION: https://yuruna.link/network#why-the-claim-is-confirmed-before-it-is-used
+# --- REGION: https://yuruna.link/4220a755-0039
 # `mkdir` is the claim, and on any POSIX filesystem it is decided by exactly one
 # caller. The tiebreak below is the belt to that brace: every winner appends its
 # pid and only the FIRST line proceeds to start the payload, so even a directory
@@ -144,7 +144,7 @@ if [ "$yr_claimed" = '1' ]; then
     # provably never started, so an attacher may clear the claim and retry
     # instead of waiting out the budget on a run that will never produce output.
     #
-    # --- REGION: https://yuruna.link/network#why-the-payload-gets-its-own-process-group
+    # --- REGION: https://yuruna.link/4220a755-003a
     # `set -m` puts the payload in a process group of its own, with $! as the
     # group id. Two things depend on that. The budget watchdog signals the whole
     # GROUP, so a payload that backgrounds helm/kubectl/cargo does not leave
@@ -212,7 +212,7 @@ if [ ! -r "$YR_PID" ] && [ ! -f "$YR_STATUS" ]; then
     exit 250
 fi
 
-# --- REGION: https://yuruna.link/network#why-the-replay-counts-only-complete-lines
+# --- REGION: https://yuruna.link/4220a755-003b
 # Replay is by COMPLETE lines only, on both ends. `wc -l` counts newlines, so a
 # half-written trailing line is never emitted here and never counted by the host
 # that is tracking where to resume from. Emitting a partial line would put the

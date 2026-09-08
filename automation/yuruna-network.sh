@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.01
+# Version: 2026.09.08
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -14,9 +14,9 @@
 # not inferred. cloud-init deploys this file at
 # /usr/local/lib/yuruna/yuruna-network.sh at install time.
 #
-# --- REGION: https://yuruna.link/network#defining-yuruna-network-lib
+# --- REGION: https://yuruna.link/4220a755-0010
 
-# --- REGION: https://yuruna.link/network#defining-network-diag
+# --- REGION: https://yuruna.link/4220a755-0011
 # Print a connectivity diagnostic for this machine. A carrier-up interface
 # that holds no global IPv4 address has neither a static address nor a DHCP
 # lease; on a bridged hypervisor the guest competes with every other LAN
@@ -60,7 +60,7 @@ _yuruna_net_admin_down() {
     [ $(( f & 1 )) -eq 0 ]
 }
 
-# --- REGION: https://yuruna.link/network#defining-network-diag
+# --- REGION: https://yuruna.link/4220a755-0011
 # Does any carrier-up interface hold a global IPv4 address right now?
 #
 # Same interface selection network_diag reports on, so the predicate and the
@@ -112,7 +112,7 @@ yuruna_wait_ipv4() {
     return 1
 }
 
-# --- REGION: https://yuruna.link/network#reading-a-guest-that-has-no-ipv4
+# --- REGION: https://yuruna.link/4220a755-000d
 # The client's own journal is the only place that separates a client still
 # sending DISCOVERs from one that stopped asking -- and only the second is a
 # fault inside this guest. A third shape needs the same lines to tell it apart:
@@ -438,7 +438,7 @@ yuruna_net_repair_ipv4() {
     return 0
 }
 
-# --- REGION: https://yuruna.link/network#defining-network-release
+# --- REGION: https://yuruna.link/4220a755-0012
 # Release DHCP leases (and any other transient network resources) so the
 # address returns to the pool immediately instead of lingering until lease
 # expiry. Run at end-of-sequence teardown so a churning test fleet does not
@@ -508,7 +508,7 @@ network_release() {
     echo ""
 }
 
-# --- REGION: https://yuruna.link/network#defining-yuruna-network-cli
+# --- REGION: https://yuruna.link/4220a755-0013
 # Dual-use: `source` this file to get the functions, or run it directly with
 # a verb so the networkRelease sequence action can invoke it by path on the
 # guest console (`bash /usr/local/lib/yuruna/yuruna-network.sh release`).

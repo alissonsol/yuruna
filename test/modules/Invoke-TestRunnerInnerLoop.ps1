@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 42b44044-9076-41c3-a573-d5fa643cd35e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -278,9 +278,8 @@ $env:GIT_TERMINAL_PROMPT = '0'
 $env:GIT_ASKPASS         = ''
 $env:SSH_ASKPASS         = ''
 $env:GCM_INTERACTIVE     = 'never'
-# ShouldProcess prompts: a cmdlet with ConfirmImpact High (or any -Confirm that
-# survived a refactor) would otherwise park the cycle on a confirmation nobody
-# can answer.
+# ShouldProcess prompts from ConfirmImpact High or -Confirm would otherwise
+# park the cycle on a confirmation nobody can answer.
 $global:ConfirmPreference = 'None'
 # Read-Host / PromptForChoice read Console.In. Pointing it at the null reader
 # makes them return/throw immediately instead of blocking on the inherited
@@ -312,7 +311,7 @@ if (Test-Path $yurunaLogModule) {
 
 # Shared retry policy with automation/yuruna-retry.sh (Get-YurunaRetryBackoff).
 # Used by the post-cycle-failure backoff path in the cycle catch handler.
-# --- REGION: https://yuruna.link/network#defining-yuruna-retry-lib
+# --- REGION: https://yuruna.link/4220a755-0003
 $yurunaRetryModule = Join-Path -Path $RepoRoot -ChildPath "automation" -AdditionalChildPath "Yuruna.Retry.psm1"
 if (Test-Path $yurunaRetryModule) {
     Import-Module $yurunaRetryModule -Global -Force

@@ -1,0 +1,254 @@
+{
+  "schema": "yuruna.locale-fixtures/v1",
+  "description": "One corpus, run by every runtime that resolves a locale. PowerShell, Go and the browser each answer these, and they answer identically or one of them is wrong. Matching is what decides which catalog a reader gets, so a disagreement between runtimes shows up as a page in one language and a transcript in another.",
+  "default": "en-US",
+  "supported": ["en-US", "pt-BR"],
+  "aliases": { "en": "en-US", "pt": "pt-BR", "pt-PT": "pt-BR" },
+  "maxTagLength": 35,
+  "maxHeaderLength": 512,
+  "cases": [
+    {
+      "name": "exact supported tag",
+      "why": "The ordinary case: the reader asked for something shipped.",
+      "acceptLanguage": "pt-BR",
+      "expect": { "requestedTag": "pt-BR", "resolvedTag": "pt-BR", "source": "http" }
+    },
+    {
+      "name": "declared English alias retains its requested tag",
+      "why": "The manifest owns language-only aliases, and provenance retains what selected the regional catalog.",
+      "acceptLanguage": "en",
+      "expect": { "requestedTag": "en", "resolvedTag": "en-US", "source": "http" }
+    },
+    {
+      "name": "POSIX English spelling is canonicalized before matching",
+      "why": "Headers and process/config inputs share one canonical tag boundary, including underscore-to-hyphen conversion.",
+      "acceptLanguage": "EN_us",
+      "expect": { "requestedTag": "en-US", "resolvedTag": "en-US", "source": "http" }
+    },
+    {
+      "name": "case is not significant in a tag",
+      "why": "BCP 47 tags are case-insensitive; a client sending pt-br means pt-BR.",
+      "acceptLanguage": "pt-br",
+      "expect": { "resolvedTag": "pt-BR", "source": "http" }
+    },
+    {
+      "name": "underscore is canonicalized to a hyphen",
+      "why": "POSIX-style pt_BR reaches this from process culture and from hand-edited config.",
+      "acceptLanguage": "pt_BR",
+      "expect": { "resolvedTag": "pt-BR", "source": "http" }
+    },
+    {
+      "name": "declared language-only alias",
+      "why": "pt is not itself supported; the manifest declares which region it means.",
+      "acceptLanguage": "pt",
+      "expect": { "requestedTag": "pt", "resolvedTag": "pt-BR", "source": "http" }
+    },
+    {
+      "name": "declared regional alias",
+      "why": "pt-PT is a different region, and the manifest says it maps to the one shipped catalog rather than falling to English.",
+      "acceptLanguage": "pt-PT",
+      "expect": { "requestedTag": "pt-PT", "resolvedTag": "pt-BR", "source": "http" }
+    },
+    {
+      "name": "undeclared region of a supported language falls back",
+      "why": "pt-AO is not declared. Guessing that any pt means pt-BR is how a reader gets a dialect nobody reviewed; the safe answer is the default.",
+      "acceptLanguage": "pt-AO",
+      "expect": { "resolvedTag": "en-US", "source": "default" }
+    },
+    {
+      "name": "unsupported language falls back",
+      "acceptLanguage": "de-DE",
+      "expect": { "resolvedTag": "en-US", "source": "default" }
+    },
+    {
+      "name": "quality weights are honored, not document order",
+      "why": "The client's preference is the q value, not the order it happened to serialize.",
+      "acceptLanguage": "de-DE;q=0.9, pt-BR;q=1.0",
+      "expect": { "resolvedTag": "pt-BR", "source": "http" }
+    },
+    {
+      "name": "a higher-weighted unsupported tag does not win",
+      "acceptLanguage": "de-DE;q=1.0, pt-BR;q=0.2",
+      "expect": { "resolvedTag": "pt-BR", "source": "http" }
+    },
+    {
+      "name": "q=0 is a refusal, not a weak preference",
+      "why": "RFC 9110: q=0 means 'not acceptable'. Treating it as 0.0-but-still-a-candidate serves a language the client explicitly rejected.",
+      "acceptLanguage": "pt-BR;q=0, en-US;q=0.5",
+      "expect": { "resolvedTag": "en-US", "source": "http" }
+    },
+    {
+      "name": "every candidate refused falls back to the default",
+      "acceptLanguage": "pt-BR;q=0, en-US;q=0",
+      "expect": { "resolvedTag": "en-US", "source": "default" }
+    },
+    {
+      "name": "wildcard alone takes the default rather than the first supported tag",
+      "why": "* expresses no preference. Answering it with anything but the default makes the served language depend on table order.",
+      "acceptLanguage": "*",
+      "expect": { "resolvedTag": "en-US", "source": "default" }
+    },
+    {
+      "name": "wildcard after a supported tag does not override it",
+      "acceptLanguage": "pt-BR, *;q=0.1",
+      "expect": { "resolvedTag": "pt-BR", "source": "http" }
+    },
+    {
+      "name": "duplicate tags keep the highest weight",
+      "acceptLanguage": "pt-BR;q=0.1, pt-BR;q=0.9",
+      "expect": { "resolvedTag": "pt-BR", "source": "http" }
+    },
+    {
+      "name": "malformed q rejects its candidate rather than becoming one",
+      "why": "A header is attacker-reachable. A bad q must not throw, and retaining the initial q=1 would promote malformed input above valid preferences.",
+      "acceptLanguage": "pt-BR;q=banana",
+      "expect": { "requestedTag": "en-US", "resolvedTag": "en-US", "source": "default" }
+    },
+    {
+      "name": "a valid lower-weight candidate beats a malformed q candidate",
+      "why": "This competitive case distinguishes rejecting the malformed candidate from silently keeping its initial q=1.",
+      "acceptLanguage": "en-US;q=banana, pt-BR;q=0.2",
+      "expect": { "requestedTag": "pt-BR", "resolvedTag": "pt-BR", "source": "http" }
+    },
+    {
+      "name": "a bare q rejects only its candidate",
+      "why": "Ignoring a bare q would retain the implicit maximum and defeat a valid lower-weight preference.",
+      "acceptLanguage": "en-US;q, pt-BR;q=0.2",
+      "expect": { "requestedTag": "pt-BR", "resolvedTag": "pt-BR", "source": "http" }
+    },
+    {
+      "name": "repeated q parameters reject only their candidate",
+      "why": "A repeated weight is malformed rather than an instruction to choose whichever occurrence a runtime happens to read last.",
+      "acceptLanguage": "en-US;q=0.1;q=1, pt-BR;q=0.2",
+      "expect": { "requestedTag": "pt-BR", "resolvedTag": "pt-BR", "source": "http" }
+    },
+    {
+      "name": "equal weights use resolved-tag order rather than header order",
+      "why": "A deterministic ordinal tie-break keeps the answer identical across map implementations and header serialization order.",
+      "acceptLanguage": "pt-BR;q=0.5, en-US;q=0.5",
+      "expect": { "requestedTag": "en-US", "resolvedTag": "en-US", "source": "http" }
+    },
+    {
+      "name": "empty header",
+      "acceptLanguage": "",
+      "expect": { "resolvedTag": "en-US", "source": "default" }
+    },
+    {
+      "name": "punctuation-only header",
+      "acceptLanguage": ",,;;,",
+      "expect": { "resolvedTag": "en-US", "source": "default" }
+    },
+    {
+      "name": "a tag longer than the limit is discarded",
+      "why": "maxTagLength bounds the work and keeps an absurd tag out of a cache key.",
+      "acceptLanguage": "pt-BRxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "expect": { "resolvedTag": "en-US", "source": "default" }
+    },
+    {
+      "name": "an oversized header is discarded whole",
+      "why": "Bounded before parsing: a megabyte of tags is not a preference, it is a way to spend the server's time.",
+      "acceptLanguageRepeat": { "unit": "pt-BR,", "times": 200 },
+      "expect": { "resolvedTag": "en-US", "source": "default" }
+    },
+    {
+      "name": "a path traversal in a tag never selects an asset",
+      "why": "The resolved tag names a file. An unsupported tag must fall back rather than reach the filesystem.",
+      "acceptLanguage": "../../etc/passwd",
+      "expect": { "resolvedTag": "en-US", "source": "default" }
+    },
+    {
+      "name": "a tag carrying a separator is rejected",
+      "acceptLanguage": "pt-BR/../en-US",
+      "expect": { "resolvedTag": "en-US", "source": "default" }
+    },
+    {
+      "name": "the lab-wide config lock beats the header",
+      "why": "language: in test.config.yml is the operator's decision for the whole lab; a browser cannot override it.",
+      "configLanguage": "en-US",
+      "acceptLanguage": "pt-BR",
+      "expect": { "resolvedTag": "en-US", "source": "config" }
+    },
+    {
+      "name": "the config lock beats process culture too",
+      "configLanguage": "pt-BR",
+      "processCulture": "de-DE",
+      "expect": { "resolvedTag": "pt-BR", "source": "config" }
+    },
+    {
+      "name": "language: auto is not a lock",
+      "why": "auto is the shipped default in the template, and must behave as though nothing were configured.",
+      "configLanguage": "auto",
+      "acceptLanguage": "pt-BR",
+      "expect": { "resolvedTag": "pt-BR", "source": "http" }
+    },
+    {
+      "name": "language: AUTO is the same unlocked sentinel",
+      "why": "Configuration scalars are read case-insensitively at this boundary; casing the sentinel must not turn it into an unsupported lock.",
+      "configLanguage": "AUTO",
+      "acceptLanguage": "pt-BR",
+      "expect": { "requestedTag": "pt-BR", "resolvedTag": "pt-BR", "source": "http" }
+    },
+    {
+      "name": "an explicit user preference wins only while config is unlocked",
+      "why": "A persisted web choice is authoritative after language: auto, and is resolved once before the page is rendered.",
+      "configLanguage": "auto",
+      "userLanguage": "pt-BR",
+      "acceptLanguage": "en-US",
+      "expect": { "requestedTag": "pt-BR", "resolvedTag": "pt-BR", "source": "user" }
+    },
+    {
+      "name": "the config lock beats an explicit user preference",
+      "why": "A lab-wide operator lock cannot be overridden by one browser.",
+      "configLanguage": "en-US",
+      "userLanguage": "pt-BR",
+      "acceptLanguage": "pt-BR",
+      "expect": { "resolvedTag": "en-US", "source": "config" }
+    },
+    {
+      "name": "an unsupported user preference falls through while config is unlocked",
+      "why": "A stale cookie for a locale no longer shipped must not suppress a valid request header.",
+      "configLanguage": "auto",
+      "userLanguage": "de-DE",
+      "acceptLanguage": "pt-BR",
+      "expect": { "resolvedTag": "pt-BR", "source": "http" }
+    },
+    {
+      "name": "an unsupported config lock is refused, not obeyed",
+      "why": "A typo in config must not serve a catalog that does not exist; it resolves to the default and says the source was config.",
+      "configLanguage": "de-DE",
+      "acceptLanguage": "pt-BR",
+      "expect": { "requestedTag": "de-DE", "resolvedTag": "en-US", "source": "config" }
+    },
+    {
+      "name": "an invalid config lock cannot leak into provenance",
+      "why": "The config remains the source that suppressed lower-precedence inputs, but a path-shaped value is not a locale tag and must not reach HTML, logs or cache metadata.",
+      "configLanguage": "../../etc/passwd",
+      "acceptLanguage": "pt-BR",
+      "expect": { "requestedTag": "en-US", "resolvedTag": "en-US", "source": "config" }
+    },
+    {
+      "name": "an overlong config lock cannot leak into provenance",
+      "why": "Config is operator-controlled rather than trusted; the same tag bound used for matching also bounds the context that downstream renderers embed.",
+      "configLanguage": "pt-BRxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "acceptLanguage": "pt-BR",
+      "expect": { "requestedTag": "en-US", "resolvedTag": "en-US", "source": "config" }
+    },
+    {
+      "name": "process culture is used when no header is present",
+      "why": "The CLI has no Accept-Language; $PSUICulture is its signal.",
+      "processCulture": "pt-BR",
+      "expect": { "resolvedTag": "pt-BR", "source": "process" }
+    },
+    {
+      "name": "a header outranks process culture when both are present",
+      "why": "A request is answered for whoever sent it, not for the account the service runs under.",
+      "processCulture": "pt-BR",
+      "acceptLanguage": "en-US",
+      "expect": { "resolvedTag": "en-US", "source": "http" }
+    },
+    {
+      "name": "nothing at all resolves to the default",
+      "expect": { "requestedTag": "en-US", "resolvedTag": "en-US", "source": "default" }
+    }
+  ]
+}

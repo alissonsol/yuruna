@@ -1,3 +1,5 @@
+<a id="42f909ad-0001"></a>
+
 # Test runner -- setup, outer-loop dispatcher, watchdog, and state machine
 
 Please read the **Administrator Risk Warning** section of the
@@ -46,6 +48,8 @@ in a module rather than inline in
 call-op + `Set-RunnerState` exercises the state-transition sequence without
 spawning a real inner pwsh.
 
+<a id="42f909ad-0002"></a>
+
 ## Why unattended cycles
 
 Continuous validation across hours or days catches intermittent
@@ -61,6 +65,8 @@ without operator intervention. The lab environment described below
 (test account, isolated network, no personal data) is what makes that
 unattended-by-design contract safe to leave running.
 
+<a id="42f909ad-0003"></a>
+
 ## Prepare the host
 
 **Do not run unattended test automation using a personal account.**
@@ -69,6 +75,8 @@ Unattended machines are assumed to be in a physically protected
 environment, like a test lab, with controlled access. Even so, use test
 accounts with limited network access and no access to personal data on
 the local machine.
+
+<a id="42f909ad-0004"></a>
 
 ### Create a test account
 
@@ -113,6 +121,8 @@ the local machine.
     (HiDPI laptops up-scale screenshots and break Tesseract OCR). The
     scripts are idempotent; re-running them is safe.
 
+<a id="42f909ad-0005"></a>
+
 ## First interactive run
 
 Before the first unattended run, execute `test/Start-TestRunner.ps1`
@@ -133,6 +143,8 @@ operator can do happen on that run:
     Image-provider limitations keep the runner from fetching them;
     follow the instructions in each `Get-Image.ps1`.
 
+<a id="42f909ad-0006"></a>
+
 ## Run unattended
 
 With the host prepared and the first interactive cycle complete,
@@ -148,6 +160,8 @@ guard are described under
 cycle under
 [Failure-pause break-out triggers](#failure-pause-break-out-triggers).
 Per-step visibility is controlled by [Log levels](loglevels.md).
+
+<a id="42f909ad-0007"></a>
 
 ### What a `test.runner.yml` entry can be
 
@@ -172,12 +186,16 @@ orchestration entry **or** any number of guest entries, not a mix. A mixed
 or multi-orchestration config is rejected as a `plan_invalid` cycle failure
 rather than silently running a subset.
 
+<a id="42f909ad-0008"></a>
+
 ## Startup gates
 
 `Start-TestRunner.ps1` refuses to enter the eternal loop when either of
 two conditions holds. Both are hard stops rather than warnings, because
 the failure mode they guard against is a loop that keeps producing
 near-empty cycles -- expensive to notice and diagnose after the fact.
+
+<a id="42f909ad-0009"></a>
 
 ### powershell-yaml must be installed
 
@@ -199,6 +217,8 @@ Install-Module powershell-yaml -Scope CurrentUser
 ```
 
 or re-run `host/<host type>/Enable-TestAutomation.ps1`.
+
+<a id="42f909ad-000a"></a>
 
 ### Pre-cycle config gate
 
@@ -256,6 +276,8 @@ did; the gate cannot tell those apart by reading the file. Only
 `install/setup.ps1` passes it, and only when `storage.kind` is not
 `none` -- an operator running `Test-Config.ps1` by hand is unaffected.
 
+<a id="42f909ad-000b"></a>
+
 ## Public surface
 
 `Invoke-RunnerOuterLoop -State <hashtable>` is the entry point: it returns
@@ -268,6 +290,8 @@ The authoritative list is the `Export-ModuleMember` block at the end of
 [`Test.RunnerOuterLoop.psm1`](../test/modules/Test.RunnerOuterLoop.psm1), and
 each function carries its own comment-based help. A hand-copied table here
 would only drift from it.
+
+<a id="42f909ad-000c"></a>
 
 ## State hashtable
 
@@ -301,6 +325,8 @@ older caller (or a unit test) that omits them still runs: `CycleScript`, the
 path to `Invoke-TestCycleRunner.ps1` -- absent, the cycle runs in-process --
 and `PreambleTimeoutSecondsDefault`, the watchdog's tighter preamble bound.
 
+<a id="42f909ad-000d"></a>
+
 ## Failure-pause break-out triggers
 
 After the inner exits non-zero, the loop captures three baselines and
@@ -329,6 +355,8 @@ never be reached and a deterministic transient would auto-retry forever. A
 passing cycle re-arms the budget. Everything the dispatcher does not classify
 as clearly-safe keeps the full wait-for-human pause.
 
+<a id="42f909ad-000e"></a>
+
 ## State transitions emitted
 
 The dispatcher calls `Set-RunnerState` at every cycle boundary so a
@@ -349,6 +377,8 @@ transition table live in
 Each `Set-RunnerState` call is `Get-Command`-guarded so a stripped-
 down test fixture that did not import `Test.RunnerState` still runs
 the loop body.
+
+<a id="42f909ad-000f"></a>
 
 ## Pre-spawn cleanup ordering
 
@@ -381,6 +411,8 @@ within one poll. The unconditional `WriteAllText` defends against
 that -- the new inner overwrites it again immediately at startup, so
 the force-touch is harmless when the wipe succeeded.
 
+<a id="42f909ad-0010"></a>
+
 ## Why the cycle call must not capture the inner runner's stdout
 
 The cycle process reaches the inner runner through the call operator, and
@@ -409,6 +441,8 @@ temporary directory and asserts that the cycle process returns once the inner
 exits, so a future refactor that captures the stream fails a suite instead of a
 lab.
 
+<a id="42f909ad-0011"></a>
+
 ## Watchdog and heartbeat protocol
 
 The test runner survives indefinitely under sustained guest, network,
@@ -416,6 +450,8 @@ and host-OS failures because every long-running activity emits a
 heartbeat that an out-of-process watchdog reads. When the heartbeat
 goes stale, the watchdog kills the wedged process and the outer
 runner re-spawns the inner from a clean state.
+
+<a id="42f909ad-0012"></a>
 
 ### Layout under `$YURUNA_RUNTIME_DIR`
 
@@ -429,6 +465,8 @@ runner re-spawns the inner from a clean state.
 | `runner.phase`           | inner runner during its preamble | outer watchdog | Present means the inner has not reached its first sequence step, which selects the tighter preamble bound. |
 | `runner.watchdog.lapsed` | outer watchdog          | outer runner          | Durable sentinel written when the watchdog gives up before arming. The outer is blocked on the call-op while that happens, so an unguarded cycle would otherwise be invisible until a post-mortem. |
 | `outer.log`              | outer + inner           | post-mortem, status service | Append-only milestone log. Survives a `conhost` output wedge. |
+
+<a id="42f909ad-0013"></a>
 
 ### Why two heartbeats
 
@@ -448,6 +486,8 @@ running, `testCycle.stepTimeoutSeconds` (default 2700).
 
 The split was added after the trap recorded in repo memory
 `feedback_threadpool_heartbeat_watchdog_blind.md`.
+
+<a id="42f909ad-0014"></a>
 
 ### Watchdog job
 
@@ -488,6 +528,8 @@ blocked inside the call-op while the watchdog gives up, so the sentinel is
 what turns "this cycle ran unguarded" into a warning the operator sees when
 the outer regains control.
 
+<a id="42f909ad-0015"></a>
+
 ### Two bounds: preamble and step
 
 `runner.phase` selects which bound applies, and the watchdog re-reads it
@@ -510,6 +552,8 @@ A preamble bound at or above the step bound, or a non-positive one, collapses
 to "no tighter bound"; that is the documented escape hatch for a host whose
 preamble is genuinely slow.
 
+<a id="42f909ad-0016"></a>
+
 ### Detecting a watchdog kill after the fact
 
 When the inner exits non-zero AND `runner.stepHeartbeat`'s mtime is
@@ -526,6 +570,8 @@ inner. See runtime/outer.log for the kill line.
 This stops operators from chasing an application-level bug that
 never happened.
 
+<a id="42f909ad-0017"></a>
+
 ### Tuning `testCycle.stepTimeoutSeconds`
 
 Default 2700 (45 minutes). It and `testCycle.preambleTimeoutSeconds` are both
@@ -535,6 +581,8 @@ one fleet-wide through its `config.testCycle` override without editing each
 host. Tightening helps on hosts where genuine slow steps complete
 under, say, 1200; loosening protects against a known-slow first-run
 image-build step.
+
+<a id="42f909ad-0018"></a>
 
 ### Module: Test.RunnerWatchdog
 
@@ -560,6 +608,8 @@ job, because a `Start-Job` child is a separate process that cannot see this
 module's functions. The tests and the live watchdog therefore exercise one
 definition rather than two that can drift apart.
 
+<a id="42f909ad-0019"></a>
+
 #### `$using:` scope discipline
 
 The scriptblock passed to `Start-Job` reads its inputs -- the runtime dir,
@@ -577,6 +627,8 @@ The function carries an explicit
 because PSSA's static analyzer does not follow `$using:` references
 back to the enclosing function's param block.
 
+<a id="42f909ad-001a"></a>
+
 ## Runner state machine
 
 The outer test runner's lifecycle is an explicit six-state machine in
@@ -592,6 +644,8 @@ exists and `runner.stepHeartbeat` is fresh then a cycle is running,
 unless the inner just exited and we're between cycles, unless..." The
 explicit machine gives the lifecycle a single observable shape.
 
+<a id="42f909ad-001b"></a>
+
 ### States
 
 | State | Meaning |
@@ -602,6 +656,8 @@ explicit machine gives the lifecycle a single observable shape.
 | `cycle-end` | The inner exited 0; the outer is in post-cycle cleanup. |
 | `fault` | The inner exited non-zero or crashed before exit. |
 | `paused` | The failure-pause loop is waiting for a new commit, a config edit, or the cap. |
+
+<a id="42f909ad-001c"></a>
 
 ### Valid transitions
 
@@ -622,6 +678,8 @@ The validator never rejects -- an unrecognized pair logs a
 `Write-Warning` and writes the new state anyway. Same contract as the
 event-schema validator: catch drift loudly, never lose telemetry.
 
+<a id="42f909ad-001d"></a>
+
 ### Public surface
 
 Two functions carry the lifecycle: `Initialize-RunnerState` at outer startup
@@ -631,12 +689,16 @@ current state, and the transition predicate -- for the capability matrix, the
 dashboard and the tests. The list is the module's `Export-ModuleMember` block
 in [`Test.RunnerState.psm1`](../test/modules/Test.RunnerState.psm1).
 
+<a id="42f909ad-001e"></a>
+
 ### Files on disk
 
 | File | Writer | Reader | Purpose |
 |---|---|---|---|
 | `runner.state.json` | `Set-RunnerState` (atomic) | Status service, next outer's `Initialize-RunnerState`, post-mortem | Current state and when it was entered, the writing runner's runId and PID, the last 20 transitions, and the most recent cycle's start/number carried forward so a single read has the cycle context without joining to the manifest. |
 | NDJSON event stream | `Set-RunnerState` via [`Test.Log`](../test/modules/Test.Log.psm1) | Off-host log shipper | One `runner_state_transition` event per transition, carrying `fromState`, `toState` and the free-text `reason` verbatim so a consumer can pivot on it without joining back to the cycle context. Boot-recovery transitions add `synthetic` plus the crashed runner's identity. |
+
+<a id="42f909ad-001f"></a>
 
 ### Boot recovery
 
@@ -654,11 +716,15 @@ pidfiles whose PID is no longer live, and archives a `break-active.json`
 no live runner can honor. The state machine
 synthesizes the *narrative*; `Test.Recovery` cleans the *state*.
 
+<a id="42f909ad-0020"></a>
+
 ### History depth
 
 `runner.state.json` keeps the last 20 transitions inline as a cheap
 "what just happened" cache for `/control/runner-status` and similar
 quick lookups. The NDJSON stream is the canonical history.
+
+<a id="42f909ad-0021"></a>
 
 ## Related
 
@@ -670,6 +736,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08
 
 Back to [Yuruna](../README.md)

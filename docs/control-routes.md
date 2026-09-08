@@ -1,9 +1,13 @@
+<a id="42185271-0001"></a>
+
 # Yuruna control routes -- who is allowed to drive a host
 
 > **Who this is for.** An operator who uses a host's **status page** to start a cycle,
 > pause a step, or run a host diagnostic -- especially from a browser on **another
 > machine**. Viewing a host's status needs no setup; *driving* one does -- this page
 > explains that one-time setup.
+
+<a id="42185271-0002"></a>
 
 ## What is gated
 
@@ -27,6 +31,8 @@ anyone on the LAN, `status.json` is served, and the config-sync read
 | `control/start-cycle`, `control/cycle-pause`, `control/cycle-resume`, `control/step-pause`, `control/step-resume`, `control/lab-hold-release`, `control/break-continue`, `control/test-caching-proxy-service`, `control/host-diagnostic` | always |
 | `control/test-config`, `control/perf-aggregates` | on `POST`/`PUT` -- their read path stays open |
 | `control/runner-status`, `control/control-status`, `control/host-facts` | never -- read-only, and pool services read them |
+
+<a id="42185271-0003"></a>
 
 ## Where the proof comes from
 
@@ -60,6 +66,8 @@ It mints one from its own copy of the token when it has one, and otherwise reads
 off `/go/host` without following the redirect -- the same proof, obtained as a browser
 obtains it. So the enrollment state that decides whether a host's buttons work also
 decides whether pool-wide control reaches it, and the `reason` table below explains both.
+
+<a id="42185271-0004"></a>
 
 ## Enabling remote control on a host
 
@@ -169,6 +177,8 @@ The *Extension hosts* table has no Control cell: its rows include hosts running 
 extension service, which have no status page to open -- use their *Pool hosts* row when
 they have one.
 
+<a id="42185271-0005"></a>
+
 ## Releasing a lab hold
 
 `control/lab-hold-release` is the one control route that ends a state the host
@@ -190,6 +200,8 @@ would sit on disk and silently end the *next* one -- a hold nobody has looked at
 hold as part of its normal un-pause, so restarting the cycle needs no separate
 release.
 
+<a id="42185271-0006"></a>
+
 ## What works with no setup
 
 - **The on-host operator** -- `http://localhost:<port>` on the host has full control, before
@@ -197,6 +209,8 @@ release.
 - **Read-only viewing** from any browser on the LAN.
 - **Unattended cycles** -- the runner never calls the control routes, so pool automation is
   untouched.
+
+<a id="42185271-0007"></a>
 
 ## When a control button returns 403
 
@@ -253,6 +267,8 @@ A different message -- `forbidden: missing X-Yuruna request header` -- is the cr
 request guard, not the proof: it means a non-browser client (`curl`) called a control route
 without that header.
 
+<a id="42185271-0008"></a>
+
 ## Browser refusal notice
 
 A refused control action is surfaced, not swallowed. To a status page's JavaScript a 403
@@ -266,6 +282,8 @@ via the dashboard again" vs "enroll the host first" are different fixes. The not
 is static: each `reason` resolves through a fixed map of prewritten texts in
 [`test/status/yuruna.common.js`](../test/status/yuruna.common.js), so no server-supplied
 text is ever interpolated into the page.
+
+<a id="42185271-0009"></a>
 
 ## Pause and resume: the flag-file back-channel
 
@@ -281,6 +299,8 @@ The parent-side `Write-StatusJson` keeps file and JSON in sync by re-reading
 the flag files on each write. Each flag file carries the moment it was armed,
 mirrored as `stepPausedSinceUtc` / `cyclePausedSinceUtc`, so the banner can
 report a hold's age and not just its existence.
+
+<a id="42185271-000a"></a>
 
 ### Which pause to use
 
@@ -317,6 +337,8 @@ Rules of thumb:
   into that step's record as `causeDetail.pauseBeforeStepSeconds`. See
   [failure-schema.md](failure-schema.md).
 
+<a id="42185271-000b"></a>
+
 ## GET /control/runner-status
 
 An always-open read route that reports whether the outer `Start-TestRunner`
@@ -344,6 +366,8 @@ stopped** above every other reading, so a host whose runner is gone stops
 showing its last cycle's green to the whole lab. Only an explicit
 `running=false` counts -- a host predating the route answers `404`, which is not
 evidence of a stopped runner and leaves the cycle status showing.
+
+<a id="42185271-000c"></a>
 
 ## GET /control/control-status
 
@@ -374,6 +398,8 @@ gate: it changes nothing, and the aggregator must be able to ask a host it may s
 token with. That is also why it is a **live** route rather than a field in
 `host.registration.json` -- that record is written once per cycle, so a host enrolled
 between cycles (or one not running cycles at all) would report stale for hours.
+
+<a id="42185271-000d"></a>
 
 ## File serving: URL-prefix dispatch and deny-list
 
@@ -410,6 +436,8 @@ is already present, because the status service never runs `sudo`. The `/log/` ro
 index also lists archived cycles (deduplicated against local ones), so the
 directory does not look empty on a move-mode host.
 
+<a id="42185271-000e"></a>
+
 ## Short per-cycle links: `/cycle/<number>`
 
 `GET /cycle/004062` redirects (302) to that cycle's HTML transcript. It exists
@@ -433,6 +461,8 @@ directory lookup.
 
 The outer runner prints one of these per finished cycle, e.g.
 `Cycle 004062 - FAIL: http://192.168.7.101:8080/cycle/004062`.
+
+<a id="42185271-000f"></a>
 
 ## Sharing one cycle: `/archive/<cycle-folder>.zip` and `share-cycle.html`
 
@@ -514,6 +544,8 @@ The route is open, like the file tree it archives: every byte in that archive is
 already readable file by file from the same server, so gating the convenient
 form of a read that is otherwise ungated would only be theater.
 
+<a id="42185271-0010"></a>
+
 ## See also
 
 - [pool-admin.md](pool-admin.md) -- running a pool and the *Yuruna hosts* dashboard.
@@ -529,6 +561,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08
 
 Back to [Yuruna](../README.md)

@@ -1,3 +1,5 @@
+<a id="42a76c30-0001"></a>
+
 # Kubernetes Deployment
 
 Deploy containerized applications to Kubernetes across localhost, Azure,
@@ -9,6 +11,8 @@ See [Yuruna Architecture](architecture.md) for the three-phase model
 layout. This doc is the user-facing quick start for Kubernetes.
 
 Prerequisites are in [Preflight dependencies](operator.md#b2-preflight-dependencies).
+
+<a id="42a76c30-0002"></a>
 
 ## Quick Start (Localhost)
 
@@ -44,6 +48,8 @@ Set-Workload.ps1  website localhost -logLevel Debug
 
 `Set-Workload.ps1` prints the URL.
 
+<a id="42a76c30-0003"></a>
+
 ## Cloud Deployment
 
 Authenticate once, then swap `localhost` for your cloud:
@@ -62,6 +68,8 @@ Set-Resource.ps1 website aws;   Set-Component.ps1 website aws;   Set-Workload.ps
 gcloud auth application-default login
 Set-Resource.ps1 website gcp;   Set-Component.ps1 website gcp;   Set-Workload.ps1 website gcp
 ```
+
+<a id="42a76c30-0004"></a>
 
 ### Control-plane access hardening (required for EKS / AKS)
 
@@ -96,10 +104,14 @@ secret in the cluster.
 
 Details, service accounts, and API enablement: [Yuruna Authentication ...](authentication.md).
 
+<a id="42a76c30-0005"></a>
+
 ## Cleaning up cloud resources
 
 **These instructions will destroy resources.** Enter the correct parameters.
 Cloud resources incur charges, so always clear what you are not using.
+
+<a id="42a76c30-0006"></a>
 
 ### Cleaning up automatically
 
@@ -133,6 +145,8 @@ Don't forget to delete the cluster context from `[user]/.kube/config`. The
 or [`kubectl`](https://kubernetes.io/docs/reference/generated/kubectl/kubectl-commands#-em-delete-context-em-)
 can both do this.
 
+<a id="42a76c30-0007"></a>
+
 ### Manual cleanup per cloud
 
 - **AWS** -- from the [AWS Management Console](https://console.aws.amazon.com/),
@@ -145,6 +159,8 @@ can both do this.
   the suffix `_nodes`.
 - **GCP** -- from the [GCP Console](https://console.cloud.google.com/), delete any
   resources previously created.
+
+<a id="42a76c30-0008"></a>
 
 ## Guest-side prerequisites
 
@@ -164,6 +180,8 @@ workload pattern: [Yuruna Architecture](architecture.md).
 `sudo hostnamectl set-hostname <name>`; a terminal restart may be
 needed for new group permissions.
 
+<a id="42a76c30-0009"></a>
+
 ### Verify
 
 ```
@@ -174,7 +192,11 @@ kubectl get pods -A
 kubectl config current-context
 ```
 
+<a id="42a76c30-000a"></a>
+
 ## Test-sequence notes
+
+<a id="42a76c30-000b"></a>
 
 ### Why the website readiness check waits on Deployment availability, not Endpoints
 
@@ -200,6 +222,8 @@ Checking `endpoints/website-service` would be wrong on two counts:
 readiness signal, so the test waits the full 240 s and the diagnostic
 captures a useful pod state.
 
+<a id="42a76c30-000c"></a>
+
 ### Reclaim build-cache disk before deploy
 
 The dotnet SDK build leaves ~1.3 GiB in `docker buildx prune` territory
@@ -209,6 +233,8 @@ get the workload + nginx-ingress pods Evicted, and leave their
 replacements stuck on the disk-pressure taint. The workload scripts
 prune both caches before the cluster deploys; failure there is
 non-fatal -- only the side effect matters.
+
+<a id="42a76c30-000d"></a>
 
 ## See also
 
@@ -222,6 +248,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.01
+Last review: 2026.09.08
 
 Back to [Yuruna](../README.md)

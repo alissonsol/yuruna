@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.01
+.VERSION 2026.09.08
 .GUID 428fd107-ddcf-4d18-a2a8-6763e5534b41
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -200,7 +200,7 @@ uplink NIC). Nothing was created; the stash-service VM was not started.
     }
 }
 
-# --- REGION: https://yuruna.link/network#cache-vm-seed-host-binding
+# --- REGION: https://yuruna.link/4220a755-001b
 # Host coordinates (status service, for the in-VM source fetch) + stash storage
 # coordinates (the share), baked into the seed. The host address came from the
 # same binding as the network above ($env:YURUNA_GUEST_REACHABLE_HOST_IP wins
@@ -251,7 +251,7 @@ $seedDir = Join-Path $vmDir 'seed.src'
 New-Item -ItemType Directory -Force -Path $seedDir | Out-Null
 Set-Content -LiteralPath (Join-Path $seedDir 'user-data') -Value $userData -NoNewline
 Set-Content -LiteralPath (Join-Path $seedDir 'meta-data') -Value $metaData -NoNewline
-# --- REGION: https://yuruna.link/network#defining-guest-dhcp-client-identity
+# --- REGION: https://yuruna.link/4220a755-000b
 Copy-Item -Path (Join-Path $repoRoot 'host/vmconfig/guest-dhcp.network-config') `
     -Destination (Join-Path $seedDir 'network-config')
 
@@ -292,16 +292,16 @@ if ($LASTEXITCODE -eq 0) {
     }
 }
 
-# --- REGION: https://yuruna.link/definition#defining-the-vm-memory-policy
-# --- REGION: https://yuruna.link/definition#defining-the-vm-core-count-policy
+# --- REGION: https://yuruna.link/42fa6f45-0016
+# --- REGION: https://yuruna.link/42fa6f45-0015
 $hostCores = [int](& nproc --all)
 if ($hostCores -lt 4) {
-    Write-Error "Host has $hostCores cores; Yuruna requires at least 4. See https://yuruna.link/definition#defining-the-vm-core-count-policy"
+    Write-Error "Host has $hostCores cores; Yuruna requires at least 4. See https://yuruna.link/42fa6f45-0015"
     exit 1
 }
 $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
 
-# --- REGION: https://yuruna.link/network#defining-deterministic-guest-mac-addresses
+# --- REGION: https://yuruna.link/4220a755-000a
 $YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $VMName
 Write-Verbose "Deterministic guest MAC for '$VMName': $YurunaGuestMac"
 

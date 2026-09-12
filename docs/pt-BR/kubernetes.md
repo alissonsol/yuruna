@@ -166,9 +166,17 @@ podem fazer isso.
 
 ## Pré-requisitos no convidado
 
-Carga de trabalho que instala SSH, Git, Docker, Kubernetes, PowerShell, Helm,
-OpenTofu, mkcert, Graphviz e CLIs de nuvem (Azure, AWS, GCP) em uma VM
-convidada em execução. Lista completa de ferramentas: [Dependências de
+As cargas de trabalho dos convidados instalam o conjunto comum de ferramentas
+do cluster local: Git, Docker, Kubernetes, PowerShell, Helm, OpenTofu e mkcert.
+O Windows instala adicionalmente o Graphviz e as CLIs do Azure, da AWS e do
+Google Cloud. O Ubuntu omite intencionalmente essas ferramentas opcionais: as
+CLIs de nuvem são necessárias apenas nos exemplos que implantam em uma nuvem,
+o Graphviz é recomendado em vez de obrigatório e instalar o conjunto completo
+acrescenta um custo substancial de transferência e configuração, enquanto
+alguns pacotes dos fornecedores continuam indisponíveis em ARM64. Adicione-os
+por meio de uma carga de trabalho explícita e opcional quando um convidado
+precisar deles, em vez de tornar mais lenta a compilação de todas as imagens
+para clusters locais. Veja [Dependências de
 preflight](../operator.md#b2-preflight-dependencies). Padrão de carga de
 trabalho de convidado: [Arquitetura do Yuruna](../architecture.md).
 
@@ -252,6 +260,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Última revisão: 2026.09.08
+Última revisão: 2026.09.12
 
 Voltar para [Yuruna](../../README.md)

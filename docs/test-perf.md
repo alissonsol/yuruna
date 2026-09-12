@@ -62,6 +62,8 @@ regardless of history depth.
 | Entity        | Identity                                                    | Stability                                       |
 |---------------|-------------------------------------------------------------|-------------------------------------------------|
 | Sequence      | `sequenceName` (file stem) + `sequenceGuid` (`42`-prefixed) | Name is today's join key. GUID anchors history through renames. |
+| Invocation | `sequenceInvocationId` (fresh GUID per sequence entry) | Distinguishes repeated executions even when a temporary VM name is reused. |
+| Step execution | `stepInvocationId` (fresh GUID per step/attempt) | Correlates a specific execution with guest checkpoints. |
 | Sequence body | `sequenceContentHash` (sha256 of the YAML body)             | Identifies the exact YAML body, so analytics can tell edits of a sequence apart between `sequenceRevision` bumps. |
 | Sequence shape| `sequenceRevision` (author-bumped int)                      | Bump when steps are added / removed / reordered. |
 | Step          | `sequenceGuid` + `stepName` + `stepOccurrence`              | No per-step GUID by design. Step rename = accept the discontinuity. |
@@ -88,7 +90,8 @@ at any realistic scale. Nothing reads the version or variant nibbles, so
 neither is part of the contract -- uniqueness and the `42` prefix are.
 The recipe below rewrites only `time_low`, leaving both nibbles as
 `NewGuid` set them, so what it mints is also a well-formed RFC-4122
-UUIDv4. Every identity GUID in the tree is minted this way.
+UUIDv4. Durable definition GUIDs use this prefix. Runtime sequence and step
+invocation IDs use ordinary GUIDs written as 32 hex digits.
 
 Mint a fresh one with PowerShell:
 
@@ -105,7 +108,7 @@ Every sequence YAML carries two top-level keys (declared in
 [`test/schemas/sequence.schema.yml`](../test/schemas/sequence.schema.yml)):
 
 ```
-# Perf-log identity (see https://yuruna.link/test/perf). Bump revision on step add/remove.
+# Perf-log identity (see https://yuruna.link/42185285). Bump revision on step add/remove.
 sequenceGuid: 4224b44c-5e04-47e8-a61b-865d2a191b84
 sequenceRevision: 1
 
@@ -140,6 +143,13 @@ no description is set.
 appears more than once in one sequence run (handles loops, repeated
 prompts).
 
+It counts the **name**, not the retry attempt. Two differently named
+steps inside one retry attempt are both occurrence 1, and a step that
+runs once per attempt reaches occurrence 2 only on the second attempt --
+so a step first reached in a later attempt still reports occurrence 1
+beside the earlier attempt's failure. Read `parentAttempt` for the
+attempt.
+
 `stepOrdinal` is the step's position in the executing `steps:` array
 at the time it ran -- a snapshot. If a step is inserted at position
 5, old position-5 rows keep their ordinal; new rows show ordinal 6.
@@ -149,11 +159,20 @@ at the time it ran -- a snapshot. If a step is inserted at position
 
 ### Retry blocks
 
-When a `retry` block re-runs its inner steps, each inner attempt emits
-its own row. The wrapper itself does NOT emit a row (its duration is
-the sum of inner durations). Inner rows carry `parentStepOrdinal` =
-outer retry's position and `parentAction = "retry"` so the wrapper is
-reconstructible at query time.
+A `retry` wrapper emits its own row with the full enclosing duration and
+final outcome. Each executed child also emits a row, including unsuccessful
+attempts. These intervals overlap: sum only `parentStepOrdinal = 0` for
+sequence work, step counts and final failures. Keep child failures as retry
+history; a failed child followed by a passing retry must not mark the
+invocation as failed.
+
+Inner rows carry `parentStepOrdinal` = the immediate outer retry's position,
+`parentAction = "retry"`, and `parentAttempt` = the 1-based attempt. Nested
+wrappers themselves have a nonzero parent ordinal. Order by `startedAtUtc`
+within `sequenceInvocationId`; ordinals repeat within retry blocks and do
+not describe execution order. A wrapper that is killed before its end may
+leave only child rows; the aggregate marks that incomplete record rather
+than inventing a final outcome.
 
 ---
 
@@ -161,11 +180,11 @@ reconstructible at query time.
 
 ## The row schema
 
-Schema version: `1`, carried in every row's `schema:` field.
+Schema version: `2`, carried in every row's `schema:` field.
 
 ```
 {
-  "schema": 1,
+  "schema": 2,
   "cycleStartUtc": "2026-05-21T18:42:11Z",
   "cycleStartedAtUtc": "2026-05-21T18:42:11.003Z",
 
@@ -178,6 +197,7 @@ Schema version: `1`, carried in every row's `schema:` field.
   "projectCommit": "4f8b1c2d99e07a...",
 
   "sequenceName": "start.guest.amazon.linux.2023",
+  "sequenceInvocationId": "9acf77a7eecd4030bbfa26f9870f92b6",
   "sequenceGuid": "4224b44c-5e04-47e8-a61b-865d2a191b84",
   "sequenceRevision": 1,
   "sequenceContentHash": "sha256-a039...",
@@ -187,11 +207,13 @@ Schema version: `1`, carried in every row's `schema:` field.
   "guestInfoHash": "sha256-1c7a...",
 
   "stepOrdinal": 6,
+  "stepInvocationId": "1218f659979840bfb019d75d0370fa72",
   "stepOccurrence": 1,
   "stepName": "${vmName} login:",
   "stepKind": "passwdPrompt",
   "parentStepOrdinal": 0,
   "parentAction": "",
+  "parentAttempt": 0,
 
   "startedAtUtc": "2026-05-21T18:47:02.412Z",
   "endedAtUtc":   "2026-05-21T18:47:09.871Z",
@@ -216,11 +238,13 @@ Field reference:
 | `harnessCommit` | string | yuruna repo SHA at cycle start. |
 | `projectCommit` | string\|null | yuruna-project repo SHA at cycle start. `null` for in-tree fallback. |
 | `sequenceName` | string | File stem (no path, no extension). Primary join key. |
+| `sequenceInvocationId` | string | Fresh GUID (32 hex digits) minted by `Set-PerfSequenceContext` for this invocation. Stable across its retry children; different on the next invocation, including child-process entries. Schema 1 rows omit it. |
+| `stepInvocationId` | string\|null | Fresh GUID for the executed step/attempt. Checkpoint sidecars carry this and `sequenceInvocationId` for exact joins. |
 | `sequenceGuid` | string\|null | `42`-prefixed GUID from sequence YAML frontmatter. |
 | `sequenceRevision` | int | Author-bumped integer from sequence YAML frontmatter. |
 | `sequenceContentHash` | string\|null | sha256 of the YAML body that ran. |
 | `guestKey` | string\|null | e.g. `guest.amazon.linux.2023`. |
-| `vmName` | string\|null | VM name including the per-cycle timestamp suffix. |
+| `vmName` | string\|null | VM name captured for the invocation. Names can be reused or renamed; this is not an invocation key. |
 | `guestInfoHash` | string\|null | sha256 of a small JSON fingerprint (base image, ...). |
 | `stepOrdinal` | int | 1-based position in the executing `steps:` array. Snapshot in time. |
 | `stepOccurrence` | int | 1-based occurrence count of `stepName` in this sequence run. |
@@ -228,10 +252,14 @@ Field reference:
 | `stepKind` | string | The `step.action` verb (`waitForText`, `sshExec`, ...). Lets you slice by action type. |
 | `parentStepOrdinal` | int | Outer retry's ordinal when this row is inside a retry block; `0` otherwise. |
 | `parentAction` | string | `"retry"` when inside a retry block; `""` otherwise. |
+| `parentAttempt` | int | 1-based retry attempt this row ran in; `0` outside a retry, and on any row that does not carry the field. The only field that separates one attempt's rows from another's -- `stepOccurrence` counts names, not attempts. |
 | `startedAtUtc` | string | ISO-8601-Z UTC start. |
 | `endedAtUtc` | string | ISO-8601-Z UTC end. |
 | `durationMs` | int | Explicit even though derivable -- saves every consumer from parsing two timestamps. |
-| `outcome` | enum | `pass`, `fail`, `skipped`, `timeout`. |
+| `outcome` | enum | `pass`, `fail`, `skipped`, `timeout`. The enclosing retry reports its final result. |
+| `diagnosticOutcome` | enum, optional | `complete`, `partial`, `timeout`, `unavailable` for a diagnostic action; separate from its soft-failing workload outcome. |
+| `evidenceCaptureDurationMs` | int, optional | Time spent copying execution evidence inside this step. Included in `durationMs`, not subtracted from elapsed time. |
+| `checkpointSourceStepInvocationId` | string, optional | Original execution ID when SSH reattaches to work begun by an earlier step. Original phase offsets are not rescaled into the new observer interval. |
 | `attempts` | int | Number of attempts this row represents (>=1). |
 | `retryCount` | int | Number of failures before the recorded outcome. |
 
@@ -272,6 +300,31 @@ cycle files at query time (`JOIN` on hash, render once), honoring
 
 ## Query model
 
+The status service's `/control/perf-aggregates` route reads schema 1 and 2
+rows and returns one entry per invocation under `sequences[sequenceName]`.
+`durationMs` is the sum of top-level work; `elapsedMs` is the first-to-last step
+span, or null if timing is incomplete. Gaps and overlap make these different
+quantities. `stepCount` and `failCount` count top-level rows only;
+`retryFailureCount` preserves unsuccessful nested rows. Diagnostic incompleteness
+and missing enclosing rows are reported separately. The performance page draws
+one icicle per invocation, using elapsed time and retaining retry children.
+
+Schema 1 has no invocation ID. When chronological top-level ordinals restart,
+the reader separates the runs and labels `invocationIdentitySource` as
+`legacy-inferred`; the resulting `legacy-N` ID is local to the host, cycle and
+sequence. Concurrent or truncated old executions cannot always be separated.
+Schema 2 uses the recorded ID, which is independent of VM name and ordinal.
+No historical JSONL files are rewritten.
+
+Guest checkpoint sidecars join by both execution IDs when present, for console
+and SSH fetch actions. Legacy sidecars fall back to their host reception time
+inside the step interval. An identified but unmatched sidecar does not fall
+back to another step's time window. Reattached execution provenance remains
+visible without pretending earlier phase offsets measure the new observer.
+
+The route caches its response until a POST request triggers recalculation. The generated
+status-service process must be restarted after updating its source.
+
 JSONL files are queryable straight from DuckDB -- no ETL needed:
 
 ```
@@ -302,6 +355,7 @@ SELECT hostPlatform,
        AVG(CASE outcome WHEN 'pass' THEN 1.0 ELSE 0 END) pass_rate
 FROM read_json_auto('perf/cycles/*.jsonl')
 WHERE cycleStartedAtUtc > now() - INTERVAL 30 DAY
+  AND COALESCE(parentStepOrdinal, 0) = 0
 GROUP BY 1;
 ```
 
@@ -359,10 +413,10 @@ The emitter is wired into the runner at three points:
    the two commit SHAs.
 2. **`Test.SequenceEngine.psm1`** calls `Set-PerfSequenceContext` +
    `Set-PerfGuestContext` once per sequence after `Read-SequenceFile`
-   -- snapshots the YAML body and pins guest identity for the rows
+   -- mints the invocation ID, snapshots the YAML body and pins guest identity for the rows
    that follow.
 3. **`Test.SequenceEngine.psm1`**, inside `$invokeStepBlock`, calls
-   `Write-PerfStepRow` at the end of every non-retry step iteration
+   `Write-PerfStepRow` at the end of every step iteration, including retry wrappers
    -- one atomic `AppendAllText` per step.
 
 Every entry point is defensive: a missing module, missing
@@ -375,16 +429,10 @@ Every entry point is defensive: a missing module, missing
 
 ## Phase plan
 
-- **Phase 1 (current).** Emit rows. Nothing reads them yet. Two weeks
-  of cycles produce baseline data; without it, yellow-tile thresholds
-  have no signal.
-- **Phase 2.** A status-page `perf-summary.html` running DuckDB-WASM
-  queries against `/perf/cycles/*.jsonl` served by
-  `Start-StatusService.ps1`. Read-only summary tables.
-- **Phase 3.** Wire the yellow-tile classifier into `status/index.html`
-  cycle tiles.
-- **Phase 4.** Central collector rsyncs each host's `perf/` into a
-  shared store; cross-host queries become free without code change.
+The emitter and `performance.html` are active. The status service aggregates
+recent cycles and renders invocation timelines; no DuckDB browser runtime is
+required. Statistical regression classification and centralized cross-host
+queries remain future work. JSONL remains the canonical per-step record.
 
 <a id="42185285-000f"></a>
 
@@ -402,6 +450,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.08
+Last review: 2026.09.12
 
 Back to [Yuruna](../README.md)

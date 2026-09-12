@@ -638,8 +638,7 @@ func TestProjectSlugIsProjectScoped(t *testing.T) {
 	}
 }
 
-// --- the Hosts page --------------------------------------------------------
-
+// --- REGION: Hosts page
 // hostsAggStub answers BOTH hops handleHosts makes: the aggregator's pool-status
 // and the registration record each host serves for itself. 42aa's status was
 // readable at poll time and 42bb's was not, which is the case that decides where
@@ -749,7 +748,7 @@ func TestHostsTypeDropsThePrefixAndFallsBackToTheHostsOwnRecord(t *testing.T) {
 	}
 }
 
-// --- the write gate --------------------------------------------------------
+// --- REGION: Write gate
 //
 // The gate's own semantics live in the SDK's labgate suite. What is covered here
 // is which of THIS service's routes sit behind it: every route that rewrites pool
@@ -776,6 +775,7 @@ func TestReadsAreOpenAndPoolConfigWritesAreNot(t *testing.T) {
 		{http.MethodPost, "/api/pool/host"},
 		{http.MethodDelete, "/api/pool/host"},
 		{http.MethodPost, "/api/pool/move-host"},
+		{http.MethodPost, "/api/pool/adopt-rekey"},
 		{http.MethodPost, "/api/pool/testset"},
 		{http.MethodPost, "/api/testset"},
 		{http.MethodDelete, "/api/testset"},
@@ -882,8 +882,7 @@ func TestSessionReportsTheWaysIn(t *testing.T) {
 	}
 }
 
-// --- auto-enrollment sweep --------------------------------------------------
-
+// --- REGION: Auto-enrollment sweep
 func TestSweepOnlyEnrollsReadyUnpooledHosts(t *testing.T) {
 	agg := aggStub(t, `{"hosts":[
         {"hostId":"42aa","control":"ready"},

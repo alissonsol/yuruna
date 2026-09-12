@@ -1826,6 +1826,11 @@
           "id": "42dc5bb9-000f",
           "heading": "Host clock skew reaches the guests",
           "slug": "host-clock-skew-reaches-the-guests"
+        },
+        {
+          "id": "42dc5bb9-0010",
+          "heading": "Host metrics and the commit limit",
+          "slug": "host-metrics-and-the-commit-limit"
         }
       ]
     },
@@ -1977,6 +1982,11 @@
           "id": "42885ada-0010",
           "heading": "macOS guest install: embedded Swift VZMacOSInstaller helper",
           "slug": "macos-guest-install-embedded-swift-vzmacosinstaller-helper"
+        },
+        {
+          "id": "42885ada-0011",
+          "heading": "Why the UTM dialog watchdog is narrowly scoped",
+          "slug": "why-the-utm-dialog-watchdog-is-narrowly-scoped"
         }
       ]
     },
@@ -3012,8 +3022,8 @@
         },
         {
           "id": "4220a755-000c",
-          "heading": "Why the NetworkManager guest gets no seed network-config",
-          "slug": "why-the-networkmanager-guest-gets-no-seed-network-config"
+          "heading": "Why Amazon Linux gets no seed network-config",
+          "slug": "why-amazon-linux-gets-no-seed-network-config"
         },
         {
           "id": "4220a755-000d",
@@ -3918,6 +3928,11 @@
           "slug": "drill-down-incidents--cycle-events"
         },
         {
+          "id": "422226cb-000b",
+          "heading": "Drill-down: host memory",
+          "slug": "drill-down-host-memory"
+        },
+        {
           "id": "422226cb-000a",
           "heading": "See also",
           "slug": "see-also"
@@ -4304,6 +4319,104 @@
       ]
     },
     {
+      "id": "42e220c4",
+      "repo": "yuruna",
+      "source": "docs/source-consistency.md",
+      "translations": {},
+      "anchors": [
+        {
+          "id": "42e220c4-0001",
+          "heading": "Source consistency across hosts and guests",
+          "slug": "source-consistency-across-hosts-and-guests"
+        },
+        {
+          "id": "42e220c4-0002",
+          "heading": "Region conventions",
+          "slug": "region-conventions"
+        },
+        {
+          "id": "42e220c4-0003",
+          "heading": "Image acquisition",
+          "slug": "image-acquisition"
+        },
+        {
+          "id": "42e220c4-0004",
+          "heading": "Host provisioning",
+          "slug": "host-provisioning"
+        },
+        {
+          "id": "42e220c4-0005",
+          "heading": "Guest installers",
+          "slug": "guest-installers"
+        },
+        {
+          "id": "42e220c4-000d",
+          "heading": "Host discovery and package initialization",
+          "slug": "host-discovery-and-package-initialization"
+        },
+        {
+          "id": "42e220c4-000e",
+          "heading": "Installed tools and container networking",
+          "slug": "installed-tools-and-container-networking"
+        },
+        {
+          "id": "42e220c4-000f",
+          "heading": "Service guests",
+          "slug": "service-guests"
+        },
+        {
+          "id": "42e220c4-0006",
+          "heading": "VM configuration",
+          "slug": "vm-configuration"
+        },
+        {
+          "id": "42e220c4-0007",
+          "heading": "Console sequences",
+          "slug": "console-sequences"
+        },
+        {
+          "id": "42e220c4-0008",
+          "heading": "Service lifecycle",
+          "slug": "service-lifecycle"
+        },
+        {
+          "id": "42e220c4-0009",
+          "heading": "Project examples",
+          "slug": "project-examples"
+        },
+        {
+          "id": "42e220c4-0010",
+          "heading": "Image acquisition and build boundaries",
+          "slug": "image-acquisition-and-build-boundaries"
+        },
+        {
+          "id": "42e220c4-0011",
+          "heading": "Sequence parity and readiness",
+          "slug": "sequence-parity-and-readiness"
+        },
+        {
+          "id": "42e220c4-0012",
+          "heading": "Workload configuration boundaries",
+          "slug": "workload-configuration-boundaries"
+        },
+        {
+          "id": "42e220c4-000a",
+          "heading": "Automated checks",
+          "slug": "automated-checks"
+        },
+        {
+          "id": "42e220c4-000b",
+          "heading": "UTM templates",
+          "slug": "utm-templates"
+        },
+        {
+          "id": "42e220c4-000c",
+          "heading": "Windows unattended setup",
+          "slug": "windows-unattended-setup"
+        }
+      ]
+    },
+    {
       "id": "42f5e921",
       "repo": "yuruna",
       "source": "docs/stash-guide.md",
@@ -4479,6 +4592,11 @@
           "id": "42b11c32-0005",
           "heading": "configService -- host mTLS credential service",
           "slug": "configservice----host-mtls-credential-service"
+        },
+        {
+          "id": "42b11c32-0011",
+          "heading": "language -- the lab-wide language lock",
+          "slug": "language----the-lab-wide-language-lock"
         },
         {
           "id": "42b11c32-0006",
@@ -6074,13 +6192,13 @@
         },
         {
           "id": "4286c679-0003",
-          "heading": "1 · Prepare PostgreSQL",
-          "slug": "1--prepare-postgresql"
+          "heading": "1 - Prepare PostgreSQL",
+          "slug": "1---prepare-postgresql"
         },
         {
           "id": "4286c679-0004",
-          "heading": "2 · Run the .NET app",
-          "slug": "2--run-the-net-app"
+          "heading": "2 - Run the .NET app",
+          "slug": "2---run-the-net-app"
         },
         {
           "id": "4286c679-0005",

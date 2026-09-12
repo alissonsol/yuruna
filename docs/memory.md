@@ -12,14 +12,11 @@ Source files stay short -- each large comment block collapses to a
 single line of the form:
 
 ```
-# --- REGION: https://yuruna.link/memory#<topic-slug>
+# --- REGION: https://yuruna.link/42d69dfa-0003
 ```
 
-The fragment resolves to a `### Why <topic>?` heading in this file.
-Slugs follow the GitHub Markdown rule: lowercase the heading text,
-strip everything that isn't `[a-z0-9_ -]`, then replace spaces with
-hyphens. So `### Why we patch virt-install's phase-1 XML on KVM` becomes
-`#why-we-patch-virt-installs-phase-1-xml-on-kvm`.
+The semi-GUID resolves to a `### Why <topic>?` heading in this file and stays
+stable when the heading is reworded or translated.
 
 Siblings of this file: [Yuruna definitions](definition.md) (terminology),
 [vmconfig topic reference](vmconfig.md) (`user-data` topic rationale),
@@ -30,11 +27,12 @@ Adding a new entry:
 
 1. Pick the source comment block.
 2. Add a `### Why <topic>?` heading here with the migrated content.
-3. Replace the source comment with a single
-   `# --- REGION: https://yuruna.link/memory#<slug>` line (or `// --- REGION: ...`
-   for Go, etc.).
-4. The yuruna.link `memory` key already redirects to this file on
-   GitHub -- individual topics need no `yuruna.link.json` edit.
+3. Run `tools/Invoke-DocAnchor.ps1 -Update -Path docs/memory.md` to assign the
+   heading's permanent anchor.
+4. Replace the source comment with a single `# --- REGION:` line using that
+   semi-GUID (or `// --- REGION: ...` for Go, etc.).
+5. The document's existing semi-GUID catalog entry covers every anchored
+   heading, so no `yuruna.link.json` edit is needed for individual topics.
 
 ---
 
@@ -1010,7 +1008,7 @@ protocol itself so runners can push cycle output at it with an ordinary
 `scp`, which means it must own `:22`. Stock Ubuntu already has OpenSSH
 listening there, so one of the two has to go, and the deploy is
 deliberately the LAST step of the bring-up -- everything that needed a
-conventional SSH login has already happened by then, and afterwards
+conventional SSH login has already happened by then, and afterward
 `:22` speaks the stash protocol.
 
 `systemctl disable` does not achieve this. Disabling removes a unit's
@@ -1730,6 +1728,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.08
+Last review: 2026.09.12
 
 Back to [Yuruna](../README.md)

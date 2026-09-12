@@ -26,10 +26,13 @@ Run `ubuntu.server.26.update.sh` first.
 | `n8n` | [n8n](../../docs/guest-image-setup.md#n8n) workflow automation |
 | `openclaw` | [OpenClaw](../../docs/guest-image-setup.md#openclaw): Git, Node.js, OpenClaw AI agent |
 | `postgresql` | [PostgreSQL](../../docs/guest-image-setup.md#postgresql) from PGDG |
-| `k8s` | [k8s](../../docs/kubernetes.md#guest-side-prerequisites): Docker, Kubernetes, Helm, OpenTofu, cloud CLIs |
+| `k8s` | [k8s](../../docs/kubernetes.md#guest-side-prerequisites): Docker, Kubernetes, PowerShell, Helm, OpenTofu, mkcert |
 | `stash-service` | [stash service](../../docs/stash-guide.md): Yuruna distributed storage backend |
 | `download-agent-service` | [download agent](../../docs/download-agent.md): one download for the whole lab |
 | `pool-control-service` | [pool control](../../docs/pool-admin.md): pool control daemon for host-pool assignment |
+
+Cloud CLIs and Graphviz are optional and are not installed by the Ubuntu
+`k8s` workload. Keep them in a separate opt-in installation when needed.
 
 ---
 
@@ -37,6 +40,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.08
+Last review: 2026.09.12
 
 Back to [Yuruna](../../README.md)

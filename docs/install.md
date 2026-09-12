@@ -11,15 +11,15 @@ installers:
 
 The scripts stay deliberately small -- each section here maps to a
 `# --- REGION: Section name` divider in the script body. The single
-`# --- REGION: https://yuruna.link/install/explained` line near the top of
+`# --- REGION: https://yuruna.link/429fb30b` line near the top of
 each installer is the operator's entry point to this document; from there,
 navigate to the section matching the divider above the code being studied.
 
-Anchors follow the GitHub Markdown rule: lowercase the heading, strip
-punctuation, replace spaces with hyphens. So `## Section name` becomes
-`#section-name`.
+Permanent anchors use the document key plus a four-hex-digit suffix, such as
+`https://yuruna.link/42xxxxxx-yyyy`. They remain stable when a heading is
+reworded.
 
-The same `# --- REGION: https://yuruna.link/<key>#<slug>` convention is
+The same `# --- REGION: https://yuruna.link/42xxxxxx-yyyy` convention is
 used by [memory.md](memory.md), [definition.md](definition.md),
 [vmconfig.md](vmconfig.md), and [network.md](network.md).
 
@@ -1052,7 +1052,7 @@ PowerShell is the only tool in the Ubuntu floor list whose sources lead
 the archive, and so the only one the installer can raise. git, python3,
 curl, tesseract and qemu-img reach the host through `apt` alone, whose
 ceiling is the archive Candidate: an LTS archive freezes its version
-numbers at release and afterwards carries only backported fixes, so
+numbers at release and afterward carries only backported fixes, so
 `apt-get install` on an already-current package changes nothing and no
 re-run can change more. Their floors are therefore set to what that
 archive ships, per the selection rule recorded in
@@ -1147,6 +1147,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.08
+Last review: 2026.09.12
 
 Back to [Yuruna](../README.md)

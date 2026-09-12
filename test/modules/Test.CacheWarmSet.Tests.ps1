@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 429e84c5-0bc5-487b-b851-b34fccf102c0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -64,13 +64,37 @@ function Get-DiagStringLiteral {
         $n -is [System.Management.Automation.Language.StringConstantExpressionAst]
     }, $true)) | ForEach-Object { $_.Value }
 }
-# Identified by shape rather than by position: the header pattern is the only
-# literal carrying a named capture next to "image set", and the residency
-# pattern the only one anchoring on "resident".
-$script:setHeaderPattern = @(Get-DiagStringLiteral |
-    Where-Object { $_ -like '*image set*' -and $_ -like '*(?<name>*' })[0]
-$script:residentPattern  = @(Get-DiagStringLiteral |
-    Where-Object { $_ -like '^\s*resident*' })[0]
+# The residency reader itself, lifted from the diagnostic so the behavior under
+# test is the shipped one. Dot-sourcing the script would run a whole capture.
+function Get-DiagFunctionText {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+        Justification = 'Name is used inside the FindAll predicate, which the analyzer does not follow.')]
+    param([Parameter(Mandatory)][string]$Name)
+    $found = @((Get-DiagAst).FindAll({ param($n)
+        $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $Name
+    }, $true)) | Select-Object -First 1
+    if (-not $found) { return '' }
+    return $found.Extent.Text
+}
+$script:ResidencyReader = (Get-DiagFunctionText -Name 'Get-PrometheusReading') + "`n" +
+    (Get-DiagFunctionText -Name 'Get-PrometheusValue') + "`n" +
+    (Get-DiagFunctionText -Name 'Get-RegistryResidencyShortfall')
+
+# Drives the shipped reader over a published document.
+function Get-ResidencyShortfall {
+    param([string]$MetricText)
+    $run = [scriptblock]::Create($script:ResidencyReader + @'
+
+@(Get-RegistryResidencyShortfall -Reading (Get-PrometheusReading -Text $args[0]))
+'@)
+    # The shipped reader already returns an array; @() flattens the scriptblock's
+    # output back to it without adding a second wrapper.
+    return @(& $run $MetricText)
+}
+
+# The metric names the diagnostic depends on, taken from the reader itself.
+$script:ReadMetricName = @([regex]::Matches($script:ResidencyReader, "'(?<m>yuruna_[a-z_]+)'") |
+    ForEach-Object { $_.Groups['m'].Value } | Sort-Object -Unique)
 
 # The published lines, taken from the seed that writes them. Shell expansions
 # are replaced with representative values so the result is what a guest reads.
@@ -90,27 +114,6 @@ function Get-SeedEchoLine {
         ForEach-Object { Expand-SeedEcho $_ })
 }
 
-# Reproduces the scan in Get-SystemDiagnostic.ps1 using ITS patterns, so a
-# pattern edit is exercised here even though the loop itself sits in a script
-# body that cannot be invoked without running a full capture.
-function Get-ResidencyShortfall {
-    param([string]$PageText)
-    $found = @()
-    $set = $null
-    foreach ($line in ($PageText -split "`r?`n")) {
-        if ($line -match $script:setHeaderPattern) {
-            $set = @{ Name = $Matches['name']; Version = $Matches['ver'] }
-        } elseif ($set -and $line -match $script:residentPattern) {
-            $held = [int]$Matches[1]; $total = [int]$Matches[2]
-            if ($total -gt 0 -and $held -lt $total) {
-                $found += @{ Name = $set.Name; Held = $held; Total = $total }
-            }
-            $set = $null
-        }
-    }
-    return , $found
-}
-
 $script:warmPage = @"
 yuruna caching-proxy health -- 2026-08-14T17:15:45Z
 
@@ -128,46 +131,70 @@ Docker Hub budget            : 100 of 100 left
 
 $script:coldPage = $script:warmPage -replace 'resident                 : 7 of 7', `
     'resident                 : 3 of 7   <-- a kubeadm init pays 4 cold sync(s)'
+# The machine document the classification reads. Same readings as the page.
+$script:warmMetrics = @'
+# HELP yuruna_prewarm_state_available 1 if a warm run has recorded residency
+# TYPE yuruna_prewarm_state_available gauge
+yuruna_prewarm_state_available 1
+yuruna_prewarm_images_total{set="k8s"} 7
+yuruna_prewarm_images_resident{set="k8s"} 7
+yuruna_prewarm_images_total{set="cni"} 2
+yuruna_prewarm_images_resident{set="cni"} 2
+'@
+$script:coldMetrics = $script:warmMetrics -replace 'yuruna_prewarm_images_resident\{set="k8s"\} 7',
+    'yuruna_prewarm_images_resident{set="k8s"} 3'
+# The state a cache is in before its first warm run: totals published, counts
+# absent rather than zero.
+$script:unwarmedMetrics = $script:warmMetrics -replace 'yuruna_prewarm_state_available 1',
+    'yuruna_prewarm_state_available 0'
+
 }
 
 Describe 'The published residency lines are the ones the diagnostic reads' {
-    It 'extracts a residency pattern and a set-header pattern from the diagnostic' {
-        $script:setHeaderPattern | Should -Not -BeNullOrEmpty
-        $script:residentPattern  | Should -Not -BeNullOrEmpty
+    It 'lifts the shipped residency reader rather than restating it' {
+        $script:ResidencyReader | Should -Not -BeNullOrEmpty
+        $script:ResidencyReader | Should -Match 'function Get-RegistryResidencyShortfall'
     }
-    It 'matches every "<name> image set (...)" header the seed publishes' {
-        $headers = Get-SeedEchoLine -Like '*image set (*'
-        $headers.Count | Should -BeGreaterOrEqual 2
-        foreach ($h in $headers) { $h | Should -Match $script:setHeaderPattern }
+    It 'reads only metrics the cache actually publishes' {
+        # The writer/reader agreement this suite exists for, now expressed
+        # against the machine document: every reading the diagnostic depends on
+        # has to be a series the seed emits, or the classification is asking
+        # for something nobody writes and will always find nothing.
+        $script:ReadMetricName.Count | Should -BeGreaterOrEqual 3
+        foreach ($metric in $script:ReadMetricName) {
+            $script:seedText | Should -Match ([regex]::Escape($metric))
+        }
     }
-    It 'matches every "resident : N of M" line the seed publishes' {
-        $rows = Get-SeedEchoLine -Like '*resident *: *'
-        $rows.Count | Should -BeGreaterOrEqual 2
-        foreach ($r in $rows) { $r | Should -Match $script:residentPattern }
+    It 'classifies nothing from the health page' {
+        # The page is written for a person during an incident. Its wording is
+        # free to change and to be translated, so a check that recognized a
+        # sentence there would go quiet on the day someone improved it.
+        $diagText = Get-Content -LiteralPath $diagPath -Raw
+        $diagText | Should -Not -Match '\$healthText\s+-c?match'
     }
-    It 'does not read the no-warm-run line as a set header' {
-        # That line names no version, so treating it as a header would leave the
-        # scan waiting for a count that never comes.
-        'Warm sets                    : no warm run has recorded residency yet.' |
-            Should -Not -Match $script:setHeaderPattern
+    It 'reports nothing before the first warm run, when counts are absent not zero' {
+        # The exporter says so itself: with state_available 0 the counts below
+        # are absent. Reading them anyway reports a cache that has merely not
+        # warmed yet as one missing every image a guest needs.
+        (Get-ResidencyShortfall -MetricText $script:unwarmedMetrics).Count | Should -Be 0
     }
 }
 
 Describe 'A shortfall reaches the problems summary and a warm cache does not' {
     It 'reports nothing while every set is held' {
-        (Get-ResidencyShortfall -PageText $script:warmPage).Count | Should -Be 0
+        (Get-ResidencyShortfall -MetricText $script:warmMetrics).Count | Should -Be 0
     }
     It 'reports the short set only, naming the count a guest would pay for' {
-        $s = Get-ResidencyShortfall -PageText $script:coldPage
-        $s.Count | Should -Be 1
-        $s[0].Name  | Should -Be 'Kubernetes'
-        $s[0].Held  | Should -Be 3
-        $s[0].Total | Should -Be 7
+        $found = Get-ResidencyShortfall -MetricText $script:coldMetrics
+        $found.Count | Should -Be 1
+        $found[0].Set   | Should -Be 'k8s'
+        $found[0].Held  | Should -Be 3
+        $found[0].Total | Should -Be 7
     }
     It 'keeps reading later sets after a short one' {
-        $both = $script:coldPage -replace 'resident                 : 2 of 2', `
-            'resident                 : 0 of 2'
-        (Get-ResidencyShortfall -PageText $both).Count | Should -Be 2
+        $both = $script:coldMetrics -replace 'yuruna_prewarm_images_resident\{set="cni"\} 2',
+            'yuruna_prewarm_images_resident{set="cni"} 0'
+        (Get-ResidencyShortfall -MetricText $both).Count | Should -Be 2
     }
 }
 
@@ -180,13 +207,16 @@ Describe 'The health page is decoded rather than cast' {
         $diagText = Get-Content -LiteralPath $diagPath -Raw
         $diagText | Should -Match '\[System\.Text\.Encoding\]::UTF8\.GetString\(\$healthResp\.Content\)'
     }
-    It 'a bare cast would have produced digits, which no pattern here matches' {
+    It 'a bare cast would have produced digits, which no reading survives' {
         # Pins why the branch exists: the failure mode is a readable-looking
-        # page of numbers, not an error.
-        $bytes = [System.Text.Encoding]::UTF8.GetBytes($script:coldPage)
+        # document of numbers, not an error. The metric document decodes the
+        # same way the page does, and a cast instead of a decode leaves the
+        # classification silent on a cache that has something to report.
+        $bytes = [System.Text.Encoding]::UTF8.GetBytes($script:coldMetrics)
         $naive = [string]$bytes
-        (Get-ResidencyShortfall -PageText $naive).Count | Should -Be 0
-        [System.Text.Encoding]::UTF8.GetString($bytes) | Should -Be $script:coldPage
+        (Get-ResidencyShortfall -MetricText $naive).Count | Should -Be 0
+        (Get-ResidencyShortfall -MetricText ([System.Text.Encoding]::UTF8.GetString($bytes))).Count |
+            Should -Be 1
     }
 }
 

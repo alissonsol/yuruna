@@ -6,7 +6,7 @@
     "definitions": {
       "path": "docs/definition.md",
       "hashAlgorithm": "sha256-file-bytes-v1",
-      "sha256": "81c9a336b0e4e4b46f966abb6689c27d9b1b91b4463525c140be5516a7d87518"
+      "sha256": "3651e6c0e5e73c843bce2ec9e2acdbd627815547ab2b17f420c885c681ea65ef"
     },
     "retiredNames": {
       "path": "tools/githooks/pre-commit",
@@ -20,18 +20,26 @@
   "approvals": {
     "translator": {
       "status": "approved",
-      "approvedBy": "A Sol",
-      "approvedAt": "2026-09-08",
+      "approvedBy": "Alisson Sol",
+      "approvedAt": "2026-09-12",
       "evidence": {
-        "releaseVersion": "2026.09.07"
+        "releaseVersion": "2026.09.12",
+        "approvedContent": {
+          "algorithm": "sha256-canonical-approvable-v1",
+          "sha256": "c5b64ba057c05aee02c1270990222e6213cb3ebedc1b1139b769fbd07e2d17ad"
+        }
       }
     },
     "independentReviewer": {
       "status": "approved",
-      "approvedBy": "Alisson Sol",
-      "approvedAt": "2026-09-08",
+      "approvedBy": "Denise Sol",
+      "approvedAt": "2026-09-12",
       "evidence": {
-        "releaseVersion": "2026.09.07"
+        "releaseVersion": "2026.09.12",
+        "approvedContent": {
+          "algorithm": "sha256-canonical-approvable-v1",
+          "sha256": "c5b64ba057c05aee02c1270990222e6213cb3ebedc1b1139b769fbd07e2d17ad"
+        }
       }
     }
   },

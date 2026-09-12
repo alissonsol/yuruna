@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 4242f187-1ce6-46a5-a5a4-7c2435ed1ac1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -65,14 +65,9 @@ param(
     [string]$SquidCacheMem = '7 GB'
 )
 
-# Honor logLevel from Start-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
-# Load only when absent, never -Force. Start-CachingProxyServiceVM.ps1 runs this
-# script IN-PROCESS, so a forced re-import from here tears down and rebuilds the
-# module instance its caller is already using, taking whatever that instance keeps
-# in module scope with it and narrating a dozen import lines into the run's
-# transcript at Verbose (feedback_module_force_import_evicts_global). Tradeoff: an
-# edit to the module mid-session is not picked up here, which is acceptable for a
-# leaf script that only reads the level.
+# --- REGION: Log level from environment
+# See https://yuruna.link/42e220c4-0003
+# Reuse the caller's log module; a forced reload discards its state.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
 if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
     Import-Module $_logLevelMod -Global
@@ -147,7 +142,7 @@ if ($existingVM) {
     Write-Output "VM '$VMName' deleted."
 }
 
-# --- REGION: Per-VM directory + disk
+# --- REGION: Create copies and files for VM
 $vmDir = Join-Path $downloadDir $VMName
 if (-not (Test-Path -Path $vmDir)) {
     New-Item -ItemType Directory -Path $vmDir -Force | Out-Null
@@ -159,12 +154,8 @@ Write-Output "Creating VHDX for '$VMName' by copying base image..."
 Copy-Item -Path $baseImageFile -Destination $vhdxFile -Force
 
 # --- REGION: Grow the per-VM disk to 512 GB
-# Dynamic VHDX, so 512 GB is the nominal size only -- the file grows as the
-# guest writes. Sized for squid's `cache_dir ufs /var/spool/squid 393216`
-# (= 384 GB) + ~128 GB OS/logs/headroom, and the `maximum_object_size 65 GB`
-# directive in host/vmconfig/caching-proxy-service.base.user-data that lets
-# the proxy cache multi-GB blobs end-to-end instead of bypassing them.
-# An undersized cache disk fills after the first prewarm, so this is fatal.
+# See https://yuruna.link/42e220c4-0004
+# The dynamic 512 GiB disk must fit Squid's 384 GiB cache plus OS, logs, and headroom.
 if (-not (Expand-ExtensionVmDisk -Path $vhdxFile -SizeBytes 512GB -Format 'vhdx')) {
     Write-Error "Could not resize '$vhdxFile' to 512 GB; refusing to build the cache VM on base-capacity disk."
     exit 1
@@ -187,17 +178,16 @@ Copy-Item -Path (Join-Path $hostVmConfigDir 'caching-proxy-service.meta-data') -
 Copy-Item -Path (Join-Path $hostVmConfigDir 'guest-dhcp.network-config') -Destination "$SeedDir/network-config"
 
 # --- REGION: Yuruna harness SSH key
-# Load the yuruna test-harness SSH public key -- same module the Ubuntu
-# Desktop guest uses; one keypair grants passwordless access to every VM
-# (including this cache VM, for debugging squid/cloud-init).
+# See https://yuruna.link/42e220c4-0004
+# Seed the shared harness key so guest provisioning and failure diagnostics agree.
 $TestSshModule = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) "test/modules/Test.Ssh.psm1"
 Import-Module $TestSshModule -Force
 Import-Module (Join-Path $PSScriptRoot '../../../automation/Yuruna.Common.psm1') -Force -DisableNameChecking
 $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
-# --- REGION: Cache-VM admin password
-# --- REGION: https://yuruna.link/42f6b05f-0041
+# --- REGION: Vault admin password
+# See https://yuruna.link/42f6b05f-0041
 # The runtime state file <track>/yuruna-caching-proxy-service.yml is the source of
 # truth; Set-Password rehydrates the vault from it before Get-Password.
 $_repoRootForExt = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
@@ -214,26 +204,15 @@ Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentica
 # Resolve the file path once for the Write-Output lines below.
 $PasswordFile = Get-CachingProxyServiceStatePath
 
-# --- REGION: Pick a vSwitch (BEFORE building user-data)
-# Prefer the Yuruna External vSwitch (bridged to the host's primary physical
-# NIC) so the cache VM gets a real LAN IP via DHCP and remote LAN clients
-# reach it directly. Fall back to the built-in Default Switch when no External
-# vSwitch can be created. Resolved here (not just before VM-create) because
-# Get-GuestReachableHostIp below derives the seed's host IP from the switch
-# topology (Default Switch = 172.x gateway; External = host LAN IP).
+# --- REGION: Select the guest network
+# See https://yuruna.link/42e220c4-0004
+# Select the switch before deriving its reachable host address for the seed.
 $switchName = Get-OrCreateYurunaExternalSwitch
 if (-not $switchName) {
     $switchName = 'Default Switch'
     if (-not (Get-VMSwitch -Name $switchName -ErrorAction SilentlyContinue)) {
-        # The Default Switch ships only with Windows client SKUs and an
-        # operator can delete it. New-VM throws on a switch name that
-        # resolves to nothing, so an unchecked fallback turns a degraded
-        # network into a failed provision; any switch that exists still
-        # creates and boots the VM. Rank non-External switches first: this
-        # path is normally reached because the host uplink is one Hyper-V
-        # refuses to carry a bridged guest MAC over, so a guest attached to
-        # an External switch there comes up with no carrier at all, while an
-        # Internal/NAT switch still gives it a working address.
+        # --- REGION: https://yuruna.link/42e220c4-0004
+        # Verify the fallback exists; prefer non-External switches when bridging is unavailable.
         $substituteSwitch = @(Get-VMSwitch -ErrorAction SilentlyContinue) |
             Sort-Object @{ Expression = { $_.SwitchType -eq 'External' } }, Name |
             Select-Object -First 1
@@ -255,8 +234,8 @@ $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $_repoRootForExt
 $YurunaHostPort = $_statusSeed.Port
 $tc = $_statusSeed.Config
 
-# --- REGION: networkStorage pool (ypool-nas) service replication
-# --- REGION: https://yuruna.link/42f6b05f-0042
+# --- REGION: Pool storage replication
+# See https://yuruna.link/42f6b05f-0042
 # Bake the networkUser credential name, share path, and host id, resolved
 # here on the host (networkStorage pool config + vault).
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.PoolStorage.psm1') -Force
@@ -278,8 +257,8 @@ if (($ypoolNasNetPath -match "'") -or ($ypoolNasUser -match "'")) {
 # is NOT baked -- the config service serves it at runtime (/v1/nas/pool).
 $ypoolNasReplicate = if ($ypoolNasCfg -and $ypoolNasUser -and $ypoolNasNetPath) { 'true' } else { 'false' }
 
-# --- REGION: Internal authentication key (control proofs + push-ingest + lab-token exchange)
-# --- REGION: https://yuruna.link/42f6b05f-0042
+# --- REGION: Internal authentication key
+# See https://yuruna.link/42f6b05f-0042
 # Empty vaultKey means the token is unset: do NOT call Get-Password then (it
 # would auto-generate a junk per-host key). 'internal-auth-key' first, then the
 # legacy 'lab-auth-token' and 'pool-auth-token' names, so a host enrolled under
@@ -333,19 +312,8 @@ if ([string]::IsNullOrEmpty($internalAuthKey) -and -not $keyReadFailed) {
 }
 
 # --- REGION: Docker Hub pull-through credential
-# zot's sync walks its upstream list in file order, and Docker Hub is the
-# trailing catch-all, so every repository no scoped upstream claims is fetched
-# from Hub. Hub meters an anonymous sync against the egress IP -- one allowance
-# every guest behind this cache draws from at once -- and once it is gone zot's
-# revalidation stalls past the ~30s dockerd waits for response headers, which
-# fails the pull. An authenticated sync draws on the account's own budget,
-# which the lab holds alone.
-#
-# Both halves stay EMPTY unless the operator stored a real credential -- the
-# guest reads empty as "stay anonymous". Get-Password mints a value for a
-# missing entry and a minted secret authenticates as nobody, breaking every
-# sync, so only an entry Test-VaultEntry confirmed may reach it; a read that
-# THREW is likewise not a vault with no entry.
+# See https://yuruna.link/42e220c4-0004
+# Only use stored Docker Hub credentials; a generated password cannot authenticate.
 $dockerHubUsername = ''
 $dockerHubToken    = ''
 $dockerHubWarned   = $false
@@ -391,7 +359,7 @@ if ((-not $dockerHubUsername) -or (-not $dockerHubToken)) {
 }
 
 # --- REGION: Config service mTLS materials
-# --- REGION: https://yuruna.link/42f6b05f-0042
+# See https://yuruna.link/42f6b05f-0042
 # Mint a per-VM client leaf signed by THIS host's Config CA; PEMs are baked
 # base64 so they survive the cloud-init write_files block scalar.
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.ConfigServiceCA.psm1') -Force
@@ -470,7 +438,7 @@ Write-Output "  and log in with the credentials above to inspect cloud-init stat
 Write-Output ""
 
 # --- REGION: Create and configure the Hyper-V VM
-# --- REGION: https://yuruna.link/42f6b05f-0040
+# See https://yuruna.link/42f6b05f-0040
 # RAM comes from the caller, paired with squid's cache_mem by
 # Get-CachingProxyMemoryProfile -- the two are budgeted against each other
 # and swap is masked, so undersizing is an unrecoverable OOM. The default
@@ -496,7 +464,7 @@ Set-VM -Name $VMName -MemoryStartupBytes ($MemoryMb * 1MB) -MemoryMinimumBytes (
 Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
 Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
 
-# --- REGION: docs/host-hyperv.md#arm64-hosts-the-heartbeat-channel-wedges-a-linux-guest
+# --- REGION: https://yuruna.link/42dc5bb9-0005
 # No-op on AMD64. On ARM64 the heartbeat channel drives a Linux guest into
 # repeated soft lockups before hv_storvsc registers, so the root disk never
 # enumerates and the guest never reaches squid at all. Set before the DVD is
@@ -512,9 +480,10 @@ if ($hostCores -lt 4) {
     exit 1
 }
 $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
+$vmCores = Limit-HyperVLinuxGuestCoreCount -RequestedCores $vmCores
 Set-VMProcessor -VMName $VMName -Count $vmCores | Out-Null
 
-# --- REGION: Cleanup temporary folders
+# --- REGION: Clean up temporary files
 Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- REGION: Start VM and wait for squid
@@ -525,15 +494,8 @@ Write-Output "Waiting for VM to obtain an IP address..."
 Write-Output "  (first boot runs cloud-init: apt update + install squid + hyperv-daemons;"
 Write-Output "   this can take 5-15 minutes on a slow connection -- be patient)"
 
-# Discover the cache VM's IP via Get-CacheVmCandidateIp (Yuruna.Host.psm1,
-# KVP+ARP). Same primitive called by consumers (ubuntu guests) and
-# Start-CachingProxyServiceVM.ps1's summary, so producer and consumers never see
-# different answers about which IPs belong to this VM.
-#
-# No :3128 probe in this loop -- squid isn't listening yet (cloud-init is
-# what we're waiting for). A later loop ("Waiting for squid to listen on
-# port 3128") takes $cacheCandidateIps and tiebreaks stale vs live ARP
-# entries by picking whichever answers squid.
+# --- REGION: https://yuruna.link/42e220c4-0004
+# Discover address candidates first; the later Squid probe identifies the serving address.
 $cacheIp = $null
 $cacheCandidateIps = @()
 $vmDiscoveryLogged = $false
@@ -577,15 +539,8 @@ for ($i = 0; $i -lt $maxIterations; $i++) {
     # first few iterations normally return an empty candidate list.
     $vm = Get-VM -Name $VMName -ErrorAction SilentlyContinue
     if ($vm) {
-        # On a bridged External vSwitch the host is no longer the DHCP server so
-        # the cache VM's lease never lands in the host's ARP cache
-        # passively. KVP would eventually populate IPAddresses but only
-        # after cloud-init's runcmd starts hv_kvp_daemon -- that's 5-15
-        # minutes of "not discovered yet" while the VM is fine. Active-
-        # probe the subnet (parallel ICMP sweep, ~5s) to ARP-resolve
-        # every host on the LAN; the cache VM appears in
-        # Get-NetNeighbor on the next iteration. Default-Switch path
-        # doesn't need this -- Hyper-V's NAT populates ARP at DHCP time.
+        # --- REGION: https://yuruna.link/42e220c4-0004
+        # Refresh neighbors on bridged networks while KVP is still unavailable.
         if ($i -eq 0) {
             $cacheVmOnExternalSwitch = $switchIsExternal -and
                 (($vm | Get-VMNetworkAdapter -ErrorAction SilentlyContinue |

@@ -47,7 +47,7 @@ func main() {
 	log.SetFlags(log.LstdFlags | log.LUTC | log.Lmicroseconds)
 
 	if *shareFolder == "" {
-		log.Fatalf("--share-folder is required (the daemon writes to the mounted stash share; see https://yuruna.link/stash-guide)")
+		log.Fatalf("--share-folder is required (the daemon writes to the mounted stash share; see https://yuruna.link/42f5e921)")
 	}
 	log.Printf("stash-service starting; share=%s metadata=%s buffer=%s", *shareFolder, *metadataDir, *bufferDir)
 

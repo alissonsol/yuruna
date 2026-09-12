@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 426b5e54-fbb6-4398-849c-4e49eda31278
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -111,7 +111,6 @@ if ($Port -le 0) {
 }
 
 # --- REGION: Shared helpers (used by the -Serve loop)
-
 # Resolve the JSON payload for a NAS name, or $null when not configured. Reads
 # test.config.yml + the vault FRESH each call so a rotated password / changed
 # share is picked up live. Never mints a junk password: when the networkUser has
@@ -301,7 +300,6 @@ if ($Serve) {
 }
 
 # --- REGION: Launcher
-
 # Non-blocking TCP connect probe (used for both skip-if-healthy and readiness).
 function Test-YurunaConfigPortAccepting {
     [CmdletBinding()]

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42b8932c-aa15-4760-a06d-b3037804847c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -116,7 +116,6 @@ function Select-RunnableGuestList {
 }
 
 # --- REGION: I/O readers (best-effort; $null on any miss so the caller degrades)
-
 # Read-YurunaPoolManifest reads runtime/pool.manifest.json (written by the outer
 # loop's Sync-YurunaPoolIntent). $null when absent/unparseable (the inner then
 # runs single-host).
@@ -197,7 +196,6 @@ function Read-YurunaTestSetManifest {
 }
 
 # --- REGION: Orchestrator
-
 # Resolve-PoolCyclePlan builds the cycle plan for a pooled host from its pool
 # manifest: iterate the assigned test-sets (ordered by `order`), resolve each into
 # plan entries, drop the guests this host can't run, and concatenate

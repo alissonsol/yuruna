@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42b8bc4c-f5b0-463b-9fd9-76f8a65ee16f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -93,6 +93,27 @@ function Get-DistinctLineSet {
 # discarded before any It runs, so an in-Describe $script:exportStmt would reach the
 # guard as $null.
 $script:exportStmt = [regex]::Match((Get-Content -Raw (Join-Path $here 'Test.SequenceEngine.psm1')), '(?s)Export-ModuleMember.*').Value
+
+# Drives Wait-ForText against scripted frames, at FILE scope for the discovery-
+# scope reason noted above: a function defined in a Describe body is discarded
+# before any It runs.
+function Invoke-GatedWait {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Test helper: drives the function under test against scripted frames.')]
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([string]$ScreenDir, [string[]]$Frames, [string[]]$Pattern, [bool]$Since,
+          [bool]$Fresh = $false, [string[]]$FailurePattern = @(), [int]$TimeoutSeconds = 4)
+    $null = & (Get-Module Test.SequenceEngine) { param($d, $f) Reset-TextProbeState -ScreenDir $d -Frames $f } $ScreenDir $Frames
+    # Each call is a standalone wait, not a continuation of the previous one, so
+    # it must read its own first frame. Invoke-Sequence clears the same slot for
+    # the same reason; without this, one example's matched screen would silently
+    # become the next example's baseline and suppress the very line it asserts on.
+    Clear-CarriedConsoleBaseline
+    return [bool](Wait-ForText -VMName 'vm-01' -Pattern $Pattern -TimeoutSeconds $TimeoutSeconds -PollSeconds 1 `
+        -SinceStepStart:$Since -FreshMatch:$Fresh -FailurePattern $FailurePattern `
+        -WarningAction SilentlyContinue -InformationAction SilentlyContinue)
+}
 
 # @() at each call mirrors how Invoke-Sequence consumes the result -- PowerShell
 # unwraps a one-element return, so callers wrap to keep array semantics.
@@ -383,7 +404,7 @@ Describe 'Module export surface' {
     }
     It 'still exports the core dispatch surface and pure helpers' {
         $exported = (Get-Module Test.SequenceEngine).ExportedFunctions.Keys
-        foreach ($fn in 'Invoke-Sequence', 'Invoke-SequenceByName', 'Wait-ForText', 'Select-SequenceStepWindow', 'Get-OcrDegradationGrace', 'Get-ConsoleFloodVerdict', 'Get-ConsoleTextSignature', 'Get-LastWaitVerdict', 'Wait-ForConsoleChange', 'Get-LastConsoleChangeVerdict') {
+        foreach ($fn in 'Invoke-Sequence', 'Invoke-SequenceByName', 'Wait-ForText', 'Select-SequenceStepWindow', 'Get-OcrDegradationGrace', 'Get-ConsoleFloodVerdict', 'Get-ConsoleTextSignature', 'Get-ConsoleLineSignature', 'Select-ConsoleTextSinceBaseline', 'Get-LastWaitVerdict', 'Wait-ForConsoleChange', 'Get-LastConsoleChangeVerdict') {
             Assert-True ($exported -contains $fn) "expected export missing: $fn"
         }
     }
@@ -488,5 +509,225 @@ Describe 'Wait-ForConsoleChange separates a still console from an unreadable one
         $name = [System.IO.Path]::GetFileName($script:probe.OutFiles[0])
         Assert-True ($name.Length -le 16) "probe file name '$name' must stay short; every character here comes off the path budget"
         Assert-True ($name -notmatch 'test-guest') 'the per-VM directory already names the guest; repeating it only lengthens the path'
+    }
+}
+
+Describe 'Get-ConsoleLineSignature' {
+    It 'yields one signature per non-empty line, in screen order' {
+        $s = @(Get-ConsoleLineSignature -Text "first line`n`n  second  line  `n")
+        Assert-Equal -Expected 2 -Actual $s.Count -Because 'blank lines carry no evidence'
+        Assert-Equal -Expected 'first line' -Actual $s[0] -Because 'screen order is preserved'
+        Assert-Equal -Expected 'second line' -Actual $s[1] -Because 'runs of whitespace collapse'
+    }
+    It 'gives an untouched line the same signature when OCR re-reads it with different spacing' {
+        $a = @(Get-ConsoleLineSignature -Text 'Current password:')
+        $b = @(Get-ConsoleLineSignature -Text '  Current    password:  ')
+        Assert-Equal -Expected $a[0] -Actual $b[0] -Because 'monospace OCR inserts spurious spaces into a line the guest never touched'
+    }
+    It 'returns an empty array for empty or whitespace-only text' {
+        Assert-Equal -Expected 0 -Actual @(Get-ConsoleLineSignature -Text '').Count -Because 'empty'
+        Assert-Equal -Expected 0 -Actual @(Get-ConsoleLineSignature -Text "   `n  ").Count -Because 'whitespace only'
+    }
+}
+
+Describe 'Select-ConsoleTextSinceBaseline' {
+    BeforeAll {
+        $script:baseFrame = @(
+            'You are required to change your password immediately (administrator enforced)'
+            'Changing password for testuser.'
+            'Current password:'
+        ) -join "`n"
+        $script:baseSig = [string[]]@(Get-ConsoleLineSignature -Text $script:baseFrame)
+    }
+    It 'keeps only the line the guest printed after the baseline was taken' {
+        $out = Select-ConsoleTextSinceBaseline -Text ($script:baseFrame + "`nNew password:") -BaselineSignature $script:baseSig
+        Assert-Equal -Expected 'New password:' -Actual $out -Because 'everything else was already on screen'
+    }
+    It 'drops a baseline line that OCR re-read with different spacing' {
+        $jittered = (($script:baseFrame -split "`n") | ForEach-Object { $_ -replace ' ', '  ' }) -join "`n"
+        Assert-Equal -Expected '' -Actual (Select-ConsoleTextSinceBaseline -Text $jittered -BaselineSignature $script:baseSig) `
+            -Because 'raw equality would call an unchanged screen new on the second poll'
+    }
+    It 'joins survivors with newlines so a match stays anchored to one real line' {
+        $out = Select-ConsoleTextSinceBaseline -Text ($script:baseFrame + "`nNew" + "`npassword:") -BaselineSignature $script:baseSig
+        Assert-Equal -Expected "New`npassword:" -Actual $out `
+            -Because 'a space join would splice text printed at opposite ends of the screen into one line the matcher reads as a phrase'
+    }
+    It 'keeps the whole capture when the baseline is empty' {
+        $out = Select-ConsoleTextSinceBaseline -Text "alpha`nbeta" -BaselineSignature ([string[]]@())
+        Assert-Equal -Expected "alpha`nbeta" -Actual $out -Because 'an unreadable first frame must degrade to an ordinary wait, not to one that can never match'
+    }
+    It 'applies a tail window to the survivors, not to the whole frame' {
+        $out = Select-ConsoleTextSinceBaseline -Text ($script:baseFrame + "`nalpha`nbeta") -BaselineSignature $script:baseSig -TailLines 1
+        Assert-Equal -Expected 'beta' -Actual $out -Because 'the window narrows what survived the baseline'
+    }
+    It 'returns empty for an empty capture' {
+        Assert-Equal -Expected '' -Actual (Select-ConsoleTextSinceBaseline -Text '' -BaselineSignature $script:baseSig) -Because 'no text, no evidence'
+    }
+}
+
+Describe 'Wait-ForText -SinceStepStart ignores what was already on screen' {
+    # The fixture is the shape that makes this necessary: a rotation prompt whose
+    # wording, once normalization folds it, is carried whole by the prompt
+    # standing above it -- "Current password:" supplies every character of a
+    # "...ew password:" pattern, in order and close together. Ungated, the wait
+    # returns true on its first poll against a screen where the prompt it is
+    # waiting for has not been printed -- and the caller then types a secret into
+    # a terminal PAM has not yet switched out of echo.
+    BeforeAll {
+        . (Get-Module Test.SequenceEngine) {
+            function Get-CycleScreenDir {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                    Justification = 'Stub: the signature has to match the real helper so the caller binds.')]
+                [CmdletBinding(SupportsShouldProcess)]
+                param($VMName)
+                $null = $PSCmdlet.ShouldProcess($script:TextProbe.ScreenDir, 'Ensure cycle screen dir exists')
+                return $script:TextProbe.ScreenDir
+            }
+            function Get-VMScreenshot {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                    Justification = 'Stub: the signature has to match the real helper so the caller binds.')]
+                param($VMName, $OutFile, $HostType)
+                Set-Content -LiteralPath $OutFile -Value ('png{0}' -f $script:TextProbe.Poll) -NoNewline
+                return $true
+            }
+            function Test-CombinedOcrMatch {
+                # Scripted frames, one per poll, last one repeating -- but the
+                # MATCH itself is the real Test-OCRMatch over the real fixture
+                # text. A stub that returned a scripted boolean would prove
+                # nothing about the tolerance this gate exists to contain.
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                    Justification = 'Stub: the signature has to match the real helper so the caller binds.')]
+                param($ImagePath, $Pattern, $FreshMatchTailLines)
+                $i = [Math]::Min($script:TextProbe.Poll, $script:TextProbe.Frames.Count - 1)
+                $text = [string]$script:TextProbe.Frames[$i]
+                $script:TextProbe.Poll++
+                $forMatch = if ($FreshMatchTailLines -gt 0 -and $text) {
+                    (($text -split "`n") | Select-Object -Last $FreshMatchTailLines) -join "`n"
+                } else { $text }
+                $matched = $false
+                foreach ($p in $Pattern) { if ($forMatch -and (Test-OCRMatch -Text $forMatch -Pattern $p)) { $matched = $true; break } }
+                return @{ Match = $matched; AnyText = $text; EngineResults = @{} }
+            }
+            function Reset-TextProbeState {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                    Justification = 'Test stub helper: reseeds an in-memory recording bag; no external state.')]
+                param([string]$ScreenDir, [string[]]$Frames)
+                $script:TextProbe = @{ ScreenDir = $ScreenDir; Poll = 0; Frames = $Frames }
+                return $script:TextProbe
+            }
+        }
+
+        $script:alreadyOnScreen = @(
+            'You are required to change your password immediately (administrator enforced)'
+            'Changing password for testuser.'
+            'Current password:'
+        ) -join "`n"
+        $script:promptPrinted = $script:alreadyOnScreen + "`nNew password:"
+    }
+
+    BeforeEach {
+        $script:textDir = Join-Path ([System.IO.Path]::GetTempPath()) ("yuruna-wft-{0}-{1}" -f $PID, [guid]::NewGuid().ToString('N').Substring(0, 8))
+        New-Item -ItemType Directory -Path $script:textDir -Force | Out-Null
+    }
+
+    AfterEach {
+        Remove-Item -LiteralPath $script:textDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'exposes the parameter as a bool the sequence handler can splat' {
+        $p = (Get-Command Wait-ForText).Parameters
+        Assert-True ($p.ContainsKey('SinceStepStart')) 'Wait-ForText must accept the step-start gate'
+        Assert-Equal -Expected 'Boolean' -Actual $p['SinceStepStart'].ParameterType.Name -Because 'the sequence schema carries a boolean'
+    }
+
+    It 'ungated, prose already on screen satisfies the prompt pattern (the behavior the gate exists to stop)' {
+        Assert-True (Invoke-GatedWait -ScreenDir $script:textDir -Frames @($script:alreadyOnScreen) -Pattern @('ew password:') -Since $false) `
+            'the tolerant matcher finds the pattern in the banner, on a screen where the prompt was never printed'
+    }
+
+    It 'gated, the same screen never satisfies the wait and it times out normally' {
+        Assert-False (Invoke-GatedWait -ScreenDir $script:textDir -Frames @($script:alreadyOnScreen) -Pattern @('ew password:') -Since $true) `
+            'nothing was printed after the step began, so there is no evidence to match'
+    }
+
+    It 'gated, matches as soon as the guest prints the prompt on a new line' {
+        Assert-True (Invoke-GatedWait -ScreenDir $script:textDir -Frames @($script:alreadyOnScreen, $script:promptPrinted) -Pattern @('ew password:') -Since $true) `
+            'a line absent from the baseline is exactly what the wait is for'
+    }
+
+    It 'gated, matches a prompt that arrived before its own first frame when the previous wait handed on a baseline' {
+        # The console answers faster than the poll interval: PAM prints the next
+        # prompt within milliseconds of the keystroke that earned it, so by the
+        # time this wait takes its first frame the prompt is already sitting
+        # there. Reading the baseline off that frame buries the prompt in it,
+        # and since a guest prints each prompt exactly once the wait can then
+        # only time out. Seeded from what the PREVIOUS wait matched, the prompt
+        # is new and the wait returns.
+        $null = & (Get-Module Test.SequenceEngine) { param($d, $f) Reset-TextProbeState -ScreenDir $d -Frames $f } `
+            $script:textDir @($script:alreadyOnScreen)
+        Clear-CarriedConsoleBaseline
+        Assert-True ([bool](Wait-ForText -VMName 'vm-01' -Pattern @('urrent password:') -TimeoutSeconds 4 -PollSeconds 1 `
+            -WarningAction SilentlyContinue -InformationAction SilentlyContinue)) `
+            'the first wait matches and hands its screen on'
+
+        # No Clear between the two: this is the continuation the carry exists for.
+        $null = & (Get-Module Test.SequenceEngine) { param($d, $f) Reset-TextProbeState -ScreenDir $d -Frames $f } `
+            $script:textDir @($script:promptPrinted)
+        Assert-True ([bool](Wait-ForText -VMName 'vm-01' -Pattern @('ew password:') -TimeoutSeconds 4 -PollSeconds 1 `
+            -SinceStepStart:$true -WarningAction SilentlyContinue -InformationAction SilentlyContinue)) `
+            'the prompt is absent from the handed-on screen, so it is new evidence even though it is on this wait''s first frame'
+    }
+
+    It 'gated, a baseline is handed on at most once, so a later wait is not seeded by a stale screen' {
+        $null = & (Get-Module Test.SequenceEngine) { param($d, $f) Reset-TextProbeState -ScreenDir $d -Frames $f } `
+            $script:textDir @($script:alreadyOnScreen)
+        Clear-CarriedConsoleBaseline
+        $null = Wait-ForText -VMName 'vm-01' -Pattern @('urrent password:') -TimeoutSeconds 4 -PollSeconds 1 `
+            -WarningAction SilentlyContinue -InformationAction SilentlyContinue
+        Assert-True ($null -ne (Get-CarriedConsoleBaseline -VMName 'vm-01')) 'the match recorded a baseline'
+        Assert-True ($null -eq (Get-CarriedConsoleBaseline -VMName 'vm-01')) 'reading it consumed it'
+    }
+
+    It 'gated, a baseline is never handed to a different guest' {
+        $null = & (Get-Module Test.SequenceEngine) { param($d, $f) Reset-TextProbeState -ScreenDir $d -Frames $f } `
+            $script:textDir @($script:alreadyOnScreen)
+        Clear-CarriedConsoleBaseline
+        $null = Wait-ForText -VMName 'vm-01' -Pattern @('urrent password:') -TimeoutSeconds 4 -PollSeconds 1 `
+            -WarningAction SilentlyContinue -InformationAction SilentlyContinue
+        Assert-True ($null -eq (Get-CarriedConsoleBaseline -VMName 'vm-02')) `
+            'one guest console can never describe another'
+    }
+
+    It 'gated, a screen that was unreadable on the first frame still matches later text' {
+        Assert-True (Invoke-GatedWait -ScreenDir $script:textDir -Frames @('', 'New password:') -Pattern @('ew password:') -Since $true) `
+            'an empty baseline degrades to an ordinary wait rather than to one that can never match'
+    }
+
+    It 'keeps testing anti-patterns against the WHOLE frame, including the baseline' {
+        Assert-False (Invoke-GatedWait -ScreenDir $script:textDir -Frames @($script:alreadyOnScreen) -Pattern @('ew password:') -Since $true `
+            -FailurePattern @('administrator enforced')) 'the wait aborts'
+        $signal = [string](Get-SequenceFailureState).WaitForTextMatchedFailurePattern
+        Assert-Equal -Expected 'administrator enforced' -Actual $signal `
+            -Because 'a rejection already on screen when the step started is still a rejection'
+    }
+
+    It 'still records the whole frame in the failure artifacts on a gated timeout' {
+        $null = Invoke-GatedWait -ScreenDir $script:textDir -Frames @($script:alreadyOnScreen) -Pattern @('ew password:') -Since $true
+        $tail = [string](Get-SequenceFailureState).WaitForTextOcrTail
+        Assert-True ($tail.Contains('administrator enforced')) `
+            'the gate narrows what is MATCHED, never what the operator is shown'
+    }
+
+    It 'composes with a tail-confined match: both filters narrow, neither widens' {
+        Assert-True (Invoke-GatedWait -ScreenDir $script:textDir -Frames @($script:alreadyOnScreen, $script:promptPrinted) -Pattern @('ew password:') -Since $true -Fresh $true) `
+            'a new line at the bottom passes both'
+        Assert-False (Invoke-GatedWait -ScreenDir $script:textDir -Frames @($script:alreadyOnScreen) -Pattern @('ew password:') -Since $true -Fresh $true) `
+            'no new line passes neither'
+    }
+
+    It 'leaves a tail-confined match alone when the gate is off' {
+        Assert-True (Invoke-GatedWait -ScreenDir $script:textDir -Frames @($script:alreadyOnScreen) -Pattern @('ew password:') -Since $false -Fresh $true) `
+            'the existing window is unchanged by a gate nobody asked for'
     }
 }

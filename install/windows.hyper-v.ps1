@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 425b1941-f370-4155-9842-47cbe6837b47
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,7 +24,7 @@
     memory feedback_bootstrap_installer_no_bom.md for the trap class.
 #>
 
-# --- REGION: https://yuruna.link/install/explained
+# --- REGION: https://yuruna.link/429fb30b
 [CmdletBinding()]
 param(
     [string]$YurunaDir    = (Join-Path $HOME 'git/yuruna'),
@@ -345,7 +345,7 @@ if (-not $SkipPreflight) {
 }
 
 # --- REGION: Preflight: display scaling
-# --- REGION: https://yuruna.link/429fb30b-0022
+# See https://yuruna.link/429fb30b-0022
 function Test-DisplayScaling {
     $asSignedDword = {
         param($raw)
@@ -418,7 +418,7 @@ if (-not $SkipPreflight) {
 }
 
 # --- REGION: Single-fetch materialization (irm|iex path)
-# --- REGION: https://yuruna.link/429fb30b-001a
+# See https://yuruna.link/429fb30b-001a
 Get-ChildItem -LiteralPath $env:TEMP -Filter 'yuruna-windows-hyper-v-*.ps1' -ErrorAction SilentlyContinue |
     Where-Object { $_.LastWriteTime -lt (Get-Date).AddHours(-1) } |
     ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force -ErrorAction SilentlyContinue }
@@ -509,7 +509,7 @@ if (-not $isAdmin) {
 }
 
 # Elevated from here on. Begin the on-disk transcript so a failure in this
-# window (which closes on exit) is recoverable afterwards, and echo the path.
+# window (which closes on exit) is recoverable afterward, and echo the path.
 Start-InstallLog -Path $LogPath
 if ($script:InstallLogActive) {
     Write-Step "Logging this elevated session to: $LogPath"
@@ -751,7 +751,7 @@ function Move-YurunaDirectory {
 }
 
 # --- REGION: Preflight: the checkout is not held open
-# --- REGION: https://yuruna.link/429fb30b-000e
+# See https://yuruna.link/429fb30b-000e
 # A failed probe WARNS and the install continues -- it never vetoes the run.
 function Test-YurunaPathInside {
     [CmdletBinding()]
@@ -910,7 +910,7 @@ function Assert-YurunaCheckoutMovable {
 }
 
 # --- REGION: Preserve running service VMs
-# --- REGION: https://yuruna.link/429fb30b-000c
+# See https://yuruna.link/429fb30b-000c
 function Test-CachingProxyServiceRunning {
     [CmdletBinding()]
     [OutputType([bool])]
@@ -1001,6 +1001,12 @@ Install-WingetPackage -Id 'Git.Git'                           -FriendlyName 'Git
 Install-WingetPackage -Id 'Microsoft.WindowsADK'              -FriendlyName 'Windows ADK (Deployment Tools / oscdimg)'
 Install-WingetPackage -Id 'SoftwareFreedomConservancy.QEMU'   -FriendlyName 'QEMU tools (qemu-img converts the qcow2 cloud images every extension-service guest boots from to VHDX)'
 Install-WingetPackage -Id 'UB-Mannheim.TesseractOCR'          -FriendlyName 'Tesseract OCR'
+# The host's own memory, CPU, disk and VM state as a scrapeable endpoint. A
+# Hyper-V host can refuse a VM's memory allocation over a commit-charge spike
+# that has cleared a minute later, and nothing else on the machine records the
+# commit charge or the commit limit at that instant. Enable-TestAutomation.ps1
+# converges its collectors, port and firewall scope afterward.
+Install-WingetPackage -Id 'Prometheus.WindowsExporter'        -FriendlyName 'windows_exporter (publishes this host memory commit, CPU, disk and Hyper-V VM state on :9182)' -Scope machine
 Install-WingetPackage -Id 'GitHub.cli'                        -FriendlyName 'GitHub CLI (gh) -- run `gh auth login` after install to authenticate'
 
 Write-Step 'Refreshing PATH in current session'
@@ -1156,7 +1162,7 @@ function Restore-YurunaStatus {
 Backup-YurunaStatus
 
 # --- REGION: Tolerate a v / no-v tag mismatch
-# --- REGION: https://yuruna.link/429fb30b-0007
+# See https://yuruna.link/429fb30b-0007
 function Resolve-YurunaRef {
     [OutputType([string])]
     param([string]$GitExe, [string]$Remote, [string]$Ref)
@@ -1186,7 +1192,7 @@ function Resolve-YurunaRef {
 }
 
 # --- REGION: Development repo pulls latest main, not a release tag
-# --- REGION: https://yuruna.link/429fb30b-0008
+# See https://yuruna.link/429fb30b-0008
 function Resolve-YurunaDevBranch {
     [OutputType([string])]
     param([string]$Basename, [string]$Ref)
@@ -1350,7 +1356,7 @@ if (Test-Path (Join-Path $YurunaDir '.git')) {
 }
 
 # --- REGION: Pin to the current release (opt-in)
-# --- REGION: https://yuruna.link/429fb30b-0006
+# See https://yuruna.link/429fb30b-0006
 if ($PinVersion -and -not $script:YurunaBranchExplicit -and (Test-Path (Join-Path $YurunaDir '.git'))) {
     $versionFile = Join-Path $YurunaDir 'VERSION'
     if (Test-Path -LiteralPath $versionFile) {
@@ -1409,7 +1415,7 @@ $script:InstallSucceeded = $true
     $script:InstallError = $_
 } finally {
     # --- REGION: Done summary
-    # --- REGION: https://yuruna.link/429fb30b-001f
+    # See https://yuruna.link/429fb30b-001f
     Write-Output ''
     Write-Output '========'
     if ($script:InstallSucceeded) {
@@ -1475,7 +1481,7 @@ $script:InstallSucceeded = $true
     }
     else {
         # --- REGION: Handoff window
-        # --- REGION: https://yuruna.link/429fb30b-0020
+        # See https://yuruna.link/429fb30b-0020
         Write-Step 'Finishing up -- opening handoff windows'
 
         $hypervOpened = $false

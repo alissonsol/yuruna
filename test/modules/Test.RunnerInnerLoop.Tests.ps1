@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 422a68fe-a953-4858-a4d5-e3de9fbbbaf8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -73,9 +73,8 @@ function New-TempConfigFile {
     return $p
 }
 
-# --- REGION: https://yuruna.link/42d69dfa-0015
-
 # --- REGION: AST helpers for the control-flow golden below (walk the real .psm1, not a mirror)
+# See https://yuruna.link/42d69dfa-0015
 function Get-AstNearestLoop {
     # The innermost loop that a break/continue targets: the first loop-statement
     # ancestor. A break/continue inside the guest foreach targets the foreach, NOT
@@ -663,6 +662,230 @@ Describe 'Write-CycleInfraFailure' {
             Assert-True ($c.Value -match '-HostType \$HostType') "call site missing -HostType `$HostType: $($c.Value)"
         }
     }
+
+    # The record is written to the SHARED log root, which the next guest's first
+    # sequence start clears. On a host that runs several guests per cycle and
+    # does not stop at the first failure, that clear lands between the record and
+    # anything that reads it, so the write is only half the job: the copy in the
+    # cycle folder is the one that survives. The real mirror is used here rather
+    # than a stand-in, because what is under test is that the two compose.
+    It 'mirrors the record into the cycle folder, out of reach of the next sequence start' {
+        $tmp = Join-Path ([IO.Path]::GetTempPath()) ("yrn-mirror-" + [guid]::NewGuid().ToString('N'))
+        $cycle = Join-Path $tmp 'cycle'
+        New-Item -ItemType Directory -Path $cycle -Force | Out-Null
+        $oldLogDir = $env:YURUNA_LOG_DIR
+        $oldCycleFolder = $global:__YurunaCycleFolder
+        $env:YURUNA_LOG_DIR = $tmp
+        $global:__YurunaCycleFolder = $cycle
+        Import-Module (Join-Path $here 'Test.Log.psm1') -Force -Global -DisableNameChecking
+        function global:New-InfraFailureRecord {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                Justification = 'Stub mirrors the -Global builder signature Write-CycleInfraFailure binds by name; the test asserts only on the fields it does thread through.')]
+            param($Stage, $FailureClass, $Severity, $GuestKey, $VMName, $HostType, $ErrorMessage, $HostMemory)
+            @{ File  = [ordered]@{ stage = $Stage; guestKey = $GuestKey; failureClass = $FailureClass }
+               Event = [ordered]@{ stage = $Stage } }
+        }
+        function global:Write-YurunaStateFile {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                Justification = 'Stub mirrors the -Global writer signature bound by name; -Confirm is part of that contract even though this stub writes unconditionally.')]
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSupportsShouldProcess', '',
+                Justification = '-Confirm is a plain pass-through switch in the real builder signature being mirrored; SupportsShouldProcess would add a real confirmation prompt and hang the unattended run.')]
+            param($Path, $Content, [switch]$Confirm)
+            [System.IO.File]::WriteAllText($Path, $Content); $Path
+        }
+        function global:Send-CycleEventSafely {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                Justification = 'Stub mirrors the -Global event-sink signature bound by name; this test asserts on the files, not the stream.')]
+            param($EventRecord)
+        }
+        function global:Set-LastFailureSummary {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                Justification = 'Stub mirrors the -Global summary-sink signature bound by name; it deliberately swallows the call so no summary file is written.')]
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSupportsShouldProcess', '',
+                Justification = '-Confirm is a plain pass-through switch in the real builder signature being mirrored; SupportsShouldProcess would add a real confirmation prompt and hang the unattended run.')]
+            param($FailureClass, $Severity, $SequenceName, $GuestKey, $StepName, $ErrorMessage, $VmName, [switch]$Confirm)
+        }
+        try {
+            InModuleScope Test.RunnerInnerLoop {
+                Write-CycleInfraFailure -Stage 'Start-VM' -FailureClass 'provisioning_failure' -Severity 'hard' `
+                    -GuestKey 'guest.a' -VMName '(vm)' -ErrorMessage 'refused' -HostType 'host.test'
+            }
+            $root = Join-Path $tmp 'last_failure.json'
+            $mirror = Join-Path $cycle 'last_failure.json'
+            Assert-True (Test-Path -LiteralPath $root) 'the record must still be written to the log root the routing consumers read'
+            Assert-True (Test-Path -LiteralPath $mirror) 'the record must also reach the cycle folder, or a later sequence start erases the only copy'
+            Assert-Equal -Expected 'guest.a' -Actual ((Get-Content -Raw -LiteralPath $mirror | ConvertFrom-Json).guestKey) `
+                -Because 'the mirror must be this failure, not an empty file'
+        } finally {
+            Remove-Item function:global:New-InfraFailureRecord, function:global:Write-YurunaStateFile, function:global:Send-CycleEventSafely, function:global:Set-LastFailureSummary -ErrorAction SilentlyContinue
+            Remove-Module Test.Log -Force -ErrorAction SilentlyContinue
+            $global:__YurunaCycleFolder = $oldCycleFolder
+            if ($null -eq $oldLogDir) { Remove-Item Env:YURUNA_LOG_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_LOG_DIR = $oldLogDir }
+            Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    # The never-clobber rule has to extend to the mirror. A record already at the
+    # log root is the engine's own, richer one; the suppressed write must not
+    # reach past it and overwrite the copy in the cycle folder either, or the
+    # cycle keeps a poorer account of the same failure than it already had.
+    It 'leaves the cycle folder copy alone when the write is suppressed' {
+        $tmp = Join-Path ([IO.Path]::GetTempPath()) ("yrn-mirror-" + [guid]::NewGuid().ToString('N'))
+        $cycle = Join-Path $tmp 'cycle'
+        New-Item -ItemType Directory -Path $cycle -Force | Out-Null
+        $oldLogDir = $env:YURUNA_LOG_DIR
+        $oldCycleFolder = $global:__YurunaCycleFolder
+        $env:YURUNA_LOG_DIR = $tmp
+        $global:__YurunaCycleFolder = $cycle
+        Import-Module (Join-Path $here 'Test.Log.psm1') -Force -Global -DisableNameChecking
+        function global:New-InfraFailureRecord {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                Justification = 'Stub mirrors the -Global builder signature Write-CycleInfraFailure binds by name; this branch must never reach the writer at all.')]
+            param($Stage, $FailureClass, $Severity, $GuestKey, $VMName, $HostType, $ErrorMessage, $HostMemory)
+            @{ File = [ordered]@{ guestKey = 'guest.late' }; Event = [ordered]@{ stage = $Stage } }
+        }
+        function global:Write-YurunaStateFile {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                Justification = 'Stub mirrors the -Global writer signature bound by name; -Confirm is part of that contract even though this stub writes unconditionally.')]
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSupportsShouldProcess', '',
+                Justification = '-Confirm is a plain pass-through switch in the real builder signature being mirrored; SupportsShouldProcess would add a real confirmation prompt and hang the unattended run.')]
+            param($Path, $Content, [switch]$Confirm)
+            [System.IO.File]::WriteAllText($Path, $Content); $Path
+        }
+        function global:Send-CycleEventSafely {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                Justification = 'Stub mirrors the -Global event-sink signature bound by name; this test asserts on the files, not the stream.')]
+            param($EventRecord)
+        }
+        function global:Set-LastFailureSummary {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                Justification = 'Stub mirrors the -Global summary-sink signature bound by name; it deliberately swallows the call so no summary file is written.')]
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSupportsShouldProcess', '',
+                Justification = '-Confirm is a plain pass-through switch in the real builder signature being mirrored; SupportsShouldProcess would add a real confirmation prompt and hang the unattended run.')]
+            param($FailureClass, $Severity, $SequenceName, $GuestKey, $StepName, $ErrorMessage, $VmName, [switch]$Confirm)
+        }
+        try {
+            [System.IO.File]::WriteAllText((Join-Path $tmp 'last_failure.json'), '{"guestKey":"guest.engine"}')
+            [System.IO.File]::WriteAllText((Join-Path $cycle 'last_failure.json'), '{"guestKey":"guest.engine"}')
+            InModuleScope Test.RunnerInnerLoop {
+                Write-CycleInfraFailure -Stage 'Start-VM' -FailureClass 'provisioning_failure' `
+                    -GuestKey 'guest.late' -ErrorMessage 'later' -HostType 'host.test'
+            }
+            Assert-Equal -Expected 'guest.engine' -Actual ((Get-Content -Raw -LiteralPath (Join-Path $cycle 'last_failure.json') | ConvertFrom-Json).guestKey) `
+                -Because 'the richer record already in the cycle folder must survive a suppressed write'
+        } finally {
+            Remove-Item function:global:New-InfraFailureRecord, function:global:Write-YurunaStateFile, function:global:Send-CycleEventSafely, function:global:Set-LastFailureSummary -ErrorAction SilentlyContinue
+            Remove-Module Test.Log -Force -ErrorAction SilentlyContinue
+            $global:__YurunaCycleFolder = $oldCycleFolder
+            if ($null -eq $oldLogDir) { Remove-Item Env:YURUNA_LOG_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_LOG_DIR = $oldLogDir }
+            Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    # Only the driver that made the failing call can measure the machine at the
+    # instant it failed, so the stage has to carry that reading through rather
+    # than take one of its own, a teardown and several seconds later.
+    It 'forwards the driver reading to the record builder untouched' {
+        $tmp = Join-Path ([IO.Path]::GetTempPath()) ("yrn-hostmem-" + [guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $tmp -Force | Out-Null
+        $oldLogDir = $env:YURUNA_LOG_DIR
+        $env:YURUNA_LOG_DIR = $tmp
+        $global:__yrnSeenHostMemory = 'not called'
+        function global:New-InfraFailureRecord {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                Justification = 'Stub mirrors the -Global builder signature Write-CycleInfraFailure binds by name; the test asserts only on the reading it records.')]
+            param($Stage, $FailureClass, $Severity, $GuestKey, $VMName, $HostType, $ErrorMessage, $HostMemory)
+            $global:__yrnSeenHostMemory = $HostMemory
+            @{ File = [ordered]@{ stage = $Stage }; Event = [ordered]@{ stage = $Stage } }
+        }
+        function global:Write-YurunaStateFile {
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
+                Justification = 'Stub mirrors the -Global writer signature bound by name; -Confirm is part of that contract even though this stub writes unconditionally.')]
+            [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSupportsShouldProcess', '',
+                Justification = '-Confirm is a plain pass-through switch in the real builder signature being mirrored; SupportsShouldProcess would add a real confirmation prompt and hang the unattended run.')]
+            param($Path, $Content, [switch]$Confirm)
+            [System.IO.File]::WriteAllText($Path, $Content); $Path
+        }
+        try {
+            InModuleScope Test.RunnerInnerLoop {
+                Write-CycleInfraFailure -Stage 'Start-VM' -FailureClass 'provisioning_failure' -GuestKey 'guest.a' `
+                    -VMName '(vm)' -ErrorMessage 'refused' -HostType 'host.test' `
+                    -HostMemory @{ availableMb = 1192; committedBytes = 46236958720; commitLimitBytes = 48257269760
+                                   commitAvailableBytes = 2020311040; source = 'Win32_OperatingSystem' }
+            }
+            Assert-True ($global:__yrnSeenHostMemory -is [hashtable]) "the builder must receive the reading; got: $($global:__yrnSeenHostMemory)"
+            Assert-Equal -Expected 48257269760 -Actual $global:__yrnSeenHostMemory['commitLimitBytes'] `
+                -Because 'the reading must arrive unaltered'
+        } finally {
+            Remove-Item function:global:New-InfraFailureRecord, function:global:Write-YurunaStateFile -ErrorAction SilentlyContinue
+            Remove-Variable -Name __yrnSeenHostMemory -Scope Global -ErrorAction SilentlyContinue
+            if ($null -eq $oldLogDir) { Remove-Item Env:YURUNA_LOG_DIR -ErrorAction SilentlyContinue } else { $env:YURUNA_LOG_DIR = $oldLogDir }
+            Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    # The KVM and UTM drivers return a start result with no hostMemory key at
+    # all. Under Set-StrictMode -Version Latest an absent key read as a PROPERTY
+    # is a terminating error, and this read happens on the failure path -- where
+    # it would replace the real failure with its own. The indexer is the form
+    # that survives, so the call site is pinned to it.
+    It 'reads the driver reading with the indexer, which an absent key survives' {
+        $src = Get-Content -LiteralPath (Join-Path $here 'Test.RunnerInnerLoop.psm1') -Raw
+        $call = [regex]::Match($src, "Write-CycleInfraFailure -Stage 'Start-VM'[^\r\n]*")
+        Assert-True $call.Success 'the Start-VM failure path must record through Write-CycleInfraFailure'
+        Assert-True ($call.Value.Contains("-HostMemory `$r['hostMemory']")) `
+            "the Start-VM call site must index the reading out of the driver result: $($call.Value)"
+        $probe = & ([scriptblock]::Create(@'
+Set-StrictMode -Version Latest
+$result = @{ success = $false; errorMessage = 'boom' }
+$threw = $false
+try { $null = $result.hostMemory } catch { $threw = $true }
+@{ Indexed = $result['hostMemory']; PropertyThrew = $threw }
+'@))
+        Assert-Null $probe.Indexed 'the indexer answers null for a key a driver did not set'
+        Assert-True $probe.PropertyThrew 'the property form is what strict mode turns into a terminating error, which is why the indexer is required'
+    }
+}
+
+Describe 'last_failure.json writers mirror into the cycle folder' {
+    # The root copy is cleared at every sequence start, so a writer that does not
+    # mirror leaves a cycle with no record of the failure it had. That is a
+    # whole-file rule rather than a property of any one writer, and a new writer
+    # added without the mirror would reintroduce the loss silently -- so it is
+    # asserted over the source of both modules that write the record.
+    It 'follows every record write with a mirror' {
+        $modules = @('Test.SequenceEngine.psm1', 'Test.RunnerInnerLoop.psm1')
+        $writers = 0
+        $offenders = [Collections.Generic.List[string]]::new()
+        foreach ($module in $modules) {
+            $lines = Get-Content -LiteralPath (Join-Path $here $module)
+            for ($i = 0; $i -lt $lines.Count; $i++) {
+                $call = [regex]::Match($lines[$i], 'Write-YurunaStateFile\s+-Path\s+(?<target>\$\w+|\(Join-Path[^)]*\))')
+                if (-not $call.Success) { continue }
+                $target = $call.Groups['target'].Value
+                if ($target -notmatch 'last_failure\.json') {
+                    # A variable target: read it back to the assignment that named the file.
+                    $assignment = $null
+                    for ($j = $i; $j -ge 0; $j--) {
+                        if ($lines[$j] -match ('^\s*' + [regex]::Escape($target) + '\s*=')) { $assignment = $lines[$j]; break }
+                    }
+                    if (-not $assignment -or $assignment -notmatch 'last_failure\.json') { continue }
+                }
+                $writers++
+                $mirrored = $false
+                for ($k = $i + 1; $k -lt [Math]::Min($i + 13, $lines.Count); $k++) {
+                    if ($lines[$k] -match 'Copy-CycleFailureRecord') { $mirrored = $true; break }
+                }
+                if (-not $mirrored) { $offenders.Add("${module}:$($i + 1)  $($lines[$i].Trim())") }
+            }
+        }
+        Assert-True ($writers -ge 5) "expected the known last_failure.json writers, found $writers -- a rule matching nothing passes vacuously"
+        Assert-True ($offenders.Count -eq 0) @"
+these writes of last_failure.json are not followed by a mirror into the cycle
+folder, so the next sequence start erases the record they just made:
+$($offenders -join "`n")
+"@
+    }
 }
 
 Describe 'Invoke-RunnerBootstrapFailureGate (shared bootstrap-failure gating)' {
@@ -908,5 +1131,99 @@ Describe 'Warm-resume restart point (call-site wiring)' {
         $src = Get-Content -LiteralPath (Join-Path $here 'Test.RunnerInnerLoop.psm1') -Raw
         Assert-True ($src -match '-CheckpointStep \(\[int\]\$wrCp\.ResumeFromStep\)') `
             'the event must carry the pre-rewind checkpoint, or replayed work is invisible in telemetry'
+    }
+}
+
+Describe 'The cycle reports the guest set it resolved, not the fallback key' {
+
+    # test.config.yml's guestSequence is read only when no plan resolves from
+    # test/test.runner.yml in the project repository, so a transcript that
+    # echoes the config and nothing else can name guests the cycle never ran.
+    # Two halves stop that, and both are pinned here: the guest set carries
+    # which input produced it, and the config echo states that input.
+
+    It 'names the plan as the source when one resolved' {
+        InModuleScope Test.RunnerInnerLoop {
+            # Stand-ins for the planner helpers, so this asserts the labeling
+            # rather than a second copy of the planner's own behavior.
+            function Get-CyclePlanGuestList { param($Plan) , @(@($Plan) | ForEach-Object { "guest.$_" }) }
+            function Get-CyclePlanSequenceList { param($Plan) , @(@($Plan) | ForEach-Object { [ordered]@{ name = "workload.$_"; guests = @("guest.$_") } }) }
+            $r = Get-CycleGuestAndSequenceList -PlannerFatal $false -CyclePlan @('one', 'two') -Config $null 6>$null
+            Assert-True ($r.Source -eq 'plan') "expected Source 'plan', got '$($r.Source)'"
+            Assert-True ((@($r.GuestList) -join ',') -eq 'guest.one,guest.two') 'the resolved plan must supply the guest list'
+            Assert-True (@($r.SequenceList).Count -eq 2) 'the resolved plan must supply the sequence list'
+        }
+    }
+
+    It 'names the fallback key as the source when no plan resolved' {
+        InModuleScope Test.RunnerInnerLoop {
+            $cfg = @{ guestSequence = @('guest.ubuntu.server.24') }
+            $r = Get-CycleGuestAndSequenceList -PlannerFatal $false -CyclePlan @() -Config $cfg
+            Assert-True ($r.Source -eq 'guestSequence') "expected Source 'guestSequence', got '$($r.Source)'"
+            Assert-True ((@($r.GuestList) -join ',') -eq 'guest.ubuntu.server.24') 'the fallback list must supply the guest list'
+        }
+    }
+
+    It 'names neither when the plan could not be resolved at all' {
+        InModuleScope Test.RunnerInnerLoop {
+            $r = Get-CycleGuestAndSequenceList -PlannerFatal $true -CyclePlan @('e1') -Config $null
+            Assert-True ($r.Source -eq 'none') "expected Source 'none', got '$($r.Source)'"
+            Assert-True (@($r.GuestList).Count -eq 0) 'a cycle with no plan runs no guest'
+        }
+    }
+
+    Context 'the config echo' {
+        BeforeAll {
+            $script:Cfg = Join-Path $TestDrive 'test.config.yml'
+            Set-Content -LiteralPath $script:Cfg -Encoding utf8 -Value @(
+                'guestSequence:', '- guest.ubuntu.server.24', 'logLevel: Information')
+        }
+
+        It 'states that the fallback key was not read when a plan decided the cycle' {
+            $out = @(InModuleScope Test.RunnerInnerLoop -Parameters @{ p = $script:Cfg } {
+                    param($p)
+                    Write-CycleConfigLog -ConfigPath $p -GuestList @('guest.windows.11', 'guest.ubuntu.server.26') `
+                        -SequenceList @([ordered]@{ name = 'workload.one'; guests = @('guest.windows.11', 'guest.ubuntu.server.26') }) `
+                        -GuestSetSource 'plan' 3>$null
+                }) -join "`n"
+            Assert-True ($out -match 'guest set for this cycle: guest\.windows\.11, guest\.ubuntu\.server\.26') `
+                'the block must name the guests the cycle runs'
+            Assert-True ($out -match 'the guestSequence key above was not read') `
+                'a reader must be told the echoed key did not decide this cycle'
+            Assert-True ($out -match 'workload\.one -> guest\.windows\.11, guest\.ubuntu\.server\.26') `
+                'each top-level sequence must be shown with the guest(s) it drives'
+        }
+
+        It 'states that the fallback key decided the cycle when no plan resolved' {
+            $out = @(InModuleScope Test.RunnerInnerLoop -Parameters @{ p = $script:Cfg } {
+                    param($p)
+                    Write-CycleConfigLog -ConfigPath $p -GuestList @('guest.ubuntu.server.24') `
+                        -SequenceList @() -GuestSetSource 'guestSequence' 3>$null
+                }) -join "`n"
+            Assert-True ($out -match 'guest set for this cycle: guest\.ubuntu\.server\.24') `
+                'the block must name the guests the cycle runs'
+            Assert-True ($out -match 'the guestSequence key above is what this cycle runs') `
+                'the fallback path must say so, or the two paths read alike'
+        }
+
+        It 'adds nothing when the caller has no cycle to describe' {
+            $out = @(InModuleScope Test.RunnerInnerLoop -Parameters @{ p = $script:Cfg } {
+                    param($p) Write-CycleConfigLog -ConfigPath $p 3>$null
+                }) -join "`n"
+            Assert-True (-not ($out -match 'guest set for this cycle')) `
+                'the guest-set block belongs to a cycle, not to every config echo'
+        }
+    }
+
+    It 'emits the guest set after the transcript exists, not at plan resolution' {
+        # Plan resolution runs before Start-LogFile opens the cycle transcript,
+        # so a line written there reaches the console and nothing else. Moving
+        # the report back up would silently empty it out of every saved cycle.
+        $src = Get-Content -LiteralPath (Join-Path $here 'Test.RunnerInnerLoop.psm1') -Raw
+        $callIdx = $src.IndexOf('Write-CycleConfigLog -ConfigPath $ConfigPath -GuestList $GuestList')
+        $resolveIdx = $src.IndexOf('$guestSeqLists = Get-CycleGuestAndSequenceList')
+        Assert-True ($callIdx -gt 0) 'the config echo must receive the resolved guest set'
+        Assert-True ($resolveIdx -gt 0 -and $callIdx -gt $resolveIdx) `
+            'the guest-set report must run after the plan is resolved and the transcript is open'
     }
 }

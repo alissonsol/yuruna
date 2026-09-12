@@ -2,20 +2,18 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #vim:syntax=yaml
-# --- REGION: https://yuruna.link/vmconfig
-# --- REGION: https://yuruna.link/stash-guide
-# Stash-service VM: mount the stash share (ystash-nas), fetch the framework, then run
-# the bring-up script that builds + launches the daemon (binds :22 SCP/SFTP sink + :80
-# browser UI/API; the cloud image runs no host firewall). `users:` without `- default`
-# suppresses the ubuntu cloud-image user.
+# See https://yuruna.link/429f3d06
+# See https://yuruna.link/42f5e921
+# See https://yuruna.link/42e220c4-0006
 hostname: yuruna-stash-service
+# --- REGION: users
 users:
   - name: stash-admin
     gecos: stash-service user
     sudo: ALL=(ALL) NOPASSWD:ALL
     shell: /bin/bash
     lock_passwd: false
-    # --- REGION: https://yuruna.link/429f3d06-000d
+    # See https://yuruna.link/429f3d06-000d
     plain_text_passwd: PASSWORD_PLACEHOLDER
     ssh_authorized_keys:
       - SSH_AUTHORIZED_KEY_PLACEHOLDER
@@ -27,15 +25,17 @@ chpasswd:
       type: text
 ssh_pwauth: true
 package_update: true
+# --- REGION: packages
 packages:
   # cifs-utils: stash-share SMB3 mount (the bring-up script installs golang-go + libcap2-bin itself).
   - cifs-utils
-  # Network debugging tools for interactive triage via console/SSH.
+  # Network tools support console and SSH diagnostics.
   - net-tools
   - iputils-ping
   # === YURUNA_OVERLAY_HOST_AGENT_PKG ===
+# --- REGION: write_files
 write_files:
-  # --- REGION: https://yuruna.link/4220a755-004c
+  # See https://yuruna.link/4220a755-004c
   - path: /etc/ssh/sshd_config.d/60-yuruna-keepalive.conf
     permissions: '0644'
     owner: root:root
@@ -63,25 +63,23 @@ write_files:
     content: |
       username=YSTASH_NAS_NETWORK_USER_PLACEHOLDER
       password=YSTASH_NAS_PASSWORD_PLACEHOLDER
-  # --- REGION: https://yuruna.link/429f3d06-0029
+  # See https://yuruna.link/429f3d06-0029
   # Empty IP/PORT falls back to the public github mirror for the framework fetch.
   - path: /etc/yuruna/host.env
     permissions: '0644'
     owner: root:root
     content: |
+      YURUNA_HOST_ID=YURUNA_HOST_ID_PLACEHOLDER
       YURUNA_STATUS_SERVICE_IP=YURUNA_STATUS_SERVICE_IP_PLACEHOLDER
       YURUNA_STATUS_SERVICE_PORT=YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER
-      YURUNA_HOST_ID=YURUNA_HOST_ID_PLACEHOLDER
       YURUNA_CACHING_PROXY_SERVICE_IP=YURUNA_CACHING_PROXY_SERVICE_IP_PLACEHOLDER
-  # Pool-aggregator service base URL the stash daemon announces to (and resolves remote
-  # hosts through). Single-quoted like ystash-nas.env; empty (no caching-proxy service
-  # known at bake time) leaves the daemon's aggregator-dependent features off.
+  # Optional pool-aggregator URL; quote it like ystash-nas.env, and leave it empty to disable dependent features.
   - path: /etc/yuruna/pool.env
     permissions: '0644'
     owner: root:root
     content: |
       YURUNA_AGGREGATOR_URL='YURUNA_AGGREGATOR_URL_PLACEHOLDER'
-  # --- REGION: https://yuruna.link/429f3d06-0087
+  # See https://yuruna.link/429f3d06-0087
   - path: /usr/local/lib/yuruna/stash-bringup.sh
     permissions: '0755'
     owner: root:root
@@ -89,8 +87,8 @@ write_files:
       #!/bin/bash
       # Yuruna stash service bring-up, driven by the systemd unit below.
 
-      # --- REGION: https://yuruna.link/429f3d06-0088
-      # 1) Mount the stash share, persistent via fstab.
+      # See https://yuruna.link/429f3d06-0088
+      # --- REGION: Mount the stash share
       set +e
       ENVF=/etc/yuruna/ystash-nas.env
       NETPATH=$(sed -nE "s/^YSTASH_NAS_NETWORK_PATH='(.*)'\$/\1/p" "$ENVF" 2>/dev/null | head -n1)
@@ -121,11 +119,8 @@ write_files:
         echo "yuruna stash: stash storage not configured in the seed; the daemon will use local fallback storage." >&2
       fi
 
-      # --- REGION: https://yuruna.link/42fffc2c-0013
-      # 2) Fetch the framework from the host status service (coordinates sed-read from
-      #    host.env, NOT sourced), falling back to a github clone so a bring-up works
-      #    off-LAN. The fallback is not equivalent: the version is stamped at compile
-      #    time and never re-read.
+      # See https://yuruna.link/42fffc2c-0013
+      # --- REGION: Fetch the framework
       set +e
       HF=/etc/yuruna/host.env
       YR_HOST=$(sed -nE 's/^YURUNA_STATUS_SERVICE_IP=(.*)$/\1/p' "$HF" 2>/dev/null | head -n1)
@@ -136,11 +131,7 @@ write_files:
       OK=0
       SRC=mirror
       SRC_URL="$MIRROR_URL"
-      # Retried rather than decided on one answer. The host coordinates are baked at
-      # seed time and corrected in-guest by yuruna-host-locate, so at this point in a
-      # first boot "unreachable" is routinely a host that has renumbered and not been
-      # re-read yet -- and the cost of believing it is the wrong codebase, permanently.
-      # Bounded so an off-LAN bring-up, where nothing will ever answer, still finishes.
+      # --- REGION: https://yuruna.link/42e220c4-0006
       ATTEMPT=1
       while [ "$ATTEMPT" -le 6 ]; do
         if [ -n "$YR_HOST" ] && [ -n "$YR_PORT" ] && wget -q --no-proxy --tries=1 --timeout=5 -O /dev/null "http://$YR_HOST:$YR_PORT/livecheck"; then
@@ -180,8 +171,7 @@ write_files:
       chown -R stash-admin:stash-admin "$DEST" 2>/dev/null || true
       [ "$OK" -eq 1 ] || echo "yuruna stash: could not obtain the framework source; run the bring-up manually." >&2
 
-      # 3) Build + launch the daemon (the script provisions VM-local dirs,
-      #    writes the systemd unit, and starts it).
+      # --- REGION: Build and start the service
       set +e
       SCRIPT=/home/stash-admin/yuruna/guest/ubuntu.server.26/ubuntu.server.26.stash-service.sh
       if [ -f "$SCRIPT" ]; then
@@ -205,7 +195,7 @@ write_files:
     content: |
       [Unit]
       Description=Yuruna stash service bring-up (idempotent; converges a half-built VM)
-      Documentation=https://yuruna.link/stash-guide
+      Documentation=https://yuruna.link/42f5e921
       Wants=network-online.target
       After=network-online.target cloud-init.service
       # The whole point of the unit: once the daemon is installed this skips
@@ -225,7 +215,7 @@ write_files:
 
       [Install]
       WantedBy=multi-user.target
-  # --- REGION: https://yuruna.link/429f3d06-002a
+  # See https://yuruna.link/429f3d06-002a
   # This VM is provisioned once and runs for weeks, so it accumulates host
   # renumbers a per-cycle test guest never sees.
   - path: /usr/local/lib/yuruna/yuruna-host-locate.sh
@@ -260,6 +250,7 @@ write_files:
 
       [Install]
       WantedBy=timers.target
+# --- REGION: runcmd
 runcmd:
   # sshd is already up by the time write_files lands, so the drop-in above needs
   # a reload to take effect on this boot rather than only on the next one.

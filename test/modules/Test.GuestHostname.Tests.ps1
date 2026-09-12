@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.02
+.VERSION 2026.09.12
 .GUID 42904e1e-c247-4036-a38b-fb377e975d26
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -233,16 +233,16 @@ Describe 'agetty nudge ordering -- the redraw precedes the wait it unblocks' {
 }
 
 Describe 'agetty periodic redraw -- Ubuntu cold installs keep one wait deadline' {
-    It 'nudges inside the 1800-second login wait in <name>' -TestCases @(
-        @{ name = 'Ubuntu Server 24'; path = Join-Path $discoveryRepoRoot 'test/sequences/start.guest.ubuntu.server.24.yml' }
-        @{ name = 'Ubuntu Server 26'; path = Join-Path $discoveryRepoRoot 'test/sequences/start.guest.ubuntu.server.26.yml' }
+    It 'nudges inside the bounded login wait in <name>' -TestCases @(
+        @{ name = 'Ubuntu Server 24'; path = Join-Path $discoveryRepoRoot 'test/sequences/start.guest.ubuntu.server.24.yml'; budgetSeconds = 1800 }
+        @{ name = 'Ubuntu Server 26'; path = Join-Path $discoveryRepoRoot 'test/sequences/start.guest.ubuntu.server.26.yml'; budgetSeconds = 2400 }
     ) {
-        param($name, $path)
+        param($name, $path, $budgetSeconds)
         $src = Get-Content -Raw -LiteralPath $path
         $wait = [regex]::Match($src, '(?ms)^\s*-\s*action:\s*waitForTextWithNudge\s*\r?\n(?<body>.*?^\s*description:\s*"OCR:\s*\$\{hostLabel\}\s+login:"\s*$)')
         Assert-True $wait.Success "$name must use the bounded periodic-nudge login wait"
         $body = $wait.Groups['body'].Value
-        Assert-True ($body -match '(?m)^\s*timeoutSeconds:\s*1800\s*$') "$name must preserve the existing per-attempt install budget"
+        Assert-True ($body -match "(?m)^\s*timeoutSeconds:\s*$budgetSeconds\s*`$") "$name must preserve its per-attempt install budget of ${budgetSeconds}s"
         Assert-True ($body -match '(?m)^\s*nudgeKey:\s*Enter\s*$') "$name must redraw agetty with Enter"
         Assert-True ($body -match '(?m)^\s*nudgeIntervalSeconds:\s*60\s*$') "$name must recover a hidden prompt within about one minute"
         Assert-True ($body -match '(?m)^\s*freshMatch:\s*true\s*$') "$name must not match stale installer-console residue"
@@ -332,5 +332,77 @@ Describe 'credential rotation -- persist only after a confirmed shell login' {
         Assert-True ($tokenWaits[0].TopIndex -lt $commits[0].TopIndex) "$name persists the new password before login success is confirmed"
         Assert-True (@($loginPasswordPrompts | Where-Object { $_.Step['text'] -ne '${currentPassword}' }).Count -eq 0) `
             "$name must not try both old and new passwords at the login prompt"
+    }
+
+    It 'fails promptly when rotation is rejected in <name>' -TestCases $passwordSequenceCase {
+        param($name, $path)
+        $sequence = Read-SequenceFile -Path $path -NoCache
+        $records = @(Get-SequenceStepRecord -Steps $sequence['steps'])
+        $loginWait = @($records | Where-Object {
+                $_.Step['action'] -in @('waitForText', 'waitForTextWithNudge') -and
+                $_.Step['pattern'] -like '*login:'
+            }) | Select-Object -First 1
+        $tokenWait = @($records | Where-Object {
+                $_.Step['action'] -eq 'waitForText' -and $_.Step['pattern'] -eq 'yuruna_123456789_ok'
+            }) | Select-Object -First 1
+        Assert-True ($null -ne $loginWait -and $null -ne $tokenWait) "$name needs login and shell-confirmation waits"
+        foreach ($failure in 'passwords do not match', 'Authentication token manipulation error') {
+            Assert-True (@($loginWait.Step['failurePatterns']) -contains $failure) "$name must recognize rejected rotation on a retry"
+            Assert-True (@($tokenWait.Step['failurePatterns']) -contains $failure) "$name must recognize rejected rotation before persisting the password"
+        }
+        Assert-True (@($tokenWait.Step['failurePatterns']) -contains 'BAD PASSWORD: The password fails the dictionary check') `
+            "$name must retain the specific dictionary rejection"
+        foreach ($wait in $loginWait, $tokenWait) {
+            Assert-True (@($wait.Step['failurePatterns']) -notcontains 'BAD PASSWORD') "$name must not match unrelated OCR fragments"
+            Assert-True (@($wait.Step['failurePatterns']) -notcontains 'Login incorrect') "$name must allow recovery from a failed login attempt"
+        }
+    }
+
+    It 'bounds the initial password wait before retrying login in <name>' -TestCases $passwordSequenceCase {
+        param($name, $path)
+        $sequence = Read-SequenceFile -Path $path -NoCache
+        $prompts = @(Get-SequenceStepRecord -Steps $sequence['steps'] | Where-Object {
+                $_.Step['action'] -eq 'passwdPrompt' -and $_.Step['pattern'] -eq 'Password:'
+            })
+        Assert-Equal -Expected 1 -Actual $prompts.Count -Because "$name needs one initial password prompt"
+        $prompt = $prompts[0].Step
+        Assert-Equal -Expected 30 -Actual $prompt['timeoutSeconds'] -Because "$name should retry a lost username promptly"
+        Assert-True ([bool]$prompt['sinceStepStart']) "$name must not reuse a prior password prompt"
+        foreach ($failure in 'BdsDxe:', 'GNU GRUB') {
+            Assert-True (@($prompt['failurePatterns']) -contains $failure) "$name must stop typing credentials at a rebooting guest"
+        }
+    }
+}
+
+Describe 'console workload login confirmation' {
+    It 'requires a computed shell token before installing on every Linux guest' {
+        foreach ($guest in 'amazon.linux.2023', 'ubuntu.server.24', 'ubuntu.server.26') {
+            $path = Join-Path $repoRoot "test/sequences/workload.guest.$guest.yml"
+            $sequence = Read-SequenceFile -Path $path -NoCache
+            $records = @(Get-SequenceStepRecord -Steps $sequence['steps'])
+            $inputs = @($records | Where-Object {
+                    $_.Step['action'] -eq 'inputTextAndEnter' -and
+                    $_.Step['text'] -eq ' echo yuruna_$(seq -s '''' 1 9)_ok'
+                })
+            $waits = @($records | Where-Object {
+                    $_.Step['action'] -eq 'waitForText' -and $_.Step['pattern'] -eq 'yuruna_123456789_ok' -and
+                    [bool]$_.Step['freshMatch']
+                })
+            Assert-Equal -Expected 1 -Actual $inputs.Count -Because "$guest must ask a shell to compute the token"
+            Assert-Equal -Expected 1 -Actual $waits.Count -Because "$guest must observe the token"
+            Assert-True ($inputs[0].TopIndex -lt $waits[0].TopIndex) "$guest must compute before matching"
+        }
+    }
+
+    It 'does not put the Amazon install success token in the command echo' {
+        $path = Join-Path $repoRoot 'test/sequences/workload.guest.amazon.linux.2023.yml'
+        $sequence = Read-SequenceFile -Path $path -NoCache
+        $records = @(Get-SequenceStepRecord -Steps $sequence['steps'])
+        $install = @($records | Where-Object {
+                $_.Step['action'] -eq 'inputTextAndEnter' -and $_.Step['text'] -like '*groupinstall*'
+            }) | Select-Object -First 1
+        Assert-True ($null -ne $install) 'the Desktop install command must exist'
+        Assert-True ($install.Step['text'] -notlike '*DESKTOP_INSTALL_DONE*') 'typing the command cannot prove it succeeded'
+        Assert-True ($install.Step['text'] -like '*&& echo*') 'only successful installation may emit its confirmation'
     }
 }

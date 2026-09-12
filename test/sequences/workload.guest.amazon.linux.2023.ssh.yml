@@ -8,12 +8,15 @@ sequenceRevision: 1
 
 description: "Amazon Linux 2023 (SSH): install the Desktop package group and verify."
 keystrokeMechanism: ssh
+
+# --- REGION: resource
 resource:
   amazon.linux.2023:
     - start.guest.amazon.linux.2023.ssh
 variables:
   username: yauser1
 
+# --- REGION: component
 component:
   - action: sshWaitReady
     timeoutSeconds: 300
@@ -23,6 +26,7 @@ component:
     command: "whoami && hostname"
     description: "Smoke test: whoami/hostname"
 
+# --- REGION: workload
 workload:
   - action: sshFetchAndExecute
     command: 'sudo dnf groupinstall -y "Desktop"'

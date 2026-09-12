@@ -22,6 +22,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -53,15 +54,74 @@ type Host struct {
 
 // Key is the identity a host is stored under: its own id when it reported one,
 // otherwise the address it answered on. Two probes of the same machine
-// therefore collapse to one entry, and a machine that starts reporting an id
-// after a rebuild lands as a new entry rather than silently overwriting the
-// address-keyed one -- which is the honest outcome, because from here they are
-// not provably the same machine.
+// therefore collapse to one entry.
+//
+// A machine that re-keys (a reimage, a re-clone: the id lives in the runtime
+// directory) lands under a NEW key, so the key alone cannot keep the list to
+// one row per machine. What does is the base URL -- see supersedeLocked.
 func (h Host) Key() string {
 	if h.HostID != "" {
 		return h.HostID
 	}
 	return h.Address
+}
+
+// baseKey is the host's status-service base with a trailing slash trimmed, or
+// "" when the probe reported none. It is the store's second identity: one
+// address:port can hold exactly one status service, so two entries sharing a
+// base key are the same machine seen under two names.
+func (h Host) baseKey() string {
+	return strings.TrimSuffix(strings.TrimSpace(h.BaseURL), "/")
+}
+
+// sameMachine reports whether a superseded entry is recognizably the machine
+// that replaced it, which decides whether its first-seen stamp is worth
+// carrying forward. An entry that never named itself is subsumed by definition
+// (its id was unread, not different), and two entries reporting one hostname
+// are one machine that re-keyed. Anything else is treated as a new occupant of
+// a reused address, whose history does not belong to the newcomer.
+func sameMachine(loser, winner Host) bool {
+	if loser.HostID == "" {
+		return true
+	}
+	ln, wn := strings.TrimSpace(loser.Hostname), strings.TrimSpace(winner.Hostname)
+	return ln != "" && strings.EqualFold(ln, wn)
+}
+
+// newerSighting compares two last-seen stamps. Both are written by this package
+// as RFC3339 in UTC, one fixed-width form, so a lexical compare is a
+// chronological one and no parse can fail on a hand-edited file.
+func newerSighting(a, b string) bool { return a > b }
+
+// earlierStamp returns whichever of two stamps is the earlier, ignoring an
+// empty one so a record missing its first-seen cannot backdate the survivor.
+func earlierStamp(a, b string) string {
+	switch {
+	case a == "":
+		return b
+	case b == "":
+		return a
+	case a < b:
+		return a
+	default:
+		return b
+	}
+}
+
+// less orders the list: by address, then newest sighting, then key. The address
+// is first because that is how an operator reads the page; the rest of the
+// comparator exists so the order is TOTAL. Two entries on one address are the
+// duplicate case, and consumers that keep the first one they see for an address
+// -- the Hosts table and the facts fan-out both do -- would otherwise pick a
+// different row on every request, because Go's sort is not stable.
+func less(a, b Host) bool {
+	if a.Address != b.Address {
+		return a.Address < b.Address
+	}
+	if a.LastSeenUTC != b.LastSeenUTC {
+		return newerSighting(a.LastSeenUTC, b.LastSeenUTC)
+	}
+	return a.Key() < b.Key()
 }
 
 // Store holds the discovered hosts. Safe for concurrent use.
@@ -107,6 +167,15 @@ func NewStore(path string) *Store {
 		}
 		s.hosts[h.Key()] = h
 	}
+	// A file written before the store collapsed by base URL can hold several
+	// entries for one machine, and the machine may never be probed again (it
+	// can be off, or retired) -- so the list would keep showing every id it has
+	// ever had. Collapsing at load fixes the file in place instead of waiting
+	// for a sighting that may not come. No lock: nothing else can hold this
+	// store until NewStore has returned it.
+	if s.collapseLocked() > 0 {
+		s.persistLocked()
+	}
 	return s
 }
 
@@ -136,8 +205,125 @@ func (s *Store) Add(h Host, now time.Time) bool {
 		h.FirstSeenUTC = stamp
 	}
 	s.hosts[key] = h
+	s.supersedeLocked(key)
 	s.persistLocked()
 	return !existed
+}
+
+// supersedeLocked drops every OTHER entry answering at the winner's base URL
+// whose last sighting is older, folding the earliest first-seen of the ones it
+// recognizes as the same machine into the survivor. Caller holds the mutex.
+//
+// One address:port holds one status service, so an older entry still claiming
+// this base URL is not a second machine -- it is this one under an id it has
+// since stopped reporting (a reimage or a re-clone re-keys a host, because the
+// id lives in the runtime directory), or a sighting that could not read an id
+// at all. Keeping both is what made one machine occupy several rows for as long
+// as the list survived, and pool membership follow the id that went quiet.
+//
+// Only strictly-older entries go. A host that legitimately MOVED off this
+// address keeps its entry until something else answers there, and the sweep
+// that finds it at its new address re-stamps it first when it probes in
+// ascending order -- so the common case costs it nothing. The case this does
+// give up on is a machine whose address was handed to another host between two
+// sweeps: its entry goes, and the next sweep rediscovers it where it now lives.
+func (s *Store) supersedeLocked(winnerKey string) int {
+	winner, ok := s.hosts[winnerKey]
+	if !ok {
+		return 0
+	}
+	base := winner.baseKey()
+	if base == "" {
+		return 0
+	}
+	removed := 0
+	for key, h := range s.hosts {
+		if key == winnerKey || h.baseKey() != base {
+			continue
+		}
+		if !newerSighting(winner.LastSeenUTC, h.LastSeenUTC) {
+			continue
+		}
+		if sameMachine(h, winner) {
+			winner.FirstSeenUTC = earlierStamp(winner.FirstSeenUTC, h.FirstSeenUTC)
+		}
+		delete(s.hosts, key)
+		removed++
+	}
+	if removed > 0 {
+		s.hosts[winnerKey] = winner
+	}
+	return removed
+}
+
+// collapseLocked reduces every base URL to its newest entry, whether or not a
+// probe just confirmed one. Caller holds the mutex.
+//
+// supersedeLocked runs off a sighting, so it can only clean up a machine that
+// is still answering. This closes the other half: a machine that re-keyed and
+// then went off the network leaves both ids behind, and neither will ever be
+// stamped again. Ordering is the list's own total order, so the survivor per
+// base URL is the newest sighting and the outcome does not depend on map
+// iteration.
+func (s *Store) collapseLocked() int {
+	byBase := map[string][]Host{}
+	for _, h := range s.hosts {
+		if base := h.baseKey(); base != "" {
+			byBase[base] = append(byBase[base], h)
+		}
+	}
+	removed := 0
+	for _, group := range byBase {
+		if len(group) < 2 {
+			continue
+		}
+		sort.Slice(group, func(i, j int) bool { return less(group[i], group[j]) })
+		winner := group[0]
+		for _, h := range group[1:] {
+			if sameMachine(h, winner) {
+				winner.FirstSeenUTC = earlierStamp(winner.FirstSeenUTC, h.FirstSeenUTC)
+			}
+			delete(s.hosts, h.Key())
+			removed++
+		}
+		s.hosts[winner.Key()] = winner
+	}
+	return removed
+}
+
+// Prune collapses duplicate base URLs and drops whatever has not been seen for
+// maxAge, reporting how many entries left. A maxAge of zero or less expires
+// nothing and only collapses.
+//
+// The list is a monitored set, not a liveness view: a host that has gone quiet
+// is exactly what an operator wants to keep seeing, which is why this is days
+// rather than the aggregator's hours. But "keep forever" is not the same
+// promise -- a machine retired months ago is noise that hides the one that went
+// quiet this morning, and every stale row is a row somebody has to recognize as
+// stale before they can read past it.
+func (s *Store) Prune(now time.Time, maxAge time.Duration) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	removed := s.collapseLocked()
+	if maxAge > 0 {
+		cutoff := now.Add(-maxAge).UTC().Format(time.RFC3339)
+		for key, h := range s.hosts {
+			// An entry with no stamp has no age to judge, so it is kept: this
+			// store's own writes always stamp, and refusing to guess is better
+			// than expiring a record somebody hand-repaired.
+			if h.LastSeenUTC == "" {
+				continue
+			}
+			if h.LastSeenUTC < cutoff {
+				delete(s.hosts, key)
+				removed++
+			}
+		}
+	}
+	if removed > 0 {
+		s.persistLocked()
+	}
+	return removed
 }
 
 // Has reports whether a key is already stored.
@@ -148,8 +334,10 @@ func (s *Store) Has(key string) bool {
 	return ok
 }
 
-// List returns every stored host, address-ordered so a page renders the same
-// way twice running.
+// List returns every stored host in the package's total order -- by address,
+// newest sighting first within one address -- so a page renders the same way
+// twice running and a consumer that keeps one entry per address keeps the same
+// one every time.
 func (s *Store) List() []Host {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -157,7 +345,7 @@ func (s *Store) List() []Host {
 	for _, h := range s.hosts {
 		out = append(out, h)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Address < out[j].Address })
+	sort.Slice(out, func(i, j int) bool { return less(out[i], out[j]) })
 	return out
 }
 
@@ -193,7 +381,7 @@ func (s *Store) persistLocked() {
 	for _, h := range s.hosts {
 		out = append(out, h)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Address < out[j].Address })
+	sort.Slice(out, func(i, j int) bool { return less(out[i], out[j]) })
 	data, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {
 		s.lastErr = "encode: " + err.Error()

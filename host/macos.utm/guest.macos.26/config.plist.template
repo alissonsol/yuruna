@@ -2,13 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!-- LICENSEURI https://yuruna.link/license -->
 <!-- Copyright (c) 2019-2026 by Alisson Sol et al. -->
-<!-- Yuruna VM config - https://yuruna.link/vmconfig -->
+<!-- See https://yuruna.link/429f3d06 -->
 <plist version="1.0">
 <dict>
 	<key>Backend</key>
 	<string>Apple</string>
 	<key>ConfigurationVersion</key>
 	<integer>4</integer>
+	<!-- REGION: Information -->
 	<key>Information</key>
 	<dict>
 		<key>Icon</key>
@@ -20,6 +21,7 @@
 		<key>UUID</key>
 		<string>__VM_UUID__</string>
 	</dict>
+	<!-- REGION: System -->
 	<key>System</key>
 	<dict>
 		<key>Architecture</key>
@@ -33,10 +35,7 @@
 			<key>OperatingSystem</key>
 			<string>macOS</string>
 		</dict>
-		<!-- UTM's UTMAppleConfigurationMacPlatform decodes these three with
-		     PascalCase plist keys (HardwareModel / MachineIdentifier are
-		     required `decode` calls). camelCase keys trip a keyNotFound and
-		     UTM rejects the whole bundle with "configuration is invalid". -->
+		<!-- See https://yuruna.link/42e220c4-000b -->
 		<key>MacPlatform</key>
 		<dict>
 			<key>AuxiliaryStoragePath</key>
@@ -47,6 +46,7 @@
 			<data>__MACHINE_IDENTIFIER__</data>
 		</dict>
 	</dict>
+	<!-- REGION: Virtualization -->
 	<key>Virtualization</key>
 	<dict>
 		<key>Audio</key>
@@ -64,11 +64,8 @@
 		<key>Rosetta</key>
 		<false/>
 	</dict>
-	<!-- Display: Fixed 1920x1080 at 80 PPI. DynamicResolution is disabled
-	     so UTM does not scale to the host Retina display.
-	     WARNING: The test harness OCR is calibrated for 1920x1080.
-	     Changing this resolution may break automated screen-text detection
-	     in waitForText sequence steps. -->
+	<!-- See https://yuruna.link/42e220c4-000b -->
+	<!-- REGION: Display -->
 	<key>Display</key>
 	<array>
 		<dict>
@@ -82,6 +79,7 @@
 			<false/>
 		</dict>
 	</array>
+	<!-- REGION: Drive -->
 	<key>Drive</key>
 	<array>
 		<dict>
@@ -93,6 +91,7 @@
 			<false/>
 		</dict>
 	</array>
+	<!-- REGION: Network -->
 	<key>Network</key>
 	<array>
 		<dict>
@@ -102,6 +101,7 @@
 			<string>__MAC_ADDRESS__</string>
 		</dict>
 	</array>
+	<!-- REGION: Serial -->
 	<key>Serial</key>
 	<array/>
 </dict>

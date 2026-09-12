@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.08
+# Version: 2026.09.12
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -25,12 +25,14 @@ case "$ARCH" in
     ;;
 esac
 
-# --- REGION: https://yuruna.link/4220a755-0003
+# --- REGION: Load retry helpers
+# See https://yuruna.link/4220a755-0003
 . /usr/local/lib/yuruna/yuruna-retry.sh
 # --- REGION: https://yuruna.link/4220a755-0005
 # Re-asserted here because a baked retry lib may still carry a wall-clock bound.
 export YURUNA_DNF_STALL_TIMEOUT_SECONDS=0
 
+# --- REGION: Install JDK
 echo ""
 echo -e "\e[1;36m==== JDK (Amazon Corretto) ====\e[0m"
 # Amazon Corretto provides both x86_64 and aarch64 packages. Install the
@@ -49,12 +51,11 @@ if ! grep -q 'export JAVA_HOME=/etc/alternatives/java_sdk' /etc/bashrc 2>/dev/nu
   echo 'export JAVA_HOME=/etc/alternatives/java_sdk' | sudo tee -a /etc/bashrc
 fi
 
+# --- REGION: Install .NET SDK
+# See https://yuruna.link/42e220c4-0005
 echo ""
 echo -e "\e[1;36m==== .NET SDK ====\e[0m"
-# Use Microsoft's official dotnet-install.sh instead of RPM repos: the CentOS
-# 8/9 repo configs are incompatible with Amazon Linux 2023 (Fedora-based), and
-# the script auto-detects architecture (x86_64/aarch64). libicu is the .NET
-# globalization dependency.
+# Microsoft's RPM repositories do not target AL2023; use dotnet-install.sh.
 dnf_retry sudo dnf install -y libicu
 sudo mkdir -p /usr/local/dotnet
 curl_retry -sSL "https://dot.net/v1/dotnet-install.sh${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o /tmp/dotnet-install.sh
@@ -68,14 +69,11 @@ if ! grep -q 'export DOTNET_ROOT=/usr/local/dotnet' /etc/bashrc 2>/dev/null; the
 fi
 dotnet --version || echo "dotnet: version probe failed (non-fatal)"
 
+# --- REGION: Install Visual Studio Code
 echo ""
 echo -e "\e[1;36m==== VS Code ====\e[0m"
 # The VS Code yum repo provides both x86_64 and aarch64 packages.
 # --- REGION: https://yuruna.link/4220a755-001e
-# Fetch the Microsoft signing key, fingerprint-pin it BEFORE trusting it, then
-# rpm --import the VERIFIED local copy and point the repo gpgkey at that local
-# file, so gpgcheck=1 never re-fetches an unverified URL. Fail closed on a
-# mismatch.
 # arg1 = key file; remaining args = ALLOWED primary fingerprints, FIRST also required.
 _yuruna_verify_key_fpr() {
     local keyfile="$1"; shift

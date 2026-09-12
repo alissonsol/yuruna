@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 425e6973-60a5-43b1-90b8-194b4331c1f8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,7 +30,6 @@
 #>
 
 # --- REGION: Module setup
-
 $script:HostTag        = 'host.windows.hyper-v'
 $script:RepoRoot       = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
 $script:TestModulesDir = Join-Path $script:RepoRoot 'test\modules'
@@ -88,7 +87,6 @@ Import-Module (Join-Path $script:RepoRoot 'host\modules\Yuruna.DownloadAgent.psm
 # the Get-Image log-line writer) common to all three drivers.
 Import-Module (Join-Path $script:RepoRoot 'host\modules\Yuruna.HostProvision.psm1') -Force -DisableNameChecking -Global
 # --- REGION: Hyper-V host helpers
-
 # ADK Deployment Tools path. The '10' is the ADK major version, not the Windows
 # version -- adjust it if a different ADK is installed.
 #
@@ -752,23 +750,9 @@ function Wait-ExternalSwitchHostIpv4 {
     }
 }
 
-# Both reuse branches of Get-OrCreateYurunaExternalSwitch funnel a
-# degraded verdict through here. Two invariants shape what it may do:
-#
-#   * $null is the only "no bridge" signal the guest scripts understand,
-#     and declining is always at least as good as handing back a bridge
-#     the classifier just rejected. Each guest script substitutes
-#     'Default Switch' for $null, verifies that switch exists, and where
-#     it does not (Windows Server SKUs ship none, and an operator can
-#     delete it on a client SKU) falls back to any vSwitch the host has,
-#     ranking non-External first -- which is the better choice precisely
-#     here, because a guest on a carrier-less External switch comes up
-#     with no address at all while an Internal/NAT switch still gives it
-#     a working one. Returning the degraded name instead would skip that
-#     picker entirely, so declining is what lets it run.
-#   * The branches run several times per cycle plus once per read-only
-#     Get-ExternalNetwork probe, so the diagnosis is latched to once per
-#     process per (switch, verdict) rather than repeated on every call.
+# A confirmed degraded External switch returns $null so guest builders can
+# select a validated fallback; latch the diagnosis once per switch and verdict.
+# See https://yuruna.link/4220a755-0021
 function Resolve-DegradedExternalSwitchFallback {
     [CmdletBinding()]
     [OutputType([string])]
@@ -1966,23 +1950,384 @@ function Remove-HyperVTestVM {
 
 <#
 .SYNOPSIS
+This host's memory position: physical memory available now, plus the system
+commit charge and the limit that charge is drawn against.
+
+.DESCRIPTION
+A VM's startup memory is charged against the SYSTEM COMMIT LIMIT -- physical
+memory plus the current size of the page file -- and not against free physical
+memory, so commit is the quantity that decides whether a start is admitted.
+With a system-managed page file that limit is not a constant: Windows grows and
+shrinks the file as the total charge moves, and while a growth is in flight the
+limit is momentarily too low to admit a fresh multi-gigabyte reservation. That
+is why a start can be refused for want of system resources at the very moment
+free physical memory is at its highest: the two readings answer different
+questions, and only one of them is the question the hypervisor asked.
+
+Win32_OperatingSystem is the primary source because it answers whenever WMI
+does, and it states the whole position on its own: TotalVirtualMemorySize IS
+the commit limit and FreeVirtualMemory IS the headroom under it, both in KB.
+Win32_PerfRawData_PerfOS_Memory is consulted only when that query fails -- it
+is served by the performance-counter subsystem, which can be broken on a host
+whose WMI is healthy.
+
+The four value keys are named for the quantity rather than for this platform's
+counters, so another host driver can fill the same shape from its own source
+(on Linux, /proc/meminfo MemAvailable / Committed_AS / CommitLimit) and a
+failure record keeps one meaning whichever driver wrote it.
+
+Never throws. $null means "not knowable on this host", and a caller must carry
+that through as an absent reading rather than substituting zeros -- a fabricated
+memory figure in a failure record is worse than none, because it reads as a
+measurement.
+
+.OUTPUTS
+[hashtable] with availableMb, committedBytes, commitLimitBytes,
+commitAvailableBytes and source; $null when the host will not answer.
+#>
+function Get-HostMemoryStatus {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param()
+    try {
+        $os = Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction Stop
+        if ($os -and ([int64]$os.TotalVirtualMemorySize) -gt 0) {
+            $limit = [int64]$os.TotalVirtualMemorySize * 1KB
+            $free  = [int64]$os.FreeVirtualMemory * 1KB
+            return @{
+                availableMb          = [int64]([int64]$os.FreePhysicalMemory / 1KB)
+                committedBytes       = $limit - $free
+                commitLimitBytes     = $limit
+                commitAvailableBytes = $free
+                source               = 'Win32_OperatingSystem'
+            }
+        }
+    } catch {
+        Write-Verbose "Get-HostMemoryStatus: Win32_OperatingSystem did not answer: $($_.Exception.Message)"
+    }
+    try {
+        $perf = Get-CimInstance -ClassName Win32_PerfRawData_PerfOS_Memory -ErrorAction Stop
+        if ($perf -and ([int64]$perf.CommitLimit) -gt 0) {
+            return @{
+                availableMb          = [int64]$perf.AvailableMBytes
+                committedBytes       = [int64]$perf.CommittedBytes
+                commitLimitBytes     = [int64]$perf.CommitLimit
+                commitAvailableBytes = [int64]$perf.CommitLimit - [int64]$perf.CommittedBytes
+                source               = 'Win32_PerfRawData_PerfOS_Memory'
+            }
+        }
+    } catch {
+        Write-Verbose "Get-HostMemoryStatus: performance counters did not answer: $($_.Exception.Message)"
+    }
+    return $null
+}
+
+<#
+.SYNOPSIS
+One line describing a memory reading, for a log an operator reads at a glance.
+
+.DESCRIPTION
+Commit is stated first because commit is what admits or refuses a start, and
+physical last because it is the figure that misleads when read on its own.
+
+.OUTPUTS
+[string]
+#>
+function Format-HostMemoryStatus {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([AllowNull()][hashtable]$Status)
+    if (-not $Status) { return 'host memory position unreadable' }
+    return ('commit {0:N1} of {1:N1} GB charged, {2:N1} GB uncharged; {3:N1} GB physical available' -f `
+        ($Status.committedBytes / 1GB), ($Status.commitLimitBytes / 1GB),
+        ($Status.commitAvailableBytes / 1GB), ($Status.availableMb / 1KB))
+}
+
+<#
+.SYNOPSIS
+True when a failure is the host refusing an allocation for want of system
+resources, rather than anything about the VM being started.
+
+.DESCRIPTION
+ERROR_NO_SYSTEM_RESOURCES surfaces as HRESULT 0x800705AA, which is -2147023446
+as a signed Int32 -- the value the numeric checks compare against, taken from
+HResult anywhere in the exception chain and from NativeErrorCode on a
+Win32Exception, whichever wrapper the failing call happened to produce.
+
+The rendered text is the LAST resort and is matched on the hex literal alone.
+Every word around that literal is translated on a localized host, so a match on
+the English sentence would quietly stop recognizing the condition on exactly
+the machines least likely to be watched; the digits are not translated. A
+refusal stating neither the code nor the literal is simply not recognized, and
+the caller then treats it as it treats any other start failure -- the narrow
+match can cost a retry, never a misclassification.
+
+.OUTPUTS
+[bool]
+#>
+function Test-HostResourceExhaustionError {
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param([Parameter(Mandatory)][AllowNull()]$ErrorRecord)
+    if (-not $ErrorRecord) { return $false }
+    $noSystemResources = -2147023446
+    $text = ''
+    $ex   = $null
+    if ($ErrorRecord -is [System.Management.Automation.ErrorRecord]) {
+        $text = "$ErrorRecord"
+        $ex   = $ErrorRecord.Exception
+    } else {
+        $ex = $ErrorRecord -as [System.Exception]
+    }
+    # Depth-bounded: an exception whose InnerException chain loops back on
+    # itself would otherwise hang the classifier inside a failure path.
+    $depth = 0
+    while ($ex -and $depth -lt 8) {
+        if ($ex.HResult -eq $noSystemResources) { return $true }
+        if (($ex -is [System.ComponentModel.Win32Exception]) -and ($ex.NativeErrorCode -eq 1450)) { return $true }
+        $text += " $($ex.Message)"
+        $ex = $ex.InnerException
+        $depth++
+    }
+    return ($text -match '0x800705AA')
+}
+
+<#
+.SYNOPSIS
+The startup memory, in bytes, that starting the named VM will charge the host.
+
+.DESCRIPTION
+Read from the VM definition rather than passed in by the caller: the size is
+set by the per-guest builder and by the planner's sizing override, and a second
+statement of it here would drift from whichever one actually shaped the VM.
+Dynamic memory changes what a running guest keeps, not what its start has to
+find, so startup memory is the figure either way.
+
+0 when the VM cannot be read; the caller treats that as "size unknown" and
+skips the arithmetic that would need it rather than guessing at a size.
+
+.OUTPUTS
+[int64] bytes, or 0.
+#>
+function Get-HyperVVMStartupMemory {
+    [CmdletBinding()]
+    [OutputType([int64])]
+    param([Parameter(Mandatory)][string]$VMName)
+    try {
+        $vm = Hyper-V\Get-VM -Name $VMName -ErrorAction Stop
+        if ($vm) { return [int64]$vm.MemoryStartup }
+    } catch {
+        Write-Verbose "Get-HyperVVMStartupMemory: '$VMName' did not answer: $($_.Exception.Message)"
+    }
+    return [int64]0
+}
+
+<#
+.SYNOPSIS
+Wait -- briefly, and only while the host is actually giving memory back -- for
+the uncharged commit to cover an allocation that is about to be made.
+
+.DESCRIPTION
+A teardown returns from Remove-VM before the departing VM worker process has
+exited and handed its commit back, so "the previous VM is no longer running" is
+not the same fact as "its memory is available again". The gap between the two
+runs to tens of seconds on a loaded host, and a start issued inside that gap is
+the one that gets refused.
+
+Two hosts can fail the same predicate for opposite reasons, and they deserve
+opposite treatment. A host mid-teardown is RELEASING: its uncharged commit
+climbs in gigabyte steps as the departing worker exits, and waiting there is
+productive because the request is usually met within seconds. A host that is
+simply over-subscribed is releasing nothing, its reading does not climb, and no
+amount of waiting will satisfy the request -- there a wait is pure cost, paid
+on every start, forever. So the budget is not what ends this wait in the common
+case: the absence of upward movement is. While the reading keeps climbing the
+wait runs on toward the budget; once it has failed to climb for a few
+consecutive polls the host is taken to be releasing nothing and the wait
+returns.
+
+"Climbing" has to clear a floor, because uncharged commit on a live host is
+never still. It moves by hundreds of megabytes between polls as ordinary
+processes allocate and release, and with a system-managed page file the LIMIT
+itself steps as Windows resizes the file, which moves the headroom with no
+allocation changing at all. So progress is measured against the HIGHEST reading
+seen so far, never against the previous one -- a dip followed by a recovery is
+not progress and must not ratchet the wait forward -- and only a gain of at
+least ProgressBytes counts. The floor sits well above the churn a busy host
+shows while it is releasing nothing, and well below what any guest teardown
+hands back, so a real release is unmissable and ordinary noise is invisible.
+
+Neither a stall nor a timeout is a failure, and neither may ever become one.
+The wait returns Satisfied = $false and the caller proceeds with the start it
+was going to make anyway: the hypervisor's own answer is the authoritative one
+and the only one that carries a diagnosable error, and a synthetic preemptive
+failure would replace it with a guess about a start nobody attempted. The same
+holds when the counters stop answering, and the whole body is guarded so that
+even an unforeseen fault in here ends the wait instead of the start. The only
+thing this function can do to a start is delay it; it can never prevent one.
+
+Bounded twice over -- each poll sleep is clipped to what is left of the budget
+-- so the worst case is the budget plus one reading however the host behaves.
+
+.OUTPUTS
+[hashtable] with Satisfied, WaitedSeconds, Reason and Status (the last reading,
+or $null when the host stopped answering). Reason is one of 'satisfied',
+'no-predicate', 'unreadable', 'stalled' or 'timeout', and is what tells an
+operator whether a short wait meant a healthy host or a saturated one.
+#>
+function Wait-HostMemoryHeadroom {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][int64]$RequiredBytes,
+        [string]$Label = '',
+        [int]$TimeoutSeconds = 20,
+        [int]$PollSeconds = 2,
+        # A gigabyte is well above the poll-to-poll movement a busy host shows
+        # while it is releasing nothing, and well below what a multi-gigabyte
+        # guest hands back when its worker exits. A smaller floor reads ordinary
+        # churn as a teardown in flight and keeps waiting on a host that is
+        # merely full, which is the cost this early exit exists to avoid.
+        [int64]$ProgressBytes = 1GB,
+        # Three polls, not one: a departing worker can hold flat for a beat
+        # before its pages are reclaimed. Being wrong in this direction costs a
+        # few seconds; being wrong in the other costs the whole budget on every
+        # start for the life of the host.
+        [int]$StallPolls = 3
+    )
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    # Guarded as a whole. This function exists to spare a start a refusal it
+    # would otherwise take, so the one outcome it must never produce is a start
+    # that never happened: any fault in here -- a counter source that throws
+    # instead of returning nothing, a host stating a value in an unexpected
+    # shape -- ends the wait and leaves the attempt to the caller.
+    try {
+        $status = Get-HostMemoryStatus
+        $result = @{ Satisfied = $true; WaitedSeconds = 0; Reason = 'satisfied'; Status = $status }
+        # No predicate, no wait: an unreadable host or an unknown allocation size
+        # gives nothing to wait FOR, and such a wait can only spend its budget.
+        if (-not $status) { $result.Reason = 'unreadable'; return $result }
+        if ($RequiredBytes -le 0) { $result.Reason = 'no-predicate'; return $result }
+        if ($status.commitAvailableBytes -ge $RequiredBytes) { return $result }
+        Write-Information -MessageData ("  Start-VM $Label`: $(Format-HostMemoryStatus -Status $status) -- short of the {0:N1} GB this guest will charge; waiting up to ${TimeoutSeconds}s, and only while the host keeps giving memory back." -f ($RequiredBytes / 1GB)) -InformationAction Continue
+        $bestSeenBytes = [int64]$status.commitAvailableBytes
+        $flatPolls = 0
+        $exitReason = 'timeout'
+        while ($sw.Elapsed.TotalSeconds -lt $TimeoutSeconds) {
+            $remaining = $TimeoutSeconds - $sw.Elapsed.TotalSeconds
+            Start-Sleep -Milliseconds ([int]([Math]::Min([double]$PollSeconds, $remaining) * 1000))
+            $status = Get-HostMemoryStatus
+            $result.Status = $status
+            if (-not $status) { $exitReason = 'unreadable'; break }
+            if ($status.commitAvailableBytes -ge $RequiredBytes) {
+                $result.WaitedSeconds = [int]$sw.Elapsed.TotalSeconds
+                Write-Information -MessageData "  Start-VM $Label`: headroom came back after $($result.WaitedSeconds)s ($(Format-HostMemoryStatus -Status $status))." -InformationAction Continue
+                return $result
+            }
+            if ([int64]$status.commitAvailableBytes -ge ($bestSeenBytes + $ProgressBytes)) {
+                $bestSeenBytes = [int64]$status.commitAvailableBytes
+                $flatPolls = 0
+            } else {
+                $flatPolls++
+                if ($flatPolls -ge $StallPolls) { $exitReason = 'stalled'; break }
+            }
+        }
+        $result.Satisfied     = $false
+        $result.Reason        = $exitReason
+        $result.WaitedSeconds = [int]$sw.Elapsed.TotalSeconds
+        $why = switch ($exitReason) {
+            'stalled'    { 'the host handed nothing back while this watched, so it is over-subscribed rather than mid-teardown' }
+            'unreadable' { 'the host stopped stating its memory position' }
+            default      { 'the headroom never arrived' }
+        }
+        Write-Information -MessageData "  Start-VM $Label`: stopped waiting after $($result.WaitedSeconds)s -- $why ($(Format-HostMemoryStatus -Status $status)); starting anyway so the hypervisor states the outcome rather than this wait." -InformationAction Continue
+        return $result
+    } catch {
+        Write-Verbose "Wait-HostMemoryHeadroom: the host's memory position could not be watched: $($_.Exception.Message)"
+        return @{ Satisfied = $true; WaitedSeconds = [int]$sw.Elapsed.TotalSeconds; Reason = 'unreadable'; Status = $null }
+    }
+}
+
+<#
+.SYNOPSIS
 Start a Hyper-V VM and open a vmconnect window in basic mode.
 
 .DESCRIPTION
-Calls Hyper-V\Start-VM, then launches vmconnect.exe against
-localhost\$VMName so screenshots and keystroke delivery work without
-guest integration tools. After spawn it dismisses the "Another user is
-connected" dialog if vmconnect raises it. Returns a hashtable
-@{ success; errorMessage } so callers can branch on transport
-failures separately from PowerShell exceptions.
+Waits -- briefly, and only while the host is still handing memory back -- for
+the host to hold the commit this guest is about to charge, calls
+Hyper-V\Start-VM, then launches vmconnect.exe against localhost\$VMName
+so screenshots and keystroke delivery work without guest integration tools.
+After spawn it dismisses the "Another user is connected" dialog if vmconnect
+raises it.
+
+A start refused for want of system resources is retried ONCE, after a further
+bounded wait, and ONLY that error is retried: the condition is transient by
+nature -- the host is between releasing one guest's reservation and being able
+to grant the next -- while every other start failure is a standing fault that a
+second attempt merely delays the report of.
+
+Returns a hashtable @{ success; errorMessage; hostMemory } so callers can
+branch on transport failures separately from PowerShell exceptions. hostMemory
+is the reading taken immediately before the attempt that decided the outcome,
+so a failure record can state what the machine held at the instant it refused;
+it is $null when the host would not state it. Read it with the indexer
+($result['hostMemory']) rather than as a property -- the other host drivers do
+not set the key, and under StrictMode a missing key read as a property throws.
 #>
 function Start-HyperVVM {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([hashtable])]
-    param([Parameter(Mandatory)][string]$VMName)
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [int]$MemoryWaitSeconds = 20
+    )
+    # A VM costs the host more than the guest's own RAM: the worker process,
+    # device emulation and the virtualization stack's own pages are charged
+    # alongside it. Asking for the guest size alone would clear a preflight that
+    # the start then fails; the margin only ever costs a wait that ends in a
+    # start either way.
+    $overheadBytes = 512MB
+    $memory = $null
     try {
         if ($PSCmdlet.ShouldProcess($VMName, 'Start Hyper-V VM')) {
-            Hyper-V\Start-VM -Name $VMName -ErrorAction Stop -WarningAction SilentlyContinue 6>$null
+            # A VM that is already running holds its commit and a start against
+            # it is a no-op, so there is nothing to wait for; asking anyway would
+            # spend the whole budget before a call that was always going to
+            # return immediately.
+            $required = [int64]0
+            try {
+                if ((Get-VMState -VMName $VMName) -ne 'running') {
+                    $required = Get-HyperVVMStartupMemory -VMName $VMName
+                    if ($required -gt 0) { $required += $overheadBytes }
+                }
+            } catch {
+                # Sizing the preflight is an optimization and nothing more. If
+                # the VM will not state its size, there is simply nothing to
+                # wait for -- the start still goes ahead and the hypervisor
+                # still gets to state the outcome.
+                Write-Verbose "Start-HyperVVM: '$VMName' would not state a size for the memory preflight: $($_.Exception.Message)"
+                $required = [int64]0
+            }
+            $attempt = 0
+            while ($true) {
+                $null   = Wait-HostMemoryHeadroom -RequiredBytes $required -Label "'$VMName'" -TimeoutSeconds $MemoryWaitSeconds
+                # Taken after the wait and before the attempt, so the reading a
+                # failure record carries is the position the refusal was made in.
+                $memory = Get-HostMemoryStatus
+                try {
+                    Hyper-V\Start-VM -Name $VMName -ErrorAction Stop -WarningAction SilentlyContinue 6>$null
+                    break
+                } catch {
+                    if ($attempt -ge 1 -or -not (Test-HostResourceExhaustionError -ErrorRecord $_)) { throw }
+                    $attempt++
+                    Write-Warning "Start-VM '$VMName' was refused for want of system resources ($(Format-HostMemoryStatus -Status $memory)); waiting for the host to release memory and retrying once."
+                    # A fixed pause before the wait re-reads: the refusal can
+                    # arrive before the host's own accounting has caught up, and
+                    # a reading taken in that same instant looks healthy enough
+                    # to end the wait immediately and retry into the same state.
+                    Start-Sleep -Seconds 5
+                }
+            }
             # Open a vmconnect window in basic mode for screenshots / keystroke
             # delivery without requiring guest integration tools.
             $vmconnect = "$env:SystemRoot\System32\vmconnect.exe"
@@ -1992,9 +2337,13 @@ function Start-HyperVVM {
                 [void](Resolve-VMConnectAnotherUserDialog -VMName $VMName -TimeoutSeconds 8)
             }
         }
-        return @{ success = $true; errorMessage = $null }
+        return @{ success = $true; errorMessage = $null; hostMemory = $memory }
     } catch {
-        return @{ success = $false; errorMessage = "Start-VM failed for '$VMName': $_" }
+        # The reading from just before the failed attempt is the one that
+        # describes the refusal; the fallback covers only a throw raised before
+        # any attempt was made.
+        if (-not $memory) { $memory = Get-HostMemoryStatus }
+        return @{ success = $false; errorMessage = "Start-VM failed for '$VMName': $_"; hostMemory = $memory }
     }
 }
 
@@ -3381,12 +3730,11 @@ function Get-HyperVWindowScreenshot {
 }
 
 # --- REGION: VM lifecycle
-
-<#
-.SYNOPSIS
-    Create a guest VM by running the per-guest New-VM.ps1 script.
-#>
 function New-VM {
+    <#
+    .SYNOPSIS
+        Create a guest VM by running the per-guest New-VM.ps1 script.
+    #>
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSShouldProcess', '',
         Justification = 'ShouldProcess is delegated to Invoke-PerGuestNewVm, which declares SupportsShouldProcess and calls it; -WhatIf/-Confirm propagate via the splatted PSBoundParameters.')]
     [CmdletBinding(SupportsShouldProcess)]
@@ -3796,12 +4144,11 @@ function Restart-VMConsole {
 }
 
 # --- REGION: Image
-
-<#
-.SYNOPSIS
-    Run the per-guest Get-Image.ps1 to download or refresh the base image.
-#>
 function Get-Image {
+    <#
+    .SYNOPSIS
+        Run the per-guest Get-Image.ps1 to download or refresh the base image.
+    #>
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSShouldProcess', '',
         Justification = 'ShouldProcess is delegated to Invoke-GetImage, which declares SupportsShouldProcess and calls it; -WhatIf/-Confirm propagate via the splatted PSBoundParameters.')]
     [CmdletBinding(SupportsShouldProcess)]
@@ -3839,12 +4186,11 @@ function Get-ImagePath {
 }
 
 # --- REGION: VM I/O
-
-<#
-.SYNOPSIS
-    Type text into the guest VM via gui or ssh mechanism.
-#>
 function Send-Text {
+    <#
+    .SYNOPSIS
+        Type text into the guest VM via gui or ssh mechanism.
+    #>
     [CmdletBinding()]
     [OutputType([bool])]
     param(
@@ -4045,7 +4391,7 @@ function Get-VMConsoleSecondOpinion {
     }
 }
 
-# --- REGION: DHCP wire capture (pktmon)
+# --- REGION: DHCP evidence capture
 # The guest-side network diagnostic can only say "no lease". Whether the
 # DISCOVER left the guest at all, died crossing the vSwitch or the uplink, or
 # went out and was never answered is visible only on the host's packet path --
@@ -4208,12 +4554,11 @@ function Get-VMConsoleHandle {
 }
 
 # --- REGION: Discovery
-
-<#
-.SYNOPSIS
-    Poll Get-VMIp until an IPv4 address is discovered or timeout expires.
-#>
 function Wait-VMIp {
+    <#
+    .SYNOPSIS
+        Poll Get-VMIp until an IPv4 address is discovered or timeout expires.
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param(
@@ -4335,12 +4680,11 @@ function Update-GuestNeighborCache {
 }
 
 # --- REGION: Networking
-
-<#
-.SYNOPSIS
-    Return the name of the host-side External-type vSwitch or network.
-#>
 function Get-ExternalNetwork {
+    <#
+    .SYNOPSIS
+        Return the name of the host-side External-type vSwitch or network.
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param()
@@ -4584,25 +4928,24 @@ function Get-BestHostIp {
 }
 
 # --- REGION: Caching-proxy service
-
-<#
-.SYNOPSIS
-    Probe and return the caching-proxy-service URL, or null if none is reachable.
-.DESCRIPTION
-    Discovery is intentionally narrow -- only caches this host owns,
-    or a remote cache the operator explicitly named, are returned:
-      1. $Env:YURUNA_CACHING_PROXY_SERVICE_IP -- explicit remote cache override.
-      2. State file (Read-CachingProxyServiceState).ipAddress -- the cache VM's
-         IP written by Start-CachingProxyServiceVM.ps1 (our own VM).
-
-    No Hyper-V VM enumeration, no KVP/ARP discovery. Get-CacheVmCandidateIp
-    and Get-WorkingCachingProxyServiceUrl still exist for use by the producer
-    (guest.caching-proxy-service/New-VM.ps1) and Start-CachingProxyServiceVM.ps1 itself
-    while the cache VM is being brought up -- they are not part of the
-    steady-state discovery path. LAN-wide cache discovery is a separate
-    future feature.
-#>
 function Test-CachingProxyServiceAvailable {
+    <#
+    .SYNOPSIS
+        Probe and return the caching-proxy-service URL, or null if none is reachable.
+    .DESCRIPTION
+        Discovery is intentionally narrow -- only caches this host owns,
+        or a remote cache the operator explicitly named, are returned:
+          1. $Env:YURUNA_CACHING_PROXY_SERVICE_IP -- explicit remote cache override.
+          2. State file (Read-CachingProxyServiceState).ipAddress -- the cache VM's
+             IP written by Start-CachingProxyServiceVM.ps1 (our own VM).
+
+        No Hyper-V VM enumeration, no KVP/ARP discovery. Get-CacheVmCandidateIp
+        and Get-WorkingCachingProxyServiceUrl still exist for use by the producer
+        (guest.caching-proxy-service/New-VM.ps1) and Start-CachingProxyServiceVM.ps1 itself
+        while the cache VM is being brought up -- they are not part of the
+        steady-state discovery path. LAN-wide cache discovery is a separate
+        future feature.
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param([switch]$Quiet)
@@ -4632,12 +4975,11 @@ function Get-CachingProxyServiceVmIp {
 }
 
 # --- REGION: Host config
-
-<#
-.SYNOPSIS
-    Promote a proxy URL to the machine-wide host proxy with backup.
-#>
 function Set-HostProxy {
+    <#
+    .SYNOPSIS
+        Promote a proxy URL to the machine-wide host proxy with backup.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$ProxyUrl)
@@ -4951,7 +5293,6 @@ function Limit-HyperVLinuxGuestCoreCount {
 }
 
 # --- REGION: Exports
-
 Export-ModuleMember -Function `
     New-VM, Start-VM, Stop-VM, Stop-VMForce, Remove-VM, Rename-VM, Get-VMState, Get-VMName, `
     Save-VMDiskSnapshot, Restore-VMDiskSnapshot, Test-VMDiskSnapshot, `
@@ -4971,6 +5312,7 @@ Export-ModuleMember -Function `
     Save-CachedHttpUri, Assert-HyperVEnabled, `
     Confirm-HyperVVMCreated, Stop-HyperVVMForce, Remove-HyperVTestVM, `
     Start-HyperVVM, Stop-HyperVVM, Request-HyperVVMShutdown, Confirm-HyperVVMStarted, `
+    Get-HostMemoryStatus, Format-HostMemoryStatus, Test-HostResourceExhaustionError, Wait-HostMemoryHeadroom, Get-HyperVVMStartupMemory, `
     Resolve-VMConnectAnotherUserDialog, Restart-HyperVConnect, `
     Test-WindowsProxyIsYurunaManaged, Read-WindowsProxyState, Invoke-WinInetRefresh, `
     Set-WindowsHostProxy, Restore-WindowsHostProxy, Disable-WindowsHostProxy, Remove-WindowsHostProxy, `
@@ -4982,12 +5324,8 @@ Export-ModuleMember -Function `
     Start-VMDhcpCapture, Save-VMDhcpCapture, Stop-VMDhcpCapture, `
     Remove-OrphanedVMFileAccess, Disable-HyperVHeartbeatForLinuxGuest, Limit-HyperVLinuxGuestCoreCount
 
-# Contract-coverage assertion: warns at load time if the export block
-# above drifts away from the canonical Yuruna.Host contract. The module
-# handle travels with the declared list so the check runs against what
-# Export-ModuleMember actually published: the list on its own is a second
-# copy of the contract and would pass even after the export block lost a
-# verb. See host/Yuruna.Host.Contract.psm1 for the verb list and rationale.
+# --- REGION: Contract coverage
+# Validate actual exports against the common contract after publishing them.
 Import-Module (Join-Path -Path $PSScriptRoot -ChildPath '..' -AdditionalChildPath '..', 'Yuruna.Host.Contract.psm1') -Force -DisableNameChecking
 $null = Assert-YurunaHostContractCoverage -HostType 'windows.hyper-v' `
     -Module $ExecutionContext.SessionState.Module -ExportedFunction @(

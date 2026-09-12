@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 427027e4-02aa-49bd-8f50-95db47263320
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -34,9 +34,14 @@ if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
 
 $ProgressPreference = 'SilentlyContinue'
 
-# Honor logLevel from Start-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+# --- REGION: Log level from environment
+# See https://yuruna.link/42e220c4-0003
+# Reuse the caller's log module; a forced reload discards its state.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
-if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
+if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
+    Import-Module $_logLevelMod -Global
+}
+if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $commonModulePath = Join-Path -Path (Split-Path -Parent $ScriptDir) -ChildPath "modules/Yuruna.Host.psm1"
@@ -129,7 +134,6 @@ if ($existingVM) {
 }
 
 # --- REGION: Create copies and files for VM
-
 $vmDir = Join-Path $downloadDir $VMName
 if (!(Test-Path -Path $vmDir)) {
     New-Item -ItemType Directory -Path $vmDir -Force | Out-Null
@@ -163,15 +167,8 @@ $switchName = Get-OrCreateYurunaExternalSwitch
 if (-not $switchName) {
     $switchName = 'Default Switch'
     if (-not (Get-VMSwitch -Name $switchName -ErrorAction SilentlyContinue)) {
-        # The Default Switch ships only with Windows client SKUs and an
-        # operator can delete it. New-VM throws on a switch name that
-        # resolves to nothing, so an unchecked fallback turns a degraded
-        # network into a failed provision; any switch that exists still
-        # creates and boots the VM. Rank non-External switches first: this
-        # path is normally reached because the host uplink is one Hyper-V
-        # refuses to carry a bridged guest MAC over, so a guest attached to
-        # an External switch there comes up with no carrier at all, while an
-        # Internal/NAT switch still gives it a working address.
+        # --- REGION: https://yuruna.link/42e220c4-0004
+        # Verify the fallback exists; prefer non-External switches when bridging is unavailable.
         $substituteSwitch = @(Get-VMSwitch -ErrorAction SilentlyContinue) |
             Sort-Object @{ Expression = { $_.SwitchType -eq 'External' } }, Name |
             Select-Object -First 1
@@ -184,21 +181,7 @@ if (-not $switchName) {
 }
 
 # --- REGION: https://yuruna.link/4220a755-002d
-# This guest's Yuruna coordinates, split by whether DHCP can invalidate them.
-#
-# The seed ISO is burned BEFORE Windows Setup runs, and Setup takes longer than
-# a short DHCP lease. So an address written here can already name a host that
-# has moved by the time the guest first reads it -- not as an edge case but as
-# the ordinary outcome on a lab whose router hands out 30-minute leases. An
-# address cannot be the contract when the medium carrying it outlives its
-# validity.
-#
-# What survives is identity. The hostId is permanent across reboots, reimages
-# and renumbering, and the caching-proxy address is pinned by MAC reservation,
-# so those two are seeded as facts. The status-service address is seeded as a
-# HINT: correct in the common case, cheap to check, and repaired by the
-# resolver against the pool directory when it is not. That split is what makes
-# this work under DHCP rather than merely usually.
+# Seed durable host identity; treat the status address as a hint that may expire during Setup.
 $YurunaHostIp = Get-GuestReachableHostIp -SwitchName $switchName
 if (-not $YurunaHostIp) { $YurunaHostIp = '' }
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Config.psm1') -Global -Force
@@ -234,6 +217,7 @@ Write-Verbose "Generating seed.iso with autounattend configuration..."
 # OEMDRV volume label causes Windows Setup to automatically pick up autounattend.xml
 CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId "OEMDRV"
 
+# --- REGION: Create and configure the Hyper-V VM
 Write-Verbose "Creating new VM '$VMName' on switch '$switchName'..."
 Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 12288MB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
 
@@ -296,7 +280,7 @@ Set-VMVideo -VMName $VMName -HorizontalResolution 1920 -VerticalResolution 1080 
 # Note: EnhancedSessionTransportType only accepts VMBus or HvSocket; disable at host level instead.
 Set-VMHost -EnableEnhancedSessionMode $false
 
-# --- REGION: Cleanup temporary folders
+# --- REGION: Clean up temporary files
 Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- REGION: Guidance

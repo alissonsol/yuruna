@@ -8,8 +8,12 @@ sequenceRevision: 1
 
 description: "Windows 11: workload test sequence (placeholder)."
 keystrokeMechanism: gui
+
+# --- REGION: resource
 resource:
   windows.11:
     - start.guest.windows.11
 variables: {}
+
+# --- REGION: workload
 workload: []

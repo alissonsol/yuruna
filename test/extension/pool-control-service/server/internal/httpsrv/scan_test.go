@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -240,5 +241,232 @@ func TestScanPageServed(t *testing.T) {
 		if diag < 0 || scan > diag {
 			t.Fatalf("%s puts Scan after Diagnostics", path)
 		}
+	}
+}
+
+// --- REGION: One machine with two IDs
+//
+// A host mints its id into its runtime directory, so a reimage or a re-clone
+// leaves the same machine running under a new one. Both halves of the list can
+// then carry two entries for it: the aggregator keeps each id until its own TTL
+// expires, and the scan's list is keyed by id too. The tests below fix what the
+// page does about that, on each half.
+
+// rekeyAggStub answers pool-status with two ids on ONE base URL -- a machine
+// that re-keyed, the id it stopped reporting still inside the aggregator's TTL
+// -- plus the registration record and the facts route each id would be asked
+// on. factCalls counts what actually reached the machine.
+func rekeyAggStub(t *testing.T) (*httptest.Server, *int32) {
+	t.Helper()
+	var factCalls int32
+	base := ""
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/pool-status"):
+			// The dead id is listed FIRST and both are named "42..." so neither
+			// map order nor id order can be what decides the answer.
+			_, _ = w.Write([]byte(`{"hosts":[
+                {"hostId":"42dead","control":"ready","reachable":false,"lastSeenUnixMs":1000,
+                 "currentIp":"192.168.7.110","baseUrl":"` + base + `/host","status":{"host":"host.windows.hyper-v"}},
+                {"hostId":"42live","control":"ready","reachable":true,"lastSeenUnixMs":2000,
+                 "currentIp":"192.168.7.110","baseUrl":"` + base + `/host","status":{"host":"host.windows.hyper-v"}}]}`))
+		case r.URL.Path == "/host/runtime/host.registration.json":
+			_, _ = w.Write([]byte(`{"hostname":"syzor202607b","hostType":"host.windows.hyper-v"}`))
+		case r.URL.Path == "/host/control/host-facts":
+			atomic.AddInt32(&factCalls, 1)
+			_, _ = w.Write([]byte(`{"ok":true,"memoryBytes":66342330368,"cores":8,"frameworkAccess":"yurunadev"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	base = "http://" + srv.Listener.Addr().String()
+	srv.Start()
+	t.Cleanup(srv.Close)
+	return srv, &factCalls
+}
+
+// The aggregator holds both ids, so both rows appear -- they have to, because
+// the pool membership may be on either and the operator is the one who decides.
+// What the page owes them is which is which: the row whose id no longer answers
+// says so, and the live one is left alone.
+func TestHostsMarksTheRegisteredIdThatNoLongerAnswers(t *testing.T) {
+	agg, _ := rekeyAggStub(t)
+	s := New(&boardIntent{doc: intentTwoPools}, Options{AggregatorURL: agg.URL})
+
+	_, rows := hostsPayload(t, s, "")
+	if got := rows["42dead"]["supersededBy"]; got != "42live" {
+		t.Errorf("supersededBy = %v on the id that stopped answering, want 42live", got)
+	}
+	if got, ok := rows["42live"]["supersededBy"]; ok && got != "" {
+		t.Errorf("the live id must not be marked superseded; got %v", got)
+	}
+	// The address is what makes the pair legible as one machine, so it travels
+	// with the row rather than only with a discovered one.
+	if got := rows["42dead"]["address"]; got != "192.168.7.110" {
+		t.Errorf("address = %v, want the address both ids answer at", got)
+	}
+}
+
+// Those rows are one machine, so its facts are read once and both rows carry
+// the same figures. Two reads would put a needless burst on a single host and,
+// sampled moments apart, would differ in free storage -- making the duplicate
+// rows read as two similar machines, which is the opposite of the point.
+func TestHostFactsAskARekeyedMachineOnce(t *testing.T) {
+	agg, calls := rekeyAggStub(t)
+	s := New(&boardIntent{doc: intentTwoPools}, Options{AggregatorURL: agg.URL})
+
+	req := httptest.NewRequest(http.MethodGet, "/api/hosts/facts", nil)
+	rec := httptest.NewRecorder()
+	s.routes().ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /api/hosts/facts = %d: %s", rec.Code, rec.Body.String())
+	}
+	var out struct {
+		Hosts map[string]struct {
+			OK          bool  `json:"ok"`
+			MemoryBytes int64 `json:"memoryBytes"`
+		} `json:"hosts"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &out); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if n := atomic.LoadInt32(calls); n != 1 {
+		t.Errorf("the machine was asked %d times, want once for both of its ids", n)
+	}
+	for _, id := range []string{"42dead", "42live"} {
+		if !out.Hosts[id].OK || out.Hosts[id].MemoryBytes != 66342330368 {
+			t.Errorf("%s: facts = %+v, want the machine's own answer", id, out.Hosts[id])
+		}
+	}
+}
+
+// The scan's own list is keyed by id as well, so a re-keyed host can sit in it
+// twice. The store collapses that once a scan confirms the address, and the page
+// applies the same two tests between discovered rows so a duplicate cannot reach
+// it in the window before that happens.
+func TestHostsRendersOneRowPerDiscoveredAddress(t *testing.T) {
+	agg := hostsAggStub(t)
+	s := New(&boardIntent{doc: intentTwoPools}, Options{AggregatorURL: agg.URL, AuthToken: testBearer})
+
+	// Written straight into the store under two keys, which is the state a
+	// re-key leaves behind, and with the older sighting added last so insertion
+	// order cannot be what picks the survivor.
+	now := time.Now()
+	s.discovered.Add(discovery.Host{
+		Address: "192.168.7.49", BaseURL: "http://192.168.7.49:8080",
+		HostID: "42new", Hostname: "lab-9", HostType: "windows.hyper-v",
+	}, now)
+	s.discovered.Add(discovery.Host{
+		Address: "192.168.7.49", BaseURL: "http://192.168.7.49:8080",
+		HostID: "42old", Hostname: "lab-9", HostType: "windows.hyper-v",
+	}, now.Add(-48*time.Hour))
+
+	_, rows := hostsPayload(t, s, testBearer)
+	if _, dup := rows["42old"]; dup {
+		t.Error("the id a discovered machine stopped reporting must not get a row of its own")
+	}
+	if got := rows["42new"]["address"]; got != "192.168.7.49" {
+		t.Errorf("the surviving row must be the newest sighting; got %v", rows["42new"])
+	}
+
+	// Two hosts that merely could not name themselves are still two machines:
+	// an empty base URL identifies nothing and must not let the first of them
+	// hide the second.
+	s.discovered.Add(discovery.Host{Address: "192.168.7.60"}, now)
+	s.discovered.Add(discovery.Host{Address: "192.168.7.61"}, now)
+	payload, _ := hostsPayload(t, s, testBearer)
+	addresses := map[string]bool{}
+	for _, r := range payload["hosts"].([]any) {
+		row := r.(map[string]any)
+		if row["discovered"] == true {
+			addresses[row["address"].(string)] = true
+		}
+	}
+	if !addresses["192.168.7.60"] || !addresses["192.168.7.61"] {
+		t.Errorf("a host with no base URL must not hide another; got %v", addresses)
+	}
+}
+
+// The repair: the pool membership moves to the id that answers, the retired id
+// leaves the scan's list, and the operator does not have to read two 32-hex ids
+// off a table and get four steps right by hand.
+func TestAdoptRekeyMovesMembershipToTheLiveId(t *testing.T) {
+	agg, _ := rekeyAggStub(t)
+	// The dead id holds the membership; the live one is in no pool, which is
+	// exactly the state that costs the pool a member.
+	const doc = `{"ok":true,"autoEnrollment":{"targetPoolId":""},
+      "pools":[{"poolId":"lab","poolGuid":"42l","members":["42dead"]}],"testSets":[]}`
+	fake := &boardIntent{doc: doc}
+	s := New(fake, Options{AggregatorURL: agg.URL, AuthToken: testBearer})
+	srv := httptest.NewServer(s.Handler())
+	defer srv.Close()
+	s.discovered.Add(discovery.Host{Address: "192.168.7.110", HostID: "42dead"}, time.Now())
+
+	resp, m := do(t, "POST", srv.URL+"/api/pool/adopt-rekey", `{"oldHostId":"42dead","newHostId":"42live"}`)
+	if resp.StatusCode != 200 || m["ok"] != true {
+		t.Fatalf("adopt-rekey: got %d %v", resp.StatusCode, m)
+	}
+	if m["movedToPool"] != "lab" {
+		t.Errorf("movedToPool = %v, want lab", m["movedToPool"])
+	}
+	// Removed BEFORE the add: a host belongs to at most one pool, and adding the
+	// live id while the dead one is still a member would put one machine in a
+	// pool twice under two names -- the state being repaired.
+	want := []string{"RemoveHost:lab:42dead", "AddHost:lab:42live"}
+	if len(fake.calls) != len(want) {
+		t.Fatalf("intent calls = %v, want %v", fake.calls, want)
+	}
+	for i, c := range want {
+		if fake.calls[i] != c {
+			t.Fatalf("intent calls = %v, want %v", fake.calls, want)
+		}
+	}
+	if s.discovered.Has("42dead") {
+		t.Error("the retired id must leave the monitored list too")
+	}
+}
+
+// Every refusal here is protecting the same thing: this route rewrites pool
+// membership from a pair of ids, and a pair that is not one machine -- or is no
+// longer the current reading -- would move a live host's membership somewhere
+// wrong. So the relation is re-derived from the aggregator and never taken from
+// the request.
+func TestAdoptRekeyRefusesAPairItCannotConfirm(t *testing.T) {
+	agg, _ := rekeyAggStub(t)
+	s := New(&boardIntent{doc: intentTwoPools}, Options{AggregatorURL: agg.URL, AuthToken: testBearer})
+	srv := httptest.NewServer(s.Handler())
+	defer srv.Close()
+
+	cases := []struct {
+		name, body string
+		want       int
+	}{
+		{"no ids", `{}`, 400},
+		{"one id", `{"oldHostId":"42dead"}`, 400},
+		{"the same id twice", `{"oldHostId":"42dead","newHostId":"42dead"}`, 400},
+		{"an id the aggregator does not report", `{"oldHostId":"42dead","newHostId":"42ghost"}`, 404},
+		// The direction matters: the live id cannot be retired in favor of the
+		// dead one, which is what a page loaded before the re-key would send.
+		{"the pair the wrong way round", `{"oldHostId":"42live","newHostId":"42dead"}`, 409},
+	}
+	for _, c := range cases {
+		resp, m := do(t, "POST", srv.URL+"/api/pool/adopt-rekey", c.body)
+		if resp.StatusCode != c.want {
+			t.Errorf("%s: got %d (%v), want %d", c.name, resp.StatusCode, m["error"], c.want)
+		}
+	}
+}
+
+// Two hosts at two addresses are two machines however alike they look, and
+// merging them would take one out of its pool for good.
+func TestAdoptRekeyRefusesTwoDistinctMachines(t *testing.T) {
+	agg := hostsAggStub(t)
+	s := New(&boardIntent{doc: intentTwoPools}, Options{AggregatorURL: agg.URL, AuthToken: testBearer})
+	srv := httptest.NewServer(s.Handler())
+	defer srv.Close()
+
+	resp, m := do(t, "POST", srv.URL+"/api/pool/adopt-rekey", `{"oldHostId":"42aa","newHostId":"42bb"}`)
+	if resp.StatusCode != 409 {
+		t.Fatalf("two hosts on different addresses: got %d (%v), want 409", resp.StatusCode, m["error"])
 	}
 }

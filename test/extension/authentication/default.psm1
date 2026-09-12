@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 4236c7a4-0e24-4a2c-beef-a19ebb5235fa
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,7 +19,7 @@
 # Default authentication extension: file-backed plaintext vault simulating
 # an EXTERNAL authentication provider. Vault read-modify-write is serialized
 # by a named system mutex so parallel guest provisioning cannot race.
-# Threat model and full rationale: https://yuruna.link/authentication
+# Threat model and full rationale: https://yuruna.link/427ac634
 
 # Module file lives at test/extension/authentication/default.psm1; three
 # Split-Path -Parent calls reach the repo root.
@@ -141,33 +141,32 @@ function Write-VaultUnlocked {
 }
 
 # --- REGION: users.yml -- logical -> corporate-identity mapping
-
-<#
-.SYNOPSIS
-    Adds template-declared, credential-free logical users that a
-    pre-existing runtime users.yml has never seen.
-.DESCRIPTION
-    The template is copied exactly once -- on the first call that finds no
-    runtime file. A host provisioned before a logical user was added to the
-    template therefore never learns that name, and strict mode refuses the
-    cycle over a name the operator was never asked about. Service VMs hit
-    this first, because each one arrives with its own administrator.
-
-    Only entries carrying no operator meaning are merged: empty vaultKey,
-    empty localOsPasswordRef, empty corporate fields. Anything an operator
-    could have curated is left alone, so this can neither overwrite a
-    mapping nor introduce a secret -- an entry whose template default is
-    inert (internal-auth-key with no vaultKey names an un-enrolled host)
-    arrives just as inert.
-
-    The append is textual rather than a YAML round-trip because the runtime
-    file is operator-editable and a re-render would discard its comments and
-    ordering. It is skipped unless 'users:' is the last top-level key, the
-    only shape in which appending at end-of-file lands inside that map.
-.OUTPUTS
-    None. Best-effort: any failure leaves the file untouched.
-#>
 function Merge-UsersTemplateEntry {
+    <#
+    .SYNOPSIS
+        Adds template-declared, credential-free logical users that a
+        pre-existing runtime users.yml has never seen.
+    .DESCRIPTION
+        The template is copied exactly once -- on the first call that finds no
+        runtime file. A host provisioned before a logical user was added to the
+        template therefore never learns that name, and strict mode refuses the
+        cycle over a name the operator was never asked about. Service VMs hit
+        this first, because each one arrives with its own administrator.
+
+        Only entries carrying no operator meaning are merged: empty vaultKey,
+        empty localOsPasswordRef, empty corporate fields. Anything an operator
+        could have curated is left alone, so this can neither overwrite a
+        mapping nor introduce a secret -- an entry whose template default is
+        inert (internal-auth-key with no vaultKey names an un-enrolled host)
+        arrives just as inert.
+
+        The append is textual rather than a YAML round-trip because the runtime
+        file is operator-editable and a re-render would discard its comments and
+        ordering. It is skipped unless 'users:' is the last top-level key, the
+        only shape in which appending at end-of-file lands inside that map.
+    .OUTPUTS
+        None. Best-effort: any failure leaves the file untouched.
+    #>
     [CmdletBinding()]
     param()
     if (-not (Test-Path -LiteralPath $script:UsersPath)) { return }

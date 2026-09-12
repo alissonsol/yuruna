@@ -11,16 +11,16 @@ bootstrap:
 
 Os scripts permanecem deliberadamente pequenos -- cada seção aqui
 corresponde a um divisor `# --- REGION: Section name` no corpo do script.
-A única linha `# --- REGION: https://yuruna.link/install/explained` perto
+A única linha `# --- REGION: https://yuruna.link/429fb30b` perto
 do topo de cada instalador é o ponto de entrada do operador para este
 documento; a partir dali, navegue até a seção correspondente ao divisor
 acima do código em estudo.
 
-As âncoras seguem a regra do Markdown do GitHub: coloque o título em
-minúsculas, remova a pontuação e substitua espaços por hifens. Assim,
-`## Section name` vira `#section-name`.
+As âncoras permanentes usam a chave do documento mais um sufixo hexadecimal
+de quatro dígitos, como `https://yuruna.link/42xxxxxx-yyyy`. Elas permanecem
+estáveis quando um título é reformulado.
 
-A mesma convenção `# --- REGION: https://yuruna.link/<key>#<slug>` é
+A mesma convenção `# --- REGION: https://yuruna.link/42xxxxxx-yyyy` é
 usada por [memory.md](../memory.md), [definition.md](../definition.md),
 [vmconfig.md](../vmconfig.md) e [network.md](../network.md).
 
@@ -110,7 +110,7 @@ GitHub que esta execução não tem.
 
 ### Fixação de release + integridade assinada
 
-`VERSION` (CalVer puro, `AAAA.MM.DD`) é a fonte da verdade para as releases.
+`VERSION` (CalVer puro, `YYYY.MM.DD`) é a fonte da verdade para as releases.
 No momento da release, o `tools/Update-YurunaReleasePins.ps1` regenera
 `install/install.sha256`, o assina (`install/install.sha256.sig`, RSA-4096),
 executa o gate ASCII/sem-BOM como pré-condição obrigatória e atualiza a única
@@ -1207,6 +1207,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Última revisão: 2026.09.08
+Última revisão: 2026.09.12
 
 Voltar para [Yuruna](../../README.md)

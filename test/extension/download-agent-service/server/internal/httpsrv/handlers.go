@@ -75,8 +75,7 @@ func (s *Server) routes() http.Handler {
 	return mux
 }
 
-// --- JSON helpers -----------------------------------------------------------
-
+// --- REGION: JSON helpers
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
@@ -155,8 +154,7 @@ func (s *Server) record(action string, id imagestore.ImageID, outcome, detail st
 	})
 }
 
-// --- read routes ------------------------------------------------------------
-
+// --- REGION: Read routes
 // handleHealth serves the persisted status when a state store is configured,
 // else a plain "ok". Never gated.
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
@@ -302,8 +300,7 @@ func (s *Server) handleEnsure(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, res.HTTPStatus, body)
 }
 
-// --- diagnostics ------------------------------------------------------------
-
+// --- REGION: Diagnostics
 func (s *Server) handleDiagnostics(w http.ResponseWriter, r *http.Request) {
 	if !s.available(w) {
 		return
@@ -350,8 +347,7 @@ func (s *Server) handleFidoTest(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// --- refusal mapping --------------------------------------------------------
-
+// --- REGION: Refusal mapping
 // refusalReason maps a refusal onto the fixed machine-readable token the control
 // route contract promises. Anything the pool engine did not name -- a raw
 // filesystem error from walking the share, say -- collapses to one constant:
@@ -376,8 +372,7 @@ func refusalStatus(reason string) int {
 	return http.StatusServiceUnavailable
 }
 
-// --- mutating routes --------------------------------------------------------
-
+// --- REGION: Mutating routes
 func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 	if !s.available(w) {
 		return
@@ -449,8 +444,7 @@ func (s *Server) handleRefreshAll(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]any{"ok": true, "started": n})
 }
 
-// --- page + asset serving ---------------------------------------------------
-
+// --- REGION: Page and asset serving
 func (s *Server) servePage(name string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		b, err := webFS.ReadFile("web/" + name)

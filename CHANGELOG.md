@@ -4,6 +4,11 @@ Yuruna uses [Calendar Versioning](https://calver.org/): `YYYY.MM.DD`.
 Tags are cut from the `main` branch; entries below summarize each
 tagged release.
 
+## 2026.09.12
+
+- **Globalization.** Scripting to simplify the localization.
+- **Stabilization.** Investigation and fixes for drifts across VM types.
+
 ## 2026.09.08
 
 - **Globalization.** Work on globalization of the UI ahead
@@ -57,7 +62,7 @@ tagged release.
   and per-host address history joins it. Tooltips are shorter and link to the
   documentation.
 
-- **Also in the release.** Amazon Linux guests get their network back, keep it
+- **Also in this release.** Amazon Linux guests get their network back, keep it
   when identity is set, and release leases on teardown. The Ubuntu install
   stops drawing a second lease, a flooded console is reported, and a guest
   holding its link down no longer reads as a broken host.
@@ -99,10 +104,10 @@ tagged release.
   range you name and lists the Yuruna hosts it finds on the Hosts page and
   dashboard as discovered -- monitored, but never added to a pool automatically.
 
- - **Also in this release.** Pages show loading progress and read hosts in
-   parallel; tables alternate banded rows in light and dark mode; IPv6
-   link-local browsers are no longer refused. Re-run the Start-*ServiceVM.ps1
-   scripts to deploy.
+- **Also in this release.** Pages show loading progress and read hosts in
+  parallel; tables alternate banded rows in light and dark mode; IPv6
+  link-local browsers are no longer refused. Re-run the Start-*ServiceVM.ps1
+  scripts to deploy.
 
 ## 2026.08.07
 
@@ -126,7 +131,7 @@ tagged release.
 ## 2026.08.06
 
 - **Share cycle results.** New menu option from the Yuruna hosts dashboard
-   enables sharing the results for a test cycle via a ".tar.gz" file.
+  enables sharing the results for a test cycle via a ".tar.gz" file.
 
 - **Also in this release.** Style fixes across service pages. Reduced
   memory for VMs in standalone mode. The cache VM's zot registry moves to
@@ -172,7 +177,6 @@ tagged release.
   *Pool hosts* now shows **runner stopped** and pending pauses instead of stale
   green. **Needs a caching-proxy service rebuild.**
 
-
 ## 2026.08.03
 
 - **A setup run can be told to say everything.** `install/setup.ps1` takes
@@ -206,11 +210,13 @@ tagged release.
   carries intact. **Needs a guest rebuild:** older VMs refuse the digest rather
   than run unverified code. See
   [definition.md](docs/definition.md#defining-the-fetch-and-execute-typed-envelope).
+
 - **Kubernetes guests pull container images through the cache again.** On
   containerd 2.2 the `certs.d` edit matched nothing, so images bypassed the
   caching-proxy zot, hanging flannel and leaving nodes `NotReady`. It now
   matches, and fails loudly if the shape changes. See
   [definition.md](docs/definition.md#defining-containerd-hoststoml-cache-mirror).
+
 - **Also in this release.** `pwsh install/setup.ps1` takes a standalone host or
   a lab beacon from clone to running, asking only what it cannot infer. The
   dashboard's **Lab token** tile now turns red when the collector stops
@@ -224,12 +230,14 @@ tagged release.
   and is now the host link -- one cell per row grants control. The verdict
   comes from a new open read route, `GET /control/control-status`. Needs a
   caching-proxy rebuild. See [control-routes.md](docs/control-routes.md).
+
 - **A lab with no NAS sets up its storage in one command.**
   `pwsh test/lab/New-LocalLabStorage.ps1` creates the folders, accounts, SMB
   shares, vault entries, mounts, and `networkStorage.*` config -- idempotent
   and `-WhatIf`-able. A second lab on the same machine reuses it:
   `New-Lab.ps1` infers `-Root` and keeps existing share credentials. See
   [operator.md](docs/operator.md#b7-local-shares-for-pool-and-stash-storage).
+
 - **Renaming.** Renaming artifacts for better consistency. Services,
   scripts, and documentation impacted.
 
@@ -240,6 +248,7 @@ tagged release.
   (the aggregator answers TLS and HTTP on `:9400`), and the "Control refused"
   notice names the failing precondition. Deploying needs a caching-proxy
   rebuild. See [control-routes.md](docs/control-routes.md).
+
 - **Enrolling a host in the lab is one command and a glance at the dashboard.**
   Read the rotating code off the **Lab token** tile;
   `pwsh test/lab/Set-LabToken.ps1 -LabToken <code>` redeems it for the shared
@@ -254,20 +263,20 @@ tagged release.
   can type unattended. A cycle warns once; `Test-Config.ps1` offers the fix.
   See [test-harness.md](docs/test-harness.md#the-host-clock).
 
-## 2026.07.26
-
 - **Pool control runs as its own service.** `Start-PoolControlVM.ps1` and
   `Stop-PoolControlVM.ps1` build and run it on a dedicated VM, matching the
   caching-proxy and stash scripts. It now reports version, build, environment,
   and a pass/fail check list on a `/diagnostics` page, and `Remove-PoolHost.ps1`
   retires decommissioned hosts. See
   [pool-admin.md](docs/pool-admin.md#pool-control-service).
+
 - **Teardown actually destroys again: `Invoke-Clear.ps1`.** Clearing a
   configuration reported success while destroying nothing, so cloud resources
   kept billing: it looked for a `resources:` list that `resources.output.yml`
   never carries. Teardown now walks the deployed resource keys and runs
   `tofu destroy` in each work folder. See
   [cleanup](docs/kubernetes.md#cleaning-up-cloud-resources).
+
 - **Also in this release**: leftover VMs swept at cycle start rather than
   aborting the run; VM starts without a VNC display now fail; dedicated test
   user; the status document surviving per-cycle re-import; quieter steady-state
@@ -284,12 +293,14 @@ tagged release.
   seeded with the old account keep it until rebuilt; `Move-CachingProxy.ps1`
   takes `-OldUser` for a source VM whose account differs. See
   [operator.md](docs/operator.md).
+
 - **Scripts that build a VM now say so**: `Start-CachingProxyVM.ps1`,
   `Start-PoolControlVM.ps1`, `Start-StashVM.ps1` (with matching `Stop-`
   counterparts). `Start-StatusService.ps1` and `Start-HostConfigService.ps1`
   start host-side services and keep their names. `Set-PoolAuthToken.ps1` and
   `Sync-HostConfiguration.ps1` renamed `-BounceStatusServer` to
   `-BounceStatusService`.
+
 - **Also in this release**: Breaking schema change for test sequences with
   matching project adjustment (and a 2026.07.22 early release for cross-release tests),
   `memoryStartupBytes` sequence variable.
@@ -305,11 +316,13 @@ tagged release.
   `Start-CachingProxy.ps1`.** Each rebuild booted with a random [MAC address](https://en.wikipedia.org/wiki/MAC_address), so [DHCP](https://en.wikipedia.org/wiki/Dynamic_Host_Configuration_Protocol) leased a new IP. The optional parameter pins the MAC on all three
   hypervisors; a one-time DHCP reservation keeps the cache IP stable. See
   [caching.md](docs/caching.md#caching-proxy-service--test-harness-operator-reference).
+
 - **`gh auth login` (or `GH_TOKEN`) now works for git, everywhere the runner
   talks to GitHub.** Plain `git` reads neither, so fresh hosts failed the
   first cycle's framework pull. Every network git call now chains the host's
   credential sources -- github.com-scoped `GH_TOKEN`, then
   `gh auth git-credential`, then plain git.
+
 - **Also in this release:** `Sync-HostConfiguration` installs the Linux
   sudoers drop-in and converges aliases/credentials on the reference host;
   on-host control clicks work again; stash DELETE requires an authorized
@@ -322,11 +335,13 @@ tagged release.
   recompute each panel's `gridPos.h` from the dashboard grid geometry, re-stack
   the panels below it, and rewrite the provisioned dashboard, which the Grafana
   provider re-reads within 30s.
+
 - **Driving a host remotely now takes a proof.** The mutating `/control/*`
   routes now demand loopback or a short-lived HMAC in `X-Yuruna-Control`, minted
   from the shared pool-auth-token by the aggregator's `/go/host` deep-link; reads
   stay open. `test/Set-PoolAuthToken.ps1` provisions the token. See
   [control-routes.md](docs/control-routes.md).
+
 - **Three silent failures fixed.** The dispatcher shared the extension contract's
   `Send-Notification` name, so alerts bound to a transport and vanished (it is now
   `Send-YurunaNotification`); snapshot manifests and runner state fell back to
@@ -348,6 +363,7 @@ tagged release.
   logic in `test/modules/Test.HostConfigSync.psm1`. See
   [pool-storage.md](docs/pool-storage.md) (Syncing a new host's config from a
   reference host).
+
 - **Stash presence beacon.** The stash server now self-announces to the
   pool-aggregator (`POST /announce`) on boot, every 15 minutes
   (configurable via `--presence-interval` / `STASH_PRESENCE_INTERVAL`), and
@@ -374,6 +390,7 @@ tagged release.
   (macOS, Ubuntu), which reads the repo's own `VERSION` as the single source of
   truth. See [install.md](docs/install.md) and
   [opportunities.md](docs/opportunities.md).
+
 - **Reliability & self-healing hardening sweep.** Roughly 66 review findings plus
   targeted fixes across the automation and diagnostic paths: hard wall-clock
   bounds on the VNC handshake, `Wait-SshReady`, and the persistent OCR WinRT
@@ -382,6 +399,7 @@ tagged release.
   across respawn; stale-PID and stale `last_failure.json` misattribution guards;
   and more diagnosable OCR, transport, and workload failure paths. See
   [opportunities.md](docs/opportunities.md).
+
 - **Commit column on the Yuruna hosts dashboard.** The Pool hosts table now shows
   each host's current framework and project short SHAs with per-repo deep-links,
   sourced from every host's `status.json` -- the same data the host status page's
@@ -396,7 +414,9 @@ tagged release.
   unaffected -- received files, sidecar records, and the persisted SSH host key
   live on the NAS share, not the disposable VM disk. See
   [stash-guide.md](docs/stash-guide.md).
+
 - **Dashboards update.** Extension hosts panel added to the Yuruna hosts dashboard. The Pool hosts panel now reports the paused status. Other minor visual updates.
+
 - **Mid-week release.** Test release to verify automated scripts.
 
 ## 2026.06.26
@@ -407,8 +427,8 @@ tagged release.
   pinned tag whether it was published with or without a `v` prefix -- closing a
   tag-drift break that may break one-line installs. See
   [install.md](docs/install.md).
-- **Installer and fetch resilience.** Transient-HTTP retries now cover bare
-  `500`s on helm/kubectl/tofu fetches, in-guest Kubernetes install steps retry,
+
+- **Installer and fetch resilience.** Transient-HTTP retries now cover bare `500`s on helm/kubectl/tofu fetches, in-guest Kubernetes install steps retry,
   and the three platform installers are hardened (arm64 hard gate, brew
   `NONINTERACTIVE`, Windows `git clone` exit-code checks). See
   [install.md](docs/install.md) and [opportunities.md](docs/opportunities.md).
@@ -418,11 +438,13 @@ tagged release.
 - **Stash Service available.** The Stash Service is functional end-to-end -- start
   it, then guests upload artifacts to it and you browse and serve them from the
   host. See [stash-guide.md](docs/stash-guide.md).
+
 - **Independent stash and pool storage.** The Stash Service and the pool network
   storage can now live on **different NAS shares with different accounts**. Where a
   host's OS refuses two credentials to one server, define a **machine alias** (a
   second hostname for the same NAS) so each tier mounts under its own server name.
   See [pool-storage.md](docs/pool-storage.md) and [test-config.md](docs/test-config.md).
+
 - **Clearer host-configuration preflight.** Several `Test-Config.ps1` refinements
   guide the operator more directly toward validating and fixing the host setup
   (storage mounts, stale SMB alias mappings, credentials) before a run. See
@@ -435,16 +457,20 @@ tagged release.
   with no central dispatcher (default-off, falls back to standalone). A
   self-discovering aggregator feeds the **Yuruna hosts** Grafana dashboard. See
   [pool-admin.md](docs/pool-admin.md) and [opportunities.md](docs/opportunities.md).
+
 - **poolStorage (ypsp) NAS replication.** Pool observability data replicates to a
   NAS share over SMB on Windows, Ubuntu, and macOS -- async, fail-fast, atomic,
   hardware-fingerprinted identity. See [pool-storage.md](docs/pool-storage.md).
+
 - **Signed installer integrity.** The three platform installers gain a SHA-256
   manifest with a detached release signature, verified against a committed
   RSA-4096 key, plus in-guest hash checks and an ASCII/BOM pre-commit gate. See
   [install.md](docs/install.md) and [opportunities.md](docs/opportunities.md).
+
 - **Converged cloud-init.** AL2023 and Ubuntu guests collapse drifting per-platform
   `user-data`/`meta-data` into one shared base plus per-host overlays; orphaned
   anchors throw at merge time. See [vmconfig.md](docs/vmconfig.md#how-user-data-is-rendered).
+
 - **Actionable failure telemetry.** First-failure records carry a shared taxonomy,
   copy-paste repro command, classified-cause enrichment, and remediation routing.
   See [failure-schema.md](docs/failure-schema.md).
@@ -480,6 +506,6 @@ LICENSEURI <https://yuruna.link/license>
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.08
+Last review: 2026.09.12
 
 Back to [Yuruna](README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 426cd98f-b5bd-4102-91d1-1cc3b6887155
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -17,7 +17,7 @@
 #requires -version 7
 
 # Per-host I/O backends consumed by Test.HostIO's registry.
-# Backend inventory and registry contract: https://yuruna.link/host-io
+# Backend inventory and registry contract: https://yuruna.link/4222e5f2
 $script:DefaultCharDelayMs = 10
 # Settle window applied after Send-TextHyperV's batched scancode emit
 # (and after the JXA UTM CGEvent path). The guest's PS/2 buffer drains
@@ -117,7 +117,6 @@ $script:UTMKeyMap       = Get-KeyCodeMap -Kind 'UTM-Named'
 $script:MacCharKeyCodes = Get-KeyCodeMap -Kind 'UTM-Char'
 
 # --- REGION: Cached Hyper-V keyboard (reused across steps)
-
 $script:CachedKb = $null
 $script:CachedKbVM = $null
 
@@ -196,7 +195,6 @@ $script:Ps2Chords = Get-KeyCodeMap -Kind 'PS2-Chord'
 $script:X11Chords = Get-KeyCodeMap -Kind 'X11-Chord'
 
 # --- REGION: Cached VNC connection (reused across steps within a sequence)
-
 $script:CachedVnc   = $null
 $script:CachedVncVM = $null
 
@@ -664,7 +662,6 @@ __KEYCALLS__
 }
 
 # --- REGION: Hyper-V keystroke transport: scan codes over the synthetic keyboard
-
 function Send-ScanCode {
     <#
     .SYNOPSIS
@@ -766,7 +763,6 @@ function Send-KeyHyperV {
 }
 
 # --- REGION: UTM keystroke transport: AppleScript chords + JXA/CGEvent text
-
 function Send-ChordUTM {
     <#
     .SYNOPSIS
@@ -1017,7 +1013,6 @@ function Send-TextKvm {
 
 
 # --- REGION: Hyper-V keystroke transport: scan codes over the synthetic keyboard
-
 function Send-TextHyperV {
     <#
     .SYNOPSIS
@@ -1181,7 +1176,6 @@ function ConvertTo-ShellEscapedText {
 }
 
 # --- REGION: UTM keystroke transport: AppleScript chords + JXA/CGEvent text
-
 function Send-TextUTM {
     <#
     .SYNOPSIS
@@ -1433,7 +1427,6 @@ public class HyperVMouse {
 }
 
 # --- REGION: Hyper-V mouse transport: vmconnect window clicks
-
 function Send-ClickHyperV {
     <#
     .SYNOPSIS
@@ -1468,7 +1461,6 @@ function Send-ClickHyperV {
 }
 
 # --- REGION: UTM mouse transport: CGEvent clicks in the VM window
-
 function Send-ClickUtm {
     <#
     .SYNOPSIS

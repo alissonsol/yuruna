@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 4294865c-194b-42cf-97c1-6dee3c2b9aa4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,29 +21,10 @@
     Copies another pool host's test.config.yml onto this macOS UTM host.
 
 .DESCRIPTION
-    Pulls the reference host's config over its status service
-    (http://<ReferenceHost>:8080/control/test-config), converts the
-    host-type-specific values for macOS (share paths to //server/share,
-    missing local mount paths to the ~/Shares/<server> convention -- an
-    already-populated local path is kept), preserves the local 'secrets'
-    node, and writes the result atomically with the previous file backed
-    up to test.config.yml.backup.
-
-    It then reconciles what the config depends on:
-      * a networkStorage server name that does not resolve here is looked
-        up on the reference host and added to /etc/hosts via
-        automation/Set-HostAlias.ps1 -- that write runs under sudo, so
-        expect one sudo prompt when an alias is actually missing
-        (-NonInteractive uses `sudo -n` and skips with a warning instead);
-      * a networkStorage user with no local vault entry has its password
-        fetched from the reference host's token-gated
-        /control/vault-credential endpoint (encrypted with a key derived
-        from the internal authentication key; prompt as fallback) and stored
-        via Set-Password.
-
-    Finishes by running test/Test-Config.ps1 so mount + credential
-    problems surface immediately. Idempotent -- a repeat run with nothing
-    to change writes nothing.
+    Copies and converts the reference host's configuration, preserving local
+    secrets and populated mount paths. Reconciles host aliases and vault
+    credentials, writes an atomic backup, and validates the result.
+    See https://yuruna.link/428405a0-0011 for platform and elevation details.
 
 .PARAMETER ReferenceHost
     Network name or IP address of the host to copy from. Any host type
@@ -105,13 +86,8 @@ if (-not $IsMacOS) {
     throw "This is the macOS UTM variant; run host/<type>/Sync-HostConfiguration.ps1 for this platform instead."
 }
 
-# Elevation announcement, ahead of the module installs, the reference-host fetch
-# and the operator questions that follow -- so a password request later in the
-# run is never a surprise. It announces rather than priming because the /etc/hosts
-# write is CONDITIONAL: it fires only when a networkStorage server name does not
-# already resolve to the address the reference host gives, and an unconditional
-# prime would ask for a password the common case never spends. macOS mounts via
-# mount_smbfs -N, so the hosts file is the only elevation on this platform.
+# --- REGION: Elevation notice
+# Announce conditional privileged writes without requesting unused credentials.
 if (-not $NoPool -and -not $NonInteractive -and -not $WhatIfPreference) {
     Write-Information @'
 
@@ -122,8 +98,7 @@ You may be prompted for your password once.
 '@
 }
 
-# Shared bootstrap (Test.HostContract import + powershell-yaml +
-# PSScriptAnalyzer install) lives in automation/Yuruna.HostSetup.psm1.
+# --- REGION: Initialize host setup
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Import-Module (Join-Path $RepoRoot 'automation/Yuruna.HostSetup.psm1') -Force
 # Only the ShouldProcess switches may reach the bootstrap: its
@@ -135,6 +110,7 @@ foreach ($k in @('WhatIf', 'Confirm')) {
 }
 Initialize-HostSetupModule -RepoRoot $RepoRoot -BoundParameters $bootstrapParams
 
+# --- REGION: Synchronize host configuration
 Import-Module (Join-Path $RepoRoot 'test/modules/Test.ConfigServiceSync.psm1') -Force -DisableNameChecking
 
 Sync-HostConfiguration -ReferenceHost $ReferenceHost -StatusPort $StatusPort -RepoRoot $RepoRoot `

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42a337f9-dcb7-4dfa-9c51-9ddba462035e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,20 +16,23 @@
 
 #requires -version 7
 
-# Honor logLevel from Start-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+# --- REGION: Log level from environment
+# Reuse the caller's log module so an in-process fetch preserves its state.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
-if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
+if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
+    Import-Module $_logLevelMod -Global
+}
+if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
+
+# --- REGION: Platform guard
+if (-not $IsWindows) {
+    Write-Error "host/windows.hyper-v/guest.windows.11/Get-Image.ps1 only runs on Windows Hyper-V."
+    exit 1
+}
 
 # --- REGION: Host architecture
-# OSArchitecture, not $env:PROCESSOR_ARCHITECTURE: an x64 pwsh running under
-# emulation on an ARM64 Windows host reports AMD64 in that variable, which
-# would pick media the hypervisor cannot boot. Hyper-V has no
-# cross-architecture emulation, so the host's architecture is the guest's.
-#
-# Microsoft publishes the two architectures on separate pages with
-# differently-labeled choices, and Fido names them x64 / arm64 while the
-# download agent's image keys use amd64 / arm64 -- hence three spellings of
-# one fact resolved here, once.
+# See https://yuruna.link/42e220c4-0003
+# Use native OS architecture even when the current PowerShell process is emulated.
 switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) {
     'X64' {
         $hostArch        = 'amd64'
@@ -106,12 +109,8 @@ if (Test-Path -LiteralPath $defaultBaseFile) {
 }
 
 # --- REGION: Elevation check
-# Get-VMHost, BITS, and writing under ProgramData all need admin. When we
-# don't have it, the only way forward is a manual download -- print the
-# fallback instructions instead of a terse "please run as admin" so the
-# operator sees the same guidance whether called directly or from
-# Start-TestRunner (which runs the script non-elevated and forwards its
-# exit code up).
+# See https://yuruna.link/42e220c4-0003
+# Unelevated calls print the same manual-download guidance as the test runner.
 Write-Output "This script requires elevation (Run as Administrator)."
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Warning "Not elevated -- cannot query Hyper-V or write to $defaultDownloadDir."
@@ -145,18 +144,8 @@ if ($downloadDir -ne $defaultDownloadDir -and (Test-Path -LiteralPath $baseImage
     exit 0
 }
 
-# Check if a Windows 11 ISO was placed in the download directory with any name.
-# The architecture predicate is not optional: Hyper-V has no cross-architecture
-# emulation, and an ISO for the other architecture is adopted, renamed to the
-# host-standard name and then handed to New-VM, which does not re-check it. The
-# guest boots to a firmware screen that says nothing about architecture, so the
-# mismatch surfaces as an OCR timeout tens of minutes later rather than here.
-# The two directions are deliberately asymmetric. Microsoft always spells ARM64
-# media with "Arm64" in the file name, so an ARM64 host can demand that token.
-# An AMD64 host cannot demand "x64" in return: a hand-renamed or
-# differently-published x64 ISO carries no architecture token at all, and
-# requiring one would refuse media that has always been accepted here. Absence
-# of an ARM token is the test that direction can actually make.
+# --- REGION: https://yuruna.link/42e220c4-0003
+# Require ARM media on ARM64; reject ARM-labeled media on AMD64 before adoption.
 $adoptArchPattern = if ($hostArch -eq 'arm64') { '(?i)arm' } else { '(?i)^(?!.*arm).+' }
 $existingIso = Get-ChildItem -Path $downloadDir -Filter "Win11*.iso" -ErrorAction SilentlyContinue |
     Where-Object { $_.Name -match $adoptArchPattern } |
@@ -354,4 +343,5 @@ try {
 
 # --- REGION: Fallback: manual download instructions
 Show-ManualDownloadInstruction -TargetPath $baseImageFile -TargetDir $downloadDir
+# --- REGION: Completion
 exit 1

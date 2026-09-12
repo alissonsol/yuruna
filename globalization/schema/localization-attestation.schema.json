@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://yuruna.com/schema/yuruna.localization-attestation/v1",
+  "title": "Yuruna localization attestation",
+  "description": "Who approved a returned bundle, when, and which request they were answering. The request digest is what makes an approval an approval of something rather than of nothing.",
+  "type": "object",
+  "required": ["schema", "locale", "requestDigest", "translator", "independentReviewer"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "yuruna.localization-attestation/v1" },
+    "locale": { "type": "string", "pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$" },
+    "requestDigest": {
+      "type": "object",
+      "required": ["algorithm", "sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "algorithm": { "const": "sha256-canonical-request-v1" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    },
+    "translator": { "$ref": "#/definitions/signature" },
+    "independentReviewer": { "$ref": "#/definitions/signature" }
+  },
+  "definitions": {
+    "signature": {
+      "type": "object",
+      "required": ["approvedBy", "approvedAt"],
+      "additionalProperties": false,
+      "properties": {
+        "approvedBy": { "type": "string" },
+        "approvedAt": { "type": "string", "pattern": "^(|[0-9]{4}-[0-9]{2}-[0-9]{2})$" }
+      }
+    }
+  }
+}

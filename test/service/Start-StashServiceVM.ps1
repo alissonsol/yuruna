@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42d07272-8c12-4ba7-807e-c0b201076d87
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@
 .SYNOPSIS
     Brings up the Yuruna stash service VM (host.windows.hyper-v,
     host.ubuntu.kvm, host.macos.utm). See
-    https://yuruna.link/stash-guide for the stash user guide.
+    https://yuruna.link/42f5e921 for the stash user guide.
 
 .PARAMETER VMName   Name for the stash-service VM. Default: yuruna-stash-service.
 
@@ -32,16 +32,22 @@
     Legitimate off-LAN, where the mirror is the only source there is.
 #>
 
+[CmdletBinding(SupportsShouldProcess)]
 param(
     [Parameter(Position = 0)]
     [string]$VMName = "yuruna-stash-service",
     [switch]$AllowMirrorSource
 )
 
+# --- REGION: Confirm the service operation
+# See https://yuruna.link/42e220c4-0008
+if (-not $PSCmdlet.ShouldProcess($VMName, 'Start or rebuild the service VM and configure host services')) { return }
+
 $global:InformationPreference = "Continue"
 $global:ProgressPreference    = "SilentlyContinue"
 
-# --- REGION: https://yuruna.link/42162449-0004
+# --- REGION: Initialize service runtime
+# See https://yuruna.link/42162449-0004
 # After the preference assignments above on purpose: an explicit level is the
 # operator's choice and replaces this script's own default.
 Import-Module (Join-Path $PSScriptRoot '../modules/Test.LogLevel.psm1') -Global -Force -DisableNameChecking
@@ -59,13 +65,7 @@ if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     exit $ExitFailure
 }
 
-# Windows has no mid-run elevation: the Hyper-V guest.stash-service New-VM.ps1
-# this script delegates to refuses without Administrator -- but only after the
-# stash-NAS mount pre-flight and the status-service start have already run and
-# left a mapping and a detached process behind. Check NOW, while nothing has
-# changed. Windows only: the UTM and KVM New-VM.ps1 have no Administrator gate,
-# and KVM's libvirt group access is handled by Invoke-LibvirtGroupReExecIfNeeded
-# below. The inline principal expression is deliberate -- no module is loaded yet.
+# --- REGION: https://yuruna.link/42e220c4-0008
 if ($IsWindows -and -not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Verbose ""
     Write-Output "This script requires elevation (Run as Administrator)."
@@ -89,11 +89,8 @@ if (-not $HostType) { exit $ExitFailure }
 Write-Verbose "Host type: $HostType"
 [void](Initialize-YurunaHost -RepoRoot $RepoRoot -HostType $HostType)
 
-# --- REGION: Stash storage pre-flight
-# The stash service stores its files on its OWN, isolated stash share
-# (networkStorage.stash*), separate from the pool. Refuse to bring up a VM that
-# would have nowhere durable to write: fail fast HERE, before the long VM build,
-# when the stash storage is unconfigured or its NAS credential is not stored.
+# --- REGION: Storage preflight
+# See https://yuruna.link/42e220c4-0008
 Import-Module (Join-Path $ModulesDir 'Test.Config.psm1')      -Global -Force
 Import-Module (Join-Path $ModulesDir 'Test.PoolStorage.psm1') -Global -Force
 Import-Module (Join-Path $ModulesDir 'Test.Extension.psm1')   -Global -Force
@@ -115,11 +112,7 @@ test/test.config.yml and Set-Password the stashStorageNetworkUser. See docs/test
 "@
     exit $ExitFailure
 }
-# Hard gate: a REAL password must already be stored for the stash SMB user.
-# Test-PoolStorageVaultReady is too lenient here -- it also passes when only a
-# vaultKey is MAPPED (no stored password), which makes the seed bake an
-# AUTO-GENERATED junk password the NAS rejects (cifs mount error(13)). The SMB
-# user authenticates to a PRE-EXISTING NAS account, so require a stored entry.
+# --- REGION: https://yuruna.link/42e220c4-0008
 if (-not (Test-PoolStorageStoredCredential -Config $stashCfg)) {
     Write-Error @"
 stash networkUser '$($stashCfg.NetworkUser)' has NO password stored in the vault.
@@ -131,12 +124,7 @@ See docs/test-config.md (networkStorage credentials).
 "@
     exit $ExitFailure
 }
-# Soft gate: a credential IS stored -- verify it actually AUTHENTICATES to the
-# stash share (catches a stale/wrong stored password, which the read-only check
-# above cannot). WARNING, not a hard stop: the daemon buffers locally when the
-# share is offline, and the NAS may merely be
-# transiently unreachable. Connect-YurunaPoolStorage is bounded + best-effort and
-# uses the SAME credential the seed will bake.
+# --- REGION: https://yuruna.link/42e220c4-0008
 if (Connect-YurunaPoolStorage -Config $stashCfg -Confirm:$false) {
     Write-Verbose "stash storage pre-flight OK (networkUser='$($stashCfg.NetworkUser)'; credential authenticates)."
 } else {
@@ -163,7 +151,7 @@ $remedy
 "@
 }
 
-# --- REGION: Resolve the per-host New-VM
+# --- REGION: Resolve the VM builder
 $hostFolder = Get-HostFolder $HostType
 $guestDir   = Join-Path -Path $RepoRoot -ChildPath $hostFolder -AdditionalChildPath 'guest.stash-service'
 $newVm      = Join-Path $guestDir 'New-VM.ps1'
@@ -172,11 +160,8 @@ if (-not (Test-Path -LiteralPath $newVm)) {
     exit $ExitFailure
 }
 
-# --- REGION: Host status service (serves the local repo to the guest) -- BEFORE the build
-# --- REGION: https://yuruna.link/42fffc2c-0013
-# The second consumer is the pool-aggregator-service, which reads this host's
-# registration over the same port to list it under Extension hosts.
-# Honors statusService.enabled + port; a healthy server is left running.
+# --- REGION: Start the host status service
+# See https://yuruna.link/42fffc2c-0013
 $statusDecision = $null
 try {
     $statusScript = Join-Path $RepoRoot 'test/service/Start-StatusService.ps1'
@@ -189,12 +174,8 @@ try {
     }
 } catch { Write-Verbose "status service ensure: $($_.Exception.Message)" }
 
-# --- REGION: Framework source -- refuse to build from a snapshot older than this enlistment
-# --- REGION: https://yuruna.link/42fffc2c-0013
-# Stopping here costs the operator a message; not stopping costs a half-hour
-# build and a service nobody has reason to re-examine. The snapshot is captured
-# for the post-boot check too, which is the half that can prove what got
-# deployed.
+# --- REGION: Verify the framework source
+# See https://yuruna.link/42fffc2c-0013
 Import-Module (Join-Path $ModulesDir 'Test.FrameworkSource.psm1') -Global -Force
 $frameworkExpected = Get-FrameworkSourceSnapshot -RepoRoot $RepoRoot
 if (-not (Assert-GuestFrameworkSource -RepoRoot $RepoRoot -StatusDecision $statusDecision `
@@ -202,7 +183,7 @@ if (-not (Assert-GuestFrameworkSource -RepoRoot $RepoRoot -StatusDecision $statu
     exit $ExitFailure
 }
 
-# --- REGION: Delegate to the per-host New-VM (build + start the VM)
+# --- REGION: Create the VM
 # Each New-VM already runs Get-Image auto-fetch when the base image is missing,
 # tears down any prior VM, creates the new one, and (Hyper-V + KVM) starts it.
 # UTM only builds the bundle -- register + start lives below.
@@ -215,13 +196,8 @@ if ($rc -ne 0) {
     exit $rc
 }
 
-# --- REGION: UTM register + start (Hyper-V/KVM already started in New-VM)
-# Hyper-V and KVM already started the VM inside New-VM.ps1 (Hyper-V\Start-VM and
-# virt-install --import respectively); only UTM needs registration + start here.
-# The host contract's Start-VM owns the whole UTM sequence -- VNC-display
-# arbitration, the custom-QEMU-args dialog watchdog (without which this bring-up
-# cannot run unattended, because UTM blocks on a modal), open, utmctl start, and
-# the exit-0-but-QEMU-died check. Hand-rolling it here gets all four wrong.
+# --- REGION: Register and start the UTM VM
+# See https://yuruna.link/42e220c4-0008
 if ($HostType -eq 'host.macos.utm') {
     $UtmDir = "$HOME/yuruna/guest.nosync/$VMName.utm"
     if (-not (Test-Path $UtmDir)) {
@@ -236,26 +212,16 @@ if ($HostType -eq 'host.macos.utm') {
     }
 }
 
-# --- REGION: The VM must be RUNNING before the daemon is blamed for anything
-# `utmctl start` can exit 0 while UTM silently drops the request, and Hyper-V/KVM
-# start the VM inside New-VM.ps1 without this script ever checking the result.
-# Without this gate the marker below advertises a stash service that does not
-# exist, this script prints "start: complete" over a stopped VM, and the next
-# failure names a layer -- cloud-init, the share -- that never ran.
+# --- REGION: Verify the VM state
+# See https://yuruna.link/42e220c4-0008
 if (-not (Wait-VMRunning -VMName $VMName -TimeoutSeconds 120)) {
     $observed = try { Get-VMState -VMName $VMName } catch { 'unknown' }
     Write-Error "VM '$VMName' did not reach 'running' (state: $observed); the stash service was NOT started. Open the VM in the hypervisor UI and start it by hand to see why."
     exit $ExitFailure
 }
 
-# --- REGION: Shared NAT -> forward a host port so peers can still reach the VM over SSH
-# A Bridged VM takes a LAN lease and peers reach it at <vm-lan-ip>:22 directly.
-# vmnet cannot bridge a Wi-Fi uplink, so on a Wi-Fi host New-VM builds this VM on
-# UTM Shared NAT instead, where it is invisible to the LAN -- the host's own LAN
-# address is the only way in. The bundle is the source of truth for which mode
-# the VM is actually on: a host that has since moved between Wi-Fi and Ethernet
-# needs a rebuild, not a different guess here.
-# Host port 2222, not 22: the Mac's own sshd already owns 22.
+# --- REGION: Configure Shared NAT forwarding
+# See https://yuruna.link/42e220c4-0008
 if ($HostType -eq 'host.macos.utm') {
     $bundleMode = Get-UtmNetworkModeFromBundle -VMName $VMName
     $uplinkMode = Resolve-UtmNetworkMode
@@ -274,39 +240,17 @@ if ($HostType -eq 'host.macos.utm') {
     }
 }
 
-# --- REGION: https://yuruna.link/42fffc2c-0008
-# Advertise that THIS host actively runs a stash service, so the pool-aggregator-service
-# lists it in the dashboard's Extension hosts table. The marker (stash-service.json)
-# is folded into host.registration.json (activeExtensions + extensionTargets) by
-# Write-HostRegistrationRecord; the aggregator -- already polling every pool host's
-# registration -- reads it WITHOUT mounting ystash-nas or needing a config service on
-# its own host. Stop-StashServiceVM.ps1 removes the marker. Best-effort throughout;
-# never fails the bring-up. Written optimistically here and retracted below on
-# failure, rather than written once after the verdict as the download-agent and
-# pool-control bring-ups do.
+# --- REGION: Initialize the runtime directory
 Import-Module (Join-Path $ModulesDir 'Test.YurunaDir.psm1') -Global -Force
 Import-Module (Join-Path $ModulesDir 'Test.ExtensionService.psm1') -Global -Force
 $runtimeDir = $null
 try {
     $runtimeDir = Initialize-YurunaRuntimeDir
-    [void](Write-ExtensionServiceMarker -Area 'stash-service' -RuntimeDir $runtimeDir `
-        -Active $true -VMName $VMName -HostType $HostType)
-    Write-Verbose "  Recorded stash-service marker -- this host will appear under Extension hosts."
-} catch { Write-Verbose "stash-service marker write: $($_.Exception.Message)" }
+} catch { Write-Verbose "stash-service runtime directory: $($_.Exception.Message)" }
 
-# --- REGION: Post-boot readiness probe on :80 + on-failure guest diagnostics
-# --- REGION: https://yuruna.link/42d69dfa-0024
-# Same contract as Get-DownloadAgentServiceReadyTimeoutSeconds, kept inline
-# here; test/service/README.md records the divergence.
-$stashReadyTimeoutSeconds = 2700
-if ($env:YURUNA_STASH_SERVICE_READY_TIMEOUT_SECONDS) {
-    $parsedStashTimeout = 0
-    if ([int]::TryParse($env:YURUNA_STASH_SERVICE_READY_TIMEOUT_SECONDS, [ref]$parsedStashTimeout) -and $parsedStashTimeout -gt 0) {
-        $stashReadyTimeoutSeconds = $parsedStashTimeout
-    } else {
-        Write-Verbose "YURUNA_STASH_SERVICE_READY_TIMEOUT_SECONDS='$($env:YURUNA_STASH_SERVICE_READY_TIMEOUT_SECONDS)' is not a positive integer; using $stashReadyTimeoutSeconds."
-    }
-}
+# --- REGION: Probe service readiness
+# See https://yuruna.link/42d69dfa-0024
+$stashReadyTimeoutSeconds = Get-ExtensionServiceReadyTimeoutSeconds -Area 'stash-service'
 $stashReadyCapSeconds = $stashReadyTimeoutSeconds * 2
 Import-Module (Join-Path $ModulesDir 'Test.Ssh.psm1') -Global -Force
 Write-Verbose "Waiting up to $([int]($stashReadyTimeoutSeconds / 60)) min for the stash-service daemon to serve on :80 (first boot builds it in-guest)."
@@ -331,14 +275,7 @@ if ($stashEndpoint.ExtendedSeconds -gt 0) {
                   "$([int]($stashEndpoint.ExtendedSeconds / 60)) min because the guest reported it was still building.")
 }
 
-# Before the verdict, not after it: a wait that timed out having probed the wrong
-# address -- or no address at all -- is a FALSE NEGATIVE, and the daemon may have
-# been serving for the whole budget. Locating the guest by bundle MAC and
-# re-probing :80 THERE is the only thing that tells the two apart, and doing it
-# here means a recovered service is reported as the success it is rather than
-# being described in the failure diagnostics after the verdict is already cast.
-#
-# Costs an ICMP sweep, so it runs only on the failure branch, once.
+# --- REGION: https://yuruna.link/42e220c4-0008
 $stashRecovery = $null
 if ((Get-ServiceVmReadinessVerdict -Endpoint $stashEndpoint).IsFailure) {
     Write-Output "  The wait ended without the daemon answering -- looking for the guest by a route the wait could not use..."
@@ -373,7 +310,7 @@ if ((Get-ServiceVmReadinessVerdict -Endpoint $stashEndpoint).IsFailure) {
     }
 }
 
-# --- REGION: One place decides whether this bring-up succeeded
+# --- REGION: Evaluate service readiness
 # The script routes on that decision instead of each site judging for itself. A
 # readiness timeout is a FAILURE: a run that records PASS for a daemon that
 # never started sends the operator looking for the fault in whatever breaks next.
@@ -397,30 +334,23 @@ dashboard's Extension cell links to it. The bring-up is NOT failed over this.
     }
 }
 
-# Resolve the stash-service VM's guest address into the marker (stashBaseUrl) so the
-# dashboard's Extension cell deep-links to the stash UI. Best-effort + bounded: a
-# Hyper-V External vSwitch can report the address minutes after boot, so poll
-# briefly; if it is not up yet the link stays absent until a later refresh (the
-# per-cycle runner call, or a re-run) populates it. Uses the host contract Get-VMIp
-# wired by Initialize-YurunaHost above.
-if ($runtimeDir -and -not $stashVerdict.IsFailure) {
+# --- REGION: Publish service readiness
+# See https://yuruna.link/42fffc2c-0008
+$stashDaemonReady = $stashVerdict.Outcome -in @('Ready', 'Unreachable')
+if ($runtimeDir) {
+    try {
+        [void](Write-ExtensionServiceMarker -Area 'stash-service' -RuntimeDir $runtimeDir `
+            -Active $stashDaemonReady -VMName $VMName -HostType $HostType)
+    } catch { Write-Verbose "stash-service marker write: $($_.Exception.Message)" }
+}
+if ($runtimeDir -and $stashVerdict.Outcome -eq 'Ready') {
     try {
         $stashUrl = Update-StashServiceMarkerAddress -RuntimeDir $runtimeDir -VMName $VMName -TimeoutSeconds 180
         if ($stashUrl) { Write-Output "  Stash VM address: $stashUrl (Extension cell deep-links here)." }
         else { Write-Output "  Stash VM address not resolved yet -- the Extension deep-link populates on a later refresh." }
     } catch { Write-Verbose "stash address resolve: $($_.Exception.Message)" }
 
-    # Re-point the forwarder at whatever address the guest SETTLED on. The map
-    # above was built from the first address discovery returned, and a guest
-    # re-requests DHCP under a changed client identity while cloud-init runs --
-    # so that first answer is frequently one the guest abandons seconds later.
-    # The resolve above already waited for the guest to answer, which makes this
-    # the first point where the address is known to be the live one.
-    #
-    # Re-pointing matters more than it looks: a forwarder left aimed at an
-    # abandoned address still ACCEPTS on the host and only then fails to
-    # connect, so every caller hangs for a full timeout instead of failing fast
-    # -- strictly worse than no forwarder at all.
+    # --- REGION: https://yuruna.link/42e220c4-0008
     if ($HostType -eq 'host.macos.utm' -and $bundleMode -eq 'Shared') {
         try {
             $settledIp = Get-VMIp -VMName $VMName
@@ -436,18 +366,6 @@ if ($runtimeDir -and -not $stashVerdict.IsFailure) {
     }
 }
 
-# Withdraw the advertisement when the daemon never started. The marker was
-# written optimistically before the build, and leaving it standing would have the
-# dashboard list this host as running a stash service that does not exist -- the
-# same false claim as a passing exit code, made to a different audience.
-if ($runtimeDir -and $stashVerdict.IsFailure) {
-    try {
-        [void](Write-ExtensionServiceMarker -Area 'stash-service' -RuntimeDir $runtimeDir `
-            -Active $false -VMName $VMName -HostType $HostType)
-        Write-Output "  Cleared the stash-service marker -- this host does not advertise a service that is not serving."
-    } catch { Write-Verbose "stash-service marker retract: $($_.Exception.Message)" }
-}
-
 # Publish the marker NOW: regenerate host.registration.json so the aggregator sees
 # the active extension on its next poll, without waiting for a test cycle (the only
 # other point Write-HostRegistrationRecord runs). It reads the runtime dir +
@@ -460,8 +378,8 @@ try {
     }
 } catch { Write-Verbose "registration refresh: $($_.Exception.Message)" }
 
-# --- REGION: The daemon never served -- gather the evidence, then FAIL
-# --- REGION: https://yuruna.link/42fffc2c-000c
+# --- REGION: Collect failure diagnostics
+# See https://yuruna.link/42fffc2c-000c
 if ($stashVerdict.IsFailure) {
     $stashWaitedMinutes = if ($stashEndpoint) { [int]($stashEndpoint.WaitedSeconds / 60) } else { 0 }
     $stashObserved = if ($stashEndpoint -and $stashEndpoint.ObservedState) { [string]$stashEndpoint.ObservedState } else { 'nothing' }
@@ -511,12 +429,7 @@ if ($stashVerdict.IsFailure) {
         'echo "=== /var/log/cloud-init-output.log (tail 120) ==="; sudo tail -n 120 /var/log/cloud-init-output.log 2>&1'
     ) -join "`n"
     $stashDiag = $null
-    # Dialed at the address discovered above whenever there is one. Invoke-GuestSsh
-    # resolves -VMName through Get-GuestAddress, which hands a literal address
-    # straight back, so a name and an address are equally acceptable there --
-    # but handing it the NAME here would re-run the very lookup that already
-    # came back empty and discard the only thing that located the guest. The
-    # name stays the fallback: ssh has resolution routes the lease lookup lacks.
+    # --- REGION: https://yuruna.link/42e220c4-0008
     $stashSshTarget = if ($stashDiagIp) { $stashDiagIp } else { $VMName }
     try { $stashDiag = Invoke-GuestSsh -VMName $stashSshTarget -GuestKey 'guest.stash-service' -User 'stash-admin' -Command $stashDiagCmd -TimeoutSeconds 120 }
     catch { Write-Verbose "stash guest diagnostics ssh: $($_.Exception.Message)" }
@@ -548,7 +461,7 @@ if ($stashVerdict.IsFailure) {
     Write-Verbose "                                     actually serving SMB and that its credential is current."
     Write-Output "  * a 'go build' / apt error      -> a package or source problem; the log tail shows the line."
     Write-Output "  * nothing at all over SSH       -> the console capture above is the remaining evidence."
-    Write-Verbose "See https://yuruna.link/stash-guide."
+    Write-Verbose "See https://yuruna.link/42f5e921."
     Write-Verbose ""
     # Names every address this host actually probed. "The daemon never served"
     # is a claim about the machine, and the operator's first question is which
@@ -569,11 +482,7 @@ if ($stashVerdict.IsFailure) {
     exit $ExitFailure
 }
 
-# The aggregator lists this host under Extension hosts ONLY if a status service is
-# actually serving /runtime/host.registration.json. The ensure above ran before the
-# build, and Start-StatusService runs its own readiness wait, but that verdict is
-# invisible here -- so confirm the port now: a stash-only host whose status service
-# never came up would otherwise print "complete" yet never appear in the dashboard.
+# --- REGION: https://yuruna.link/42e220c4-0008
 if ($statusDecision -and $statusDecision.ShouldStart) {
     $statusPort = [int]$statusDecision.Port
     $probe = [System.Net.Sockets.TcpClient]::new()
@@ -610,8 +519,8 @@ if ($stashVerdict.Outcome -eq 'StillBuilding') {
     exit $ExitOk
 }
 
-# --- REGION: What actually got deployed
-# --- REGION: https://yuruna.link/42fffc2c-0013
+# --- REGION: Report the deployed source
+# See https://yuruna.link/42fffc2c-0013
 # The daemon is serving, so this is the first point where the framework it was
 # built from can be answered from evidence rather than prediction.
 if (-not (Assert-ServiceVmFrameworkSource -Address ([string]$stashVmIp) -Port 80 `
@@ -632,7 +541,7 @@ Write-Output "== stash-service start: complete -- '$VMName' on $HostType =="
 Write-Verbose ""
 Write-Verbose "Cloud-init mounted the stash share, fetched the framework, and ran the"
 Write-Verbose "bring-up script that built + launched the stash daemon under systemd."
-Write-Verbose "(See https://yuruna.link/stash-guide.)"
+Write-Verbose "(See https://yuruna.link/42f5e921.)"
 Write-Verbose ""
 Write-Output "Stop with: test/service/Stop-StashServiceVM.ps1"
 exit $ExitOk

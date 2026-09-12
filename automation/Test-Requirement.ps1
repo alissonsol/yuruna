@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 421cce10-e006-4347-9b80-8e0984aa3c10
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -60,11 +60,14 @@ Set-YurunaLogLevel -LogLevel $logLevel
 $yuruna_root = Resolve-Path -Path (Join-Path -Path $PSScriptRoot -ChildPath "..")
 Set-Item -Path Env:yuruna_root -Value ${yuruna_root}
 Write-Debug "yuruna_root is $yuruna_root"
+# The transcript path is decided before the Yuruna.* eviction sweeps up the leaf
+# that resolves it. A caller can name the file it will read afterwards; see
+# Resolve-YurunaTranscriptPath.
+$transcriptFileName = Resolve-YurunaTranscriptPath
 Get-Module Yuruna.* | Remove-Module *>&1 | Write-Verbose
 $requirementsModulePath = Join-Path -Path $yuruna_root -ChildPath "automation/Yuruna.Requirement.psm1"
 Import-Module -Name $requirementsModulePath -Force
 
-$transcriptFileName = [System.IO.Path]::GetTempFileName()
 $null = Start-Transcript $transcriptFileName
 
 # `pwsh -File` passes every argument as a STRING, so `-Tool a,b` arrives as one

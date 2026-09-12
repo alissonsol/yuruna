@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.08
+# Version: 2026.09.12
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -28,12 +28,15 @@ case "$ARCH" in
     ;;
 esac
 
-# --- REGION: https://yuruna.link/4220a755-0003
+# --- REGION: Load retry helpers
+# See https://yuruna.link/4220a755-0003
 . /usr/local/lib/yuruna/yuruna-retry.sh
 # --- REGION: https://yuruna.link/4220a755-0005
 # Re-asserted here because a baked retry lib may still carry a wall-clock bound.
 export YURUNA_APT_STALL_TIMEOUT_SECONDS=0
 
+# --- REGION: Install PostgreSQL
+# See https://yuruna.link/42e220c4-0005
 echo ""
 echo -e "\e[1;36m==== PostgreSQL ====\e[0m"
 # PostgreSQL APT repository handles architecture automatically
@@ -47,10 +50,7 @@ apt_retry sudo apt-get update -y
 # migration, so never float this to a newer major via an unattended apt-get.
 apt_retry sudo apt-get install -y postgresql-18 postgresql-contrib-18
 
-# Stop PostgreSQL and wait for full shutdown before re-creating the cluster.
-# The stop has to follow the install here, not precede it: the deb package
-# creates and starts a cluster as part of its own postinst, so anything stopped
-# beforehand is running again by this point.
+# The deb post-install starts a cluster, so stop PostgreSQL after installation.
 if sudo systemctl is-active postgresql &>/dev/null; then
   sudo systemctl stop postgresql
   while sudo systemctl is-active postgresql &>/dev/null; do

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 4269e850-8f14-4f24-8d83-52240f2bc8e0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,18 +40,19 @@ param(
     [string]$VMName = 'yuruna-pool-control-service'
 )
 
+# --- REGION: Confirm the service operation
+# See https://yuruna.link/42e220c4-0008
+if (-not $PSCmdlet.ShouldProcess($VMName, 'Stop and remove the service VM and withdraw its advertisement')) { return }
+
 $InformationPreference = 'Continue'
 
-# --- REGION: https://yuruna.link/42fffc2c-000b
+# --- REGION: Initialize service runtime
+# See https://yuruna.link/42fffc2c-000b
 # Left at the inherited 'Continue' deliberately, and it must stay that way:
 # 'Stop' is not scoped to this script and would promote every host-contract
 # helper's non-terminating error. Hard stops here are explicit Write-Error + exit.
 
-# --- REGION: https://yuruna.link/42162449-0004
-# After the preference assignments above on purpose: an explicit level is the
-# operator's choice and replaces this script's own default. $InformationPreference
-# is re-read afterwards because the script-scoped assignment above shadows the
-# global the cascade writes.
+# See https://yuruna.link/42162449-0004
 Import-Module (Join-Path $PSScriptRoot '../modules/Test.LogLevel.psm1') -Global -Force -DisableNameChecking
 Use-LogLevelFromEnv
 $InformationPreference = $global:InformationPreference
@@ -76,7 +77,7 @@ if (-not $HostType) { exit $ExitFailure }
 Write-Information "Host type: $HostType" -InformationAction Continue
 [void](Initialize-YurunaHost -RepoRoot $RepoRoot -HostType $HostType)
 
-# --- REGION: Clear the service marker (this host stops advertising the area)
+# --- REGION: Clear the service marker
 # Read the marker BEFORE removing it. A -HostSideProof run records the host-side
 # daemon's pid here; stop that process so the host-side proof is fully torn down.
 Import-Module (Join-Path $ModulesDir 'Test.YurunaDir.psm1') -Global -Force
@@ -92,11 +93,8 @@ if ($m) {
     }
 }
 
-# --- REGION: Publish the withdrawal (refresh host.registration.json)
-# Publish the removal NOW: regenerate host.registration.json so the marker's
-# absence (activeExtensions drops 'pool-control-service') reaches the aggregator on its
-# next poll, without waiting for a test cycle. Best-effort telemetry -- never
-# fails the stop. Set-Variable -Scope Global keeps PSAvoidGlobalVars quiet.
+# --- REGION: Publish the service withdrawal
+# See https://yuruna.link/42e220c4-0008
 try {
     Set-Variable -Name '__YurunaHostId' -Scope Global -Value (Get-YurunaHostId)
     Import-Module (Join-Path $ModulesDir 'Test.Capability.psm1') -Global -Force
@@ -106,13 +104,7 @@ try {
 } catch { Write-Verbose "registration refresh: $($_.Exception.Message)" }
 
 # --- REGION: Stop the VM
-# Tear down the pool-control-service VM and every file it owns so the next Start rebuilds
-# from a clean slate. The durable pool state lives on the pool NAS, not on the
-# disposable VM disk, which Start rebuilds from the base image. A graceful stop
-# runs first (clean systemd shutdown); the teardown then removes the domain,
-# disk, seed, and (UTM) bundle. Run best-effort: an operator who only used
-# -HostSideProof has no VM here, in which case Get-VMState is 'absent' and the
-# sweep is a no-op that still clears any disk dir left by a crashed New-VM.
+# See https://yuruna.link/42e220c4-0008
 $state = Get-VMState -VMName $VMName
 if ($state -eq 'absent') {
     Write-Information "  VM '$VMName' not registered with $HostType." -InformationAction Continue
@@ -127,13 +119,13 @@ if ($state -eq 'absent') {
     }
 }
 
-# --- REGION: Remove the VM and every file it owns
+# --- REGION: Remove the VM and its files
 # -SkipStop: the stop above already ran; Remove-VM force-stops internally if the
 # graceful path did not fully settle.
 Write-Information "Removing VM '$VMName' and its on-disk files..." -InformationAction Continue
 Remove-GuestVMQuietly -VMName $VMName -SkipStop -BestEffort
 
-# --- REGION: Final state check
+# --- REGION: Verify the final VM state
 $finalState = Get-VMState -VMName $VMName
 if ($finalState -eq 'absent') {
     Write-Information "Pool-control service stopped; marker cleared; VM '$VMName' and its files removed." -InformationAction Continue

@@ -120,8 +120,7 @@
     chrome.markLoaded();
   }
 
-  // --- resolver test --------------------------------------------------------
-
+  // --- REGION: Resolver test
   var setTesting = function (busy) {
     $('test-amd64').disabled = busy;
     $('test-arm64').disabled = busy;
@@ -160,8 +159,7 @@
   $('test-amd64').addEventListener('click', function () { runTest('amd64'); });
   $('test-arm64').addEventListener('click', function () { runTest('arm64'); });
 
-  // --- session --------------------------------------------------------------
-
+  // --- REGION: Session
   function loadSession() {
     return Y.proofUnlock.then(function () {
       return Y.api('/api/session');

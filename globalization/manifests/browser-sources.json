@@ -142,6 +142,12 @@
       "palette": "test/status/yuruna.common.css"
     },
     {
+      "path": "test/modules/Test.Log.psm1",
+      "kind": "Html",
+      "palette": "test/modules/Test.Log.psm1",
+      "why": "The per-cycle transcript page. Its stylesheet is a here-string inside the renderer and declares its own light ground, so the colors below it are measured against a white this file states rather than one the browser chose."
+    },
+    {
       "path": "test/service/Start-StatusService.ps1",
       "kind": "Html",
       "palette": "test/status/yuruna.common.css",
@@ -167,6 +173,18 @@
       "path": "test/extension/download-agent-service/server/internal/httpsrv/web/assets/style.css",
       "kind": "Css",
       "palette": "test/extension/download-agent-service/server/internal/httpsrv/web/assets/style.css"
+    },
+    {
+      "path": "host/vmconfig/caching-proxy-service.base.user-data",
+      "kind": "Html",
+      "palette": "host/vmconfig/caching-proxy-service.base.user-data",
+      "why": "The refusal page a caching-proxy guest serves carries its own inline style with literal colors. It is provisioned into a guest that by definition cannot reach a stylesheet, so the palette it resolves against is itself."
+    },
+    {
+      "path": "test/extension/caching-proxy-service/landing.go",
+      "kind": "Html",
+      "palette": "test/extension/caching-proxy-service/landing.go",
+      "why": "The lab landing page. Its document is assembled with a strings.Builder rather than held in one raw-string constant, and its style block uses literal colors only -- so neither a search for a page constant nor a search for var(--) finds it."
     },
     {
       "path": "test/extension/caching-proxy-service/ui.go",
@@ -215,5 +233,15 @@
       "surface": "stash UI"
     }
   ],
+  "provisionedPageProducers": [
+    {
+      "path": "host/vmconfig/caching-proxy-service.base.user-data",
+      "marker": "/usr/share/squid/errors/templates/ERR_YURUNA_NO_UPSTREAM",
+      "page": "squid-no-upstream.html",
+      "surface": "caching proxy refusal page",
+      "why": "A whole HTML document written into a guest by a cloud-init write_files block. Every other producer in this registry is reached by extension -- .html, .go, .ps1, .css -- and a provisioning seed is none of those, so a sweep by extension never opens the file that carries the page."
+    }
+  ],
+  "provisionedPageProducersNote": "Pages a host provisions into a guest rather than serves from this tree. They are read by a person at the worst possible moment -- a fetch just failed -- and they are the pages least likely to be looked at again after they are written, because nothing in a normal cycle renders them. The exporter materializes each one from its seed so the accessibility and floor gates measure the document the guest will serve, with the server's own interpolation macros filled in.",
   "pageRootsNote": "Directories the accessibility gate serves and walks. Separate from 'roots', which names where the scripts and stylesheets live: a page root holds the documents, and one service can have both. A service added to the tree and not added here is a UI nobody ever renders for contrast, focus order or reflow, and the gate reports a clean run over it."
 }

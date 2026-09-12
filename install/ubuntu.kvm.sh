@@ -1,9 +1,9 @@
 #!/bin/bash
-# Version: 2026.09.08
+# Version: 2026.09.12
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Yuruna Ubuntu KVM/libvirt bootstrap installer.
-# --- REGION: https://yuruna.link/install/explained
+# --- REGION: https://yuruna.link/429fb30b
 # One-liner: bash <(curl -fsSL https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/ubuntu.kvm.sh)
 # Supported target: Ubuntu 26.04 (Resolute) or newer on x86_64 (aarch64 supported but UNTESTED -- see preflight).
 
@@ -758,7 +758,7 @@ restore_test_status() {
 }
 
 # --- REGION: Tolerate a v / no-v tag mismatch
-# --- REGION: https://yuruna.link/429fb30b-0007
+# See https://yuruna.link/429fb30b-0007
 # Echoes the ref on stdout; warn -> stderr, so a warning never pollutes the
 # captured stdout used to set YURUNA_BRANCH.
 resolve_yuruna_ref() {
@@ -781,7 +781,7 @@ resolve_yuruna_ref() {
 }
 
 # --- REGION: Development repo pulls latest main, not a release tag
-# --- REGION: https://yuruna.link/429fb30b-0008
+# See https://yuruna.link/429fb30b-0008
 use_dev_branch_if_needed() {
   local basename="$1"
   if [[ "$basename" == "yurunadev" && "$YURUNA_BRANCH_EXPLICIT" -eq 0 && "$YURUNA_BRANCH" != "main" ]]; then
@@ -889,7 +889,7 @@ if [[ -d "$YURUNA_DIR/.git" ]]; then
 fi
 
 # --- REGION: Pin to the current release (opt-in)
-# --- REGION: https://yuruna.link/429fb30b-0006
+# See https://yuruna.link/429fb30b-0006
 if [[ "$PIN_VERSION" != "0" && "$YURUNA_BRANCH_EXPLICIT" -eq 0 && -d "$YURUNA_DIR/.git" ]]; then
   if [[ -f "$YURUNA_DIR/VERSION" ]]; then
     pin_tag="$(tr -d '[:space:]' < "$YURUNA_DIR/VERSION")"
@@ -1096,7 +1096,7 @@ fi
 command -v gh >/dev/null 2>&1 || die "gh not found after install."
 
 # --- REGION: Preflight: final host readiness
-# --- REGION: https://yuruna.link/429fb30b-0038
+# See https://yuruna.link/429fb30b-0038
 log "Running final preflight checks"
 
 PREFLIGHT_ERRORS=()

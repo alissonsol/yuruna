@@ -181,7 +181,6 @@ module "eks" {
       launch_template_version = aws_launch_template.external.default_version
     }
 
-    # Use a custom AMI
     custom_ami = {
       ami_type = "AL2023_ARM_64_STANDARD"
       # Current default AMI used by managed node groups - pseudo "custom"

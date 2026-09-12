@@ -414,6 +414,10 @@ demand hits that often. Leave it off for normal runs; turn it on to prove
 a workflow is genuinely self-contained, or to hard-stop egress during an
 incident.
 
+The refusal template is installed in Squid's existing error-template directory; overriding `error_directory` would replace the complete stock error set. It is a standalone HTML document with charset and language metadata, literal foreground/background colors, inline CSS, and wrapping for long URLs. It must render without network access or CSS custom-property support. `%U` remains Squid's request-URL macro.
+
+Zot's upstream requests traverse the local SSL-bump listener so the same refusal switch and access log cover registry egress. This routing is for gating and attribution, not caching authenticated manifest replies. The VM imports its own bump CA into the system trust store with a `.crt` suffix; `update-ca-certificates` silently ignores a `.pem` there.
+
 <a id="42f6b05f-0017"></a>
 
 ### Refreshing the cache
@@ -843,13 +847,21 @@ The published reading, on `http://<cache>/cache-health` and as
 ```
 Warm sets, last warmed 2026-08-14T16:10:04Z (versions resolved via local host status service):
   Kubernetes image set (v1.36.3, pinned minor 1.36):
-    resident                 : 3 of 7   <-- a kubeadm init pays 4 cold sync(s)
+    resident                 : 7 of 7 held
+      answered from storage  : 3
+      copied in by that run  : 4
   CNI image set (flannel v0.28.1):
-    resident                 : 2 of 2
+    resident                 : 2 of 2 held
+      answered from storage  : 2
+      copied in by that run  : 0
   cold-sync watermark        : 611s (registry.k8s.io/kube-scheduler:v1.36.3)
 ```
 
-`resident` is the count a guest cares about; the **cold-sync watermark** is the
+The held count includes both images answered from storage and images whose
+cold synchronization completed during that run. A completed cold fetch is
+available to the next guest; only timeout/failed rows remain missing. The split
+also preserves whether a guest arriving during the run would have waited.
+The **cold-sync watermark** is the
 slowest fetch that actually moved content at the currently resolved versions,
 carried across runs and reset when a version moves. Once a set is warm every
 later reading is sub-second, so the watermark is the only place the cold cost
@@ -956,6 +968,8 @@ is **obsolete in Squid 7** -- it still parses, emits
 review that greps only for `FATAL`/`ERROR` will not see it. So Squid
 cannot be made the manifest store for a token-authenticated registry:
 Squid gates and accounts, zot stores.
+
+Token responses are excluded separately from manifest caching. Registries in the gcr.io family can advertise an authentication realm on their own hostname, so host-only exclusions would either miss the bearer response or disable caching for that registry entirely. Token-path ACLs keep credentials uncacheable while leaving the host's manifest and blob paths available.
 
 <a id="42f6b05f-0022"></a>
 
@@ -1886,6 +1900,8 @@ daemon behind the proxy sees the address the operator actually typed and builds
 every link from it; without it the backend would see `127.0.0.1` and publish a
 page of links that work only for a browser running on the VM itself.
 
+Enable `rewrite`, `proxy`, and `proxy_http` before applying the landing configuration and retain it only if `apache2ctl configtest` succeeds. Otherwise remove the landing configuration and keep Apache's ordinary file service alive: a convenience page must not take down CA certificate delivery or exporter endpoints.
+
 <a id="42f6b05f-0045"></a>
 
 ### Pinning the cache VM's IP (stable MAC + DHCP reservation)
@@ -2189,7 +2205,7 @@ image) without ever serving clients from a cold cache.
 temporary parent-child Squid hierarchy -- the NEW cache fetches its
 misses from the OLD cache's warm store at LAN speed -- and later tears
 it down and retires the old VM. Short link:
-<https://yuruna.link/caching-proxy-service-migration>.
+<https://yuruna.link/42f6b05f-004c>.
 
 <a id="42f6b05f-004d"></a>
 
@@ -2400,6 +2416,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.08
+Last review: 2026.09.12
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42fe0370-a18f-43cd-81a7-83529d1edc9d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -81,7 +81,6 @@ if (-not (Get-Module Yuruna.Host)) {
 }
 
 # --- REGION: Fixtures: the shape a bridged service guest actually presents
-
 # utmctl exits 0 and complains on stderr when the guest has no agent, so this
 # is what a healthy, serving, bridged guest looks like to rung 1.
 $script:UtmctlAgentAbsent = @(

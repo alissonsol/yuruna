@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 420b9d4a-e9ff-472b-9afa-d978ada39114
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -173,8 +173,7 @@ function Start-A11yBrowserProcess {
     }
 }
 
-# --- REGION: targets ---------------------------------------------------------
-
+# --- REGION: targets
 if (-not $Serve -and -not $Url) {
     # The page roots come from the shared registry rather than a list kept
     # here. A service added to the tree and missing from one tool's private
@@ -196,8 +195,24 @@ if (-not $Serve -and -not $Url) {
     # like any other root. The path is
     # fixed rather than unique so a failing run leaves the page behind to open.
     $generated = Join-Path ([IO.Path]::GetTempPath()) 'yuruna-a11y-generated'
-    $Serve += (& (Join-Path $PSScriptRoot 'Export-GeneratedPages.ps1') -OutputDirectory $generated -Quiet |
-        Select-Object -Last 1)
+    # Cleared first: the exporter signals success by falling off its end, which
+    # leaves $LASTEXITCODE untouched -- so whatever a previous command left there
+    # would otherwise be read as this call's verdict.
+    $global:LASTEXITCODE = 0
+    $exported = @(& (Join-Path $PSScriptRoot 'Export-GeneratedPages.ps1') -OutputDirectory $generated -Quiet)
+    # An exporter that failed emits no directory, and an empty entry is skipped
+    # further down -- so without this the generated surfaces would simply not be
+    # measured and the gate would still report a clean run over what remained.
+    # A gate that cannot see part of what it covers has to say so.
+    if ($LASTEXITCODE -ne 0) {
+        throw ("The generated-page exporter exited $LASTEXITCODE, so its pages cannot be measured:`n" +
+            ($exported -join "`n"))
+    }
+    $generatedRoot = @($exported | Select-Object -Last 1)[0]
+    if (-not $generatedRoot -or -not (Test-Path -LiteralPath $generatedRoot -PathType Container)) {
+        throw "The generated-page exporter named no output directory, so its pages cannot be measured."
+    }
+    $Serve += $generatedRoot
 }
 
 $roots = @()
@@ -255,8 +270,7 @@ if ($LASTEXITCODE -ne 0 -or $browserVersion -notmatch '\d+(?:\.\d+){1,3}') {
 }
 Write-Line "browser: $browserVersion"
 
-# --- REGION: the measurement, as it runs inside the page ---------------------
-
+# --- REGION: the measurement, as it runs inside the page
 # One expression, evaluated in the page after load. It returns findings, never
 # throws: a probe that dies takes the whole gate's verdict with it.
 $probe = @'
@@ -479,8 +493,7 @@ $probe = $probe.Replace('__CHECK_FOCUS_TARGETS__', ([bool]$CheckFocusTargets).To
 $probe = $probe.Replace('__EXPECTED_LANGUAGE__', (ConvertTo-Json -InputObject ([string]$ExpectedLanguage) -Compress))
 $probe = $probe.Replace('__EXPECTED_DIRECTION__', (ConvertTo-Json -InputObject ([string]$ExpectedDirection) -Compress))
 
-# --- REGION: static file server ----------------------------------------------
-
+# --- REGION: static file server
 # Every page in this repository references its assets from the ORIGIN root
 # (`/assets/style.css`, not `assets/style.css`). Serving several web roots under
 # one origin with a path prefix therefore sends all of them to the FIRST root's
@@ -583,8 +596,7 @@ if ($roots.Count -gt 0) {
     $serverRunspace = $ps
 }
 
-# --- REGION: CDP -------------------------------------------------------------
-
+# --- REGION: CDP
 $socket = $null
 $chromeProc = $null
 $chromeErrorTask = $null

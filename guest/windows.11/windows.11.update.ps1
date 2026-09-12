@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 4202eb15-d68a-475f-9f7f-9e84da9b500a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -64,14 +64,7 @@ if (-not $pwshPath) {
 }
 
 # --- REGION: Install powershell-yaml module
-# Installed for all users via pwsh 7 (not Windows PowerShell 5.1) so the module
-# lands in the same PSModulePath the in-guest sequence planner and
-# Get-SystemDiagnostic.ps1 use -- both need it, so it is a HARD dependency.
-# Administrator elevation (checked at the top of this script) makes
-# `-Scope AllUsers` succeed without an interactive UAC prompt. The install is
-# retried and the ConvertFrom-Yaml round-trip smoke test is fatal on failure
-# (Install-Module can report success yet leave the module unimportable) --
-# never swallow a missing parser with a soft note.
+# See https://yuruna.link/42e220c4-0005
 Write-Output ""
 Write-Output ">>> Installing PowerShell module: powershell-yaml..."
 # 2.8.5.201 is Microsoft's documented TLS-1.2-capable NuGet provider
@@ -91,7 +84,7 @@ if (-not $yamlOk) {
 Write-Output "<<< PowerShell module: powershell-yaml installation complete."
 
 # --- REGION: Early yuruna framework extraction
-# --- REGION: https://yuruna.link/42d69dfa-0037
+# See https://yuruna.link/42d69dfa-0037
 # Tarball-only here; the git-clone fallback lives in the Materialize section below.
 Write-Output ""
 Write-Output ">>> Pre-fetching yuruna framework tarball (for diagnostic availability)..."
@@ -117,6 +110,7 @@ if ($env:YURUNA_STATUS_SERVICE_IP -and $env:YURUNA_STATUS_SERVICE_PORT -and -not
         Invoke-WebRequest -Uri $tarballUrl -UseBasicParsing -OutFile $tarPath -ErrorAction Stop
         # tar.exe (bsdtar) ships in-box since Windows 10 1803 and reads .tar.gz directly.
         tar.exe -xzf $tarPath -C $yurunaRoot
+        if ($LASTEXITCODE -ne 0) { throw "Framework archive extraction failed (tar exit code $LASTEXITCODE)." }
         Remove-Item -LiteralPath $tarPath -Force -ErrorAction SilentlyContinue
         Write-Output "<<< Yuruna framework available at $yurunaRoot (early extract)."
     } catch {
@@ -128,11 +122,8 @@ if ($env:YURUNA_STATUS_SERVICE_IP -and $env:YURUNA_STATUS_SERVICE_PORT -and -not
 }
 
 # --- REGION: Disable services that may suspend the machine
-# Mirrors the Linux `systemctl mask sleep.target ...` block: test cycles must
-# not be interrupted by standby/hibernate/monitor-off. powercfg applies to the
-# active power scheme; `/hibernate off` disables the feature entirely (and frees
-# hiberfil.sys). 2>$null because it prints a non-fatal "Hibernation is already
-# disabled" line where the BIOS already disabled it.
+# Match the Linux no-sleep contract; powercfg updates the active scheme.
+# Suppress harmless output when firmware already disabled hibernation.
 Write-Output ""
 Write-Output "TESTHACK: Disabling services that may suspend the machine."
 powercfg /change standby-timeout-ac 0 | Out-Null
@@ -193,7 +184,7 @@ git --version
 Write-Output "<<< Git ready."
 
 # --- REGION: Resolve framework and project URLs
-# --- REGION: https://yuruna.link/42fa6f45-000c
+# See https://yuruna.link/42fa6f45-000c
 # The $yurunaRoot existence guards make this a no-op when the early
 # extract already succeeded.
 $frameworkUrl = ''
@@ -210,15 +201,8 @@ if ($env:YURUNA_STATUS_SERVICE_IP -and $env:YURUNA_STATUS_SERVICE_PORT) {
 }
 
 # --- REGION: Keep git non-interactive
-# --- REGION: https://yuruna.link/4220a755-004f
-# Belt to the seed's braces. This guest is driven by OCR of a console, so a git
-# credential prompt is a HANG rather than an error: the clone ladders below
-# never fire because the process never exits, and the step spends its whole
-# timeout before anyone learns the clone could not authenticate. Windows is the
-# worst platform to get this wrong on -- Git Credential Manager answers a
-# missing credential with a GUI dialog the OCR cannot read at all, and
-# GIT_TERMINAL_PROMPT does not suppress that half. Set here as well as in the
-# image because a guest built from an older seed carries no such value.
+# See https://yuruna.link/4220a755-004f
+# See https://yuruna.link/42e220c4-0005
 $env:GIT_TERMINAL_PROMPT = '0'
 $env:GCM_INTERACTIVE = 'never'
 $gitAskpassShim = 'C:\ProgramData\yuruna\git-askpass.cmd'
@@ -227,6 +211,7 @@ if (Test-Path -LiteralPath $gitAskpassShim -PathType Leaf) {
 }
 
 # --- REGION: Materialize the yuruna framework and project repos
+# See https://yuruna.link/42e220c4-000e
 if (-not (Test-Path -LiteralPath $yurunaRoot -PathType Container)) {
     $hostOk = $false
     if ($env:YURUNA_STATUS_SERVICE_IP -and $env:YURUNA_STATUS_SERVICE_PORT) {
@@ -239,6 +224,7 @@ if (-not (Test-Path -LiteralPath $yurunaRoot -PathType Container)) {
             $tarPath = Join-Path $env:TEMP 'yuruna-archive.tar.gz'
             Invoke-WebRequest -Uri $tarballUrl -UseBasicParsing -OutFile $tarPath -ErrorAction Stop
             tar.exe -xzf $tarPath -C $yurunaRoot
+            if ($LASTEXITCODE -ne 0) { throw "Framework archive extraction failed (tar exit code $LASTEXITCODE)." }
             Remove-Item -LiteralPath $tarPath -Force -ErrorAction SilentlyContinue
             $hostOk = $true
         } catch {
@@ -253,7 +239,7 @@ if (-not (Test-Path -LiteralPath $yurunaRoot -PathType Container)) {
         }
         $cloned = $false
         for ($attempt = 1; $attempt -le 3 -and -not $cloned; $attempt++) {
-            git clone $frameworkUrl $yurunaRoot
+            git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone $frameworkUrl $yurunaRoot
             if ($LASTEXITCODE -eq 0) { $cloned = $true; break }
             Write-Output "git clone attempt $attempt failed"
             if (Test-Path -LiteralPath $yurunaRoot) { Remove-Item -LiteralPath $yurunaRoot -Recurse -Force -ErrorAction SilentlyContinue }
@@ -277,6 +263,7 @@ if (-not (Test-Path -LiteralPath $yurunaProject -PathType Container)) {
             $tarPath = Join-Path $env:TEMP 'yuruna-project-archive.tar.gz'
             Invoke-WebRequest -Uri $projectTarballUrl -UseBasicParsing -OutFile $tarPath -ErrorAction Stop
             tar.exe -xzf $tarPath -C $yurunaProject
+            if ($LASTEXITCODE -ne 0) { throw "Project archive extraction failed (tar exit code $LASTEXITCODE)." }
             Remove-Item -LiteralPath $tarPath -Force -ErrorAction SilentlyContinue
             if (Get-ChildItem -LiteralPath $yurunaProject -Force -ErrorAction SilentlyContinue) {
                 $projectHostOk = $true
@@ -291,7 +278,7 @@ if (-not (Test-Path -LiteralPath $yurunaProject -PathType Container)) {
     if (-not $projectHostOk -and $projectUrl) {
         $cloned = $false
         for ($attempt = 1; $attempt -le 3 -and -not $cloned; $attempt++) {
-            git clone $projectUrl $yurunaProject
+            git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone $projectUrl $yurunaProject
             if ($LASTEXITCODE -eq 0) { $cloned = $true; break }
             Write-Output "project git clone attempt $attempt failed"
             if (Test-Path -LiteralPath $yurunaProject) { Remove-Item -LiteralPath $yurunaProject -Recurse -Force -ErrorAction SilentlyContinue }

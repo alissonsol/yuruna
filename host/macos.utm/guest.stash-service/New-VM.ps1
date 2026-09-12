@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 4298cc86-a88d-484a-9f42-179d9e217fbf
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,7 +26,7 @@
     fetches the framework, and runs the bring-up script which builds +
     launches the daemon under systemd.
 
-    See https://yuruna.link/stash-guide for the stash user guide.
+    See https://yuruna.link/42f5e921 for the stash user guide.
 
 .PARAMETER VMName
     Name of the UTM VM. Default: yuruna-stash-service.
@@ -37,9 +37,14 @@ param(
     [string]$VMName = "yuruna-stash-service"
 )
 
-# Honor logLevel from Start-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+# --- REGION: Log level from environment
+# See https://yuruna.link/42e220c4-0003
+# Reuse the caller's log module; a forced reload discards its state.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
-if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
+if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
+    Import-Module $_logLevelMod -Global
+}
+if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     Write-Output "Invalid VMName '$VMName'. Only alphanumeric characters, dots, hyphens, and underscores are allowed."
@@ -74,9 +79,13 @@ Import-Module (Join-Path $_repoRoot 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
 # --- REGION: Remove existing VM
-if (Test-Path -LiteralPath $UtmDir) { Remove-Item -LiteralPath $UtmDir -Recurse -Force }
+Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'modules/Yuruna.Host.psm1') -Force
+if (-not (Remove-UtmBundleWithRetry -Path $UtmDir)) {
+    Write-Error "Could not remove existing UTM bundle at '$UtmDir' after retries. Aborting."
+    exit 1
+}
 
-# --- REGION: Per-VM directory + disk
+# --- REGION: Create copies and files for VM
 New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 
 # --- REGION: Copy base image -> per-VM disk
@@ -97,8 +106,8 @@ if ($LASTEXITCODE -ne 0) {
 # Apparent size only: qcow2 grows on write, so the host gives up nothing
 # until the stash daemon actually stores that much.
 if (-not (Expand-ExtensionVmDisk -Path $DiskImage -SizeBytes 256GB -Format 'qcow2')) {
-    Write-Warning "Resize failed -- continuing with the base cloud-image capacity."
-    Write-Warning "Resize manually with: qemu-img resize -f qcow2 '$DiskImage' 256G"
+    Write-Error "Could not resize '$DiskImage' to 256 GB; refusing to build the VM on base-capacity disk."
+    exit 1
 }
 
 # --- REGION: Stage the cloud-init seed directory
@@ -125,14 +134,10 @@ if (-not $AdminPassword) { Write-Error "Get-Password returned empty for 'stash-a
 Write-Output "Password came from authentication mechanism: $_authActiveName"
 Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
 
-# --- REGION: Pick a UTM network mode (BEFORE building user-data)
-# --- REGION: https://yuruna.link/4220a755-001b
-# Host coordinates (status service, for the in-VM source fetch) + stash storage
-# coordinates (the share), baked into the seed. The network mode and the host
-# address are a matched pair -- the address only works from the network the VM
-# lands on -- so Resolve-UtmNetworkMode decides once here and the config.plist
-# below is rendered from that same value.
-# $env:YURUNA_GUEST_REACHABLE_HOST_IP overrides.
+# --- REGION: Select the guest network
+# See https://yuruna.link/4220a755-001b
+# Resolve the network and reachable host address together for both seed and bundle.
+# YURUNA_GUEST_REACHABLE_HOST_IP overrides the host address.
 Import-Module (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.Host.psm1') -Force
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.PoolStorage.psm1')  -Global -Force
 Import-Module (Join-Path $_repoRoot 'test/modules/Test.YurunaDir.psm1')    -Global -Force
@@ -149,14 +154,8 @@ $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $_repoRoot
 $YurunaHostPort = $_statusSeed.Port
 $tc = $_statusSeed.Config
 $ystashNas = Get-YurunaStashSeedValue -Config $tc -GuestReachableAddress $YurunaHostIp
-# Pool-aggregator service base URL for the guest's presence beacon + remote-host
-# resolution; '' (no caching-proxy service known) leaves those features off in-guest.
-# Wait for the aggregator BEFORE resolving: whatever is resolved here is baked
-# into the seed once and never re-resolved in-guest, so an empty value taken
-# while the aggregator is still compiling leaves the beacon permanently off --
-# the service serves correctly and simply never appears on the dashboard.
-# Returns $false (rather than throwing) when there is no proxy to wait for or
-# the budget expires; the seed then carries '' exactly as it did before.
+# --- REGION: https://yuruna.link/42e220c4-0004
+# Wait before resolving the aggregator URL: an empty value remains baked into the guest seed.
 $null = Wait-YurunaAggregatorReady
 $aggregatorSeedUrl = Get-PoolAggregatorServiceSeedUrl
 
@@ -228,8 +227,8 @@ if ($NetworkMode -eq 'Shared') {
     Write-Output "Bridge interface: $BridgeInterface (stash-service VM will request DHCP on this LAN)"
 }
 
-# --- REGION: https://yuruna.link/42fa6f45-0016
 # --- REGION: https://yuruna.link/42fa6f45-0015
+# See https://yuruna.link/42fa6f45-0016
 $hostCores = [int](& /usr/sbin/sysctl -n hw.physicalcpu)
 if ($hostCores -lt 4) {
     Write-Error "Host has $hostCores physical cores; Yuruna requires at least 4. See https://yuruna.link/42fa6f45-0015"
@@ -269,10 +268,10 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Verbose "config.plist validated OK (VNC on 127.0.0.1:$(5900 + $VncDisplay))."
 
-# --- REGION: Cleanup temporary folders
+# --- REGION: Clean up temporary files
 Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 
-# --- REGION: Next steps for the operator
+# --- REGION: Guidance
 Write-Output ""
 Write-Output "== stash-service VM bundle created =="
 Write-Output "  Path:      $UtmDir"
@@ -309,18 +308,13 @@ Next steps:
      disabled) -- send files with scp:
        scp ./file user@$ip:/scratch
 
-See https://yuruna.link/stash-guide.
+See https://yuruna.link/42f5e921.
 '@
 Write-Output ($guidance.
     Replace('__VM_NAME__', $VMName).
     Replace('__UTM_DIR__', $UtmDir))
 
-# --- REGION: Hand root-run artifacts back to the operator
-# Guard only: the supported invocation is UNELEVATED (these scripts elevate the
-# individual operations that need it, and root has no Aqua session for open /
-# utmctl / osascript). But a run that did reach here as root left the bundle,
-# the base image, the seed and the harness key root-owned, and UTM -- running as
-# the operator -- could neither open this VM nor delete it on the next rebuild.
-# The whole ~/yuruna tree, not just this bundle: unlinking a directory needs
-# write permission on its parent, and guest.nosync is shared by every builder.
+# --- REGION: Restore operator file ownership
+# See https://yuruna.link/42e220c4-0004
+# If invoked through sudo, return generated artifacts to the original operator.
 [void](Restore-SudoUserOwnership -Path @("$HOME/yuruna", (Join-Path $_repoRoot 'test/status')) -Confirm:$false)

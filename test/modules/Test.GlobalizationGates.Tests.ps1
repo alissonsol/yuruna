@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42a4c7d2-1f58-4b93-8c07-5e6d2a91f374
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -192,9 +192,28 @@ Describe 'one registry names every browser source' {
             if ($relative -match '(_test\.go|\.Tests\.ps1|\.test\.js)$') { continue }
             $full = Join-Path $script:RepoRoot $relative
             if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { continue }
-            if (([IO.File]::ReadAllText($full)).IndexOf('var(--') -lt 0) { continue }
+            $text = [IO.File]::ReadAllText($full)
+            # Two triggers, because one is not enough. A custom property is the
+            # obvious one, but a producer that styles only with literal colors
+            # has none -- and the floor rules this registry feeds are about flex
+            # gap, grid, logical properties and safe-area units, none of which
+            # need a custom property either. Selecting on var(--) alone is how a
+            # whole shipped page stayed outside every floor gate: it is a page
+            # that carries a stylesheet, not a page that carries a token.
+            # Both tags, anywhere in the file. A producer that assembles its
+            # document in pieces writes the open and the close from separate
+            # statements, so they are not adjacent in the source and the body
+            # between them is code rather than CSS -- matching an opening tag
+            # followed by a declaration would miss exactly that shape. A bare
+            # mention (a comment saying a page carries no inline style, a CSP
+            # note naming the tag) has the open and no close, so requiring both
+            # separates a producer from a sentence about one.
+            $carriesStyle = ($relative -match '\.css$') -or
+                (($text -match '(?i)<style[\s>]') -and ($text -match '(?i)</style\s*>'))
+            if (-not $carriesStyle -and $text.IndexOf('var(--') -lt 0) { continue }
             if ($declared -notcontains $relative) {
-                $findings += "$relative uses a custom property and is not a declared CSS producer"
+                $why = if ($text.IndexOf('var(--') -ge 0) { 'uses a custom property' } else { 'carries a stylesheet' }
+                $findings += "$relative $why and is not a declared CSS producer"
             }
         }
         Assert-NoFinding $findings 'a file the floor has to render is outside the palette-fallback tools'
@@ -253,6 +272,99 @@ Describe 'one registry names every browser source' {
             if (-not $covered) { $findings += "$relative is a shipped page and no page root covers it" }
         }
         Assert-NoFinding $findings 'a page sits outside the accessibility sweep'
+    }
+
+    It 'claims every whole page a host writes into a guest' {
+        # The reverse-discovery rules above all select by extension -- .html,
+        # .go, .ps1, .css. A provisioning seed is none of those, so a page
+        # written by one is invisible to every sweep in this file unless its
+        # producer is named here. A page nothing sweeps is a page whose charset
+        # and lang nothing checks, and it is served at the one moment a reader
+        # is already looking at a failure.
+        $declared = @($script:Registry.provisionedPageProducers |
+            ForEach-Object { ([string]$_.path) -replace '\\', '/' })
+        Assert-True ($declared.Count -ge 1) 'the registry names no provisioned page producer'
+
+        Push-Location $script:RepoRoot
+        try { $tracked = @(& git ls-files --cached --others --exclude-standard) } finally { Pop-Location }
+
+        $findings = @()
+        foreach ($relative in $tracked) {
+            # Everything the rules above do not already claim by extension. A
+            # hand-written list of provisioning extensions would only find the
+            # kind of file someone already thought of, which is the failure this
+            # rule exists to catch -- a page can just as easily be written by a
+            # shell script or a YAML template.
+            if ($relative -match '\.(html|go|ps1|psm1|js|css|json|md)$') { continue }
+            if ($relative -like 'dev-only/*' -or $relative -like 'docs/*') { continue }
+            # The recorded reference captures are frozen copies of what the
+            # registered producers already emit, and nothing serves them. An
+            # entry here would put a page in the registry that no host writes
+            # anywhere, which is the same false claim from the other side.
+            if ($relative -like 'globalization/fixtures/reference/*') { continue }
+            $full = Join-Path $script:RepoRoot $relative
+            if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { continue }
+            # FileInfo rather than Get-Item: PowerShell treats a dot-prefixed
+            # name as hidden on Unix, and Get-Item without -Force reports the
+            # repository's own .gitattributes as missing.
+            if ([IO.FileInfo]::new($full).Length -gt 2MB) { continue }
+            $text = [IO.File]::ReadAllText($full)
+            # A whole document, not a fragment someone mentioned: the opening
+            # tag is what makes a browser parse the bytes as a page.
+            if ($text -notmatch '(?i)<html\b') { continue }
+            if ($declared -notcontains $relative) {
+                $findings += "$relative writes a whole HTML document and no producer entry claims it"
+            }
+        }
+        Assert-NoFinding $findings 'a provisioned page escapes the browser registry'
+    }
+
+    It 'materializes each provisioned page with a valid document shape' {
+        # The registry entry alone proves nothing: the gate has to be able to
+        # get the bytes back out of the seed and see a real document in them.
+        $exported = Join-Path $TestDrive 'provisioned-pages'
+        $run = & pwsh -NoProfile -File (Join-Path $script:RepoRoot 'tools/Export-GeneratedPages.ps1') `
+            -OutputDirectory $exported -Quiet 2>&1 | Out-String
+        Assert-Equal -Expected 0 -Actual $LASTEXITCODE -Because $run
+        $findings = @()
+        foreach ($producer in $script:Registry.provisionedPageProducers) {
+            $seedPath = Join-Path $script:RepoRoot ([string]$producer.path)
+            if (-not (Test-Path -LiteralPath $seedPath -PathType Leaf)) {
+                $findings += "$($producer.path): the registry names a producer that is not in the tree"
+                continue
+            }
+            $seed = [IO.File]::ReadAllText($seedPath)
+            if (-not $seed.Contains([string]$producer.marker)) {
+                $findings += "$($producer.path): the marker '$($producer.marker)' names nothing in the seed"
+                continue
+            }
+            $page = Join-Path $exported ([string]$producer.page)
+            if (-not (Test-Path -LiteralPath $page -PathType Leaf)) {
+                $findings += "$($producer.page): the exporter wrote no page for this producer"
+                continue
+            }
+            $html = [IO.File]::ReadAllText($page)
+            foreach ($required in @('<!doctype html>', '<html lang="', '<meta charset="utf-8">', '<title>', '<h1>')) {
+                if (-not $html.Contains($required)) {
+                    $findings += "$($producer.page): the emitted document has no '$required'"
+                }
+            }
+            # And that it is THIS seed's document. Checking only for a valid
+            # shape would accept an exporter that had stopped reading the seed
+            # and started writing a page of its own.
+            $seedText = ($seed -replace "`r`n", "`n")
+            $sample = @($html -split "`n" | Where-Object { $_ -match '<(h1|title)>' } |
+                ForEach-Object { ($_ -replace '<[^>]+>', '').Trim() } | Where-Object { $_ })
+            if ($sample.Count -eq 0) {
+                $findings += "$($producer.page): the emitted document carries no heading to trace to its seed"
+            }
+            foreach ($phrase in $sample) {
+                if (-not $seedText.Contains($phrase)) {
+                    $findings += "$($producer.page): '$phrase' is not in $($producer.path), so the page is not this seed's"
+                }
+            }
+        }
+        Assert-NoFinding $findings 'a provisioned page is registered but not a valid document'
     }
 
     It 'names pages that exist and load something' {
@@ -326,6 +438,45 @@ Describe 'a gate that cannot run is not reported as passing' {
         } else {
             Assert-Equal -Expected 0 -Actual $release.Code `
                 'nothing is degraded, so the release run should pass too'
+        }
+    }
+
+    It 'fails release mode when a required prerequisite is taken away' {
+        # The test above only compares the two modes as this host happens to be
+        # provisioned; on a complete machine it takes the green branch and the
+        # blocking behavior is never exercised at all. This removes a
+        # prerequisite deliberately, which is the only way to show that a
+        # missing tool blocks a release rather than being noted and passed over.
+        #
+        # PATH is narrowed rather than a tool deleted: the run must find pwsh
+        # itself, and nothing outside this child process is disturbed.
+        $pwshDirectory = Split-Path -Parent (Get-Process -Id $PID).Path
+        $narrowed = if ($IsWindows) {
+            @($pwshDirectory, "$env:SystemRoot\System32") -join ';'
+        } else {
+            @($pwshDirectory, '/usr/bin', '/bin') -join ':'
+        }
+        $preflight = Join-Path $script:RepoRoot 'tools/Invoke-Preflight.ps1'
+
+        $priorPath = $env:PATH
+        try {
+            $env:PATH = $narrowed
+            $output = & (Get-Process -Id $PID).Path -NoProfile -File $preflight -Release 2>&1 | Out-String
+            $code = $LASTEXITCODE
+        } finally {
+            $env:PATH = $priorPath
+        }
+
+        # If the narrowed PATH still reaches every tool -- a host that installs
+        # them all under /usr/bin -- there is nothing to have blocked on, and
+        # asserting a failure would be asserting the shape of this machine.
+        if ($output -cmatch '(?m)^MISSING\s') {
+            Assert-Equal -Expected 1 -Actual $code `
+                'a prerequisite the release cannot reach must block the run, not be noted and passed over'
+            Assert-Match 'blocking' $output `
+                'the run must say how many rows blocked it, not only that something was missing'
+        } else {
+            Set-ItResult -Skipped -Because 'every required tool is reachable even from a narrowed PATH here'
         }
     }
 }
@@ -503,7 +654,9 @@ Describe 'the publisher validates the artifacts it is about to publish' {
         foreach ($required in @("Name = 'preflight'", "Name = 'js-test'", "Name = 'go-build'",
                 "Name = 'globalization-authority'", "Name = 'framework-lint'",
                 "Name = 'framework-shellcheck'", "Name = 'ascii-no-bom'",
-                "Name = 'accessibility'", "Name = 'terminology'", 'Invoke-AffectedSliceMap.ps1',
+                "Name = 'accessibility'", "Name = 'terminology'",
+                "Name = 'suite-baseline'", "Name = 'config-locale-seed'",
+                'Invoke-AffectedSliceMap.ps1',
                 'Test.DocReachability.Tests.ps1', 'Test.StatusServiceLocale.Tests.ps1',
                 'Test.StatusPauseSlice.Tests.ps1', 'Test.PoolGlobalizationSlice.Tests.ps1',
                 'Test.ReferenceSliceMatrix.Tests.ps1', 'Test.CodeRegistry.Tests.ps1',
@@ -511,7 +664,16 @@ Describe 'the publisher validates the artifacts it is about to publish' {
             Assert-True ($gate.IndexOf($required, [StringComparison]::Ordinal) -ge 0) `
                 "full/release mode omits $required"
         }
-        Assert-False ($gate -match 'Invoke-TestSuite') `
+        # The repair line for the suite-baseline row names the runner, because a
+        # repair line that cannot name its command is not a repair. What must
+        # not happen is this orchestrator RUNNING the suite: one full run would
+        # become several, and a gate meant to answer in seconds would take
+        # minutes. So the guard covers everything the file executes and skips
+        # the text it only prints.
+        $executable = $gate.Replace((Get-CrossRepoFunction -Name 'Get-GateRemediation'), '')
+        Assert-True ($executable.Length -lt $gate.Length) `
+            'the remediation table was not found, so this guard is checking nothing'
+        Assert-False ($executable -match 'Invoke-TestSuite') `
             'the cross-repository gate recursively launches the full suite instead of named leaf checks'
         Assert-True ($gate.IndexOf('Invoke-ProjectLocaleMap.ps1', [StringComparison]::Ordinal) -ge 0) `
             'the cross-repository path does not use the authoritative parsed project-map contract'
@@ -553,6 +715,7 @@ Describe 'the publisher validates the artifacts it is about to publish' {
             'doc-translation', 'region-anchors', 'project-lint', 'project-shellcheck',
             'project-locale-map', 'project-utf8', 'affected-slice-map', 'preflight',
             'framework-lint', 'framework-shellcheck', 'ascii-no-bom',
+            'suite-baseline', 'config-locale-seed',
             'domain-inventory', 'catalog-compile', 'catalog-embed', 'utf8-catalog',
             'globalization-authority', 'terminology', 'es5-floor', 'palette-fallback',
             'perf-baseline', 'js-test', 'go-build', 'accessibility',

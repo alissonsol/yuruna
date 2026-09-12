@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42b86905-6f08-4020-9f8c-68c7b31b76ef
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -61,6 +61,7 @@ function ConvertFrom-GoDuration {
     $scale = @{ ns = 1e-9; us = 1e-6; ms = 1e-3; s = 1; m = 60; h = 3600 }
     $count * $scale[$unit]
 }
+
 
 function ConvertFrom-GoConstDuration {
     param(
@@ -549,5 +550,27 @@ Describe 'no built binary is tracked under test/extension' {
                 (Test-Path -LiteralPath $full) -and ((Get-Item -LiteralPath $full).Length -gt 1MB)
             })
         Assert-Equal 0 $binaries.Count "these look like build output and are tracked: $($binaries -join ', ')"
+    }
+}
+
+Describe 'service readiness timeout overrides' {
+    It 'shares positive-integer override behavior across the service areas' {
+        foreach ($area in 'stash-service', 'pool-control-service', 'download-agent-service') {
+            $variable = 'YURUNA_' + $area.ToUpperInvariant().Replace('-', '_') + '_READY_TIMEOUT_SECONDS'
+            $previous = [Environment]::GetEnvironmentVariable($variable)
+            try {
+                foreach ($value in @('', ' ', 'invalid', '0', '-1', '2147483648')) {
+                    [Environment]::SetEnvironmentVariable($variable, $value)
+                    Assert-Equal -Expected 2700 -Actual (Get-ExtensionServiceReadyTimeoutSeconds -Area $area) `
+                        -Because "$area must retain its default for '$value'"
+                }
+                [Environment]::SetEnvironmentVariable($variable, '120')
+                Assert-Equal -Expected 120 -Actual (Get-ExtensionServiceReadyTimeoutSeconds -Area $area) `
+                    -Because "$area must honor a valid override"
+                [Environment]::SetEnvironmentVariable($variable, '')
+                Assert-Equal -Expected 90 -Actual (Get-ExtensionServiceReadyTimeoutSeconds -Area $area -DefaultSeconds 90) `
+                    -Because "$area must honor the caller's fallback"
+            } finally { [Environment]::SetEnvironmentVariable($variable, $previous) }
+        }
     }
 }

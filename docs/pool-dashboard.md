@@ -23,7 +23,7 @@ pwsh test/lab/Set-LabToken.ps1 -LabToken CODE
 
 It rotates every minute (aggregator `-lab-token-rotate`), and a displayed code stays
 redeemable for about three minutes, so read it right before enrolling. The full
-enrollment walk is in [control-routes](https://yuruna.link/control-routes). The tile is
+enrollment walk is in [control-routes](https://yuruna.link/42185271). The tile is
 driven by `yuruna_pool_lab_token`; the code itself rides as the metric's `token` label.
 
 **Red "Collector down".** The pool-aggregator-service -- the service on this proxy that
@@ -112,7 +112,7 @@ server-side and hands the browser the same short-lived control token the *Pool h
 link carries. A service UI opened from here therefore arrives with its actions already
 unlocked, and only falls back to its ordinary Lab token prompt when the proxy mints no
 token at all. The proof mechanics -- fragment delivery, minting, verification -- are in
-[control-routes](https://yuruna.link/control-routes).
+[control-routes](https://yuruna.link/42185271).
 
 Panel height tracks the extension-host count, maintained by
 `yuruna-fit-pool-dashboard.timer` on the proxy -- the `gridPos.h` in the dashboard file
@@ -156,11 +156,11 @@ The link itself works in every state -- it opens the host's status page **read-o
 and routes through the aggregator's `/go/host` redirect, which resolves the host's
 **current** IP server-side and hands the browser the short-lived control token.
 Enrolling a host, and what to do with a 403, are covered in
-[control-routes](https://yuruna.link/control-routes).
+[control-routes](https://yuruna.link/42185271).
 
 **Host ID** opens a menu whose first entry is that host's full id, GUID-formatted
 (8-4-4-4-12), checkable against another screen and copyable into a pool-admin command,
-which accepts that form as pasted ([pool-admin](https://yuruna.link/pool-admin)); the
+which accepts that form as pasted ([pool-admin](https://yuruna.link/4207d71a)); the
 entry names the host and navigates nowhere. Its second entry is the same host link, so
 two cells per row carry the token -- but Control is still the cell that says up front
 whether following it will drive the host.
@@ -251,17 +251,41 @@ The collapsed row under the timeline. Its panels share the dashboard time range:
   class, distinct from the step_failure histogram above, which counts events whether
   or not they formed an incident.
 
+<a id="422226cb-000b"></a>
+
+## Drill-down: host memory
+
+This second collapsed row contains the only panels on this board that read the pool
+hosts themselves rather than the collector's view of them. They are fed by the metrics
+exporter each Windows host runs, scraped straight by the same Prometheus: a host of
+another type, or one with no exporter running, simply has no line.
+
+- **Available memory per host** -- physical memory the host has free.
+- **Commit headroom per host** -- the commit limit minus committed bytes: how much
+  more memory the host can still promise before an allocation is refused outright.
+  A virtual machine asks for its whole allocation at once, so a start is measured
+  against this floor rather than against free physical memory, and the floor itself
+  moves while Windows resizes the paging file.
+
+The host list is discovered, not configured: the collector publishes the hosts it
+currently reaches and Prometheus follows that list, so a host that is switched off
+drops out instead of showing as a failing target. Series are keyed on `hostId`, the
+same identity every table above uses -- the scrape address is a DHCP lease and would
+split one host's history each time the lease moved. That shared key is also what lets
+a memory reading sit beside a cycle outcome for the same host: `on(hostId)` joins the
+two.
+
 <a id="422226cb-000a"></a>
 
 ## See also
 
-- [control-routes](https://yuruna.link/control-routes) -- who is allowed to drive a
+- [control-routes](https://yuruna.link/42185271) -- who is allowed to drive a
   host from the dashboard's buttons, and the one-time enrollment that enables it.
 - [collector-down](https://yuruna.link/collector-down) -- restoring the
   pool-aggregator-service collector this whole dashboard depends on.
-- [pool-admin](https://yuruna.link/pool-admin) -- running a pool: membership,
+- [pool-admin](https://yuruna.link/4207d71a) -- running a pool: membership,
   test-sets, desired state.
-- [lab-operator](https://yuruna.link/lab-operator) -- bringing a lab up.
+- [lab-operator](https://yuruna.link/42383647) -- bringing a lab up.
 
 ---
 
@@ -269,6 +293,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.08
+Last review: 2026.09.12
 
 Back to [Yuruna](../README.md)

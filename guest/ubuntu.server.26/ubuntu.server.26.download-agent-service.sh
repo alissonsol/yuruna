@@ -1,32 +1,21 @@
-#!/usr/bin/env bash
-# Version: 2026.09.08
+#!/bin/bash
+# Version: 2026.09.12
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
-#
-# Guest bring-up for the Yuruna Download-agent service VM. Mirrors the
-# pool-control-service bring-up: build the Go daemon from the framework checkout,
-# install it, and run it under systemd. The daemon is pure Go, and shells out to
-# PowerShell for exactly one thing: the Windows 11 family, whose download URL is
-# minted per request by Fido, a PowerShell script. Both pwsh and Fido are
-# installed by cloud-init, best-effort -- when either is missing the daemon
-# reports that family unavailable and hosts keep fetching Windows for themselves.
-# The pool NAS is CIFS-mounted with the same credential path the
-# pool-storage replication uses; it holds BOTH the download pool
-# (<mount>/images) and the daemon's audit log + status.json
-# (<mount>/download-agent-service/).
-# --- REGION: https://yuruna.link/download-agent-service
+# --- REGION: https://yuruna.link/42e220c4-0005
+# See https://yuruna.link/4268e4cb
 set -euo pipefail
 
-# cloud-init's runcmd runs this as root with a MINIMAL environment where
-# $HOME is unset, and `go build` -- a child process -- needs HOME EXPORTED to
-# resolve GOPATH/GOMODCACHE, else it fails with "module cache not found:
-# neither GOMODCACHE nor GOPATH is set". Set AND export it.
+# --- REGION: Initialize environment
+# Export HOME for Go module-cache discovery under cloud-init.
 export HOME="${HOME:-/root}"
 
 export DEBIAN_FRONTEND=noninteractive
 export NONINTERACTIVE=1
 
+# --- REGION: Detect architecture
 ARCH=$(uname -m)
+echo "Detected architecture: $ARCH"
 case "$ARCH" in
   x86_64|aarch64) ;;
   *)
@@ -35,7 +24,8 @@ case "$ARCH" in
     ;;
 esac
 
-# Optional shared retry helpers (present once update.sh has run).
+# --- REGION: Load retry helpers
+# Optional on service guests before the update workload has run.
 if [ -r /usr/local/lib/yuruna/yuruna-retry.sh ]; then
   # --- REGION: https://yuruna.link/4220a755-0003
   . /usr/local/lib/yuruna/yuruna-retry.sh
@@ -46,10 +36,8 @@ if [ -r /usr/local/lib/yuruna/yuruna-retry.sh ]; then
 fi
 
 # --- REGION: Service user
-# The daemon runs unprivileged. Prefer the cloud-init-created
-# 'download-agent-service-admin' account; fall back to whoever invoked the script
-# (e.g. an interactive test login). The NAS mount's uid/gid must match this user
-# for the pool writes to land (cifs maps every file to one owner).
+# Prefer cloud-init's account; allow an explicit override or the current caller.
+# The CIFS mount maps every file to this user's uid/gid.
 if id -u download-agent-service-admin >/dev/null 2>&1; then
   SERVICE_USER=download-agent-service-admin
 else
@@ -58,16 +46,9 @@ fi
 echo "Service user: $SERVICE_USER"
 
 # --- REGION: Service tunables
+# See https://yuruna.link/42fffc2c-000d
 HTTP_ADDR="${DOWNLOAD_AGENT_HTTP_ADDR:-0.0.0.0:80}"
-# The presence interval must stay SHORTER than the aggregator's extension
-# health grace: a re-announce is also how a renumbered service reports its new
-# address, so a cadence slower than the grace leaves the area unresolvable
-# between the refusal of the old address and the next announce.
 PRESENCE_INTERVAL="${DOWNLOAD_AGENT_PRESENCE_INTERVAL:-2m}"
-# The internal authentication key opens the bearer path on the mutating routes for
-# automation. Absent file => bearer disabled; the UI's lab-token unlock (the
-# daemon redeems the typed code at the aggregator) is then the only way in, and
-# a mutation with neither is refused rather than running ungated.
 AUTH_TOKEN_FILE="${DOWNLOAD_AGENT_AUTH_TOKEN_FILE:-/etc/yuruna/internal-auth.key}"
 
 # Aggregator URL + host id from the shared env files (same as pool-control).
@@ -119,10 +100,7 @@ fi
 go version
 
 # --- REGION: Locate the daemon source
-# Locate the framework checkout (the download-agent-service source).
-# Enumerate candidate enlistments directly rather than piping `find` into
-# `head`: under pipefail the reader closing the pipe leaves the producer with
-# SIGPIPE (141), which aborts the lookup even when it succeeded.
+# Avoid find|head: under pipefail the expected producer SIGPIPE aborts lookup.
 locate_repo_dir() {
   local candidates=( "$HOME/yuruna" "/home/$SERVICE_USER/yuruna" )
   local home
@@ -149,25 +127,16 @@ VERSION_STR=$(cat "$REPO_DIR/VERSION" 2>/dev/null | head -n1 | tr -d '[:space:]'
 [ -n "$VERSION_STR" ] || VERSION_STR=dev
 
 # --- REGION: Build
+# See https://yuruna.link/42e220c4-000f
 echo ""
 echo -e "\e[1;36m==== Building download-agent-service ($VERSION_STR) from $SERVER_DIR ====\e[0m"
 BUILD=/tmp/download-agent-service-build
 rm -rf "$BUILD"; mkdir -p "$BUILD"; cp -r "$SERVER_DIR" "$BUILD/server"
-# The SDK is a SEPARATE Go module, staged as a sibling of server/ because
-# go.mod resolves it with `replace ... => ../extension-sdk`. Mirroring it
-# INTO server/internal/yex instead would mean thousands of duplicated
-# lines and a copy that could silently fork. A go.work file is no substitute
-# HERE: only the two directories staged below are copied into the build dir,
-# so a workspace file living in the enlistment never reaches this build.
 SDK_DIR="$(cd "$SERVER_DIR/../.." && pwd)/extension-sdk"
 [ -f "$SDK_DIR/go.mod" ] || { echo "Could not find the extension SDK at $SDK_DIR." >&2; exit 1; }
 cp -r "$SDK_DIR" "$BUILD/extension-sdk"
-# No go.sum here: this module needs only the standard library and the SDK
-# staged beside it, so there is no dependency graph to verify and `go mod
-# tidy` -- which reaches the network to recompute one -- must not run. The
-# retry stands for whatever the build still fetches on a fresh guest: a miss
-# the caching-proxy service cannot relay surfaces as a transient failure that
-# clears once it holds the object.
+# This module has no external graph; do not run networked go mod tidy here.
+# Retry the build because a fresh module cache can still need the proxy.
 attempts=3
 delay=10
 for try in $(seq 1 "$attempts"); do
@@ -191,14 +160,10 @@ sudo install -m 0755 -o root -g root "$BUILD/server/download-agent-service" /usr
 # --- REGION: https://yuruna.link/42d69dfa-0025
 sudo setcap 'cap_net_bind_service=+ep' /usr/local/bin/download-agent-service || true
 
-# --- REGION: Storage dirs
-# Mount the pool NAS: it is both the download pool and the state dir. Best-effort
-# -- the daemon serves /healthz and reports poolAvailable:false when it is absent.
+# --- REGION: Storage directories
+# Mount the pool NAS best-effort; the daemon reports an absent pool via /healthz.
 if [[ -n "$POOL_NAS_UNC" ]]; then
   sudo mkdir -p "$MOUNT"
-  # Every part is load-bearing: the open modes plus noperm are an ownership
-  # MAPPING that must match the parent share, not a hardening choice, and
-  # iocharset=utf8 is absent because nls_utf8 fails the mount with error(79).
   # --- REGION: https://yuruna.link/428405a0-000b
   MOUNT_OPTS="credentials=/etc/yuruna/pool-nas.cifs.cred,vers=3.0,uid=$(id -u "$SERVICE_USER"),gid=$(id -g "$SERVICE_USER"),file_mode=0666,dir_mode=0777,noperm,nofail,_netdev"
   # ip= carries the mount past a server name the guest has no way to resolve.
@@ -213,12 +178,8 @@ if [[ -n "$POOL_NAS_UNC" ]]; then
     sudo timeout 60 mount "$MOUNT" || echo "download-agent-service: NAS mount failed; the pool is unavailable and every ensure answers 503" >&2
   fi
 fi
-# Never materialize the state dir on the local disk underneath an unmounted NAS
-# mountpoint: the NAS mounting later would shadow it, silently stranding the
-# status.json and audit log written in the meantime. An empty state dir is how
-# the daemon is told to run without persistence, so hand it that instead -- the
-# daemon creates the dir itself on start, and would otherwise recreate exactly
-# the local one this skips.
+# Do not create state below an unmounted NAS path; a later mount would shadow it.
+# An empty path disables persistence without recreating the local directory.
 if mountpoint -q "$MOUNT" 2>/dev/null; then
   # No chown on the mounted share: the uid/gid mount options have already placed
   # ownership and a chown can lock the hosts out.
@@ -229,11 +190,7 @@ else
 fi
 
 # --- REGION: Caching-proxy routing for byte downloads
-# Bytes go through squid when a cache is reachable; freshness probes always go
-# direct (a proxied HEAD returns the prewarm-era headers squid pins for
-# .iso/.zip and would certify staleness as freshness forever). 3128 is the plain
-# HTTP port, 3129 the ssl-bump port -- the pair the caching-proxy service
-# publishes. Empty values disable proxying, never startup.
+# See https://yuruna.link/4268e4cb-0005
 PROXY_HTTP=''
 PROXY_HTTPS=''
 PROXY_CA=''
@@ -283,7 +240,7 @@ echo -e "\e[1;36m==== /etc/systemd/system/download-agent-service.service ====\e[
 sudo tee /etc/systemd/system/download-agent-service.service >/dev/null <<EOF
 [Unit]
 Description=Yuruna Download-agent service
-Documentation=https://yuruna.link/download-agent-service
+Documentation=https://yuruna.link/4268e4cb
 # After= the cifs mount unit so the daemon starts once the pool is up;
 # NOT Requires=/Wants= it -- the daemon is meant to start and report
 # "pool unavailable" when the NAS is down, and on a guest with no pool storage

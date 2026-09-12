@@ -24,6 +24,15 @@ guestSequence:
 - guest.amazon.linux.2023
 - guest.ubuntu.server.24
 - guest.ubuntu.server.26
+# The language every Yuruna surface answers in, as a BCP 47 tag. "auto" is not
+# a lock: each reader's browser, and each command's own culture, decides. A tag
+# names one language for the whole lab -- a page, its API responses and the
+# transcript of the same run then cannot disagree, which is the failure a
+# per-surface setting produces. A tag with no reviewed catalog behind it is
+# refused rather than obeyed, so a typo here does not serve a language that
+# does not exist; the run falls back to English and says the lock is what
+# decided it.
+language: auto
 logLevel: Information
 networkStorage:
   # Populating all three pool paths IS the opt-in to archiving finished cycle
@@ -143,6 +152,16 @@ testCycle:
 vmCommunication:
   charDelayMs: 10
   pollSeconds: 5
+  # How many raw console frames the wait loop keeps per VM. A guest that PASSES
+  # has them all deleted; a guest that FAILS keeps them, so this is exactly how
+  # much of the run-up to a failure a reader gets. It counts frames but should
+  # be picked as a duration: a frame costs a screenshot plus an OCR pass on top
+  # of pollSeconds, around 8 s each, so 20 is about two and a half minutes.
+  # Each frame on disk is a PNG plus its OCR text, order 100 KB together, kept
+  # twice for a failed guest and never removed by log rotation -- raise it for a
+  # longer window knowing a host that fails often pays for it in disk. Values
+  # outside 1..240 are clamped into that range.
+  screenHistorySize: 20
   timeoutSeconds: 180
   vncPort: 5900
 vmImage:

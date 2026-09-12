@@ -18,8 +18,7 @@
 
   var chrome = Y.initChrome({ refresh: function () { load(); } });
 
-  // --- CIDR validation ------------------------------------------------------
-
+  // --- REGION: CIDR validation
   // The field's job is to say what the daemon would say, before the round trip.
   // The daemon still validates: this is the same rule stated twice on purpose,
   // once where it is enforced and once where it can be fixed.
@@ -56,7 +55,7 @@
   // One place to reach the shared formatter, so a call site cannot quietly
   // fall back to the browser's own locale.
   function num(value) {
-    return window.YurunaI18n.formatNumber(value, 0, window.YurunaI18n.locale());
+    return window.YurunaI18n.formatNumber(value, window.YurunaI18n.locale(), 0);
   }
 
   function syncField() {
@@ -72,8 +71,7 @@
     return v.ok;
   }
 
-  // --- rendering ------------------------------------------------------------
-
+  // --- REGION: Rendering
   function fmtTime(iso) {
     if (!iso) { return '--'; }
     var d = new Date(iso);
@@ -198,8 +196,7 @@
       + ', asking port ' + data.port + ' on every address.';
   }
 
-  // --- data -----------------------------------------------------------------
-
+  // --- REGION: Data
   function load() {
     return Y.api('/api/scan').then(function (data) {
       chrome.markLoaded();

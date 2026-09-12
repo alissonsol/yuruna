@@ -3,6 +3,9 @@
 See [Yuruna Architecture](docs/architecture.md) for project architecture and
 [Test harness](docs/test-harness.md) for the test-harness internals.
 
+Follow [Source consistency](docs/source-consistency.md) when changing shared
+host, guest, test, or VM configuration blocks.
+
 Looking for something to work on? Pick from
 [Contributor opportunities](docs/opportunities.md).
 
@@ -371,6 +374,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.08
+Last review: 2026.09.12
 
 Back to [Yuruna](README.md)

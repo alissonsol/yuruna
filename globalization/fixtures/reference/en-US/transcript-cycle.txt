@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
+<title>Yuruna test-runner log</title>
+<style>
+/* The transcript declares light explicitly rather than inheriting whatever the
+   browser decides. Every color below is measured against this white, so a
+   forced-dark rendering would invalidate all of them at once. */
+:root { color-scheme: light; }
+body { background: #fff; color: #111827; }
+h1 { font: inherit; font-weight: 700; margin: 0 0 8px; }
+/* Severity rides as a CSS class on every line. Each cue is a WORD before it
+   is a color: the prefix survives a monochrome display, a color-vision
+   difference and a screen reader, none of which a hue reaches. The colors
+   are secondary and each clears 4.5:1 on the white above. */
+.log-error::before   { content: "ERROR "; }
+.log-warning::before { content: "WARNING "; }
+.log-debug::before   { content: "DEBUG "; }
+.log-verbose::before { content: "VERBOSE "; }
+.log-error   { color: #b91c1c; }
+.log-warning { color: #92400e; }
+.log-debug   { color: #4b5563; }
+.log-verbose { color: #4b5563; }
+/* The step rules are the transcript's only structure, and a reader with no
+   outline has to scroll tens of kilobytes of one <pre> to find a step. They
+   carry a heading ROLE rather than being wrapped in <h2>, because <pre> takes
+   phrasing content: the role puts the step list in the document outline
+   without putting flow content where the parser does not accept it. */
+.log-step { font-weight: 700; }
+</style>
+</head><body>
+<h1>Yuruna test-runner log</h1>
+<pre style="white-space: pre-wrap; word-wrap: break-word; overflow-x: auto;"><span class="log-information log-step" role="heading" aria-level="2">----- [1/3] initialize-lab -----</span>
+<span class="log-information">VM inventory: 9 hosts, 0 degraded.</span>
+<span class="log-information log-step" role="heading" aria-level="2">----- [1/3] initialize-lab : PASS -----</span>
+<span class="log-information log-step" role="heading" aria-level="2">----- [2/3] workload.guest.ubuntu.server.26.amisad-core.s001 -----</span>
+<span class="log-warning">Cycle pass with 1 host address change(s) inside it.</span>
+<span class="log-information">A line long enough to need wrapping: /usr/bin/env pwsh -NoProfile -File <root>/test/service/Start-StatusService.ps1 -Port 8080 -RuntimeDir /var/lib/yuruna/runtime</span>
+<span class="log-information log-step" role="heading" aria-level="2">----- [2/3] workload.guest.ubuntu.server.26.amisad-core.s001 : PASS -----</span>
+<span class="log-information log-step" role="heading" aria-level="2">----- [3/3] finalize -----</span>
+<span class="log-error">guest did not answer within 300 s</span>
+<span class="log-information log-step" role="heading" aria-level="2">----- [3/3] finalize : FAIL -----</span>
+</pre></main></body></html>

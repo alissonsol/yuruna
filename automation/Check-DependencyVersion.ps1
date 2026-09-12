@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 427703ae-4857-433b-ab5f-5f81a7ae94c2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -77,7 +77,12 @@ param(
     [switch]$AsJson
 )
 
-$InformationPreference = 'Continue'
+# The narration is for a person reading a terminal. Under -AsJson stdout is a
+# document a caller parses whole, and a line of prose ahead of it makes the
+# parse fail on the first character -- so the one machine-readable mode this
+# script has would emit something no consumer can read. Turning the stream off
+# rather than redirecting it keeps the human mode byte-identical.
+$InformationPreference = if ($AsJson) { 'SilentlyContinue' } else { 'Continue' }
 
 function Get-VersionPin {
     <#

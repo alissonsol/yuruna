@@ -84,11 +84,26 @@ func (s *Server) handleHostFacts(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		statusErr = err.Error()
 	}
+	// A machine the aggregator holds under more than one id has a row per id,
+	// and all of them are that one machine's address. Ask it ONCE and give
+	// every one of its rows the same answer: probing per row would put a
+	// needless burst on a single host, and the two replies would be sampled
+	// moments apart -- so the duplicate rows would differ in free storage and
+	// read as two similar machines, which is the opposite of what the operator
+	// has to see.
+	current := currentHostByBase(status.Hosts)
+
 	keys := make([]string, 0, len(status.Hosts))
 	base := map[string]string{}
 	seenBase := map[string]bool{}
+	// shares maps a host id onto the id whose reply it takes.
+	shares := map[string]string{}
 	for _, h := range status.Hosts {
-		b := strings.TrimSuffix(strings.TrimSpace(h.BaseURL), "/")
+		b := hostBase(h.BaseURL)
+		if owner := current[b]; b != "" && owner != "" && owner != h.HostID {
+			shares[h.HostID] = owner
+			continue
+		}
 		keys = append(keys, h.HostID)
 		base[h.HostID] = b
 		if b != "" {
@@ -139,6 +154,11 @@ func (s *Server) handleHostFacts(w http.ResponseWriter, r *http.Request) {
 		return f
 	}) {
 		facts[keys[i]] = row
+	}
+	// The rows that share another id's reply, filled in after the fan-out so
+	// each of a machine's rows carries the same figures.
+	for id, owner := range shares {
+		facts[id] = facts[owner]
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "hosts": facts, "statusError": statusErr})
 }

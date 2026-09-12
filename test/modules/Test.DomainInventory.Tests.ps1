@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42fa3c81-6d07-4b29-95e8-1c04a7b6f2d3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -102,15 +102,15 @@ Describe 'the inventory measures the tree it ships with' {
     It 'parses only reachable project display YAML' {
         $doc = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($script:Path))
         $project = $doc.domains | Where-Object domain -EQ 'project-config'
-        Assert-Equal -Expected 22 -Actual $project.files `
+        Assert-Equal -Expected 28 -Actual $project.files `
             'the reachable project YAML set changed without an inventory decision'
-        Assert-Equal -Expected 69 -Actual $project.englishScalars `
+        Assert-Equal -Expected 105 -Actual $project.englishScalars `
             'the structured reader did not find the current English display fields'
         Assert-Equal -Expected 2 -Actual $project.localizedMaps `
             'the structured reader did not find both additive locale maps'
         Assert-Equal -Expected 2 -Actual $project.localizedValues `
             'the structured reader did not enumerate the values inside the maps'
-        Assert-Equal -Expected 71 -Actual $doc.totals.yamlFields `
+        Assert-Equal -Expected 107 -Actual $doc.totals.yamlFields `
             'YAML field accounting is absent or still based on source-code literals'
 
         $named = @($project.inventoryFiles)

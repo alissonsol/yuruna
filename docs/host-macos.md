@@ -89,7 +89,7 @@ nobody is there to answer. `Test-Config.ps1` lists it so the prompt is expected;
 
 If a grant is toggled ON and the check still refuses, the usual causes are: the
 entry is for `pwsh` rather than the terminal app; Screen Recording was granted
-without fully quitting the terminal afterwards; or the check is running in an
+without fully quitting the terminal afterward; or the check is running in an
 SSH session, which cannot hold these grants at all (the gate says so instead of
 failing, since it is describing the wrong session).
 
@@ -498,12 +498,34 @@ for PowerShell to place into the UTM plist. `defer { sema.signal() }`
 keeps the wait deterministic in every code path; an unhandled crash
 inside the install handler would otherwise hang forever.
 
+<a id="42885ada-0011"></a>
+
+## Why the UTM dialog watchdog is narrowly scoped
+
+The launch watchdog in `host/macos.utm/modules/Yuruna.Host.psm1` clicks a
+small allowlist of affirmative button titles on UTM sheets. It cannot inspect
+the meaning of a sheet, so every accepted label must mean "continue the
+requested operation" wherever UTM uses it. `Close` is intentionally excluded:
+although it is a localized UTM button title, a synthetic click correlated with
+QEMU teardown and saved-state growth in `efi_vars.fd`, leaving the bring-up
+loop waiting on a VM that was no longer executing. The exact sheet was not
+captured, so that observation is a safety bound rather than a claimed causal
+mechanism.
+
+The remaining list is still not intrinsically safe. In particular, `OK` is
+required by the custom-QEMU-arguments warning but is also affirmative on a
+generic confirmation sheet. The real protection is therefore the watchdog's
+lifetime: callers arm it only around the launch operation that can raise the
+known modal and stop it immediately afterward. `Okay` and `Open` do not match
+current UTM-localized titles; they cover macOS-supplied sheets attached to a
+UTM window without broadening the list to cancellation or destructive labels.
+
 ---
 
 LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.08
+Last review: 2026.09.12
 
 Back to [Yuruna](../README.md)

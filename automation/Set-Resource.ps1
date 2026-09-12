@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 429746c7-cf5b-4f84-8ccd-0d7f99927afa
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -71,11 +71,14 @@ if (-not $roots) {
 }
 $yuruna_root = $roots.YurunaRoot
 $project_root = $roots.ProjectRoot
+# The transcript path is decided here, beside the root set and before the
+# Yuruna.* eviction sweeps up the leaf that resolves it. A caller can name
+# the file it will read afterwards; see Resolve-YurunaTranscriptPath.
+$transcriptFileName = Resolve-YurunaTranscriptPath
 Get-Module Yuruna.* | Remove-Module *>&1 | Write-Verbose
 $resourcesModulePath = Join-Path -Path $yuruna_root -ChildPath "automation/Yuruna.Resource.psm1"
 Import-Module -Name $resourcesModulePath -Force
 
-$transcriptFileName = [System.IO.Path]::GetTempFileName()
 $null = Start-Transcript $transcriptFileName
 
 $result = Publish-ResourceList $project_root $config_subfolder

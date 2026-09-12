@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.08
+# Version: 2026.09.12
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -31,24 +31,18 @@ case "$ARCH" in
     ;;
 esac
 
-# --- REGION: https://yuruna.link/4220a755-0003
+# --- REGION: Load retry helpers
+# See https://yuruna.link/4220a755-0003
 . /usr/local/lib/yuruna/yuruna-retry.sh
 # --- REGION: https://yuruna.link/4220a755-0005
 # Re-asserted here because a baked retry lib may still carry a wall-clock bound.
 export YURUNA_APT_STALL_TIMEOUT_SECONDS=0
 
 # --- REGION: Assert an installed tool is runnable
-# A tool that is present but not runnable is more dangerous than a missing one,
-# because the usual checks all pass it: `command -v` only tests for a directory
-# entry, and bash runs a ZERO-LENGTH file carrying the +x bit as an empty script
-# -- exit 0, no output -- so even a `<tool> --version` probe succeeds. The
-# breakage then travels: it survives into a saved image and only surfaces much
-# later under PowerShell (which execve()s directly) as "Exec format error", in a
-# step far from the install. Assert the binary is on PATH, NON-EMPTY, and prints
-# a version, so a truncated or half-written tool fails here instead.
+# See https://yuruna.link/42e220c4-0005
 assert_tool_runnable() {
     local name="$1"; shift
-    local path
+    local path version
     path="$(command -v "$name" 2>/dev/null || true)"
     if [ -z "$path" ]; then
         echo "ERROR: '$name' is not on PATH after install." >&2
@@ -58,8 +52,8 @@ assert_tool_runnable() {
         echo "ERROR: '$name' at $path is a ZERO-LENGTH file (truncated download, or a lost write)." >&2
         return 1
     fi
-    if [ -z "$("$name" "$@" 2>/dev/null | head -c 1)" ]; then
-        echo "ERROR: '$name' at $path produced no output for: $name $*" >&2
+    if ! version=$("$name" "$@" 2>/dev/null) || [ -z "$version" ]; then
+        echo "ERROR: '$name' at $path failed or produced no output for: $name $*" >&2
         return 1
     fi
     return 0
@@ -121,19 +115,7 @@ Signed-By: /etc/apt/keyrings/docker.asc
 EOF
 
 # --- REGION: https://yuruna.link/42d69dfa-0042
-# CACHE_HOST is parsed from $http_proxy (set system-wide by the
-# guest's cloud-init late-commands).
-#
-# Fallbacks in order of how much they can be trusted. $http_proxy is absent
-# whenever this runs in a shell that did not inherit the system environment
-# (sudo without -E, a non-login shell), which is not rare and is not an error.
-# /etc/yuruna/host.env carries the proxy's ADDRESS, seeded at build time and
-# refreshed by yuruna-host-locate.timer, so it needs no name resolution at all.
-# The bare hostname is probed rather than assumed, because a lab whose resolver
-# serves DHCP-registered guest names answers on it and a lab with no cache at
-# all does not -- so the probe is what tells those two apart. Adopting the name
-# unprobed turns "no cache here" into "could not resolve host", which reads as a
-# broken proxy and sends the reader to a machine that was never meant to exist.
+# See https://yuruna.link/42e220c4-0005
 CACHE_HOST=$(echo "${http_proxy:-}" | sed -E 's|^https?://([^:/]+).*|\1|')
 if [ -z "$CACHE_HOST" ] && [ -r /etc/yuruna/host.env ]; then
     CACHE_HOST=$(sed -nE 's/^YURUNA_CACHING_PROXY_SERVICE_IP=([^[:space:]]+).*/\1/p' /etc/yuruna/host.env | head -n1)
@@ -142,12 +124,6 @@ if [ -z "$CACHE_HOST" ] \
    && curl -fsS --max-time 10 -o /dev/null "http://yuruna-caching-proxy-service:5000/v2/" 2>/dev/null; then
     CACHE_HOST="yuruna-caching-proxy-service"
 fi
-# An empty CACHE_HOST is a supported topology, not a fault: a lab with no
-# caching proxy pulls from the upstreams directly. Every mirror-shaped step
-# below is gated on this one variable -- a registry-mirrors daemon.json, a
-# certs.d tree, the liveness gate, the warm passes -- because each of them
-# describes an address that does not exist in that lab, and each would fail
-# naming a cache instead of the absence of one.
 if [ -n "$CACHE_HOST" ]; then
     echo "Caching proxy: ${CACHE_HOST} -- container image pulls are mirrored through it."
     sudo install -d -m 0755 /etc/docker
@@ -279,13 +255,7 @@ fi
 # without a cache to point at, containerd's defaults already send pulls to the
 # upstreams, and a certs.d tree naming an absent address would only break them.
 if [ -n "$CACHE_HOST" ]; then
-    # containerd 2.2 emits `config_path = '/etc/containerd/certs.d:/etc/docker/certs.d'`
-    # -- single-quoted, non-empty, colon-joined -- so a pattern anchored on the 1.x
-    # empty `""` matches nothing and leaves the default in place, which containerd
-    # 2.2 then ignores anyway (containerd#12808). Both failures are silent: every
-    # hosts.toml below goes inert and containerd pulls bypass zot entirely. Match
-    # whatever value is there, write the single supported path, and assert the
-    # result, so a future schema move fails HERE instead of going quiet again.
+    # --- REGION: https://yuruna.link/42e220c4-0005
     sudo sed -i "s|^\(\s*config_path\s*=\s*\).*|\1'/etc/containerd/certs.d'|" /etc/containerd/config.toml
     if ! grep -qE "^\s*config_path\s*=\s*'/etc/containerd/certs.d'\s*$" /etc/containerd/config.toml; then
         echo "ERROR: containerd registry config_path was not set to /etc/containerd/certs.d; pulls would bypass the cache." >&2
@@ -322,49 +292,25 @@ server = "http://${CACHE_HOST}:5000"
 [host."http://${CACHE_HOST}:5000"]
   capabilities = ["pull", "resolve"]
 HOSTSEOF
-    # Flannel's three images (flannel-cni-plugin + flannel, used by both init
-    # containers and the daemon) live on ghcr.io. Without this entry containerd
-    # bypasses zot and tunnels every flannel layer through squid's CONNECT port,
-    # which is uncached: a stalled tunnel leaves kube-flannel-ds at Init:1/2 with
-    # /etc/cni/net.d empty, so the node never leaves NotReady. zot's sync
-    # extension already lists ghcr.io as an on-demand upstream.
+    # Route Flannel's ghcr.io images through the same cache.
     sudo tee /etc/containerd/certs.d/ghcr.io/hosts.toml > /dev/null <<HOSTSEOF
 server = "http://${CACHE_HOST}:5000"
 
 [host."http://${CACHE_HOST}:5000"]
   capabilities = ["pull", "resolve"]
 HOSTSEOF
-    # The .NET base images (dotnet/sdk, dotnet/aspnet) live on
-    # mcr.microsoft.com. Without this entry containerd bypasses zot and pulls
-    # them straight from the upstream through squid's CONNECT port, which is
-    # uncached: every guest re-downloads the same multi-hundred-megabyte layers,
-    # and the cache's scheduled pre-warm of those two tags is never read. Routed
-    # here the request carries ns=mcr.microsoft.com, so zot resolves it against
-    # the MCR upstream instead of walking its list.
+    # --- REGION: https://yuruna.link/42e220c4-0005
     sudo tee /etc/containerd/certs.d/mcr.microsoft.com/hosts.toml > /dev/null <<HOSTSEOF
 server = "http://${CACHE_HOST}:5000"
 
 [host."http://${CACHE_HOST}:5000"]
   capabilities = ["pull", "resolve"]
 HOSTSEOF
-    # A cache that is merely slow is fine -- containerd waits, and the pull
-    # progress cap below bounds a genuine wedge. A cache that is DOWN is now
-    # terminal for image pulls, since nothing else serves them, so surface that
-    # here rather than letting it read as a mystery ImagePullBackOff later.
-    # A cache being REBUILT is neither: it refuses connections for as long as the
-    # replacement VM takes to boot zot and then serves normally, so a single-shot
-    # probe reads a recoverable window as a dead cache. Wait that window out before
-    # calling it down -- on the liveness endpoint only, which costs nothing from the
-    # lab's shared pull budget.
+    # --- REGION: https://yuruna.link/42e220c4-0005
     cache_wait="${YURUNA_CACHE_WAIT_SECONDS:-180}"
     cache_started=$SECONDS
     cache_err=""
-    # Each waiting line carries its own elapsed count rather than repeating one
-    # fixed string. This runs on the VM console, where the host's OCR watcher reads
-    # a screen dominated by one identical line as a wedged guest -- and a bounded
-    # wait that is working looks exactly like that unless the lines differ. curl's
-    # own stderr is held back for the same reason and replayed once if the wait is
-    # ultimately lost, where it is the part worth reading.
+    # Vary progress output so console OCR can distinguish progress from a wedge.
     until cache_err=$(curl -fsS --max-time 15 -o /dev/null "http://${CACHE_HOST}:5000/v2/" 2>&1); do
         cache_elapsed=$(( SECONDS - cache_started ))
         if [ "$cache_elapsed" -ge "$cache_wait" ]; then
@@ -391,12 +337,7 @@ HOSTSEOF
         echo "      which stays green through a manifest stall."
     fi
 fi
-# Bound a stalled pull. containerd's default no-progress window is long enough
-# that a dead tunnel parks the pod at Init:n/m past every downstream wait
-# without ever handing kubelet an error to retry on -- the pull just hangs, so
-# no ImagePullBackOff is recorded. Capping it makes a stalled pull fail fast and
-# get retried inside the rollout window below. Applied only when the key exists,
-# so a containerd whose config schema moved it gets no bogus line appended.
+# Bound no-progress pulls so kubelet can retry within the rollout window.
 CONTAINERD_PULL_PROGRESS_TIMEOUT="120s"
 if grep -q 'image_pull_progress_timeout' /etc/containerd/config.toml; then
     sudo sed -i "s|^\(\s*image_pull_progress_timeout\s*=\s*\).*|\1'${CONTAINERD_PULL_PROGRESS_TIMEOUT}'|" /etc/containerd/config.toml
@@ -407,10 +348,6 @@ sudo systemctl enable containerd
 sudo systemctl restart containerd
 
 # --- REGION: https://yuruna.link/42f6b05f-0020
-# Reports through yuruna_warm_missing / yuruna_warm_total rather than exiting,
-# because the two callers owe different answers: a short control plane cannot
-# proceed, while a CNI rollout has its own bounded wait and may still converge.
-# Why a cold cache has to be paid for here at all: see the REGION anchor above.
 YURUNA_IMAGE_WARM_BUDGET="${YURUNA_IMAGE_WARM_BUDGET:-900}"
 # The ladder is spelled out below rather than handed to the shared curl wrapper:
 # that wrapper inherits stdout, so each attempt would append its own
@@ -423,26 +360,14 @@ yuruna_warm_refs() {
     shift
     yuruna_warm_total=0
     yuruna_warm_missing=0
-    # Split out of the missing count because the two say different things to a
-    # reader: an image that was never asked for is a budget that ran out, while
-    # one that answered with an error or not at all failed on its own and would
-    # have failed with any budget. Reporting both as one number sends the reader
-    # after slowness when the request was refused, which is the wrong machine.
+    # Keep budget exhaustion separate from attempted-request errors.
     yuruna_warm_unattempted=0
     yuruna_warm_errored=0
-    # Counted apart from the errored total for the same reason, one level finer:
-    # a reference that came back with a status was answered and the answer was
-    # bad, while one that produced no status was not answered at all and says
-    # nothing about what the cache holds. Only the first is evidence of a cache
-    # state; the caller needs the split to avoid claiming one it never measured.
+    # A response status is cache evidence; a silent transport failure is not.
     yuruna_warm_silent=0
     _wr_start=$(date +%s)
     _wr_deadline=$(( _wr_start + YURUNA_IMAGE_WARM_BUDGET ))
-    # curl's own wording names the leg that broke -- resolution, route, TLS,
-    # empty reply -- which no status code carries. Held per reference and
-    # replayed whenever it is non-empty, so a clean first attempt prints
-    # nothing and a lost attempt is reported whether or not a later one
-    # recovered.
+    # Preserve curl transport text for per-reference diagnostics.
     _wr_errlog=$(mktemp)
     # Spelled out because a manifest request stating no preference gets the
     # registry's default, which for a multi-arch tag is not the index a pull
@@ -463,11 +388,7 @@ yuruna_warm_refs() {
             continue
         fi
         _wr_t0=$(date +%s)
-        # The pauses between attempts are held apart from the elapsed reading
-        # below. They are time this loop chose to wait, not time the cache spent
-        # answering, and counting them would push a reference that recovered
-        # after two pauses past the whole-second mark that is read as evidence
-        # the upstream leg ran -- reporting a copy the cache never made.
+        # Exclude intentional retry sleeps from measured cache latency.
         _wr_slept=0
         : > "$_wr_errlog"
         _wr_attempt=0
@@ -480,23 +401,11 @@ yuruna_warm_refs() {
             _wr_left=$(( _wr_deadline - $(date +%s) ))
             if [ "$_wr_left" -le 0 ]; then break; fi
             _wr_rc=0
-            # ns= names the upstream this repository belongs to -- the same
-            # parameter containerd's hosts.toml form sends on every pull, and how
-            # the cache picks which upstream to sync from. Without it the cache
-            # walks its configured registries in order, where Docker Hub is the
-            # catch-all, and spends one of the metered lookups the whole lab
-            # shares on an image Docker Hub never served.
-            # -S restores curl's diagnosis under -s, and the exit code is kept:
-            # discarding both leaves a failure with nothing but a status column
-            # that a transport loss never fills in.
+            # --- REGION: https://yuruna.link/42e220c4-0005
             _wr_code=$(curl -sS -o /dev/null --max-time "$_wr_left" -w '%{http_code}' \
                 -H "Accept: ${_wr_accept}" \
                 "http://${CACHE_HOST}:5000/v2/${_wr_repo}/manifests/${_wr_tag}?ns=${_wr_upstream}" 2>>"$_wr_errlog") || _wr_rc=$?
-            # A status is an answer, even a bad one: 404 and 500 are the cache's
-            # verdict on this reference and asking again cannot change it. Only
-            # silence is worth repeating -- no status captured at all, or the
-            # 000 curl reports when the exchange produced none -- because the
-            # loss is in the transport and the next connection may well succeed.
+            # Retry only silent transport failures; a received status is definitive.
             if [ -n "$_wr_code" ] && [ "$_wr_code" != "000" ]; then break; fi
             if [ "$_wr_attempt" -ge "$YURUNA_IMAGE_WARM_ATTEMPTS" ]; then break; fi
             _wr_left=$(( _wr_deadline - $(date +%s) ))
@@ -532,14 +441,7 @@ yuruna_warm_refs() {
             fi
             printf '  %-52s %5ss (NOT CACHED -- %s, curl exit %s, %s attempt(s))\n' "${_wr_repo}:${_wr_tag}" "$_wr_el" "$_wr_status" "$_wr_rc" "$_wr_attempt"
         fi
-        # Replayed for a reference that recovered as much as for one that
-        # failed. A lost answer that the next attempt got is the only record
-        # this run keeps of a transport that drops answers, and it is the
-        # shape that ends a cycle when nothing retries it; the pass line can
-        # say only that it took two tries, while curl's wording names the leg
-        # that broke. The file is empty after a clean first attempt, so a
-        # healthy pass stays quiet. curl's lines already name themselves, so
-        # they are indented under the reference and otherwise unchanged.
+        # --- REGION: https://yuruna.link/42e220c4-0005
         if [ -s "$_wr_errlog" ]; then
             while IFS= read -r _wr_errline; do
                 printf '      %s\n' "$_wr_errline"
@@ -555,13 +457,13 @@ yuruna_warm_refs() {
 # version: coredns, pause and etcd carry tags of their own, baked into this
 # binary and moved on their own schedule, so any list built here would miss
 # exactly the images that then arrive cold.
-_k8s_refs=$(sudo kubeadm config images list 2>/dev/null || true)
+mapfile -t _k8s_refs < <(sudo kubeadm config images list 2>/dev/null || true)
 if [ -z "$CACHE_HOST" ]; then
     echo "No caching proxy: skipping the warm pass -- there is nothing to warm, and the kubeadm pull below fetches the set from the upstreams."
-elif [ -z "$_k8s_refs" ]; then
+elif [ "${#_k8s_refs[@]}" -eq 0 ]; then
     echo "Note: kubeadm could not list its images; skipping the warm pass and letting the pull below discover the set."
 else
-    yuruna_warm_refs "control-plane" $_k8s_refs
+    yuruna_warm_refs "control-plane" "${_k8s_refs[@]}"
     if [ "$yuruna_warm_missing" -gt 0 ]; then
         # Name only what the pass measured. A reference that came back with an
         # HTTP status proves the cache answered and did not hold the image; one
@@ -573,14 +475,7 @@ else
         else
             echo "ERROR: the cache is still cold -- ${yuruna_warm_missing} of ${yuruna_warm_total} control-plane images did not reach the cache." >&2
         fi
-        # Name the limit that was actually hit, in the fewest lines that can
-        # carry it. Spent-against-budget is the whole correction: a run that
-        # spent seconds of a 900s budget was stopped by the upstream, not by
-        # the budget, and a reader told otherwise widens a budget that was
-        # never the constraint. Kept to one line per shape because this block
-        # sits above the marker the host matches on, and the console capture
-        # holds a bounded tail -- prose here pushes the per-image HTTP column
-        # it refers to out of the captured frame.
+        # --- REGION: https://yuruna.link/42e220c4-0005
         if [ "$yuruna_warm_errored" -gt 0 ]; then
             echo "       ${yuruna_warm_errored} answered with an error or not at all (HTTP column above); ${yuruna_warm_spent}s of the ${YURUNA_IMAGE_WARM_BUDGET}s budget was spent." >&2
         fi
@@ -708,15 +603,10 @@ if [ ! -s "$FLANNEL_MANIFEST" ]; then
     echo "ERROR: Downloaded kube-flannel.yml at $FLANNEL_MANIFEST is missing or empty" >&2
     exit 1
 fi
-# Flannel's images gate the CNI: a stalled pull leaves kube-flannel-ds at
-# Init:n/m with /etc/cni/net.d empty, so the node never leaves NotReady and the
-# failure surfaces as a node-readiness timeout that says nothing about a
-# registry. Warm them on the same patient path before the DaemonSet asks
-# containerd for them. Advisory rather than fatal, unlike the control plane:
-# the rollout wait below can still converge if an image lands moments later.
-_cni_refs=$(awk '$1=="image:"{print $2}' "$FLANNEL_MANIFEST" | sort -u || true)
-if [ -n "$CACHE_HOST" ] && [ -n "$_cni_refs" ]; then
-    yuruna_warm_refs "flannel" $_cni_refs
+# --- REGION: https://yuruna.link/42f6b05f-0020
+mapfile -t _cni_refs < <(awk '$1=="image:"{print $2}' "$FLANNEL_MANIFEST" | sort -u || true)
+if [ -n "$CACHE_HOST" ] && [ "${#_cni_refs[@]}" -gt 0 ]; then
+    yuruna_warm_refs "flannel" "${_cni_refs[@]}"
     if [ "$yuruna_warm_missing" -gt 0 ]; then
         echo "Note: ${yuruna_warm_missing} of ${yuruna_warm_total} flannel images are not cached; the rollout wait below is likely to time out." >&2
     fi
@@ -733,12 +623,7 @@ sleep 15
 kubectl --kubeconfig="${REAL_HOME}/.kube/config" -n kube-flannel rollout status daemonset/kube-flannel-ds --timeout=180s \
     || echo "Note: Flannel rollout status check timed out -- pods may still be starting"
 
-# Wait for the node to report Ready (networking must be up for this to succeed).
-# Fatal, not a note: a NotReady node cannot schedule anything, so every
-# downstream step is already lost. Exiting non-zero makes the fetch-and-execute
-# wrapper print its NONZERO SCRIPT EXIT sentinel, which the sequence engine
-# fast-fails on -- so the run is attributed to THIS script in seconds instead
-# of surfacing minutes later as an unrelated workload/HTTP-probe timeout.
+# A NotReady node cannot run downstream workloads; fail in this script.
 echo "Waiting for node to be Ready..."
 if ! kubectl --kubeconfig="${REAL_HOME}/.kube/config" wait --for=condition=ready node --all --timeout=180s; then
     echo "ERROR: node did not reach Ready within 180s; the CNI plugin never initialized." >&2
@@ -756,7 +641,8 @@ kubectl --kubeconfig="${REAL_HOME}/.kube/config" taint nodes --all node-role.kub
 
 kubectl --kubeconfig="${REAL_HOME}/.kube/config" config rename-context kubernetes-admin@kubernetes docker-desktop || true
 
-# --- REGION: https://yuruna.link/4220a755-001f
+# --- REGION: Install Helm
+# See https://yuruna.link/4220a755-001f
 echo ""
 echo -e "\e[1;36m==== Helm ====\e[0m"
 # get-helm-4, never get-helm-3 (the v3 installer can only ever land a 3.x binary).
@@ -769,7 +655,8 @@ if ! assert_tool_runnable helm version --short; then
     exit 1
 fi
 
-# --- REGION: https://yuruna.link/42d69dfa-0044
+# --- REGION: Install OpenTofu
+# See https://yuruna.link/42d69dfa-0044
 echo ""
 echo -e "\e[1;36m==== OpenTofu ====\e[0m"
 curl_retry --proto '=https' --tlsv1.2 -fsSL "https://get.opentofu.org/install-opentofu.sh${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o /tmp/install-opentofu.sh
@@ -786,11 +673,7 @@ if ! command -v tofu >/dev/null 2>&1; then
 fi
 
 # --- REGION: Install mkcert
-# mkcert: prefer the upstream binary from dl.filippo.io (302-redirector to
-# github.com/FiloSottile/mkcert releases). That endpoint can return transient
-# 5xx responses that, under `set -euo pipefail`, would abort the entire
-# k8s.website sequence. Retry 3x with backoff, then fall back to Ubuntu
-# universe's mkcert package, and only exit if both paths fail.
+# Retry the upstream redirector, then fall back to Ubuntu's package.
 echo ""
 echo -e "\e[1;36m==== mkcert ====\e[0m"
 ARCH=$(dpkg --print-architecture)

@@ -2,8 +2,6 @@
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # macOS/UTM (QEMU) overlay for stash-service.base.user-data.
 # Anchor sections in base-file order. An empty section emits nothing at that anchor.
-# Both host-agent sections are empty here: UTM exposes no qemu-guest-agent
-# channel to the bundle, so the host discovers the VM's address from the bundle
-# MAC via the ARP cache instead.
+# See https://yuruna.link/42e220c4-0006
 # === YURUNA_OVERLAY_HOST_AGENT_PKG ===
 # === YURUNA_OVERLAY_RUNCMD_HOST_AGENT ===

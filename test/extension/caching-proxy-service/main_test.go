@@ -17,7 +17,7 @@ import (
 )
 
 const (
-	testVersion = "2026.09.08"
+	testVersion = "2026.09.12"
 	testBearer  = "test-internal-auth-key"
 )
 
@@ -278,8 +278,7 @@ func TestUiPortReadsTheListenAddress(t *testing.T) {
 	}
 }
 
-// --- MCP ---------------------------------------------------------------
-
+// --- REGION: MCP
 func mcpCall(t *testing.T, srv *httptest.Server, body, bearer string) map[string]any {
 	t.Helper()
 	resp := postJSONAs(t, srv, "/mcp", body, bearer)
@@ -416,8 +415,7 @@ func TestMcpInitializeNamesThisService(t *testing.T) {
 	}
 }
 
-// --- the dashboard's landing page -----------------------------------------
-
+// --- REGION: Dashboard landing page
 func TestIndexIsServedWhereTheDashboardLinks(t *testing.T) {
 	// The Extension hosts cell deep-links to the address this daemon
 	// announces. Before this page that link answered 404, which reads as "the

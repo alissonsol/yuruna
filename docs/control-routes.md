@@ -214,7 +214,7 @@ release.
 
 ## When a control button returns 403
 
-> `follow guidance at https://yuruna.link/control-proof`
+> `follow guidance at https://yuruna.link/42185271-0007`
 
 In the config editor this reads `Save failed: ...`; the short link lands on this section. The
 underlying condition is always the same: the caller was neither on loopback nor carrying a
@@ -327,7 +327,7 @@ Rules of thumb:
 
 - Reach for cycle-pause unless you specifically need a guest frozen mid-sequence.
 - With a step-pause on a guest still in its boot phase, resume within about a
-  minute, or expect to drive the guest by hand afterwards.
+  minute, or expect to drive the guest by hand afterward.
 - If a hold ran long and the resumed step is waiting on a prompt, look at the
   console: a prompt that has scrolled away is still live. Typing the answer into
   it (`yes` for Ubuntu's autoinstall confirmation) releases the install without a
@@ -366,6 +366,28 @@ stopped** above every other reading, so a host whose runner is gone stops
 showing its last cycle's green to the whole lab. Only an explicit
 `running=false` counts -- a host predating the route answers `404`, which is not
 evidence of a stopped runner and leaves the cycle status showing.
+
+The answer carries more than `running`. `liveness` is the route's verdict on
+whether the runner is *progressing*, taken from the age of
+`<runtime>/runner.stepHeartbeat` -- the marker the inner runner touches from its
+own runspace at each step boundary -- against the same bound the watchdog
+applies (`testCycle.preambleTimeoutSeconds` while `runner.phase` exists,
+`testCycle.stepTimeoutSeconds` otherwise; the chosen one is echoed as
+`boundSeconds`).
+
+| `liveness` | Meaning |
+| --- | --- |
+| `idle` | No runner is alive. Deliberately not `ok`: with nothing running, nothing can be progressing. |
+| `paused` | The runner has declared a hold -- the pause after a failed cycle, or a pool `desiredState=paused`. No inner runner exists, so the step marker is not a progress signal. |
+| `unknown` | A runner is alive but there is no step marker to age. |
+| `stalled` | The step marker is older than `boundSeconds`. |
+| `slow` | The step marker is past half of `boundSeconds`. |
+| `ok` | Within half of `boundSeconds`. |
+
+`runnerState` reports the runner's own lifecycle state from
+`runner.state.json`, so the `paused` verdict can be checked against it.
+`phase` reports `runner.phase`, which is null outside the inner runner's
+preamble.
 
 <a id="42185271-000c"></a>
 
@@ -561,6 +583,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.08
+Last review: 2026.09.12
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42e575be-d2eb-4fca-aff0-b96b48ea124c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -176,7 +176,7 @@ AfterAll {
 Describe 'every shipped stylesheet renders without custom properties' {
 
     It 'reads the sources it checks' {
-        Assert-Equal -Expected 13 -Actual $script:Source.Count `
+        Assert-Equal -Expected 16 -Actual $script:Source.Count `
             'the registered browser CSS sources are not all being read'
         $withVar = @($script:Source | Where-Object { $_.Css -match 'var\(--' })
         Assert-True ($withVar.Count -ge 12) `

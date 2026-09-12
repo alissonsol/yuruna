@@ -8,12 +8,15 @@ sequenceRevision: 2
 
 description: "Ubuntu Server 24.04: log in, install VS Code via the guest.ubuntu.server.24 workload scripts."
 keystrokeMechanism: gui
+
+# --- REGION: resource
 resource:
   ubuntu.server.24:
     - start.guest.ubuntu.server.24
 variables:
   username: yuuser24
 
+# --- REGION: component
 component:
   - action: retry
     maxAttempts: 2
@@ -32,30 +35,12 @@ component:
         text: "${ext:authentication.GetPassword(${username})}"
         description: "OCR: Password:"
 
-  # Prove a shell exists before typing a workload at it, by making it compute
-  # something agetty cannot. A prompt-shaped pattern cannot do this job: OCR
-  # matching splits on the characters it strips, "@" included, and accepts
-  # segments in any order, so "user@host" is satisfied by the line "host
-  # login: user"; and normalization folds "." onto ":", so the colon a shell
-  # prints before its working directory is also present in the /etc/issue
-  # banner of any guest whose name carries a dot. agetty echoes a typed line
-  # verbatim and can produce nothing else, so the expanded token is the proof.
-  # It carries no character the matcher splits on, which keeps segment
-  # matching out of it and leaves order enforced.
+  # See https://yuruna.link/42e220c4-0007
   - action: waitForSeconds
     seconds: 3
     description: "Let the login shell finish drawing before typing at it"
 
-  # The leading space is a sacrificial character. On an ARM64 Hyper-V host the
-  # first keystroke sent to a console that has just come up is dropped -- the
-  # console shows "echo" arriving as "cho" and the shell answering "Command
-  # 'cho' not found" -- and one lost character is enough to turn any typed
-  # command into a different one. A space absorbs that loss: dropped, the
-  # command still starts at "echo"; delivered, the shell ignores leading
-  # whitespace. It costs nothing on a host that does not drop it. Being the
-  # first thing typed after a login, this step also absorbs the loss on
-  # behalf of every step below it, which type commands that a missing first
-  # character would quietly turn into different ones.
+  # A leading space absorbs a dropped first keystroke on ARM64 Hyper-V.
   - action: inputTextAndEnter
     text: " echo yuruna_$(seq -s '' 1 9)_ok"
     description: "Ask the shell to expand a token agetty cannot"
@@ -66,21 +51,9 @@ component:
     freshMatch: true
     description: "OCR: yuruna_123456789_ok"
 
+# --- REGION: workload
 workload:
-  # Sized to match the ssh variant of this same step, which has always allowed
-  # 1800 s for this same script on this same guest. The console variant asking
-  # for a third of that was an inconsistency, not a tighter estimate: the script
-  # installs a headless JDK and then Visual Studio Code with its GTK and X11
-  # dependency closure -- 24 packages for the JDK and 149 for Code to unpack and
-  # configure, the latter a ceiling now that Code is asked for with
-  # --no-install-recommends -- and
-  # what that costs is a property of the host, not of how the harness is
-  # driving it. A slow host has been observed still unpacking the last of those
-  # packages at 615 s, progressing steadily, with the configure phase entirely
-  # ahead of it. A timeout is a ceiling and not a delay, so a host that finishes
-  # in a minute matches and moves on and pays nothing for the headroom; the only
-  # cost of a generous value is how long a genuinely stuck guest takes to say
-  # so, and the harness's own step ceiling still bounds that.
+  # See https://yuruna.link/42e220c4-0007
   - action: fetchAndExecute
     text: "/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.code.sh"
     description: "ubuntu.server.24.code.sh"

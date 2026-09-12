@@ -643,7 +643,7 @@ sudo pwpolicy -u yuruna-pool -sethashtypes SMB-NT on
 sudo sysadminctl -resetPasswordFor yuruna-pool -newPassword '<the lab-vault password>'
 ```
 
-The hash type only affects passwords set *afterwards*, so the re-set
+The hash type only affects passwords set *afterward*, so the re-set
 is required. The password is in
 `test/status/extension/authentication/lab.<lab-name>.vault.yml`.
 
@@ -793,6 +793,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.08
+Last review: 2026.09.12
 
 Back to [Yuruna](../README.md)

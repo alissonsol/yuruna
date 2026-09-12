@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 421a4d8a-ef0d-4f12-ab3c-235c0e8c3732
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -264,7 +264,131 @@ function Remove-SnapshotManifest {
     return -not (Test-Path -LiteralPath $path)
 }
 
+# --- REGION: https://yuruna.link/428e4df6
+function Get-SnapshotSourceIdentity {
+    <#
+    .SYNOPSIS
+        Fingerprint declared baseline inputs and checkout revisions without storing credentials.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$RepoRoot,
+        [Parameter(Mandatory)][string]$GuestKey,
+        [Parameter(Mandatory)][System.Collections.IDictionary]$Policy,
+        [System.Collections.IDictionary]$Variables = @{}
+    )
+    $root = [IO.Path]::GetFullPath($RepoRoot)
+    $files = [Collections.Generic.SortedDictionary[string,string]]::new([StringComparer]::Ordinal)
+    foreach ($pattern in @($Policy.sourceFiles)) {
+        if (-not $pattern -or [IO.Path]::IsPathRooted($pattern) -or $pattern -match '(^|[/\\])\.\.([/\\]|$)') {
+            throw 'Snapshot source paths must be nonempty paths relative to the framework checkout.'
+        }
+        $sourceFiles = @(Get-ChildItem -Path (Join-Path $root $pattern) -File -ErrorAction Stop)
+        if ($sourceFiles.Count -eq 0) { throw "Snapshot source pattern matched no files: $pattern" }
+        foreach ($file in $sourceFiles) {
+            $relative = [IO.Path]::GetRelativePath($root, $file.FullName).Replace('\', '/')
+            $files[$relative] = (Get-FileHash -LiteralPath $file.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        }
+    }
+    if ($files.Count -eq 0) { throw 'Snapshot policy requires at least one source file.' }
+    $revisions = [ordered]@{}
+    foreach ($name in @('framework', 'project')) {
+        $directory = if ($name -eq 'framework') { $root } else { Join-Path $root 'project' }
+        $revision = $null
+        if ((Test-Path -LiteralPath (Join-Path $directory '.git')) -and (Get-Command git -ErrorAction SilentlyContinue)) {
+            $value = & git -C $directory rev-parse --verify HEAD 2>$null
+            if ($LASTEXITCODE -eq 0 -and "$value" -match '^[0-9a-f]{40,64}$') { $revision = [string]$value }
+        }
+        $revisions[$name] = $revision
+    }
+    $identity = [ordered]@{
+        schema = 'yuruna.snapshot-source/v1'
+        guestKey = $GuestKey
+        username = [string]$Variables.username
+        hostname = [string]$Variables.hostname
+        memoryStartupBytes = [string]$Variables.memoryStartupBytes
+        cores = [string]$Variables.cores
+        exposeVirtualizationExtensions = [string]$Variables.exposeVirtualizationExtensions
+        revisions = $revisions
+        files = @($files.GetEnumerator() | ForEach-Object { [ordered]@{ path = $_.Key; sha256 = $_.Value } })
+    }
+    $bytes = [Text.Encoding]::UTF8.GetBytes(($identity | ConvertTo-Json -Depth 8 -Compress))
+    $hasher = [Security.Cryptography.SHA256]::Create()
+    try { $identity.identitySha256 = [BitConverter]::ToString($hasher.ComputeHash($bytes)).Replace('-', '').ToLowerInvariant() }
+    finally { $hasher.Dispose() }
+    return [hashtable]$identity
+}
+
+function Test-SnapshotReusePolicy {
+    <#
+    .SYNOPSIS
+        Distinguish reusable, stale owned, and unrecognized snapshots before a restore or rebuild.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$SnapshotId,
+        [Parameter(Mandatory)][string]$HostType,
+        [Parameter(Mandatory)][System.Collections.IDictionary]$Policy,
+        [Parameter(Mandatory)][System.Collections.IDictionary]$SourceIdentity,
+        [datetime]$NowUtc = [datetime]::UtcNow
+    )
+    $maximumAge = [double]$Policy.maxAgeHours
+    if ([double]::IsNaN($maximumAge) -or [double]::IsInfinity($maximumAge) -or $maximumAge -le 0) {
+        throw 'Snapshot maxAgeHours must be finite and positive.'
+    }
+    $check = Test-SnapshotManifestMatch -VMName $VMName -SnapshotId $SnapshotId -HostType $HostType
+    $m = $check.Manifest
+    if ($check.Status -ne 'ok' -or -not $m -or $m.managedBaseline -ne $true -or
+        $m.vmName -ne $VMName -or $m.snapshotId -ne $SnapshotId -or
+        $m.hostType -ne $HostType -or $m.hostName -ne [Net.Dns]::GetHostName()) {
+        return @{ Status = 'refused'; Reason = 'Snapshot ownership or identity could not be verified.' }
+    }
+    $takenAt = [datetimeoffset]::MinValue
+    if (-not [datetimeoffset]::TryParse([string]$m.takenAtUtc, [ref]$takenAt) -or
+        $takenAt.UtcDateTime -gt $NowUtc.AddMinutes(5)) {
+        return @{ Status = 'refused'; Reason = 'Snapshot creation time is missing or invalid.' }
+    }
+    if (-not $m.sourceIdentity -or $m.sourceIdentity.identitySha256 -ne $SourceIdentity.identitySha256) {
+        return @{ Status = 'stale'; Reason = 'Baseline source, checkout revision, or guest identity changed.' }
+    }
+    if (($NowUtc - $takenAt.UtcDateTime).TotalHours -ge $maximumAge) {
+        return @{ Status = 'stale'; Reason = 'Baseline exceeded its maximum age.' }
+    }
+    return @{ Status = 'reusable'; Reason = 'Baseline identity and age match.' }
+}
+
+function Remove-StaleManagedSnapshot {
+    <#
+    .SYNOPSIS
+        Remove an explicitly managed stale baseline so its resource chain can rebuild it.
+    #>
+    [CmdletBinding(SupportsShouldProcess)]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$SnapshotId,
+        [Parameter(Mandatory)][string]$HostType,
+        [Parameter(Mandatory)][System.Collections.IDictionary]$Policy,
+        [Parameter(Mandatory)][System.Collections.IDictionary]$SourceIdentity
+    )
+    $check = Test-SnapshotReusePolicy -VMName $SnapshotId -SnapshotId $SnapshotId `
+        -HostType $HostType -Policy $Policy -SourceIdentity $SourceIdentity
+    if ($check.Status -ne 'stale' -or $Policy.rebuildOnMismatch -ne $true) { return $false }
+    if (-not $PSCmdlet.ShouldProcess($SnapshotId, 'Replace stale managed baseline through its resource chain')) { return $false }
+    $state = Get-VMState -VMName $SnapshotId
+    if ($state -notin @('stopped', 'absent')) {
+        if (-not (Stop-VMForce -VMName $SnapshotId -Confirm:$false)) { return $false }
+    }
+    if ($state -ne 'absent' -and -not (Remove-VM -VMName $SnapshotId -Confirm:$false)) { return $false }
+    if ((Get-VMState -VMName $SnapshotId) -ne 'absent') { return $false }
+    $null = Remove-SnapshotManifest -VMName $SnapshotId -SnapshotId $SnapshotId -Confirm:$false
+    return $true
+}
+
 Export-ModuleMember -Function `
     Get-SnapshotManifestDir, Get-SnapshotManifestPath, `
     Write-SnapshotManifest, Get-SnapshotManifest, `
-    Test-SnapshotManifestMatch, Remove-SnapshotManifest
+    Test-SnapshotManifestMatch, Remove-SnapshotManifest, `
+    Get-SnapshotSourceIdentity, Test-SnapshotReusePolicy, Remove-StaleManagedSnapshot

@@ -622,7 +622,7 @@ looking in the wrong place. Notifications get `202` and no body.
 
 The extension service daemons are Go binaries whose version is stamped at
 COMPILE time, read from the `VERSION` file of whatever enlistment the guest
-fetched. Nothing re-reads it afterwards: the guest builds once, and the number
+fetched. Nothing re-reads it afterward: the guest builds once, and the number
 it prints on its UI, in `/api/hostinfo` and in every diagnostics payload is
 frozen there for the life of the VM.
 
@@ -935,7 +935,7 @@ Containment instead:
 
 **`2xx` means recorded, not merely received.** The entry itself lives in the
 collector's memory; the Loki line the handler writes is the only copy that
-survives a restart, and rehydrate restores the row afterwards. So when
+survives a restart, and rehydrate restores the row afterward. So when
 that write does not land the handler answers `503` -- the announce is kept and
 serving, but the announcer is told to come back. A beacon retries only until its
 *first* success and then sleeps a whole re-announce period, so a `2xx` for an

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42a266d5-29ef-459f-9141-78b35e35cc6c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1190,7 +1190,242 @@ function Select-MoreInformativeDiagResult {
     return $Current
 }
 
+function Get-GuestDiagnosticOutcome {
+    <#
+    .SYNOPSIS
+        Classifies capture completeness independently of the workload result.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][hashtable]$Manifest)
+    $capture = ''
+    if ($Manifest.outPath -and (Test-Path -LiteralPath $Manifest.outPath -PathType Leaf)) {
+        $capture = [System.IO.File]::ReadAllText($Manifest.outPath)
+    }
+    if ($capture -match '(?im)^Diagnostics complete\.\s*$' -and $Manifest.success -and
+        $capture -notmatch '(?m)^\*\* ERROR in section ') { return 'complete' }
+    if ($Manifest.reason -match 'budget exhausted|timed? out|timeout' -or
+        $capture -match '(?im)^Timed out after \d+s\s*$') { return 'timeout' }
+    if ($capture -match '(?m)^========\r?$|^Hostname\s+:' -or
+        ($Manifest.success -and -not [string]::IsNullOrWhiteSpace($capture))) { return 'partial' }
+    return 'unavailable'
+}
+
+function Invoke-GuestEvidenceSsh {
+    <#
+    .SYNOPSIS
+        Bounds discovery and SSH separately within one evidence collection budget.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$GuestKey,
+        [Parameter(Mandatory)][string]$Command,
+        [ValidateRange(1,60)][int]$TimeoutSeconds = 20
+    )
+    $clock = [Diagnostics.Stopwatch]::StartNew()
+    $sshModule = Get-Module Test.Ssh
+    $keyPath = & $sshModule { $script:SshKeyPath }
+    if (-not (Test-Path -LiteralPath $keyPath -PathType Leaf)) {
+        return @{ success=$false; exitCode=-1; output='Evidence unavailable: no existing harness SSH key.' }
+    }
+    $address = Test.Ssh\Get-ProvenGuestAddress -VMName $VMName
+    if (-not $address) {
+        Import-Module (Join-Path $PSScriptRoot 'Test.HostSampling.psm1') -Global -ErrorAction Stop
+        $hostModule = (Get-Command Get-VMIp -ErrorAction SilentlyContinue).Module.Path
+        $config = @{ vmName=$VMName; sshModule=$sshModule.Path; hostModule=$hostModule } | ConvertTo-Json -Compress
+        $encodedConfig = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($config))
+        $probe = @'
+$c = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('__CONFIG__')) | ConvertFrom-Json
+Import-Module $c.sshModule -Global -DisableNameChecking
+if ($c.hostModule) { Import-Module $c.hostModule -Global -DisableNameChecking }
+$address = Test.Ssh\Get-GuestAddress -VMName $c.vmName
+Write-Output ('YURUNA_EVIDENCE_ADDRESS=' + $address)
+'@
+        $encodedProbe = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($probe.Replace('__CONFIG__',$encodedConfig)))
+        $discoveryBudget = [math]::Max(1,[math]::Min(5,$TimeoutSeconds - 2))
+        $probeResult = Invoke-YurunaHostBoundedCommand -FilePath (Join-Path $PSHOME ($IsWindows ? 'pwsh.exe' : 'pwsh')) `
+            -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand',$encodedProbe) -TimeoutSeconds $discoveryBudget
+        if ($probeResult.Status -eq 'timeout') {
+            return @{ success=$false; exitCode=-1; output="Timed out after ${discoveryBudget}s (guest address discovery)" }
+        }
+        if ($probeResult.Output -match '(?m)^YURUNA_EVIDENCE_ADDRESS=([^\r\n]+)') { $address = $Matches[1].Trim() }
+    }
+    $parsedAddress = $null
+    if (-not [Net.IPAddress]::TryParse([string]$address,[ref]$parsedAddress)) {
+        return @{ success=$false; exitCode=-1; output='Evidence unavailable: no guest address discovered within the collection budget.' }
+    }
+    # Reserve one second for draining partial output after the native client is killed.
+    $remaining = [int][math]::Floor($TimeoutSeconds - $clock.Elapsed.TotalSeconds - 1)
+    if ($remaining -lt 1) { return @{ success=$false; exitCode=-1; output="Timed out after ${TimeoutSeconds}s (evidence preparation)" } }
+    return Test.Ssh\Invoke-GuestSsh -VMName $VMName -GuestKey $GuestKey -Command $Command `
+        -ResolvedAddress $address -PrivateKeyPath $keyPath -TimeoutSeconds $remaining -AddressWaitSeconds 0 -PreservePartialOutputOnTimeout
+}
+
+function Save-GuestPerformanceSnapshot {
+    <#
+    .SYNOPSIS
+        Saves a short Linux sample under a separate SSH budget.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$GuestKey,
+        [Parameter(Mandatory)][string]$OutputFolder,
+        [string]$Id = 'snapshot',
+        [string]$StepInvocationId,
+        [string]$SequenceInvocationId,
+        [ValidateRange(1,60)][int]$TimeoutSeconds = 20
+    )
+    $path = Join-Path $OutputFolder ((Get-DiagnosticsFileName -Id $Id) -replace '\.txt$', '.snapshot.txt')
+    try {
+        if ($GuestKey -match 'windows|macos') { return @{ diagnosticOutcome='unavailable'; outPath=$null; reason='Linux snapshot only' } }
+        $source = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../../automation/guest-performance-snapshot.sh') -Raw
+        $prefix = ''
+        foreach ($entry in @(@('E_SI',$StepInvocationId), @('E_QI',$SequenceInvocationId))) {
+            if ($entry[1] -match '^[A-Za-z0-9-]{1,64}$') { $prefix += "$($entry[0])=$($entry[1]) " }
+        }
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($source))
+        $command = "printf '%s' '$encoded' | base64 -d | ${prefix}bash"
+        $hostClock = [ordered]@{ beforeUtc=[DateTime]::UtcNow.ToString('o'); beforeTicks=[Diagnostics.Stopwatch]::GetTimestamp(); frequency=[Diagnostics.Stopwatch]::Frequency }
+        $result = Invoke-GuestEvidenceSsh -VMName $VMName -GuestKey $GuestKey -Command $command -TimeoutSeconds $TimeoutSeconds
+        $hostClock.afterTicks = [Diagnostics.Stopwatch]::GetTimestamp()
+        $hostClock.afterUtc = [DateTime]::UtcNow.ToString('o')
+        [void][System.IO.Directory]::CreateDirectory($OutputFolder)
+        $body = "# Guest performance snapshot; budgetSeconds=$TimeoutSeconds`n# Host clock bracket: $($hostClock | ConvertTo-Json -Compress)`n" + [string]$result.output
+        $body = Protect-GuestEvidenceText -Text $body
+        [System.IO.File]::WriteAllText($path, $body)
+        $outcome = if ($result.success -and $body -match '(?m)^snapshotCompleteUtc=') { 'complete' }
+            elseif ($body -match '(?i)timed? out|timeout') { 'timeout' }
+            elseif ($body -match '(?m)^snapshotUtc=') { 'partial' } else { 'unavailable' }
+        return @{ diagnosticOutcome=$outcome; outPath=$path; reason=if ($outcome -eq 'complete') { $null } else { 'Guest sample incomplete; see artifact' }; exitCode=[int]$result.exitCode; hostClock=$hostClock }
+    } catch {
+        Write-Verbose "Guest performance snapshot unavailable: $($_.Exception.Message)"
+        return @{ diagnosticOutcome='unavailable'; outPath=$null; reason=$_.Exception.Message }
+    }
+}
+
+function Protect-GuestEvidenceText {
+    <#
+    .SYNOPSIS
+        Redacts known credentials and secret assignments before evidence is published.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([AllowEmptyString()][string]$Text, [hashtable]$Variables = @{})
+    Import-Module (Join-Path $PSScriptRoot 'Test.Message.psm1') -Global -ErrorAction Stop
+    $secrets = @($env:GH_TOKEN,$env:GITHUB_TOKEN)
+    if (Get-Command Get-YurunaGitHubSource -ErrorAction SilentlyContinue) {
+        $secrets += [string](Get-YurunaGitHubSource -RepoRoot (Join-Path $PSScriptRoot '../..')).Token
+    }
+    foreach ($key in $Variables.Keys) {
+        if ($key -match '(?i)password|passwd|secret|token|credential|private.?key') { $secrets += [string]$Variables[$key] }
+    }
+    $Text = [regex]::Replace($Text, '(?s)-----BEGIN [^-]*PRIVATE KEY-----.*?-----END [^-]*PRIVATE KEY-----', '[REDACTED PRIVATE KEY]')
+    $Text = [regex]::Replace($Text, '\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]+)', '[REDACTED]')
+    $lines = foreach ($line in ($Text -split '\r?\n')) {
+        if ($line -match '(?i)\b[A-Za-z0-9_]*(?:TOKEN|PASSWORD|SECRET|PRIVATE_KEY|CREDENTIAL)[A-Za-z0-9_]*\s*=') { '[REDACTED SECRET ASSIGNMENT]'; continue }
+        (Protect-MessageDetail -Text $line -Source 'guest.evidence' -Secret $secrets).text
+    }
+    return $lines -join "`n"
+}
+
+function Save-GuestExecutionProfile {
+    <#
+    .SYNOPSIS
+        Fetches the matching invocation log and bounded command trace before reuse.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$GuestKey,
+        [Parameter(Mandatory)][string]$OutputFolder,
+        [Parameter(Mandatory)][ValidatePattern('^[A-Za-z0-9-]{1,64}$')][string]$StepInvocationId,
+        [ValidateRange(1,60)][int]$TimeoutSeconds = 20,
+        [hashtable]$Variables = @{}
+    )
+    $command = @'
+f=/tmp/yuruna-last-fetch-and-execute.log
+[ -r "$f" ] || exit 66
+step=$(sed -n 's/^# stepInvocationId: *//p' "$f" | head -n 1)
+[ "$step" = '__STEP__' ] || { printf 'profile invocation mismatch: %s\n' "$step"; exit 65; }
+printf '%s\n' '--- YURUNA EXECUTION LOG ---'
+sequence=$(sed -n 's/^# sequenceInvocationId: *//p' "$f" | head -n 1)
+printf '# stepInvocationId: %s\n# sequenceInvocationId: %s\n# Log: last 100000 bytes\n' "$step" "$sequence"
+tail -c 100000 "$f"
+p=$(sed -n 's/^# profile: *//p' "$f" | head -n 1)
+case "$p" in /tmp/yuruna-fae-profile.*) ;; *) exit 66 ;; esac
+[ -r "$p" ] || exit 66
+printf '\n%s\n' '--- YURUNA COMMAND PROFILE (last 400000 bytes) ---'
+wc -c < "$p"
+tail -c 400000 "$p"
+'@
+    $result = Invoke-GuestEvidenceSsh -VMName $VMName -GuestKey $GuestKey `
+        -Command $command.Replace('__STEP__',$StepInvocationId) -TimeoutSeconds $TimeoutSeconds
+    if (-not $result.output -or $result.output -notmatch '(?m)^--- YURUNA EXECUTION LOG ---') {
+        return @{ success=$false; outPath=$null; stepInvocationId=$StepInvocationId; reason=[string]$result.output }
+    }
+    [void][System.IO.Directory]::CreateDirectory($OutputFolder)
+    $path = Join-Path $OutputFolder "fetch-and-execute.$StepInvocationId.profile.log"
+    $safeText = Protect-GuestEvidenceText -Text ([string]$result.output) -Variables $Variables
+    [System.IO.File]::WriteAllText($path,$safeText)
+    return @{ success=[bool]$result.success; outPath=$path; stepInvocationId=$StepInvocationId; exitCode=[int]$result.exitCode }
+}
+
 function Save-GuestDiagnostic {
+    <#
+    .SYNOPSIS
+        Preserves host and guest samples before the full diagnostic ladder.
+    .OUTPUTS
+        A manifest whose diagnosticOutcome describes the full diagnostic only.
+        hostSnapshot.Status and guestSnapshot.diagnosticOutcome independently
+        describe the short samples; a complete diagnostic does not imply that
+        every host counter or guest snapshot was available.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][string]$GuestKey,
+        [Parameter(Mandatory)][string]$OutputFolder,
+        [Parameter(Mandatory)][ValidateNotNullOrEmpty()][string]$Id,
+        [string]$StepInvocationId,
+        [string]$SequenceInvocationId,
+        [AllowNull()]$HostSnapshot
+    )
+    $hostSample = $HostSnapshot
+    if (-not $hostSample) {
+        $hostSample = @{ Status='unavailable'; Path=$null; Reason='Host sampler unavailable' }
+        try {
+            Import-Module (Join-Path $PSScriptRoot 'Test.HostSampling.psm1') -Global -ErrorAction Stop
+            $hostSample = Save-YurunaHostSampleSnapshot -DestinationDirectory $OutputFolder -RuntimeDirectory $env:YURUNA_RUNTIME_DIR
+        } catch { Write-Verbose "Host sample unavailable: $($_.Exception.Message)" }
+    }
+    $guestSample = Save-GuestPerformanceSnapshot -VMName $VMName -GuestKey $GuestKey -OutputFolder $OutputFolder `
+        -Id $Id -StepInvocationId $StepInvocationId -SequenceInvocationId $SequenceInvocationId
+    try {
+        $manifest = Invoke-GuestDiagnosticCapture -VMName $VMName -GuestKey $GuestKey -OutputFolder $OutputFolder -Id $Id
+    } catch {
+        $manifest = @{ success=$false; outPath=$null; mechanism='none'; attempted=@(); exitCode=-1; bytes=0L; skipped=$false; reason=$_.Exception.Message }
+    }
+    try { $manifest.diagnosticOutcome = Get-GuestDiagnosticOutcome -Manifest $manifest }
+    catch { $manifest.diagnosticOutcome = 'unavailable'; $manifest.reason = $_.Exception.Message }
+    $manifest.hostSnapshot = $hostSample
+    $manifest.guestSnapshot = $guestSample
+    $manifest.stepInvocationId = $StepInvocationId
+    $manifest.sequenceInvocationId = $SequenceInvocationId
+    try {
+        [void][System.IO.Directory]::CreateDirectory($OutputFolder)
+        $manifestPath = Join-Path $OutputFolder ((Get-DiagnosticsFileName -Id $Id) -replace '\.txt$', '.manifest.json')
+        [System.IO.File]::WriteAllText($manifestPath, ($manifest | ConvertTo-Json -Depth 8))
+    } catch { Write-Verbose "Diagnostic manifest could not be saved: $($_.Exception.Message)" }
+    return $manifest
+}
+
+function Invoke-GuestDiagnosticCapture {
 <#
 .SYNOPSIS
     SSH into a guest, run Get-SystemDiagnostic.ps1, and write the
@@ -1346,7 +1581,7 @@ function Save-GuestDiagnostic {
     # Pre-flight: real-handshake Wait-SshReady gate (mid-reboot races,
     # half-up sshd, late-binding KVP). Budget capped to the cycle's
     # remaining diag budget. Full rationale and trap class:
-    # https://yuruna.link/test/harness
+    # https://yuruna.link/42d38664
     $waitBudget = [math]::Min(180, (Get-DiagBudgetRemaining))
     if ($waitBudget -le 0) {
         Write-Warning ("Save-GuestDiagnostic: total {0}s budget already exhausted before Wait-SshReady; skipping." -f $script:SaveGuestDiagnosticTotalTimeoutSeconds)
@@ -1405,7 +1640,7 @@ function Save-GuestDiagnostic {
     # Strategy chain (keyed SSH -> password SSH -> console). The all-rungs-failed
     # fallback keeps the SSH rung with the fuller captured error text; the
     # console rung POSTs its capture to disk and adds no manifest text:
-    # https://yuruna.link/test/harness
+    # https://yuruna.link/42d38664
     $fileName = Get-DiagnosticsFileName -Id $Id
     $outPath  = Join-Path $FailureFolderPath $fileName
 
@@ -1559,6 +1794,8 @@ function Save-GuestDiagnostic {
 
 Export-ModuleMember -Function `
     Save-GuestDiagnostic, `
+    Save-GuestPerformanceSnapshot, `
+    Save-GuestExecutionProfile, `
     Get-DiagnosticsFileName, `
     Resolve-StatusServiceEndpoint, `
     New-DiagnosticsConsoleCommand, `

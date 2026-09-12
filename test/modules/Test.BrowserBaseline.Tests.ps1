@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 427765c1-3491-491c-8ca6-00baf0708bec
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -178,20 +178,46 @@ Describe 'the stylesheets degrade instead of breaking on the baseline' {
         # Comments are stripped before parsing: these stylesheets explain their
         # own gap and grid policy in prose, and a rule that flagged the
         # explanation would be a rule nobody keeps.
+        # The registry, not a path glob. Globbing httpsrv found four service
+        # stylesheets and missed every other producer this repository ships --
+        # the status pages, the shared chrome sheet, the pages built inside Go
+        # and PowerShell, and the seed a guest serves. Those are exactly the
+        # surfaces the floor rules below exist for, and a rule that never opens
+        # a file reports it clean.
+        $registryPath = Join-Path $script:RepoRoot 'globalization/manifests/browser-sources.json'
+        $registry = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($registryPath))
         $script:Sheets = @(
-            Get-ChildItem -LiteralPath ([IO.Path]::Combine($script:RepoRoot, 'test', 'extension')) `
-                -Recurse -File -Filter '*.css' -ErrorAction SilentlyContinue |
-                Where-Object { $_.FullName -match 'httpsrv' } |
-                ForEach-Object {
-                    $stripped = [regex]::Replace((Get-Content -Raw -LiteralPath $_.FullName), '(?s)/\*.*?\*/', '')
-                    [pscustomobject]@{
-                        Name  = ([IO.Path]::GetRelativePath($script:RepoRoot, $_.FullName)) -replace '\\', '/'
-                        Rules = @(Split-CssRule -Text $stripped)
-                    }
-                })
+            foreach ($producer in @($registry.cssProducers)) {
+                $full = Join-Path $script:RepoRoot ([string]$producer.path)
+                if (-not (Test-Path -LiteralPath $full -PathType Leaf)) { continue }
+                $text = [IO.File]::ReadAllText($full)
+                # A producer that is not itself a stylesheet carries its CSS in
+                # <style> blocks; take those and nothing around them, the same
+                # extraction the palette-fallback tool performs.
+                if ([string]$producer.kind -cne 'Css') {
+                    $blocks = @([regex]::Matches($text, '<style[^>]*>(.*?)</style>', 'Singleline, IgnoreCase') |
+                        ForEach-Object { $_.Groups[1].Value })
+                    if ($blocks.Count -eq 0) { continue }
+                    $text = $blocks -join "`n"
+                }
+                # Comments are stripped before parsing: these stylesheets explain
+                # their own gap and grid policy in prose, and a rule that flagged
+                # the explanation would be a rule nobody keeps.
+                $stripped = [regex]::Replace($text, '(?s)/\*.*?\*/', '')
+                [pscustomobject]@{
+                    Name  = ([string]$producer.path)
+                    Rules = @(Split-CssRule -Text $stripped)
+                }
+            })
     }
 
     It 'reads the stylesheets it checks' {
+        # Every registered producer, so a new one joins the floor rules by being
+        # registered rather than by sitting under a particular directory.
+        $registryPath = Join-Path $script:RepoRoot 'globalization/manifests/browser-sources.json'
+        $declared = @((ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($registryPath))).cssProducers).Count
+        Assert-True ($script:Sheets.Count -ge ($declared - 1)) `
+            "the registry declares $declared CSS producers but only $($script:Sheets.Count) were read"
         Assert-True ($script:Sheets.Count -ge 4) "expected the service stylesheets, found $($script:Sheets.Count)"
         $total = ($script:Sheets | ForEach-Object { $_.Rules.Count } | Measure-Object -Sum).Sum
         Assert-True ($total -gt 200) "the parser found only $total rules, so it is not reading these stylesheets"
@@ -199,6 +225,32 @@ Describe 'the stylesheets degrade instead of breaking on the baseline' {
         # every check below passes by not seeing anything.
         $nested = @($script:Sheets | ForEach-Object { $_.Rules } | Where-Object { $_.Context })
         Assert-True ($nested.Count -gt 0) 'the parser never descends into @media / @supports'
+    }
+
+    It 'still fails when a floor break is put in front of it' {
+        # A lint that stops matching reports the same clean run as a codebase
+        # with nothing wrong. Each rule is fed the break it exists to catch,
+        # through the same parser the sheets go through, so a regex that
+        # silently stopped working cannot pass as a green floor.
+        $known = @(
+            @{ Why = 'flex gap'
+               Css = '.row { display: flex; gap: 1rem; }' }
+            @{ Why = 'unguarded grid'
+               Css = '.board { display: grid; grid-template-columns: 1fr 1fr; }' }
+            @{ Why = 'logical property'
+               Css = '.card { margin-inline: 1rem; }' }
+        )
+        foreach ($sample in $known) {
+            $rules = @(Split-CssRule -Text $sample.Css)
+            Assert-True ($rules.Count -ge 1) "the parser read no rule out of the $($sample.Why) sample"
+            $hit = $false
+            foreach ($rule in $rules) {
+                if ($rule.Body -match '(?<!grid-)\bgap\s*:' -and $rule.Body -match 'display:\s*flex') { $hit = $true }
+                if ($rule.Body -match 'display:\s*(inline-)?grid' -and -not $rule.Context) { $hit = $true }
+                if ($rule.Body -match '\b(margin|padding|inset|border)-(inline|block)(-(start|end))?\s*:') { $hit = $true }
+            }
+            Assert-True $hit "the $($sample.Why) sample passed every floor rule, so the rules no longer match"
+        }
     }
 
     It 'spaces flex children with margins, never with gap' {
@@ -237,6 +289,54 @@ Describe 'the stylesheets degrade instead of breaking on the baseline' {
             }
         }
         Assert-NoFinding $findings 'the floor build falls back to block flow, which is a decision to make rather than to inherit'
+    }
+
+    It 'mirrors every physical side it sets for right-to-left' {
+        # The floor bans logical properties, so a page that offsets one side
+        # has to say what the other direction does or the offset stays on the
+        # same side when the text turns around. The mirrored pseudo-locale is a
+        # required matrix row, and a stylesheet with no [dir="rtl"] rule at all
+        # renders it identically to left-to-right -- which reads as a pass.
+        # Scoped to the stylesheets the two reference pages load. The status
+        # pages' own inline styles are deliberately out of scope here: they are
+        # a separate surface, checked on their own rather than by this gate.
+        $scoped = @(
+            'test/status/yuruna.common.css'
+            'test/extension/pool-control-service/server/internal/httpsrv/web/assets/style.css'
+            'test/extension/pool-control-service/server/internal/httpsrv/web/assets/board.css'
+        )
+        $sideProperty = '(margin|padding|border)-(left|right)'
+        $neutral = @('0', '0px', 'auto', 'inherit', 'initial', 'unset', 'revert', 'none')
+        $findings = @()
+        foreach ($sheet in @($script:Sheets | Where-Object { $_.Name -cin $scoped })) {
+            $mirrored = @($sheet.Rules | Where-Object { $_.Selector -match '\[dir\s*=\s*.?rtl' })
+            foreach ($rule in $sheet.Rules) {
+                if ($rule.Selector -match '\[dir\s*=\s*.?rtl') { continue }
+                $needs = $false
+                foreach ($m in [regex]::Matches($rule.Body, "\b$sideProperty\s*:\s*([^;}]+)")) {
+                    if ($m.Groups[3].Value.Trim() -notin $neutral) { $needs = $true }
+                }
+                # A left/right text-align turns around too; center does not.
+                foreach ($m in [regex]::Matches($rule.Body, '\b(text-align|float)\s*:\s*([^;}]+)')) {
+                    if ($m.Groups[2].Value.Trim() -in @('left', 'right')) { $needs = $true }
+                }
+                if (-not $needs) { continue }
+                # The mirror is matched by the selector it restates, so a rule
+                # can be mirrored by one that also covers other selectors.
+                $target = ($rule.Selector -split ',' | ForEach-Object { $_.Trim() })[0]
+                if (-not $target) { continue }
+                $covered = @($mirrored | Where-Object { $_.Selector -match [regex]::Escape($target) })
+                if ($covered.Count -eq 0) {
+                    $findings += "$($sheet.Name): '$($rule.Selector)' sets a physical side with no [dir=rtl] mirror"
+                }
+            }
+        }
+        Assert-NoFinding $findings 'a page offsets one side and never says what the other direction does'
+        # The scope list has to keep naming real producers, or this passes by
+        # checking nothing.
+        $checked = @($script:Sheets | Where-Object { $_.Name -cin $scoped })
+        Assert-Equal -Expected $scoped.Count -Actual $checked.Count `
+            'a scoped stylesheet is no longer a registered producer, so it went unchecked'
     }
 
     It 'uses physical margins and padding, not the logical properties' {

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 421e2d93-7e74-4a5d-90d5-4a730e5dc48f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,6 +27,7 @@
 BeforeAll {
 $here = Split-Path -Parent $PSCommandPath
 Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameChecking
+Import-Module (Join-Path $here 'Test.ApprovalDigest.psm1') -Force -Global -DisableNameChecking
 $script:RepoRoot = Get-YurunaTestRepoRoot -SuiteDirectory $here
 $script:Tool = Join-Path $script:RepoRoot 'tools/Test-Terminology.ps1'
 $script:DocTool = Join-Path $script:RepoRoot 'tools/Test-DocTranslation.ps1'
@@ -165,22 +166,35 @@ function New-ApprovedFixture {
     foreach ($term in $terms.terms) {
         $term.ptBRDecision = [pscustomobject]@{ status = 'retained' }
     }
+    # The digest is computed over the content this fixture just finished
+    # writing, by the same module the gate verifies with -- a fixture that
+    # hard-coded one would only be testing that two constants match.
+    $termDigest = Get-ApprovableContentDigest -Artifact $terms -Kind terminology
     $terms.approvals.translator = [pscustomobject]@{
         status = 'approved'; approvedBy = 'Synthetic Translator'; approvedAt = '2026-09-03'
-        evidence = [pscustomobject]@{ releaseVersion = $ReleaseVersion }
+        evidence = [pscustomobject]@{ releaseVersion = $ReleaseVersion
+            approvedContent = [pscustomobject]$termDigest }
     }
     $terms.approvals.independentReviewer = [pscustomobject]@{
         status = 'approved'; approvedBy = 'Synthetic Reviewer'; approvedAt = '2026-09-03'
-        evidence = [pscustomobject]@{ releaseVersion = $ReleaseVersion }
+        evidence = [pscustomobject]@{ releaseVersion = $ReleaseVersion
+            approvedContent = [pscustomobject]$termDigest }
     }
     Write-FixtureJson -Root $root -RelativePath $termRelative -Value $terms
 
     $styleRelative = 'globalization/terminology/pt-BR.style-guide.json'
     $style = Read-FixtureJson -Root $root -RelativePath $styleRelative
     $style.status = 'approved'
+    # Pinned before the digest is taken: the pin is part of what the style
+    # guide's approver signed for.
     $style.terminologySource.sha256 = Get-FileHashText -Path (Join-Path $root $termRelative)
-    $style.approvals.translator = $terms.approvals.translator
-    $style.approvals.independentReviewer = $terms.approvals.independentReviewer
+    $styleDigest = Get-ApprovableContentDigest -Artifact $style -Kind style-guide
+    foreach ($role in @('translator', 'independentReviewer')) {
+        $record = $terms.approvals.$role.PSObject.Copy()
+        $record.evidence = [pscustomobject]@{ releaseVersion = $ReleaseVersion
+            approvedContent = [pscustomobject]$styleDigest }
+        $style.approvals.$role = $record
+    }
     Write-FixtureJson -Root $root -RelativePath $styleRelative -Value $style
     return $root
 }

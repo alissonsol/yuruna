@@ -93,7 +93,7 @@ flat "is key down" state per scan code, and the only thing that flips a key back
 to up is the matching break code. If a prior keyboard event left a modifier
 held -- a dropped LShift break from a canceled `Send-Text`, a make/break race
 during a VM reboot, an operator clicking the vmconnect window with Shift held,
-an IDE stealing focus mid-send -- every character sent afterwards inherits that
+an IDE stealing focus mid-send -- every character sent afterward inherits that
 modifier and lands shifted. The recognizable symptom is the test user arriving
 at the login prompt as `YAUSER!` instead of `yauser1`, normally first seen on a
 failure screenshot through OCR. Break codes for LShift, RShift, LCtrl, RCtrl,
@@ -272,6 +272,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.08
+Last review: 2026.09.12
 
 Back to [Yuruna](../README.md)

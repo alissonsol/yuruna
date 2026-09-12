@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42bd6583-4d45-42df-b3b7-3411df4c5af9
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -399,6 +399,14 @@ function Invoke-Remediation {
             # unchanged, and whether an operator hold ended just before the step.
             # Zero when absent, so a handler can compare without a null guard.
             consoleStaticSeconds   = [int](& $causeField 'consoleStaticSeconds')
+            # ...and whether that zero is a reading. A wait that confined its match
+            # to the console tail never measures the console's shape and records
+            # the field as null, which is not the same screen as one measured at
+            # zero. The int above stays an int (handlers compare it without a null
+            # guard); this carries the bit it cannot. A field missing entirely
+            # reads through $causeField as 0, so it stays 'measured' and a record
+            # without the field behaves exactly as it does today.
+            consoleStaticMeasured  = ($null -ne (& $causeField 'consoleStaticSeconds'))
             pauseBeforeStepSeconds = [int](& $causeField 'pauseBeforeStepSeconds')
         }
     }
@@ -575,7 +583,14 @@ function Register-BuiltinRecoveryHandler {
         # cause is described.
         $staticSecs = [int]$c.Context.consoleStaticSeconds
         $heldSecs   = [int]$c.Context.pauseBeforeStepSeconds
-        $parked     = $staticSecs -gt 0
+        # A static reading of zero is only evidence when a static reading was
+        # taken. Where the wait confined its match to the console tail it ran no
+        # content-static tracker at all, and treating that absence as "the screen
+        # kept moving" would name a churning network on a guest that may simply
+        # be parked. Unmeasured falls to the moving-console text, which asks the
+        # reader to look at what is repeating -- the safe reading, because it
+        # sends nobody to answer a prompt nothing established was there.
+        $parked     = [bool]$c.Context.consoleStaticMeasured -and $staticSecs -gt 0
         $rationale = if ($parked) {
             "console_flooded on $($c.Context.vmName): the wait ran its full budget against a screen whose content had not changed for ${staticSecs}s -- a wall of text that scrolled by earlier, not a console still filling. A guest printing nothing is a guest waiting for something, and a prompt it printed once before this wait began would look exactly like this." +
             $(if ($heldSecs -gt 0) { " An operator hold of ${heldSecs}s ended just before this step: the guest kept running through it, so anything it printed and does not reprint is off the screen the step then had to read." } else { '' })

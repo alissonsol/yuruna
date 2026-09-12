@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42f1c309-1ba8-498f-b2f0-a6425d163096
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -110,28 +110,27 @@ $script:StandaloneOnlyAlias = @('yuruna-dash')
 $script:CachingProxyArea = @('caching-proxy-service', 'caching-proxy-parser-service', 'pool-aggregator-service')
 
 # --- REGION: Pure rules (no I/O; unit-tested directly)
-
-<#
-.SYNOPSIS
-    Which extension advertisements a converted worker should withdraw. Pure:
-    takes the areas this host currently claims and the ones the caller is
-    keeping on purpose.
-.DESCRIPTION
-    Driven by the MARKERS, not by the service teardown, and that is the whole
-    point. Each Stop-*ServiceVM.ps1 clears its own marker, so a conversion that
-    retires a VM also stops advertising it -- but a host whose VMs are already
-    gone (removed by hand, lost with a hypervisor reinstall, or retired by an
-    earlier half-finished conversion) has nothing left to run a stop script
-    against, and its markers survive every re-run. The dashboard then deep-links
-    into services that do not exist, and the conversion's own verdict refuses
-    the host forever with no step that can fix it.
-
-    So the sweep asks the only question that converges: what does this host
-    still claim? Anything it claims and is not deliberately running comes down.
-.OUTPUTS
-    [pscustomobject[]] Area, Action ('clear' or 'kept'), Reason.
-#>
 function Get-PoolWorkerAdvertisementPlan {
+    <#
+    .SYNOPSIS
+        Which extension advertisements a converted worker should withdraw. Pure:
+        takes the areas this host currently claims and the ones the caller is
+        keeping on purpose.
+    .DESCRIPTION
+        Driven by the MARKERS, not by the service teardown, and that is the whole
+        point. Each Stop-*ServiceVM.ps1 clears its own marker, so a conversion that
+        retires a VM also stops advertising it -- but a host whose VMs are already
+        gone (removed by hand, lost with a hypervisor reinstall, or retired by an
+        earlier half-finished conversion) has nothing left to run a stop script
+        against, and its markers survive every re-run. The dashboard then deep-links
+        into services that do not exist, and the conversion's own verdict refuses
+        the host forever with no step that can fix it.
+
+        So the sweep asks the only question that converges: what does this host
+        still claim? Anything it claims and is not deliberately running comes down.
+    .OUTPUTS
+        [pscustomobject[]] Area, Action ('clear' or 'kept'), Reason.
+    #>
     [CmdletBinding()]
     [OutputType([pscustomobject[]])]
     param(
@@ -464,19 +463,18 @@ function Get-PoolWorkerReadinessVerdict {
 }
 
 # --- REGION: Observation and action
-
-<#
-.SYNOPSIS
-    The service roster enriched with each VM's current state on this host.
-.DESCRIPTION
-    'unknown' rather than a throw when the per-host VM contract is not loaded or
-    a driver call fails -- Get-PoolWorkerServiceTeardownPlan treats unknown as
-    present, so an unreadable state costs a redundant stop-script run rather
-    than a skipped teardown.
-.OUTPUTS
-    [pscustomobject[]] the roster records plus State.
-#>
 function Get-PoolWorkerServiceState {
+    <#
+    .SYNOPSIS
+        The service roster enriched with each VM's current state on this host.
+    .DESCRIPTION
+        'unknown' rather than a throw when the per-host VM contract is not loaded or
+        a driver call fails -- Get-PoolWorkerServiceTeardownPlan treats unknown as
+        present, so an unreadable state costs a redundant stop-script run rather
+        than a skipped teardown.
+    .OUTPUTS
+        [pscustomobject[]] the roster records plus State.
+    #>
     [CmdletBinding()]
     [OutputType([pscustomobject[]])]
     param()
@@ -733,8 +731,13 @@ function Remove-PoolWorkerAlias {
         }
         try {
             if ($needsSudo) {
+                # Named, because sudo's bare "Password:" says neither whose
+                # password nor what for, and this one interrupts a run that has
+                # been narrating lab credentials -- which is what an operator
+                # reaches for when the prompt does not say otherwise.
                 $sudoArgs = Get-SudoPwshArgumentList -ScriptPath $aliasScript `
-                    -ScriptArgument @('-ComputerName', $item.Name) -NonInteractive:$NonInteractive
+                    -ScriptArgument @('-ComputerName', $item.Name) -NonInteractive:$NonInteractive `
+                    -Prompt "[sudo] login password for %u ON THIS MACHINE (not a vault or storage credential), to drop '$($item.Name)' from /etc/hosts: "
                 & sudo @sudoArgs
                 if ($LASTEXITCODE -ne 0) {
                     [void]$results.Add([pscustomobject]@{ Name = $item.Name; Action = 'failed'

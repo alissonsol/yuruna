@@ -20,7 +20,8 @@
     fi
 # === YURUNA_OVERLAY_POWER_STATE ===
 
-# --- REGION: https://yuruna.link/429f3d06-0030
+# See https://yuruna.link/429f3d06-0030
+# --- REGION: power_state
 power_state:
   delay: now
   mode: reboot

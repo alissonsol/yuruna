@@ -8,12 +8,15 @@ sequenceRevision: 1
 
 description: "Ubuntu Server 24.04 (SSH): install VS Code and verify."
 keystrokeMechanism: ssh
+
+# --- REGION: resource
 resource:
   ubuntu.server.24:
     - start.guest.ubuntu.server.24.ssh
 variables:
   username: yuuser24
 
+# --- REGION: component
 component:
   - action: sshWaitReady
     timeoutSeconds: 300
@@ -23,7 +26,9 @@ component:
     command: "whoami && hostname"
     description: "Smoke test: whoami/hostname"
 
+# --- REGION: workload
 workload:
+  # See https://yuruna.link/42e220c4-0007
   - action: sshFetchAndExecute
     command: "/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.code.sh"
     timeoutSeconds: 1800

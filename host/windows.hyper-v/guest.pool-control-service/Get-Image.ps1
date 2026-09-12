@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42062799-0e48-4933-8b5e-2bac650d1408
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,29 +18,29 @@
 
 <#
 .SYNOPSIS
-    Provides the Ubuntu server cloud image (converted to VHDX) that backs
-    the pool-control service VM on Hyper-V.
-
+    Provides the shared Ubuntu cloud image for the pool-control-service VM
+    on Windows Hyper-V.
 .DESCRIPTION
-    Wrapper over the shared extension-service base image
-    (Get-UbuntuExtensionImageInfo / Save-UbuntuExtensionImage in
-    host/modules/Yuruna.Image.psm1). Every extension service on this host
-    boots the same cloud image, so one artifact serves all of them instead
-    of a byte-identical copy per service -- which on Hyper-V also collapses
-    the qcow2-to-VHDX conversions into one. This per-service entry point
-    stays so the pool-control service can move to a different release, arch
-    or post-processing step later without disturbing the others.
-
-    The shared VHDX keeps the cloud image's native capacity. New-VM.ps1
-    grows its own per-VM copy to the size the pool-control daemon needs.
+    Uses the shared extension image pipeline. New-VM.ps1 grows the VM's
+    private disk copy to the capacity its service needs.
+    See https://yuruna.link/42e220c4-0003.
 #>
 
 # --- REGION: Log level from environment
-# Honor logLevel from Start-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+# Reuse the caller's log module so an in-process fetch preserves its state.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
-if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
+if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
+    Import-Module $_logLevelMod -Global
+}
+if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
-# --- REGION: Pre-flight: elevation
+# --- REGION: Platform guard
+if (-not $IsWindows) {
+    Write-Error "host/windows.hyper-v/guest.pool-control-service/Get-Image.ps1 only runs on Windows Hyper-V."
+    exit 1
+}
+
+# --- REGION: Elevation check
 Write-Output "This script requires elevation (Run as Administrator)."
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
     Write-Output "Please run this script as Administrator."
@@ -49,14 +49,12 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 }
 
 # --- REGION: Import host modules
-# Yuruna.Host.psm1 supplies the cache-injecting Save-CachedHttpUri wrapper and
-# (via its global Yuruna.HostDownload import) the sentinel guard the shared
-# pipeline resolves by name, so the download routes through the squid cache
-# whenever one is reachable.
-Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yuruna.Host.psm1") -Force
-Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Yuruna.Image.psm1") -Force
+# The host wrapper supplies cache discovery to the shared image pipeline.
+Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) 'modules/Yuruna.Host.psm1') -Force
+Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.Image.psm1') -Force
 
 # --- REGION: Resolve and fetch the base image
+# See https://yuruna.link/42e220c4-0003
 try {
     $image = Get-UbuntuExtensionImageInfo -HostType 'windows.hyper-v'
 } catch {
@@ -67,10 +65,7 @@ Write-Output "Hyper-V default VHDX folder: $($image.DownloadDir)"
 if (-not (Save-UbuntuExtensionImage -Image $image -Verbose:($VerbosePreference -ne 'SilentlyContinue'))) {
     exit 1
 }
-# Success must be an explicit exit 0. Callers that run this script in-process
-# (& $GetImageScript) read $LASTEXITCODE; any native command a helper ran
-# along the way (qemu-img, discovery probes for VMs that may legitimately be
-# absent) leaves its exit code behind, and a cache-hit run ends on cmdlets
-# that never overwrite it. Falling off the end here would report that stale
-# code as this script's own exit status.
+
+# --- REGION: Completion
+# Clear a native discovery probe's stale exit code, including on cache hits.
 exit 0

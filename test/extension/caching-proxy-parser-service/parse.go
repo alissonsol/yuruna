@@ -1,20 +1,7 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
 
-// caching-proxy-parser-service: a tail-and-serve daemon for the caching-proxy-service VM.
-//
-// Replaces loki + promtail for the Grafana dashboard's "Recent 100 requests"
-// panel: tails the squid yuruna access log into a 100-entry in-memory ring,
-// served as JSON + a self-contained HTML page. Single host, one log, one
-// panel -- no tenancy, no persistence, no auth, no LogQL.
-//
-// Full design and operator guide: https://yuruna.link/caching-proxy-parser-service (README.md).
-//
-// This file holds the parts that depend on nothing but the standard library:
-// the logformat regex, the ring, the counters and the three handlers. They
-// carry no build constraint so they compile -- and are tested -- on every
-// harness host. Tailing the log needs syscall.Stat_t to see a logrotate, and
-// lives in main_linux.go beside the platform's main.
+// Parser, ring, counters, and HTTP handlers; see https://yuruna.link/caching-proxy-parser-service.
 package main
 
 import (

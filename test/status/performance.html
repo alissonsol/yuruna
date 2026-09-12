@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- LICENSEURI https://yuruna.link/license -->
 <!-- Copyright (c) 2019-2026 by Alisson Sol et al. -->
-<!-- --- REGION: https://yuruna.link/42fa6f45-0024 -->
+<!-- REGION: https://yuruna.link/42fa6f45-0024 -->
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -124,7 +124,8 @@
       border-radius: .2rem; font-family: ui-monospace, Menlo, Consolas, monospace; font-family: var(--font-mono);
     }
     /* .no-data lives in yuruna.common.css (shared with index.html). */
-  </style>
+  .flame-cell.partial { stroke: #b45309; stroke-width: 2; }
+</style>
 </head>
 <body>
 
@@ -157,6 +158,7 @@
 
 <main>
   <h1 class="sr-only">Cycle performance</h1>
+  <p class="seq-meta">Each row is one sequence invocation. Bars show elapsed time; hover for work and retry details.</p>
   <div id="perf-message" role="status" class="perf-message">Loading perf aggregates…</div>
   <div id="perf-body"></div>
 </main>

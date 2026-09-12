@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42303d37-2208-46b9-ad37-c8c5638af258
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -76,19 +76,18 @@ if ($Hostname -and $Hostname -notmatch '^[a-zA-Z0-9.-]+$') {
 $GuestHostname = if ($Hostname) { $Hostname } else { $VMName }
 
 $ProgressPreference = 'SilentlyContinue'
-# Abort at the first failed cmdlet: this script runs as a child pwsh -File
-# process whose non-zero exit is the caller's only failure signal. Without
-# Stop, a non-terminating error from the disk/VM-config sequence (New-VHD,
-# Set-VM*, Add-VMDvdDrive) prints red and the script marches on, failing
-# confusingly at a later step against a half-configured VM. Module
-# functions keep their own error handling (preference variables do not
-# cross the module boundary), so this hardens exactly the direct cmdlet
-# calls in this file.
+# --- REGION: https://yuruna.link/42e220c4-0004
+# Stop on failed VM configuration; the child process exit is the caller's failure signal.
 $ErrorActionPreference = 'Stop'
 
-# Honor logLevel from Start-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+# --- REGION: Log level from environment
+# See https://yuruna.link/42e220c4-0003
+# Reuse the caller's log module; a forced reload discards its state.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
-if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
+if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
+    Import-Module $_logLevelMod -Global
+}
+if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $commonModulePath = Join-Path -Path (Split-Path -Parent $ScriptDir) -ChildPath "modules/Yuruna.Host.psm1"
@@ -142,12 +141,8 @@ $baseImageFile = Join-Path $downloadDir "$baseImageName.iso"
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.Image.psm1') -Force
 if (-not (Assert-YurunaBaseImage -BaseImageFile $baseImageFile -GuestFolder $PSScriptRoot)) { exit 1 }
 
-# Resolve the autoinstall password from the per-cycle authentication
-# vault. Get-Password returns the stored value if present, else
-# generates a fresh one (chained to whatever the previous guest in this
-# cycle committed -- see test/extension/authentication/default.psm1).
-# Cycle-end cleanup wipes the vault on success; a failed cycle leaves
-# it in place for debugging.
+# --- REGION: https://yuruna.link/42e220c4-0004
+# Use the persistent vault password, or the explicit YURUNA_GUEST_PASSWORD override.
 $_repoRootForExt = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
 $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
@@ -157,11 +152,8 @@ Write-Output "Password came from authentication mechanism: $_authActiveName"
 Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
 
 # --- REGION: Autoinstall password hash
-# SHA-512 ($6$) password hash for the autoinstall HASH_PLACEHOLDER.
-# ConvertTo-Sha512CryptHash centralizes the openssl probe + the `--`
-# end-of-options safety that keeps a leading-dash password
-# (e.g. `-4aWj*CRw` from New-RandomPassword) from being parsed as an
-# option. See Yuruna.Common\ConvertTo-Sha512CryptHash for rationale.
+# See https://yuruna.link/429f3d06-0017
+# Keep the shared hash helper: its -- separator protects leading-dash passwords.
 Import-Module (Join-Path $_repoRootForExt 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking
 try {
     $PasswordHash = ConvertTo-Sha512CryptHash -Plaintext $Password
@@ -172,8 +164,7 @@ try {
 
 Write-Verbose "Creating VM '$VMName' using image: $baseImageFile"
 # --- REGION: Base image provenance
-# Provenance side-channel for the transcript. Emits "Provenance: <url>"
-# when the sidecar is healthy; warns otherwise.
+# Emit the source URL from a healthy sidecar; warn when provenance is incomplete.
 Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
@@ -202,7 +193,6 @@ if ($existingVM) {
 }
 
 # --- REGION: Create copies and files for VM
-
 $vmDir = Join-Path $downloadDir $VMName
 if (!(Test-Path -Path $vmDir)) {
     New-Item -ItemType Directory -Path $vmDir -Force | Out-Null
@@ -243,6 +233,7 @@ foreach ($p in @($BaseUserData, $OverlayUserData)) {
     if (-not (Test-Path -LiteralPath $p)) { Write-Error "user-data template missing: $p"; exit 1 }
 }
 Import-Module (Join-Path $RepoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
+Import-Module (Join-Path $RepoRoot 'automation/Yuruna.GuestSeed.psm1') -Force
 
 # --- REGION: Yuruna harness SSH key
 # SSH public key used by the test harness.
@@ -252,12 +243,8 @@ $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
 # --- REGION: Detect the caching-proxy service
-# Detect the caching-proxy-service VM and inject its proxy URL if available.
-# Severity policy:
-#   * No cache VM         -> WARNING, proceed (direct CDN)
-#   * Cache VM stopped    -> WARNING, proceed (direct CDN)
-#   * Cache running, :3128
-#     doesn't answer      -> ERROR, exit 1
+# See https://yuruna.link/42e220c4-0004
+# Missing or stopped cache permits direct fetching; a running but unresponsive cache fails.
 if ($PSBoundParameters.ContainsKey('CachingProxyServiceUrl')) {
     # URL forwarded by the test runner. Skip discovery so this script
     # and the runner agree on one cache URL. On Hyper-V the race is
@@ -322,18 +309,8 @@ To intentionally skip the cache:
 }
 
 # --- REGION: Build the autoinstall apt block
-# --- REGION: https://yuruna.link/429f3d06-000a
-# Always emit `geoip: false` plus a pinned `primary:` mirror -- deterministic
-# election, and `primary:` rather than `sources_list:`. See
-# feedback_macos_utm_apt_block_resolute_curtin_trap.md.
-# Shared builder: automation/Yuruna.GuestSeed.psm1. The mirror follows the
-# guest architecture: archive.ubuntu.com carries amd64 only, and an ARM64
-# autoinstall pinned to it finds no packages and dies in curtin. OSArchitecture
-# rather than $env:PROCESSOR_ARCHITECTURE, which reports AMD64 for an x64 pwsh
-# under emulation on an ARM64 host.
-# The apt Acquire tuning it emits is a step-budget bound, so it has to be
-# identical on every host driver: copies inlined per driver drift, and a
-# mirror stall then burns a step budget on whichever host was missed.
+# See https://yuruna.link/429f3d06-000a
+# Use the shared apt builder to keep mirror selection and retry budgets identical.
 switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) {
     'X64'   { $primaryUri = 'http://archive.ubuntu.com/ubuntu' }
     'Arm64' { $primaryUri = 'http://ports.ubuntu.com/ubuntu-ports' }
@@ -342,30 +319,17 @@ switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) {
         exit 1
     }
 }
-Import-Module (Join-Path $RepoRoot 'automation/Yuruna.GuestSeed.psm1') -Force
 $AptProxyBlock = New-AptProxyBlock -PrimaryUri $primaryUri -CachingProxyServiceUrl $CachingProxyServiceUrl
 
-# --- REGION: Pick a vSwitch
-# Pick a vSwitch FIRST -- prefer Yuruna-External (LAN-bridged) so the
-# install VM gets a real LAN IP via DHCP and can reach the squid cache
-# directly. Default Switch fallback works for hosts that can't create
-# an External vSwitch (no LAN, Wi-Fi-only); install proceeds direct
-# against Ubuntu mirrors. Switch choice MUST be resolved before
-# Get-GuestReachableHostIp below (the host IP a guest reaches differs
-# by topology: Default Switch = 172.x.x.x gateway; External = LAN IP).
+# --- REGION: Select the guest network
+# See https://yuruna.link/42e220c4-0004
+# Select the switch before resolving the host address reachable through it.
 $switchName = Get-OrCreateYurunaExternalSwitch
 if (-not $switchName) {
     $switchName = 'Default Switch'
     if (-not (Get-VMSwitch -Name $switchName -ErrorAction SilentlyContinue)) {
-        # The Default Switch ships only with Windows client SKUs and an
-        # operator can delete it. New-VM throws on a switch name that
-        # resolves to nothing, so an unchecked fallback turns a degraded
-        # network into a failed provision; any switch that exists still
-        # creates and boots the VM. Rank non-External switches first: this
-        # path is normally reached because the host uplink is one Hyper-V
-        # refuses to carry a bridged guest MAC over, so a guest attached to
-        # an External switch there comes up with no carrier at all, while an
-        # Internal/NAT switch still gives it a working address.
+        # --- REGION: https://yuruna.link/42e220c4-0004
+        # Verify the fallback exists; prefer non-External switches when bridging is unavailable.
         $substituteSwitch = @(Get-VMSwitch -ErrorAction SilentlyContinue) |
             Sort-Object @{ Expression = { $_.SwitchType -eq 'External' } }, Name |
             Select-Object -First 1
@@ -390,7 +354,7 @@ $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot (Split-Path -Parent (Split-
 $YurunaHostPort = $_statusSeed.Port
 
 # --- REGION: Fetch caching-proxy-service CA cert (base64-embedded in seed)
-# --- REGION: https://yuruna.link/4220a755-0015
+# See https://yuruna.link/4220a755-0015
 # An empty $CaCertBase64 is NOT a harmless no-op (curl rc=60 SSL-bump gate).
 $CaCertBase64 = ""
 if ($CachingProxyServiceUrl) {
@@ -405,7 +369,7 @@ if ($CachingProxyServiceUrl) {
 }
 
 # --- REGION: Render user-data / meta-data
-# --- REGION: https://yuruna.link/4220a755-0003
+# See https://yuruna.link/4220a755-0003
 # Bake yuruna-retry.sh + fetch-and-execute.sh into the seed as base64-encoded
 # write_files entries. Eliminates the legacy network-dependent wget+wget
 # bootstrap and ensures both files are on disk before any guest script runs.
@@ -431,18 +395,7 @@ $MetaData = (Get-Content -Raw $MetaDataTemplate) `
     -replace 'HOSTNAME_PLACEHOLDER', $GuestHostname
 Set-Content -Path "$SeedDir/meta-data" -Value $MetaData -NoNewline
 # --- REGION: https://yuruna.link/4220a755-000b
-# Governs the INSTALLER's own DHCP request, and subiquity carries the network
-# config it installed with into the target -- so the pin is present from the
-# very first lease this guest ever asks for. The late-command in the
-# autoinstall user-data patches the same key into the installed netplan and
-# stays as the belt to this braces; it cannot replace this, because by the time
-# a late-command runs the installer has already taken a lease under the default
-# machine-id identity, and on a long lease that address is spent for a week.
-# Matching en*/eth* by name lets one shared file cover enp0s1 on UTM, eth0 on
-# Hyper-V and enp1s0 on KVM, and netplan resolves those globs against real
-# devices. The match must hold: a seeded network-config REPLACES the config
-# cloud-init would otherwise generate, so one that resolves to no interface
-# leaves the guest -- or, during an install, the installer -- with no network.
+# The shared network-config pins DHCP identity during installation and after reboot.
 Copy-Item -LiteralPath (Join-Path $HostVmConfigDir 'guest-dhcp.network-config') `
     -Destination "$SeedDir/network-config" -Force
 
@@ -451,14 +404,13 @@ $SeedIso = Join-Path $vmDir "seed.iso"
 Write-Verbose "Generating seed.iso with autoinstall configuration..."
 CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId "cidata"
 
-# --- REGION: https://yuruna.link/42fa6f45-0016
+# --- REGION: Create and configure the Hyper-V VM
+# See https://yuruna.link/42fa6f45-0016
 # Static (min=max=startup, dynamic disabled) so a hung swap/paging never
 # distorts a cycle -- see docs/vmconfig.md#disable-swap.
 try { $vmMemoryBytes = ConvertTo-MemoryStartupBytes $MemoryStartupBytes } catch { Write-Error $_.Exception.Message; exit 1 }
 if ($vmMemoryBytes -le 0) { $vmMemoryBytes = 12288MB }
 Write-Verbose "VM memory: $([math]::Round($vmMemoryBytes / 1GB, 2)) GB ($vmMemoryBytes bytes)."
-
-# --- REGION: Create and configure the Hyper-V VM
 Write-Verbose "Creating new VM '$VMName' on switch '$switchName'..."
 Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes $vmMemoryBytes -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
 
@@ -480,7 +432,7 @@ Set-VM -Name $VMName -MemoryStartupBytes $vmMemoryBytes -MemoryMinimumBytes $vmM
 Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
 Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
 
-# --- REGION: docs/host-hyperv.md#arm64-hosts-the-heartbeat-channel-wedges-a-linux-guest
+# --- REGION: https://yuruna.link/42dc5bb9-0005
 # No-op on AMD64. On ARM64 the heartbeat channel stops this guest booting
 # at all -- it freezes on the hv_utils IC version lines, one driver short of
 # hv_storvsc, so the root disk never enumerates and the installer is never
@@ -540,7 +492,7 @@ Set-VMProcessor @vmProcessorArgs | Out-Null
 # in waitForText sequence steps.
 Set-VMVideo -VMName $VMName -HorizontalResolution 1920 -VerticalResolution 1080 -ResolutionType Single
 
-# --- REGION: Cleanup temporary folders
+# --- REGION: Clean up temporary files
 Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- REGION: Guidance

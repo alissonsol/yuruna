@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 426aeda1-aa39-4af4-ab2d-2e9d00f2ca45
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -17,7 +17,6 @@
 #requires -version 7
 
 # --- REGION: https://yuruna.link/42d38664-0006
-
 # Pre-cycle config gate: spawn Test-Config.ps1 in a fresh pwsh so an
 # Out-Of-Order ::Stop / early exit inside Test-Config can't unwind the
 # caller's eternal loop. -SkipSend is mandatory in this gating context:

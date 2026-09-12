@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 425d0d82-ebe2-4d28-90df-3b22ff1c2915
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -313,5 +313,5 @@ if ($storageAlreadyHere) {
 }
 Write-Output "  2. Set networkStorage.* in test/test.config.yml on each host."
 Write-Output "  3. Stand up pool-control service; it serves the intent repo and that URL becomes pool.intentGitUrl."
-Write-Output "  See https://yuruna.link/operator and https://yuruna.link/pool-admin."
+Write-Output "  See https://yuruna.link/42ad660e and https://yuruna.link/4207d71a."
 exit 0

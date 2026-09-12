@@ -45,8 +45,7 @@ function webDir(service) {
   return path.join(EXT, service, 'server', 'internal', 'httpsrv', 'web');
 }
 
-// --- the pages, and what each one must have filled ---------------------------
-
+// --- REGION: Pages and required content
 const PAGES = [
   { service: 'pool-control-service', file: 'board.html', fills: 'cards', reveals: 'board' },
   { service: 'pool-control-service', file: 'index.html', fills: 'pool-rows' },
@@ -62,8 +61,7 @@ const PAGES = [
   { service: 'download-agent-service', file: 'diagnostics.html', fills: 'error-rows' },
 ];
 
-// --- fetch fixtures ----------------------------------------------------------
-
+// --- REGION: Fetch fixtures
 const HOST = '426d17ef0b88426b922180dad1a9e921';
 
 // One record per collection, so a filled region proves the row-building path
@@ -143,8 +141,7 @@ function bodyFor(url) {
   return { ok: true };
 }
 
-// --- DOM stub ----------------------------------------------------------------
-
+// --- REGION: DOM stub
 function makeText(s) { return { nodeType: 3, textContent: String(s), parentNode: null, children: [] }; }
 
 function makeEl(tag) {
@@ -214,8 +211,7 @@ function scriptsIn(html) {
   return out;
 }
 
-// --- one page ----------------------------------------------------------------
-
+// --- REGION: Page checks
 function runPage(page) {
   const dir = webDir(page.service);
   const html = fs.readFileSync(path.join(dir, page.file), 'utf8');
@@ -308,8 +304,7 @@ function fire(el, type) {
 
 const settle = () => new Promise((r) => setTimeout(r, 0));
 
-// --- the run -----------------------------------------------------------------
-
+// --- REGION: Test run
 (async function () {
   const problems = [];
   let menusOpened = 0;

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 420effcb-c2e1-4c95-b3b0-ddb550aecce4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -102,7 +102,7 @@ Import-Module -Name (Join-Path $ScriptDir 'modules/Yuruna.Host.psm1') -Force
 # fails with "Class not registered" on some fresh pwsh 7 sessions.
 if (-not (Assert-HyperVEnabled)) { exit 1 }
 
-# --- REGION: Scan for VM files
+# --- REGION: Scan for VM artifacts
 $vmHost = Get-VMHost
 $vhdPath = $vmHost.VirtualHardDiskPath
 $vmPath = $vmHost.VirtualMachinePath
@@ -156,7 +156,7 @@ if ($allFiles.Count -eq 0) {
     exit 0
 }
 
-# --- REGION: Enumerate registered VMs and the files they claim
+# --- REGION: Enumerate registered VMs
 $allVMs = Get-VM
 $claimedFiles = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
 
@@ -249,7 +249,7 @@ foreach ($vm in $allVMs) {
     Write-CleanupMessage ""
 }
 
-# --- REGION: Identify orphaned files (excluding base images)
+# --- REGION: Identify orphaned VM artifacts
 $orphanedFiles = [System.Collections.Generic.List[string]]::new()
 $protectedFiles = [System.Collections.Generic.List[string]]::new()
 
@@ -293,7 +293,7 @@ if ($protectedFiles.Count -gt 0) {
 }
 
 # --- REGION: Strip stale per-VM ACEs from kept base images
-# --- REGION: https://yuruna.link/429f3d06-0093
+# See https://yuruna.link/429f3d06-0093
 # Runs every invocation, before the deletion prompt -- safe maintenance that
 # only removes access for VMs that no longer exist.
 foreach ($filePath in $protectedFiles) {
@@ -307,7 +307,7 @@ foreach ($filePath in $protectedFiles) {
     }
 }
 
-# --- REGION: Delete orphaned files
+# --- REGION: Delete orphaned VM artifacts
 if ($orphanedFiles.Count -eq 0) {
     Write-CleanupMessage "No orphaned files found. Nothing to clean up."
     exit 0

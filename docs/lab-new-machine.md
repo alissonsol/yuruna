@@ -46,7 +46,7 @@ covers repairing one that was).
 machine, the local account's password answers to the policy pushed to
 the machine -- length, complexity, history, and possibly an expiry.
 Choose one that satisfies that policy on the first try, and know where
-the password lives afterwards. When the authentication vault already
+the password lives afterward. When the authentication vault already
 holds a local-OS password for this account name, the script creates the
 account with *that* password, so the credential the harness hands out
 keeps matching the account. Type a different one -- because the stored
@@ -266,6 +266,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.08
+Last review: 2026.09.12
 
 Back to [Yuruna](../README.md)

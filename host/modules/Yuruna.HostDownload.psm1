@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42d93b11-69e5-4250-b84e-294562b68efd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -424,5 +424,4 @@ function Invoke-HttpsViaSquidBump {
 }
 
 # --- REGION: Exports
-
 Export-ModuleMember -Function Test-CachingProxyServicePort, Test-DownloadAlreadyCurrent, Write-ImageSentinel, Get-CacheProxyForHostDownload, Save-CachedHttpUri, Invoke-HttpsViaSquidBump

@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Caching proxy service</title>
+<style>
+  /* The same dark surface and banding the parser page on this VM uses, so the
+     two services on one machine read as one product. */
+  :root { --band-odd: #111827; --band-even: #0b1220; }
+  body { font: 12px Menlo, Consolas, monospace; background: #111827; color: #e5e7eb;
+         margin: 0; padding: 12px; }
+  h1 { font-size: 14px; margin: 0 0 8px; color: #9ca3af; font-weight: 600; }
+  /* #6b7280 computes 3.67:1 on this page's #111827 and 3.04:1 on the hover
+     band -- below the 4.5:1 body-text floor at the 12px this page sets. #9ca3af
+     is the same neutral one step up and is already the h1 color here, so the
+     hierarchy survives while every tier clears AA. */
+  #meta { color: #9ca3af; font-weight: 400; margin: 0 0 8px; }
+  /* 26px tall at this font size, which clears the 24x24 minimum for a pointer
+     target, and the focus ring is drawn outside the border so it stays visible
+     against the button's own fill. */
+  #controls { margin: 0 0 8px; }
+  button { font: inherit; color: #e5e7eb; background: #1f2937;
+           border: 1px solid #4b5563; border-radius: 3px; padding: 6px 10px; }
+  button:hover { background: #374151; }
+  button:focus-visible { outline: 2px solid #93c5fd; outline-offset: 2px; }
+  h2 { font-size: 12px; margin: 14px 0 4px; color: #9ca3af; font-weight: 600;
+       text-transform: uppercase; letter-spacing: .04em; }
+  table { width: 100%; max-width: 90ch; border-collapse: collapse; }
+  th, td { text-align: left; padding: 3px 8px; border-bottom: 1px solid #1f2937;
+           vertical-align: top; }
+  th { color: #9ca3af; font-weight: 600; width: 26ch; }
+  tbody tr:nth-child(odd) { background: #111827; background: var(--band-odd); }
+  tbody tr:nth-child(even) { background: #0b1220; background: var(--band-even); }
+  tr:hover td { background: #1f2937; }
+  .ok    { color: #10b981; }
+  .warn  { color: #fbbf24; }
+  .red   { color: #f87171; }
+  .gray  { color: #9ca3af; }
+  code { color: #93c5fd; }
+  footer { margin-top: 16px; color: #9ca3af; }
+  a { color: #93c5fd; }
+</style>
+<script>// From globalization/kernel/yuruna.fetch-shim.js -- see that file for why.
+(function (window) {
+  'use strict';
+
+  // Only the STAND-IN is conditional. Everything below it is defined either
+  // way: an early return here would leave yurunaRequest undefined on every
+  // browser that has a native fetch, which is almost all of them, and the
+  // pages that call it would fail on the modern browsers rather than the old
+  // one this file exists for.
+  if (!window.fetch) {
+    window.fetch = function (url, options) {
+      options = options || {};
+      return new Promise(function (resolve, reject) {
+        var xhr = new XMLHttpRequest();
+        xhr.open(options.method || 'GET', url, true);
+        var headers = options.headers;
+        if (headers) {
+          for (var k in headers) {
+            if (Object.prototype.hasOwnProperty.call(headers, k)) { xhr.setRequestHeader(k, headers[k]); }
+          }
+        }
+        xhr.onload = function () {
+          var body = xhr.responseText;
+          resolve({
+            ok: xhr.status >= 200 && xhr.status < 300,
+            status: xhr.status,
+            statusText: xhr.statusText,
+            text: function () { return Promise.resolve(body); },
+            json: function () {
+              return new Promise(function (res, rej) {
+                try { res(JSON.parse(body)); } catch (e) { rej(e); }
+              });
+            }
+          });
+        };
+        xhr.onerror = function () { reject(new Error('Network error')); };
+        // abort() fires onabort, not onerror. Without this the promise of an
+        // abandoned request stays pending for the life of the page, and whatever
+        // is waiting on it is never told anything.
+        xhr.onabort = function () { reject(new Error('The request was given up on.')); };
+        // Handed out so a caller can abandon a stalled request. The native path
+        // uses AbortController for the same job; this is the only handle that
+        // exists when there is no native fetch to attach a signal to.
+        if (options.yurunaXhrOut) { options.yurunaXhrOut(xhr); }
+        xhr.send(options.body || null);
+      });
+    };
+  }
+}(window));
+// From globalization/kernel/yuruna.rawpage.js -- see that file for why.
+(function (window) {
+  'use strict';
+
+  //
+  // The timer settles the caller's promise itself rather than waiting for the
+  // transport to fail. Between the two supported edges there is a browser with
+  // a native fetch and no AbortController: nothing there can cancel the
+  // request, and a timeout that could only abort would leave the caller
+  // waiting forever on a promise that never settles -- a hang wearing a
+  // timeout's clothes. Cancellation is still attempted where it is possible,
+  // so the socket is freed; the caller is answered on time either way.
+  window.yurunaRequest = function (url, timeoutMs) {
+    var ms = timeoutMs > 0 ? timeoutMs : 10000;
+    var controller = (typeof window.AbortController !== 'undefined') ? new window.AbortController() : null;
+    var init = {};
+    var xhr = null;
+    if (controller) { init.signal = controller.signal; }
+    else { init.yurunaXhrOut = function (x) { xhr = x; }; }
+
+    return new Promise(function (resolve, reject) {
+      var done = false;
+      var timer = null;
+      var finish = function (settle, value) {
+        if (done) { return; }
+        done = true;
+        if (timer) { window.clearTimeout(timer); timer = null; }
+        settle(value);
+      };
+      timer = window.setTimeout(function () {
+        if (controller) { controller.abort(); }
+        else if (xhr && xhr.abort) { try { xhr.abort(); } catch (e) { /* already done */ } }
+        finish(reject, new Error('The request took too long and was given up on.'));
+      }, ms);
+      window.fetch(url, init).then(function (r) {
+        if (!r.ok) { throw new Error('HTTP ' + r.status); }
+        return r.json();
+      }).then(function (data) {
+        finish(resolve, data);
+      }, function (e) {
+        finish(reject, e);
+      });
+    });
+  };
+
+  // The time alone, in a shape that does not change with the reader's device.
+  //
+  // toLocaleTimeString is the obvious call and the wrong one: at the floor it
+  // ignores the locale it is handed and answers in the browser's own, so the
+  // refresh stamp on a page served in one language is written in another --
+  // and the page has no shared runtime to borrow a formatter from.
+  window.yurunaLocalTime = function (value) {
+    var when = (value instanceof Date) ? value : new Date(value);
+    if (isNaN(when.getTime())) { return ''; }
+    var pad = function (n) { return n < 10 ? '0' + n : '' + n; };
+    return pad(when.getHours()) + ':' + pad(when.getMinutes()) + ':' + pad(when.getSeconds());
+  };
+}(window));</script>
+<script>
+window.yurunaRequest = function () { return Promise.reject(new Error('exported failure state')); };
+</script>
+</head><body>
+<h1>Caching proxy service</h1>
+<!-- The refresh timestamp is rewritten on every tick, so it sits beside the
+     heading rather than inside it: a document whose h1 changes six times a
+     minute has no stable name to navigate to. -->
+<p id="meta"></p>
+<!-- role="alert" and empty at load: a live region has to exist before its text
+     is written to be announced reliably. Deliberately NOT on #meta, which is a
+     timestamp -- announcing that every 10 seconds would be a spoken clock. The
+     thing worth interrupting for is the data going stale, which is what fills
+     this. -->
+<p id="err" role="alert"></p>
+<p id="controls"><button type="button" id="pause" aria-pressed="false">Pause auto-refresh</button></p>
+
+<h2>Squid</h2>
+<table><tbody id="squid"></tbody></table>
+
+<h2>Switches</h2>
+<table><tbody id="switches"></tbody></table>
+
+<h2>Registry</h2>
+<table><tbody id="registry"></tbody></table>
+
+<footer>
+  Read-only. JSON: <a href="/api/status">/api/status</a>,
+  <a href="/api/switches">/api/switches</a>,
+  <a href="/api/hostinfo">/api/hostinfo</a>,
+  <a href="/healthz">/healthz</a>.
+  <div id="switchhelp" style="margin-top:6px"></div>
+</footer>
+
+<script>
+function row(tbody, label, value, klass) {
+  var tr = document.createElement('tr');
+  var th = document.createElement('th');
+  th.textContent = label;
+  var td = document.createElement('td');
+  td.textContent = (value === null || value === undefined || value === '') ? '--' : String(value);
+  if (klass) { td.className = klass; }
+  tr.appendChild(th); tr.appendChild(td); tbody.appendChild(tr);
+}
+function clear(id) {
+  var t = document.getElementById(id);
+  while (t.firstChild) { t.removeChild(t.firstChild); }
+  return t;
+}
+function refresh() {
+  // Bounded: this page refreshes on a timer, and a request that never
+  // settles would leave the table showing a state the proxy left minutes ago
+  // with nothing to say it is stale.
+  yurunaRequest('/api/status', 8000).then(function (s) {
+    var sq = clear('squid');
+    if (s.squid && s.squid.reachable) {
+      row(sq, 'reachable', 'yes', 'ok');
+      row(sq, 'version', s.squid.version);
+      row(sq, 'uptime (s)', s.squid.uptimeSeconds);
+      row(sq, 'requests', s.squid.requestsTotal);
+      row(sq, 'hit ratio (5min %)', s.squid.hitRatioPct);
+      row(sq, 'cache size (KB)', s.squid.cacheSizeKB);
+      row(sq, 'file descriptors', s.squid.fileDescriptorsInUse);
+    } else {
+      row(sq, 'reachable', 'no', 'red');
+      row(sq, 'error', s.squid ? s.squid.error : '', 'red');
+    }
+
+    var sw = clear('switches');
+    if (s.switches) {
+      // offline_mode suppresses revalidation, not fetching -- amber, because it
+      // is a deliberate state worth noticing rather than a fault.
+      row(sw, 'offline mode', s.switches.offline ? 'on' : 'off',
+          s.switches.offline ? 'warn' : 'gray');
+      row(sw, 'no upstream', s.switches.noUpstream ? 'on' : 'off',
+          s.switches.noUpstream ? 'warn' : 'gray');
+      row(sw, 'read from', s.switches.source, 'gray');
+      if (s.switches.detail) { row(sw, 'note', s.switches.detail, 'gray'); }
+    }
+
+    var rg = clear('registry');
+    if (s.registry && s.registry.reachable) {
+      row(rg, 'reachable', 'yes', 'ok');
+      row(rg, 'repositories', s.registry.repositories);
+      row(rg, 'canary', s.registry.canaryOk ? 'ok' : 'not ok',
+          s.registry.canaryOk ? 'ok' : 'red');
+      row(rg, 'canary latency (s)', s.registry.canaryLatencySeconds);
+      row(rg, 'prewarm last run', s.registry.prewarmLastRun);
+      if (s.registry.prewarmTotal) {
+        row(rg, 'prewarm held', s.registry.prewarmHeld + ' / ' + s.registry.prewarmTotal);
+      }
+    } else {
+      row(rg, 'reachable', 'no', 'red');
+      row(rg, 'error', s.registry ? s.registry.error : '', 'red');
+    }
+
+    document.getElementById('meta').textContent =
+      '(' + s.mode + ' mode, v' + s.version + ', refreshed ' + yurunaLocalTime(new Date()) + ')';
+
+    // Remote mode cannot apply a switch at all; say so rather than offering a
+    // command that would answer 501.
+    var help = clear('switchhelp');
+    var line = document.createElement('div');
+    if (s.mode === 'remote') {
+      line.textContent = 'Remote mode: the switches are readable here but can only be applied by the daemon on the proxy VM itself.';
+    } else {
+      line.textContent = 'Flip a switch: POST /api/switches/offline {"on":true} with the internal authentication key as a bearer.';
+    }
+    help.appendChild(line);
+    document.getElementById('err').textContent = '';
+  }).catch(function () {
+    document.getElementById('meta').textContent = '(refresh failed)';
+    // A sighted reader sees the header change; without this the values below
+    // simply stop moving, which looks identical to a quiet lab.
+    document.getElementById('err').textContent =
+      'Refresh failed. The values below are from the last successful read.';
+  });
+}
+// The handle is kept so the control above has something to clear. Discarding
+// it leaves the poll unstoppable even in principle, which is what turns a
+// refresh into moving content with no mechanism to pause it.
+var timer = null;
+var pause = document.getElementById('pause');
+function startPolling() { if (timer === null) { timer = setInterval(refresh, 10000); } }
+function stopPolling() { if (timer !== null) { clearInterval(timer); timer = null; } }
+pause.addEventListener('click', function () {
+  if (pause.getAttribute('aria-pressed') === 'true') {
+    pause.setAttribute('aria-pressed', 'false');
+    pause.textContent = 'Pause auto-refresh';
+    startPolling();
+    refresh();
+  } else {
+    pause.setAttribute('aria-pressed', 'true');
+    pause.textContent = 'Resume auto-refresh';
+    stopPolling();
+  }
+});
+refresh();
+startPolling();
+</script>
+</body></html>

@@ -12,7 +12,7 @@ under `vmStart`, `vmImage`, `vmCommunication`, `repositories`, and
 
 | Key | Default | Description |
 |-----|---------|-------------|
-| `guestSequence` | _required_ | Array of guest keys; each must correspond to `host/<short-host>/<guestKey>/` |
+| `guestSequence` | _fallback_ | Guest keys, read only when no cycle plan resolves from `test/test.runner.yml` in the project repository; each must correspond to `host/<short-host>/<guestKey>/` |
 | `testCycle.cycleDelaySeconds` | `300` | Pause between cycles |
 | `testCycle.stopOnFailure` | `false` | `true` = stop on first failure and preserve VM; `false` = clean up and continue. Failure artifacts always copied to `status/log/` |
 | `testCycle.recentDisplayCount` | `30` | Runs kept in status history |
@@ -26,6 +26,7 @@ under `vmStart`, `vmImage`, `vmCommunication`, `repositories`, and
 | `vmImage.alwaysRedownload` | `false` | Force re-download even if image exists |
 | `vmCommunication.charDelayMs` | `10` | ms between keystrokes in `inputText`/`inputTextAndEnter` (per-step `charDelayMs` in sequences overrides this default) |
 | `vmCommunication.pollSeconds` | `5` | Default poll interval (seconds) for wait-style actions (`waitForText`, `passwdPrompt`, `waitForAndEnter`, `sshWaitReady`, ...). A step's own `pollSeconds` overrides this default |
+| `vmCommunication.screenHistorySize` | `20` | Raw console frames kept per VM by the wait loop. Deleted when the guest passes; kept (and copied next to the failure log) when it fails, so this sets how much of the run-up to a failure a reader gets. A frame costs a screenshot plus an OCR pass on top of `pollSeconds` -- around 8 s each -- so 20 is about two and a half minutes of history, at a PNG plus its OCR text (order 100 KB) per frame. Values outside `1..240` are clamped |
 | `vmCommunication.timeoutSeconds` | `180` | Default timeout (seconds) for wait-style actions (`waitForText`, `passwdPrompt`, `fetchAndExecute`, `sshExec`, `sshWaitReady`, ...). A step's own `timeoutSeconds` overrides this default |
 | `vmCommunication.vncPort` | `5900` | Fallback VNC port when no VM name is given. Per-VM ports (5910..5989) are derived from the VM name by `Get-VncDisplayForVm` (`host/macos.utm/modules/Yuruna.Host.psm1`); each QEMU-backed UTM guest gets a unique port so concurrent VMs can't poach each other's framebuffer |
 | `repositories.frameworkUrl` | `https://github.com/alissonsol/yurunadev` | URL of the framework repo. Used by status page for commit links AND polled by the outer runner during a failure-pause to break out early when a new commit lands upstream. |
@@ -52,8 +53,15 @@ Copy any custom values from `test.config.yml.backup` into the new
 
 ### Guest ordering and skipping
 
-Omit a guest from `guestSequence` to skip it. Listing one with no folder
-marks a per-guest failure; others still run unless `testCycle.stopOnFailure`.
+A cycle takes its guests from the `sequences:` list in `test/test.runner.yml`
+in the project repository. `guestSequence` is the fallback, read only when that
+file resolves no plan at all -- so on a host whose project repository resolves a
+plan, editing it changes nothing. The cycle transcript says which of the two
+decided the run, in the guest-set block right after the config echo.
+
+When the fallback is in use: omit a guest from `guestSequence` to skip it.
+Listing one with no folder marks a per-guest failure; others still run unless
+`testCycle.stopOnFailure`.
 
 ### Notifications (Resend) — full setup
 
@@ -330,6 +338,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.08
+Last review: 2026.09.12
 
 Back to [Yuruna](../README.md)

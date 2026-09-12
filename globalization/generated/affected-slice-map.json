@@ -17,6 +17,7 @@
         "P-02",
         "P-03",
         "P-04-M-01",
+        "REGISTRY-METRICS",
         "T-01-T-07",
         "T-02",
         "T-03",
@@ -37,8 +38,11 @@
       "reachableBlockers": [
         "B-07",
         "M-02",
+        "MCP-TRANSCRIPT",
         "P-01",
         "P-04-M-01",
+        "REGISTRY-METRICS",
+        "RETRY-OUTCOME",
         "T-01-T-07",
         "T-02",
         "T-03",
@@ -172,6 +176,24 @@
       ],
       "consumers": [
         "signature:m04-prose-assertion-census"
+      ]
+    },
+    {
+      "id": "MCP-TRANSCRIPT",
+      "kind": "blocker",
+      "status": "closed",
+      "owner": "G1-08",
+      "slices": [
+        "status-pause-generated"
+      ],
+      "domains": [
+        "runner",
+        "status-service",
+        "status-ui"
+      ],
+      "consumers": [
+        "signature:mcp-transcript-consumer",
+        "signature:mcp-transcript-producer"
       ]
     },
     {
@@ -326,6 +348,47 @@
       ],
       "consumers": [
         "signature:p06-pool-error-detail-census"
+      ]
+    },
+    {
+      "id": "REGISTRY-METRICS",
+      "kind": "blocker",
+      "status": "closed",
+      "owner": "G1-08",
+      "slices": [
+        "pool-repository-project",
+        "status-pause-generated"
+      ],
+      "domains": [
+        "extension-sdk",
+        "pool-aggregator",
+        "pool-control",
+        "project-config",
+        "runner",
+        "status-service",
+        "status-ui"
+      ],
+      "consumers": [
+        "signature:registry-metrics-consumer",
+        "signature:registry-metrics-producer"
+      ]
+    },
+    {
+      "id": "RETRY-OUTCOME",
+      "kind": "blocker",
+      "status": "closed",
+      "owner": "G1-08",
+      "slices": [
+        "status-pause-generated"
+      ],
+      "domains": [
+        "runner",
+        "status-service",
+        "status-ui"
+      ],
+      "consumers": [
+        "signature:retry-outcome-consumer",
+        "signature:retry-outcome-producer"
       ]
     },
     {
@@ -699,7 +762,7 @@
       "path": "test/modules/Test.Ssh.psm1",
       "code": "",
       "role": "consumer",
-      "matchCount": 2
+      "matchCount": 1
     },
     {
       "id": "signature:m02-diagnostic-explicit-class",
@@ -733,6 +796,24 @@
       "finding": "M-04",
       "source": "source-signature",
       "path": "test/modules/Test.ConsoleSecondOpinion.Tests.ps1",
+      "code": "",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "signature:mcp-transcript-consumer",
+      "finding": "MCP-TRANSCRIPT",
+      "source": "source-signature",
+      "path": "test/service/Start-McpServer.ps1",
+      "code": "",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "signature:mcp-transcript-producer",
+      "finding": "MCP-TRANSCRIPT",
+      "source": "source-signature",
+      "path": "automation/Yuruna.LogLevel.psm1",
       "code": "",
       "role": "consumer",
       "matchCount": 1
@@ -825,7 +906,43 @@
       "path": "test/extension/pool-control-service/server/internal/httpsrv/board.go",
       "code": "",
       "role": "consumer",
-      "matchCount": 3
+      "matchCount": 4
+    },
+    {
+      "id": "signature:registry-metrics-consumer",
+      "finding": "REGISTRY-METRICS",
+      "source": "source-signature",
+      "path": "automation/Get-SystemDiagnostic.ps1",
+      "code": "",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "signature:registry-metrics-producer",
+      "finding": "REGISTRY-METRICS",
+      "source": "source-signature",
+      "path": "host/vmconfig/caching-proxy-service.base.user-data",
+      "code": "",
+      "role": "consumer",
+      "matchCount": 4
+    },
+    {
+      "id": "signature:retry-outcome-consumer",
+      "finding": "RETRY-OUTCOME",
+      "source": "source-signature",
+      "path": "automation/Get-SystemDiagnostic.ps1",
+      "code": "",
+      "role": "consumer",
+      "matchCount": 1
+    },
+    {
+      "id": "signature:retry-outcome-producer",
+      "finding": "RETRY-OUTCOME",
+      "source": "source-signature",
+      "path": "automation/yuruna-retry.sh",
+      "code": "",
+      "role": "consumer",
+      "matchCount": 2
     },
     {
       "id": "signature:t02-sid-acl",
@@ -937,10 +1054,10 @@
   ],
   "summary": {
     "sliceCount": 2,
-    "blockerCount": 12,
+    "blockerCount": 15,
     "openBlockerCount": 0,
     "displayOnlyCount": 10,
-    "consumerCount": 43,
+    "consumerCount": 49,
     "literalExclusionCount": 7
   }
 }

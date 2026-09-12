@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42ff1bc2-5f12-4c34-8a53-a45f6186f94f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,78 +21,13 @@
     Prepares the macOS UTM host to run yuruna automated VM tests.
 
 .DESCRIPTION
-    Configures host-side settings needed for unattended, long-running test
-    runs against UTM guest VMs:
-      * utmctl on PATH -- /usr/local/bin/utmctl linked to the copy UTM keeps
-        inside its app bundle, which no UTM installer puts on anyone's PATH.
-        Every VM operation in the harness shells out to it, so the cycle gate
-        refuses a host without it
-      * display sleep, system sleep, disk sleep -> Never
-      * screen saver idle time + password -> disabled (user + currentHost)
-      * sysadminctl unified screen lock -> off (Ventura+)
-      * AutoLogOutDelay -> 0 (kills "Log out after N min of inactivity")
-      * App Nap for UTM.app -> suppressed
-      * UTM.app survives its last window closing -> on, so closing a VM
-        window no longer terminates UTM and suspends every running VM
-        (the caching proxy and stash services included)
-      * Power Nap / standby / auto-poweroff / hibernation -> all off
-      * lid-close (clamshell) sleep -> disabled, so a MacBook keeps running
-        its cycle with the lid shut
-      * hot corners bound to Start Screen Saver / Display Sleep / Lock
-        Screen -> neutralized
-      * AppleSpacesSwitchOnActivation -> false (UTM activate during a run
-        no longer yanks the operator off another macOS Space -- e.g. when
-        debugging in VS Code on a different desktop while the runner is
-        going through an AVF-guest keystroke step)
-      * the macOS privacy grants no script can give itself -- Accessibility
-        (keystroke injection), Screen Recording (window enumeration and
-        per-window capture, a separate TCC bucket), and Automation -> UTM
-        (utmctl drives UTM over Apple Events). For each one this raises the
-        system dialog, opens the exact settings pane, names the application
-        that has to be enabled, and then WAITS and re-reads, so the run
-        confirms the grant instead of telling you to run something again to
-        find out whether the click worked. The same registry backs the
-        pre-cycle gate, so both describe a grant identically
-
-    Manual one-time step (intentionally NOT scripted -- Dock plist editing
-    is fragile): right-click UTM in the Dock -> Options -> Assign To -> All
-    Desktops. With this and AppleSpacesSwitchOnActivation off, you can
-    leave a long Start-TestRunner cycle running in its own Space and
-    debug in VS Code on another Space without disruption.
-    Requires sudo (pmset, defaults write /Library/Preferences, sysadminctl).
-    Every elevated write goes out as `sudo -n` after probing that root is
-    reachable, so a host that cannot elevate reports the exact command to run
-    instead of raising a password prompt where nobody can answer it.
-
-    The unified screen lock additionally needs your macOS ACCOUNT password,
-    which sudo cannot supply: sysadminctl reads it from stdin with a plain
-    read that leaves terminal echo ON, so the harness reads it masked and
-    pipes it in rather than letting anyone type at that prompt. It is asked
-    for separately from the sudo prompt, and appears as nothing on screen.
-    Idempotent -- safe to run multiple times.
-
-    Exits 0 when every condition is in place and 2 when the settings were
-    applied but something still needs an operator (an account password only a
-    person can type, an MDM profile enforcing a lock). Re-running does not clear
-    a 2, which is why it is not reported as an outright failure.
-
-    Run this before Start-TestRunner.ps1. Assert-HostConditionSet gates
-    every subsequent cycle on both permissions and on screen-lock /
-    display-sleep settings.
-
-    IMPORTANT: the privacy prompts fire only on the FIRST request per process.
-    If you dismiss one, macOS will not ask again -- you must toggle it in the
-    settings pane this script opens for you, and for Screen Recording FULLY
-    QUIT / relaunch the terminal (that grant does not apply to the
-    already-running process). Enable the TERMINAL application, not pwsh:
-    macOS attributes a privacy request to the responsible process, so a list
-    entry for the shell grants nothing.
-
-    None of these can be granted from a script even as root. macOS keeps them
-    in TCC databases that System Integrity Protection guards against every
-    writer, `tccutil` can only reset a decision, and the one supported way to
-    pre-authorize them is an MDM-delivered Privacy Preferences Policy Control
-    profile. See docs/host-macos.md for the fleet-provisioning route.
+    Captures the host's original settings once, then applies the platform's
+    unattended-test prerequisites and optional pool-storage setup. Re-running
+    preserves the original capture used by Disable-TestAutomation.ps1.
+    See https://yuruna.link/42e220c4-0004 and https://yuruna.link/42885ada-0001.
+    Run without sudo. Individual privileged changes announce their requirements;
+    macOS privacy grants and the account password still require the operator.
+    Exit 2 means some settings still need operator attention.
 
 .PARAMETER WhatIf
     Shows what would change without applying any settings.
@@ -118,6 +53,7 @@ $ErrorActionPreference = "Stop"
 # nothing and the operator can't tell what changed.
 $InformationPreference = 'Continue'
 
+# --- REGION: Initialize host setup
 # Shared bootstrap (Test.HostContract import + sudo prime + powershell-yaml +
 # PSScriptAnalyzer install) lives in automation/Yuruna.HostSetup.psm1.
 # -SudoCacheReason keeps the sudo prompt EARLY (before the two PSGallery
@@ -157,7 +93,7 @@ $conditionResult = @(Set-MacHostConditionSet @conditionArgs)
 $unmetCount = @($conditionResult | Where-Object { $_ -is [int] } | Select-Object -Last 1)
 $unmetCount = if ($unmetCount.Count) { [int]$unmetCount[0] } else { 0 }
 
-# --- REGION: networkStorage pool host-identity setup + reimage reclaim (interactive)
+# --- REGION: Pool storage and host identity
 # Offer to configure networkStorage pool (NAS replication) and, on a host with no local
 # pool identity, scan the NAS registry to reclaim a prior uuid after a reimage.
 # Self-skips cleanly when run non-interactively or under -WhatIf. The orchestrator
@@ -170,21 +106,7 @@ if ($SkipPoolStorage) {
 }
 
 # --- REGION: Outcome
-# The exit code is the only failure channel across the child-process boundary:
-# everything this script says about a setting it could not apply goes to a
-# captured log the orchestrator does not read, so an explicit exit is the one
-# way that host is distinguishable from a clean success. Falling off the end
-# gives 0.
-#
-#   0  every condition is in place
-#   1  the script threw (ErrorActionPreference stops it before this line)
-#   2  the settings were applied and some condition remains unmet
-#
-# 2 is deliberately not 1. Everything at 2 is a host that needs an operator --
-# a password only a person can type, a Configuration Profile enforcing a lock --
-# and re-running this script cannot clear any of it, so a caller that treats it
-# as a failed step would advise a re-run that changes nothing. The caller maps
-# it to a warned outcome; see install/setup.ps1's host-settings step.
+# See https://yuruna.link/42e220c4-0004 for the shared 0/1/2 host-setup contract.
 if ($unmetCount -gt 0) {
     Write-Warning "Host settings applied, but $unmetCount condition(s) still need an operator (listed above)."
     exit 2

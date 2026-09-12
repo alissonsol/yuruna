@@ -380,7 +380,9 @@ use os comandos de administração de grupo
 
 <a id="42383647-000d"></a>
 
-### B.2 Armazenamento do laboratório: compartilhamentos pool e stash (idealmente em um NAS)
+<a id="b2-armazenamento-do-laboratório-compartilhamentos-pool-e-stash-idealmente-em-um-nas"></a>
+
+### B.2 Armazenamento do laboratório: compartilhamentos do grupo e do stash (idealmente em um NAS)
 
 As camadas de rede duráveis ([pool-storage.md](../pool-storage.md),
 [stash-guide.md](../stash-guide.md)) são sustentadas por dois
@@ -727,7 +729,9 @@ topo da [Seção A](#seção-a-início-rápido):
 
 <a id="42383647-0014"></a>
 
-## Dois pools executando dois conjuntos de testes diferentes
+<a id="dois-pools-executando-dois-conjuntos-de-testes-diferentes"></a>
+
+## Dois grupos executando dois conjuntos de testes diferentes
 
 Um exemplo prático: um laboratório, dois grupos de hospedeiros, cada um
 executando um corpo diferente de testes. Os nomes são apenas exemplos.
@@ -762,7 +766,9 @@ pwsh test/pool/Set-PoolTestSetDefinition.ps1 -Name testset2 -FrameworkUrl <frame
 
 <a id="42383647-0016"></a>
 
-### 2. Criar os dois pools
+<a id="2-criar-os-dois-pools"></a>
+
+### 2. Criar os dois grupos
 
 ```powershell
 pwsh test/pool/New-Pool.ps1 -PoolId poola -DisplayName 'Pool A' -IntentGitUrl <intent-url>
@@ -789,7 +795,9 @@ pwsh test/pool/Add-HostToPool.ps1 -PoolId poolb -HostId <host-4-uuid> -IntentGit
 
 <a id="42383647-0018"></a>
 
-### 4. Atribuir um conjunto de testes a cada pool
+<a id="4-atribuir-um-conjunto-de-testes-a-cada-pool"></a>
+
+### 4. Atribuir um conjunto de testes a cada grupo
 
 ```powershell
 pwsh test/pool/Set-PoolTestSet.ps1 -PoolId poola -Name testset1 -FrameworkUrl <framework-url> -ProjectUrl <project-a-url> -IntentGitUrl <intent-url>
@@ -820,7 +828,9 @@ entram em vigor no ciclo seguinte, sem reiniciar nada.
 
 <a id="42383647-001a"></a>
 
-### 6. Operar os dois pools de forma independente
+<a id="6-operar-os-dois-pools-de-forma-independente"></a>
+
+### 6. Operar os dois grupos de forma independente
 
 `desiredState` é por grupo, então um pode ficar pausado enquanto o outro
 continua ciclando:
@@ -840,7 +850,7 @@ pwsh test/pool/Add-HostToPool.ps1        -PoolId poolb -HostId <host-2-uuid> -In
 pwsh test/pool/Set-PoolDesiredState.ps1  -PoolId poola -State run    -IntentGitUrl <intent-url>
 ```
 
-Drenar para o processo do executor em todos os membros do Pool A, então
+A drenagem interrompe o processo do executor em todos os membros do Pool A; então,
 reinicie o `Start-TestRunner.ps1` nos hospedeiros que ficaram -- e no hospedeiro
 movido depois que ele estiver no Pool B. Referência completa de
 comandos e limitações: [pool-admin.md](../pool-admin.md).
@@ -851,6 +861,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Última revisão: 2026.09.08
+Última revisão: 2026.09.12
 
 Voltar para [Yuruna](../../README.md)

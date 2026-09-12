@@ -13,8 +13,7 @@ import (
 	"testing"
 )
 
-// --- attempt capture ---------------------------------------------------------
-
+// --- REGION: Attempt capture
 func TestAttemptCapturesARefusalPrintedToStdout(t *testing.T) {
 	// The incident class this guards: Fido refuses non-Windows platforms by
 	// printing the reason to STDOUT and exiting 403 (reported as 147). An error
@@ -68,8 +67,7 @@ func TestObserveSeesAttemptsThatNeverStartAChild(t *testing.T) {
 	}
 }
 
-// --- the agent surface -------------------------------------------------------
-
+// --- REGION: Agent surface
 func TestFidoTestArmsAndClearsTheRememberedFailure(t *testing.T) {
 	stub := newFidoStub(t, stubEcho)
 	a := newTestAgent(t, Options{PoolDir: t.TempDir(), Fido: stub.cfg})

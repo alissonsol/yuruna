@@ -45,7 +45,7 @@ func (s *Server) mcpRegistry() *mcp.Registry {
 			Handler:     mcp.FromRoute(t.h, http.MethodGet, t.route),
 		})
 	}
-	// --- Mutating tools -------------------------------------------------------
+	// --- REGION: Mutating tools
 	//
 	// Every one of these is ReadOnly:false, which is what makes the MCP server
 	// run s.gate.Allow on the INCOMING request before the handler is reached --

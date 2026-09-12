@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42c2bf4c-4df0-494d-8571-5945ed9ab682
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,7 +33,7 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
     exit 1
 }
 
-# --- REGION: Install JDK (latest LTS OpenJDK, Eclipse Temurin)
+# --- REGION: Install JDK
 Write-Output ""
 Write-Output ">>> Installing JDK (latest LTS OpenJDK)..."
 # winget OpenJDK/Temurin ids are all major-versioned (no float), so resolve
@@ -47,7 +47,7 @@ Start-Process msiexec.exe -ArgumentList "/i `"$jdkMsi`" /qn /norestart ADDLOCAL=
 Remove-Item $jdkMsi -Force -ErrorAction SilentlyContinue
 Write-Output "<<< JDK installation complete."
 
-# --- REGION: Install .NET SDK (latest LTS via dotnet-install.ps1)
+# --- REGION: Install .NET SDK
 Write-Output ""
 Write-Output ">>> Installing .NET SDK..."
 # winget DotNet.SDK ids are major-versioned (no float); use Microsoft's

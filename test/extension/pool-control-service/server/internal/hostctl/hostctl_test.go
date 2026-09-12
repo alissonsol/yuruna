@@ -150,7 +150,7 @@ func TestRefusalReasonBecomesTheFix(t *testing.T) {
 		t.Run(reason, func(t *testing.T) {
 			host := newHostStub(t)
 			host.status = http.StatusForbidden
-			host.body = `{"ok":false,"reason":"` + reason + `","error":"follow guidance at https://yuruna.link/control-proof"}`
+			host.body = `{"ok":false,"reason":"` + reason + `","error":"follow guidance at https://yuruna.link/42185271-0007"}`
 			err := New(Options{}).Apply(context.Background(), host.srv.URL, ActionContinue, "proof")
 			if err == nil {
 				t.Fatal("a 403 was reported as success")

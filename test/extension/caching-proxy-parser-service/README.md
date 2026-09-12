@@ -3,7 +3,7 @@
 A ~500-line Go tail-server that replaces loki + promtail for the single
 "Recent 100 requests" panel on the caching-proxy-service Grafana dashboard.
 Optimized for that one scenario -- no tenancy, no persistence, no
-LogQL, no plugin dependencies.
+authentication, no LogQL, no plugin dependencies.
 
 ## Why it exists
 
@@ -21,7 +21,9 @@ served as JSON + a self-contained HTML page.
 
 | File | Purpose |
 |---|---|
-| `parse.go`, `main_linux.go`, `main_other.go` | The Go service. Tail + ring + HTTP. No external deps. |
+| `parse.go` | Standard-library logformat parser, in-memory ring, counters, and HTTP handlers. It has no build constraint, so every harness host compiles and tests it. |
+| `main_linux.go` | Linux entry point and log tailer; uses `syscall.Stat_t` to detect log rotation by inode. |
+| `main_other.go` | Non-Linux entry point that keeps the package buildable while refusing the Linux-only daemon at runtime. |
 | `go.mod` | Standard-library-only module file. |
 | `caching-proxy-parser-service.service` | systemd unit. Runs as `proxy`, read-only `/var/log/squid`, fully sandboxed. |
 | `caching-proxy-parser-service.config.yml` | Extension config (single provider). |
@@ -106,6 +108,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.08
+Last review: 2026.09.12
 
 Back to [Yuruna](../../../README.md)

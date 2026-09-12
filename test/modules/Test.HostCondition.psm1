@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 421a49fd-aa32-431c-979f-99704a673b48
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,13 +16,7 @@
 
 #requires -version 7
 
-# Cross-platform host-condition facade -- registry-backed dispatcher.
-# Per-platform implementations live in Test.HostCondition.{Mac,Windows,
-# Linux}.psm1; each contributes a (Set, Assert, AssertMinimum,
-# RequiresElevation) record keyed by HostType.
-#
-# Architecture (facade contract, registry shape, capability matrix):
-# https://yuruna.link/test/harness
+# Cross-platform host-condition facade: ../../docs/test-harness.md#host-condition-registry.
 
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
     Justification = 'Registry anchor; required to survive -Force re-imports of this facade.')]
@@ -34,7 +28,7 @@ Import-Module (Join-Path $PSScriptRoot 'Test.Registry.psm1') -Force -DisableName
 # $global:YurunaHostConditionProviders so the registrations survive
 # -Force re-imports of this facade. Each entry is an [ordered]@{
 #   HostType; Set; Assert; AssertMinimum; RequiresElevation;
-#   Display; DisplayTeardown; ClockSync; NetworkHealth
+#   Display; DisplayTeardown; ClockSync; NetworkHealth; MetricsExporter
 # } record; everything after RequiresElevation is optional and $null on a
 # platform that does not offer it.
 $script:HostConditionRegistry = New-YurunaRegistry `
@@ -98,7 +92,25 @@ function Register-HostConditionProvider {
         # Assert: Assert's $false means refuse the cycle, while a host that
         # lost one network path but kept another runs on the one it kept.
         # $null for a host with no way to answer the question.
-        [scriptblock]$NetworkHealth = $null
+        [scriptblock]$NetworkHealth = $null,
+        # Optional per-cycle convergence for this host's metrics exporter:
+        # install one where there is none, then give it the collectors, port
+        # and firewall rule the host publishes. Signature: `param()`, returns a
+        # record with Status and Reason. Invoked by
+        # Initialize-HostMetricsExporter.
+        #
+        # Its own slot rather than part of Assert for the reason Assert and Set
+        # are separate everywhere else here: Assert decides whether a cycle may
+        # run and says so with a bool, and a host mutation hidden behind that
+        # answer is invisible to every reader of the call.
+        #
+        # $null for a host where this work would have to ask for its privilege.
+        # That is the line: the unattended loop makes no repair that stops to
+        # ask, because a loop waiting on a credential nobody is present to type
+        # is a hang. A host registers this slot only when the cycle already
+        # holds what the repair needs -- which is why the caller is placed after
+        # the elevation gate rather than before it.
+        [scriptblock]$MetricsExporter = $null
     )
     & $script:HostConditionRegistry.Register $HostType ([ordered]@{
         HostType          = $HostType
@@ -109,6 +121,7 @@ function Register-HostConditionProvider {
         DisplayTeardown   = $DisplayTeardown
         ClockSync         = $ClockSync
         NetworkHealth     = $NetworkHealth
+        MetricsExporter   = $MetricsExporter
     })
 }
 
@@ -437,7 +450,12 @@ function script:Register-IfAvailable {
         # by construction -- a name listed as MANDATORY that cannot be resolved
         # skips the ENTIRE registration, so a platform that never grows this
         # capability must not be able to lose its Set/Assert/Minimum over it.
-        [string]$NetworkHealthFn
+        [string]$NetworkHealthFn,
+        # Optional: name of this platform's per-cycle metrics-exporter
+        # convergence. Optional-only for the same reason as the probe above --
+        # an unresolvable MANDATORY name skips the whole registration, and a
+        # platform must never lose its Assert over a telemetry capability.
+        [string]$MetricsExporterFn
     )
     $missing = @()
     foreach ($fn in @($AssertFn, $MinimumFn)) {
@@ -474,6 +492,12 @@ function script:Register-IfAvailable {
         if ($networkCmd) { $networkBlock = $networkCmd.ScriptBlock }
         else { Write-Verbose "Test.HostCondition: $HostType guest-network probe '$NetworkHealthFn' not found; skipping that capability." }
     }
+    $metricsBlock = $null
+    if ($MetricsExporterFn) {
+        $metricsCmd = Get-Command -Name $MetricsExporterFn -ErrorAction SilentlyContinue
+        if ($metricsCmd) { $metricsBlock = $metricsCmd.ScriptBlock }
+        else { Write-Verbose "Test.HostCondition: $HostType metrics-exporter convergence '$MetricsExporterFn' not found; skipping that capability." }
+    }
     Register-HostConditionProvider -HostType $HostType `
         -Assert          (Get-Command $AssertFn).ScriptBlock `
         -AssertMinimum   (Get-Command $MinimumFn).ScriptBlock `
@@ -481,13 +505,15 @@ function script:Register-IfAvailable {
         -Display         $displayBlock `
         -DisplayTeardown $teardownBlock `
         -ClockSync       $clockBlock `
-        -NetworkHealth   $networkBlock
+        -NetworkHealth   $networkBlock `
+        -MetricsExporter $metricsBlock
 }
 Register-IfAvailable -HostType 'host.windows.hyper-v' `
     -AssertFn 'Assert-WindowsHostConditionSet' -MinimumFn 'Test-WindowsHostMinimum' `
     -DisplayFn 'Install-YurunaVirtualDisplay' -TeardownFn 'Remove-YurunaVirtualDisplay' `
     -ClockSyncFn 'Sync-WindowsHostClock' `
     -NetworkHealthFn 'Test-WindowsGuestNetworkHealth' `
+    -MetricsExporterFn 'Initialize-WindowsHostMetricsExporter' `
     -RequiresElevation $true
 Register-IfAvailable -HostType 'host.macos.utm' `
     -AssertFn 'Assert-MacHostConditionSet' -MinimumFn 'Test-MacHostMinimum' `
@@ -616,6 +642,91 @@ function Initialize-HostDisplay {
     }
 }
 
+function Initialize-HostMetricsExporter {
+    <#
+    .SYNOPSIS
+        Platform dispatcher: converge this host's metrics exporter for the
+        cycle about to run -- install one where there is none, then give it the
+        collectors, port and firewall rule this host publishes.
+    .DESCRIPTION
+        A mutation, and named as one rather than folded into
+        Assert-HostConditionSet. Assert answers a single question -- may this
+        cycle run -- and answers it with a bool; a host change hidden behind it
+        would be invisible to every reader of that call, and the split between
+        Assert-*HostConditionSet (decide) and Set-*HostConditionSet (change) is
+        one this codebase already keeps.
+
+        Deliberately called only after that gate has passed, because the gate is
+        where the privilege is proved. On the one host type that registers a
+        provider here, the gate's first act is Assert-Elevation and a cycle that
+        fails it never reaches this line -- so this runs holding Administrator
+        rather than asking for it. That is the whole difference between this
+        repair and the host-clock repair the unattended loop refuses to make: a
+        clock fix has to ask for a credential nobody is present to type, and a
+        loop that stops to ask is a hang. No provider is registered for the
+        hosts where this work would have to ask.
+
+        Never throws and never reports anything a cycle can act on. Every
+        outcome is a record the caller discards; the worst of them is a
+        warning. Telemetry that exists to explain a failure must not become a
+        reason for one.
+
+        Everything a person is meant to read leaves on the warning or
+        information stream, never on the success stream, because the call site
+        discards the success stream to guarantee this step cannot contribute to
+        the enclosing function's value. The information stream is forced to
+        Continue for the same reason it is chosen: it is silent at the runner's
+        default preference, and a host that just gained -- or just failed to
+        gain -- the only record of why it refuses guests is not something to say
+        silently.
+    .PARAMETER HostType
+        Stable host identifier, as registered.
+    .EXAMPLE
+        Initialize-HostMetricsExporter -HostType 'host.windows.hyper-v'
+    #>
+    [CmdletBinding()]
+    param([string]$HostType)
+    $provider = Get-HostConditionProvider -HostType $HostType
+    if (-not $provider -or -not $provider.MetricsExporter) { return }
+    try {
+        # The contract is one record. Collecting and taking the last value means
+        # a provider that ever leaks an extra line degrades to a stale message
+        # rather than to silence: a bare assignment would make $status an array,
+        # match no arm, and drop the announcement this step exists to make.
+        $emitted = @(& $provider.MetricsExporter)
+        $outcome = if ($emitted.Count -gt 0) { $emitted[-1] } else { $null }
+        $status = if ($outcome) { "$($outcome.Status)" } else { '' }
+        $reason = if ($outcome) { "$($outcome.Reason)" } else { 'the provider returned nothing' }
+        switch ($status) {
+            'Present' {
+                Write-Verbose "Host metrics exporter already present on '$HostType'."
+            }
+            'Installed' {
+                Write-Information "Host metrics: exporter installed on '$HostType' -- this host now publishes the memory, CPU and disk numbers a refused VM allocation is decided by." -InformationAction Continue
+            }
+            'Throttled' {
+                Write-Verbose "Host metrics: exporter install on '$HostType' is waiting out the interval a failed attempt bought ($reason)."
+            }
+            'Unavailable' {
+                Write-Warning "Host metrics: no exporter on '$HostType' and no unattended way to install one ($reason). Nothing here records why a guest was refused; run host/windows.hyper-v/Enable-TestAutomation.ps1 from an elevated console."
+            }
+            'Failed' {
+                Write-Warning "Host metrics: exporter convergence did not succeed on '$HostType' ($reason). It is retried on a spaced interval. This is telemetry, not a prerequisite -- the cycle runs regardless."
+            }
+            'Skipped' {
+                Write-Verbose "Host metrics: exporter convergence skipped on '$HostType' ($reason)."
+            }
+            default {
+                Write-Verbose "Initialize-HostMetricsExporter ('$HostType'): $status -- $reason"
+            }
+        }
+    } catch {
+        # Reached only if a provider throws past its own guard. Still a warning:
+        # the contract this dispatcher owes the cycle is that it cannot fail it.
+        Write-Warning "Initialize-HostMetricsExporter ('$HostType') failed: $($_.Exception.Message)"
+    }
+}
+
 function Remove-HostDisplay {
     <#
     .SYNOPSIS
@@ -651,7 +762,7 @@ function Remove-HostDisplay {
 
 Export-ModuleMember -Function `
     Register-HostConditionProvider, Get-HostConditionProvider, Get-HostConditionProviderMatrix, Clear-HostConditionProvider, `
-    Assert-HostConditionSet, Test-HostGuestNetworkHealth, Initialize-HostDisplay, Remove-HostDisplay, `
+    Assert-HostConditionSet, Test-HostGuestNetworkHealth, Initialize-HostDisplay, Remove-HostDisplay, Initialize-HostMetricsExporter, `
     Get-HostClockSkew, Get-HostClockSkewLimit, Write-HostClockDriftWarning, Reset-HostClockReport, Sync-HostClock, `
     Assert-ScreenLock, Get-MacScreenLockIssue, Get-MacDisplayScaleProfile, Get-MacDisplayScaleIssue, Initialize-SudoCache, `
     Get-MacPmsetGuardList, Set-MacHostConditionSet, Set-MacUtmctlLink, Get-MacUtmctlRemediation, Set-MacScreenLockState, Get-MacScreenLockManualCommand, `

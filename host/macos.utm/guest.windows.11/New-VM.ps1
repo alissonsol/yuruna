@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 4224d5e4-9d07-4231-afd5-1a7a005a431d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -25,9 +25,14 @@ param(
     [string]$BridgeInterface = ""
 )
 
-# Honor logLevel from Start-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+# --- REGION: Log level from environment
+# See https://yuruna.link/42e220c4-0003
+# Reuse the caller's log module; a forced reload discards its state.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
-if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
+if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
+    Import-Module $_logLevelMod -Global
+}
+if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     Write-Output "Invalid VMName '$VMName'. Only alphanumeric characters, dots, hyphens, and underscores are allowed."
@@ -43,8 +48,6 @@ $DataDir = "$UtmDir/Data"
 $downloadDir = "$HOME/yuruna/image/windows.env"
 
 # --- REGION: Environment checks
-
-# Check macOS version (requires macOS 12 Monterey or later)
 $macosVersion = & sw_vers -productVersion 2>$null
 $macosMajor = [int]($macosVersion -split '\.')[0]
 if ($macosMajor -lt 12) {
@@ -53,7 +56,6 @@ if ($macosMajor -lt 12) {
 }
 Write-Verbose "macOS version: $macosVersion (OK)"
 
-# Check Apple Silicon chip (requires M1 or later)
 $chipName = (& system_profiler SPHardwareDataType 2>$null | Select-String "Chip" | ForEach-Object { $_ -replace '.*Chip:\s*', '' }).Trim()
 if (-not $chipName) {
     Write-Error "Could not detect Apple Silicon chip. This script requires Apple Silicon (M1 or later)."
@@ -130,9 +132,13 @@ if (-not (Test-Path $spiceImageFile)) {
     Write-Warning "You will need it after Windows installation to enable virtio-net-pci networking."
 }
 
+# --- REGION: Remove existing VM
+Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'modules/Yuruna.Host.psm1') -Force
+if (-not (Remove-UtmBundleWithRetry -Path $UtmDir)) {
+    Write-Error "Could not remove existing UTM bundle at '$UtmDir' after retries. Aborting."
+    exit 1
+}
 # --- REGION: Create copies and files for VM
-
-if (Test-Path -LiteralPath $UtmDir) { Remove-Item -LiteralPath $UtmDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 
 $DestIso = "$DataDir/$VMName.iso"
@@ -161,12 +167,7 @@ if (-not (Test-Path $AnswerFileTemplate)) {
 }
 
 # --- REGION: https://yuruna.link/4220a755-002d
-# Coordinates for the first-logon bootstrap, resolved for the network this VM
-# is actually getting. Under Shared (VZ NAT) the host answers at a gateway
-# address no DHCP lease can move, so the seeded address stays true on its own;
-# under Bridged the guest takes a LAN lease alongside the host and the host's
-# address can change underneath it -- which is the case the resolver and the
-# identity coordinates beside it exist for.
+# Shared NAT has a stable host gateway; bridged host addresses may need resolver repair.
 $_utmRepoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))
 Import-Module (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.Host.psm1') -Force
 Import-Module (Join-Path $_utmRepoRoot 'automation/Yuruna.GitHubSource.psm1') -Force -DisableNameChecking
@@ -195,7 +196,7 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# --- REGION: config.plist (QEMU backend)
+# --- REGION: Create and configure the UTM bundle (config.plist, QEMU backend)
 $TemplatePath = Join-Path $ScriptDir "config.plist.template"
 if (-not (Test-Path $TemplatePath)) {
     Write-Error "Template not found at '$TemplatePath'."
@@ -259,7 +260,7 @@ if ($NetworkMode -eq "Bridged") {
     Write-Verbose "Network patched to Bridged (interface: $BridgeInterface)."
 }
 
-# --- REGION: Cleanup temporary folders
+# --- REGION: Clean up temporary files
 Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- REGION: Guidance

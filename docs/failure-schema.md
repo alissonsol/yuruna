@@ -12,6 +12,33 @@ drift on classification or fields. The
 class/severity/recovery vocabulary comes from each verb's registration
 (see [handler contract](test-sequences.md#handler-contract)).
 
+The record is written to the shared log root, and every sequence start clears
+it there so one sequence's step location can never be reported as the next
+one's. Each writer therefore also mirrors it under the running cycle's folder
+(`Copy-CycleFailureRecord`) the instant the failure is classified: on a host
+that runs several guests per cycle and does not stop at the first failure,
+that clear falls between a failing guest's record and the end of the cycle,
+so the root copy is routinely gone before the notifier, the warm-resume
+checkpoint or the remediation dispatcher ever reads it.
+
+Two copies are written, not one. `<cycleFolder>/last_failure.json` describes
+the cycle. `<cycleFolder>/<vmName>/last_failure.json` describes one guest, and
+is written whenever the record names a VM; the guest identity comes from the
+record's own `vmName`, so a bootstrap, planner or host-stage failure that names
+no guest writes the cycle copy alone. Two guests failing in one cycle keep
+separate records, and a consumer that names its guest (`Get-FailureEventData
+-VMName`) reads that guest's copy first and refuses a shared copy that names a
+different guest -- so a guest whose own failure produced no record is reported
+as `unknown` rather than inheriting its predecessor's cause. A record naming no
+guest is host-level and is still offered to everyone. The manifest catalogs the
+cycle copy as kind `failure` and each guest copy as `failure-guest`.
+
+`Stop-LogFile` refreshes the mirrors from the root on a non-pass outcome -- the
+root carries any enrichment written after the record first landed -- and removes
+every copy on a pass, since a cycle recovered by a warm resume has no failure of
+its own. A root copy older than a mirror is never copied over it: it belongs to
+an earlier run.
+
 <a id="42820e91-0002"></a>
 
 ## `last_failure.json` (schema v2)
@@ -70,9 +97,11 @@ These appear on **both** step and crash records (a crash after step N began stil
 | `matchedFailurePattern` | The hard-block pattern `Wait-ForText` matched, or `null`. |
 | `sequencePath` | Path of the failing sequence YAML. |
 | `cycleFolder` | The cycle's stable identity (step failures only) -- the same value the NDJSON stream stamps, so this file joins to the event stream and resolves to the folder on disk. |
-| `failureScreenshotPath` / `failureOcrPath` | Cycle-dir-relative names (step failures only); may not exist (waitForText emits OCR text, non-OCR failures emit a screenshot) -- presence is checked at deep-link time. |
-| `causeDetail` | Step records only: `{ ocrTail, patternsSought }` -- the freshest on-screen OCR text (bounded tail, <=1200 chars) and the patterns the wait was seeking at the failure site. Lets a consumer see the runtime cause behind a verb-static `failureClass`. Mirrored flat on the event as `causeOcrTail` / `causePatternsSought`. Also carries `freshWindowNearMiss`, `consoleFlood`, `consoleStaticSeconds`, `pauseBeforeStepSeconds` and `pauseReleasedAtUtc` (below). |
+| `failureScreenshotPath` / `failureOcrPath` | Cycle-dir-relative names of this failure's screen evidence (step failures only). **Absent** unless the artifact exists and was last written after the failing step began: both are sticky per-VM files that only the screen-reading verbs rewrite, so a failure in a verb that reads no text would otherwise point at an earlier step's screen. A reader follows these; nothing audits them, so a present name is a claim the record has to be able to keep. |
+| `staleEvidence` | Each artifact dropped from the two pointers above, named with how many seconds before the failing step it was last written; `[]` when none was. The file is still in the cycle folder under that name, so evidence belonging to an earlier step stays findable while the pointers stay trustworthy -- and an absent pointer is never read as "no screen evidence exists at all", which is a different fact with a different next step. |
+| `causeDetail` | Step records only: `{ ocrTail, patternsSought }` -- the freshest on-screen OCR text (bounded tail, <=1200 chars) and the patterns the wait was seeking at the failure site. Lets a consumer see the runtime cause behind a verb-static `failureClass`. Mirrored flat on the event as `causeOcrTail` / `causePatternsSought`. Also carries `freshWindowNearMiss`, `closestOnScreen`, `consoleFlood`, `consoleStaticSeconds`, `pauseBeforeStepSeconds` and `pauseReleasedAtUtc` (below). |
 | `crash` | Crash records only: `{ error, origin, stack }`. |
+| `hostMemory` | Infra records only, and only when the host driver could measure the machine: `{ availableMb, committedBytes, commitLimitBytes, commitAvailableBytes, source }`. A VM's startup memory is charged against the system commit limit -- physical memory plus the current page-file size -- and not against free physical memory, so a provisioning refusal is explained by the commit figures while free physical memory can be at its highest in the same instant. **Absent** when nothing measured, never zeroed: a zeroed block reads as a machine that was measured and found empty, which is a different fact with a different next step. Mirrored flat on the event as `hostAvailableMb` / `hostCommittedBytes` / `hostCommitLimitBytes` / `hostCommitAvailableBytes`. |
 
 <a id="42820e91-0006"></a>
 
@@ -80,8 +109,10 @@ These appear on **both** step and crash records (a crash after step N began stil
 
 | Field | Notes |
 |---|---|
-| `consoleFlood` | Set when the console filled with one repeating line while the wait was seeking its pattern; carries the dominant line and its share of the screen. `''` when the screen was not repetitive. |
-| `consoleStaticSeconds` | The longest run, in seconds, that the console CONTENT did not change during the wait. Repetition is counted within a single frame, so a wall of text that scrolled by earlier and then stopped reads as a flood -- this is what tells the two apart. A high value means a guest that is waiting, not one that is working, and a guest that is waiting can often be unblocked by answering it. `0` when the screen kept moving. |
+| `freshWindowNearMiss` | Set when a `freshMatch` wait timed out on text the OCR engines DID read but that had scrolled above the tail window; names the engine, the pattern and how many lines above. `[]` covers three unrelated screens -- no window was in force, the window covered the whole frame, or the text was genuinely nowhere on it -- so it is never on its own evidence that nothing resembled the pattern. Read it with `closestOnScreen`. |
+| `closestOnScreen` | For each OCR engine and each pattern the wait sought, the line on the final frame that came closest and how close, as the percentage of normalized pattern characters that lined up (a match needs 85%, measured on the same canonical form the matcher uses, so OCR character confusion costs nothing). A high percentage means the text printed and the read of it fell short -- look at the capture or the matching tolerance; a low one means the screen was showing something else, so the guest never printed it. Three states, on the same discipline as `consoleFlood`: the lines, when the scan ran and found some; `[]` when it ran and nothing on the frame resembled the pattern; `null` when it never ran -- a wait that ends on a failure pattern returns the moment the pattern matches, and a failure outside a wait has no frame of its own. An empty list is a reading of the screen; `null` is the absence of one, and only the first supports a conclusion. |
+| `consoleFlood` | Set when the console filled with one repeating line while the wait was seeking its pattern; carries the dominant line and its share of the screen. `''` when the screen was not repetitive. `null` when the wait confined its match to the console tail (`freshMatch`): that path reads the same frames but runs no flood check, so the field says "not looked at" rather than "not repetitive". |
+| `consoleStaticSeconds` | The longest run, in seconds, that the console CONTENT did not change during the wait. Repetition is counted within a single frame, so a wall of text that scrolled by earlier and then stopped reads as a flood -- this is what tells the two apart. A high value means a guest that is waiting, not one that is working, and a guest that is waiting can often be unblocked by answering it. `0` when the screen kept moving, and `null` when the wait confined its match to the console tail (`freshMatch`) and never measured it -- `0` is a reading, `null` is the absence of one, and only the first supports a conclusion about the guest. For a `freshMatch` timeout the screen evidence is `freshWindowNearMiss` and `ocrTail` instead. |
 | `pauseBeforeStepSeconds` | Seconds an operator hold ran, when one was released before the failing step. The pause gate holds the runner and not the guest, so a prompt the guest printed once during the hold is off the screen the resumed step then has to read -- which looks identical to a prompt that never printed. `0` when there was no hold. |
 | `pauseReleasedAtUtc` | When that hold ended, so it can be placed against the step's own start. `''` when there was no hold. |
 
@@ -99,7 +130,20 @@ It carries the same values, flattened (no nested `context`), plus
 (mirrors the `step_end` shape so a consumer can join the two on a single
 field). It also carries `reason`, `classificationSource`, `sequenceName`,
 `reproCommand` (the `repro.command` string), and `matchedFailurePattern`
-(the nested-context field lifted flat). A crash event adds `crashError`.
+(the nested-context field lifted flat). A crash event adds `crashError`. An
+infra event whose stage measured the host adds `hostAvailableMb`,
+`hostCommittedBytes`, `hostCommitLimitBytes` and `hostCommitAvailableBytes`
+(the nested `context.hostMemory` block lifted flat); the four are present or
+absent together.
+
+`failureClass`, `severity` and `suggestedRecoveries` on this event are the
+classification of the failure that happened. A failed `step_end` row carries
+the failing verb's registration under `verbDefaultFailureClass`,
+`verbDefaultSeverity` and `verbDefaultSuggestedRecoveries`: those say what
+the verb WOULD call a failure of itself, and a matched failure pattern or an
+unreachable guest moves the real class off the registration -- so a join
+across the two rows never compares a measurement with a constant under one
+key.
 
 <a id="42820e91-0008"></a>
 
@@ -170,6 +214,14 @@ cannot hold the results is discovered either before the cycle spawns or after it
 finishes). The runner never clobbers a richer
 engine-written record and the write is fully guarded so telemetry cannot
 fail the cycle.
+
+A stage whose host driver can measure the machine also carries
+[`context.hostMemory`](#context) -- the physical memory available and the system
+commit position at the instant of the failing call. Only the driver making that
+call can take the reading: by the time the record is filed the guest has been
+torn down and the numbers that explain the refusal are gone. Drivers that cannot
+measure their host omit the block rather than filling it with zeros, so its
+presence always means a real measurement.
 
 <a id="42820e91-000b"></a>
 
@@ -466,7 +518,7 @@ broke" from a distance -- so each one's reason is recorded here.
   every network-touching guest on it fails identically for a reason no
   guest-level retry can influence. It needs its own class because a
   virtual-switch object outlives its uplink binding across a host reboot: the
-  switch is still there, nothing it carries forwards, and each guest reports
+  switch is still there but forwards no traffic, and each guest reports
   only its own symptom (`network_timeout` / `provisioning_failure`). It is
   deliberately absent from the transient fast-retry allow-lists -- retrying
   against a bridge with no carrier can only spend the cycle budget -- so it
@@ -671,6 +723,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.08
+Last review: 2026.09.12
 
 Back to [Yuruna](../README.md)

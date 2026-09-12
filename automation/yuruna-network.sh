@@ -1,49 +1,16 @@
 #!/bin/bash
-# Version: 2026.09.08
+# Version: 2026.09.12
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
-# Guest network helper. Sourced by fetch-and-execute.sh (for network_diag)
-# and invoked by the `networkRelease` sequence action (for network_release).
-# Targets Ubuntu Server and Amazon Linux 2023. Both ship `ip`, but which
-# daemon owns the link is a per-image fact, not a per-family one: Ubuntu
-# Server runs systemd-networkd behind netplan, and Amazon Linux 2023 images
-# have shipped both networkd-managed and NetworkManager-managed builds.
-# `networkctl` exists wherever systemd does, so its presence proves nothing
-# about which daemon owns the link -- every path below has to be probed for,
-# not inferred. cloud-init deploys this file at
-# /usr/local/lib/yuruna/yuruna-network.sh at install time.
-#
-# --- REGION: https://yuruna.link/4220a755-0010
-
-# --- REGION: https://yuruna.link/4220a755-0011
-# Print a connectivity diagnostic for this machine. A carrier-up interface
-# that holds no global IPv4 address has neither a static address nor a DHCP
-# lease; on a bridged hypervisor the guest competes with every other LAN
-# client for the router's finite lease pool, so a missing IPv4 lease points
-# at DHCP pool exhaustion (a fast-booting guest that loses the lease race
-# comes up with only an IPv6 SLAAC address and no IPv4). IPv6-via-RA needs no
-# DHCP server, so its presence does not clear the flag.
-#
-# A link that is DOWN is a different fault and must not be reported as the
-# lease-pool one: it never reaches DHCP at all. Reporting it as "carrier-up
-# interfaces all hold an address" is vacuously true and sends the reader after
-# the wrong subsystem, so the down state is a verdict of its own.
-#
-# DOWN is itself two faults with opposite causes, and they must not share one
-# verdict either. IFF_UP is set by whoever manages the link INSIDE this machine;
-# carrier is driven by the far end. A link with IFF_UP clear cannot have been
-# downed by a switch, a cable or a DHCP server, so naming those for it sends the
-# reader to a machine that is not able to be at fault -- the expensive kind of
-# wrong answer, because the host it accuses is usually healthy and provably so.
-# Carrier alone cannot tell the two apart: reading carrier on a down interface
-# fails (EINVAL), so the same empty value stands for "no carrier" and "could not
-# ask", which is why the flags word has to be read as well.
-# Phrased as POSITIVE PROOF that IFF_UP is clear, never as its negation. Every
-# uncertain input -- empty, unparseable, or this helper not being defined at all
-# (a non-zero "command not found" reads as false) -- therefore falls through to
-# the carrier verdict, which is the one that does not accuse this machine. An
-# uncertain flags word must not be what turns a link into a guest-side fault.
+# Guest network helper for Ubuntu Server and Amazon Linux, deployed at
+# /usr/local/lib/yuruna/yuruna-network.sh and shared by diagnostics and release.
+# Probe the active network daemon; its presence alone does not establish ownership.
+# --- REGION: Connectivity diagnosis
+# See https://yuruna.link/4220a755-0010
+# See https://yuruna.link/4220a755-0011
+# Distinguish administratively down, carrier-down, and carrier-up/no-IPv4 links.
+# Treat uncertain flags as carrier evidence, never as proof of a guest-side fault.
 _yuruna_net_admin_down() {
     local f="$1"
     # Validate before any arithmetic: `$(( ))` on a malformed word is a shell

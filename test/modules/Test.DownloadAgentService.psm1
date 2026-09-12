@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 4282b189-cc04-4ccc-b651-075780a31acd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -212,12 +212,7 @@ function Get-DownloadAgentServiceReadyTimeoutSeconds {
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '',
         Justification = 'The plural is the unit, not a collection: a duration is named <name>Seconds so a bare number can never be read in the wrong unit (docs/design/naming.md), and the name mirrors the YURUNA_DOWNLOAD_AGENT_SERVICE_READY_TIMEOUT_SECONDS override it reads.')]
     param([int]$DefaultSeconds = $script:DownloadAgentServiceReadyTimeoutSeconds)
-    $value = $env:YURUNA_DOWNLOAD_AGENT_SERVICE_READY_TIMEOUT_SECONDS
-    if ([string]::IsNullOrWhiteSpace($value)) { return $DefaultSeconds }
-    $parsed = 0
-    if ([int]::TryParse($value, [ref]$parsed) -and $parsed -gt 0) { return $parsed }
-    Write-Verbose "YURUNA_DOWNLOAD_AGENT_SERVICE_READY_TIMEOUT_SECONDS='$value' is not a positive integer; using $DefaultSeconds."
-    return $DefaultSeconds
+    return (Get-ExtensionServiceReadyTimeoutSeconds -Area $script:Area -DefaultSeconds $DefaultSeconds)
 }
 
 function Test-DownloadAgentServicePort {

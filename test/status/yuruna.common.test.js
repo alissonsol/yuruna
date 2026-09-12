@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.09.08
+  Version: 2026.09.12
 
   Framework-free checks for test/status/yuruna.common.js. Run: node yuruna.common.test.js
   (exit 0 = pass). No package.json / test runner in the repo, so this uses the Node
@@ -219,4 +219,19 @@ assert.strictEqual(pbt(false, false, 'running', pausedAction, false, [], ageMinu
   null,
   'no hold means no banner, whatever the stamps say');
 
-console.log('PASS: yuruna.common.js -- 31 assertions');
+// (9) The config editor saves test.config.yml back, and guestSequence in that
+//     file is the fallback a cycle reads only when no plan resolves from
+//     test/test.runner.yml in the project repository. An edit to that field
+//     that silently changes nothing is the worst thing this editor can do, so
+//     the field carries a note, the note is actually rendered, and it is fed
+//     by the plan the cycle already recorded rather than by a second resolver.
+assert.ok(/function guestSequenceNote\(/.test(src),
+  'the guestSequence field must carry a note saying what really chooses the guests');
+assert.ok(/if \(isguestSequenceArray\(value\)\) \{ children\.appendChild\(guestSequenceNote\(\)\); \}/.test(src),
+  'the note must be rendered by the array renderer, not merely defined');
+assert.ok(/function loadResolvedPlan\(\)\s*\{[\s\S]{0,200}runtime\/status\.json/.test(src),
+  'the note must read the plan the cycle recorded, not resolve one of its own');
+assert.ok(/loadGuestFolders\(\),\s*\r?\n\s*loadResolvedPlan\(\)/.test(src),
+  'the plan must load with the config, or the note renders before it arrives');
+
+console.log('PASS: yuruna.common.js -- 35 assertions');

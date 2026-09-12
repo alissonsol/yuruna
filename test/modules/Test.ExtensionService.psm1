@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42eeeb9d-fb5a-4c19-9424-9b112f3e3721
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -451,7 +451,35 @@ function Get-ActiveExtensionService {
     return @{ Areas = [string[]]$areas; Targets = $targets }
 }
 
+# --- REGION: Service readiness timeout
+# See https://yuruna.link/42e220c4-0008
+function Get-ExtensionServiceReadyTimeoutSeconds {
+    <#
+    .SYNOPSIS
+        Read a service's readiness timeout, retaining the default for invalid overrides.
+    .PARAMETER Area
+        Extension area used in YURUNA_<AREA>_READY_TIMEOUT_SECONDS.
+    .PARAMETER DefaultSeconds
+        Initial wait budget when the override is absent or not a positive integer.
+    #>
+    [CmdletBinding()]
+    [OutputType([int])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseSingularNouns', '',
+        Justification = 'Seconds identifies the duration unit, not a collection.')]
+    param(
+        [Parameter(Mandatory)][string]$Area,
+        [int]$DefaultSeconds = 2700
+    )
+    $variableName = 'YURUNA_' + $Area.ToUpperInvariant().Replace('-', '_') + '_READY_TIMEOUT_SECONDS'
+    $value = [Environment]::GetEnvironmentVariable($variableName)
+    if ([string]::IsNullOrWhiteSpace($value)) { return $DefaultSeconds }
+    $parsed = 0
+    if ([int]::TryParse($value, [ref]$parsed) -and $parsed -gt 0) { return $parsed }
+    Write-Verbose "$variableName='$value' is not a positive integer; using $DefaultSeconds."
+    return $DefaultSeconds
+}
+
 Export-ModuleMember -Function Get-ExtensionServiceManifest, Get-ExtensionServiceManifestAll, `
     Get-ExtensionServiceVmRoster, Get-ExtensionServiceMarkerPath, Write-ExtensionServiceMarker, `
     Read-ExtensionServiceMarker, Get-ExtensionServiceMarkerBaseUrl, Remove-ExtensionServiceMarker, `
-    Get-ActiveExtensionService
+    Get-ActiveExtensionService, Get-ExtensionServiceReadyTimeoutSeconds

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42a1c8e3-5b47-4f60-9d2a-7e83b415cc09
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -193,20 +193,20 @@ Describe 'the anchor gate says which of the three things happened' {
         }
         $sourcePath = Join-Path $project $sourceRelative
         $source = [IO.File]::ReadAllText($sourcePath).Replace(
-            'text-to-sql#service-notes', 'text-to-sql#missing-project-anchor')
+            '4286c679-0007', '4286c679-dead')
         [IO.File]::WriteAllText($sourcePath, $source, [Text.UTF8Encoding]::new($false))
         $null = & git -C $project init --quiet 2>&1
         Assert-Equal -Expected 0 -Actual $LASTEXITCODE 'could not initialize the project candidate fixture'
 
         $map = New-LinkMap -Name 'project-local.json' -Entry @(
-            , @('text-to-sql', 'Text-to-SQL',
+            , @('4286c679', 'Text-to-SQL',
                 'https://github.com/alissonsol/yuruna-project/blob/main/example/text-to-sql/README.md'))
         $run = Invoke-Gate -Argument @(
             '-Quiet', '-ProjectRoot', $project, '-Path', $project, '-LinkMap', $map)
         Assert-Equal -Expected 1 -Actual $run.ExitCode `
             -Because "a broken pointer in the staged project was invisible:`n$($run.Output)"
         Assert-Match -Pattern 'yuruna-project/.+ClaudeLlmClient\.cs' -Actual $run.Output
-        Assert-Match -Pattern 'missing-project-anchor' -Actual $run.Output
+        Assert-Match -Pattern '4286c679-dead' -Actual $run.Output
     }
 
     It 'passes the selected project root from cross-repository orchestration' {

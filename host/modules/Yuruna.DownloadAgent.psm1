@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 4221a024-d615-4d3e-9f0b-4a285f85b611
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -76,7 +76,6 @@ $script:EndpointValue    = ''
 $script:KnownHostType = @('windows.hyper-v', 'ubuntu.kvm', 'macos.utm')
 
 # --- REGION: Endpoint URL helpers
-
 function Format-DownloadAgentUrlHost {
     <#
     .SYNOPSIS
@@ -179,7 +178,6 @@ function ConvertTo-DownloadAgentHostType {
 }
 
 # --- REGION: Agent discovery
-
 function Test-DownloadAgentHealth {
     <#
     .SYNOPSIS
@@ -407,7 +405,6 @@ function Resolve-DownloadAgentEndpoint {
 }
 
 # --- REGION: Artifact transfer
-
 function Get-DownloadAgentImageUri {
     <#
     .SYNOPSIS
@@ -695,7 +692,6 @@ function Test-DownloadAgentArtifactShape {
 }
 
 # --- REGION: Image request protocol
-
 function Get-DownloadAgentImageMetadata {
     <#
     .SYNOPSIS

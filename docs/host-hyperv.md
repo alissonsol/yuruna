@@ -532,12 +532,110 @@ w32tm /resync /force
 w32tm /stripchart /computer:time.windows.com /samples:1 /dataonly   # verify
 ```
 
+<a id="42dc5bb9-0010"></a>
+
+## Host metrics and the commit limit
+
+A Hyper-V host can refuse a VM allocation with `0x800705AA` while the host's
+commit charge briefly exceeds its available commit budget. Physical free memory
+alone cannot explain that refusal. The exporter and local sampler preserve the
+commit charge and limit alongside CPU, storage, and VM evidence.
+
+Windows hosts publish `http://<host>:9182/metrics` with the collectors `cpu`,
+`hyperv`, `logical_disk`, `memory`, and `os`. The commit pair is
+`windows_memory_commit_limit` and `windows_memory_committed_bytes`. Installation
+and convergence request these collectors without making an unavailable exporter
+a cycle failure. The service is automatic and its TCP 9182 firewall rule is
+scoped to `vmStart.cachingProxyIp`, or `LocalSubnet` when no scrape address is
+configured. Convergence preserves unrelated service arguments and restores the
+prior command line if the changed service fails its readiness probe.
+
+Readiness and capability are separate. A healthy payload can contain Hyper-V
+host metrics while no VM is running. Guest runtime and dispatch-wait capability
+are then `not-applicable`; with a running VM, missing series are `absent`, not
+zero. The sampler records the actual build-info sample, exporter service command
+line, VM census, and capabilities. Missing VM enumeration remains unknown.
+
+Metric names depend on the installed exporter version. v0.31.8 publishes guest
+and hypervisor runtime as
+`windows_hyperv_hypervisor_virtual_processor_time_total{state="guest"|"hypervisor"}`;
+newer documentation calls this `..._mode_time_total`. These are cumulative
+seconds, so a per-instance `rate()` gives processor-time share. Keep VM/VP labels,
+and exclude `_Total` before combining instances. The stock collector does not
+publish intercept counts or costs. Its raw `CPU Wait Time Per Dispatch` series
+omits the PDH base and must not be interpreted as average dispatch latency;
+the local sampler retains the cooked PDH value and counter type instead.
+See the [versioned collector source](https://github.com/prometheus-community/windows_exporter/blob/v0.31.8/internal/collector/hyperv/hyperv_hypervisor_virtual_processor.go)
+and [PDH conversion](https://github.com/prometheus-community/windows_exporter/blob/v0.31.8/internal/pdh/collector.go).
+
+The outer runner starts a dedicated host sampler outside the inner runner's
+process tree. Every 15 seconds it collects per-instance runtime, intercepts and
+cost, dispatch wait, context switches, frequency/performance, DPC/interrupt time,
+disk latency/queues, and memory commit/paging. It discovers actual localized PDH
+names through the host inventory and Perflib IDs. An inventory capability means
+a path exists; each sampled row separately reports valid or unavailable data.
+Version-specific counters that are absent remain explicitly marked as unavailable.
+
+Records carry host UTC and monotonic QPC anchors, actual AC/DC state, and VM CPU
+and memory configuration, including processor reserve/maximum/weight, nested
+virtualization exposure, and dynamic-memory minimum/maximum/buffer. Unsupported
+properties or failed configuration queries have explicit unavailable states;
+recorded settings do not establish that the current scheduler enforces them. Recording metadata includes Windows build plus UBR,
+firmware, scheduler event, and exporter identity. The sampler flushes an append-only
+ring under `runtime/host-sampling/`: four segments of about 4 MiB each, with at
+most four recordings retained. A supervisor ends collection after 45 seconds
+without a new record, or three sampling intervals when that is longer. Failed
+probes do not block guest execution. Failure diagnostics, explicit diagnostics,
+and cycle completion copy the bounded ring into the cycle's evidence before
+archiving; a killed inner process leaves the original runtime ring intact.
+
+Set `YURUNA_HOST_SAMPLING_DISABLED=1` to opt out, or
+`YURUNA_HOST_SAMPLE_INTERVAL_SECONDS` to choose 5 through 300 seconds. Compare a
+sampled cycle with an unsampled cycle before adopting a tighter interval on a
+slow host: collection adds work. These defaults are instrumentation limits, not
+a measured claim that the overhead is negligible.
+
+For an operator capture during a slow phase, run from the repository root:
+
+```powershell
+pwsh automation/Collect-HostPerformance.ps1 -Phase prerequisite-packages
+```
+
+The default records host evidence for 60 seconds at two-second intervals and
+prints the ZIP path. It changes no host settings or VMs. Add
+`-GuestAddress <address> -GuestUser <account>` to include the short Linux snapshot
+using existing SSH key authentication and known-host trust. That optional command
+runs halfway through the host recording after a valid sample exists, has a
+20-second budget and records host UTC/QPC before and after it; guest boot ID
+and uptime are in its output. The harness also collects guest snapshots at its
+diagnostic steps. Host QPC and guest uptime are distinct clock domains; correlate
+through these anchors rather than comparing their raw values.
+
+`-Trace` additionally requests the installed WPR CPU profile in bounded memory
+mode, saves the discovered profiles/status, and stops only a recording it
+successfully started. An existing recording or unrecognized localized status is
+preserved. Profile or ARM64 stack support is a runtime capability; this option
+does not promise guest stacks or a complete Hyper-V intercept trace. If start or
+stop cannot be confirmed, the bundle records that uncertainty for the operator.
+
+To install or repair the exporter by hand (elevated):
+
+```powershell
+winget install --id Prometheus.WindowsExporter --exact --source winget --silent
+pwsh .\host\windows.hyper-v\Enable-TestAutomation.ps1
+```
+
+`Disable-TestAutomation.ps1` removes the firewall rule and leaves the package
+running. Uninstall it with `winget uninstall --id Prometheus.WindowsExporter`.
+The monitoring filter and its live-update command are documented in
+[vmconfig](vmconfig.md#429f3d06-0046).
+
 ---
 
 LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.08
+Last review: 2026.09.12
 
 Back to [Yuruna](../README.md)

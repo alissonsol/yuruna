@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 4232820e-f96a-47ea-863b-f94b73f9c76f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 # Built-in verb Handler scriptblocks for the sequence engine.
 # Sequence-engine layering (registry / handler catalog / driver) and
-# the retry/recoverFromSnapshot split: https://yuruna.link/test/harness
+# the retry/recoverFromSnapshot split: https://yuruna.link/42d38664
 
 # Test.HostIO carries the Invoke-HostIOAction primitive that the
 # Send-Key / Send-Text / Send-Click dispatchers in Invoke-Sequence
@@ -117,9 +117,9 @@ $script:ShellRejectedCommandPattern = @(
 $script:ShellRejectionWindowSeconds = 20
 
 # --- REGION: https://yuruna.link/428e4df6-0014
-# Console-typed length above which a fetchAndExecute step is flagged. A WARNING,
-# not a cap: the fix for a long step is to move the work into the fetched
-# script, never to raise this number.
+# Complete command length above which macOS GUI fetches use verified staging.
+# Other console paths retain their warning. Include metadata and shell quoting
+# in this budget; see the linked sequence authoring guidance.
 $script:FetchExecuteTypedCharWarn = 400
 
 function Get-NonzeroScriptExitSentinel {
@@ -170,9 +170,10 @@ function Format-SequencePatternLabel {
 }
 
 function Resolve-WaitForTextStepParam {
-    # Returns @{ patterns; failurePatterns; timeout; poll; fresh; tailLines }
-    # from a $Context. Used by waitForText / waitForAndEnter / passwdPrompt
-    # Handlers so the three verbs share one expansion path.
+    # Returns @{ patterns; failurePatterns; timeout; poll; fresh; tailLines;
+    # sinceStepStart } from a $Context. Used by waitForText /
+    # waitForTextWithNudge / waitForAndEnter / passwdPrompt Handlers so the
+    # pattern-bearing verbs share one expansion path.
     [CmdletBinding()][OutputType([hashtable])]
     param([Parameter(Mandatory)][hashtable]$Context)
     $step = $Context.Step
@@ -194,6 +195,17 @@ function Resolve-WaitForTextStepParam {
         poll            = $step.pollSeconds    ? [int]$step.pollSeconds    : $Context.DefaultPollSeconds
         fresh           = $step.freshMatch -eq $true
         tailLines       = $step.freshMatchTailLines ? [int]$step.freshMatchTailLines : 12
+        # Confine the positive match to lines that were NOT already on screen
+        # when the wait began. A prompt whose wording is a subsequence of text
+        # standing above it -- PAM's "New password:" against the banner saying
+        # the password must be changed -- matches that banner on the first
+        # poll, and the verb then answers a prompt the guest has not printed:
+        # the password lands on a tty PAM has not yet switched to no-echo,
+        # echoes in the clear, and the retype can no longer match. Only text
+        # the step itself provoked can carry that verdict. failurePatterns are
+        # deliberately NOT narrowed this way -- a crash screen is evidence
+        # whenever it is visible, including when it was visible on arrival.
+        sinceStepStart  = $step.sinceStepStart -eq $true
     }
 }
 
@@ -285,11 +297,45 @@ function Invoke-BlindAnswer {
     )
     $verdict = Get-LastWaitVerdict
     $patternDisplay = $Patterns -join "' | '"
+    # A wait that confined its match to the console tail (freshMatch) publishes no
+    # console text and no static reading, because it runs neither tracker. Those
+    # are the same empty values a dead capture feed produces, and the no-text
+    # message below would report a screen state nothing observed. Say which it is
+    # before saying anything about the guest. Explicit $false only: a verdict
+    # without the flag -- one from a caller, or from a wait that never ran -- is
+    # left to the checks below rather than being refused on a missing key.
+    if ($false -eq $verdict.ConsoleSignalsMeasured) {
+        Write-Debug "      Blind answer skipped for '$patternDisplay': the wait confined its match to the console tail, so nothing measured the screen and there is no evidence to answer from."
+        return $false
+    }
     # A screen with no text is a capture problem, not a parked guest, and typing
     # at one proves nothing. Wait-ForText's own no-text self-heal owns that case.
     if (-not $verdict.ConsoleText) {
         Write-Debug "      Blind answer skipped for '$patternDisplay': no text on screen."
         return $false
+    }
+    # A screen this step names is one the answer must never be typed at. Both
+    # halves of the blind contract are satisfied by an interactive menu just as
+    # well as by the scrolled-away prompt they were written for: a menu waiting
+    # on a keystroke is perfectly static, and the keystroke navigates it, so the
+    # console moves and reads as consumption. Only the screen itself separates
+    # the two. Declining costs nothing but the recovery -- the step still spends
+    # the rest of its budget on the wait it asked for -- so a pattern here is
+    # safe to be wrong about in a way a failurePattern is not. Matched with
+    # -NoSegmentMatch so an anti-pattern cannot fire on its own words scattered
+    # across an unrelated screen.
+    $rawSkip = $Context.Step.blindSkipPattern
+    if ($null -ne $rawSkip) {
+        $skipPatterns = if ($rawSkip -is [System.Collections.IEnumerable] -and $rawSkip -isnot [string]) {
+            @($rawSkip | ForEach-Object { & $Context.ExpandVariable $_ $Context.Vars })
+        } else { @(& $Context.ExpandVariable $rawSkip $Context.Vars) }
+        foreach ($skip in $skipPatterns) {
+            if (-not $skip) { continue }
+            if (Test-OCRMatch -Text ([string]$verdict.ConsoleText) -Pattern $skip -NoSegmentMatch) {
+                Write-Warning "      Blind answer skipped for '$patternDisplay': the console shows '$skip', a screen this step declares the answer must not be typed at."
+                return $false
+            }
+        }
     }
     # "Parked" means the content did not move for most of the window just spent.
     # A guest still printing -- an install running, a service looping -- fails
@@ -612,6 +658,20 @@ Register-SequenceAction -Name 'saveDiskSnapshot' -HostIORequirement @() -OcrRequ
             Write-Warning "      saveDiskSnapshot: Save-VMDiskSnapshot not loaded (Yuruna.Host import missing)."
             return $false
         }
+        $manifestExtra = @{}
+        if ($c.SnapshotPolicy) {
+            try {
+                Import-Module (Join-Path $PSScriptRoot 'Test.SnapshotManifest.psm1') -DisableNameChecking -Global
+                $manifestExtra = @{
+                    managedBaseline = $true
+                    sourceIdentity = Get-SnapshotSourceIdentity -RepoRoot $c.RepoRoot -GuestKey $c.GuestKey `
+                        -Policy $c.SnapshotPolicy -Variables $c.Vars
+                }
+            } catch {
+                Write-Warning "      saveDiskSnapshot: cannot fingerprint baseline sources: $($_.Exception.Message)"
+                return $false
+            }
+        }
         Write-Debug "      Saving disk snapshot '$snapId' for $($c.VMName)"
         $ok = $false
         try { $ok = [bool](Save-VMDiskSnapshot -VMName $c.VMName -Id $snapId -Confirm:$false) }
@@ -637,7 +697,11 @@ Register-SequenceAction -Name 'saveDiskSnapshot' -HostIORequirement @() -OcrRequ
         # restore time).
         if ($ok -and (Get-Command Write-SnapshotManifest -ErrorAction SilentlyContinue)) {
             $effectiveVm = if ($c.NewVMName) { $c.NewVMName } else { $c.VMName }
-            $null = Write-SnapshotManifest -VMName $effectiveVm -SnapshotId $snapId -HostType $c.HostType -Confirm:$false
+            $manifestPath = Write-SnapshotManifest -VMName $effectiveVm -SnapshotId $snapId -HostType $c.HostType -Extra $manifestExtra -Confirm:$false
+            if ($c.SnapshotPolicy -and -not $manifestPath) {
+                Write-Warning '      saveDiskSnapshot: managed baseline requires a durable provenance manifest.'
+                return $false
+            }
         }
         return $ok
     }
@@ -650,6 +714,19 @@ Register-SequenceAction -Name 'loadDiskSnapshot' -HostIORequirement @() -OcrRequ
         param([hashtable]$c)
         $snapId = & $c.ExpandVariable $c.Step.id $c.Vars
         if (-not $snapId) { Write-Warning "      loadDiskSnapshot: missing required 'id' field."; return $false }
+        if ($c.SnapshotPolicy) {
+            try {
+                Import-Module (Join-Path $PSScriptRoot 'Test.SnapshotManifest.psm1') -DisableNameChecking -Global
+                $identity = Get-SnapshotSourceIdentity -RepoRoot $c.RepoRoot -GuestKey $c.GuestKey `
+                    -Policy $c.SnapshotPolicy -Variables $c.Vars
+                $reuse = Test-SnapshotReusePolicy -VMName $c.VMName -SnapshotId $snapId -HostType $c.HostType `
+                    -Policy $c.SnapshotPolicy -SourceIdentity $identity
+                if ($reuse.Status -ne 'reusable') { throw $reuse.Reason }
+            } catch {
+                Write-Warning "      loadDiskSnapshot: baseline policy refused restore: $($_.Exception.Message)"
+                return $false
+            }
+        }
         # A restore boots the guest again, so it goes back for a fresh lease and
         # the address ssh proved a moment ago belongs to the generation being
         # discarded. Forget it here rather than letting the age bound retire it:
@@ -765,6 +842,7 @@ Register-SequenceAction -Name 'saveSystemDiagnostic' -HostIORequirement @() -Ocr
     -Description 'SSH-driven post-mortem capture (logs, processes, network state).' `
     -Handler {
         param([hashtable]$c)
+        $c.DiagnosticOutcome = 'unavailable'
         $diagId = & $c.ExpandVariable $c.Step.id $c.Vars
         if (-not $diagId) { Write-Warning "      saveSystemDiagnostic: missing required 'id' field."; return $false }
         if (-not (Get-Command Get-CycleGuestDataFolder -ErrorAction SilentlyContinue)) {
@@ -782,13 +860,17 @@ Register-SequenceAction -Name 'saveSystemDiagnostic' -HostIORequirement @() -Ocr
         }
         Write-Debug "      Capturing diagnostic '$diagId' from $($c.VMName) to $diagFolder"
         $diagManifest = $null
-        try { $diagManifest = Save-GuestDiagnostic -VMName $c.VMName -GuestKey $c.GuestKey -OutputFolder $diagFolder -Id $diagId }
+        try {
+            $diagManifest = Save-GuestDiagnostic -VMName $c.VMName -GuestKey $c.GuestKey -OutputFolder $diagFolder -Id $diagId `
+                -StepInvocationId $c.StepInvocationId -SequenceInvocationId $c.SequenceInvocationId
+        }
         catch { Write-Warning "      saveSystemDiagnostic: $($_.Exception.Message)" }
         # Emit one NDJSON line so an autonomous remediator sees the
         # capture outcome (mechanism, attempts, bytes) without parsing
         # the diagnostic file body. Best-effort: Write-CycleNdjsonEvent
         # already self-degrades on failure.
         if ($diagManifest -is [hashtable]) {
+            $c.DiagnosticOutcome = [string]$diagManifest.diagnosticOutcome
             Send-CycleEventSafely -EventRecord @{
                 timestamp  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
                 event      = 'guest_diagnostic'
@@ -803,6 +885,11 @@ Register-SequenceAction -Name 'saveSystemDiagnostic' -HostIORequirement @() -Ocr
                 skipped    = [bool]$diagManifest.skipped
                 reason     = [string]$diagManifest.reason
                 outPath    = [string]$diagManifest.outPath
+                diagnosticOutcome = [string]$diagManifest.diagnosticOutcome
+                stepInvocationId = [string]$c.StepInvocationId
+                sequenceInvocationId = [string]$c.SequenceInvocationId
+                hostSnapshot = $diagManifest.hostSnapshot
+                guestSnapshot = $diagManifest.guestSnapshot
             }
         }
         return $true
@@ -910,10 +997,11 @@ Register-SequenceAction -Name 'waitForText' -HostIORequirement @() -OcrRequired 
         param([hashtable]$c)
         $p = Resolve-WaitForTextStepParam -Context $c
         $patternDisplay = $p.patterns -join "' | '"
-        Write-Debug "      Watching screen for: '$patternDisplay' (timeout: $($p.timeout)s$(if ($p.fresh) { ', freshMatch' })$(if ($p.failurePatterns.Count) { ", $($p.failurePatterns.Count) failurePatterns" }))"
+        Write-Debug "      Watching screen for: '$patternDisplay' (timeout: $($p.timeout)s$(if ($p.fresh) { ', freshMatch' })$(if ($p.sinceStepStart) { ', sinceStepStart' })$(if ($p.failurePatterns.Count) { ", $($p.failurePatterns.Count) failurePatterns" }))"
         return [bool](Wait-ForText -HostType $c.HostType -VMName $c.VMName -Pattern $p.patterns `
             -TimeoutSeconds $p.timeout -PollSeconds $p.poll -FreshMatch $p.fresh `
-            -FreshMatchTailLines $p.tailLines -FailurePattern $p.failurePatterns)
+            -FreshMatchTailLines $p.tailLines -SinceStepStart:$p.sinceStepStart `
+            -FailurePattern $p.failurePatterns)
     }
 
 Register-SequenceAction -Name 'waitForTextWithNudge' -HostIORequirement @('Send-Key') -OcrRequired $true `
@@ -934,10 +1022,11 @@ Register-SequenceAction -Name 'waitForTextWithNudge' -HostIORequirement @('Send-
             return $false
         }
         $patternDisplay = $p.patterns -join "' | '"
-        Write-Debug "      Watching screen for: '$patternDisplay' (timeout: $($p.timeout)s, nudge '$nudgeKey' every ${nudgeInterval}s$(if ($p.fresh) { ', freshMatch' })$(if ($p.failurePatterns.Count) { ", $($p.failurePatterns.Count) failurePatterns" }))"
+        Write-Debug "      Watching screen for: '$patternDisplay' (timeout: $($p.timeout)s, nudge '$nudgeKey' every ${nudgeInterval}s$(if ($p.fresh) { ', freshMatch' })$(if ($p.sinceStepStart) { ', sinceStepStart' })$(if ($p.failurePatterns.Count) { ", $($p.failurePatterns.Count) failurePatterns" }))"
         return [bool](Wait-ForText -HostType $c.HostType -VMName $c.VMName -Pattern $p.patterns `
             -TimeoutSeconds $p.timeout -PollSeconds $p.poll -FreshMatch $p.fresh `
-            -FreshMatchTailLines $p.tailLines -FailurePattern $p.failurePatterns `
+            -FreshMatchTailLines $p.tailLines -SinceStepStart:$p.sinceStepStart `
+            -FailurePattern $p.failurePatterns `
             -NudgeKey $nudgeKey -NudgeIntervalSeconds $nudgeInterval)
     }
 
@@ -964,18 +1053,32 @@ Register-SequenceAction -Name 'waitForAndEnter' -HostIORequirement @('Send-Text'
         $waitStartUtc = [DateTime]::UtcNow
         $ok = Wait-ForText -HostType $c.HostType -VMName $c.VMName -Pattern $p.patterns `
             -TimeoutSeconds $firstWindow -PollSeconds $p.poll -FreshMatch $p.fresh `
-            -FreshMatchTailLines $p.tailLines -FailurePattern $p.failurePatterns
-        if ($ok -eq $false -and $useBlind) {
+            -FreshMatchTailLines $p.tailLines -SinceStepStart:$p.sinceStepStart `
+            -FailurePattern $p.failurePatterns
+        # A wait that stopped on one of its own failurePatterns read the console
+        # and found a screen the step declared wrong. That is the one $false the
+        # blind path must not act on: it is evidence about the screen, not the
+        # absence of evidence the blind answer exists to cover.
+        $matchedFailure = $null
+        if (Get-Command Get-SequenceFailureState -ErrorAction SilentlyContinue) {
+            $matchedFailure = (Get-SequenceFailureState).WaitForTextMatchedFailurePattern
+        }
+        if ($ok -eq $false -and $useBlind -and -not $matchedFailure) {
             if (Invoke-BlindAnswer -Context $c -Patterns $p.patterns) { return $true }
             # The answer either was not warranted or did not land. Spend what is
             # left of the configured budget on the wait that was asked for, so a
             # guest that was merely slow still gets the time the step allows.
+            # A resumed wait takes its own since-start baseline: by now the text
+            # the first window looked at is screen this step arrived to rather
+            # than screen it provoked, so the narrowing keeps meaning what it
+            # says -- only what the guest prints from here on can match.
             $remaining = $p.timeout - [int]([DateTime]::UtcNow - $waitStartUtc).TotalSeconds
             if ($remaining -gt 0) {
                 Write-Debug "      Resuming the wait for '$patternDisplay' (${remaining}s left of $($p.timeout)s)"
                 $ok = Wait-ForText -HostType $c.HostType -VMName $c.VMName -Pattern $p.patterns `
                     -TimeoutSeconds $remaining -PollSeconds $p.poll -FreshMatch $p.fresh `
-                    -FreshMatchTailLines $p.tailLines -FailurePattern $p.failurePatterns
+                    -FreshMatchTailLines $p.tailLines -SinceStepStart:$p.sinceStepStart `
+                    -FailurePattern $p.failurePatterns
             }
         }
         if ($ok -eq $false) { return $false }
@@ -1000,10 +1103,11 @@ Register-SequenceAction -Name 'passwdPrompt' -HostIORequirement @('Send-Text', '
         param([hashtable]$c)
         $p = Resolve-WaitForTextStepParam -Context $c
         $patternDisplay = $p.patterns -join "' | '"
-        Write-Debug "      Watching screen for: '$patternDisplay' (timeout: $($p.timeout)s)"
+        Write-Debug "      Watching screen for: '$patternDisplay' (timeout: $($p.timeout)s$(if ($p.sinceStepStart) { ', sinceStepStart' }))"
         $ok = Wait-ForText -HostType $c.HostType -VMName $c.VMName -Pattern $p.patterns `
             -TimeoutSeconds $p.timeout -PollSeconds $p.poll -FreshMatch $p.fresh `
-            -FreshMatchTailLines $p.tailLines -FailurePattern $p.failurePatterns
+            -FreshMatchTailLines $p.tailLines -SinceStepStart:$p.sinceStepStart `
+            -FailurePattern $p.failurePatterns
         if ($ok -eq $false) { return $false }
         Send-TabNavigation -Context $c
         $text = & $c.ExpandVariable $c.Step.text $c.Vars
@@ -1042,6 +1146,114 @@ Register-SequenceAction -Name 'takeScreenshot' -HostIORequirement @() -OcrRequir
         Save-DebugScreenshot -VMName $c.VMName -Label $label -OutputDir $c.ScreenshotDir | Out-Null
         return $true
     }
+
+function Get-FetchExecutionCommand {
+    <#
+    .SYNOPSIS
+        Applies the environment to the whole command, including compound shell input.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][string]$CommandLine, [string]$EnvPrefix)
+    $quote = [string][char]39
+    $escapedQuote = $quote + [char]34 + $quote + [char]34 + $quote
+    return $EnvPrefix + 'bash -c ' + $quote + $CommandLine.Replace($quote,$escapedQuote) + $quote
+}
+
+function Get-FetchObservationEnvPrefix {
+    <#
+    .SYNOPSIS
+        Arms command traces and identifies the invocation across both transports.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][hashtable]$Context)
+    $prefix = if ($Context.Step.sensitive) { 'EXEC_PROFILE=0 EXEC_KEEP_PROFILE=0 ' } else { 'EXEC_KEEP_PROFILE=1 ' }
+    foreach ($entry in @(@('E_SI',$Context.StepInvocationId), @('E_QI',$Context.SequenceInvocationId))) {
+        if ($entry[1] -match '^[A-Za-z0-9-]{1,64}$') { $prefix += "$($entry[0])=$($entry[1]) " }
+    }
+    return $prefix
+}
+
+function Get-GuiFetchExecutionInput {
+    <#
+    .SYNOPSIS
+        Stages an over-budget GUI command in bounded, verified shell input lines.
+    .DESCRIPTION
+        The open subshell defers all execution until its final closing line.
+        Its temporary variable stays local, and the complete command's digest
+        must match before eval. Existing guest bash and sha256sum are sufficient.
+    #>
+    [CmdletBinding()]
+    [OutputType([string], [string[]])]
+    param(
+        [Parameter(Mandatory)][string]$CommandLine,
+        [ValidateRange(240,400)][int]$MaxTypedChars = 400
+    )
+    if ($CommandLine.Length -le $MaxTypedChars) { return $CommandLine }
+    $quote = [string][char]39
+    $escapedQuote = $quote + [char]34 + $quote + [char]34 + $quote
+    $lines = [System.Collections.Generic.List[string]]::new()
+    $prefix = '(unset __y;__y='
+    $chunk = ''
+    # Count the quoted representation, including apostrophe expansion, rather
+    # than the raw substring. Keep headroom below the transport's 400-char cap.
+    $chunkBudget = 240
+    foreach ($character in $CommandLine.ToCharArray()) {
+        $encoded = if ([string]$character -eq $quote) { $escapedQuote } else { [string]$character }
+        if ($prefix.Length + $chunk.Length + $encoded.Length + 2 -gt $chunkBudget) {
+            $lines.Add($prefix + $quote + $chunk + $quote)
+            $prefix = '__y+='
+            $chunk = ''
+        }
+        $chunk += $encoded
+    }
+    if ($chunk.Length) { $lines.Add($prefix + $quote + $chunk + $quote) }
+    $sha256 = [Security.Cryptography.SHA256]::Create()
+    try {
+        $digest = [BitConverter]::ToString($sha256.ComputeHash(
+            [Text.Encoding]::UTF8.GetBytes($CommandLine))).Replace('-', '').ToLowerInvariant()
+    } finally { $sha256.Dispose() }
+    # Encode the whole sentinel: even a nearly matching visible string can
+    # trigger the existing fuzzy OCR failure monitor while the command echoes.
+    $sentinelFormat = -join @($script:NonzeroScriptExitSentinel.ToCharArray() | ForEach-Object {
+        '\' + [Convert]::ToString([int]$_, 8).PadLeft(3, '0')
+    })
+    $guard = 'if [ "$(printf %s "$__y"|sha256sum)" = ' + $quote + $digest + '  -' + $quote +
+        ' ];then eval "$__y";else printf ' + $quote + $sentinelFormat +
+        ' GUI command integrity mismatch\n' + $quote + ';exit 125;fi)'
+    if ($guard.Length -gt $MaxTypedChars) { throw 'The GUI command verification line exceeds the typed-character budget.' }
+    $lines.Add($guard)
+    return $lines.ToArray()
+}
+
+function Save-FetchExecutionEvidence {
+    <#
+    .SYNOPSIS
+        Collects slow or failed invocation traces while their log still exists.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][hashtable]$Context,
+        [bool]$Succeeded,
+        [double]$ElapsedSeconds
+    )
+    if ($Context.Step.sensitive) { return }
+    if ($Succeeded -and $ElapsedSeconds -lt 60) { return }
+    $sourceId = if ($Context.CheckpointSourceStepInvocationId) { $Context.CheckpointSourceStepInvocationId } else { $Context.StepInvocationId }
+    if ($sourceId -notmatch '^[A-Za-z0-9-]{1,64}$') { return }
+    $captureClock = [System.Diagnostics.Stopwatch]::StartNew()
+    try {
+        if (-not (Get-Command Save-GuestExecutionProfile -ErrorAction SilentlyContinue)) {
+            Import-Module (Join-Path $PSScriptRoot 'Test.Diagnostic.psm1') -Global -ErrorAction Stop
+        }
+        $folder = Get-CycleGuestDataFolder -VMName $Context.VMName
+        if (-not $folder) { return }
+        $Context.ExecutionProfile = Save-GuestExecutionProfile -VMName $Context.VMName -GuestKey $Context.GuestKey `
+            -OutputFolder $folder -StepInvocationId $sourceId -TimeoutSeconds 20 -Variables $Context.Vars
+    } catch { Write-Verbose "Execution profile capture unavailable: $($_.Exception.Message)" }
+    finally { $Context.EvidenceCaptureDurationMs = [long]$captureClock.Elapsed.TotalMilliseconds }
+}
 
 function Get-FetchExecuteEnvPrefix {
     <#
@@ -1159,12 +1371,20 @@ Register-SequenceAction -Name 'fetchAndExecute' -HostIORequirement @('Send-Text'
     -Handler {
         param([hashtable]$c)
         $text = & $c.ExpandVariable $c.Step.text $c.Vars
-        $envPrefix  = Get-FetchExecuteEnvPrefix -CommandLine $text -RepoRoot $c.RepoRoot
+        $envPrefix  = (Get-FetchObservationEnvPrefix -Context $c) + (Get-FetchExecuteEnvPrefix -CommandLine $text -RepoRoot $c.RepoRoot)
+        $executionClock = [System.Diagnostics.Stopwatch]::StartNew()
+        $executionSucceeded = $false
+        try {
         $payloadLen = $text.Length
-        $text = $envPrefix + $text
+        $text = Get-FetchExecutionCommand -CommandLine $text -EnvPrefix $envPrefix
+        $typedCommands = @($text)
+        if ($c.HostType -eq 'host.macos.utm' -and $text.Length -gt $script:FetchExecuteTypedCharWarn) {
+            $typedCommands = @(Get-GuiFetchExecutionInput -CommandLine $text -MaxTypedChars $script:FetchExecuteTypedCharWarn)
+            Write-Information "fetchAndExecute: staging $($text.Length) characters in $($typedCommands.Count) verified GUI input lines."
+        }
         # Typed one key event per character; see $script:FetchExecuteTypedCharWarn
         # for why length matters and why the prefix counts against the budget.
-        if ($text.Length -gt $script:FetchExecuteTypedCharWarn) {
+        if ($typedCommands.Count -eq 1 -and $text.Length -gt $script:FetchExecuteTypedCharWarn) {
             Write-Warning ("fetchAndExecute: typing $($text.Length) characters " +
                 "($($envPrefix.Length) integrity prefix + $payloadLen step text), over the " +
                 "$($script:FetchExecuteTypedCharWarn) this console path is known to carry intact. " +
@@ -1174,8 +1394,12 @@ Register-SequenceAction -Name 'fetchAndExecute' -HostIORequirement @('Send-Text'
         }
         $delaySeconds = $c.Step.delaySeconds ? [double]$c.Step.delaySeconds : 2
         $charDelay = $c.Step.charDelayMs ? [int]$c.Step.charDelayMs : $c.DefaultCharDelayMs
-        Write-Debug "      fetchAndExecute: typing '$text' + Enter"
-        if (-not (Invoke-TypeDrainEnter -Context $c -Text $text -DelaySeconds $delaySeconds -CharDelayMs $charDelay -Activity 'fetchAndExecute' -ShellEscape)) { return $false }
+        if (-not $c.Step.sensitive) { Write-Debug "      fetchAndExecute: command '$text'" }
+        foreach ($typedCommand in $typedCommands) {
+            # The CGEvent fallback's ShellEscape wrapper evaluates each input
+            # independently. Continuation lines must reach the shell literally.
+            if (-not (Invoke-TypeDrainEnter -Context $c -Text $typedCommand -DelaySeconds $delaySeconds -CharDelayMs $charDelay -Activity 'fetchAndExecute' -ShellEscape:($typedCommands.Count -eq 1))) { return $false }
+        }
         $waitPattern = & $c.ExpandVariable $c.Step.waitPattern $c.Vars
         if ([string]::IsNullOrWhiteSpace($waitPattern)) {
             # fetchAndExecute REQUIRES a waitPattern (the completion marker). An empty/missing one
@@ -1237,11 +1461,15 @@ Register-SequenceAction -Name 'fetchAndExecute' -HostIORequirement @('Send-Text'
         # reason to also give up the harness reading whether the command line
         # was accepted at all.
         Write-Debug "      fetchAndExecute: waiting for '$waitPattern' (timeout: ${timeout}s, freshMatch, tail ${tailLines} lines); failurePatterns=$($failPatterns -join ', '); shell-rejection window=${script:ShellRejectionWindowSeconds}s"
-        return [bool](Wait-ForText -HostType $c.HostType -VMName $c.VMName -Pattern @($waitPattern) `
+        $executionSucceeded = [bool](Wait-ForText -HostType $c.HostType -VMName $c.VMName -Pattern @($waitPattern) `
             -TimeoutSeconds $timeout -PollSeconds $poll -FreshMatch $true `
             -FreshMatchTailLines $tailLines -FailurePattern $failPatterns `
             -EarlyFailurePattern $script:ShellRejectedCommandPattern `
             -EarlyFailureSeconds $script:ShellRejectionWindowSeconds)
+        return $executionSucceeded
+        } finally {
+            Save-FetchExecutionEvidence -Context $c -Succeeded $executionSucceeded -ElapsedSeconds $executionClock.Elapsed.TotalSeconds
+        }
     }
 
 Register-SequenceAction -Name 'sshWaitReady' -HostIORequirement @() -OcrRequired $false `
@@ -1289,6 +1517,9 @@ Register-SequenceAction -Name 'sshWaitReady' -HostIORequirement @() -OcrRequired
         $script:Fail.WaitForTextOcrTail        = $null
         $script:Fail.WaitForTextPatternsSought = [string[]]@()
         $script:Fail.WaitForTextFreshWindowNearMiss = [string[]]@()
+        # No closest-line scan on this path at all, so $null rather than an
+        # empty list, which would credit the record with a reading of the screen.
+        $script:Fail.WaitForTextClosestOnScreen = $null
 
         # Test.OcrEngine + Test.YurunaDir + Test.Log live alongside this
         # module; Import-Module -Force is cheap once warm. -Global on all
@@ -1454,7 +1685,11 @@ Register-SequenceAction -Name 'sshFetchAndExecute' -HostIORequirement @() -OcrRe
     -Handler {
         param([hashtable]$c)
         $cmd     = & $c.ExpandVariable $c.Step.command $c.Vars
-        $cmd     = (Get-FetchExecuteEnvPrefix -CommandLine $cmd -RepoRoot $c.RepoRoot) + $cmd
+        $prefix  = (Get-FetchObservationEnvPrefix -Context $c) + (Get-FetchExecuteEnvPrefix -CommandLine $cmd -RepoRoot $c.RepoRoot)
+        $cmd     = Get-FetchExecutionCommand -CommandLine $cmd -EnvPrefix $prefix
+        $executionClock = [System.Diagnostics.Stopwatch]::StartNew()
+        $executionSucceeded = $false
+        try {
         $timeout = $c.Step.timeoutSeconds ? [int]$c.Step.timeoutSeconds : $c.DefaultTimeoutSeconds
         Write-Debug "      sshFetchAndExecute: $cmd"
         $script:Fail.StepGuestAddressUnresolved = $null
@@ -1481,6 +1716,9 @@ Register-SequenceAction -Name 'sshFetchAndExecute' -HostIORequirement @() -OcrRe
         $result  = Invoke-GuestSsh -VMName $c.VMName -GuestKey $c.GuestKey -Command $cmd -TimeoutSeconds $timeout `
                        -TransportRetryCount $transportRetries -DetachToken $detachToken
         Write-Debug "      sshFetchAndExecute output: $($result.output)"
+        if ($result.output -match '(?m)^YURUNA_EXECUTION stepInvocationId=([A-Za-z0-9-]{1,64})') {
+            if ($Matches[1] -ne $c.StepInvocationId) { $c.CheckpointSourceStepInvocationId = $Matches[1] }
+        }
         [void](Publish-GuestRetryMarker -Output $result.output -GuestKey $c.GuestKey -VmName $c.VMName)
         if (-not $result.success) {
             if (-not $result.addressResolved) { $script:Fail.StepGuestAddressUnresolved = $true }
@@ -1491,7 +1729,11 @@ Register-SequenceAction -Name 'sshFetchAndExecute' -HostIORequirement @() -OcrRe
             if ($result.output) { Write-Warning "      output: $($result.output)" }
             return $false
         }
+        $executionSucceeded = $true
         return $true
+        } finally {
+            Save-FetchExecutionEvidence -Context $c -Succeeded $executionSucceeded -ElapsedSeconds $executionClock.Elapsed.TotalSeconds
+        }
     }
 
 # --- REGION: retry / recoverFromSnapshot
@@ -1544,7 +1786,7 @@ Register-SequenceAction -Name 'retry' -HostIORequirement @() -OcrRequired $false
                 Write-Verbose "runner.stepHeartbeat refresh (retry loop) failed: $($_.Exception.Message)"
             }
             Write-Information ("    [{0}/{1}] retry attempt {2}/{3}: {4}" -f $c.StepNum, $c.StepCount, $attempt, $maxAttempts, $c.Description)
-            $attemptOk = & $c.InvokeStepBlock -Steps $innerSteps -ParentOrdinal $c.StepNum -ParentAction 'retry'
+            $attemptOk = & $c.InvokeStepBlock -Steps $innerSteps -ParentOrdinal $c.StepNum -ParentAction 'retry' -ParentAttempt $attempt
             if ($attemptOk) {
                 Write-Information ("    [{0}/{1}] retry succeeded on attempt {2}/{3}" -f $c.StepNum, $c.StepCount, $attempt, $maxAttempts)
                 break

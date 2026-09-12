@@ -3,13 +3,8 @@
 # KVM/libvirt overlay for caching-proxy-service.base.user-data.
 # Anchor sections in base-file order. An empty section emits nothing at that anchor.
 # === YURUNA_OVERLAY_HOST_AGENT_PKG ===
-  # qemu-guest-agent: the libvirt counterpart of hyperv-daemons. Lets
-  # `virsh domifaddr --source agent` report the guest's IPv4 even before
-  # the host's DHCP lease/ARP cache populates, which matters on bridged
-  # 'yuruna-external' where the host is NOT the DHCP server. apt package
-  # is reliable on Resolute (the postinst enables qemu-guest-agent.service
-  # automatically); kept top-level so failure surfaces in the package
-  # phase rather than half-way through runcmd.
+  # See https://yuruna.link/42e220c4-0006
+  # The persistent KVM guest exposes this agent to bridged-host discovery.
   - qemu-guest-agent
 # === YURUNA_OVERLAY_NIC_OFFLOAD ===
 # === YURUNA_OVERLAY_RUNCMD_NET ===

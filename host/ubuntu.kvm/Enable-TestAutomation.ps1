@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 4202d0ff-c419-4c17-bf82-ec1f841f72c7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,26 +21,12 @@
     Prepares an Ubuntu KVM/libvirt host to run yuruna automated VM tests.
 
 .DESCRIPTION
-    Configures host-side settings needed for unattended, long-running test
-    runs against libvirt-managed guest VMs:
-      * missing host packages (qemu, libvirt, virtinst, virt-manager, ...)
-        named up front, and installed with apt-get on an interactive run
-      * libvirtd + virtlogd enabled and running
-      * libvirt 'default' network up + autostart (NAT 192.168.122.0/24)
-      * yuruna VM image directory created under $HOME/yuruna/{image,vms}
-      * GNOME idle / lock / dim disabled when running on a desktop session
-        (no-op on a headless server -- gsettings just isn't present)
-
-    Every elevated step probes whether root is reachable without a password and
-    then runs `sudo -n`, so a host that cannot elevate names the command to run
-    instead of raising a prompt on a terminal nobody is watching.
-
-    Run this before Start-TestRunner.ps1. Idempotent -- safe to re-run.
-
-    Exits 0 when every condition is in place and 2 when configuration was
-    applied but something still needs an operator (root this process cannot
-    get, or a group membership that needs a re-login). A missing-package host is
-    not a 2: that is pass one of the documented two-pass install.
+    Captures the host's original settings once, then applies the platform's
+    unattended-test prerequisites and optional pool-storage setup. Re-running
+    preserves the original capture used by Disable-TestAutomation.ps1.
+    See https://yuruna.link/42e220c4-0004.
+    Individual privileged changes use sudo. A new libvirt/kvm group membership
+    requires a new login session before the test runner can use it.
 
 .PARAMETER WhatIf
     Shows what would change without applying any settings.
@@ -66,6 +52,7 @@ if (-not $IsLinux) {
     exit 1
 }
 
+# --- REGION: Initialize host setup
 # Shared bootstrap (Test.HostContract import + sudo prime + powershell-yaml +
 # PSScriptAnalyzer install) lives in automation/Yuruna.HostSetup.psm1.
 # -SudoCacheReason keeps the sudo prompt EARLY (before the long install)
@@ -473,7 +460,7 @@ if (-not $libvirtReady) {
     Write-Warning "setfacl not available -- run 'sudo apt-get install acl' so libvirt-qemu can traverse $HOME."
 }
 
-# --- REGION: GNOME idle / lock / dim (no-op on headless servers)
+# --- REGION: GNOME idle / lock / dim
 # gsettings is GNOME-only. On a server install gsettings is missing
 # entirely; on a desktop install we apply the same equivalents the macOS
 # and Windows scripts apply for their host:
@@ -542,7 +529,7 @@ foreach ($grp in @('libvirt','kvm')) {
     }
 }
 
-# --- REGION: networkStorage pool host-identity setup + reimage reclaim (interactive)
+# --- REGION: Pool storage and host identity
 # Offer to configure networkStorage pool (NAS replication) and, on a host with no local
 # pool identity, scan the NAS registry to reclaim a prior uuid after a reimage.
 # Self-skips cleanly when run non-interactively or under -WhatIf. The orchestrator
@@ -560,23 +547,7 @@ if ($SkipPoolStorage) {
 Write-Output "Yuruna host configuration applied."
 
 # --- REGION: Outcome
-# The exit code is the only failure channel across the child-process boundary:
-# every warning this script writes goes to a captured log the orchestrator does
-# not read, so an explicit exit is the one way a host with libvirtd dead is
-# distinguishable from a clean success. Falling off the end gives 0.
-#
-#   0  every condition is in place
-#   1  the script threw (ErrorActionPreference stops it before this line)
-#   2  configuration was applied and some condition remains unmet
-#
-# The missing-package state is deliberately NOT counted: its own warning says
-# "re-run this script afterwards", so it is pass one of a documented two-pass
-# install, not a degraded host. Everything that IS counted needs either root
-# this process cannot get or a change of group membership that needs a re-login.
-#
-# A preview changed nothing, so it has nothing to report as unmet: the steps
-# above only described themselves, and the probe-only branches describe a host
-# this run did not attempt to fix.
+# See https://yuruna.link/42e220c4-0004 for the shared 0/1/2 host-setup contract.
 if ($WhatIfPreference) { exit 0 }
 if ($Script:Unmet.Count -gt 0) {
     Write-Warning "Host configuration applied, but $($Script:Unmet.Count) condition(s) still need an operator: $($Script:Unmet -join ', ')."

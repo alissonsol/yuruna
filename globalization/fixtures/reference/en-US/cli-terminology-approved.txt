@@ -1,0 +1,3 @@
+exit: 0
+Test-Terminology: definitions and the retired-name block match their recorded hashes.
+Test-Terminology: 15 term(s), 4 protected ruling(s), 11 style rule(s); approved.

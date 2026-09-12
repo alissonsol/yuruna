@@ -33,6 +33,14 @@
     unknown: 'Not answered yet, or the proxy holds no token of its own.'
   };
 
+  // A host mints its id into its runtime directory, so a reimage or a re-clone
+  // leaves the same machine under a new one, and the aggregator holds both until
+  // its TTL expires. The hint is what an operator reading two near-identical
+  // rows needs: which is live, and what it costs to leave them alone.
+  var REKEY_HINT = 'This id no longer answers at this address; the id beside it does. ' +
+    'One machine, two ids -- it was reimaged or re-cloned. Any pool membership is ' +
+    'still recorded against THIS id, so the live host is doing the work outside the pool.';
+
   // The two repository columns are the host's own account of what it runs on,
   // read from the clone it holds (or, when it holds none, from a probe of the
   // url it was configured with). So they answer for EVERY host, pooled or not,
@@ -275,8 +283,52 @@
   // registered nothing, so that link can only ever land on a "no such host".
   // The address is the way in instead: it is where this service just got an
   // answer, so it is the one address known to work.
+  // The repair: hand the pool membership to the id that answers now and drop
+  // the one that stopped. Confirmed first, because it rewrites pool membership
+  // and the two ids differ only in the middle. The service re-derives the pair
+  // from the aggregator before writing anything, so a page left open for an
+  // hour cannot move a live host onto an id that has since gone quiet.
+  function adoptEl(h) {
+    var btn = Y.el('button', {
+      type: 'button', class: 'linkish',
+      title: 'Move this host\'s pool membership to ' + Y.guid(h.supersededBy) +
+        ', the id that answers at this address, and stop showing this one.'
+    }, 'Hand over');
+    btn.addEventListener('click', function () {
+      if (!window.confirm('Host ' + Y.bidiIsolate(Y.guid(h.hostId)) +
+          ' no longer answers at ' + Y.bidiIsolate(h.address || 'its address') +
+          '; ' + Y.bidiIsolate(Y.guid(h.supersededBy)) + ' does.\n\n' +
+          'Move the pool membership to that id and forget this one?')) { return; }
+      Y.clearNotice();
+      var tr = btn.closest('tr');
+      Y.mutate('/api/pool/adopt-rekey', {
+        method: 'POST', body: { oldHostId: h.hostId, newHostId: h.supersededBy }
+      }).then(function (d) {
+        var where = d && d.movedToPool
+          ? 'Pool membership moved to ' + Y.bidiIsolate(d.movedToPool) + '.'
+          : 'Nothing to move: the live id already has the pool it should.';
+        Y.rowFeedback(tr, 'ok', where);
+        return load();
+      }, function (e) {
+        Y.notice('error', e.message);
+        Y.rowFeedback(tr, 'error', 'Hand over failed: ' + Y.bidiIsolate(e.message));
+      });
+    });
+    return btn;
+  }
+
   function hostCell(h) {
-    if (!h.discovered) { return Y.hostLink(h.hostId, h.pool, goBaseUrl); }
+    if (!h.discovered) {
+      var link = Y.hostLink(h.hostId, h.pool, goBaseUrl);
+      if (!h.supersededBy) { return link; }
+      return Y.el('span', { class: 'host-flags' }, [
+        link,
+        Y.el('span', { class: 'mono', title: 'The id that answers at this address now.' },
+          Y.shortHost(h.supersededBy)),
+        Y.el('span', { class: 'badge rekeyed', text: 're-keyed', title: REKEY_HINT }),
+        adoptEl(h)
+      ]);
+    }
     var box = Y.el('span', { class: 'discovered-host' });
     if (h.hostId) box.appendChild(Y.el('span', { class: 'mono', text: Y.shortHost(h.hostId), title: Y.guid(h.hostId) }));
     var seen = h.lastSeen ? ', last seen ' + window.YurunaI18n.fmtLocal(new Date(h.lastSeen)) : '';

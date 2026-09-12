@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42fcd8c5-0a6a-4e17-b89b-9c4d030faa8e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -205,17 +205,37 @@ function Get-SudoPwshArgumentList {
 .PARAMETER NonInteractive
     Adds sudo -n, so a cold sudo timestamp fails immediately instead of blocking
     on a password prompt no one is watching.
+.PARAMETER Prompt
+    Replaces sudo's default prompt (sudo -p). Supply one whenever the elevation
+    interrupts a run that has been talking about OTHER credentials.
+
+    sudo's bare "Password:" names neither the account nor the reason, and these
+    runs surface it in the worst possible context: seconds after lines about
+    vault keys, tokens, and storage-account credentials fetched from another
+    host. The password it wants is none of those -- it is the operator's own
+    login password on this machine -- and an operator who reads the prompt as
+    continuous with what came before answers with the credential the output was
+    just discussing. Every attempt is then rejected by a system that is working
+    exactly as designed, which is the least diagnosable way to fail.
+
+    sudo expands %u to the invoking user, so a prompt built with it stays right
+    on a host where the account differs from whoever wrote the caller.
 #>
     [CmdletBinding()]
     [OutputType([string[]])]
     param(
         [Parameter(Mandatory)][string]$ScriptPath,
         [string[]]$ScriptArgument = @(),
-        [switch]$NonInteractive
+        [switch]$NonInteractive,
+        [string]$Prompt = ''
     )
     $sudoOption = @()
     if ($NonInteractive) { $sudoOption += '-n' }
     if ($IsMacOS)        { $sudoOption += '-E' }
+    # After -n: a prompt is pointless when -n guarantees there will not be one,
+    # but harmless, and ordering the option list this way keeps the vector
+    # readable in a transcript.
+    if ($Prompt)         { $sudoOption += @('-p', $Prompt) }
     return [string[]]@($sudoOption + @((Get-PwshApplicationPath), '-NoProfile', '-File', $ScriptPath) + $ScriptArgument)
 }
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 421d8999-cae4-4164-90cd-fd5cc6a6e28f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -56,6 +56,7 @@ $script:Expected = @(
     'test/extension/stash-service/server/internal/httpsrv/web/assets/common.test.js',
     'test/extension/stash-service/server/internal/httpsrv/web/assets/index.test.js',
     'test/extension/ui-pages.test.js',
+    'test/status/performance.test.js',
     'test/status/status-badges.test.js',
     'test/status/yuruna.common.test.js'
 )

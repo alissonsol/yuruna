@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 424f40c7-7c46-41e1-bd5e-d9b72a02a026
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,7 +18,7 @@
 
 # Default stash-service extension. The Go daemon (SCP sink-mode wire-protocol
 # handler, SQLite metadata index, on-disk storage layout) lives under
-# [server/](server/); user guide: https://yuruna.link/stash-guide.
+# [server/](server/); user guide: https://yuruna.link/42f5e921.
 #
 # Get-StashServiceInfo is a status stub returning a uniform hashtable in the
 # host-side cmdlet vocabulary; host-side status probing (querying a running
@@ -59,7 +59,7 @@ function Get-StashServiceInfo {
         supported     = $false
         installed     = $false
         running       = $false
-        message       = 'stash-service: daemon source under server/; host-side status probing not wired yet. See https://yuruna.link/stash-guide.'
+        message       = 'stash-service: daemon source under server/; host-side status probing not wired yet. See https://yuruna.link/42f5e921.'
         daemonVersion = $null
     }
 }

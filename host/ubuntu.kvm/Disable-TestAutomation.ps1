@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 427d85b1-fda1-4ae0-9a2f-5a950d4da265
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,28 +20,11 @@
 .SYNOPSIS
     Restore the Ubuntu host settings Enable-TestAutomation changed.
 .DESCRIPTION
-    Reads status/runtime/host.pre-automation.json -- written by
-    Enable-TestAutomation before it changed anything -- and puts each captured
-    knob back:
+    Restores values captured in status/runtime/host.pre-automation.json and
+    removes Yuruna-owned additions. Missing captured values are reported and
+    left unchanged. Refuses to restore settings during an active test cycle.
+    Service shutdown is opt-in. See https://yuruna.link/42e220c4-0004.
 
-      * the GNOME gsettings idle / lock / dim keys
-      * the timedatectl NTP setting
-      * libvirtd and virtlogd enabled-state
-
-    And removes what Enable added, but ONLY when the capture proves Enable added
-    it:
-
-      * the ufw allow rule for the status-service port
-      * libvirt / kvm group membership (only if this user was not a member before)
-      * the libvirt-qemu search ACL on $HOME (only if there was none before)
-
-    libvirtd and virtlogd are never disabled without a capture. On the normal
-    install path it is install/ubuntu.kvm.sh -- not Enable-TestAutomation -- that
-    enables them, and a capture-less "reversal" would stop unrelated VMs on the
-    machine.
-
-    Needs sudo for ufw, systemctl and gpasswd. The cache is primed once, up
-    front, with a reason banner.
 .PARAMETER StopServices
     Also stop the caching-proxy, stash, pool-control and download-agent VMs
     this host runs.
@@ -63,6 +46,7 @@ if (-not $IsLinux) {
     exit 1
 }
 
+# --- REGION: Initialize host setup
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostAutomationState.psm1') -Force -DisableNameChecking
 # Test.HostCondition re-exports Initialize-SudoCache (which despite living in
@@ -74,6 +58,7 @@ Import-Module (Join-Path $RepoRoot 'automation/Yuruna.Common.psm1')             
 
 if (-not (Assert-SafeToDisable)) { exit 1 }
 
+# --- REGION: Read captured host settings
 $state = Read-HostAutomationState
 if ($state) {
     Write-Information "Restoring from the capture taken at $($state.capturedUtc)."

@@ -209,7 +209,43 @@ everything aligns; on the warm path the prereqs don't re-run, so a
 mismatched variable here references state that doesn't exist on
 disk (e.g. a [`passwdPrompt`](#passwdprompt) for a username the
 snapshot's `/etc/passwd` never had). When redefining a baked-in
-variable, delete the persisted VM + snapshot to force a cold rebuild.
+variable, delete the persisted VM + snapshot to force a cold rebuild, or use
+the managed policy below.
+
+An optional root-level `snapshotPolicy` lets a producer and consumer enforce
+the same baseline contract:
+
+```yaml
+snapshotPolicy:
+  maxAgeHours: 24
+  rebuildOnMismatch: true
+  sourceFiles:
+    - guest/ubuntu.server.26/*.sh
+    - host/*/guest.ubuntu.server.26/*.ps1
+    - host/vmconfig/ubuntu.server.*
+```
+
+The producer's `saveDiskSnapshot` stores a managed marker, checkout revisions
+when Git metadata is available, hashes of every matching source file, and the
+guest's username, hostname, memory and CPU settings in the existing manifest.
+The image-builder and cloud-init hashes identify the image definition and
+version pins; they do not attest to the downloaded ISO's bytes. Secrets are
+excluded. Every source pattern must match, and paths must remain relative to
+the framework checkout. Include the baseline sequence itself and any additional
+scripts it invokes in `sourceFiles`.
+
+The consumer's chain planner and `loadDiskSnapshot` both validate source
+identity and age. A matching baseline skips prerequisites; an absent snapshot
+runs them. With `rebuildOnMismatch: true`, a stale baseline is stopped and
+removed through the host contract before rebuilding. Removal requires a
+managed manifest matching the VM name, snapshot ID, host name and platform.
+Missing, malformed or foreign manifests fail closed. Without this policy,
+legacy snapshot behavior is unchanged.
+
+Use an orchestration `InvokeTestSequence` entry for a continuous-runner warm
+test set, or call `Debug-TestSequence.ps1` directly. Those paths invoke the
+snapshot-aware chain planner. A direct guest test-set entry follows the ordinary
+VM startup path and does not perform this prerequisite skip.
 
 ---
 
@@ -449,16 +485,30 @@ held down that the guest kernel auto-repeats at the console default of
 has been lost repeatedly, degrading around character ~416, while the 370- and
 410-character sends in the same sequence were unaffected.
 
-A step whose console-typed length exceeds 400 characters is therefore flagged --
-just under the longest length observed to survive. It is a WARNING, not a cap:
-the fix for a long step is to move the work into the fetched script, where it
-costs no keystrokes, never to raise the number.
+On `host.macos.utm`, a complete `fetchAndExecute` command longer than 400
+characters now uses verified GUI staging. The harness types quoted chunks of
+at most 240 characters into an open Bash subshell, then types a verification
+line below 400 characters. Bash waits for the closing line before executing
+the group. The complete command must match its host-computed SHA-256 before
+evaluation; a missing or changed chunk produces the ordinary failure marker.
+The temporary variable stays inside the subshell, and the payload's exit status
+is preserved. Both VNC and the CGEvent fallback receive literal continuation
+lines, without the fallback's per-command shell rewrite.
 
-**Authors: the budget is not the YAML `text:` on its own.** The harness prepends
-roughly 225 characters of integrity envelope (two SHA-256 digests plus the
-fallback repo and commit), so a 276-character `text:` is really a
-~500-character send. Keeping `text:` near 120 characters leaves comfortable
-headroom.
+Staging preserves both file digests, the required-verification flag, the pinned
+fallback source, full invocation IDs and profiling. It uses GUI input throughout
+and needs no new guest helper. Short commands retain one send; other host types
+retain their existing warning behavior. The completion and failure OCR checks
+continue after the final input. The verification line encodes its failure marker
+so the echoed command cannot itself trigger the fuzzy failure matcher.
+
+**Authors: the budget includes the YAML `text:`, metadata and shell quoting.**
+The incident's 129-character website invocation became 458 characters with its
+integrity envelope, observation IDs and shell wrapper. It now uses four sends
+of 240, 240, 17 and 268 characters. Each send pays the configured drain pause,
+so this example adds three pauses (about 8.4 seconds with the default 2-second
+drain and 800-millisecond settle), plus additional typing. Keep substantive
+work inside the fetched script to limit that overhead.
 
 <a id="428e4df6-0015"></a>
 
@@ -529,6 +579,13 @@ PAM prompts (`Current password:`, `Retype new password:`) whose
 non-newline-terminated lines get overwritten on the framebuffer by late
 console messages. Parameters are the same as
 `waitForAndEnter`, minus the explicit `sensitive` flag.
+
+A PAM rotation prompt is also the standard case for `sinceStepStart`. The
+banner announcing that the password must be changed carries the words of
+the prompt that follows it, so a wait allowed to read the whole frame
+matches the banner and types the secret into a tty PAM has not yet
+switched to no-echo: the password echoes in the clear and the retype can
+no longer match.
 
 <a id="428e4df6-001a"></a>
 
@@ -771,7 +828,35 @@ crash fails the cycle in ~20s instead of waiting the full
 | `pollSeconds` | number | Default `vmCommunication.pollSeconds`. |
 | `freshMatch` | boolean | |
 | `freshMatchTailLines` | number | Default `12`. |
+| `sinceStepStart` | boolean | Match only text the guest printed after this wait began. |
 | `failurePatterns` | string or string[] | Anti-patterns; matching any fails the step with a label naming the matched pattern. |
+
+`sinceStepStart=true` narrows the positive match in time rather than in
+space: it matches only against lines absent from a baseline capture of
+what was already on screen.
+
+That baseline is the frame the *previous* wait in the sequence matched on,
+so anything the guest printed in reply to what the step before typed
+counts as new however long the gap between the two waits was. This matters
+wherever a guest answers faster than the poll interval -- PAM prints its
+next prompt within milliseconds of the answer it was given, and each
+prompt is printed exactly once, so a baseline taken any later would
+already contain the prompt the step exists to answer and the step could
+only ever time out. Where no previous wait is available to hand one on --
+the first gated wait of a sequence, or one whose predecessor failed -- the
+wait falls back to its own first poll, which records what is on screen and
+tests nothing; that costs one poll but is never wrong.
+
+Use it wherever the pattern's own words also occur in the text standing
+above the prompt -- a PAM prompt under the banner announcing that the
+password must be changed is the standard case -- because a fuzzy match
+against that banner returns on the first poll, and the verb then answers a
+prompt the guest has not printed yet. `failurePatterns` keep reading the
+whole frame either way: a crash screen is evidence whenever it is visible,
+including when it was already visible on arrival. It is independent of
+`freshMatch`, which narrows the same match to the last
+`freshMatchTailLines` lines and therefore excludes nothing on a screen
+shorter than that window.
 
 <a id="428e4df6-0028"></a>
 
@@ -785,7 +870,7 @@ patterns before pressing the key.
 
 | Parameter | Type | Notes |
 |---|---|---|
-| `pattern`, `timeoutSeconds`, `pollSeconds`, `freshMatch`, `freshMatchTailLines`, `failurePatterns` | same as `waitForText` | |
+| `pattern`, `timeoutSeconds`, `pollSeconds`, `freshMatch`, `freshMatchTailLines`, `sinceStepStart`, `failurePatterns` | same as `waitForText` | |
 | `nudgeKey` | string | Required key name; typically `Enter` for agetty. |
 | `nudgeIntervalSeconds` | integer | Required; must be at least `1`. The first periodic nudge occurs after this interval. |
 
@@ -1161,6 +1246,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.08
+Last review: 2026.09.12
 
 Back to [Yuruna](../README.md)

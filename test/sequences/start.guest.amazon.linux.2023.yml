@@ -4,10 +4,12 @@
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 
 sequenceGuid: 4224b44c-5e04-47e8-a61b-865d2a191b84
-sequenceRevision: 2
+sequenceRevision: 4
 
 description: "Amazon Linux 2023: first login, change password, run update script, reboot."
 keystrokeMechanism: gui
+
+# --- REGION: resource
 resource:
   amazon.linux.2023: []
 variables:
@@ -15,23 +17,13 @@ variables:
   currentPassword: ${ext:authentication.GetPassword(${username})}
   newPassword: ${ext:authentication.NewRandomPassword()}
 
+# --- REGION: component
 component:
   - action: retry
     maxAttempts: 3
     description: "Login and password rotation (restart on timeout)"
     steps:
-      # The nudge comes BEFORE the wait, and that ordering is the whole point.
-      # agetty prints "login:" once and does not reprint it; cloud-init's
-      # closing console writes (the SSH host-key banner is the long one) land
-      # after it and scroll it away. The prompt is then gone from a screen that
-      # never changes again, so an OCR wait for it can only spend its full
-      # budget. An ordering that waited first and nudged second would put the
-      # recovery downstream of the very step it exists to unblock, and since a
-      # retry attempt restarts at this step, no attempt would ever reach it.
-      #
-      # Enter is safe to send unconditionally: at a prompt it draws a fresh
-      # one, and mid-boot it is discarded. Every retry attempt issues it, so a
-      # prompt overwritten during one attempt is recovered by the next.
+      # See https://yuruna.link/42e220c4-0007
       - action: pressKey
         name: Enter
         description: "Push agetty to redraw a fresh login"
@@ -43,6 +35,9 @@ component:
       - action: waitForText
         pattern: "login:"
         timeoutSeconds: 300
+        failurePatterns:
+          - "passwords do not match"
+          - "Authentication token manipulation error"
         description: "OCR: login:"
 
       - action: passwdPrompt
@@ -50,23 +45,33 @@ component:
         text: "${username}"
         description: "OCR: login:"
 
+      # See https://yuruna.link/42e220c4-0007
       - action: passwdPrompt
         pattern: "Password:"
+        timeoutSeconds: 30
+        sinceStepStart: true
+        failurePatterns:
+          - "BdsDxe:"
+          - "GNU GRUB"
         text: "${currentPassword}"
         description: "OCR: Password:"
 
       - action: passwdPrompt
         pattern: ["Current password", "urrent password:"]
+        sinceStepStart: true
         text: "${currentPassword}"
         description: "OCR: Current password"
 
+      # Keep the full token distinct from the current-password and retype prompts.
       - action: passwdPrompt
-        pattern: ["New password", "ew password:"]
+        pattern: "New password"
+        sinceStepStart: true
         text: "${newPassword}"
         description: "OCR: New password"
 
       - action: passwdPrompt
         pattern: ["Retype new password", "etype new password:"]
+        sinceStepStart: true
         text: "${newPassword}"
         description: "OCR: Retype new password"
 
@@ -81,10 +86,15 @@ component:
     text: " echo yuruna_$(seq -s '' 1 9)_ok"
     description: "Ask the shell to expand a token agetty cannot"
 
+  # Detect PAM rejection before persisting the password; ignore recovered login failures.
   - action: waitForText
     pattern: "yuruna_123456789_ok"
     timeoutSeconds: 90
     freshMatch: true
+    failurePatterns:
+      - "passwords do not match"
+      - "BAD PASSWORD: The password fails the dictionary check"
+      - "Authentication token manipulation error"
     description: "OCR: yuruna_123456789_ok"
 
   - action: callExtension
@@ -94,6 +104,7 @@ component:
       NewPassword: "${newPassword}"
     description: "Commit confirmed new password to auth system"
 
+# --- REGION: workload
 workload:
   - action: fetchAndExecute
     text: "/usr/local/lib/yuruna/fetch-and-execute.sh guest/amazon.linux.2023/amazon.linux.2023.update.sh"
@@ -108,3 +119,14 @@ workload:
   - action: inputTextAndEnter
     text: "clear; sudo reboot now"
     description: "Reboot the VM"
+
+  # See https://yuruna.link/42e220c4-0007
+  - action: waitForSeconds
+    seconds: 15
+    description: "Let the reboot take the console"
+
+  - action: waitForText
+    pattern: "login:"
+    timeoutSeconds: 600
+    freshMatch: true
+    description: "OCR: login:"

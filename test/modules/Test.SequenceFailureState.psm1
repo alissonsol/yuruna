@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 428d5583-549b-428b-9150-dfe8fe3266a4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -43,6 +43,13 @@ function Initialize-SequenceFailureStateStore {
     $Store['LastFailureDescription'] = $null
     $Store['LastFailedAction']       = $null
     $Store['LastFailedStepNumber']   = 0
+    # When the failing step began. The failure record judges the per-VM screen
+    # artifacts at the log root against it: those files are sticky and only the
+    # verbs that read a screen rewrite them, so anything written before the step
+    # started belongs to an earlier one and must not be claimed as this
+    # failure's evidence. $null means no boundary is known, and the record then
+    # claims the artifacts as it always did rather than guessing.
+    $Store['LastFailedStepStartedUtc'] = $null
     # Inner-verb slots: a retry Handler captures the deepest inner verb's
     # classification here before the outer per-step path overwrites
     # LastFailedAction with 'retry', so the failure record can surface both
@@ -72,6 +79,18 @@ function Initialize-SequenceFailureStateStore {
     # tell "never printed" from "printed, then pushed out of the window" -- two
     # failures with different owners and different fixes.
     $Store['WaitForTextFreshWindowNearMiss'] = [string[]]@()
+    # Populated at any wait that timed out having read some text: per engine and
+    # per sought pattern, the line on the final frame that came closest and how
+    # close. The near-miss slot above is empty for three unrelated screens, so on
+    # its own it cannot say whether anything resembling the pattern was there;
+    # this can, and on a frame shorter than the tail window -- where the window
+    # is incapable of hiding anything -- it is the only screen evidence in the
+    # record. Three states: entries, an empty array from a scan that compared the
+    # frame and found nothing like the pattern, and $null from no scan at all --
+    # a wait that ends on a failure pattern returns the moment it matches, and a
+    # failure outside a wait has no frame. Only the first two say anything about
+    # the screen, so the third must not arrive wearing the second's shape.
+    $Store['WaitForTextClosestOnScreen'] = $null
     # Populated when the console filled with one repeating log line while the
     # wait was seeking its pattern. That case is NOT the same failure as a
     # pattern that never printed, and the byte-hash freeze detector cannot see
@@ -86,6 +105,13 @@ function Initialize-SequenceFailureStateStore {
     # already -- the second is a guest parked on something, and the wait it
     # failed was never going to end on its own.
     $Store['WaitForTextConsoleStaticSeconds'] = 0
+    # Whether the wait that failed actually evaluated the two slots above. A
+    # tail-confined match reads the same frames but runs neither tracker, so it
+    # leaves them at these initializers -- which are also what a measured, moving,
+    # non-repeating console produces. Defaults to $true so a failure with no wait
+    # behind it keeps the shape it has always had; only a wait that declined to
+    # measure clears it.
+    $Store['WaitForTextConsoleSignalsMeasured'] = $true
     # Set by the sequence-start / per-step pause gate when an operator hold is
     # released: @{ releasedAtUtc; heldSeconds; label; pauseScope }. The gate holds
     # the runner while the guest keeps running, so a hold is part of the cause of
@@ -206,8 +232,27 @@ function New-SequenceFailureRecord {
     $ocrTail = if ($fail.WaitForTextOcrTail) { [string]$fail.WaitForTextOcrTail } else { '' }
     [string[]]$patternsSought = @($fail.WaitForTextPatternsSought)
     [string[]]$freshWindowNearMiss = @($fail.WaitForTextFreshWindowNearMiss)
-    $consoleFlood = if ($fail.WaitForTextConsoleFlood) { [string]$fail.WaitForTextConsoleFlood } else { '' }
-    $consoleStaticSeconds = if ($fail.WaitForTextConsoleStaticSeconds) { [int]$fail.WaitForTextConsoleStaticSeconds } else { 0 }
+    # Three states, so neither guard above fits: @($null) is a ONE-element array
+    # whose element casts to '', which would publish a scan that never ran as one
+    # that found a blank line, and an if-EXPRESSION cannot carry the other two
+    # (its pipeline flattens an empty array to $null and a one-line result to a
+    # bare string, collapsing exactly the distinction being drawn). Assign the
+    # absent state first, then overwrite only when there is a reading.
+    $closestOnScreen = $null
+    if ($null -ne $fail.WaitForTextClosestOnScreen) {
+        [string[]]$closestOnScreen = @($fail.WaitForTextClosestOnScreen)
+    }
+    # Both console fields describe a screen something looked at. When the wait
+    # confined its match to the console tail, nothing did: the flood check and the
+    # content-static tracker never ran, so 0 / '' are initializers rather than
+    # readings -- and they are exactly the values a measured healthy console
+    # produces. $null keeps both keys present while saying the wait did not look,
+    # so no consumer can read "the console was moving" out of a measurement that
+    # never happened. A store with no flag at all is treated as measured, so a
+    # record built from one keeps the shape it already had.
+    $consoleMeasured = ($null -eq $fail.WaitForTextConsoleSignalsMeasured) -or [bool]$fail.WaitForTextConsoleSignalsMeasured
+    $consoleFlood = if (-not $consoleMeasured) { $null } elseif ($fail.WaitForTextConsoleFlood) { [string]$fail.WaitForTextConsoleFlood } else { '' }
+    $consoleStaticSeconds = if (-not $consoleMeasured) { $null } elseif ($fail.WaitForTextConsoleStaticSeconds) { [int]$fail.WaitForTextConsoleStaticSeconds } else { 0 }
     # 0 / '' rather than $null when there was no hold, matching consoleFlood: the
     # fields are always present, so a consumer never has to tell "not paused" from
     # "this record predates the gate reporting it".
@@ -352,8 +397,39 @@ function New-SequenceFailureRecord {
     # that failed on the same guest rewrote the same two files: a pointer read
     # later could resolve to a DIFFERENT cycle's screenshot and give no sign
     # that it had, which is worse than a path that resolves to nothing.
+    #
+    # Claimed only when the source artifact was written after the failing step
+    # began. Both sources are sticky per-VM files at the log root that only the
+    # verbs which read a screen ever rewrite, so a failure in a verb that reads
+    # none inherits whatever an earlier step left behind -- and a pointer to
+    # that reads as this failure's screen, sending the reader after a fault
+    # that belongs to a different step. The boundary is the step's START, not
+    # the failure instant: every artifact for a failure is written before the
+    # record describing it, so the instant would reject all of them. The
+    # 2-second slack absorbs filesystem timestamp granularity (FAT/exFAT round
+    # mtime to 2s), the only skew that can under-report a genuinely fresh
+    # write; a stale artifact is a whole step older at minimum, so the slack
+    # cannot reach one. With no step boundary recorded, both are claimed as
+    # before: nothing is known about their age, and an absent judgment is not
+    # evidence of staleness.
     $failScreenName = "$VMName/failure_screenshot.png"
     $failOcrName    = "$VMName/failure_ocr.txt"
+    $staleEvidence  = [System.Collections.Generic.List[string]]::new()
+    $stepStartedUtc = $fail.LastFailedStepStartedUtc -as [DateTime]
+    if ($stepStartedUtc) {
+        $evidenceCutoffUtc = $stepStartedUtc.AddSeconds(-2)
+        foreach ($artifact in @(
+                @{ Kind = 'screen'; Source = "failure_screenshot_${VMName}.png"; Name = $failScreenName },
+                @{ Kind = 'ocr';    Source = "failure_ocr_${VMName}.txt";        Name = $failOcrName })) {
+            $item = Get-Item -LiteralPath (Join-Path $LogDir $artifact.Source) -ErrorAction SilentlyContinue
+            if ($item -and $item.LastWriteTimeUtc -ge $evidenceCutoffUtc) { continue }
+            if ($item) {
+                $ageSeconds = [int][math]::Round(($stepStartedUtc - $item.LastWriteTimeUtc).TotalSeconds)
+                $staleEvidence.Add("$($artifact.Name): last written ${ageSeconds}s before the failing step began -- it holds an earlier step's screen, not this failure's")
+            }
+            if ($artifact.Kind -eq 'screen') { $failScreenName = $null } else { $failOcrName = $null }
+        }
+    }
 
     # The cycle's stable identity, the same string the NDJSON stream stamps on
     # every record, so a consumer holding this file can join it to the events
@@ -435,12 +511,25 @@ function New-SequenceFailureRecord {
                 cycleFolder           = $cycleIdentity
                 failureScreenshotPath = $failScreenName
                 failureOcrPath        = $failOcrName
+                # Names an artifact dropped from the two pointers above, with
+                # its age: "no screen evidence exists" and "evidence exists but
+                # shows an earlier step" send a reader to different places, and
+                # a silent omission cannot tell them apart.
+                staleEvidence         = [string[]]$staleEvidence
                 # What was on screen vs what was sought at the wait/OCR failure
                 # site -- the runtime cause behind a verb-static failureClass.
                 causeDetail           = [ordered]@{
                     ocrTail            = $ocrTail
                     patternsSought     = $patternsSought
                     freshWindowNearMiss = $freshWindowNearMiss
+                    # Read with freshWindowNearMiss, never instead of it. An empty
+                    # near-miss list means one of three different screens, and
+                    # this names what the closest line on the frame actually was
+                    # and how close, so the empty one is never mistaken for a
+                    # finding that nothing resembled the pattern. $null when no
+                    # scan ran at all, on the same reasoning as consoleFlood
+                    # below: an empty list is a reading, and absence is not.
+                    closestOnScreen    = $closestOnScreen
                     # Empty string rather than $null when absent, so the field is
                     # always present and a consumer never has to tell "not
                     # flooded" from "this record predates the check".
@@ -490,8 +579,23 @@ function New-SequenceFailureRecord {
         reproCommand            = $reproCommand
         failureScreenshotPath   = $failScreenName
         failureOcrPath          = $failOcrName
+        staleEvidence           = [string[]]$staleEvidence
     }
     if ($Reason -eq 'crash') { $eventRecord['crashError'] = "$CrashError" }
+
+    # An artifact that failed the freshness check is dropped from both the file
+    # and the event rather than carried as a name the reader has to distrust:
+    # the pointer is followed, not audited, and one resolving to an earlier
+    # step's screen costs more than no pointer at all. staleEvidence keeps it
+    # findable for the reader who wants it anyway.
+    if (-not $failScreenName) {
+        $file.context.Remove('failureScreenshotPath')
+        $eventRecord.Remove('failureScreenshotPath')
+    }
+    if (-not $failOcrName) {
+        $file.context.Remove('failureOcrPath')
+        $eventRecord.Remove('failureOcrPath')
+    }
 
     return @{ File = $file; Event = $eventRecord }
 }
@@ -525,7 +629,12 @@ function New-InfraFailureRecord {
         [AllowEmptyString()][string]$VMName = '',
         [AllowEmptyString()][string]$GuestKey = '',
         [AllowEmptyString()][string]$HostType = '',
-        [AllowEmptyString()][string]$ErrorMessage = ''
+        [AllowEmptyString()][string]$ErrorMessage = '',
+        # The host's own resource position at the moment the stage failed, when
+        # the driver could measure it. Left unbound rather than zeroed when it
+        # could not: a zeroed reading is indistinguishable from a measured one,
+        # and the difference is the whole value of the field.
+        [AllowNull()][hashtable]$HostMemory
     )
     # Two-step [string[]] guard so the empty recoveries list never collapses to
     # $null (the typed-array-cast-if-empty trap); the NDJSON field stays an array.
@@ -572,6 +681,27 @@ function New-InfraFailureRecord {
         action               = $Stage
         description          = $ErrorMessage
         sequenceName         = ''
+    }
+    # What the host itself held at the moment it refused. A provisioning
+    # failure is a statement about the machine rather than about the guest, and
+    # the machine's memory position is recoverable from nothing else the cycle
+    # keeps -- those numbers exist only in the instant of the call. Carried only
+    # when a driver actually measured; ABSENT otherwise, on the same discipline
+    # the screen-evidence pointers follow, because a zeroed block would be read
+    # as a machine measured and found empty. The file nests the reading and the
+    # event carries it flat, like every other nested value on this stream.
+    if ($HostMemory -and $HostMemory.Contains('commitLimitBytes')) {
+        $file.context['hostMemory'] = [ordered]@{
+            availableMb          = [int64]$HostMemory['availableMb']
+            committedBytes       = [int64]$HostMemory['committedBytes']
+            commitLimitBytes     = [int64]$HostMemory['commitLimitBytes']
+            commitAvailableBytes = [int64]$HostMemory['commitAvailableBytes']
+            source               = [string]$HostMemory['source']
+        }
+        $eventRecord['hostAvailableMb']          = [int64]$HostMemory['availableMb']
+        $eventRecord['hostCommittedBytes']       = [int64]$HostMemory['committedBytes']
+        $eventRecord['hostCommitLimitBytes']     = [int64]$HostMemory['commitLimitBytes']
+        $eventRecord['hostCommitAvailableBytes'] = [int64]$HostMemory['commitAvailableBytes']
     }
     return @{ File = $file; Event = $eventRecord }
 }

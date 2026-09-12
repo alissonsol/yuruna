@@ -1,7 +1,7 @@
 /*
   LICENSEURI https://yuruna.link/license
   Copyright (c) 2019-2026 by Alisson Sol et al.
-  Version: 2026.09.08
+  Version: 2026.09.12
   --- REGION: https://yuruna.link/42fa6f45-0018
   --- REGION: https://yuruna.link/42fa6f45-001d
   --- REGION: https://yuruna.link/42fa6f45-0019
@@ -36,7 +36,7 @@
   --banner-overlay-border:   rgba(255,255,255,.32);
   --pass-bg:      #dcfce7;
   /* Badge TEXT, and only that. The banner used to paint its fill from this
-     same value, which is why it could not be darkened: a colour tuned to read
+     same value, which is why it could not be darkened: a color tuned to read
      AS text on a pastel chip is too light to sit UNDER white text. The two
      roles now have separate tokens (--banner-*-bg below), so each can satisfy
      its own contrast floor. */
@@ -395,12 +395,43 @@ footer.app a { color: #9ca3af; color: var(--chrome-muted); }
   text-decoration: underline; cursor: pointer;
 }
 #footer-bar .linkish[aria-pressed="true"] { color: #f9fafb; color: var(--chrome-fg); font-weight: 600; }
+/* --------------------------------------------------------------------------
+   The right-to-left mirror for the chrome above.
+
+   Logical properties would express this in one declaration, but they are
+   Safari 14.1 and the floor is 9.0, where the whole declaration is dropped and
+   the offset silently disappears. So each physical side is restated here for
+   the direction the page actually has. Only the sides are mirrored: sizes,
+   colors and the tick glyph are the same in both directions.
+
+   These rules live inside the chrome block because the chrome is shared. Every
+   stylesheet carrying the block carries them byte for byte, which the chrome
+   identity test enforces -- a mirror in one service and not another is how the
+   same header comes out mirrored on one page and not the next.
+   -------------------------------------------------------------------------- */
+[dir="rtl"] header.app > * + * { margin-left: 0; margin-right: 1rem; }
+[dir="rtl"] .menu-button .menu-icon + .menu-label { margin-left: 0; margin-right: .4rem; }
+[dir="rtl"] .menu-panel a[aria-current="page"]::after { float: left; margin-left: 0; margin-right: 1.5rem; }
+[dir="rtl"] #footer-bar { text-align: right; }
+[dir="rtl"] #footer-bar > * + * { margin-left: 0; margin-right: .75rem; }
+[dir="rtl"] #footer-ips > * + * { margin-left: 0; margin-right: .5rem; }
+/* The safe-area pair swaps with the direction too: the notch a phone puts on
+   the physical left still needs the physical left inset, but the padding that
+   opens the row's reading edge moves to the other side. Plain value first, as
+   every env()/max() declaration here does, so the floor keeps the fallback. */
+[dir="rtl"] #footer-bar {
+  padding-left: .5rem;
+  padding-left: max(.5rem, env(safe-area-inset-left));
+  padding-right: .5rem;
+  padding-right: max(.5rem, env(safe-area-inset-right));
+}
+
 /* === end page chrome ====================================================== */
 
 /* The status pages put a two-line host identity where a service UI puts one
    line of host id: the machine name links to the host diagnostic, with the
    host type under it. It rides inside header.app .machine, so it inherits that
-   element's colour, mono face and truncation. */
+   element's color, mono face and truncation. */
 .hm-stack {
   display: inline-flex; flex-direction: column; align-items: flex-end;
   line-height: 1.2;
@@ -452,7 +483,7 @@ button {
   transition: background .3s;
 }
 #banner > * + * { margin-left: .625rem; }
-/* --fg-header is white and stays white here, in both colour schemes, which is
+/* --fg-header is white and stays white here, in both color schemes, which is
    only safe because every fill below is a banner-specific token dark enough to
    carry it. Pointing these at the badge-text tokens instead -- which is what
    they used to do -- put white on the dark scheme's pale #fecaca. */
@@ -605,7 +636,7 @@ svg.cycle-flame { width: 100%; height: auto; max-width: 100%; }
 .meta-btn:hover:not([disabled]) { background: #e5e7eb; background: var(--meta-btn-hover-bg); }
 .meta-btn[disabled] { cursor: default; opacity: .45; }
 /* The armed state inverts the button: an amber fill in light, a darker amber
-   in dark. --meta-btn-fg is the colour for the RESTING fill and follows the
+   in dark. --meta-btn-fg is the color for the RESTING fill and follows the
    theme in the opposite direction, so on the dark theme's #b45309 it lands at
    4.06:1 -- the same one-token-two-roles shape as the status banner. The armed
    state gets its own foreground, and the fill is dark enough for white in both
@@ -630,3 +661,12 @@ svg.cycle-flame { width: 100%; height: auto; max-width: 100%; }
   font-family: ui-monospace, Menlo, Consolas, monospace;
   font-family: var(--font-mono); font-size: .8125rem;
 }
+
+/* --------------------------------------------------------------------------
+   Right-to-left mirror. Logical properties would say this once, but they are
+   Safari 14.1 and the floor is 9.0, where the declaration is dropped and the
+   offset silently disappears -- so each side is restated for the direction the
+   page has. Sides only: sizes and colors are the same either way.
+   -------------------------------------------------------------------------- */
+[dir="rtl"] #banner > * + * { margin-left: 0; margin-right: .625rem; }
+[dir="rtl"] .section-title.with-controls > * + * { margin-left: 0; margin-right: .75rem; }

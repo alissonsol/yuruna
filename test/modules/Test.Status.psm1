@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42994da6-e051-4570-a609-afe6e87fdcf8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -525,7 +525,7 @@ function Complete-Run {
     # [ordered]@{} preserves insertion order so guestSummary keys keep
     # guestSequence order in the JSON. Per-guest value shape (current
     # object form vs legacy bare-string form), stepDurationsSeconds contract,
-    # and dashboard fallback: https://yuruna.link/test/harness
+    # and dashboard fallback: https://yuruna.link/42d38664
     $guestSummary = [ordered]@{}
     foreach ($g in $script:Doc.guests) {
         $artifacts = if ($g.Contains('failureArtifacts')) { [string]$g.failureArtifacts } else { '' }

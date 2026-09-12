@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42b84cc3-7873-4cc2-800e-3d90a4776081
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,9 +16,19 @@
 
 #requires -version 7
 
-# Honor logLevel from Start-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+# --- REGION: Log level from environment
+# Reuse the caller's log module so an in-process fetch preserves its state.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
-if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
+if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
+    Import-Module $_logLevelMod -Global
+}
+if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
+
+# --- REGION: Platform guard
+if (-not $IsMacOS) {
+    Write-Error "host/macos.utm/guest.windows.11/Get-Image.ps1 only runs on macOS UTM."
+    exit 1
+}
 
 # --- REGION: Configuration
 $downloadDir = "$HOME/yuruna/image/windows.env"
@@ -334,7 +344,7 @@ if (-not $spiceOk) {
     Write-Output "  Then run this script again to continue."
 }
 
-# --- REGION: Final status
+# --- REGION: Completion
 Write-Output ""
 if ($windowsOk -and $spiceOk) {
     Write-Output "== All images ready =="

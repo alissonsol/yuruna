@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42bb2613-9d4e-4ac0-aeb2-0784a83e7a8a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,14 +16,7 @@
 
 #requires -version 7
 
-# Git + project-clone helpers: framework auto-update at cycle start
-# (Invoke-GitPull), HEAD short-hash reporting, the Restart-Manager /
-# PEB cwd scanner that diagnoses Windows file-locker PIDs when
-# Remove-Item fails, the wipe-and-re-clone of the project-under-test,
-# the framework/project repository-access answer a host serves to the
-# pool UIs (Get-HostRepositoryAccess), and the on-demand PSGallery
-# installs (powershell-yaml, PSScriptAnalyzer) the runner needs but
-# pwsh 7 doesn't ship.
+# Git and project-clone helpers: ../../docs/test-harness.md#module-responsibilities.
 
 function Get-GitUpstreamStatus {
     <#
@@ -627,7 +620,7 @@ using System.Text;
 
 namespace Yuruna {
     public static class RestartManager {
-        // ---- Restart Manager: file-handle lockers ----
+        // --- REGION: Restart Manager file-handle lockers
         [StructLayout(LayoutKind.Sequential)]
         private struct RM_UNIQUE_PROCESS {
             public int dwProcessId;
@@ -692,7 +685,8 @@ namespace Yuruna {
             return result;
         }
 
-        // ---- PEB cwd scan: catches processes whose current directory IS
+        // --- REGION: PEB current-directory scan
+        // Catches processes whose current directory is
         // the locked folder. Restart Manager doesn't see these because no
         // file handle is open, only a directory handle from SetCurrentDirectory.
         [StructLayout(LayoutKind.Sequential)]

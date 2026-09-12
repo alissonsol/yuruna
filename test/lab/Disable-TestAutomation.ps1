@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 424e6972-d523-4837-8d0f-f7e8f6aa351c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -65,7 +65,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# --- REGION: Log level from the environment
+# --- REGION: Log level from environment
 # Honor the caller's logLevel, published as $env:YURUNA_LOG_LEVEL by whatever
 # entry point started this script (install/setup.ps1). See docs/loglevels.md.
 Import-Module (Join-Path $PSScriptRoot '../modules/Test.LogLevel.psm1') -Global -Force -DisableNameChecking

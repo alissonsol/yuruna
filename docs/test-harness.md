@@ -41,7 +41,9 @@ Each iteration of `Start-TestRunner.ps1`:
 
 1. `git pull`, then re-read `test.config.yml`.
 2. Every 24h (configurable): refresh base images via `Get-Image.ps1`.
-3. For each entry in `guestSequence`:
+3. For each guest in the cycle plan resolved from `test/test.runner.yml` in the
+   project repository (`guestSequence` is the fallback, read only when that
+   file resolves no plan):
    - Verify `host/<short-host>/<guestKey>/` exists -- missing folder is a
      per-guest failure; other guests still run unless `testCycle.stopOnFailure`.
    - Clean the previous test VM.
@@ -99,10 +101,13 @@ cycle runs:
 | `Test.SequenceRunner`  | Chain planning + chain execution helpers for `Debug-TestSequence.ps1` |
 | `Test.SequenceFailureState` | The single `$global:`-anchored failure-slot store that the engine and the handler catalog both read and write |
 | `Test.Orchestrator`    | Runs an orchestration sequence's inner sequences in-process under one `status.json` cycle |
-| `Test.Start-GuestOS` / `Test.Start-GuestWorkload` | The two runner tiles: `start.*` sequences first, everything else after |
+| `Test.Start-GuestOS` / `Test.Start-GuestWorkload` | The two runner tiles: the planner walks each top-level resource chain, sends `start.*` sequences to the first, and sends everything else to the second |
 | `Test.Capability`      | [Capability matrix](#capability-matrix-and-cycle-plan-gate) and cycle-plan gate (refuses cycles whose sequences need an unwired host I/O backend) |
 | `Test.WarmResume`      | Which failure classes an in-place resume is sound for, plus the checkpoint that says which step to resume at |
 | `Test.Backoff`         | Shared poll-delay math (exponential, jittered) for every filesystem-state wait loop |
+
+Dispatcher modules use the `Test.<exported-cmdlet>.psm1` filename convention so
+source searches and status-UI click-throughs land on their exported entry point.
 
 **Driving and perceiving the guest** -- keyboard, mouse, screen, OCR, SSH:
 
@@ -126,7 +131,7 @@ cycle runs:
 | `Test.HostDetection`   | Host-type discovery, host-folder mapping, test VM-name derivation, minimum-requirement checks |
 | `Test.HostBootstrap`   | `Initialize-YurunaHost` -- imports the matching `Yuruna.Host` driver into the runner's session |
 | `Test.HostCondition` (+ `.Mac`, `.Windows`, `.Linux`) | Facade + per-platform Set/Assert/AssertMinimum triplets -- see [Host-condition registry](#host-condition-registry) |
-| `Test.HostGit`         | Framework `git pull`, HEAD reporting, project wipe-and-re-clone, and the on-demand PSGallery installs pwsh does not ship |
+| `Test.HostGit`         | Cycle-start framework update (`Invoke-GitPull`), HEAD short hashes, project wipe-and-re-clone, Windows file-locker PID diagnosis after `Remove-Item` failures (Restart Manager / PEB current-directory scanner), repository-access answers for pool UIs (`Get-HostRepositoryAccess`), and on-demand PSGallery installs (`powershell-yaml`, `PSScriptAnalyzer`) PowerShell 7 does not ship |
 | `Test.HostAutomationState` | Records each host knob's prior value before `Enable-TestAutomation` writes it, so `Disable` can restore rather than guess |
 | `Test.HostFacts`       | The machine's own hardware facts in the shape `/control/host-facts` serves them, including the storage-counting rules |
 | `Test.HostIdentity`    | Hardware fingerprint + the operator-confirmed uuid reclaim that keeps a reimaged host's pool history from forking |
@@ -271,8 +276,9 @@ OS; the legacy `baseline` spelling is rejected with a migration error)
 to derive a dependency-ordered chain, and dispatches each chain
 entry through [`modules/Test.SequenceEngine.psm1`](../test/modules/Test.SequenceEngine.psm1).
 Sequences whose name starts with `start.` run during the runner's
-Start-GuestOS step; everything else runs during Start-GuestWorkload. No
-per-OS `.ps1` glue is required. Full architecture:
+Start-GuestOS step; everything else runs during Start-GuestWorkload. The cycle
+planner collects them by walking each top-level resource chain; no per-OS
+`.ps1` glue is required. Full architecture:
 [Test Modules](../test/modules/README.md).
 
 <a id="42d38664-0008"></a>
@@ -956,6 +962,13 @@ row written months ago still links to the right framework + project
 commits even if the runner has since picked up a new repo URL or
 added/removed a project clone.
 
+The cycle-opening NDJSON event carries that same `gitCommits` array, so a
+consumer reading only the event stream can identify the framework and project
+revisions used by a cycle without fetching the host's status.json -- which by the time the
+stream is read describes whichever cycle is running now, not the one those
+events belong to. Framework entry first, project entry second, short SHAs, and
+the key is absent entirely on a cycle whose commits could not be resolved.
+
 <a id="42d38664-0020"></a>
 
 ## Status-service port-orphan resolution
@@ -1067,6 +1080,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.08
+Last review: 2026.09.12
 
 Back to [Yuruna](../README.md)

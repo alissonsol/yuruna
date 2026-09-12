@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42aa791a-a124-4a3c-98f2-d6d34623c3d2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -98,7 +98,8 @@ function ConvertTo-DetectorVariant {
     return $script:DetectorText.Replace($original, "'$TypeName'")
 }
 
-# --- Stubbed sources. $script: scope on every one; see the note in the header.
+# --- REGION: Stubbed requirement sources
+# Every stub uses script scope; see the file header.
 $script:StubRegistry = $null   # $null means the read fails, as on a locked-down or non-Windows box
 
 function Set-StubSource {
@@ -131,7 +132,7 @@ function Invoke-Detector {
     return (Get-HostArchitecture)
 }
 
-# --- Stubbed machine for Test-SystemRequirement.
+# --- REGION: Stubbed system requirements
 $script:StubArch    = 'AMD64'
 $script:StubCores   = 32
 $script:StubMemGB   = 32

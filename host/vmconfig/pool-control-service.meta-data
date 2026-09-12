@@ -1,9 +1,6 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
-# --- REGION: https://yuruna.link/429f3d06-0002
-# instance-id is a CONSTANT here, not the VM name: cloud-init treats a changed
-# instance-id as a new instance and re-runs the per-instance modules. This seed
-# relies on that constancy, so runcmd gets exactly one attempt in the life of
-# the VM.
+# See https://yuruna.link/429f3d06-0002
+# Fixed identity keeps per-instance setup tied to this persistent service VM.
 instance-id: yuruna-pool-control-service
 local-hostname: yuruna-pool-control-service

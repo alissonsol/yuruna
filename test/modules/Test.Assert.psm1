@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 423d6743-1531-4ed7-b6b3-7d5bf06035c0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -63,7 +63,6 @@
 Set-StrictMode -Version Latest
 
 # --- REGION: Assertions
-
 function Assert-True {
     <#
     .SYNOPSIS
@@ -214,7 +213,6 @@ function Assert-NoFinding {
 }
 
 # --- REGION: Scaffolds
-
 function Get-YurunaTestRepoRoot {
     <#
     .SYNOPSIS

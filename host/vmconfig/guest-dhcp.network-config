@@ -1,23 +1,5 @@
-# --- REGION: https://yuruna.link/4220a755-000b
-# Shipped on the cidata seed as `network-config`, read by cloud-init's NoCloud
-# datasource before networking is configured.
-#
-# Matched by name pattern, not by MAC: this file is shared by every netplan
-# guest on every host type, and the interface is enp0s1 on UTM, eth0 on Hyper-V
-# and enp1s0 on KVM.
-#
-# NETPLAN GUESTS ONLY, and that restriction is load-bearing rather than
-# incidental. A guest matching neither entry is NOT "no worse off than with no
-# file here": handing cloud-init a network-config REPLACES the fallback it
-# would otherwise generate, so a file that resolves to no interface leaves the
-# guest with no network configuration at all. Nothing claims the NIC, it stays
-# with IFF_UP clear, and a guest whose only other route in is an OCR'd console
-# has no way to report why.
-#
-# What makes the glob safe here is the renderer, not the pattern: netplan
-# resolves `match: name:` against real devices. A guest rendered through
-# NetworkManager or ifcfg does not, so this file must not be seeded to one --
-# see the Amazon Linux builders, which say so at the point they skip it.
+# See https://yuruna.link/4220a755-000b
+# Netplan guests only; keep this file off Amazon Linux seeds.
 version: 2
 ethernets:
   yuruna-en:

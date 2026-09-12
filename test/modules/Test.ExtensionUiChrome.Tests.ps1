@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42a98740-f91d-4449-a691-90bbcafc57af
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -70,7 +70,7 @@ $services = @(
     @{
         Name  = 'Yuruna Pool Control'
         Dir   = 'pool-control-service'
-        Guide = 'https://yuruna.link/pool-control'
+        Guide = 'https://yuruna.link/4207d71a-000c'
         Links = @('/', '/assign', '/hosts', '/pools', '/test-sets', '/diagnostics')
         Pages = @(
             @{ File = 'board.html'; Title = 'Board'; Current = '/' }
@@ -84,7 +84,7 @@ $services = @(
     @{
         Name  = 'Yuruna Stash'
         Dir   = 'stash-service'
-        Guide = 'https://yuruna.link/stash-guide'
+        Guide = 'https://yuruna.link/42f5e921'
         Links = @('/', '/new')
         Pages = @(
             @{ File = 'index.html'; Title = 'Stashes'; Current = '/' }
@@ -95,7 +95,7 @@ $services = @(
     @{
         Name  = 'Yuruna Download Agent'
         Dir   = 'download-agent-service'
-        Guide = 'https://yuruna.link/download-agent'
+        Guide = 'https://yuruna.link/4268e4cb'
         Links = @('/')
         Pages = @(
             @{ File = 'index.html'; Title = 'Download pool'; Current = '/' }
@@ -435,15 +435,8 @@ Describe 'host status pages carry the same chrome as the service UIs' {
     }
 }
 
-# ---------------------------------------------------------------------------
-# Static accessibility invariants.
-#
-# These are the checks that need no browser, so they run everywhere -- including
-# the hosts where tools/Invoke-A11yCheck.ps1 reports SKIPPED because Chrome is
-# absent. The two suites are deliberately complementary rather than redundant:
-# a browser answers "what did this paint at 320px", markup answers "is this
-# sayable at all", and neither can answer the other's question.
-# ---------------------------------------------------------------------------
+# --- REGION: Static accessibility invariants
+# See https://yuruna.link/42c8b468
 Describe 'static accessibility invariants across every shipped page' {
 
     BeforeAll {
@@ -623,13 +616,8 @@ Describe 'static accessibility invariants across every shipped page' {
     }
 }
 
-# ---------------------------------------------------------------------------
-# Keyboard-operability invariants.
-#
-# Each of these pins a defect that made a core task impossible with a keyboard,
-# not merely awkward. They read the shipped assets rather than a rendered page
-# so they run on any host; the rendered-DOM half is tools/Invoke-A11yCheck.ps1.
-# ---------------------------------------------------------------------------
+# --- REGION: Keyboard operability
+# See https://yuruna.link/42c8b468
 Describe 'keyboard routes to every core task' {
 
     BeforeAll {
@@ -713,13 +701,8 @@ Describe 'keyboard routes to every core task' {
     }
 }
 
-# ---------------------------------------------------------------------------
-# What happens AFTER the user acts, or while they are not acting.
-#
-# These pin behavior that only exists at runtime, so they check the code that
-# produces it rather than a rendered page: whether a repaint is guarded, whether
-# a result lands in a live region, whether a destructive path asks first.
-# ---------------------------------------------------------------------------
+# --- REGION: Asynchronous accessibility behavior
+# See https://yuruna.link/42c8b468
 Describe 'async behavior: focus survives, results are announced, deletes ask' {
 
     BeforeAll {

@@ -74,6 +74,17 @@ func (s *Server) knownElsewhere(ctx context.Context) map[string]struct{} {
 	return out
 }
 
+// tidyDiscovered runs the store's housekeeping after every scan: one row per
+// machine, and nothing older than the configured TTL.
+//
+// After the scan rather than on a clock of its own, because both halves of the
+// work are about what the scan just learned -- which addresses answered, and
+// under which id -- and because a list that changes only when something looked
+// at the network is a list an operator can reason about.
+func (s *Server) tidyDiscovered() {
+	s.discovered.Prune(time.Now(), s.opts.ScanTTL)
+}
+
 // RunDiscovery sweeps the configured range on a timer until ctx is done.
 // Started unconditionally by the caller and inert when the interval is zero, so
 // "how often" is one launch flag rather than a branch at the call site.
@@ -182,6 +193,18 @@ func hostSortKey(h boardHost) string {
 // host the aggregator already reported (matched by id, then by base URL) so a
 // machine that is both discovered and registered renders once.
 //
+// Both maps are also written as rows are emitted, so the same two tests apply
+// BETWEEN discovered hosts and not only against the registered ones: two
+// entries answering at one base URL are one machine under two ids, and the
+// store's order puts the newest sighting first, so the row that survives is the
+// id the machine reports now. The store collapses these on its own once a scan
+// confirms the address -- this is the backstop that keeps a duplicate off the
+// page in the window before that happens, and with no state to migrate.
+//
+// An empty base URL is never recorded: it identifies nothing, and letting it
+// into the map would make the first host that could not name its port hide
+// every later one.
+//
 // Control state and access stay blank: both are the POOL's reading of a member
 // -- whether the host holds this lab's token, and how its last probe of the
 // project its pool assigned went -- and a discovered host has not been made a
@@ -195,7 +218,8 @@ func discoveredRows(hosts []discovery.Host, seen map[string]bool, seenBase map[s
 		if h.HostID != "" && seen[h.HostID] {
 			continue
 		}
-		if seenBase[strings.TrimSuffix(h.BaseURL, "/")] {
+		base := hostBase(h.BaseURL)
+		if base != "" && seenBase[base] {
 			continue
 		}
 		rows = append(rows, boardHost{
@@ -208,6 +232,12 @@ func discoveredRows(hosts []discovery.Host, seen map[string]bool, seenBase map[s
 			BaseURL:    h.BaseURL,
 			LastSeen:   h.LastSeenUTC,
 		})
+		if h.HostID != "" {
+			seen[h.HostID] = true
+		}
+		if base != "" {
+			seenBase[base] = true
+		}
 	}
 	return rows
 }

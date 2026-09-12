@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42c5c7b3-f42f-44df-81b8-ce01b38b4d9d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -253,5 +253,66 @@ Describe 'Set-ReclaimedHostUuid (uuid shape gate)' {
             Assert-True (Set-ReclaimedHostUuid -UuidFile $f -Uuid '42ABCDEF-0123-4567-89AB-CDEF01234567' -Confirm:$false) 'dashed shape accepted'
             Assert-Equal -Expected '42abcdef0123456789abcdef01234567' -Actual ([System.IO.File]::ReadAllText($f)).Trim() -Because 'stored undashed and lowercased'
         } finally { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+Describe 'ConvertTo-SeededHostUuid (the shape and the secrecy of a derived id)' {
+
+    It 'produces the 42-prefixed 32-hex shape every consumer already accepts' {
+        $id = ConvertTo-SeededHostUuid -Kind 'smbiosUuid' -Value '550e8400-e29b-41d4-a716-446655440000'
+        Assert-True ($id -match '^42[0-9a-f]{30}$') "derived id shape: $id"
+    }
+
+    It 'is deterministic, so the same machine derives the same id after a reimage' {
+        $a = ConvertTo-SeededHostUuid -Kind 'smbiosUuid' -Value '550e8400-e29b-41d4-a716-446655440000'
+        $b = ConvertTo-SeededHostUuid -Kind 'smbiosUuid' -Value '550e8400-e29b-41d4-a716-446655440000'
+        Assert-True ($a -ceq $b) "two derivations of one key disagreed: $a vs $b"
+    }
+
+    It 'separates the keys, so one value read from two fields cannot collide' {
+        $fromUuid   = ConvertTo-SeededHostUuid -Kind 'smbiosUuid'      -Value 'ABC-123'
+        $fromSerial = ConvertTo-SeededHostUuid -Kind 'baseboardSerial' -Value 'ABC-123'
+        Assert-True ($fromUuid -cne $fromSerial) 'two different fields holding one value derived the same id'
+    }
+
+    It 'never carries the hardware key into the id' {
+        # A host id reaches logs, dashboards, pool membership and NAS folder
+        # names. A firmware UUID or board serial is hardware provenance that has
+        # no business in any of them, which is why the id is a hash of the key.
+        $serial = 'D8Q3XR2'
+        $id = ConvertTo-SeededHostUuid -Kind 'baseboardSerial' -Value $serial
+        Assert-True ($id -notmatch [regex]::Escape($serial.ToLowerInvariant())) "the key leaked into $id"
+    }
+
+    It 'gives two different machines two different ids' {
+        $one = ConvertTo-SeededHostUuid -Kind 'smbiosUuid' -Value '550e8400-e29b-41d4-a716-446655440000'
+        $two = ConvertTo-SeededHostUuid -Kind 'smbiosUuid' -Value '550e8400-e29b-41d4-a716-446655440001'
+        Assert-True ($one -cne $two) 'two firmware UUIDs derived one id'
+    }
+}
+
+Describe 'Get-HostIdentitySeedUuid (which hardware key a host is keyed on)' {
+
+    It 'derives from this host and repeats the answer' {
+        # The gather is platform code and its keys differ by OS and privilege --
+        # firmware UUID and board serial are root-only on Linux -- so what is
+        # asserted is the contract every caller depends on: either a usable id
+        # of the right shape, or '' meaning "generate one". A value that changed
+        # between two calls on one machine would be the fork this prevents.
+        $first = Get-HostIdentitySeedUuid
+        Assert-True (($first -eq '') -or ($first -match '^42[0-9a-f]{30}$')) "seed shape: '$first'"
+        Assert-Equal $first (Get-HostIdentitySeedUuid) 'the same host derived two different ids'
+    }
+
+    It 'falls through a placeholder firmware value instead of keying a whole fleet on it' {
+        # Firmware that ships "Default string" or an all-zero UUID would
+        # otherwise give every machine in a batch ONE id, which is worse than a
+        # fork: two real hosts would be indistinguishable. The junk list already
+        # collapses these to '', and this pins that the fall-through reaches the
+        # next key rather than deriving from the placeholder.
+        foreach ($junk in @('00000000-0000-0000-0000-000000000000', 'Default string', 'To be filled by O.E.M.')) {
+            Assert-True (-not (Test-HostFingerprintValueUsable -Value $junk)) "placeholder treated as usable: $junk"
+            Assert-Equal '' (ConvertTo-NormalizedFingerprintValue -Value $junk) "placeholder not collapsed: $junk"
+        }
     }
 }

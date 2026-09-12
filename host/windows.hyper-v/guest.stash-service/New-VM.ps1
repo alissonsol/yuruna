@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 4231f6cf-af57-4818-b0ee-59ddbe571ffa
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -26,7 +26,7 @@
     stash share, fetches the framework, and runs the bring-up script which
     builds + launches the daemon under systemd.
 
-    See https://yuruna.link/stash-guide for the stash user guide.
+    See https://yuruna.link/42f5e921 for the stash user guide.
 
 .PARAMETER VMName
     Name of the Hyper-V VM. Default: yuruna-stash-service.
@@ -37,9 +37,14 @@ param(
     [string]$VMName = "yuruna-stash-service"
 )
 
-# Honor logLevel from Start-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+# --- REGION: Log level from environment
+# See https://yuruna.link/42e220c4-0003
+# Reuse the caller's log module; a forced reload discards its state.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
-if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
+if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
+    Import-Module $_logLevelMod -Global
+}
+if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     Write-Output "Invalid VMName '$VMName'. Only alphanumeric characters, dots, hyphens, and underscores are allowed."
@@ -98,7 +103,7 @@ if ($existingVM) {
     Write-Output "VM '$VMName' deleted."
 }
 
-# --- REGION: Per-VM directory + disk
+# --- REGION: Create copies and files for VM
 $vmDir = Join-Path $downloadDir $VMName
 if (-not (Test-Path -Path $vmDir)) {
     New-Item -ItemType Directory -Path $vmDir -Force | Out-Null
@@ -151,7 +156,7 @@ if (-not $AdminPassword) { Write-Error "Get-Password returned empty for 'stash-a
 Write-Output "Password came from authentication mechanism: $_authActiveName"
 Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
 
-# --- REGION: Pick a vSwitch (BEFORE building user-data)
+# --- REGION: Select the guest network
 # The share + source coordinates baked into cloud-init depend on the chosen
 # network, so resolve it first. Prefer Yuruna-External so the VM gets a LAN
 # IP and can reach the NAS + the host status service; fall back to Default
@@ -161,15 +166,8 @@ $switchName = Get-OrCreateYurunaExternalSwitch
 if (-not $switchName) {
     $switchName = 'Default Switch'
     if (-not (Get-VMSwitch -Name $switchName -ErrorAction SilentlyContinue)) {
-        # The Default Switch ships only with Windows client SKUs and an
-        # operator can delete it. New-VM throws on a switch name that
-        # resolves to nothing, so an unchecked fallback turns a degraded
-        # network into a failed provision; any switch that exists still
-        # creates and boots the VM. Rank non-External switches first: this
-        # path is normally reached because the host uplink is one Hyper-V
-        # refuses to carry a bridged guest MAC over, so a guest attached to
-        # an External switch there comes up with no carrier at all, while an
-        # Internal/NAT switch still gives it a working address.
+        # --- REGION: https://yuruna.link/42e220c4-0004
+        # Verify the fallback exists; prefer non-External switches when bridging is unavailable.
         $substituteSwitch = @(Get-VMSwitch -ErrorAction SilentlyContinue) |
             Sort-Object @{ Expression = { $_.SwitchType -eq 'External' } }, Name |
             Select-Object -First 1
@@ -195,14 +193,8 @@ $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $_repoRoot
 $YurunaHostPort = $_statusSeed.Port
 $tc = $_statusSeed.Config
 $ystashNas = Get-YurunaStashSeedValue -Config $tc -GuestReachableAddress $YurunaHostIp
-# Pool-aggregator service base URL for the guest's presence beacon + remote-host
-# resolution; '' (no caching-proxy service known) leaves those features off in-guest.
-# Wait for the aggregator BEFORE resolving: whatever is resolved here is baked
-# into the seed once and never re-resolved in-guest, so an empty value taken
-# while the aggregator is still compiling leaves the beacon permanently off --
-# the service serves correctly and simply never appears on the dashboard.
-# Returns $false (rather than throwing) when there is no proxy to wait for or
-# the budget expires; the seed then carries '' exactly as it did before.
+# --- REGION: https://yuruna.link/42e220c4-0004
+# Wait before resolving the aggregator URL: an empty value remains baked into the guest seed.
 $null = Wait-YurunaAggregatorReady
 $aggregatorSeedUrl = Get-PoolAggregatorServiceSeedUrl
 
@@ -242,7 +234,7 @@ Write-Output "  and log in with the credentials above to inspect cloud-init stat
 Write-Output ""
 
 # --- REGION: Create and configure the Hyper-V VM
-# --- REGION: https://yuruna.link/42fa6f45-0016
+# See https://yuruna.link/42fa6f45-0016
 Write-Output "Creating new VM '$VMName' on switch '$switchName'..."
 Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 2GB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
 
@@ -256,7 +248,7 @@ Set-VM -Name $VMName -MemoryStartupBytes 2GB -MemoryMinimumBytes 2GB -MemoryMaxi
 Set-VMMemory -VMName $VMName -DynamicMemoryEnabled $false
 Set-VMFirmware -VMName $VMName -EnableSecureBoot Off | Out-Null
 
-# --- REGION: docs/host-hyperv.md#arm64-hosts-the-heartbeat-channel-wedges-a-linux-guest
+# --- REGION: https://yuruna.link/42dc5bb9-0005
 # No-op on AMD64. On ARM64 the heartbeat channel drives a Linux guest into
 # repeated soft lockups before hv_storvsc registers, so the root disk never
 # enumerates and the guest never reaches the service it exists to run. Set
@@ -271,9 +263,10 @@ if ($hostCores -lt 4) {
     exit 1
 }
 $vmCores = [math]::Max(4, [math]::Floor($hostCores / 2))
+$vmCores = Limit-HyperVLinuxGuestCoreCount -RequestedCores $vmCores
 Set-VMProcessor -VMName $VMName -Count $vmCores | Out-Null
 
-# --- REGION: Cleanup temporary folders
+# --- REGION: Clean up temporary files
 Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- REGION: Start VM and wait for IP
@@ -376,5 +369,5 @@ Write-Output "sshd is disabled), so reach it with scp:  scp ./file user@$dockIp`
 Write-Output "Watch progress:  ssh stash-admin@$dockIp 'sudo tail -f /var/log/cloud-init-output.log'"
 Write-Output "(the log is root-only; stash-admin has NOPASSWD sudo, so 'sudo tail' works over the harness key)"
 Write-Output "(harness key authorized until the daemon takes over :22). See"
-Write-Output "https://yuruna.link/stash-guide."
+Write-Output "https://yuruna.link/42f5e921."
 exit 0

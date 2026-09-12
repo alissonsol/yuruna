@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42708dea-607b-47cf-bf37-876b347859d2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -52,6 +52,10 @@ Import-Module $modulePath -Force -DisableNameChecking -ErrorAction SilentlyConti
 # A test-only provider on a namespaced host type so a live registry (if this runs
 # in-session) is not disturbed. The block echoes an argument so the test can also
 # prove the arguments hashtable is forwarded.
+$script:HostIOStore = Get-Variable -Name 'YurunaHostIOProviders' -Scope Global -ValueOnly
+$script:HadHostIOFixture = $script:HostIOStore.Contains('test.hostio.unit')
+$script:OriginalHostIOFixture = $script:HostIOStore['test.hostio.unit']
+$script:HostIOStore.Remove('test.hostio.unit')
 Register-HostIOProvider -HostType 'test.hostio.unit' -Action 'Send-Probe' -Implementation {
     param([hashtable]$a)
     return [bool]$a.ok
@@ -110,7 +114,13 @@ $script:invokeAst = Get-FunctionAst -Path $modulePath -FunctionName 'Invoke-Host
 Describe 'Invoke-HostIOAction dispatch contract (behavioral)' {
     # Drop the namespaced test provider on the way out so the suite leaves the
     # ambient $global:YurunaHostIOProviders registry as it found it.
-    AfterAll { Clear-HostIOProvider }
+    AfterAll {
+        if ($script:HadHostIOFixture) {
+            $script:HostIOStore['test.hostio.unit'] = $script:OriginalHostIOFixture
+        } else {
+            $script:HostIOStore.Remove('test.hostio.unit')
+        }
+    }
 
     It 'dispatches to the registered scriptblock and forwards the arguments hashtable' {
         Assert-True  (Invoke-HostIOAction -HostType 'test.hostio.unit' -Action 'Send-Probe' -Arguments @{ ok = $true })  'a truthy arg returns the block value'

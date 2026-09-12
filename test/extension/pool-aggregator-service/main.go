@@ -159,6 +159,11 @@ const (
 	routePoolCycleLinks = "/api/v1/cycle-links"
 	routeExtensionHosts = "/api/v1/extension-hosts"
 	routeLabToken       = "/api/v1/lab-token"
+	// The Prometheus scrape document for the pool's machine-metrics exporters.
+	// Deliberately absent from default.psm1's Endpoints map: no PowerShell
+	// caller asks for it, and the cross-language route test pins that map
+	// one-for-one against the constants listed there.
+	routePromTargets = "/api/v1/prometheus-targets"
 	// Pool gating defaults (mirror test/schemas/pools.schema.yml gating.*): the
 	// advisory degraded/alert policy a pool inherits when it authors a partial (or
 	// no) gating block. degradedAfter is the sustained-below-threshold window;
@@ -211,6 +216,15 @@ const (
 	// classifyControl measures a host's clock against.
 	controlProofTTL    = 15 * time.Minute
 	controlProofMaxTTL = 20 * time.Minute
+	// Port a Windows pool host publishes machine metrics on: the Windows
+	// exporter's registered default. One number for the whole pool, because the
+	// collector and the hosts share no channel to negotiate it on;
+	// -host-metrics-port moves it when a pool has to use another.
+	defaultHostMetricsPort = 9182
+	// Host types that run that exporter. Every other type is simply absent from
+	// the scrape document: listing a host nothing answers on would mark a target
+	// down for as long as the host exists.
+	windowsHostTypePrefix = "host.windows."
 )
 
 // squid yuruna logformat: field 1 = %ts.%03tu (epoch.ms), field 3 = %>a (client
@@ -693,6 +707,12 @@ type poolState struct {
 	// every archive-aware resolution, which is what a proxy with no pool storage
 	// has. Set once in main before the server starts; not mutated under mu.
 	archiveRoot string
+	// hostMetricsPort is the port the scrape document points at on each Windows
+	// host. Configurable because the exporter's port is a decision made on the
+	// hosts, and a pool that moved it would otherwise have to rebuild this VM to
+	// be scraped at all. Set once in main before the server starts; not mutated
+	// under mu.
+	hostMetricsPort int
 }
 
 // poolStatsCacheEntry is one memoized /api/v1/pool-stats answer.
@@ -715,6 +735,8 @@ func newPoolState(pool string, statusPort int) *poolState {
 		labFails:  map[string][]time.Time{}, labExchange: map[string]int64{},
 		eventCur:  map[string]*eventCursor{},
 		footprint: map[string]*addressFootprintView{},
+
+		hostMetricsPort: defaultHostMetricsPort,
 	}
 }
 
@@ -1440,7 +1462,7 @@ func fetchCurrentAction(client *http.Client, base string) (bool, error) {
 // served by the status service at /yuruna-repo/VERSION -- the SAME source the
 // host's own status pages read for their header (their getHostInfo() fetches
 // yuruna-repo/VERSION via JS, so the version is not embedded in the HTML). A tiny
-// plain-text file (one CalVer line, e.g. "2026.09.08"), so it is lighter than any
+// plain-text file (one CalVer line, e.g. "2026.09.12"), so it is lighter than any
 // status HTML page and fetchable server-side without a JS engine. Returns
 // ("", err) on any failure; the caller keeps the prior version on a transient
 // miss (the version is stable across polls). The value is capped + first-line
@@ -3008,6 +3030,73 @@ func (s *poolState) handlePoolStatus(w http.ResponseWriter, _ *http.Request) {
 	s.mu.Unlock()
 	if err != nil {
 		http.Error(w, "failed to encode pool status", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	_, _ = w.Write(body)
+}
+
+// promTargetGroup is one entry of the Prometheus scrape document: the addresses
+// to scrape, plus the labels every series read from them carries.
+type promTargetGroup struct {
+	Targets []string          `json:"targets"`
+	Labels  map[string]string `json:"labels"`
+}
+
+// handlePrometheusTargets serves the pool's Windows hosts as a Prometheus
+// HTTP service-discovery document, so the collector scrapes machine metrics at
+// whatever addresses the pool is on right now.
+//
+// Discovery belongs here rather than in a targets file or a hand-kept list:
+// this process already resolves hostId -> current address every poll, and the
+// lab is DHCP-served, so a second copy of that mapping is a copy that goes
+// stale while still looking right. The labels are the ones the pool exposition
+// already carries (pool/hostId/hostIdDashed/hostType), so a machine-metric
+// series joins a pool series on hostId with no translation table -- and no
+// hostname, which the pool view is deliberately free of.
+//
+// Only REACHABLE hosts are published. A host that is switched off leaves the
+// document within one refresh instead of sitting in the scrape pool failing
+// forever: its series stop, which is what "that host was off" looks like.
+//
+// Open, like /api/v1/pool-status: this is a re-shaping of host addresses that
+// endpoint already serves to anyone, and gating it would imply a secret it does
+// not carry. /metrics is the exposition that carries one.
+func (s *poolState) handlePrometheusTargets(w http.ResponseWriter, _ *http.Request) {
+	s.mu.Lock()
+	ids := make([]string, 0, len(s.hosts))
+	for id := range s.hosts {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	port := s.hostMetricsPort
+	// Every value is copied out under the lock: the poll goroutine mutates the
+	// hostView/hostStatus these read, so nothing may hold a pointer past Unlock.
+	groups := make([]promTargetGroup, 0, len(ids))
+	for _, id := range ids {
+		hv := s.hosts[id]
+		if hv == nil || !hv.Reachable || hv.CurrentIP == "" || hv.Status == nil {
+			continue
+		}
+		if !strings.HasPrefix(hv.Status.Host, windowsHostTypePrefix) {
+			continue
+		}
+		groups = append(groups, promTargetGroup{
+			Targets: []string{net.JoinHostPort(hv.CurrentIP, strconv.Itoa(port))},
+			Labels: map[string]string{
+				"pool":         s.poolFor(id),
+				"hostId":       id,
+				"hostIdDashed": dashedHostID(id),
+				"hostType":     hv.Status.Host,
+			},
+		})
+	}
+	s.mu.Unlock()
+
+	body, err := json.Marshal(groups)
+	if err != nil {
+		http.Error(w, "failed to encode scrape targets", http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -5229,7 +5318,7 @@ func writeJSONPayload(w http.ResponseWriter, payload map[string]any) {
 	_ = json.NewEncoder(w).Encode(payload)
 }
 
-// --- REGION: incident and health as JSON -------------------------------------
+// --- REGION: Incident and health as JSON
 //
 // Both of these existed only as Prometheus exposition. A dashboard could show
 // them and an operator could read them off a panel; nothing could ASK for them.
@@ -5404,8 +5493,7 @@ func (s *poolState) handlePoolHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSONPayload(w, payload)
 }
 
-// --- REGION: end incident and health as JSON ---------------------------------
-
+// --- REGION: End incident and health as JSON
 // requestSourceIP returns the connection's source IP (no port). RemoteAddr is the
 // real peer on the trusted LAN; X-Forwarded-For is deliberately NOT consulted (it is
 // client-settable and would let a member spoof another host's identity binding).
@@ -5885,6 +5973,7 @@ func main() {
 	lokiURL := flag.String("loki", defaultLokiURL, "Loki push API URL")
 	pool := flag.String("pool", defaultPool, "pool name label")
 	statusPort := flag.Int("status-port", defaultStatusPort, "status-service port to probe on each discovered IP")
+	hostMetricsPort := flag.Int("host-metrics-port", defaultHostMetricsPort, "port the machine-metrics exporter listens on for each Windows host, as published in the /api/v1/prometheus-targets scrape document")
 	interval := flag.Duration("interval", defaultInterval, "poll/discover interval")
 	rehydrateWin := flag.Duration("rehydrate-window", defaultRehydrate, "on startup, restore cycle counts from Loki over this trailing window (0 to disable)")
 	incidentN := flag.Int("incident-fails", defaultIncidentN, "open an incident after this many failed cycles within -incident-window")
@@ -5906,6 +5995,14 @@ func main() {
 	go func() { <-sig; cancel() }()
 
 	state := newPoolState(*pool, *statusPort)
+	// A port outside the valid range would publish a document Prometheus rejects
+	// whole, taking every host's machine metrics with it; keep the default and
+	// say what was ignored.
+	if *hostMetricsPort > 0 && *hostMetricsPort <= 65535 {
+		state.hostMetricsPort = *hostMetricsPort
+	} else {
+		log.Printf("host-metrics-port %d is not a valid port; keeping the default %d", *hostMetricsPort, defaultHostMetricsPort)
+	}
 	state.incidentN = *incidentN
 	state.incidentWin = *incidentWin
 	state.crossN = *crossN
@@ -5992,6 +6089,9 @@ func main() {
 	mux.HandleFunc(routeHealth, state.handleHealth)
 	mux.HandleFunc(routeMetrics, state.handleMetrics)
 	mux.HandleFunc(routePoolStatus, state.handlePoolStatus)
+	// /api/v1/prometheus-targets: the pool's Windows hosts as a Prometheus HTTP
+	// service-discovery document, read by the collector on this same machine.
+	mux.HandleFunc(routePromTargets, state.handlePrometheusTargets)
 	// /api/v1/extension-hosts: "where is area X served in this pool?" -- the
 	// coordinate lookup that lets a host find the stash / pool-control service
 	// knowing only the caching-proxy-service address it already has. Read-only and open,
@@ -6131,8 +6231,7 @@ func main() {
 	}
 }
 
-// --- dual-protocol listener: TLS + plain HTTP on one port ---
-
+// --- REGION: Dual-protocol listener
 // sniffTimeout bounds how long a fresh connection may sit silent before its
 // first byte. Without it an idle TCP connect would pin a sniff goroutine
 // forever: the http.Server's ReadTimeout only starts once the connection is

@@ -217,7 +217,7 @@ func TestApplyPresentsAProofFromTheServiceToken(t *testing.T) {
 func TestApplyReportsEachMemberSeparately(t *testing.T) {
 	ok, refusing := newCtlHost(t, ""), newCtlHost(t, "")
 	refusing.status = http.StatusForbidden
-	refusing.body = `{"ok":false,"reason":"host-token-missing","error":"follow guidance at https://yuruna.link/control-proof"}`
+	refusing.body = `{"ok":false,"reason":"host-token-missing","error":"follow guidance at https://yuruna.link/42185271-0007"}`
 	// 42cc is a member the aggregator has no address for at all.
 	agg := ctlAggregator(t, map[string]string{"42aa": ok.srv.URL, "42bb": refusing.srv.URL}, "")
 	srv := ctlServer(t, ctlIntent("42aa", "42bb", "42cc"), agg.URL, testBearer)

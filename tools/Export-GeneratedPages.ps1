@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42df925f-3353-4a16-aae2-7e8a097c522c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -76,8 +76,7 @@ if (-not $OutputDirectory) {
 $null = New-Item -ItemType Directory -Path $OutputDirectory -Force
 $OutputDirectory = (Resolve-Path -LiteralPath $OutputDirectory).Path
 
-# --- REGION: the two Go raw-string pages -------------------------------------
-
+# --- REGION: the two Go raw-string pages
 function Get-GoRawStringConstant {
     <#
     .SYNOPSIS
@@ -210,8 +209,7 @@ foreach ($p in $goPages) {
     Write-Line "  wrote $failFile  <- $($p.Source)"
 }
 
-# --- REGION: the two globalization reference slices -------------------------
-
+# --- REGION: the two globalization reference slices
 # The ordinary accessibility sweep renders English source pages. These four
 # pages keep the same shipped builders and assets but apply the server decision
 # and fixture data for each pseudo locale, so reflow, contrast, direction and
@@ -337,8 +335,7 @@ foreach ($locale in @(
     Write-Line "  wrote $poolName  <- pool hosts builder + served $tag catalog"
 }
 
-# --- REGION: the per-cycle transcript ----------------------------------------
-
+# --- REGION: the per-cycle transcript
 # Written by the real tee so the severity spans and the step-rule promotion are
 # the shipped ones. A transcript transcribed by hand would assert nothing about
 # the module that actually writes them.
@@ -382,8 +379,7 @@ try {
 [IO.File]::AppendAllText($transcript, "</pre></main></body></html>$([Environment]::NewLine)")
 Write-Line '  wrote cycle-transcript.html  <- Test.Log.psm1 + Yuruna.Log.psm1'
 
-# --- REGION: the log directory listing ---------------------------------------
-
+# --- REGION: the log directory listing
 # The builder lives inside the status-service here-string template, where every
 # runtime variable is backtick-escaped. Extracting the block and undoing that
 # escaping runs the CHARACTERS THAT DEPLOY -- a re-implementation here would
@@ -428,8 +424,7 @@ Write-Line '  wrote log-directory-index.html  <- Start-StatusService.ps1 templat
 Copy-Item -LiteralPath (Join-Path $RepoRoot 'test/status/yuruna.common.css') `
     -Destination (Join-Path $OutputDirectory 'yuruna.common.css') -Force
 
-# --- REGION: the notification email ------------------------------------------
-
+# --- REGION: the notification email
 # The transport is private to the extension module, so the capture runs inside
 # that module's scope, where a local function shadows the cmdlet the sender
 # calls. The alternative -- rebuilding the payload here -- would test this file.
@@ -471,8 +466,73 @@ Full transcript: http://192.168.7.44/log/000200.2026-08-19.08-20-48.422dd0cac87e
 }
 Write-Line '  wrote notification-email.html  <- notification/default.psm1'
 
-# --- REGION: the fixtures have to actually contain what they are checked for --
+# --- REGION: the pages a host provisions into a guest
+# Read out of the seed rather than re-typed here. A copy in this file would be
+# the thing the gates measure, and the bytes the guest actually serves would
+# stop being checked the first time the two drifted.
+$registryPath = Join-Path $RepoRoot 'globalization/manifests/browser-sources.json'
+$registry = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($registryPath))
+# Filtered, not merely wrapped: an absent property yields $null, and @($null)
+# has one element, so a plain count check would pass over a deleted section and
+# then iterate once with nothing in hand.
+$provisioned = @($registry.provisionedPageProducers | Where-Object { $_ -and $_.path })
+if ($provisioned.Count -eq 0) {
+    Write-Error 'the browser-source registry lists no provisioned page producers' -ErrorAction Continue
+    exit 1
+}
+foreach ($producer in $provisioned) {
+    $seedPath = Join-Path $RepoRoot ([string]$producer.path)
+    if (-not (Test-Path -LiteralPath $seedPath -PathType Leaf)) {
+        Write-Error "provisioned page producer is missing: $($producer.path)" -ErrorAction Continue
+        exit 1
+    }
+    $seed = [IO.File]::ReadAllText($seedPath) -replace "`r`n", "`n"
+    # The document is a cloud-init `content: |` literal under the write_files
+    # entry whose path is the marker: find that entry, then take the indented
+    # block that follows and strip the block indent cloud-init strips.
+    # Anchored to the write_files entry that declares the path, not to any
+    # mention of it: the same string appears in configuration that refers to the
+    # page, and matching one of those would extract a neighboring entry's
+    # document while looking like it worked.
+    $entry = [regex]::Match($seed, ('(?m)^\s*-\s+path:\s*[''"]?' +
+            [regex]::Escape([string]$producer.marker) + '[''"]?\s*$'))
+    if (-not $entry.Success) {
+        Write-Error "no write_files entry declares $($producer.marker) in $($producer.path)" -ErrorAction Continue
+        exit 1
+    }
+    $markerAt = $entry.Index
+    $lines = @($seed.Substring($markerAt) -split "`n")
+    $bodyLines = [Collections.Generic.List[string]]::new()
+    $indent = -1
+    $started = $false
+    foreach ($line in $lines) {
+        if (-not $started) {
+            # cloud-init accepts the block-scalar indicators YAML defines --
+            # a chomping sign and an explicit indent -- so recognizing only the
+            # bare form would read a valid seed as an empty page.
+            if ($line -match '^\s*content:\s*\|[-+]?[0-9]*\s*$') { $started = $true }
+            continue
+        }
+        if ($line.Trim() -eq '') { $bodyLines.Add(''); continue }
+        $lead = $line.Length - $line.TrimStart(' ').Length
+        if ($indent -lt 0) { $indent = $lead }
+        if ($lead -lt $indent) { break }
+        $bodyLines.Add($line.Substring($indent))
+    }
+    if (@($bodyLines | Where-Object { $_.Trim() }).Count -eq 0) {
+        Write-Error "the content block for $($producer.page) is empty in $($producer.path)" -ErrorAction Continue
+        exit 1
+    }
+    $document = ($bodyLines -join "`n").TrimEnd() + "`n"
+    # %U is Squid's own interpolation point. A gate that rendered the macro
+    # would measure a line no reader ever sees; a plausible URL is what the
+    # page actually shows, and it is also the longest unbreakable string on it.
+    $document = $document.Replace('%U', 'http://archive.ubuntu.com/ubuntu/dists/noble/main/binary-amd64/Packages.gz')
+    [IO.File]::WriteAllText((Join-Path $OutputDirectory ([string]$producer.page)), $document)
+}
+Write-Line "  $($provisioned.Count) provisioned page(s) extracted from their seeds"
 
+# --- REGION: the fixtures have to actually contain what they are checked for --
 # A page that renders nothing passes every check it should have failed, and this
 # script has already produced one: silencing a preference silenced the log tee
 # with it, leaving a transcript with no step headings and no information lines
@@ -496,6 +556,8 @@ $expected = [ordered]@{
         'qps-Ploc.pool.js', 'data-yuruna-globalization-reference', 'frameworkAccessState')
     'pool-reference-qps-Plocm.html' = @('<html lang="qps-Plocm" dir="rtl"',
         'qps-Plocm.pool.js', 'data-yuruna-globalization-reference', 'frameworkAccessState')
+    'squid-no-upstream.html'       = @('<!doctype html>', '<html lang="en">', '<meta charset="utf-8">',
+                                       '<title>', '<main>', '<h1>')
 }
 $missing = [Collections.Generic.List[string]]::new()
 foreach ($file in $expected.Keys) {

@@ -104,7 +104,7 @@ mux.HandleFunc("POST /api/change", gate.Require(handleChange))
 go vet ./... && go test ./...
 ```
 
-There is nothing to mirror afterwards -- the services resolve this module by
+There is nothing to mirror afterward -- the services resolve this module by
 path. Confirm the wiring still holds:
 
 ```

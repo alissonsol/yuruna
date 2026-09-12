@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42475b3f-e79e-40ac-8114-ff6104d9b316
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -438,7 +438,7 @@ namespace Yuruna {
     [DllImport("user32.dll")]
     public static extern uint GetDpiForSystem();
 
-    // -- Window-repositioning sweep --------------------------------------
+    // --- REGION: Window-repositioning sweep
     // Moves any top-level app window whose center sits off the PRIMARY
     // monitor's work area back inside it, so windows can't strand on an
     // extended (invisible) virtual display. Center-based so a window that is
@@ -1017,7 +1017,7 @@ function Set-YurunaDisplayScale100 {
 
     # Display text scale -> 100% on three independent HKCU knobs
     # (per-monitor DPI, system DPI fallback, Win11 TextScaleFactor).
-    # Rationale and registry keys: https://yuruna.link/host/hyperv
+    # Rationale and registry keys: https://yuruna.link/42dc5bb9
     $scaleChanged = $false
 
     # REG_DWORD -> signed int32: Windows writes DpiValue as signed (e.g.
@@ -1584,6 +1584,36 @@ function Set-WindowsHostConditionSet {
         # closed to the LAN until an operator or their admin acts.
         $unmet.Add("inbound TCP Block rule on the status-service port $statusPort")
     }
+
+    # --- REGION: Host metrics exporter
+    # A refused VM memory allocation is decided by the host's commit charge
+    # against its commit limit at that instant, and neither number survives in
+    # any artifact the harness writes -- the only host-side record is an
+    # Information-level Windows event nothing collects. A scraped exporter is
+    # what makes that measurable after the fact, and carries the host's CPU,
+    # disk and VM census with it.
+    #
+    # Never an unmet condition, however it turns out. Telemetry that exists to
+    # explain a failure must not become a reason for one, and a host reported
+    # degraded over a missing metrics endpoint -- while it provisions its guests
+    # perfectly -- is what teaches an operator to stop reading the degraded
+    # state that matters. It warns, naming the command that fixes it, and from
+    # then on the scrape target going down is the standing signal.
+    if (-not (Get-Command Set-YurunaHostMetricsExporter -ErrorAction SilentlyContinue)) {
+        Import-Module (Join-Path $PSScriptRoot 'Test.HostMetricsExporter.psm1') -DisableNameChecking
+    }
+    $metricsScrapeIp = ''
+    if (Test-Path -LiteralPath $configPath) {
+        try {
+            $metricsConfig = Get-Content -Raw -LiteralPath $configPath | ConvertFrom-Yaml -Ordered
+            if ($metricsConfig.vmStart -and $metricsConfig.vmStart.cachingProxyIp) {
+                $metricsScrapeIp = "$($metricsConfig.vmStart.cachingProxyIp)".Trim()
+            }
+        } catch {
+            Write-Verbose "test.config.yml parse failed: $($_.Exception.Message)"
+        }
+    }
+    if ((Set-YurunaHostMetricsExporter -ConfigIp $metricsScrapeIp -EnvIp $env:YURUNA_CACHING_PROXY_SERVICE_IP).Changed) { $changed = $true }
 
     # --- REGION: Host clock
     # Guests inherit this clock from their virtual RTC at power-on; see
@@ -2166,4 +2196,102 @@ function Get-WindowsVhdxFilterIssue {
     return @{ Status = 'Issue'; Issue = $issues; Detail = '' }
 }
 
+function Initialize-WindowsHostMetricsExporter {
+    <#
+    .SYNOPSIS
+        Bring this host's metrics exporter into existence on the unattended
+        cycle path: install it when it is missing, then set the collectors,
+        port and firewall rule the host publishes. Returns a status record and
+        never throws.
+    .DESCRIPTION
+        This is privileged repair on an unattended loop, which the harness
+        otherwise refuses to do -- and the reason it refuses is worth being
+        precise about, because it does not apply here. The objection is to a
+        repair that has to ASK for its privilege: a loop that stops on a
+        credential prompt nobody is present to answer is a hang, and that is
+        the shape of every host-clock fix (a sudo password on two of the three
+        host types). This repair never asks. On host.windows.hyper-v the
+        condition gate's first act is Assert-Elevation and it refuses the cycle
+        outright when that fails, so anything reached after the gate already
+        holds Administrator; the install is driven with interactivity disabled
+        and its agreements pre-accepted; and it runs under a timeout, so even a
+        package manager that ignored all of that could not hold the cycle. No
+        provider is registered for macOS or Linux, where the same work would
+        have to ask.
+
+        Cheap on a host that is already converged, which is nearly every cycle.
+        Install-YurunaHostMetricsExporter asks for the service first and
+        returns already-present without touching a package manager, a file or
+        the network, so that is the whole per-cycle cost. The exporter is a
+        service -- once it runs with the right flags it keeps running across
+        reboots, and the scrape is its own watchdog -- so re-deriving its
+        configuration every cycle would buy nothing and cost every cycle. Only
+        the cycle that installs it goes on to configure it.
+
+        The bound on one attempt and the spacing between attempts both belong to
+        Install-YurunaHostMetricsExporter and are not restated here. A bound
+        that two functions each believe they own is a bound neither enforces.
+
+        Never a failure, in any outcome. An endpoint whose whole purpose is to
+        explain why a host refused a guest must not become a new reason for one
+        to be refused, and a host reported degraded over missing telemetry --
+        on a machine provisioning its guests perfectly -- is what teaches an
+        operator to stop reading the degraded state that matters.
+    .PARAMETER ConfigPath
+        test.config.yml, read only for the scrape source that scopes the
+        firewall rule, and only on the pass that installed the exporter.
+    .OUTPUTS
+        [pscustomobject] Status, Reason. Status is one of Present, Installed,
+        Throttled, Unavailable, Failed, Skipped.
+    .EXAMPLE
+        Initialize-WindowsHostMetricsExporter
+    #>
+    [CmdletBinding()]
+    [OutputType([pscustomobject])]
+    param(
+        [string]$ConfigPath = (Join-Path -Path (Split-Path -Parent $PSScriptRoot) -ChildPath 'test.config.yml')
+    )
+    if (-not $IsWindows) {
+        return [pscustomobject]@{ Status = 'Skipped'; Reason = 'the host-metrics exporter is a Windows host component' }
+    }
+    try {
+        if (-not (Get-Command Install-YurunaHostMetricsExporter -ErrorAction SilentlyContinue)) {
+            Import-Module (Join-Path -Path $PSScriptRoot -ChildPath 'Test.HostMetricsExporter.psm1') -DisableNameChecking
+        }
+        $install = Install-YurunaHostMetricsExporter -Confirm:$false
+        $reason = "$($install.Reason)"
+        switch ("$($install.Outcome)") {
+            'already-present'   { return [pscustomobject]@{ Status = 'Present'; Reason = $reason } }
+            'skipped-throttled' { return [pscustomobject]@{ Status = 'Throttled'; Reason = $reason } }
+            'skipped-whatif'    { return [pscustomobject]@{ Status = 'Skipped'; Reason = $reason } }
+            'not-applicable'    { return [pscustomobject]@{ Status = 'Skipped'; Reason = $reason } }
+            'unavailable'       { return [pscustomobject]@{ Status = 'Unavailable'; Reason = $reason } }
+            'installed'         { }
+            default             { return [pscustomobject]@{ Status = 'Failed'; Reason = $reason } }
+        }
+
+        # Reached only on the cycle that put the service on the host. This is
+        # what gives it the collector set, listen port and scrape-scoped
+        # firewall rule the host publishes, so one cycle takes a bare host all
+        # the way to a scraped endpoint. -SkipInstall because the acquisition
+        # already happened above and a second one must not be reachable here.
+        $scrapeIp = ''
+        if ($ConfigPath -and (Test-Path -LiteralPath $ConfigPath)) {
+            try {
+                $metricsConfig = Get-Content -Raw -LiteralPath $ConfigPath | ConvertFrom-Yaml -Ordered
+                if ($metricsConfig.vmStart -and $metricsConfig.vmStart.cachingProxyIp) {
+                    $scrapeIp = "$($metricsConfig.vmStart.cachingProxyIp)".Trim()
+                }
+            } catch {
+                Write-Verbose "test.config.yml parse failed: $($_.Exception.Message)"
+            }
+        }
+        $null = Set-YurunaHostMetricsExporter -ConfigIp $scrapeIp -EnvIp $env:YURUNA_CACHING_PROXY_SERVICE_IP -SkipInstall -Confirm:$false
+        return [pscustomobject]@{ Status = 'Installed'; Reason = $reason }
+    } catch {
+        return [pscustomobject]@{ Status = 'Failed'; Reason = "the exporter convergence threw: $($_.Exception.Message)" }
+    }
+}
+
+Export-ModuleMember -Function Initialize-WindowsHostMetricsExporter
 Export-ModuleMember -Function Set-WindowsHostConditionSet, Assert-WindowsHostConditionSet, Test-WindowsHostMinimum, Test-WindowsGuestNetworkHealth, Sync-WindowsHostClock, Install-YurunaVirtualDisplay, Remove-YurunaVirtualDisplay, Set-YurunaDisplayCloneAndResolution, Set-YurunaDisplayScale100, Test-YurunaVirtualDisplayEnabled, Get-WindowsDisplayScaleSetting, Get-WindowsDisplayScaleIssue, Get-WindowsVhdxFilterProfile, Get-WindowsVhdxFilterIssue

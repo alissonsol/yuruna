@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42ed1667-e5c7-4bea-b28b-0e6c1706de72
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,7 +38,7 @@ function Get-MacPmsetGuardList {
     (to re-verify before each cycle), so the asserted set is exactly the applied
     set -- a host that drifts (MDM re-enables a guard, pmset reverts on an OS
     update) fails the gate instead of blanking UTM mid-run. Per-key rationale at
-    https://yuruna.link/host/macos.
+    https://yuruna.link/42885ada.
 
     A key absent from `pmset -g custom` normally counts as "this macOS no longer
     surfaces it under that name" and is left alone. AlwaysApply marks the keys
@@ -1384,7 +1384,7 @@ function Set-MacHostConditionSet {
     # transitions hide UTM from CG enumeration on long runs. The guard list is
     # shared with Assert-ScreenLock (Get-MacPmsetGuardList) so the gate re-checks
     # exactly what is applied here. Per-key rationale, OptionalKey policy, and
-    # precheck-before-sudo logic at https://yuruna.link/host/macos
+    # precheck-before-sudo logic at https://yuruna.link/42885ada
     $pmsetGuards  = Get-MacPmsetGuardList
     $pmsetPending = @(Get-MacPmsetGuardPending -PmsetCustom (& pmset -g custom 2>$null) -Guard $pmsetGuards)
     if ($pmsetPending.Count -eq 0) {

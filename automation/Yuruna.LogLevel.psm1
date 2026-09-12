@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 4215c5b2-75d8-47ea-9edd-261bf78adcaa
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -107,4 +107,53 @@ function Resolve-YurunaRootSet {
     return @{ YurunaRoot = $yurunaRoot; ProjectRoot = $ProjectRoot; ConfigRoot = $configRoot }
 }
 
-Export-ModuleMember -Function Set-YurunaLogLevel, Resolve-YurunaRootSet
+function Resolve-YurunaTranscriptPath {
+    <#
+    .SYNOPSIS
+        The file this run should record its transcript in.
+    .DESCRIPTION
+        A caller that means to read the transcript afterwards names the file in
+        YURUNA_TRANSCRIPT_PATH before launching the run, so it holds the path
+        already and never has to recover one from what the run printed. Printed
+        output is written for a person to read: a caller that recognizes a word
+        in it has made that sentence a wire format, and the sentence then cannot
+        be reworded or translated without breaking the caller silently.
+
+        An environment variable rather than a parameter, for the same reason the
+        preflight sidecar uses one: every existing caller, and every stand-in
+        script a test substitutes for one of these, keeps working untouched.
+
+        The variable is CONSUMED, not merely read. These entry points can launch
+        one another, and an inherited value would aim two runs at one file --
+        the inner one truncating the record the outer is still writing.
+
+        A named path that cannot be used is not worth failing a run over: the
+        transcript is a diagnostic, so an unusable name falls back to the
+        ordinary temporary file and the run proceeds.
+    .OUTPUTS
+        [string] An absolute path to write the transcript to.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+
+    $named = "$env:YURUNA_TRANSCRIPT_PATH".Trim()
+    $env:YURUNA_TRANSCRIPT_PATH = ''
+    if (-not $named) { return [IO.Path]::GetTempFileName() }
+    try {
+        $full = [IO.Path]::GetFullPath($named)
+        $parent = Split-Path -Parent $full
+        if ($parent -and -not (Test-Path -LiteralPath $parent -PathType Container)) {
+            $null = New-Item -ItemType Directory -Path $parent -Force -ErrorAction Stop
+        }
+        # Proving it is writable here, rather than at Start-Transcript, keeps the
+        # fallback available: by then the run has already committed to the path.
+        [IO.File]::WriteAllText($full, '')
+        return $full
+    } catch {
+        Write-Verbose ("The named transcript path could not be used, so a temporary file is: {0}" -f $_.Exception.Message)
+        return [IO.Path]::GetTempFileName()
+    }
+}
+
+Export-ModuleMember -Function Set-YurunaLogLevel, Resolve-YurunaRootSet, Resolve-YurunaTranscriptPath

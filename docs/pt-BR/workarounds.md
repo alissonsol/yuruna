@@ -1,9 +1,11 @@
 <a id="42aaf735-0001"></a>
 
-# Contornos e perguntas frequentes do Yuruna
+<a id="contornos-e-perguntas-frequentes-do-yuruna"></a>
 
-Notas, perguntas frequentes e contornos surgidos do desenvolvimento,
-seguidos de solução de problemas por SO convidado. Problemas do lado do
+# Soluções alternativas e perguntas frequentes do Yuruna
+
+Notas, perguntas frequentes e soluções alternativas do desenvolvimento,
+seguidas de solução de problemas por SO convidado. Problemas do lado do
 hospedeiro ficam na documentação de hospedeiro: [Windows Hyper-V](../host-hyperv.md) -
 [macOS UTM](../host-macos.md).
 
@@ -132,7 +134,7 @@ remova a entrada, ou instale `osxkeychain`/`wincred`).
 
 **O Azure descarta o IP estático ao excluir seu ingress** -- confirmado
 [aqui](https://stackoverflow.com/questions/66435282/how-to-make-azure-not-delete-public-ip-when-deleting-service-ingress-controlle).
-O contorno tem efeitos colaterais; prefira `clear` + recompilação de
+A solução alternativa tem efeitos colaterais; prefira `clear` + recompilação de
 recursos/componentes/cargas de trabalho.
 
 **`Invoke-Expression: Cannot bind argument to parameter 'Command' because it is an empty string`**
@@ -397,6 +399,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Última revisão: 2026.09.08
+Última revisão: 2026.09.12
 
 Voltar para [Yuruna](../../README.md)

@@ -1,0 +1,137 @@
+{
+  "schema": "yuruna.reference-fixtures/v1",
+  "locale": "en-US",
+  "purpose": "The frozen English of every reference surface. Translation starts from what these say, so an edit to one of them is a change to the source language and has to be seen as one.",
+  "rows": [
+    {
+      "id": "cli-terminology-approved",
+      "surface": "cli",
+      "outcome": "pass",
+      "purpose": "The terminology gate reporting a complete, approved baseline.",
+      "producer": "command",
+      "tool": "tools/Test-Terminology.ps1",
+      "arguments": [],
+      "exitCode": 0
+    },
+    {
+      "id": "cli-terminology-source-missing",
+      "surface": "cli",
+      "outcome": "fail",
+      "purpose": "The same gate naming every input it could not read. Its messages carry absolute paths, which is the path normalization this set has to survive.",
+      "producer": "command",
+      "tool": "tools/Test-Terminology.ps1",
+      "arguments": ["-Root", "{emptyRoot}"],
+      "exitCode": 2
+    },
+    {
+      "id": "cli-document-review-clean",
+      "surface": "cli",
+      "outcome": "pass",
+      "purpose": "The per-document review listing, which names both repositories.",
+      "producer": "command",
+      "tool": "tools/Test-DocTranslation.ps1",
+      "arguments": ["-Manifest", "{manifestCopy}", "-ProjectRoot", "{projectRoot}", "-RequireReviewed"],
+      "exitCode": 0
+    },
+    {
+      "id": "cli-document-review-ambiguous",
+      "surface": "cli",
+      "outcome": "fail",
+      "purpose": "The refusal an operator meets when a name reaches two repositories. It arrives on the error stream in terminal color, which normalization removes without touching the sentence.",
+      "producer": "command",
+      "tool": "tools/Test-DocTranslation.ps1",
+      "arguments": ["-Manifest", "{manifestCopy}", "-ProjectRoot", "{projectRoot}", "-AcceptReview", "-Status", "reviewed", "-Path", "README.md"],
+      "exitCode": 2
+    },
+    {
+      "id": "page-caching-proxy",
+      "surface": "page",
+      "outcome": "pass",
+      "purpose": "A service page in its ordinary state, materialized from the shipping source.",
+      "producer": "generated-page",
+      "file": "caching-proxy-ui.html"
+    },
+    {
+      "id": "page-caching-proxy-failed",
+      "surface": "page",
+      "outcome": "fail",
+      "purpose": "The same page with its upstream refusing, which is when an operator actually reads it.",
+      "producer": "generated-page",
+      "file": "caching-proxy-ui-failed.html"
+    },
+    {
+      "id": "page-squid-no-upstream",
+      "surface": "page",
+      "outcome": "fail",
+      "purpose": "The generated proxy error document, whose whole content is a failure message.",
+      "producer": "generated-page",
+      "file": "squid-no-upstream.html"
+    },
+    {
+      "id": "api-status-cycle-duration",
+      "surface": "api",
+      "outcome": "pass",
+      "purpose": "A message envelope carrying a rendered English value, which is what an API hands a client that cannot resolve the code itself.",
+      "producer": "message-envelope",
+      "envelope": {
+        "domain": "status",
+        "code": "status.cycle_duration",
+        "arguments": { "elapsed": 253000 },
+        "argumentTypes": { "elapsed": "duration" },
+        "renderArguments": { "elapsed": "4m 13s" }
+      }
+    },
+    {
+      "id": "api-status-error-not-found",
+      "surface": "api",
+      "outcome": "fail",
+      "purpose": "The coded error an API returns for an absent resource.",
+      "producer": "message-envelope",
+      "envelope": {
+        "domain": "status",
+        "code": "status.error_not_found",
+        "arguments": {},
+        "argumentTypes": {}
+      }
+    },
+    {
+      "id": "api-pool-project-unreachable",
+      "surface": "api",
+      "outcome": "fail",
+      "purpose": "A failure whose sentence is the product's own and whose detail comes from outside it, so the redaction boundary is part of the recorded shape.",
+      "producer": "message-envelope",
+      "envelope": {
+        "domain": "pool",
+        "code": "pool.pool_project_unreachable",
+        "arguments": {},
+        "argumentTypes": {},
+        "detailText": "dial tcp: connection refused",
+        "detailSource": "external"
+      }
+    },
+    {
+      "id": "transcript-cycle",
+      "surface": "transcript",
+      "outcome": "pass",
+      "purpose": "The per-cycle transcript the real log tee writes.",
+      "producer": "generated-page",
+      "file": "cycle-transcript.html"
+    },
+    {
+      "id": "listing-log-directory",
+      "surface": "listing",
+      "outcome": "pass",
+      "purpose": "The generated directory listing. Its rows carry clock readings and a generated cycle identifier, so it is the row that proves normalization reaches them.",
+      "producer": "generated-page",
+      "file": "log-directory-index.html"
+    },
+    {
+      "id": "notification-cycle-failure",
+      "surface": "notification",
+      "outcome": "fail",
+      "purpose": "The html part of the cycle-failure notification, which is read outside any browser this project controls.",
+      "producer": "generated-page",
+      "file": "notification-email.html"
+    }
+  ]
+}

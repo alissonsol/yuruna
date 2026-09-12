@@ -13,6 +13,7 @@ import (
 
 	"pool-control-service/internal/intent"
 	"yuruna.com/test/extension/extension-sdk/i18n"
+	"yuruna.com/test/extension/extension-sdk/pool"
 )
 
 // The operator board's server side.
@@ -498,6 +499,12 @@ type boardHost struct {
 	// LastSeen is when a sweep last confirmed a discovered host, which is the
 	// only liveness signal this page has for one.
 	LastSeen string `json:"lastSeen,omitempty"`
+	// SupersededBy names the host id that answers at this row's address now,
+	// and is set only on a row whose id no longer does. It marks the one case
+	// where two rows are one machine and the operator has to act: the id here
+	// may still hold the pool membership, while the work is being done under
+	// the id named. Empty on every ordinary row.
+	SupersededBy string `json:"supersededBy,omitempty"`
 }
 
 // hostTypeLabel drops the "host." prefix a host serializes its type with, for
@@ -505,6 +512,59 @@ type boardHost struct {
 // for the aggregator's).
 func hostTypeLabel(raw string) string {
 	return strings.TrimPrefix(strings.TrimSpace(raw), "host.")
+}
+
+// hostBase normalizes a status-service base for use as a map key.
+func hostBase(raw string) string {
+	return strings.TrimSuffix(strings.TrimSpace(raw), "/")
+}
+
+// currentHostByBase maps each status-service base to the ONE host id that
+// answers there now, and is only interesting where that is not the only id the
+// aggregator holds for it.
+//
+// A host's id is minted into its runtime directory, so a reimage or a re-clone
+// gives the same machine a new one. The aggregator keys hosts by id and keeps
+// each for its own TTL, so for a day afterwards two ids describe one machine at
+// one address -- and the pool membership sits on the one that went quiet, which
+// is how a re-keyed host silently leaves its pool while still doing the work.
+//
+// One address:port holds one status service, so the ids sharing a base are
+// provably one machine and the newest sighting is the id it reports now.
+// Reachability outranks the stamp: an unreachable entry's stamp is the last
+// probe that worked, and a host that answers now is the one to believe. The id
+// itself is the final tiebreak, so a lab where the aggregator reports two
+// equally-live entries still gets ONE answer per read rather than a page that
+// disagrees with itself between refreshes.
+func currentHostByBase(hosts []pool.Host) map[string]string {
+	current := map[string]pool.Host{}
+	for _, h := range hosts {
+		base := hostBase(h.BaseURL)
+		if base == "" || h.HostID == "" {
+			continue
+		}
+		best, seen := current[base]
+		if !seen || preferredHost(h, best) {
+			current[base] = h
+		}
+	}
+	out := make(map[string]string, len(current))
+	for base, h := range current {
+		out[base] = h.HostID
+	}
+	return out
+}
+
+// preferredHost reports whether a should be believed over b as the occupant of
+// the address they share.
+func preferredHost(a, b pool.Host) bool {
+	if a.Reachable != b.Reachable {
+		return a.Reachable
+	}
+	if a.LastSeenUnixMs != b.LastSeenUnixMs {
+		return a.LastSeenUnixMs > b.LastSeenUnixMs
+	}
+	return a.HostID < b.HostID
 }
 
 // handleHosts lists every host the aggregator knows, with its current pool.
@@ -568,17 +628,25 @@ func (s *Server) handleHosts(w http.ResponseWriter, r *http.Request) {
 		return &reg
 	})
 
+	// Which id actually answers at each address, so a machine the aggregator
+	// holds under more than one can say which of its rows is the live one.
+	currentBy := currentHostByBase(status.Hosts)
+
 	seen := map[string]bool{}
 	seenBase := map[string]bool{}
 	rows := make([]boardHost, 0, len(status.Hosts))
 	for i, h := range status.Hosts {
 		seen[h.HostID] = true
-		if b := strings.TrimSuffix(strings.TrimSpace(h.BaseURL), "/"); b != "" {
-			seenBase[b] = true
+		base := hostBase(h.BaseURL)
+		if base != "" {
+			seenBase[base] = true
 		}
-		row := boardHost{HostID: h.HostID, Type: h.HostType(), Control: h.Control, Pool: poolOf[h.HostID]}
+		row := boardHost{HostID: h.HostID, Type: h.HostType(), Control: h.Control, Pool: poolOf[h.HostID], Address: h.CurrentIP}
 		if row.Control == "" {
 			row.Control = "unknown"
+		}
+		if cur := currentBy[base]; cur != "" && cur != h.HostID {
+			row.SupersededBy = cur
 		}
 		if reg := regs[i]; reg != nil {
 			if reg.ProjectAccess != nil {
@@ -672,4 +740,109 @@ func (s *Server) handleMoveHost(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.relay(w, "move-host", body.HostID, s.intent.AddHost(r.Context(), body.PoolID, body.HostID))
+}
+
+// handleAdoptRekey hands a re-keyed machine's pool membership to the id it now
+// reports, and forgets the id it stopped reporting.
+//
+// A host mints its id into its runtime directory, so a reimage or a re-clone
+// leaves the machine running under a new one. Pool membership is keyed by id in
+// the intent store, so it stays on the id that went quiet: the pool loses a
+// member that is sitting right there doing work, and the operator sees two rows
+// where there is one machine. Repairing that by hand means reading two ids off
+// a table, removing one member and adding the other, in the right pool -- an
+// error at any step moves the wrong machine.
+//
+// The relation is re-derived HERE from the aggregator rather than taken from
+// the request: the pair the browser sends is only its reading of a table it
+// last loaded minutes ago, and acting on a stale reading would move a live
+// host's membership to an id that is no longer the one answering. So the
+// service confirms, now, that both ids share an address and that the new one is
+// the id that address answers with.
+func (s *Server) handleAdoptRekey(w http.ResponseWriter, r *http.Request) {
+	var body struct{ OldHostID, NewHostID string }
+	if !decode(w, r, &body) {
+		return
+	}
+	oldID, newID := strings.TrimSpace(body.OldHostID), strings.TrimSpace(body.NewHostID)
+	if oldID == "" || newID == "" {
+		writeErr(w, http.StatusBadRequest, "oldHostId and newHostId are both required")
+		return
+	}
+	if oldID == newID {
+		writeErr(w, http.StatusBadRequest, "oldHostId and newHostId are the same host")
+		return
+	}
+
+	status, err := s.pool.Status(r.Context())
+	if err != nil {
+		// Without the aggregator there is nothing to confirm the pair against,
+		// and this is the one route that must not proceed on the client's word.
+		writeErr(w, http.StatusServiceUnavailable, "the aggregator could not be read, so the two ids cannot be confirmed to be one machine: "+err.Error())
+		return
+	}
+	oldHost, oldKnown := status.Host(oldID)
+	newHost, newKnown := status.Host(newID)
+	if !oldKnown || !newKnown {
+		writeErr(w, http.StatusNotFound, "the aggregator does not report both of those hosts")
+		return
+	}
+	base := hostBase(newHost.BaseURL)
+	if base == "" || base != hostBase(oldHost.BaseURL) {
+		writeErr(w, http.StatusConflict, "those two hosts do not answer at the same address, so they are not one machine that re-keyed")
+		return
+	}
+	if currentHostByBase(status.Hosts)[base] != newID {
+		writeErr(w, http.StatusConflict, "that address does not answer as the new host id; reload the page and read the pair again")
+		return
+	}
+
+	doc, err := s.readIntentDoc(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	oldPool, newPool := "", ""
+	for _, p := range doc.Pools {
+		for _, m := range p.Members {
+			switch m {
+			case oldID:
+				oldPool = p.PoolID
+			case newID:
+				newPool = p.PoolID
+			}
+		}
+	}
+
+	// Remove first, always. A host belongs to at most one pool, so adding the
+	// new id while the old one is still a member would put one machine in a
+	// pool twice under two names -- the very state this repairs.
+	if oldPool != "" {
+		if res := s.intent.RemoveHost(r.Context(), oldPool, oldID); !res.OK {
+			writeErr(w, http.StatusInternalServerError, firstNonEmpty(res.Error, res.Stderr, "the old host id could not be removed from "+oldPool))
+			return
+		}
+	}
+	// The new id keeps the pool it is already in: it is the live host, and an
+	// operator who has since placed it somewhere deliberately must not have
+	// that undone by a repair.
+	moved := ""
+	if oldPool != "" && newPool == "" {
+		if res := s.intent.AddHost(r.Context(), oldPool, newID); !res.OK {
+			writeErr(w, http.StatusInternalServerError, firstNonEmpty(res.Error, res.Stderr, "the new host id could not be added to "+oldPool))
+			return
+		}
+		moved = oldPool
+	}
+	// The scan's own list is keyed by id too, so the retired id would go on
+	// showing there as a host of its own. Best-effort: it may never have been
+	// discovered, and a monitored-list entry is not worth failing a repair the
+	// intent store has already accepted.
+	forgot := s.discovered.Forget(oldID)
+
+	s.auditScan("adopt-rekey", oldID+" -> "+newID)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok": true, "oldHostId": oldID, "newHostId": newID,
+		"movedToPool": moved, "keptPool": newPool, "forgotten": forgot,
+	})
 }

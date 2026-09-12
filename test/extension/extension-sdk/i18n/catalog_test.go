@@ -258,3 +258,88 @@ func TestContextIsCopiedNotShared(t *testing.T) {
 		t.Error("editing a copy cleared the original's provenance")
 	}
 }
+
+// A route can be mounted without the negotiating middleware -- a second mux, a
+// test harness, a service that adopts the adapter before it adopts the
+// middleware. The context such a handler reads has to be the whole default, not
+// the fields a struct literal happened to fill: pageVariantFor and the response
+// headers key on RequestedTag and Source as well as the resolved tag, and a
+// half-populated context misses the prepared representation entirely.
+func TestFromRequestWithoutMiddlewareCarriesTheWholeDefault(t *testing.T) {
+	want := NewContext("", "", "", DefaultManifest())
+	got := FromRequest(httptest.NewRequest(http.MethodGet, "/", nil))
+
+	if got != want {
+		t.Errorf("FromRequest without middleware = %+v, want the negotiated default %+v", got, want)
+	}
+	if got.RequestedTag == "" {
+		t.Error("the fallback names no requested tag, so a prepared page keyed on it cannot be found")
+	}
+	if got.TimeZone != "utc" {
+		t.Errorf("TimeZone = %q, want utc", got.TimeZone)
+	}
+	if got.CatalogVersion == "" {
+		t.Error("the fallback names no catalog version, so its render cannot be traced to a compiler")
+	}
+	if len(got.CatalogHash) != 64 {
+		t.Errorf("CatalogHash = %q (%d chars), want a 64-character hash", got.CatalogHash, len(got.CatalogHash))
+	}
+	if got.Source != SourceDefault {
+		t.Errorf("Source = %q, want %q -- nothing chose this language", got.Source, SourceDefault)
+	}
+}
+
+// The direction has to be derived from the manifest entry for the language that
+// was resolved, not written as a literal. The shipped manifest is left to right,
+// so asserting "ltr" against it would pass for either implementation; the only
+// way to tell them apart is a manifest whose default is right to left.
+//
+// The subject is the constructor rather than FromRequest because the fallback
+// cannot be handed a manifest -- it is the shipped world by definition. What
+// makes this cover the fallback is the assertion next door that the fallback
+// equals what this constructor returns.
+func TestTheDefaultDirectionIsDerivedNotAssumed(t *testing.T) {
+	rtl := &Manifest{
+		Default:         "ar-SA",
+		Supported:       []string{"ar-SA"},
+		Aliases:         map[string]string{},
+		Data:            map[string]LocaleData{"ar-SA": {Direction: "rtl", PluralRule: "other"}},
+		MaxTagLength:    generatedMaxTagLength,
+		MaxHeaderLength: generatedMaxHeaderLength,
+	}
+
+	if got := NewContext("", "", "", rtl); got.Direction != "rtl" {
+		t.Errorf("Direction = %q, want rtl from the manifest entry for %q", got.Direction, rtl.Default)
+	}
+}
+
+// A nil request is the same question with less to read, and it must not panic:
+// callers reach this from background work that has no request at all.
+func TestFromRequestWithoutARequestCarriesTheWholeDefault(t *testing.T) {
+	if got, want := FromRequest(nil), NewContext("", "", "", DefaultManifest()); got != want {
+		t.Errorf("FromRequest(nil) = %+v, want the negotiated default %+v", got, want)
+	}
+}
+
+// Without middleware there is no decision to report, so the header must not
+// become one. Reading Accept-Language here would make the same request answer
+// differently depending on which mux served it, which is the disagreement the
+// single negotiation point exists to prevent.
+//
+// The header names a supported alias on purpose. An unsupported tag resolves to
+// the default anyway, so a test using one would pass against a FromRequest that
+// negotiated fully -- it would be asserting that pt-BR is unsupported, not that
+// nothing negotiated. "en" resolves, and it resolves to a context that differs
+// from the default in both the requested tag and the source.
+func TestTheFallbackDoesNotNegotiateFromTheHeader(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	req.Header.Set("Accept-Language", "en")
+
+	negotiated := (&Negotiator{}).Resolve(req)
+	if negotiated == NewContext("", "", "", DefaultManifest()) {
+		t.Fatal("the header does not change what negotiation produces, so this test cannot detect one")
+	}
+	if got, want := FromRequest(req), NewContext("", "", "", DefaultManifest()); got != want {
+		t.Errorf("FromRequest with a header but no middleware = %+v, want the untouched default %+v", got, want)
+	}
+}

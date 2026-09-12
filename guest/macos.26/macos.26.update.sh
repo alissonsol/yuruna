@@ -1,18 +1,11 @@
 #!/bin/bash
-# Version: 2026.09.08
+# Version: 2026.09.12
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
 
-# Workload-phase update script for a macOS 26 guest. Mirrors the role of
-# ubuntu.server.24.update.sh / amazon.linux.2023.update.sh in the workload step
-# that follows a successful guest start. Not called by New-VM.ps1 (the host-side
-# restore script): macOS 26 ships its kernel + system in the IPSW restore that
-# New-VM.ps1 already performs, so an apt-/yum-style "update right after install"
-# is redundant on first boot. This script exists for the eventual sequence that
-# runs against a Setup-Assistant-completed guest.
-
 # --- REGION: Detect architecture
+# See https://yuruna.link/42e220c4-0005
 ARCH=$(uname -m)
 echo "Detected architecture: $ARCH"
 case "$ARCH" in
@@ -27,12 +20,8 @@ case "$ARCH" in
 esac
 
 # --- REGION: Ensure PowerShell is installed
-# --- REGION: https://yuruna.link/42d69dfa-0036
-# macOS pwsh ships as a .pkg from the PowerShell releases. The version is
-# discovered at install time by resolving the GitHub /releases/latest redirect,
-# the same mechanism the Linux guests use, so both stay in step. curl and
-# installer are in base macOS; this step does not need the Command Line
-# Developer Tools first.
+# See https://yuruna.link/42d69dfa-0036
+# Base macOS has curl and installer, so the release .pkg can precede developer tools.
 echo ""
 echo -e "\e[1;36m==== Ensure PowerShell is installed ====\e[0m"
 if ! command -v pwsh >/dev/null 2>&1; then
@@ -57,11 +46,8 @@ fi
 pwsh --version
 
 # --- REGION: Install powershell-yaml module
-# --- REGION: https://yuruna.link/42d69dfa-0038
-# macOS has no pwsh_retry library, so the PSGallery-flap ride-out is
-# inlined as the same 3-attempt / 60s loop this script uses for git
-# clone; the trailing Import-Module check is the real fail-fast gate
-# (Install-Module can report success with the module unloadable).
+# See https://yuruna.link/42d69dfa-0038
+# macOS lacks pwsh_retry; use an inline retry and verify the import.
 echo ""
 echo -e "\e[1;36m==== Install powershell-yaml module ====\e[0m"
 for attempt in 1 2 3; do
@@ -72,11 +58,8 @@ done
 sudo pwsh -NoProfile -Command "Import-Module powershell-yaml; ConvertFrom-Yaml 'k: v' | Out-Null"
 
 # --- REGION: Early yuruna framework extraction
-# --- REGION: https://yuruna.link/42d69dfa-0037
-# Tarball-only here (curl, since macOS base does not ship wget); the
-# git-clone fallback lives in the late Materialize section below, which
-# needs `git` from the Command Line Developer Tools install that runs
-# before it.
+# See https://yuruna.link/42d69dfa-0037
+# Use curl here; the Git fallback follows the developer-tools install.
 echo ""
 echo -e "\e[1;36m==== Early yuruna framework extraction ====\e[0m"
 REAL_USER="${SUDO_USER:-$USER}"
@@ -90,14 +73,7 @@ if [ -n "${YURUNA_STATUS_SERVICE_IP:-}" ] && [ -n "${YURUNA_STATUS_SERVICE_PORT:
   TARBALL_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/yuruna-archive.tar.gz"
   if curl -fsS --max-time 2 -o /dev/null "$LIVECHECK_URL" 2>/dev/null; then
     mkdir -p "$REAL_HOME/yuruna"
-    # Bounded, unlike the livecheck it follows. The probe proves the host was
-    # answering a moment ago; it says nothing about where the host will be
-    # partway through a multi-megabyte transfer, and curl left to its defaults
-    # sits on a stalled one indefinitely -- long past the step's own patience,
-    # so the failure arrives as an unexplained step timeout instead of a fetch
-    # that said what went wrong. The bound is on the transfer stalling (under
-    # 1 KB/s for 60s), not on its total duration: a large archive on a
-    # slow-but-moving link must still be allowed to finish.
+    # --- REGION: https://yuruna.link/42e220c4-0005
     if curl -fsSL --connect-timeout 30 --speed-limit 1024 --speed-time 60 \
          "$TARBALL_URL" | tar -xz -C "$REAL_HOME/yuruna"; then
       sudo chown -R "$REAL_USER:$REAL_USER" "$REAL_HOME/yuruna" 2>/dev/null || true
@@ -112,11 +88,7 @@ if [ -n "${YURUNA_STATUS_SERVICE_IP:-}" ] && [ -n "${YURUNA_STATUS_SERVICE_PORT:
 fi
 
 # --- REGION: Disable services that may suspend the machine
-# Mirrors the host-side Set-MacHostConditionSet contract for the guest.
-# pmset on a VZ guest behaves the same as on a Mac mini; sudo is
-# required. The test extension `authentication` rotates the guest
-# password at first login, so sudo works without an interactive prompt
-# inside the test sequence.
+# Match the host no-sleep contract; password rotation makes sudo noninteractive.
 echo "TESTHACK: Disabling services that may suspend the machine."
 sudo pmset -a displaysleep 0 sleep 0 disksleep 0 || true
 
@@ -133,10 +105,7 @@ echo -e "\e[1;36m==== Update system packages ====\e[0m"
 sudo softwareupdate -i -a --agree-to-license || true
 
 # --- REGION: Ensure Git is installed (Command Line Developer Tools)
-# Provides /usr/bin/git, /usr/bin/swift, and the rest of the developer
-# toolchain that subsequent yuruna workload scripts depend on. macOS
-# ships git via the Command Line Developer Tools, not as a standalone
-# package, so the on-demand install path is the canonical install.
+# macOS supplies Git and Swift through Command Line Developer Tools.
 echo ""
 echo -e "\e[1;36m==== Ensure Git is installed (Command Line Developer Tools) ====\e[0m"
 if ! xcode-select -p >/dev/null 2>&1; then
@@ -156,7 +125,7 @@ fi
 xcode-select -p || true
 
 # --- REGION: Resolve framework and project URLs
-# --- REGION: https://yuruna.link/42fa6f45-000c
+# See https://yuruna.link/42fa6f45-000c
 echo -e "\e[1;32m==== Resolve framework and project URLs ====\e[0m"
 FRAMEWORK_URL=""
 PROJECT_URL=""
@@ -169,13 +138,14 @@ if [ -n "${YURUNA_STATUS_SERVICE_IP:-}" ] && [ -n "${YURUNA_STATUS_SERVICE_PORT:
 fi
 
 # --- REGION: Keep git non-interactive
-# --- REGION: https://yuruna.link/4220a755-004f
+# See https://yuruna.link/4220a755-004f
 export GIT_TERMINAL_PROMPT=0
 if [ -x /usr/local/lib/yuruna/git-askpass.sh ]; then
     export GIT_ASKPASS=/usr/local/lib/yuruna/git-askpass.sh
 fi
 
 # --- REGION: Materialize the yuruna framework and project repos
+# See https://yuruna.link/42e220c4-000e
 if [ ! -d "$REAL_HOME/yuruna" ]; then
   HOST_OK=false
   if [ -n "${YURUNA_STATUS_SERVICE_IP:-}" ] && [ -n "${YURUNA_STATUS_SERVICE_PORT:-}" ]; then
@@ -198,10 +168,6 @@ if [ ! -d "$REAL_HOME/yuruna" ]; then
       echo "yuruna: repositories.frameworkUrl missing from test.config.yml - cannot clone framework" >&2
       exit 1
     fi
-    # git ships no stall detection (http.lowSpeedLimit/Time unset), so a clone
-    # stalled mid-transfer would hang forever and the retry ladder below would
-    # never fire (the stalled-transfer trap class); the low-speed pair aborts a
-    # <1 KB/s-for-60s transfer into the retry path instead.
     for attempt in 1 2 3; do
       git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone "$FRAMEWORK_URL" "$REAL_HOME/yuruna" && break
       echo "git clone attempt $attempt failed"
@@ -221,10 +187,6 @@ if [ ! -d "$REAL_HOME/yuruna/project" ]; then
     PROJECT_TARBALL_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/yuruna-project-archive.tar.gz"
     echo "yuruna: trying project tarball at $PROJECT_TARBALL_URL"
     mkdir -p "$REAL_HOME/yuruna/project"
-    # Bound the connect and the stall, never the total: --max-time would abort
-    # any archive that simply takes longer than the cap to arrive and push the
-    # run onto the git-clone path, which on a private projectUrl is the slow,
-    # prompt-prone leg -- the opposite of what a fast-fail here is for.
     if curl -fsSL --connect-timeout 5 --speed-limit 1024 --speed-time 5 \
          "$PROJECT_TARBALL_URL" 2>/dev/null \
          | tar -xz -C "$REAL_HOME/yuruna/project" 2>/dev/null \
@@ -253,11 +215,5 @@ fi
 sudo chown -R "$REAL_USER:$REAL_USER" "$REAL_HOME/yuruna" 2>/dev/null || true
 
 echo ""
-# The completion marker belongs to fetch-and-execute.sh alone: it is chosen by
-# the inner script's exit code, and a second copy printed here says "success"
-# regardless of that code, so the host's OCR matcher can settle on the payload's
-# copy and pass a failed run. What the payload owes the harness instead is a
-# definite end-of-script line, so the real marker lands adjacent to live output
-# rather than after a silent gap a headless capture surface would freeze on.
-# See feedback_frozen_capture_feed_idle_tail.
+# --- REGION: https://yuruna.link/42e220c4-0005
 echo -e "\e[1;32m==== Update complete. ====\e[0m"

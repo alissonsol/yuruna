@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42647c3a-19a7-4931-b638-07791d5f0b1b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,6 +38,7 @@
     distinct per host -- two hosts on one LAN must not share a MAC.
 #>
 
+[CmdletBinding(SupportsShouldProcess)]
 param(
     [Parameter(Position = 0)]
     [string]$VMName = "yuruna-caching-proxy-service",
@@ -58,10 +59,15 @@ param(
     [switch]$Lab
 )
 
+# --- REGION: Confirm the service operation
+# See https://yuruna.link/42e220c4-0008
+if (-not $PSCmdlet.ShouldProcess($VMName, 'Start or rebuild the service VM and configure host services')) { return }
+
 $global:InformationPreference = "Continue"
 $global:ProgressPreference    = "SilentlyContinue"
 
-# --- REGION: https://yuruna.link/42162449-0004
+# --- REGION: Initialize service runtime
+# See https://yuruna.link/42162449-0004
 # After the preference assignments above on purpose: an explicit level is the
 # operator's choice and replaces this script's own default.
 Import-Module (Join-Path $PSScriptRoot '../modules/Test.LogLevel.psm1') -Global -Force -DisableNameChecking
@@ -93,7 +99,7 @@ if ($IsWindows -and -not ([Security.Principal.WindowsPrincipal] [Security.Princi
 # Pre-flight: drop inherited proxy env vars from THIS process and its
 # children so .NET HttpClient downloads go DIRECT (a stale upstream IP
 # would fail every Get-Image / virt-install / qemu-img call before the
-# cache exists). Rationale and scope: https://yuruna.link/caching-proxy-service
+# cache exists). Rationale and scope: https://yuruna.link/42f6b05f-003c
 $proxyEnvVars = @(
     'HTTP_PROXY',  'http_proxy',
     'HTTPS_PROXY', 'https_proxy',
@@ -235,7 +241,7 @@ foreach ($p in @($GetImageScript, $NewVMScript)) {
     if (-not (Test-Path $p)) { Write-Error "Missing required script: $p"; exit 1 }
 }
 
-# --- REGION: Step 0: plan + pre-flight
+# --- REGION: Preflight
 # Past this point Start-CachingProxyServiceVM runs UNATTENDED -- it must not stop
 # for an interactive prompt. Everything that needs operator awareness is
 # surfaced and resolved HERE, at the start:
@@ -327,34 +333,20 @@ if ($IsLinux -and $plannedBridge -and $plannedBridge.WillChangeHostNetworking) {
 
 Write-Verbose "  Preflight OK -- proceeding unattended (no further prompts)."
 
-# --- REGION: Serialize the destructive VM lifecycle + host port-map writes
-# Two concurrent bring-ups (or a bring-up racing the runner's per-cycle
-# Add-PortMap) must not interleave Remove-VM/New-VM/Add-PortMap. Acquire the
-# drain-style PID+StartTime lock now: a dead holder is reclaimed, a live one
-# (another bring-up) is waited out briefly then refused. Released explicitly on
-# the happy paths below; an error-exit that leaks it self-heals (the next run
-# drains this now-dead PID) exactly like a crashed runner's runner.pid.
+# --- REGION: Acquire the service lifecycle lock
+# Hold one lock across VM replacement and host port-map changes.
+# See https://yuruna.link/42e220c4-0008
 $cpLock = Enter-CachingProxyServiceLock -RuntimeDir $envSidecarDir -Role 'rebuild' -TimeoutSeconds 30
 if (-not $cpLock.Acquired) {
     Write-Error "Another caching-proxy-service bring-up holds the lock (PID $($cpLock.HolderPid)). Refusing a second concurrent destroy/rebuild -- wait for it to finish (or stop that process), then re-run. Run Stop-CachingProxyServiceVM.ps1 to clear an abandoned lock."
     exit 1
 }
 
-# Everything from here to the matching `} finally` is the locked critical section.
-# The try/finally is load-bearing, not defensive tidiness: without it each of the
-# twelve `exit 1` paths below (Get-Image / New-VM gates, the config-service gate,
-# the UTM register+start gates, the host-LAN-IP gate) leaks the lock file. That leak
-# does NOT self-heal the way a crashed runner's runner.pid does -- a .ps1 runs INSIDE
-# the caller's pwsh, so the recorded holder PID is the operator's long-lived
-# interactive shell. It stays alive, the stale-holder drain never fires, and every
-# later run is refused until that shell is killed. PowerShell 7 runs `finally` when a
-# script calls `exit` inside `try` and preserves the exit code, so the release is
-# guaranteed. The enclosed body is deliberately NOT re-indented: re-indenting ~720
-# lines would bury the lock handling inside a whitespace diff.
-# Same shape as the runner's portmap hold in modules/Invoke-TestRunnerInnerLoop.ps1.
+# Release on every exit: this script can share the caller's long-lived PID.
+# See https://yuruna.link/42e220c4-0008
 try {
 
-# --- REGION: Adopt-if-healthy fast path (skip the ~15-min rebuild)
+# --- REGION: Adopt a healthy VM
 # Load the host contract so Get-VMState / Test-CacheVMOnExternalNetwork /
 # Add-PortMap resolve for the probe + exposure re-assert. The Test.CachingProxyService
 # re-import afterward is mandatory, not redundant:
@@ -416,8 +408,7 @@ if (-not $ForceRebuild) {
     Write-Verbose "== -ForceRebuild specified -- rebuilding '$VMName' from scratch (adopt fast-path skipped). =="
 }
 
-# --- REGION: Step 1: stop + remove any prior VM
-
+# --- REGION: Remove existing VM
 Write-Verbose ""
 Write-Verbose "== Step 1: cleanup previous '$VMName' VM =="
 
@@ -455,11 +446,8 @@ if ($IsMacOS) {
     # before its Step 4 Stop, so it isn't still auto-clicking UTM dialogs.
     # Yuruna.Host (loaded by Initialize-YurunaHost above) exports it.
     if (Get-Command Stop-UtmDialogWatchdog -ErrorAction SilentlyContinue) { Stop-UtmDialogWatchdog }
-    # Host-agnostic pre-teardown via the Yuruna.Host contract (loaded by
-    # Initialize-YurunaHost above). On UTM, Remove-VM stops the VM, deletes
-    # it from UTM's registry (with a delete retry + wait-for-stopped poll
-    # the raw utmctl sequence lacked), and removes the stale .utm bundle.
-    # The base image is in a separate download dir and is untouched.
+    # The host contract removes registration and private VM files; keep the base image.
+    # See https://yuruna.link/42e220c4-0004
     if ((Get-VMState -VMName $VMName) -ne 'absent') {
         Write-Verbose "  Prior VM registered with UTM -- stopping and deleting..."
         [void](Remove-VM -VMName $VMName -Confirm:$false)
@@ -467,12 +455,8 @@ if ($IsMacOS) {
         Write-Verbose "  No prior VM registered with UTM."
     }
 } elseif ($IsWindows) {
-    # Host-agnostic pre-teardown via the Yuruna.Host contract (loaded by
-    # Initialize-YurunaHost above). On Hyper-V, Remove-VM force-stops the
-    # VM, removes it from the Hyper-V registry (with a ghost-entry recheck),
-    # and deletes the per-VM disk directory under VirtualHardDiskPath. The
-    # base VHDX lives directly under that path (not the per-VM dir) and is
-    # untouched.
+    # The host contract removes registration and private VM files; keep the base image.
+    # See https://yuruna.link/42e220c4-0004
     if ((Get-VMState -VMName $VMName) -ne 'absent') {
         Write-Verbose "  Prior VM found (state: $(Get-VMState -VMName $VMName)) -- stopping and removing..."
         [void](Stop-VM -VMName $VMName -Force -Confirm:$false)
@@ -481,12 +465,8 @@ if ($IsMacOS) {
         Write-Verbose "  No prior VM registered with Hyper-V."
     }
 } elseif ($IsLinux) {
-    # Host-agnostic pre-teardown via the Yuruna.Host contract (loaded by
-    # Initialize-YurunaHost above). On KVM, Remove-VM runs virsh destroy +
-    # undefine --nvram (NVRAM removal is required or undefine leaves the
-    # domain def in place) and deletes the stale per-VM artifact directory
-    # under ~/yuruna/vms/<name>. The base image is in a separate download
-    # dir (~/yuruna/image/caching-proxy-service) and is untouched.
+    # The host contract removes registration and private VM files; keep the base image.
+    # See https://yuruna.link/42e220c4-0004
     if ((Get-VMState -VMName $VMName) -ne 'absent') {
         Write-Verbose "  Prior VM registered with libvirt -- destroying and undefining..."
         [void](Remove-VM -VMName $VMName -Confirm:$false)
@@ -494,7 +474,7 @@ if ($IsMacOS) {
         Write-Verbose "  No prior VM registered with libvirt."
     }
 
-    # --- REGION: Step 1.5: ensure the 'yuruna-external' libvirt bridge network
+    # --- REGION: Configure the external bridge
     # Promote the cache VM off libvirt's NAT 'default' network onto the
     # bridged 'yuruna-external' network so other LAN hosts can reach it.
     # Unattended; YURUNA_EXTERNAL_BRIDGE_SKIP=1 short-circuits it.
@@ -535,16 +515,9 @@ if ($IsMacOS) {
     }
 }
 
-# --- REGION: Step 2: base image
-
-# Always defer to Get-Image.ps1 -- it owns the cache-vs-refetch decision
-# via Test-DownloadAlreadyCurrent (4-line sentinel: filename + URL + byte
-# count + Last-Modified). A naive Test-Path $ImageFile short-circuit at
-# this site would silently mask URL/version bumps (the noble->resolute
-# regression class where a 24.04 VHDX stays in place after the script's
-# URL is updated to 26.04). Get-Image.ps1 prints its own multi-line
-# "skipping download" block when the sentinel matches HEAD, so deferring
-# the decision doesn't cost fast-path observability.
+# --- REGION: Acquire the base image
+# Get-Image owns sentinel validation, including URL and version changes.
+# See https://yuruna.link/42e220c4-0003
 Write-Verbose ""
 Write-Verbose "== Step 2: base image (Get-Image.ps1 decides cache vs refetch) =="
 $global:LASTEXITCODE = $null
@@ -554,20 +527,8 @@ $global:LASTEXITCODE = $null
 # -- and on a cache-hit re-run the artifact check below false-passes
 # because the image file already exists.
 $getImageInvokeOk = $?
-# $LASTEXITCODE is unreliable for a child .ps1 that ends on a cmdlet: it still
-# holds whatever the last native command left set -- and a cache-hit Get-Image
-# DOES run natives that legitimately fail (the download-agent discovery ladder
-# probes VMs that may be absent; virsh/utmctl exit non-zero there), which is why
-# every guest.caching-proxy-service Get-Image.ps1 ends its success path with an
-# explicit `exit 0`. Reset it first and treat only a REAL non-zero as failure
-# ($null = "the child set none"); the $ImageFile artifact check below is the
-# reliable secondary gate. feedback_lastexitcode_null_pure_ps_chain.
-# The reset MUST be $global:-qualified. A bare `$LASTEXITCODE = $null` creates a
-# script-scoped copy that shadows the engine's global for the rest of this script
-# AND inside every child scope (dynamic scoping): the engine keeps writing real
-# exit codes to the global while every read here and in Get-Image/New-VM sees the
-# frozen $null -- so their `-ne 0` checks report SUCCESSFUL natives as failures.
-# feedback_lastexitcode_global_scope_shadow.
+# Read the child's exit code after resetting the global, never a local shadow.
+# See https://yuruna.link/42e220c4-0008
 if ($null -ne $LASTEXITCODE -and $LASTEXITCODE -ne 0) {
     Write-Error "Get-Image.ps1 failed (exit $LASTEXITCODE)."
     exit 1
@@ -581,7 +542,7 @@ if (-not (Test-Path $ImageFile)) {
     exit 1
 }
 
-# --- REGION: Step 2.5: ensure the host status service is up
+# --- REGION: Start the host status service
 # The cache VM's cloud-init build block fetches the collector + parser source
 # from the LOCAL host working tree (http://<host>:<port>/yuruna-repo/) rather
 # than the public github mirror -- this repo is the source of truth. That needs
@@ -623,7 +584,7 @@ if ($cpStatusDecision.ShouldStart) {
     Write-Verbose "  statusService disabled (test.config.yml) -- the cache VM will fall back to github for collector/parser source."
 }
 
-# --- REGION: Step 2.6: config service (mTLS NAS-credential endpoint)
+# --- REGION: Start the host config service
 # The cache VM mounts ystash-nas (for the Extension hosts crawl) and ypool-nas
 # using credentials it fetches at boot AND hourly from this service over mutual
 # TLS, so a rotated NAS password reaches the running VM with no rebuild (the fix
@@ -676,8 +637,7 @@ if ($cpConfigDecision.ShouldStart) {
     Write-Verbose "  configService disabled (test.config.yml) -- VMs use their baked NAS credential; password rotation won't propagate until re-enabled."
 }
 
-# --- REGION: Step 3: create the VM
-
+# --- REGION: Create the VM
 Write-Verbose ""
 Write-Verbose "== Step 3: create VM '$VMName' =="
 $global:LASTEXITCODE = $null
@@ -722,7 +682,7 @@ if (-not $newVmInvokeOk) {
     exit 1
 }
 
-# --- REGION: Step 4: macOS -- register with UTM and start
+# --- REGION: Register and start the UTM VM
 # (Hyper-V's New-VM.ps1 already starts the VM and waits for :3128.)
 
 $cacheIp = $null
@@ -864,7 +824,7 @@ if ($IsMacOS) {
     # and expose it to the LAN with host port-forwarders. On Ethernet the
     # VM is bridged (LAN-direct) and discovered by ARP (the else-branch).
     if (Test-MacUplinkNotBridgeable) {
-        # --- REGION: Step 5: macOS Shared NAT -- discover the cache VM and expose it to the LAN
+        # --- REGION: Configure Shared NAT forwarding
         Write-Verbose ""
         Write-Verbose "== Step 5: discover Shared-NAT cache VM + expose to LAN (Wi-Fi host) =="
         $httpPort  = Get-CachingProxyServicePort -Scheme http
@@ -1218,7 +1178,7 @@ if (-not $cacheIp) {
     [void](Exit-CachingProxyServiceLock -Handle $cpLock)
 }
 
-# --- REGION: Final summary
+# --- REGION: Report the service state
 # The caching-proxy-service-admin user's password is NOT printed in the banner -- the value
 # already lives in <runtime>/yuruna-caching-proxy-service.yml (written by the
 # cache VM's New-VM.ps1) and the vault. Reading it again here just to echo

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42a8e238-9fc4-4ca2-bdd0-9b55ac2ff25d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -224,7 +224,16 @@ function Get-ScannableSourcePath {
     }
     $paths = [Collections.Generic.List[string]]::new()
     foreach ($relative in $candidates) {
-        if ([IO.Path]::GetExtension($relative) -notin @('.ps1', '.psm1', '.go', '.js')) { continue }
+        # Shell is in scope because guest provisioning is written in it, and a
+        # boundary is a boundary whichever language emits it: the retry wrapper
+        # writes the record a diagnostic reads, and a scan that stopped at the
+        # managed languages could not see the producing half of that pair at all.
+        # Provisioning seeds are in scope for the same reason shell is: a seed
+        # writes the exporter whose readings a diagnostic classifies, so the
+        # producing half of that pair lives in a .user-data file and nowhere
+        # else. A scan that stopped at the languages a compiler accepts would
+        # report the consumer as unmapped and the producer as nonexistent.
+        if ([IO.Path]::GetExtension($relative) -notin @('.ps1', '.psm1', '.go', '.js', '.sh', '.user-data')) { continue }
         if ($relative.StartsWith('globalization/generated/', [StringComparison]::Ordinal)) { continue }
         if ($relative.StartsWith('project/', [StringComparison]::Ordinal)) { continue }
         if ($relative.StartsWith('test/status/runtime/', [StringComparison]::Ordinal)) { continue }

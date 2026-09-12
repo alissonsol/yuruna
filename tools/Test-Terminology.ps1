@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42d6b0f7-8b28-44dd-9e89-c3a26a7d82f1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,13 +30,21 @@
     artifacts carry separate translator and independent-reviewer records.
     Pending records cannot carry a person's name, date, or evidence, while an
     approved record must carry all three. The evidence is the release the
-    approval was given for, and nothing else: the record an approver worked
-    from is not published, so hashing a published copy of it would only pin a
-    file that says less than the date does. A recorded release this tree has
-    not reached is rejected, because an approval cannot have been given for a
-    release that does not exist. An earlier one is left standing -- the field
-    is a historical stamp, not a claim about the current version, and a
-    routine version bump does not send two people back for a second signature.
+    approval was given for AND a digest of the content approved. The release
+    alone attests nothing about the words: every term decision and every style
+    rule could be reversed afterwards, or a rule nobody read appended, and the
+    record would still say approved. The digest covers the approvable
+    projection -- decisions, rulings, rules, and the pins naming the bytes each
+    was derived from -- and never the artifact's own status or approvals, which
+    could not be hashed before being written. So a content edit invalidates the
+    approval and a VERSION-only bump does not.
+
+    A recorded release this tree has not reached is rejected, because an
+    approval cannot have been given for a release that does not exist, and a
+    future date is rejected for the same reason. An earlier release is left
+    standing -- that field is a historical stamp, not a claim about the current
+    version, and a routine version bump does not send two people back for a
+    second signature.
     Until the whole baseline is approved, this gate also rejects a pt-BR
     document manifest that promotes any mapped draft to reviewed.
 
@@ -100,6 +108,14 @@ $ErrorActionPreference = 'Stop'
 
 if (-not $Root) { $Root = Split-Path -Parent $PSScriptRoot }
 $Root = [IO.Path]::GetFullPath($Root)
+
+# The digest is computed by the same code the approval recorder uses, so the
+# value this gate verifies and the value the recorder wrote cannot drift apart
+# through two implementations of "canonical".
+# Resolved from this tool's own location, not from -Root: -Root relocates the
+# ARTIFACTS being checked, and a fixture tree holding two JSON files has no
+# module beside them.
+Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'test/modules/Test.ApprovalDigest.psm1') -Global -Force
 
 function Get-RootedPath {
     [CmdletBinding()]
@@ -261,6 +277,7 @@ function Test-ApprovalEvidence {
     param(
         [Parameter(Mandatory)][pscustomobject]$Artifact,
         [Parameter(Mandatory)][string]$Label,
+        [Parameter(Mandatory)][ValidateSet('terminology', 'style-guide')][string]$DigestKind,
         [Parameter(Mandatory)][AllowEmptyString()][string]$CurrentVersionText
     )
 
@@ -274,6 +291,30 @@ function Test-ApprovalEvidence {
                 [Globalization.CultureInfo]::InvariantCulture,
                 [Globalization.DateTimeStyles]::None, [ref]$approvedAt)) {
             Add-Finding "$Label $role approval is dated '$($approval.approvedAt)', which is no day of any year"
+        } elseif ($approvedAt.Date -gt [datetime]::UtcNow.Date) {
+            # Nobody has read anything on a day that has not happened. A date
+            # ahead of the clock is a typo or a placeholder, and either way it
+            # is not a record of a review.
+            Add-Finding ("$Label $role approval is dated $($approval.approvedAt), which is in the future")
+        }
+
+        # What the approver actually signed off. Recomputed here rather than
+        # trusted, so an edit after the signature shows up as the mismatch it is.
+        $recordedDigest = $null
+        if ($approval.evidence.PSObject.Properties.Name -contains 'approvedContent') {
+            $recordedDigest = $approval.evidence.approvedContent
+        }
+        if (-not $recordedDigest) {
+            Add-Finding "$Label $role approval records no digest of the content it approved"
+        } else {
+            $computed = Get-ApprovableContentDigest -Artifact $Artifact -Kind $DigestKind
+            if ([string]$recordedDigest.algorithm -cne $computed.algorithm) {
+                Add-Finding ("$Label $role approval names digest algorithm " +
+                    "'$($recordedDigest.algorithm)'; this gate computes '$($computed.algorithm)'")
+            } elseif ([string]$recordedDigest.sha256 -cne $computed.sha256) {
+                Add-Finding ("$Label $role approval covers content that has since changed " +
+                    "(approved $($recordedDigest.sha256), now $($computed.sha256)); the edit needs a new approval")
+            }
         }
 
         $recordedText = [string]$approval.evidence.releaseVersion
@@ -389,7 +430,7 @@ if ($terminology) {
             }
         }
     }
-    Test-ApprovalEvidence -Artifact $terminology -Label 'terminology artifact' `
+    Test-ApprovalEvidence -Artifact $terminology -Label 'terminology artifact' -DigestKind terminology `
         -CurrentVersionText $currentVersionText
 }
 
@@ -409,7 +450,7 @@ if ($styleGuide) {
     foreach ($duplicate in @($ruleIds | Group-Object | Where-Object Count -GT 1)) {
         Add-Finding "style guide repeats rule '$($duplicate.Name)'"
     }
-    Test-ApprovalEvidence -Artifact $styleGuide -Label 'style-guide artifact' `
+    Test-ApprovalEvidence -Artifact $styleGuide -Label 'style-guide artifact' -DigestKind style-guide `
         -CurrentVersionText $currentVersionText
 }
 

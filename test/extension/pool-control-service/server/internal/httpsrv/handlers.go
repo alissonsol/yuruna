@@ -61,6 +61,10 @@ func (s *Server) routes() http.Handler {
 	mux.HandleFunc("POST /api/pool/host", s.gate.Require(s.handleAddHost))
 	mux.HandleFunc("DELETE /api/pool/host", s.gate.Require(s.handleRemoveHost))
 	mux.HandleFunc("POST /api/pool/move-host", s.gate.Require(s.handleMoveHost))
+	// Repairing a re-keyed host rewrites pool membership, so it takes the same
+	// gate as moving one by hand -- which is what an operator would otherwise
+	// have to do, twice, from two ids read off a table.
+	mux.HandleFunc("POST /api/pool/adopt-rekey", s.gate.Require(s.handleAdoptRekey))
 	mux.HandleFunc("POST /api/pool/testset", s.gate.Require(s.handleAssign))
 	// Scanning is gated with the changes, not with the reads: it adds hosts to
 	// what this daemon monitors, and it aims a burst of connection attempts at
@@ -94,8 +98,7 @@ func (s *Server) routes() http.Handler {
 	return s.negotiator().Middleware(mux)
 }
 
-// --- JSON helpers -----------------------------------------------------------
-
+// --- REGION: JSON helpers
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Cache-Control", "no-store")
@@ -151,8 +154,7 @@ func (s *Server) handleDiagnostics(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, s.collectDiagnostics(r.Context()))
 }
 
-// --- page + asset serving ---------------------------------------------------
-
+// --- REGION: Page and asset serving
 // servePage serves one embedded document in the reader's language.
 //
 // The language is decided here, at the boundary, and written into the markup
@@ -194,8 +196,7 @@ func (s *Server) handleAsset(w http.ResponseWriter, r *http.Request) {
 	serveAsset(w, r, a)
 }
 
-// --- request decoding -------------------------------------------------------
-
+// --- REGION: Request decoding
 func decode(w http.ResponseWriter, r *http.Request, dst any) bool {
 	r.Body = http.MaxBytesReader(w, r.Body, config.MaxRequestBytes)
 	if err := json.NewDecoder(r.Body).Decode(dst); err != nil {
@@ -205,8 +206,7 @@ func decode(w http.ResponseWriter, r *http.Request, dst any) bool {
 	return true
 }
 
-// --- handlers ---------------------------------------------------------------
-
+// --- REGION: Handlers
 func (s *Server) handleState(w http.ResponseWriter, r *http.Request) {
 	res := s.intent.State(r.Context())
 	if !res.OK {

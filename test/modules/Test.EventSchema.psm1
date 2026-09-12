@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42d40efa-2d27-4f91-93ff-3707aaa44c6b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -85,6 +85,12 @@ $script:TypedField = @{
     failureClass        = 'string'
     severity            = 'string'
     suggestedRecoveries = 'array'
+    # The verb registry's own registration, carried on a step row that failed:
+    # what the verb WOULD call a failure of itself, never a reading of this one.
+    # Same value space as the three above, so the enum check follows them here.
+    verbDefaultFailureClass        = 'string'
+    verbDefaultSeverity            = 'string'
+    verbDefaultSuggestedRecoveries = 'array'
     vmName              = 'string'
     guestKey            = 'string'
     hostType            = 'string'
@@ -96,6 +102,7 @@ $script:TypedField = @{
     reproCommand        = 'string'
     causeOcrTail        = 'string'
     causePatternsSought = 'array'
+    staleEvidence       = 'array'
     error               = 'string'
     reason              = 'string'
     pid                 = 'int'
@@ -139,6 +146,17 @@ $script:TypedField = @{
     attempts            = 'int'
     heldSeconds         = 'int'
     releasedBy          = 'string'
+    # Provenance carried on the cycle-boundary opening event: the same
+    # {sha, repoUrl} array status.json publishes, framework entry first.
+    gitCommits          = 'array'
+    # A host stage that could measure the machine it failed on states what that
+    # machine held: physical memory available, and the system commit charge
+    # against its limit. Byte counts are Int64 and enroll under 'int', which
+    # accepts [long] as well as [int].
+    hostAvailableMb          = 'int'
+    hostCommittedBytes       = 'int'
+    hostCommitLimitBytes     = 'int'
+    hostCommitAvailableBytes = 'int'
 }
 
 # FailureClass / Severity enums, sourced from the canonical Test.FailureTaxonomy
@@ -211,14 +229,21 @@ function Test-CycleEventSchema {
             $violations += "field '$key' expected $expected but got $actual"
         }
     }
-    if ($Record.Contains('failureClass') -and ($Record['failureClass'] -is [string])) {
-        if (-not ($script:FailureClassEnum -contains [string]$Record['failureClass'])) {
-            $violations += "failureClass '$($Record['failureClass'])' is not in the canonical enum"
+    # Checked by value space, not by key: a verb's registered default is drawn
+    # from the same enum as a classified one, and only the name says which is
+    # which -- so a typo in the registry has to be caught under either name.
+    foreach ($classField in @('failureClass', 'verbDefaultFailureClass')) {
+        if ($Record.Contains($classField) -and ($Record[$classField] -is [string])) {
+            if (-not ($script:FailureClassEnum -contains [string]$Record[$classField])) {
+                $violations += "$classField '$($Record[$classField])' is not in the canonical enum"
+            }
         }
     }
-    if ($Record.Contains('severity') -and ($Record['severity'] -is [string])) {
-        if (-not ($script:SeverityEnum -contains [string]$Record['severity'])) {
-            $violations += "severity '$($Record['severity'])' is not one of: $($script:SeverityEnum -join ', ')"
+    foreach ($severityField in @('severity', 'verbDefaultSeverity')) {
+        if ($Record.Contains($severityField) -and ($Record[$severityField] -is [string])) {
+            if (-not ($script:SeverityEnum -contains [string]$Record[$severityField])) {
+                $violations += "$severityField '$($Record[$severityField])' is not one of: $($script:SeverityEnum -join ', ')"
+            }
         }
     }
     foreach ($stateField in @('runnerState', 'fromState', 'toState')) {

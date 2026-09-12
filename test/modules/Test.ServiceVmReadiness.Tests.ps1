@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42a24e8a-bb70-4de1-b78f-9bbdd82d9ea7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -429,6 +429,28 @@ Describe 'A service that is merely powered on is not a service' {
         $adopt = $script:SetupSource.IndexOf('Adopt = $true', $running)
         $gate  = $script:SetupSource.IndexOf('if ($r.Healthy)', $running)
         Assert-True ($gate -ge 0 -and $gate -lt $adopt) 'adoption of a running VM must sit behind the health verdict.'
+    }
+
+    It 'publishes stash readiness only after the common verdict' {
+        $errors = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseInput($script:StashSource, [ref]$null, [ref]$errors)
+        Assert-Equal -Expected 0 -Actual @($errors).Count -Because 'the stash launcher must parse'
+        $writes = @($ast.FindAll({ param($node)
+                    $node -is [System.Management.Automation.Language.CommandAst] -and
+                    $node.GetCommandName() -eq 'Write-ExtensionServiceMarker'
+                }, $true))
+        Assert-Equal -Expected 1 -Actual $writes.Count -Because 'one readiness decision must produce one marker write'
+        $assignments = @($ast.FindAll({ param($node)
+                    $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
+                    $node.Left.Extent.Text -eq '$stashDaemonReady'
+                }, $true))
+        Assert-Equal -Expected 1 -Actual $assignments.Count -Because 'the advertised state must be assigned from the verdict'
+        Assert-True ($assignments[0].Right.Extent.Text -match [regex]::Escape("`$stashVerdict.Outcome -in @('Ready', 'Unreachable')")) `
+            'a still-building guest is not an active service'
+        Assert-True ($assignments[0].Extent.EndOffset -lt $writes[0].Extent.StartOffset) 'readiness must precede the advertisement'
+        Assert-True ($writes[0].Extent.Text -match '-Active \$stashDaemonReady') 'the marker must carry the readiness decision'
+        Assert-True ($script:StashSource -match "if \(\`$runtimeDir -and \`$stashVerdict.Outcome -eq 'Ready'\)") `
+            'only a daemon reachable from the host may publish a URL'
     }
 }
 

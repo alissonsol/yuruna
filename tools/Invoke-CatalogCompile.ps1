@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42b0f4a9-1c73-4e58-8d61-9a5207ebd3f4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -98,8 +98,7 @@ function Add-Problem {
     $script:Problem.Add($Message)
 }
 
-# ------------------------------------------------------------- validation --
-
+# --- REGION: Validation
 # The argument names a message actually uses, in the order they appear.
 function Get-PlaceholderReference {
     param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
@@ -269,8 +268,7 @@ function Test-CatalogFile {
     }
 }
 
-# ---------------------------------------------------------------- compile --
-
+# --- REGION: Compile
 # Turn one rendered form into the alternating literal / argument list the
 # runtimes walk. A form with no argument stays a plain string.
 function ConvertTo-CompiledForm {
@@ -315,8 +313,7 @@ function ConvertTo-CompiledMessage {
     return ConvertTo-CompiledForm -Text ([string]$Message.message) -Placeholders $placeholders
 }
 
-# ---------------------------------------------------------- pseudo-locales --
-
+# --- REGION: Pseudo-locales
 $script:PseudoMap = @{
     'a' = ([char]0x00E1).ToString(); 'b' = ([char]0x0180).ToString(); 'c' = ([char]0x00E7).ToString()
     'd' = ([char]0x010F).ToString(); 'e' = ([char]0x00E9).ToString(); 'f' = ([char]0x0192).ToString()
@@ -410,8 +407,7 @@ function ConvertTo-PseudoCatalog {
     })
 }
 
-# ----------------------------------------------------------------- emitters --
-
+# --- REGION: Emitters
 function ConvertTo-CanonicalJson {
     param([Parameter(Mandatory)]$Value)
     return (($Value | ConvertTo-Json -Depth 20).Replace("`r`n", "`n").TrimEnd() + "`n")
@@ -539,7 +535,7 @@ function Get-PowerShellArtifact {
     $guid = Get-DerivedGuid -Seed "$Locale|$Domain"
     $header = @(
         '<#PSScriptInfo'
-        '.VERSION 2026.09.08'
+        '.VERSION 2026.09.12'
         ".GUID $guid"
         '.AUTHOR Alisson Sol et al.'
         '.COPYRIGHT (c) 2019-2026 by Alisson Sol et al.'
@@ -601,8 +597,7 @@ const Data$identifier = ``$quoted``
     return ($go.Replace("`r`n", "`n").TrimEnd() + "`n")
 }
 
-# ------------------------------------------------------------------- main --
-
+# --- REGION: Main
 try {
 
 if (-not (Test-Path -LiteralPath $Root -PathType Container)) {
@@ -634,7 +629,7 @@ if (-not (Test-Path -LiteralPath $catalogRoot -PathType Container)) {
     exit 2
 }
 
-# --- read and validate every source catalog
+# --- REGION: Read and validate source catalogs
 $sourceLocale = @(Get-ChildItem -LiteralPath $catalogRoot -Directory | Sort-Object Name)
 $catalogs = [System.Collections.Generic.List[hashtable]]::new()
 $seenKey = @{}
@@ -686,7 +681,7 @@ foreach ($dir in $sourceLocale) {
 
 if ($catalogs.Count -eq 0) { Add-Problem 'no source catalogs were found' }
 
-# --- translation ownership and per-message staleness
+# --- REGION: Translation ownership and staleness
 $baseByDomain = @{}
 $messageSourceHash = [ordered]@{}
 $translationProvenance = [ordered]@{}
@@ -781,7 +776,7 @@ foreach ($entry in @($catalogs | Where-Object Locale -NE $defaultLocale)) {
     }
 }
 
-# --- what "supported" has to mean
+# --- REGION: Validate supported locales
 #
 # The manifest's status field decides which locales a reader can actually be
 # served. Nothing enforced what that claim required, so a locale could be
@@ -841,7 +836,7 @@ if ($script:Problem.Count -gt 0) {
     exit 1
 }
 
-# --- add the generated pseudo-locales
+# --- REGION: Add pseudo-locales
 $base = @($catalogs | Where-Object { $_.Locale -eq $manifest.default })
 foreach ($entry in $base) {
     foreach ($mirrored in @($false, $true)) {
@@ -853,7 +848,7 @@ foreach ($entry in $base) {
     }
 }
 
-# --- compile and emit
+# --- REGION: Compile and emit
 $generatedRoot = Join-Path $Root 'generated'
 $wanted = [ordered]@{}
 $inventory = [System.Collections.Generic.List[object]]::new()
@@ -930,7 +925,7 @@ foreach ($entry in @($base | Sort-Object Domain)) {
 }
 $setManifest = ConvertTo-CanonicalJson -Value ([ordered]@{
     schema          = 'yuruna.catalog-set/v1'
-    compilerVersion = '2026.09.08'
+    compilerVersion = '2026.09.12'
     catalogSchema   = 'yuruna.catalog/v1'
     localeManifest  = Get-Sha256 -Text ([IO.File]::ReadAllText($manifestPath))
     inputs           = $inputHash
@@ -947,7 +942,7 @@ $setManifest = ConvertTo-CanonicalJson -Value ([ordered]@{
 })
 $wanted[(Join-Path $Root 'manifests/catalog-set.json')] = $setManifest
 
-# --- compare or write
+# --- REGION: Compare or write
 $utf8 = [Text.UTF8Encoding]::new($false)
 $stale = [System.Collections.Generic.List[string]]::new()
 $written = 0

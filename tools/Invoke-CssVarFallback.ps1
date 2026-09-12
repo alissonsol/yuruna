@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42636266-697e-4051-aee3-5c9df31540a7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -134,8 +134,7 @@ $Sources = @($registry.cssProducers | ForEach-Object {
     })
 if ($Sources.Count -eq 0) { throw 'The browser-source registry lists no CSS producers.' }
 
-# ---------------------------------------------------------------- scanning --
-
+# --- REGION: Scan source
 # Mark every character that sits inside a comment or a quoted string, so that
 # splitting on ';' and matching braces never trips over one. Returns a bool[]
 # parallel to the text.
@@ -199,7 +198,7 @@ function Get-CleanText {
 
 # The selector or at-rule header that introduces a block: the run of real
 # characters before it, back to the previous block or declaration boundary.
-# Comments are skipped rather than read, so a licence banner above a rule does
+# Comments are skipped rather than read, so a license banner above a rule does
 # not become part of its selector.
 function Get-PrecedingText {
     param([string]$Text, [bool[]]$Mask, [int]$Before)
@@ -264,8 +263,7 @@ function Split-Declaration {
     return ,$spans
 }
 
-# --------------------------------------------------------------- resolving --
-
+# --- REGION: Resolve variables
 # Collect `--name: value` from the bare :root blocks only. A definition
 # anywhere else makes single-valued resolution unsound, so it is an error.
 function Get-Palette {
@@ -348,8 +346,7 @@ function Resolve-VarValue {
     return $result
 }
 
-# --------------------------------------------------------------- transform --
-
+# --- REGION: Transform source
 # Work out every fallback this CSS text needs. Returns the edit list plus the
 # findings, without touching the text.
 function Get-FallbackEdit {
@@ -435,8 +432,7 @@ function Get-EditedText {
     return $result
 }
 
-# ------------------------------------------------------------- extraction --
-
+# --- REGION: Extract source
 # Pull the CSS regions out of a container that is not itself a stylesheet: an
 # HTML page, a Go raw-string page, or a PowerShell here-string that writes one.
 # Returns spans into the original text.
@@ -453,8 +449,7 @@ function Get-StyleRegion {
     return ,$regions
 }
 
-# ------------------------------------------------------------------- main --
-
+# --- REGION: Main
 # Registered sources are repo-relative; one passed in on the command line may
 # be anywhere.
 function Resolve-SourcePath {

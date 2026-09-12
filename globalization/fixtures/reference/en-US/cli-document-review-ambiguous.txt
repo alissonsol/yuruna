@@ -1,0 +1,2 @@
+exit: 2
+Write-Error: 'README.md' names a document in more than one repository. Qualify it, for example 'yuruna:README.md', so the review is recorded against the translation that was actually read.

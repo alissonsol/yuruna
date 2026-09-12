@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.08
+# Version: 2026.09.12
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -25,18 +25,18 @@ case "$ARCH" in
     ;;
 esac
 
-# --- REGION: https://yuruna.link/4220a755-0003
+# --- REGION: Load retry helpers
+# See https://yuruna.link/4220a755-0003
 . /usr/local/lib/yuruna/yuruna-retry.sh
 # --- REGION: https://yuruna.link/4220a755-0005
 # Re-asserted here because a baked retry lib may still carry a wall-clock bound.
 export YURUNA_DNF_STALL_TIMEOUT_SECONDS=0
 
+# --- REGION: Install PostgreSQL
+# See https://yuruna.link/42e220c4-0005
 echo ""
 echo -e "\e[1;36m==== PostgreSQL ====\e[0m"
-# Stop PostgreSQL and wait for full shutdown before re-initializing the data
-# directory. The stop precedes the install here: the rpm neither initializes nor
-# starts a cluster, so a service left over from an earlier run is the only thing
-# that could hold the data directory open.
+# The RPM does not start a cluster, so stop any prior service before initialization.
 if sudo systemctl is-active postgresql &>/dev/null; then
   sudo systemctl stop postgresql
   while sudo systemctl is-active postgresql &>/dev/null; do

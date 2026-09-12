@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42ab6606-a979-4194-9acd-a8d1c653dace
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,83 +20,47 @@
 .SYNOPSIS
     Canonical Yuruna.Host driver contract.
 .DESCRIPTION
-    Every per-host driver (host/<host>/modules/Yuruna.Host.psm1) MUST
-    export every name in $script:YurunaHostContract below. Host-specific
-    extras (UTM bundle utilities, Hyper-V firewall helpers, KVM external-
-    network planners, etc.) remain in the driver's Export-ModuleMember
-    list alongside the canonical block.
-
-    The contract is enforced at module-load time via
-    Assert-YurunaHostContractCoverage. A driver that omits a canonical
-    verb logs a single warning naming every missing name -- a drift
-    caught at load is zero-cost; a drift caught mid-cycle on a remote
-    host costs an overnight run.
-
-    Rationale lives in docs/host-io.md and docs/test-harness.md;
-    this file is the executable source of truth.
-
-    Naming policy (by design):
-        The generic verbs -- New-VM, Start-VM, Stop-VM, Remove-VM --
-        deliberately collide with the Hyper-V module's cmdlet names:
-        Hyper-V is one of three virtualization backends Yuruna supports
-        (UTM, libvirt/KVM, Hyper-V), and a contract named for any one of
-        them would mis-frame the abstraction. The per-host driver modules
-        live under host/<host>/modules/ and are imported into the runner's
-        session with -Global only when that host is selected, so the
-        collision is scoped to the runner runspace -- the drivers are NOT
-        on PSModulePath and won't shadow Hyper-V cmdlets in other shells.
-        Callers that need the Hyper-V cmdlet inside a Yuruna sequence use
-        module-qualified `Hyper-V\Start-VM`; the unqualified `Start-VM`
-        always resolves to the active host's driver contract.
+    Each driver exports this common surface alongside its platform helpers.
+    Assert-YurunaHostContractCoverage checks the actual module exports at load
+    time. See https://yuruna.link/42e220c4-0004 for scope and naming rules.
 #>
 
-# Verb names a Yuruna host driver is expected to export. Adding a verb
-# here is a contract-widening event: every driver must implement it
-# before the new verb is consumed by the orchestrator. Removing one is
-# a deprecation event: confirm no caller references it before pulling.
+# --- REGION: Host driver contract
+# Change every driver before adding a verb that shared callers will consume.
 $script:YurunaHostContract = @(
-    # VM lifecycle
+    # --- REGION: VM lifecycle
     'New-VM', 'Start-VM', 'Stop-VM', 'Stop-VMForce', 'Remove-VM',
     'Rename-VM', 'Get-VMState',
-    # VM inventory. Get-VMName lets a caller clean up by name prefix without
-    # branching on hypervisor: enumeration is the only host-specific part of
-    # a prefix sweep, so exposing it here keeps every sweep -- cycle-start,
-    # teardown, project teardown -- on one code path. It MUST distinguish
-    # "no VMs" from "could not ask the host": a driver that returns an empty
-    # list when its CLI is unreachable would let a sweep report a clean host
-    # and let the orphan-file pass delete bundles that are still registered.
+    # --- REGION: VM inventory
+    # Inventory errors must throw; they cannot authorize cleanup as an empty host.
     'Get-VMName',
-    # Disk snapshots
+    # --- REGION: Disk snapshots
     'Save-VMDiskSnapshot', 'Restore-VMDiskSnapshot', 'Test-VMDiskSnapshot',
-    # VM console
+    # --- REGION: VM console
     'Test-VMConsoleOpen', 'Restart-VMConsole',
-    # Image acquisition
+    # --- REGION: Image
     'Get-Image', 'Get-ImagePath',
-    # Input + capture
+    # --- REGION: VM I/O
     'Send-Text', 'Send-Key', 'Send-Click',
     'Get-VMScreenshot', 'Get-VMConsoleHandle',
-    # Guest networking probes
+    # --- REGION: Discovery
     'Wait-VMIp', 'Get-VMIp', 'Get-VMMac',
-    # Update-GuestNeighborCache: the ACTIVE half of address discovery.
-    # Get-VMIp is a passive read on every host, and on a bridged network with
-    # no in-band guest agent a passive read answers only while the host's
-    # neighbor cache still holds the guest. Each driver owns how -- or
-    # whether -- its platform refreshes that cache, but every driver must
-    # answer the question, so a shared caller can ask without feature-testing
-    # for a function that exists on one host only.
+    # --- REGION: Neighbor cache refresh
+    # Each driver provides an active refresh alongside passive address discovery.
     'Update-GuestNeighborCache',
-    # External / shared network
+    # --- REGION: Networking
     'Get-ExternalNetwork', 'New-ExternalNetwork', 'Test-CacheVMOnExternalNetwork',
-    # Host port mapping
+    # --- REGION: Port mapping
     'Add-PortMap', 'Remove-PortMap',
     'Get-BestHostIp', 'Get-GuestReachableHostIp',
-    # Caching-proxy service probes
+    # --- REGION: Caching-proxy service
     'Test-CachingProxyServiceAvailable', 'Get-CachingProxyServiceVmIp',
-    # Host proxy management
+    # --- REGION: Host config
     'Set-HostProxy', 'Clear-HostProxy', 'Remove-HostProxy',
     'Get-HostProxyBackupPath', 'Assert-Virtualization'
 )
 
+# --- REGION: Contract discovery
 function Get-YurunaHostContractVerb {
     <#
     .SYNOPSIS
@@ -108,6 +72,7 @@ function Get-YurunaHostContractVerb {
     return ,$script:YurunaHostContract
 }
 
+# --- REGION: Contract coverage
 function Assert-YurunaHostContractCoverage {
     <#
     .SYNOPSIS
@@ -157,4 +122,5 @@ function Assert-YurunaHostContractCoverage {
     return $true
 }
 
+# --- REGION: Exports
 Export-ModuleMember -Function Get-YurunaHostContractVerb, Assert-YurunaHostContractCoverage

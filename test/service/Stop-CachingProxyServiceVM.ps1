@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42008bcd-66da-4584-84a4-c4454a7f8958
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,15 +28,21 @@
 .PARAMETER VMName   Name of the cache VM. Default: yuruna-caching-proxy-service.
 #>
 
+[CmdletBinding(SupportsShouldProcess)]
 param(
     [Parameter(Position = 0)]
     [string]$VMName = "yuruna-caching-proxy-service"
 )
 
+# --- REGION: Confirm the service operation
+# See https://yuruna.link/42e220c4-0008
+if (-not $PSCmdlet.ShouldProcess($VMName, 'Stop and remove the service VM and withdraw its advertisement')) { return }
+
 $global:InformationPreference = "Continue"
 $global:ProgressPreference    = "SilentlyContinue"
 
-# --- REGION: https://yuruna.link/42162449-0004
+# --- REGION: Initialize service runtime
+# See https://yuruna.link/42162449-0004
 # After the preference assignments above on purpose: an explicit level is the
 # operator's choice and replaces this script's own default.
 Import-Module (Join-Path $PSScriptRoot '../modules/Test.LogLevel.psm1') -Global -Force -DisableNameChecking
@@ -60,13 +66,9 @@ Initialize-YurunaEntryPointModuleSet -For CachingProxyService -ModulesDir $Modul
 # undefine on the cache VM. No-op elsewhere.
 Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
 
-# --- REGION: Plan + sudo pre-flight
-# Stop-CachingProxyServiceVM runs UNATTENDED -- no interactive prompts. It has no
-# destructive ShouldProcess gates (every Remove-*/Save-* call below already
-# passes -Confirm:$false), so the only thing to resolve up front is sudo:
-# the host-proxy wipe edits root-owned files (/etc/environment, apt proxy
-# config; on macOS, networksetup). Prime it once, with the reason, so the
-# teardown doesn't stop for a password prompt halfway through.
+# --- REGION: Preflight
+# Prime sudo once after the operation gate; teardown then runs unattended.
+# See https://yuruna.link/42e220c4-0008
 Write-Output ""
 Write-Output "== Step 0: plan -- tear down caching-proxy service '$VMName' =="
 Write-Output "  1. clear any abandoned caching-proxy-service bring-up lock"
@@ -113,7 +115,7 @@ if (Get-Command Clear-CachingProxyServiceLock -ErrorAction SilentlyContinue) {
     }
 }
 
-# --- REGION: Wipe machine-wide host proxy (if it was promoted)
+# --- REGION: Clear the host proxy
 # Symmetric with Test-CachingProxyService.ps1 -SetHostProxy. Runs UNCONDITIONALLY
 # and uses Remove-HostProxy (definitive wipe) rather than the older
 # Clear-HostProxy (snapshot/restore from $HOME/.yuruna/host-proxy.backup.json).
@@ -135,6 +137,12 @@ try {
     # don't block the VM teardown from finishing.
     Write-Warning "Remove-HostProxy failed: $($_.Exception.Message). VM teardown will continue."
 }
+
+# --- REGION: Clear the cached service address
+# Preserve the persistent password while withdrawing the VM's address.
+# See https://yuruna.link/42e220c4-0008
+Import-Module (Join-Path $PSScriptRoot '../modules/Test.CachingProxyService.psm1') -Global -Force -Verbose:$false
+[void](Save-CachingProxyServiceState -IpAddress '' -Confirm:$false)
 
 if ($IsMacOS) {
     # --- REGION: macOS -- tear down forwarders, then stop and delete the VM
@@ -188,20 +196,9 @@ if ($IsMacOS) {
     }
     Write-Output "  Tearing down any legacy host-side forwarders..."
     [void](Remove-PortMap -Confirm:$false)
-    # Clear the cache-IP breadcrumb that Start-CachingProxyServiceVM wrote for
-    # guest provisioners. Leaving it behind wouldn't hurt correctness
-    # (guests would just re-fetch against a stale IP and fail open) but
-    # matches the tidy-up pattern of the forwarder pidfiles. The
-    # password field is preserved -- it's cross-cycle and survives stop.
-    Import-Module (Join-Path $PSScriptRoot '../modules/Test.CachingProxyService.psm1') -Global -Force -Verbose:$false
-    [void](Save-CachingProxyServiceState -IpAddress '' -Confirm:$false)
 
-    # Host-agnostic teardown via the Yuruna.Host contract (loaded above by
-    # Initialize-YurunaHost). On UTM, Remove-VM stops the VM, deletes it
-    # from UTM's registry (with a delete retry + wait-for-stopped poll the
-    # raw utmctl sequence lacked), and removes the .utm bundle under
-    # $HOME/yuruna/guest.nosync. The base image lives in a separate
-    # download dir and is untouched.
+    # The host contract removes registration and private VM files; keep the base image.
+    # See https://yuruna.link/42e220c4-0004
     if ((Get-VMState -VMName $VMName) -ne 'absent') {
         Write-Output "  VM registered with UTM -- stopping and deleting..."
         [void](Remove-VM -VMName $VMName -Confirm:$false)
@@ -274,18 +271,8 @@ if ($IsMacOS) {
     [void](Initialize-YurunaHost -RepoRoot $RepoRoot)
     [void](Remove-PortMap -Confirm:$false)
 
-    # Clear the cache-IP breadcrumb that Start-CachingProxyServiceVM wrote for
-    # guest provisioners. The password field is preserved -- it's
-    # cross-cycle and survives stop. Matches the macOS branch above.
-    Import-Module (Join-Path $PSScriptRoot '../modules/Test.CachingProxyService.psm1') -Global -Force -Verbose:$false
-    [void](Save-CachingProxyServiceState -IpAddress '' -Confirm:$false)
-
-    # Host-agnostic teardown via the Yuruna.Host contract (loaded above by
-    # Initialize-YurunaHost). On KVM, Remove-VM runs virsh destroy +
-    # undefine --nvram (NVRAM removal is required or undefine leaves the
-    # domain def in place) and deletes the per-VM artifact directory under
-    # ~/yuruna/vms/<name>. The base image lives in a separate download dir
-    # and is untouched.
+    # The host contract removes registration and private VM files; keep the base image.
+    # See https://yuruna.link/42e220c4-0004
     if ((Get-VMState -VMName $VMName) -ne 'absent') {
         Write-Output "  VM registered with libvirt -- destroying and undefining..."
         [void](Remove-VM -VMName $VMName -Confirm:$false)
@@ -305,7 +292,7 @@ if ($IsMacOS) {
     exit 1
 }
 
-# --- REGION: Final summary
+# --- REGION: Report the service state
 Write-Output ""
 Write-Output "Done."
 # Explicit, not a fall-through: the teardown branches call native commands

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42b151d1-856e-48cb-8f07-88010f773bcb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -163,10 +163,50 @@ Describe 'the entry points that do not answer like the others' {
     }
 
     It 'passes Check-DependencyVersion JSON through rather than re-wrapping it' {
+        # Shaped like the real emitter: a bare ARRAY of rows keyed
+        # Dependency/Pinned/Latest/Status/Source/Detail. An invented envelope
+        # here would parse where the real stream did not, which is exactly how
+        # this boundary stayed broken while the test stayed green.
+        $real = '[{"Dependency":"Go","Pinned":"1.26.5","Latest":"1.26.5","Status":"current",' +
+                '"Source":"go.dev/dl","Detail":""}]'
         $out = ConvertTo-McpToolResult -Tool @{ Name = 'yuruna_dependency_version' } `
-            -Run @{ ExitCode = 0; Stdout = '{"pins":[{"name":"go","version":"1.25.0"}]}'; Stderr = '' }
+            -Run @{ ExitCode = 0; Stdout = $real; Stderr = '' }
         Assert-NotNull $out.json 'the native JSON emitter is parsed, not stringified'
-        Assert-Equal 'go' $out.json.pins[0].name
+        Assert-StringEqual -Expected 'Go' -Actual ([string]@($out.json)[0].Dependency)
+    }
+
+    It 'does not call dependency drift a failed report' {
+        # The script exits 1 whenever a pin has drifted, so a CI gate can fail a
+        # build on it. That is the report succeeding at its job; reporting it as
+        # an error makes "there are updates" look like "the report broke".
+        $real = '[{"Dependency":"Kubernetes (minor)","Pinned":"1.36","Latest":"1.37",' +
+                '"Status":"UPDATE AVAILABLE","Source":"dl.k8s.io","Detail":"latest release 1.37.0"}]'
+        $out = ConvertTo-McpToolResult -Tool @{ Name = 'yuruna_dependency_version' } `
+            -Run @{ ExitCode = 1; Stdout = $real; Stderr = '' }
+        Assert-True ([bool]$out.ok) 'a drift report is a report that worked'
+        Assert-Equal 1 $out.exitCode 'the exit code still reaches the caller'
+        Assert-Match 'drifted' $out.note 'the result has to say what the code meant'
+
+        # Output that is not the document is still a failure.
+        $broken = ConvertTo-McpToolResult -Tool @{ Name = 'yuruna_dependency_version' } `
+            -Run @{ ExitCode = 1; Stdout = 'Pinned dependency versions from ...'; Stderr = '' }
+        Assert-False ([bool]$broken.ok) 'unparseable output is not a successful report'
+    }
+
+    It 'parses what the real emitter actually writes to stdout' {
+        # The fixture above is a claim about the producer. This runs it. Under
+        # -AsJson the narration has to stay off stdout: ConvertFrom-Json reads
+        # the whole stream, so one line of prose ahead of the document fails the
+        # parse on its first character and the pass-through never fires.
+        $script = Join-Path $script:RepoRoot 'automation/Check-DependencyVersion.ps1'
+        $pwshPath = (Get-Process -Id $PID).Path
+        $stdout = & $pwshPath -NoProfile -NonInteractive -File $script -AsJson 2>$null | Out-String
+        Assert-True ($stdout.Trim().Length -gt 0) 'the emitter wrote nothing to parse'
+        $parsed = $null
+        try { $parsed = $stdout | ConvertFrom-Json -ErrorAction Stop } catch { $parsed = $null }
+        Assert-NotNull $parsed 'the -AsJson stream is not parsable JSON, so the pass-through cannot fire'
+        Assert-True (@($parsed).Count -gt 0) 'the document carries no rows'
+        Assert-NotNull @($parsed)[0].Dependency 'a row must name the dependency it describes'
     }
 
     It 'treats a thrown error as Set-HostAlias failing, since it gives no other signal' {
@@ -184,10 +224,46 @@ Describe 'the entry points that do not answer like the others' {
         # On a failure the transcript is the half of the output worth reading
         # first, and a caller shown only an exit code has to re-run by hand.
         $out = ConvertTo-McpToolResult -Tool @{ Name = 'yuruna_set_component' } `
-            -Run @{ ExitCode = 1; Stdout = "working`nTranscript started, output file is /tmp/yuruna/x.log`n"; Stderr = '' }
+            -Run @{ ExitCode = 1; Stdout = "working"; Stderr = ''
+                    TranscriptPath = '/tmp/yuruna/x.log' }
         Assert-False $out.ok
         Assert-Equal 1 $out.exitCode
-        Assert-Match 'x\.log' $out.transcript 'the transcript pointer must survive into the result'
+        Assert-StringEqual -Expected '/tmp/yuruna/x.log' -Actual ([string]$out.transcript) `
+            -Because 'the pointer the run carried must reach the result unchanged'
+    }
+
+    It 'finds the pointer in output no human would recognize' {
+        # The whole point of the structured field: stdout can be in any
+        # language, or say nothing about a transcript at all, and the pointer is
+        # still there. Nothing here reads this text, which is the assertion.
+        $out = ConvertTo-McpToolResult -Tool @{ Name = 'yuruna_set_component' } `
+            -Run @{ ExitCode = 1
+                    Stdout = "**********************`nInicio da transcricao do PowerShell`n"
+                    Stderr = ''; TranscriptPath = '/tmp/yuruna/y.log' }
+        Assert-StringEqual -Expected '/tmp/yuruna/y.log' -Actual ([string]$out.transcript) `
+            -Because 'the host culture must not decide whether a pointer is found'
+    }
+
+    It 'does not invent a pointer from prose that mentions a transcript' {
+        # A sentence that mentions a transcript is not a pointer to one. Prose
+        # naming a path and prose naming none must both leave the result without
+        # one, or the field means whatever the output happened to say -- and a
+        # dumped transcript's own header and footer say the word every time.
+        $out = ConvertTo-McpToolResult -Tool @{ Name = 'yuruna_set_component' } `
+            -Run @{ ExitCode = 1
+                    Stdout = "Transcript started, output file is /tmp/decoy.log`nPowerShell transcript end"
+                    Stderr = ''; TranscriptPath = '' }
+        Assert-False ($out.ContainsKey('transcript')) `
+            'a run that recorded no transcript must report none, not a sentence that named one'
+    }
+
+    It 'reports no pointer when a failing run wrote no transcript' {
+        # An ordinary tool, deliberately: the ones with their own switch arm
+        # return before the transcript block, so one of those would pass this
+        # whether or not the block behaved.
+        $out = ConvertTo-McpToolResult -Tool @{ Name = 'yuruna_invoke_clear' } `
+            -Run @{ ExitCode = 1; Stdout = 'cleared nothing'; Stderr = 'threw'; TranscriptPath = '' }
+        Assert-False ($out.ContainsKey('transcript')) 'some entry points write none at all'
     }
 }
 
@@ -233,14 +309,252 @@ Describe 'a bare boolean verdict outranks the exit code' {
             -Run @{ ExitCode = 0; Stdout = "checked 12 things`nall good"; Stderr = '' }
         Assert-True $pass.ok
         $fail = ConvertTo-McpToolResult -Tool @{ Name = 'yuruna_test_configuration' } `
-            -Run @{ ExitCode = 1; Stdout = "Transcript started, output file is /tmp/x.log"; Stderr = '' }
+            -Run @{ ExitCode = 1; Stdout = 'a check failed'; Stderr = ''
+                    TranscriptPath = '/tmp/x.log' }
         Assert-False $fail.ok
-        Assert-Match 'x\.log' $fail.transcript
+        Assert-StringEqual -Expected '/tmp/x.log' -Actual ([string]$fail.transcript) `
+            -Because 'the pointer comes from the run, not from what it printed'
     }
 
     It 'does not mistake a True sign-off for a failure' {
         $out = ConvertTo-McpToolResult -Tool @{ Name = 'yuruna_test_configuration' } `
             -Run @{ ExitCode = 0; Stdout = "True`n"; Stderr = '' }
         Assert-True $out.ok
+    }
+}
+
+Describe 'the server passes only what an entry point can bind' {
+    It 'advertises no argument on any tool' {
+        # None of the ten entry points declares a config-file parameter, and
+        # eight have no [CmdletBinding()], so an advertised input they cannot
+        # bind would be absorbed into $args and the run would proceed against
+        # defaults while the caller believed its input was honored.
+        foreach ($tool in Get-McpToolTable) {
+            Assert-Match '"properties"\s*:\s*\{\s*\}' $tool.Schema `
+                "$($tool.Name) advertises an input its entry point does not declare"
+        }
+    }
+
+    It 'refuses an argument the entry point does not declare' {
+        $run = Invoke-McpEntryPoint -Script 'Test-Configuration.ps1' `
+            -ScriptArgument @('-ConfigFile', '/tmp/nowhere.yml')
+        try {
+            Assert-NotEqual -Expected 0 -Actual $run.ExitCode `
+                -Because 'a script without [CmdletBinding()] would otherwise swallow it and exit 0'
+            Assert-Match 'declares no parameter named' $run.Stderr 'the refusal has to name what could not bind'
+            Assert-Match 'ConfigFile' $run.Stderr 'and which argument it was'
+        } finally {
+            if ($run.TranscriptPath) { Remove-Item -LiteralPath $run.TranscriptPath -Force -ErrorAction SilentlyContinue }
+        }
+    }
+
+    It 'reports a refusal as a failure on every tool shape' {
+        # The per-tool arms describe how each script reports its own outcome,
+        # and yuruna_system_diagnostic's arm is "always ok, the problems are in
+        # the report" -- true of a run that happened, and a false pass for one
+        # that never started. The refusal has to be answered before them.
+        foreach ($tool in Get-McpToolTable) {
+            $out = ConvertTo-McpToolResult -Tool $tool `
+                -Run @{ ExitCode = 126; Stdout = ''; Stderr = 'declares no parameter named: X'
+                        TranscriptPath = ''; Refused = $true }
+            Assert-False ([bool]$out.ok) "$($tool.Name) reports a refused run as a success"
+        }
+    }
+
+    It 'leaves an ordinary run of the same tool alone' {
+        $out = ConvertTo-McpToolResult -Tool @{ Name = 'yuruna_system_diagnostic' } `
+            -Run @{ ExitCode = 0; Stdout = 'report'; Stderr = ''; TranscriptPath = '' }
+        Assert-True ([bool]$out.ok) 'the refusal guard must not change how a real run is read'
+    }
+
+    It 'still passes an argument the entry point does declare' {
+        $run = Invoke-McpEntryPoint -Script 'Test-Configuration.ps1' -ScriptArgument @('-logLevel', 'Error')
+        try {
+            Assert-NotEqual -Expected 126 -Actual $run.ExitCode 'a declared parameter must not be refused'
+        } finally {
+            if ($run.TranscriptPath) { Remove-Item -LiteralPath $run.TranscriptPath -Force -ErrorAction SilentlyContinue }
+        }
+    }
+
+    It 'answers exactly as the PowerShell binder does' {
+        # The binder is the oracle, not a second implementation of its rules.
+        # Getting those rules wrong is possible in both directions at once:
+        # inventing ambiguity between a declared name and a common one, and
+        # granting common parameters to a script with no [CmdletBinding()],
+        # which binds none and absorbs them into $args instead.
+        $automation = Join-Path $script:RepoRoot 'automation'
+        $cases = @(
+            @{ Script = 'Test-Configuration.ps1'; Name = 'Conf' }          # declared beats Confirm
+            @{ Script = 'Test-Configuration.ps1'; Name = 'c' }             # shortest unambiguous prefix
+            @{ Script = 'Test-Configuration.ps1'; Name = 'project_root' }
+            @{ Script = 'Test-Configuration.ps1'; Name = 'logLevel' }
+            @{ Script = 'Test-Configuration.ps1'; Name = 'Verbose' }       # no CmdletBinding: not bound
+            @{ Script = 'Test-Configuration.ps1'; Name = 'Confirm' }
+            @{ Script = 'Test-Configuration.ps1'; Name = 'ProgressAction' }
+            @{ Script = 'Test-Configuration.ps1'; Name = 'NoSuchThing' }
+            @{ Script = 'Set-HostAlias.ps1'; Name = 'C' }                  # ComputerName, not Confirm
+            @{ Script = 'Set-HostAlias.ps1'; Name = 'I' }                  # IPAddress, not InformationAction
+            @{ Script = 'Set-HostAlias.ps1'; Name = 'Verbose' }            # advanced: common set exists
+            @{ Script = 'Set-HostAlias.ps1'; Name = 'W' }                  # ambiguous among common names
+            @{ Script = 'Get-SystemDiagnostic.ps1'; Name = 'O' }
+            @{ Script = 'Get-SystemDiagnostic.ps1'; Name = 'S' }           # genuinely ambiguous
+            @{ Script = 'Check-DependencyVersion.ps1'; Name = 'P' }
+            @{ Script = 'Check-DependencyVersion.ps1'; Name = 'AsJson' }
+            @{ Script = 'Test-Requirement.ps1'; Name = 'Warn' }
+        )
+        $findings = @()
+        foreach ($case in $cases) {
+            $path = Join-Path $automation $case.Script
+            $binderBinds = $true
+            try {
+                $command = Get-Command -Name $path -CommandType ExternalScript -ErrorAction Stop
+                $null = $command.ResolveParameter($case.Name)
+            } catch { $binderBinds = $false }
+            $guardBinds = @(Get-UnboundParameterName -ScriptPath $path -Argument @("-$($case.Name)")).Count -eq 0
+            if ($binderBinds -ne $guardBinds) {
+                $findings += "$($case.Script) -$($case.Name): binder=$binderBinds guard=$guardBinds"
+            }
+        }
+        Assert-NoFinding $findings 'the guard disagrees with the binder it stands in for'
+    }
+
+    It 'refuses every name when the target cannot be loaded' {
+        # A script that will not load cannot be shown to accept anything, and an
+        # argument it might silently drop is the failure being guarded.
+        $broken = Join-Path $TestDrive 'broken.ps1'
+        [IO.File]::WriteAllText($broken, "param(`n", [Text.UTF8Encoding]::new($false))
+        $unbound = @(Get-UnboundParameterName -ScriptPath $broken -Argument @('-Anything'))
+        Assert-Equal -Expected 1 -Actual $unbound.Count 'an unloadable target must refuse, not wave through'
+    }
+
+    It 'ignores values and reports only names' {
+        $unbound = @(Get-UnboundParameterName `
+            -ScriptPath (Join-Path $script:RepoRoot 'automation/Test-Configuration.ps1') `
+            -Argument @('-project_root', '-not-a-switch-just-a-value', '-logLevel:Error'))
+        Assert-Equal -Expected 1 -Actual $unbound.Count 'only the one undeclared name counts'
+        Assert-StringEqual -Expected 'not-a-switch-just-a-value' -Actual $unbound[0]
+    }
+}
+
+Describe 'the transcript pointer is decided, not discovered' {
+    It 'names the transcript before the child runs' {
+        # A pointer the server chose is one it can hand out whatever the child
+        # printed. Reading the source is the assertion here because the
+        # alternative -- matching a word in rendered output -- leaves no trace
+        # a behavior test can see until a host changes language.
+        $source = [IO.File]::ReadAllText((Join-Path (Join-Path (Split-Path -Parent (Split-Path -Parent $PSCommandPath)) 'service') 'Start-McpServer.ps1'))
+        Assert-Match 'YURUNA_TRANSCRIPT_PATH' $source 'the server has to name the file it will read'
+        # Any comparison against a transcript-shaped literal, however it is
+        # spelled. Pinning one formatting of the statement that used to be here
+        # would let the same mistake back in written any other way.
+        Assert-False ($source -match "(?i)-(match|like|imatch|contains)\s+[`"'][^`"'`\n]*transcript") `
+            'no control flow may recognize the transcript by a word in the output'
+    }
+
+    It 'reports the path it named once the child has written there' {
+        # A stand-in entry point, so the assertion is about the server's half of
+        # the contract and not about which real script happens to fail today.
+        $stage = Join-Path $TestDrive ([Guid]::NewGuid().ToString('n'))
+        New-Item -ItemType Directory -Path $stage -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $stage 'Writes-Transcript.ps1'),
+            "Set-Content -LiteralPath `$env:YURUNA_TRANSCRIPT_PATH -Value 'recorded'`nexit 1`n")
+        $priorDir = $script:AutomationDir
+        $script:AutomationDir = $stage
+        try {
+            $run = Invoke-McpEntryPoint -Script 'Writes-Transcript.ps1'
+            Assert-True ([bool]$run.TranscriptPath) 'a child that wrote there must come back with the pointer'
+            Assert-True (Test-Path -LiteralPath $run.TranscriptPath -PathType Leaf) `
+                'a reported pointer must name a file the caller can open'
+            $out = ConvertTo-McpToolResult -Tool @{ Name = 'yuruna_set_component' } -Run $run
+            Assert-StringEqual -Expected ([string]$run.TranscriptPath) -Actual ([string]$out.transcript) `
+                -Because 'the result carries the same path the run recorded'
+            Remove-Item -LiteralPath $run.TranscriptPath -Force -ErrorAction SilentlyContinue
+        } finally {
+            $script:AutomationDir = $priorDir
+        }
+    }
+
+    It 'keeps no transcript for a run that succeeded' {
+        # A successful run's transcript is a record nothing will ask for: the
+        # result carries no pointer to it, so keeping it would leave one file
+        # behind per call for as long as the server runs.
+        $stage = Join-Path $TestDrive ([Guid]::NewGuid().ToString('n'))
+        New-Item -ItemType Directory -Path $stage -Force | Out-Null
+        [IO.File]::WriteAllText((Join-Path $stage 'Writes-And-Succeeds.ps1'),
+            "Set-Content -LiteralPath `$env:YURUNA_TRANSCRIPT_PATH -Value 'recorded'`nexit 0`n")
+        $priorDir = $script:AutomationDir
+        $script:AutomationDir = $stage
+        try {
+            $before = @(Get-ChildItem -Path ([IO.Path]::GetTempPath()) -Filter 'yuruna-mcp-*.transcript.txt').Count
+            $run = Invoke-McpEntryPoint -Script 'Writes-And-Succeeds.ps1'
+            Assert-Equal -Expected 0 -Actual $run.ExitCode -Because 'the fixture is meant to succeed'
+            Assert-StringEqual -Expected '' -Actual ([string]$run.TranscriptPath) `
+                -Because 'a pointer nothing reports is a file nothing deletes'
+            $after = @(Get-ChildItem -Path ([IO.Path]::GetTempPath()) -Filter 'yuruna-mcp-*.transcript.txt').Count
+            Assert-Equal -Expected $before -Actual $after `
+                -Because 'a successful call must not leave a transcript in the temporary directory'
+        } finally {
+            $script:AutomationDir = $priorDir
+        }
+    }
+
+    It 'reports nothing, and leaves nothing behind, when the child wrote no transcript' {
+        $stage = Join-Path $TestDrive ([Guid]::NewGuid().ToString('n'))
+        New-Item -ItemType Directory -Path $stage -Force | Out-Null
+        # Creates the file and leaves it empty, which is what a child that
+        # started a transcript and died before writing to it leaves behind. An
+        # entry point that never touched the path would skip the size guard
+        # this is here to exercise.
+        [IO.File]::WriteAllText((Join-Path $stage 'Writes-Nothing.ps1'),
+            "Set-Content -LiteralPath `$env:YURUNA_TRANSCRIPT_PATH -Value ''  -NoNewline`nexit 1`n")
+        $priorDir = $script:AutomationDir
+        $script:AutomationDir = $stage
+        try {
+            $before = @(Get-ChildItem -Path ([IO.Path]::GetTempPath()) -Filter 'yuruna-mcp-*.transcript.txt').Count
+            $run = Invoke-McpEntryPoint -Script 'Writes-Nothing.ps1'
+            Assert-StringEqual -Expected '' -Actual ([string]$run.TranscriptPath) `
+                -Because 'an empty file is not a transcript, and a pointer to one reads as a broken link'
+            $out = ConvertTo-McpToolResult -Tool @{ Name = 'yuruna_set_component' } -Run $run
+            Assert-False ($out.ContainsKey('transcript')) 'no transcript means no pointer'
+            $after = @(Get-ChildItem -Path ([IO.Path]::GetTempPath()) -Filter 'yuruna-mcp-*.transcript.txt').Count
+            Assert-Equal -Expected $before -Actual $after `
+                -Because 'a name the server handed out and nobody wrote to must not accumulate per call'
+        } finally {
+            $script:AutomationDir = $priorDir
+        }
+    }
+
+    It 'is honored by every entry point that writes a transcript' {
+        # The resolver runs before the Yuruna.* eviction that sweeps up the
+        # module exporting it. An entry point that drifts back to a bare
+        # temporary name loses the pointer silently -- nothing fails, the
+        # server just stops finding one.
+        $automation = Join-Path $script:RepoRoot 'automation'
+        $writers = @(Get-ChildItem -Path $automation -Filter '*.ps1' | Where-Object {
+                [IO.File]::ReadAllText($_.FullName) -match '(?m)^\$null = Start-Transcript ' })
+        Assert-True ($writers.Count -ge 6) "expected the transcript-writing entry points, found $($writers.Count)"
+        foreach ($writer in $writers) {
+            $text = [IO.File]::ReadAllText($writer.FullName)
+            Assert-Match 'Resolve-YurunaTranscriptPath' $text `
+                "$($writer.Name) chooses its own transcript name, so a caller cannot name one"
+            $resolveAt = $text.IndexOf('Resolve-YurunaTranscriptPath', [StringComparison]::Ordinal)
+            $evictAt = $text.IndexOf('Get-Module Yuruna.* | Remove-Module', [StringComparison]::Ordinal)
+            if ($evictAt -ge 0) {
+                Assert-True ($resolveAt -lt $evictAt) `
+                    "$($writer.Name) resolves the transcript path after the module exporting the resolver is evicted"
+            }
+        }
+    }
+
+    It 'leaves the variable it borrowed exactly as it found it' {
+        $prior = 'sentinel-value'
+        $env:YURUNA_TRANSCRIPT_PATH = $prior
+        try {
+            $null = Invoke-McpEntryPoint -Script 'Set-HostAlias.ps1'
+            Assert-StringEqual -Expected $prior -Actual "$env:YURUNA_TRANSCRIPT_PATH" `
+                -Because "the server runs inside someone else's process environment"
+        } finally {
+            $env:YURUNA_TRANSCRIPT_PATH = ''
+        }
     }
 }

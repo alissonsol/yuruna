@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42570333-9ac2-4031-a0fd-695d1459461e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,7 +32,6 @@ Import-Module (Join-Path $PSScriptRoot 'Test.OcrPath.psm1') -Global -Force
 #>
 
 # --- REGION: Locate Tesseract
-
 # Module-scoped cache for Find-Tesseract. tesseract's install location is
 # stable across an entire cycle (and usually across the host's lifetime),
 # but Invoke-TesseractOcr / Get-TesseractWordBox call Find-Tesseract on
@@ -110,7 +109,6 @@ function Find-Tesseract {
 }
 
 # --- REGION: Installation guidance
-
 function Get-TesseractInstallGuidance {
     <#
     .SYNOPSIS
@@ -158,7 +156,6 @@ function Assert-TesseractInstalled {
 }
 
 # --- REGION: Run OCR
-
 function Invoke-TesseractOcr {
     <#
     .SYNOPSIS

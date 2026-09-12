@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 4256c18e-dd7e-400d-aa57-445e74e55994
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -22,38 +22,12 @@
     Prepares the Windows Hyper-V host to run yuruna automated VM tests.
 
 .DESCRIPTION
-    Configures host-side settings needed for unattended, long-running test
-    runs against Hyper-V guest VMs:
-      * starts the Hyper-V Virtual Machine Management service (vmms)
-      * display timeout (AC + DC) -> Never
-      * machine inactivity lock -> disabled
-      * lock screen on resume -> disabled
-      * inbound ICMPv4 echo allowed (guest VMs + LAN can ping the host)
-      * inbound TCP on the status-service port allowed (LAN can see status)
-      * display scale / text scale -> 100% -- only when YURUNA_VIRTUAL_DISPLAY
-        is set (prevents Tesseract OCR failures on VM screenshots caused by
-        HiDPI up-scaling on fresh Win11 laptops)
-    Requires Administrator elevation. Idempotent -- safe to re-run.
-
-    Exits 0 when every condition is in place and 2 when the settings were
-    applied but something still needs an operator (a reboot to deploy Hyper-V
-    components, a firewall Block rule pushed by policy). Re-running does not
-    clear a 2, which is why it is not reported as an outright failure.
-
-    The opt-in virtual display (checksum-verified usbmmidd_v2) that keeps
-    DWM painting the Hyper-V synthetic GPU when the physical monitor comes and
-    goes is NOT attached here: it is a per-cycle surface attached at the start
-    of every test cycle when YURUNA_VIRTUAL_DISPLAY is set (and torn down by
-    Remove-TestVMFiles), because a KVM switch can drop the monitor mid-run, so
-    the census must be re-evaluated each cycle rather than once at enable time.
-    See docs/host-hyperv.md.
-
-    Run this before Start-TestRunner.ps1 when Assert-HostConditionSet
-    reports that display timeout or lock screen settings will interfere
-    with test runs. If the scale reset fires on a machine that was at
-    125% or 150%, sign out and back in (or reboot) before the next run
-    so the compositor picks up the new DPI -- OCR otherwise still sees
-    the old scale.
+    Captures the host's original settings once, then applies the platform's
+    unattended-test prerequisites and optional pool-storage setup. Re-running
+    preserves the original capture used by Disable-TestAutomation.ps1.
+    See https://yuruna.link/42e220c4-0004 and https://yuruna.link/42dc5bb9-0001.
+    Run as Administrator. After a display-scale change, sign out and back in
+    before testing so the compositor uses the new scale.
 
 .PARAMETER WhatIf
     Shows what would change without applying any settings.
@@ -77,6 +51,7 @@ $ErrorActionPreference = "Stop"
 # display-timeout decisions print nothing and the operator cannot tell what
 # changed.
 $InformationPreference = 'Continue'
+# --- REGION: Initialize host setup
 # Shared bootstrap (Test.HostContract import + powershell-yaml +
 # PSScriptAnalyzer install) lives in automation/Yuruna.HostSetup.psm1.
 # Rationale + ordering are documented there.
@@ -106,7 +81,7 @@ $conditionResult = @(Set-WindowsHostConditionSet @conditionArgs)
 $unmetCount = @($conditionResult | Where-Object { $_ -is [int] } | Select-Object -Last 1)
 $unmetCount = if ($unmetCount.Count) { [int]$unmetCount[0] } else { 0 }
 
-# --- REGION: networkStorage pool host-identity setup + reimage reclaim (interactive)
+# --- REGION: Pool storage and host identity
 # Offer to configure networkStorage pool (NAS replication) and, on a host with no local
 # pool identity, scan the NAS registry to reclaim a prior uuid after a reimage.
 # Self-skips cleanly when run non-interactively or under -WhatIf. The orchestrator
@@ -147,21 +122,7 @@ See docs/host-hyperv.md for what it attaches (checksum-pinned usbmmidd_v2) and t
 }
 
 # --- REGION: Outcome
-# The exit code is the only failure channel across the child-process boundary:
-# everything this script says about a setting it could not apply goes to a
-# captured log the orchestrator does not read, so an explicit exit is the one
-# way that host is distinguishable from a clean success. Falling off the end
-# gives 0.
-#
-#   0  every condition is in place
-#   1  the script threw (ErrorActionPreference stops it before this line)
-#   2  the settings were applied and some condition remains unmet
-#
-# 2 is deliberately not 1. Everything at 2 is a host that needs an operator --
-# a reboot to deploy Hyper-V components, a Block rule pushed by GPO -- and
-# re-running this script cannot clear any of it, so a caller that treats it as a
-# failed step would advise a re-run that changes nothing. The caller maps it to
-# a warned outcome; see install/setup.ps1's host-settings step.
+# See https://yuruna.link/42e220c4-0004 for the shared 0/1/2 host-setup contract.
 if ($unmetCount -gt 0) {
     Write-Warning "Host settings applied, but $unmetCount condition(s) still need an operator (listed above)."
     exit 2

@@ -70,7 +70,7 @@ Copy the template (it is gitignored):
 cp test/test.config.yml.template test/test.config.yml
 ```
 
-Most operators only set `guestSequence`, `repositories.frameworkUrl`,
+Most operators only set `repositories.frameworkUrl`,
 `repositories.projectUrl`, `statusService.port`, and `testCycle.stopOnFailure`.
 Notification credentials live in
 `test/status/extension/notification/transports.yml` -- see the
@@ -78,11 +78,13 @@ Notification credentials live in
 Full key table, defaults, and behavioral notes:
 [Test Runner](read.more.md).
 
-`guestSequence` controls which guests run and in what order. Any
-`guest.<name>` is valid as long as `host/<short-host>/<guestKey>/`
-exists on the current host -- the runner discovers guests by folder, not
-a hardcoded list. Adding a new guest = creating the folder with
-`Get-Image.ps1` + `New-VM.ps1`; no harness code change.
+Which guests run, and in what order, comes from the `sequences:` list in
+`test/test.runner.yml` in the project repository; `guestSequence` in
+`test.config.yml` is the fallback, read only when that file resolves no plan.
+Either way any `guest.<name>` is valid as long as
+`host/<short-host>/<guestKey>/` exists on the current host -- the runner
+discovers guests by folder, not a hardcoded list. Adding a new guest = creating
+the folder with `Get-Image.ps1` + `New-VM.ps1`; no harness code change.
 
 ### Notifications (Resend)
 
@@ -171,6 +173,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.08
+Last review: 2026.09.12
 
 Back to [Yuruna](../README.md)

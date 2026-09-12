@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 426d4c3d-0ae7-41c9-8bac-5f42f9255e5b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -226,6 +226,5 @@ function Unregister-GuestRailAddress {
 }
 
 # --- REGION: Exports
-
 Export-ModuleMember -Function Test-GuestRailAvailable, Get-GuestRailAddress, Get-GuestRailReservation,
     Register-GuestRailAddress, Unregister-GuestRailAddress

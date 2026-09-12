@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 422ef01b-468d-4c38-ab4c-8337b8a3ccd5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@
 .SYNOPSIS
     Cross-cycle persistence for the yuruna-caching-proxy-service VM state
     (the caching-proxy-service-admin user's password + the VM's IP address). Single YAML file
-    under the runtime directory; survives cycle vault wipes.
+    under the runtime directory.
 
 .DESCRIPTION
     State lives in a single YAML doc at:
@@ -39,17 +39,16 @@
 #>
 
 # --- REGION: Path
-
-<#
-.SYNOPSIS
-    Returns the absolute path of the yuruna-caching-proxy-service state file.
-.DESCRIPTION
-    Resolves <runtime-dir>/yuruna-caching-proxy-service.yml. Runtime dir defaults
-    to <repoRoot>/test/status/runtime and can be overridden via
-    $env:YURUNA_RUNTIME_DIR. Creates the directory on demand so callers
-    don't have to Test-Path-and-mkdir.
-#>
 function Get-CachingProxyServiceStatePath {
+    <#
+    .SYNOPSIS
+        Returns the absolute path of the yuruna-caching-proxy-service state file.
+    .DESCRIPTION
+        Resolves <runtime-dir>/yuruna-caching-proxy-service.yml. Runtime dir defaults
+        to <repoRoot>/test/status/runtime and can be overridden via
+        $env:YURUNA_RUNTIME_DIR. Creates the directory on demand so callers
+        don't have to Test-Path-and-mkdir.
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param()
@@ -67,16 +66,15 @@ function Get-CachingProxyServiceStatePath {
 }
 
 # --- REGION: Read
-
-<#
-.SYNOPSIS
-    Returns the persisted state as a hashtable. Empty hashtable when
-    the file is missing or unparseable; never $null.
-.OUTPUTS
-    [hashtable] with keys 'password' and 'ipAddress' (each a string,
-    possibly empty). Additional keys round-trip through Save unchanged.
-#>
 function Read-CachingProxyServiceState {
+    <#
+    .SYNOPSIS
+        Returns the persisted state as a hashtable. Empty hashtable when
+        the file is missing or unparseable; never $null.
+    .OUTPUTS
+        [hashtable] with keys 'password' and 'ipAddress' (each a string,
+        possibly empty). Additional keys round-trip through Save unchanged.
+    #>
     [CmdletBinding()]
     [OutputType([hashtable])]
     param()
@@ -146,29 +144,28 @@ function Read-CachingProxyServiceStateFile {
 }
 
 # --- REGION: Save
-
-<#
-.SYNOPSIS
-    Merges the given fields into the persisted state and writes the
-    file atomically. Existing fields not named here are preserved.
-.PARAMETER Secret
-    yuruna OS user password (named -Secret to avoid the rule that flags
-    plaintext-typed parameters whose name contains 'password' -- the
-    on-disk YAML key is still `password:`). Pass '' to clear; omit to
-    leave unchanged.
-.PARAMETER IpAddress
-    Current VM IP. Pass '' to clear; omit to leave unchanged.
-.OUTPUTS
-    [string] The path of the file written.
-.NOTES
-    The on-disk YAML key remains `password:` -- the parameter name dodges
-    PSAvoidUsingPlainTextForPassword (the rule matches parameter NAMES
-    containing 'password'/'passphrase' but does not inspect hashtable
-    keys or file contents). Renaming the on-disk key would be a breaking
-    change to the file format; renaming just the parameter keeps the
-    file format stable and the rule satisfied.
-#>
 function Save-CachingProxyServiceState {
+    <#
+    .SYNOPSIS
+        Merges the given fields into the persisted state and writes the
+        file atomically. Existing fields not named here are preserved.
+    .PARAMETER Secret
+        yuruna OS user password (named -Secret to avoid the rule that flags
+        plaintext-typed parameters whose name contains 'password' -- the
+        on-disk YAML key is still `password:`). Pass '' to clear; omit to
+        leave unchanged.
+    .PARAMETER IpAddress
+        Current VM IP. Pass '' to clear; omit to leave unchanged.
+    .OUTPUTS
+        [string] The path of the file written.
+    .NOTES
+        The on-disk YAML key remains `password:` -- the parameter name dodges
+        PSAvoidUsingPlainTextForPassword (the rule matches parameter NAMES
+        containing 'password'/'passphrase' but does not inspect hashtable
+        keys or file contents). Renaming the on-disk key would be a breaking
+        change to the file format; renaming just the parameter keeps the
+        file format stable and the rule satisfied.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([string])]
     param(
@@ -229,7 +226,6 @@ function Save-CachingProxyServiceState {
 }
 
 # --- REGION: Probe
-
 function Test-TcpPortReachable {
     <#
     .SYNOPSIS
@@ -1238,7 +1234,6 @@ fi
 }
 
 # --- REGION: CA cert
-
 function Test-CachingProxyServiceCaPem {
     <#
     .SYNOPSIS

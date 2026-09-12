@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 422c7a57-c395-4a3c-9648-066af9dbee1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,15 +39,21 @@
     scaffold).
 #>
 
-# Honor logLevel from Start-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+# --- REGION: Log level from environment
+# Reuse the caller's log module so an in-process fetch preserves its state.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
-if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
+if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
+    Import-Module $_logLevelMod -Global
+}
+if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
+# --- REGION: Platform guard
 if (-not $IsLinux) {
     Write-Error "host/ubuntu.kvm/guest.windows.11/Get-Image.ps1 only runs on Linux."
     exit 1
 }
 
+# --- REGION: Host architecture
 $arch = (& uname -m).Trim()
 if ($arch -ne 'x86_64') {
     Write-Error "Windows 11 on KVM is only supported on x86_64 hosts (this host is $arch). Use the macOS UTM guest for ARM64."
@@ -66,9 +72,11 @@ New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
 # --- REGION: Windows 11 ISO: manual download path
 $downloadPage = 'https://www.microsoft.com/en-us/software-download/windows11'
 if (-not (Test-Path -LiteralPath $winIso)) {
-    # Accept any Win11*.iso the user dropped here and rename it to the
-    # expected path. Mirrors the Hyper-V variant's behavior.
-    $candidate = Get-ChildItem -LiteralPath $downloadDir -Filter 'Win11*.iso' -File -ErrorAction SilentlyContinue | Select-Object -First 1
+    # --- REGION: https://yuruna.link/42e220c4-0003
+    # Reject ARM-labeled media; an x64 image need not carry an architecture token.
+    $candidate = Get-ChildItem -LiteralPath $downloadDir -Filter 'Win11*.iso' -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -notmatch '(?i)arm' } |
+        Select-Object -First 1
     if ($candidate) {
         $candidateOriginalPath = $candidate.FullName
         Move-Item -Path $candidate.FullName -Destination $winIso
@@ -154,27 +162,13 @@ if (-not (Test-Path -LiteralPath $winIso)) {
 }
 Write-Output "Windows 11 ISO present: $winIso"
 
-# Fail fast for the staging steps below. Save-CachedHttpUri raises a
-# *statement*-terminating .NET exception on a squid SSL-bump TLS handshake
-# failure: under the default ErrorActionPreference that aborts only the one
-# statement, so the script blunders on through the Get-Item/Move-Item of a
-# never-written file and falsely prints "Download complete" before exiting 0.
-# 'Stop' makes any download/move/sentinel error abort with a non-zero exit so
-# the caller (New-VM.ps1) reacts to a real failure instead of a phantom one.
+# --- REGION: https://yuruna.link/42e220c4-0003
+# Abort on a failed download or staging operation before reporting success.
 $ErrorActionPreference = 'Stop'
 
 # --- REGION: virtio-win ISO: Fedora's hosted bundle (signed)
-# Pin the concrete versioned file under archive-virtio/. The convenience
-# paths (stable-virtio/ and latest-virtio/) 301-redirect virtio-win.iso to
-# this archived file through a chain that bounces https -> http -> https
-# (Apache emits http:// Location headers; HSTS preload upgrades them back).
-# Clients that refuse an https->http downgrade -- .NET HttpClient /
-# Invoke-WebRequest, and the squid SSL-bump the host download routes through
-# -- cannot follow that chain and fail at the TLS/redirect step, which breaks
-# the whole guest. The archived versioned URL is a single-hop 200 over https.
-# To refresh: list .../direct-downloads/stable-virtio/ for the current
-# virtio-win-<ver>.iso, then point this at
-# .../archive-virtio/virtio-win-<ver>-1/virtio-win-<ver>.iso.
+# See https://yuruna.link/42e220c4-0003
+# Use the archived HTTPS URL to avoid downgrade redirects in the convenience URL.
 $virtioUrl = 'https://fedorapeople.org/groups/virt/virtio-win/direct-downloads/archive-virtio/virtio-win-0.1.285-1/virtio-win-0.1.285.iso'
 
 # The KVM host driver brings the skip-if-same-source guard + sentinel writer
@@ -187,13 +181,8 @@ Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yurun
 Import-Module -Name (Join-Path $PSScriptRoot '../../../automation/Yuruna.Retry.psm1') -Force
 
 # --- REGION: https://yuruna.link/42ec97cd-0004
-# Unlike the Windows media above, virtio-win is a plain pinned URL the agent can
-# always resolve, so it is a pooled family like the Ubuntu and AL2023 images: ask
-# before the origin is HEAD-probed, fingerprint the local copy from its 4-line
-# sentinel, and on a hit nothing is transferred at all. Both the client module
-# and a healthy agent are feature-detected, so with no agent -- or one that is
-# down, has no pool, or errors mid-request -- everything below runs exactly as it
-# always has.
+# See https://yuruna.link/42e220c4-0003
+# Ask the download agent before probing the origin; retain the direct-download fallback.
 $tmp = Join-Path $downloadDir 'virtio-win.iso.part'
 $virtioAgentServed  = $false
 $virtioAgentSkipped = $false
@@ -261,23 +250,11 @@ if ($virtioAgentSkipped) {
     if (-not $virtioAgentServed) {
         Remove-Item $tmp -Force -ErrorAction SilentlyContinue
         Write-Output "Downloading $virtioUrl"
-        # Retry so a transient squid SSL-bump / origin blip on this single fetch
-        # does not fail the whole guest (matching the kubectl/helm fetch policy).
-        # Invoke-WithYurunaRetry catches the statement-terminating exception
-        # Save-CachedHttpUri raises on a TLS handshake failure and retries with
-        # backoff. Save-CachedHttpUri is invoked through a captured CommandInfo so
-        # it still resolves when the scriptblock runs inside the retry module's
-        # session state (see feedback_closure_foreign_module_command_resolution).
+        # --- REGION: https://yuruna.link/42e220c4-0003
+        # Capture the download command before entering the retry module scope.
         $saveCmd = Get-Command -Name Save-CachedHttpUri
-        # Make the downloaded FILE the authoritative success signal, not the
-        # ambient $LASTEXITCODE. Save-CachedHttpUri's cache discovery runs native
-        # `virsh` probes (Get-VMIp) that leave a non-zero $LASTEXITCODE when the
-        # cache VM has no lease, even when the subsequent direct download succeeds;
-        # Invoke-WithYurunaRetry keys success off $LASTEXITCODE, so without the
-        # in-scriptblock file-check + reset a clean download is misreported as a
-        # failure with no exception to show (an empty error message). See
-        # feedback_lastexitcode_null_pure_ps_chain. A missing/empty file throws,
-        # giving the retry a real message to surface and a reason to retry.
+        # --- REGION: https://yuruna.link/42e220c4-0003
+        # Require a nonempty artifact before clearing a stale native discovery exit code.
         $dlLog = Join-Path $downloadDir 'virtio-win.download.log'
         Remove-Item $dlLog -Force -ErrorAction SilentlyContinue
         $download = Invoke-WithYurunaRetry -Label 'virtio-win.iso' -LogPath $dlLog -ScriptBlock ({
@@ -309,14 +286,8 @@ if ($virtioAgentSkipped) {
     }
     Move-Item -Path $tmp -Destination $virtioIso
     if ($virtioAgentServed) {
-        # Record the URL the AGENT fetched from, with the Last-Modified it saw
-        # there: letting Write-ImageSentinel HEAD the origin would re-touch the
-        # very server the agent path exists to spare, and on an unreachable
-        # origin would leave an empty 4th line for bytes whose timestamp is
-        # known. A pinned virtio-win URL that has moved on since the agent
-        # stored it costs one origin re-download on a later agentless run --
-        # never a wrong artifact, because the filename and byte count the next
-        # comparison uses come from the same record.
+        # --- REGION: https://yuruna.link/42e220c4-0003
+        # Preserve the agent's origin URL and timestamp without probing the origin again.
         Write-ImageSentinel -SourceUrl $virtioAgentUrl -OriginFile $virtioOrigin -SizeBytes $size -LastModified $virtioAgentLastModified -Confirm:$false
     } else {
         Write-ImageSentinel -SourceUrl $virtioUrl -OriginFile $virtioOrigin -SizeBytes $size -Confirm:$false
@@ -328,3 +299,7 @@ Write-Output ""
 Write-Output "Both required artifacts staged:"
 Write-Output "  $winIso"
 Write-Output "  $virtioIso"
+
+# --- REGION: Completion
+# Clear a native discovery probe's stale exit code, including on cache hits.
+exit 0

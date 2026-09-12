@@ -12,9 +12,16 @@ from the editor round-trips through `ConvertTo-Yaml` and strips them until the
 next reconciliation); this document is the fuller reference.
 
 Top-level sections: `configService`, `downloadAgentService`, `guestSequence`,
-`logLevel`, `networkStorage`, `notification`, `pool`, `repositories`,
+`language`, `logLevel`, `networkStorage`, `notification`, `pool`, `repositories`,
 `statusService`, `testCycle`, `vmCommunication`, `vmImage`, `vmStart`. Most are
 self-describing; the ones carrying non-obvious behavior are documented below.
+
+One is easy to misread: `guestSequence` does not choose the cycle's guests. The
+runner resolves those from the `sequences:` list in `test/test.runner.yml` in
+the project repository, and reads `guestSequence` only when that file resolves
+no plan -- so an edit to it, in this file or through the editor, changes nothing
+on a host whose project repository resolves a plan. The editor shows the guest
+set the last cycle actually ran beside the field.
 
 <a id="42b11c32-0002"></a>
 
@@ -105,6 +112,32 @@ the VMs this host provisions so they don't have to ship in each seed. When
 enabled, the runner ensures it per cycle (given a Config CA exists); VMs fetch
 over the `yuruna-config-fetch.sh` mTLS path and fall back to baked creds only
 if it is unreachable.
+
+<a id="42b11c32-0011"></a>
+
+## language -- the lab-wide language lock
+
+`language` (default `auto`) names the language every Yuruna surface answers in,
+as a BCP 47 tag. **`auto` is not a language; it is the absence of a lock.** Under
+`auto` each reader decides for themselves: a served page follows the browser's
+`Accept-Language`, and a command follows the culture of the session running it.
+
+A tag locks the whole lab to one language instead. That is deliberately
+lab-wide rather than per-surface: a page, the API responses behind it and the
+transcript of the same run have to be readable as one account of one cycle, and
+a per-surface setting is what makes them disagree. A lock also outranks the
+browser -- a reader who asks for something else still gets the locked language,
+because the lock exists to make the lab's output uniform.
+
+Only a tag with a reviewed catalog behind it is served. A tag without one is
+refused rather than obeyed, so a typo does not quietly ship a language that does
+not exist: the run falls back to English and reports the configuration as what
+decided it, which distinguishes a mistyped lock from a reader who simply asked
+for English. Today `en-US` is the only such tag; `pt-BR` is planned.
+
+Deleting the key means the same thing as `auto`, but leave it in place. It is
+the seed reconciliation copies into a new host's file, and the status-page
+config editor can only offer a knob the file contains.
 
 <a id="42b11c32-0006"></a>
 
@@ -492,6 +525,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.08
+Last review: 2026.09.12
 
 Back to [Yuruna](../README.md)

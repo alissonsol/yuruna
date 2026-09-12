@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 4209caff-b7ce-46f6-896a-1d6710c120e8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,9 +41,14 @@ $GuestHostname = if ($Hostname) { $Hostname } else { $VMName }
 
 $global:ProgressPreference = "SilentlyContinue"
 
-# Honor logLevel from Start-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+# --- REGION: Log level from environment
+# See https://yuruna.link/42e220c4-0003
+# Reuse the caller's log module; a forced reload discards its state.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
-if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
+if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
+    Import-Module $_logLevelMod -Global
+}
+if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
 $commonModulePath = Join-Path -Path (Split-Path -Parent $PSScriptRoot) -ChildPath "modules/Yuruna.Host.psm1"
 Import-Module -Name $commonModulePath -Force
@@ -78,6 +83,11 @@ if (!(Test-Path -Path $downloadDir)) {
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.Image.psm1') -Force
 if (-not (Assert-YurunaBaseImage -BaseImageFile $baseImageFile -GuestFolder $PSScriptRoot)) { exit 1 }
 
+# --- REGION: Base image provenance
+# Emit the source URL from a healthy sidecar; warn when provenance is incomplete.
+Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.Provenance.psm1') -Force
+Write-BaseImageProvenance -BaseImagePath $baseImageFile
+
 # --- REGION: Remove existing VM
 # Runs AFTER the base image is confirmed so a failed image fetch never
 # destroys a working VM.
@@ -104,26 +114,19 @@ if ($existingVM) {
     Write-Output "VM '$VMName' deleted."
 }
 
-Write-Verbose "Creating VM '$VMName' using image: $baseImageFile"
-# Provenance side-channel for operators reading the transcript. Emits
-# "Provenance: <url>" when the sidecar is healthy; warns otherwise.
-Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.Provenance.psm1') -Force
-Write-BaseImageProvenance -BaseImagePath $baseImageFile
-
 # --- REGION: Create copies and files for VM
-
+Write-Verbose "Creating VM '$VMName' using image: $baseImageFile"
 $vmDir = Join-Path $downloadDir $VMName
 if (-not (Test-Path -Path $vmDir)) {
     New-Item -ItemType Directory -Path $vmDir -Force | Out-Null
 }
 $vhdxFile = Join-Path $vmDir "$VMName.vhdx"
-if (!(Test-Path -Path $vhdxFile)) {
-    Write-Verbose "Creating VHDX for '$VMName' by copying base image..."
-    Copy-Item -Path $baseImageFile -Destination $vhdxFile -Force
-    Write-Verbose "Copied '$baseImageFile' -> '$vhdxFile'."
-} else {
-    Write-Verbose "Target VHDX already exists: $vhdxFile -- leaving as is."
-}
+# --- REGION: Copy base image -> per-VM disk
+# Rebuild from the base so cloud-init never inherits a previous guest's state.
+Write-Verbose "Creating VHDX for '$VMName' by copying base image..."
+Copy-Item -LiteralPath $baseImageFile -Destination $vhdxFile -Force -ErrorAction Stop
+Write-Verbose "Copied '$baseImageFile' -> '$vhdxFile'."
+
 
 # user-data AND meta-data are shared under host/vmconfig/ (the meta-data is
 # byte-identical across the three host platforms). Anchor contract:
@@ -174,27 +177,14 @@ if (-not $Password) { Write-Error "Get-LocalOsPassword returned empty for '$User
 Write-Output "Password came from authentication mechanism: $_authActiveName"
 Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
 
-# Pick a vSwitch FIRST -- prefer Yuruna-External (LAN-bridged) so the
-# install VM gets a real LAN IP via DHCP and can reach the squid cache
-# directly. Default Switch fallback works for hosts that can't create
-# an External vSwitch (no LAN, Wi-Fi-only); install proceeds direct
-# against Amazon's CDN. The switch choice MUST be resolved before
-# Get-GuestReachableHostIp below, because the host IP a guest reaches
-# differs by topology: Default Switch -> 172.x.x.x gateway IP;
-# External -> host's LAN IP via the bridged NIC.
+# --- REGION: https://yuruna.link/42e220c4-0004
+# Select the switch before resolving the host address reachable through it.
 $switchName = Get-OrCreateYurunaExternalSwitch
 if (-not $switchName) {
     $switchName = 'Default Switch'
     if (-not (Get-VMSwitch -Name $switchName -ErrorAction SilentlyContinue)) {
-        # The Default Switch ships only with Windows client SKUs and an
-        # operator can delete it. New-VM throws on a switch name that
-        # resolves to nothing, so an unchecked fallback turns a degraded
-        # network into a failed provision; any switch that exists still
-        # creates and boots the VM. Rank non-External switches first: this
-        # path is normally reached because the host uplink is one Hyper-V
-        # refuses to carry a bridged guest MAC over, so a guest attached to
-        # an External switch there comes up with no carrier at all, while an
-        # Internal/NAT switch still gives it a working address.
+        # --- REGION: https://yuruna.link/42e220c4-0004
+        # Verify the fallback exists; prefer non-External switches when bridging is unavailable.
         $substituteSwitch = @(Get-VMSwitch -ErrorAction SilentlyContinue) |
             Sort-Object @{ Expression = { $_.SwitchType -eq 'External' } }, Name |
             Select-Object -First 1
@@ -233,43 +223,18 @@ $UserData = New-CloudInitUserData `
     } -Confirm:$false
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 # --- REGION: https://yuruna.link/4220a755-000b
-# Amazon Linux deliberately does NOT receive the shared seed network-config the
-# netplan guests get. Two facts combine badly here:
-#
-#   * Supplying network-config REPLACES cloud-init's own fallback rather than
-#     adding to it, so a config that matches no interface is not neutral. It
-#     leaves the guest with no network configuration at all -- strictly worse
-#     than shipping no file.
-#   * Whether a given match form resolves under this guest's live renderer is
-#     not decidable by reading the parser -- only a lab cycle settles it --
-#     and the failure shape is total: nothing claims the NIC, it stays with
-#     IFF_UP clear, carrier cannot even be read, DHCP is never attempted, and
-#     the only way into the guest is the console it just lost.
-#
-# The client-id pin for this guest rides its user-data instead. The image's
-# live renderer is systemd-networkd, whose DHCP identity is a DUID from the
-# per-build /etc/machine-id, so the pin is a [DHCPv4] ClientIdentifier=mac
-# drop-in installed beside cloud-init's fallback profile, backed by a 98-
-# fallback .network profile for the boot where that fallback claims nothing,
-# with a best-effort nmcli pin kept for a NetworkManager-managed build. None
-# of these is a seed network-config, so cloud-init's fallback generation
-# stays intact.
+# Amazon Linux preserves cloud-init fallback networking; pin DHCP identity in user-data.
 
 $SeedIso = Join-Path $vmDir "seed.iso"
 $VolumeId = "cidata"
 CreateIso -SourceDir $SeedDir -OutputFile $SeedIso -VolumeId $VolumeId
 
+# --- REGION: Create and configure the Hyper-V VM
 Write-Verbose "Creating new VM '$VMName' on switch '$switchName'..."
 Hyper-V\New-VM -Name $VMName -Generation 2 -MemoryStartupBytes 12288MB -SwitchName $switchName -VHDPath $vhdxFile | Out-Null
 
-# Deterministic per (host, guest identity): a rebuilt guest presents the SAME MAC, so the
-# DHCP server returns the SAME lease instead of consuming a new one. Random MACs
-# make every rebuild a fresh lease request, which drains a shared pool until guests
-# boot with no IPv4 at all. Hyper-V takes bare hex, no separators.
-# Keyed on the guest's durable identity, not on the name the VM carries now: a
-# guest is built in a per-kind slot and renamed to its real name when its
-# baseline is snapshotted, and an address that moved with that rename would
-# re-DHCP a guest whose own state already records the one it was built on.
+# --- REGION: https://yuruna.link/42e220c4-0004
+# Key the MAC by durable guest identity so rebuilds and VM renames keep the DHCP lease.
 $YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $GuestHostname
 Hyper-V\Set-VMNetworkAdapter -VMName $VMName -StaticMacAddress ($YurunaGuestMac -replace ':','')
 Write-Verbose "Deterministic guest MAC for '$GuestHostname': $YurunaGuestMac"
@@ -292,7 +257,7 @@ Set-VMProcessor -VMName $VMName -Count $vmCores | Out-Null
 # in waitForText sequence steps.
 Set-VMVideo -VMName $VMName -HorizontalResolution 1920 -VerticalResolution 1080 -ResolutionType Single
 
-# --- REGION: Cleanup temporary folders
+# --- REGION: Clean up temporary files
 Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- REGION: Guidance

@@ -1,0 +1,45 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://yuruna.com/schema/yuruna.localization-request/v1",
+  "title": "Yuruna localization request",
+  "description": "The index of one locale's exchange folder. It is the digest authority: the files beside it are what a person edits, and this says which rows they answer.",
+  "type": "object",
+  "required": ["schema", "locale", "sourceLocale", "format", "releaseVersion", "requestDigest", "rows"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "yuruna.localization-request/v1" },
+    "locale": { "type": "string", "pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$" },
+    "sourceLocale": { "type": "string", "pattern": "^[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8})*$" },
+    "format": { "enum": ["Json", "Csv", "Xliff"] },
+    "releaseVersion": { "type": "string", "minLength": 1 },
+    "requestDigest": { "$ref": "#/definitions/digest" },
+    "rows": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "file", "state", "sourceSha256", "english"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "kind": { "enum": ["term", "ruling", "style-rule", "message", "document", "project-scalar"] },
+          "file": { "type": "string", "minLength": 1 },
+          "state": { "enum": ["new", "changed", "carried"] },
+          "sourceSha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "english": { "type": "string" }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "digest": {
+      "type": "object",
+      "required": ["algorithm", "sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "algorithm": { "const": "sha256-canonical-request-v1" },
+        "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+      }
+    }
+  }
+}

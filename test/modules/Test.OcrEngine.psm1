@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 425af8de-0326-440d-a6ef-cfcf1c3376cb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -263,7 +263,6 @@ function Invoke-AllEnabledOcr {
 }
 
 # --- REGION: Built-in provider: Tesseract
-
 # -Global is mandatory: a bare -Force re-import of an already-global
 # Test.Tesseract yanks it out of the global session into this module's
 # private scope (legacy module-eviction regression class). Because this
@@ -381,7 +380,7 @@ function Get-WinRtOcrScriptPath {
 }
 
 # Persistent WinRT worker (default on; YURUNA_OCR_WORKER=0 disables it).
-# Timing rationale, wire protocol, and lifecycle: https://yuruna.link/ocr
+# Timing rationale, wire protocol, and lifecycle: https://yuruna.link/42607283
 $script:WinRtOcrWorkerScript = @'
 [Console]::InputEncoding  = [System.Text.UTF8Encoding]::new($false)
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
@@ -852,7 +851,7 @@ Register-OcrProvider -Name 'winrt' `
 
 # macOS Vision provider (VNRecognizeTextRequest via Swift; macOS 10.15+).
 # Densest-row crop, PNG round-trip, and usesLanguageCorrection=false are
-# all load-bearing -- rationale at https://yuruna.link/ocr
+# all load-bearing -- rationale at https://yuruna.link/42607283
 $script:VisionOcrSwift = @'
 import Vision
 import AppKit
@@ -870,7 +869,7 @@ guard let image = NSImage(contentsOfFile: imagePath),
     exit(1)
 }
 
-// -- 1. Per-row lit-pixel count (luma > 96) --------------------------------
+// --- REGION: Per-row lit-pixel count
 let w = bitmap.pixelsWide, h = bitmap.pixelsHigh
 let bpp = bitmap.bitsPerPixel, bpr = bitmap.bytesPerRow
 guard let data = bitmap.bitmapData else {
@@ -896,7 +895,7 @@ for y in 0..<h {
     if litPerRow[y] > Int(Double(w) * 0.9) { topSkip = y + 1 } else { break }
 }
 
-// -- 2. Cluster rows with > 8 lit pixels, gap up to ~80 dark rows -----------
+// --- REGION: Lit-pixel row clusters
 // 80 px ~ 2 line-heights at this resolution; allows blank lines between
 // content lines (login prompt below "Ubuntu 24.04..." banner) to stay in
 // the same cluster, but separates content from later artifacts (cursor,
@@ -924,7 +923,7 @@ guard let best = clusters.max(by: { $0.total < $1.total }) else {
     exit(0)
 }
 
-// -- 3. Crop to the densest cluster, padded -------------------------------
+// --- REGION: Densest-cluster crop
 // CGImage.cropping uses image-data (top-left) origin, NOT the bottom-left
 // CGContext origin used elsewhere in CG. Mixing the two conventions
 // produces bottom-of-image crops where the caller meant top-of-image,
@@ -969,7 +968,7 @@ if maxLitX >= minLitX {
 }
 let cropped = original.cropping(to: CGRect(x: cropX0, y: cropY0, width: cropW, height: cropH))!
 
-// -- 4. PNG round-trip: strip DisplayP3 + 144 DPI metadata ----------------
+// --- REGION: PNG metadata normalization
 // macOS screencapture writes DisplayP3-tagged 144-DPI PNGs. Vision's text
 // detector is reliable on sRGB/72-DPI inputs but returns 0 observations
 // on the wide-gamut originals -- empirically, on every UTM screen capture
@@ -985,7 +984,7 @@ CGImageDestinationFinalize(dest)
 let reload = CGImageSourceCreateWithURL(tmpURL as CFURL, nil)!
 let cleanCG = CGImageSourceCreateImageAtIndex(reload, 0, nil)!
 
-// -- 5. OCR ----------------------------------------------------------------
+// --- REGION: OCR
 let request = VNRecognizeTextRequest()
 request.recognitionLevel = .accurate
 // usesLanguageCorrection = false: terminal text (hostnames, cloud-init
@@ -1251,7 +1250,6 @@ Register-OcrProvider -Name 'macos-vision' `
     }
 
 # --- REGION: Exports
-
 Export-ModuleMember -Function @(
     'Register-OcrProvider'
     'Get-OcrProviderName'

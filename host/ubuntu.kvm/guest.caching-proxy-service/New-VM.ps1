@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42f8395b-50cf-4a59-bfc3-49af26e60079
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -67,14 +67,9 @@ param(
     [string]$SquidCacheMem = '7 GB'
 )
 
-# Honor logLevel from Start-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
-# Load only when absent, never -Force. Start-CachingProxyServiceVM.ps1 runs this
-# script IN-PROCESS, so a forced re-import from here tears down and rebuilds the
-# module instance its caller is already using, taking whatever that instance keeps
-# in module scope with it and narrating a dozen import lines into the run's
-# transcript at Verbose (feedback_module_force_import_evicts_global). Tradeoff: an
-# edit to the module mid-session is not picked up here, which is acceptable for a
-# leaf script that only reads the level.
+# --- REGION: Log level from environment
+# See https://yuruna.link/42e220c4-0003
+# Reuse the caller's log module; a forced reload discards its state.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
 if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
     Import-Module $_logLevelMod -Global
@@ -105,14 +100,8 @@ if ($MacAddress) {
 }
 
 # --- REGION: libvirt-qemu search ACL on $HOME
-# Ubuntu 24.04+ cloud images create /home/<user> at mode 0750, which
-# blocks the libvirt-qemu user (uid 64055, gid kvm) that runs guest qemu
-# processes from traversing $HOME to reach the qcow2 below it. virt-install
-# then warns "You will need to grant the 'libvirt-qemu' user search
-# permissions for ['/home/<user>']" and errors out with "Cannot access
-# storage file ... Permission denied". A traverse-only POSIX ACL is the
-# narrowest fix and does not change read/write/listing for any other
-# user. Idempotent -- safe to run every cycle.
+# See https://yuruna.link/42e220c4-0004
+# Grant libvirt-qemu traverse-only access to the VM storage below this home directory.
 if (Get-Command -Name 'setfacl' -ErrorAction SilentlyContinue) {
     & getent passwd libvirt-qemu *>$null
     if ($LASTEXITCODE -eq 0) {
@@ -135,45 +124,31 @@ $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDi
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
-# --- REGION: Per-VM directory + disk
-# The caching-proxy-service VM is long-lived (one job: serve the cache to every
-# subsequent guest install), so we COPY the base image into the VM
-# directory rather than chaining a qcow2 overlay against it. Overlay
-# semantics break the moment Get-Image.ps1 rotates the base on the next
-# `resolute` point release: the overlay's referenced backing file would
-# disappear or change content, and the next VM start would fail or
-# silently boot a different OS. A full copy is ~2.5 GB sparse (qcow2
-# allocates on write) so the cost is acceptable.
+# --- REGION: Remove existing VM
+# See https://yuruna.link/42e220c4-0004
+$virshUri = 'qemu:///system'
+$destroyOut = & virsh --connect $virshUri destroy $VMName 2>&1
+Write-Verbose "virsh destroy '$VMName' exit=$LASTEXITCODE output='$($destroyOut -join '; ')'"
+# --- REGION: https://yuruna.link/42d69dfa-001e
+$undefineOut = & virsh --connect $virshUri undefine --nvram --managed-save `
+    --snapshots-metadata --checkpoints-metadata $VMName 2>&1
+Write-Verbose "virsh undefine '$VMName' exit=$LASTEXITCODE output='$($undefineOut -join '; ')'"
+$domainNames = @(& virsh --connect $virshUri list --all --name 2>&1)
+if ($LASTEXITCODE -ne 0) {
+    throw "Cannot verify removal of '$VMName': virsh list failed: $($domainNames -join '; ')"
+}
+if ($domainNames | Where-Object { $_.ToString().Trim() -eq $VMName }) {
+    $dominfo = (& virsh --connect $virshUri dominfo $VMName 2>&1 | Out-String).Trim()
+    throw "virsh destroy + undefine left '$VMName' defined; aborting before re-creation.`ndominfo:`n$dominfo"
+}
+
+# --- REGION: Create copies and files for VM
+# See https://yuruna.link/42e220c4-0004
+# Copy the base image: a persistent VM cannot depend on a backing file that rotates.
 $vmDir   = Join-Path $HOME "yuruna/vms/$VMName"
 $diskImg = Join-Path $vmDir "$VMName.qcow2"
 $seedImg = Join-Path $vmDir 'seed.iso'
 New-Item -ItemType Directory -Force -Path $vmDir | Out-Null
-
-# --- REGION: Remove existing VM
-# Idempotent rebuild: destroy + undefine (with --nvram so the EFI vars
-# go with the domain) before laying down new files. virsh returns
-# non-zero when the domain isn't defined; stderr is captured and
-# surfaced only at -Verbose.
-$virshUri = 'qemu:///system'
-$destroyOut = & virsh --connect $virshUri destroy $VMName 2>&1
-Write-Verbose "virsh destroy '$VMName' exit=$LASTEXITCODE output='$($destroyOut -join '; ')'"
-# Snapshot metadata, checkpoint metadata and a managed-save image each
-# pin the domain: undefine refuses ("cannot delete inactive domain with
-# N snapshots") unless asked to drop them, and the re-creation below
-# then fails with "domain already defined". A guest workload that takes
-# a disk snapshot is routine, so clear every kind of metadata here.
-$undefineOut = & virsh --connect $virshUri undefine --nvram --managed-save `
-    --snapshots-metadata --checkpoints-metadata $VMName 2>&1
-Write-Verbose "virsh undefine '$VMName' exit=$LASTEXITCODE output='$($undefineOut -join '; ')'"
-# Post-condition: a failure that leaves the domain defined makes the next
-# virt-install fail with "domain already defined", and the outer loop has
-# no signal to recover. Fail loud now with dominfo so the operator can act.
-$stillDefined = & virsh --connect $virshUri list --all --name 2>$null |
-    Where-Object { $_.Trim() -eq $VMName }
-if ($stillDefined) {
-    $dominfo = (& virsh --connect $virshUri dominfo $VMName 2>&1 | Out-String).Trim()
-    throw "virsh destroy + undefine left '$VMName' defined; aborting before re-creation.`ndominfo:`n$dominfo"
-}
 
 # --- REGION: Copy base image -> per-VM disk
 if (Test-Path -LiteralPath $diskImg) { Remove-Item -Force -LiteralPath $diskImg }
@@ -188,33 +163,23 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # --- REGION: Grow the per-VM disk to 512 GB
-# 512 GB is the APPARENT size (qcow2 is dynamic; actual consumption stays
-# low until squid starts caching). Sized for squid's `cache_dir ufs
-# /var/spool/squid 393216 16 256` (= 384 GB) + ~128 GB OS/logs/headroom.
-# The `maximum_object_size 65 GB` directive in
-# host/vmconfig/caching-proxy-service.base.user-data lets the proxy cache
-# files like the macOS install image (~18 GB) and other multi-GB blobs
-# end-to-end instead of bypassing them direct to CDN.
+# See https://yuruna.link/42e220c4-0004
+# Keep enough virtual capacity for the Squid cache and OS/log headroom.
 if (-not (Expand-ExtensionVmDisk -Path $diskImg -SizeBytes 512GB -Format 'qcow2')) {
-    Write-Warning "Resize failed -- continuing with original size."
-    Write-Warning "The cache VM will only have the base cloud-image capacity (~3.5 GB)"
-    Write-Warning "which fills up after the first prewarm. Resize manually with:"
-    Write-Warning "  qemu-img resize -f qcow2 '$diskImg' 512G"
+    Write-Error "Could not resize '$diskImg' to 512 GB; refusing to build the cache VM on base-capacity disk."
+    exit 1
 }
 
 # --- REGION: Yuruna harness SSH key
-# The harness uses one ed25519 key pair at test/status/ssh/yuruna_ed25519,
-# owned by Test.Ssh\Get-YurunaSshPublicKey. Test.Diagnostic's post-
-# failure SSH path (Invoke-GuestSsh) authenticates with that SAME key,
-# so the public bytes seeded into the guest's authorized_keys MUST be
-# this key -- not an ad-hoc per-host pair.
+# See https://yuruna.link/42e220c4-0004
+# Seed the shared harness key so guest provisioning and failure diagnostics agree.
 $TestSshModule = Join-Path $repoRoot 'test/modules/Test.Ssh.psm1'
 Import-Module $TestSshModule -Force -DisableNameChecking
 $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
-# --- REGION: Cache-VM admin password
-# --- REGION: https://yuruna.link/42f6b05f-0041
+# --- REGION: Vault admin password
+# See https://yuruna.link/42f6b05f-0041
 # The runtime state file <track>/yuruna-caching-proxy-service.yml is the source of
 # truth; Set-Password rehydrates the vault from it before Get-Password.
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Extension.psm1')    -Global -Force -Verbose:$false
@@ -239,8 +204,8 @@ foreach ($f in @($baseUserData, $overlayUserData, $metaDataTemplate)) {
         exit 1
     }
 }
-# --- REGION: Pick a libvirt network (BEFORE building user-data)
-# --- REGION: https://yuruna.link/4220a755-001b
+# --- REGION: Select the guest network
+# See https://yuruna.link/4220a755-001b
 # KVM: Resolve-GuestHostBinding pairs the libvirt network + host IP (NAT 'default' -> 192.168.122.1); the resolved $networkName is reused below for virt-install.
 Import-Module (Join-Path $repoRoot 'host/ubuntu.kvm/modules/Yuruna.Host.psm1') -Force -DisableNameChecking
 $guestBinding = Resolve-GuestHostBinding
@@ -251,8 +216,8 @@ $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $repoRoot
 $YurunaHostPort = $_statusSeed.Port
 $tc = $_statusSeed.Config
 
-# --- REGION: networkStorage pool (ypool-nas) service replication
-# --- REGION: https://yuruna.link/42f6b05f-0042
+# --- REGION: Pool storage replication
+# See https://yuruna.link/42f6b05f-0042
 # Bake the networkUser credential name, share path, and host id, resolved
 # here on the host (networkStorage pool config + vault).
 Import-Module (Join-Path $repoRoot 'test/modules/Test.PoolStorage.psm1') -Force
@@ -274,8 +239,8 @@ if (($ypoolNasNetPath -match "'") -or ($ypoolNasUser -match "'")) {
 # is NOT baked -- the config service serves it at runtime (/v1/nas/pool).
 $ypoolNasReplicate = if ($ypoolNasCfg -and $ypoolNasUser -and $ypoolNasNetPath) { 'true' } else { 'false' }
 
-# --- REGION: Internal authentication key (control proofs + push-ingest + lab-token exchange)
-# --- REGION: https://yuruna.link/42f6b05f-0042
+# --- REGION: Internal authentication key
+# See https://yuruna.link/42f6b05f-0042
 # Empty vaultKey means the token is unset: do NOT call Get-Password then (it
 # would auto-generate a junk per-host key). 'internal-auth-key' first, then the
 # legacy 'lab-auth-token' and 'pool-auth-token' names, so a host enrolled under
@@ -329,19 +294,8 @@ if ([string]::IsNullOrEmpty($internalAuthKey) -and -not $keyReadFailed) {
 }
 
 # --- REGION: Docker Hub pull-through credential
-# zot's sync walks its upstream list in file order, and Docker Hub is the
-# trailing catch-all, so every repository no scoped upstream claims is fetched
-# from Hub. Hub meters an anonymous sync against the egress IP -- one allowance
-# every guest behind this cache draws from at once -- and once it is gone zot's
-# revalidation stalls past the ~30s dockerd waits for response headers, which
-# fails the pull. An authenticated sync draws on the account's own budget,
-# which the lab holds alone.
-#
-# Both halves stay EMPTY unless the operator stored a real credential -- the
-# guest reads empty as "stay anonymous". Get-Password mints a value for a
-# missing entry and a minted secret authenticates as nobody, breaking every
-# sync, so only an entry Test-VaultEntry confirmed may reach it; a read that
-# THREW is likewise not a vault with no entry.
+# See https://yuruna.link/42e220c4-0004
+# Only use stored Docker Hub credentials; a generated password cannot authenticate.
 $dockerHubUsername = ''
 $dockerHubToken    = ''
 $dockerHubWarned   = $false
@@ -387,7 +341,7 @@ if ((-not $dockerHubUsername) -or (-not $dockerHubToken)) {
 }
 
 # --- REGION: Config service mTLS materials
-# --- REGION: https://yuruna.link/42f6b05f-0042
+# See https://yuruna.link/42f6b05f-0042
 # Mint a per-VM client leaf signed by THIS host's Config CA; PEMs are baked
 # base64 so they survive the cloud-init write_files block scalar.
 Import-Module (Join-Path $repoRoot 'test/modules/Test.ConfigServiceCA.psm1') -Force
@@ -507,15 +461,8 @@ if ($networkName -eq 'default') {
     Write-Warning ""
 } else {
     Write-Output "Using libvirt network: $networkName (cache VM will get a LAN-routable IP)"
-    # Fail fast on a dead bridge: a bridged network whose host bridge has
-    # no physical uplink port can never deliver a DHCP offer to the
-    # guest, so the 20-minute IP wait below would burn in full and then
-    # fail anyway. Probe /sys/class/net/<bridge>/brif for a non-tap port
-    # BEFORE creating the VM. Only <forward mode='bridge'/> networks
-    # qualify: NAT/routed/isolated networks also carry a <bridge
-    # name='virbrN'/> element, but that bridge is libvirt's own and
-    # legitimately has no physical uplink (its dnsmasq serves DHCP
-    # directly), so probing it would veto a working network.
+    # --- REGION: https://yuruna.link/42e220c4-0004
+    # Require a physical uplink only for bridge-mode networks; NAT bridges need none.
     $netXml = & virsh --connect $virshUri net-dumpxml $networkName 2>&1
     $isBridgeMode = $false
     $bridgeDev = $null
@@ -537,15 +484,8 @@ if ($networkName -eq 'default') {
 }
 
 # --- REGION: Create and configure the libvirt domain (virt-install)
-# `--import` (no install phase) since the cloud image is bootable.
-# `--events on_reboot=restart` matches the amazon.linux.2023 guest -- a
-# system_reset inside the VM (e.g. unattended-upgrades pulling a kernel)
-# performs QMP reset rather than exiting QEMU; the libvirt domain stays
-# defined and re-boots from its NVRAM-stored boot entry. Without this,
-# subiquity-style on_reboot=destroy would kill the VM at the first
-# guest reboot. The Ubuntu cloud image's first-run path doesn't reboot
-# during cloud-init's first phase, so this only matters for the long-
-# lived service-VM behavior.
+# See https://yuruna.link/42e220c4-0004
+# Keep guest reboots inside QEMU so the persistent service restarts normally.
 $arch = (& uname -m).Trim()
 
 # Ubuntu 26.04 may not be in the host's osinfo-db yet. Probe what
@@ -625,7 +565,7 @@ if ($virtInstallExit -ne 0) {
     exit 1
 }
 
-# --- REGION: Cleanup temporary folders
+# --- REGION: Clean up temporary files
 Remove-Item -LiteralPath $seedDir -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- REGION: Wait for VM IP
@@ -650,14 +590,8 @@ $baselineSizeMB = [math]::Round((Get-Item $diskImg).Length / 1MB, 0)
 # loop terminal-agnostic and keeps the operator informed.
 
 for ($i = 0; $i -lt $maxIterations; $i++) {
-    # Delegate to Get-VMIp (Yuruna.Host) -- it iterates the same
-    # lease/agent/arp sources but filters loopback (127/8) and link-
-    # local (169.254/16) and requires the row to have the literal
-    # 'ipv4' column. A naive `(\d+\.\d+\.\d+\.\d+)/\d+` regex matches
-    # the 'lo ... ipv4 127.0.0.1/8' row that `--source agent` emits
-    # as its FIRST line, sending the next port-wait probe to the
-    # host's own loopback and stalling Start-CachingProxyServiceVM.ps1 with
-    # `Cache VM IP: 127.0.0.1`.
+    # --- REGION: https://yuruna.link/42e220c4-0004
+    # Use shared address discovery to reject loopback and link-local agent rows.
     $cacheIp = Get-VMIp -VMName $VMName
     if ($cacheIp) { break }
     Start-Sleep -Seconds 5

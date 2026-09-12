@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42a4a080-e1cd-4a2a-98ba-ffdbe804c002
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,7 +19,7 @@
 # Capability matrix. Snapshots per-host runtime decisions (OCR engines,
 # host I/O backends, active extensions) at startup so a missing backend
 # fails the cycle plan up front, not three steps deep with "Unknown host:".
-# Rationale and banner format: https://yuruna.link/capability-matrix
+# Rationale and banner format: https://yuruna.link/42d38664-000f
 
 Import-Module (Join-Path $PSScriptRoot 'Test.HostIO.psm1')         -Global -Force
 Import-Module (Join-Path $PSScriptRoot 'Test.OcrEngine.psm1')       -Global -Force

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 4290efe6-0b47-4573-a67c-44f74ba35a69
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -150,7 +150,6 @@ function Get-ScannedModulePath {
 }
 
 # --- REGION: Recorded sites
-
 # Each entry names one body -- File plus the enclosing function, '' for module
 # top level -- and caps how many un-Global -Force sibling imports it may hold.
 # The cap is what makes an entry an exception rather than an exemption: a body
@@ -335,7 +334,6 @@ module.
 )
 
 # --- REGION: Scan
-
 # Switches take no following value, so the element after one is still a
 # candidate target. Everything else on Import-Module consumes the next element
 # unless it carries an inline argument (-Verbose:$false), which is why a naive
@@ -668,7 +666,6 @@ foreach ($path in $script:ScannedFile) {
 $script:Evicting = @($script:ForceImport | Where-Object { -not $_.Global })
 
 # --- REGION: Adjudication
-
 $script:Unrecorded = @($script:Evicting | Where-Object {
         $site = $_
         -not (@($script:RecordedSite | Where-Object {

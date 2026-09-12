@@ -8,11 +8,14 @@ sequenceRevision: 1
 
 description: "Ubuntu Server 24.04 (SSH): blind-keystroke-dismiss GRUB (OCR-free), then drive everything else over SSH once cloud-init has finished bringing up sshd."
 keystrokeMechanism: ssh
+
+# --- REGION: resource
 resource:
   ubuntu.server.24: []
 variables:
   username: yuuser24
 
+# --- REGION: component
 component:
   # OCR-free boot bridge: GRUB has no sshd yet, so dismiss the boot menu with a
   # blind keystroke (no framebuffer/OCR needed -- pressKey uses hypervisor key
@@ -50,6 +53,7 @@ component:
     command: "whoami && hostname"
     description: "Smoke test: whoami/hostname"
 
+# --- REGION: workload
 workload:
   - action: sshFetchAndExecute
     command: "/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.24/ubuntu.server.24.update.sh"

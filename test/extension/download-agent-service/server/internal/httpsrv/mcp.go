@@ -118,7 +118,7 @@ func (s *Server) mcpRegistry() *mcp.Registry {
 			}),
 	})
 
-	// --- Mutating -------------------------------------------------------------
+	// --- REGION: Mutating tools
 	// Both wrap a route that reads r.PathValue, so both go through FromPattern:
 	// a directly-called handler sees empty placeholders and refuses arguments
 	// the caller supplied.

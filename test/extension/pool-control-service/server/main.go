@@ -49,6 +49,7 @@ func main() {
 	language := flag.String("language", "", "lab-wide lock on the reader's language (a BCP 47 tag); empty or \"auto\" lets each browser's Accept-Language decide")
 	allowPseudoLocale := flag.Bool("allow-pseudo-locale", false, "let a request select a pseudo locale (expanded or mirrored text). For a reference run only: a reader who received one would read the page as broken")
 	scanInterval := flag.Duration("scan-interval", discovery.DefaultInterval, "how often the discovery sweep runs (0 disables the timer; the Scan page still scans on demand)")
+	scanTTL := flag.Duration("scan-ttl", discovery.DefaultTTL, "drop a discovered host from the monitored list this long after its last sighting (negative keeps every host forever); duplicate rows for one address are collapsed after every scan regardless")
 	flag.Parse()
 
 	log.SetFlags(log.LstdFlags | log.LUTC | log.Lmicroseconds)
@@ -68,7 +69,7 @@ func main() {
 		PwshPath: *pwshPath, RepoDir: *repoDir, StateDir: *stateDir,
 		AggregatorURL: *aggregatorURL, HostID: *hostID, IntentGitURL: *intentGitURL,
 		AuthToken: authToken, AuthTokenFile: *authTokenFile,
-		ScanCIDR: *scanCIDR, ScanPort: *scanPort, ScanInterval: *scanInterval,
+		ScanCIDR: *scanCIDR, ScanPort: *scanPort, ScanInterval: *scanInterval, ScanTTL: *scanTTL,
 		Language: *language, AllowPseudoLocale: *allowPseudoLocale,
 	})
 

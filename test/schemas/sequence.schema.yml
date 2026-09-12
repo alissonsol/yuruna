@@ -130,6 +130,25 @@ properties:
           this both as the snapshot lookup key AND as the persisted
           VM name (the chain's saveDiskSnapshot renames to this id).
 
+  snapshotPolicy:
+    type: object
+    description: >
+      Optional managed-baseline policy shared by the producer and consumer.
+      Requires provenance and a bounded age before restoring. A stale baseline
+      can be rebuilt only when its manifest proves ownership on this host.
+      Sequences without this policy retain legacy snapshot behavior.
+    required: [maxAgeHours, sourceFiles]
+    additionalProperties: false
+    properties:
+      maxAgeHours: { type: number, exclusiveMinimum: 0 }
+      rebuildOnMismatch: { type: boolean, default: false }
+      sourceFiles:
+        type: array
+        minItems: 1
+        items:
+          type: string
+          description: Framework-relative file or wildcard pattern; every pattern must match.
+
   component:
     type: array
     description: >
@@ -293,6 +312,7 @@ $defs:
             pollSeconds:         { type: number,  minimum: 0 }
             freshMatch:          { type: boolean }
             freshMatchTailLines: { type: integer, minimum: 0 }
+            sinceStepStart:      { type: boolean }
             failurePatterns:     { $ref: "#/$defs/patternOrArray" }
             tabCount:            { type: integer, minimum: 0 }
             charDelayMs:         { type: integer, minimum: 0 }
@@ -424,12 +444,14 @@ $defs:
             pollSeconds:         { type: number,  minimum: 0 }
             freshMatch:          { type: boolean }
             freshMatchTailLines: { type: integer, minimum: 0 }
+            sinceStepStart:      { type: boolean }
             failurePatterns:     { $ref: "#/$defs/patternOrArray" }
             sensitive:           { type: boolean }
             tabCount:            { type: integer, minimum: 0 }
             charDelayMs:         { type: integer, minimum: 0 }
             delaySeconds:        { type: number,  minimum: 0 }
             blindAfterSeconds:   { type: integer, minimum: 0 }
+            blindSkipPattern:    { $ref: "#/$defs/patternOrArray" }
             confirmPattern:      { $ref: "#/$defs/patternOrArray" }
             confirmSeconds:      { type: integer, minimum: 0 }
 
@@ -448,6 +470,7 @@ $defs:
             pollSeconds:         { type: number,  minimum: 0 }
             freshMatch:          { type: boolean }
             freshMatchTailLines: { type: integer, minimum: 0 }
+            sinceStepStart:      { type: boolean }
             failurePatterns:     { $ref: "#/$defs/patternOrArray" }
 
       - if: { properties: { action: { const: waitForTextWithNudge } } }
@@ -459,6 +482,7 @@ $defs:
             pollSeconds:         { type: number,  minimum: 0 }
             freshMatch:          { type: boolean }
             freshMatchTailLines: { type: integer, minimum: 0 }
+            sinceStepStart:      { type: boolean }
             failurePatterns:     { $ref: "#/$defs/patternOrArray" }
             nudgeKey:
               type: string

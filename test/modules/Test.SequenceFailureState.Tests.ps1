@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42da4d2b-cbcd-4c6d-b4e8-973686da3b1a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -79,6 +79,9 @@ function Reset-FailState {
     # otherwise leave every later test in this file reporting a parked console or
     # an operator hold it never had.
     $f.WaitForTextConsoleStaticSeconds = 0
+    # And the qualifier on those two slots, for the same reason: a test that
+    # clears it would leave every later test in this file publishing nulls.
+    $f.WaitForTextConsoleSignalsMeasured = $true
     $f.LastPauseRelease = $null
     return $f
 }
@@ -200,6 +203,24 @@ Describe 'New-SequenceFailureRecord classificationSource discrimination' {
             -Because 'a wall of text that stopped moving is the evidence that the guest is waiting, not working'
     }
 
+    It 'reports the console fields as unmeasured, not as zero, when the wait never looked' {
+        # A wait confined to the console tail runs neither console-shape tracker,
+        # so both slots hold their initializers -- the same 0 and '' a measured,
+        # moving, non-repeating console produces. Published as numbers they assert
+        # something about the screen that nothing observed, and the reader who
+        # trusts them goes looking for a guest that was working the whole time.
+        $f = Reset-FailState
+        $f.WaitForTextConsoleSignalsMeasured = $false
+        $r = New-SequenceFailureRecord -Reason step -VMName 'v' -GuestKey 'g' -HostType 'h' -SequencePath $script:seqPath -LogDir 'd' -TotalSteps 5
+        Assert-True ($r.File.context.causeDetail.Contains('consoleStaticSeconds')) 'the field must always be present'
+        Assert-True ($r.File.context.causeDetail.Contains('consoleFlood')) 'the field must always be present'
+        Assert-True ($null -eq $r.File.context.causeDetail.consoleStaticSeconds) `
+            'an unmeasured screen must not read as a screen measured at zero'
+        Assert-True ($null -eq $r.File.context.causeDetail.consoleFlood) `
+            'an unevaluated flood check must not read as a screen found non-repetitive'
+        Assert-Equal -Expected 'ocr_timeout' -Actual $r.File.failureClass -Because 'not measuring the screen is not a reclassification'
+    }
+
     It 'carries an operator hold released before the failing step' {
         # The pause gate holds the runner, not the guest: a VM keeps running and
         # printing through a hold, so a prompt printed during one is gone from the
@@ -317,6 +338,65 @@ Describe 'New-InfraFailureRecord (infra-stage failures)' {
             $v = Test-CycleEventSchema -Record $r.Event
             Assert-Equal -Expected 0 -Actual (@($v).Count) -Because "event for $cls must validate; got: $($v -join '; ')"
         }
+    }
+
+    # What the machine held when it refused is recoverable from nothing else the
+    # cycle keeps -- those numbers exist only in the instant of the call -- so a
+    # driver that measured them has to get them into the record and onto the
+    # stream, and the file nests them while the event carries them flat.
+    It 'carries a measured host memory position into the record and the event' {
+        $reading = @{ availableMb = 1192; committedBytes = 46236958720; commitLimitBytes = 48257269760
+                      commitAvailableBytes = 2020311040; source = 'Win32_OperatingSystem' }
+        $r = New-InfraFailureRecord -Stage 'Start-VM' -FailureClass 'provisioning_failure' -GuestKey 'guest.x' `
+            -VMName 'vm1' -HostType 'host.windows.hyper-v' -ErrorMessage 'refused' -HostMemory $reading
+        $block = $r.File.context['hostMemory']
+        Assert-NotNull $block 'a measured reading must reach the record'
+        foreach ($key in 'availableMb', 'committedBytes', 'commitLimitBytes', 'commitAvailableBytes', 'source') {
+            Assert-True ($block.Contains($key)) "the nested block must state $key"
+        }
+        Assert-Equal -Expected 'Win32_OperatingSystem' -Actual $block['source'] -Because 'the reading names where it came from'
+        Assert-Equal -Expected 1192 -Actual $r.Event['hostAvailableMb'] -Because 'flat event field'
+        Assert-Equal -Expected 46236958720 -Actual $r.Event['hostCommittedBytes'] -Because 'flat event field'
+        Assert-Equal -Expected 48257269760 -Actual $r.Event['hostCommitLimitBytes'] -Because 'flat event field'
+        Assert-Equal -Expected 2020311040 -Actual $r.Event['hostCommitAvailableBytes'] -Because 'flat event field'
+        # A commit figure overflows Int32 on any host worth measuring, so the
+        # width is part of the contract rather than an implementation detail.
+        Assert-True ($r.Event['hostCommittedBytes'] -is [long]) 'byte counts must be Int64'
+        $roundTrip = $r.File | ConvertTo-Json -Depth 6 | ConvertFrom-Json
+        Assert-Equal -Expected 48257269760 -Actual $roundTrip.context.hostMemory.commitLimitBytes `
+            -Because 'the reading has to survive the serialization the record is stored and read through'
+    }
+
+    # ABSENT, never zeroed: a zeroed reading is indistinguishable from a measured
+    # one, and a fabricated memory figure reads as a measurement. The drivers
+    # that cannot measure their host state nothing at all.
+    It 'states no host memory at all when the driver could not measure it' {
+        $cases = @(
+            @{ Label = 'no argument'; Reading = $null; Pass = $false },
+            @{ Label = 'an explicit null'; Reading = $null; Pass = $true },
+            @{ Label = 'an empty reading'; Reading = @{}; Pass = $true },
+            @{ Label = 'a partial reading with no commit limit'; Reading = @{ availableMb = 1192 }; Pass = $true }
+        )
+        foreach ($case in $cases) {
+            $r = if ($case.Pass) {
+                New-InfraFailureRecord -Stage 'Start-VM' -FailureClass 'provisioning_failure' -GuestKey 'guest.x' -ErrorMessage 'refused' -HostMemory $case.Reading
+            } else {
+                New-InfraFailureRecord -Stage 'Start-VM' -FailureClass 'provisioning_failure' -GuestKey 'guest.x' -ErrorMessage 'refused'
+            }
+            Assert-False ($r.File.context.Contains('hostMemory')) "$($case.Label): the record must carry no hostMemory block"
+            foreach ($field in 'hostAvailableMb', 'hostCommittedBytes', 'hostCommitLimitBytes', 'hostCommitAvailableBytes') {
+                Assert-False ($r.Event.Contains($field)) "$($case.Label): the event must not carry $field"
+            }
+        }
+    }
+
+    It 'emits an event that still validates with the host memory fields on it' {
+        $reading = @{ availableMb = 1192; committedBytes = 46236958720; commitLimitBytes = 48257269760
+                      commitAvailableBytes = 2020311040; source = 'Win32_PerfRawData_PerfOS_Memory' }
+        $r = New-InfraFailureRecord -Stage 'Start-VM' -FailureClass 'provisioning_failure' -GuestKey 'guest.x' `
+            -ErrorMessage 'refused' -HostMemory $reading
+        $v = @(Test-CycleEventSchema -Record $r.Event)
+        Assert-Equal -Expected 0 -Actual $v.Count -Because "a measured reading must not make the event invalid; got: $($v -join '; ')"
     }
 }
 

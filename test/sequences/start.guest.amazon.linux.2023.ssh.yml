@@ -12,11 +12,14 @@ sequenceRevision: 1
 
 description: "Amazon Linux 2023 (SSH): drive everything over SSH once cloud-init has brought up sshd -- no console password dance (key auth bypasses the forced first-login change)."
 keystrokeMechanism: ssh
+
+# --- REGION: resource
 resource:
   amazon.linux.2023: []
 variables:
   username: yauser1
 
+# --- REGION: component
 component:
   - action: sshWaitReady
     timeoutSeconds: 300
@@ -26,6 +29,7 @@ component:
     command: "whoami && hostname"
     description: "Smoke test: whoami/hostname"
 
+# --- REGION: workload
 workload:
   - action: sshFetchAndExecute
     command: "/usr/local/lib/yuruna/fetch-and-execute.sh guest/amazon.linux.2023/amazon.linux.2023.update.sh"

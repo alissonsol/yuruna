@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 4246d32b-8525-4736-8ed7-b3883787ca97
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -68,7 +68,19 @@ function New-ArchiveFixture {
     # tell "produced by this cycle" from "left by an earlier one".
     $runId = [guid]::NewGuid().ToString()
     $global:__YurunaRunId = $runId
-    return @{ Tmp = $tmp; Saved = $saved; Final = ($cycle -replace '\.incomplete$', ''); RunId = $runId }
+    return @{ Tmp = $tmp; Saved = $saved; Cycle = $cycle; Final = ($cycle -replace '\.incomplete$', ''); RunId = $runId }
+}
+
+# The cycle-folder handle is the mirror's default destination, so proving the
+# "no handle" branch means unsetting it; that is the only reason to touch the
+# global outside the fixture pair.
+function Clear-CycleFolderHandle {
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
+        Justification = 'Test must clear the Yuruna.Log cross-module cycle-folder handle to reach the no-handle branch.')]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Test helper: clears one in-memory global that Restore-ArchiveFixture puts back; no production state.')]
+    param()
+    $global:__YurunaCycleFolder = $null
 }
 
 function Restore-ArchiveFixture {
@@ -204,6 +216,218 @@ Describe 'Stop-LogFile last_failure.json archiving' {
         try {
             Stop-LogFile -Outcome 'pass' -Reason 'clean' -Confirm:$false
             Assert-True (-not (Test-Path (Join-Path $fx.Final 'last_failure.json'))) 'a passing cycle must not archive a stale last_failure.json'
+        } finally { Restore-ArchiveFixture -Fixture $fx }
+    }
+
+    # The record a cycle actually failed on is routinely gone from the log root
+    # by the time the cycle ends: every sequence start clears it there, so a host
+    # running several guests per cycle loses a non-final guest's record before
+    # anything reads it. The mirror the writers take at classification time is
+    # then the only copy, and the cycle-end sweep must keep it rather than
+    # conclude from an empty log root that nothing failed.
+    It 'keeps a mirror written during the cycle when the root copy has since been cleared' {
+        $fx = New-ArchiveFixture
+        try {
+            [System.IO.File]::WriteAllText(
+                (Join-Path $fx.Cycle 'last_failure.json'),
+                '{"schemaVersion":2,"guestKey":"guest.mirrored","failureClass":"provisioning_failure"}',
+                [System.Text.UTF8Encoding]::new($false))
+            Stop-LogFile -Outcome 'fail' -Reason 'cleared-root-test' -Confirm:$false
+            $archived = Join-Path $fx.Final 'last_failure.json'
+            Assert-True (Test-Path $archived) 'the mirror is the only copy of this cycle failure and must survive the cycle end'
+            Assert-Match 'guest.mirrored' (Get-Content -Raw $archived) 'the surviving record must be the one this cycle wrote'
+            $man = Get-Content -Raw (Join-Path $fx.Final 'manifest.json') | ConvertFrom-Json
+            $entry = @($man.artifacts | Where-Object { $_.path -eq 'last_failure.json' })
+            Assert-Equal -Expected 1 -Actual $entry.Count -Because 'manifest lists last_failure.json exactly once, so a re-copy cannot double-list it'
+            Assert-Equal -Expected 'failure' -Actual $entry[0].kind -Because 'manifest classifies the surviving record as kind=failure'
+        } finally { Restore-ArchiveFixture -Fixture $fx }
+    }
+
+    # A cycle that recovered -- a warm resume re-ran the failed sequence and it
+    # passed -- still holds the first attempt's mirror. A record in the cycle
+    # folder means "this cycle failed", so a pass has to clear it or every
+    # recovery is filed as a failure.
+    It 'clears a mirror on a pass outcome' {
+        $fx = New-ArchiveFixture
+        try {
+            [System.IO.File]::WriteAllText(
+                (Join-Path $fx.Cycle 'last_failure.json'),
+                '{"schemaVersion":2,"guestKey":"guest.recovered","failureClass":"ocr_timeout"}',
+                [System.Text.UTF8Encoding]::new($false))
+            Stop-LogFile -Outcome 'pass' -Reason 'recovered' -Confirm:$false
+            Assert-True (-not (Test-Path (Join-Path $fx.Final 'last_failure.json'))) 'a recovered cycle must not be left looking failed'
+        } finally { Restore-ArchiveFixture -Fixture $fx }
+    }
+}
+
+Describe 'Copy-CycleFailureRecord' {
+
+    It 'mirrors the log root record into the cycle folder' {
+        $fx = New-ArchiveFixture -RootFailureJson '{"schemaVersion":2,"failureClass":"ssh_timeout","vmName":"","guestKey":""}'
+        try {
+            $cycle = "$($fx.Final).incomplete"
+            Assert-True (Copy-CycleFailureRecord) 'a fresh record must be mirrored'
+            Assert-True (Test-Path (Join-Path $cycle 'last_failure.json')) 'the cycle-folder copy is what makes the cycle self-describing'
+        } finally { Restore-ArchiveFixture -Fixture $fx }
+    }
+
+    It 'also mirrors into the folder of the guest the record names' {
+        $fx = New-ArchiveFixture -RootFailureJson '{"schemaVersion":2,"failureClass":"ssh_timeout","vmName":"vm-a","guestKey":"guest.a"}'
+        try {
+            $cycle = "$($fx.Final).incomplete"
+            $null = Copy-CycleFailureRecord
+            $guestCopy = Join-Path $cycle 'vm-a/last_failure.json'
+            Assert-True (Test-Path $guestCopy) 'the guest copy is the one that cannot be attributed to the wrong guest'
+            $rec = Get-Content -LiteralPath $guestCopy -Raw | ConvertFrom-Json
+            Assert-Equal -Expected 'ssh_timeout' -Actual $rec.failureClass
+        } finally { Restore-ArchiveFixture -Fixture $fx }
+    }
+
+    It 'keeps two guests of one cycle in separate records' {
+        $fx = New-ArchiveFixture -RootFailureJson '{"schemaVersion":2,"failureClass":"provisioning_failure","vmName":"vm-a","guestKey":"guest.a"}'
+        try {
+            $cycle = "$($fx.Final).incomplete"
+            $null = Copy-CycleFailureRecord
+            # The next guest's sequence start clears the root, then its own
+            # failure writes a record naming it.
+            $rootRecord = Join-Path $fx.Tmp 'last_failure.json'
+            Remove-Item -LiteralPath $rootRecord -Force
+            [System.IO.File]::WriteAllText($rootRecord, '{"schemaVersion":2,"failureClass":"lab_dependency_down","vmName":"vm-b","guestKey":"guest.b"}', [System.Text.UTF8Encoding]::new($false))
+            $null = Copy-CycleFailureRecord
+            $a = Get-Content -LiteralPath (Join-Path $cycle 'vm-a/last_failure.json') -Raw | ConvertFrom-Json
+            $b = Get-Content -LiteralPath (Join-Path $cycle 'vm-b/last_failure.json') -Raw | ConvertFrom-Json
+            Assert-Equal -Expected 'provisioning_failure' -Actual $a.failureClass -Because 'the first guest keeps its own cause'
+            Assert-Equal -Expected 'lab_dependency_down'  -Actual $b.failureClass
+        } finally { Restore-ArchiveFixture -Fixture $fx }
+    }
+
+    It 'leaves a record that names no guest in the cycle folder alone' {
+        $fx = New-ArchiveFixture -RootFailureJson '{"schemaVersion":2,"failureClass":"host_condition_unmet","vmName":"","guestKey":""}'
+        try {
+            $cycle = "$($fx.Final).incomplete"
+            $null = Copy-CycleFailureRecord
+            Assert-True (Test-Path (Join-Path $cycle 'last_failure.json')) 'a host-level failure still describes the cycle'
+            Assert-Equal -Expected 0 -Actual @(Get-ChildItem -LiteralPath $cycle -Directory -ErrorAction SilentlyContinue).Count -Because 'no guest is named, so no per-guest folder is invented'
+        } finally { Restore-ArchiveFixture -Fixture $fx }
+    }
+
+    It 'refuses a root copy older than the mirror it would overwrite' {
+        $fx = New-ArchiveFixture -RootFailureJson '{"schemaVersion":2,"failureClass":"ssh_timeout","vmName":"vm-a","guestKey":"guest.a"}'
+        try {
+            $cycle = "$($fx.Final).incomplete"
+            $null = Copy-CycleFailureRecord
+            # An earlier RUN's record nothing wiped: older than this cycle's own.
+            $rootRecord = Join-Path $fx.Tmp 'last_failure.json'
+            [System.IO.File]::WriteAllText($rootRecord, '{"schemaVersion":2,"failureClass":"from_an_earlier_run","vmName":"vm-a","guestKey":"guest.a"}', [System.Text.UTF8Encoding]::new($false))
+            (Get-Item -LiteralPath $rootRecord).LastWriteTimeUtc = (Get-Date).ToUniversalTime().AddHours(-4)
+            Assert-True (-not (Copy-CycleFailureRecord)) 'an older root copy is not this cycle evidence'
+            foreach ($copy in @((Join-Path $cycle 'last_failure.json'), (Join-Path $cycle 'vm-a/last_failure.json'))) {
+                $rec = Get-Content -LiteralPath $copy -Raw | ConvertFrom-Json
+                Assert-Equal -Expected 'ssh_timeout' -Actual $rec.failureClass -Because "$copy must keep this cycle's own record"
+            }
+        } finally { Restore-ArchiveFixture -Fixture $fx }
+    }
+
+    It 'returns false without throwing when the record already IS the cycle-folder copy' {
+        # Bootstrap stages run before Start-LogFile and write straight into the
+        # cycle folder; copying a file onto itself throws.
+        $fx = New-ArchiveFixture -RootFailureJson ''
+        try {
+            $cycle = "$($fx.Final).incomplete"
+            [System.IO.File]::WriteAllText((Join-Path $cycle 'last_failure.json'), '{"schemaVersion":2,"failureClass":"bootstrap_sync","vmName":"","guestKey":""}', [System.Text.UTF8Encoding]::new($false))
+            Assert-True (-not (Copy-CycleFailureRecord -LogDir $cycle)) 'same source and destination is a no-op, not a crash'
+            Assert-True (Test-Path (Join-Path $cycle 'last_failure.json')) 'and the record is still there'
+        } finally { Restore-ArchiveFixture -Fixture $fx }
+    }
+
+    It 'returns false when there is no record and when there is no log directory' {
+        $fx = New-ArchiveFixture -RootFailureJson ''
+        try {
+            Assert-True (-not (Copy-CycleFailureRecord)) 'nothing to mirror'
+            $env:YURUNA_LOG_DIR = ''
+            Assert-True (-not (Copy-CycleFailureRecord)) 'nowhere to mirror from'
+        } finally { Restore-ArchiveFixture -Fixture $fx }
+    }
+
+    It 'catalogs both copies in the cycle manifest, each with its own kind' {
+        $fx = New-ArchiveFixture -RootFailureJson '{"schemaVersion":2,"failureClass":"ssh_timeout","vmName":"vm-a","guestKey":"guest.a"}'
+        try {
+            Stop-LogFile -Outcome 'fail' -Reason 'guest failure' -Confirm:$false
+            $manifest = Get-Content -LiteralPath (Join-Path $fx.Final 'manifest.json') -Raw | ConvertFrom-Json
+            $cycleEntry = @($manifest.artifacts | Where-Object { $_.path -eq 'last_failure.json' })
+            $guestEntry = @($manifest.artifacts | Where-Object { $_.path -eq 'vm-a/last_failure.json' })
+            Assert-Equal -Expected 1 -Actual $cycleEntry.Count -Because 'exactly one cycle-level record, never several competing for the answer'
+            Assert-Equal -Expected 'failure' -Actual $cycleEntry[0].kind
+            Assert-Equal -Expected 1 -Actual $guestEntry.Count
+            Assert-Equal -Expected 'failure-guest' -Actual $guestEntry[0].kind -Because 'a per-guest copy is not the cycle verdict'
+        } finally { Restore-ArchiveFixture -Fixture $fx }
+    }
+
+    It 'clears every copy on a pass outcome, the per-guest one included' {
+        # A warm resume re-ran the failed sequence and it passed: the cycle has
+        # no failure of its own, so nothing under its folder may claim one.
+        $fx = New-ArchiveFixture -RootFailureJson '{"schemaVersion":2,"failureClass":"ssh_timeout","vmName":"vm-a","guestKey":"guest.a"}'
+        try {
+            $null = Copy-CycleFailureRecord
+            Remove-Item -LiteralPath (Join-Path $fx.Tmp 'last_failure.json') -Force
+            Stop-LogFile -Outcome 'pass' -Reason 'recovered' -Confirm:$false
+            Assert-True (-not (Test-Path (Join-Path $fx.Final 'last_failure.json'))) 'a recovered cycle must not look failed'
+            Assert-True (-not (Test-Path (Join-Path $fx.Final 'vm-a/last_failure.json'))) 'nor may the guest folder still hold the first attempt'
+        } finally { Restore-ArchiveFixture -Fixture $fx }
+    }
+}
+
+Describe 'Copy-CycleFailureRecord' {
+
+    It 'mirrors the log root record into the cycle folder' {
+        $fx = New-ArchiveFixture -RootFailureJson '{"schemaVersion":2,"guestKey":"guest.a","failureClass":"provisioning_failure"}'
+        try {
+            Assert-True (Copy-CycleFailureRecord) 'a record at the log root with a cycle folder open must be mirrored'
+            $mirror = Join-Path $fx.Cycle 'last_failure.json'
+            Assert-True (Test-Path $mirror) 'the mirror must land in the cycle folder'
+            Assert-Match 'guest.a' (Get-Content -Raw $mirror) 'the mirror must carry the record, not an empty file'
+        } finally { Restore-ArchiveFixture -Fixture $fx }
+    }
+
+    # A root copy older than the mirror is a record nothing wiped -- an earlier
+    # run's -- while the mirror is this cycle's own. Copying it over would hand
+    # the cycle a failure it never had, and name another run's guest as the cause.
+    It 'refuses to replace the mirror with an older record left at the log root' {
+        $fx = New-ArchiveFixture -RootFailureJson '{"schemaVersion":2,"guestKey":"guest.from.previous.run"}'
+        try {
+            $mirror = Join-Path $fx.Cycle 'last_failure.json'
+            [System.IO.File]::WriteAllText($mirror, '{"schemaVersion":2,"guestKey":"guest.this.cycle"}', [System.Text.UTF8Encoding]::new($false))
+            $root = Get-Item -LiteralPath (Join-Path $fx.Tmp 'last_failure.json')
+            $root.LastWriteTimeUtc = (Get-Date).ToUniversalTime().AddMinutes(-10)
+            Assert-False (Copy-CycleFailureRecord) 'an older root record must not be mirrored'
+            Assert-Match 'guest.this.cycle' (Get-Content -Raw $mirror) 'the mirror must be left exactly as this cycle wrote it'
+        } finally { Restore-ArchiveFixture -Fixture $fx }
+    }
+
+    # Bootstrap stages run before the log root is established and write the
+    # record straight into the cycle folder, so source and destination are one
+    # file -- which Copy-Item treats as an error.
+    It 'reports no copy, and does not throw, when the log root IS the cycle folder' {
+        $fx = New-ArchiveFixture -RootFailureJson '{"schemaVersion":2,"guestKey":"guest.bootstrap"}'
+        try {
+            Assert-False (Copy-CycleFailureRecord -LogDir $fx.Tmp -CycleFolder $fx.Tmp) 'a file cannot be copied onto itself'
+            Assert-True (Test-Path (Join-Path $fx.Tmp 'last_failure.json')) 'the record must still be there afterwards'
+        } finally { Restore-ArchiveFixture -Fixture $fx }
+    }
+
+    It 'reports no copy when there is no record to mirror' {
+        $fx = New-ArchiveFixture
+        try {
+            Assert-False (Copy-CycleFailureRecord) 'nothing to mirror is not a failure, and not a copy either'
+            Assert-True (-not (Test-Path (Join-Path $fx.Cycle 'last_failure.json'))) 'no record may be invented in the cycle folder'
+        } finally { Restore-ArchiveFixture -Fixture $fx }
+    }
+
+    It 'reports no copy when no cycle folder is open' {
+        $fx = New-ArchiveFixture -RootFailureJson '{"schemaVersion":2,"guestKey":"guest.a"}'
+        try {
+            Clear-CycleFolderHandle
+            Assert-False (Copy-CycleFailureRecord) 'a stage running outside a cycle has nowhere to mirror to'
         } finally { Restore-ArchiveFixture -Fixture $fx }
     }
 }

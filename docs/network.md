@@ -9,13 +9,11 @@ workarounds discoverable from one place.
 Source files reference an entry with a single line of the form:
 
 ```
-# --- REGION: https://yuruna.link/network#<topic-slug>
+# --- REGION: https://yuruna.link/4220a755-0003
 ```
 
-The fragment resolves to a `### Defining <topic>` heading in this file.
-Slugs follow the standard GitHub Markdown rule: lowercase the heading
-text, strip everything that isn't `[a-z0-9_ -]`, then replace spaces
-with hyphens.
+The semi-GUID resolves to a `### Defining <topic>` heading in this file and
+stays stable when the heading is reworded or translated.
 
 This file is the network-specific sibling of [Yuruna definitions](definition.md),
 [Yuruna memory](memory.md) (historical / incident rationale), and
@@ -80,7 +78,7 @@ script runs. Guest scripts source it after their arch-detection block:
 . /usr/local/lib/yuruna/yuruna-retry.sh
 ```
 
-The library exports five functions:
+The library provides five retry wrappers:
 
 | Function | Wraps | Notes |
 |---|---|---|
@@ -89,6 +87,13 @@ The library exports five functions:
 | `curl_retry` | `curl ...`    | Any caller; prepends `--retry 3 --retry-connrefused --retry-delay 5` so curl handles transient HTTP 5xx + connection-refused in-process before the outer attempt loop fires. Deliberately NOT `--retry-all-errors`: that would also retry 4xx (auth failures, 404s), which are non-transient and only waste attempts. |
 | `wget_try`   | `wget ...`    | wget analog of `curl_retry`: prepends `--tries=3 --waitretry=5 --retry-connrefused` for in-process transient handling and shares the transient/permanent gate below. |
 | `pwsh_retry` | `sudo pwsh ...` | Reads the body from stdin (here-doc), writes a temporary `.ps1`, and invokes `sudo pwsh -NoProfile -File <script>`. This preserves multi-line execution and the script's exit code; `-Command -` can skip incomplete constructs and report success. All pwsh streams append to a caller-supplied log under `/var/log/yuruna/` with a UTC-stamped per-attempt header. The log is the failure-collector handoff -- see [`Defining Get-SystemDiagnostic`](definition.md#defining-get-systemdiagnostic), GUEST PROVISIONING section. The body must `throw` / `exit 1` on failure. A script file avoids command-line length limits (32 K on Windows `CreateProcess`, `ARG_MAX` on Linux) and argument quoting pitfalls. |
+
+The wrappers and every helper they call must be exported together. The
+fetch-and-execute launcher sources the library, then runs the payload in a
+child Bash process. That child inherits exported functions only; checking that
+`_yuruna_retry` exists does not prove its configuration, recording, or CA-repair
+helpers are present. Validate this contract from a fresh child shell, including
+a failed attempt and the resulting retry or final exit code.
 
 **Outer-loop behavior** (all five wrappers share `_yuruna_retry`):
 
@@ -286,7 +291,7 @@ persistent stall would still fail the step after spending the whole budget. Two
 attempts cost ~610s and leave most of it, and a stall that outlasts both is an
 outage the next cycle should retry rather than something to keep hammering here.
 
-Both settings are handed back to their defaults immediately afterwards, because
+Both settings are handed back to their defaults immediately afterward, because
 everything below that point runs real dpkg transactions.
 
 ---
@@ -443,10 +448,11 @@ same way: `dhcp-identifier: mac` in
 on the cidata seed as `network-config`.
 
 Amazon Linux receives **no seed `network-config` at all**, and that is a
-deliberate exception rather than a gap waiting to be closed. Its client-id comes
-from the `nmcli` runcmd in its user-data instead, which needs no interface match
-because it names connections that already exist. See 'Why the NetworkManager
-guest gets no seed network-config' below before adding one.
+deliberate exception rather than a gap waiting to be closed. Its live image uses
+systemd-networkd: user-data installs `ClientIdentifier=mac` drop-ins beside the
+cloud-init fallback profiles, with a best-effort `nmcli` pin for images managed
+by NetworkManager. See [Amazon Linux's renderer-specific
+setup](#4220a755-000c) before adding a shared network seed.
 
 **When it is applied matters as much as whether.** cloud-init reads
 `network-config` *before* it configures networking. Everything else that could
@@ -486,8 +492,8 @@ These details are load-bearing:
   IPv4 is **not** evidence of a drained pool: see 'Reading a guest that has no
   IPv4' below before concluding anything about the pool.
 - **On Amazon Linux the pin therefore lands late, and that is the accepted
-  cost.** The `nmcli` step runs after networking, so it governs renewals and
-  later activations rather than the first lease of a build. Nothing better is
+  cost.** The networkd drop-in and optional `nmcli` step run after networking,
+  so the first DHCP transaction still uses the image's initial identity. Nothing better is
   reachable without seeding a `network-config`, and that trade is settled the
   other way: cloud-init runs no user-supplied content -- not `runcmd`, not
   `bootcmd`, not a boothook -- before it renders the network, so the seed is the
@@ -513,7 +519,9 @@ runs, the installer has already taken a lease.
 
 <a id="4220a755-000c"></a>
 
-### Why the NetworkManager guest gets no seed network-config
+<a id="why-the-networkmanager-guest-gets-no-seed-network-config"></a>
+
+### Why Amazon Linux gets no seed network-config
 
 Amazon Linux is the one Linux guest built with no `network-config` on its seed.
 The temptation to close that gap is strong -- it is the only guest whose
@@ -537,16 +545,28 @@ exactly that:
   which still left the NIC unclaimed on both KVM (`enp1s0`) and Hyper-V
   (`eth0`).
 
-The lesson is not "use the other match form". It is that whether a given
-`network-config` resolves under this guest's renderer **is not decidable by
-reading cloud-init's parser** -- the v1 conversion, the device lookup and the
-NetworkManager keyfile writer each get a say, and the failure is silent and
-total. Only a lab cycle settles it. Until one does, on a real guest, the seed
-stays empty: an unpinned client-id costs a lease, an unclaimed NIC costs the
-guest. [Test.GuestDhcpIdentity](../test/modules/Test.GuestDhcpIdentity.Tests.ps1)
-asserts the seed carries no `network-config` by any name, because the earlier
-guard named one source file and a differently-named one passed straight through
-it.
+The current image's live renderer is systemd-networkd. Its cloud-init fallback
+lands in `/etc/systemd/network/10-cloud-init-*.network`. The seed adds a
+`[DHCPv4] ClientIdentifier=mac` drop-in beside every such file and a lower-priority
+`98-yuruna-fallback-dhcp.network` matching `eth* en*`. Networkd selects the first
+matching file in lexical order, so the latter claims a NIC only when no earlier
+profile did. It adds a safety net without replacing cloud-init's fallback.
+
+`networkctl reload` applies the changed profiles and starts address acquisition.
+The seed waits for that acquisition before attempting `networkctl reconfigure`;
+issuing both immediately can restart a DHCP transaction in flight and leave the
+link configuring with DNS but no address or route. One transient DUID lease on
+first boot is accepted so subsequent activations use the stable MAC identity.
+
+Never disable global networking to apply an identity change. NetworkManager
+persists its disabled state, so a failed re-enable can strand the guest through
+later reboots. Reload/reconfigure retains the link, reports failures, and remains
+bounded. The optional `nmcli` path pins existing connections for a different
+image renderer without changing this networkd contract.
+
+Only a real guest cycle can establish that a replacement seed network mapping
+works. Until then, [Test.GuestDhcpIdentity](../test/modules/Test.GuestDhcpIdentity.Tests.ps1)
+asserts that the Amazon Linux seed carries no `network-config` by any name.
 
 <a id="4220a755-000d"></a>
 
@@ -620,7 +640,7 @@ actually under test).
 server's log cannot -- whether a frame the server never logged reached the
 bridge at all -- and it runs only where `tcpdump` can open the bridge WITHOUT
 privilege. Nothing elevates to capture: a root `tcpdump` started by the runner
-could not be stopped by it afterwards, and a passwordless grant for a program
+could not be stopped by it afterward, and a passwordless grant for a program
 that writes files and runs commands as root is a larger hole than the evidence
 is worth. Grant the capability instead, per host:
 
@@ -2223,7 +2243,7 @@ forces, which is what lands in the table the next read consults.
 The subnet to sweep comes from the host's own default-route IPv4, and a
 host between leases has none for a few seconds; `Get-HostIpv4Prefix`
 answers with nothing. Treating that as a reason to skip the sweep gets
-the timing exactly backwards: a host that just renumbered is precisely
+the timing exactly backward: a host that just renumbered is precisely
 when the guest's neighbor entry has gone stale and a lookup is about to
 fail. The subnet does not move when the address within it does, so
 `$script:LastKnownHostPrefix` carries the last prefix this host held

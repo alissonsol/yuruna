@@ -4,7 +4,7 @@
 # Anchor sections in base-file order. An empty section emits nothing at that anchor.
 # === YURUNA_OVERLAY_HOST_AGENT_PKG ===
 # === YURUNA_OVERLAY_NIC_OFFLOAD ===
-  # --- REGION: https://yuruna.link/42f6b05f-0025
+  # See https://yuruna.link/42f6b05f-0025
   - path: /etc/systemd/network/10-yuruna-no-offload.link
     permissions: '0644'
     owner: root:root

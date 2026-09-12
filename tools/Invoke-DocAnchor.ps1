@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42ab6d19-74c3-4f80-9e25-3d0c81af57b6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -175,10 +175,15 @@ function Get-ExistingAnchor {
     param([Parameter(Mandatory)][AllowEmptyString()][string[]]$Line, [Parameter(Mandatory)][int]$HeadingIndex)
 
     $probe = $HeadingIndex - 1
-    if ($probe -ge 0 -and $Line[$probe].Trim() -eq '') { $probe-- }
-    if ($probe -lt 0) { return $null }
-    if ($Line[$probe] -match $AnchorPattern) {
-        return @{ Index = $probe; File = $Matches[1]; Anchor = $Matches[2] }
+    # Legacy heading aliases can sit between the stable id and its heading.
+    # Skip only blank lines and standalone aliases, never intervening content.
+    while ($probe -ge 0) {
+        if ($Line[$probe] -match $AnchorPattern) {
+            return @{ Index = $probe; File = $Matches[1]; Anchor = $Matches[2] }
+        }
+        if ($Line[$probe].Trim() -ne '' -and
+            $Line[$probe] -notmatch '^\s*<a id="[^"<>]+"></a>\s*$') { break }
+        $probe--
     }
     return $null
 }
@@ -231,8 +236,7 @@ function Get-AnchoredText {
     return ($out -join "`n")
 }
 
-# ------------------------------------------------------------------- main --
-
+# --- REGION: Main
 try {
 
 $existingManifest = @{}

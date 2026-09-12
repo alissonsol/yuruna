@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 428a8fea-36e6-48a4-aa62-2004e6035a54
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -165,10 +165,47 @@ Describe 'Test-OCRMatch' {
         Assert-Equal -Expected $false -Actual (Test-OCRMatch -Text 'test-amazon-linux01 login:' -Pattern 'test-ubuntu-server-01')
     }
     It 'does NOT match pattern characters scattered across a long line' {
-        # All six characters of "login:" appear in order, but spread over more
-        # than 2x the pattern length -- the span guard rejects the coincidence.
+        # All six characters of "login:" appear in order, but spread far wider
+        # than the span guard allows -- it rejects the coincidence.
         $line = 'l x x x x o x x x x g x x x x i x x x x n x x x x :'
         Assert-Equal -Expected $false -Actual (Test-OCRMatch -Text $line -Pattern 'login:')
+    }
+    # The span guard's budget is what separates a prompt from the prose that
+    # introduces it. The forced-password-change notice a guest prints before
+    # "New password:" carries every character of that pattern in order once the
+    # confusion groups fold n->m and e->c, so nothing else in the matcher can
+    # tell the two apart: the notice reaches the screen first, and a wait that
+    # accepts it types the new secret into a terminal that is still echoing.
+    It 'does NOT read the forced-change notice as the prompt that follows it' {
+        $notice = 'You are required to change your password immediately (administrator enforced) .'
+        Assert-Equal -Expected $false -Actual (Test-OCRMatch -Text $notice -Pattern 'New password')
+        # The same notice as an OCR engine renders it.
+        $damaged = 'You are requ ired to change your password immediately (administrator enforced) .'
+        Assert-Equal -Expected $false -Actual (Test-OCRMatch -Text $damaged -Pattern 'New password')
+    }
+    It 'still matches the password prompt itself through OCR damage' {
+        Assert-Equal -Expected $true -Actual (Test-OCRMatch -Text 'New password :' -Pattern 'New password')
+        Assert-Equal -Expected $true -Actual (Test-OCRMatch -Text 'Neu password :' -Pattern 'New password')
+        Assert-Equal -Expected $true -Actual (Test-OCRMatch -Text 'New password: [' -Pattern 'New password')
+    }
+    It 'does NOT let a logged-in-user count satisfy a wait for the login prompt' {
+        # The motd line spells l,o,g,i,n,: in order across nine positions.
+        Assert-Equal -Expected $false -Actual (Test-OCRMatch -Text 'Users logged in:' -Pattern 'login:')
+        Assert-Equal -Expected $true -Actual (Test-OCRMatch -Text 'yuhost26 login:' -Pattern 'login:')
+    }
+    It 'does NOT let a package-fetch error fire the firmware anti-pattern' {
+        # A wrapped apt error spells g,m,w,g,r,w,b in order once u folds onto w
+        # and n onto m. An anti-pattern that fires here ends a healthy run, so
+        # the span guard is the only thing standing between the two.
+        $aptFail = 'E: Failed to fetch http://security ubuntu .con/ubuntu/pool /nain/g/gec-13/g7Zb/2b-13-x86-64- 1 inux-gnu_13.3.0-Gubuntuz?e24.04.1_amd64.deb Unable to connect to 192.168.7.56:3128'
+        Assert-Equal -Expected $false -Actual (Test-OCRMatch -Text $aptFail -Pattern 'GNU GRUB')
+    }
+    It 'absorbs as many inserted characters as the threshold forgives missing ones' {
+        # An 11-character pattern needs 10 of its characters, so it forgives one
+        # omission -- and tolerates a comparable number of insertions, not the
+        # pattern's whole length in them.
+        Assert-Equal -Expected $true -Actual (Test-OCRMatch -Text 'newpasswoxrd' -Pattern 'New password')
+        Assert-Equal -Expected $false -Actual (Test-OCRMatch -Text 'newpasXsYwoZrd' -Pattern 'New password')
     }
     It 'does NOT match unrelated console output' {
         Assert-Equal -Expected $false -Actual (Test-OCRMatch -Text 'cloud-init v.24.1 running modules for final stage' -Pattern 'Password:')

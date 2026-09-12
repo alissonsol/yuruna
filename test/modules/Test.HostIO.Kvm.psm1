@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42e401e1-b46e-4123-be6e-fddcaac3185f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,26 +16,18 @@
 
 #requires -version 7
 
-# Host I/O wiring for host.ubuntu.kvm.
-#
-# Send-Click is intentionally absent: KVM/libvirt guests run SSH-driven
-# sequences after the GUI bring-up phase, so no mouse-click backend is
-# needed. An attempt to call Send-Click on this host surfaces as the
-# registry's canonical "not available on host" exception via the
-# Send-Click dispatcher's catch.
-#
-# The Send-KeyKvm / Send-TextKvm function bodies live in Test.Transport.psm1;
-# the registry primitives (Register-HostIOProvider, Invoke-HostIOAction)
-# live in Test.HostIO.psm1.
-# See docs/host-io.md.
-
+# --- REGION: Host I/O provider
+# See https://yuruna.link/4222e5f2
+# --- REGION: Import the shared transport
 Import-Module (Join-Path $PSScriptRoot 'Test.HostIO.psm1')   -Force -DisableNameChecking -Global
 Import-Module (Join-Path $PSScriptRoot 'Test.Transport.psm1') -Force -DisableNameChecking -Global
 
+# --- REGION: Register Send-Key
 Register-HostIOProvider -HostType 'host.ubuntu.kvm' -Action 'Send-Key' -Implementation {
     param([hashtable]$a)
     return (Send-KeyKvm -VMName $a.VMName -KeyName $a.KeyName)
 }
+# --- REGION: Register Send-Text
 Register-HostIOProvider -HostType 'host.ubuntu.kvm' -Action 'Send-Text' -Implementation {
     param([hashtable]$a)
     return (Send-TextKvm -VMName $a.VMName -Text $a.Text -CharDelayMs $a.CharDelayMs)

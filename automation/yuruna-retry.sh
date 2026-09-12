@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.08
+# Version: 2026.09.12
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #
@@ -8,7 +8,6 @@
 # cloud-init deploys this file at install time.
 #
 # --- REGION: https://yuruna.link/4220a755-0003
-
 # Capability marker for the callers that ask for a wall-clock stall bound.
 # Setting one is only safe against a lib that wraps with `timeout --foreground`
 # hoisted INSIDE sudo: without --foreground the bounded command is stopped by
@@ -20,10 +19,47 @@
 # self-select as images roll over, with no dated "safe after" rule to maintain.
 export YURUNA_RETRY_LIB_SAFE_STALL=1
 
+# Writes one structured record to stderr and, when YURUNA_RETRY_RECORD names a
+# file, appends it there too.
+#
+# The wrapper's own diagnostics go to the CALLER's stderr, while the log a
+# wrapped attempt writes is opened around the attempt alone. So a consumer
+# reading that log sees the attempt's output and nothing the wrapper decided --
+# no attempt count, no classification, no outcome. Naming the file here is what
+# puts the verdict where the log's reader already looks, instead of leaving them
+# to recognize a sentence that never arrives.
+#
+# Best effort: a record that cannot be written must never fail the run it is
+# only describing.
+_yuruna_retry_record() {
+    echo "YURUNA_RETRY $1" >&2
+    if [ -n "${YURUNA_RETRY_RECORD:-}" ]; then
+        echo "YURUNA_RETRY $1" >>"${YURUNA_RETRY_RECORD}" 2>/dev/null || true
+    fi
+}
+
+# --- REGION: Retry configuration
+# Match the PowerShell retry defaults; invalid bounds must never skip execution.
+_yuruna_retry_positive_integer() {
+    local raw="$1" fallback="$2" digits=''
+    if [[ "$raw" =~ ^[[:space:]]*\+?([0-9]+)[[:space:]]*$ ]]; then
+        digits="${BASH_REMATCH[1]}"
+        digits="${digits#"${digits%%[!0]*}"}"
+        if [ -n "$digits" ] && [ "${#digits}" -le 10 ] \
+            && [ "$((10#$digits))" -le 2147483647 ]; then
+            printf '%s' "$((10#$digits))"
+            return 0
+        fi
+    fi
+    printf '%s' "$fallback"
+}
+
+# --- REGION: Retry execution
 _yuruna_retry() {
     local label="$1"; shift
-    local max_attempts="${YURUNA_RETRY_MAX_ATTEMPTS:-5}"
-    local delay="${YURUNA_RETRY_DELAY_SECONDS:-10}"
+    local max_attempts delay
+    max_attempts=$(_yuruna_retry_positive_integer "${YURUNA_RETRY_MAX_ATTEMPTS:-}" 5)
+    delay=$(_yuruna_retry_positive_integer "${YURUNA_RETRY_DELAY_SECONDS:-}" 10)
     local stall="${YURUNA_RETRY_STALL_TIMEOUT_SECONDS:-0}"
     local attempt=1 rc=0
     # Diagnostics go to stderr, never stdout: these wrappers are routinely
@@ -94,8 +130,9 @@ _yuruna_retry() {
         # Only safe scalar fields (label is a fixed wrapper name, the rest are
         # ints/bools) so the JSON never needs escaping. On stderr like every
         # other diagnostic here -- stdout stays clean for `... | bash` pipelines.
-        echo "YURUNA_RETRY {\"stack\":\"bash\",\"label\":\"${label}\",\"attempt\":${attempt},\"maxAttempts\":${max_attempts},\"rc\":${rc},\"permanent\":${permanent}}" >&2
+        _yuruna_retry_record "{\"stack\":\"bash\",\"label\":\"${label}\",\"event\":\"attempt\",\"attempt\":${attempt},\"maxAttempts\":${max_attempts},\"rc\":${rc},\"permanent\":${permanent}}"
         if [ "$permanent" = true ]; then
+            _yuruna_retry_record "{\"stack\":\"bash\",\"label\":\"${label}\",\"event\":\"outcome\",\"outcome\":\"permanent\",\"attempt\":${attempt},\"maxAttempts\":${max_attempts},\"rc\":${rc}}"
             echo "!! ${label}: PERMANENT failure (rc=$rc, not retryable) -- not spending the remaining $((max_attempts - attempt)) attempt(s): $*" >&2
             return "$rc"
         fi
@@ -125,6 +162,7 @@ _yuruna_retry() {
         fi
         attempt=$((attempt + 1))
     done
+    _yuruna_retry_record "{\"stack\":\"bash\",\"label\":\"${label}\",\"event\":\"outcome\",\"outcome\":\"exhausted\",\"attempt\":${max_attempts},\"maxAttempts\":${max_attempts},\"rc\":${rc}}"
     echo "!! ${label}: all $max_attempts attempts exhausted for: $*" >&2
     return "$rc"
 }
@@ -358,7 +396,14 @@ pwsh_retry() {
     mkdir -p "$(dirname "$log_file")" 2>/dev/null || true
     local body
     body="$(cat)"
-    _yuruna_retry pwsh_retry _yuruna_pwsh_attempt "$log_file" "$body"
+    # The log this wrapper's attempts append to is the one a diagnostic reads
+    # later, so the wrapper's verdict belongs in it.
+    local prior_record="${YURUNA_RETRY_RECORD:-}"
+    YURUNA_RETRY_RECORD="$log_file"
+    local rc=0
+    _yuruna_retry pwsh_retry _yuruna_pwsh_attempt "$log_file" "$body" || rc=$?
+    YURUNA_RETRY_RECORD="$prior_record"
+    return "$rc"
 }
 
 _yuruna_pwsh_attempt() {
@@ -399,7 +444,12 @@ _yuruna_pwsh_attempt() {
     return "$rc"
 }
 
-export -f _yuruna_retry apt_retry dnf_retry curl_retry wget_try pwsh_retry _yuruna_pwsh_attempt _yuruna_http_status_class _yuruna_classify_curl _yuruna_classify_wget
+# --- REGION: https://yuruna.link/4220a755-0003
+# Child Bash payloads need the wrappers and every helper they call.
+export -f _yuruna_retry _yuruna_retry_positive_integer _yuruna_retry_record \
+    apt_retry dnf_retry curl_retry wget_try pwsh_retry _yuruna_pwsh_attempt \
+    _yuruna_http_status_class _yuruna_classify_curl _yuruna_classify_wget \
+    yuruna_ca_selfheal _yuruna_bump_trusted _yuruna_ca_trust
 
 # Pull in the pinned dependency versions ($YURUNA_K8S_MINOR, etc.) so every
 # guest script that sources this retry lib also gets the version pins, with

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42fba995-7607-4a66-acfd-0149a2a9f06a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -164,7 +164,7 @@ if (Test-Path $PidFile) {
 
 # Resolve port conflicts from untracked orphan detached servers.
 # Why it's needed and the Test.PortOwner.psm1 dispatch contract:
-# https://yuruna.link/test/harness
+# https://yuruna.link/42d38664
 #
 # -Elevate: take the port even when the holder is one this account cannot stop.
 # The holder in that case is almost always a status service this same harness
@@ -306,6 +306,10 @@ try {
         Where-Object { $_.AddressFamily -eq [System.Net.Sockets.AddressFamily]::InterNetworkV6 } |
         ForEach-Object { $_.ToString() } |
         Sort-Object -Unique)
+    # Kept for the service marker further down. Resolving the machine name
+    # instead answers with the /etc/hosts loopback alias on Debian-family
+    # systems -- 127.0.1.1 is a real answer and reaches nobody.
+    $script:PrimaryIpv4 = if ($ipv4.Count -gt 0) { $ipv4[0] } else { '' }
 
     if ($ipv4.Count -eq 0 -and $ipv6.Count -eq 0) {
         $fileContent = "No IP addresses detected"
@@ -668,6 +672,7 @@ Import-Module (Join-Path `$repoRoot 'test/modules/Test.CachingProxyService.psm1'
 # operator edit to test.config.yml is observed on the very next handler
 # call without restarting the server.
 Import-Module (Join-Path `$repoRoot 'test/modules/Test.Config.psm1')      -Force -DisableNameChecking -Verbose:`$false -ErrorAction SilentlyContinue
+Import-Module (Join-Path `$repoRoot 'test/modules/Test.PerfAggregate.psm1') -Force -DisableNameChecking -Verbose:`$false -ErrorAction Stop
 # Status negotiation uses the same canonical-tag, alias, qvalue and
 # provenance implementation as every command/service boundary. The page then
 # narrows only the supported set to the catalog assets it actually ships.
@@ -1385,7 +1390,7 @@ try {
                         if (`$ctlReason) {
                             `$res.ContentType = 'application/json; charset=utf-8'
                             `$res.Headers.Add('Cache-Control', 'no-store')
-                            Send-JsonError -Response `$res -StatusCode 403 -Json ('{"ok":false,"reason":"' + `$ctlReason + '","error":"follow guidance at https://yuruna.link/control-proof"}')
+                            Send-JsonError -Response `$res -StatusCode 403 -Json ('{"ok":false,"reason":"' + `$ctlReason + '","error":"follow guidance at https://yuruna.link/42185271-0007"}')
                             continue
                         }
                     }
@@ -1784,13 +1789,8 @@ try {
                         Write-ServerErr "perf-aggregates: could not read recentDisplayCount: `$(`$_.Exception.Message)"
                     }
                     `$cyclesDir = Join-Path `$statusDir 'perf/cycles'
-                    `$sequences = @{}
+                    `$perfRows = [Collections.Generic.List[object]]::new()
                     if (Test-Path -LiteralPath `$cyclesDir) {
-                        # JSONL file names lead with the cycle's ISO-8601
-                        # timestamp (colons -> hyphens, but the lexical
-                        # order still matches chronological order). Name-
-                        # descending sort + take-N = the latest N cycles
-                        # = the same set the dashboard's history[] shows.
                         `$jsonlFiles = @(Get-ChildItem -LiteralPath `$cyclesDir -Filter '*.jsonl' -File -ErrorAction SilentlyContinue |
                                           Sort-Object Name -Descending |
                                           Select-Object -First `$recentLimit)
@@ -1802,62 +1802,7 @@ try {
                                         `$line = `$reader.ReadLine()
                                         if ([string]::IsNullOrWhiteSpace(`$line)) { continue }
                                         try { `$row = `$line | ConvertFrom-Json -ErrorAction Stop } catch { continue }
-                                        if (-not `$row.sequenceName -or -not `$row.cycleStartUtc) { continue }
-                                        `$seq = "`$(`$row.sequenceName)"
-                                        `$cyc = "`$(`$row.cycleStartUtc)"
-                                        if (-not `$sequences.ContainsKey(`$seq)) { `$sequences[`$seq] = @{} }
-                                        `$bag = `$sequences[`$seq]
-                                        if (-not `$bag.ContainsKey(`$cyc)) {
-                                            `$bag[`$cyc] = [ordered]@{
-                                                cycleStartUtc           = `$cyc
-                                                cycleStartedAtUtc = (ConvertTo-IsoUtcString `$row.cycleStartedAtUtc)
-                                                hostPlatform      = "`$(`$row.hostPlatform)"
-                                                guestKey          = "`$(`$row.guestKey)"
-                                                durationMs        = 0
-                                                stepCount         = 0
-                                                failCount         = 0
-                                                steps             = (New-Object System.Collections.ArrayList)
-                                            }
-                                        }
-                                        `$agg = `$bag[`$cyc]
-                                        `$ms = 0
-                                        try { `$ms = [int]`$row.durationMs } catch { `$ms = 0 }
-                                        `$agg.durationMs = [int]`$agg.durationMs + `$ms
-                                        `$agg.stepCount  = [int]`$agg.stepCount + 1
-                                        if ("`$(`$row.outcome)" -eq 'fail') { `$agg.failCount = [int]`$agg.failCount + 1 }
-                                        `$ord = 0; try { `$ord = [int]`$row.stepOrdinal    } catch { `$ord = 0 }
-                                        `$occ = 1; try { `$occ = [int]`$row.stepOccurrence } catch { `$occ = 1 }
-                                        `$prnt = 0; try { `$prnt = [int]`$row.parentStepOrdinal } catch { `$prnt = 0 }
-                                        # Absolute step window as epoch-ms integers. performance.html derives
-                                        # the step hierarchy from these windows (a retry parent's
-                                        # window brackets its child steps) and draws each cycle as a
-                                        # time-based icicle, so nested time is shown once instead of
-                                        # the parent being stacked on top of its children. Emitted as
-                                        # numbers (not the .NET 'o' ISO string) so the browser never
-                                        # has to parse 7-digit fractional-second timestamps.
-                                        `$sMs = `$null; `$eMs = `$null
-                                        try { `$sMs = [DateTimeOffset]::Parse(`$row.startedAtUtc, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind).ToUnixTimeMilliseconds() } catch { `$sMs = `$null }
-                                        try { `$eMs = [DateTimeOffset]::Parse(`$row.endedAtUtc,   [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind).ToUnixTimeMilliseconds() } catch { `$eMs = `$null }
-                                        `$stepEntry = [ordered]@{
-                                            ordinal       = `$ord
-                                            occurrence    = `$occ
-                                            name          = "`$(`$row.stepName)"
-                                            kind          = "`$(`$row.stepKind)"
-                                            durationMs    = `$ms
-                                            outcome       = "`$(`$row.outcome)"
-                                            parentOrdinal = `$prnt
-                                            parentAction  = "`$(`$row.parentAction)"
-                                            startedMs     = `$sMs
-                                            endedMs       = `$eMs
-                                        }
-                                        # fetchAndExecute steps also keep the ISO [start,end] window:
-                                        # guest-pushed checkpoint sidecars are joined to them by
-                                        # matching receivedAtUtc against this window.
-                                        if ("`$(`$row.stepKind)" -eq 'fetchAndExecute') {
-                                            `$stepEntry.startedAtUtc = (ConvertTo-IsoUtcString `$row.startedAtUtc)
-                                            `$stepEntry.endedAtUtc   = (ConvertTo-IsoUtcString `$row.endedAtUtc)
-                                        }
-                                        `$null = `$agg.steps.Add(`$stepEntry)
+                                        if (`$row.sequenceName -and `$row.cycleStartUtc) { `$perfRows.Add(`$row) }
                                     }
                                 } finally { `$reader.Close() }
                             } catch {
@@ -1865,12 +1810,11 @@ try {
                             }
                         }
                     }
-                    # Load recent guest-pushed checkpoint sidecars once. Each is
-                    # joined to the fetchAndExecute step whose [start,end] window
-                    # contains its host-stamped receivedAtUtc (host clock both
-                    # sides -> skew-immune). Newest-first so a window holding more
-                    # than one sidecar prefers the latest; Consumed stops two
-                    # steps claiming the same one.
+                    `$sequences = ConvertTo-PerfSequenceAggregate -Row @(`$perfRows)
+                    # Execution IDs join console and SSH checkpoints. Older
+                    # sidecars use host reception time within the step window.
+                    # Newest-first prefers the latest capture; Consumed prevents
+                    # two step rows from claiming the same execution evidence.
                     `$ckptDir2 = Join-Path `$statusDir 'perf/checkpoints'
                     `$ckptSidecars = New-Object System.Collections.ArrayList
                     if (Test-Path -LiteralPath `$ckptDir2) {
@@ -1883,39 +1827,44 @@ try {
                             if (-not `$scDoc.receivedAtUtc) { continue }
                             `$rcvd = [DateTime]::MinValue
                             try {
-                                `$rcvd = [DateTime]::Parse(`$scDoc.receivedAtUtc, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind)
+                                # Same [DateTime]-not-text rule as the step window above: the
+                                # sidecar field arrives already materialized, and re-parsing its
+                                # culture-formatted text drops the fractional second the window
+                                # comparison below needs.
+                                `$rcvd = [DateTime]::SpecifyKind(([DateTime]`$scDoc.receivedAtUtc).ToUniversalTime(), [DateTimeKind]::Utc)
                             } catch { continue }
                             `$null = `$ckptSidecars.Add([pscustomobject]@{
                                 ReceivedAt  = `$rcvd
                                 Checkpoints = `$scDoc.checkpoints
+                                StepInvocationId = [string]`$scDoc.stepInvocationId
+                                SequenceInvocationId = [string]`$scDoc.sequenceInvocationId
                                 Consumed    = `$false
                             })
                         }
                     }
                     `$out = [ordered]@{}
                     foreach (`$seq in (`$sequences.Keys | Sort-Object)) {
-                        `$cyclesArr = @(`$sequences[`$seq].Values | Sort-Object { [string]`$_.cycleStartedAtUtc })
-                        # Sort each cycle's steps in execution order so the
-                        # stacked-bar segments render bottom-to-top in the order
-                        # the runner ran them, then splice any matching checkpoint
-                        # sidecar onto the fetchAndExecute steps.
+                        `$cyclesArr = @(`$sequences[`$seq])
+                        # Sort each cycle's steps by their absolute start instant
+                        # -- the only key that is genuinely execution order --
+                        # then splice any matching checkpoint sidecar onto the
+                        # fetchAndExecute steps. Ordinal is a position WITHIN a
+                        # steps: block, so a retry that re-runs its block emits
+                        # the same ordinals once per attempt; ordering by
+                        # (ordinal, occurrence) interleaves the attempts and
+                        # presents a later attempt's steps as if they had run
+                        # beside the first attempt's. -Stable keeps rows that
+                        # share a start instant in the order the runner appended
+                        # them, which is also what a row with no usable window
+                        # falls back to.
                         foreach (`$cyc2 in `$cyclesArr) {
-                            `$sortedSteps = @(`$cyc2.steps | Sort-Object @{Expression='ordinal'},@{Expression='occurrence'})
+                            `$sortedSteps = @(`$cyc2.steps | Sort-Object -Stable @{Expression={ if (`$null -ne `$_.startedMs) { [long]`$_.startedMs } else { [long]0 } }})
                             foreach (`$st2 in `$sortedSteps) {
-                                if ("`$(`$st2.kind)" -ne 'fetchAndExecute') { continue }
-                                if (-not `$st2.Contains('startedAtUtc') -or -not `$st2.Contains('endedAtUtc')) { continue }
-                                `$sUtc = [DateTime]::MinValue; `$eUtc = [DateTime]::MinValue
-                                try {
-                                    `$sUtc = [DateTime]::Parse(`$st2.startedAtUtc, [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind)
-                                    `$eUtc = [DateTime]::Parse(`$st2.endedAtUtc,   [System.Globalization.CultureInfo]::InvariantCulture, [System.Globalization.DateTimeStyles]::RoundtripKind)
-                                } catch { continue }
-                                foreach (`$cand in `$ckptSidecars) {
-                                    if (`$cand.Consumed) { continue }
-                                    if (`$cand.ReceivedAt -ge `$sUtc -and `$cand.ReceivedAt -le `$eUtc) {
-                                        `$cand.Consumed = `$true
-                                        `$st2.checkpoints = @(`$cand.Checkpoints)
-                                        break
-                                    }
+                                if ("`$(`$st2.kind)" -notin @('fetchAndExecute', 'sshFetchAndExecute')) { continue }
+                                `$candidate = Find-PerfCheckpoint -Step `$st2 -Sidecar @(`$ckptSidecars)
+                                if (`$candidate) {
+                                    `$candidate.Consumed = `$true
+                                    `$st2.checkpoints = @(`$candidate.Checkpoints)
                                 }
                             }
                             `$cyc2.steps = `$sortedSteps
@@ -1948,11 +1897,10 @@ try {
 
             # --- REGION: /control/perf-checkpoints: guest-pushed fetch-and-execute phase timings
             # fetch-and-execute.sh POSTs the ==== checkpoint ==== markers it
-            # collected while running a fetched script. We host-stamp the arrival
-            # time -- that timestamp is the join key: perf-aggregates matches it
-            # against the fetchAndExecute step's [start,end] window. Both sides of
-            # that comparison are host-clock, so guest/host clock skew can never
-            # break the match. The sidecar filename is minted here, never taken
+            # collected while running a fetched script. Execution IDs provide the
+            # exact join; host-stamped arrival time remains the fallback for old
+            # sidecars without IDs. Guest clock adjustments cannot alter that join.
+            # The sidecar filename is minted here, never taken
             # from the body, so nothing in the payload can traverse the path.
             if (`$path -eq 'control/perf-checkpoints') {
                 `$res.ContentType = 'application/json; charset=utf-8'
@@ -2018,6 +1966,11 @@ try {
                     hostname      = `$guestHost
                     exitCode      = `$ckptExit
                     checkpoints   = @(`$cleanCkpts)
+                }
+                foreach (`$identityField in 'stepInvocationId', 'sequenceInvocationId') {
+                    if (`$parsed.Contains(`$identityField) -and [string]`$parsed[`$identityField] -match '^[0-9a-fA-F]{32}$') {
+                        `$sidecar[`$identityField] = [string]`$parsed[`$identityField]
+                    }
                 }
 
                 `$ckptDir = Join-Path `$statusDir 'perf/checkpoints'
@@ -2161,8 +2114,10 @@ try {
 
             # --- REGION: /control/guest-folders: list guest.* dirs under current host
             # Powers the test-config editor's guestSequence dropdown so the
-            # operator picks from real folders instead of free-typing a
-            # name that won't match anything at run time. Host folder is
+            # operator picks from real folders instead of free-typing a name
+            # no folder on this host matches. That list is only the fallback
+            # guest set: a cycle takes its guests from test/test.runner.yml in
+            # the project repository whenever a plan resolves. Host folder is
             # derived from the host type captured at server startup
             # (host.windows.hyper-v -> host/windows.hyper-v); empty array
             # is returned when the host is unknown or has no guests.
@@ -2216,6 +2171,11 @@ try {
                 # compute it. Everything below is best-effort: a liveness probe
                 # must never be able to take the status service down.
                 `$hbAge = `$null; `$phaseVal = `$null; `$liveness = 'unknown'; `$lapsed = `$null
+                # This handler body runs in a long-lived loop runspace, so every
+                # value the payload reports has to be cleared per request: a probe
+                # that throws before the bound is resolved would otherwise print
+                # the PREVIOUS poll's number next to a fresh verdict.
+                `$bound = `$null; `$runState = `$null
                 try {
                     `$hbPath = Join-Path `$runtimeDir 'runner.stepHeartbeat'
                     if (Test-Path -LiteralPath `$hbPath) {
@@ -2228,6 +2188,23 @@ try {
                     `$lapsePath = Join-Path `$runtimeDir 'runner.watchdog.lapsed'
                     if (Test-Path -LiteralPath `$lapsePath) {
                         `$lapsed = "`$(Get-Content -LiteralPath `$lapsePath -Raw)".Trim()
+                    }
+                    # The runner's own declared lifecycle state. runner.stepHeartbeat
+                    # is the INNER runner's per-step signal, so its age measures
+                    # progress only while an inner is actually executing. When the
+                    # outer is holding instead -- the pause after a non-zero inner
+                    # exit, or a pool desiredState=paused hold -- there is no inner,
+                    # nothing refreshes the file, and its age is just the previous
+                    # cycle's last step counting up. Reading the state is what keeps
+                    # a declared hold from being reported as a stall.
+                    `$statePath = Join-Path `$runtimeDir 'runner.state.json'
+                    if (Test-Path -LiteralPath `$statePath) {
+                        try {
+                            `$stateRaw = Get-Content -LiteralPath `$statePath -Raw
+                            if (`$stateRaw -and `$stateRaw.Trim()) {
+                                `$runState = "`$((`$stateRaw | ConvertFrom-Json).current)".Trim()
+                            }
+                        } catch { Write-Debug "runner-status: runner.state.json read failed: `$(`$_.Exception.Message)" }
                     }
                     # Same bound the watchdog applies: the tight preamble one
                     # while runner.phase exists, the step budget otherwise.
@@ -2252,8 +2229,17 @@ try {
                     `$bound = if (`$phaseVal -and `$preBound -gt 0 -and `$preBound -lt `$stepBound) { `$preBound } else { `$stepBound }
                     # 'idle' is NOT 'ok': with no runner there is nothing to be
                     # progressing, and reporting ok would reproduce the very
-                    # false-green this endpoint exists to remove.
+                    # false-green this endpoint exists to remove. 'paused' is that
+                    # same argument one step in, which is why it is tested ahead of
+                    # every age comparison: a runner that has declared a hold is
+                    # not progressing and must not read 'ok', but it is not wedged
+                    # either, and an operator needs those two told apart. The hold
+                    # is bounded by the runner itself -- the pause after a failed
+                    # cycle returns to 'idle' at its cap, and a pool hold ends when
+                    # the pulled intent flips back to run -- so this branch cannot
+                    # latch on a state the runner has already left.
                     `$liveness = if (-not `$running)          { 'idle' }
+                                elseif (`$runState -eq 'paused') { 'paused' }
                                 elseif (`$null -eq `$hbAge)   { 'unknown' }
                                 elseif (`$hbAge -gt `$bound)  { 'stalled' }
                                 elseif (`$hbAge -gt (`$bound / 2)) { 'slow' }
@@ -2269,6 +2255,7 @@ try {
                     stepHeartbeatAgeSeconds = `$hbAge
                     boundSeconds            = `$bound
                     watchdogLapsed          = `$lapsed
+                    runnerState             = `$runState
                 } | ConvertTo-Json -Compress
                 `$body = [System.Text.Encoding]::UTF8.GetBytes(`$payload)
                 `$res.ContentLength64 = `$body.Length
@@ -2323,7 +2310,7 @@ try {
             }
 
             # --- REGION: /control/host-diagnostic: run Get-SystemDiagnostic on the host
-            # --- REGION: https://yuruna.link/42fa6f45-001e
+            # See https://yuruna.link/42fa6f45-001e
             if (`$path -eq 'control/host-diagnostic') {
                 `$res.ContentType = 'text/plain; charset=utf-8'
                 `$res.Headers.Add('Cache-Control', 'no-store')
@@ -4019,6 +4006,34 @@ if ($ip) {
 }
 Write-Output "  Host:   http://${machineName}:$Port/status/"
 Write-Output ""
+
+# --- REGION: Publish where this service can be reached
+# A caller that just started this service should not have to guess its address.
+# The pool-control service publishes a marker its callers read; with nothing
+# equivalent here, a prober falls back to whatever constant it was configured
+# with and can spend its whole timeout on a host this service never ran on.
+#
+# Written as its own file rather than through the extension-service marker
+# helpers: those are keyed by an extension area with a service manifest behind
+# it, and the status service is host-side infrastructure rather than an
+# extension. Reusing that mechanism would mean declaring it to be one.
+$ServiceMarkerFile = Join-Path $RuntimeDir 'status-service.json'
+try {
+    $markerHost = if ($script:PrimaryIpv4) { $script:PrimaryIpv4 } else { 'localhost' }
+    $markerBody = [ordered]@{
+        active       = $true
+        area         = 'status-service'
+        startedAtUtc = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
+        port         = $Port
+        baseUrl      = "http://${markerHost}:$Port/"
+        localUrl     = "http://localhost:$Port/"
+        processId    = $serverPid
+    }
+    $markerJson = ((ConvertTo-Json -InputObject $markerBody -Depth 5) -replace "`r`n", "`n").TrimEnd() + "`n"
+    [System.IO.File]::WriteAllText($ServiceMarkerFile, $markerJson, [System.Text.UTF8Encoding]::new($false))
+} catch {
+    Write-Warning "Could not publish the status service marker: $($_.Exception.Message)"
+}
 
 # --- REGION: LAN reachability self-heal (all host types)
 # The server binds to http://*:$Port so the socket is on every interface, but a

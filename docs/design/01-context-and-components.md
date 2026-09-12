@@ -1,91 +1,75 @@
 # Context and components
 
-This level-1 view shows the seven current system blocks and only the dependencies that cross their boundaries.
+This view locates the seven source-backed system boundaries expanded in the component breakdown.
+
+The [canonical architecture](../architecture.md) defines the capabilities and
+deployment phases; this page maps their implementation boundaries rather than
+restating that design. Arrows mean a dependency, invocation, or supplied input,
+not a network connection; [deployment](06-deployment.md) shows placement.
 
 ```mermaid
 flowchart LR
-  subgraph provisioning["Provisioning"]
-    provisioning-root["Install and bootstrap"]
-  end
-
-  subgraph deploy-engine["Deploy Engine"]
-    deploy-engine-root["Three phase engine"]
-  end
-
-  subgraph test-harness["Test Harness"]
-    test-harness-root["Continuous test runner"]
-  end
-
-  subgraph providers["Providers"]
-    providers-root["Host and guest"]
-  end
-
-  subgraph project-data["Project Data"]
-    project-data-root["Projects and templates"]
-  end
-
-  subgraph shared-modules["Shared Modules"]
-    shared-modules-root["Framework libraries"]
-  end
-
-  subgraph external-systems["External Systems"]
-    external-systems-root["Runtime endpoints"]
-  end
-
-  provisioning-root -->|"installs hosts"| providers-root
-  provisioning-root -->|"downloads tools"| external-systems-root
-  project-data-root -->|"loads YAML"| deploy-engine-root
-  shared-modules-root -->|"supports install"| provisioning-root
-  shared-modules-root -->|"supports phases"| deploy-engine-root
-  shared-modules-root -->|"supports runner"| test-harness-root
-  shared-modules-root -->|"supports drivers"| providers-root
-  test-harness-root -->|"drives VMs"| providers-root
-  test-harness-root -->|"clones tests"| project-data-root
-  test-harness-root -->|"runs phases"| deploy-engine-root
-  test-harness-root -->|"sends alerts"| external-systems-root
-  providers-root -->|"downloads images"| external-systems-root
-  deploy-engine-root -->|"provisions targets"| external-systems-root
+    subgraph install["Provisioning"]
+        install-setup["setup.ps1"]
+    end
+    subgraph automation["Deploy engine"]
+        set-resource-set-component-set-workload["Set-* phases"]
+    end
+    subgraph test["Test harness"]
+        start-test-runner["Start-TestRunner.ps1"]
+    end
+    subgraph host["Providers"]
+        yuruna-host-contract["Yuruna.Host.Contract.psm1"]
+    end
+    subgraph yuruna-project["Project data"]
+        example-template["example / template"]
+    end
+    subgraph automation-shared["Shared modules"]
+        yuruna-common["Yuruna.Common.psm1"]
+    end
+    subgraph global-resources["External targets"]
+        global-resources-cloud-registry["Clouds and registries"]
+    end
+    install-setup -->|configure| yuruna-host-contract
+    install-setup -->|prepare| start-test-runner
+    example-template -->|configuration| set-resource-set-component-set-workload
+    example-template -->|sequences| start-test-runner
+    start-test-runner -->|VM operations| yuruna-host-contract
+    start-test-runner -->|workload wrappers| set-resource-set-component-set-workload
+    set-resource-set-component-set-workload -->|use| yuruna-common
+    set-resource-set-component-set-workload -->|deploy| global-resources-cloud-registry
 ```
 
-## Source grounding
+Each of the seven subgraphs is a collapsed boundary with one representative
+artifact, expanded under the same name in
+[Component breakdown](02-component-breakdown.md). The representative is not the
+only entry point in that boundary.
 
-- **Provisioning** comes from `install/setup.ps1`, the three platform installer
-  entry points under `install/`, host/guest seed modules under `automation/`, and
-  the checks under `tools/`.
-- **Deploy Engine** comes from `automation/Set-Resource.ps1`,
-  `Set-Component.ps1`, `Set-Workload.ps1`, `Invoke-Clear.ps1`, and their
-  `Yuruna.*.psm1` phase modules.
-- **Test Harness** comes from `test/Start-TestRunner.ps1`, its cycle and inner
-  workers under `test/modules/`, and the services and extensions under `test/`.
-- **Providers** comes from `host/Yuruna.Host.Contract.psm1`,
-  `host/{windows.hyper-v,ubuntu.kvm,macos.utm}`, `host/modules`, `host/vmconfig`,
-  and the five current `guest/` payload folders.
-- **Project Data** comes from `global/` and
-  `yuruna-project/{template,example,book,test}`. The runtime-generated
-  `resources.output.yml` and `.yuruna/` paths are included only in the expanded
-  view.
-- **Shared Modules** comes from the reusable `automation/Import.Yaml.psm1` and
-  `automation/Yuruna.{Common,Validation,VariableExpansion,DeploymentKind,Result,Retry,Log,LogLevel,CredentialProvider,Component.Registry}.psm1`
-  modules, plus locale/catalog/message libraries in
-  `test/modules/Test.{Locale,Catalog,Message}.psm1`, the Go extension SDK's `i18n/`,
-  and the browser kernel under `globalization/kernel/`.
-- **External Systems** maps to current call sites in the resource, component,
-  workload, installer, image-download, caching, storage, source-fetch, and
-  notification code. `global/config/gcp/gcp-access-key.json` and Google Artifact
-  Registry login handling are current credential support, but no GCP deployment
-  box is drawn because its resource/provider tree is not implemented.
+| Boundary | Source anchors and scope |
+| --- | --- |
+| Provisioning | [install/setup.ps1](../../install/setup.ps1) orchestrates host configuration, storage and service-VM bring-up after the platform installers. |
+| Deploy engine | [Set-Resource.ps1](../../automation/Set-Resource.ps1), [Set-Component.ps1](../../automation/Set-Component.ps1), and [Set-Workload.ps1](../../automation/Set-Workload.ps1) call the corresponding `Yuruna.*` modules. |
+| Test harness | [Start-TestRunner.ps1](../../test/Start-TestRunner.ps1), [Test.Prelude.psm1](../../test/modules/Test.Prelude.psm1), [Test.SequenceRunner.psm1](../../test/modules/Test.SequenceRunner.psm1), [test/service](../../test/service), and [test/extension](../../test/extension) own execution and its supporting services. |
+| Providers | [Yuruna.Host.Contract.psm1](../../host/Yuruna.Host.Contract.psm1), [host](../../host), and [guest](../../guest) implement VM operations, installation adapters and guest scripts. |
+| Project data | [example](https://github.com/alissonsol/yuruna-project/tree/main/example), [template](https://github.com/alissonsol/yuruna-project/tree/main/template), and [test/test.runner.yml](https://github.com/alissonsol/yuruna-project/blob/main/test/test.runner.yml) supply application assets and executable test definitions. |
+| Shared modules | [Yuruna.Common.psm1](../../automation/Yuruna.Common.psm1), [automation](../../automation), [host/modules](../../host/modules), and [test/modules](../../test/modules) provide reusable implementation, not separate daemons. |
+| External targets | [global/resources](../../global/resources), [Yuruna.Component.Registry.psm1](../../automation/Yuruna.Component.Registry.psm1), and [Yuruna.Workload.psm1](../../automation/Yuruna.Workload.psm1) define the actual cloud, registry and cluster interactions. |
 
-The boundary is intentionally role-based: `automation/` contains both phase logic
-and libraries shared by installers, providers, and the test harness. The next page
-expands the seven blocks without pretending each is a single directory.
+Directories do not partition the system one-to-one. `automation/` contains both
+phase implementations and shared helpers; `test/extension/` includes daemons
+running in service VMs; and `host/*/guest.*/` installs a guest while `guest/`
+contains scripts executed inside it. The runner's `project/` checkout is runtime
+input, refreshed from the configured repository, not the framework's tracked
+project examples. The website's
+[guest workload wrapper](https://github.com/alissonsol/yuruna-project/blob/main/example/website/test/ubuntu.server.26/ubuntu.server.26.workload.k8s.website.sh)
+is a concrete bridge from test execution to the deploy engine.
 
-Globalization crosses Shared Modules, Test Harness, and Project Data rather than
-forming an eighth service. Catalog compilation/distribution is build-time tooling;
-locale negotiation and rendering run inside existing status/pool services and
-browser pages. [Globalization and future localization](07-globalization.md)
-distinguishes these implemented mechanisms from partial UI conversion and planned
-additional runtime languages.
+The checked-in resource templates and website configurations cover `localhost`,
+`aws`, and `azure`. [global/config/gcp](../../global/config/gcp) is not a GCP
+resource implementation, so GCP is excluded from the implemented target set.
+Developer checks in [tools](../../tools), including catalog generation and test
+suite launchers, support these boundaries; they are not another runtime service.
 
 ---
 
-[Yuruna Architecture](../architecture.md) | [Design index](00-index.md) | [Component breakdown](02-component-breakdown.md)
+Back to [Architecture](../architecture.md) · [Design overview](README.md)

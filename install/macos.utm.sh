@@ -1,9 +1,9 @@
 #!/bin/bash
-# Version: 2026.09.08
+# Version: 2026.09.12
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # Yuruna macOS UTM bootstrap installer.
-# --- REGION: https://yuruna.link/install/explained
+# --- REGION: https://yuruna.link/429fb30b
 # One-liner: /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/install/macos.utm.sh)"
 
 set -euo pipefail
@@ -453,7 +453,7 @@ stop_yuruna_processes() {
 }
 
 # --- REGION: Preserve running service VMs
-# --- REGION: https://yuruna.link/429fb30b-000c
+# See https://yuruna.link/429fb30b-000c
 # Quitting UTM is never confined to the VM the installer cares about: UTM
 # saves the state of EVERY running VM on its way out, and they come back
 # suspended rather than started. That makes any running service VM -- the
@@ -746,7 +746,7 @@ restore_test_status() {
 }
 
 # --- REGION: Tolerate a v / no-v tag mismatch
-# --- REGION: https://yuruna.link/429fb30b-0007
+# See https://yuruna.link/429fb30b-0007
 # Echoes the ref on stdout; warn -> stderr, so a warning never pollutes the
 # captured stdout used to set YURUNA_BRANCH.
 resolve_yuruna_ref() {
@@ -769,7 +769,7 @@ resolve_yuruna_ref() {
 }
 
 # --- REGION: Development repo pulls latest main, not a release tag
-# --- REGION: https://yuruna.link/429fb30b-0008
+# See https://yuruna.link/429fb30b-0008
 use_dev_branch_if_needed() {
   local basename="$1"
   if [[ "$basename" == "yurunadev" && "$YURUNA_BRANCH_EXPLICIT" -eq 0 && "$YURUNA_BRANCH" != "main" ]]; then
@@ -877,7 +877,7 @@ if [[ -d "$YURUNA_DIR/.git" ]]; then
 fi
 
 # --- REGION: Pin to the current release (opt-in)
-# --- REGION: https://yuruna.link/429fb30b-0006
+# See https://yuruna.link/429fb30b-0006
 if [[ "$PIN_VERSION" != "0" && "$YURUNA_BRANCH_EXPLICIT" -eq 0 && -d "$YURUNA_DIR/.git" ]]; then
   if [[ -f "$YURUNA_DIR/VERSION" ]]; then
     pin_tag="$(tr -d '[:space:]' < "$YURUNA_DIR/VERSION")"

@@ -523,7 +523,7 @@ Scripts may work with older versions, but tests used the pinned ones.
 
 Commands: [A.1](#a1-install-the-framework); the one-liners are owned
 by [install/README.md](../install/README.md), also at
-<https://yuruna.link/install>. The installer installs dependencies,
+<https://yuruna.link/420f54a5>. The installer installs dependencies,
 clones the framework, and seeds `test/test.config.yml` when absent.
 First-time Hyper-V enablement triggers RESTART REQUIRED -- reboot
 before continuing. Alternatively `git clone` and run the matching
@@ -767,7 +767,7 @@ standalone host legitimately runs no stash service, so absent means "not
 this host's job"; only a registered-but-stopped VM is something this host
 owns and failed to start. The sweep's health wait is deliberately
 non-authoritative -- a freshly resumed guest can take a while to re-open
-its listener, and the real gates run afterwards and own the verdict.
+its listener, and the real gates run afterward and own the verdict.
 
 **Start what is built; do not rebuild.** A rebuild costs ~15 minutes and
 throws away a warm Squid cache; a start costs seconds and preserves it.
@@ -884,6 +884,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.08
+Last review: 2026.09.12
 
 Back to [Yuruna](../README.md)

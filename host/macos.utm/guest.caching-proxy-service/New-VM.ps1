@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 4220d762-3e46-4f5b-808c-166adb4d8b1b
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -65,14 +65,9 @@ param(
     [string]$SquidCacheMem = '7 GB'
 )
 
-# Honor logLevel from Start-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
-# Load only when absent, never -Force. Start-CachingProxyServiceVM.ps1 runs this
-# script IN-PROCESS, so a forced re-import from here tears down and rebuilds the
-# module instance its caller is already using, taking whatever that instance keeps
-# in module scope with it and narrating a dozen import lines into the run's
-# transcript at Verbose (feedback_module_force_import_evicts_global). Tradeoff: an
-# edit to the module mid-session is not picked up here, which is acceptable for a
-# leaf script that only reads the level.
+# --- REGION: Log level from environment
+# See https://yuruna.link/42e220c4-0003
+# Reuse the caller's log module; a forced reload discards its state.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
 if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
     Import-Module $_logLevelMod -Global
@@ -127,9 +122,13 @@ Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Pa
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
 # --- REGION: Remove existing VM
-if (Test-Path -LiteralPath $UtmDir) { Remove-Item -LiteralPath $UtmDir -Recurse -Force }
+Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'modules/Yuruna.Host.psm1') -Force
+if (-not (Remove-UtmBundleWithRetry -Path $UtmDir)) {
+    Write-Error "Could not remove existing UTM bundle at '$UtmDir' after retries. Aborting."
+    exit 1
+}
 
-# --- REGION: Per-VM directory + disk
+# --- REGION: Create copies and files for VM
 New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 
 # EFI vars: QEMU has its own EDK2 firmware; UEFIBoot=true in the plist
@@ -155,18 +154,11 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # --- REGION: Grow the per-VM disk to 512 GB
-# 512 GB is the APPARENT size (qcow2 grows on demand: actual consumption is
-# only what the guest writes). Sized for squid's `cache_dir ufs
-# /var/spool/squid 393216` (= 384 GB) + ~128 GB OS/logs/headroom, and the
-# `maximum_object_size 65 GB` directive in
-# host/vmconfig/caching-proxy-service.base.user-data that lets the proxy cache
-# files like the macOS install image (~18 GB) and other multi-GB blobs
-# end-to-end instead of bypassing them direct to CDN.
+# See https://yuruna.link/42e220c4-0004
+# Keep enough virtual capacity for the Squid cache and OS/log headroom.
 if (-not (Expand-ExtensionVmDisk -Path $DiskImage -SizeBytes 512GB -Format 'qcow2')) {
-    Write-Warning "Resize failed -- continuing with original size."
-    Write-Warning "The cache VM will only have the base cloud-image capacity (~2.5 GB)"
-    Write-Warning "which fills up after 1-2 installs. Resize manually with:"
-    Write-Warning "  qemu-img resize -f qcow2 '$DiskImage' 512G"
+    Write-Error "Could not resize '$DiskImage' to 512 GB; refusing to build the cache VM on base-capacity disk."
+    exit 1
 }
 
 # --- REGION: Stage the cloud-init seed directory
@@ -182,16 +174,15 @@ Copy-Item -Path (Join-Path $hostVmConfigDir 'caching-proxy-service.meta-data') -
 Copy-Item -Path (Join-Path $hostVmConfigDir 'guest-dhcp.network-config') -Destination "$SeedDir/network-config"
 
 # --- REGION: Yuruna harness SSH key
-# yuruna test-harness SSH public key (same module the Ubuntu Server
-# guest uses). One keypair grants passwordless access to every VM,
-# including this cache VM for debugging squid/cloud-init issues.
+# See https://yuruna.link/42e220c4-0004
+# Seed the shared harness key so guest provisioning and failure diagnostics agree.
 $TestSshModule = Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) "test/modules/Test.Ssh.psm1"
 Import-Module $TestSshModule -Force
 $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
-# --- REGION: Cache-VM admin password
-# --- REGION: https://yuruna.link/42f6b05f-0041
+# --- REGION: Vault admin password
+# See https://yuruna.link/42f6b05f-0041
 # The runtime state file <track>/yuruna-caching-proxy-service.yml is the source of
 # truth; Set-Password rehydrates the vault from it before Get-Password.
 $_repoRootForExt = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))
@@ -207,8 +198,8 @@ Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentica
 [void](Save-CachingProxyServiceState -Secret $AdminPassword -Confirm:$false)
 $PasswordFile = Get-CachingProxyServiceStatePath
 
-# --- REGION: Pick a UTM network mode (BEFORE building user-data)
-# --- REGION: https://yuruna.link/4220a755-001b
+# --- REGION: Select the guest network
+# See https://yuruna.link/4220a755-001b
 # macOS: NetworkMode pair -- Wi-Fi -> Shared NAT (VZ gateway 192.168.64.1), Ethernet -> bridged (host LAN IP). Resolved once here and reused for the plist below, so the mode and the address can never disagree.
 Import-Module (Join-Path $_repoRootForExt 'host/macos.utm/modules/Yuruna.Host.psm1') -Force
 $NetworkMode = Resolve-UtmNetworkMode
@@ -223,8 +214,8 @@ $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $_repoRootForExt
 $YurunaHostPort = $_statusSeed.Port
 $tc = $_statusSeed.Config
 
-# --- REGION: networkStorage pool (ypool-nas) service replication
-# --- REGION: https://yuruna.link/42f6b05f-0042
+# --- REGION: Pool storage replication
+# See https://yuruna.link/42f6b05f-0042
 # Bake the networkUser credential name, share path, and host id, resolved
 # here on the host (networkStorage pool config + vault).
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.PoolStorage.psm1') -Force
@@ -246,8 +237,8 @@ if (($ypoolNasNetPath -match "'") -or ($ypoolNasUser -match "'")) {
 # is NOT baked -- the config service serves it at runtime (/v1/nas/pool).
 $ypoolNasReplicate = if ($ypoolNasCfg -and $ypoolNasUser -and $ypoolNasNetPath) { 'true' } else { 'false' }
 
-# --- REGION: Internal authentication key (control proofs + push-ingest + lab-token exchange)
-# --- REGION: https://yuruna.link/42f6b05f-0042
+# --- REGION: Internal authentication key
+# See https://yuruna.link/42f6b05f-0042
 # Empty vaultKey means the token is unset: do NOT call Get-Password then (it
 # would auto-generate a junk per-host key). 'internal-auth-key' first, then the
 # legacy 'lab-auth-token' and 'pool-auth-token' names, so a host enrolled under
@@ -301,19 +292,8 @@ if ([string]::IsNullOrEmpty($internalAuthKey) -and -not $keyReadFailed) {
 }
 
 # --- REGION: Docker Hub pull-through credential
-# zot's sync walks its upstream list in file order, and Docker Hub is the
-# trailing catch-all, so every repository no scoped upstream claims is fetched
-# from Hub. Hub meters an anonymous sync against the egress IP -- one allowance
-# every guest behind this cache draws from at once -- and once it is gone zot's
-# revalidation stalls past the ~30s dockerd waits for response headers, which
-# fails the pull. An authenticated sync draws on the account's own budget,
-# which the lab holds alone.
-#
-# Both halves stay EMPTY unless the operator stored a real credential -- the
-# guest reads empty as "stay anonymous". Get-Password mints a value for a
-# missing entry and a minted secret authenticates as nobody, breaking every
-# sync, so only an entry Test-VaultEntry confirmed may reach it; a read that
-# THREW is likewise not a vault with no entry.
+# See https://yuruna.link/42e220c4-0004
+# Only use stored Docker Hub credentials; a generated password cannot authenticate.
 $dockerHubUsername = ''
 $dockerHubToken    = ''
 $dockerHubWarned   = $false
@@ -359,7 +339,7 @@ if ((-not $dockerHubUsername) -or (-not $dockerHubToken)) {
 }
 
 # --- REGION: Config service mTLS materials
-# --- REGION: https://yuruna.link/42f6b05f-0042
+# See https://yuruna.link/42f6b05f-0042
 # Mint a per-VM client leaf signed by THIS host's Config CA; PEMs are baked
 # base64 so they survive the cloud-init write_files block scalar.
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.ConfigServiceCA.psm1') -Force
@@ -454,14 +434,8 @@ $MacAddress = Get-YurunaGuestMacAddress -VMName $VMName
 Import-Module (Join-Path (Split-Path -Parent $ScriptDir) "modules/Yuruna.Host.psm1") -Force
 $VncDisplay = Get-VncDisplayForVm -VMName $VMName
 
-# Bridge interface: QEMU's bridged network mode needs a physical NIC
-# name (en0/en7/...). Resolve from the host's default IPv4 route so
-# the cache rides whichever interface currently carries LAN traffic --
-# matches what Get-BestHostIp does and avoids hardcoding en0 (Ethernet
-# adapters often enumerate as en7/en8 instead). Falls back to en0 if
-# `route` reports no default; an unreachable bridge surfaces later as a
-# DHCP timeout in Start-CachingProxyServiceVM.ps1 Step 4 (better diagnostic than
-# silently failing here).
+# --- REGION: https://yuruna.link/42e220c4-0004
+# Use the default-route interface so the bridge and host address share an uplink.
 $BridgeInterface = $null
 try {
     $routeOut = & '/sbin/route' -n get default 2>$null
@@ -477,13 +451,8 @@ if (-not $BridgeInterface) {
 }
 
 # --- REGION: Report the resolved network mode
-# Bridged QEMU networking is unreliable over Wi-Fi: the AP commonly drops
-# frames from the VM's locally-administered MAC, so a bridged cache never
-# gets a LAN DHCP lease. On a Wi-Fi-only default route build the cache on
-# UTM Shared NAT (192.168.64.x) instead -- the host and other Shared-NAT
-# UTM guests reach it directly, and Start-CachingProxyServiceVM.ps1 exposes it to
-# the wider LAN via host port-forwarders. Ethernet keeps bridged (LAN-
-# direct, real client IPs).
+# See https://yuruna.link/42e220c4-0004
+# Wi-Fi uses Shared NAT and host forwarding; Ethernet retains direct bridging.
 if ($NetworkMode -eq 'Shared') {
     Write-Output "Default route is Wi-Fi ($BridgeInterface) -- bridged can't get a LAN lease over Wi-Fi; building the cache on UTM Shared NAT. Start-CachingProxyServiceVM.ps1 will forward host ports to it for LAN access."
 } else {
@@ -491,11 +460,7 @@ if ($NetworkMode -eq 'Shared') {
 }
 
 # --- REGION: https://yuruna.link/42f6b05f-0040
-# RAM comes from the caller, paired with squid's cache_mem by
-# Get-CachingProxyMemoryProfile -- the two are budgeted against each other
-# and swap is masked, so undersizing is an unrecoverable OOM. The default
-# below is the beacon pairing, matched across all three hosts. vCPUs from
-# the core-count policy (min 4).
+# Keep RAM paired with Squid's cache_mem; swap is disabled, so undersizing causes OOM.
 # --- REGION: https://yuruna.link/42fa6f45-0015
 $hostCores = [int](& /usr/sbin/sysctl -n hw.physicalcpu)
 if ($hostCores -lt 4) {
@@ -536,16 +501,12 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Verbose "config.plist validated OK (VNC on 127.0.0.1:$(5900 + $VncDisplay))."
 
-# --- REGION: Cleanup temporary folders
+# --- REGION: Clean up temporary files
 Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 
-# --- REGION: Next steps for the operator
-# LITERAL here-string (@'...'@) for the multi-line block. Shell snippets
-# below contain $(utmctl ...), "$ip", etc. -- pass through verbatim, do
-# NOT let PowerShell evaluate. Placeholders like __VM_NAME__ are
-# substituted after the fact via .Replace(). Backslash-escaping (\$)
-# does NOT work: \ is not a PowerShell string escape, so `\$(utmctl ...)`
-# inside a double-quoted/expandable string actually runs utmctl mid-guidance.
+# --- REGION: Guidance
+# See https://yuruna.link/42e220c4-0004
+# Keep the here-string literal: expandable strings would execute the shell examples.
 Write-Output ""
 Write-Output "== VM bundle created =="
 Write-Output "  Path:      $UtmDir"
@@ -618,12 +579,7 @@ Write-Output ($guidance.
     Replace('__UTM_DIR__', $UtmDir).
     Replace('__PASSWORD_FILE__', $PasswordFile))
 
-# --- REGION: Hand root-run artifacts back to the operator
-# Guard only: the supported invocation is UNELEVATED (these scripts elevate the
-# individual operations that need it, and root has no Aqua session for open /
-# utmctl / osascript). But a run that did reach here as root left the bundle,
-# the base image, the seed and the harness key root-owned, and UTM -- running as
-# the operator -- could neither open this VM nor delete it on the next rebuild.
-# The whole ~/yuruna tree, not just this bundle: unlinking a directory needs
-# write permission on its parent, and guest.nosync is shared by every builder.
+# --- REGION: Restore operator file ownership
+# See https://yuruna.link/42e220c4-0004
+# If invoked through sudo, return generated artifacts to the original operator.
 [void](Restore-SudoUserOwnership -Path @("$HOME/yuruna", (Join-Path $_repoRootForExt 'test/status')) -Confirm:$false)

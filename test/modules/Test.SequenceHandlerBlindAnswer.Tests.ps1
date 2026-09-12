@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42d9a6c1-58b7-4f0e-9a2e-7c1f6b0d4e33
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -70,7 +70,7 @@ Import-Module (Join-Path $here 'Test.SequenceHandler.psm1') -Force -DisableNameC
         [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
             Justification = 'Stub: the signature has to match the real function so the caller binds; only Pattern and TimeoutSeconds are recorded.')]
         param($HostType, $VMName, $Pattern, $TimeoutSeconds, $PollSeconds, $FreshMatch,
-              $FreshMatchTailLines, $FailurePattern)
+              $FreshMatchTailLines, $FailurePattern, [bool]$SinceStepStart)
         $script:BlindStub.WaitPatterns += @(,@($Pattern))
         $script:BlindStub.WaitTimeouts += @([int]$TimeoutSeconds)
         if ($script:BlindStub.WaitResults.Count -gt 0) {
@@ -169,6 +169,80 @@ Describe 'Invoke-BlindAnswer refuses to type at a console that is still moving' 
         $stub = Reset-BlindState
         $stub.Verdict.ConsoleText = ''
         $ctx = Get-BlindContext -Step @{ text = 'yes'; blindAfterSeconds = 120 }
+        $result = Invoke-BlindAnswerUnderTest -Context $ctx -Patterns @('Continue with autoinstall?')
+        Assert-Equal -Expected $false -Actual $result
+        Assert-Equal -Expected 0 -Actual $stub.Typed.Count
+    }
+}
+
+Describe 'Invoke-BlindAnswer refuses a screen the step declares off limits' {
+    BeforeAll {
+        # Ubuntu's language menu, as the failure capture actually OCR'd it --
+        # transcription errors included. It is static and it moves when typed
+        # at, so it passes both of the blind path's own tests while being the
+        # one screen the answer must never reach: the menu is what an installer
+        # shows when autoinstall did not engage, so the prompt is not live and
+        # no answer can be consumed. Built in BeforeAll, not in the Describe
+        # body: a Describe body runs at discovery, and a fixture left there is
+        # $null by the time an It reads it -- which reads as a pass on every
+        # assertion that expects a refusal.
+        $script:LanguageMenu = @(
+            'Use UP, DOMN and ENTER keys to select your language.'
+            '[ Asturianu +]'
+            '[ Bahasa Indonesia +]'
+            '[ Catala +]'
+            '[ Deutsch +]'
+            '[ English (UK) >]'
+        ) -join "`n"
+    }
+
+    It 'reads a language menu fixture that is actually present' {
+        # Guards the three assertions below: an empty fixture would send them
+        # down the no-text-on-screen path and pass for the wrong reason.
+        Assert-Equal -Expected $true -Actual ([bool]$script:LanguageMenu)
+        Assert-Equal -Expected $true -Actual ($script:LanguageMenu -match 'Bahasa Indonesia')
+    }
+
+    It 'types nothing when the console shows the declared screen' {
+        $stub = Reset-BlindState
+        $stub.Verdict.ConsoleText = $script:LanguageMenu
+        $ctx = Get-BlindContext -Step @{
+            text = 'yes'; blindAfterSeconds = 120; blindSkipPattern = 'Bahasa Indonesia'
+        }
+        $result = Invoke-BlindAnswerUnderTest -Context $ctx -Patterns @('Continue with autoinstall?')
+        Assert-Equal -Expected $false -Actual $result -Because 'the prompt is not live on that screen'
+        Assert-Equal -Expected 0 -Actual $stub.Typed.Count -Because 'the answer must not reach an interactive menu'
+        Assert-Equal -Expected 0 -Actual $stub.ChangeCalls -Because 'no answer was sent, so nothing may be confirmed'
+    }
+
+    It 'still answers the same parked console when no screen is declared' {
+        # Without the declaration the behavior is unchanged, so the guard adds a
+        # refusal rather than narrowing the recovery everywhere else.
+        $stub = Reset-BlindState
+        $stub.Verdict.ConsoleText = $script:LanguageMenu
+        $ctx = Get-BlindContext -Step @{ text = 'yes'; blindAfterSeconds = 120 }
+        $result = Invoke-BlindAnswerUnderTest -Context $ctx -Patterns @('Continue with autoinstall?')
+        Assert-Equal -Expected $true -Actual $result
+        Assert-Equal -Expected 1 -Actual $stub.Typed.Count
+    }
+
+    It 'answers normally when the declared screen is not the one on console' {
+        $stub = Reset-BlindState
+        $ctx = Get-BlindContext -Step @{
+            text = 'yes'; blindAfterSeconds = 120; blindSkipPattern = 'Bahasa Indonesia'
+        }
+        $result = Invoke-BlindAnswerUnderTest -Context $ctx -Patterns @('Continue with autoinstall?')
+        Assert-Equal -Expected $true -Actual $result -Because 'the scrolled-away prompt is still the case this exists for'
+        Assert-Equal -Expected 1 -Actual $stub.Typed.Count
+    }
+
+    It 'accepts a list of screens' {
+        $stub = Reset-BlindState
+        $stub.Verdict.ConsoleText = $script:LanguageMenu
+        $ctx = Get-BlindContext -Step @{
+            text = 'yes'; blindAfterSeconds = 120
+            blindSkipPattern = @('GNU GRUB', 'Bahasa Indonesia')
+        }
         $result = Invoke-BlindAnswerUnderTest -Context $ctx -Patterns @('Continue with autoinstall?')
         Assert-Equal -Expected $false -Actual $result
         Assert-Equal -Expected 0 -Actual $stub.Typed.Count

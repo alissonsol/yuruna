@@ -1,29 +1,21 @@
-#!/usr/bin/env bash
-# Version: 2026.09.08
+#!/bin/bash
+# Version: 2026.09.12
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
-#
-# Guest bring-up for the Yuruna Pool control service VM. Mirrors the stash-service
-# bring-up: build the Go daemon from the framework checkout, install it, and run
-# it under systemd. UNLIKE stash (pure Go), pool-control-service shells out to the
-# PowerShell pool-admin CLIs, so this also installs pwsh + powershell-yaml and
-# points the daemon at the framework checkout (--repo-dir) whose test/*.ps1 it
-# invokes. The daemon persists its audit log + status.json under the pool NAS
-# (poolStorageNetworkPath/pool-control-service/), which is CIFS-mounted here with the same
-# credential path the pool-storage replication uses.
-# --- REGION: https://yuruna.link/pool-control-service
+# --- REGION: https://yuruna.link/42e220c4-0005
+# See https://yuruna.link/4207d71a-000c
 set -euo pipefail
 
-# cloud-init's runcmd runs this as root with a MINIMAL environment where
-# $HOME is unset, and `go build` -- a child process -- needs HOME EXPORTED to
-# resolve GOPATH/GOMODCACHE, else it fails with "module cache not found:
-# neither GOMODCACHE nor GOPATH is set". Set AND export it.
+# --- REGION: Initialize environment
+# Export HOME for Go module-cache discovery under cloud-init.
 export HOME="${HOME:-/root}"
 
 export DEBIAN_FRONTEND=noninteractive
 export NONINTERACTIVE=1
 
+# --- REGION: Detect architecture
 ARCH=$(uname -m)
+echo "Detected architecture: $ARCH"
 case "$ARCH" in
   x86_64|aarch64) ;;
   *)
@@ -32,7 +24,8 @@ case "$ARCH" in
     ;;
 esac
 
-# Optional shared retry helpers (present once update.sh has run).
+# --- REGION: Load retry helpers
+# Optional on service guests before the update workload has run.
 if [ -r /usr/local/lib/yuruna/yuruna-retry.sh ]; then
   # --- REGION: https://yuruna.link/4220a755-0003
   . /usr/local/lib/yuruna/yuruna-retry.sh
@@ -43,10 +36,8 @@ if [ -r /usr/local/lib/yuruna/yuruna-retry.sh ]; then
 fi
 
 # --- REGION: Service user
-# The daemon runs unprivileged. Prefer the cloud-init-created
-# 'pool-control-service-admin' account; fall back to whoever invoked the script (e.g.
-# an interactive test login). The NAS mount's uid/gid must match this user for
-# the state-dir writes to land (cifs maps every file to one owner).
+# Prefer cloud-init's account; allow an explicit override or the current caller.
+# The CIFS mount maps every file to this user's uid/gid.
 if id -u pool-control-service-admin >/dev/null 2>&1; then
   SERVICE_USER=pool-control-service-admin
 else
@@ -55,28 +46,13 @@ fi
 echo "Service user: $SERVICE_USER"
 
 # --- REGION: Service tunables
+# See https://yuruna.link/42fffc2c-000d
 HTTP_ADDR="${POOL_CONTROL_HTTP_ADDR:-0.0.0.0:80}"
-# The presence interval must stay SHORTER than the aggregator's extension
-# health grace: a re-announce is also how a renumbered service reports its new
-# address, so a cadence slower than the grace leaves the area unresolvable
-# between the refusal of the old address and the next announce.
 PRESENCE_INTERVAL="${POOL_CONTROL_PRESENCE_INTERVAL:-2m}"
-# The internal authentication key opens the bearer path on the routes that change pool
-# configuration, for automation. Absent file => bearer disabled; an operator
-# unlocking with the dashboard's Lab token is then the only way in, and a change
-# with neither is refused rather than running ungated.
 AUTH_TOKEN_FILE="${POOL_CONTROL_AUTH_TOKEN_FILE:-/etc/yuruna/internal-auth.key}"
-# Network discovery: the sweep that finds Yuruna hosts nobody registered and adds
-# them to the monitored list. An empty CIDR leaves the daemon to derive the /24
-# around its own address, which is right whenever the service shares a subnet
-# with the hosts -- set it only when they are somewhere else. '-' (not ':-') on
-# the interval so an operator who exports an empty value to disable the timer
-# gets it: ':-' would substitute the default back and turn the sweep on again.
 SCAN_CIDR="${POOL_CONTROL_SCAN_CIDR:-}"
 SCAN_PORT="${POOL_CONTROL_SCAN_PORT:-8080}"
 SCAN_INTERVAL="${POOL_CONTROL_SCAN_INTERVAL-15m}"
-# "No sweep" is spelled 0 to the daemon; an empty duration would be a flag parse
-# error, which turns an operator's off switch into a service that will not start.
 [ -n "$SCAN_INTERVAL" ] || SCAN_INTERVAL=0
 
 # The host validates and canonicalizes the lab-wide language before baking it
@@ -98,13 +74,10 @@ INTENT_GIT_URL="$(sed -n 's/^YURUNA_POOL_INTENT_GIT_URL=//p' /etc/yuruna/pool.en
 POOL_NAS_UNC="$(sed -n 's/^YURUNA_POOL_NETWORK_PATH=//p' /etc/yuruna/pool.env 2>/dev/null | head -1 || true)"
 POOL_NAS_IP="$(sed -n 's/^YURUNA_POOL_NETWORK_IP=//p' /etc/yuruna/pool.env 2>/dev/null | head -1 || true)"
 POOL_NAS_USER="$(sed -n 's/^YURUNA_POOL_NETWORK_USER=//p' /etc/yuruna/pool.env 2>/dev/null | head -1 || true)"
+echo "Pool NAS user: ${POOL_NAS_USER:-(none configured)}"
 MOUNT=/mnt/yuruna-pool
 STATE_DIR="$MOUNT/pool-control-service"
-# The intent store the daemon COMMITS to. The proxy's http://<proxy>/pool-intent.git
-# route is dumb-HTTP (apache Alias, no git-http-backend), i.e. pull-only -- pointing
-# the daemon at it yields a UI that reads but fails every write at push time. The
-# pool NAS is the one location both this VM and the proxy mount read-write, so the
-# writable store lives there and the proxy can serve those same bytes to runners.
+# --- REGION: https://yuruna.link/429f3d06-0040
 INTENT_STORE="$MOUNT/pool-intent.git"
 
 # --- REGION: Package dependencies
@@ -121,11 +94,7 @@ else
 fi
 go version
 # --- REGION: https://yuruna.link/42d69dfa-0036
-# PowerShell (the daemon shells out to the pool-admin CLIs). Install from the
-# GitHub-release tarball, NOT packages.microsoft.com: the prod repo publishes a
-# resolute suite but ships no `powershell` package in it, so the apt path leaves
-# the guest with no pwsh at all. The tarball is version- and distro-independent
-# and is what the sibling ubuntu.server.26 update path already uses.
+# Resolute has no PowerShell package; use the cross-version release tarball.
 if ! command -v pwsh >/dev/null 2>&1; then
   case "$ARCH" in
     x86_64)  PS_ARCH="x64" ;;
@@ -158,11 +127,7 @@ if ! command -v pwsh >/dev/null 2>&1; then
   echo "Installing PowerShell ${PS_VER} (${PS_ARCH}) from ${PS_URL}"
   curl_retry -fsSL -o /tmp/powershell.tar.gz "$PS_URL"
 
-  # Verify against the release's published hashes.sha256 before unpacking (pwsh
-  # is the interpreter for every pool-admin CLI this daemon drives). The asset is
-  # UTF-16 LE (BOM+CRLF, Windows-generated) -> normalize to UTF-8/LF. A genuine
-  # MISMATCH is fatal; a hashes.sha256 that cannot be fetched or parsed only
-  # WARNs so a transient GitHub blip never fails the whole bring-up.
+  # --- REGION: https://yuruna.link/429f3d06-008b
   if curl_retry -fsSL -o /tmp/pwsh-hashes.sha256 \
        "https://github.com/PowerShell/PowerShell/releases/download/${PS_TAG}/hashes.sha256"; then
     PS_B2=$(od -An -tx1 -N2 /tmp/pwsh-hashes.sha256 2>/dev/null | tr -d ' \n' || true)
@@ -209,10 +174,7 @@ sudo pwsh -NoProfile -NonInteractive -Command "if (-not (Get-Module -ListAvailab
   || echo "pool-control-service: powershell-yaml install failed; the pool-admin CLIs will fail to parse intent. See /diagnostics." >&2
 
 # --- REGION: Locate the daemon source
-# Locate the framework checkout (the pool-control-service source + the pool-admin CLIs).
-# Enumerate candidate enlistments directly rather than piping `find` into
-# `head`: under pipefail the reader closing the pipe leaves the producer with
-# SIGPIPE (141), which aborts the lookup even when it succeeded.
+# Avoid find|head: under pipefail the expected producer SIGPIPE aborts lookup.
 locate_repo_dir() {
   local candidates=( "$HOME/yuruna" "/home/$SERVICE_USER/yuruna" )
   local home
@@ -239,25 +201,16 @@ VERSION_STR=$(cat "$REPO_DIR/VERSION" 2>/dev/null | head -n1 | tr -d '[:space:]'
 [ -n "$VERSION_STR" ] || VERSION_STR=dev
 
 # --- REGION: Build
+# See https://yuruna.link/42e220c4-000f
 echo ""
 echo -e "\e[1;36m==== Building pool-control-service ($VERSION_STR) from $SERVER_DIR ====\e[0m"
 BUILD=/tmp/pool-control-service-build
 rm -rf "$BUILD"; mkdir -p "$BUILD"; cp -r "$SERVER_DIR" "$BUILD/server"
-# The SDK is a SEPARATE Go module, staged as a sibling of server/ because
-# go.mod resolves it with `replace ... => ../extension-sdk`. Mirroring it
-# INTO server/internal/yex instead would mean thousands of duplicated
-# lines and a copy that could silently fork. A go.work file is no substitute
-# HERE: only the two directories staged below are copied into the build dir,
-# so a workspace file living in the enlistment never reaches this build.
 SDK_DIR="$(cd "$SERVER_DIR/../.." && pwd)/extension-sdk"
 [ -f "$SDK_DIR/go.mod" ] || { echo "Could not find the extension SDK at $SDK_DIR." >&2; exit 1; }
 cp -r "$SDK_DIR" "$BUILD/extension-sdk"
-# No go.sum here: this module needs only the standard library and the SDK
-# staged beside it, so there is no dependency graph to verify and `go mod
-# tidy` -- which reaches the network to recompute one -- must not run. The
-# retry stands for whatever the build still fetches on a fresh guest: a miss
-# the caching-proxy service cannot relay surfaces as a transient failure that
-# clears once it holds the object.
+# This module has no external graph; do not run networked go mod tidy here.
+# Retry the build because a fresh module cache can still need the proxy.
 attempts=3
 delay=10
 for try in $(seq 1 "$attempts"); do
@@ -281,14 +234,11 @@ sudo install -m 0755 -o root -g root "$BUILD/server/pool-control-service" /usr/l
 # --- REGION: https://yuruna.link/42d69dfa-0025
 sudo setcap 'cap_net_bind_service=+ep' /usr/local/bin/pool-control-service || true
 
-# --- REGION: Storage dirs
+# --- REGION: Storage directories
 # Mount the pool NAS for the state dir (best-effort; the daemon degrades to no
 # persistence if the mount is absent).
 if [[ -n "$POOL_NAS_UNC" ]]; then
   sudo mkdir -p "$MOUNT"
-  # Every part is load-bearing: the open modes plus noperm are an ownership
-  # MAPPING that must match the parent share, not a hardening choice, and
-  # iocharset=utf8 is absent because nls_utf8 fails the mount with error(79).
   # --- REGION: https://yuruna.link/428405a0-000b
   MOUNT_OPTS="credentials=/etc/yuruna/pool-nas.cifs.cred,vers=3.0,uid=$(id -u "$SERVICE_USER"),gid=$(id -g "$SERVICE_USER"),file_mode=0666,dir_mode=0777,noperm,nofail,_netdev"
   # ip= carries the mount past a server name the guest has no way to resolve.
@@ -303,12 +253,8 @@ if [[ -n "$POOL_NAS_UNC" ]]; then
     sudo timeout 60 mount "$MOUNT" || echo "pool-control-service: NAS mount failed; persistence disabled" >&2
   fi
 fi
-# Never materialize the state dir on the local disk underneath an unmounted NAS
-# mountpoint, for the same reason the intent store below refuses to: the NAS
-# mounting later would shadow it, silently stranding the status.json and audit
-# log written in the meantime. An empty state dir is how the daemon is told to
-# run without persistence, so hand it that instead -- the daemon creates the dir
-# itself on start, and would otherwise recreate exactly the local one this skips.
+# Do not create state below an unmounted NAS path; a later mount would shadow it.
+# An empty path disables persistence without recreating the local directory.
 if mountpoint -q "$MOUNT" 2>/dev/null; then
   # No chown on the mounted share: the uid/gid mount options have already placed
   # ownership and a chown can lock the host out.
@@ -319,15 +265,7 @@ else
 fi
 
 # --- REGION: Intent store bootstrap
-# A pool-control-service VM with no intent store has no working UI: every read and write
-# targets it. Resolve one, and CREATE it when it is absent, so a first bring-up
-# reaches a working state without an operator pre-staging anything.
-#
-# Precedence: an explicit seed value wins; otherwise the pool NAS store, which is
-# writable from here. The host bake resolves the same order, so the seed usually
-# ALREADY carries the NAS path -- which is why creation below keys on "the
-# resolved path is not a repo yet" rather than on "no URL was supplied". Keying
-# on emptiness would skip creation in exactly the case that needs it.
+# See https://yuruna.link/42e220c4-000f
 if [[ -z "$INTENT_GIT_URL" ]] && mountpoint -q "$MOUNT" 2>/dev/null; then
   INTENT_GIT_URL="$INTENT_STORE"
 fi
@@ -345,13 +283,7 @@ if [[ -n "$INTENT_GIT_URL" && "$INTENT_GIT_URL" != *://* && ! -d "$INTENT_GIT_UR
     INTENT_GIT_URL=''
   else
     echo -e "\e[1;36m==== Initializing pool intent store at $INTENT_GIT_URL ====\e[0m"
-    # Run git AS THE SERVICE USER, not as the root cloud-init runs this under:
-    # the cifs mount maps every file to the service user's uid, so a root-created
-    # repo is owned by someone other than the caller and git then refuses it with
-    # "detected dubious ownership". Creating it as the eventual owner keeps the
-    # daemon's own git calls out of that trap too.
-    # core.fileMode=false: cifs maps modes from the mount options, so git would
-    # otherwise see a permission change on every file it writes back.
+    # --- REGION: https://yuruna.link/42e220c4-0005
     if sudo -u "$SERVICE_USER" git init --bare --initial-branch=main "$INTENT_GIT_URL" >/dev/null 2>&1 &&
        sudo -u "$SERVICE_USER" git -C "$INTENT_GIT_URL" config core.fileMode false &&
        # Refresh the dumb-HTTP indexes after every push, via git's built-in
@@ -424,7 +356,7 @@ echo -e "\e[1;36m==== /etc/systemd/system/pool-control-service.service ====\e[0m
 sudo tee /etc/systemd/system/pool-control-service.service >/dev/null <<EOF
 [Unit]
 Description=Yuruna Pool control service
-Documentation=https://yuruna.link/pool-control-service
+Documentation=https://yuruna.link/4207d71a-000c
 # After= the cifs mount unit so the daemon starts once the state dir is up;
 # NOT Requires=/Wants= it -- the daemon is meant to start and degrade to no
 # persistence when the NAS is down, and on a guest with no pool storage the

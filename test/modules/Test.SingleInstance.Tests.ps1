@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42645f00-faa2-428e-bbc3-6249194cf5b0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,7 +40,6 @@ Import-Module (Join-Path $here 'Test.SingleInstance.psm1') -Force -DisableNameCh
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # --- REGION: https://yuruna.link/42d69dfa-0015
-
 function Start-TestChildProcess {
     <#
     .SYNOPSIS

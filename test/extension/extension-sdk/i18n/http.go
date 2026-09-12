@@ -6,20 +6,47 @@ package i18n
 import (
 	"context"
 	"net/http"
+	"sync"
 )
 
 type contextKey struct{}
 
+var (
+	defaultContextOnce  sync.Once
+	defaultContextValue Context
+)
+
+// defaultContext is what a request carries when nothing negotiated for it. It is
+// built through the same constructor a negotiated request goes through, given no
+// input to decide on, so the two agree field for field -- including the direction
+// the manifest declares for the default language, the time policy, and the
+// catalog version and hash a render is traced by. A hand-written struct literal
+// here would agree only on the fields someone thought to fill in, and a handler
+// mounted without the middleware would then answer with provenance the rest of
+// the service does not have. It is resolved once because the manifest allocates:
+// an unmounted handler must not pay for it per request.
+func defaultContext() Context {
+	defaultContextOnce.Do(func() {
+		defaultContextValue = NewContext("", "", "", DefaultManifest())
+	})
+	return defaultContextValue
+}
+
 // FromRequest is the locale decision carried on a request, or the default when
 // no middleware ran. Handlers read this rather than re-negotiating: a page and
 // the API responses it triggers must not disagree about the reader's language.
+//
+// The no-middleware answer is a complete default context, never a partial one.
+// It is also deliberately not a negotiation: a request that reached a handler
+// with no middleware has had no locale decided for it, and reading its header
+// here would make the answer depend on which of two mounts a route went through.
 func FromRequest(r *http.Request) Context {
 	if r != nil {
 		if ctx, ok := r.Context().Value(contextKey{}).(Context); ok {
 			return ctx
 		}
 	}
-	return Context{ResolvedTag: generatedDefault, Direction: "ltr", Source: SourceDefault}
+	return defaultContext()
 }
 
 // Negotiator resolves a locale per request and records what it decided.

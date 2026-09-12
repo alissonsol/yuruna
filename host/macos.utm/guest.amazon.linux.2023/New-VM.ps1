@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42f81a2e-d65b-4d01-a8b1-3eb5638207d8
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,9 +27,14 @@ param(
     [string]$Hostname = ''
 )
 
-# Honor logLevel from Start-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+# --- REGION: Log level from environment
+# See https://yuruna.link/42e220c4-0003
+# Reuse the caller's log module; a forced reload discards its state.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
-if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
+if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
+    Import-Module $_logLevelMod -Global
+}
+if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     Write-Output "Invalid VMName '$VMName'. Only alphanumeric characters, dots, hyphens, and underscores are allowed."
@@ -57,15 +62,19 @@ $baseImageFile = Join-Path $downloadDir "$baseImageName.qcow2"
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.Image.psm1') -Force
 if (-not (Assert-YurunaBaseImage -BaseImageFile $baseImageFile -GuestFolder $PSScriptRoot)) { exit 1 }
 
-Write-Verbose "Creating VM '$VMName' using image: $baseImageFile"
-# Provenance side-channel for operators reading the transcript. Emits
-# "Provenance: <url>" when the sidecar is healthy; warns otherwise.
+# --- REGION: Base image provenance
+# Emit the source URL from a healthy sidecar; warn when provenance is incomplete.
 Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
+# --- REGION: Remove existing VM
+Write-Verbose "Creating VM '$VMName' using image: $baseImageFile"
+Import-Module (Join-Path (Split-Path -Parent $PSScriptRoot) 'modules/Yuruna.Host.psm1') -Force
+if (-not (Remove-UtmBundleWithRetry -Path $UtmDir)) {
+    Write-Error "Could not remove existing UTM bundle at '$UtmDir' after retries. Aborting."
+    exit 1
+}
 # --- REGION: Create copies and files for VM
-
-if (Test-Path -LiteralPath $UtmDir) { Remove-Item -LiteralPath $UtmDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 
 # Copy qcow2 directly (QEMU backend reads qcow2 natively; no raw conversion
@@ -119,7 +128,8 @@ Import-Module $TestSshModule -Force
 $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
-# Per-cycle authentication vault password for $Username.
+# --- REGION: https://yuruna.link/42e220c4-0004
+# Read the persistent authentication vault; a new cycle must not reset credentials.
 $_repoRootForExt = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
 $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
@@ -157,27 +167,7 @@ $UserData = New-CloudInitUserData `
 Set-Content -Path "$SeedDir/meta-data" -Value $MetaData -NoNewline
 Set-Content -Path "$SeedDir/user-data" -Value $UserData -NoNewline
 # --- REGION: https://yuruna.link/4220a755-000b
-# Amazon Linux deliberately does NOT receive the shared seed network-config the
-# netplan guests get. Two facts combine badly here:
-#
-#   * Supplying network-config REPLACES cloud-init's own fallback rather than
-#     adding to it, so a config that matches no interface is not neutral. It
-#     leaves the guest with no network configuration at all -- strictly worse
-#     than shipping no file.
-#   * Whether a given match form resolves under this guest's live renderer is
-#     not decidable by reading the parser -- only a lab cycle settles it --
-#     and the failure shape is total: nothing claims the NIC, it stays with
-#     IFF_UP clear, carrier cannot even be read, DHCP is never attempted, and
-#     the only way into the guest is the console it just lost.
-#
-# The client-id pin for this guest rides its user-data instead. The image's
-# live renderer is systemd-networkd, whose DHCP identity is a DUID from the
-# per-build /etc/machine-id, so the pin is a [DHCPv4] ClientIdentifier=mac
-# drop-in installed beside cloud-init's fallback profile, backed by a 98-
-# fallback .network profile for the boot where that fallback claims nothing,
-# with a best-effort nmcli pin kept for a NetworkManager-managed build. None
-# of these is a seed network-config, so cloud-init's fallback generation
-# stays intact.
+# Amazon Linux preserves cloud-init fallback networking; pin DHCP identity in user-data.
 
 $SeedIso = "$DataDir/seed.iso"
 Write-Verbose "Generating seed.iso with cloud-init configuration..."
@@ -187,7 +177,7 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# --- REGION: config.plist (QEMU backend)
+# --- REGION: Create and configure the UTM bundle (config.plist, QEMU backend)
 $TemplatePath = Join-Path $ScriptDir "config.plist.template"
 if (-not (Test-Path $TemplatePath)) {
     Write-Error "Template not found at '$TemplatePath'."
@@ -197,12 +187,8 @@ if (-not (Test-Path $TemplatePath)) {
 $VmUuid = [guid]::NewGuid().ToString().ToUpper()
 $DiskId = [guid]::NewGuid().ToString().ToUpper()
 $SeedId = [guid]::NewGuid().ToString().ToUpper()
-# Deterministic per (host, guest identity): a rebuilt guest presents the SAME MAC,
-# so the DHCP server returns the SAME lease instead of consuming a new one.
-# Keyed on the guest's durable identity, not on the name the VM carries now: a
-# guest is built in a per-kind slot and renamed to its real name when its
-# baseline is snapshotted, and an address that moved with that rename would
-# re-DHCP a guest whose own state already records the one it was built on.
+# --- REGION: https://yuruna.link/42e220c4-0004
+# Key the MAC by durable guest identity so rebuilds and VM renames keep the DHCP lease.
 $MacAddress = Get-YurunaGuestMacAddress -VMName $GuestHostname
 
 # Per-VM VNC display number (Get-VncDisplayForVm hashes the name into
@@ -241,7 +227,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Verbose "config.plist validated OK (VNC on 127.0.0.1:$(5900 + $VncDisplay))."
 
-# --- REGION: Cleanup temporary folders
+# --- REGION: Clean up temporary files
 Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- REGION: Guidance

@@ -2,7 +2,7 @@
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 [Unit]
 Description=Yuruna caching-proxy-service (management plane for the caching proxy)
-Documentation=https://yuruna.link/caching-proxy-service
+Documentation=https://yuruna.link/42f6b05f-003c
 After=squid.service network-online.target
 # Wants, not Requires: the management plane answering that squid is DOWN is one
 # of the things it exists for, so it must survive squid failing to start.

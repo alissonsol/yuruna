@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42539052-a22b-452d-ad7f-0bbf053904ff
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,7 +38,6 @@
 #>
 
 # --- REGION: Module setup
-
 $script:HostTag        = 'host.ubuntu.kvm'
 $script:RepoRoot       = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
 $script:TestModulesDir = Join-Path $script:RepoRoot 'test/modules'
@@ -118,12 +117,11 @@ $script:ImagePathTable = @{
 }
 
 # --- REGION: KVM host helpers
-
-<#
-.SYNOPSIS
-    Run virsh and return its stdout/stderr lines as an array; never throws.
-#>
 function Invoke-Virsh {
+    <#
+    .SYNOPSIS
+        Run virsh and return its stdout/stderr lines as an array; never throws.
+    #>
     [CmdletBinding()]
     [OutputType([System.Object[]])]
     param([Parameter(Mandatory)][string[]]$VirshArgs)
@@ -166,12 +164,11 @@ function Get-VirshDomState {
 }
 
 # --- REGION: VM lifecycle
-
-<#
-.SYNOPSIS
-    Create a guest VM by running the per-guest New-VM.ps1 script.
-#>
 function New-VM {
+    <#
+    .SYNOPSIS
+        Create a guest VM by running the per-guest New-VM.ps1 script.
+    #>
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSShouldProcess', '',
         Justification = 'ShouldProcess is delegated to Invoke-PerGuestNewVm, which declares SupportsShouldProcess and calls it; -WhatIf/-Confirm propagate via the splatted PSBoundParameters.')]
     [CmdletBinding(SupportsShouldProcess)]
@@ -366,10 +363,15 @@ function Remove-VM {
     $undefineOut = Invoke-Virsh -VirshArgs $undefineArgs
     $undefined = ($LASTEXITCODE -eq 0)
     if (-not $undefined) {
-        # undefine also fails when the domain was never defined; that is
-        # already the desired end state, so only a domain that is still
-        # there counts as a failure.
-        if (Get-VirshDomState -VMName $VMName) {
+        # --- REGION: https://yuruna.link/42e220c4-0004
+        # Only a successful inventory can distinguish an absent VM from failed discovery.
+        try {
+            $domainNames = @(Get-VMName)
+        } catch {
+            Write-Warning "Remove-VM: cannot verify removal of '$VMName'; retaining its storage: $($_.Exception.Message)"
+            return $false
+        }
+        if ($domainNames -contains $VMName) {
             Write-Warning "Remove-VM: virsh undefine failed for '$VMName': $($undefineOut -join '; ')"
         } else {
             $undefined = $true
@@ -800,12 +802,11 @@ function Restart-VMConsole {
 }
 
 # --- REGION: Image
-
-<#
-.SYNOPSIS
-    Run the per-guest Get-Image.ps1 to download or refresh the base image.
-#>
 function Get-Image {
+    <#
+    .SYNOPSIS
+        Run the per-guest Get-Image.ps1 to download or refresh the base image.
+    #>
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSShouldProcess', '',
         Justification = 'ShouldProcess is delegated to Invoke-GetImage, which declares SupportsShouldProcess and calls it; -WhatIf/-Confirm propagate via the splatted PSBoundParameters.')]
     [CmdletBinding(SupportsShouldProcess)]
@@ -836,12 +837,11 @@ function Get-ImagePath {
 }
 
 # --- REGION: VM I/O
-
-<#
-.SYNOPSIS
-    Type text into the guest VM via gui or ssh mechanism.
-#>
 function Send-Text {
+    <#
+    .SYNOPSIS
+        Type text into the guest VM via gui or ssh mechanism.
+    #>
     [CmdletBinding()]
     [OutputType([bool])]
     param(
@@ -1010,12 +1010,11 @@ function Get-VMConsoleHandle {
 }
 
 # --- REGION: Discovery
-
-<#
-.SYNOPSIS
-    Poll Get-VMIp until an IPv4 address is discovered or timeout expires.
-#>
 function Wait-VMIp {
+    <#
+    .SYNOPSIS
+        Poll Get-VMIp until an IPv4 address is discovered or timeout expires.
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param(
@@ -1178,7 +1177,7 @@ function Select-VirshNetLeaseIp {
     foreach ($l in @($Line)) {
         if ("$l" -match '^\s*(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2})\s+([0-9a-fA-F:]{17})\s+(ipv4|ipv6)\s+(\S+?)/\d+') {
             $expiry = [datetime]::MinValue
-            # An unparsable stamp must not win by accident, so it sorts oldest
+            # An unparseable stamp must not win by accident, so it sorts oldest
             # rather than being dropped: a row that is the only candidate is
             # still the answer.
             $null = [datetime]::TryParse($Matches[1], [ref]$expiry)
@@ -1505,12 +1504,11 @@ function Get-VMMac {
 }
 
 # --- REGION: Networking
-
-<#
-.SYNOPSIS
-    Return the name of the host-side External-type vSwitch or network.
-#>
 function Get-ExternalNetwork {
+    <#
+    .SYNOPSIS
+        Return the name of the host-side External-type vSwitch or network.
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param()
@@ -2678,37 +2676,15 @@ function New-YurunaBridgeViaNmcli {
     # Stale profiles/devices from previous attempts were already removed
     # by Clear-YurunaExternalBridgeResidue in the caller's build path.
 
-    # Clone $Nic's MAC onto the bridge IN THE ADD COMMAND: DHCP
-    # identity (same lease/IP -- see docs/network.md) plus activation
-    # determinism -- a later `connection modify` of the MAC races NM's
-    # device creation and fails "Failed to find a compatible device".
-    # Best-effort: unreadable MAC -> build unpinned, warn, fresh IP.
+    # Apply the MAC and DHCP client identity at profile creation: a later MAC
+    # modify races device creation, and the MAC alone may not preserve the lease.
+    # Keep autoconnect off until ordered activation completes; one uplink needs no STP.
+    # See https://yuruna.link/4220a755-0027
     $nicMac = Get-YurunaNicMac -Iface $Nic
     if (-not $nicMac) {
         Write-Warning "Could not read /sys/class/net/$Nic/address -- not cloning MAC onto bridge. DHCP may return a different IP than '$Nic' currently holds."
     }
 
-    # nmcli connection add type bridge -- creates the bridge connection
-    # profile. autoconnect=no on BOTH profiles: this build activates each
-    # profile explicitly, in order (bridge, then slave), instead of
-    # letting NM race ahead the moment a profile is added; autoconnect is
-    # switched on at the end, once the bridge verifiably holds its
-    # uplink. stp=no avoids the 30 s spanning-tree forwarding delay (we
-    # have exactly one physical NIC under this bridge; loops are
-    # impossible). ipv4.method=auto + ipv6.method=auto let the bridge
-    # DHCP independently after $Nic's original IP lease is dropped.
-    #
-    # dhcp-client-id/dhcp-iaid = mac is the nmcli spelling of the netplan
-    # path's `dhcp-identifier: mac`, and it is load-bearing for the same
-    # reason: cloning the MAC alone fixes only the layer-2 identity, while
-    # NM's default client-id is a machine-id-derived DUID, so a server that
-    # keys leases on client-id renumbers the host anyway. A host that draws
-    # a fresh address on every renewal consumes the pool at a rate set by
-    # the lease time rather than by how many machines are on the LAN, which
-    # a long lease turns into exhaustion within days. dhcp-send-release
-    # returns the address when the profile goes down rather than parking it
-    # until expiry. See docs/network.md, 'Host address stability'.
-    #
     # nmcli output is captured (not piped to Write-Verbose) so
     # Write-YurunaNmcliFailure can surface the verbatim error -- or
     # diagnose a NetworkManager crash -- on failure.
@@ -3331,25 +3307,24 @@ function Resolve-GuestHostBinding {
 }
 
 # --- REGION: Caching-proxy service
-
-<#
-.SYNOPSIS
-    Probe and return the caching-proxy-service URL, or null if none is reachable.
-.DESCRIPTION
-    Discovery is intentionally narrow -- only caches this host owns,
-    or a remote cache the operator explicitly named, are returned:
-      1. $Env:YURUNA_CACHING_PROXY_SERVICE_IP -- explicit remote cache override.
-      2. State file (Read-CachingProxyServiceState).ipAddress -- the cache VM's
-         IP recorded by Start-CachingProxyServiceVM.ps1 (our own VM).
-
-    No libvirt enumeration, no loopback-forwarder fallback.
-    Get-CachingProxyServiceVmIp still exposes the recorded IP for direct callers that need
-    it, and falls back to a live libvirt query for the by-name VM, but
-    that fallback is no longer part of the discovery contract surfaced
-    through Test-CachingProxyServiceAvailable. LAN-wide cache discovery is a
-    separate future feature.
-#>
 function Test-CachingProxyServiceAvailable {
+    <#
+    .SYNOPSIS
+        Probe and return the caching-proxy-service URL, or null if none is reachable.
+    .DESCRIPTION
+        Discovery is intentionally narrow -- only caches this host owns,
+        or a remote cache the operator explicitly named, are returned:
+          1. $Env:YURUNA_CACHING_PROXY_SERVICE_IP -- explicit remote cache override.
+          2. State file (Read-CachingProxyServiceState).ipAddress -- the cache VM's
+             IP recorded by Start-CachingProxyServiceVM.ps1 (our own VM).
+
+        No libvirt enumeration, no loopback-forwarder fallback.
+        Get-CachingProxyServiceVmIp still exposes the recorded IP for direct callers that need
+        it, and falls back to a live libvirt query for the by-name VM, but
+        that fallback is no longer part of the discovery contract surfaced
+        through Test-CachingProxyServiceAvailable. LAN-wide cache discovery is a
+        separate future feature.
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param([switch]$Quiet)
@@ -3444,12 +3419,11 @@ function Save-CachedHttpUri {
 }
 
 # --- REGION: Host config
-
-<#
-.SYNOPSIS
-    Promote a proxy URL to the machine-wide host proxy with backup.
-#>
 function Set-HostProxy {
+    <#
+    .SYNOPSIS
+        Promote a proxy URL to the machine-wide host proxy with backup.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$ProxyUrl)
@@ -3633,6 +3607,7 @@ function Assert-Virtualization {
 }
 
 # --- REGION: DHCP evidence capture
+# See https://yuruna.link/4220a755-000e
 # A guest that comes up with no address can only report "no lease". From
 # inside it there is no way to separate a DISCOVER that was never sent from
 # one that was sent and never answered, and those two indict different
@@ -3988,7 +3963,6 @@ function Save-VMDhcpCapture {
 }
 
 # --- REGION: Exports
-
 Export-ModuleMember -Function `
     New-VM, Start-VM, Stop-VM, Stop-VMForce, Remove-VM, Rename-VM, Get-VMState, Get-VMName, `
     Save-VMDiskSnapshot, Restore-VMDiskSnapshot, Test-VMDiskSnapshot, `
@@ -4003,12 +3977,8 @@ Export-ModuleMember -Function `
     Test-DownloadAlreadyCurrent, Test-CachingProxyServicePort, Resolve-CacheHostIp, Save-CachedHttpUri, `
     Set-HostProxy, Clear-HostProxy, Remove-HostProxy, Get-HostProxyBackupPath, Assert-Virtualization
 
-# Contract-coverage assertion: warns at load time if the export block
-# above drifts away from the canonical Yuruna.Host contract. The module
-# handle travels with the declared list so the check runs against what
-# Export-ModuleMember actually published: the list on its own is a second
-# copy of the contract and would pass even after the export block lost a
-# verb. See host/Yuruna.Host.Contract.psm1 for the verb list and rationale.
+# --- REGION: Contract coverage
+# Validate actual exports against the common contract after publishing them.
 Import-Module (Join-Path -Path $PSScriptRoot -ChildPath '..' -AdditionalChildPath '..', 'Yuruna.Host.Contract.psm1') -Force -DisableNameChecking
 $null = Assert-YurunaHostContractCoverage -HostType 'ubuntu.kvm' `
     -Module $ExecutionContext.SessionState.Module -ExportedFunction @(

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 422f8480-0c5e-4aaf-bac0-6975691a9ce1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -23,7 +23,7 @@
 .DESCRIPTION
     Uses the Server live ISO. The Server ISO's cdrom has linux-generic
     and a network-configured ubuntu.sources, so subiquity's
-    install_kernel step always succeeds. First boot lands at a
+    install_kernel step always succeeds. First boot lands at the
     text-mode login prompt; the test harness's Test-Start sequence
     drives that prompt directly.
 #>
@@ -53,9 +53,14 @@ param(
     [string]$Cores = ''
 )
 
-# Honor logLevel from Start-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+# --- REGION: Log level from environment
+# See https://yuruna.link/42e220c4-0003
+# Reuse the caller's log module; a forced reload discards its state.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
-if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
+if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
+    Import-Module $_logLevelMod -Global
+}
+if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     Write-Output "Invalid VMName '$VMName'. Only alphanumeric characters, dots, hyphens, and underscores are allowed."
@@ -76,8 +81,7 @@ $DataDir = "$UtmDir/Data"
 $downloadDir = "$HOME/yuruna/image/ubuntu.env"
 
 # --- REGION: Environment checks
-# --- REGION: https://yuruna.link/42d69dfa-000a
-
+# See https://yuruna.link/42d69dfa-000a
 # Check macOS version (requires macOS 12 Monterey or later for UTM 4.x)
 $macosVersion = & sw_vers -productVersion 2>$null
 $macosMajor = [int]($macosVersion -split '\.')[0]
@@ -130,9 +134,8 @@ $baseImageFile = Join-Path $downloadDir "$baseImageName.iso"
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.Image.psm1') -Force
 if (-not (Assert-YurunaBaseImage -BaseImageFile $baseImageFile -GuestFolder $PSScriptRoot)) { exit 1 }
 
-# Resolve the autoinstall password from the per-cycle authentication
-# vault (see test/extension/authentication/default.psm1). Mirrors the
-# Hyper-V and KVM ubuntu.server.26 New-VM.ps1 implementations.
+# --- REGION: https://yuruna.link/42e220c4-0004
+# Read the persistent authentication vault; a new cycle must not reset credentials.
 $_repoRootForExt = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))
 Import-Module (Join-Path $_repoRootForExt 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
 $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
@@ -142,11 +145,8 @@ Write-Output "Password came from authentication mechanism: $_authActiveName"
 Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
 
 # --- REGION: Autoinstall password hash
-# SHA-512 ($6$) password hash for the autoinstall HASH_PLACEHOLDER.
-# ConvertTo-Sha512CryptHash centralizes the openssl probe + the `--`
-# end-of-options safety that keeps a leading-dash password
-# (e.g. `-4aWj*CRw` from New-RandomPassword) from being parsed as an
-# option. See Yuruna.Common\ConvertTo-Sha512CryptHash for rationale.
+# See https://yuruna.link/429f3d06-0017
+# Keep the shared hash helper: its -- separator protects leading-dash passwords.
 Import-Module (Join-Path $_repoRootForExt 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking
 try {
     $PasswordHash = ConvertTo-Sha512CryptHash -Plaintext $Password
@@ -157,13 +157,11 @@ try {
 
 Write-Verbose "Creating VM '$VMName' using image: $baseImageFile"
 # --- REGION: Base image provenance
-# Provenance side-channel for operators reading the transcript. Emits
-# "Provenance: <url>" when the sidecar is healthy; warns otherwise.
+# Emit the source URL from a healthy sidecar; warn when provenance is incomplete.
 Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
-# --- REGION: Create copies and files for VM
-
+# --- REGION: Import host modules
 # Load shared helpers (retry-on-EACCES bundle removal -- handles the race
 # where UTM.app / QEMUHelper.xpc still holds file handles on disk.qcow2
 # immediately after `utmctl delete`).
@@ -174,6 +172,7 @@ if (-not (Remove-UtmBundleWithRetry -Path $UtmDir)) {
     Write-Error "Could not remove existing UTM bundle at '$UtmDir' after retries. Aborting."
     exit 1
 }
+# --- REGION: Create copies and files for VM
 New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 
 $DestIso = "$DataDir/$VMName.iso"
@@ -221,7 +220,7 @@ $SshAuthorizedKey = Get-YurunaSshPublicKey
 if (-not $SshAuthorizedKey) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
 # --- REGION: Detect the caching-proxy service
-# --- REGION: https://yuruna.link/4220a755-0017
+# See https://yuruna.link/4220a755-0017
 # Detect the caching-proxy-service and inject its proxy URL if available. Severity:
 # URL found -> inject; cache VM started but no :3128 on LAN -> ERROR, exit 1;
 # cache VM not registered / not started -> WARNING, proceed direct.
@@ -311,19 +310,22 @@ To intentionally skip the cache:
 }
 
 # --- REGION: Build the autoinstall apt block
-# --- REGION: https://yuruna.link/429f3d06-000a
-# Always emit `geoip: false` plus a pinned `primary:` mirror -- deterministic
-# election, and `primary:` rather than `sources_list:`. See
-# feedback_macos_utm_apt_block_resolute_curtin_trap.md.
-# Shared builder: automation/Yuruna.GuestSeed.psm1. UTM pins the aarch64
-# ports.ubuntu.com mirror (macOS UTM is always aarch64).
-# The apt Acquire tuning it emits is a step-budget bound, so it has to be
-# identical on every host driver: copies inlined per driver drift, and a
-# mirror stall then burns a step budget on whichever host was missed.
+# See https://yuruna.link/429f3d06-000a
+# Use the shared apt builder to keep mirror selection and retry budgets identical.
 $AptProxyBlock = New-AptProxyBlock -PrimaryUri 'http://ports.ubuntu.com/ubuntu-ports' -CachingProxyServiceUrl $CachingProxyServiceUrl
 
+# --- REGION: Yuruna host coordinates
+# Yuruna host (status service) IP+port baked into the seed for the dev
+# iteration loop. Guest scripts read /etc/yuruna/host.env (written by
+# the user-data late-commands) to resolve a local URL before falling
+# back to GitHub. See Test-YurunaHost.ps1 for the in-guest probe.
+$YurunaHostIp = Get-GuestReachableHostIp
+Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) 'test/modules/Test.Config.psm1') -Global -Force
+$_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir)))
+$YurunaHostPort = $_statusSeed.Port
+
 # --- REGION: Fetch caching-proxy-service CA cert (base64-embedded in seed)
-# --- REGION: https://yuruna.link/4220a755-0015
+# See https://yuruna.link/4220a755-0015
 # An empty $CaCertBase64 is NOT a harmless no-op (curl rc=60 SSL-bump gate).
 Import-Module (Join-Path $RepoRoot "test/modules/Test.CachingProxyService.psm1") -Force -DisableNameChecking
 $CaCertBase64 = ""
@@ -347,18 +349,8 @@ if ($CachingProxyServiceUrl -and $cacheVmIp) {
     Write-Warning "  Caching-proxy service '$CachingProxyServiceUrl' is set but no cache IP resolved; guest boots CA-less and will rely on the host status-service CA self-heal."
 }
 
-# --- REGION: Yuruna host coordinates
-# Yuruna host (status service) IP+port baked into the seed for the dev
-# iteration loop. Guest scripts read /etc/yuruna/host.env (written by
-# the user-data late-commands) to resolve a local URL before falling
-# back to GitHub. See Test-YurunaHost.ps1 for the in-guest probe.
-$YurunaHostIp = Get-GuestReachableHostIp
-Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))) 'test/modules/Test.Config.psm1') -Global -Force
-$_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir)))
-$YurunaHostPort = $_statusSeed.Port
-
 # --- REGION: Render user-data / meta-data
-# --- REGION: https://yuruna.link/4220a755-0003
+# See https://yuruna.link/4220a755-0003
 # Bake yuruna-retry.sh + fetch-and-execute.sh into the seed as base64-encoded
 # write_files entries. Eliminates the legacy network-dependent wget+wget
 # bootstrap and ensures both files are on disk before any guest script runs.
@@ -383,18 +375,7 @@ $MetaData = (Get-Content -Raw $MetaDataTemplate) `
     -replace 'HOSTNAME_PLACEHOLDER', $GuestHostname
 Set-Content -Path "$SeedDir/meta-data" -Value $MetaData -NoNewline
 # --- REGION: https://yuruna.link/4220a755-000b
-# Governs the INSTALLER's own DHCP request, and subiquity carries the network
-# config it installed with into the target -- so the pin is present from the
-# very first lease this guest ever asks for. The late-command in the
-# autoinstall user-data patches the same key into the installed netplan and
-# stays as the belt to this braces; it cannot replace this, because by the time
-# a late-command runs the installer has already taken a lease under the default
-# machine-id identity, and on a long lease that address is spent for a week.
-# Matching en*/eth* by name lets one shared file cover enp0s1 on UTM, eth0 on
-# Hyper-V and enp1s0 on KVM, and netplan resolves those globs against real
-# devices. The match must hold: a seeded network-config REPLACES the config
-# cloud-init would otherwise generate, so one that resolves to no interface
-# leaves the guest -- or, during an install, the installer -- with no network.
+# The shared network-config pins DHCP identity during installation and after reboot.
 Copy-Item -LiteralPath (Join-Path $HostVmConfigDir 'guest-dhcp.network-config') `
     -Destination "$SeedDir/network-config" -Force
 
@@ -407,7 +388,7 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 
-# --- REGION: config.plist (QEMU backend)
+# --- REGION: Create and configure the UTM bundle (config.plist, QEMU backend)
 # Generate UTM config.plist from template (QEMU backend, with -vnc 127.0.0.1:N AdditionalArgument)
 $TemplatePath = Join-Path $ScriptDir "config.plist.template"
 if (-not (Test-Path $TemplatePath)) {
@@ -482,7 +463,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 Write-Verbose "config.plist validated OK (VNC on 127.0.0.1:$(5900 + $VncDisplay))."
 
-# --- REGION: Cleanup temporary folders
+# --- REGION: Clean up temporary files
 Remove-Item -LiteralPath $SeedDir -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- REGION: Guidance

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42483736-4c90-4f3e-b602-9b7c1511b13e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -80,14 +80,13 @@ $script:AutomationDir = Join-Path $RepoRoot 'automation'
 $script:ProtocolVersion = '2025-06-18'
 
 # --- REGION: https://yuruna.link/42fffc2c-000f
-
-<#
-.SYNOPSIS
-    The version this server reports, read from the enlistment's VERSION file.
-.OUTPUTS
-    [string]
-#>
 function Get-McpServerVersion {
+    <#
+    .SYNOPSIS
+        The version this server reports, read from the enlistment's VERSION file.
+    .OUTPUTS
+        [string]
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param()
@@ -99,21 +98,79 @@ function Get-McpServerVersion {
     return 'dev'
 }
 
-<#
-.SYNOPSIS
-    Runs one automation entry point as a child pwsh and returns what it did.
-.DESCRIPTION
-    A child process, not a dot-source: these scripts call exit and set
-    preferences, either of which would reach the server if they shared its
-    process.
+function Get-UnboundParameterName {
+    <#
+    .SYNOPSIS
+        The named arguments a script cannot bind, out of the ones about to be passed.
+    .DESCRIPTION
+        Asks PowerShell's own binder rather than reimplementing it. ResolveParameter
+        applies the real rules -- an exact name, an unambiguous abbreviation, a
+        declared parameter winning over a common one of the same prefix, and the
+        common set existing only for a script that declares [CmdletBinding()] -- and
+        throws when a name binds to nothing or to more than one thing.
 
-    Both streams are captured. stdout is the answer; stderr is kept because a
-    failure's cause is routinely only there, and a caller shown an exit code
-    with no message has to go and re-run the command by hand to learn anything.
-.OUTPUTS
-    [hashtable] ExitCode, Stdout, Stderr.
-#>
+        Reimplementing those rules is what this function used to do, and it got them
+        wrong in both directions at once: it invented ambiguity between a declared
+        name and a common one, and it granted common parameters to the eight entry
+        points that declare no [CmdletBinding()] and therefore have none.
+
+        Reading the script rather than trying the call is the point: a script
+        without [CmdletBinding()] reports nothing at all for an unknown name. It
+        absorbs it into $args and runs against defaults, so there is no failure to
+        observe afterwards.
+    .OUTPUTS
+        [string[]] the argument names that the script cannot bind.
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [Parameter(Mandatory)][string]$ScriptPath,
+        [string[]]$Argument = @()
+    )
+    $unbound = [Collections.Generic.List[string]]::new()
+    if (-not $Argument -or $Argument.Count -eq 0) { return $unbound.ToArray() }
+
+    $command = $null
+    try { $command = Get-Command -Name $ScriptPath -CommandType ExternalScript -ErrorAction Stop }
+    catch { $command = $null }
+
+    foreach ($token in $Argument) {
+        $name = "$token"
+        if (-not $name.StartsWith('-')) { continue }
+        $name = $name.TrimStart('-')
+        # -Name:Value is one token carrying both.
+        if ($name -match '^(?<n>[^:]+):') { $name = $Matches['n'] }
+        if (-not $name) { continue }
+        # A script that will not even load cannot be shown to accept anything,
+        # and passing an argument it might silently drop is the failure this
+        # guards. Refusing is the safe answer.
+        if (-not $command) { $unbound.Add($name); continue }
+        try { $null = $command.ResolveParameter($name) }
+        catch { $unbound.Add($name) }
+    }
+    return $unbound.ToArray()
+}
+
 function Invoke-McpEntryPoint {
+    <#
+    .SYNOPSIS
+        Runs one automation entry point as a child pwsh and returns what it did.
+    .DESCRIPTION
+        A child process, not a dot-source: these scripts call exit and set
+        preferences, either of which would reach the server if they shared its
+        process.
+
+        Both streams are captured. stdout is the answer; stderr is kept because a
+        failure's cause is routinely only there, and a caller shown an exit code
+        with no message has to go and re-run the command by hand to learn anything.
+        The transcript is named before the run rather than looked for afterwards.
+        An entry point that writes one records it where YURUNA_TRANSCRIPT_PATH says,
+        so the pointer this returns is something the server decided, not something
+        it recognized in the child's output. What the child printed stays what a
+        person reads.
+    .OUTPUTS
+        [hashtable] ExitCode, Stdout, Stderr, TranscriptPath.
+    #>
     [CmdletBinding()]
     [OutputType([hashtable])]
     param(
@@ -122,23 +179,64 @@ function Invoke-McpEntryPoint {
     )
     $path = Join-Path $script:AutomationDir $Script
     if (-not (Test-Path -LiteralPath $path)) {
-        return @{ ExitCode = 127; Stdout = ''; Stderr = "no such entry point: $path" }
+        return @{ ExitCode = 127; Stdout = ''; Stderr = "no such entry point: $path"; TranscriptPath = '' }
+    }
+    # Most of these scripts have no [CmdletBinding()], and a script without it
+    # absorbs an unknown -Name into $args and runs anyway. So an argument the
+    # target does not declare is not refused by PowerShell -- it is silently
+    # dropped, and the run proceeds against defaults while the caller believes
+    # its input was honored. Refusing here is the only place that reads as a
+    # failure. The check is over the declared parameter names, not over any
+    # message, so it holds on a host in any language.
+    $undeclared = @(Get-UnboundParameterName -ScriptPath $path -Argument $ScriptArgument)
+    if ($undeclared.Count) {
+        return @{ ExitCode = 126; Stdout = ''; TranscriptPath = ''; Refused = $true
+            Stderr = ("$Script declares no parameter named: " + ($undeclared -join ', ')) }
     }
     $outFile = [IO.Path]::GetTempFileName()
     $errFile = [IO.Path]::GetTempFileName()
+    # Named per run: two tool calls in flight must not share one record, and the
+    # server has to be able to say which call a transcript belongs to.
+    $transcriptFile = Join-Path ([IO.Path]::GetTempPath()) (
+        'yuruna-mcp-' + [Guid]::NewGuid().ToString('n') + '.transcript.txt')
+    $priorTranscript = $env:YURUNA_TRANSCRIPT_PATH
     try {
         $pwsh = (Get-Process -Id $PID).Path
         if (-not $pwsh) { $pwsh = 'pwsh' }
         $argv = @('-NoProfile', '-NonInteractive', '-File', $path) + $ScriptArgument
+        # Start-Process hands the child this process's environment, so the name
+        # travels without changing any entry point's argument vector -- and an
+        # entry point that writes no transcript simply ignores it.
+        $env:YURUNA_TRANSCRIPT_PATH = $transcriptFile
         $proc = Start-Process -FilePath $pwsh -ArgumentList $argv -NoNewWindow -Wait -PassThru `
             -RedirectStandardOutput $outFile -RedirectStandardError $errFile
+        # Kept, and reported, only for a failed run that actually wrote there.
+        # A path to a file that does not exist is worse than no pointer -- it
+        # reads as a transcript the caller failed to open -- and a successful
+        # run's record is one nothing will ever ask for, so keeping it would
+        # leave a file behind on every call.
+        $written = ''
+        if ($proc.ExitCode -ne 0 -and
+            (Test-Path -LiteralPath $transcriptFile -PathType Leaf) -and
+            (Get-Item -LiteralPath $transcriptFile).Length -gt 0) {
+            $written = $transcriptFile
+        }
         return @{
-            ExitCode = $proc.ExitCode
-            Stdout   = (Get-Content -Raw -LiteralPath $outFile -ErrorAction SilentlyContinue)
-            Stderr   = (Get-Content -Raw -LiteralPath $errFile -ErrorAction SilentlyContinue)
+            ExitCode       = $proc.ExitCode
+            Stdout         = (Get-Content -Raw -LiteralPath $outFile -ErrorAction SilentlyContinue)
+            Stderr         = (Get-Content -Raw -LiteralPath $errFile -ErrorAction SilentlyContinue)
+            TranscriptPath = $written
         }
     } finally {
+        $env:YURUNA_TRANSCRIPT_PATH = $priorTranscript
         Remove-Item -LiteralPath $outFile, $errFile -Force -ErrorAction SilentlyContinue
+        # A kept transcript is deliberately left behind: the pointer is the
+        # useful half of a failure, and a caller reads it after this returns.
+        # Everything else goes, so a long-lived server does not fill the
+        # temporary directory one call at a time.
+        if (-not $written) {
+            Remove-Item -LiteralPath $transcriptFile -Force -ErrorAction SilentlyContinue
+        }
     }
 }
 
@@ -159,28 +257,32 @@ function Get-McpToolTable {
     [CmdletBinding()]
     [OutputType([object[]])]
     param()
-    $noArgs  = '{"type":"object","properties":{}}'
-    $cfgArgs = '{"type":"object","properties":{"configFile":{"type":"string","description":"path to a test config; the entry point default is used when absent"}}}'
+    # No tool takes an argument. The entry points resolve their own scope from
+    # the root set, and none of them declares a config-file parameter -- an
+    # input advertised here that no script accepts is worse than none, because
+    # eight of the ten have no [CmdletBinding()] and would absorb it into $args
+    # and run against the default while the caller believed otherwise.
+    $noArgs = '{"type":"object","properties":{}}'
     return @(
-        @{ Name = 'yuruna_test_configuration'; Script = 'Test-Configuration.ps1'; ReadOnly = $true;  Schema = $cfgArgs
+        @{ Name = 'yuruna_test_configuration'; Script = 'Test-Configuration.ps1'; ReadOnly = $true;  Schema = $noArgs
            Description = 'Validate the test configuration. Exits non-zero with a transcript when a check fails, and returns a bare False while exiting 0 when the root set will not resolve at all.' }
-        @{ Name = 'yuruna_test_requirement';   Script = 'Test-Requirement.ps1';   ReadOnly = $true;  Schema = $cfgArgs
+        @{ Name = 'yuruna_test_requirement';   Script = 'Test-Requirement.ps1';   ReadOnly = $true;  Schema = $noArgs
            Description = 'Check that this host meets the requirements a cycle needs. Exits non-zero on a failed requirement.' }
-        @{ Name = 'yuruna_test_runtime';       Script = 'Test-Runtime.ps1';       ReadOnly = $true;  Schema = $cfgArgs
+        @{ Name = 'yuruna_test_runtime';       Script = 'Test-Runtime.ps1';       ReadOnly = $true;  Schema = $noArgs
            Description = 'Check the runtime. The verdict is a boolean emitted as the last pipeline object; this script has no exit statement, so the exit code says nothing.' }
         @{ Name = 'yuruna_system_diagnostic';  Script = 'Get-SystemDiagnostic.ps1'; ReadOnly = $true; Schema = $noArgs
            Description = 'Produce the host diagnostic report. ALWAYS exits 0: exit code 0 means the report was produced, never that nothing is wrong. Read the problems in the output.' }
         @{ Name = 'yuruna_dependency_version'; Script = 'Check-DependencyVersion.ps1'; ReadOnly = $true; Schema = $noArgs
            Description = 'Report the pinned dependency versions and what is installed. Emits JSON natively.' }
-        @{ Name = 'yuruna_set_component';      Script = 'Set-Component.ps1';      ReadOnly = $false; Schema = $cfgArgs
+        @{ Name = 'yuruna_set_component';      Script = 'Set-Component.ps1';      ReadOnly = $false; Schema = $noArgs
            Description = 'Apply the component definitions. Writes configuration; exits non-zero with a transcript on failure.' }
-        @{ Name = 'yuruna_set_resource';       Script = 'Set-Resource.ps1';       ReadOnly = $false; Schema = $cfgArgs
+        @{ Name = 'yuruna_set_resource';       Script = 'Set-Resource.ps1';       ReadOnly = $false; Schema = $noArgs
            Description = 'Apply the resource definitions. Writes configuration; exits non-zero with a transcript on failure.' }
-        @{ Name = 'yuruna_set_workload';       Script = 'Set-Workload.ps1';       ReadOnly = $false; Schema = $cfgArgs
+        @{ Name = 'yuruna_set_workload';       Script = 'Set-Workload.ps1';       ReadOnly = $false; Schema = $noArgs
            Description = 'Apply the workload definitions. Writes configuration; exits non-zero with a transcript on failure.' }
         @{ Name = 'yuruna_set_host_alias';     Script = 'Set-HostAlias.ps1';      ReadOnly = $false; Schema = $noArgs
            Description = 'Set the host alias. Unlike its siblings it has no exit statement and writes no transcript, so a thrown error is the only failure signal.' }
-        @{ Name = 'yuruna_invoke_clear';       Script = 'Invoke-Clear.ps1';       ReadOnly = $false; Destructive = $true; Schema = $cfgArgs
+        @{ Name = 'yuruna_invoke_clear';       Script = 'Invoke-Clear.ps1';       ReadOnly = $false; Destructive = $true; Schema = $noArgs
            Description = 'Clear generated state. DESTRUCTIVE: what it removes is not recoverable by calling it again.' }
     )
 }
@@ -213,6 +315,15 @@ function ConvertTo-McpToolResult {
     $verdict = if ($lines.Count) { $lines[-1].Trim() } else { '' }
     $boolVerdict = $verdict -match '^(True|False)$'
 
+    # Answered before the per-tool arms. Those arms describe how each script
+    # reports ITS OWN outcome, and one of them is "always ok, the problems are in
+    # the report" -- correct for a run that happened, and a false pass for one
+    # that was refused before it started.
+    if ($Run.Refused) {
+        return @{ ok = $false; exitCode = $Run.ExitCode; output = $stdout; stderr = $stderr
+                  note = 'the server refused to start this run: the entry point cannot bind an argument it was given' }
+    }
+
     switch ($Tool.Name) {
         'yuruna_test_runtime' {
             # No exit statement anywhere in the script: the verdict is the last
@@ -234,7 +345,13 @@ function ConvertTo-McpToolResult {
             $parsed = $null
             try { $parsed = $stdout | ConvertFrom-Json -ErrorAction Stop } catch { $parsed = $null }
             if ($null -ne $parsed) {
-                return @{ ok = ($Run.ExitCode -eq 0); json = $parsed; stderr = $stderr }
+                # Exit 1 here means a pin has drifted, which is what the report
+                # is FOR. It exists so a CI gate can fail a build on drift; a
+                # caller that asked for the report got it, and calling that an
+                # error would make "there are updates" indistinguishable from
+                # "the report could not be produced".
+                return @{ ok = $true; json = $parsed; exitCode = $Run.ExitCode; stderr = $stderr
+                          note = 'exit 1 from this script means a pinned dependency has drifted, not that the report failed' }
             }
             return @{ ok = ($Run.ExitCode -eq 0); output = $stdout; stderr = $stderr
                       note = 'expected JSON from -AsJson but the output did not parse' }
@@ -259,9 +376,12 @@ function ConvertTo-McpToolResult {
         $result['verdict'] = $verdict
         $result['note'] = 'the script returned False at top level and exited 0; the verdict is the output, not the exit code'
     }
-    if ($Run.ExitCode -ne 0) {
-        $transcript = @($stdout -split "`r?`n" | Where-Object { $_ -match '(?i)transcript' })
-        if ($transcript.Count) { $result['transcript'] = $transcript[-1].Trim() }
+    # The transcript pointer is a field the run carries, never a line recognized
+    # in what it printed. Matching a word in rendered output makes that word a
+    # wire format: it changes with the host's language and with any rewording,
+    # and both changes look like a run that simply wrote no transcript.
+    if ($Run.ExitCode -ne 0 -and "$($Run.TranscriptPath)") {
+        $result['transcript'] = [string]$Run.TranscriptPath
     }
     return $result
 }
@@ -312,8 +432,6 @@ function Invoke-McpMethod {
                 return @{ jsonrpc = '2.0'; id = $id; error = @{ code = -32602; message = "unknown tool $name" } }
             }
             $scriptArgs = @()
-            $configFile = $Request.params.arguments.configFile
-            if ($configFile) { $scriptArgs = @('-ConfigFile', [string]$configFile) }
             if ($tool.Name -eq 'yuruna_dependency_version') { $scriptArgs += '-AsJson' }
 
             $run    = Invoke-McpEntryPoint -Script $tool.Script -ScriptArgument $scriptArgs

@@ -21,7 +21,7 @@
     Hands a warm squid cache from an old caching-proxy-service VM to its
     replacement via a temporary parent-child cache hierarchy, then
     retires the old VM. Operator guide: docs/caching.md#migrating-to-a-replacement-cache-vm
-    (https://yuruna.link/caching-proxy-service-migration).
+    (https://yuruna.link/42f6b05f-004c).
 
 .DESCRIPTION
     -Start wires the NEW cache VM up as a squid child of the OLD cache
@@ -531,7 +531,6 @@ function Confirm-MigrationParentRelay {
 }
 
 # --- REGION: Parameter validation
-
 # All usage problems are collected and reported together, before ANY
 # interactive prompt.
 $usageErrors = @()
@@ -547,7 +546,7 @@ if ($usageErrors.Count -gt 0) {
         '  pwsh test/service/Move-CachingProxyService.ps1 -Start -OldAddress <old> -NewAddress <new> [-OldUser yuruna] [-OldPassword ...] [-NewUser yuruna] [-NewPassword ...]'
         '  pwsh test/service/Move-CachingProxyService.ps1 -End   -OldAddress <old> -NewAddress <new> [-OldUser yuruna] [-OldPassword ...] [-NewUser yuruna] [-NewPassword ...]'
         'Passwords are prompted (masked) when omitted.'
-        'Guide: https://yuruna.link/caching-proxy-service-migration'
+        'Guide: https://yuruna.link/42f6b05f-004c'
     ) | Write-Output
     exit 1
 }
@@ -606,7 +605,6 @@ if ([System.Net.IPAddress]::TryParse($NewAddress, [ref]$parsedIp) -and $parsedIp
 }
 
 # --- REGION: Main
-
 # Strict from here on: past validation, any unhandled cmdlet error must
 # abort into the catch (which reports and exits 1), never limp onward.
 $ErrorActionPreference = 'Stop'
@@ -823,7 +821,7 @@ try {
             '  5. When old-cache traffic is negligible, finish the migration:'
             "       pwsh test/service/Move-CachingProxyService.ps1 -End -OldAddress $OldAddress -NewAddress $NewAddress"
             ''
-            'Full guide: https://yuruna.link/caching-proxy-service-migration'
+            'Full guide: https://yuruna.link/42f6b05f-004c'
         ) | Write-Output
     }
 
@@ -903,7 +901,7 @@ try {
             '     (boot it, then: sudo systemctl enable --now squid). Delete the'
             '     VM and its disk once the new cache has proven itself.'
             ''
-            'Full guide: https://yuruna.link/caching-proxy-service-migration'
+            'Full guide: https://yuruna.link/42f6b05f-004c'
         ) | Where-Object { $null -ne $_ } | Write-Output
     }
 } catch {

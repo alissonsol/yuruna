@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42b44044-9076-41c3-a573-d5fa643cd35e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -807,7 +807,7 @@ $cachingProxyUrl = Test-CachingProxyServiceAvailable
 
 # Port-map dispatch (external / Yuruna-External fast path /
 # Default-Switch fallback) and the Windows-vs-macOS port-list shape:
-# https://yuruna.link/caching-proxy-service
+# https://yuruna.link/42f6b05f-003c
 #
 # Serialize this per-cycle port-map write against a caching-proxy-service
 # bring-up. Try-once (non-blocking): if Start-CachingProxyServiceVM holds the lock (a

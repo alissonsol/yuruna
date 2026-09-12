@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 422de2af-9e3f-4bca-8c35-df0040af74c0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -807,9 +807,8 @@ if ($isNested) {
     Set-GuestStatus -GuestKey $GuestKey -Status 'running' -Confirm:$false
     Set-StepStatus -GuestKey $GuestKey -StepName 'Sequence' -Status 'running' -Confirm:$false
 
-    # Start log file (transcript captures all console output)
     $CycleNumber = Get-CycleNumber
-    $LogFile    = Start-LogFile -TestRoot $TestRoot -CycleStartUtc $SeqCycleStartUtc -Hostname (hostname) -CycleNumber $CycleNumber
+    $LogFile    = Start-LogFile -TestRoot $TestRoot -CycleStartUtc $SeqCycleStartUtc -Hostname (hostname) -CycleNumber $CycleNumber -GitCommits $gitCommitsList
     Write-Output "Log file: $LogFile"
 
     # Open the per-step perf log for the cycle this run owns, so a standalone

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 427a25a9-d3c8-4ce6-b877-b396666875b0
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -19,7 +19,7 @@
 <#
 .SYNOPSIS
     CI gate for the two comment-shaped tokens the framework and project parse: every
-    `# --- REGION: https://yuruna.link/<slug>#<anchor>` pointer resolves to a
+    `# --- REGION: https://yuruna.link/42xxxxxx-yyyy` pointer resolves to a
     real heading, and every `# === YURUNA_OVERLAY_<KEY> ===` anchor pairs
     between a cloud-init base seed and its per-host overlays.
 .DESCRIPTION

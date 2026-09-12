@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 4264b221-526c-4487-9f9f-8d58b28b11dd
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -45,6 +45,15 @@ param(
     [string]$Hostname = ''
 )
 
+# --- REGION: Log level from environment
+# See https://yuruna.link/42e220c4-0003
+# Reuse the caller's log module; a forced reload discards its state.
+$_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
+if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
+    Import-Module $_logLevelMod -Global
+}
+if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
+
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     Write-Error "Invalid VMName '$VMName'. Only alphanumerics, dots, hyphens, underscores."
     exit 1
@@ -64,14 +73,8 @@ $ErrorActionPreference = 'Stop'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 # --- REGION: libvirt-qemu search ACL on $HOME
-# Ubuntu 24.04 cloud images create /home/<user> at mode 0750, which blocks
-# the libvirt-qemu user (uid 64055, gid kvm) that runs guest qemu processes
-# from traversing $HOME to reach the qcow2 below it. virt-install then
-# warns "You will need to grant the 'libvirt-qemu' user search permissions
-# for ['/home/<user>']" and errors out with "Cannot access storage file ...
-# Permission denied". A traverse-only POSIX ACL is the narrowest fix and
-# does not change read/write/listing for any other user. Idempotent --
-# safe to run every cycle.
+# See https://yuruna.link/42e220c4-0004
+# Grant libvirt-qemu traverse-only access to the VM storage below this home directory.
 if (Get-Command -Name 'setfacl' -ErrorAction SilentlyContinue) {
     & getent passwd libvirt-qemu *>$null
     if ($LASTEXITCODE -eq 0) {
@@ -79,7 +82,7 @@ if (Get-Command -Name 'setfacl' -ErrorAction SilentlyContinue) {
     }
 }
 
-# --- REGION: Inputs
+# --- REGION: Host architecture
 $arch = (& uname -m).Trim()
 
 # --- REGION: Seek the base image
@@ -88,6 +91,29 @@ $baseImageName = "host.ubuntu.kvm.guest.amazon.linux.2023"
 $baseImageFile = Join-Path $downloadDir "$baseImageName.qcow2"
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.Image.psm1') -Force
 if (-not (Assert-YurunaBaseImage -BaseImageFile $baseImageFile -GuestFolder $PSScriptRoot)) { exit 1 }
+
+# --- REGION: Base image provenance
+# Emit the source URL from a healthy sidecar; warn when provenance is incomplete.
+Import-Module (Join-Path (Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSScriptRoot))) 'test/modules/Test.Provenance.psm1') -Force
+Write-BaseImageProvenance -BaseImagePath $baseImageFile
+
+# --- REGION: Remove existing VM
+# See https://yuruna.link/42e220c4-0004
+$virshUri = 'qemu:///system'
+$destroyOut = & virsh --connect $virshUri destroy $VMName 2>&1
+Write-Verbose "virsh destroy '$VMName' exit=$LASTEXITCODE output='$($destroyOut -join '; ')'"
+# --- REGION: https://yuruna.link/42d69dfa-001e
+$undefineOut = & virsh --connect $virshUri undefine --nvram --managed-save `
+    --snapshots-metadata --checkpoints-metadata $VMName 2>&1
+Write-Verbose "virsh undefine '$VMName' exit=$LASTEXITCODE output='$($undefineOut -join '; ')'"
+$domainNames = @(& virsh --connect $virshUri list --all --name 2>&1)
+if ($LASTEXITCODE -ne 0) {
+    throw "Cannot verify removal of '$VMName': virsh list failed: $($domainNames -join '; ')"
+}
+if ($domainNames | Where-Object { $_.ToString().Trim() -eq $VMName }) {
+    $dominfo = (& virsh --connect $virshUri dominfo $VMName 2>&1 | Out-String).Trim()
+    throw "virsh destroy + undefine left '$VMName' defined; aborting before re-creation.`ndominfo:`n$dominfo"
+}
 
 # --- REGION: Create copies and files for VM
 $vmDir   = Join-Path $HOME "yuruna/vms/$VMName"
@@ -105,14 +131,8 @@ $sshPub = Get-YurunaSshPublicKey
 if (-not $sshPub) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
 
 # --- REGION: Yuruna host coordinates
-# Host coordinates + guest network are a topology-aware matched pair: the
-# guest attaches to the SAME libvirt network as the caching-proxy-service
-# (Get-ExternalNetwork: bridged 'yuruna-external' when defined, else NAT
-# 'default') and reaches the host at an address routable from that network.
-# A guest on the NAT 'default' net cannot reach a bridged cache's LAN IP,
-# so a mismatch bakes an unreachable host/proxy coordinate. See the sibling
-# guest.ubuntu.server.24/New-VM.ps1 for the apt "Network is unreachable"
-# failure this prevents.
+# See https://yuruna.link/42e220c4-0004
+# Resolve the guest network and its reachable host address as one pair.
 Import-Module (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.Host.psm1') -Force -DisableNameChecking
 $guestBinding = Resolve-GuestHostBinding
 $networkName  = $guestBinding.NetworkName
@@ -168,27 +188,7 @@ New-Item -ItemType Directory -Force -Path $seedDir | Out-Null
 Set-Content -LiteralPath (Join-Path $seedDir 'user-data') -Value $userData -NoNewline
 Set-Content -LiteralPath (Join-Path $seedDir 'meta-data') -Value $metaData -NoNewline
 # --- REGION: https://yuruna.link/4220a755-000b
-# Amazon Linux deliberately does NOT receive the shared seed network-config the
-# netplan guests get. Two facts combine badly here:
-#
-#   * Supplying network-config REPLACES cloud-init's own fallback rather than
-#     adding to it, so a config that matches no interface is not neutral. It
-#     leaves the guest with no network configuration at all -- strictly worse
-#     than shipping no file.
-#   * Whether a given match form resolves under this guest's live renderer is
-#     not decidable by reading the parser -- only a lab cycle settles it --
-#     and the failure shape is total: nothing claims the NIC, it stays with
-#     IFF_UP clear, carrier cannot even be read, DHCP is never attempted, and
-#     the only way into the guest is the console it just lost.
-#
-# The client-id pin for this guest rides its user-data instead. The image's
-# live renderer is systemd-networkd, whose DHCP identity is a DUID from the
-# per-build /etc/machine-id, so the pin is a [DHCPv4] ClientIdentifier=mac
-# drop-in installed beside cloud-init's fallback profile, backed by a 98-
-# fallback .network profile for the boot where that fallback claims nothing,
-# with a best-effort nmcli pin kept for a NetworkManager-managed build. None
-# of these is a seed network-config, so cloud-init's fallback generation
-# stays intact.
+# Amazon Linux preserves cloud-init fallback networking; pin DHCP identity in user-data.
 
 & genisoimage -output $seedImg -volid cidata -joliet -rock `
     (Join-Path $seedDir 'user-data') (Join-Path $seedDir 'meta-data') 2>&1 | Out-Null
@@ -198,16 +198,10 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # --- REGION: Copy base image -> per-VM disk
+# See https://yuruna.link/42e220c4-0004
+# Delay destructive replacement until the seed preflight succeeds.
 if (Test-Path -LiteralPath $diskImg) { Remove-Item -Force -LiteralPath $diskImg }
-# qemu-img create -b accepts a SIZE smaller than the backing file's virtual
-# size, but the resulting overlay only exposes the first SIZE bytes of the
-# backing chain to the guest. AL2023's KVM cloud image ships a ~25 GiB
-# virtual disk (sparse, so the qcow2 file itself is far smaller), so a
-# hardcoded 16G silently truncates the rootfs partition and the guest
-# stalls at `dracut-initqueue: starting timeout scripts` waiting for
-# a device that the kernel can never finish enumerating. Probe the base
-# virtual size and pick max(base, 16 GiB) -- keeps the at-least-16G
-# floor without ever shrinking below the backing size.
+# An overlay must never be smaller than its backing disk; retain the 16 GiB floor.
 $baseInfo = (& qemu-img info --output=json -- $baseImageFile | ConvertFrom-Json)
 if ($LASTEXITCODE -ne 0) { Write-Error "qemu-img info on '$baseImageFile' failed"; exit 1 }
 $baseVirtualBytes = [int64]$baseInfo.'virtual-size'
@@ -215,33 +209,6 @@ $overlayBytes = [int64]16 * 1024 * 1024 * 1024  # 16 GiB minimum
 if ($baseVirtualBytes -gt $overlayBytes) { $overlayBytes = $baseVirtualBytes }
 & qemu-img create -f qcow2 -F qcow2 -b $baseImageFile $diskImg $overlayBytes | Out-Null
 if ($LASTEXITCODE -ne 0) { Write-Error "qemu-img create failed"; exit 1 }
-
-# --- REGION: Remove existing VM
-$virshUri = 'qemu:///system'
-# Capture stdout+stderr + exit code for each call so an operator
-# running with -Verbose sees the per-call outcome. The post-condition
-# below catches the actual failure mode; this just preserves forensics
-# when something unusual surfaces between the two idempotent ops.
-$destroyOut = & virsh --connect $virshUri destroy $VMName 2>&1
-Write-Verbose "virsh destroy '$VMName' exit=$LASTEXITCODE output='$($destroyOut -join '; ')'"
-# Snapshot metadata, checkpoint metadata and a managed-save image each
-# pin the domain: undefine refuses ("cannot delete inactive domain with
-# N snapshots") unless asked to drop them, and the re-creation below
-# then fails with "domain already defined". A guest workload that takes
-# a disk snapshot is routine, so clear every kind of metadata here.
-$undefineOut = & virsh --connect $virshUri undefine --nvram --managed-save `
-    --snapshots-metadata --checkpoints-metadata $VMName 2>&1
-Write-Verbose "virsh undefine '$VMName' exit=$LASTEXITCODE output='$($undefineOut -join '; ')'"
-# Post-condition: destroy/undefine on a non-existing domain is harmlessly
-# non-zero, but a failure that leaves the domain defined makes the next
-# virt-install fail with "domain already defined", and the outer loop has
-# no signal to recover. Fail loud now with dominfo so the operator can act.
-$stillDefined = & virsh --connect $virshUri list --all --name 2>$null |
-    Where-Object { $_.Trim() -eq $VMName }
-if ($stillDefined) {
-    $dominfo = (& virsh --connect $virshUri dominfo $VMName 2>&1 | Out-String).Trim()
-    throw "virsh destroy + undefine left '$VMName' defined; aborting before re-creation.`ndominfo:`n$dominfo"
-}
 
 # --- REGION: https://yuruna.link/42d69dfa-0008
 $osVariant = 'linux2022'
@@ -260,44 +227,24 @@ if ($LASTEXITCODE -eq 0) {
     }
 }
 
-# `--events on_reboot=restart` is explicit even though `--import` (no
-# install phase) means virt-install never flips it to `destroy` the way
-# `--cdrom` does on guest.ubuntu.server.24. Libvirt's domain default is
-# already `restart`, but spelling it out keeps both KVM Linux guests
-# symmetric and survives any future virt-install default change. The
-# AL2023 boot path doesn't reboot during cloud-init's first run, so this
-# only matters for the `sudo reboot now` at the end of
-# test/sequences/start.guest.amazon.linux.2023.yml (and its .ssh
-# sibling) -- with `restart`, QEMU performs
-# system_reset rather than exiting, the VNC socket stays alive, and the
-# harness's screenshot loop / virt-viewer window survive the reboot.
+# --- REGION: https://yuruna.link/42e220c4-0004
+# Keep guest reboots inside QEMU so the domain and console connection survive.
 # --- REGION: https://yuruna.link/42fa6f45-0015
 $hostCores = [int](& nproc --all)
 if ($hostCores -lt 4) {
     Write-Error "Host has $hostCores cores; Yuruna requires at least 4. See https://yuruna.link/42fa6f45-0015"
     exit 1
 }
-# Floor-half of the host is the target, clamped so a guest never takes
-# every thread of a small host: nproc counts hardware threads, and on a
-# 4-thread host an unclamped 4-core floor hands EVERY guest the whole
-# machine. At least one thread must stay for the host itself (runner,
-# OCR polling, VM management) or a busy sibling guest can deschedule an
-# installer's vCPUs for seconds at a time and its console appears
-# frozen until the step timeout gives up.
+# --- REGION: https://yuruna.link/42fa6f45-0015
+# Reserve at least one host thread while applying the shared guest core policy.
 $vmCores = [math]::Min($hostCores - 1, [math]::Max(2, [math]::Floor($hostCores / 2)))
 
-# Deterministic per (host, guest identity): a rebuilt guest presents the SAME MAC, so
-# the DHCP server returns the SAME lease instead of consuming a new one. Random
-# MACs make every rebuild a fresh lease request, which drains a shared pool until
-# guests boot with no IPv4 at all.
-# Keyed on the guest's durable identity, not on the name the VM carries now: a
-# guest is built in a per-kind slot and renamed to its real name when its
-# baseline is snapshotted, and an address that moved with that rename would
-# re-DHCP a guest whose own state already records the one it was built on.
+# --- REGION: https://yuruna.link/42e220c4-0004
+# Key the MAC by durable guest identity so rebuilds and VM renames keep the DHCP lease.
 $YurunaGuestMac = Get-YurunaGuestMacAddress -VMName $GuestHostname
 Write-Verbose "Deterministic guest MAC for '$GuestHostname': $YurunaGuestMac"
 
-# --- REGION: Define the VM via virt-install
+# --- REGION: Create and configure the libvirt domain (virt-install)
 $installArgs = @(
     '--connect', $virshUri,
     '--name',    $VMName,
@@ -312,13 +259,8 @@ $installArgs = @(
     '--events',  'on_reboot=restart',
     '--noautoconsole',
     '--import',
-    # Define the domain without booting it. Start-VM is the only place that
-    # opens the DHCP evidence window, and it can open one solely for a domain
-    # it started itself -- a guest's first DISCOVER lands seconds after
-    # firmware, so a window opened after someone else booted it records an
-    # empty slice for a guest that did ask, which reads as the opposite of
-    # what happened. `--import` boots the domain on its own unless told not
-    # to, which would put every boot of this guest past that window.
+    # --- REGION: https://yuruna.link/42e220c4-0004
+    # Start-VM must open DHCP capture before the first guest boot.
     '--noreboot'
 )
 # --- REGION: https://yuruna.link/42d69dfa-0009
@@ -344,6 +286,9 @@ if ($virtInstallExit -ne 0) {
     Write-Error "virt-install failed (exit $virtInstallExit)"
     exit 1
 }
+
+# --- REGION: Clean up temporary files
+Remove-Item -LiteralPath $seedDir -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- REGION: Guidance
 Write-Verbose "VM '$VMName' defined and left shut off; Start-VM boots it. Get IP via 'virsh -c $virshUri domifaddr $VMName' once cloud-init finishes."

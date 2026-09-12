@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42bd906d-30b3-44f2-9020-fea9dbf0805f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,7 +28,6 @@
 #>
 
 # --- REGION: Module setup
-
 $script:HostTag        = 'host.macos.utm'
 $script:RepoRoot       = (Resolve-Path (Join-Path $PSScriptRoot '..\..\..')).Path
 $script:TestModulesDir = Join-Path $script:RepoRoot 'test/modules'
@@ -86,33 +85,32 @@ Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.DownloadAgent.psm
 # the Get-Image log-line writer) common to all three drivers.
 Import-Module (Join-Path $script:RepoRoot 'host/modules/Yuruna.HostProvision.psm1') -Force -DisableNameChecking -Global
 # --- REGION: macOS/UTM host helpers
-
-<#
-.SYNOPSIS
-    Removes a UTM .utm bundle from disk with retry-on-EACCES.
-
-.DESCRIPTION
-    After `utmctl delete`, UTM.app (and its QEMUHelper.xpc) can hold file
-    handles on bundle contents for a few seconds -- most commonly on the
-    mmap'd sparse disk.img or on efi_vars.fd. A single-shot
-    `Remove-Item -Recurse -Force` during that window fails with "Access
-    to the path '...' is denied" even though the bundle is deregistered
-    and would remove cleanly moments later.
-
-    Retries with 2,4,6,8s backoff (~20s total), absorbing the handle-
-    release race. Returns $true on success (or if the bundle was already
-    gone), $false if all retries fail.
-
-.PARAMETER Path
-    Filesystem path of the .utm bundle directory to remove.
-
-.PARAMETER MaxAttempts
-    Number of removal attempts before giving up (default 5).
-
-.OUTPUTS
-    [bool] $true on success, $false on persistent failure.
-#>
 function Remove-UtmBundleWithRetry {
+    <#
+    .SYNOPSIS
+        Removes a UTM .utm bundle from disk with retry-on-EACCES.
+
+    .DESCRIPTION
+        After `utmctl delete`, UTM.app (and its QEMUHelper.xpc) can hold file
+        handles on bundle contents for a few seconds -- most commonly on the
+        mmap'd sparse disk.img or on efi_vars.fd. A single-shot
+        `Remove-Item -Recurse -Force` during that window fails with "Access
+        to the path '...' is denied" even though the bundle is deregistered
+        and would remove cleanly moments later.
+
+        Retries with 2,4,6,8s backoff (~20s total), absorbing the handle-
+        release race. Returns $true on success (or if the bundle was already
+        gone), $false if all retries fail.
+
+    .PARAMETER Path
+        Filesystem path of the .utm bundle directory to remove.
+
+    .PARAMETER MaxAttempts
+        Number of removal attempts before giving up (default 5).
+
+    .OUTPUTS
+        [bool] $true on success, $false on persistent failure.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param(
@@ -252,38 +250,37 @@ function Invoke-EntitledSwift {
 }
 
 # --- REGION: Port-map helpers
-
-<#
-.SYNOPSIS
-    Launches (or stops) the caching-proxy-service TCP forwarder on the Mac host.
-
-.DESCRIPTION
-    Exposes the Shared-NAT caching-proxy-service VM to REMOTE LAN hosts: it binds
-    a cache port on the host's LAN IP and tunnels to $CacheIp on the
-    192.168.64.0/24 vmnet subnet, so machines elsewhere on the LAN can use
-    the cache. Same-Mac UTM guests do NOT need this -- on macOS 26 every
-    vmnet-shared VM joins one bridge (192.168.64.1) and guests reach a
-    sibling VM's 192.168.64.x IP directly. (An older belief that shared-NAT
-    blocks guest-to-guest ARP on 192.168.64.0/24 did not reproduce there.)
-
-    Start-CachingProxyServiceForwarder spawns Start-CachingProxyServiceForwarder.ps1
-    as a detached `pwsh` subprocess that binds :3128 on the host and
-    tunnels to $CacheIp:3128. Detached so the forwarder outlives
-    Start-CachingProxyServiceVM.ps1 (it survives the launcher exiting -- it is
-    reparented to launchd -- but any Remove-PortMap still tears it down).
-
-    PID is written to $HOME/yuruna/image/caching-proxy-service/forwarder.<Port>.pid.
-    Stop-CachingProxyServiceForwarder reads it and sends SIGTERM.
-    Get-CachingProxyServiceForwarder reports liveness without signaling.
-
-    Returns $true when the forwarder is verified listening (Start),
-    terminated (Stop), or currently running (Get).
-
-.PARAMETER CacheIp
-    IP of the caching-proxy-service VM (Start-CachingProxyServiceForwarder only). Typically
-    192.168.64.X discovered by Start-CachingProxyServiceVM.ps1's subnet probe.
-#>
 function Start-CachingProxyServiceForwarder {
+    <#
+    .SYNOPSIS
+        Launches (or stops) the caching-proxy-service TCP forwarder on the Mac host.
+
+    .DESCRIPTION
+        Exposes the Shared-NAT caching-proxy-service VM to REMOTE LAN hosts: it binds
+        a cache port on the host's LAN IP and tunnels to $CacheIp on the
+        192.168.64.0/24 vmnet subnet, so machines elsewhere on the LAN can use
+        the cache. Same-Mac UTM guests do NOT need this -- on macOS 26 every
+        vmnet-shared VM joins one bridge (192.168.64.1) and guests reach a
+        sibling VM's 192.168.64.x IP directly. (An older belief that shared-NAT
+        blocks guest-to-guest ARP on 192.168.64.0/24 did not reproduce there.)
+
+        Start-CachingProxyServiceForwarder spawns Start-CachingProxyServiceForwarder.ps1
+        as a detached `pwsh` subprocess that binds :3128 on the host and
+        tunnels to $CacheIp:3128. Detached so the forwarder outlives
+        Start-CachingProxyServiceVM.ps1 (it survives the launcher exiting -- it is
+        reparented to launchd -- but any Remove-PortMap still tears it down).
+
+        PID is written to $HOME/yuruna/image/caching-proxy-service/forwarder.<Port>.pid.
+        Stop-CachingProxyServiceForwarder reads it and sends SIGTERM.
+        Get-CachingProxyServiceForwarder reports liveness without signaling.
+
+        Returns $true when the forwarder is verified listening (Start),
+        terminated (Stop), or currently running (Get).
+
+    .PARAMETER CacheIp
+        IP of the caching-proxy-service VM (Start-CachingProxyServiceForwarder only). Typically
+        192.168.64.X discovered by Start-CachingProxyServiceVM.ps1's subnet probe.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param(
@@ -584,30 +581,29 @@ function Stop-AllCachingProxyServiceForwarder {
 }
 
 # --- REGION: Caching-proxy service IP discovery
-
-<#
-.SYNOPSIS
-    Returns the IP of a reachable caching-proxy-service (probed on :3128), or
-    $null when no cache is currently usable. Prefers the direct VM IP
-    so SSL-bump (:3129) and the CA endpoint (:80) are also reachable;
-    falls back to 127.0.0.1 (host forwarder) for HTTP-only.
-
-.DESCRIPTION
-    Discovery order:
-      1. The cache VM IP recorded in the yuruna-caching-proxy-service state
-         file (<track>/yuruna-caching-proxy-service.yml, written by
-         Start-CachingProxyServiceVM.ps1 with the VM's 192.168.64.X address).
-         If reachable, return THIS IP; the caller can hit :80 / :3128
-         / :3129 on it directly across Apple Virtualization shared NAT.
-      2. 127.0.0.1 -- the local Start-CachingProxyServiceForwarder bridges
-         host:3128 -> VM:3128. Useful for HTTP origins; SSL-bump
-         (:3129) won't work via the forwarder since only :3128 is
-         bridged. Save-CachedHttpUri detects that case via separate
-         :3129 probes and falls through to direct download.
-.OUTPUTS
-    [string] IPv4 like '192.168.64.5' or '127.0.0.1', or $null.
-#>
 function Resolve-CacheHostIp {
+    <#
+    .SYNOPSIS
+        Returns the IP of a reachable caching-proxy-service (probed on :3128), or
+        $null when no cache is currently usable. Prefers the direct VM IP
+        so SSL-bump (:3129) and the CA endpoint (:80) are also reachable;
+        falls back to 127.0.0.1 (host forwarder) for HTTP-only.
+
+    .DESCRIPTION
+        Discovery order:
+          1. The cache VM IP recorded in the yuruna-caching-proxy-service state
+             file (<track>/yuruna-caching-proxy-service.yml, written by
+             Start-CachingProxyServiceVM.ps1 with the VM's 192.168.64.X address).
+             If reachable, return THIS IP; the caller can hit :80 / :3128
+             / :3129 on it directly across Apple Virtualization shared NAT.
+          2. 127.0.0.1 -- the local Start-CachingProxyServiceForwarder bridges
+             host:3128 -> VM:3128. Useful for HTTP origins; SSL-bump
+             (:3129) won't work via the forwarder since only :3128 is
+             bridged. Save-CachedHttpUri detects that case via separate
+             :3129 probes and falls through to direct download.
+    .OUTPUTS
+        [string] IPv4 like '192.168.64.5' or '127.0.0.1', or $null.
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param()
@@ -686,32 +682,9 @@ function Start-UtmDialogWatchdog {
     if (-not (Test-Path $stateDir)) {
         New-Item -ItemType Directory -Path $stateDir -Force | Out-Null
     }
-    # Only buttons that mean "proceed with what I asked for". The list is a
-    # blind click driven by title alone, against whatever UTM happens to be
-    # showing, so every entry has to be one whose meaning cannot be "undo the
-    # thing being set up" -- and "Close" cannot clear that bar. It is a real,
-    # localized UTM title (a key in Localizable.strings across a dozen .lproj
-    # bundles, rendered literally in English because en.lproj is an empty stub),
-    # so it was a live click, not a dead entry.
-    #
-    # What is established about the cost: a synthetic click on a UTM window,
-    # seconds after macOS granted this watchdog its Automation permission, was
-    # followed within two seconds by UTM tearing down the QEMU session, and the
-    # bundle was left with megabytes of saved VM state leaked into its 64 MiB
-    # efi_vars.fd -- the suspend signature docs/host-macos.md describes. The
-    # bring-up that armed the watchdog then spent its whole discovery budget on
-    # a VM that was no longer executing. Which control the click actually landed
-    # on was never pinned down, and the documented state-saving path is quitting
-    # UTM, which did not happen here -- so treat the mechanism as open and the
-    # correlation as the reason.
-    #
-    # This narrows the list; it does not make it safe. "OK" stays because the
-    # custom-QEMU-args modal needs it, and "OK" is also the affirmative on UTM's
-    # generic Confirmation sheet -- so a confirmation raised while this is armed
-    # is still answered yes by a watchdog that cannot see what it is agreeing
-    # to. Keeping it armed for no longer than the launch it exists to unblock is
-    # the real bound. ("Okay" and "Open" match no UTM title; they are left as
-    # harmless catches for a macOS-supplied sheet on a UTM window.)
+    # Title-only clicks cannot identify a sheet's intent. Keep the affirmative
+    # allowlist narrow and arm the watchdog only around the launch it unblocks.
+    # See https://yuruna.link/42885ada-0011
     $asScript = @'
 set acceptLabels to {"Continue", "OK", "Okay", "Run", "Open", "Allow"}
 repeat
@@ -758,12 +731,11 @@ end repeat
 }
 
 # --- REGION: UTM VM lifecycle primitives
-
-<#
-.SYNOPSIS
-    Returns true if a UTM .utm bundle exists for the given VM.
-#>
 function Confirm-UtmVMCreated {
+    <#
+    .SYNOPSIS
+        Returns true if a UTM .utm bundle exists for the given VM.
+    #>
     [CmdletBinding()]
     [OutputType([bool])]
     param([Parameter(Mandatory)][string]$VMName)
@@ -2322,12 +2294,11 @@ end tell
 }
 
 # --- REGION: VM lifecycle
-
-<#
-.SYNOPSIS
-    Create a guest VM by running the per-guest New-VM.ps1 script.
-#>
 function New-VM {
+    <#
+    .SYNOPSIS
+        Create a guest VM by running the per-guest New-VM.ps1 script.
+    #>
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSShouldProcess', '',
         Justification = 'ShouldProcess is delegated to Invoke-PerGuestNewVm, which declares SupportsShouldProcess and calls it; -WhatIf/-Confirm propagate via the splatted PSBoundParameters.')]
     [CmdletBinding(SupportsShouldProcess)]
@@ -2386,10 +2357,8 @@ function Stop-VM {
         [Parameter(Mandatory)][string]$VMName,
         [switch]$Force
     )
-    if (-not $PSCmdlet.ShouldProcess($VMName, 'Stop VM')) { return $false }
-    # UTM only exposes `utmctl stop`; -Force is accepted for cross-host
-    # contract parity and maps to the same op here.
-    if ($Force) { Write-Debug "Stop-VM on host.macos.utm: -Force maps to the same utmctl stop (no graceful/force distinction)." }
+    if (-not $PSCmdlet.ShouldProcess($VMName, ($Force ? 'Force-stop VM' : 'Stop VM'))) { return $false }
+    if ($Force) { return [bool](Stop-VMForce -VMName $VMName -Confirm:$false) }
     return [bool](Stop-UtmVM -VMName $VMName -Confirm:$false)
 }
 
@@ -2405,6 +2374,7 @@ function Stop-VMForce {
         [int]$StopTimeoutSeconds = 20
     )
     if (-not $PSCmdlet.ShouldProcess($VMName, 'Force-stop UTM VM')) { return $false }
+    Stop-UtmDialogWatchdog
     # StopTimeoutSeconds is reserved for parity with Hyper-V Stop-VMForce;
     # utmctl stop is synchronous so the value is informational only.
     Write-Debug "Stop-VMForce on host.macos.utm: -StopTimeoutSeconds $StopTimeoutSeconds is informational (utmctl is synchronous)."
@@ -3046,12 +3016,11 @@ function Restart-VMConsole {
 }
 
 # --- REGION: Image
-
-<#
-.SYNOPSIS
-    Run the per-guest Get-Image.ps1 to download or refresh the base image.
-#>
 function Get-Image {
+    <#
+    .SYNOPSIS
+        Run the per-guest Get-Image.ps1 to download or refresh the base image.
+    #>
     [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSShouldProcess', '',
         Justification = 'ShouldProcess is delegated to Invoke-GetImage, which declares SupportsShouldProcess and calls it; -WhatIf/-Confirm propagate via the splatted PSBoundParameters.')]
     [CmdletBinding(SupportsShouldProcess)]
@@ -3088,12 +3057,11 @@ function Get-ImagePath {
 }
 
 # --- REGION: VM I/O
-
-<#
-.SYNOPSIS
-    Type text into the guest VM via gui or ssh mechanism.
-#>
 function Send-Text {
+    <#
+    .SYNOPSIS
+        Type text into the guest VM via gui or ssh mechanism.
+    #>
     [CmdletBinding()]
     [OutputType([bool])]
     param(
@@ -3389,12 +3357,11 @@ function Get-VMConsoleSecondOpinion {
 }
 
 # --- REGION: Discovery
-
-<#
-.SYNOPSIS
-    Poll Get-VMIp until an IPv4 address is discovered or timeout expires.
-#>
 function Wait-VMIp {
+    <#
+    .SYNOPSIS
+        Poll Get-VMIp until an IPv4 address is discovered or timeout expires.
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param(
@@ -3958,12 +3925,11 @@ function Resolve-UtmGuestIpByMac {
 }
 
 # --- REGION: Networking
-
-<#
-.SYNOPSIS
-    Return the name of the host-side External-type vSwitch or network.
-#>
 function Get-ExternalNetwork {
+    <#
+    .SYNOPSIS
+        Return the name of the host-side External-type vSwitch or network.
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param()
@@ -4284,31 +4250,30 @@ function Get-GuestReachableHostIp {
 }
 
 # --- REGION: Caching-proxy service
-
-<#
-.SYNOPSIS
-    Returns the host's LAN /24 prefix (e.g. '192.168.7.') based on the
-    default-route interface, or $null when the host has no default route.
-.DESCRIPTION
-    This is the /24 a bridged guest is looked for on: it sits on the host's
-    LAN by construction, so the host's own default-route subnet is where its
-    address must be. (It is NOT consulted by
-    Test-CachingProxyServiceAvailable, which is restricted to state-file +
-    YURUNA_CACHING_PROXY_SERVICE_IP discovery.) Returns the first three
-    octets with a trailing dot so the caller can append "$prefix$octet"
-    without further string surgery. /24 is an assumption -- it matches the
-    home/office DHCP setups the repo targets; a /23 LAN would silently miss
-    half the address space. Acceptable trade-off given the alternative is
-    parsing the netmask from `ifconfig` output for what is, in practice, a
-    /24 99% of the time.
-.PARAMETER HostIp
-    The host address to take the prefix from. Resolved with Get-BestHostIp
-    when not supplied; a caller that already has it passes it so the
-    default-route lookup (two process spawns) is not repeated.
-.OUTPUTS
-    [string] e.g. '192.168.7.' (with trailing dot), or $null.
-#>
 function Get-HostLanPrefix {
+    <#
+    .SYNOPSIS
+        Returns the host's LAN /24 prefix (e.g. '192.168.7.') based on the
+        default-route interface, or $null when the host has no default route.
+    .DESCRIPTION
+        This is the /24 a bridged guest is looked for on: it sits on the host's
+        LAN by construction, so the host's own default-route subnet is where its
+        address must be. (It is NOT consulted by
+        Test-CachingProxyServiceAvailable, which is restricted to state-file +
+        YURUNA_CACHING_PROXY_SERVICE_IP discovery.) Returns the first three
+        octets with a trailing dot so the caller can append "$prefix$octet"
+        without further string surgery. /24 is an assumption -- it matches the
+        home/office DHCP setups the repo targets; a /23 LAN would silently miss
+        half the address space. Acceptable trade-off given the alternative is
+        parsing the netmask from `ifconfig` output for what is, in practice, a
+        /24 99% of the time.
+    .PARAMETER HostIp
+        The host address to take the prefix from. Resolved with Get-BestHostIp
+        when not supplied; a caller that already has it passes it so the
+        default-route lookup (two process spawns) is not repeated.
+    .OUTPUTS
+        [string] e.g. '192.168.7.' (with trailing dot), or $null.
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param([AllowEmptyString()][AllowNull()][string]$HostIp)
@@ -4377,12 +4342,11 @@ function Get-CachingProxyServiceVmIp {
 }
 
 # --- REGION: Host config
-
-<#
-.SYNOPSIS
-    Promote a proxy URL to the machine-wide host proxy with backup.
-#>
 function Set-HostProxy {
+    <#
+    .SYNOPSIS
+        Promote a proxy URL to the machine-wide host proxy with backup.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([bool])]
     param(
@@ -4521,7 +4485,6 @@ function Assert-Virtualization {
 }
 
 # --- REGION: Exports
-
 Export-ModuleMember -Function `
     New-VM, Start-VM, Stop-VM, Stop-VMForce, Remove-VM, Rename-VM, Get-VMState, Get-VMName, `
     Save-VMDiskSnapshot, Restore-VMDiskSnapshot, Test-VMDiskSnapshot, `
@@ -4548,12 +4511,8 @@ Export-ModuleMember -Function `
     Get-VncDisplayForVm, Get-VncPortForVm, Get-VncDisplayFromBundle, Set-VncDisplayInBundle, Test-VncPortFree, Find-FreeVncDisplay, Get-ClaimedVncDisplay, Get-VncScreenshot, Get-UtmScreenshot, Get-UtmWindowScreenshot, Get-UtmVMProcessId, `
     Set-GuestMacInBundle
 
-# Contract-coverage assertion: warns at load time if the export block
-# above drifts away from the canonical Yuruna.Host contract. The module
-# handle travels with the declared list so the check runs against what
-# Export-ModuleMember actually published: the list on its own is a second
-# copy of the contract and would pass even after the export block lost a
-# verb. See host/Yuruna.Host.Contract.psm1 for the verb list and rationale.
+# --- REGION: Contract coverage
+# Validate actual exports against the common contract after publishing them.
 Import-Module (Join-Path -Path $PSScriptRoot -ChildPath '..' -AdditionalChildPath '..', 'Yuruna.Host.Contract.psm1') -Force -DisableNameChecking
 $null = Assert-YurunaHostContractCoverage -HostType 'macos.utm' `
     -Module $ExecutionContext.SessionState.Module -ExportedFunction @(

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 421b43ea-86ef-4745-ba78-cc02250870e2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -38,7 +38,101 @@ Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1')
 
 }
 
+# --- REGION: Exported retry functions
+Describe 'yuruna-retry.sh exported functions in a child Bash' {
+    It 'preserves <Name> after the parent sources the library' -TestCases @(
+        @{ Name = 'first-attempt success'; Attempts = '2'; SucceedAt = 1; ExpectedCalls = 1; ExpectedCode = 0; StrictSuccess = 'yes' }
+        @{ Name = 'retry then success'; Attempts = '3'; SucceedAt = 3; ExpectedCalls = 3; ExpectedCode = 0; StrictSuccess = 'no' }
+        @{ Name = 'exhaustion exit status'; Attempts = '2'; SucceedAt = 0; ExpectedCalls = 2; ExpectedCode = 9; StrictSuccess = 'no' }
+        @{ Name = 'invalid configuration defaults'; Attempts = 'invalid'; SucceedAt = 0; ExpectedCalls = 5; ExpectedCode = 9; StrictSuccess = 'no' }
+    ) {
+        param($Name, $Attempts, $SucceedAt, $ExpectedCalls, $ExpectedCode, $StrictSuccess)
+        $bash = Get-Command bash -ErrorAction SilentlyContinue
+        if (-not $bash) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
+        $lib = Get-Content -Raw -LiteralPath $script:libPath
+        # A fetched guest script inherits exported functions without sourcing
+        # the library again; only the parent shell receives its source here.
+        $driver = @'
+bash -c '
+set -euo pipefail
+export YURUNA_RETRY_MAX_ATTEMPTS="$1" YURUNA_RETRY_DELAY_SECONDS=invalid
+unset YURUNA_RETRY_CLASSIFY YURUNA_RETRY_RECORD YURUNA_RETRY_HEAL
+unset YURUNA_RETRY_STALL_TIMEOUT_SECONDS
+sleep() { :; }
+calls=0
+succeed_at="$2"
+_probe() {
+    calls=$((calls + 1))
+    if [ "$calls" -eq "$succeed_at" ]; then return 0; fi
+    return 9
+}
+rc=0
+if [ "$3" = yes ]; then
+    _yuruna_retry child_probe _probe
+else
+    _yuruna_retry child_probe _probe || rc=$?
+fi
+printf "RESULT:%s:%s\n" "$calls" "$rc"
+exit "$rc"
+' -- "$@"
+'@
+        $lines = @(($lib + "`n" + $driver) | & $bash.Source -s -- $Attempts $SucceedAt $StrictSuccess 2>&1)
+        $actualCode = $LASTEXITCODE
+        $output = ($lines | Out-String).Trim()
+        Assert-Equal -Expected $ExpectedCode -Actual $actualCode -Because "$Name must preserve the wrapped command's status: $output"
+        Assert-Match -Pattern "(?m)^RESULT:${ExpectedCalls}:${ExpectedCode}$" -Actual $output `
+            -Because "$Name must execute the command the expected number of times"
+        Assert-False ($output -match 'command not found') 'every transitive retry helper must survive the child-shell boundary'
+        if ($ExpectedCalls -gt 1) {
+            $records = @($lines | ForEach-Object { "$_" } | Where-Object { $_ -like 'YURUNA_RETRY *' } |
+                ForEach-Object { $_.Substring('YURUNA_RETRY '.Length) | ConvertFrom-Json })
+            $failedAttempts = @($records | Where-Object { $_.event -eq 'attempt' })
+            $expectedFailures = if ($ExpectedCode -eq 0) { $ExpectedCalls - 1 } else { $ExpectedCalls }
+            Assert-Equal -Expected $expectedFailures -Actual $failedAttempts.Count -Because 'child retries must retain structured failure telemetry'
+        }
+    }
+}
+
 Describe 'yuruna-retry.sh transient gate + jitter (bash)' {
+    It 'uses the same positive decimal configuration defaults as PowerShell' {
+        $bash = Get-Command bash -ErrorAction SilentlyContinue
+        if (-not $bash) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
+        $lib = Get-Content -Raw -LiteralPath $script:libPath
+        Import-Module (Join-Path (Split-Path -Parent $script:libPath) 'Yuruna.Retry.psm1') -Force
+        $variable = 'YURUNA_RETRY_CONSISTENCY_TEST'
+        $previous = [Environment]::GetEnvironmentVariable($variable)
+        try {
+            foreach ($raw in @('', '0', '-1', 'bad', '1.5', '1', '02', '08', '0008', ' +8 ', '2147483647', '2147483648', '99999999999999999999999')) {
+                [Environment]::SetEnvironmentVariable($variable, $raw)
+                $expected = Get-YurunaRetryDefault -EnvName $variable -Fallback 10
+                $driver = $lib + "`n" + '_yuruna_retry_positive_integer "$1" 10'
+                $actual = ($driver | & $bash.Source -s -- $raw 2>$null | Out-String).Trim()
+                Assert-StringEqual -Actual $actual -Expected "$expected" -Because "retry default differs for '$raw'"
+            }
+        } finally {
+            [Environment]::SetEnvironmentVariable($variable, $previous)
+        }
+    }
+
+    It 'executes the default attempts on invalid configuration and preserves the command failure' {
+        $bash = Get-Command bash -ErrorAction SilentlyContinue
+        if (-not $bash) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
+        $lib = Get-Content -Raw -LiteralPath $script:libPath
+        $driver = @'
+sleep() { :; }
+_counted() { calls=$((calls + 1)); return 9; }
+for raw in '' 0 -1 bad 2147483648 02 08; do
+    calls=0
+    YURUNA_RETRY_MAX_ATTEMPTS="$raw" YURUNA_RETRY_DELAY_SECONDS=bad \
+        _yuruna_retry probe _counted >/dev/null 2>&1
+    printf '%s:%s ' "$calls" "$?"
+done
+printf '\n'
+'@
+        $out = (($lib + "`n" + $driver) | & $bash.Source 2>$null | Select-Object -Last 1 | Out-String).Trim()
+        Assert-StringEqual -Actual $out -Expected '5:9 5:9 5:9 5:9 5:9 2:9 8:9' -Because 'a retry configuration must never turn an unexecuted command into success'
+    }
+
     It 'classifies 404 permanent / 503 + 429 + network transient, fails fast on permanent, and jitters within [delay/2, delay]' {
         $bash = Get-Command bash -ErrorAction SilentlyContinue
         if (-not $bash) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
@@ -178,9 +272,11 @@ YURUNA_RETRY_WGET_URL=x _yuruna_classify_wget 8 >/dev/null 2>&1; r="$r$? "  # 40
 curl() { echo 503; }
 YURUNA_RETRY_WGET_URL=x _yuruna_classify_wget 8 >/dev/null 2>&1; r="$r$? "  # 503 -> transient 0
 unset -f curl
-# one structured marker per failed attempt, carrying stack/label/attempt/rc
+# one structured marker per failed attempt, carrying stack/label/attempt/rc.
+# Counting the attempt event specifically: the run also records one outcome
+# event at the end, and a bare marker count would fold the two together.
 _r9() { return 9; }
-mk=$(YURUNA_RETRY_MAX_ATTEMPTS=2 YURUNA_RETRY_DELAY_SECONDS=1 _yuruna_retry curl_retry _r9 2>&1 | grep -c '^YURUNA_RETRY {"stack":"bash"')
+mk=$(YURUNA_RETRY_MAX_ATTEMPTS=2 YURUNA_RETRY_DELAY_SECONDS=1 _yuruna_retry curl_retry _r9 2>&1 | grep -c '"event":"attempt"')
 r="${r}${mk}"
 echo "$r"
 '@
@@ -189,14 +285,68 @@ echo "$r"
         # wget: net=0 auth=1 parse=1 404=1 503=0 | 2 markers over 2 failed attempts
         Assert-StringEqual -Actual $out -Expected '0 1 1 1 0 2' -Because "wget classifier + marker result was: '$out'"
     }
-    It 'routes a certificate failure (curl 60 / wget 5) through the bump-CA re-anchor and retries only when it repaired something' {
+    It 'writes its verdict into the log a wrapped attempt appends to' {
+        # The wrapper's prose goes to the CALLER's stderr, while the log an
+        # attempt writes is opened around the attempt alone -- so a consumer
+        # reading that log never sees a sentence the wrapper printed. The
+        # outcome record is what reaches it.
+        $bash = Get-Command bash -ErrorAction SilentlyContinue
+        if (-not $bash) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
+        $lib = Get-Content -Raw -LiteralPath $script:libPath
+        $log = (Join-Path $TestDrive 'retry-record.log') -replace '\\', '/'
+        $driver = @"
+
+_fail() { return 7; }
+_perm() { return 3; }
+rm -f '$log'
+export YURUNA_RETRY_MAX_ATTEMPTS=2 YURUNA_RETRY_DELAY_SECONDS=1
+YURUNA_RETRY_RECORD='$log' _yuruna_retry exhaust_probe _fail >/dev/null 2>&1 || true
+_classify() { return 1; }
+YURUNA_RETRY_CLASSIFY=_classify YURUNA_RETRY_RECORD='$log' _yuruna_retry perm_probe _perm >/dev/null 2>&1 || true
+"@
+        $null = ($lib + "`n" + $driver) | & $bash.Source 2>$null
+        Assert-True (Test-Path -LiteralPath $log) 'the wrapper wrote no record file at all'
+        $records = @(Get-Content -LiteralPath $log |
+            Where-Object { $_ -like 'YURUNA_RETRY *' } |
+            ForEach-Object { ConvertFrom-Json -InputObject $_.Substring('YURUNA_RETRY '.Length) })
+        $outcomes = @($records | Where-Object { [string]$_.event -ceq 'outcome' })
+        Assert-Equal -Expected 2 -Actual $outcomes.Count 'each run must record exactly one outcome'
+
+        $exhausted = @($outcomes | Where-Object { [string]$_.outcome -ceq 'exhausted' })
+        Assert-Equal -Expected 1 -Actual $exhausted.Count 'a run that used every attempt records exhausted'
+        Assert-Equal -Expected 7 -Actual ([int]$exhausted[0].rc) 'the record carries the failing exit code'
+        Assert-Equal -Expected 2 -Actual ([int]$exhausted[0].maxAttempts) 'and how many attempts it was allowed'
+
+        $permanent = @($outcomes | Where-Object { [string]$_.outcome -ceq 'permanent' })
+        Assert-Equal -Expected 1 -Actual $permanent.Count 'a classified-permanent failure records permanent, not exhausted'
+        Assert-Equal -Expected 1 -Actual ([int]$permanent[0].attempt) 'and stops on the attempt that classified it'
+    }
+
+    It 'gives a consumer no sentence to recognize' {
+        # The diagnostic reads these records. It used to match the English
+        # "all N attempts exhausted", which the wrapper writes to a stream that
+        # log never receives -- so the check found nothing on any real run, and
+        # would have followed the host's language even if it had.
+        $here = Split-Path -Parent (Split-Path -Parent $PSCommandPath)
+        $diagnostic = [IO.File]::ReadAllText((Join-Path (Split-Path -Parent $here) 'automation/Get-SystemDiagnostic.ps1'))
+        Assert-False ($diagnostic -match "(?i)-match\s+'[^']*attempts exhausted") `
+            'the diagnostic recognizes the retry outcome by a sentence again'
+        Assert-Match "\`$record\.event -cne 'outcome'" $diagnostic `
+            'the diagnostic must select the outcome record, not any YURUNA_RETRY line'
+    }
+
+    It 'routes certificate failures through repair in <Shell> Bash and retries only after a repair' -TestCases @(
+        @{ Shell = 'parent' }
+        @{ Shell = 'child' }
+    ) {
+        param($Shell)
         $bash = Get-Command bash -ErrorAction SilentlyContinue
         if (-not $bash) { Set-ItResult -Skipped -Because 'bash is not available on this host'; return }
         $lib = Get-Content -Raw -LiteralPath $script:libPath
         # A stale bump CA is the only cert failure a retry can survive, and only
         # after the anchor has actually been replaced. The stub stands in for the
         # trust store: TRUSTED tracks what a spider probe would see, and the
-        # /ca.crt fetch flips it when HEAL_WORKS says the served CA matches.
+        # stubbed trust refresh flips it only when the served CA matches.
         $driver = @'
 
 r=""
@@ -206,10 +356,14 @@ wget() {
     *--spider*) [ "$TRUSTED" = yes ] && return 0 || return 1 ;;
     *ca.crt*)   [ "$CA_SERVED" = yes ] || return 1
                 prev=""; for a in "$@"; do [ "$prev" = "-qO" ] && echo "-----BEGIN CERTIFICATE-----" > "$a"; prev="$a"; done
-                [ "$HEAL_WORKS" = yes ] && TRUSTED=yes; return 0 ;;
+                return 0 ;;
   esac; return 1
 }
-sudo() { return 0; }
+update-ca-certificates() { :; }
+sudo() {
+  if [ "$1" = update-ca-certificates ] && [ "$HEAL_WORKS" = yes ]; then TRUSTED=yes; fi
+  return 0
+}
 YURUNA_STATUS_SERVICE_IP=10.0.0.2; YURUNA_STATUS_SERVICE_PORT=8080
 # no bump in front of the guest -> nothing to repair, so a cert failure is the
 # far end's certificate and retrying it is pointless
@@ -238,6 +392,9 @@ a=$(YURUNA_RETRY_CLASSIFY=_yuruna_classify_curl YURUNA_RETRY_MAX_ATTEMPTS=5 YURU
 r="$r$a"
 echo "$r"
 '@
+        if ($Shell -eq 'child') {
+            $driver = "bash <<'YURUNA_CHILD_BASH'`n" + $driver + "`nYURUNA_CHILD_BASH`n"
+        }
         $script = $lib + "`n" + $driver
         $out = ($script | & $bash.Source 2>$null | Select-Object -Last 1 | Out-String).Trim()
         Assert-StringEqual -Actual $out -Expected '1 1 1 1 0 0 0 2 1 2 1' -Because "cert-failure re-anchor result was: '$out'"

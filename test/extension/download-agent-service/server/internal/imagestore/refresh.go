@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"download-agent-service/internal/config"
+
 	"yuruna.com/test/extension/extension-sdk/pool"
 )
 
@@ -397,8 +398,7 @@ func (a *Agent) audit(action string, id ImageID, outcome, detail string) {
 	})
 }
 
-// --- HTTP clients -----------------------------------------------------------
-
+// --- REGION: HTTP clients
 func newDirectTransport() *http.Transport {
 	t := http.DefaultTransport.(*http.Transport).Clone()
 	// Proxy: nil, explicitly. Inheriting the environment's proxy variables would
@@ -456,8 +456,7 @@ func newProxyTransport(proxyHTTP, proxyHTTPS, caPath string) (*http.Transport, e
 	return t, nil
 }
 
-// --- scanning ---------------------------------------------------------------
-
+// --- REGION: Scanning
 // Run sweeps staging, renews the lease, seeds and refreshes on the scan cadence
 // until ctx is canceled.
 // The lease is released on EVERY exit path, not just the ticker's: a scan that
@@ -620,8 +619,7 @@ func (a *Agent) setKnownHostTypes(hostTypes []string) {
 	a.mu.Unlock()
 }
 
-// --- the refresh pipeline ---------------------------------------------------
-
+// --- REGION: Refresh pipeline
 // startRefresh joins or starts the single-flight refresh for one identity.
 func (a *Agent) startRefresh(id ImageID, seed bool) (*Flight, bool) {
 	return a.flights.Start(id.Key(), seed, func(ctx context.Context, p *Progress) error {
@@ -945,8 +943,7 @@ func (a *Agent) verifyChecksum(ctx context.Context, res Resolved, sha string) (s
 	return VerdictVerified, nil
 }
 
-// --- catalog ----------------------------------------------------------------
-
+// --- REGION: Catalog
 // Catalog is every entry on disk plus a row for each family the pool could hold
 // -- the seeded ones and the best-effort ones alike -- so an operator always has
 // a row to act on and never has to infer a family's absence from a table that
@@ -1129,8 +1126,7 @@ func (a *Agent) Status(now time.Time) Status {
 	return st
 }
 
-// --- request-facing operations ----------------------------------------------
-
+// --- REGION: Request-facing operations
 // Ensure is the host-facing join/trigger protocol.
 func (a *Agent) Ensure(now time.Time, id ImageID, fp Fingerprint) EnsureResult {
 	if !a.store.Available() {

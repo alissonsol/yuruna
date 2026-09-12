@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42f3b71a-0d5c-46e8-9c02-8a41de6b7f35
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -81,6 +81,8 @@
     approved vocabulary a review could have been made against.
 .PARAMETER Path
     Restrict the run to source paths matching these values. Wildcards allowed.
+    A value may be qualified with its repository -- 'yuruna:README.md' -- which
+    is required when accepting a review for a name both repositories carry.
 .PARAMETER RequireReviewed
     Fail on any document still marked `draft`. This is the release-mode
     question -- a first draft is a starting point, not a shipped translation.
@@ -220,13 +222,28 @@ if (-not (Test-Path -LiteralPath $SiblingRoot -PathType Container)) {
 # two cannot drift into disagreeing about what "approved" means.
 if ($AcceptReview -and $Status -eq 'reviewed') {
     $terminologyScript = Join-Path $PSScriptRoot 'Test-Terminology.ps1'
-    & pwsh -NoProfile -File $terminologyScript -RequireApproved -Quiet | Out-Null
+    $terminologyOutput = & pwsh -NoProfile -File $terminologyScript -RequireApproved -Quiet 2>&1 | Out-String
     if ($LASTEXITCODE -ne 0) {
         $ErrorActionPreference = 'Continue'
-        Write-Error ("Terminology and style-guide approval is incomplete, so no document may be recorded as reviewed. " +
-            "Run 'pwsh -NoProfile -File tools/Test-Terminology.ps1 -RequireApproved' for the pending roles, obtain the " +
-            "native translator and independent reviewer approvals, then rerun this command. To register an unreviewed " +
-            "translation meanwhile, pass -Status draft.")
+        # One exit code covers two states that need opposite work. A signature is
+        # genuinely missing, or every signature is on file and a pinned source
+        # moved underneath them. Only the first is answered by collecting
+        # approvals; sending a reader after a role nobody is waiting on costs
+        # them the search before they find the pin. The gate names the first
+        # case in its own words, so read that rather than guessing from the code.
+        $pendingApproval = $terminologyOutput -match 'baseline approval is incomplete'
+        if ($pendingApproval) {
+            Write-Error ("Terminology and style-guide approval is incomplete, so no document may be recorded as reviewed. " +
+                "Run 'pwsh -NoProfile -File tools/Test-Terminology.ps1 -RequireApproved' for the pending roles, obtain the " +
+                "native translator and independent reviewer approvals, then rerun this command. To register an unreviewed " +
+                "translation meanwhile, pass -Status draft.")
+        } else {
+            Write-Error ("The terminology gate is not passing, so no document may be recorded as reviewed. No approval is " +
+                "missing: a pinned source moved, and the pin is part of the approved content, so the approvals already on " +
+                "file have to be renewed over the bytes that moved before any document can be recorded. Run " +
+                "'pwsh -NoProfile -File tools/Test-Terminology.ps1' to see which pin drifted. To register an unreviewed " +
+                "translation meanwhile, pass -Status draft.")
+        }
         exit 2
     }
 }
@@ -239,20 +256,45 @@ if (Test-Path -LiteralPath $Manifest -PathType Leaf) {
 
 $selected = $Document
 if ($Path -and $Path.Count -gt 0) {
+    # A pattern may name its repository -- 'yuruna:README.md' -- because both
+    # repositories have a README.md and a bare name selects them both. Accepting
+    # a document review is the one operation where that matters: an operator
+    # answering for one file would otherwise promote a translation in the other
+    # that nobody read.
     $selected = $Document | Where-Object {
-        $candidate = $_.Source
-        @($Path | Where-Object { $candidate -like $_ }).Count -gt 0
+        $source = $_.Source
+        $repo = $_.Repo
+        @($Path | Where-Object {
+            $pattern = [string]$_
+            if ($pattern -match '^(?<repo>[A-Za-z0-9_.-]+):(?<source>.+)$') {
+                $repo -ceq $Matches['repo'] -and $source -like $Matches['source']
+            } else {
+                $source -like $pattern
+            }
+        }).Count -gt 0
     }
     # A filter that selects nothing checked nothing. Reporting that as success
     # lets a caller that names one document -- a release close record asking
     # "is the first document reviewed?" -- pass on a typo, having proved
-    # nothing at all. Note that a pattern matches the source path in BOTH
-    # repositories, so a bare 'README.md' selects two documents.
+    # nothing at all.
     if (@($selected).Count -eq 0) {
         $ErrorActionPreference = 'Continue'
         Write-Error ("No mapped document matches: $($Path -join ', '). " +
-            "The map names sources relative to their own repository, such as 'docs/operator.md'.")
+            "The map names sources relative to their own repository, such as 'docs/operator.md', " +
+            "and a name carried by both repositories can be qualified as 'yuruna:README.md'.")
         exit 2
+    }
+    # Accepting a review is per-document by design, so a bare name that reaches
+    # two repositories has to be qualified rather than silently applied twice.
+    if ($AcceptReview) {
+        $ambiguous = @($selected | Group-Object Source | Where-Object { $_.Count -gt 1 })
+        if ($ambiguous.Count -gt 0) {
+            $ErrorActionPreference = 'Continue'
+            Write-Error ("'$($ambiguous[0].Name)' names a document in more than one repository. " +
+                "Qualify it, for example 'yuruna:$($ambiguous[0].Name)', so the review is recorded " +
+                'against the translation that was actually read.')
+            exit 2
+        }
     }
 }
 

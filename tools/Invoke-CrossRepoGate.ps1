@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42c1f5b8-9a37-4e02-b6d4-5081e7c3a9f6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -193,7 +193,7 @@ function Get-GateRemediation {
                 'and same repair as the framework row: rebuild from a clean work path and leave it ' +
                 'alone while the gate runs.' }
         @{ Gate = 'framework-gate-set'; Match = ''; Code = 'staged-tree-moved'
-            Action = 'Not a failure of its own: the sixteen framework gates and the five focused slices ' +
+            Action = 'Not a failure of its own: the eighteen framework gates and the five focused slices ' +
                 'were never executed because the supplied staged pair did not match the candidate ' +
                 'indexes. Fix the two staged-*-hash rows first; until then this run carries no ' +
                 'framework result at all, so do not read the absence of framework failures as a ' +
@@ -215,6 +215,25 @@ function Get-GateRemediation {
                 'without a BOM. Take care with curly quotes inside single-quoted PowerShell or ' +
                 'JavaScript string literals: replacing them changes the string, not just the ' +
                 'encoding.' }
+        @{ Gate = 'suite-baseline'; Match = ''; Code = 'suite-baseline'
+            Action = 'The tracked suite baseline and the runner''s discovery disagree. Detail ' +
+                '''<suite> runs but is not in the baseline'': a suite exists that nothing protects, ' +
+                'so deleting it again would fail no check. Detail ''<suite> is in the baseline but ' +
+                'no longer discovered'': a suite was removed or renamed. Either way, run the full ' +
+                'suite and re-record from that run: pwsh -NoProfile -File ' +
+                'tools/Invoke-TestSuite.ps1 -UpdateBaseline . Record it from a PASSING run -- a ' +
+                'baseline written over a failing one protects the failure. Detail ''the recorded ' +
+                '<n> total ...'' means the totals block was edited apart from the per-suite ' +
+                'entries it is meant to sum.' }
+        @{ Gate = 'config-locale-seed'; Match = ''; Code = 'config-locale-seed'
+            Action = 'The lab-wide language knob is not reachable from a host configuration. ' +
+                'test/test.config.yml.template must carry a top-level ''language: auto'' -- ' +
+                'reconciliation can only fill keys the template contains, so a missing one means ' +
+                'no host file ever mentions the language and the config editor has nothing to ' +
+                'offer. A real tag there is worse: it would lock every newly reconciled host to ' +
+                'one language silently. docs/test-config.md must list the key among its top-level ' +
+                'sections and carry a section saying what ''auto'' means. Re-run pwsh -NoProfile ' +
+                '-File tools/Test-ConfigLocaleSeed.ps1 ; it names which of the three is missing.' }
         @{ Gate = 'domain-inventory'; Match = ''; Code = 'domain-inventory'
             Action = 'The translation-surface census is stale. Run pwsh -NoProfile -File ' +
                 'tools/Invoke-DomainInventory.ps1 -Update -ProjectRoot ../yuruna-project and commit ' +
@@ -490,6 +509,7 @@ function Get-EngineeringOpenRow {
         'doc-translation', 'region-anchors', 'project-lint', 'project-shellcheck',
         'project-locale-map', 'project-utf8', 'affected-slice-map', 'preflight',
         'framework-lint', 'framework-shellcheck', 'ascii-no-bom',
+        'suite-baseline', 'config-locale-seed',
         'domain-inventory', 'catalog-compile', 'catalog-embed', 'utf8-catalog',
         'globalization-authority', 'terminology', 'es5-floor', 'palette-fallback',
         'perf-baseline', 'js-test', 'go-build', 'accessibility',
@@ -604,7 +624,7 @@ function Get-EngineeringOpenRow {
         }
         $w2Remediation += ' A detail entry ''affected-slice evidence has N open C blocker(s)'' means ' +
             'the slice artifact itself still records open blockers; ''affected-slice evidence has no ' +
-            'total open-blocker count'' means that artifact is missing or unparsable -- regenerate it ' +
+            'total open-blocker count'' means that artifact is missing or unparseable -- regenerate it ' +
             'with tools/Invoke-AffectedSliceMap.ps1 -Update.'
     }
     $seedRows.Add([pscustomobject]@{ Gate = 'W2-OPEN'; State = $w2State; Detail = $w2Detail
@@ -612,8 +632,7 @@ function Get-EngineeringOpenRow {
     return $seedRows.ToArray()
 }
 
-# --- what this run will do, in order -----------------------------------------
-
+# --- REGION: Execution plan
 # Hoisted so the progress bar can report a fraction instead of a spinner. The
 # lists stay the execution order; the loops below consume them where the gates
 # actually run.
@@ -622,6 +641,8 @@ $frameworkGates = @(
     @{ Name = 'framework-lint'; Script = 'Invoke-Lint.ps1'; Args = @() }
     @{ Name = 'framework-shellcheck'; Script = 'Invoke-ShellCheck.ps1'; Args = @() }
     @{ Name = 'ascii-no-bom'; Script = 'Test-AsciiNoBom.ps1'; Args = @('-Quiet') }
+    @{ Name = 'suite-baseline'; Script = 'Test-SuiteBaseline.ps1'; Args = @('-Quiet') }
+    @{ Name = 'config-locale-seed'; Script = 'Test-ConfigLocaleSeed.ps1'; Args = @('-Quiet') }
     @{ Name = 'domain-inventory'; Script = 'Invoke-DomainInventory.ps1'; Args = @('-Check', '-Quiet', '-ProjectRoot', $ProjectRoot) }
     @{ Name = 'catalog-compile'; Script = 'Invoke-CatalogCompile.ps1'; Args = @('-Check', '-Quiet') }
     @{ Name = 'catalog-embed'; Script = 'Invoke-CatalogEmbed.ps1'; Args = @('-Check', '-Quiet') }
@@ -654,8 +675,7 @@ if ($runFramework) {
 }
 $script:StageTotal = $plannedStages.Count
 
-# --- the gates that genuinely cross the boundary -----------------------------
-
+# --- REGION: Cross-repository gates
 # Translated documents. This one already reads both trees, which is why the
 # project's pt-BR drafts have been drift-checked all along.
 Write-GateProgress -Stage 'doc-translation'
@@ -677,8 +697,7 @@ Add-Row -Gate 'region-anchors' `
     -State $(if ($anchorCode -eq 0) { 'pass' } elseif ($anchorCode -eq 2) { 'cannot-run' } else { 'fail' }) `
     -Detail $anchors.Trim()
 
-# --- the project's own scripts, under the project's own settings -------------
-
+# --- REGION: Project script validation
 Write-GateProgress -Stage 'project-lint'
 $settings = Join-Path $ProjectRoot 'PSScriptAnalyzerSettings.psd1'
 $scripts = @()
@@ -848,8 +867,7 @@ if ($executeFramework) {
     }
 }
 
-# --- what this tree's gates cannot reach, and why ----------------------------
-
+# --- REGION: External validation limits
 foreach ($na in @(
         @{ Gate = 'es5-floor';        Why = 'the project ships no browser sources; full/release mode separately checks the framework tree' }
         @{ Gate = 'palette-fallback'; Why = 'the project ships no stylesheets; full/release mode separately checks the framework tree' }

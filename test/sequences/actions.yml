@@ -145,7 +145,8 @@ actions:
     pattern (string or string-array), timeoutSeconds (number,
     default = vmCommunication.timeoutSeconds), pollSeconds (number,
     default = vmCommunication.pollSeconds), freshMatch (boolean),
-    freshMatchTailLines (number, default 12), failurePatterns (string
+    freshMatchTailLines (number, default 12), sinceStepStart (boolean),
+    failurePatterns (string
     or string-array), text (string), tabCount (number, Tab presses
     before typing to navigate focus, default 0), charDelayMs (number,
     default = vmCommunication.charDelayMs), delaySeconds (number, default 2).
@@ -256,7 +257,8 @@ actions:
     timeoutSeconds (number, default = vmCommunication.timeoutSeconds),
     pollSeconds (number, default = vmCommunication.pollSeconds),
     freshMatch (boolean), freshMatchTailLines (number,
-    default 12), failurePatterns (string or string-array -- see
+    default 12), sinceStepStart (boolean),
+    failurePatterns (string or string-array -- see
     waitForText), text (string), sensitive (boolean), tabCount
     (number, Tab presses before typing to navigate focus, default 0),
     charDelayMs (number, default = vmCommunication.charDelayMs), delaySeconds (number, default 2).
@@ -270,7 +272,10 @@ actions:
     default = vmCommunication.timeoutSeconds), pollSeconds (number,
     default = vmCommunication.pollSeconds),
     freshMatch (boolean, waits for pattern to clear first if already on screen),
-    freshMatchTailLines (number, default 12), failurePatterns (string
+    freshMatchTailLines (number, default 12),
+    sinceStepStart (boolean, matches only lines the guest printed after the
+    wait began -- for a prompt whose words also occur in the text above it),
+    failurePatterns (string
     or string-array of anti-patterns; matching any short-circuits the
     wait and fails the step with a label that names the matched pattern
     -- canonical use: subiquity's 'install_fail.crash' / 'Press enter to

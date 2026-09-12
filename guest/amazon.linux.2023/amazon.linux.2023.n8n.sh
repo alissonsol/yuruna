@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.08
+# Version: 2026.09.12
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -25,12 +25,14 @@ case "$ARCH" in
     ;;
 esac
 
-# --- REGION: https://yuruna.link/4220a755-0003
+# --- REGION: Load retry helpers
+# See https://yuruna.link/4220a755-0003
 . /usr/local/lib/yuruna/yuruna-retry.sh
 # --- REGION: https://yuruna.link/4220a755-0005
 # Re-asserted here because a baked retry lib may still carry a wall-clock bound.
 export YURUNA_DNF_STALL_TIMEOUT_SECONDS=0
 
+# --- REGION: Install Node.js
 echo ""
 echo -e "\e[1;36m==== Node.js ====\e[0m"
 # Install the manifest-pinned Node.js major (YURUNA_NODE_MAJOR); n8n needs a current LTS
@@ -38,6 +40,7 @@ echo -e "\e[1;36m==== Node.js ====\e[0m"
 wget_try -qO- "https://rpm.nodesource.com/setup_${YURUNA_NODE_MAJOR}.x${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" | sudo bash -
 dnf_retry sudo dnf -y install nodejs
 
+# --- REGION: Install n8n
 echo ""
 echo -e "\e[1;36m==== n8n ====\e[0m"
 sudo npm install -g n8n

@@ -2,18 +2,15 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!-- LICENSEURI https://yuruna.link/license -->
 <!-- Copyright (c) 2019-2026 by Alisson Sol et al. -->
-<!-- Yuruna VM config - https://yuruna.link/vmconfig -->
-<!-- QEMU backend (not Apple Virtualization) so we can pass -vnc to QEMU.
-     QEMU's built-in RFB server gives the test harness focus-independent
-     screen capture (Get-VncScreenshot) AND keystroke injection
-     (Send-TextVNC / Send-KeyVNC) over a localhost TCP port. Same
-     pattern as the caching-proxy-service UTM template. -->
+<!-- See https://yuruna.link/429f3d06 -->
+<!-- See https://yuruna.link/42e220c4-000b -->
 <plist version="1.0">
 <dict>
 	<key>Backend</key>
 	<string>QEMU</string>
 	<key>ConfigurationVersion</key>
 	<integer>4</integer>
+	<!-- REGION: Information -->
 	<key>Information</key>
 	<dict>
 		<key>Icon</key>
@@ -25,6 +22,7 @@
 		<key>UUID</key>
 		<string>__VM_UUID__</string>
 	</dict>
+	<!-- REGION: System -->
 	<key>System</key>
 	<dict>
 		<key>Architecture</key>
@@ -46,20 +44,10 @@
 		<key>Target</key>
 		<string>virt</string>
 	</dict>
+	<!-- REGION: QEMU -->
 	<key>QEMU</key>
 	<dict>
-		<!-- -vnc 127.0.0.1:N exposes a localhost-only RFB server. The
-		     headless stash-service VM doesn't need a console, but the harness uses
-		     the same Send-TextVNC / Get-VncScreenshot code path here as for
-		     the Linux install VMs, so the RFB endpoint is always wired up.
-		     No xres/yres -global pair (no OCR calibration concern on a
-		     headless service VM). -->
-		<!-- share=force-shared: keeps screenshot + keystroke RFB clients
-		     from kicking each other (see guest.amazon.linux.2023 template for
-		     the full rationale). Not strictly required for the headless stash
-		     VM (no harness keystroke step targets it today), but kept
-		     consistent with the install guests so the same console-capture
-		     tooling works against it for diagnostics. -->
+		<!-- See https://yuruna.link/42e220c4-000b -->
 		<key>AdditionalArguments</key>
 		<array>
 			<string>-vnc</string>
@@ -84,6 +72,7 @@
 		<key>UEFIBoot</key>
 		<true/>
 	</dict>
+	<!-- REGION: Display -->
 	<key>Display</key>
 	<array>
 		<dict>
@@ -103,6 +92,7 @@
 			<string>Nearest</string>
 		</dict>
 	</array>
+	<!-- REGION: Drive -->
 	<key>Drive</key>
 	<array>
 		<dict>
@@ -134,6 +124,7 @@
 			<true/>
 		</dict>
 	</array>
+	<!-- REGION: Input -->
 	<key>Input</key>
 	<dict>
 		<key>MaximumUsbShare</key>
@@ -143,17 +134,8 @@
 		<key>UsbSharing</key>
 		<false/>
 	</dict>
-	<!-- Network mode is chosen by New-VM.ps1 via __NETWORK_MODE__, from
-	     Resolve-UtmNetworkMode. 'Bridged' (an Ethernet default route) gives the
-	     stash-service VM a real LAN IP via the LAN's DHCP, so peers reach it at
-	     <vm-lan-ip>:22 directly. vmnet cannot bridge a Wi-Fi uplink (the AP
-	     drops frames from the VM's locally-administered MAC, so the VM never gets
-	     a lease), so a Wi-Fi default route builds on UTM Shared NAT
-	     (192.168.64.x) instead, New-VM.ps1 drops the BridgedInterface key in that
-	     mode, and Start-StashServiceVM.ps1 forwards a host port to the VM so peers
-	     reach it at <host-lan-ip>. Port 22 is remapped there: the host's own sshd
-	     already owns 22.
-	     NOTE: no double-hyphen anywhere in this comment; plutil rejects it. -->
+	<!-- See https://yuruna.link/42e220c4-000b -->
+	<!-- REGION: Network -->
 	<key>Network</key>
 	<array>
 		<dict>
@@ -171,8 +153,10 @@
 			<array/>
 		</dict>
 	</array>
+	<!-- REGION: Serial -->
 	<key>Serial</key>
 	<array/>
+	<!-- REGION: Sharing -->
 	<key>Sharing</key>
 	<dict>
 		<key>ClipboardSharing</key>
@@ -182,6 +166,7 @@
 		<key>DirectoryShareReadOnly</key>
 		<false/>
 	</dict>
+	<!-- REGION: Sound -->
 	<key>Sound</key>
 	<array/>
 </dict>

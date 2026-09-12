@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.08
+# Version: 2026.09.12
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -28,12 +28,14 @@ case "$ARCH" in
     ;;
 esac
 
-# --- REGION: https://yuruna.link/4220a755-0003
+# --- REGION: Load retry helpers
+# See https://yuruna.link/4220a755-0003
 . /usr/local/lib/yuruna/yuruna-retry.sh
 # --- REGION: https://yuruna.link/4220a755-0005
 # Re-asserted here because a baked retry lib may still carry a wall-clock bound.
 export YURUNA_APT_STALL_TIMEOUT_SECONDS=0
 
+# --- REGION: Install JDK
 echo ""
 echo -e "\e[1;36m==== JDK ====\e[0m"
 # default-jdk-headless tracks the distro's current OpenJDK LTS and provides
@@ -45,6 +47,7 @@ if ! grep -q 'export JAVA_HOME=/usr/lib/jvm/default-java' /etc/bash.bashrc 2>/de
   echo 'export JAVA_HOME=/usr/lib/jvm/default-java' | sudo tee -a /etc/bash.bashrc
 fi
 
+# --- REGION: Install .NET SDK
 echo ""
 echo -e "\e[1;36m==== .NET SDK ====\e[0m"
 # Install the latest LTS SDK via Microsoft's dotnet-install.sh (no pinned
@@ -61,7 +64,9 @@ if ! grep -q 'export DOTNET_ROOT=/usr/local/dotnet' /etc/bash.bashrc 2>/dev/null
 fi
 dotnet --version || echo "dotnet: version probe failed (non-fatal)"
 
+# --- REGION: Install Visual Studio Code
 echo ""
+echo -e "\e[1;36m==== VS Code ====\e[0m"
 # --- REGION: https://yuruna.link/4220a755-001e
 # arg1 = key file; remaining args = ALLOWED primary fingerprints, FIRST also required.
 _yuruna_verify_key_fpr() {
@@ -79,7 +84,6 @@ _yuruna_verify_key_fpr() {
     [ "$found" = 1 ] || { echo "!! key verify: required fingerprint $required missing from $keyfile" >&2; return 1; }
     echo "  key verify: OK ($keyfile)"
 }
-echo -e "\e[1;36m==== VS Code ====\e[0m"
 # The VS Code apt repo provides both amd64 and arm64 packages
 curl_retry -fsSL "https://packages.microsoft.com/keys/microsoft.asc${YurunaCacheContent:+?nocache=${YurunaCacheContent}}" -o /tmp/microsoft.asc
 sudo install -d -m 755 /etc/apt/keyrings
@@ -89,14 +93,7 @@ gpg --dearmor < /tmp/microsoft.asc | sudo tee /etc/apt/keyrings/packages.microso
 rm -f /tmp/microsoft.asc
 echo "deb [arch=amd64,arm64,armhf signed-by=/etc/apt/keyrings/packages.microsoft.gpg] https://packages.microsoft.com/repos/code stable main" | sudo tee /etc/apt/sources.list.d/vscode.list > /dev/null
 apt_retry sudo apt-get update
-# Recommends drag in VS Code's full desktop closure -- the xdg-utils perl/LWP/X11
-# chain, mesa Vulkan, an icon theme, a second terminal emulator -- on a guest that
-# never renders a desktop. Unpack cost tracks package COUNT rather than bytes, so
-# dropping them is most of this step's time.
-#
-# The two additions are not optional. libgl1 and libgl1-mesa-dri are what an
-# Electron binary genuinely needs. Kubernetes owns its own prerequisites and
-# no longer relies on this unrelated Code workload to provide socat.
+# --- REGION: https://yuruna.link/42e220c4-0005
 apt_retry sudo apt-get install -y --no-install-recommends code libgl1 libgl1-mesa-dri
 
 # --- REGION: Installation summary

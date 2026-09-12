@@ -2,41 +2,49 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #vim:syntax=yaml
+# --- REGION: autoinstall
 autoinstall:
   version: 1
-  # --- REGION: https://yuruna.link/429f3d06-000a
-  # --- REGION: https://yuruna.link/429f3d06-000b
+  # --- REGION: apt
+  # See https://yuruna.link/429f3d06-000a
+  # See https://yuruna.link/429f3d06-000b
 APT_PROXY_BLOCK_PLACEHOLDER
   locale: en_US.UTF-8
   keyboard:
     layout: us
+  # --- REGION: packages
   packages:
     - console-setup
     - keyboard-configuration
 # === YURUNA_OVERLAY_HOST_AGENT_PKG ===
+  # --- REGION: identity
   identity:
     hostname: HOSTNAME_PLACEHOLDER
     username: USERNAME_PLACEHOLDER
     password: "HASH_PLACEHOLDER"
 # === YURUNA_OVERLAY_NETWORK ===
+  # --- REGION: storage
   storage:
-    # --- REGION: https://yuruna.link/429f3d06-0010
+    # See https://yuruna.link/429f3d06-0010
     layout:
       name: lvm
       sizing-policy: all
+  # --- REGION: ssh
   ssh:
     install-server: true
     allow-pw: true
     authorized-keys:
       - SSH_AUTHORIZED_KEY_PLACEHOLDER
-  # --- REGION: https://yuruna.link/429f3d06-000f
+  # See https://yuruna.link/429f3d06-000f
+  # --- REGION: user-data
   user-data:
     no_ssh_fingerprints: true
     ssh:
       emit_keys_to_console: false
-  # --- REGION: https://yuruna.link/429f3d06-0011
+  # See https://yuruna.link/429f3d06-0011
   interactive-sections: []
 # === YURUNA_OVERLAY_EARLY_COMMANDS ===
+  # --- REGION: late-commands
   late-commands:
     # --- REGION: https://yuruna.link/4220a755-004c
     - |
@@ -179,17 +187,6 @@ APT_PROXY_BLOCK_PLACEHOLDER
       ExecStartPre=-/usr/bin/cloud-init status --wait
       EOF
     # --- REGION: https://yuruna.link/429f3d06-0029
-    # Baked host+repo coordinates a hand-run fetch-and-execute falls back to; the runner's per-step E_FB_REPO/E_FB_REF override these.
-    #
-    # The last two keys are a different kind of coordinate: an ADDRESS goes
-    # stale the moment the host renumbers, so they carry the two identities
-    # that do not. YURUNA_HOST_ID names the host independently of where it
-    # currently answers, and the caching-proxy address is pinned by MAC
-    # reservation, which makes it the one address a guest can be born
-    # knowing. Together they let yuruna-host-locate repair the address above
-    # instead of the guest being stranded by it. Either one empty (no pool
-    # directory in this lab) simply leaves the baked address as the only
-    # answer.
     - mkdir -p /target/etc/yuruna
     - |
       cat > /target/etc/yuruna/host.env << 'EOF'
@@ -257,18 +254,6 @@ APT_PROXY_BLOCK_PLACEHOLDER
       EOF
       curtin in-target --target=/target -- systemctl enable yuruna-host-locate.service yuruna-host-locate.timer || true
     # --- REGION: https://yuruna.link/4220a755-000f
-    # The guest returns its own lease. Asking for it from the host needs a login
-    # user, a resolvable address and a guest that is still running -- and the
-    # guests that hold leases longest are stopped while running and deleted
-    # while off, so there is no moment in their life where the host could ask.
-    # Here there is nothing to resolve and nobody to log in as.
-    #
-    # ExecStop with RemainAfterExit is the whole mechanism: the unit does
-    # nothing at boot and everything at stop, and being ordered
-    # After=network.target it is stopped BEFORE the network is, because
-    # shutdown reverses start order. TimeoutStopSec bounds it -- teardown's
-    # standing rule is that a wedged guest must never stall the sweep, and that
-    # has to keep holding for a guest wedged inside this unit.
     - |
       cat > /target/etc/systemd/system/yuruna-dhcp-release.service << 'EOF'
       [Unit]
@@ -300,16 +285,6 @@ APT_PROXY_BLOCK_PLACEHOLDER
       EOF
       chmod 0755 /target/usr/local/lib/yuruna/git-askpass.sh
     # --- REGION: https://yuruna.link/4220a755-004f
-    # Never let git ask a question. There is no terminal to answer it: these
-    # guests are driven by OCR of a console, so a credential prompt is not a
-    # failure but a HANG, and the step's whole timeout is spent before anyone
-    # learns the clone could not authenticate.
-    #
-    # Written unconditionally, and separately from the token below, because the
-    # two have opposite conditions. A token being present is what makes a
-    # private clone succeed; a token being ABSENT is what makes it prompt. Gating
-    # the prompt-suppression on the token installs it in exactly the case that
-    # does not need it and omits it in the case that does.
     - |
       cat > /target/etc/profile.d/yuruna-git-noprompt.sh << 'EOF'
       export GIT_TERMINAL_PROMPT=0
@@ -362,7 +337,8 @@ APT_PROXY_BLOCK_PLACEHOLDER
     # --- REGION: https://yuruna.link/429f3d06-002e
     - umount -lf /cdrom || true
     - losetup -D || true
-  # --- REGION: https://yuruna.link/429f3d06-002f
+  # See https://yuruna.link/429f3d06-002f
+  # --- REGION: error-commands
   error-commands:
     - |
       set +e
@@ -390,13 +366,7 @@ APT_PROXY_BLOCK_PLACEHOLDER
                   echo "yuruna error-commands: wget PUT failed for $SRC -> $DEST" >&2
           fi
       }
-      # Network state at failure time, captured BEFORE the uploads so it ships
-      # even when every log file below is missing. The installer's own logs say
-      # which fetch failed but never why the address was unreachable, and that
-      # is the whole question: errno 101 (Network is unreachable) means this
-      # guest lost its route, while a refusal or a timeout means the far end.
-      # Those two send a reader to opposite places, and telling them apart
-      # otherwise costs an unpack of a multi-megabyte crash tarball.
+      # Capture route evidence first; the ordinary installer log set can be empty.
       NETSNAP=$(mktemp 2>/dev/null || echo /tmp/yuruna-netsnap.txt)
       {
           echo "== captured (UTC) =="; date -u
@@ -425,11 +395,7 @@ APT_PROXY_BLOCK_PLACEHOLDER
               "http://${HOST_IP}:${HOST_PORT}/livecheck" 2>&1 || echo "livecheck: FAILED"
       } > "$NETSNAP" 2>&1
       put_file "$NETSNAP" "network-at-failure.txt"
-      # curtin-errors.tar is the error_tarfile curthooks is configured to write.
-      # It carries subiquity-curtin-install.log and curtin-install/main.log --
-      # both named below, and both routinely absent at error time, which is why
-      # a real failure could only be read out of the crash report's embedded
-      # copy. Uploading the tar makes the curtin logs available directly.
+      # Preserve curtin's archive when its separately named logs were never written.
       put_file /var/log/installer/curtin-errors.tar curtin-errors.tar
       for SRC in \
           /var/log/installer/subiquity-curtin-install.log \

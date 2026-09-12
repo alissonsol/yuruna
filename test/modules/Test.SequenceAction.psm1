@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42c1c329-52af-4255-9e3b-0caf47235605
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,7 +20,7 @@
 # failure-label switch and the verb -> required-capability table. Storage
 # is delegated to Test.Registry; the $global:YurunaSequenceActions anchor
 # is the cross-module-eviction-safe lookup target.
-# Action contract: https://yuruna.link/test/sequences
+# Action contract: https://yuruna.link/428e4df6
 
 [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
     Justification = 'Cross-module-eviction-safe anchor; the only reliable way to keep sequence-action registrations across -Force re-imports.')]

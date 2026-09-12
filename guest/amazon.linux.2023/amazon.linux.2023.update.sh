@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.08
+# Version: 2026.09.12
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 set -euo pipefail
@@ -25,40 +25,38 @@ case "$ARCH" in
     ;;
 esac
 
-# --- REGION: Load the yuruna retry lib
-# --- REGION: https://yuruna.link/4220a755-0003
+# --- REGION: Load retry helpers
+# See https://yuruna.link/4220a755-0003
 . /usr/local/lib/yuruna/yuruna-retry.sh
-# Baked retry libs may bound dnf attempts on wall-clock -- the wrapped-apt
-# teardown-hang trap class (the package manager blocks at end-of-transaction
-# under a timeout(1) parent). Force unbounded until no image predates the
-# lib's unbounded default.
+# --- REGION: https://yuruna.link/4220a755-0005
 export YURUNA_DNF_STALL_TIMEOUT_SECONDS=0
 
+# --- REGION: Re-read host coordinates per use
+# See https://yuruna.link/4220a755-004d
+yuruna_host_env() {
+    [ -r /etc/yuruna/host.env ] || return 1
+    # shellcheck disable=SC1091
+    . /etc/yuruna/host.env
+    [ -n "${YURUNA_STATUS_SERVICE_IP:-}" ] && [ -n "${YURUNA_STATUS_SERVICE_PORT:-}" ]
+}
+
+# Force one refresh after a failed fetch instead of retrying stale coordinates.
+yuruna_host_relocate() {
+    [ -x /usr/local/lib/yuruna/yuruna-host-locate.sh ] || return 1
+    # --- REGION: https://yuruna.link/42e220c4-0005
+    /usr/local/lib/yuruna/yuruna-host-locate.sh >/dev/null || return 1
+    yuruna_host_env
+}
+
 # --- REGION: Point dnf at the caching proxy
-# --- REGION: https://yuruna.link/42f6b05f-000d
-# The address is derived here rather than templated into cloud-init. This guest
-# boots a prebuilt cloud image, so a templated proxy would be written before
-# anything could confirm the address still answers, and a stale one strands
-# every dnf transaction with no way back. /etc/yuruna/host.env already carries
-# the address and yuruna-host-locate.timer keeps it current, so the guest can
-# ask at the moment it is about to spend it -- and probe before committing.
-#
-# Sources in order of how much they can be trusted, the same order the k8s
-# guests use: $http_proxy is absent in a shell that did not inherit the system
-# environment, and host.env needs no name resolution. The bare hostname is only
-# ever a candidate for the probe below, never an address taken on faith.
+# See https://yuruna.link/42f6b05f-000d
+# See https://yuruna.link/42e220c4-0005
 CACHE_HOST=$(echo "${http_proxy:-}" | sed -E 's|^https?://([^:/]+).*|\1|')
 if [ -z "$CACHE_HOST" ] && [ -r /etc/yuruna/host.env ]; then
     CACHE_HOST=$(sed -nE 's/^YURUNA_CACHING_PROXY_SERVICE_IP=([^[:space:]]+).*/\1/p' /etc/yuruna/host.env | head -n1)
 fi
 [ -z "$CACHE_HOST" ] && CACHE_HOST="yuruna-caching-proxy-service"
-# Every candidate is probed, including one that came off disk: an address that
-# was right when the seed was written is not evidence the cache is up now.
-# Deliberately no -f -- squid answers a bare GET with a 400, and the question
-# here is whether anything answers on the proxy port at all, not what it said.
-# Unlike the k8s guests' registry gate this is not fatal: nothing has been
-# configured to route exclusively through the cache yet, so a cache that is
-# absent or down simply means the upstreams serve this guest directly.
+# --- REGION: https://yuruna.link/42e220c4-0005
 if ! curl -s --max-time 10 -o /dev/null "http://${CACHE_HOST}:3128" 2>/dev/null; then
     CACHE_HOST=""
 fi
@@ -70,11 +68,7 @@ if [ -n "$CACHE_HOST" ]; then
     # binds to that repo alone. Removed first so re-runs cannot stack copies.
     sudo sed -i '/^proxy[[:space:]]*=/d' /etc/dnf/dnf.conf
     sudo sed -i "/^\[main\]/a proxy=http://${CACHE_HOST}:3128" /etc/dnf/dnf.conf
-    # An insert whose address never matched writes nothing and reports success,
-    # so a dnf.conf that lost its [main] header would leave every transaction
-    # going direct while the lines above claim the cache is in use. Report only:
-    # the exports below still route this script's own fetches, and a cache is
-    # an optimization even when only half of it could be wired up.
+    # sed succeeds on no match; verify that [main] actually received the proxy.
     if ! grep -q "^proxy=http://${CACHE_HOST}:3128\$" /etc/dnf/dnf.conf; then
         echo "Note: /etc/dnf/dnf.conf has no [main] section to hold the proxy key; dnf reaches the upstreams directly."
     fi
@@ -88,12 +82,6 @@ if [ -n "$CACHE_HOST" ]; then
     export https_proxy="http://${CACHE_HOST}:3129/"
     export no_proxy="$NO_PROXY_LIST"
     export HTTP_PROXY="$http_proxy" HTTPS_PROXY="$https_proxy" NO_PROXY="$no_proxy"
-    # HTTPS reaches the cache through squid's ssl-bump on 3129, which only
-    # verifies against a CA this guest holds a copy of. Nothing seeds that copy
-    # here, so it is fetched from the host status service over the plain-HTTP
-    # path the bump is not in front of. Exit 2 is the one outcome that means the
-    # bump will keep failing; the CONNECT port on 3128 tunnels HTTPS unbumped
-    # instead -- uncached, but working, which beats a guest that cannot fetch.
     _ca_rc=0
     yuruna_ca_selfheal || _ca_rc=$?
     if [ "$_ca_rc" -eq 2 ]; then
@@ -114,10 +102,7 @@ export NO_PROXY="${no_proxy}"
 EOF
     sudo chmod 0644 /etc/profile.d/yuruna-proxy.sh
 else
-    # Clearing is as load-bearing as setting. A guest provisioned against a
-    # cache that has since been rebuilt or moved would otherwise keep pointing
-    # dnf at a dead address forever, and the direct path it should have fallen
-    # back to is the one the stale config takes away.
+    # Clear stale proxy state so the direct fallback remains usable.
     echo "Caching proxy: none answering -- dnf and downloads go to the upstreams directly."
     sudo sed -i '/^proxy[[:space:]]*=/d' /etc/dnf/dnf.conf
     sudo rm -f /etc/profile.d/yuruna-proxy.sh
@@ -125,7 +110,7 @@ else
 fi
 
 # --- REGION: Ensure PowerShell is installed
-# --- REGION: https://yuruna.link/42d69dfa-0036
+# See https://yuruna.link/42d69dfa-0036
 # AL2023 ships no first-party pwsh package; GitHub-release tarball (both arches).
 echo ""
 echo -e "\e[1;36m==== Ensure PowerShell is installed ====\e[0m"
@@ -134,22 +119,14 @@ if ! command -v pwsh >/dev/null 2>&1; then
     x86_64)  PS_ARCH="x64" ;;
     aarch64) PS_ARCH="arm64" ;;
   esac
-  # libicu is the .NET globalization dependency pwsh links against; tar/gzip
-  # cover the tarball extract. curl is intentionally NOT in this list: AL2023
-  # ships curl-minimal pre-installed and the full `curl` package conflicts with
-  # it ("package curl-minimal-... conflicts with curl provided by curl-...").
-  # curl-minimal already supplies /usr/bin/curl with HTTPS + redirect-follow +
-  # header capture, everything the discovery and download steps below need.
+  # Keep curl-minimal: installing the full curl package conflicts on AL2023.
   dnf_retry sudo dnf -y install libicu tar gzip
   if ! command -v curl >/dev/null 2>&1; then
     echo "curl not on PATH (neither curl nor curl-minimal); cannot fetch PowerShell tarball." >&2
     exit 1
   fi
 
-  # Resolve the latest-stable release tag via HEAD-follow of /releases/latest.
-  # Avoids the 60/hr unauthenticated GitHub API rate limit. curl_retry adds
-  # --retry-connrefused so transient GitHub edge 502/503/504 + ECONNREFUSED
-  # is retried in-process; 4xx (rate-limit, 404) propagates immediately.
+  # Follow the latest-release redirect without consuming GitHub API quota.
   PS_TAG=$(curl_retry -fsSLI -o /dev/null -w '%{url_effective}' \
     "https://github.com/PowerShell/PowerShell/releases/latest")
   PS_TAG="${PS_TAG##*/}"
@@ -162,12 +139,7 @@ if ! command -v pwsh >/dev/null 2>&1; then
   echo "Installing PowerShell ${PS_VER} (${PS_ARCH}) from ${PS_URL}"
 
   curl_retry -fsSL -o /tmp/powershell.tar.gz "$PS_URL"
-  # Verify the pwsh tarball against the release's published hashes.sha256 before
-  # unpacking (pwsh is the interpreter for all downstream automation). The asset
-  # is UTF-16 LE (BOM+CRLF, Windows-generated) -> normalize to UTF-8/LF. A genuine
-  # MISMATCH is fatal (corruption/tamper); a hashes.sha256 that cannot be fetched
-  # or parsed after retries only WARNs, so a transient GitHub blip never fails
-  # every guest's provisioning.
+  # --- REGION: https://yuruna.link/429f3d06-008b
   PS_PKG="powershell-${PS_VER}-linux-${PS_ARCH}.tar.gz"
   if curl_retry -fsSL -o /tmp/pwsh-hashes.sha256 \
        "https://github.com/PowerShell/PowerShell/releases/download/${PS_TAG}/hashes.sha256"; then
@@ -202,12 +174,14 @@ fi
 pwsh --version
 
 # --- REGION: Install powershell-yaml module
-# --- REGION: https://yuruna.link/42d69dfa-0038
+# See https://yuruna.link/42d69dfa-0038
 PWSH_YAML_LOG=/var/log/yuruna/pwsh-yaml-install.log
 sudo install -d -m 0755 -o "$USER" -g "$USER" /var/log/yuruna
 echo ""
 echo -e "\e[1;36m==== Install powershell-yaml module ====\e[0m"
 
+# The log directory is owned by the caller; sudo applies only to pwsh.
+# shellcheck disable=SC2024
 sudo pwsh -NoProfile -Command - <<'PSEOF' >> "$PWSH_YAML_LOG" 2>&1
 "===== {0} pre-flight (static) =====" -f ([DateTime]::UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"))
 "PowerShell : $($PSVersionTable.PSVersion)"
@@ -241,14 +215,7 @@ try {
 }
 
 "--- Import + ConvertFrom-Yaml smoke ---"
-# Install-Module can leave powershell-yaml ABSENT while writing only a
-# non-terminating error: a corrupt/truncated .nupkg trips a hash mismatch and
-# an invalid-zip "End of Central Directory record could not be found", which
-# does not stop the block, so it would otherwise print "OK" and exit 0 -- a
-# green guest with no powershell-yaml, and pwsh_retry's backoff never engages
-# against what is usually a transient bad transfer. Verify the end state (the
-# Get-Module -ListAvailable gate ConvertFrom-Content enforces at workload time)
-# and exit non-zero on any gap so a fresh download is retried.
+# --- REGION: https://yuruna.link/42e220c4-0005
 try {
     Import-Module powershell-yaml -ErrorAction Stop
     $null = ConvertFrom-Yaml 'k: v'
@@ -264,7 +231,7 @@ if (-not (Get-Module -ListAvailable -Name powershell-yaml)) {
 PSEOF
 
 # --- REGION: Early yuruna framework extraction
-# --- REGION: https://yuruna.link/42d69dfa-0037
+# See https://yuruna.link/42d69dfa-0037
 # Tarball-only here: the git-clone fallback below needs git, which needs dnf.
 echo ""
 echo -e "\e[1;36m==== Early yuruna framework extraction ====\e[0m"
@@ -274,17 +241,12 @@ if [ -r /etc/yuruna/host.env ]; then
   # shellcheck disable=SC1091
   . /etc/yuruna/host.env
 fi
-if [ -n "${YURUNA_STATUS_SERVICE_IP:-}" ] && [ -n "${YURUNA_STATUS_SERVICE_PORT:-}" ] && [ ! -d "$REAL_HOME/yuruna" ]; then
+if yuruna_host_env && [ ! -d "$REAL_HOME/yuruna" ]; then
   LIVECHECK_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/livecheck"
   TARBALL_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/yuruna-archive.tar.gz"
   if wget --no-proxy --timeout=2 -qO /dev/null "$LIVECHECK_URL" 2>/dev/null; then
     mkdir -p "$REAL_HOME/yuruna"
-    # Bounded, unlike the livecheck it follows. The probe proves the host was
-    # answering a moment ago; it says nothing about where the host will be
-    # partway through a multi-megabyte transfer, and wget's defaults would sit
-    # on a stalled one for 900s x 20 tries -- long past the step's own patience,
-    # so the failure arrives as an unexplained timeout instead of a fetch that
-    # said what went wrong.
+    # --- REGION: https://yuruna.link/42e220c4-000e
     if wget --no-proxy --timeout=30 --tries=2 -qO- "$TARBALL_URL" | tar -xz -C "$REAL_HOME/yuruna"; then
       sudo chown -R "$REAL_USER:$REAL_USER" "$REAL_HOME/yuruna" 2>/dev/null || true
       echo -e "\e[1;32m---- Yuruna framework available at $REAL_HOME/yuruna (early extract). ----\e[0m"
@@ -324,7 +286,7 @@ fi
 git --version
 
 # --- REGION: Resolve framework and project URLs
-# --- REGION: https://yuruna.link/42fa6f45-000c
+# See https://yuruna.link/42fa6f45-000c
 echo -e "\e[1;32m==== Resolve framework and project URLs ====\e[0m"
 FRAMEWORK_URL=""
 PROJECT_URL=""
@@ -332,7 +294,7 @@ if [ -r /etc/yuruna/host.env ]; then
   # shellcheck disable=SC1091
   . /etc/yuruna/host.env
 fi
-if [ -n "${YURUNA_STATUS_SERVICE_IP:-}" ] && [ -n "${YURUNA_STATUS_SERVICE_PORT:-}" ]; then
+if yuruna_host_env; then
   CFG_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/control/test-config"
   if cfg_body=$(wget --no-proxy --no-cache --timeout=5 -qO- "$CFG_URL" 2>/dev/null); then
     FRAMEWORK_URL=$(printf '%s' "$cfg_body" | python3 -c $'import json,sys\ntry: print((json.load(sys.stdin).get("repositories") or {}).get("frameworkUrl",""))\nexcept Exception: print("")' 2>/dev/null || true)
@@ -347,16 +309,27 @@ fi
 : "${PROJECT_URL:=${YURUNA_PROJECT_URL:-}}"
 
 # --- REGION: Keep git non-interactive
-# --- REGION: https://yuruna.link/4220a755-004f
+# See https://yuruna.link/4220a755-004f
 export GIT_TERMINAL_PROMPT=0
 if [ -x /usr/local/lib/yuruna/git-askpass.sh ]; then
     export GIT_ASKPASS=/usr/local/lib/yuruna/git-askpass.sh
 fi
 
 # --- REGION: Materialize the yuruna framework and project repos
+# See https://yuruna.link/4220a755-004d
+# See https://yuruna.link/42e220c4-000e
 if [ ! -d "$REAL_HOME/yuruna" ]; then
   HOST_OK=false
-  if [ -n "${YURUNA_STATUS_SERVICE_IP:-}" ] && [ -n "${YURUNA_STATUS_SERVICE_PORT:-}" ]; then
+  for host_attempt in 1 2; do
+    if [ "$host_attempt" -eq 2 ]; then
+      if ! yuruna_host_relocate; then
+        echo "yuruna: host coordinates could not be refreshed - the pool directory has no live address for this host."
+        break
+      fi
+      echo "yuruna: host coordinates refreshed; retrying the tarball fetch."
+    else
+      yuruna_host_env || break
+    fi
     LIVECHECK_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/livecheck"
     TARBALL_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/yuruna-archive.tar.gz"
     if wget --no-proxy --timeout=2 -qO /dev/null "$LIVECHECK_URL" 2>/dev/null; then
@@ -364,21 +337,18 @@ if [ ! -d "$REAL_HOME/yuruna" ]; then
       mkdir -p "$REAL_HOME/yuruna"
       if wget --no-proxy --timeout=30 --tries=2 -qO- "$TARBALL_URL" | tar -xz -C "$REAL_HOME/yuruna"; then
         HOST_OK=true
+        break
       else
         echo "yuruna: tarball fetch/extract failed - falling back to git clone"
         rm -rf "$REAL_HOME/yuruna"
       fi
     fi
-  fi
+  done
   if [ "$HOST_OK" = "false" ]; then
     if [ -z "$FRAMEWORK_URL" ]; then
       echo "yuruna: repositories.frameworkUrl missing from test.config.yml - cannot clone framework" >&2
       exit 1
     fi
-    # git ships no stall detection (http.lowSpeedLimit/Time unset), so a clone
-    # stalled mid-transfer would hang forever and the retry ladder below would
-    # never fire (the stalled-transfer trap class); the low-speed pair aborts a
-    # <1 KB/s-for-60s transfer into the retry path instead.
     for attempt in 1 2 3; do
       git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone "$FRAMEWORK_URL" "$REAL_HOME/yuruna" && break
       echo "git clone attempt $attempt failed"
@@ -394,23 +364,35 @@ fi
 
 if [ ! -d "$REAL_HOME/yuruna/project" ]; then
   PROJECT_HOST_OK=false
-  if [ -n "${YURUNA_STATUS_SERVICE_IP:-}" ] && [ -n "${YURUNA_STATUS_SERVICE_PORT:-}" ]; then
+  # --- REGION: https://yuruna.link/42e220c4-0005
+  for project_attempt in 1 2; do
+    if [ "$project_attempt" -eq 2 ]; then
+      if ! yuruna_host_relocate; then
+        echo "yuruna: host coordinates could not be refreshed - the pool directory has no live address for this host."
+        break
+      fi
+      echo "yuruna: host coordinates refreshed; retrying the project tarball fetch."
+    else
+      yuruna_host_env || break
+    fi
+    PROJECT_LIVECHECK_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/livecheck"
     PROJECT_TARBALL_URL="http://${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}/yuruna-project-archive.tar.gz"
-    # On 404 ("project repo not present on host") wget exits non-zero
-    # and writes nothing (-q); pipefail propagates that to the if-test
-    # so the git-clone fallback runs. The trailing ls -A guards against
-    # the rare case of a successful but empty tarball.
+    if ! wget --no-proxy --timeout=2 -qO /dev/null "$PROJECT_LIVECHECK_URL" 2>/dev/null; then
+      echo "yuruna: host status service did not answer at ${YURUNA_STATUS_SERVICE_IP}:${YURUNA_STATUS_SERVICE_PORT}"
+      continue
+    fi
     echo "yuruna: trying project tarball at $PROJECT_TARBALL_URL"
     mkdir -p "$REAL_HOME/yuruna/project"
-    if wget --no-proxy --timeout=5 -qO- "$PROJECT_TARBALL_URL" \
+    if wget --no-proxy --timeout=30 --tries=2 -qO- "$PROJECT_TARBALL_URL" \
          | tar -xz -C "$REAL_HOME/yuruna/project" 2>/dev/null \
          && [ -n "$(ls -A "$REAL_HOME/yuruna/project" 2>/dev/null)" ]; then
       PROJECT_HOST_OK=true
+      break
     else
       echo "yuruna: project tarball not served (or empty) - falling back to git clone"
       rm -rf "$REAL_HOME/yuruna/project"
     fi
-  fi
+  done
   if [ "$PROJECT_HOST_OK" = "false" ] && [ -n "$PROJECT_URL" ]; then
     for attempt in 1 2 3; do
       git -c http.lowSpeedLimit=1024 -c http.lowSpeedTime=60 clone "$PROJECT_URL" "$REAL_HOME/yuruna/project" && break
@@ -429,7 +411,7 @@ fi
 sudo chown -R "$REAL_USER:$REAL_USER" "$REAL_HOME/yuruna" 2>/dev/null || true
 
 # --- REGION: Wait for network convergence
-# --- REGION: https://yuruna.link/4220a755-0014
+# See https://yuruna.link/4220a755-0014
 # Settle the link (max 30 s, never fatal) before the first host->guest SSH.
 echo ""
 echo -e "\e[1;36m==== Wait for network convergence ====\e[0m"
@@ -455,8 +437,5 @@ else
   echo "WARNING: no active NetworkManager/systemd-networkd to wait on; continuing."
 fi
 
-# A definite end-of-script line keeps the console repainting up to the
-# handoff, so the FETCHED AND EXECUTED marker lands adjacent to real output
-# instead of after a silent gap a headless capture surface would freeze on.
-# See feedback_frozen_capture_feed_idle_tail.
+# --- REGION: https://yuruna.link/42e220c4-000e
 echo -e "\e[1;32m==== Network ready. ====\e[0m"

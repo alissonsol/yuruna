@@ -2,13 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!-- LICENSEURI https://yuruna.link/license -->
 <!-- Copyright (c) 2019-2026 by Alisson Sol et al. -->
-<!-- Yuruna VM config - https://yuruna.link/vmconfig -->
+<!-- See https://yuruna.link/429f3d06 -->
 <plist version="1.0">
 <dict>
 	<key>Backend</key>
 	<string>QEMU</string>
 	<key>ConfigurationVersion</key>
 	<integer>4</integer>
+	<!-- REGION: Information -->
 	<key>Information</key>
 	<dict>
 		<key>Icon</key>
@@ -20,6 +21,7 @@
 		<key>UUID</key>
 		<string>__VM_UUID__</string>
 	</dict>
+	<!-- REGION: System -->
 	<key>System</key>
 	<dict>
 		<key>Architecture</key>
@@ -41,14 +43,10 @@
 		<key>Target</key>
 		<string>virt</string>
 	</dict>
+	<!-- REGION: QEMU -->
 	<key>QEMU</key>
 	<dict>
-		<!-- To enable focus-independent VNC keystroke input, add QEMU args
-		     for a localhost-only VNC server. The test harness will auto-detect
-		     it and send RFB key events over TCP instead of using AppleScript.
-		     The correct AdditionalArguments format must be verified in UTM's
-		     UI: open VM Settings > QEMU > Additional Arguments, add
-		     -vnc localhost:0, then copy the resulting plist entry here. -->
+		<!-- See https://yuruna.link/42e220c4-000b -->
 		<key>AdditionalArguments</key>
 		<array/>
 		<key>BalloonDevice</key>
@@ -70,12 +68,8 @@
 		<key>UEFIBoot</key>
 		<true/>
 	</dict>
-	<!-- Display: Fixed 1920x1080 via virtio-ramfb-gl (QEMU).
-	     DynamicResolution is disabled so UTM does not scale to the host
-	     Retina display.
-	     WARNING: The test harness OCR is calibrated for 1920x1080.
-	     Changing this resolution may break automated screen-text detection
-	     in waitForText sequence steps. -->
+	<!-- See https://yuruna.link/42e220c4-000b -->
+	<!-- REGION: Display -->
 	<key>Display</key>
 	<array>
 		<dict>
@@ -95,6 +89,7 @@
 			<string>Nearest</string>
 		</dict>
 	</array>
+	<!-- REGION: Drive -->
 	<key>Drive</key>
 	<array>
 		<dict>
@@ -142,6 +137,7 @@
 			<true/>
 		</dict>
 	</array>
+	<!-- REGION: Input -->
 	<key>Input</key>
 	<dict>
 		<key>MaximumUsbShare</key>
@@ -151,6 +147,7 @@
 		<key>UsbSharing</key>
 		<false/>
 	</dict>
+	<!-- REGION: Network -->
 	<key>Network</key>
 	<array>
 		<dict>
@@ -166,8 +163,10 @@
 			<array/>
 		</dict>
 	</array>
+	<!-- REGION: Serial -->
 	<key>Serial</key>
 	<array/>
+	<!-- REGION: Sharing -->
 	<key>Sharing</key>
 	<dict>
 		<key>ClipboardSharing</key>
@@ -177,6 +176,7 @@
 		<key>DirectoryShareReadOnly</key>
 		<false/>
 	</dict>
+	<!-- REGION: Sound -->
 	<key>Sound</key>
 	<array>
 		<dict>

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 4210c3aa-ab5b-4b2b-9259-5c68ad1cb72e
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -88,10 +88,43 @@ $script:DefaultPollSeconds      = 3
 # overrides this; otherwise this global value (vmCommunication.timeoutSeconds)
 # is used.
 $script:DefaultTimeoutSeconds   = 180
+# How long a handed-forward console baseline stays usable (see
+# Set-CarriedConsoleBaseline). It has to cover the gap between one wait matching
+# its prompt and the next wait starting -- Tab navigation, the typing itself and
+# the step's settle delay, seconds in practice -- without covering so much that a
+# whole further prompt exchange could have happened inside it. Past this the slot
+# describes a console that may since have been replaced, and a wait falls back to
+# reading its own first frame, which is never wrong, only late.
+$script:CarriedConsoleBaselineMaxAgeSeconds = 120
+# The console as it stood when the previous wait matched, handed to the next
+# ${sinceStepStart} wait so it can tell what the guest printed in answer to the
+# last thing typed. $null when there is nothing to hand on. Holds VMName so one
+# guest's console can never seed another's, and the capture time so a slot left
+# behind by a step that then did minutes of other work expires instead of
+# describing a screen that has moved on.
+$script:CarriedConsoleBaseline  = $null
 # Ring-buffer depth for raw pre-OCR screen captures kept per VM (Wait-ForText).
 # On guest success the buffer dir is deleted; on failure the whole sequence is
 # preserved so the failure-screenshot link can point at the run-up to the bug.
-$script:DefaultScreenHistorySize = 5
+#
+# Measured in FRAMES but it has to be CHOSEN as a duration: what a reader needs
+# is the window between the keystrokes that caused a failure and the frames that
+# survive to be looked at. A poll pass is a screenshot plus an OCR pass plus a
+# sidecar write on top of the pollSeconds sleep -- about 8 s of wall-clock per
+# frame in practice -- so 20 frames is roughly two and a half minutes of console
+# history, comfortably more than a multi-prompt credential exchange and the
+# verdict that follows it have been measured to occupy together.
+# A handful of frames spans well under a minute and evicts the keystrokes that
+# explain the failure before the failure is even detected.
+#
+# The cost is disk, never memory: the ring holds file PATHS, while each frame on
+# disk is a PNG plus its OCR sidecar (order 100 KB together). A guest that
+# passes has the whole directory deleted; a guest that FAILS keeps its frames
+# twice -- here and in the copy taken alongside the failure log -- and cycle-log
+# rotation moves those folders into a history bucket rather than deleting them.
+# So every extra frame is paid for twice, indefinitely, and only by hosts that
+# fail.
+$script:DefaultScreenHistorySize = 20
 
 # Exponential-backoff helper for filesystem-state poll loops is
 # centralized in Test.Backoff.psm1 (Get-PollDelay) so a tuning change
@@ -155,7 +188,8 @@ $_configPath = if ($env:YURUNA_CONFIG_PATH) { $env:YURUNA_CONFIG_PATH } `
 $_cfg = Read-TestConfig -Path $_configPath
 if ($_cfg) {
     # test.config.yml keys live under the `vmCommunication` node
-    # (`charDelayMs`, `vncPort`, `pollSeconds`, `timeoutSeconds`); per-step
+    # (`charDelayMs`, `vncPort`, `pollSeconds`, `screenHistorySize`,
+    # `timeoutSeconds`); per-step
     # YAML in sequences still uses `charDelayMs` / `pollSeconds` /
     # `timeoutSeconds` to override these defaults for an individual step.
     $_comm = $_cfg.vmCommunication
@@ -163,8 +197,15 @@ if ($_cfg) {
     if ($_comm.vncPort)            { $script:DefaultVncPort            = [int]$_comm.vncPort }
     if ($_comm.pollSeconds)        { $script:DefaultPollSeconds        = [int]$_comm.pollSeconds }
     if ($_comm.timeoutSeconds)     { $script:DefaultTimeoutSeconds     = [int]$_comm.timeoutSeconds }
-    # 0 disables the ring buffer; we still accept it as a configured value.
-    if ($null -ne $_cfg.screenHistorySize) { $script:DefaultScreenHistorySize = [int]$_cfg.screenHistorySize }
+    # Under `vmCommunication` with its siblings, not at the file root: the
+    # template overlay is the schema and it DROPS every key the template does
+    # not define, so a root-level key would be deleted from the operator's file
+    # on the next reconciliation and the setting would silently revert to the
+    # built-in default on the following cycle.
+    # Tested with `$null -ne` rather than truthiness because 0 is a value an
+    # operator can mean; the consumer clamps it into range instead of reading
+    # it as "unset".
+    if ($null -ne $_comm.screenHistorySize) { $script:DefaultScreenHistorySize = [int]$_comm.screenHistorySize }
 }
 Remove-Variable -Name _configPath, _cfg, _comm -ErrorAction SilentlyContinue
 
@@ -206,8 +247,6 @@ function Send-Key {
 }
 
 # --- REGION: Action: type / typeAndEnter
-
-
 function Send-Text {
 <#
 .SYNOPSIS
@@ -555,7 +594,6 @@ function Save-OcrSidecar {
 }
 
 # --- REGION: Action: waitForText
-
 function Get-OcrDegradationGrace {
     <#
     .SYNOPSIS
@@ -705,6 +743,202 @@ function Get-ConsoleTextSignature {
     return (([string]$Text) -replace '\s+', ' ').Trim()
 }
 
+function Get-ConsoleLineSignature {
+    <#
+    .SYNOPSIS
+        Per-line signatures of one console OCR capture, for asking later
+        whether a given line was already on screen when it was taken.
+    .DESCRIPTION
+        Get-ConsoleTextSignature answers "has this screen changed" for a whole
+        frame. A wait that must ignore what was already printed asks the
+        narrower question per line instead, so the lines a guest prints during
+        a step can be told from the ones it printed before the step began.
+
+        Whitespace is collapsed for the reason it is collapsed there: a
+        blinking cursor and the spurious spaces monospace OCR inserts move
+        characters around on a line the guest has not touched, and raw equality
+        reads that as freshly printed output.
+
+        Lines that normalize to nothing carry no evidence and are dropped, so a
+        frame that merely gains blank space does not read as new output.
+    .PARAMETER Text
+        The OCR text of one capture, split on newlines.
+    .OUTPUTS
+        [string[]] one signature per non-empty line, in screen order.
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param([Parameter(Mandatory)][AllowEmptyString()][AllowNull()][string]$Text)
+    if ([string]::IsNullOrWhiteSpace($Text)) { return [string[]]@() }
+    $signatures = [System.Collections.Generic.List[string]]::new()
+    foreach ($line in (([string]$Text) -split "`n")) {
+        $sig = Get-ConsoleTextSignature -Text $line
+        if ($sig) { [void]$signatures.Add($sig) }
+    }
+    return [string[]]$signatures.ToArray()
+}
+
+function Set-CarriedConsoleBaseline {
+    <#
+    .SYNOPSIS
+        Record the console a wait matched on, for the next wait to treat as
+        already-seen.
+    .DESCRIPTION
+        A ${sinceStepStart} wait must ignore what was on screen before its step
+        began. Reading that baseline off its own first frame dates it from the
+        first poll AFTER the step started, which is one poll interval -- seconds
+        -- later than the step actually began. A console answers far faster than
+        that: a password prompt follows the Enter that earned it within
+        milliseconds, so it lands in the frame the wait is about to treat as
+        "what was already there" and is excluded from matching for the rest of
+        the wait. The prompt is then on screen, unmatched and unanswerable,
+        until the budget runs out, because a guest prints each prompt once.
+
+        The fix is to date the baseline from the last thing the sequence KNOWS
+        it saw: the frame the previous wait matched on. Everything after that --
+        the echo of what was typed, and the prompt printed in reply -- is
+        genuinely new, and stays eligible no matter how long the poll gap is.
+    .PARAMETER VMName
+        The guest whose console this is; a baseline is only ever handed to a
+        wait on the same guest.
+    .PARAMETER Text
+        OCR text of the frame the wait matched on.
+    #>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Writes one in-memory module slot on the wait hot path, touching nothing outside the process; ShouldProcess would put a -WhatIf gate on bookkeeping every caller needs unconditionally, and a skipped write would silently degrade the next wait rather than decline an action.')]
+    param(
+        [Parameter(Mandatory)][string]$VMName,
+        [Parameter(Mandatory)][AllowEmptyString()][AllowNull()][string]$Text
+    )
+    $script:CarriedConsoleBaseline = @{
+        VMName    = $VMName
+        Signature = [string[]]@(Get-ConsoleLineSignature -Text $Text)
+        AtUtc     = [DateTime]::UtcNow
+    }
+}
+
+function Clear-CarriedConsoleBaseline {
+    <#
+    .SYNOPSIS
+        Drop any console baseline waiting to be handed on.
+    .DESCRIPTION
+        Carrying a baseline forward is only sound between waits that are
+        consecutive steps of ONE sequence run, because the claim it encodes is
+        "this is the screen the step before me left". Across a sequence boundary
+        the claim is false: the guest may have rebooted, or another sequence may
+        have driven the same VM in between, and a baseline from before that
+        excludes lines the next wait must be free to match.
+
+        Called where a run begins, so the first gated wait of a sequence reads
+        its own first frame rather than inheriting a screen from whatever ran
+        last. Callers that drive Wait-ForText directly, outside a sequence, do
+        the same for the same reason.
+    #>
+    [CmdletBinding()]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Clears one in-memory module slot, touching nothing outside the process; a -WhatIf gate on it would leave a stale baseline in place, which is the unsafe state this exists to prevent.')]
+    param()
+    $script:CarriedConsoleBaseline = $null
+}
+
+function Get-CarriedConsoleBaseline {
+    <#
+    .SYNOPSIS
+        Take the console baseline left by the previous wait, if it is this
+        guest's and still current.
+    .DESCRIPTION
+        Consuming clears the slot, so a baseline is used at most once. That is
+        what keeps a wait from being seeded by a frame two or more steps old:
+        a stale exclusion set is the permissive direction -- it leaves lines
+        eligible that a later step did NOT print in answer to anything -- which
+        is the mis-targeting ${sinceStepStart} exists to prevent. Unconsumed or
+        expired, the caller reads its own first frame instead.
+    .PARAMETER VMName
+        The guest about to wait.
+    .OUTPUTS
+        [string[]] line signatures, or $null when there is nothing usable.
+    #>
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param([Parameter(Mandatory)][string]$VMName)
+    $carried = $script:CarriedConsoleBaseline
+    $script:CarriedConsoleBaseline = $null
+    if (-not $carried) { return $null }
+    if ($carried.VMName -ne $VMName) { return $null }
+    $age = ([DateTime]::UtcNow - $carried.AtUtc).TotalSeconds
+    if ($age -gt $script:CarriedConsoleBaselineMaxAgeSeconds) { return $null }
+    # An empty signature set means the matched frame read as blank. Handing that
+    # on would exclude nothing, which is indistinguishable from having no
+    # baseline at all -- and worse than reading this wait's own first frame,
+    # which at least records whatever is legible now.
+    if (@($carried.Signature).Count -eq 0) { return $null }
+    return [string[]]$carried.Signature
+}
+
+function Select-ConsoleTextSinceBaseline {
+    <#
+    .SYNOPSIS
+        The lines of a console OCR capture that are absent from a baseline
+        capture taken earlier in the same wait.
+    .DESCRIPTION
+        A prompt is evidence a step can act on only when the guest prints it
+        during that step. Text left on screen by whatever ran before is not,
+        and it is re-read verbatim by every poll of every wait that follows.
+        That matters because OCR-tolerant matching is deliberately generous:
+        a short prompt pattern survives dropped and confused characters, and
+        the same tolerance lets its letters be found in order inside a long
+        line of unrelated prose. A password prompt is the sharpest case --
+        matching one that is not really there types a secret into a terminal
+        that is still echoing what it receives.
+
+        Comparing by Get-ConsoleTextSignature rather than raw equality is
+        load-bearing: OCR re-reads an untouched line with different spacing
+        from one capture to the next, and raw equality would call the whole
+        screen new on the second poll.
+
+        Survivors are rejoined with newlines, never with spaces. The bounded
+        matching strategies work one line at a time, so keeping the breaks
+        keeps a match anchored to a single real line; fusing survivors would
+        splice text printed at opposite ends of the screen into a neighborhood
+        the matcher then reads as one phrase.
+    .PARAMETER Text
+        The current capture's OCR text.
+    .PARAMETER BaselineSignature
+        Get-ConsoleLineSignature of the capture taken when the step began. An
+        empty baseline keeps the whole capture, so a wait whose first frame was
+        unreadable degrades to an ordinary wait rather than to one that can
+        never match.
+    .PARAMETER TailLines
+        When greater than 0, keep only the last N surviving lines, so a caller
+        that also confines matching to the bottom of the screen applies that
+        window to what survives here. Defaults to 0 (keep every survivor).
+    .OUTPUTS
+        [string] the surviving lines joined by newline ('' when none survive).
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][AllowEmptyString()][AllowNull()][string]$Text,
+        [Parameter(Mandatory)][AllowEmptyCollection()][AllowNull()][string[]]$BaselineSignature,
+        [int]$TailLines = 0
+    )
+    if ([string]::IsNullOrWhiteSpace($Text)) { return '' }
+    $known = [System.Collections.Generic.HashSet[string]]::new(
+        [string[]]@(@($BaselineSignature) | Where-Object { $_ }), [System.StringComparer]::Ordinal)
+    $kept = [System.Collections.Generic.List[string]]::new()
+    foreach ($line in (([string]$Text) -split "`n")) {
+        $sig = Get-ConsoleTextSignature -Text $line
+        if (-not $sig) { continue }
+        if ($known.Contains($sig)) { continue }
+        [void]$kept.Add([string]$line)
+    }
+    if ($TailLines -gt 0 -and $kept.Count -gt $TailLines) {
+        return ([string]::Join("`n", ($kept.ToArray() | Select-Object -Last $TailLines)))
+    }
+    return ([string]::Join("`n", $kept))
+}
+
 function Wait-ForText {
     <#
     .SYNOPSIS
@@ -717,6 +951,13 @@ function Wait-ForText {
         evaluates $FailurePattern entries each poll so a known crash
         screen aborts the wait immediately instead of consuming the
         full timeout budget.
+    .PARAMETER SinceStepStart
+        Restricts the positive pattern to console lines that were not already
+        on screen when the wait began; $FailurePattern and $EarlyFailurePattern
+        keep reading the whole frame. Composes with $FreshMatch, which then
+        applies its tail window to the surviving lines. "When the wait began"
+        is the frame the PREVIOUS wait matched on where one is available (see
+        Set-CarriedConsoleBaseline), and this wait's own first frame otherwise.
     .OUTPUTS
         [bool] $true on positive match; $false on timeout or anti-pattern hit.
     #>
@@ -732,6 +973,26 @@ function Wait-ForText {
         [int]$PollSeconds = 3,
         [bool]$FreshMatch = $false,
         [int]$FreshMatchTailLines = 12,
+        # Match the positive pattern only against console lines the guest
+        # printed after this step began, ignoring everything the previous step
+        # left on the surface. Set it on a step whose pattern is short enough
+        # that unrelated prose already on screen can satisfy it -- a class the
+        # tolerant matcher cannot avoid, because the same tolerance that lets a
+        # prompt survive dropped and confused characters also lets its letters
+        # be found in order inside a sentence about something else.
+        #
+        # Where the previous wait handed one on, the baseline is the frame THAT
+        # wait matched, so a prompt printed in answer to what the step before
+        # typed is new and matchable however long the poll gap was. Without one
+        # -- the first gated step of a sequence, or one whose predecessor failed
+        # -- it falls back to this wait's own first frame and costs a poll: that
+        # frame records what was already there and only later frames can match.
+        #
+        # Anti-patterns are deliberately NOT gated by this. Their job is to
+        # notice that the screen is in a state the sought text can never arrive
+        # from, and that state is routinely already on screen when the step
+        # starts -- so they keep reading the whole frame.
+        [bool]$SinceStepStart = $false,
         # Optional periodic console nudge. This stays inside the same wall-clock
         # deadline as the OCR wait: it is for one-shot prompts (notably agetty's
         # login prompt) that can be scrolled off a live console and redrawn with
@@ -782,8 +1043,22 @@ function Wait-ForText {
     $script:Fail.WaitForTextOcrTail        = $null
     $script:Fail.WaitForTextPatternsSought = [string[]]@()
     $script:Fail.WaitForTextFreshWindowNearMiss = [string[]]@()
+    # $null, not an empty list: the closest-line scan runs on the timeout path
+    # only, so every other way out of this wait -- a match, a failure pattern --
+    # leaves no reading, and an empty list would report one.
+    $script:Fail.WaitForTextClosestOnScreen = $null
     $script:Fail.WaitForTextConsoleFlood   = $null
     $script:Fail.WaitForTextConsoleStaticSeconds = 0
+    # Which of the two match paths below this wait will take, because only one of
+    # them measures the console's shape. A tail-confined (freshMatch) wait reads
+    # the same frames but runs neither the flood check nor the content-static
+    # tracker, so the two slots above keep the values set here for the whole wait
+    # -- and 0 / empty are the SAME values a wait that did measure a moving,
+    # non-repeating console leaves behind. Published without this flag the pair
+    # invites the one reading it cannot support: that something looked at the
+    # screen and found it healthy. Recorded here rather than at the failure
+    # returns so it is scoped to this wait exactly like the slots it qualifies.
+    $script:Fail.WaitForTextConsoleSignalsMeasured = (-not $FreshMatch)
     # Per-wait verdict, readable by a caller that has to decide what to do with a
     # wait that came back false. The bool return says only "not found"; it cannot
     # distinguish a guest still working from a guest parked on a prompt that has
@@ -798,6 +1073,7 @@ function Wait-ForText {
         ElapsedSeconds       = 0
         ConsoleText          = ''
         NudgeAttempts        = 0
+        ConsoleSignalsMeasured = (-not $FreshMatch)
     }
     if ($HostType) { Write-Debug "Wait-ForText: -HostType '$HostType' is informational; Yuruna.Host dispatches Get-VMScreenshot internally." }
 
@@ -861,8 +1137,15 @@ function Wait-ForText {
     # runner can't overwrite it -- the next cycle gets its own folder.
     # Falls back to $logDir/screens_<VM>/ when no cycle folder is set.
     $screensDir = Get-CycleScreenDir -VMName $VMName -WhatIf:$false
+    # Clamped at both ends. The floor is load-bearing: at 0 the trim loop below
+    # evicts the frame captured on this very pass, before OCR can read it, so
+    # the wait would never match anything. The ceiling bounds a typo -- each
+    # retained frame is a PNG plus its OCR sidecar, kept twice over for a guest
+    # that fails and never deleted by cycle-log rotation, so one extra digit
+    # here is measured in gigabytes on a host that fails regularly.
     $historySize = [int]$script:DefaultScreenHistorySize
-    if ($historySize -lt 1) { $historySize = 1 }
+    if ($historySize -lt 1)   { $historySize = 1 }
+    if ($historySize -gt 240) { $historySize = 240 }
 
     # Cross-poll fallback buffer for non-FreshMatch mode. A pattern can be split
     # at the OCR capture boundary between two ADJACENT frames (a line OCR'd half
@@ -873,6 +1156,28 @@ function Wait-ForText {
     # a full-history rescan would cost over a 60-300 s loop.
     $recentFrameMax = 3
     $recentFrames   = [System.Collections.Generic.List[string]]::new()
+    # Per-line signatures of the console as it stood on this wait's first
+    # readable frame, plus the window applied on top of them. $FreshMatch
+    # narrows the lines a pattern is tested against by POSITION on the screen;
+    # $SinceStepStart narrows them by whether the guest printed them during this
+    # step. Asked for together they compose -- the window applies to whatever
+    # survives the baseline -- so each can only remove lines from what is
+    # matched, never add any. $null (not an empty array) means "not recorded
+    # yet": a screen that read as empty is a legitimate baseline and must not be
+    # re-taken on the next poll.
+    $sinceBaseline  = $null
+    # Prefer the console the previous wait matched on over this wait's own first
+    # frame: it dates the baseline from the last moment the sequence knows what
+    # was on screen, instead of from a poll interval into the step, which is
+    # already too late for a prompt printed in answer to the previous step's
+    # keystroke. Consumed unconditionally, even by a wait that will not use it,
+    # so it can only ever describe the wait immediately before this one.
+    $carriedBaseline = Get-CarriedConsoleBaseline -VMName $VMName
+    if ($SinceStepStart -and $carriedBaseline) {
+        $sinceBaseline = $carriedBaseline
+        Write-Verbose "      Wait-ForText: carrying $($sinceBaseline.Count) console line(s) from the previous wait as the baseline; '$($Pattern[0])' will be matched against anything printed since then."
+    }
+    $sinceTailLines = if ($FreshMatch) { $FreshMatchTailLines } else { 0 }
     $lastOcrText = ''
     $lastCapturePath = $null
     # Kept so the timeout path can ask, per engine, whether the sought text was
@@ -996,8 +1301,36 @@ function Wait-ForText {
                     if ($result.AnyText) { $lastOcrText = $result.AnyText }
                     $lastEngineResults = $result.EngineResults
 
+                    # Re-decide the combiner's verdict against the step-start
+                    # baseline, rather than handing the combiner a filtered
+                    # frame, so the whole surface stays available to everything
+                    # else this loop does with it: the anti-pattern scan, the
+                    # failure artifacts and the stall detectors all need the
+                    # screen as it actually is.
+                    if ($SinceStepStart) {
+                        # Filtering the very frame the baseline was taken from
+                        # leaves nothing, by construction -- which is exactly
+                        # right: that frame IS what was already there.
+                        if ($null -eq $sinceBaseline) {
+                            $sinceBaseline = [string[]]@(Get-ConsoleLineSignature -Text ([string]$result.AnyText))
+                            Write-Verbose "      Wait-ForText: $($sinceBaseline.Count) console line(s) were already on screen; '$patternLabel' will be matched only against lines printed after this."
+                        }
+                        $matchText = Select-ConsoleTextSinceBaseline -Text ([string]$result.AnyText) -BaselineSignature $sinceBaseline -TailLines $sinceTailLines
+                        $sinceMatch = $false
+                        if ($matchText) {
+                            foreach ($p in $Pattern) {
+                                if (Test-OCRMatch -Text $matchText -Pattern $p) { $sinceMatch = $true; break }
+                            }
+                        }
+                        if ($result.Match -and -not $sinceMatch) {
+                            Write-Verbose "      Wait-ForText: '$patternLabel' reads somewhere on screen, but on no line printed since this step began -- still waiting."
+                        }
+                        $result.Match = $sinceMatch
+                    }
+
                     if ($result.Match) {
                         Write-Debug "      Text detected at end of screen (combine=$combineMode)"
+                        Set-CarriedConsoleBaseline -VMName $VMName -Text ([string]$result.AnyText)
                         return $true
                     }
                 } else {
@@ -1016,9 +1349,42 @@ function Wait-ForText {
                     }
                     Save-OcrSidecar -ScreenshotPath $rawScreenPath -Sections $ocrSections
 
+                    # Re-decide the combiner's verdict against the step-start
+                    # baseline, rather than handing the combiner a filtered
+                    # frame, so the whole surface stays available to everything
+                    # else this loop does with it: the anti-pattern scan, the
+                    # failure artifacts and the stall detectors all need the
+                    # screen as it actually is.
+                    $matchText = [string]$result.AnyText
+                    if ($SinceStepStart) {
+                        # Filtering the very frame the baseline was taken from
+                        # leaves nothing, by construction -- which is exactly
+                        # right: that frame IS what was already there.
+                        if ($null -eq $sinceBaseline) {
+                            $sinceBaseline = [string[]]@(Get-ConsoleLineSignature -Text ([string]$result.AnyText))
+                            Write-Verbose "      Wait-ForText: $($sinceBaseline.Count) console line(s) were already on screen; '$patternLabel' will be matched only against lines printed after this."
+                        }
+                        $matchText = Select-ConsoleTextSinceBaseline -Text ([string]$result.AnyText) -BaselineSignature $sinceBaseline -TailLines $sinceTailLines
+                        $sinceMatch = $false
+                        if ($matchText) {
+                            foreach ($p in $Pattern) {
+                                if (Test-OCRMatch -Text $matchText -Pattern $p) { $sinceMatch = $true; break }
+                            }
+                        }
+                        if ($result.Match -and -not $sinceMatch) {
+                            Write-Verbose "      Wait-ForText: '$patternLabel' reads somewhere on screen, but on no line printed since this step began -- still waiting."
+                        }
+                        $result.Match = $sinceMatch
+                    }
+
                     if ($result.AnyText) {
                         $lastOcrText = $result.AnyText
-                        $recentFrames.Add([string]$result.AnyText)
+                        $lastEngineResults = $result.EngineResults
+                        # The cross-frame fallback below joins these, so they
+                        # have to carry the same text the live frame was matched
+                        # against -- otherwise a gated wait would match on the
+                        # join what it just declined to match on the frame.
+                        $recentFrames.Add([string]$matchText)
                         if ($recentFrames.Count -gt $recentFrameMax) { $recentFrames.RemoveAt(0) }
                         $normalizedNow = Get-ConsoleTextSignature -Text ([string]$result.AnyText)
                         if ($normalizedNow -ne $lastStaticText) {
@@ -1035,6 +1401,7 @@ function Wait-ForText {
                     if ($result.Match) {
                         Write-Debug "      Text detected (combine=$combineMode)"
                         $script:LastWaitVerdict.Matched = $true
+                        Set-CarriedConsoleBaseline -VMName $VMName -Text ([string]$result.AnyText)
                         return $true
                     }
 
@@ -1048,6 +1415,11 @@ function Wait-ForText {
                         if (Test-OCRMatch -Text $recentText -Pattern $p) {
                             Write-Debug "      Text detected across recent frames: '$p'"
                             $script:LastWaitVerdict.Matched = $true
+                            # The live frame, not the join the match was found
+                            # in: the join spans several polls, and handing on a
+                            # frame older than the newest one read would leave
+                            # lines eligible that were already on screen.
+                            Set-CarriedConsoleBaseline -VMName $VMName -Text ([string]$result.AnyText)
                             return $true
                         }
                     }
@@ -1286,6 +1658,11 @@ function Wait-ForText {
         # screen, which the flood detail alone cannot do: Get-ConsoleFloodVerdict
         # counts repeats WITHIN one frame, so a frozen wall of already-scrolled
         # text reads as a flood even though nothing is moving.
+        #
+        # Only the accumulating match path feeds this. Under a tail-confined
+        # match $maxConsoleStaticSecs is still its initializer, which is what the
+        # measured flag set at entry exists to declare -- the value written here
+        # is an observation only when that flag is true.
         $script:Fail.WaitForTextConsoleStaticSeconds = [int]$maxConsoleStaticSecs
         # The verdict deliberately keeps the CURRENT unchanged run rather than the
         # longest one: a caller deciding whether to send input to this console
@@ -1306,6 +1683,25 @@ function Wait-ForText {
                 foreach ($line in $nearMiss) {
                     Write-Warning "      freshMatch near miss: $line"
                 }
+            }
+        }
+
+        # An empty near-miss list covers three unrelated screens: no window was
+        # in force, the window covered the whole frame, or the text was nowhere
+        # on it. Read alone it is taken for the third. Recording what the screen
+        # DID hold that came closest separates them, and on a frame too short
+        # for a window to hide anything -- a console sitting at a login prompt
+        # -- it is the only evidence there is. Deliberately not gated on
+        # $FreshMatch: a wait with no window that timed out wants the same
+        # answer, and pays for it once, here, not in the poll loop.
+        if ($lastEngineResults -and (Get-Command Get-OcrClosestOnScreen -ErrorAction SilentlyContinue)) {
+            [string[]]$closestOnScreen = @(Get-OcrClosestOnScreen -EngineResult $lastEngineResults -Pattern $Pattern)
+            # Recorded even when it came back empty: the scan ran, and "compared
+            # the frame, nothing resembled it" is a reading the record is
+            # entitled to keep separate from "never compared anything".
+            $script:Fail.WaitForTextClosestOnScreen = $closestOnScreen
+            foreach ($closestLine in $closestOnScreen) {
+                Write-Warning "      closest on screen: $closestLine"
             }
         }
 
@@ -1363,7 +1759,11 @@ function Get-LastWaitVerdict {
         engine's own view of the wait it just ran.
     .OUTPUTS
         [hashtable] Matched, Flooded, DominantLine, ConsoleStaticSeconds,
-        ConsoleRestartsUsed, ElapsedSeconds, ConsoleText.
+        ConsoleRestartsUsed, ElapsedSeconds, ConsoleText,
+        ConsoleSignalsMeasured. The last one qualifies the three before it:
+        $false means the wait confined its match to the console tail and ran
+        neither console-shape tracker, so their values are initializers and a
+        caller must not read a decision out of them.
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -1377,6 +1777,7 @@ function Get-LastWaitVerdict {
             ConsoleRestartsUsed  = 0
             ElapsedSeconds       = 0
             ConsoleText          = ''
+            ConsoleSignalsMeasured = $true
         }
     }
     $copy = @{}
@@ -1536,7 +1937,6 @@ function Get-LastConsoleChangeVerdict {
 }
 
 # --- REGION: Action: takeScreenshot
-
 function Save-DebugScreenshot {
     <#
     .SYNOPSIS
@@ -1559,19 +1959,18 @@ function Save-DebugScreenshot {
 }
 
 # --- REGION: Main executor
-
-<#
-.SYNOPSIS
-    Resolves a sequence name to its file and runs it.
-.DESCRIPTION
-    Thin wrapper around Invoke-Sequence: takes a sequence NAME plus the
-    sequences root, resolves it via Resolve-SequencePath (host-specific
-    variant first, then the plain file), and delegates to Invoke-Sequence.
-    Extension scripts that iterate over a list of sequence names should call
-    this instead of building paths and calling Invoke-Sequence directly; the
-    future config-driven runner can then reuse this function unchanged.
-#>
 function Invoke-SequenceByName {
+    <#
+    .SYNOPSIS
+        Resolves a sequence name to its file and runs it.
+    .DESCRIPTION
+        Thin wrapper around Invoke-Sequence: takes a sequence NAME plus the
+        sequences root, resolves it via Resolve-SequencePath (host-specific
+        variant first, then the plain file), and delegates to Invoke-Sequence.
+        Extension scripts that iterate over a list of sequence names should call
+        this instead of building paths and calling Invoke-Sequence directly; the
+        future config-driven runner can then reuse this function unchanged.
+    #>
     param(
         [Parameter(Mandatory)][string]$HostType,
         [Parameter(Mandatory)][string]$GuestKey,
@@ -1834,6 +2233,12 @@ function Invoke-Sequence {
         return $false
     }
 
+    # No wait in this run may inherit a console baseline from whatever drove
+    # this VM before it. Handing one forward asserts "this is what the step
+    # before me left on screen", and only a wait inside the same run can make
+    # that claim -- the guest may have been rebooted or rebuilt since.
+    Clear-CarriedConsoleBaseline
+
     # Initialize logDir + trackDir early so the catch block can write
     # diagnostics and the pause-flag paths resolve below. Invoke-Sequence
     # runs inside a child module scope when a test-start extension script
@@ -1967,9 +2372,9 @@ function Invoke-Sequence {
     # never ran (e.g. a direct Debug-TestSequence.ps1 invocation outside the
     # runner), so this block is safe to call unconditionally. The raw YAML
     # body is snapshotted so a row's sequenceContentHash can be mapped
-    # back to the exact sequence that ran -- gui/ and ssh/ variants of
-    # the same logical sequence share a sequenceGuid; the content hash
-    # discriminates them.
+    # back to the exact sequence that ran. Each invocation gets its own
+    # identity even when another VM later reuses the same name and sequence.
+    $sequenceInvocationId = $null
     if (Get-Command -Name Set-PerfSequenceContext -ErrorAction SilentlyContinue) {
         try {
             $seqName     = [System.IO.Path]::GetFileNameWithoutExtension($SequencePath)
@@ -1989,7 +2394,7 @@ function Invoke-Sequence {
                     error     = $readErr.Exception.Message
                 }
             }
-            Set-PerfSequenceContext -SequenceName $seqName -SequenceGuid $seqGuid -SequenceRevision $seqRevision -SequenceContent $seqBody
+            $sequenceInvocationId = Set-PerfSequenceContext -SequenceName $seqName -SequenceGuid $seqGuid -SequenceRevision $seqRevision -SequenceContent $seqBody -PassThru
             Set-PerfGuestContext    -GuestKey $GuestKey -VMName $VMName
         } catch {
             $setupErr = $_
@@ -2287,7 +2692,15 @@ function Invoke-Sequence {
             # rows from inner steps can be joined back to the retry wrapper
             # at query time without inventing a step GUID.
             [int]$ParentOrdinal = 0,
-            [string]$ParentAction = ''
+            [string]$ParentAction = '',
+            # Which attempt of that retry these rows belong to (1-based; 0
+            # outside a retry). A retry re-runs the SAME steps: block, so every
+            # attempt emits the same ordinals under the same step names. With
+            # nothing but the ordinal on the row, a reader cannot separate a
+            # later attempt's rows from the first attempt's, and a step first
+            # reached in a later attempt reads as though it ran beside the
+            # first attempt's failure.
+            [int]$ParentAttempt = 0
         )
         $stepNum = 0
         foreach ($step in $Steps) {
@@ -2343,6 +2756,8 @@ function Invoke-Sequence {
         # time -- the two clocks would diverge by the GC/IO time of the
         # write itself.
         $stepStartUtc = [DateTime]::UtcNow
+        $stepInvocationId = [Guid]::NewGuid().ToString('N')
+        $ctx = $null
         $ok = $true
 
         # Per-step registry dispatch. Test.SequenceAction lets a verb
@@ -2368,6 +2783,9 @@ function Invoke-Sequence {
                 ScreenshotDir         = $screenshotDir
                 ShowSensitive         = $ShowSensitive
                 SequencePath          = $SequencePath
+                SnapshotPolicy        = $sequence.snapshotPolicy
+                SequenceInvocationId  = $sequenceInvocationId
+                StepInvocationId      = $stepInvocationId
                 # Served-repo root (== the base the host status service serves at
                 # /yuruna-repo). fetchAndExecute/sshFetchAndExecute use it to
                 # hash the working-tree copy of the script the guest is about to
@@ -2427,28 +2845,11 @@ function Invoke-Sequence {
 
         # One NDJSON line per step_end so a downstream consumer can plot
         # pass/fail rates without HTML scraping. Carries the SUPERSET
-        # schema (hostType, action, description, failureClass-when-known)
-        # of step_failure so a downstream consumer can do a single
-        # schema join across step_end + step_failure rows. The
-        # failureClass/severity/suggestedRecoveries fields are populated
-        # from the verb's static registration -- on a passing step they
-        # surface "what the verb *would* class a failure as".
-        $stepVerbEntry = Get-SequenceAction -Name ([string]$step.action)
-        $stepFailureClass = if ($stepVerbEntry) { [string]$stepVerbEntry.FailureClass } else { 'unknown' }
-        $stepSeverity     = if ($stepVerbEntry) { [string]$stepVerbEntry.Severity }     else { 'unknown' }
-        # Avoid the dual unwrap trap: PowerShell flattens single-element
-        # arrays AND empty arrays out of an if-statement's pipeline
-        # output, so `[string[]]$x = if (...) { @(...) }` yields a scalar
-        # on a 1-element value and $null on an empty value. The two-step
-        # form below initializes to an empty string[] up front, then
-        # overwrites only when there are entries to materialize; either
-        # outcome serializes as a JSON array and clears the schema
-        # validator's typed-array check.
-        [string[]]$stepSuggested = @()
-        if ($stepVerbEntry -and $null -ne $stepVerbEntry.SuggestedRecoveries) {
-            [string[]]$stepSuggested = @($stepVerbEntry.SuggestedRecoveries)
-        }
-        Send-CycleEventSafely -EventRecord @{
+        # schema (hostType, action, description, and -- on a failure --
+        # the verb's registered defaults, under their own names) of
+        # step_failure so a downstream consumer can do a single schema
+        # join across step_end + step_failure rows.
+        $stepEndRecord = @{
             timestamp           = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
             event               = 'step_end'
             stepNumber          = [int]$stepNum
@@ -2461,11 +2862,53 @@ function Invoke-Sequence {
             hostType            = $HostType
             action              = [string]$step.action
             description         = [string]$desc
-            failureClass        = $stepFailureClass
-            severity            = $stepSeverity
-            suggestedRecoveries = $stepSuggested
             sequencePath        = $SequencePath
+            sequenceInvocationId = $sequenceInvocationId
+            stepInvocationId    = $stepInvocationId
         }
+        $diagnosticOutcome = if ($ctx -and $ctx.DiagnosticOutcome) { [string]$ctx.DiagnosticOutcome } else { '' }
+        $checkpointSourceStepInvocationId = if ($ctx -and $ctx.CheckpointSourceStepInvocationId) { [string]$ctx.CheckpointSourceStepInvocationId } else { '' }
+        $evidenceCaptureDurationMs = if ($ctx -and $ctx.EvidenceCaptureDurationMs) { [long]$ctx.EvidenceCaptureDurationMs } else { 0L }
+        if ($diagnosticOutcome) { $stepEndRecord.diagnosticOutcome = $diagnosticOutcome }
+        if ($evidenceCaptureDurationMs -gt 0) { $stepEndRecord.evidenceCaptureDurationMs = $evidenceCaptureDurationMs }
+        # A verb's registration states how it classifies ITS OWN failure, so it
+        # belongs only on a row that actually failed. Stamped on a passing row
+        # it leaves `ok` as the single field that separates a real failure from
+        # a static registration, and every grep, Loki selector and dashboard
+        # filter for a class then matches once per executed step of that verb --
+        # all of them passes. Nothing is lost by omitting it: actionVerb is on
+        # the row, and Get-SequenceAction maps it back to the same registration
+        # for a consumer that wants to know what the verb WOULD have classed a
+        # failure as.
+        #
+        # The verbDefault* names say the other half: these are the registry's
+        # values for the verb, not a reading of what went wrong here, while
+        # step_failure publishes a real classification under failureClass /
+        # severity / suggestedRecoveries -- one that a matched failure pattern
+        # or an unreachable guest can move off the registration entirely. One
+        # key over both would make a join across the two rows compare a
+        # measurement against a constant and call them the same field.
+        if (-not $ok) {
+            $stepVerbEntry = Get-SequenceAction -Name ([string]$step.action)
+            $stepFailureClass = if ($stepVerbEntry) { [string]$stepVerbEntry.FailureClass } else { 'unknown' }
+            $stepSeverity     = if ($stepVerbEntry) { [string]$stepVerbEntry.Severity }     else { 'unknown' }
+            # Avoid the dual unwrap trap: PowerShell flattens single-element
+            # arrays AND empty arrays out of an if-statement's pipeline
+            # output, so `[string[]]$x = if (...) { @(...) }` yields a scalar
+            # on a 1-element value and $null on an empty value. The two-step
+            # form below initializes to an empty string[] up front, then
+            # overwrites only when there are entries to materialize; either
+            # outcome serializes as a JSON array and clears the schema
+            # validator's typed-array check.
+            [string[]]$stepSuggested = @()
+            if ($stepVerbEntry -and $null -ne $stepVerbEntry.SuggestedRecoveries) {
+                [string[]]$stepSuggested = @($stepVerbEntry.SuggestedRecoveries)
+            }
+            $stepEndRecord['verbDefaultFailureClass']        = $stepFailureClass
+            $stepEndRecord['verbDefaultSeverity']            = $stepSeverity
+            $stepEndRecord['verbDefaultSuggestedRecoveries'] = $stepSuggested
+        }
+        Send-CycleEventSafely -EventRecord $stepEndRecord
         # Track the last passing step number so the failure payload can
         # surface lastSucceededStepNumber -- a remediator that wants to
         # replay needs to know the boundary it can safely resume past.
@@ -2476,9 +2919,9 @@ function Invoke-Sequence {
         # ${vmName} are intentionally NOT expanded here so cross-cycle
         # joins on stepName remain stable even though vmName carries a
         # per-cycle timestamp suffix. Falls back to step.action when no
-        # description is set. retry-wrappers don't emit (they exit via
-        # `continue` above the stopwatch); their wall-clock cost is the
-        # sum of the inner rows.
+        # description is set. A retry emits its enclosing interval and final
+        # outcome as well as the children; readers count only top-level rows
+        # when summing work and final failures.
         if (Get-Command -Name Write-PerfStepRow -ErrorAction SilentlyContinue) {
             try {
                 $stepName = if ($step.Contains('description') -and $step.description) { [string]$step.description } else { [string]$step.action }
@@ -2491,7 +2934,12 @@ function Invoke-Sequence {
                     -DurationMs        ([int]$stepStopwatch.Elapsed.TotalMilliseconds) `
                     -Outcome           ($ok ? 'pass' : 'fail') `
                     -ParentStepOrdinal $ParentOrdinal `
-                    -ParentAction      $ParentAction
+                    -ParentAction      $ParentAction `
+                    -ParentAttempt     $ParentAttempt `
+                    -StepInvocationId  $stepInvocationId `
+                    -CheckpointSourceStepInvocationId $checkpointSourceStepInvocationId `
+                    -EvidenceCaptureDurationMs $evidenceCaptureDurationMs `
+                    -DiagnosticOutcome $diagnosticOutcome
             } catch {
                 Write-Verbose "Write-PerfStepRow failed (non-fatal): $($_.Exception.Message)"
             }
@@ -2533,6 +2981,14 @@ function Invoke-Sequence {
             $script:Fail.LastFailureDescription = $desc
             $script:Fail.LastFailedAction       = $step.action
             $script:Fail.LastFailedStepNumber   = $stepNum
+            # The boundary the failure record judges the per-VM screen artifacts
+            # against: those files at the log root are sticky and only the verbs
+            # that read a screen rewrite them, so one last written before this
+            # step began shows an earlier step and is not this failure's
+            # evidence. A retry wrapper overwrites this with its own (earlier)
+            # start as the stack unwinds, which is what keeps an attempt's own
+            # screen claimable by the exhausted-retry failure that followed it.
+            $script:Fail.LastFailedStepStartedUtc = $stepStartUtc
             return $false
         }
         }  # end foreach inside $invokeStepBlock
@@ -2543,6 +2999,7 @@ function Invoke-Sequence {
     $script:Fail.LastFailureDescription = $null
     $script:Fail.LastFailedAction       = $null
     $script:Fail.LastFailedStepNumber   = 0
+    $script:Fail.LastFailedStepStartedUtc = $null
     # Inner-verb capture for retry-exhausted failures. The per-step failure
     # branch in $invokeStepBlock overwrites $script:Fail.LastFailedAction with
     # the OUTER step's action name (= 'retry') whenever a Handler returns
@@ -2569,18 +3026,6 @@ function Invoke-Sequence {
     $script:Fail.WaitForTextPatternsSought     = [string[]]@()
     $result = & $invokeStepBlock -Steps $steps
     if (-not $result) {
-        # Build the schema-v2 failure record once; New-SequenceFailureRecord
-        # reads the $script:Fail slots and returns both the last_failure.json
-        # ordered dict and the matching step_failure NDJSON record so the file
-        # and the event stream can never drift. See docs/failure-schema.md.
-        $failRec = New-SequenceFailureRecord -Reason 'step' -VMName $VMName -GuestKey $GuestKey -HostType $HostType -SequencePath $SequencePath -LogDir $logDir -TotalSteps $steps.Count
-        $failureFile = Join-Path $logDir "last_failure.json"
-        # Atomic write: a remediator/status reader must never observe a truncated
-        # last_failure.json mid-write (partial-write regression class).
-        $null = Write-YurunaStateFile -Path $failureFile -Content ($failRec.File | ConvertTo-Json -Depth 6) -Confirm:$false
-        # One NDJSON line for stream consumers (status service, remediation loop, CI hook).
-        Send-CycleEventSafely -EventRecord $failRec.Event
-
         # Capture a screenshot now unless the failed verb already saved one
         # in its own failure path (avoids overwriting the verb's richer,
         # in-context frame with a later capture). Which verbs self-capture
@@ -2606,6 +3051,30 @@ function Invoke-Sequence {
             }
         }
 
+        # Built after the capture above, not before it: the record names the
+        # screen artifacts this failure left behind and only claims one that is
+        # already on disk and newer than the failing step, so a record built
+        # first would have to describe a frame that does not exist yet.
+        # New-SequenceFailureRecord reads the $script:Fail slots and returns
+        # both the last_failure.json ordered dict and the matching step_failure
+        # NDJSON record so the file and the event stream can never drift. See
+        # docs/failure-schema.md.
+        $failRec = New-SequenceFailureRecord -Reason 'step' -VMName $VMName -GuestKey $GuestKey -HostType $HostType -SequencePath $SequencePath -LogDir $logDir -TotalSteps $steps.Count
+        $failureFile = Join-Path $logDir "last_failure.json"
+        # Atomic write: a remediator/status reader must never observe a truncated
+        # last_failure.json mid-write (partial-write regression class).
+        $null = Write-YurunaStateFile -Path $failureFile -Content ($failRec.File | ConvertTo-Json -Depth 6) -Confirm:$false
+        # One NDJSON line for stream consumers (status service, remediation loop, CI hook).
+        Send-CycleEventSafely -EventRecord $failRec.Event
+        # Mirror it into the cycle folder in the same breath. The copy above
+        # lives at the SHARED log root, which the next sequence start clears --
+        # so on a cycle that runs several guests and does not stop at the first
+        # failure, this record is deleted before the cycle-end notifier, the
+        # remediation dispatcher or a post-hoc reader ever looks at it.
+        if (Get-Command Copy-CycleFailureRecord -ErrorAction SilentlyContinue) {
+            $null = Copy-CycleFailureRecord -LogDir $logDir
+        }
+
         # Gate #3: post-failure pause check. Without this gate, a Pause-after-step
         # armed during the failing step is silently dropped and the caller
         # cascades the failure to the next sequence/cycle. Run AFTER writing
@@ -2620,8 +3089,8 @@ function Invoke-Sequence {
     Write-ProgressTick -Activity "Sequence" -Completed
     $sequenceStopwatch.Stop()
     $sequenceElapsedLabel = ("{0,4}" -f [int]$sequenceStopwatch.Elapsed.TotalSeconds)
-    $elapsedTotalSeconds = [int]$sequenceStopwatch.Elapsed.TotalSeconds
-    $elapsedTimeIsMinutes = "$([int]($elapsedTotalSeconds / 60)) min and $($elapsedTotalSeconds % 60) s"
+    $elapsedTotalSeconds = [long][math]::Floor($sequenceStopwatch.Elapsed.TotalSeconds)
+    $elapsedTimeIsMinutes = "$([math]::Floor($elapsedTotalSeconds / 60)) min and $($elapsedTotalSeconds % 60) s"
     Write-Information "    $sequenceElapsedLabel s [All $($steps.Count) steps completed in $elapsedTimeIsMinutes]"
     & $writeCurrentAction "[All $($steps.Count) steps completed in $elapsedTimeIsMinutes]"
     return $true
@@ -2691,6 +3160,11 @@ function Invoke-Sequence {
         # Mirror the normal failure path NDJSON so a stream consumer does not see
         # the cycle go silent (last step_end but no step_failure).
         Send-CycleEventSafely -EventRecord $failRec.Event
+        # Same cycle-folder mirror the step path takes: a crash record at the
+        # shared log root is cleared by the next sequence start like any other.
+        if (Get-Command Copy-CycleFailureRecord -ErrorAction SilentlyContinue) {
+            $null = Copy-CycleFailureRecord -LogDir $logDir
+        }
     } catch {
         $writeErr = $_
         Write-Warning "Could not write last_failure.json: $($writeErr.Exception.Message)"
@@ -2738,4 +3212,6 @@ Export-ModuleMember -Function Invoke-Sequence, Invoke-SequenceByName, Send-Text,
     Wait-ForText, Invoke-TapOn, Save-DebugScreenshot, Write-ProgressTick, `
     Select-SequenceStepWindow, Get-SequenceFinishedVMName, Get-OcrDegradationGrace, `
     Get-ConsoleFloodVerdict, Invoke-GuestSequenceList, Get-ConsoleTextSignature, `
+    Get-ConsoleLineSignature, Select-ConsoleTextSinceBaseline, `
+    Set-CarriedConsoleBaseline, Get-CarriedConsoleBaseline, Clear-CarriedConsoleBaseline, `
     Get-LastWaitVerdict, Wait-ForConsoleChange, Get-LastConsoleChangeVerdict

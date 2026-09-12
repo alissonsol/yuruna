@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42f41a3a-96b8-4ab6-ac90-5f5f7b020de7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -43,7 +43,6 @@ Import-Module (Join-Path $here 'Test.Notify.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path (Split-Path -Parent $PSCommandPath) 'Test.Assert.psm1') -Force -Global -DisableNameChecking
 
 # --- REGION: https://yuruna.link/42d69dfa-0015
-
 function Initialize-TestCycleFolder {
     <#
     .SYNOPSIS
@@ -116,6 +115,14 @@ $script:SavedPublicUrl = $env:YURUNA_STATUS_PUBLIC_URL
 $TempRoot = [System.IO.Path]::GetTempPath()
 $PayloadDir = Join-Path $TempRoot ('yuruna-notify-payload-' + [guid]::NewGuid().ToString('N'))
 $script:PayloadFailureFile = Join-Path $PayloadDir 'last_failure.json'
+# The payload builder reads the log ROOT when the cycle folder holds no record
+# yet, which is every in-cycle caller. Pin that root at a private path -- left
+# uncreated except by the test that exercises it -- so a workstation whose real
+# log root still holds a last_failure.json from an earlier failing cycle cannot
+# classify these payloads on the suite's behalf.
+$script:PayloadLogRoot = Join-Path $TempRoot ('yuruna-notify-logroot-' + [guid]::NewGuid().ToString('N'))
+$script:PayloadLogRootFailureFile = Join-Path $script:PayloadLogRoot 'last_failure.json'
+$env:YURUNA_LOG_DIR = $script:PayloadLogRoot
 $LedgerDir = Join-Path $TempRoot ('yuruna-notify-ledger-' + [guid]::NewGuid().ToString('N'))
 $script:LedgerMissingDir = Join-Path $LedgerDir 'no-such-subfolder'
 $script:DispatchDir = Join-Path $TempRoot ('yuruna-notify-dispatch-' + [guid]::NewGuid().ToString('N'))
@@ -233,6 +240,29 @@ Describe 'Get-FailureEventData' {
         Assert-Equal -Expected 'p1' -Actual $p['projectCommit']
         Assert-Equal -Expected $PayloadDir -Actual $p['cycleFolder']
     }
+    It 'reads the live log root while a cycle runs, and prefers the archived copy once there is one' {
+        # The engine writes last_failure.json to $env:YURUNA_LOG_DIR and only
+        # Stop-LogFile copies it into the cycle folder, so an in-cycle caller
+        # asks while the cycle folder is still empty. Reading the cycle folder
+        # alone hands every live consumer the synthesized 'unknown' payload.
+        $null = New-Item -ItemType Directory -Path $script:PayloadLogRoot -Force
+        try {
+            @{ schemaVersion = 2; failureClass = 'ocr_timeout'; severity = 'hard'; stepNumber = 5; sequenceName = 'start.guest.ubuntu.server.26' } |
+                ConvertTo-Json | Set-Content -LiteralPath $script:PayloadLogRootFailureFile -Encoding utf8NoBOM
+
+            $live = Get-FailureEventData -CycleFolder $PayloadDir -Hostname 'BOX' -StepName 'Start-GuestOS'
+            Assert-Equal -Expected 'ocr_timeout' -Actual $live['failureClass'] -Because 'while the cycle runs the record is at the log root'
+            Assert-Equal -Expected 5 -Actual $live['stepNumber']
+            Assert-Equal -Expected 'start.guest.ubuntu.server.26' -Actual $live['sequenceName']
+
+            @{ schemaVersion = 2; failureClass = 'ssh_timeout'; severity = 'hard' } |
+                ConvertTo-Json | Set-Content -LiteralPath $script:PayloadFailureFile -Encoding utf8NoBOM
+            $archived = Get-FailureEventData -CycleFolder $PayloadDir -Hostname 'BOX' -StepName 'Start-GuestOS'
+            Assert-Equal -Expected 'ssh_timeout' -Actual $archived['failureClass'] -Because 'the cycle-folder copy provably belongs to this cycle; the shared root does not'
+        } finally {
+            Remove-Item -LiteralPath $script:PayloadLogRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
     It 'keeps the file values for identity fields the caller left empty' {
         @{ actionVerb = 'sshWaitReady'; action = 'ssh connect'; guestKey = 'guest-from-file'; hostType = 'host-from-file' } |
             ConvertTo-Json | Set-Content -LiteralPath $script:PayloadFailureFile -Encoding utf8NoBOM
@@ -286,6 +316,75 @@ Describe 'Get-FailureEventData' {
         } finally {
             Initialize-TestCycleFolder -Path ''
         }
+    }
+}
+
+Describe 'Get-FailureEventData per-guest attribution' {
+    BeforeAll {
+        $script:AttrRoot = Join-Path $TempRoot ('yuruna-notify-attr-' + [guid]::NewGuid().ToString('N'))
+        $script:AttrCycle = Join-Path $script:AttrRoot 'cycle'
+        $script:AttrLogRoot = Join-Path $script:AttrRoot 'logroot'
+        $script:AttrSavedLogDir = $env:YURUNA_LOG_DIR
+        $null = New-Item -ItemType Directory -Path (Join-Path $script:AttrCycle 'vm-a') -Force
+        $null = New-Item -ItemType Directory -Path (Join-Path $script:AttrCycle 'vm-b') -Force
+        $null = New-Item -ItemType Directory -Path $script:AttrLogRoot -Force
+        $env:YURUNA_LOG_DIR = $script:AttrLogRoot
+    }
+    AfterAll {
+        $env:YURUNA_LOG_DIR = $script:AttrSavedLogDir
+        Remove-Item -LiteralPath $script:AttrRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    BeforeEach {
+        Get-ChildItem -LiteralPath $script:AttrRoot -Filter 'last_failure.json' -Recurse -File -ErrorAction SilentlyContinue |
+            Remove-Item -Force -ErrorAction SilentlyContinue
+    }
+
+    It 'reads the failing guest own mirror ahead of the cycle-folder copy' {
+        '{"schemaVersion":2,"failureClass":"from_the_other_guest","vmName":"vm-b","guestKey":"guest.b"}' |
+            Set-Content -LiteralPath (Join-Path $script:AttrCycle 'last_failure.json') -Encoding utf8NoBOM
+        '{"schemaVersion":2,"failureClass":"ssh_timeout","vmName":"vm-a","guestKey":"guest.a"}' |
+            Set-Content -LiteralPath (Join-Path $script:AttrCycle 'vm-a/last_failure.json') -Encoding utf8NoBOM
+        $p = Get-FailureEventData -CycleFolder $script:AttrCycle -GuestKey 'guest.a' -VMName 'vm-a' -StepName 'Start-GuestOS'
+        Assert-Equal -Expected 'ssh_timeout' -Actual $p['failureClass'] -Because 'the copy inside the guest folder provably belongs to that guest'
+    }
+
+    It 'refuses a cycle-folder record that names a different guest' {
+        # The regression this exists for: a host running several guests per
+        # cycle, where a later guest fails in a way that produces no record of
+        # its own (a warm-resume target not in the list, a missing sequence
+        # file). Inheriting the earlier guest's cause misroutes the dashboard
+        # summary and the per-guest quarantine streak.
+        '{"schemaVersion":2,"failureClass":"provisioning_failure","vmName":"vm-a","guestKey":"guest.a"}' |
+            Set-Content -LiteralPath (Join-Path $script:AttrCycle 'last_failure.json') -Encoding utf8NoBOM
+        $p = Get-FailureEventData -CycleFolder $script:AttrCycle -GuestKey 'guest.b' -VMName 'vm-b' `
+            -StepName 'Start-GuestOS' -ErrorMessage 'warm-resume target sequence not found'
+        Assert-Equal -Expected 'unknown' -Actual $p['failureClass'] -Because 'no record of its own means no classified cause, not another guest cause'
+        Assert-Equal -Expected 'guest.b' -Actual $p['guestKey']
+    }
+
+    It 'refuses a log-root record that names a different guest' {
+        '{"schemaVersion":2,"failureClass":"provisioning_failure","vmName":"vm-a","guestKey":"guest.a"}' |
+            Set-Content -LiteralPath (Join-Path $script:AttrLogRoot 'last_failure.json') -Encoding utf8NoBOM
+        $p = Get-FailureEventData -CycleFolder $script:AttrCycle -GuestKey 'guest.b' -VMName 'vm-b' -StepName 'New-VM'
+        Assert-Equal -Expected 'unknown' -Actual $p['failureClass'] -Because 'the shared root is shared across guests as well as cycles'
+    }
+
+    It 'still offers a record that names no guest at all' {
+        # A host-stage failure belongs to every guest that runs after it.
+        '{"schemaVersion":2,"failureClass":"host_condition_unmet","vmName":"","guestKey":""}' |
+            Set-Content -LiteralPath (Join-Path $script:AttrCycle 'last_failure.json') -Encoding utf8NoBOM
+        $p = Get-FailureEventData -CycleFolder $script:AttrCycle -GuestKey 'guest.b' -VMName 'vm-b' -StepName 'Start-GuestOS'
+        Assert-Equal -Expected 'host_condition_unmet' -Actual $p['failureClass']
+    }
+
+    It 'hands the cycle-folder record to a caller that names no guest' {
+        # Cycle-level consumers -- the end-of-cycle notifier, a post-hoc reader
+        # -- ask without a guest and must still get the cycle's own failure.
+        '{"schemaVersion":2,"failureClass":"provisioning_failure","vmName":"vm-a","guestKey":"guest.a"}' |
+            Set-Content -LiteralPath (Join-Path $script:AttrCycle 'last_failure.json') -Encoding utf8NoBOM
+        $p = Get-FailureEventData -CycleFolder $script:AttrCycle -Hostname 'BOX'
+        Assert-Equal -Expected 'provisioning_failure' -Actual $p['failureClass']
+        Assert-Equal -Expected 'guest.a' -Actual $p['guestKey'] -Because 'with nothing to override, the record identity stands'
     }
 }
 

@@ -8,12 +8,15 @@ sequenceRevision: 2
 
 description: "Ubuntu Server 26.04: log in, install VS Code via the guest.ubuntu.server.26 workload scripts."
 keystrokeMechanism: gui
+
+# --- REGION: resource
 resource:
   ubuntu.server.26:
     - start.guest.ubuntu.server.26
 variables:
   username: yuuser26
 
+# --- REGION: component
 component:
   - action: retry
     maxAttempts: 2
@@ -32,30 +35,12 @@ component:
         text: "${ext:authentication.GetPassword(${username})}"
         description: "OCR: Password:"
 
-  # Prove a shell exists before typing a workload at it, by making it compute
-  # something agetty cannot. A prompt-shaped pattern cannot do this job: OCR
-  # matching splits on the characters it strips, "@" included, and accepts
-  # segments in any order, so "user@host" is satisfied by the line "host
-  # login: user"; and normalization folds "." onto ":", so the colon a shell
-  # prints before its working directory is also present in the /etc/issue
-  # banner of any guest whose name carries a dot. agetty echoes a typed line
-  # verbatim and can produce nothing else, so the expanded token is the proof.
-  # It carries no character the matcher splits on, which keeps segment
-  # matching out of it and leaves order enforced.
+  # See https://yuruna.link/42e220c4-0007
   - action: waitForSeconds
     seconds: 3
     description: "Let the login shell finish drawing before typing at it"
 
-  # The leading space is a sacrificial character. On an ARM64 Hyper-V host the
-  # first keystroke sent to a console that has just come up is dropped -- the
-  # console shows "echo" arriving as "cho" and the shell answering "Command
-  # 'cho' not found" -- and one lost character is enough to turn any typed
-  # command into a different one. A space absorbs that loss: dropped, the
-  # command still starts at "echo"; delivered, the shell ignores leading
-  # whitespace. It costs nothing on a host that does not drop it. Being the
-  # first thing typed after a login, this step also absorbs the loss on
-  # behalf of every step below it, which type commands that a missing first
-  # character would quietly turn into different ones.
+  # A leading space absorbs a dropped first keystroke on ARM64 Hyper-V.
   - action: inputTextAndEnter
     text: " echo yuruna_$(seq -s '' 1 9)_ok"
     description: "Ask the shell to expand a token agetty cannot"
@@ -66,34 +51,9 @@ component:
     freshMatch: true
     description: "OCR: yuruna_123456789_ok"
 
+# --- REGION: workload
 workload:
-  # 3000 s, sized from measurement rather than estimate. On this lab's ARM64
-  # Hyper-V host the script completes in 1373 s with the host otherwise quiet
-  # -- 456 s for the JDK, 20 s for the .NET SDK, 897 s for Code and its GTK and
-  # X11 closure: 24 packages for the JDK and 149 for Code. Those durations were
-  # measured with Code's full RECOMMENDED closure installed, so they are an
-  # upper bound on what the script costs now that it asks for Code with
-  # --no-install-recommends. The same script on the same
-  # guest was still short of finishing at 1810 s when a cycle ran with the host
-  # busy, and its JDK phase alone took 854 s there against 456 s quiet. Host
-  # contention, not the guest, is what moves this number, and it moves it by
-  # nearly a factor of two, so a contended run can be expected near 2600 s.
-  #
-  # Downloading is not the cost and neither is the disk: the archives arrive at
-  # 28-54 MB/s (442 MB in about 20 s of the total), and the guest's virtual
-  # disk shows zero latency and no queueing throughout. The time is spent
-  # unpacking and configuring, at roughly a third of the speed the same work
-  # runs at elsewhere, because a Linux guest on this host spends about two
-  # thirds of its scheduled time inside the hypervisor -- see
-  # docs/host-hyperv.md for the intercept measurement.
-  #
-  # A timeout is a ceiling and not a delay: a host that finishes in a minute
-  # matches and moves on and pays nothing for the headroom, so the only cost of
-  # a generous value is how long a genuinely stuck guest takes to say so. The
-  # value must stay BELOW testCycle.stepTimeoutSeconds (2700 by default), or
-  # the outer watchdog kills the whole inner runner before this step can report
-  # its own timeout -- trading a precise per-step failure for an unattributed
-  # one. An ARM64 host therefore needs that ceiling raised alongside this.
+  # See https://yuruna.link/42e220c4-0007
   - action: fetchAndExecute
     text: "/usr/local/lib/yuruna/fetch-and-execute.sh guest/ubuntu.server.26/ubuntu.server.26.code.sh"
     description: "ubuntu.server.26.code.sh"

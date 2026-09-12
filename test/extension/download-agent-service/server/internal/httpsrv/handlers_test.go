@@ -158,7 +158,7 @@ func newServer(t *testing.T, opts Options) (*httptest.Server, *fakeImages) {
 	f := newFake(t)
 	opts.Images = f
 	if opts.Version == "" {
-		opts.Version = "2026.09.08"
+		opts.Version = "2026.09.12"
 	}
 	srv := httptest.NewServer(New(opts).Handler())
 	t.Cleanup(srv.Close)
@@ -443,7 +443,7 @@ func TestTheAdvertisedFileUrlIsFetchableVerbatim(t *testing.T) {
 		t.Fatalf("Commit: %v", err)
 	}
 
-	srv := httptest.NewServer(New(Options{Images: agent, Version: "2026.09.08"}).Handler())
+	srv := httptest.NewServer(New(Options{Images: agent, Version: "2026.09.12"}).Handler())
 	t.Cleanup(srv.Close)
 
 	catalog := decodeBody(t, get(t, srv, "/api/v1/images"))
@@ -670,8 +670,7 @@ func TestTheComparatorsCoverTheSameColumnsAndRankStatesBySeverity(t *testing.T) 
 	}
 }
 
-// --- diagnostics -------------------------------------------------------------
-
+// --- REGION: Diagnostics
 func TestDiagnosticsRouteIsOpenAndCarriesTheFamilyEvidence(t *testing.T) {
 	// The page exists to explain "family unavailable" without SSH, so the read
 	// must work with no credential at all.

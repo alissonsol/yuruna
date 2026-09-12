@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 4201fdd8-53b7-4416-b2a6-1f61d3cff3af
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -96,6 +96,48 @@ function Initialize-YurunaRuntimeDir {
     return $env:YURUNA_RUNTIME_DIR
 }
 
+# Resolve-SeededHostId returns the id this machine's hardware implies, or '' to
+# mean "generate one". Test.HostIdentity owns the derivation and the platform
+# reads behind it; this only reaches them, loading that sibling on demand
+# because it is needed exactly once in a host's life -- the call that brings
+# host.uuid into existence -- and importing it on every module load would put a
+# fingerprint gather in front of every entry point that touches a runtime path.
+#
+# Test.Perf carries the twin of this helper for the same reason: both modules
+# create host.uuid, either can be the one that wins the race, and a machine
+# whose identity depended on which one got there first would be exactly the
+# forked identity all of this exists to prevent. The two must agree.
+#
+# Never throws and never blocks on a prompt: an id is always obtainable, and a
+# host that cannot read its own hardware must still get one.
+function Resolve-SeededHostId {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    # An operator deliberately re-keying a host needs a way to ask for a new
+    # identity rather than the one its hardware implies, since the derivation
+    # would otherwise hand back the same id the removed runtime directory had.
+    if ($env:YURUNA_HOST_ID_SEED -eq 'random') { return '' }
+    if (-not (Get-Command Get-HostIdentitySeedUuid -ErrorAction SilentlyContinue)) {
+        $module = Join-Path $PSScriptRoot 'Test.HostIdentity.psm1'
+        if (-not (Test-Path -LiteralPath $module)) { return '' }
+        # No -Force: this only needs the command reachable from here, and a
+        # forced reload would evict the module from a caller that already holds
+        # it, taking its commands with it.
+        try { Import-Module $module -ErrorAction Stop } catch {
+            Write-Verbose "Resolve-SeededHostId: Test.HostIdentity unavailable: $($_.Exception.Message)"
+            return ''
+        }
+    }
+    # -AllowSudo because the strong keys are root-only on Linux and the sudo
+    # cache is primed during host setup, which is when a fresh host first asks
+    # for an id. Cold, `sudo -n` fails fast rather than prompting.
+    try { return [string](Get-HostIdentitySeedUuid -AllowSudo) } catch {
+        Write-Verbose "Resolve-SeededHostId: derivation failed: $($_.Exception.Message)"
+        return ''
+    }
+}
+
 function Get-YurunaHostId {
     <#
     .SYNOPSIS
@@ -108,8 +150,11 @@ function Get-YurunaHostId {
         UUID is the durable key. Shares the one host.uuid file -- same path, same
         42-prefixed format -- with Test.Perf's Get-PerfHostUuid; the file is the
         single source of truth, created once early in the single outer-runner
-        process. Removing the runtime dir re-keys the host, matching the rest of
-        that folder's state. Process entry points cache the value on
+        process. A host that loses the runtime dir re-derives the SAME id from
+        its hardware where a stable key can be read, so a reimage or a re-clone
+        does not fork its pool history; set YURUNA_HOST_ID_SEED=random to re-key
+        deliberately, and see Get-HostIdentitySeedUuid for which keys count.
+        Process entry points cache the value on
         $global:__YurunaHostId at script top (the same pattern as
         $global:__YurunaRunId) so the NDJSON hot path reads a global, not the disk.
     .OUTPUTS
@@ -127,8 +172,13 @@ function Get-YurunaHostId {
             if ($existing) { return $existing }
         } catch { Write-Verbose "Get-YurunaHostId: read failed, regenerating: $($_.Exception.Message)" }
     }
-    # 42-prefixed (matches Get-PerfHostUuid): '42' + 30 hex = 32 chars.
-    $id = '42' + ([Guid]::NewGuid().ToString('N')).Substring(2, 30)
+    # Derived from a stable hardware key when one can be read, so a machine that
+    # lost this file comes back as the same host instead of forking its pool
+    # history under a fresh identity. Random is the fallback, and the shape is
+    # the same either way -- 42-prefixed (matches Get-PerfHostUuid): '42' + 30
+    # hex = 32 chars.
+    $id = Resolve-SeededHostId
+    if (-not $id) { $id = '42' + ([Guid]::NewGuid().ToString('N')).Substring(2, 30) }
     # Atomic first-write, shared with Get-PerfHostUuid on this same host.uuid: two
     # processes hitting first-use at once would each generate a DIFFERENT id, so a
     # plain overwrite would leave the host with two identities. The create itself is

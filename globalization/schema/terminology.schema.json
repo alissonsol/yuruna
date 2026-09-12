@@ -123,10 +123,19 @@
     },
     "evidence": {
       "type": "object",
-      "required": ["releaseVersion"],
+      "required": ["releaseVersion", "approvedContent"],
       "additionalProperties": false,
       "properties": {
-        "releaseVersion": { "type": "string", "pattern": "^[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}(\\.[0-9]+)?$" }
+        "releaseVersion": { "type": "string", "pattern": "^[0-9]{4}\\.[0-9]{2}\\.[0-9]{2}(\\.[0-9]+)?$" },
+        "approvedContent": {
+          "type": "object",
+          "required": ["algorithm", "sha256"],
+          "additionalProperties": false,
+          "properties": {
+            "algorithm": { "type": "string", "const": "sha256-canonical-approvable-v1" },
+            "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" }
+          }
+        }
       }
     },
     "term": {

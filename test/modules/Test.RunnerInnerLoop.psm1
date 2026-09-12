@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42479415-ffbe-4fef-9daa-15edda547208
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -511,6 +511,13 @@ function Copy-FailureArtifactsToStatusLog {
             Write-Output "  Failure OCR text saved: ./status/log/$cycleBase/$destSeqName/failure_ocr.txt"
         }
 
+        # Preserve the durable host ring before any guest SSH readiness wait.
+        $failureHostSnapshot = @{ Status='unavailable'; Path=$null; Reason='Host sampler unavailable' }
+        try {
+            Import-Module (Join-Path $ModulesDir 'Test.HostSampling.psm1') -Global -ErrorAction Stop
+            $failureHostSnapshot = Save-YurunaHostSampleSnapshot -DestinationDirectory $destSeqDir -RuntimeDirectory $env:YURUNA_RUNTIME_DIR
+        } catch { Write-Verbose "  Host sample unavailable: $($_.Exception.Message)" }
+
         # Remote system-diagnostics capture. Soft-failing: an unreachable
         # guest, a missing pwsh on the guest, a missing vault entry, all
         # degrade to a Write-Warning -- the cycle's failure flow continues
@@ -520,7 +527,8 @@ function Copy-FailureArtifactsToStatusLog {
             if (-not (Get-Command Save-GuestDiagnostic -ErrorAction SilentlyContinue)) {
                 Import-Module (Join-Path $ModulesDir 'Test.Diagnostic.psm1') -Force -Global
             }
-            $null = Save-GuestDiagnostic -VMName $VMName -GuestKey $GuestKey -OutputFolder $destSeqDir -Id 'yuruna.failure'
+            $null = Save-GuestDiagnostic -VMName $VMName -GuestKey $GuestKey -OutputFolder $destSeqDir -Id 'yuruna.failure' `
+                -HostSnapshot $failureHostSnapshot
         } catch {
             Write-Warning "  System diagnostics capture skipped: $($_.Exception.Message)"
         }
@@ -606,7 +614,16 @@ function Copy-FailureArtifactsToStatusLog {
             $hostDiagScript = Join-Path $RepoRoot 'automation/Get-SystemDiagnostic.ps1'
             $hostDiagOut    = Join-Path $destSeqDir 'host.diagnostics.txt'
             if (Test-Path -LiteralPath $hostDiagScript) {
-                & pwsh -NoProfile -NonInteractive -File $hostDiagScript -OutFile $hostDiagOut | Out-Null
+                $hostDiagJob = Start-Job -ScriptBlock {
+                    & pwsh -NoProfile -NonInteractive -File $using:hostDiagScript -OutFile $using:hostDiagOut | Out-Null
+                }
+                try {
+                    if (Wait-Job -Job $hostDiagJob -Timeout 120) { Receive-Job -Job $hostDiagJob | Out-Null }
+                    else {
+                        Stop-Job -Job $hostDiagJob
+                        Add-Content -LiteralPath $hostDiagOut -Value 'Host diagnostics timed out after 120s; see the earlier host sample.'
+                    }
+                } finally { Remove-Job -Job $hostDiagJob -Force -ErrorAction SilentlyContinue }
                 if (Test-Path -LiteralPath $hostDiagOut) {
                     Write-Output "  Host diagnostics saved: ./status/log/$cycleBase/$destSeqName/host.diagnostics.txt"
                 }
@@ -868,17 +885,45 @@ function New-CycleGitCommitList {
 function Write-CycleConfigLog {
     <#
     .SYNOPSIS
-        Echo test.config.yml (with secrets redacted) and its mtime to the cycle log.
+        Echo test.config.yml (with secrets redacted) and its mtime to the cycle
+        log, followed by the guest set this cycle is actually running.
     .DESCRIPTION
         Parses + re-emits via ConvertFrom-Yaml/Hide-SecretsInConfig/ConvertTo-Yaml
         so vault tokens never land in the transcript; on any parse/redaction error
         it falls back to the raw file so the operator still sees the config that
         drove the cycle.
+
+        The echoed document carries a guestSequence key that a cycle reads only
+        when no plan resolves from test/test.runner.yml in the project
+        repository, so the key can name guests the cycle never touches. The
+        guest-set block after the echo states which of the two decided this
+        cycle and names what it produced, so a reader with only the transcript
+        never has to infer the guest set from a key that was not consulted.
+    .PARAMETER ConfigPath
+        Path to the test.config.yml echoed into the transcript.
+    .PARAMETER GuestList
+        Guest keys this cycle runs, after every gate that can empty them.
+    .PARAMETER SequenceList
+        Top-level sequences with their guest(s), as Get-CyclePlanSequenceList
+        produces. Empty when no plan resolved.
+    .PARAMETER GuestSetSource
+        Which input produced GuestList: 'plan', 'guestSequence' or 'none'. Empty
+        (the default) suppresses the guest-set block for a caller that has no
+        cycle to describe.
     #>
     [CmdletBinding()]
-    param([Parameter(Mandatory)][string]$ConfigPath)
+    param(
+        [Parameter(Mandatory)][string]$ConfigPath,
+        [AllowEmptyCollection()][string[]]$GuestList = @(),
+        [AllowEmptyCollection()][object[]]$SequenceList = @(),
+        [ValidateSet('', 'plan', 'guestSequence', 'none')][string]$GuestSetSource = ''
+    )
     Write-Output ""
-    $testConfigMTime = (Test-Path $ConfigPath) ? (Get-Item $ConfigPath).LastWriteTime.ToString('u') : 'n/a'
+    # The 'u' specifier renders "yyyy-MM-dd HH:mm:ssZ" from whatever DateTime it
+    # is handed WITHOUT converting it, so a local mtime silently acquires a false
+    # Z and every cycle report reads off by the host's UTC offset. Take the UTC
+    # property at the source rather than formatting and hoping.
+    $testConfigMTime = (Test-Path $ConfigPath) ? (Get-Item $ConfigPath).LastWriteTimeUtc.ToString('u') : 'n/a'
     Write-Output "===== test.config.yml: $testConfigMTime"
     if (Test-Path $ConfigPath) {
         try {
@@ -888,6 +933,24 @@ function Write-CycleConfigLog {
         } catch {
             Write-Warning "Could not redact test.config.yml for log: $_"
             Get-Content -Raw $ConfigPath | Write-Output
+        }
+    }
+    if (-not $GuestSetSource) { return }
+    $guestNames = if (@($GuestList).Count -gt 0) { @($GuestList) -join ', ' } else { '(none)' }
+    Write-Output ""
+    Write-Output "===== guest set for this cycle: $guestNames"
+    switch ($GuestSetSource) {
+        'plan' {
+            Write-Output "Resolved from test/test.runner.yml in the project repository; the guestSequence key above was not read."
+            foreach ($seq in @($SequenceList)) {
+                Write-Output "  $($seq.name) -> $(@($seq.guests) -join ', ')"
+            }
+        }
+        'guestSequence' {
+            Write-Output "No plan resolved from test/test.runner.yml in the project repository, so the guestSequence key above is what this cycle runs."
+        }
+        default {
+            Write-Output "No plan and no fallback list: this cycle runs no guest."
         }
     }
 }
@@ -918,6 +981,21 @@ function Assert-RunnerCycleState {
     if ($missingStateKeys.Count -gt 0) {
         throw "Invoke-RunnerInnerCycle: malformed `$State -- missing required key(s): $($missingStateKeys -join ', ')."
     }
+}
+
+function Save-CycleHostSample {
+    <#
+    .SYNOPSIS
+        Preserves the host ring before the cycle folder is archived.
+    #>
+    [CmdletBinding()]
+    param()
+    try {
+        $folder = Get-Variable -Name __YurunaCycleFolder -Scope Global -ValueOnly -ErrorAction SilentlyContinue
+        if (-not $folder) { return }
+        Import-Module (Join-Path $PSScriptRoot 'Test.HostSampling.psm1') -Global -ErrorAction Stop
+        $null = Save-YurunaHostSampleSnapshot -DestinationDirectory $folder -RuntimeDirectory $env:YURUNA_RUNTIME_DIR
+    } catch { Write-Verbose "Cycle host sample unavailable: $($_.Exception.Message)" }
 }
 
 function Complete-CycleRun {
@@ -985,6 +1063,7 @@ function Complete-CycleRun {
 
     Complete-Run -OverallStatus $FinalStatus -MaxHistoryRuns ([int]$Config.testCycle.recentDisplayCount)
     $cycleEndReason = if ($OverallPassed) { '' } elseif ($FailedGuest -and $FailedStep) { "$FailedGuest / $FailedStep" } else { '' }
+    Save-CycleHostSample
     Stop-LogFile -Outcome $FinalStatus -Reason $cycleEndReason
     return $FinalStatus
 }
@@ -1233,9 +1312,14 @@ function Initialize-CycleAuthVault {
         cycle, soft-failing so a missing/broken auth provider defers to the
         per-guest credential ops rather than aborting the cycle here.
     .DESCRIPTION
-        Initialize-VaultConnection creates an empty vault.yml if missing; a prior
-        failed cycle's vault is reused as a debugging aid (it is wiped on cycle
-        success elsewhere). On any init error the underlying message is surfaced as
+        Initialize-VaultConnection creates an empty vault.yml if missing and is a
+        no-op when one already exists. Nothing in the harness ever removes that
+        file: the external-auth simulation only holds if user state outlives the
+        cycle, so the vault and every plaintext guest password in it survive every
+        cycle, pass or fail, until an operator deletes it by hand. A password read
+        here may have been minted many cycles ago, and a retired guest's
+        credential stays readable on disk long after the VM is gone.
+        On any init error the underlying message is surfaced as
         a warning and the cycle continues -- the per-guest credential lookups will
         re-surface the real error at the point they need a secret.
     #>
@@ -1264,7 +1348,8 @@ function Get-CycleGuestAndSequenceList {
         empty, where the dashboard falls back to a flat per-guest list. Reads only
         the plan + config, never guest-loop state.
     .OUTPUTS
-        [hashtable] with GuestList and SequenceList.
+        [hashtable] with GuestList, SequenceList, and Source -- which input
+        produced GuestList: 'plan', 'guestSequence' or 'none'.
     #>
     [CmdletBinding()]
     [OutputType([hashtable])]
@@ -1278,6 +1363,7 @@ function Get-CycleGuestAndSequenceList {
     if ($PlannerFatal) {
         $GuestList    = @()
         $SequenceList = @()
+        $Source       = 'none'
     } elseif ($CyclePlan -and $CyclePlan.Count -gt 0) {
         $GuestList    = Get-CyclePlanGuestList -Plan $CyclePlan
         # Ordered top-level sequences (test.runner.yml entries) -> guest(s),
@@ -1285,21 +1371,30 @@ function Get-CycleGuestAndSequenceList {
         # guestSequence path below, where the dashboard falls back to a flat
         # per-guest list.
         $SequenceList = Get-CyclePlanSequenceList -Plan $CyclePlan
+        $Source       = 'plan'
         # Write-Information, not Write-Output: this function's return value is
         # assigned by its caller, and PowerShell hands the assignment EVERY
         # success-stream object. A Write-Output progress line here makes the
         # result an Object[] of [String, Hashtable] instead of the hashtable --
         # member access still reads through it, so nothing looks broken, but an
         # empty GuestList then enumerates to $null rather than @() and the line
-        # itself never reaches the transcript.
+        # itself never reaches the transcript. Neither does this one: plan
+        # resolution runs before the cycle transcript is opened, so the count is
+        # a console breadcrumb only, and the guest set a log reader needs is
+        # written beside the config echo further into the cycle.
         Write-Information "Cycle plan: $($CyclePlan.Count) entries across $($GuestList.Count) guest(s)." -InformationAction Continue
     } else {
         $GuestList    = Get-GuestList -Config $Config
         $SequenceList = @()
+        $Source       = 'guestSequence'
     }
     return @{
         GuestList    = $GuestList
         SequenceList = $SequenceList
+        # Which input the guest set came from, so the transcript can name the
+        # file that decided the cycle instead of leaving a reader to infer it
+        # from a guestSequence key the cycle may never have read.
+        Source       = $Source
     }
 }
 
@@ -1394,10 +1489,13 @@ function Start-CycleLogFile {
     param(
         [Parameter(Mandatory)][string]$TestRoot,
         [Parameter(Mandatory)][string]$CycleStartUtc,
-        [Parameter(Mandatory)][string]$Hostname
+        [Parameter(Mandatory)][string]$Hostname,
+        # The commits this cycle runs, framework entry first, passed through to
+        # the cycle-opening event so the stream says which code produced it.
+        [AllowNull()][AllowEmptyCollection()]$GitCommits
     )
     $CycleNumber = Get-CycleNumber
-    $LogFile = Start-LogFile -TestRoot $TestRoot -CycleStartUtc $CycleStartUtc -Hostname $Hostname -CycleNumber $CycleNumber
+    $LogFile = Start-LogFile -TestRoot $TestRoot -CycleStartUtc $CycleStartUtc -Hostname $Hostname -CycleNumber $CycleNumber -GitCommits $GitCommits
     Write-Output "Log file: $LogFile"
     return @{
         CycleNumber = $CycleNumber
@@ -1747,6 +1845,11 @@ function Write-CycleHostNetworkReclassification {
         if ($reclassified -eq $current) { return }
         $rec['failureClass'] = $reclassified
         $null = Write-YurunaStateFile -Path $failFile -Content ($rec | ConvertTo-Json -Depth 6) -Confirm:$false
+        # Re-mirror so the cycle folder's copy carries the re-filed class the
+        # retry consumers route on rather than the symptom it replaced.
+        if (Get-Command Copy-CycleFailureRecord -ErrorAction SilentlyContinue) {
+            $null = Copy-CycleFailureRecord
+        }
         Write-Output "  Host network degraded ($script:CycleHostNetworkVerdict): re-filed as '$reclassified' (was '$current') -- no guest-level retry can influence it."
     } catch {
         Write-Verbose "Host-network reclassification of $failFile skipped: $($_.Exception.Message)"
@@ -1806,6 +1909,10 @@ function Write-CycleFailureExecutionTail {
         $ctx['causeDetail']['executionTail']    = ($tailLines -join "`n")
         $ctx['causeDetail']['executionLogPath'] = $LogPath
         $null = Write-YurunaStateFile -Path $failFile -Content ($rec | ConvertTo-Json -Depth 6) -Confirm:$false
+        # Re-mirror so the cycle folder's copy carries the verbatim tail too.
+        if (Get-Command Copy-CycleFailureRecord -ErrorAction SilentlyContinue) {
+            $null = Copy-CycleFailureRecord
+        }
         Write-Output "  Failure record: attached the last $(@($tailLines).Count) lines of the guest's execution log, verbatim, beside the OCR tail."
     } catch {
         Write-Verbose "Execution-tail enrichment of $failFile skipped: $($_.Exception.Message)"
@@ -1846,7 +1953,12 @@ function Write-CycleInfraFailure {
         [string]$GuestKey = '',
         [string]$VMName = '',
         [string]$ErrorMessage = '',
-        [Parameter(Mandatory)][string]$HostType
+        [Parameter(Mandatory)][string]$HostType,
+        # Passed straight through to the record builder: only the host driver
+        # that made the failing call can measure the machine at the instant it
+        # failed, so the stage forwards what it was handed rather than taking a
+        # reading of its own here, seconds and one teardown later.
+        [AllowNull()][hashtable]$HostMemory
     )
     try {
         $dir = if ($env:YURUNA_LOG_DIR) { $env:YURUNA_LOG_DIR }
@@ -1861,10 +1973,20 @@ function Write-CycleInfraFailure {
         # symptom and retrying a fault no guest can influence.
         $effectiveClass = Resolve-HostNetworkFailureClass -FailureClass $FailureClass -GuestKey $GuestKey
         $rec = New-InfraFailureRecord -Stage $Stage -FailureClass $effectiveClass -Severity $Severity `
-            -GuestKey $GuestKey -VMName $VMName -HostType $HostType -ErrorMessage $ErrorMessage
+            -GuestKey $GuestKey -VMName $VMName -HostType $HostType -ErrorMessage $ErrorMessage `
+            -HostMemory $HostMemory
         $failFile = Join-Path $dir 'last_failure.json'
         if (-not (Test-Path -LiteralPath $failFile) -and (Get-Command Write-YurunaStateFile -ErrorAction SilentlyContinue)) {
             $null = Write-YurunaStateFile -Path $failFile -Content ($rec.File | ConvertTo-Json -Depth 6) -Confirm:$false
+            # Mirror into the cycle folder at classification time: the record
+            # above sits at the shared log root, which the next guest's first
+            # sequence start clears, so an infra failure on a non-final guest
+            # otherwise leaves the cycle with no record of it. Only on the branch
+            # that actually wrote -- a suppressed write has nothing new to mirror
+            # and would overwrite the richer record it just declined to replace.
+            if (Get-Command Copy-CycleFailureRecord -ErrorAction SilentlyContinue) {
+                $null = Copy-CycleFailureRecord -LogDir $dir
+            }
         }
         if (Get-Command Send-CycleEventSafely -ErrorAction SilentlyContinue) {
             Send-CycleEventSafely -EventRecord $rec.Event
@@ -2119,6 +2241,39 @@ do {
     # hosts that need nothing (or when the opt-in is off). Never throws.
     # See docs/host-hyperv.md.
     Initialize-HostDisplay -HostType $HostType
+
+    # Converge this host's metrics exporter -- a MUTATION, not a check, and
+    # placed here rather than inside the gate above for two reasons.
+    #
+    # The gate decides whether a cycle may run and reports that as a bool; a
+    # host change folded into it would be invisible to every reader of that
+    # call, and Assert-*/Set-* are kept apart everywhere else here.
+    #
+    # And this position is what makes an unattended privileged repair safe at
+    # all. The unattended loop makes no repair that has to ask for its
+    # privilege -- a loop waiting on a credential nobody is present to type is a
+    # hang, which is why the host clock is only ever measured here and repaired
+    # where a console can answer. This one never asks: on the single host type
+    # that registers a provider, the gate above begins with Assert-Elevation and
+    # refuses the cycle when it fails, so reaching this line is proof that
+    # Administrator is already held. No provider is registered for the hosts
+    # where the same work would need a sudo credential.
+    #
+    # Runs before any guest starts, so an install that restarts a service or
+    # touches the firewall can never land mid-provisioning. Costs one service
+    # lookup on a host that already has the exporter; a host that does not gets
+    # one bounded install attempt, and a failed attempt buys a quiet interval so
+    # a host that cannot install does not spend part of every cycle
+    # rediscovering it.
+    #
+    # Two belts, because this is telemetry and telemetry may not end a cycle.
+    # The try means not even a module that failed to import -- which would make
+    # the command itself unresolvable -- can raise here. Discarding the value
+    # means this step can never contribute to what the enclosing function
+    # returns; everything a person is meant to read is on the warning and
+    # information streams instead.
+    try { $null = Initialize-HostMetricsExporter -HostType $HostType }
+    catch { Write-Warning "Host metrics: the exporter step could not run ($($_.Exception.Message)); the cycle is unaffected." }
 
     $CycleCount++
     $OverallPassed  = $true
@@ -2516,6 +2671,7 @@ do {
     $guestSeqLists = Get-CycleGuestAndSequenceList -PlannerFatal $plannerFatal -CyclePlan $script:CyclePlan -Config $Config
     $GuestList    = $guestSeqLists.GuestList
     $SequenceList = $guestSeqLists.SequenceList
+    $guestSetSource = $guestSeqLists.Source
 
     # --- REGION: Orchestration top-level (InvokeTestSequence playbook)
     # A test.runner.yml entry can be an orchestration sequence (no resource:/
@@ -2681,7 +2837,7 @@ do {
         # CycleNumber (also returned by the helper) is not read downstream in the
         # cycle body -- it is consumed inside Start-CycleLogFile to name the cycle
         # folder -- so only LogFile is captured here.
-        $LogFile = (Start-CycleLogFile -TestRoot $TestRoot -CycleStartUtc $CycleStartUtc -Hostname (hostname)).LogFile
+        $LogFile = (Start-CycleLogFile -TestRoot $TestRoot -CycleStartUtc $CycleStartUtc -Hostname (hostname) -GitCommits $GitCommitsList).LogFile
 
         # --- REGION: Cycle-start host diagnostic + perf-log open
         Start-CycleHostDiagnostic -RepoRoot $RepoRoot -CycleStartUtc $CycleStartUtc -HostType $HostType `
@@ -2726,6 +2882,7 @@ do {
     if ($StopOnFailure -and -not $OverallPassed) {
         Complete-Run -OverallStatus "fail" -MaxHistoryRuns ([int]$Config.testCycle.recentDisplayCount)
         $earlyAbortReason = if ($FailedGuest -and $FailedStep) { "$FailedGuest / $FailedStep" } else { 'stopOnFailure tripped' }
+        Save-CycleHostSample
         Stop-LogFile -Outcome 'fail' -Reason $earlyAbortReason
         break
     }
@@ -2801,12 +2958,17 @@ do {
         }
     }
 
-    Write-CycleConfigLog -ConfigPath $ConfigPath
+    # Emitted here rather than at plan resolution: the cycle transcript does not
+    # exist until Start-LogFile runs, and by now $GuestList has survived every
+    # gate that can empty it, so what this prints is what the guest loop uses.
+    Write-CycleConfigLog -ConfigPath $ConfigPath -GuestList $GuestList `
+        -SequenceList $SequenceList -GuestSetSource $guestSetSource
 
     # --- REGION: Abort cycle early if a pre-pipeline step failed under stopOnFailure
     if ($StopOnFailure -and -not $OverallPassed) {
         Complete-Run -OverallStatus "fail" -MaxHistoryRuns ([int]$Config.testCycle.recentDisplayCount)
         $prePipelineReason = if ($FailedGuest -and $FailedStep) { "$FailedGuest / $FailedStep (pre-pipeline)" } else { 'stopOnFailure tripped pre-pipeline' }
+        Save-CycleHostSample
         Stop-LogFile -Outcome 'fail' -Reason $prePipelineReason
         break
     }
@@ -2882,7 +3044,13 @@ do {
                 $qClass = 'unknown'
                 if (Get-Command Get-FailureEventData -ErrorAction SilentlyContinue) {
                     try {
+                        # -VMName reads this guest's OWN copy of the record and
+                        # refuses a shared copy naming another guest: a streak is
+                        # per-guest, so a guest that produced no record of its own
+                        # must accumulate 'unknown' rather than inherit the class
+                        # of whichever guest failed before it this cycle.
                         $qfe = Get-FailureEventData -HostType $HostType -Hostname (hostname) -GuestKey $GuestKey `
+                            -VMName ([string]$VMNames[$GuestKey]) `
                             -StepName ([string]$guestIterState.FailedStep) -ErrorMessage ([string]$guestIterState.FailureMessage)
                         if ($qfe -and $qfe.failureClass) { $qClass = [string]$qfe.failureClass }
                     } catch { $null = $_ }
@@ -3069,6 +3237,7 @@ do {
         if (-not $script:CycleFinalized) {
             try {
                 Complete-Run -OverallStatus "fail" -MaxHistoryRuns ([int]$Config.testCycle.recentDisplayCount) -ErrorAction SilentlyContinue
+                Save-CycleHostSample
                 Stop-LogFile -Outcome 'aborted' -Reason 'cycle-restart marker consumed mid-cycle' -ErrorAction SilentlyContinue
             } catch { Write-Warning "  Cycle-restart finalization failed: $_" }
             $script:CycleFinalized = $true
@@ -3119,6 +3288,7 @@ do {
         try {
             Complete-Run -OverallStatus "fail" -MaxHistoryRuns ([int]$Config.testCycle.recentDisplayCount) -ErrorAction SilentlyContinue
             $emergencyReason = if ($_) { "engine crash: $($_.Exception.Message)" } else { 'engine crash (no exception object)' }
+            Save-CycleHostSample
             Stop-LogFile -Outcome 'fail' -Reason $emergencyReason -ErrorAction SilentlyContinue
         } catch { Write-Warning "  Emergency cycle finalization failed: $_" }
         $script:CycleFinalized = $true
@@ -3592,7 +3762,11 @@ function Invoke-GuestProvisionIteration {
         Set-StepStatus  -GuestKey $GuestKey -StepName "Start-VM" -Status "fail" -ErrorMessage $r.errorMessage
         Set-GuestStatus -GuestKey $GuestKey -Status "fail"
         $IterState.OverallPassed = $false; $IterState.FailedGuest = $GuestKey; $IterState.FailedStep = "Start-VM"; $IterState.FailureMessage = $r.errorMessage
-        Write-CycleInfraFailure -Stage 'Start-VM' -FailureClass 'provisioning_failure' -GuestKey $GuestKey -VMName $VMName -ErrorMessage $r.errorMessage -HostType $HostType
+        # Indexed, not dotted: a driver that cannot measure its host returns a
+        # result without the key at all, and under StrictMode reading an absent
+        # key as a property is a terminating error -- inside the failure path,
+        # where it would replace the real failure with its own.
+        Write-CycleInfraFailure -Stage 'Start-VM' -FailureClass 'provisioning_failure' -GuestKey $GuestKey -VMName $VMName -ErrorMessage $r.errorMessage -HostType $HostType -HostMemory $r['hostMemory']
         Copy-FailureArtifactsToStatusLog -VMName $VMName -GuestKey $GuestKey -RepoRoot $RepoRoot -ModulesDir $ModulesDir -LogFile $LogFile
         if ($StopOnFailure) { $IterState.Control = 'break'; return }
         # Start-VM failed but New-VM passed, so the VM is defined (Off
@@ -3642,6 +3816,35 @@ function Invoke-GuestProvisionIteration {
         Set-StepStatus  -GuestKey $GuestKey -StepName "Start-GuestOS" -Status "fail" -ErrorMessage $r.errorMessage
         Set-GuestStatus -GuestKey $GuestKey -Status "fail"
         $IterState.OverallPassed = $false; $IterState.FailedGuest = $GuestKey; $IterState.FailedStep = "Start-GuestOS"; $IterState.FailureMessage = $r.errorMessage
+        # Surface the schema-v2 cause (class / repro / step) on the live
+        # dashboard at failure time, the same way the workload branch does.
+        # Without it the dashboard raises its incident banner and has nothing
+        # to put under it: a guest that never gets past its start sequence
+        # leaves lastFailure null, which is the shape a PASSING cycle has.
+        # Ahead of the artifact copy below, which reaches into the guest over
+        # SSH and can run for minutes -- the operator gets the cause while that
+        # is still collecting, not after.
+        if ((Get-Command Get-FailureEventData -ErrorAction SilentlyContinue) -and (Get-Command Set-LastFailureSummary -ErrorAction SilentlyContinue)) {
+            try {
+                $fe = Get-FailureEventData -HostType $HostType -Hostname (hostname) -GuestKey $GuestKey -VMName $VMName -StepName 'Start-GuestOS' -ErrorMessage $r.errorMessage
+                $feRepro = if ($fe.repro -is [System.Collections.IDictionary] -and $fe.repro.Contains('command')) { [string]$fe.repro['command'] } elseif ($fe.Contains('reproCommand')) { [string]$fe.reproCommand } else { '' }
+                # Deep-link the record itself: the writers mirror it into this
+                # guest's own cycle folder, which is exactly where the dashboard
+                # resolves a relPath (cycleFolderUrl + vmName + '/' + relPath).
+                # Named only when that mirror is on disk -- a start that failed
+                # without producing a record at all would otherwise render a
+                # link to a file that was never written.
+                $feRelPath = ''
+                if (Get-Command Get-CycleGuestDataFolder -ErrorAction SilentlyContinue) {
+                    $feGuestFolder = Get-CycleGuestDataFolder -VMName $VMName
+                    if ($feGuestFolder -and (Test-Path -LiteralPath (Join-Path $feGuestFolder 'last_failure.json'))) { $feRelPath = 'last_failure.json' }
+                }
+                Set-LastFailureSummary -FailureClass ([string]$fe.failureClass) -Severity ([string]$fe.severity) `
+                    -StepNumber ([int]($fe.stepNumber)) -SequenceName ([string]$fe.sequenceName) -ReproCommand $feRepro `
+                    -RelPath $feRelPath `
+                    -GuestKey $GuestKey -StepName 'Start-GuestOS' -ErrorMessage $r.errorMessage -VmName $VMName -Confirm:$false
+            } catch { $null = $_ }
+        }
         Copy-FailureArtifactsToStatusLog -VMName $VMName -GuestKey $GuestKey -RepoRoot $RepoRoot -ModulesDir $ModulesDir -LogFile $LogFile
         if ($StopOnFailure) {
             Write-Output "  VM '$VMName' left running for investigation."
@@ -3827,14 +4030,22 @@ function Invoke-GuestProvisionIteration {
             # last_failure.json parse isn't duplicated here.
             if ((Get-Command Get-FailureEventData -ErrorAction SilentlyContinue) -and (Get-Command Set-LastFailureSummary -ErrorAction SilentlyContinue)) {
                 try {
-                    $fe = Get-FailureEventData -HostType $HostType -Hostname (hostname) -GuestKey $GuestKey -StepName 'Start-GuestWorkload' -ErrorMessage $r.errorMessage
+                    $fe = Get-FailureEventData -HostType $HostType -Hostname (hostname) -GuestKey $GuestKey -VMName $VMName -StepName 'Start-GuestWorkload' -ErrorMessage $r.errorMessage
                     $feRepro = if ($fe.repro -is [System.Collections.IDictionary] -and $fe.repro.Contains('command')) { [string]$fe.repro['command'] } elseif ($fe.Contains('reproCommand')) { [string]$fe.reproCommand } else { '' }
-                    # No -RelPath: last_failure.json lives at the log root, not
-                    # the per-guest cycle folder the dashboard deep-links into,
-                    # so a relPath here would render a dead link. The classified
-                    # cause + repro command (shown inline) carry the value.
+                    # Deep-link the record itself: the writers mirror it into
+                    # this guest's own cycle folder, which is exactly where the
+                    # dashboard resolves a relPath (cycleFolderUrl + vmName +
+                    # '/' + relPath). Named only when that mirror is on disk --
+                    # a workload that failed without producing a record at all
+                    # would otherwise render a link to a file never written.
+                    $feRelPath = ''
+                    if (Get-Command Get-CycleGuestDataFolder -ErrorAction SilentlyContinue) {
+                        $feGuestFolder = Get-CycleGuestDataFolder -VMName $VMName
+                        if ($feGuestFolder -and (Test-Path -LiteralPath (Join-Path $feGuestFolder 'last_failure.json'))) { $feRelPath = 'last_failure.json' }
+                    }
                     Set-LastFailureSummary -FailureClass ([string]$fe.failureClass) -Severity ([string]$fe.severity) `
                         -StepNumber ([int]($fe.stepNumber)) -SequenceName ([string]$fe.sequenceName) -ReproCommand $feRepro `
+                        -RelPath $feRelPath `
                         -GuestKey $GuestKey -StepName 'Start-GuestWorkload' -ErrorMessage $r.errorMessage -VmName $VMName -Confirm:$false
                 } catch { $null = $_ }
             }

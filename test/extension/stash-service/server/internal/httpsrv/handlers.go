@@ -116,8 +116,7 @@ func (s *Server) resolvePermalinkByID(id string) string {
 	return ""
 }
 
-// --- helpers -------------------------------------------------------------
-
+// --- REGION: Helpers
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
@@ -284,8 +283,7 @@ func (s *Server) effectiveResult(r *resolved) detect.Result {
 	return res
 }
 
-// --- handlers ------------------------------------------------------------
-
+// --- REGION: Handlers
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	_, _ = io.WriteString(w, "ok")
@@ -693,8 +691,7 @@ func (s *Server) respondCreate(w http.ResponseWriter, res *sshsrv.IngestResult, 
 	})
 }
 
-// --- static assets -------------------------------------------------------
-
+// --- REGION: Static assets
 func (s *Server) servePage(name string) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
 		data, err := webFS.ReadFile("web/" + name)
@@ -744,8 +741,7 @@ func (s *Server) handleAsset(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(data)
 }
 
-// --- small helpers -------------------------------------------------------
-
+// --- REGION: Small helpers
 func parseListFilter(r *http.Request) listFilter {
 	q := r.URL.Query()
 	f := listFilter{

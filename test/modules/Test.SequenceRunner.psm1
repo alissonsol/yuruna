@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42876323-908f-424a-bc58-2069b325aa64
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,6 +21,7 @@
 # Every input arrives by parameter (no script-scope reads) so a test harness
 # can call these with fixture data. The host-driver-resolved $VMName and
 # Invoke-Sequence's $ShowSensitive switch are passed through verbatim.
+Import-Module (Join-Path $PSScriptRoot 'Test.SnapshotManifest.psm1') -DisableNameChecking -Global
 
 function Resolve-TestSequencePlan {
     <#
@@ -186,6 +187,35 @@ function Resolve-TestSequencePlan {
                 requiredSnapshotId = $requiredSnapshotId
                 warmPath           = $false
                 resolveFailed      = $true
+            }
+        }
+        $policy = $topLevelEntry.sequence.snapshotPolicy
+        if ($snapPresent -and $policy) {
+            try {
+                $identity = Get-SnapshotSourceIdentity -RepoRoot $RepoRoot -GuestKey "guest.$OsKey" `
+                    -Policy $policy -Variables $ChainPlan.effectiveVariables
+                $reuse = Test-SnapshotReusePolicy -VMName $requiredSnapshotId -SnapshotId $requiredSnapshotId `
+                    -HostType $HostType -Policy $policy -SourceIdentity $identity
+                if ($reuse.Status -eq 'stale' -and $policy.rebuildOnMismatch -eq $true) {
+                    if (-not (Remove-StaleManagedSnapshot -SnapshotId $requiredSnapshotId -HostType $HostType `
+                        -Policy $policy -SourceIdentity $identity -Confirm:$false)) {
+                        throw 'Could not remove the stale managed baseline.'
+                    }
+                    Write-Information "requiresSnapshot: $($reuse.Reason) Rebuilding '$requiredSnapshotId'." -InformationAction Continue
+                    $snapPresent = $false
+                } elseif ($reuse.Status -ne 'reusable') {
+                    throw $reuse.Reason
+                }
+            } catch {
+                Write-Warning "requiresSnapshot: refusing baseline '$requiredSnapshotId': $($_.Exception.Message)"
+                return @{
+                    chainEntries = $null; chainPlan = $ChainPlan
+                    effectiveUser = $effectiveUser; effectiveHost = $effectiveHost
+                    effectiveMemoryStartupBytes = $effectiveMemory; effectiveCores = $effectiveCores
+                    effectiveExposeVirtualizationExtensions = $effectiveExposeVirt
+                    chainTotalSteps = 0; requiredSnapshotId = $requiredSnapshotId
+                    warmPath = $false; resolveFailed = $true
+                }
             }
         }
         if ($snapPresent) {

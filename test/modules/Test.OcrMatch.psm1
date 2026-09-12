@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42623d37-5542-4fd6-8bd7-fcd92f20175d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,7 +32,6 @@ Import-Module (Join-Path $PSScriptRoot 'Test.OcrEngine.psm1') -Global -Force
 $script:OcrPatternCache = @{}
 
 # --- REGION: OCR-tolerant matching
-
 # Common OCR confusion groups: characters within each group are frequently
 # misrecognized as each other on console/monospace text.
 # Sources: WinRT/Vision observed errors, UNLV OCR accuracy studies.
@@ -154,9 +153,15 @@ function Test-OCRMatch {
     # matches "Password:" via the sliding window at 8/9 = 89%).
     $threshold = [int][Math]::Ceiling($normPattern.Length * 0.85)
     $patternChars = $normPattern.ToCharArray()
-    # Matched chars in the text must span at most 2x the pattern length to
-    # prevent hits where common chars are scattered across a long line.
-    $maxSpan = $normPattern.Length * 2
+    # Matched chars must fall inside the pattern's own length plus the same
+    # error budget the threshold grants: a pattern that forgives N dropped
+    # characters tolerates about N inserted ones, and no more. A budget tied
+    # to the pattern's whole length instead lets a long line of prose satisfy
+    # a short prompt pattern by scattering it -- the notice a guest prints
+    # before "New password:" spells that pattern in order once the confusion
+    # groups fold n->m and e->c, and a wait that accepts the notice types the
+    # secret into a terminal that has not switched off echo yet.
+    $maxSpan = $normPattern.Length + ($normPattern.Length - $threshold)
     # Loop-invariant: depends only on $patternChars, hoisted from the
     # per-line foreach so multi-line OCR text doesn't reallocate per line.
     $patternCharSet = [System.Collections.Generic.HashSet[char]]::new([char[]]$patternChars)
@@ -255,7 +260,6 @@ function Test-OCRMatch {
 }
 
 # --- REGION: Multi-engine OCR combine logic
-
 # Combine mode: 'Or' (default, resilient) vs 'And' (strict, fewer FPs);
 # switch via $env:YURUNA_OCR_COMBINE or the default in Get-OcrCombineMode below.
 
@@ -434,7 +438,10 @@ function Test-CombinedOcrMatch {
 .OUTPUTS
     [string[]] one line per engine+pattern near miss; empty when the window was
     not the reason -- nothing matched anywhere, or the frame was short enough
-    that the window covered all of it.
+    that the window covered all of it. Empty is therefore NOT the claim that
+    nothing on screen came close; those are three different screens sharing one
+    value. Get-OcrClosestOnScreen answers that question, and a failure record
+    carries both so neither is read as the other.
 #>
 function Get-OcrFreshWindowNearMiss {
     [CmdletBinding()]
@@ -457,7 +464,11 @@ function Get-OcrFreshWindowNearMiss {
         $text = [string]$entry.Text
         if ([string]::IsNullOrWhiteSpace($text)) { continue }
         $lines = $text -split "`n"
-        # The window covered the whole frame, so it cannot have hidden anything.
+        # The window covered the whole frame, so it cannot have hidden anything:
+        # the tail Test-CombinedOcrMatch tested is character-for-character this
+        # same text, and it already failed to match, so re-testing here is
+        # guaranteed to fail again and the skip costs no signal. What a frame
+        # this short DID hold comes from Get-OcrClosestOnScreen instead.
         if ($lines.Count -le $FreshMatchTailLines) { continue }
         $windowStart = $lines.Count - $FreshMatchTailLines
 
@@ -477,4 +488,144 @@ function Get-OcrFreshWindowNearMiss {
     return [string[]]$found.ToArray()
 }
 
-Export-ModuleMember -Function Get-OCRNormalized, Test-OCRMatch, Get-OcrCombineMode, Test-CombinedOcrMatch, Get-OcrFreshWindowNearMiss
+<#
+.SYNOPSIS
+    Score how closely a pattern resembles one piece of OCR text, 0.0 to 1.0 (pure).
+.DESCRIPTION
+    Both sides go through Get-OCRNormalized first, so the score is measured on
+    the same canonical form Test-OCRMatch decides on: character confusion the
+    matcher forgives costs nothing here either, which is what makes a low score
+    mean "this is not a mangled reading of the pattern" rather than "OCR was
+    imperfect".
+
+    The pattern is slid across the text with overhang allowed at both ends, so
+    text SHORTER than the pattern still scores. That case is the whole point on
+    a bare console: a login screen's lines are all shorter than a marker string,
+    and a scorer that skipped them would report nothing exactly where there is
+    nothing else to report.
+
+    Only aligned character equality counts. The out-of-order and dropped-
+    character forms Test-OCRMatch's other strategies accept are deliberately not
+    rewarded, because a number read as "how close was it" has to keep falling as
+    the text diverges instead of plateauing on coincidental overlap.
+.PARAMETER Text
+    The text to score -- normally a single screen line.
+.PARAMETER Pattern
+    The pattern the wait was seeking.
+.OUTPUTS
+    [double] the best fraction of normalized pattern characters that lined up,
+    0.0 to 1.0. Test-OCRMatch's own bar is 0.85.
+#>
+function Get-OCRSimilarityScore {
+    [CmdletBinding()]
+    [OutputType([double])]
+    param(
+        [AllowEmptyString()][string]$Text,
+        [AllowEmptyString()][string]$Pattern
+    )
+    if ([string]::IsNullOrEmpty($Pattern)) { return 0.0 }
+    $normPattern = $script:OcrPatternCache[$Pattern]
+    if ($null -eq $normPattern) {
+        $normPattern = Get-OCRNormalized $Pattern
+        $script:OcrPatternCache[$Pattern] = $normPattern
+    }
+    if ($normPattern.Length -eq 0) { return 0.0 }
+    if ([string]::IsNullOrEmpty($Text)) { return 0.0 }
+    $normText = Get-OCRNormalized $Text
+    if ($normText.Length -eq 0) { return 0.0 }
+
+    $patLen = $normPattern.Length
+    $best = 0
+    for ($offset = -($patLen - 1); $offset -lt $normText.Length; $offset++) {
+        $hit = 0
+        for ($i = 0; $i -lt $patLen; $i++) {
+            $ti = $offset + $i
+            if ($ti -lt 0) { continue }
+            if ($ti -ge $normText.Length) { break }
+            if ($normText[$ti] -eq $normPattern[$i]) { $hit++ }
+        }
+        if ($hit -gt $best) { $best = $hit }
+    }
+    return [double]$best / $patLen
+}
+
+<#
+.SYNOPSIS
+    Report the line each OCR engine DID read that came closest to each sought
+    pattern, and how close, so a failed wait says what the screen held and not
+    only what it lacked (pure).
+.DESCRIPTION
+    A wait that ends unmatched records the patterns it sought and a tail of the
+    screen, and leaves an operator to compare the two by eye. The comparison
+    they actually want -- was anything on that screen a degraded reading of what
+    I asked for? -- is one the matcher already made and discarded.
+
+    The two answers have different owners. A high score means the text printed
+    and the read of it fell short, so the capture or the matcher's tolerance is
+    where to look. A low score means the screen was showing something else
+    entirely, so the guest never got as far as printing it. A bare timeout
+    cannot tell those apart, and neither can a near-miss list: that list is
+    empty for a screen too short for its window to hide anything, which is
+    exactly the shape of a console parked at a login prompt.
+
+    Runs at the timeout only, never in the poll loop, so a healthy wait pays
+    nothing for it.
+.PARAMETER EngineResult
+    The EngineResults map from the last Test-CombinedOcrMatch of the wait:
+    engine name -> @{ Text; Matched; MatchedPattern }.
+.PARAMETER Pattern
+    The patterns the wait was seeking.
+.PARAMETER MaxLineLength
+    Longest excerpt quoted from a screen line. A wrapped log line can be
+    thousands of characters, and the failure record is read by people.
+.OUTPUTS
+    [string[]] one line per engine+pattern; empty only when no engine produced
+    any text at all, which is a different failure (nothing was read off the
+    screen) with its own counters.
+#>
+function Get-OcrClosestOnScreen {
+    [CmdletBinding()]
+    [OutputType([string[]])]
+    param(
+        [AllowNull()][System.Collections.IDictionary]$EngineResult,
+        [string[]]$Pattern,
+        [int]$MaxLineLength = 120
+    )
+    $found = [System.Collections.Generic.List[string]]::new()
+    if ($null -eq $EngineResult) { return [string[]]$found.ToArray() }
+
+    foreach ($engineName in $EngineResult.Keys) {
+        $entry = $EngineResult[$engineName]
+        if ($null -eq $entry) { continue }
+        # An engine that matched has nothing to explain.
+        if ([bool]$entry.Matched) { continue }
+        $text = [string]$entry.Text
+        if ([string]::IsNullOrWhiteSpace($text)) { continue }
+        $lines = @(($text -split "`n") | ForEach-Object { $_.TrimEnd("`r") })
+
+        foreach ($p in $Pattern) {
+            if ([string]::IsNullOrWhiteSpace($p)) { continue }
+            $bestScore = 0.0
+            $bestIndex = -1
+            for ($i = 0; $i -lt $lines.Count; $i++) {
+                if ([string]::IsNullOrWhiteSpace($lines[$i])) { continue }
+                $score = Get-OCRSimilarityScore -Text $lines[$i] -Pattern $p
+                if ($score -gt $bestScore) {
+                    $bestScore = $score
+                    $bestIndex = $i
+                }
+            }
+            if ($bestIndex -lt 0) {
+                $found.Add("[$engineName] nothing in the $($lines.Count)-line frame shared a single character with '$p', so the screen was not a degraded reading of it -- it was showing something else.")
+                continue
+            }
+            $pct = [int][Math]::Round($bestScore * 100)
+            $excerpt = $lines[$bestIndex].Trim()
+            if ($excerpt.Length -gt $MaxLineLength) { $excerpt = $excerpt.Substring(0, $MaxLineLength) + '...' }
+            $found.Add("[$engineName] closest to '$p' on the $($lines.Count)-line frame was line $($bestIndex + 1), '$excerpt', at $pct% -- a match needs 85%.")
+        }
+    }
+    return [string[]]$found.ToArray()
+}
+
+Export-ModuleMember -Function Get-OCRNormalized, Test-OCRMatch, Get-OcrCombineMode, Test-CombinedOcrMatch, Get-OcrFreshWindowNearMiss, Get-OCRSimilarityScore, Get-OcrClosestOnScreen

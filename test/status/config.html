@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <!-- LICENSEURI https://yuruna.link/license -->
 <!-- Copyright (c) 2019-2026 by Alisson Sol et al. -->
-<!-- --- REGION: https://yuruna.link/42fa6f45-0023 -->
+<!-- REGION: https://yuruna.link/42fa6f45-0023 -->
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -355,6 +355,7 @@
     .tree-bool-label.false { color: #b91c1c; color: var(--fail-fg); }
 
     .tree-null  { color: #6b7280; color: var(--fg-faint); font-style: italic; }
+    .tree-note  { color: #6b7280; color: var(--fg-muted); font-size: .75rem; line-height: 1.4; margin: .2rem 0 .4rem; max-width: 62ch; }
     .tree-empty { color: #6b7280; color: var(--fg-faint); font-style: italic; font-size: .75rem; }
 
     @media (max-width: 600px) {
@@ -369,7 +370,7 @@
       /* The switch label is the only target for a boolean value and draws
          2.4rem x 1.2rem (~38x19 px), far under the same touch minimum. Give the
          label the full touch height and hold the track at its drawn size,
-         centred inside it, so the hit area grows without the control changing
+         centered inside it, so the hit area grows without the control changing
          shape or the knob's offsets moving. */
       .tree-bool-switch { height: 2.75rem; height: var(--touch-min); }
       .tree-bool-track  { top: 50%; bottom: auto; height: 1.2rem; margin-top: -.6rem; }

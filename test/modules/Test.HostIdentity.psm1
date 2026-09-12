@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 4277ce69-f7e3-434d-85c2-cf1468b28b01
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -30,7 +30,6 @@
 # primed there) and cached to runtime/host.hwid.json; the drain reads the cache.
 
 # --- REGION: Pure normalization helpers (no I/O) -- the testable core
-
 # Junk SMBIOS/serial values that firmware ships as placeholders. Treated as
 # "absent" so two unrelated boards that both report "Default string" never look
 # like a match. Compared lowercased after trimming.
@@ -236,7 +235,6 @@ function ConvertFrom-HostInfoRecord {
 }
 
 # --- REGION: OS-touching fingerprint gather (best-effort; never throws)
-
 # Get-HostIdentityRuntimeDir resolves the runtime dir, preferring Test.YurunaDir's
 # canonical resolver (which also creates it) and falling back to the env var.
 # Returns '' when it genuinely cannot resolve, so callers can treat that as
@@ -563,15 +561,109 @@ function Get-CachedHostHardwareFingerprint {
     return (Get-HostHardwareFingerprint -NoCache)
 }
 
-# --- REGION: NAS-side host registry (hosts/info.<uuid>.yml)
+# --- REGION: Hardware-seeded host id
+function ConvertTo-SeededHostUuid {
+    <#
+    .SYNOPSIS
+    Derives the 42-prefixed 32-hex host id that one stable hardware key implies; pure and deterministic.
+    .DESCRIPTION
+    The id is a hash of the key, not the key itself, for two reasons. A host id
+    travels through logs, dashboards, pool membership and NAS folder names, and a
+    board serial or firmware UUID is hardware provenance that has no business in any
+    of them. And the shape has to stay exactly what every consumer already accepts:
+    '42' + 30 hex.
+
+    Kind is part of the hashed material, so a machine whose baseboard serial happens
+    to equal another's firmware UUID cannot derive the same id from a different
+    field. The version prefix makes any future change to this derivation a
+    deliberate, visible re-key rather than a silent one.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param(
+        [Parameter(Mandatory)][string]$Kind,
+        [Parameter(Mandatory)][string]$Value
+    )
+    $material = "yuruna.host-id/v1|$Kind|$Value"
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $digest = $sha.ComputeHash([System.Text.UTF8Encoding]::new($false).GetBytes($material))
+    } finally { $sha.Dispose() }
+    $hex = [System.BitConverter]::ToString($digest).Replace('-', '').ToLowerInvariant()
+    return '42' + $hex.Substring(0, 30)
+}
 
 <#
 .SYNOPSIS
-Publishes <MountRoot>/hosts/info.<HostId>.yml (creating hosts/ if absent), atomically when Test.StateFile is available with a direct-write fallback.
+The host id this machine's hardware implies, or '' when no key on it is stable enough to trust.
 .DESCRIPTION
-Best-effort: returns the path on success, $null on any failure -- callers must never break on a registry write.
+A host id is minted into the runtime directory, so anything that takes that
+directory away -- a reimage, a re-clone, a wiped checkout -- used to leave the
+machine to invent a fresh identity. Its pool history then forked: the aggregator
+and the scan list both key hosts by id, so one machine occupied a row per id it
+had ever had, and pool membership stayed on the id that went quiet while the
+machine did the work outside the pool.
+
+Deriving the id from hardware closes that at the source. The same machine comes
+back as the same host with no NAS record to consult and no operator to ask,
+which is what the reclaim in this module can only offer when a fingerprint
+record was published first and somebody is at the console to confirm it.
+
+Keys are tried strongest first, matching the weights the reclaim scoring uses:
+firmware UUID, then baseboard serial, then the sorted permanent MAC list. Only
+ONE key is used, never a combination -- a combination would re-key the host the
+first time a NIC was swapped, which is the fork this exists to prevent. Values
+that firmware ships as placeholders are already collapsed to '' upstream, so a
+fleet reporting "Default string" falls through to the next key rather than
+deriving one shared id.
+
+Returns '' when nothing usable can be read -- on Linux the strong keys are
+root-only, so an unprivileged call with no primed sudo cache lands on the MAC
+list or on nothing. The caller then generates a random id, which is the prior
+behavior.
+
+The MAC list is the weakest of the three and the only one that can move without
+the machine changing: adding or removing a NIC (a USB Ethernet adapter, most
+likely) changes the set and so changes the derived id. That is why it is last,
+and why the reclaim in this module is still worth having -- a MAC overlap scores
+there, so a host whose derived id did move can still be offered its prior uuid
+from the NAS registry. The list holds only physical NICs and prefers each one's
+burned-in address, so a bridge, a bond or a randomized connection MAC does not
+enter into it.
 #>
+function Get-HostIdentitySeedUuid {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([switch]$AllowSudo)
+    $fp = $null
+    # -NoCache: this runs before the runtime directory is necessarily usable
+    # (it is the directory whose absence brought us here), and a degraded
+    # unprivileged read must never be written where the privileged capture goes.
+    try { $fp = Get-HostHardwareFingerprint -AllowSudo:$AllowSudo -NoCache } catch {
+        Write-Verbose "Get-HostIdentitySeedUuid: fingerprint gather failed: $($_.Exception.Message)"
+        return ''
+    }
+    if (-not $fp) { return '' }
+    foreach ($key in @('smbiosUuid', 'baseboardSerial')) {
+        $value = ConvertTo-NormalizedFingerprintValue -Value ([string]$fp[$key])
+        if ($value) { return (ConvertTo-SeededHostUuid -Kind $key -Value $value) }
+    }
+    $macs = [string[]]@(ConvertTo-NormalizedMacList -Mac ([string[]]@($fp['macAddresses'])))
+    if ($macs.Count -gt 0) {
+        return (ConvertTo-SeededHostUuid -Kind 'macAddresses' -Value ($macs -join ','))
+    }
+    Write-Verbose 'Get-HostIdentitySeedUuid: no stable hardware key readable; the caller must generate an id.'
+    return ''
+}
+
+# --- REGION: NAS-side host registry (hosts/info.<uuid>.yml)
 function Write-HostInfoRecord {
+    <#
+    .SYNOPSIS
+    Publishes <MountRoot>/hosts/info.<HostId>.yml (creating hosts/ if absent), atomically when Test.StateFile is available with a direct-write fallback.
+    .DESCRIPTION
+    Best-effort: returns the path on success, $null on any failure -- callers must never break on a registry write.
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([string])]
     param(
@@ -653,7 +745,6 @@ function Find-PriorHostIdentity {
 }
 
 # --- REGION: Enable-TestAutomation orchestrator (interactive)
-
 # Test-HostIdentityInteractive returns $false when no operator can answer a
 # prompt (redirected stdin / non-interactive host), so the orchestrator degrades
 # to a clean no-op instead of blocking an unattended/CI Enable-TestAutomation.
@@ -1110,5 +1201,6 @@ Export-ModuleMember -Function `
     Test-HostFingerprintValueUsable, ConvertTo-NormalizedFingerprintValue, ConvertTo-NormalizedMacList, `
     Get-HostIdentityMatchScore, Get-HostIdentityReclaimDecision, New-HostInfoRecordObject, ConvertFrom-HostInfoRecord, `
     Get-HostHardwareFingerprint, Get-CachedHostHardwareFingerprint, `
+    ConvertTo-SeededHostUuid, Get-HostIdentitySeedUuid, `
     Write-HostInfoRecord, Find-PriorHostIdentity, `
     Get-PoolStorageSetupDecision, Invoke-PoolStorageSetupAndReclaim, Set-ReclaimedHostUuid

@@ -164,11 +164,16 @@ can both do this.
 
 ## Guest-side prerequisites
 
-Workload that installs SSH, Git, Docker, Kubernetes, PowerShell, Helm,
-OpenTofu, mkcert, Graphviz, and cloud CLIs (Azure, AWS, GCP) on a running
-guest VM. Full tool list: [Preflight
-dependencies](operator.md#b2-preflight-dependencies). Guest
-workload pattern: [Yuruna Architecture](architecture.md).
+The guest workloads install the common local-cluster toolchain: Git, Docker,
+Kubernetes, PowerShell, Helm, OpenTofu, and mkcert. Windows additionally
+installs Graphviz and the Azure, AWS, and Google Cloud CLIs. Ubuntu intentionally
+omits those optional tools: cloud CLIs are needed only by examples that deploy
+to a cloud, Graphviz is recommended rather than required, and installing the
+full set adds substantial transfer and setup cost while some vendor packages
+remain unavailable on ARM64. Add them through an explicit opt-in workload when
+a guest needs them instead of slowing every local-cluster image build. See
+[Preflight dependencies](operator.md#b2-preflight-dependencies). Guest workload
+pattern: [Yuruna Architecture](architecture.md).
 
 | Guest | Command |
 |---|---|
@@ -248,6 +253,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.08
+Last review: 2026.09.12
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42639d1d-6649-49d9-82a8-a37f8410ebbc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -21,27 +21,11 @@
 .SYNOPSIS
     Restore the Windows host settings Enable-TestAutomation changed.
 .DESCRIPTION
-    Reads status/runtime/host.pre-automation.json -- written by
-    Enable-TestAutomation before it changed anything -- and puts each captured
-    knob back:
+    Restores values captured in status/runtime/host.pre-automation.json and
+    removes Yuruna-owned additions. Missing captured values are reported and
+    left unchanged. Refuses to restore settings during an active test cycle.
+    Service shutdown is opt-in. See https://yuruna.link/42e220c4-0004.
 
-      * powercfg monitor timeout (AC and DC separately)
-      * powercfg CONSOLELOCK (AC and DC separately)
-      * InactivityTimeoutSecs policy
-      * per-monitor DpiValue, plus LogPixels / Win8DpiScaling / TextScaleFactor
-      * the Enabled state of each built-in inbound ICMPv4 rule Enable switched on
-      * the W32Time startup type and run state Enable's clock discipline changed
-
-    And removes what Enable added outright: the status-port firewall rule and
-    the 'Yuruna: Allow ICMPv4 Echo Request' rule.
-
-    Without a capture file (a host enabled before the capture shipped), ONLY the
-    two rules above are removed -- they are provably ours. Every other setting is
-    left exactly as it is and reported, because a "restore" to a guessed default
-    is a change the operator never asked for.
-
-    Requires Administrator: powercfg, the policy key and the firewall rules all
-    need it. The redirector's elevation gate applies before this runs.
 .PARAMETER StopServices
     Also stop the caching-proxy, stash, pool-control and download-agent VMs
     this host runs.
@@ -65,15 +49,18 @@ if (-not $IsWindows) {
     exit 1
 }
 
+# --- REGION: Initialize host setup
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostAutomationState.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $RepoRoot 'test/modules/Test.StatusFirewall.psm1')      -Force -DisableNameChecking
+Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostMetricsExporter.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $RepoRoot 'test/modules/Test.Config.psm1')              -Force -DisableNameChecking
 
 # A live cycle would have display sleep and screen lock restored underneath it,
 # blanking capture mid-run for a reason nothing in the transcript explains.
 if (-not (Assert-SafeToDisable)) { exit 1 }
 
+# --- REGION: Read captured host settings
 $state = Read-HostAutomationState
 if ($state) {
     Write-Information "Restoring from the capture taken at $($state.capturedUtc)."
@@ -174,7 +161,9 @@ foreach ($spec in @(
 }
 
 # --- REGION: Firewall rules
-# Removed outright: both rules are ours, by name.
+# Removed outright: every rule here is ours, by name. The exporter SERVICE is
+# not removed with them -- it is an installed package, not a host setting this
+# script overwrote: winget uninstall --id Prometheus.WindowsExporter.
 $statusPort = 8080
 $configPath = Join-Path $RepoRoot 'test/test.config.yml'
 if (Test-Path -LiteralPath $configPath) {
@@ -183,8 +172,9 @@ if (Test-Path -LiteralPath $configPath) {
         if ($tc -and $tc.statusService -and $tc.statusService.port) { $statusPort = [int]$tc.statusService.port }
     } catch { Write-Verbose "status port read: $($_.Exception.Message)" }
 }
-$statusRuleName = Get-YurunaStatusFirewallRuleName -Port $statusPort
-foreach ($ruleName in @($statusRuleName, 'Yuruna: Allow ICMPv4 Echo Request')) {
+$statusRuleName  = Get-YurunaStatusFirewallRuleName -Port $statusPort
+$metricsRuleName = Get-YurunaHostMetricsFirewallRuleName -Port (Get-YurunaHostMetricsPort)
+foreach ($ruleName in @($statusRuleName, $metricsRuleName, 'Yuruna: Allow ICMPv4 Echo Request')) {
     $existing = Get-NetFirewallRule -DisplayName $ruleName -ErrorAction SilentlyContinue
     if (-not $existing) { Write-Verbose "firewall rule '$ruleName' is already absent."; continue }
     if ($PSCmdlet.ShouldProcess($ruleName, 'Remove the firewall rule Yuruna created')) {

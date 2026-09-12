@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42d7a1c5-8e60-4b3f-9a52-6cb0f4e21d78
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -459,7 +459,7 @@ foreach ($target in $Targets) {
     }
 }
 
-# --- The Go side: one shared locale table in the SDK, and the message data
+# --- REGION: The Go side: one shared locale table in the SDK, and the message data
 # copied into each consuming module. A Go service cannot import across a module
 # boundary it does not own, so distribution is the only way its data gets there.
 

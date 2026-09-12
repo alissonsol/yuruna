@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 429770ab-d272-43a0-985e-672863545e2c
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -81,6 +81,118 @@ function Get-CycleFolderIdentity {
     param([Parameter(Mandatory)][string]$Path)
     $leaf = Split-Path -Leaf $Path
     return ($leaf -replace '\.incomplete$', '' -replace '\.aborted\.[^/\\]+$', '')
+}
+
+function Copy-CycleFailureRecord {
+    <#
+    .SYNOPSIS
+        Mirror the log root's last_failure.json into the cycle folder, and into
+        the failing guest's own folder inside it, so the classified record
+        outlives the root copy it was written to and can never be read as
+        another guest's.
+    .DESCRIPTION
+        last_failure.json is written to the SHARED log root ($env:YURUNA_LOG_DIR)
+        while a cycle runs, and every sequence start clears it there so one
+        sequence's step location can never be reported as the next one's. On a
+        host that runs several guests per cycle and does not stop at the first
+        failure, that clear falls between a failing guest's record and the end of
+        the cycle: the schema-v2 record the notifier, the warm-resume checkpoint
+        and the remediation dispatcher all route on is gone before any of them
+        looks, and the cycle closes with no failure evidence at all. Copying into
+        the per-cycle folder the moment the record is classified makes it survive
+        both that clear and a later guest's record replacing the root copy.
+
+        Two destinations, not one. <cycleFolder>/last_failure.json keeps the
+        cycle self-describing when the failure is host-level or names no guest.
+        <cycleFolder>/<vmName>/last_failure.json is the copy that cannot be
+        attributed to the wrong guest: two guests failing in one cycle keep
+        separate records instead of overwriting each other in one shared file,
+        and a guest whose own failure produced no record at all is left with an
+        empty folder rather than its predecessor's cause. It is also what the
+        dashboard deep-links to -- a failure summary's relPath resolves under
+        cycleFolderUrl + vmName.
+
+        The guest identity comes from the record itself (its vmName field), not
+        from the caller, so no writer has to thread it in. A record that names no
+        VM -- a bootstrap, planner or host-stage failure -- gets the cycle-folder
+        copy alone, exactly as it did before there was a per-guest copy.
+
+        Every writer of the root record calls this, so the destinations hold a
+        MIRROR of the record rather than a snapshot of one moment of it: an
+        enrichment that rewrites the root (a host-network re-file, a guest
+        execution tail) re-mirrors and every copy stays equal.
+
+        A root copy OLDER than a mirror is not copied over it. Equal-or-newer is
+        what a write or an enrichment of this cycle's record produces; older
+        means the root holds a record nothing wiped -- an earlier run's -- while
+        the mirror is this cycle's own, and overwriting it would hand the cycle a
+        failure it never had.
+
+        Best-effort by contract: no cycle folder, no record, or an unwritable
+        destination leaves the root copy exactly as it was.
+    .PARAMETER LogDir
+        Directory holding the live record. Defaults to $env:YURUNA_LOG_DIR.
+    .PARAMETER CycleFolder
+        Destination cycle folder. Defaults to the cycle-folder handle
+        Start-LogFile set.
+    .OUTPUTS
+        [bool] $true when at least one copy landed.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidGlobalVars', '',
+        Justification = 'global:__YurunaCycleFolder is the cross-module cycle-folder handle set by Start-LogFile; read here as the default mirror destination.')]
+    param(
+        [string]$LogDir,
+        [string]$CycleFolder
+    )
+    if (-not $LogDir)      { $LogDir      = [string]$env:YURUNA_LOG_DIR }
+    if (-not $CycleFolder) { $CycleFolder = [string]$global:__YurunaCycleFolder }
+    if (-not $LogDir -or -not $CycleFolder) { return $false }
+    $src = Join-Path $LogDir 'last_failure.json'
+    $copied = $false
+    try {
+        $srcItem = Get-Item -LiteralPath $src -ErrorAction Stop
+        $destinations = @((Join-Path $CycleFolder 'last_failure.json'))
+        # Read the guest out of the record rather than asking the caller: the
+        # infra writers know a VM name at some of their call sites and not at
+        # others, and a mirror that depended on which one fired would be
+        # silently missing on half of them. The name reaches a path here, so a
+        # value carrying a separator or a relative-directory token is refused
+        # instead of being allowed to escape the cycle folder.
+        $vmName = ''
+        try {
+            $rawRecord = Get-Content -LiteralPath $src -Raw -ErrorAction Stop
+            if ($rawRecord) {
+                $parsedRecord = $rawRecord | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+                if ($parsedRecord -is [System.Collections.IDictionary]) { $vmName = [string]$parsedRecord['vmName'] }
+            }
+        } catch {
+            Write-Verbose "Copy-CycleFailureRecord: could not read the guest name out of the record: $($_.Exception.Message)"
+            $vmName = ''
+        }
+        if ($vmName -match '[\\/:]' -or $vmName -eq '.' -or $vmName -eq '..') { $vmName = '' }
+        if ($vmName) {
+            $guestFolder = Get-CycleGuestDataFolder -VMName $vmName -CycleFolder $CycleFolder -Confirm:$false
+            if ($guestFolder) { $destinations += (Join-Path $guestFolder 'last_failure.json') }
+        }
+        foreach ($dst in $destinations) {
+            try {
+                # Bootstrap stages run before Start-LogFile and write the record
+                # INTO the cycle folder already; copying a file onto itself throws.
+                if ([System.IO.Path]::GetFullPath($src) -eq [System.IO.Path]::GetFullPath($dst)) { continue }
+                $dstItem = Get-Item -LiteralPath $dst -ErrorAction SilentlyContinue
+                if ($dstItem -and $srcItem.LastWriteTimeUtc -lt $dstItem.LastWriteTimeUtc) { continue }
+                Copy-Item -LiteralPath $src -Destination $dst -Force -ErrorAction Stop
+                $copied = $true
+            } catch {
+                Write-Verbose "Copy-CycleFailureRecord: could not mirror last_failure.json to ${dst}: $($_.Exception.Message)"
+            }
+        }
+    } catch {
+        Write-Verbose "Copy-CycleFailureRecord: could not mirror last_failure.json into the cycle folder: $($_.Exception.Message)"
+    }
+    return $copied
 }
 
 function Format-CycleFolderBaseName {
@@ -311,7 +423,13 @@ function Start-LogFile {
         # callers without cycle context (Debug-TestSequence.ps1); the
         # resulting folder is 000000.YYYY-MM-DD.HH-mm-ss.HOSTID which
         # is still unique-per-invocation thanks to the timestamp.
-        [int]$CycleNumber = 0
+        [int]$CycleNumber = 0,
+        # The commits this cycle runs, in the {sha, repoUrl} shape
+        # status.json publishes: framework entry first, project entry
+        # second when the cycle cloned one. Untyped so the caller's
+        # ordered dicts arrive unconverted; omitted by drivers that
+        # have no commit context.
+        [AllowNull()][AllowEmptyCollection()]$GitCommits
     )
     $logDir = Get-LogDir -TestRoot $TestRoot
     # Cap the top-level cycle folder count before allocating a new one.
@@ -414,7 +532,7 @@ function Start-LogFile {
         # status/log/ tree: every cycle has exactly one cycle_start
         # whose `cycleFolder` resolves the on-disk artifacts and exactly
         # one cycle_end whose `outcome` tells it pass/fail/aborted.
-        Write-CycleNdjsonEvent -EventRecord @{
+        $cycleStartEvent = @{
             timestamp    = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
             event        = 'cycle_start'
             cycleStartUtc      = [string]$CycleStartUtc
@@ -422,6 +540,17 @@ function Start-LogFile {
             cycleFolder  = $cycleBase
             hostname     = [string]$Hostname
         }
+        # Which code produced this cycle, carried on the event itself: a
+        # consumer reading the stream off-host has only these lines, and the
+        # host's status document by then describes whatever cycle is running
+        # now rather than the one these events belong to. Same {sha, repoUrl}
+        # shape the status document and each of its history rows use, so one
+        # reader parses commits everywhere. Omitted rather than emitted empty --
+        # a cycle whose commits were never resolved must not arrive looking
+        # like a cycle that ran no code.
+        $commitList = @(@($GitCommits) | Where-Object { $_ })
+        if ($commitList.Count -gt 0) { $cycleStartEvent['gitCommits'] = $commitList }
+        Write-CycleNdjsonEvent -EventRecord $cycleStartEvent
         # Persist the cycle folder URL on the status doc so the dashboard
         # can build per-guest tile links without re-deriving the format.
         # During the cycle the on-disk folder is <base>.incomplete/; the
@@ -452,10 +581,16 @@ function Get-CycleGuestDataFolder {
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([string])]
     param(
-        [Parameter(Mandatory)] [string]$VMName
+        [Parameter(Mandatory)] [string]$VMName,
+        # Cycle folder to resolve under. Defaults to the handle Start-LogFile
+        # set, which is what every in-cycle caller wants; named explicitly by a
+        # caller that already holds a cycle folder of its own, so the folder it
+        # writes into and the folder this returns cannot disagree.
+        [string]$CycleFolder
     )
-    if (-not $global:__YurunaCycleFolder) { return $null }
-    $folder = Join-Path $global:__YurunaCycleFolder $VMName
+    if (-not $CycleFolder) { $CycleFolder = [string]$global:__YurunaCycleFolder }
+    if (-not $CycleFolder) { return $null }
+    $folder = Join-Path $CycleFolder $VMName
     if ($PSCmdlet.ShouldProcess($folder, 'Ensure cycleGuestDataFolder exists')) {
         if (-not (Test-Path $folder)) {
             New-Item -ItemType Directory -Path $folder -Force | Out-Null
@@ -627,9 +762,27 @@ function Write-CycleManifest {
                 'cycle.events.ndjson'    { 'ndjson'; break }
                 'cycle.events.gaps'      { 'ndjson-gaps'; break }
                 'last_failure.json'      { 'failure'; break }
+                # The failing guest's own copy of the record, written beside its
+                # other per-guest artifacts. Its own kind, not 'failure': a
+                # consumer asking "what failed in this cycle" must not find
+                # several entries competing for that answer.
+                '*/last_failure.json'    { 'failure-guest'; break }
                 'last_remediation.json'  { 'remediation'; break }
                 'failure_screenshot*.png'{ 'screenshot-failure'; break }
                 'failure_ocr*.txt'       { 'ocr-failure'; break }
+                # Save-StepFailureEvidence copies the ring-buffer frames and the
+                # failure pair into <VM>/failed_<label>/, so they arrive carrying
+                # a path prefix that the anchored patterns above and below cannot
+                # match, and without these they are filed as 'other'. Matching
+                # The relocated ring frames keep the RAW kinds: they are the
+                # same frames, only copied, and the raw kinds are the ones the
+                # manifest skips hashing. Hashing a whole ring per failed
+                # attempt costs seconds of cycle time and tells an operator
+                # nothing the frame itself does not.
+                '*/failed_*/raw_*.png'   { 'screenshot-raw'; break }
+                '*/failed_*/raw_*.txt'   { 'ocr-raw'; break }
+                '*/failed_*/failure_screenshot.png' { 'screenshot-failure'; break }
+                '*/failed_*/failure_ocr.txt'        { 'ocr-failure'; break }
                 'host.diagnostic.txt'    { 'diagnostic-host'; break }
                 '*.system.diagnostic.*'  { 'diagnostic-guest'; break }
                 'screens_*/*.png'        { 'screenshot'; break }
@@ -843,23 +996,38 @@ function Stop-LogFile {
             "</pre></body></html>" | Microsoft.PowerShell.Utility\Out-File -FilePath $global:__YurunaLogFile -Append -Encoding utf8 -ErrorAction SilentlyContinue
         }
         if ($global:__YurunaCycleFolder) {
-            # Archive the cycle's last_failure.json (when any) into the cycle
-            # folder BEFORE the manifest sweep, so the full schema-v2 record --
-            # matched pattern, label, OCR tail, repro, inner cause -- persists
-            # with the cycle for post-hoc analysis, not just the flattened
-            # step_failure event in cycle.events.ndjson. The engine/infra paths
-            # write it to $env:YURUNA_LOG_DIR (the log root, shared across
-            # cycles); Write-CycleManifest already classifies last_failure.json
-            # as kind 'failure', so the copied file is cataloged automatically.
-            # Only on a non-pass outcome: a passing cycle has no failure of its
-            # own, so any last_failure.json present is stale from an earlier cycle.
+            # Mirror the cycle's last_failure.json into the cycle folder BEFORE
+            # the manifest sweep, so the full schema-v2 record -- matched
+            # pattern, label, OCR tail, repro, inner cause -- persists with the
+            # cycle for post-hoc analysis, not just the flattened step_failure
+            # event in cycle.events.ndjson. Write-CycleManifest classifies both
+            # the cycle-level copy and each guest's own, so the mirrored files
+            # are cataloged automatically.
+            #
+            # This is the refresh pass, not the only chance: every writer of the
+            # record mirrors it at classification time through
+            # Copy-CycleFailureRecord, because the root copy under
+            # $env:YURUNA_LOG_DIR is cleared at every sequence start and is
+            # routinely gone by the time a cycle ends.
+            #
+            # A cycle that recovered -- a warm resume re-ran the failed sequence
+            # and it passed -- reaches a pass outcome with the first attempt's
+            # mirrors still in the folder. A record anywhere under the cycle
+            # folder means "this cycle failed", and the manifest catalogs it as
+            # such, so a pass clears every copy, the per-guest ones included; the
+            # step_failure event keeps the recovered attempt observable in the
+            # stream.
+            if ($Outcome -eq 'pass') {
+                Get-ChildItem -LiteralPath $global:__YurunaCycleFolder -Filter 'last_failure.json' -Recurse -File -ErrorAction SilentlyContinue |
+                    Remove-Item -Force -ErrorAction SilentlyContinue
+            }
             if ($Outcome -ne 'pass' -and $env:YURUNA_LOG_DIR) {
-                $srcFailure = Join-Path $env:YURUNA_LOG_DIR 'last_failure.json'
-                if (Test-Path -LiteralPath $srcFailure) {
-                    $dstFailure = Join-Path $global:__YurunaCycleFolder 'last_failure.json'
-                    try { Copy-Item -LiteralPath $srcFailure -Destination $dstFailure -Force -ErrorAction Stop }
-                    catch { Write-Verbose "Stop-LogFile: could not archive last_failure.json: $($_.Exception.Message)" }
-                }
+                # Refresh the mirrors from the log root, which carries any
+                # enrichment written after the record first landed. A no-op when
+                # the writers already mirrored it, and skipped entirely when the
+                # root copy has been cleared -- the mirrors are then the only
+                # copies of the failure this cycle actually had.
+                $null = Copy-CycleFailureRecord
                 # The remediation dispatcher's decision (Invoke-Remediation) rides
                 # the same archive path as the failure it routed on, so the cycle
                 # folder -- and the pool copy of it -- carries the recommendation
@@ -1278,4 +1446,4 @@ function Send-YurunaDegradation {
     Write-Information "  [degradation] ${Dependency}: ${Primary} -> ${Fallback}${suffix}"
 }
 
-Export-ModuleMember -Function Start-LogFile, Stop-LogFile, Start-NestedLogFile, Stop-NestedLogFile, Get-YurunaLogPreamble, Get-CycleGuestDataFolder, Get-CycleScreenDir, Save-StepFailureEvidence, Format-CycleFolderBaseName, Get-CycleFolderIdentity, Write-CycleNdjsonEvent, Write-CycleManifest, Send-CycleEventSafely, New-YurunaDegradationRecord, Send-YurunaDegradation, Invoke-CycleLogRotation
+Export-ModuleMember -Function Start-LogFile, Stop-LogFile, Start-NestedLogFile, Stop-NestedLogFile, Get-YurunaLogPreamble, Get-CycleGuestDataFolder, Get-CycleScreenDir, Save-StepFailureEvidence, Format-CycleFolderBaseName, Get-CycleFolderIdentity, Copy-CycleFailureRecord, Write-CycleNdjsonEvent, Write-CycleManifest, Send-CycleEventSafely, New-YurunaDegradationRecord, Send-YurunaDegradation, Invoke-CycleLogRotation

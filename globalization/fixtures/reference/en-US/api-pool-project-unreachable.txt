@@ -1,0 +1,16 @@
+{
+  "schema": "yuruna.message/v1",
+  "code": "pool.pool_project_unreachable",
+  "args": {},
+  "detail": {
+    "text": "dial tcp: connection refused",
+    "source": "external"
+  },
+  "rendered": {
+    "text": "The project this host's pool assigned did not answer. This is network, not permission, and the clone retries through the normal backoff.",
+    "messageKey": "pool.pool_project_unreachable",
+    "locale": "en-US",
+    "catalogHash": "<sha256>",
+    "authoritative": false
+  }
+}

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42523d00-1e52-4f07-92e7-2f54c6fa62da
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -74,14 +74,13 @@ $script:LabTokenEnvelopeLabel      = 'yuruna-lab-token|v1'
 $script:LabTokenEnvelopeIterations = 600000
 
 # --- REGION: Pure conversion helpers (no I/O; unit-tested directly)
-
-<#
-.SYNOPSIS
-    Returns the conventional networkStorage local mount path for a host type:
-    Windows drive letters ('y:' pool / 'z:' stash), Linux '/mnt/<server>',
-    macOS '~/Shares/<server>'.
-#>
 function Get-ConfigSyncLocalPathDefault {
+    <#
+    .SYNOPSIS
+        Returns the conventional networkStorage local mount path for a host type:
+        Windows drive letters ('y:' pool / 'z:' stash), Linux '/mnt/<server>',
+        macOS '~/Shares/<server>'.
+    #>
     [CmdletBinding()]
     [OutputType([string])]
     param(
@@ -595,13 +594,12 @@ function Unprotect-ConfigSyncCredential {
 }
 
 # --- REGION: Reference-host HTTP wrappers (bounded; the status service is plain HTTP)
-
-<#
-.SYNOPSIS
-    Fetches the reference host's parsed test.config.yml as a hashtable via
-    GET /control/test-config. Throws with a clear message when unreachable.
-#>
 function Get-ConfigSyncReferenceConfig {
+    <#
+    .SYNOPSIS
+        Fetches the reference host's parsed test.config.yml as a hashtable via
+        GET /control/test-config. Throws with a clear message when unreachable.
+    #>
     [CmdletBinding()]
     [OutputType([hashtable])]
     param(
@@ -856,7 +854,6 @@ function Test-ConfigSyncCredentialEndpoint {
 }
 
 # --- REGION: Side-channel reconciliation (hosts file + vault)
-
 # Runs automation/Set-HostAlias.ps1, escalating via sudo on macOS/Linux when
 # not already root (the hosts file is root-owned there; on Windows the
 # per-host shell already asserts an elevated session).
@@ -884,9 +881,17 @@ function Invoke-ConfigSyncHostAlias {
             # -n (never block on a password prompt) and, on macOS, -E: a Homebrew
             # PowerShell cannot start under sudo's stripped environment and exits
             # 131 before reading the script. See Get-SudoPwshArgumentList.
+            # The prompt names the account and the reason. Reaching this point
+            # means the run has just finished narrating vault keys and the
+            # storage-account credentials it fetched from the reference host, so
+            # a bare "Password:" arrives looking like a continuation of that and
+            # invites one of those credentials as the answer. What is wanted is
+            # this machine's own login password, and nothing but the prompt can
+            # say so.
             $sudoArgs = Get-SudoPwshArgumentList -ScriptPath $aliasScript `
                 -ScriptArgument @('-ComputerName', $Name, '-IPAddress', $IPAddress) `
-                -NonInteractive:$NonInteractive
+                -NonInteractive:$NonInteractive `
+                -Prompt "[sudo] login password for %u ON THIS MACHINE (not a vault or storage credential), to map '$Name' in /etc/hosts: "
             & sudo @sudoArgs
             if ($LASTEXITCODE -ne 0) {
                 Write-Warning "sudo Set-HostAlias for '$Name' exited $LASTEXITCODE; add '$IPAddress  $Name' to /etc/hosts manually."
@@ -930,6 +935,16 @@ function Sync-ConfigSyncHostAlias {
     if ($names.Count -eq 0) { return }
 
     $referenceAliases = Get-ConfigSyncReferenceAliasMap -ReferenceHost $ReferenceHost -Port $Port
+    # Latched on the first elevation this loop cannot get, so the operator is
+    # asked at most once. sudo caches a successful authentication for a few
+    # minutes, so a run that gets the password right already prompts only for
+    # the first name; without the latch a run that gets it WRONG prompts again
+    # for every remaining name, and each prompt is a fresh three-attempt round
+    # of the same rejection. Two names turn one mistake into six refusals, which
+    # reads like the machine disagreeing with itself rather than one wrong
+    # answer -- and the second prompt invites the operator to conclude a
+    # DIFFERENT password must be wanted.
+    $sudoRefused = $false
     foreach ($name in $names) {
         $localIp = Get-ConfigSyncLocalAddress -Name $name
         $refIp   = ''
@@ -970,8 +985,18 @@ function Sync-ConfigSyncHostAlias {
         } else {
             Write-Information "networkStorage server '$name': the reference host resolves it to $target." -InformationAction Continue
         }
+        if ($sudoRefused) {
+            Write-Warning "Not asking again for '$name': the elevation for the previous alias was not granted. Map it by hand with '$target  $name' in /etc/hosts."
+            continue
+        }
         if (Invoke-ConfigSyncHostAlias -RepoRoot $RepoRoot -Name $name -IPAddress $target -NonInteractive:$NonInteractive) {
             Write-Information "hosts file: mapped '$name' -> $target." -InformationAction Continue
+        } else {
+            $sudoRefused = $true
+            # Said once, here, because the cost is not visible where it lands:
+            # the names stay pointed wherever they pointed before, and the
+            # failure surfaces later as a mount that cannot reach the share.
+            Write-Warning "The hosts entries were not written, so the networkStorage names still resolve to their previous addresses and the lab's shares will not mount. Re-run this sync once the elevation succeeds, or add the entries by hand."
         }
     }
 }
@@ -991,25 +1016,24 @@ function Read-ConfigSyncSecret {
 }
 
 # --- REGION: https://yuruna.link/42fa6f45-0026
-
-<#
-.SYNOPSIS
-    Is this string shaped like the dashboard's Lab token (the 6-character
-    redemption code), rather than an internal authentication key?
-.DESCRIPTION
-    The two secrets an operator can hold have disjoint shapes -- 6 characters of
-    lowercase alphanumerics against 48 hexadecimal ones -- so which one is in
-    hand is decidable, and nothing has to guess. Case is folded first because
-    the dashboard renders the code in a font where the operator's shift key is
-    the only thing deciding case.
-
-    Callers that need the redemption code use this to accept it; callers that
-    need the key itself use it to recognize the one value they must never
-    treat as key material.
-.OUTPUTS
-    [bool]
-#>
 function Test-LabTokenShape {
+    <#
+    .SYNOPSIS
+        Is this string shaped like the dashboard's Lab token (the 6-character
+        redemption code), rather than an internal authentication key?
+    .DESCRIPTION
+        The two secrets an operator can hold have disjoint shapes -- 6 characters of
+        lowercase alphanumerics against 48 hexadecimal ones -- so which one is in
+        hand is decidable, and nothing has to guess. Case is folded first because
+        the dashboard renders the code in a font where the operator's shift key is
+        the only thing deciding case.
+
+        Callers that need the redemption code use this to accept it; callers that
+        need the key itself use it to recognize the one value they must never
+        treat as key material.
+    .OUTPUTS
+        [bool]
+    #>
     [CmdletBinding()]
     [OutputType([bool])]
     param([Parameter()][AllowEmptyString()][AllowNull()][string]$Value = '')
@@ -1112,35 +1136,34 @@ function Resolve-ConfigSyncInternalAuthKey {
 }
 
 # --- REGION: https://yuruna.link/42d69dfa-0028
-
-<#
-.SYNOPSIS
-    Converges every networkStorage user's vault entry onto the reference host's
-    credential: probe before prompting, and rewrite on drift so re-runs converge.
-.DESCRIPTION
-    Resolves each of poolStorageNetworkUser / stashStorageNetworkUser through
-    the authentication extension to its vault key, fetches the reference host's
-    value over the token-gated credential endpoint, and stores it when it is
-    absent or disagrees. An entry that already matches is left untouched and no
-    write happens, so a repeat run is a no-op.
-
-    The internal authentication key is what makes the fetch possible: an explicit
-    -InternalAuthKey wins, else this host's stored key, else -- for a
-    genuinely missing credential in an interactive session -- a prompt.
-
-    Emits one record per user, so a caller can tell a converged entry from a
-    merely SURVIVING one. Those look identical from the console -- both end with
-    a credential in the vault -- and the difference decides whether the mount
-    will work: an entry kept because nothing could replace it is, on a host
-    converting away from standalone, precisely the locally minted password the
-    lab's share has never heard of. Callers that must not accept it pass
-    -RequireReferenceValue.
-.OUTPUTS
-    [pscustomobject[]] one record per user, @{ User; VaultKey; Status;
-    Converged; Detail }. Status is one of stored / updated / already-matches
-    (Converged) or kept-local / no-token / unverified / missing / whatif (not).
-#>
 function Sync-ConfigSyncVaultCredential {
+    <#
+    .SYNOPSIS
+        Converges every networkStorage user's vault entry onto the reference host's
+        credential: probe before prompting, and rewrite on drift so re-runs converge.
+    .DESCRIPTION
+        Resolves each of poolStorageNetworkUser / stashStorageNetworkUser through
+        the authentication extension to its vault key, fetches the reference host's
+        value over the token-gated credential endpoint, and stores it when it is
+        absent or disagrees. An entry that already matches is left untouched and no
+        write happens, so a repeat run is a no-op.
+
+        The internal authentication key is what makes the fetch possible: an explicit
+        -InternalAuthKey wins, else this host's stored key, else -- for a
+        genuinely missing credential in an interactive session -- a prompt.
+
+        Emits one record per user, so a caller can tell a converged entry from a
+        merely SURVIVING one. Those look identical from the console -- both end with
+        a credential in the vault -- and the difference decides whether the mount
+        will work: an entry kept because nothing could replace it is, on a host
+        converting away from standalone, precisely the locally minted password the
+        lab's share has never heard of. Callers that must not accept it pass
+        -RequireReferenceValue.
+    .OUTPUTS
+        [pscustomobject[]] one record per user, @{ User; VaultKey; Status;
+        Converged; Detail }. Status is one of stored / updated / already-matches
+        (Converged) or kept-local / no-token / unverified / missing / whatif (not).
+    #>
     [CmdletBinding(SupportsShouldProcess)]
     [OutputType([pscustomobject[]])]
     param(
@@ -1341,48 +1364,21 @@ function Sync-ConfigSyncVaultCredential {
 }
 
 # --- REGION: Orchestrator
-
-<#
-.SYNOPSIS
-    Copies a reference pool host's test.config.yml onto this host, converting
-    host-type-specific values, then reconciles hosts-file aliases and vault
-    credentials so the synced config is actually usable here.
-.PARAMETER ReferenceHost
-    Network name or IP address of the host to copy from (any host type).
-.PARAMETER StatusPort
-    The reference host's status-service port (default 8080).
-.PARAMETER InternalAuthKey
-    The internal authentication key used to fetch missing vault credentials
-    from the reference host. When omitted, this host's own stored
-    internal authentication key is used; an interactive session prompts as
-    the last resort.
-.PARAMETER NonInteractive
-    Never prompt: anything that would need operator input is skipped with a
-    warning instead.
-.PARAMETER SkipValidation
-    Skip the final `pwsh test/Test-Config.ps1` run.
-.PARAMETER NoPool
-    Sync the reference config but DO NOT join the pool: the pool + networkStorage
-    nodes are dropped, so this host never mounts the NAS, replicates cycles, or
-    registers a hosts/info.<hostId>.yml identity record. The caching-proxy service and
-    repository settings still come across, so cache reuse is unaffected. Use for
-    disposable / self-verification hosts (e.g. example/nested.host).
-#>
-<#
-.SYNOPSIS
-    Compare a reference host's config against THIS host's template schema.
-.DESCRIPTION
-    The reference host is another machine running its own checkout, which may be
-    behind this one: it can lack keys the current schema defines, still spell keys
-    that were retired, or carry keys the schema dropped. Copying such a config
-    across propagates a half-migrated file onto this host, where the missing keys
-    silently take their defaults -- so the sync asks before doing it.
-    Comparison is against the LOCAL template, which is the schema source of truth.
-.OUTPUTS
-    [pscustomobject] IsCurrent [bool], Missing [string[]], Retired [string[]],
-    Unknown [string[]], Checked [bool].
-#>
 function Test-ConfigSyncReferenceFreshness {
+    <#
+    .SYNOPSIS
+        Compare a reference host's config against THIS host's template schema.
+    .DESCRIPTION
+        The reference host is another machine running its own checkout, which may be
+        behind this one: it can lack keys the current schema defines, still spell keys
+        that were retired, or carry keys the schema dropped. Copying such a config
+        across propagates a half-migrated file onto this host, where the missing keys
+        silently take their defaults -- so the sync asks before doing it.
+        Comparison is against the LOCAL template, which is the schema source of truth.
+    .OUTPUTS
+        [pscustomobject] IsCurrent [bool], Missing [string[]], Retired [string[]],
+        Unknown [string[]], Checked [bool].
+    #>
     [CmdletBinding()]
     [OutputType([pscustomobject])]
     param(

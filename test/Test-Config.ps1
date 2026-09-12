@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 4210d385-d4df-4f13-9344-d649676c6dc4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -179,7 +179,6 @@ function ConvertTo-YurunaBool {
 }
 
 # --- REGION: Section 1: Config file
-
 Write-Section "Config file"
 
 if (-not (Test-Path $ConfigPath)) {
@@ -202,7 +201,6 @@ if (-not (Test-Path $ConfigPath)) {
 }
 
 # --- REGION: Section 2: YAML parsing
-
 Write-Section "YAML structure"
 
 try {
@@ -933,7 +931,6 @@ try {
 }
 
 # --- REGION: Section 8: Top-level fields
-
 Write-Section "Top-level settings"
 
 if ($Config.Contains("notification")) {
@@ -1009,7 +1006,6 @@ if ($Config.Contains('secrets') -and $Config.secrets -is [System.Collections.IDi
 }
 
 # --- REGION: Section 9: Extension configs
-
 Write-Section "Extension configs"
 
 # Enumerated, not listed: an area is anything under test/extension/ that
@@ -1959,7 +1955,6 @@ if (-not (Test-Path $poolSyncMod)) {
 }
 
 # --- REGION: Section 10: Resend transport settings
-
 Write-Section "Resend transport settings"
 
 $resend = $null
@@ -2013,7 +2008,6 @@ if ((Get-OutputState).FailCount -gt 0) {
 }
 
 # --- REGION: Section 11: Resend API connectivity
-
 Write-Section "Resend API connectivity"
 
 if (-not $resend) {
@@ -2044,7 +2038,6 @@ if (-not $resend) {
 }
 
 # --- REGION: Section 12: Live smoke notification
-
 Write-Section "Live smoke notification (config.smoke)"
 
 if ($SkipSend) {

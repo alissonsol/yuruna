@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42f7b3b7-64ca-41c6-96ad-88a15026c482
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -37,9 +37,19 @@
     emulation, so the host's architecture is also the guest's.
 #>
 
-# Honor logLevel from Start-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+# --- REGION: Log level from environment
+# Reuse the caller's log module so an in-process fetch preserves its state.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
-if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
+if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
+    Import-Module $_logLevelMod -Global
+}
+if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
+
+# --- REGION: Platform guard
+if (-not $IsWindows) {
+    Write-Error "host/windows.hyper-v/guest.amazon.linux.2023/Get-Image.ps1 only runs on Windows Hyper-V."
+    exit 1
+}
 
 Write-Output "This script requires elevation (Run as Administrator)."
 if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
@@ -49,15 +59,8 @@ if (-not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdent
 }
 
 # --- REGION: Host architecture
-# OSArchitecture, not $env:PROCESSOR_ARCHITECTURE: an x64 pwsh running under
-# emulation on an ARM64 Windows host reports AMD64 in that variable, which
-# would pick an image the hypervisor cannot boot. Hyper-V has no
-# cross-architecture emulation, so the host's architecture is the guest's.
-#
-# The publisher has no ARM64 counterpart to the `hyperv` platform, so ARM64
-# takes the KVM qcow2 and converts it below; the two platforms differ in the
-# artifact extension, which is what drives both the listing scrape and the
-# staging step.
+# See https://yuruna.link/42e220c4-0003
+# Use native OS architecture even when the current PowerShell process is emulated.
 switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) {
     'X64'   { $hostArch = 'amd64'; $platformDir = 'hyperv';    $downloadExtension = 'zip' }
     'Arm64' { $hostArch = 'arm64'; $platformDir = 'kvm-arm64'; $downloadExtension = 'qcow2' }
@@ -68,16 +71,8 @@ switch ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture) {
 }
 Write-Output "Host architecture: $hostArch (Amazon Linux 2023 platform: $platformDir)"
 
-# --- REGION: docs/host-hyperv.md#the-converted-arm64-image-does-not-boot
-# The ARM64 artifact downloads and converts cleanly and still produces a guest
-# that cannot run here: Amazon's aarch64 kernel package ships no drivers/hv/
-# and no drivers/net/hyperv/, so a Gen2 guest -- whose every device is
-# synthetic and reached over VMBus -- enumerates neither its root disk nor a
-# NIC. GRUB runs (the firmware reads the disk through UEFI), then dracut waits
-# on a by-uuid device that cannot appear until the step budget is gone. The
-# warning is here rather than a refusal because the fetch itself is sound and
-# an operator may want the staged VHDX; what it must not do is look like a
-# guest that merely failed to start this once.
+# --- REGION: https://yuruna.link/42dc5bb9-0004
+# Conversion succeeds, but the AL2023 ARM64 kernel lacks Hyper-V disk and NIC drivers.
 if ($hostArch -eq 'arm64') {
     Write-Warning "Amazon Linux 2023 has no Hyper-V-capable ARM64 image: the KVM qcow2 fetched below converts fine but boots to a dracut device wait, because its aarch64 kernel carries no Hyper-V drivers. Run this guest on host.macos.utm or host.ubuntu.kvm for ARM64 coverage. See docs/host-hyperv.md."
 }
@@ -102,8 +97,9 @@ if (!(Test-Path -Path $downloadDir)) {
     exit 1
 }
 
-# The host driver brings the skip-if-same-source guard + sentinel writer, the
-# cache-aware Save-CachedHttpUri wrapper, and the download-agent client.
+# --- REGION: Import host modules
+# See https://yuruna.link/42e220c4-0003
+# Import cache/agent discovery and the shared image sentinel helpers.
 Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yuruna.Host.psm1") -Force
 # Yuruna.Image.psm1 second, so its module scope never shadows the driver's
 # cache-injecting Save-CachedHttpUri. It carries Save-ImageWithChecksum for
@@ -177,7 +173,7 @@ if ((Get-Command -Name Resolve-DownloadAgentEndpoint -ErrorAction SilentlyContin
 
 if (-not $agentServed) {
     # --- REGION: Find the file to download
-    $html = Invoke-WebRequest -Uri $sourceUrl
+    $html = Invoke-WebRequest -Uri $sourceUrl -ErrorAction Stop
     $artifactLink = ($html.Links | Where-Object { $_.href -match "\.$downloadExtension$" } | Select-Object -First 1).href
     if (-not $artifactLink) {
         Write-Error "No .$downloadExtension listed at $sourceUrl"
@@ -203,11 +199,7 @@ if (-not $agentServed) {
     }
 
     # --- REGION: Retrieve and process the files
-    # Save-ImageWithChecksum (Yuruna.Image.psm1) routes the download
-    # through Save-CachedHttpUri when available + verifies SHA-256 against
-    # the publisher checksum. A MISSING upstream checksum is a soft pass;
-    # a genuine mismatch deletes the tampered file and fails the run
-    # (WarnAndDelete), so unverified bytes never reach the base image.
+    # Reject checksum mismatches; a publisher that omits a checksum remains a soft pass.
     Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
     $checksumLink = ($html.Links | Where-Object { $_.href -match "\.$downloadExtension\.sha256$" } | Select-Object -First 1)
     $checksumUrl = if ($checksumLink) { $sourceUrl + $checksumLink.href } else { $null }
@@ -291,3 +283,7 @@ Write-Output "Recorded source filename, URL, byte count, and Last-Modified to: $
 Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
 
 Write-Output "Download complete: $baseImageFile"
+
+# --- REGION: Completion
+# Clear a native discovery probe's stale exit code, including on cache hits.
+exit 0

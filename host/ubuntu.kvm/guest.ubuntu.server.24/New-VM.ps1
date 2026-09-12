@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42f12da2-1112-4de8-b565-c97a7434c2c2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -71,9 +71,14 @@ param(
     [string]$Cores = ''
 )
 
-# Honor logLevel from Start-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+# --- REGION: Log level from environment
+# See https://yuruna.link/42e220c4-0003
+# Reuse the caller's log module; a forced reload discards its state.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
-if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
+if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
+    Import-Module $_logLevelMod -Global
+}
+if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     Write-Error "Invalid VMName '$VMName'. Only alphanumerics, dots, hyphens, underscores."
@@ -96,14 +101,8 @@ $ErrorActionPreference = 'Stop'
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 # --- REGION: libvirt-qemu search ACL on $HOME
-# Ubuntu 24.04 cloud images create /home/<user> at mode 0750, which blocks
-# the libvirt-qemu user (uid 64055, gid kvm) that runs guest qemu processes
-# from traversing $HOME to reach the qcow2 below it. virt-install then
-# warns "You will need to grant the 'libvirt-qemu' user search permissions
-# for ['/home/<user>']" and errors out with "Cannot access storage file ...
-# Permission denied". A traverse-only POSIX ACL is the narrowest fix and
-# does not change read/write/listing for any other user. Idempotent --
-# safe to run every cycle.
+# See https://yuruna.link/42e220c4-0004
+# Grant libvirt-qemu traverse-only access to the VM storage below this home directory.
 if (Get-Command -Name 'setfacl' -ErrorAction SilentlyContinue) {
     & getent passwd libvirt-qemu *>$null
     if ($LASTEXITCODE -eq 0) {
@@ -126,44 +125,20 @@ $baseImageFile = Join-Path $downloadDir "$baseImageName.iso"
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.Image.psm1') -Force
 if (-not (Assert-YurunaBaseImage -BaseImageFile $baseImageFile -GuestFolder $PSScriptRoot)) { exit 1 }
 
-# --- REGION: Create copies and files for VM
-$vmDir   = Join-Path $HOME "yuruna/vms/$VMName"
-$diskImg = Join-Path $vmDir "$VMName.qcow2"
-$seedImg = Join-Path $vmDir 'seed.iso'
-New-Item -ItemType Directory -Force -Path $vmDir | Out-Null
-
-# --- REGION: Yuruna harness SSH key
-# The harness uses one ed25519 key pair at test/status/ssh/yuruna_ed25519,
-# owned by Test.Ssh\Get-YurunaSshPublicKey. Test.Diagnostic's post-
-# failure SSH path (Invoke-GuestSsh) authenticates with that SAME key,
-# so the public bytes seeded into the guest's authorized_keys MUST be
-# this key -- not an ad-hoc per-host pair. Seeding a different key (e.g.
-# a host-specific test/status/ssh/host.ubuntu.kvm pair) silently breaks
-# diagnostics (Permission denied (publickey,password)).
-$repoRoot      = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))
-$TestSshModule = Join-Path $repoRoot 'test/modules/Test.Ssh.psm1'
-Import-Module $TestSshModule -Force -DisableNameChecking
-$sshPub = Get-YurunaSshPublicKey
-if (-not $sshPub) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
-
 # --- REGION: Autoinstall password hash
-# Resolve the autoinstall password from the per-cycle authentication
-# vault (test/extension/authentication/default.psm1). Get-Password
-# auto-generates and stores on first call; later calls within the same
-# cycle return the rotated value committed by an earlier guest's
-# Set-Password. Cycle-end cleanup wipes vault.yml on success.
-# YURUNA_GUEST_PASSWORD env-var is honored for ad-hoc dev-loop
-# overrides (skips the vault -- nothing is committed back).
+# See https://yuruna.link/42e220c4-0004
+# KVM retains its documented ad hoc environment override before using the vault.
+$repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDir))
 if (-not (Get-Command openssl -ErrorAction SilentlyContinue)) {
     Write-Error "openssl is required for the autoinstall password hash. apt install openssl."
     exit 1
 }
-$plaintextPassword = $env:YURUNA_GUEST_PASSWORD
-if (-not $plaintextPassword) {
+$Password = $env:YURUNA_GUEST_PASSWORD
+if (-not $Password) {
     Import-Module (Join-Path $repoRoot 'test/modules/Test.Extension.psm1') -Global -Force -Verbose:$false
     $_authActiveName = @(Import-Extension -Area 'authentication' -RequireSingle)[0]
-    $plaintextPassword = Get-LocalOsPassword -Username $Username
-    if (-not $plaintextPassword) { Write-Error "Get-LocalOsPassword returned empty for '$Username'."; exit 1 }
+    $Password = Get-LocalOsPassword -Username $Username
+    if (-not $Password) { Write-Error "Get-LocalOsPassword returned empty for '$Username'."; exit 1 }
     Write-Output "Password came from authentication mechanism: $_authActiveName"
     Write-Output "See configuration at: $(Resolve-ExtensionAreaDir -Area 'authentication')"
 } else {
@@ -171,46 +146,72 @@ if (-not $plaintextPassword) {
 }
 Import-Module (Join-Path $repoRoot 'automation/Yuruna.Common.psm1') -Force -DisableNameChecking
 try {
-    $pwHash = ConvertTo-Sha512CryptHash -Plaintext $plaintextPassword
+    $PasswordHash = ConvertTo-Sha512CryptHash -Plaintext $Password
 } catch {
     Write-Error "Password hashing failed: $($_.Exception.Message)"
     exit 1
 }
 
-# --- REGION: Yuruna host coordinates
-# The guest must attach to the SAME libvirt network as the caching-proxy-service
-# (Get-ExternalNetwork: bridged 'yuruna-external' when defined, else the
-# NAT 'default') and reach the host status service at an address routable
-# from that network. Resolve-GuestHostBinding returns the matched
-# pair, so the cache's address (passed in via -CachingProxyServiceUrl) and the
-# baked host coordinates can't point at a network the guest can't route
-# to: a guest on the NAT 'default' net cannot reach a bridged cache's LAN
-# IP, which makes apt's in-target kernel fetch fail "Network is
-# unreachable". Status service port is read from test.config.yml when
-# available, otherwise defaults to 8080.
+# --- REGION: Base image provenance
+# Emit the source URL from a healthy sidecar; warn when provenance is incomplete.
+Import-Module (Join-Path $repoRoot 'test/modules/Test.Provenance.psm1') -Force
+Write-BaseImageProvenance -BaseImagePath $baseImageFile
+
+# --- REGION: Import host modules
 Import-Module (Join-Path (Split-Path -Parent $ScriptDir) 'modules/Yuruna.Host.psm1') -Force -DisableNameChecking
+
+# --- REGION: Remove existing VM
+# See https://yuruna.link/42e220c4-0004
+$virshUri = 'qemu:///system'
+$destroyOut = & virsh --connect $virshUri destroy $VMName 2>&1
+Write-Verbose "virsh destroy '$VMName' exit=$LASTEXITCODE output='$($destroyOut -join '; ')'"
+# --- REGION: https://yuruna.link/42d69dfa-001e
+$undefineOut = & virsh --connect $virshUri undefine --nvram --managed-save `
+    --snapshots-metadata --checkpoints-metadata $VMName 2>&1
+Write-Verbose "virsh undefine '$VMName' exit=$LASTEXITCODE output='$($undefineOut -join '; ')'"
+$domainNames = @(& virsh --connect $virshUri list --all --name 2>&1)
+if ($LASTEXITCODE -ne 0) {
+    throw "Cannot verify removal of '$VMName': virsh list failed: $($domainNames -join '; ')"
+}
+if ($domainNames | Where-Object { $_.ToString().Trim() -eq $VMName }) {
+    $dominfo = (& virsh --connect $virshUri dominfo $VMName 2>&1 | Out-String).Trim()
+    throw "virsh destroy + undefine left '$VMName' defined; aborting before re-creation.`ndominfo:`n$dominfo"
+}
+
+# --- REGION: Create copies and files for VM
+$vmDir   = Join-Path $HOME "yuruna/vms/$VMName"
+$diskImg = Join-Path $vmDir "$VMName.qcow2"
+$seedImg = Join-Path $vmDir 'seed.iso'
+New-Item -ItemType Directory -Force -Path $vmDir | Out-Null
+
+# --- REGION: Yuruna harness SSH key
+# See https://yuruna.link/42e220c4-0004
+# Use the shared harness key so test execution and failure diagnostics authenticate identically.
+$TestSshModule = Join-Path $repoRoot 'test/modules/Test.Ssh.psm1'
+Import-Module $TestSshModule -Force -DisableNameChecking
+$sshPub = Get-YurunaSshPublicKey
+if (-not $sshPub) { Write-Error "Get-YurunaSshPublicKey returned empty. Module path: $TestSshModule"; exit 1 }
+
+# --- REGION: Build the autoinstall apt block
+# See https://yuruna.link/429f3d06-000a
+# Use the shared apt builder to keep mirror selection and retry budgets identical.
+Import-Module (Join-Path $repoRoot 'automation/Yuruna.GuestSeed.psm1') -Force
+$AptProxyBlock = New-AptProxyBlock -PrimaryUri $primaryUri -CachingProxyServiceUrl $CachingProxyServiceUrl
+
+# --- REGION: Select the guest network
+# Resolve the network and its reachable host address atomically so they cannot drift.
 $guestBinding = Resolve-GuestHostBinding
 $networkName  = $guestBinding.NetworkName
-$hostIp       = $guestBinding.HostIp
+
+# --- REGION: Yuruna host coordinates
+# See https://yuruna.link/42e220c4-0004
+$hostIp = $guestBinding.HostIp
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Config.psm1') -Global -Force
 $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $repoRoot
 $hostPort = $_statusSeed.Port
 
-# --- REGION: Build the autoinstall apt block
-# --- REGION: https://yuruna.link/429f3d06-000a
-# Always emit `geoip: false` plus a pinned `primary:` mirror -- deterministic
-# election, and `primary:` rather than `sources_list:`. See
-# feedback_macos_utm_apt_block_resolute_curtin_trap.md.
-# Shared builder: automation/Yuruna.GuestSeed.psm1. $primaryUri is the
-# arch-resolved mirror knob.
-# The apt Acquire tuning it emits is a step-budget bound, so it has to be
-# identical on every host driver: copies inlined per driver drift, and a
-# mirror stall then burns a step budget on whichever host was missed.
-Import-Module (Join-Path $repoRoot 'automation/Yuruna.GuestSeed.psm1') -Force
-$AptProxyBlock = New-AptProxyBlock -PrimaryUri $primaryUri -CachingProxyServiceUrl $CachingProxyServiceUrl
-
 # --- REGION: Fetch caching-proxy-service CA cert (base64-embedded in seed)
-# --- REGION: https://yuruna.link/4220a755-0015
+# See https://yuruna.link/4220a755-0015
 # An empty $CaCertBase64 is NOT a harmless no-op (curl rc=60 SSL-bump gate).
 # See feedback_sslbump_rc60_untrusted_chain_and_ca_gate_trap and
 # project_sslbump_ca_gating_durable_fix.
@@ -242,12 +243,7 @@ foreach ($f in @($baseUserData, $overlayUserData, $metaDataTemplate)) {
 }
 Import-Module (Join-Path $repoRoot 'automation/Yuruna.CloudInitTemplate.psm1') -Force
 # --- REGION: https://yuruna.link/4220a755-0003
-# Bake the guest-side lib scripts into the seed as base64-encoded write_files
-# entries. Eliminates the legacy network-dependent wget+wget bootstrap and
-# ensures the files are on disk before any guest script runs.
-# New-CloudInitUserData reads + base64-encodes the scripts under
-# $repoRoot/automation/, populates their *_BASE64_PLACEHOLDER tokens, then
-# renders the merged template with the per-cycle replacements below.
+# Embed the guest libraries as base64 write_files entries so bootstrap needs no download.
 $userData = New-CloudInitUserData `
     -BasePath    $baseUserData `
     -OverlayPath $overlayUserData `
@@ -256,7 +252,7 @@ $userData = New-CloudInitUserData `
         HOSTNAME_PLACEHOLDER           = $GuestHostname
         USERNAME_PLACEHOLDER           = $Username
         SSH_AUTHORIZED_KEY_PLACEHOLDER = $sshPub
-        HASH_PLACEHOLDER               = $pwHash
+        HASH_PLACEHOLDER               = $PasswordHash
         APT_PROXY_BLOCK_PLACEHOLDER    = $AptProxyBlock
         CACHING_PROXY_URL_PLACEHOLDER  = ($CachingProxyServiceUrl ?? '')
         CA_CERT_BASE64_PLACEHOLDER     = $CaCertBase64
@@ -271,18 +267,7 @@ New-Item -ItemType Directory -Force -Path $seedDir | Out-Null
 Set-Content -LiteralPath (Join-Path $seedDir 'user-data') -Value $userData -NoNewline
 Set-Content -LiteralPath (Join-Path $seedDir 'meta-data') -Value $metaData -NoNewline
 # --- REGION: https://yuruna.link/4220a755-000b
-# Governs the INSTALLER's own DHCP request, and subiquity carries the network
-# config it installed with into the target -- so the pin is present from the
-# very first lease this guest ever asks for. The late-command in the
-# autoinstall user-data patches the same key into the installed netplan and
-# stays as the belt to this braces; it cannot replace this, because by the time
-# a late-command runs the installer has already taken a lease under the default
-# machine-id identity, and on a long lease that address is spent for a week.
-# Matching en*/eth* by name lets one shared file cover enp0s1 on UTM, eth0 on
-# Hyper-V and enp1s0 on KVM, and netplan resolves those globs against real
-# devices. The match must hold: a seeded network-config REPLACES the config
-# cloud-init would otherwise generate, so one that resolves to no interface
-# leaves the guest -- or, during an install, the installer -- with no network.
+# The shared network-config pins DHCP identity during installation and after reboot.
 Copy-Item -LiteralPath (Join-Path $hostVmConfigDir 'guest-dhcp.network-config') `
     -Destination (Join-Path $seedDir 'network-config') -Force
 
@@ -297,44 +282,15 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 # --- REGION: Create empty install target
-# Fresh 64 G qcow2; subiquity will partition + install onto it. Paired with
-# sizing-policy: all in host/vmconfig/ubuntu.server.base.user-data so the root LV consumes the
-# whole PV instead of subiquity's default ~50% server heuristic that left
-# kubelet's image filesystem at ~14 GiB and tripped ephemeral-storage
-# eviction during the website test.
+# See https://yuruna.link/42e220c4-0004
+# Delay destructive replacement until the seed preflight succeeds.
+# Fresh 64 G qcow2; subiquity partitions and installs onto it.
 if (Test-Path -LiteralPath $diskImg) { Remove-Item -Force -LiteralPath $diskImg }
 & qemu-img create -f qcow2 $diskImg 64G | Out-Null
 if ($LASTEXITCODE -ne 0) { Write-Error "qemu-img create failed"; exit 1 }
 
-# --- REGION: Remove existing VM
-$virshUri = 'qemu:///system'
-# Capture stdout+stderr + exit code for each call so an operator
-# running with -Verbose sees the per-call outcome. The post-condition
-# below catches the actual failure mode; this just preserves forensics
-# when something unusual surfaces between the two idempotent ops.
-$destroyOut = & virsh --connect $virshUri destroy $VMName 2>&1
-Write-Verbose "virsh destroy '$VMName' exit=$LASTEXITCODE output='$($destroyOut -join '; ')'"
-# Snapshot metadata, checkpoint metadata and a managed-save image each
-# pin the domain: undefine refuses ("cannot delete inactive domain with
-# N snapshots") unless asked to drop them, and the re-creation below
-# then fails with "domain already defined". A guest workload that takes
-# a disk snapshot is routine, so clear every kind of metadata here.
-$undefineOut = & virsh --connect $virshUri undefine --nvram --managed-save `
-    --snapshots-metadata --checkpoints-metadata $VMName 2>&1
-Write-Verbose "virsh undefine '$VMName' exit=$LASTEXITCODE output='$($undefineOut -join '; ')'"
-# Post-condition: destroy/undefine on a non-existing domain is harmlessly
-# non-zero, but a failure that leaves the domain defined makes the next
-# virt-install fail with "domain already defined", and the outer loop has
-# no signal to recover. Fail loud now with dominfo so the operator can act.
-$stillDefined = & virsh --connect $virshUri list --all --name 2>$null |
-    Where-Object { $_.Trim() -eq $VMName }
-if ($stillDefined) {
-    $dominfo = (& virsh --connect $virshUri dominfo $VMName 2>&1 | Out-String).Trim()
-    throw "virsh destroy + undefine left '$VMName' defined; aborting before re-creation.`ndominfo:`n$dominfo"
-}
-
-# --- REGION: Define + start the VM via virt-install
-# --- REGION: https://yuruna.link/42d69dfa-0008
+# --- REGION: Create and configure the libvirt domain (virt-install)
+# See https://yuruna.link/42d69dfa-0008
 $osVariant = 'linux2022'
 $osList = & virt-install --osinfo list 2>$null
 if ($LASTEXITCODE -eq 0) {
@@ -358,13 +314,8 @@ if ($hostCores -lt 4) {
     Write-Error "Host has $hostCores cores; Yuruna requires at least 4. See https://yuruna.link/42fa6f45-0015"
     exit 1
 }
-# Floor-half of the host is the target, clamped so a guest never takes
-# every thread of a small host: nproc counts hardware threads, and on a
-# 4-thread host an unclamped 4-core floor hands EVERY guest the whole
-# machine. At least one thread must stay for the host itself (runner,
-# OCR polling, VM management) or a busy sibling guest can deschedule an
-# installer's vCPUs for seconds at a time and its console appears
-# frozen until the step timeout gives up.
+# --- REGION: https://yuruna.link/42fa6f45-0015
+# Reserve at least one host thread while applying the shared guest core policy.
 $vmCores = [math]::Min($hostCores - 1, [math]::Max(2, [math]::Floor($hostCores / 2)))
 # Cascaded variables.cores overrules the default; clamp to the host cores so an
 # over-ask can't fail virt-install.
@@ -413,13 +364,8 @@ $installArgs = @(
     # sign of what broke.
     '--channel', 'unix,target_type=virtio,name=org.qemu.guest_agent.0',
     '--graphics','vnc,listen=127.0.0.1',
-    # Force paravirtual virtio video instead of the q35+UEFI default
-    # (bochs-display). The bochs DRM driver in the resolute live-server
-    # kernel (7.0.0-15) thrashes drm_fb_helper_damage_work during the
-    # subiquity install phase, correlating with an overlayfs oops that
-    # stalls autoinstall before the post-install login prompt appears.
-    # virtio-vga is paravirtual, has no DRM driver burn, and works
-    # identically on noble, so we pin it for both 24 and 26.
+    # --- REGION: https://yuruna.link/42e220c4-0004
+    # Pin virtio video on both Ubuntu releases to avoid installer framebuffer stalls.
     '--video',   'virtio'
 )
 switch ($virtArch) {
@@ -472,7 +418,7 @@ try {
     Remove-Item -LiteralPath $xmlFile.FullName -Force -ErrorAction SilentlyContinue
 }
 
-# --- REGION: Cleanup temporary folders
+# --- REGION: Clean up temporary files
 # seed.src holds the rendered user-data with the autoinstall password hash
 # and the harness SSH public key; the guest reads them from seed.iso, so the
 # plaintext source directory has no reason to survive the run.

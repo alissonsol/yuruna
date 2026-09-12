@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 421fc09f-36ed-4d1d-872e-0167bfb4583f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -1211,8 +1211,13 @@ function Set-YurunaHostAlias {
             # vector comes from Get-SudoPwshArgumentList: a bare 'pwsh' under
             # sudo's stripped environment dies with a .NET "libhostfxr not found"
             # exit 131, three steps before the vault and the config are written.
+            # The prompt names whose password and what for: sudo's default says
+            # neither, and this elevation lands in the middle of a run that has
+            # been generating and storing lab credentials, so an unnamed
+            # "Password:" reads as a request for one of those.
             $aliasArgs = Get-SudoPwshArgumentList -ScriptPath $aliasScript `
-                -ScriptArgument @('-ComputerName', $n, '-IPAddress', $address)
+                -ScriptArgument @('-ComputerName', $n, '-IPAddress', $address) `
+                -Prompt "[sudo] login password for %u ON THIS MACHINE (not a vault or storage credential), to map '$n' in /etc/hosts: "
             $aliasRun = Invoke-LocalLabStorageNative -FilePath 'sudo' -ArgumentList $aliasArgs -AllowFailure
             if ($aliasRun.ExitCode -ne 0) {
                 throw ("Could not write the '$n' hosts-file alias (sudo pwsh exited $($aliasRun.ExitCode)): $($aliasRun.Output)`n" +

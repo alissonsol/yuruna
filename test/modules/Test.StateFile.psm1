@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42a70b09-faec-4f05-9d24-b07e35b3f8f3
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -24,7 +24,7 @@
     Single source of truth for the temp-file + rename pattern used by
     every Yuruna state sidecar. Design notes (concurrent-reader
     guarantees, per-writer unique temp naming, boot-recovery contract)
-    live at https://yuruna.link/state-sidecar.
+    live at https://yuruna.link/42d38664-001d.
 #>
 
 function Write-YurunaStateFile {
@@ -57,7 +57,7 @@ function Write-YurunaStateFile {
     } else {
         [System.Text.UTF8Encoding]::new($false)
     }
-    # Per-writer unique temp name. See https://yuruna.link/state-sidecar
+    # Per-writer unique temp name. See https://yuruna.link/42d38664-001d
     # for why a fixed "$Path.tmp" is unsafe under concurrent writers.
     $tmp = "$Path.$PID-$([guid]::NewGuid().ToString('N')).tmp"
     try {

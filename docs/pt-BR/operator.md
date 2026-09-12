@@ -155,7 +155,9 @@ nunca toca em `guestSequence` nem em `GH_TOKEN`.*
 
 <a id="42ad660e-0008"></a>
 
-### A.5 Criar o armazenamento do pool e do stash
+<a id="a5-criar-o-armazenamento-do-pool-e-do-stash"></a>
+
+### A.5 Criar o armazenamento do grupo e do stash
 
 **Armazenamento nesta máquina (sem NAS)** -- elevado no Windows, sem
 `sudo` no macOS e no Ubuntu. Um único comando idempotente cria as pastas,
@@ -548,7 +550,7 @@ Os scripts podem funcionar com versões mais antigas, mas os testes usaram as fi
 
 Comandos: [A.1](#a1-instalar-o-framework); os comandos de uma linha
 pertencem ao [install/README.md](../../install/README.md), também em
-<https://yuruna.link/install>. O instalador instala as dependências,
+<https://yuruna.link/420f54a5>. O instalador instala as dependências,
 clona o framework e semeia o `test/test.config.yml` quando ausente. A
 primeira habilitação do Hyper-V dispara RESTART REQUIRED -- reinicie
 antes de continuar. Como alternativa, faça `git clone` e execute você
@@ -640,7 +642,9 @@ minutos.
 
 <a id="42ad660e-001c"></a>
 
-### B.7 Compartilhamentos locais para o armazenamento do pool e do stash
+<a id="b7-compartilhamentos-locais-para-o-armazenamento-do-pool-e-do-stash"></a>
+
+### B.7 Compartilhamentos locais para o armazenamento do grupo e do stash
 
 O armazenamento durável ([pool-storage.md](../pool-storage.md),
 [stash-guide.md](../stash-guide.md)) é apoiado por dois compartilhamentos
@@ -784,7 +788,9 @@ etapa separada de `Start-StatusService.ps1`.
 
 <a id="42ad660e-0021"></a>
 
-## Trazer as VMs de serviço de volta após reiniciar o host
+<a id="trazer-as-vms-de-serviço-de-volta-após-reiniciar-o-host"></a>
+
+## Trazer as VMs de serviço de volta após reiniciar o hospedeiro
 
 Reiniciar o hospedeiro não danifica nada: deixa toda VM de serviço registrada
 no hipervisor e desligada. Nada então as liga de volta, e as duas
@@ -908,7 +914,7 @@ provisionadas, e os logins de console delas parariam de funcionar
 silenciosamente.
 
 O painel do serviço download-agent protege suas ações mutantes com o
-**Lab token** rotativo de 6 caracteres do painel de hospedeiros do Yuruna --
+**Token do laboratório** rotativo de 6 caracteres do painel de hospedeiros do Yuruna --
 verificado com o agregador de grupo, nunca armazenado no cofre; nada
 para cunhar ou rotacionar à mão
 ([download-agent.md](../download-agent.md#unlocking-the-actions)). Uma
@@ -936,6 +942,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Última revisão: 2026.09.08
+Última revisão: 2026.09.12
 
 Voltar para [Yuruna](../../README.md)

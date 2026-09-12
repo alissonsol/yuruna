@@ -11,9 +11,9 @@ up a test machine.
 
 ## Start here
 
-Portuguese (Brazil): [documentação em português](pt-BR/index.md) -- a
-machine-produced first draft of the operator subset, pending native review.
-English remains the source of truth.
+Portuguese (Brazil): [documentação em português](pt-BR/index.md) covers the
+operator subset. The translation manifest records each document's accepted
+review; English remains the source of truth.
 
 - **[architecture.md](architecture.md)** -- the three capabilities and the
   three-phase Resources -> Components -> Workloads model, plus the CLI entry
@@ -53,7 +53,7 @@ English remains the source of truth.
 
 - **[kubernetes.md](kubernetes.md)** -- the user-facing quick start: deploy a
   containerized app to localhost, Azure, or AWS with one workflow, and clean up
-  the cloud resources afterwards.
+  the cloud resources afterward.
 - **[authentication.md](authentication.md)** -- how to authenticate to Docker
   Desktop, AWS, Azure, and Google Cloud, how the [component-push pipeline logs
   into the target container
@@ -188,7 +188,7 @@ English remains the source of truth.
 
 ## Design
 
-- **[design/00-index.md](design/00-index.md)** -- entry point to the generated
+- **[design/README.md](design/README.md)** -- entry point to the generated
   design diagrams: what each shows, how they relate, and the source each was
   derived from. From there: [context and
   components](design/01-context-and-components.md), the [component
@@ -196,7 +196,8 @@ English remains the source of truth.
   flows](design/03-data-flows.md), [lifecycle
   state](design/04-lifecycle-state.md), the [configuration data
   model](design/05-data-model.md), and the [deployment
-  topology](design/06-deployment.md).
+  topology](design/06-deployment.md), and
+  [globalization](design/07-globalization.md).
 - **[design/naming.md](design/naming.md)** -- the naming rules: components are
   "`<name>` service", durations carry `Seconds`/`Ms`, booleans are bare
   adjectives, acronyms are words in camelCase -- plus the foreign contracts
@@ -285,6 +286,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.08
+Last review: 2026.09.12
 
 Back to [Yuruna](../README.md)

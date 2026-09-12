@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 424533be-1c51-4584-9728-27ea5064d2b7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -46,6 +46,132 @@
     instead makes every It fail on a missing command rather than on an
     assertion.
 #>
+
+Describe 'service VM operation dry runs' {
+    It 'returns before any side effects for every VM start and stop' {
+        $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
+        $serviceDir = Join-Path $repoRoot 'test/service'
+        $scripts = @(Get-ChildItem -LiteralPath $serviceDir -Filter '*-?*ServiceVM.ps1' -File)
+        Assert-Equal -Expected 8 -Actual $scripts.Count -Because 'all four VM service pairs must participate'
+        foreach ($script in $scripts) {
+            $errors = $null
+            $ast = [System.Management.Automation.Language.Parser]::ParseFile($script.FullName, [ref]$null, [ref]$errors)
+            Assert-Equal -Expected 0 -Actual @($errors).Count -Because "$($script.Name) must parse"
+            $first = $ast.EndBlock.Statements[0]
+            Assert-True ($first -is [System.Management.Automation.Language.IfStatementAst]) `
+                "$($script.Name) must gate before imports or any other operation"
+            Assert-True ($first.Extent.Text -match '\$PSCmdlet\.ShouldProcess\(') "$($script.Name) must honor WhatIf"
+            # Execute only the real parameter block and first guard. A broken
+            # guard reaches this throw, never the launcher's external operations.
+            $attributes = @($ast.ParamBlock.Attributes | ForEach-Object { $_.Extent.Text }) -join "`n"
+            $guard = [scriptblock]::Create($attributes + "`n" + $ast.ParamBlock.Extent.Text + "`n" + $first.Extent.Text + "`nthrow 'dry run reached side effects'")
+            & $guard -WhatIf
+            if ($script.Name -eq 'Start-PoolControlServiceVM.ps1') { & $guard -HostSideProof -WhatIf }
+        }
+    }
+}
+
+Describe 'caching proxy stop state across hosts' {
+    It 'withdraws the cached address before <Platform> teardown and preserves the password' -TestCases @(
+        @{ Platform = 'Windows' }, @{ Platform = 'MacOS' }, @{ Platform = 'Linux' }
+    ) {
+        param($Platform)
+        $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $PSCommandPath))
+        $path = Join-Path $repoRoot 'test/service/Stop-CachingProxyServiceVM.ps1'
+        # A separate runspace executes the real entry point with host effects
+        # stubbed, so its platform branches and preferences stay isolated.
+        $driver = {
+            param($Path, $Platform)
+            Set-Variable IsWindows -Value ($Platform -eq 'Windows') -Force
+            Set-Variable IsMacOS -Value ($Platform -eq 'MacOS') -Force
+            Set-Variable IsLinux -Value ($Platform -eq 'Linux') -Force
+            $fixture = @{
+                CacheState = @{ ipAddress = '192.0.2.10'; password = 'retained-password' }
+                AddressAtRemoval = $null
+                ClearCount = 0
+            }
+            function Import-Module {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidOverwritingBuiltInCmdlets', '',
+                    Justification = 'Isolated test stub blocks real module loading and filesystem access.')]
+                param()
+            }
+            function Use-LogLevelFromEnv {}
+            function Initialize-YurunaEntryPoint { @{ ModulesDir = '/unused/modules' } }
+            function Initialize-YurunaEntryPointModuleSet {}
+            function Invoke-LibvirtGroupReExecIfNeeded {}
+            function Get-HostType { 'test.host' }
+            function Initialize-SudoCache { $true }
+            function Clear-CachingProxyServiceLock { @{ Reason = 'no-lock' } }
+            function Initialize-YurunaHost { $true }
+            function Remove-HostProxy {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                    Justification = 'Isolated host-operation stub has no external effects.')]
+                param()
+                $true
+            }
+            function Remove-PortMap {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                    Justification = 'Isolated host-operation stub has no external effects.')]
+                param()
+                $true
+            }
+            function Test-Path {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidOverwritingBuiltInCmdlets', '',
+                    Justification = 'Isolated test stub blocks real module loading and filesystem access.')]
+                param()
+                $false
+            }
+            function Get-VMHost { @{ VirtualHardDiskPath = '/unused/disks' } }
+            function Get-VMState { 'running' }
+            function Stop-VM {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                    Justification = 'Isolated host-operation stub has no external effects.')]
+                param()
+                $true
+            }
+            function Remove-VM {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                    Justification = 'Records fixture state without touching a VM.')]
+                param()
+                $fixture.AddressAtRemoval = $fixture.CacheState.ipAddress
+                $true
+            }
+            function Remove-Item {
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+                    Justification = 'A rejecting fixture prevents every attempted deletion.')]
+                [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSAvoidOverwritingBuiltInCmdlets', '',
+                    Justification = 'The isolated test must never delete real files.')]
+                param()
+                throw 'The stop fixture must never delete files'
+            }
+            function Get-UbuntuExtensionImageInfo { @{ BaseImageFile = '/unused/base-image' } }
+            function Save-CachingProxyServiceState {
+                param([string]$IpAddress)
+                $fixture.CacheState.ipAddress = $IpAddress
+                $fixture.ClearCount++
+                $true
+            }
+            & $Path -Confirm:$false 1>$null 3>$null 4>$null 5>$null 6>$null
+            [pscustomobject]@{
+                AddressAtRemoval = $fixture.AddressAtRemoval
+                Password = $fixture.CacheState.password
+                ClearCount = $fixture.ClearCount
+            }
+        }
+        $shell = [PowerShell]::Create()
+        try {
+            [void]$shell.AddScript($driver.ToString()).AddArgument($path).AddArgument($Platform)
+            $result = @($shell.Invoke())
+            Assert-Equal -Expected 0 -Actual $shell.Streams.Error.Count -Because "the isolated $Platform stop script must execute cleanly"
+            Assert-Equal -Expected 1 -Actual $result.Count -Because 'the real stop script must return to the fixture'
+            Assert-Equal -Expected 1 -Actual $result[0].ClearCount -Because 'each host withdraws the persisted address exactly once'
+            Assert-StringEqual -Expected '' -Actual $result[0].AddressAtRemoval -Because 'VM removal must not leave a reusable stale proxy address'
+            Assert-StringEqual -Expected 'retained-password' -Actual $result[0].Password -Because 'stopping the VM must preserve the persistent credential'
+        } finally {
+            $shell.Dispose()
+        }
+    }
+}
 
 BeforeAll {
 $here    = Split-Path -Parent $PSCommandPath

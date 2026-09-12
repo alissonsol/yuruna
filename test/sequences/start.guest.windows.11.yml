@@ -8,9 +8,12 @@ sequenceRevision: 1
 
 description: "Windows 11: bypass 'Press any key to boot from CD/DVD' then let autounattend.xml drive the install."
 keystrokeMechanism: gui
+
+# --- REGION: resource
 resource:
   windows.11: []
 
+# --- REGION: component
 component:
   - action: waitForSeconds
     seconds: 3

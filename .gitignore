@@ -468,3 +468,12 @@ test/extension/caching-proxy-service/caching-proxy-service
 # never installed from the enlistment. Tracking one makes every `go build`
 # dirty the tree.
 test/extension/pool-aggregator-service/pool-aggregator-service
+
+# The localization exchange is a workspace, not repository content. It carries
+# the English out and the translated text back, and translated text is not
+# ASCII -- a tracked bundle could never pass the raw-ASCII gate. The census
+# counts whatever is not ignored, so an export would also stale it every time.
+# What is durable is the placed translation and the approval digest over it,
+# and both of those are tracked artifacts.
+dev-only/localization-input/
+dev-only/localization-output/

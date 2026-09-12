@@ -1,0 +1,7 @@
+exit: 2
+Test-Terminology: definition source is unavailable: <work>/empty-root/docs/definition.md
+Test-Terminology: retired-name hook is unavailable: <work>/empty-root/tools/githooks/pre-commit
+Test-Terminology: document manifest is unavailable: <work>/empty-root/globalization/manifests/doc-translations.json
+Test-Terminology: release version is unavailable: <work>/empty-root/VERSION
+Test-Terminology: terminology schema is unavailable: <work>/empty-root/globalization/schema/terminology.schema.json
+Test-Terminology: style-guide schema is unavailable: <work>/empty-root/globalization/schema/style-guide.schema.json

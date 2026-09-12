@@ -38,8 +38,7 @@
     }
   }
 
-  // --- rendering -----------------------------------------------------------
-
+  // --- REGION: Rendering
   // Thresholds mirror the Grafana tile exactly: red below 95, amber below 100,
   // green only at a clean 100.
   function heroClass(pct) {
@@ -124,8 +123,7 @@
     $('empty').hidden = state.cards.length > 0;
   }
 
-  // --- confirmation --------------------------------------------------------
-
+  // --- REGION: Confirmation
   // The failure mode is a mis-tap, so name the blast radius before writing.
   // Where focus was when the sheet opened, so it can go back there. The sheet
   // markup is already correct (role=dialog, aria-modal, aria-labelledby); what
@@ -208,8 +206,7 @@
     });
   }
 
-  // --- data ----------------------------------------------------------------
-
+  // --- REGION: Data
   // Header version + host id and the footer bar. stamp() (not markLoaded) records
   // each pass, because the 30 s poll below would otherwise keep resetting the
   // 60 s countdown and it would never reach zero. refreshOnVisible is off -- the

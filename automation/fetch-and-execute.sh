@@ -1,5 +1,5 @@
 #!/bin/bash
-# Version: 2026.09.08
+# Version: 2026.09.12
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 
@@ -734,10 +734,15 @@ __fae_sink() {
   echo "# source:    $BASE_SOURCE"
   echo "# bytes:     $byte_count"
   echo "# started:   $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  echo "# stepInvocationId: ${E_SI:-}"
+  echo "# sequenceInvocationId: ${E_QI:-}"
   [ "$profile_enabled" = '1' ] && echo "# profile:   $profile_file"
   [ -n "$__fae_t0_us" ] && echo "# stamps:    [seconds.millis] elapsed since 'started' (log only; the console copy is unstamped)"
   echo "# ---"
 } > "$fae_log" 2>/dev/null || true
+if [ -n "${E_SI:-}" ]; then
+    printf 'YURUNA_EXECUTION stepInvocationId=%s sequenceInvocationId=%s\n' "$E_SI" "${E_QI:-}"
+fi
 
 # Run the fetched script and capture its exit code before any further output
 # so the FETCHED AND EXECUTED marker is always the final line. `2>&1` merges
@@ -834,6 +839,7 @@ if [ "$profile_enabled" = '1' ] && [ "$BASE_SOURCE" = 'host' ] && [ -n "$ckpt_fi
         awk -F '\t' \
             -v script="$FILE_PATH" -v src="$BASE_SOURCE" \
             -v host="$(hostname 2>/dev/null)" -v rc="$rc" \
+            -v stepid="${E_SI:-}" -v sequenceid="${E_QI:-}" \
             -v start="$start_epoch" -v endep="$EPOCHREALTIME" '
             function esc(s,    r) {
                 r = s
@@ -860,7 +866,7 @@ if [ "$profile_enabled" = '1' ] && [ "$BASE_SOURCE" = 'host' ] && [ -n "$ckpt_fi
                 names[n] = nm; offs[n] = off; n++
             }
             END {
-                printf "{\"schema\":1,\"scriptPath\":\"%s\",\"source\":\"%s\",\"hostname\":\"%s\",\"exitCode\":%d,\"startEpoch\":%s,\"endEpoch\":%s,\"checkpoints\":[", esc(script), esc(src), esc(host), rc, start, endep
+                printf "{\"schema\":1,\"scriptPath\":\"%s\",\"source\":\"%s\",\"hostname\":\"%s\",\"stepInvocationId\":\"%s\",\"sequenceInvocationId\":\"%s\",\"exitCode\":%d,\"startEpoch\":%s,\"endEpoch\":%s,\"checkpoints\":[", esc(script), esc(src), esc(host), esc(stepid), esc(sequenceid), rc, start, endep
                 for (i = 0; i < n; i++) {
                     if (i > 0) printf ","
                     printf "{\"name\":\"%s\",\"offsetMs\":%d}", esc(names[i]), offs[i]

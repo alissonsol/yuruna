@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42c371c0-e0ee-4286-a715-488384b98c2a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -28,24 +28,30 @@
     the file under ~/yuruna/image/amazon.linux.2023/.
 #>
 
-# Honor logLevel from Start-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+# --- REGION: Log level from environment
+# Reuse the caller's log module so an in-process fetch preserves its state.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
-if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
+if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
+    Import-Module $_logLevelMod -Global
+}
+if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
+# --- REGION: Platform guard
 if (-not $IsLinux) {
     Write-Error "host/ubuntu.kvm/guest.amazon.linux.2023/Get-Image.ps1 only runs on Linux."
     exit 1
 }
 
-$arch = (& uname -m).Trim()
-switch ($arch) {
-    'x86_64'  { $platDir = 'kvm' }
-    'aarch64' { $platDir = 'kvm-arm64' }
-    default   { Write-Error "Unsupported arch: $arch"; exit 1 }
+# --- REGION: Host architecture
+$hostArch = (& uname -m).Trim()
+switch ($hostArch) {
+    'x86_64'  { $platformDir = 'kvm' }
+    'aarch64' { $platformDir = 'kvm-arm64' }
+    default   { Write-Error "Unsupported arch: $hostArch"; exit 1 }
 }
 
 # --- REGION: Configuration
-$sourceUrl     = "https://cdn.amazonlinux.com/al2023/os-images/latest/$platDir/"
+$sourceUrl     = "https://cdn.amazonlinux.com/al2023/os-images/latest/$platformDir/"
 $downloadDir   = "$HOME/yuruna/image/amazon.linux.2023"
 $baseImageName = "host.ubuntu.kvm.guest.amazon.linux.2023"
 $baseImageFile = Join-Path $downloadDir "$baseImageName.qcow2"
@@ -54,12 +60,9 @@ $downloadFile = Join-Path $downloadDir 'downloaded.qcow2'
 
 New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
 
-# The KVM host driver brings the skip-if-same-source guard + sentinel writer
-# (Test-DownloadAlreadyCurrent / Write-ImageSentinel, the 4-line filename + URL +
-# size + Last-Modified format shared across every KVM guest, with the
-# noble->resolute URL-bump guard), the cache-aware Save-CachedHttpUri wrapper
-# that routes this download through the squid cache, AND the download-agent
-# client the block below feature-detects.
+# --- REGION: Import host modules
+# See https://yuruna.link/42e220c4-0003
+# Import cache/agent discovery and the shared image sentinel helpers.
 Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) "modules/Yuruna.Host.psm1") -Force
 
 # --- REGION: https://yuruna.link/42ec97cd-0004
@@ -79,7 +82,7 @@ if ((Get-Command -Name Resolve-DownloadAgentEndpoint -ErrorAction SilentlyContin
             BaseUrl         = $agentBaseUrl
             HostType        = 'ubuntu.kvm'
             ImageKey        = 'guest.amazon.linux.2023'
-            Arch            = $(if ($platDir -eq 'kvm-arm64') { 'arm64' } else { 'amd64' })
+            Arch            = $(if ($platformDir -eq 'kvm-arm64') { 'arm64' } else { 'amd64' })
             Variant         = 'stable'
             StagingPath     = $downloadFile
             DeadlineSeconds = 7200
@@ -153,11 +156,7 @@ if (-not $agentServed) {
 
     # --- REGION: Retrieve and process the files
     Remove-Item $downloadFile -Force -ErrorAction SilentlyContinue
-    # Save-ImageWithChecksum (Yuruna.Image.psm1) verifies SHA-256 against
-    # the publisher checksum (a genuine mismatch deletes the file and fails;
-    # a missing upstream checksum is a soft pass). It feature-detects the
-    # driver's Save-CachedHttpUri wrapper and routes the fetch through the
-    # squid cache when one is reachable, else downloads direct.
+    # Reject checksum mismatches; a publisher that omits a checksum remains a soft pass.
     Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) "modules/Yuruna.Image.psm1") -Force
     $checksumLink = ($html.Links | Where-Object { $_.href -match '\.qcow2\.sha256$' } | Select-Object -First 1)
     $checksumUrl = if ($checksumLink) { $sourceUrl + $checksumLink.href } else { $null }
@@ -177,12 +176,12 @@ $downloadedSize = (Get-Item -LiteralPath $downloadFile).Length
 
 # --- REGION: Preserve previous and finalize
 $previousFile = Join-Path $downloadDir "$baseImageName.previous.qcow2"
-Remove-Item $previousFile -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $previousFile -Force -ErrorAction SilentlyContinue
 if (Test-Path -LiteralPath $baseImageFile) {
-    Move-Item -Path $baseImageFile -Destination $previousFile
+    Move-Item -LiteralPath $baseImageFile -Destination $previousFile
     Write-Output "Previous image preserved as: $previousFile"
 }
-Move-Item -Path $downloadFile -Destination $baseImageFile
+Move-Item -LiteralPath $downloadFile -Destination $baseImageFile
 
 # --- REGION: https://yuruna.link/42ec97cd-0006
 # Only Write-ImageSentinel emits the 4-line shape the reader matches. On the
@@ -196,3 +195,7 @@ if ($agentServed) {
 Write-Output "Recorded source filename, URL, byte count, and Last-Modified to: $baseImageOrigin"
 
 Write-Output "Download complete: $baseImageFile"
+
+# --- REGION: Completion
+# Clear a native discovery probe's stale exit code, including on cache hits.
+exit 0

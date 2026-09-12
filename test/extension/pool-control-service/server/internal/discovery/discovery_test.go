@@ -360,3 +360,166 @@ func waitForScan(t *testing.T, e *Engine) Progress {
 	t.Fatal("scan did not finish within the test's budget")
 	return Progress{}
 }
+
+// One address:port holds one status service, so two entries claiming it are one
+// machine under two names -- and keeping both is what made a reimaged host
+// occupy a row for every id it has ever had.
+func TestStoreSupersedesAnOlderEntryAtOneBaseURL(t *testing.T) {
+	s := NewStore("")
+	t0 := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	const base = "http://192.168.7.49:8080"
+
+	// A sighting that could not read the host's id, so it is known only by the
+	// address it answered on.
+	s.Add(Host{Address: "192.168.7.49", BaseURL: base}, t0)
+	// Then the same machine, naming itself.
+	s.Add(Host{Address: "192.168.7.49", BaseURL: base, HostID: "42old", Hostname: "lab-9"}, t0.Add(time.Hour))
+
+	list := s.List()
+	if len(list) != 1 || list[0].HostID != "42old" {
+		t.Fatalf("an id-less sighting must be subsumed by the same address naming itself; got %+v", list)
+	}
+	// Its history belongs to the machine, not to the id: the entry that lost was
+	// this same host before it could name itself.
+	if list[0].FirstSeenUTC != t0.Format(time.RFC3339) {
+		t.Errorf("first-seen = %q, want the id-less sighting's %q carried forward",
+			list[0].FirstSeenUTC, t0.Format(time.RFC3339))
+	}
+
+	// A reimage re-keys the host: same machine, same address, same name, new id.
+	s.Add(Host{Address: "192.168.7.49", BaseURL: base, HostID: "42new", Hostname: "lab-9"}, t0.Add(2*time.Hour))
+	list = s.List()
+	if len(list) != 1 || list[0].HostID != "42new" {
+		t.Fatalf("a re-keyed host must render once, under the id it reports now; got %+v", list)
+	}
+	if list[0].FirstSeenUTC != t0.Format(time.RFC3339) {
+		t.Errorf("first-seen = %q, want the machine's own %q", list[0].FirstSeenUTC, t0.Format(time.RFC3339))
+	}
+	if s.Has("42old") {
+		t.Error("the id the machine stopped reporting must leave the list")
+	}
+}
+
+// An address handed to a DIFFERENT machine is not a re-key, and the newcomer
+// must not inherit a history that is not its own.
+func TestStoreDoesNotGiveAReusedAddressTheOldHostsHistory(t *testing.T) {
+	s := NewStore("")
+	t0 := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	const base = "http://192.168.7.49:8080"
+
+	s.Add(Host{Address: "192.168.7.49", BaseURL: base, HostID: "42one", Hostname: "lab-one"}, t0)
+	later := t0.Add(48 * time.Hour)
+	s.Add(Host{Address: "192.168.7.49", BaseURL: base, HostID: "42two", Hostname: "lab-two"}, later)
+
+	list := s.List()
+	if len(list) != 1 || list[0].HostID != "42two" {
+		t.Fatalf("the address must resolve to whatever answers there now; got %+v", list)
+	}
+	if list[0].FirstSeenUTC != later.Format(time.RFC3339) {
+		t.Errorf("first-seen = %q, want this host's own %q -- a different machine's history is not its own",
+			list[0].FirstSeenUTC, later.Format(time.RFC3339))
+	}
+}
+
+// A host that answers on two addresses (a second NIC, wired and wireless) is
+// still one entry: it is keyed by the id it reports, and the address it is shown
+// at is simply the one most recently confirmed.
+func TestStoreKeepsAMultiHomedHostAsOneEntry(t *testing.T) {
+	s := NewStore("")
+	now := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	s.Add(Host{Address: "192.168.7.46", BaseURL: "http://192.168.7.46:8080", HostID: "42af", Hostname: "mac-a"}, now)
+	s.Add(Host{Address: "192.168.7.152", BaseURL: "http://192.168.7.152:8080", HostID: "42af", Hostname: "mac-a"}, now.Add(time.Second))
+
+	list := s.List()
+	if len(list) != 1 || list[0].Address != "192.168.7.152" {
+		t.Fatalf("one host on two addresses must be one entry at the last confirmed address; got %+v", list)
+	}
+}
+
+// A machine that re-keyed and then went off the network leaves both ids behind,
+// and no future sighting will ever tidy them. Loading the list is the other
+// chance to notice, and it fixes the file rather than the render.
+func TestStoreCollapsesDuplicatesOnLoad(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "discovered-hosts.json")
+	const doc = `[
+      {"address":"192.168.7.49","baseUrl":"http://192.168.7.49:8080","hostId":"42old","hostname":"lab-9",
+       "firstSeenUtc":"2026-09-02T15:30:00Z","lastSeenUtc":"2026-09-07T20:43:00Z"},
+      {"address":"192.168.7.49","baseUrl":"http://192.168.7.49:8080","hostId":"42new","hostname":"lab-9",
+       "firstSeenUtc":"2026-09-08T22:02:00Z","lastSeenUtc":"2026-09-09T02:32:00Z"},
+      {"address":"192.168.7.50","baseUrl":"http://192.168.7.50:8080","hostId":"42other",
+       "firstSeenUtc":"2026-09-08T22:02:00Z","lastSeenUtc":"2026-09-09T02:32:00Z"}]`
+	if err := os.WriteFile(path, []byte(doc), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	list := NewStore(path).List()
+	if len(list) != 2 {
+		t.Fatalf("a stored duplicate must collapse at load; got %d entries: %+v", len(list), list)
+	}
+	if list[0].HostID != "42new" {
+		t.Errorf("the survivor must be the newest sighting; got %q", list[0].HostID)
+	}
+	if list[0].FirstSeenUTC != "2026-09-02T15:30:00Z" {
+		t.Errorf("first-seen = %q, want the machine's earliest sighting", list[0].FirstSeenUTC)
+	}
+	// And the repair is written back, so it does not have to be redone on every
+	// start for a machine that never answers again.
+	reloaded := NewStore(path).List()
+	if len(reloaded) != 2 {
+		t.Fatalf("the collapsed list must be persisted; got %d entries", len(reloaded))
+	}
+}
+
+// The list is a monitored set, so a host that has gone quiet stays -- but not
+// forever: a machine retired last month hides the one that went quiet today.
+func TestPruneExpiresOnlyWhatIsPastTheTTL(t *testing.T) {
+	s := NewStore("")
+	now := time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC)
+	s.Add(Host{Address: "192.168.7.13", BaseURL: "http://192.168.7.13:8080"}, now.Add(-26*24*time.Hour))
+	s.Add(Host{Address: "192.168.7.49", BaseURL: "http://192.168.7.49:8080", HostID: "42new"}, now.Add(-2*24*time.Hour))
+	s.Add(Host{Address: "192.168.7.50", BaseURL: "http://192.168.7.50:8080", HostID: "42live"}, now)
+
+	if removed := s.Prune(now, 14*24*time.Hour); removed != 1 {
+		t.Fatalf("Prune removed %d, want only the entry past the TTL", removed)
+	}
+	if s.Has("192.168.7.13") {
+		t.Error("an address unseen for 26 days must expire")
+	}
+	if !s.Has("42new") || !s.Has("42live") {
+		t.Error("a host seen inside the TTL must stay on the monitored list")
+	}
+
+	// Zero or negative keeps everything: a lab that would rather read past a
+	// stale row than lose one has to be able to say so.
+	if removed := s.Prune(now, 0); removed != 0 {
+		t.Errorf("Prune with no TTL removed %d, want 0", removed)
+	}
+	if removed := s.Prune(now, -time.Hour); removed != 0 {
+		t.Errorf("Prune with a negative TTL removed %d, want 0", removed)
+	}
+}
+
+// Two entries on one address is the duplicate case, and a consumer that keeps
+// the first one it sees per address -- the Hosts table and the facts fan-out
+// both do -- must be handed the same one every time. Go's sort is not stable,
+// so the comparator has to be a total order rather than address alone.
+func TestListOrderIsTotalSoOneEntryPerAddressAlwaysWins(t *testing.T) {
+	now := time.Date(2026, 9, 9, 12, 0, 0, 0, time.UTC)
+	// Distinct base URLs, so nothing is collapsed and both survive to be sorted.
+	build := func() *Store {
+		s := NewStore("")
+		s.Add(Host{Address: "192.168.7.49", BaseURL: "http://192.168.7.49:8080", HostID: "42old"}, now.Add(-time.Hour))
+		s.Add(Host{Address: "192.168.7.49", BaseURL: "http://192.168.7.49:9090", HostID: "42new"}, now)
+		return s
+	}
+	for i := 0; i < 25; i++ {
+		list := build().List()
+		if len(list) != 2 {
+			t.Fatalf("both entries must survive: %+v", list)
+		}
+		if list[0].HostID != "42new" {
+			t.Fatalf("run %d put %q first; the newest sighting must always lead", i, list[0].HostID)
+		}
+	}
+}

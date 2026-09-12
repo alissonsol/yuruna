@@ -36,8 +36,7 @@ const coreSrc = fs.readFileSync(path.join(__dirname, '..', '..', '..', '..', '..
 const commonSrc = fs.readFileSync(path.join(__dirname, 'common.js'), 'utf8');
 const indexSrc = fs.readFileSync(path.join(__dirname, 'index.js'), 'utf8');
 
-// --- minimal DOM ------------------------------------------------------------
-
+// --- REGION: Minimal DOM
 function makeText(s) { return { nodeType: 3, textContent: s, parentNode: null }; }
 
 function makeEl(tag) {
@@ -231,8 +230,7 @@ const UNLOCKED = { authed: true, labToken: true, configured: true };
 const LOCKED = { authed: false, labToken: true, configured: true };
 bootPage(UNLOCKED);
 
-// --- helpers ----------------------------------------------------------------
-
+// --- REGION: Helpers
 const settle = () => new Promise((r) => setTimeout(r, 0));
 function fire(el, type) {
   let stopped = false;

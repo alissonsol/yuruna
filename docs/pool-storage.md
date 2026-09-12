@@ -704,7 +704,7 @@ Common findings:
   one command -- `sudo -n -l /usr/bin/mount` exits 0 when the `NOPASSWD` rule is
   in effect. Check it *while the failure is happening*: sudo-rs writes **no**
   log entry for a refused `sudo -n`, so nothing on the host records the moment
-  afterwards. If the rule answers but the mount was still refused, look for
+  afterward. If the rule answers but the mount was still refused, look for
   another `/etc/sudoers.d` file sorting **after** the poolStorage drop-in -- the
   last matching rule wins, so a later one re-requiring a password overrides it.
 - **The cycle won't start, gate FAILs on `poolStorageLocalPath / per-host folder
@@ -798,6 +798,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.08
+Last review: 2026.09.12
 
 Back to [Yuruna](../README.md)

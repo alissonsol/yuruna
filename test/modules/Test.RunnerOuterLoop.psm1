@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42904a4e-7e96-4d32-883d-8326239ad090
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -584,7 +584,6 @@ function Test-OuterNoStatusServiceForwarded {
 }
 
 # --- REGION: Forward-env + outer.log helpers
-
 function Sync-ForwardEnv {
     <#
     .SYNOPSIS
@@ -682,7 +681,6 @@ function Clear-TerminalNotifierJob {
 }
 
 # --- REGION: Main loop
-
 # Every Invoke-RunnerOuterCycle return lands here as well as on the pipeline, so
 # Invoke-TestCycleRunner.ps1 can read the outcome WITHOUT capturing the success
 # stream. It must not capture: doing so makes PowerShell hand the inner pwsh an
@@ -1333,7 +1331,15 @@ function Invoke-RunnerOuterCycle {
         # background job that outlives the cycle) while the throw propagates. This
         # is the same try/finally discipline the failure-pause loop below uses.
         $innerSpawnFailed = $false
+        $hostSampler = $null
         try {
+            # --- REGION: https://yuruna.link/42dc5bb9-0010
+            if ($IsWindows) {
+                try {
+                    Import-Module (Join-Path $PSScriptRoot 'Test.HostSampling.psm1') -Global -Force -ErrorAction Stop
+                    $hostSampler = Start-YurunaHostSampling -RuntimeDirectory $env:YURUNA_RUNTIME_DIR -PwshPath $State.PwshExe -Confirm:$false
+                } catch { Write-Verbose "Host sampler unavailable: $($_.Exception.Message)" }
+            }
             # A watchdog that failed to arm (null job, or one already in a
             # terminal/failed state) silently disables hang protection: the inner
             # would run unguarded and a hang would never be killed. Surface it
@@ -1393,6 +1399,7 @@ function Invoke-RunnerOuterCycle {
                 Write-OuterLog "[outer cycle $cycle] WARNING: watchdog job ended Failed (hang protection lapsed mid-cycle): $wdReason"
             }
             Stop-Watchdog -Job $watchdogJob
+            if ($hostSampler) { Stop-YurunaHostSampling -Handle $hostSampler -Confirm:$false }
         }
         # The watchdog leaves a durable sentinel when it gives up before
         # arming (inner.pid missing/unreadable, identity unprovable): the

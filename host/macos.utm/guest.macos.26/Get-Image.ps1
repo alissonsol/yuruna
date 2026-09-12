@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42b0f1a0-585e-4f1d-8e6b-453c54b16950
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,10 +39,15 @@
     guard avoids re-downloading the same build on a repeat run.
 #>
 
-# Honor logLevel from Start-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+# --- REGION: Log level from environment
+# Reuse the caller's log module so an in-process fetch preserves its state.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
-if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
+if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
+    Import-Module $_logLevelMod -Global
+}
+if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
+# --- REGION: Platform guard
 if (-not $IsMacOS) {
     Write-Error "Get-Image.ps1 for guest.macos.26 only runs on macOS (Apple Virtualization required)."
     exit 1
@@ -57,17 +62,8 @@ $baseImageOrigin = Join-Path $downloadDir "$baseImageName.txt"
 New-Item -ItemType Directory -Force -Path $downloadDir | Out-Null
 
 # --- REGION: Resolve the latest IPSW URL via the Virtualization framework
-#
-# VZMacOSRestoreImage.fetchLatestSupported returns the IPSW URL + build
-# number for the current host's hardware bucket. We refuse anything
-# below macOS 26 -- on an M3-or-older host Apple may still publish
-# macOS 15 here, and silently falling back would be confusing.
-#
-# Output contract (one line, tab-separated): URL<TAB>BUILD<TAB>VERSION
-# Any failure prints a line starting with "ERROR_KIND=<kind>" to stderr
-# (xcode-missing / version-below-floor / vz-catalog-fetch / vz-other),
-# so PowerShell can emit a targeted hint instead of a blanket
-# "install Xcode CLT" advice.
+# See https://yuruna.link/42e220c4-0003
+# Require a macOS 26 restore image and preserve the typed Swift error details.
 
 # Up-front swift sanity check: fail here with a clear, actionable
 # message before we burn time on a here-string + temp-file dance for what
@@ -287,3 +283,7 @@ Write-ImageSentinel -SourceUrl $sourceUrl -OriginFile $baseImageOrigin -SizeByte
 Write-Output "Recorded source filename, URL, byte count, and Last-Modified to: $baseImageOrigin"
 
 Write-Output "Download complete: $baseImageFile"
+
+# --- REGION: Completion
+# Clear a native discovery probe's stale exit code, including on cache hits.
+exit 0

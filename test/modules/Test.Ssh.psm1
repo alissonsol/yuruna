@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 4292b140-f5e0-474e-8de4-bb7e802db56d
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -584,9 +584,9 @@ $true if Get-GuestAddress returned a real, validated IPv4 during the wait.
 .PARAMETER LastError
 The final probe's combined stdout+stderr (or the probe-timeout note).
 .OUTPUTS
-System.String -- one of: auth_denied, connection_refused, host_key_changed,
-probe_timeout, ip_not_discovered, ip_never_answered, name_unresolved,
-network_unreachable, handshake_failed.
+System.String -- one of: auth_denied, password_expired, connection_refused,
+host_key_changed, probe_timeout, ip_not_discovered, ip_never_answered,
+name_unresolved, network_unreachable, handshake_failed.
 #>
     [CmdletBinding()]
     [OutputType([string])]
@@ -601,6 +601,12 @@ network_unreachable, handshake_failed.
     )
     $e = if ($LastError) { $LastError } else { '' }
     # 1. Evidence we reached sshd -- the true cause regardless of IP discovery.
+    # An expired account outranks the generic auth refusal it usually arrives
+    # beside: both texts can land in one probe, and only this one names a fault
+    # that no key, no route and no amount of waiting can clear. It is also the
+    # only cause here whose repair is a password rotation rather than anything
+    # on the network path.
+    if ($e -match 'password has expired|Password change required|account has expired') { return 'password_expired' }
     if ($e -match 'Permission denied|publickey|Too many authentication')     { return 'auth_denied' }
     if ($e -match 'Connection refused')                                      { return 'connection_refused' }
     if ($e -match 'Host key verification failed|REMOTE HOST IDENTIFICATION') { return 'host_key_changed' }
@@ -631,6 +637,152 @@ network_unreachable, handshake_failed.
     }
     if ($e -match 'No route to host|Connection timed out|Operation timed out|timed out') { return 'network_unreachable' }
     return 'handshake_failed'
+}
+
+function Test-SshEndpointAnswered {
+<#
+.SYNOPSIS
+$true when an ssh probe's output proves something at the target address spoke
+the SSH protocol back, whatever it then said.
+.DESCRIPTION
+The question is only "did a server answer", never "did the login succeed". A
+refusal, an expired account, a rejected host key, a failed algorithm
+negotiation and a post-banner disconnect are all answers: every one of them
+requires an sshd on the other end to have read the client's bytes and replied.
+Only the transport failing -- no listener, no route, no name, no reply at all
+-- leaves the far end unproven.
+
+The predicate lists the answers rather than the silences. Inverting it, so that
+anything which is not a known transport failure counts as an answer, would turn
+every unrecognized string -- including faults that never left this machine,
+such as an unreadable private key or a probe killed at its own cap -- into
+evidence that a remote host replied. That direction of error is the expensive
+one: the caller uses a negative here to warn that a discovered address may
+belong to no live machine, and a false positive silently retires exactly that
+warning, while a missed answer only costs a coarser diagnosis.
+
+Local client faults are dropped line by line before the match, because some of
+them borrow a remote refusal's words: `Load key "...": Permission denied` is a
+file ACL on this machine, and it can print in the same probe as a genuine
+`Permission denied (publickey)` from sshd. Judging whole lines keeps one of
+those from answering for the other.
+.PARAMETER ProbeOutput
+Combined stdout+stderr of one ssh probe that ran to exit. A probe killed at its
+cap produced no verdict and must not be judged here.
+.OUTPUTS
+System.Boolean
+#>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [AllowNull()][AllowEmptyString()][string]$ProbeOutput
+    )
+    if ([string]::IsNullOrWhiteSpace($ProbeOutput)) { return $false }
+    # Faults the local ssh client raises before (or regardless of) any exchange
+    # with the target. They prove nothing about the far end.
+    $localFaultPattern = @(
+        'Load key '
+        'UNPROTECTED PRIVATE KEY'
+        'Bad permissions'
+        'Bad configuration option'
+        'no such identity'
+        'Could not create directory'
+        'Process\.Start'
+    )
+    # Matched case-insensitively against the OpenSSH client's own wording.
+    $answeredPattern = @(
+        # Authentication reached the server and was refused there.
+        'Permission denied'
+        'publickey'
+        'Too many authentication'
+        'Authentication failed'
+        'Received disconnect'
+        # The account itself is the objection. sshd raises these only after
+        # reading the account's state, which it cannot do without answering.
+        'password has expired'
+        'Password change required'
+        'account has expired'
+        # Host identity: the target presented a key for us to object to.
+        'Host key verification failed'
+        'REMOTE HOST IDENTIFICATION'
+        'Offending .*key'
+        # Version and algorithm negotiation: both sides exchanged banners.
+        'Unable to negotiate'
+        'no matching '
+        'remote protocol version'
+        'Banner exchange'
+        'kex_exchange_identification'
+        # A listener that took the connection and then declined or hung up.
+        'Connection refused'
+        'Connection closed by'
+        'Connection reset by'
+        'Remote host closed connection'
+    )
+    foreach ($line in ($ProbeOutput -split "`r?`n")) {
+        $isLocalFault = $false
+        foreach ($pattern in $localFaultPattern) {
+            if ($line -match $pattern) { $isLocalFault = $true; break }
+        }
+        if ($isLocalFault) { continue }
+        foreach ($pattern in $answeredPattern) {
+            if ($line -match $pattern) { return $true }
+        }
+    }
+    return $false
+}
+
+function Select-SshReadinessEvidence {
+<#
+.SYNOPSIS
+Picks which probe output the cause is read from: the last probe's, or the last
+one that carried a verdict about the far end.
+.DESCRIPTION
+A wait's final probe is routinely its least informative. Each probe is capped
+at the smaller of the per-probe cap and whatever budget remains, so the last
+attempt is usually the one killed rather than answered, and a killed probe
+carries a note this module minted -- not anything the target said. Reading that
+note discards every earlier probe where sshd did answer, which is how a guest
+that plainly reported an expired account gets filed as a transport timeout.
+
+Precedence, and why in this direction:
+1. A final probe that carried a verdict always wins, whether or not it is an
+   "answer". `No route to host` on the last attempt is a fresh fact about the
+   path and it outranks anything older: a guest can report an expired account
+   and then vanish, and the vanishing is what has to be acted on.
+2. Only a final probe carrying NO verdict yields to the retained answer. A
+   killed probe, and one that never started, say nothing whatever about the
+   target -- so an older answer is not merely the better evidence, it is the
+   only evidence in hand.
+There is deliberately no recency window on the retained answer. A window would
+reopen the same hole for precisely the slowest waits, where the gap between the
+last answer and the deadline is longest and an unexplained timeout helps least.
+.PARAMETER FinalError
+The last probe's combined stdout+stderr, or the note left behind when that
+probe was killed or never started.
+.PARAMETER AnsweredError
+Output of the most recent completed probe Test-SshEndpointAnswered judged an
+answer; empty when nothing ever answered.
+.OUTPUTS
+System.Collections.Hashtable -- `text` (what to classify) and `source`
+('final_probe' or 'answered_probe').
+#>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [AllowNull()][AllowEmptyString()][string]$FinalError,
+        [AllowNull()][AllowEmptyString()][string]$AnsweredError
+    )
+    # The notes a probe leaves when it produced nothing to read: killed at its
+    # cap or at the overall deadline, or never launched at all. Recognized by
+    # text rather than tracked with a flag so the whole rule stays in one pure
+    # place; both strings are minted by Wait-SshReady and never by ssh.
+    $noVerdict = [string]::IsNullOrWhiteSpace($FinalError) -or
+                 ($FinalError -match '^\s*probe timed out') -or
+                 ($FinalError -match "^\s*Process\.Start\('ssh'\) threw")
+    if ($noVerdict -and -not [string]::IsNullOrWhiteSpace($AnsweredError)) {
+        return @{ text = [string]$AnsweredError; source = 'answered_probe' }
+    }
+    return @{ text = [string]$FinalError; source = 'final_probe' }
 }
 
 function Wait-SshReady {
@@ -685,6 +837,11 @@ System.Boolean. $true if SSH became ready, $false on timeout.
     # facts, and only this one narrows a dead dial to the network rather than
     # to where the address came from.
     $ipEverAnswered = $false
+    # That answering probe's own words. Kept because the LAST probe's are
+    # routinely worthless: probes are capped at whatever budget remains, so the
+    # final one is usually killed rather than answered, and a killed probe
+    # reports only that it was killed.
+    $lastAnsweredError = ''
     # Per-probe wall-clock cap; ssh has no timeout of its own past TCP setup.
     # --- REGION: https://yuruna.link/42d69dfa-0019
     $probeCapSeconds = 15
@@ -775,11 +932,23 @@ System.Boolean. $true if SSH became ready, $false on timeout.
             # the .NET 5+ "kill entire process tree" call.
             try { $proc.Kill($true) } catch { Write-Verbose "Process.Kill failed: $($_.Exception.Message)" }
             $probeSeconds = [Math]::Round($probeMs / 1000.0, 1)
-            # A full-cap timeout is a genuine post-TCP hang; a short cap means the
-            # overall deadline was reached mid-probe, so name that case accurately.
-            # Either way keep the "probe timed out" token Get-SshReadinessFailureCause matches on.
-            $probeReason = if ($probeMs -ge $probeCapSeconds * 1000) { 'ssh hung post-TCP' } else { 'deadline reached mid-probe' }
-            $lastError = "probe timed out after ${probeSeconds}s ($probeReason; process killed)"
+            # Three shapes, and the third is why the elapsed figure cannot be
+            # printed unconditionally. A full-cap wait is a genuine post-TCP
+            # hang. A partial one means the overall deadline landed mid-probe.
+            # But the cap is the budget left when the probe STARTS, and
+            # resolving the guest address plus launching ssh can outlast the
+            # sliver a clamped poll left behind -- so the cap can be zero, or
+            # round to it, and "timed out after 0s" then denies the very thing
+            # it reports. Every branch keeps the "probe timed out" token:
+            # Get-SshReadinessFailureCause matches on it, and it is also what
+            # marks this text as carrying no verdict about the target.
+            $lastError = if ($probeMs -ge $probeCapSeconds * 1000) {
+                "probe timed out after ${probeSeconds}s (ssh hung post-TCP; process killed)"
+            } elseif ($probeSeconds -le 0) {
+                "probe timed out with no budget to run in: the ${TimeoutSeconds}s wait was already spent when ssh started, so nothing was ever asked of the target (process killed)"
+            } else {
+                "probe timed out after ${probeSeconds}s (overall ${TimeoutSeconds}s deadline reached mid-probe; process killed)"
+            }
         }
         $proc.Dispose()
         if ($completed) {
@@ -794,11 +963,14 @@ System.Boolean. $true if SSH became ready, $false on timeout.
                 return $true
             }
             $lastError = $resultText.Trim()
-            # A refusal, an auth denial or a host-key complaint all come from
-            # something that accepted the connection, so each one proves the
-            # address is owned by a live machine just as firmly as a handshake.
-            if ($lastError -match 'Permission denied|publickey|Too many authentication|Connection refused|Host key verification failed|REMOTE HOST IDENTIFICATION') {
+            # Anything sshd says back -- a refusal, an expired account, a
+            # host-key complaint, a failed negotiation, a hang-up after the
+            # banner -- proves the address is owned by a live machine just as
+            # firmly as a handshake does. Only a completed probe is judged: a
+            # probe killed at its cap produced no verdict to read.
+            if (Test-SshEndpointAnswered -ProbeOutput $lastError) {
                 $ipEverAnswered = $true
+                $lastAnsweredError = $lastError
             }
         }
         # Poll before the next attempt, but never sleep past the deadline:
@@ -817,15 +989,24 @@ System.Boolean. $true if SSH became ready, $false on timeout.
     # repeats for every diagnostic capture on a guest whose sshd is unreachable.
     # The structured ssh_handshake_failed event below is the durable signal;
     # raise the log level when actually debugging a handshake.
+    # Choose which probe's words the cause is read from instead of taking
+    # whatever landed last: the final probe is frequently the one killed at the
+    # deadline, and it then carries no verdict about the target at all.
+    $evidence = @{ text = [string]$lastError; source = 'host_driver_vm_state' }
     if ($vmState -eq 'stopped') {
         $cause = 'vm_not_running'
         if (-not $lastError) { $lastError = "host driver reports VM state 'stopped'" }
     } else {
-        $cause = Get-SshReadinessFailureCause -IpDiscovered $ipEverDiscovered -LastError $lastError -IpAnswered $ipEverAnswered
+        $evidence = Select-SshReadinessEvidence -FinalError $lastError -AnsweredError $lastAnsweredError
+        $cause = Get-SshReadinessFailureCause -IpDiscovered $ipEverDiscovered -LastError $evidence.text -IpAnswered $ipEverAnswered
     }
     Write-Verbose "SSH did not become ready within ${TimeoutSeconds}s (${attempts} attempts): $user@$lastTarget"
     Write-Verbose "  cause         : $cause (ipDiscovered=$ipEverDiscovered, ipAnswered=$ipEverAnswered)"
     Write-Verbose "  last ssh error: $lastError"
+    if ($evidence.source -eq 'answered_probe') {
+        Write-Verbose "  the last probe carried no verdict, so the cause was read from the most"
+        Write-Verbose "  recent probe the target answered: $lastAnsweredError"
+    }
     Write-Verbose "  private key   : $key"
 
     if ($cause -eq 'vm_not_running') {
@@ -911,6 +1092,14 @@ System.Boolean. $true if SSH became ready, $false on timeout.
     # ever saw a real address and `ipAnswered` whether anything replied at it.
     # lastError carries the final probe output;
     # attempts / timeout pin down whether the gate was time- or attempt-bounded.
+    # An account the guest itself has expired is a credential fault, not a
+    # transport one, and the two send a reader to different machines. Filing it
+    # under the transport class buries the one line in the probe output that
+    # names the repair behind advice to wait and try again, which cannot rotate
+    # a password. Every other cause here is a wait that ran out of budget while
+    # the caller falls back to the console rung, so those stay soft.
+    $failureClass = if ($cause -eq 'password_expired') { 'credential_expired' } else { 'network_timeout' }
+    $severity     = if ($cause -eq 'password_expired') { 'hard' } else { 'soft' }
     Send-CycleEventSafely -EventRecord @{
         timestamp        = (Get-Date).ToUniversalTime().ToString("yyyy-MM-dd'T'HH:mm:ss'Z'")
         event            = 'ssh_handshake_failed'
@@ -928,12 +1117,19 @@ System.Boolean. $true if SSH became ready, $false on timeout.
         # discovered and never answered is the shape where the address's
         # provenance is worth reading before the network is.
         ipAnswered       = [bool]$ipEverAnswered
+        # Which probe's words the cause was read from, and those words. The
+        # last probe is routinely the one killed at the deadline, and a killed
+        # probe says nothing about the target; when that happens the cause
+        # comes from the most recent probe the target answered, and carrying
+        # that text here keeps the record readable on its own.
+        causeReadFrom    = [string]$evidence.source
+        answeredError    = [string]$lastAnsweredError
         # Host-driver run state at the last sample ('' when no driver is
         # loaded): lets a reader separate "VM down" from every network-shaped
         # cause without reconstructing it from host diagnostics.
         vmState          = [string]$vmState
-        failureClass     = 'network_timeout'
-        severity         = 'soft'
+        failureClass     = [string]$failureClass
+        severity         = [string]$severity
     }
     return $false
 }
@@ -1182,6 +1378,15 @@ Only a caller whose command is safe to run twice may raise this. A dropped
 transport leaves the remote command's fate unknown -- it may have completed,
 and on a guest that outlives the session it may still be running -- so a retry
 is sound exactly when re-running the command is.
+.PARAMETER ResolvedAddress
+Optional address already established by the caller's bounded discovery. Bypasses
+the initial provider lookup; ordinary calls keep the existing discovery policy.
+.PARAMETER PrivateKeyPath
+Optional existing key path. Avoids key creation or permission convergence during
+a short evidence capture; ordinary calls initialize the harness key as needed.
+.PARAMETER PreservePartialOutputOnTimeout
+Retain up to 524288 characters of stdout and stderr after killing a timed-out
+client, with a one-second drain limit. Default timeout output remains unchanged.
 .OUTPUTS
 System.Collections.Hashtable with keys: success (bool), exitCode (int),
 output (string), addressResolved (bool), transportLost (bool).
@@ -1202,13 +1407,16 @@ with a different owner, that is likewise invisible in the exit status.
         [string]$User,
         [int]$AddressWaitSeconds = 20,
         [ValidateRange(0, 10)][int]$TransportRetryCount = 0,
-        [string]$DetachToken = ''
+        [string]$DetachToken = '',
+        [string]$ResolvedAddress,
+        [string]$PrivateKeyPath,
+        [switch]$PreservePartialOutputOnTimeout
     )
     # Not $user: PowerShell variable names are case-insensitive, so that would
     # be the same storage as the $User parameter and read as a self-assignment.
     $loginUser = if ($User) { $User } else { Get-GuestSshUser -GuestKey $GuestKey }
-    $keyPath = Get-YurunaSshPrivateKeyPath
-    $address = Get-GuestAddress -VMName $VMName
+    $keyPath = if ($PrivateKeyPath) { $PrivateKeyPath } else { Get-YurunaSshPrivateKeyPath }
+    $address = if ($ResolvedAddress) { $ResolvedAddress } else { Get-GuestAddress -VMName $VMName }
     # Get-GuestAddress answers with the VM name when nothing discovered an
     # address. That sentinel is truthy and shaped like a hostname, so on its own
     # it reaches ssh as a target and fails inside getaddrinfo -- a resolver error
@@ -1391,14 +1599,24 @@ with a different owner, that is likewise invisible in the exit status.
         if (-not $completed) {
             Write-Warning "Invoke-GuestSsh timed out after ${attemptTimeout}s: $target"
             try { $proc.Kill($true) } catch { Write-Verbose "Invoke-GuestSsh Process.Kill failed: $($_.Exception.Message)" }
+            $timeoutOutput = "Timed out after ${TimeoutSeconds}s"
+            if ($PreservePartialOutputOnTimeout -and [Threading.Tasks.Task]::WaitAll([Threading.Tasks.Task[]]@($stdoutTask,$stderrTask),1000)) {
+                $partialOutput = [string]$stdoutTask.Result + [string]$stderrTask.Result
+                if ($partialOutput.Length -gt 524288) { $partialOutput = $partialOutput.Substring(0,524288) + "`n(output truncated at 524288 characters)" }
+                if ($partialOutput) { $timeoutOutput = "$partialOutput`n$timeoutOutput" }
+            }
             $proc.Dispose()
             return @{
                 success         = $false
                 exitCode        = -1
-                output          = "Timed out after ${TimeoutSeconds}s"
+                output          = $timeoutOutput
                 addressResolved = $addressResolved
                 transportLost   = $false
             }
+        }
+        if ($PreservePartialOutputOnTimeout -and -not [Threading.Tasks.Task]::WaitAll([Threading.Tasks.Task[]]@($stdoutTask,$stderrTask),1000)) {
+            $proc.Dispose()
+            return @{ success=$false; exitCode=-1; output="Timed out after ${TimeoutSeconds}s (SSH output did not close)"; addressResolved=$addressResolved; transportLost=$false }
         }
         $stdoutText = $stdoutTask.Result
         $stderrText = $stderrTask.Result
@@ -2229,5 +2447,5 @@ final observation, in words) and Reachability.
     }
 }
 
-Export-ModuleMember -Function Initialize-YurunaSshKey, Get-YurunaSshPublicKey, Get-YurunaSshPrivateKeyPath, Get-YurunaSshHostKeyOption, Wait-SshReady, Get-SshReadinessFailureCause, Test-SshTransportLoss, Test-DetachedRunInterrupted, Get-GuestRunToken, Get-GuestRunWrapperCommand, Invoke-GuestSsh,
+Export-ModuleMember -Function Initialize-YurunaSshKey, Get-YurunaSshPublicKey, Get-YurunaSshPrivateKeyPath, Get-YurunaSshHostKeyOption, Wait-SshReady, Get-SshReadinessFailureCause, Test-SshEndpointAnswered, Select-SshReadinessEvidence, Test-SshTransportLoss, Test-DetachedRunInterrupted, Get-GuestRunToken, Get-GuestRunWrapperCommand, Invoke-GuestSsh,
     Set-ProvenGuestAddress, Get-ProvenGuestAddress, Clear-ProvenGuestAddress, Get-GuestSshUser, Set-GuestSshUserOverride, Clear-GuestSshUserOverride, Get-GuestAddress, Wait-GuestIp, Get-ServiceVmObservedState, Get-ServiceVmReadinessVerdict, Format-GuestSshDiagnosticHint, Resolve-GuestDiagnosticAddress, Confirm-ServiceVmAtRecoveredAddress, Wait-YurunaServiceVmDaemon

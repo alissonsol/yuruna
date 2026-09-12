@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 424bcbb1-3cf7-435e-a14d-52551096340a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -111,7 +111,7 @@ $VersionPath    = Join-Path $Root 'VERSION'
 # The calendar version shape a release stamps, including the optional fourth
 # component a patch release adds. A word boundary must never guard it: \b
 # matches between the last digit and the following dot, so a \b-guarded
-# 2026.09.08 also fires inside the patch tag 2026.09.08.1 and rewrites half of
+# 2026.09.12 also fires inside the patch tag 2026.09.12.1 and rewrites half of
 # it. Both patterns below consume the whole version instead, so a longer one
 # cannot be partially matched.
 $script:CalVer = '\d{4}\.\d{2}\.\d{2}(?:\.\d+)?'
@@ -149,7 +149,6 @@ $Document = @(
 )
 
 # --- REGION: hashing and history
-
 function Get-Sha256Byte {
     [OutputType([string])]
     param([Parameter(Mandatory)][AllowEmptyCollection()][byte[]]$Byte)
@@ -223,7 +222,6 @@ function Get-AcceptedByte {
 }
 
 # --- REGION: the two declared transforms
-
 function Get-VersionNormalized {
     [OutputType([pscustomobject])]
     param(
@@ -263,7 +261,6 @@ function Get-VersionNormalized {
 }
 
 # --- REGION: the residual diff a refusal reports
-
 function Get-DiffOperation {
     [OutputType([Collections.Generic.List[pscustomobject]])]
     param(
@@ -391,7 +388,6 @@ function Get-UnifiedDiffLine {
 }
 
 # --- REGION: the proof
-
 function Test-VersionOnlyChange {
     [OutputType([pscustomobject])]
     param(
@@ -447,7 +443,6 @@ function Test-VersionOnlyChange {
 }
 
 # --- REGION: writing
-
 function Save-JsonArtifact {
     [CmdletBinding()]
     param(
@@ -465,7 +460,6 @@ function Save-JsonArtifact {
 }
 
 # --- REGION: preconditions
-
 if (-not (Test-Path -LiteralPath $VersionPath -PathType Leaf)) {
     $ErrorActionPreference = 'Continue'
     Write-Error "The VERSION file is not there: $VersionPath. It names the version the declared edits write, so nothing can be proved without it."
@@ -504,7 +498,6 @@ if ($needProject -and -not (Test-Path -LiteralPath $ProjectRoot -PathType Contai
 }
 
 # --- REGION: evaluate
-
 $report = [Collections.Generic.List[pscustomobject]]::new()
 $advanceCount = 0
 $refuseCount = 0
@@ -623,7 +616,6 @@ if ($repinStyleGuide) {
 }
 
 # --- REGION: write, in the one order that leaves no pin describing bytes that moved under it
-
 $wrote = [Collections.Generic.List[string]]::new()
 if ($Update -and $declineCount -eq 0) {
     # The terminology file goes first because the style guide pins its bytes,
@@ -698,8 +690,7 @@ if ($Update -and $declineCount -eq 0) {
     }
 }
 
-# --- REGION: summary
-
+# --- REGION: Summary
 $total = $advanceCount + $refuseCount + $declineCount + $currentCount
 $verb = if ($Update) { 'advanced' } else { 'advanceable' }
 Write-Output ''

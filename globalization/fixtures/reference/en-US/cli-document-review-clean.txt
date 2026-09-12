@@ -1,0 +1,16 @@
+exit: 0
+ok     yuruna/README.md (reviewed)
+ok     yuruna/install/README.md (reviewed)
+ok     yuruna/docs/operator.md (reviewed)
+ok     yuruna/docs/lab-operator.md (reviewed)
+ok     yuruna/docs/install.md (reviewed)
+ok     yuruna/docs/kubernetes.md (reviewed)
+ok     yuruna/docs/authentication.md (reviewed)
+ok     yuruna/docs/workarounds.md (reviewed)
+ok     yuruna-project/README.md (reviewed)
+ok     yuruna-project/template/README.md (reviewed)
+ok     yuruna-project/example/README.md (reviewed)
+ok     yuruna-project/example/website/README.md (reviewed)
+ok     yuruna-project/example/text-to-sql/README.md (reviewed)
+
+Test-DocTranslation [pt-BR]: 13 document(s), 0 problem(s), 0 awaiting review.

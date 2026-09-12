@@ -1,0 +1,12 @@
+{
+  "schema": "yuruna.tooling-decision/v1",
+  "note": "Decisions about how localization work reaches people outside this repository. Each one names who decided it, whether it is provisional, and what replaces it.",
+  "xliff": {
+    "decision": "Required",
+    "provisional": true,
+    "decidedOn": "2026-09-10",
+    "decidedBy": "Yuruna maintainers",
+    "rationale": "No native translator has been booked yet, so this answers in the direction that cannot strand the schedule. XLIFF 2.1 is what a professional translator or agency is most likely to ask for, and a tool built and unused costs the effort of deleting one code path. A tool discovered missing costs schedule at the point where bulk translation is already running, which is the one moment there is nothing to trade.",
+    "replacedBy": "The booked native translator's own answer. See docs/design/07-globalization.md section 9.5 for what to change and what each answer obliges."
+  }
+}

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 4234ee0c-21ea-43ed-ad32-56a9835e71aa
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -32,62 +32,68 @@
     daemon's flush worker can push NAS-offline buffered uploads to the share,
     but deleting the disk then discards anything still buffered locally --
     the same caveat as any reimage. Committed (on-share) artifacts and their
-    sidecars are durable. See https://yuruna.link/stash-guide.
+    sidecars are durable. See https://yuruna.link/42f5e921.
 
 .PARAMETER VMName   Name of the stash-service VM. Default: yuruna-stash-service.
 #>
 
+[CmdletBinding(SupportsShouldProcess)]
 param(
     [Parameter(Position = 0)]
     [string]$VMName = "yuruna-stash-service"
 )
 
-$global:InformationPreference = "Continue"
-$global:ProgressPreference    = "SilentlyContinue"
+# --- REGION: Confirm the service operation
+# See https://yuruna.link/42e220c4-0008
+if (-not $PSCmdlet.ShouldProcess($VMName, 'Stop and remove the service VM and withdraw its advertisement')) { return }
 
-# --- REGION: https://yuruna.link/42fffc2c-000b
+$InformationPreference = 'Continue'
+
+# --- REGION: Initialize service runtime
+# See https://yuruna.link/42fffc2c-000b
 # Left at the inherited 'Continue' deliberately, and it must stay that way:
 # 'Stop' is not scoped to this script and would promote every host-contract
 # helper's non-terminating error. Hard stops here are explicit Write-Error + exit.
 
-# --- REGION: https://yuruna.link/42162449-0004
+# See https://yuruna.link/42162449-0004
 # After the preference assignments above on purpose: an explicit level is the
 # operator's choice and replaces this script's own default.
 Import-Module (Join-Path $PSScriptRoot '../modules/Test.LogLevel.psm1') -Global -Force -DisableNameChecking
 Use-LogLevelFromEnv
+$InformationPreference = $global:InformationPreference
+
+Import-Module (Join-Path $PSScriptRoot '../modules/Test.Prelude.psm1') -Global -Force
+$paths       = Initialize-YurunaEntryPoint -ScriptRoot $PSScriptRoot -InsideSubfolder
+$RepoRoot    = $paths.RepoRoot
+$ModulesDir  = $paths.ModulesDir
+$ExitOk      = Get-EntryPointExitCode -Outcome Ok
+$ExitFailure = Get-EntryPointExitCode -Outcome Failure
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     Write-Error "Invalid VMName '$VMName'. Only alphanumeric, dot, hyphen, and underscore are allowed."
-    exit 1
+    exit $ExitFailure
 }
 
-Import-Module (Join-Path $PSScriptRoot '../modules/Test.Prelude.psm1') -Global -Force
-$paths      = Initialize-YurunaEntryPoint -ScriptRoot $PSScriptRoot -InsideSubfolder
-$RepoRoot   = $paths.RepoRoot
-$ModulesDir = $paths.ModulesDir
 Import-Module (Join-Path $ModulesDir 'Test.HostContract.psm1') -Global -Force
 Invoke-LibvirtGroupReExecIfNeeded -HostType (Get-HostType) -ScriptPath $PSCommandPath -BoundParameters $PSBoundParameters
 
 $HostType = Get-HostType
-if (-not $HostType) { exit 1 }
-Write-Output "Host type: $HostType"
+if (-not $HostType) { exit $ExitFailure }
+Write-Information "Host type: $HostType" -InformationAction Continue
 [void](Initialize-YurunaHost -RepoRoot $RepoRoot -HostType $HostType)
 
-# --- REGION: Clear the service marker (this host stops advertising the area)
-# Clear the Extension hosts advertisement: this host no longer runs a stash service.
-# (Written by Start-StashServiceVM; folded into host.registration.json by
-# Write-HostRegistrationRecord and read by the pool-aggregator-service.) Removed regardless
-# of VM state -- a stopped/absent server must drop from the dashboard. Best-effort.
+# --- REGION: Clear the service marker
+# See https://yuruna.link/42e220c4-0008
 Import-Module (Join-Path $ModulesDir 'Test.YurunaDir.psm1') -Global -Force
 Import-Module (Join-Path $ModulesDir 'Test.ExtensionService.psm1') -Global -Force
 try {
     $runtimeDir = Initialize-YurunaRuntimeDir
     if (Remove-ExtensionServiceMarker -Area 'stash-service' -RuntimeDir $runtimeDir -Confirm:$false) {
-        Write-Output "  Cleared stash-service marker (host will drop from Extension hosts)."
+        Write-Information "  Cleared stash-service marker (host will drop from Extension hosts)." -InformationAction Continue
     }
 } catch { Write-Verbose "stash-service marker remove: $($_.Exception.Message)" }
 
-# --- REGION: Publish the withdrawal (refresh host.registration.json)
+# --- REGION: Publish the service withdrawal
 # Publish the removal NOW: regenerate host.registration.json so the marker's absence
 # (activeExtensions drops 'stash-service') reaches the aggregator on its next poll,
 # without waiting for a test cycle -- the symmetric counterpart to Start-StashServiceVM.
@@ -95,23 +101,19 @@ try {
     Set-Variable -Name '__YurunaHostId' -Scope Global -Value (Get-YurunaHostId)
     Import-Module (Join-Path $ModulesDir 'Test.Capability.psm1') -Global -Force
     if (Write-HostRegistrationRecord -HostType $HostType -RepoRoot $RepoRoot) {
-        Write-Output "  Refreshed host.registration.json (host drops from Extension hosts within one aggregator poll)."
+        Write-Information "  Refreshed host.registration.json (host drops from Extension hosts within one aggregator poll)." -InformationAction Continue
     }
 } catch { Write-Verbose "registration refresh: $($_.Exception.Message)" }
 
 # --- REGION: Stop the VM
 $state = Get-VMState -VMName $VMName
 if ($state -eq 'absent') {
-    Write-Output "  VM '$VMName' not registered with $HostType."
+    Write-Information "  VM '$VMName' not registered with $HostType." -InformationAction Continue
 } elseif ($state -in @('stopped', 'shutoff')) {
-    Write-Output "  VM '$VMName' is already stopped."
+    Write-Information "  VM '$VMName' is already stopped." -InformationAction Continue
 } else {
-    # Graceful stop FIRST: a clean systemd shutdown lets the stash daemon's flush
-    # worker push any NAS-offline buffered uploads to the share before the disk is
-    # deleted below, shrinking the unflushed-loss window. A hard stop is still
-    # acceptable, so escalate on a stuck graceful stop rather than blocking (the
-    # teardown below force-stops a half-up daemon).
-    Write-Output "Stopping '$VMName' (current state: $state)..."
+    # --- REGION: https://yuruna.link/42e220c4-0008
+    Write-Information "Stopping '$VMName' (current state: $state)..." -InformationAction Continue
     $ok = Stop-VM -VMName $VMName -Confirm:$false
     if (-not $ok) {
         Write-Warning "Stop-VM returned `$false; escalating to Stop-VMForce..."
@@ -119,21 +121,16 @@ if ($state -eq 'absent') {
     }
 }
 
-# --- REGION: Remove the VM and every file it owns
-# Remove the VM and every on-disk file it owns. Run unconditionally -- even an
-# 'absent' (unregistered) VM can leave a disk directory behind from a New-VM that
-# crashed mid-build, and this sweeps it. Best-effort: a cleanup hiccup must not
-# abort the stop, and the host contract Remove-VM warns on any file it cannot
-# delete. -SkipStop: the stop above already ran; Remove-VM force-stops internally
-# if the graceful path did not fully settle.
-Write-Output "Removing VM '$VMName' and its on-disk files..."
+# --- REGION: Remove the VM and its files
+# See https://yuruna.link/42e220c4-0008
+Write-Information "Removing VM '$VMName' and its on-disk files..." -InformationAction Continue
 Remove-GuestVMQuietly -VMName $VMName -SkipStop -BestEffort
 
-# --- REGION: Final state check
+# --- REGION: Verify the final VM state
 $finalState = Get-VMState -VMName $VMName
 if ($finalState -eq 'absent') {
-    Write-Output "Removed '$VMName' and its VM files."
-    exit 0
+    Write-Information "Stash service stopped; marker cleared; VM '$VMName' and its files removed." -InformationAction Continue
+    exit $ExitOk
 }
 Write-Warning "VM '$VMName' final state: $finalState (expected absent after removal). Inspect via the host's tooling, then re-run or use Remove-TestVMFiles.ps1."
-exit 1
+exit $ExitFailure

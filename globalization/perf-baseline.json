@@ -18,23 +18,23 @@
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/status/yuruna.common.css": {
-      "rawBytes": 31599,
-      "gzipBytes": 10673,
+      "rawBytes": 34072,
+      "gzipBytes": 11266,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/status/yuruna.common.js": {
-      "rawBytes": 168539,
-      "gzipBytes": 48972,
+      "rawBytes": 168531,
+      "gzipBytes": 48971,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/extension/extension-sdk/webui/assets/yuruna.core.js": {
       "rawBytes": 69462,
-      "gzipBytes": 22920,
+      "gzipBytes": 22924,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/extension/pool-control-service/server/internal/httpsrv/web/assets/board.css": {
-      "rawBytes": 6603,
-      "gzipBytes": 2646,
+      "rawBytes": 7304,
+      "gzipBytes": 2840,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/extension/pool-control-service/server/internal/httpsrv/web/assets/board.js": {
@@ -53,8 +53,8 @@
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/extension/pool-control-service/server/internal/httpsrv/web/assets/hosts.js": {
-      "rawBytes": 22352,
-      "gzipBytes": 8065,
+      "rawBytes": 24967,
+      "gzipBytes": 8810,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/extension/pool-control-service/server/internal/httpsrv/web/assets/index.js": {
@@ -79,12 +79,12 @@
     },
     "test/extension/pool-control-service/server/internal/httpsrv/web/assets/scan.js": {
       "rawBytes": 12198,
-      "gzipBytes": 4392,
+      "gzipBytes": 4391,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/extension/pool-control-service/server/internal/httpsrv/web/assets/style.css": {
-      "rawBytes": 29741,
-      "gzipBytes": 9806,
+      "rawBytes": 33129,
+      "gzipBytes": 10654,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/extension/pool-control-service/server/internal/httpsrv/web/assets/test-sets.js": {
@@ -113,8 +113,8 @@
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/extension/stash-service/server/internal/httpsrv/web/assets/style.css": {
-      "rawBytes": 30711,
-      "gzipBytes": 9380,
+      "rawBytes": 32563,
+      "gzipBytes": 9865,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/extension/download-agent-service/server/internal/httpsrv/web/assets/common.js": {
@@ -138,8 +138,8 @@
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "test/extension/download-agent-service/server/internal/httpsrv/web/assets/style.css": {
-      "rawBytes": 24784,
-      "gzipBytes": 7984,
+      "rawBytes": 26636,
+      "gzipBytes": 8502,
       "transferDisposition": "deterministic-gzip-estimate"
     },
     "globalization/generated/browser/en-US.pool.js": {
@@ -192,8 +192,8 @@
     "test/status/index.html": {
       "disposition": "budgeted",
       "requests": 2,
-      "rawBytes": 15672,
-      "gzipBytes": 4729
+      "rawBytes": 15671,
+      "gzipBytes": 4727
     },
     "test/status/performance.html": {
       "disposition": "budgeted",
@@ -204,8 +204,8 @@
     "test/status/config.html": {
       "disposition": "budgeted",
       "requests": 2,
-      "rawBytes": 16922,
-      "gzipBytes": 4657
+      "rawBytes": 16923,
+      "gzipBytes": 4656
     },
     "test/status/diagnostics.html": {
       "disposition": "budgeted",
@@ -228,8 +228,8 @@
     "test/extension/pool-control-service/server/internal/httpsrv/web/hosts.html": {
       "disposition": "budgeted",
       "requests": 4,
-      "rawBytes": 4628,
-      "gzipBytes": 1673
+      "rawBytes": 4876,
+      "gzipBytes": 1795
     },
     "test/extension/pool-control-service/server/internal/httpsrv/web/pools.html": {
       "disposition": "budgeted",

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42f70b5c-df30-487c-a638-ea7b52866f97
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -67,9 +67,14 @@ param(
     [int]$DiskSizeGb = 128
 )
 
-# Honor logLevel from Start-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+# --- REGION: Log level from environment
+# See https://yuruna.link/42e220c4-0003
+# Reuse the caller's log module; a forced reload discards its state.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
-if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
+if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
+    Import-Module $_logLevelMod -Global
+}
+if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
 if (-not $IsMacOS) {
     Write-Error "New-VM.ps1 for guest.macos.26 only runs on macOS (Apple Virtualization required)."
@@ -99,7 +104,6 @@ $DataDir     = "$UtmDir/Data"
 $downloadDir = "$HOME/yuruna/image/macos.env"
 
 # --- REGION: Environment checks
-
 # macOS 15+ host. VZ's macOS-guest surface is moving fast (new
 # VZMacOSInstaller flags every release); pinning to 15 keeps this
 # script aligned with the same API the IPSW it just restored expects
@@ -173,7 +177,7 @@ $RepoRoot = (Resolve-Path (Join-Path $ScriptDir "..\..\..")).Path
 Import-Module (Join-Path $RepoRoot 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
-# --- REGION: Create copies and files for VM
+# --- REGION: Remove existing VM
 Import-Module (Join-Path (Split-Path -Parent $ScriptDir) "modules/Yuruna.Host.psm1") -Force
 Import-Module (Join-Path $RepoRoot "automation/Yuruna.Common.psm1") -Force -DisableNameChecking
 
@@ -181,6 +185,7 @@ if (-not (Remove-UtmBundleWithRetry -Path $UtmDir)) {
     Write-Error "Could not remove existing UTM bundle at '$UtmDir' after retries. Aborting."
     exit 1
 }
+# --- REGION: Create copies and files for VM
 New-Item -ItemType Directory -Force -Path $DataDir | Out-Null
 
 $DiskImage = Join-Path $DataDir 'disk.img'
@@ -215,7 +220,7 @@ func die(_ s: String) -> Never {
     exit(1)
 }
 
-// ---- 1. Load IPSW ---------------------------------------------------------
+// --- REGION: 1. Load IPSW
 let loadSema = DispatchSemaphore(value: 0)
 var restoreImage: VZMacOSRestoreImage?
 var loadError: String?
@@ -238,7 +243,7 @@ if !hardwareModel.isSupported {
     die("Resolved hardwareModel is not supported by this host. Requires a newer macOS host or different chip.")
 }
 
-// ---- 2. Resource sanity checks -------------------------------------------
+// --- REGION: 2. Resource sanity checks
 if cpuCount < mostFeatureful.minimumSupportedCPUCount {
     die("Requested CPU count \(cpuCount) below minimum \(mostFeatureful.minimumSupportedCPUCount) for this IPSW.")
 }
@@ -247,7 +252,7 @@ if memBytes < mostFeatureful.minimumSupportedMemorySize {
     die("Requested memory \(memoryMb)MB below minimum \(mostFeatureful.minimumSupportedMemorySize / (1024*1024))MB for this IPSW.")
 }
 
-// ---- 3. Aux storage ------------------------------------------------------
+// --- REGION: 3. Aux storage
 try? FileManager.default.removeItem(atPath: auxPath)
 do {
     _ = try VZMacAuxiliaryStorage(
@@ -258,7 +263,7 @@ do {
     die("VZMacAuxiliaryStorage: \(error.localizedDescription)")
 }
 
-// ---- 4. Disk image -------------------------------------------------------
+// --- REGION: 4. Disk image
 try? FileManager.default.removeItem(atPath: diskPath)
 FileManager.default.createFile(atPath: diskPath, contents: nil)
 do {
@@ -269,10 +274,10 @@ do {
     die("disk truncate(\(diskSizeGb)GB): \(error.localizedDescription)")
 }
 
-// ---- 5. Machine identifier (fresh, unique per VM) ------------------------
+// --- REGION: 5. Machine identifier (fresh, unique per VM)
 let machineId = VZMacMachineIdentifier()
 
-// ---- 6. VM configuration --------------------------------------------------
+// --- REGION: 6. VM configuration
 let platform = VZMacPlatformConfiguration()
 platform.hardwareModel = hardwareModel
 platform.machineIdentifier = machineId
@@ -304,7 +309,7 @@ do {
 
 let vm = VZVirtualMachine(configuration: cfg)
 
-// ---- 7. Run the installer ------------------------------------------------
+// --- REGION: 7. Run the installer
 //
 // `vm` was created with VZVirtualMachine(configuration:) and no explicit
 // queue, so it is bound to the MAIN dispatch queue. VZMacOSInstaller
@@ -326,7 +331,7 @@ installer.install { result in
     observer.invalidate()
     switch result {
     case .success:
-        // ---- 8. Emit MacPlatform identifiers -----------------------------
+        // --- REGION: 8. Emit MacPlatform identifiers
         let hwB64 = hardwareModel.dataRepresentation.base64EncodedString()
         let idB64 = machineId.dataRepresentation.base64EncodedString()
         print("MAC_PLATFORM\t\(hwB64)\t\(idB64)")

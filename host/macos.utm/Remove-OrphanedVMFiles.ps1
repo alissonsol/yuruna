@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42944d84-a340-428d-8b14-0273934cf4fc
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -82,7 +82,7 @@ if (-not (Get-Command utmctl -ErrorAction SilentlyContinue)) {
     exit 1
 }
 
-# --- REGION: Scan for VM bundles
+# --- REGION: Scan for VM artifacts
 $scanPath = "$HOME/yuruna/guest.nosync"
 if (-not (Test-Path $scanPath)) {
     Write-CleanupMessage "No yuruna/guest.nosync folder found at '$scanPath'. Nothing to scan."
@@ -195,7 +195,7 @@ foreach ($vmName in ($registeredVMs.Keys | Sort-Object)) {
     Write-CleanupMessage ""
 }
 
-# --- REGION: Identify orphaned bundles (excluding base images)
+# --- REGION: Identify orphaned VM artifacts
 $orphanedItems = [System.Collections.Generic.List[hashtable]]::new()
 $protectedItems = [System.Collections.Generic.List[hashtable]]::new()
 
@@ -245,7 +245,7 @@ if ($protectedItems.Count -gt 0) {
     Write-CleanupMessage ""
 }
 
-# --- REGION: Delete orphaned bundles
+# --- REGION: Delete orphaned VM artifacts
 if ($orphanedItems.Count -eq 0) {
     Write-CleanupMessage "No orphaned VM bundles found. Nothing to clean up."
     exit 0

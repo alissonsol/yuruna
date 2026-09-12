@@ -2,21 +2,18 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #vim:syntax=yaml
-# --- REGION: https://yuruna.link/vmconfig
-# --- REGION: https://yuruna.link/download-agent-service
-# Download-agent service VM: fetch the framework, then run the bring-up script that builds +
-# launches the daemon under systemd (binds :80 UI/API on the bridged LAN; the cloud
-# image runs no host firewall). Mirrors pool-control-service.base.user-data; the bring-up
-# script (not this seed) CIFS-mounts the pool NAS that holds the download pool. `users:`
-# without `- default` suppresses the ubuntu cloud-image user.
+# See https://yuruna.link/429f3d06
+# See https://yuruna.link/4268e4cb
+# See https://yuruna.link/42e220c4-0006
 hostname: yuruna-download-agent-service
+# --- REGION: users
 users:
   - name: download-agent-service-admin
     gecos: download-agent service user
     sudo: ALL=(ALL) NOPASSWD:ALL
     shell: /bin/bash
     lock_passwd: false
-    # --- REGION: https://yuruna.link/429f3d06-000d
+    # See https://yuruna.link/429f3d06-000d
     plain_text_passwd: PASSWORD_PLACEHOLDER
     ssh_authorized_keys:
       - SSH_AUTHORIZED_KEY_PLACEHOLDER
@@ -28,14 +25,17 @@ chpasswd:
       type: text
 ssh_pwauth: true
 package_update: true
+# --- REGION: packages
 packages:
   # cifs-utils: the bring-up script's pool-NAS SMB3 mount (that script installs golang-go itself).
   - cifs-utils
-  # Network debugging tools for interactive triage via console/SSH.
+  # Network tools support console and SSH diagnostics.
   - net-tools
   - iputils-ping
+  # === YURUNA_OVERLAY_HOST_AGENT_PKG ===
+# --- REGION: write_files
 write_files:
-  # --- REGION: https://yuruna.link/4220a755-004c
+  # See https://yuruna.link/4220a755-004c
   - path: /etc/ssh/sshd_config.d/60-yuruna-keepalive.conf
     permissions: '0644'
     owner: root:root
@@ -62,7 +62,7 @@ write_files:
     content: |
       username=POOL_NAS_NETWORK_USER_PLACEHOLDER
       password=POOL_NAS_PASSWORD_PLACEHOLDER
-  # --- REGION: https://yuruna.link/429f3d06-0029
+  # See https://yuruna.link/429f3d06-0029
   # Empty IP/PORT falls back to the public github mirror for the framework fetch.
   - path: /etc/yuruna/host.env
     permissions: '0644'
@@ -72,9 +72,7 @@ write_files:
       YURUNA_STATUS_SERVICE_IP=YURUNA_STATUS_SERVICE_IP_PLACEHOLDER
       YURUNA_STATUS_SERVICE_PORT=YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER
       YURUNA_CACHING_PROXY_SERVICE_IP=YURUNA_CACHING_PROXY_SERVICE_IP_PLACEHOLDER
-  # Agent tunables. Durations are already Go-parseable (`900s`), so the bring-up
-  # script hands them to the daemon verbatim. An empty cache-proxy IP means no
-  # reachable cache, and the daemon downloads straight from the origin.
+  # Pass Go-format durations verbatim; an empty cache IP selects direct origin downloads.
   - path: /etc/yuruna/download-agent.env
     permissions: '0600'
     owner: root:root
@@ -94,7 +92,7 @@ write_files:
       reads them. The board's "Unlock actions" prompt takes the 6-character Lab
       token shown on the Yuruna hosts dashboard; the daemon validates it against
       the pool aggregator, so nothing about it is stored on this VM.
-  # --- REGION: https://yuruna.link/429f3d06-002a
+  # See https://yuruna.link/429f3d06-002a
   # This VM is provisioned once and runs for weeks, so it accumulates host
   # renumbers a per-cycle test guest never sees.
   - path: /usr/local/lib/yuruna/yuruna-host-locate.sh
@@ -129,15 +127,15 @@ write_files:
 
       [Install]
       WantedBy=timers.target
+# --- REGION: runcmd
 runcmd:
+  # === YURUNA_OVERLAY_RUNCMD_HOST_AGENT ===
   # sshd is already up by the time write_files lands, so the drop-in above needs
   # a reload to take effect on this boot rather than only on the next one.
   - systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || true
   - systemctl enable --now yuruna-host-locate.service yuruna-host-locate.timer || true
-  # 1) Squid CA breadcrumb. The daemon pins RootCAs to this PEM when it pushes
-  #    byte downloads through the ssl-bump port; without it the bumped chain is
-  #    untrusted and every HTTPS fetch fails verification. Best-effort on purpose:
-  #    a missing file only means the daemon fetches from origins directly.
+  # --- REGION: Install the proxy CA
+  # See https://yuruna.link/4268e4cb
   - |
     set +e
     CACHE_IP=$(sed -nE 's/^YURUNA_CACHE_PROXY_IP=(.*)$/\1/p' /etc/yuruna/download-agent.env 2>/dev/null | head -n1)
@@ -158,11 +156,8 @@ runcmd:
         echo "yuruna download-agent-service: no squid CA at http://$CACHE_IP/; the daemon downloads direct." >&2
       fi
     fi
-  # --- REGION: https://yuruna.link/42fffc2c-0013
-  # 2) Fetch the framework from the host status service (coordinates sed-read from
-  #    host.env, NOT sourced), falling back to a github clone so a bring-up works
-  #    off-LAN. The fallback is not equivalent: the version is stamped at compile
-  #    time and never re-read.
+  # See https://yuruna.link/42fffc2c-0013
+  # --- REGION: Fetch the framework
   - |
     set +e
     HF=/etc/yuruna/host.env
@@ -174,11 +169,7 @@ runcmd:
     OK=0
     SRC=mirror
     SRC_URL="$MIRROR_URL"
-    # Retried rather than decided on one answer. The host coordinates are baked at
-    # seed time and corrected in-guest by yuruna-host-locate, so at this point in a
-    # first boot "unreachable" is routinely a host that has renumbered and not been
-    # re-read yet -- and the cost of believing it is the wrong codebase, permanently.
-    # Bounded so an off-LAN bring-up, where nothing will ever answer, still finishes.
+    # --- REGION: https://yuruna.link/42e220c4-0006
     ATTEMPT=1
     while [ "$ATTEMPT" -le 6 ]; do
       if [ -n "$YR_HOST" ] && [ -n "$YR_PORT" ] && wget -q --no-proxy --tries=1 --timeout=5 -O /dev/null "http://$YR_HOST:$YR_PORT/livecheck"; then
@@ -306,15 +297,7 @@ runcmd:
     if wget --no-proxy -q --tries=3 --timeout=30 -O "$FIDO_PS1" "$FIDO_URL" && [ -s "$FIDO_PS1" ]; then
       FIDO_GOT=$(sha256sum "$FIDO_PS1" 2>/dev/null | awk '{print $1}')
       if [ "$FIDO_GOT" = "$FIDO_SHA256" ]; then
-        # Fido refuses to run anywhere but Windows: Get-Platform-Version answers
-        # 0.0 off Windows, and the command-line path then prints "This feature
-        # is not available on this platform." to stdout and exits 403 (which the
-        # OS reports as 147) before making any request. The -GetUrl flow behind
-        # that gate is platform-neutral (Invoke-WebRequest only; the WMI arch
-        # probe is bypassed by -PlatformArch), so neuter the gate -- AFTER the
-        # hash check, so only the verified pinned bytes are ever patched. The
-        # on-disk hash differs from the pinned one from here on; the pinned hash
-        # vouches for what was fetched, not for what is installed.
+        # --- REGION: https://yuruna.link/429f3d06-008c
         sed -i 's/^\$winver = Get-Platform-Version$/$winver = 10.0/' "$FIDO_PS1"
         if grep -q '^\$winver = 10\.0$' "$FIDO_PS1"; then
           echo "yuruna download-agent-service: Fido platform gate disabled for Linux pwsh."
@@ -335,8 +318,7 @@ runcmd:
     else
       echo "yuruna download-agent-service: Windows 11 family UNAVAILABLE (pwsh: $(command -v pwsh || echo none), Fido: $([ -s "$FIDO_PS1" ] && echo "$FIDO_PS1" || echo none)); hosts keep the Windows 11 path they use today." >&2
     fi
-  # 5) Build + launch the daemon (the script installs deps, mounts the pool NAS
-  #    that holds the download pool, writes the systemd unit, and starts it).
+  # --- REGION: Build and start the service
   - |
     set +e
     SCRIPT=/home/download-agent-service-admin/yuruna/guest/ubuntu.server.26/ubuntu.server.26.download-agent-service.sh

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 429b56f1-0d8f-43a6-a6dc-445eb58c952f
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -90,7 +90,7 @@ Write-CleanupMessage ""
 Write-CleanupMessage "========"
 Write-CleanupMessage ""
 
-# --- REGION: Scan for VM directories
+# --- REGION: Scan for VM artifacts
 $vmRoot = Join-Path $HOME 'yuruna/vms'
 if (-not (Test-Path -LiteralPath $vmRoot)) {
     Write-CleanupMessage "No VM directory at '$vmRoot'. Nothing to scan."
@@ -140,7 +140,7 @@ if ($registered.Count -gt 0) {
     }
 }
 
-# --- REGION: Identify orphaned VM directories
+# --- REGION: Identify orphaned VM artifacts
 $orphanedItems = [System.Collections.Generic.List[hashtable]]::new()
 $dirs = @(Get-ChildItem -LiteralPath $vmRoot -Directory -ErrorAction SilentlyContinue)
 foreach ($d in $dirs) {
@@ -151,7 +151,7 @@ foreach ($d in $dirs) {
     $orphanedItems.Add(@{ Name = $d.Name; Path = $d.FullName; Size = $size })
 }
 
-# --- REGION: Delete orphaned VM directories
+# --- REGION: Delete orphaned VM artifacts
 if ($orphanedItems.Count -eq 0) {
     Write-CleanupMessage "No orphaned VM directories found. Nothing to clean up."
     exit 0

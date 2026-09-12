@@ -50,7 +50,7 @@ Start-Process virtmgmt.msc
 
 Not auto-launched: Hyper-V Manager personalizes per user on first run,
 and enterprise-managed machines may need interactive acknowledgment.
-Prefer `pwsh` over `powershell.exe` afterwards.
+Prefer `pwsh` over `powershell.exe` afterward.
 
 Manual walk-through: [Windows Hyper-V Host Setup - Nerd-Level Details](read.more.md).
 
@@ -76,6 +76,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.08
+Last review: 2026.09.12
 
 Back to [Yuruna](../../README.md)

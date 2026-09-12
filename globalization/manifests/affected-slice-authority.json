@@ -94,6 +94,46 @@
       "minimumMatches": 1
     },
     {
+      "id": "signature:registry-metrics-producer",
+      "path": "host/vmconfig/caching-proxy-service.base.user-data",
+      "pattern": "yuruna_zot_manifest_ok_under_client_patience",
+      "minimumMatches": 1
+    },
+    {
+      "id": "signature:registry-metrics-consumer",
+      "path": "automation/Get-SystemDiagnostic.ps1",
+      "pattern": "Get-PrometheusReading -Text \\$metaText",
+      "minimumMatches": 1,
+      "maximumMatches": 1
+    },
+    {
+      "id": "signature:retry-outcome-producer",
+      "path": "automation/yuruna-retry.sh",
+      "pattern": "\\\\\"event\\\\\":\\\\\"outcome\\\\\"",
+      "minimumMatches": 1
+    },
+    {
+      "id": "signature:retry-outcome-consumer",
+      "path": "automation/Get-SystemDiagnostic.ps1",
+      "pattern": "\\$record\\.event -cne 'outcome'",
+      "minimumMatches": 1,
+      "maximumMatches": 1
+    },
+    {
+      "id": "signature:mcp-transcript-producer",
+      "path": "automation/Yuruna.LogLevel.psm1",
+      "pattern": "function Resolve-YurunaTranscriptPath",
+      "minimumMatches": 1,
+      "maximumMatches": 1
+    },
+    {
+      "id": "signature:mcp-transcript-consumer",
+      "path": "test/service/Start-McpServer.ps1",
+      "pattern": "\\$env:YURUNA_TRANSCRIPT_PATH = \\$transcriptFile",
+      "minimumMatches": 1,
+      "maximumMatches": 1
+    },
+    {
       "id": "signature:m02-diagnostic-explicit-class",
       "path": "automation/Get-SystemDiagnostic.ps1",
       "pattern": "\\[Parameter\\(Mandatory\\)\\]\\[ValidateNotNullOrEmpty\\(\\)\\]\\[string\\]\\$Class",
@@ -285,6 +325,30 @@
       "owner": "G2-06",
       "slices": ["status-pause-generated", "pool-repository-project"],
       "consumers": ["signature:m04-prose-assertion-census"]
+    },
+    {
+      "id": "REGISTRY-METRICS",
+      "kind": "blocker",
+      "status": "closed",
+      "owner": "G1-08",
+      "slices": ["status-pause-generated", "pool-repository-project"],
+      "consumers": ["signature:registry-metrics-producer", "signature:registry-metrics-consumer"]
+    },
+    {
+      "id": "RETRY-OUTCOME",
+      "kind": "blocker",
+      "status": "closed",
+      "owner": "G1-08",
+      "slices": ["status-pause-generated"],
+      "consumers": ["signature:retry-outcome-producer", "signature:retry-outcome-consumer"]
+    },
+    {
+      "id": "MCP-TRANSCRIPT",
+      "kind": "blocker",
+      "status": "closed",
+      "owner": "G1-08",
+      "slices": ["status-pause-generated"],
+      "consumers": ["signature:mcp-transcript-producer", "signature:mcp-transcript-consumer"]
     },
     {
       "id": "P-01",

@@ -3,23 +3,9 @@
 <!-- Copyright (c) 2019-2026 by Alisson Sol et al. -->
 <unattend xmlns="urn:schemas-microsoft-com:unattend">
 
-    <!-- Kept aligned with host/macos.utm/guest.windows.11/vmconfig/autounattend.xml
-         and host/windows.hyper-v/guest.windows.11/vmconfig/autounattend.xml so the
-         post-OOBE end state is comparable across the supported hosts. Intentional,
-         platform-mandatory differences:
-           * processorArchitecture="amd64" (matches hyper-v; macos.utm = arm64).
-           * Microsoft-Windows-PnpCustomizationsWinPE / DriverPaths: KVM/QEMU-only.
-             Setup needs the virtio-win bus driver to see the qcow2 SCSI disk;
-             Hyper-V and Apple Virtualization ship native disk drivers in the ISO.
-           * Three extra FirstLogonCommands (KVM-only) installing OpenSSH Server and
-             opening inbound :22. On Linux the operator drives the guest over SSH;
-             vmconnect (Hyper-V) and UTM's display window (macOS) give native access.
-         In macos.utm and hyper-v but not here:
-           * `net user <user> /logonpasswordchg:yes`, omitted because this host drives
-             the guest over Windows OpenSSH, and SSH refuses logins with expired
-             passwords (the protocol has no password-change challenge). -->
+    <!-- See https://yuruna.link/42e220c4-000c -->
 
-    <!-- === Pass 1: windowsPE - Runs during Windows Setup (before install) === -->
+    <!-- REGION: settings -->
     <settings pass="windowsPE">
         <component name="Microsoft-Windows-International-Core-WinPE"
                    processorArchitecture="amd64"
@@ -44,12 +30,7 @@
                    versionScope="nonSxS"
                    xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State"
                    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
-            <!-- KVM/QEMU-only: during the windowsPE pass Setup must load the
-                 virtio-scsi, viostor and NetKVM drivers from the virtio-win ISO,
-                 or it cannot see the qcow2 disk just created. Which CD/DVD letter
-                 that ISO gets is not deterministic, so every candidate the
-                 Microsoft docs recommend (D: through F:) is listed; Setup walks
-                 the list and skips paths that don't exist. -->
+            <!-- See https://yuruna.link/42e220c4-000c -->
             <DriverPaths>
                 <PathAndCredentials wcm:action="add" wcm:keyValue="1">
                     <Path>D:\amd64\w11</Path>
@@ -162,7 +143,7 @@
         </component>
     </settings>
 
-    <!-- === Pass 4: specialize - Runs after image is applied === -->
+    <!-- REGION: settings -->
     <settings pass="specialize">
         <component name="Microsoft-Windows-Shell-Setup"
                    processorArchitecture="amd64"
@@ -189,7 +170,7 @@
         </component>
     </settings>
 
-    <!-- === Pass 7: oobeSystem - Runs during Out-of-Box Experience === -->
+    <!-- REGION: settings -->
     <settings pass="oobeSystem">
         <component name="Microsoft-Windows-Shell-Setup"
                    processorArchitecture="amd64"
@@ -254,10 +235,7 @@
                     <CommandLine>powershell.exe -NoProfile -Command "Set-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon' -Name 'AutoAdminLogon' -Value '0'"</CommandLine>
                     <Description>Disable auto-logon after first boot</Description>
                 </SynchronousCommand>
-                <!-- KVM-only: install OpenSSH Server so Linux operators drive this
-                     guest the same way they drive Linux guests. macos.utm and
-                     hyper-v skip these three and use UTM's display window or
-                     vmconnect.exe instead. -->
+                <!-- See https://yuruna.link/42e220c4-000c -->
                 <SynchronousCommand wcm:action="add">
                     <Order>5</Order>
                     <CommandLine>powershell.exe -NoProfile -Command "Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0"</CommandLine>
@@ -273,16 +251,7 @@
                     <CommandLine>powershell.exe -NoProfile -Command "New-NetFirewallRule -Name sshd -DisplayName 'OpenSSH Server' -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22"</CommandLine>
                     <Description>[KVM-only] Allow inbound :22</Description>
                 </SynchronousCommand>
-                <!-- Establishes this guest's Yuruna coordinates and its GitHub
-                     credentials. Writes host.env, installs the host-address
-                     resolver plus the schedule that keeps it running, and puts
-                     repositories.ghToken into the user's PowerShell profile with git
-                     pointed at it so a private frameworkUrl/projectUrl clones
-                     unattended. Passed as -EncodedCommand because the bootstrap is a
-                     multi-line script full of quotes, '$' and redirection: inline, every
-                     shell metacharacter would have to be XML-escaped onto one line, where
-                     a single bad escape yields a first-logon script that fails silently
-                     on an unwatched VM. New-VM.ps1 base64s it into this slot. -->
+                <!-- See https://yuruna.link/42e220c4-000c -->
                 <SynchronousCommand wcm:action="add">
                     <Order>8</Order>
                     <CommandLine>powershell.exe -NoProfile -ExecutionPolicy Bypass -EncodedCommand GUEST_BOOTSTRAP_B64_PLACEHOLDER</CommandLine>

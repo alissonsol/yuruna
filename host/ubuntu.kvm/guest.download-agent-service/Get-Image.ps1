@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 421ec633-e847-4609-8bd3-2302ac3a4d02
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -18,43 +18,35 @@
 
 <#
 .SYNOPSIS
-    Provides the Ubuntu server cloud image (qcow2) that backs the
-    download-agent service VM on Linux/KVM.
-
+    Provides the shared Ubuntu cloud image for the download-agent-service VM
+    on Ubuntu KVM.
 .DESCRIPTION
-    Wrapper over the shared extension-service base image
-    (Get-UbuntuExtensionImageInfo / Save-UbuntuExtensionImage in
-    host/modules/Yuruna.Image.psm1). Every extension service on this host
-    boots the same arch-matched cloud image, so one artifact serves all of
-    them instead of a byte-identical copy per service; the second and later
-    service to ask for it costs a single HEAD request. This per-service entry
-    point stays so the download-agent service can move to a different
-    release, arch or post-processing step later without disturbing the others.
-
-    The shared image keeps the cloud image's native capacity. New-VM.ps1
-    grows its own per-VM copy to the size the download-agent daemon needs.
+    Uses the shared extension image pipeline. New-VM.ps1 grows the VM's
+    private disk copy to the capacity its service needs.
+    See https://yuruna.link/42e220c4-0003.
 #>
 
 # --- REGION: Log level from environment
-# Honor logLevel from Start-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+# Reuse the caller's log module so an in-process fetch preserves its state.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
-if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
+if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
+    Import-Module $_logLevelMod -Global
+}
+if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
-# --- REGION: Host platform guard
+# --- REGION: Platform guard
 if (-not $IsLinux) {
-    Write-Error "host/ubuntu.kvm/guest.download-agent-service/Get-Image.ps1 only runs on Linux."
+    Write-Error "host/ubuntu.kvm/guest.download-agent-service/Get-Image.ps1 only runs on Ubuntu KVM."
     exit 1
 }
 
 # --- REGION: Import host modules
-# Yuruna.Host.psm1 supplies the cache-injecting Save-CachedHttpUri wrapper and
-# (via its global Yuruna.HostDownload import) the sentinel guard the shared
-# pipeline resolves by name, so the download routes through the squid cache
-# whenever one is reachable.
+# The host wrapper supplies cache discovery to the shared image pipeline.
 Import-Module -Name (Join-Path (Split-Path -Parent $PSScriptRoot) 'modules/Yuruna.Host.psm1') -Force
 Import-Module -Name (Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'modules/Yuruna.Image.psm1') -Force
 
 # --- REGION: Resolve and fetch the base image
+# See https://yuruna.link/42e220c4-0003
 try {
     $image = Get-UbuntuExtensionImageInfo -HostType 'ubuntu.kvm'
 } catch {
@@ -64,10 +56,7 @@ try {
 if (-not (Save-UbuntuExtensionImage -Image $image -Verbose:($VerbosePreference -ne 'SilentlyContinue'))) {
     exit 1
 }
-# Success must be an explicit exit 0. Callers that run this script in-process
-# (& $GetImageScript) read $LASTEXITCODE, and the download-agent discovery
-# ladder inside Save-UbuntuExtensionImage probes VMs that may legitimately be
-# absent (virsh domifaddr on a missing domain exits 1). A cache-hit run ends
-# on cmdlets, which never overwrite $LASTEXITCODE, so falling off the end here
-# would report that stale probe failure as this script's own exit status.
+
+# --- REGION: Completion
+# Clear a native discovery probe's stale exit code, including on cache hits.
 exit 0

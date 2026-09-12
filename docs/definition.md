@@ -8,14 +8,11 @@ stay consistent across the framework, guest scripts, and docs.
 Source files reference an entry with a single line of the form:
 
 ```
-# --- REGION: https://yuruna.link/definition#<topic-slug>
+# --- REGION: https://yuruna.link/42fa6f45-0003
 ```
 
-The fragment resolves to a `### Defining <topic>` heading here. Slugs
-follow the GitHub Markdown rule: lowercase the heading text, strip
-everything that isn't `[a-z0-9_ -]`, then replace spaces with hyphens --
-`### Defining the two-source scheme` becomes
-`#defining-the-two-source-scheme`.
+The semi-GUID resolves to a `### Defining <topic>` heading here. It stays
+stable when the heading is reworded or translated.
 
 Siblings: [Yuruna memory](memory.md) (historical / incident rationale),
 [vmconfig topic reference](vmconfig.md) (`user-data` topic rationale),
@@ -36,11 +33,13 @@ Adding a new entry:
 1. Pick the source comment block (must be a true inline comment, not a
    `.SYNOPSIS` docstring).
 2. Add a `### Defining <topic>` heading here with the migrated content.
-3. Replace the source comment with a single
-   `# --- REGION: https://yuruna.link/definition#<slug>` line (or
+3. Run `tools/Invoke-DocAnchor.ps1 -Update -Path docs/definition.md` to assign
+   the heading's permanent anchor.
+4. Replace the source comment with a single `# --- REGION:` line using that
+   semi-GUID (or
    `// --- REGION: ...` for Go, etc.).
-4. The yuruna.link `definition` key already redirects to this file on
-   GitHub -- no `yuruna.link.json` edit needed for individual topics.
+5. The document's existing semi-GUID catalog entry covers every anchored
+   heading, so no `yuruna.link.json` edit is needed for individual topics.
 
 ---
 
@@ -1665,7 +1664,7 @@ Page-specific behavior:
   per-keystroke -- a valid-looking prefix like `192.168.7.4` en route
   to `192.168.7.46` would lock the field on the partial value. While
   the probe is in flight the input is disabled and re-focused
-  afterwards. Out-of-order responses are dropped via a `latestId`
+  afterward. Out-of-order responses are dropped via a `latestId`
   counter so a stale response from probe-N-1 can't overwrite the
   fresh mark from probe-N.
 - **Env-var mirror.** Beneath the editable `vmStart.cachingProxyIp`
@@ -2401,6 +2400,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.08
+Last review: 2026.09.12
 
 Back to [Yuruna](../README.md)

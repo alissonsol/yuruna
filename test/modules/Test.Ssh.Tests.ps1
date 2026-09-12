@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42539169-cf17-4eb5-b0d6-c972156d3841
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -109,6 +109,73 @@ Describe 'Get-SshReadinessFailureCause' {
 
     It 'falls back to handshake_failed for an unrecognized error on a reachable host' {
         Assert-Equal 'handshake_failed' (Get-SshReadinessFailureCause -IpDiscovered $true -LastError 'kex_exchange_identification: read: some novel error')
+    }
+}
+
+Describe 'Select-SshReadinessEvidence' {
+
+    BeforeAll {
+        # What sshd sends a BatchMode client whose account the guest has expired.
+        $script:ExpiredProbe = @'
+Warning: Permanently added '192.168.7.40' (ED25519) to the list of known hosts.
+WARNING: Your password has expired.
+Password change required but no TTY available.
+'@
+    }
+
+    It 'reads the cause from an earlier answering probe when the last one was killed at the deadline' {
+        # The shape every long wait ends in: probes are capped at the budget
+        # that is left, so the final one is killed rather than answered and its
+        # note says nothing about the guest. The guest's own words are the only
+        # evidence the wait collected, and they name a repair no retry performs.
+        $e = Select-SshReadinessEvidence -FinalError 'probe timed out after 14.4s (overall 300s deadline reached mid-probe; process killed)' -AnsweredError $script:ExpiredProbe
+        Assert-Equal 'answered_probe' $e.source
+        Assert-Equal 'password_expired' (Get-SshReadinessFailureCause -IpDiscovered $true -IpAnswered $true -LastError $e.text)
+    }
+
+    It 'reads the cause from an earlier answer when the final probe got no budget to run in' {
+        $e = Select-SshReadinessEvidence -FinalError 'probe timed out with no budget to run in: the 300s wait was already spent when ssh started, so nothing was ever asked of the target (process killed)' -AnsweredError $script:ExpiredProbe
+        Assert-Equal 'answered_probe' $e.source
+        Assert-Equal 'password_expired' (Get-SshReadinessFailureCause -IpDiscovered $true -IpAnswered $true -LastError $e.text)
+    }
+
+    It 'reads the cause from an earlier answer when the final probe never started' {
+        $e = Select-SshReadinessEvidence -FinalError "Process.Start('ssh') threw: The system cannot find the file specified." -AnsweredError $script:ExpiredProbe
+        Assert-Equal 'answered_probe' $e.source
+    }
+
+    It 'lets a fresh, meaningful final error outrank an older answer' {
+        # A guest can report an expired account and then disappear. The
+        # disappearance is the newer fact and the one to act on, so a final
+        # probe carrying any verdict keeps the classification -- including
+        # verdicts that are not "answers".
+        $gone = Select-SshReadinessEvidence -FinalError 'ssh: connect to host 192.168.7.40 port 22: No route to host' -AnsweredError $script:ExpiredProbe
+        Assert-Equal 'final_probe' $gone.source
+        Assert-Equal 'network_unreachable' (Get-SshReadinessFailureCause -IpDiscovered $true -IpAnswered $true -LastError $gone.text)
+
+        $refused = Select-SshReadinessEvidence -FinalError 'ssh: connect to host 192.168.7.40 port 22: Connection refused' -AnsweredError $script:ExpiredProbe
+        Assert-Equal 'final_probe' $refused.source
+        Assert-Equal 'connection_refused' (Get-SshReadinessFailureCause -IpDiscovered $true -IpAnswered $true -LastError $refused.text)
+    }
+
+    It 'leaves a pure timeout with nothing ever answered classified as it always was' {
+        $e = Select-SshReadinessEvidence -FinalError 'probe timed out after 15s (ssh hung post-TCP; process killed)' -AnsweredError ''
+        Assert-Equal 'final_probe' $e.source
+        Assert-Equal 'probe_timeout' (Get-SshReadinessFailureCause -IpDiscovered $true -IpAnswered $false -LastError $e.text)
+        Assert-Equal 'ip_not_discovered' (Get-SshReadinessFailureCause -IpDiscovered $false -IpAnswered $false -LastError $e.text)
+    }
+
+    It 'keeps the final probe when there is nothing else, whatever it said' {
+        $e = Select-SshReadinessEvidence -FinalError '' -AnsweredError ''
+        Assert-Equal 'final_probe' $e.source
+        Assert-Equal '' $e.text
+    }
+
+    It 'does not mistake a guest that mentions a timeout for a killed probe' {
+        # The no-verdict markers are strings this module mints, at the start of
+        # the note. Text the far end sent must never be read as one.
+        $e = Select-SshReadinessEvidence -FinalError 'kex_exchange_identification: read: Connection timed out' -AnsweredError $script:ExpiredProbe
+        Assert-Equal 'final_probe' $e.source
     }
 }
 

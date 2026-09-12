@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42311ad0-61e0-4919-8d94-c9e0e25c84a4
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -337,10 +337,20 @@ $jsonDump
     and can route on $EventData.failureClass without regex-parsing the
     free-text body.
 
-    Loads the cycle's last_failure.json when available (cycleFolder
-    parameter, or $global:__YurunaCycleFolder fallback). Bootstrap-stage
-    callers (GitPull / ProjectClone failures fire before Start-LogFile
-    runs) get a minimal payload built from the scalar arguments alone.
+    Loads last_failure.json when available, most specific copy first: the
+    failing guest's own mirror inside the cycle folder when -VMName names
+    a guest, then the cycle-folder copy (cycleFolder parameter, or
+    $global:__YurunaCycleFolder fallback), then $env:YURUNA_LOG_DIR,
+    the shared location the record lives at while the cycle is still
+    running. Bootstrap-stage callers (GitPull / ProjectClone failures
+    fire before Start-LogFile runs) get a minimal payload built from the
+    scalar arguments alone.
+
+    -VMName is a SELECTOR, not an identity stamp: it decides which record
+    is this caller's to read, and it makes the two shared copies refuse a
+    record that names a different guest. -GuestKey keeps its own separate
+    job of stamping the payload's identity fields over whatever the
+    chosen record carried.
 
     All identity fields are optional so a partial payload still ships
     rather than a missing one.
@@ -353,6 +363,11 @@ function Get-FailureEventData {
         [string]$HostType,
         [string]$Hostname,
         [string]$GuestKey,
+        # The failing guest's VM name -- the folder its own copy of the record is
+        # mirrored into. Selects which record to read; it is never written into
+        # the payload, so a caller that supplies it still gets the record's own
+        # fields, overridden only by what it passes for -GuestKey / -HostType.
+        [string]$VMName,
         [string]$StepName,
         [string]$ErrorMessage,
         [string]$CycleStartUtc,
@@ -367,19 +382,58 @@ function Get-FailureEventData {
         $CycleFolder = [string]$global:__YurunaCycleFolder
     }
 
+    # Where the record IS depends on when we are asked. While a cycle runs, the
+    # engine and the infra stages write last_failure.json to the log ROOT
+    # ($env:YURUNA_LOG_DIR) and mirror it under the cycle folder; the root copy
+    # is cleared at every sequence start. Looking in either place alone finds
+    # nothing at some moment a live caller needs the classified cause, and every
+    # consumer then silently receives the synthesized 'unknown' payload below.
+    #
+    # Most specific first: the failing guest's own mirror, which provably
+    # belongs to THIS cycle and THIS guest; then the cycle-folder copy, which
+    # provably belongs to this cycle but to whichever guest failed last; then
+    # the live root, shared across cycles as well as guests.
+    #
+    # A caller that names its guest also refuses a shared copy naming a
+    # different one. A host that runs several guests per cycle and does not stop
+    # at the first failure leaves one guest's record in both shared places, so
+    # without this a later guest whose own failure produced no record -- a
+    # warm-resume target that is not in the list, a missing sequence file for
+    # the second or a later sequence -- would be handed its predecessor's cause,
+    # on the dashboard summary and in the per-guest quarantine streak. A record
+    # that names no guest at all is a host-level failure and is still offered to
+    # everyone.
     $payload = $null
-    if ($CycleFolder) {
-        $failureFile = Join-Path $CycleFolder 'last_failure.json'
-        if (Test-Path -LiteralPath $failureFile) {
-            try {
-                $raw = Get-Content -LiteralPath $failureFile -Raw -ErrorAction Stop
-                if ($raw) {
-                    $parsed = $raw | ConvertFrom-Json -AsHashtable -ErrorAction Stop
-                    if ($parsed -is [hashtable]) { $payload = $parsed }
+    $recordPaths = New-Object System.Collections.Generic.List[hashtable]
+    if ($CycleFolder -and $VMName) {
+        $recordPaths.Add(@{ Path = (Join-Path (Join-Path $CycleFolder $VMName) 'last_failure.json'); OwnedByGuest = $true })
+    }
+    if ($CycleFolder)        { $recordPaths.Add(@{ Path = (Join-Path $CycleFolder 'last_failure.json'); OwnedByGuest = $false }) }
+    if ($env:YURUNA_LOG_DIR) { $recordPaths.Add(@{ Path = (Join-Path $env:YURUNA_LOG_DIR 'last_failure.json'); OwnedByGuest = $false }) }
+    foreach ($candidate in $recordPaths) {
+        $failureFile = [string]$candidate['Path']
+        if (-not (Test-Path -LiteralPath $failureFile)) { continue }
+        try {
+            $raw = Get-Content -LiteralPath $failureFile -Raw -ErrorAction Stop
+            if ($raw) {
+                $parsed = $raw | ConvertFrom-Json -AsHashtable -ErrorAction Stop
+                if ($parsed -is [hashtable]) {
+                    if ($VMName -and -not $candidate['OwnedByGuest']) {
+                        # Location proves ownership for the per-guest mirror; for
+                        # a shared copy only the record's own identity can.
+                        $recordVm    = [string]$parsed['vmName']
+                        $recordGuest = [string]$parsed['guestKey']
+                        if (($recordVm -and $recordVm -ne $VMName) -or
+                            ($recordGuest -and $GuestKey -and $recordGuest -ne $GuestKey)) {
+                            Write-Verbose "Get-FailureEventData: $failureFile records guest '$recordGuest' on '$recordVm', not '$GuestKey' on '$VMName' -- skipped."
+                            continue
+                        }
+                    }
+                    $payload = $parsed; break
                 }
-            } catch {
-                Write-Verbose "Get-FailureEventData: could not parse $failureFile -- $($_.Exception.Message)"
             }
+        } catch {
+            Write-Verbose "Get-FailureEventData: could not parse $failureFile -- $($_.Exception.Message)"
         }
     }
 

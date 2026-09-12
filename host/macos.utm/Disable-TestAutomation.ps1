@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42d0dcad-5f1c-4177-8e40-8f43c9920e55
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -20,34 +20,11 @@
 .SYNOPSIS
     Restore the macOS host settings Enable-TestAutomation changed.
 .DESCRIPTION
-    Reads status/runtime/host.pre-automation.json -- written by
-    Enable-TestAutomation before it changed anything -- and puts each captured
-    knob back:
+    Restores values captured in status/runtime/host.pre-automation.json and
+    removes Yuruna-owned additions. Missing captured values are reported and
+    left unchanged. Refuses to restore settings during an active test cycle.
+    Service shutdown is opt-in. See https://yuruna.link/42e220c4-0004.
 
-      * pmset displaysleep / sleep / disksleep, AC and battery SEPARATELY
-      * every extended pmset guard the host carried a value for
-        (powernap, standby, ...), plus disablesleep, which the guard list gives
-        the value that behaves like never having been set
-      * com.apple.screensaver idleTime / askForPassword / askForPasswordDelay,
-        in BOTH the user and -currentHost domains
-      * hot corners (wvous-*-corner and -modifier), then killall Dock
-      * com.utmapp.UTM NSAppSleepDisabled and KeepRunningAfterLastWindowClosed,
-        NSGlobalDomain AppleSpacesSwitchOnActivation
-      * sysadminctl -screenLock, the auto-logout delay, and the network-time setting
-
-    Nothing is removed outright on this host: every knob above existed (or
-    explicitly did not) before automation, and is restored to exactly that.
-
-    `pmset` has no delete, so a guard key the capture records as absent can only
-    be put back when the guard list names the value whose behavior equals
-    absence. Enable writes no other absent key, so there is nothing else here to
-    reverse -- and any guard this reports as left alone is one it did not add.
-
-    Without a capture file, nothing is changed at all -- there is no additive,
-    provably-ours object on macOS to reverse. Everything is reported instead.
-
-    Needs sudo for pmset, the /Library/Preferences write and sysadminctl. The
-    cache is primed once, up front, with a reason banner.
 .PARAMETER StopServices
     Also stop the caching-proxy, stash, pool-control and download-agent VMs
     this host runs.
@@ -69,6 +46,7 @@ if (-not $IsMacOS) {
     exit 1
 }
 
+# --- REGION: Initialize host setup
 $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostAutomationState.psm1') -Force -DisableNameChecking
 Import-Module (Join-Path $RepoRoot 'test/modules/Test.HostCondition.psm1')       -Force -DisableNameChecking
@@ -76,6 +54,7 @@ Import-Module (Join-Path $RepoRoot 'automation/Yuruna.Common.psm1')             
 
 if (-not (Assert-SafeToDisable)) { exit 1 }
 
+# --- REGION: Read captured host settings
 $state = Read-HostAutomationState
 if (-not $state) {
     Write-Warning 'No pre-automation capture on this host (Enable-TestAutomation did not write one, or the file was removed).'
@@ -86,15 +65,8 @@ $restored = [System.Collections.Generic.List[string]]::new()
 $skipped  = [System.Collections.Generic.List[string]]::new()
 
 # --- REGION: Script-local helpers
-# The cmdlet -WhatIf was actually BOUND to, kept for the shared restore driver.
-#
-# Only a bound -WhatIf survives the trip into a module. A cmdlet that was never
-# given the switch resolves ShouldProcess from $WhatIfPreference at the moment
-# it is asked, and a preference variable does not follow a call into another
-# module's session state -- so the driver would read the module's own copy,
-# which is $false, and every restore would run for real against a host the
-# operator only asked to preview. Restore-Knob's $PSCmdlet is its own, and the
-# switch was never bound to it; this one is the script's.
+# See https://yuruna.link/42e220c4-0004
+# Pass the script's bound cmdlet: WhatIf preferences do not cross module scope.
 $Script:DisableCmdlet = $PSCmdlet
 
 # Thin local shim over the shared driver so the three per-host scripts stay

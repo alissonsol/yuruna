@@ -4,16 +4,19 @@
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 
 sequenceGuid: 4246401e-0173-4605-b3b0-e2a85c16ade5
-sequenceRevision: 2
+sequenceRevision: 3
 
 description: "Amazon Linux 2023: log in, install the Desktop package group."
 keystrokeMechanism: gui
+
+# --- REGION: resource
 resource:
   amazon.linux.2023:
     - start.guest.amazon.linux.2023
 variables:
   username: yauser1
 
+# --- REGION: component
 component:
   - action: retry
     maxAttempts: 2
@@ -32,23 +35,33 @@ component:
         text: "${ext:authentication.GetPassword(${username})}"
         description: "OCR: Password:"
 
-  - action: waitForText
-    pattern: "${username}@${hostname}"
-    timeoutSeconds: 90
-    description: "OCR: ${username}@${hostname}"
+  # See https://yuruna.link/42e220c4-0007
+  - action: waitForSeconds
+    seconds: 3
+    description: "Let the login shell finish drawing before typing at it"
 
-workload:
+  # A leading space absorbs a dropped first keystroke on ARM64 Hyper-V.
   - action: inputTextAndEnter
-    # Matching that rare marker instead of the shell prompt avoids the
-    # username@hostname false-match against the login banner
-    text: 'sudo dnf groupinstall -y "Desktop" && echo DESKTOP_INSTALL_DONE'
+    text: " echo yuruna_$(seq -s '' 1 9)_ok"
+    description: "Ask the shell to expand a token agetty cannot"
+
+  - action: waitForText
+    pattern: "yuruna_123456789_ok"
+    timeoutSeconds: 90
+    freshMatch: true
+    description: "OCR: yuruna_123456789_ok"
+
+# --- REGION: workload
+workload:
+  # See https://yuruna.link/42e220c4-0007
+  - action: inputTextAndEnter
+    # Expand the marker only after success; the echoed command must not match it.
+    text: 'sudo dnf groupinstall -y "Desktop" && echo DESKTOP_$(printf INSTALL)_DONE'
     description: "GUI install"
 
   - action: waitForText
-    # freshMatch (last 12 OCR lines) ignores the echoed command that
-    # carried the same marker, matching only the post-install echo.
     pattern: "DESKTOP_INSTALL_DONE"
-    timeoutSeconds: 300
+    timeoutSeconds: 1800
     freshMatch: true
     description: "OCR: DESKTOP_INSTALL_DONE"
 

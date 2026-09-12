@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 420783b4-e34a-4b51-b88e-e01fa3738a91
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -187,6 +187,117 @@ $script:ProblemJsonEndMarker   = '===YURUNA-DIAG-JSON-END==='
 # total count, the per-class tallies, and the ordered records mirroring the
 # prose SUMMARY. -Compress keeps it to a single line so a line-oriented reader
 # can grab the one line between the sentinels; -Depth covers the nested arrays.
+<#
+.SYNOPSIS
+    Readings from a Prometheus text exposition, by metric name.
+.DESCRIPTION
+    The caching proxy publishes the same measurements twice: this document and a
+    human page beside it. Classification reads this one. The page is written for
+    a person opening it during an incident, so its wording is free to change and
+    to be translated; a check that recognized a sentence there would go quiet on
+    the day someone improved it, and go quiet by reporting nothing wrong.
+.OUTPUTS
+    [hashtable] metric name -> array of @{ Labels = @{}; Value = [double] }.
+#>
+function Get-PrometheusReading {
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Text)
+
+    $readings = @{}
+    foreach ($line in ($Text -split "`r?`n")) {
+        $trimmed = $line.Trim()
+        # HELP and TYPE lines describe the series; they carry no reading.
+        if (-not $trimmed -or $trimmed.StartsWith('#')) { continue }
+        $match = [regex]::Match($trimmed, '^(?<name>[A-Za-z_:][A-Za-z0-9_:]*)(?:\{(?<labels>[^}]*)\})?\s+(?<value>[^\s]+)$')
+        if (-not $match.Success) { continue }
+        $value = 0.0
+        if (-not [double]::TryParse($match.Groups['value'].Value,
+                [Globalization.NumberStyles]::Float,
+                [Globalization.CultureInfo]::InvariantCulture, [ref]$value)) {
+            continue
+        }
+        $labels = @{}
+        foreach ($pair in [regex]::Matches($match.Groups['labels'].Value, '(?<k>[A-Za-z_][A-Za-z0-9_]*)="(?<v>[^"]*)"')) {
+            $labels[$pair.Groups['k'].Value] = $pair.Groups['v'].Value
+        }
+        $name = $match.Groups['name'].Value
+        if (-not $readings.ContainsKey($name)) { $readings[$name] = @() }
+        $readings[$name] += @{ Labels = $labels; Value = $value }
+    }
+    return $readings
+}
+
+<#
+.SYNOPSIS
+    The single value of a metric, or $null when it was not published.
+.DESCRIPTION
+    $null is a distinct answer from zero. A cache that could not read the
+    upstream budget publishes no budget reading, and treating that as "0 left"
+    would report an exhausted budget on every cache that never asked.
+.OUTPUTS
+    [Nullable[double]]
+#>
+function Get-PrometheusValue {
+    [CmdletBinding()]
+    [OutputType([object])]
+    param([Parameter(Mandatory)][hashtable]$Reading, [Parameter(Mandatory)][string]$Name)
+    if (-not $Reading.ContainsKey($Name)) { return $null }
+    $rows = @($Reading[$Name])
+    # More than one series means the metric is labeled and the caller has to
+    # say which row it wants, rather than be handed an arbitrary one.
+    if ($rows.Count -ne 1) { return $null }
+    # Already a double from the reader; returned uncast so the declared object
+    # type stays honest about the $null this can also answer.
+    return $rows[0].Value
+}
+
+<#
+.SYNOPSIS
+    The image sets the cache holds incompletely, from its published readings.
+.DESCRIPTION
+    Residency is the only reading that can show a COLD cache. The manifest
+    timings walk a tag the cache keeps resident, so they stay fast while an
+    image a guest is about to pull is still being copied from upstream -- the
+    state in which a provisioning run spends its whole step budget and then
+    reports a bare timeout.
+
+    Nothing is reported until a warm run has recorded residency. The exporter
+    publishes that as its own gauge and says why: with it at 0 the counts are
+    ABSENT, not zero, and reading them anyway reports a cache that has simply
+    not warmed yet as one missing every image a guest needs.
+.OUTPUTS
+    [object[]] one @{ Set; Held; Total } per set held short.
+#>
+function Get-RegistryResidencyShortfall {
+    [CmdletBinding()]
+    [OutputType([object[]])]
+    param([Parameter(Mandatory)][hashtable]$Reading)
+
+    $shortfall = @()
+    if ((Get-PrometheusValue -Reading $Reading -Name 'yuruna_prewarm_state_available') -ne 1) {
+        return $shortfall
+    }
+    $totalBySet = @{}
+    foreach ($row in @($Reading['yuruna_prewarm_images_total'])) {
+        if ($row.Labels.ContainsKey('set')) { $totalBySet[$row.Labels['set']] = [int]$row.Value }
+    }
+    foreach ($row in @($Reading['yuruna_prewarm_images_resident'])) {
+        if (-not $row.Labels.ContainsKey('set')) { continue }
+        $set = $row.Labels['set']
+        if (-not $totalBySet.ContainsKey($set)) { continue }
+        $held = [int]$row.Value
+        $total = $totalBySet[$set]
+        if ($total -gt 0 -and $held -lt $total) {
+            $shortfall += @{ Set = $set; Held = $held; Total = $total }
+        }
+    }
+    # Comma-wrapped: a one-element array returned bare unrolls to the hashtable
+    # itself, and a caller asking for .Count would then be told how many keys a
+    # single shortfall has rather than that there is one.
+    return , $shortfall
+}
+
 function Get-ProblemJson {
     [OutputType([string])]
     param()
@@ -731,6 +842,45 @@ function Invoke-PrivProbe {
         return @(& $exe @rest 2>&1 | ForEach-Object { $_.ToString() })
     }
     return @(& $exe @rest 2>$null | ForEach-Object { $_.ToString() })
+}
+
+function Read-LinuxDiagnosticFile {
+    <#
+    .SYNOPSIS
+        Reads bounded installer evidence through the resolved privilege prefix.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param(
+        [Parameter(Mandatory)][string]$Path,
+        [ValidateRange(1,16777216)][int]$MaxBytes = 2097152,
+        [switch]$MetadataOnly
+    )
+    $probe = @'
+if [ ! -e "$1" ]; then
+    if [ -x "${1%/*}" ]; then echo 'state=absent'; else echo 'state=denied-or-absent-parent'; fi
+elif [ ! -r "$1" ]; then echo 'state=denied';
+elif [ ! -s "$1" ]; then echo 'state=empty';
+else
+    echo 'state=read'
+    size=$(wc -c < "$1")
+    if [ "$3" = 'True' ]; then echo "bytes=$size (contents omitted: may contain seed credentials)"; exit 0; fi
+    if [ "$size" -gt "$2" ]; then echo "(truncated: last $2 of $size bytes)"; fi
+    tail -c "$2" -- "$1" || echo 'state=read-error'
+fi
+'@
+    $lines = @(Invoke-PrivProbe -Tool 'sh' -ToolArgs @('-c',$probe,'sh',$Path,[string]$MaxBytes,[string][bool]$MetadataOnly) -KeepStderr)
+    $state = if ($lines.Count -gt 0 -and $lines[0] -match '^state=(.+)$') { $Matches[1] } else { 'read-error' }
+    # Installer logs can echo resolved seed commands even when the seed itself is omitted.
+    $content = foreach ($line in ($lines | Select-Object -Skip 1)) {
+        if ($line -match '(?i)\b[A-Za-z0-9_]*(?:TOKEN|PASSWORD|SECRET|PRIVATE_KEY|CREDENTIAL)[A-Za-z0-9_]*\s*[:=]') { '[REDACTED SECRET ASSIGNMENT]'; continue }
+        $safeLine = [string]$line
+        foreach ($secretValue in @($env:GH_TOKEN,$env:GITHUB_TOKEN)) {
+            if ($secretValue) { $safeLine = $safeLine.Replace($secretValue,'[REDACTED]') }
+        }
+        [regex]::Replace($safeLine, '\b(?:gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]+)', '[REDACTED]')
+    }
+    return @{ State=$state; Lines=@($content) }
 }
 
 # --- REGION: Process subtree walk
@@ -2015,48 +2165,89 @@ try {
                 }
             } catch { $null = $_ }
 
+            # The same exporter publishes these readings twice, and this is the
+            # machine copy. Classification reads it; the page above is printed
+            # for a person and is free to be reworded or translated without
+            # taking the problems summary quiet with it.
+            $metaUrl = "http://${cacheHost}/zot-meta"
+            $metaText = $null
+            try {
+                $metaResp = Invoke-WebRequest -Uri $metaUrl -UseBasicParsing -NoProxy `
+                    -SkipHttpErrorCheck -TimeoutSec 5 -ErrorAction Stop
+                if ([int]$metaResp.StatusCode -eq 200) {
+                    $metaText = if ($metaResp.Content -is [byte[]]) {
+                        [System.Text.Encoding]::UTF8.GetString($metaResp.Content)
+                    } else {
+                        [string]$metaResp.Content
+                    }
+                }
+            } catch { $null = $_ }
+
             if ($healthText) {
                 Write-Output "  --- $healthUrl (published by the cache) ---"
                 foreach ($line in ($healthText -split "`r?`n")) { Write-Output "    $line" }
 
-                # A stall reads as a slow SUCCESS everywhere else in the stack,
-                # so the number has to be lifted into the problems summary or a
-                # reader has no reason to look at it.
-                if ($healthText -match 'NO ANSWER within\s+(\d+)s') {
-                    Add-Problem ("REGISTRY: the cache reports its own manifest probe getting NO ANSWER within {0}s while /v2/ liveness stays healthy. Image pulls resolve a manifest first, so they fail here even though every reachability check passes." -f $Matches[1]) -Class 'REGISTRY.manifest-unavailable'
-                } elseif ($healthText -match 'zot manifest\s+\S+\s*:\s*HTTP\s+(\d+)\s+in\s+([0-9.]+)s') {
-                    $reportedCode = $Matches[1]
-                    $reportedSec  = [double]$Matches[2]
-                    if ($reportedCode -ne '200' -or $reportedSec -ge ($registrySlowMs / 1000)) {
-                        Add-Problem ("REGISTRY: the cache reports its own manifest probe answering HTTP {0} in {1}s. A container runtime abandons a pull whose response headers have not arrived in roughly 30s, so a cache in this state fails pulls while passing every liveness check." -f `
-                            $reportedCode, $reportedSec) -Class 'REGISTRY.manifest-slow'
-                    }
-                }
-                # Residency is the only reading here that can show a COLD cache.
-                # The manifest timings above walk a tag the cache keeps resident,
-                # so they stay fast while an image a guest is about to pull is
-                # still being copied from upstream -- the state in which a
-                # provisioning run spends its whole step budget and then reports
-                # a bare timeout. Scanned line by line because the page carries
-                # one of these per image set.
-                $residencySet = $null
-                foreach ($line in ($healthText -split "`r?`n")) {
-                    if ($line -match '^\s*(?<name>\S.*?)\s+image set\s*\((?<ver>[^)]*)\)\s*:\s*$') {
-                        $residencySet = @{ Name = $Matches['name']; Version = $Matches['ver'] }
-                    } elseif ($residencySet -and $line -match '^\s*resident\s*:\s*(\d+)\s+of\s+(\d+)') {
-                        $held  = [int]$Matches[1]
-                        $total = [int]$Matches[2]
-                        if ($total -gt 0 -and $held -lt $total) {
-                            Add-Problem ("REGISTRY: the cache holds {0} of {1} images in the {2} set ({3}) a guest pulls. Each missing image is copied from upstream while the guest waits on its manifest request, which costs minutes apiece and outlasts a provisioning step's budget -- while every liveness and manifest reading above stays green." -f `
-                                $held, $total, $residencySet.Name, $residencySet.Version) -Class 'REGISTRY.image-set-incomplete'
+                if (-not $metaText) {
+                    # Both documents come from one exporter, so a cache serving
+                    # the page and not the metrics is a state worth naming
+                    # rather than classifying from the prose anyway.
+                    Add-Problem ("REGISTRY: the cache serves its health page but no metric document at {0}, so its readings cannot be classified. The page above is still readable by eye." -f $metaUrl) `
+                        -Class 'REGISTRY.metrics-unavailable'
+                } else {
+                    $reading = Get-PrometheusReading -Text $metaText
+                    $manifestOk = Get-PrometheusValue -Reading $reading -Name 'yuruna_zot_manifest_ok'
+                    $underPatience = Get-PrometheusValue -Reading $reading -Name 'yuruna_zot_manifest_ok_under_client_patience'
+                    $probeCap = Get-PrometheusValue -Reading $reading -Name 'yuruna_zot_manifest_probe_timeout_seconds'
+                    $patience = Get-PrometheusValue -Reading $reading -Name 'yuruna_zot_manifest_client_patience_seconds'
+                    $latencyRows = @($reading['yuruna_zot_manifest_latency_seconds'])
+                    $latency = if ($latencyRows.Count -eq 1) { [double]$latencyRows[0].Value } else { $null }
+
+                    # A stall reads as a slow SUCCESS everywhere else in the
+                    # stack, so the number has to be lifted into the problems
+                    # summary or a reader has no reason to look at it.
+                    if ($null -ne $manifestOk -and $manifestOk -eq 0) {
+                        if ($null -ne $latency -and $null -ne $probeCap -and $latency -ge $probeCap) {
+                            Add-Problem ("REGISTRY: the cache's own manifest probe got no answer within {0}s while /v2/ liveness stays healthy. Image pulls resolve a manifest first, so they fail here even though every reachability check passes." -f $probeCap) `
+                                -Class 'REGISTRY.manifest-unavailable'
+                        } else {
+                            Add-Problem ("REGISTRY: the cache's own manifest probe did not succeed{0}. Image pulls resolve a manifest first, so they fail here even though every reachability check passes." -f `
+                                $(if ($null -ne $latency) { " (answered in ${latency}s)" } else { '' })) `
+                                -Class 'REGISTRY.manifest-unavailable'
                         }
-                        $residencySet = $null
+                    } elseif ($null -ne $underPatience -and $underPatience -eq 0) {
+                        # The exporter computes this verdict itself: the answer
+                        # arrived, but later than a real pull waits. Deriving it
+                        # here from a threshold of our own would be a second
+                        # opinion about the cache's own measurement.
+                        Add-Problem ("REGISTRY: the cache's manifest probe answered in {0}s, past the {1}s a client waits for response headers. A container runtime abandons a pull at that point, so a cache in this state fails pulls while passing every liveness check." -f `
+                            $(if ($null -ne $latency) { $latency } else { 'an unrecorded number of' }),
+                            $(if ($null -ne $patience) { $patience } else { 'the client patience' })) `
+                            -Class 'REGISTRY.manifest-slow'
                     }
-                }
-                if ($healthText -match 'Docker Hub budget[^:]*:\s*(\d+)\s+of\s+(\d+)\s+left') {
-                    $budgetLeft = [int]$Matches[1]
-                    if ($budgetLeft -le 0) {
-                        Add-Problem ("REGISTRY: the shared upstream pull budget is exhausted (0 of {0}). Every guest behind this egress IP draws on it, and the pull-through retries upstream before answering, so exhaustion surfaces to a guest as a cache that stopped answering in time rather than as a rate-limit error." -f $Matches[2]) -Class 'REGISTRY.upstream-budget-exhausted'
+
+                    # Residency is the only reading here that can show a COLD
+                    # cache. The manifest timings above walk a tag the cache
+                    # keeps resident, so they stay fast while an image a guest
+                    # is about to pull is still being copied from upstream --
+                    # the state in which a provisioning run spends its whole
+                    # step budget and then reports a bare timeout.
+                    foreach ($short in @(Get-RegistryResidencyShortfall -Reading $reading)) {
+                        Add-Problem ("REGISTRY: the cache holds {0} of {1} images in the {2} set a guest pulls. Each missing image is copied from upstream while the guest waits on its manifest request, which costs minutes apiece and outlasts a provisioning step's budget -- while every liveness and manifest reading above stays green." -f `
+                            $short.Held, $short.Total, $short.Set) -Class 'REGISTRY.image-set-incomplete'
+                    }
+
+                    # probe_ok separates "the budget is spent" from "we could not
+                    # read the budget". The prose could not tell those apart, so
+                    # a cache that never managed to ask looked identical to one
+                    # with nothing left.
+                    $budgetProbeOk = Get-PrometheusValue -Reading $reading -Name 'yuruna_dockerhub_ratelimit_probe_ok'
+                    $budgetLeft = Get-PrometheusValue -Reading $reading -Name 'yuruna_dockerhub_ratelimit_remaining'
+                    $budgetLimit = Get-PrometheusValue -Reading $reading -Name 'yuruna_dockerhub_ratelimit_limit'
+                    if ($null -ne $budgetProbeOk -and $budgetProbeOk -eq 1 -and
+                        $null -ne $budgetLeft -and $budgetLeft -le 0) {
+                        Add-Problem ("REGISTRY: the shared upstream pull budget is exhausted (0 of {0}). Every guest behind this egress IP draws on it, and the pull-through retries upstream before answering, so exhaustion surfaces to a guest as a cache that stopped answering in time rather than as a rate-limit error." -f `
+                            $(if ($null -ne $budgetLimit) { [int]$budgetLimit } else { 'its limit' })) `
+                            -Class 'REGISTRY.upstream-budget-exhausted'
                     }
                 }
             } else {
@@ -2222,7 +2413,7 @@ try {
 
     Write-Sub "Full *.stderr.log files under yuruna repo root (verbatim, for tofu/helm/kubectl/docker post-mortems)"
     # Per-phase stderr.log + *.rc catalog and the -Force-required dot-dir
-    # scan trap: https://yuruna.link/architecture
+    # scan trap: https://yuruna.link/42e568c8
     $yurunaRootCandidate = Join-Path -Path $PSScriptRoot -ChildPath '..'
     $diagScanRoot = $null
     if (Test-Path -LiteralPath $yurunaRootCandidate) {
@@ -2573,7 +2764,7 @@ try {
     }
 
     # --- REGION: 11. Host detail
-    # --- REGION: https://yuruna.link/423ef7f5-0009
+    # See https://yuruna.link/423ef7f5-0009
     Invoke-DiagnosticSection "HOST DETAIL" {
 
         # --- REGION: Runner process tree (all platforms)
@@ -3252,70 +3443,53 @@ try {
     }
 
     # --- REGION: 11b. Install and early-boot timeline (Linux)
-    # --- REGION: https://yuruna.link/423ef7f5-000b
+    # See https://yuruna.link/423ef7f5-000b
     if ($IsLinux) {
         Invoke-DiagnosticSection "INSTALL & EARLY-BOOT TIMELINE (Linux)" {
-            Write-Sub "/var/log/installer/ (dir listing)"
-            if (Test-Path '/var/log/installer') {
-                $instItems = @(Get-ChildItem -Path '/var/log/installer' -Force -ErrorAction SilentlyContinue | Sort-Object Name)
-                if ($instItems.Count -eq 0) {
-                    Write-Output "(directory exists but empty)"
-                } else {
-                    foreach ($it in $instItems) {
-                        $size = if ($it.PSIsContainer) { '<DIR>' } else { ("{0,10}" -f $it.Length) }
-                        Write-Output ("  {0}  {1}" -f $size, $it.Name)
-                    }
-                }
-            } else {
-                Write-Output "(no /var/log/installer -- not an Ubuntu Server / subiquity install, or logs were wiped)"
-            }
+            Write-Sub "/var/log/installer/ (privileged directory listing)"
+            $installerListing = @(Invoke-PrivProbe -Tool 'find' -ToolArgs @('/var/log/installer','-maxdepth','1','-type','f','-printf','%f\t%s bytes\n') -KeepStderr)
+            $installerListing | ForEach-Object { Write-Output $_ }
+            $installerNames = @($installerListing | ForEach-Object { ($_ -split "`t",2)[0] })
 
-            Write-Sub "/var/log/installer/autoinstall-user-data (full -- placeholders resolved)"
-            if (Test-Path '/var/log/installer/autoinstall-user-data') {
-                Get-Content -LiteralPath '/var/log/installer/autoinstall-user-data' -ErrorAction SilentlyContinue |
-                    ForEach-Object { Write-Output $_ }
-            } else {
-                Write-Output "(absent)"
-            }
+            Write-Sub "/var/log/installer/autoinstall-user-data (metadata only; seed credentials omitted)"
+            $data = Read-LinuxDiagnosticFile -Path '/var/log/installer/autoinstall-user-data' -MetadataOnly
+            Write-Output "(read state: $($data.State))"
+            $data.Lines | ForEach-Object { Write-Output $_ }
 
-            Write-Sub "/var/log/installer/subiquity-server-debug.log (smoking-gun scan + tail 100)"
-            if (Test-Path '/var/log/installer/subiquity-server-debug.log') {
-                $sub = Get-Content -LiteralPath '/var/log/installer/subiquity-server-debug.log' -ErrorAction SilentlyContinue
+            Write-Sub "/var/log/installer/subiquity-server-debug.log (scan + tail 100)"
+            $data = Read-LinuxDiagnosticFile -Path '/var/log/installer/subiquity-server-debug.log'
+            Write-Output "(read state: $($data.State))"
+            if ($data.State -eq 'read') {
+                $sub = $data.Lines
                 $sendUpdate = @($sub | Where-Object { $_ -match '_send_update' })
                 $changeIfaces = @($sub | Where-Object { $_ -match 'CHANGE\s+(eth0|enp0s1|ens3|en0)' })
-                Write-Output ("_send_update lines: {0}" -f $sendUpdate.Count)
-                Write-Output ("CHANGE <iface>   : {0}" -f $changeIfaces.Count)
+                Write-Output ("_send_update lines in bounded capture: {0}" -f $sendUpdate.Count)
+                Write-Output ("CHANGE <iface>                     : {0}" -f $changeIfaces.Count)
                 if ($sendUpdate.Count -ge 200) {
-                    Add-Problem ("INSTALL: subiquity _send_update fired {0} times -- network model is being re-emitted, classic CHANGE-loop signature (IPv6 RAs, mirror retry storm, or VF flap)." -f $sendUpdate.Count) -Class 'INSTALL.subiquity-change-loop'
+                    Add-Problem ("INSTALL: subiquity _send_update fired at least {0} times -- network model is being re-emitted (IPv6 RAs, mirror retry storm, or VF flap)." -f $sendUpdate.Count) -Class 'INSTALL.subiquity-change-loop'
                 }
-                $mirrorRetry = @($sub | Where-Object { $_ -match 'Retrying|mirror.*retry|elect.*mirror|geoip' })
-                if ($mirrorRetry.Count -gt 0) {
-                    Write-Output ""
-                    Write-Output "Mirror-election / retry hits (first 20):"
-                    $mirrorRetry | Select-Object -First 20 | ForEach-Object { Write-Output $_ }
-                }
-                Write-Output ""
-                Write-Output "Tail (last 100 lines):"
+                $sub | Where-Object { $_ -match 'Retrying|mirror.*retry|elect.*mirror|geoip' } | Select-Object -First 20 | ForEach-Object { Write-Output $_ }
+                Write-Output 'Tail (last 100 lines):'
                 $sub | Select-Object -Last 100 | ForEach-Object { Write-Output $_ }
-            } else {
-                Write-Output "(absent)"
             }
 
-            Write-Sub "/var/log/installer/subiquity-curtin-install.log (retry scan + tail 80)"
-            if (Test-Path '/var/log/installer/subiquity-curtin-install.log') {
-                $curtin = Get-Content -LiteralPath '/var/log/installer/subiquity-curtin-install.log' -ErrorAction SilentlyContinue
-                $retries = @($curtin | Where-Object { $_ -match 'Retrying|retry|TimeoutError|ConnectionError|temporary failure' })
-                Write-Output ("Retry/Timeout/Connection-error lines: {0}" -f $retries.Count)
-                if ($retries.Count -ge 5) {
-                    Add-Problem ("INSTALL: curtin saw {0} retry/timeout/connection-error lines -- proxy or mirror was slow/unreachable; check apt block in autoinstall-user-data." -f $retries.Count) -Class 'INSTALL.curtin-retries'
-                    Write-Output "First 10 retry/error lines:"
-                    $retries | Select-Object -First 10 | ForEach-Object { Write-Output $_ }
+            $curtinNames = @($installerNames | Where-Object { $_ -in @('subiquity-curtin-install.log','curtin-install.log') })
+            if ($curtinNames.Count -eq 0) { $curtinNames = @('subiquity-curtin-install.log','curtin-install.log') }
+            foreach ($curtinName in $curtinNames) {
+                Write-Sub "/var/log/installer/$curtinName (scan + tail 80)"
+                $data = Read-LinuxDiagnosticFile -Path "/var/log/installer/$curtinName"
+                Write-Output "(read state: $($data.State))"
+                if ($data.State -eq 'read') {
+                    $curtin = $data.Lines
+                    $retries = @($curtin | Where-Object { $_ -match 'Retrying|retry|TimeoutError|ConnectionError|temporary failure' })
+                    Write-Output ("Retry/Timeout/Connection-error lines in bounded capture: {0}" -f $retries.Count)
+                    if ($retries.Count -ge 5) {
+                        Add-Problem ("INSTALL: curtin saw at least {0} retry/timeout/connection-error lines -- proxy or mirror was slow/unreachable; check apt block in autoinstall-user-data." -f $retries.Count) -Class 'INSTALL.curtin-retries'
+                        $retries | Select-Object -First 10 | ForEach-Object { Write-Output $_ }
+                    }
+                    Write-Output 'Tail (last 80 lines):'
+                    $curtin | Select-Object -Last 80 | ForEach-Object { Write-Output $_ }
                 }
-                Write-Output ""
-                Write-Output "Tail (last 80 lines):"
-                $curtin | Select-Object -Last 80 | ForEach-Object { Write-Output $_ }
-            } else {
-                Write-Output "(absent)"
             }
 
             Write-Sub "cloud-init status --long"
@@ -3335,25 +3509,12 @@ try {
                 }
             }
 
-            Write-Sub "/run/cloud-init/result.json"
-            if (Test-Path '/run/cloud-init/result.json') {
-                Get-Content -LiteralPath '/run/cloud-init/result.json' -ErrorAction SilentlyContinue | ForEach-Object { Write-Output $_ }
-            } else { Write-Output "(absent)" }
-
-            Write-Sub "/run/cloud-init/status.json"
-            if (Test-Path '/run/cloud-init/status.json') {
-                Get-Content -LiteralPath '/run/cloud-init/status.json' -ErrorAction SilentlyContinue | ForEach-Object { Write-Output $_ }
-            } else { Write-Output "(absent)" }
-
-            Write-Sub "/var/log/cloud-init.log (tail 200)"
-            if (Test-Path '/var/log/cloud-init.log') {
-                Get-Content -LiteralPath '/var/log/cloud-init.log' -Tail 200 -ErrorAction SilentlyContinue | ForEach-Object { Write-Output $_ }
-            } else { Write-Output "(absent)" }
-
-            Write-Sub "/var/log/cloud-init-output.log (tail 200)"
-            if (Test-Path '/var/log/cloud-init-output.log') {
-                Get-Content -LiteralPath '/var/log/cloud-init-output.log' -Tail 200 -ErrorAction SilentlyContinue | ForEach-Object { Write-Output $_ }
-            } else { Write-Output "(absent)" }
+            foreach ($cloudPath in @('/run/cloud-init/result.json','/run/cloud-init/status.json','/var/log/cloud-init.log','/var/log/cloud-init-output.log')) {
+                Write-Sub "$cloudPath (bounded read, tail 200)"
+                $data = Read-LinuxDiagnosticFile -Path $cloudPath
+                Write-Output "(read state: $($data.State))"
+                $data.Lines | Select-Object -Last 200 | ForEach-Object { Write-Output $_ }
+            }
 
             Write-Sub "systemd-analyze time"
             if (Test-CommandAvailable 'systemd-analyze') {
@@ -3427,7 +3588,7 @@ try {
     }
 
     # --- REGION: 11c. Guest provisioning (Linux)
-    # --- REGION: https://yuruna.link/42fa6f45-0013 (section 11c)
+    # See https://yuruna.link/42fa6f45-0013 (section 11c)
     if ($IsLinux) {
         Invoke-DiagnosticSection "GUEST PROVISIONING (Linux)" {
             Write-Sub "/var/log/yuruna/ (dir listing)"
@@ -3456,9 +3617,28 @@ try {
                         Write-Output ("===== {0} ({1} bytes) =====" -f $log.Name, $log.Length)
                         Get-Content -LiteralPath $log.FullName -ErrorAction SilentlyContinue |
                             ForEach-Object { Write-Output $_ }
-                        $body = Get-Content -LiteralPath $log.FullName -Raw -ErrorAction SilentlyContinue
-                        if ($body -and ($body -match 'all \d+ attempts exhausted')) {
-                            Add-Problem ("PROVISIONING: {0} records exhausted pwsh_retry attempts -- the wrapped pwsh action failed every retry, cycle aborted." -f $log.Name) -Class 'PROVISIONING.retry-exhausted'
+                        # The verdict is the record the wrapper wrote, not a
+                        # sentence recognized in the log. The wrapper's prose
+                        # goes to the caller's stderr and never reaches this
+                        # file at all, so matching it found nothing on any real
+                        # run -- and would have followed the host's language
+                        # even if it had.
+                        foreach ($line in @(Get-Content -LiteralPath $log.FullName -ErrorAction SilentlyContinue |
+                                Where-Object { $_ -like 'YURUNA_RETRY *' })) {
+                            $record = $null
+                            try { $record = ConvertFrom-Json -InputObject $line.Substring('YURUNA_RETRY '.Length) -ErrorAction Stop }
+                            catch { $record = $null }
+                            if (-not $record -or [string]$record.event -cne 'outcome') { continue }
+                            switch ([string]$record.outcome) {
+                                'exhausted' {
+                                    Add-Problem ("PROVISIONING: {0} records {1} exhausted {2} attempt(s) (rc={3}) -- the wrapped action failed every retry, cycle aborted." -f
+                                        $log.Name, $record.label, $record.maxAttempts, $record.rc) -Class 'PROVISIONING.retry-exhausted'
+                                }
+                                'permanent' {
+                                    Add-Problem ("PROVISIONING: {0} records {1} stopping on a permanent failure at attempt {2} of {3} (rc={4}) -- the cause was classified as not retryable." -f
+                                        $log.Name, $record.label, $record.attempt, $record.maxAttempts, $record.rc) -Class 'PROVISIONING.retry-permanent'
+                                }
+                            }
                         }
                     }
                 }
@@ -3767,7 +3947,7 @@ try {
     }
 
     # --- REGION: 13. Gap heuristics
-    # --- REGION: https://yuruna.link/423ef7f5-000e
+    # See https://yuruna.link/423ef7f5-000e
     Invoke-DiagnosticSection "GAP HEURISTICS" {
         if ($SkipProjectGaps) {
             Write-Output "(skipped via -SkipProjectGaps)"
@@ -3787,7 +3967,7 @@ try {
         $helmReady    = $null -ne (Get-Command 'helm'    -ErrorAction SilentlyContinue)
 
         # --- REGION: Heuristic 1: tofu.tfstate exists but helm has zero releases
-        # --- REGION: https://yuruna.link/423ef7f5-000f
+        # See https://yuruna.link/423ef7f5-000f
         Write-Sub "Heuristic 1: tofu state without helm releases"
         $tfStateWalk = Get-FileTreeWithDeadline -Label 'tofu.tfstate scan' -ArgumentList @($projectRoot) -ScriptBlock {
             param($root)
@@ -3818,7 +3998,7 @@ try {
         }
 
         # --- REGION: Heuristic 2: resources.output.yml declares a namespace that doesn't exist in the cluster
-        # --- REGION: https://yuruna.link/423ef7f5-0010
+        # See https://yuruna.link/423ef7f5-0010
         Write-Sub "Heuristic 2: declared namespaces missing from cluster"
         $nsOutputWalk = Get-FileTreeWithDeadline -Label 'resources.output.yml scan' -ArgumentList @($projectRoot) -ScriptBlock {
             param($root)
@@ -3862,7 +4042,7 @@ try {
         }
 
         # --- REGION: Heuristic 3: nodes Ready but zero user-namespace pods
-        # --- REGION: https://yuruna.link/423ef7f5-0011
+        # See https://yuruna.link/423ef7f5-0011
         Write-Sub "Heuristic 3: cluster Ready but no user-namespace pods"
         if (-not $kubectlReady) {
             Write-Output "(kubectl not in PATH; cannot check)"
@@ -3886,7 +4066,7 @@ try {
         }
 
         # --- REGION: Heuristic 4: image in local registry but no pod references it
-        # --- REGION: https://yuruna.link/423ef7f5-0012
+        # See https://yuruna.link/423ef7f5-0012
         Write-Sub "Heuristic 4: local registry image not referenced by any pod"
         if (-not $kubectlReady) {
             Write-Output "(kubectl not in PATH; cannot check)"

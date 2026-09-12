@@ -85,6 +85,11 @@ type Options struct {
 	// ScanInterval is the sweep cadence. Zero stops the timer and leaves the
 	// Scan page's manual run as the only way discovery happens.
 	ScanInterval time.Duration
+	// ScanTTL is how long a discovered host stays on the list after its last
+	// sighting. Zero takes discovery.DefaultTTL; negative keeps every host
+	// forever, which is the escape hatch for a lab that would rather read past
+	// stale rows than lose one.
+	ScanTTL time.Duration
 }
 
 // Server is the pool-control-service UI/API HTTP server.
@@ -139,8 +144,12 @@ func New(api IntentAPI, opts Options) *Server {
 		port = discovery.DefaultPort
 	}
 	s.opts.ScanPort = port
+	if s.opts.ScanTTL == 0 {
+		s.opts.ScanTTL = discovery.DefaultTTL
+	}
 	s.discovered = discovery.NewStore(discoveredHostsPath(opts.StateDir))
 	s.scan = discovery.NewEngine(s.discovered, discovery.NewHTTPProber(port), s.knownElsewhere)
+	s.scan.OnRunComplete(s.tidyDiscovered)
 	s.httpSrv = &http.Server{
 		Addr:              opts.Addr,
 		Handler:           s.routes(),

@@ -136,3 +136,13 @@
   .hero.warn .pct { color: #fcd34d; }
   .hero.bad  .pct { color: #fca5a5; }
 }
+
+/* --------------------------------------------------------------------------
+   Right-to-left mirror. Logical properties would say this once, but they are
+   Safari 14.1 and the floor is 9.0, where the declaration is dropped and the
+   offset silently disappears -- so each side is restated for the direction the
+   page has. Sides only: sizes and colors are the same either way.
+   -------------------------------------------------------------------------- */
+[dir="rtl"] .periods button + button { margin-left: 0; margin-right: 0.5rem; }
+[dir="rtl"] .counts div + div { margin-left: 0; margin-right: 0.75rem; }
+[dir="rtl"] .sheet-actions button + button { margin-left: 0; margin-right: 0.75rem; }

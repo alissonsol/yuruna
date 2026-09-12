@@ -2,22 +2,15 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!-- LICENSEURI https://yuruna.link/license -->
 <!-- Copyright (c) 2019-2026 by Alisson Sol et al. -->
-<!-- Yuruna VM config - https://yuruna.link/vmconfig -->
-<!-- QEMU backend (not Apple Virtualization) so we can pass -vnc to QEMU.
-     QEMU's built-in RFB server gives the test harness focus-independent
-     screen capture (Get-VncScreenshot) AND keystroke injection
-     (Send-TextVNC / Send-KeyVNC) over a localhost TCP port. With the
-     Apple backend there was no remote-display protocol, forcing
-     Send-TextUTM to call utm.activate() + AXRaise + CGEventPost(0,...)
-     which steals focus from whatever app the operator is using.
-     The deterministic per-VM port (5900 + Get-VncDisplayForVm) is
-     substituted in by New-VM.ps1 as __VNC_DISPLAY__. -->
+<!-- See https://yuruna.link/429f3d06 -->
+<!-- See https://yuruna.link/42e220c4-000b -->
 <plist version="1.0">
 <dict>
 	<key>Backend</key>
 	<string>QEMU</string>
 	<key>ConfigurationVersion</key>
 	<integer>4</integer>
+	<!-- REGION: Information -->
 	<key>Information</key>
 	<dict>
 		<key>Icon</key>
@@ -29,6 +22,7 @@
 		<key>UUID</key>
 		<string>__VM_UUID__</string>
 	</dict>
+	<!-- REGION: System -->
 	<key>System</key>
 	<dict>
 		<key>Architecture</key>
@@ -50,21 +44,10 @@
 		<key>Target</key>
 		<string>virt</string>
 	</dict>
+	<!-- REGION: QEMU -->
 	<key>QEMU</key>
 	<dict>
-		<!-- -vnc 127.0.0.1:N exposes a localhost-only RFB server. The
-		     headless cache doesn't actually need a console, but the
-		     harness uses the same Send-TextVNC / Get-VncScreenshot
-		     code path here as it does for the Linux install VMs, so
-		     the RFB endpoint is always wired up. No xres/yres
-		     -global pair (no OCR calibration concern on a headless
-		     service VM). -->
-		<!-- share=force-shared: keeps screenshot + keystroke RFB clients
-		     from kicking each other (see guest.amazon.linux.2023 template for the
-		     full rationale). Not strictly required for the headless
-		     cache (no harness keystroke step targets this VM today),
-		     but kept consistent with the install guests so the same
-		     console-capture tooling works against it for diagnostics. -->
+		<!-- See https://yuruna.link/42e220c4-000b -->
 		<key>AdditionalArguments</key>
 		<array>
 			<string>-vnc</string>
@@ -89,12 +72,8 @@
 		<key>UEFIBoot</key>
 		<true/>
 	</dict>
-	<!-- Minimal Display: this is a headless service VM. UTM requires a
-	     Display entry, but nothing observes this console -- no OCR
-	     calibration concern. virtio-gpu-pci (no -gl) is still needed so
-	     UEFI publishes a GOP and the early kernel can paint pixels;
-	     virtio-ramfb leaves the framebuffer stuck on QEMU's "Display
-	     output is not active" stub. -->
+	<!-- See https://yuruna.link/42e220c4-000b -->
+	<!-- REGION: Display -->
 	<key>Display</key>
 	<array>
 		<dict>
@@ -114,9 +93,7 @@
 			<string>Nearest</string>
 		</dict>
 	</array>
-	<!-- Two drives: the 512 GB qcow2 cloud image (bootable, sparse --
-	     qcow2 grows on demand) and the cidata seed ISO (read-only,
-	     consumed by cloud-init on first boot). -->
+	<!-- REGION: Drive -->
 	<key>Drive</key>
 	<array>
 		<dict>
@@ -148,6 +125,7 @@
 			<true/>
 		</dict>
 	</array>
+	<!-- REGION: Input -->
 	<key>Input</key>
 	<dict>
 		<key>MaximumUsbShare</key>
@@ -157,27 +135,8 @@
 		<key>UsbSharing</key>
 		<false/>
 	</dict>
-	<!-- Network mode is chosen by New-VM.ps1 via __NETWORK_MODE__. 'Bridged'
-	     on an Ethernet default route gives the cache a LAN-direct IP (real
-	     client IPs, as the description below covers). 'Shared' (UTM NAT,
-	     192.168.64.x) is used on a Wi-Fi default route where bridging can't
-	     obtain a LAN lease; Start-CachingProxyServiceVM.ps1 then forwards host ports
-	     to the NAT IP for LAN access, and New-VM.ps1 drops the
-	     BridgedInterface key in that mode.
-	     Bridged QEMU networking. The cache VM gets a real LAN IP via the
-	     LAN's DHCP, so remote hosts reach it at <cache-lan-ip>:3128
-	     directly. This is the macOS equivalent of the Hyper-V "Yuruna-
-	     External" vSwitch path: no host-side TCP forwarder is needed and
-	     squid sees real client IPs at TCP level (no PROXY v1 header
-	     gymnastics). BridgedInterface is the host's default-route
-	     physical NIC, substituted at bundle creation time by New-VM.ps1.
-	     NOTE: UTM's QEMU plist uses the key `BridgedInterface` (past
-	     participle) whereas the Apple Virtualization plist uses
-	     `BridgeInterface` (noun) -- same value, different spelling. Wi-Fi
-	     APs that filter MACs may reject the new locally-administered MAC
-	     and the cache will not receive a DHCP lease -- Step 4 of
-	     Start-CachingProxyServiceVM.ps1 will time out loudly; switch to Ethernet
-	     on those networks. -->
+	<!-- See https://yuruna.link/42e220c4-000b -->
+	<!-- REGION: Network -->
 	<key>Network</key>
 	<array>
 		<dict>
@@ -195,8 +154,10 @@
 			<array/>
 		</dict>
 	</array>
+	<!-- REGION: Serial -->
 	<key>Serial</key>
 	<array/>
+	<!-- REGION: Sharing -->
 	<key>Sharing</key>
 	<dict>
 		<key>ClipboardSharing</key>
@@ -206,6 +167,7 @@
 		<key>DirectoryShareReadOnly</key>
 		<false/>
 	</dict>
+	<!-- REGION: Sound -->
 	<key>Sound</key>
 	<array/>
 </dict>

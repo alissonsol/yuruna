@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 422e4357-5c4b-4d6a-a0e1-938418a006fb
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -169,6 +169,14 @@ $LocaleRules = @(
     @{ Name = 'String.localeCompare';           Pattern = '\.localeCompare\s*\(' }
     @{ Name = 'String.normalize';               Pattern = '\.normalize\s*\(' }
     @{ Name = 'Intl';                           Pattern = '\bIntl\s*\.' }
+    # The shared formatters take (value, tag, decimals). A numeric literal in
+    # the tag position means the call site swapped the last two arguments: the
+    # tag becomes a number, which resolves to nothing and formats in the
+    # browser's own locale, and the decimal count becomes a tag string. Nothing
+    # throws, so the page renders and only the digits are wrong -- which is the
+    # failure the wrapper around these calls exists to prevent.
+    @{ Name = 'formatNumber tag/decimals swapped'
+       Pattern = '\bformat(?:Number|Argument)\s*\(\s*[^,()]+,\s*-?[0-9]' }
 )
 
 # Split-JsLexeme walks one file and returns, per source line, only the text that

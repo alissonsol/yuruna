@@ -1,0 +1,12 @@
+<!doctype html><html lang="en-US" dir="ltr" data-yuruna-requested-language="en-US" data-yuruna-locale-source="default"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"><title>Index of ⁨/log/000200.2026-08-19.08-20-48.<id>/⁩</title><link rel="stylesheet" href="/yuruna.common.css"><style>body{margin:1.5em}h1{font-size:1.1em}h1,caption{overflow-wrap:anywhere}table{border-collapse:collapse}td,th{padding:0.2em 1em;border-bottom: 1px solid #e5e7eb; border-bottom:1px solid var(--border);font-family: ui-monospace, Menlo, Consolas, monospace; font-family:var(--font-mono);text-align:left}th{background: #f3f4f6; background:var(--bg-hover)}caption{text-align:left;padding:0.2em 1em 0.6em;font-family: ui-monospace, Menlo, Consolas, monospace; font-family:var(--font-mono)}.scroller{overflow-x:auto}</style></head><body>
+<main>
+<h1>Index of ⁨/log/000200.2026-08-19.08-20-48.<id>/⁩</h1>
+<div class="scroller">
+<table><caption>Contents of ⁨/log/000200.2026-08-19.08-20-48.<id>/⁩</caption><thead><tr><th scope="col">Name</th><th scope="col">Size</th><th scope="col">Modified (UTC)</th></tr></thead><tbody>
+<tr><td><a href="../">../<span class="sr-only"> Parent directory</span></a></td><td></td><td></td></tr>
+<tr><td><a href="000200.2026-08-19.08-20-48.<id>/">⁨000200.2026-08-19.08-20-48.<id>⁩/</a></td><td></td><td><time datetime="<timestamp>"><datetime></time></td></tr>
+<tr><td><a href="cycle.html">⁨cycle.html⁩</a></td><td data-bytes="3500000" title="3,500,000 B">3.3 MB</td><td><time datetime="<timestamp>"><datetime></time></td></tr>
+<tr><td><a href="notes%20%26%20%22quotes%22.txt">⁨notes &amp; &quot;quotes&quot;.txt⁩</a></td><td data-bytes="1" title="1 B">1 B</td><td><time datetime="<timestamp>"><datetime></time></td></tr>
+</tbody></table>
+</div>
+</main></body></html>

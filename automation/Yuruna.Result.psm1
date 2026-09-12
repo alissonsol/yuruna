@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42770e9b-1161-4f72-bdeb-a3f05fc207ec
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -17,7 +17,6 @@
 #requires -version 7
 
 # --- REGION: https://yuruna.link/42d69dfa-003b
-
 function New-YurunaResultManifest {
     <#
     .SYNOPSIS

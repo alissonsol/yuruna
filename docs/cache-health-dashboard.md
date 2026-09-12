@@ -187,9 +187,9 @@ squid-exporter, converted to bytes for display.
 
 ## See also
 
-- [hosts-dashboard](https://yuruna.link/hosts-dashboard) -- the pool-wide Yuruna hosts
+- [hosts-dashboard](https://yuruna.link/422226cb) -- the pool-wide Yuruna hosts
   dashboard.
-- [caching](https://yuruna.link/caching) -- the two composable caching layers and the
+- [caching](https://yuruna.link/42f6b05f) -- the two composable caching layers and the
   operator reference for the cache VM.
 - [squid](https://yuruna.link/squid) -- Squid's own documentation.
 
@@ -199,6 +199,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.08
+Last review: 2026.09.12
 
 Back to [Yuruna](../README.md)

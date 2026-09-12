@@ -19,7 +19,7 @@
 // reconfigure, so a change made off the box could be written but never
 // applied, and the mutating routes say so rather than pretending.
 //
-// Full design and operator guide: https://yuruna.link/caching-proxy-service.
+// Full design and operator guide: https://yuruna.link/42f6b05f-003c.
 package main
 
 import (

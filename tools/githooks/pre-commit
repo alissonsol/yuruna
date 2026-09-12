@@ -194,4 +194,71 @@ if git diff --cached --name-only --diff-filter=ACM | grep -q '^globalization/'; 
         exit 1
     fi
 fi
+
+# Fifth pass: the two whole-tree records. The translation-surface census counts
+# the prose in the tree, and the suite baseline names every suite the runner
+# discovers. Both are regenerated rather than written, and a change that moves
+# one of them without re-recording it leaves no local trace: the author's
+# commit succeeds, and the drift surfaces minutes into someone's release run as
+# a gate row nobody can attribute to a change made days earlier.
+#
+# Blocks, for the same reason the catalog pass does -- a record either
+# reproduces from the tree or it does not, and no author judgment sits in
+# between.
+staged_any=$(git diff --cached --name-only --diff-filter=ACMRD |
+    grep -v -e '^globalization/manifests/domain-inventory\.json$' \
+        -e '^test/modules/suite-baseline\.json$')
+if [ -n "$staged_any" ]; then
+    inventory_gate="$repo_root/tools/Invoke-DomainInventory.ps1"
+    # Every staged path triggers this rather than a curated list of the paths
+    # the census counts. That list already exists inside the tool, and a second
+    # copy here would be one nobody updates -- the cost of getting it wrong is
+    # a census that silently stops being checked, against a few seconds of
+    # running it on a commit that could not have changed it.
+    project_root="$repo_root/../yuruna-project"
+    if [ -f "$inventory_gate" ] && [ -d "$project_root" ]; then
+        if ! pwsh -NoProfile -ExecutionPolicy Bypass -File "$inventory_gate" -Check \
+            -ProjectRoot "$project_root" >/dev/null 2>&1; then
+            echo "" >&2
+            pwsh -NoProfile -ExecutionPolicy Bypass -File "$inventory_gate" -Check \
+                -ProjectRoot "$project_root" >&2 2>&1
+            echo "pre-commit: the translation-surface census no longer reproduces from this tree." >&2
+            echo "  Run 'pwsh tools/Invoke-DomainInventory.ps1 -Update -ProjectRoot ../yuruna-project'," >&2
+            echo "  stage globalization/manifests/domain-inventory.json," >&2
+            echo "  or bypass with 'git commit --no-verify' (discouraged)." >&2
+            exit 1
+        fi
+    fi
+fi
+
+# The suite baseline has two failure shapes and only one of them is cheap to
+# see from here.
+#
+# A suite that appeared or vanished is a set difference, and the baseline gate
+# answers it in about a second. A suite that gained or lost tests is not: the
+# recorded per-suite count is only compared against a real run, so nothing
+# short of executing the suites can tell. The hook says so rather than
+# pretending to check it -- a staged test file is the one moment the author
+# knows whether their edit changed a count.
+staged_tests=$(git diff --cached --name-only --diff-filter=ACMRD |
+    grep -E '^(test|host)/modules/.*\.Tests\.ps1$')
+if [ -n "$staged_tests" ]; then
+    baseline_gate="$repo_root/tools/Test-SuiteBaseline.ps1"
+    if [ -f "$baseline_gate" ] &&
+        ! pwsh -NoProfile -ExecutionPolicy Bypass -File "$baseline_gate" -Quiet; then
+        echo "" >&2
+        echo "pre-commit: the suite baseline no longer names what the runner discovers." >&2
+        echo "  Run 'pwsh tools/Invoke-TestSuite.ps1 -UpdateBaseline' from a PASSING run," >&2
+        echo "  stage test/modules/suite-baseline.json," >&2
+        echo "  or bypass with 'git commit --no-verify' (discouraged)." >&2
+        exit 1
+    fi
+    if ! git diff --cached --name-only --diff-filter=ACM |
+        grep -q '^test/modules/suite-baseline\.json$'; then
+        echo "pre-commit: a test file changed without re-recording the suite baseline." >&2
+        echo "  If the edit added or removed a test, the recorded count is now wrong and only" >&2
+        echo "  a full run will notice. Re-record with" >&2
+        echo "  'pwsh tools/Invoke-TestSuite.ps1 -UpdateBaseline' and stage the result." >&2
+    fi
+fi
 exit 0

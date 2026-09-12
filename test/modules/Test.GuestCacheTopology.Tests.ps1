@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42782448-e44d-4353-957b-a836ffda43e7
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -112,7 +112,8 @@ Describe 'A lab with no caching proxy provisions on the direct path' {
             $skipAt = $t.IndexOf('if [ -z "$CACHE_HOST" ]; then' + "`n" + '    echo "No caching proxy')
             $skipAt | Should -BeGreaterThan 0
             $skipAt | Should -BeLessThan $t.IndexOf('yuruna_warm_refs "control-plane"')
-            $t | Should -Match '(?m)^if \[ -n "\$CACHE_HOST" \] && \[ -n "\$_cni_refs" \]; then'
+            $t | Should -Match '(?m)^mapfile -t _cni_refs < <\('
+            $t | Should -Match '(?m)^if \[ -n "\$CACHE_HOST" \] && \[ "\$\{#_cni_refs\[@\]\}" -gt 0 \]; then'
         }
     }
     It 'expands CACHE_HOST only where the variable has been tested' {

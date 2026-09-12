@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42c62d9b-08f7-4e13-a5c4-91b7de306f28
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -106,6 +106,64 @@ $script:ProblemRecords[0].class
         }
         Assert-True ($calls.Count -gt 40) 'the scan did not find the real diagnostic call sites'
         Assert-NoFinding $findings 'a diagnostic class is still being recovered from prose'
+    }
+}
+
+Describe 'the cache is classified from its metrics, not from its health page' {
+
+    It 'reads names, labels and values and ignores the descriptive lines' {
+        $fn = Get-DiagnosticFunction -Name 'Get-PrometheusReading'
+        Assert-True ([bool]$fn) 'the diagnostic script has no Prometheus reader'
+        $run = [scriptblock]::Create($fn + @'
+
+$text = @"
+# HELP yuruna_zot_manifest_ok whether the canary answered
+# TYPE yuruna_zot_manifest_ok gauge
+yuruna_zot_manifest_ok 0
+yuruna_zot_manifest_latency_seconds{repo="a/b",tag="v1"} 12.5
+yuruna_prewarm_images_resident{set="k8s"} 3
+"@
+$r = Get-PrometheusReading -Text $text
+"{0}|{1}|{2}|{3}" -f $r.Keys.Count, $r['yuruna_zot_manifest_ok'][0].Value,
+    $r['yuruna_zot_manifest_latency_seconds'][0].Labels['repo'],
+    $r['yuruna_prewarm_images_resident'][0].Labels['set']
+'@)
+        Assert-StringEqual -Expected '3|0|a/b|k8s' -Actual ([string](& $run)) `
+            -Because 'HELP and TYPE lines describe a series and carry no reading'
+    }
+
+    It 'answers null for a metric the cache did not publish' {
+        # Zero and absent are different findings. A cache that could not read
+        # the upstream budget publishes no budget reading, and calling that
+        # "0 left" reports an exhausted budget on every cache that never asked.
+        $run = [scriptblock]::Create((Get-DiagnosticFunction -Name 'Get-PrometheusReading') + "`n" +
+            (Get-DiagnosticFunction -Name 'Get-PrometheusValue') + @'
+
+$r = Get-PrometheusReading -Text "yuruna_dockerhub_ratelimit_limit 100"
+$absent = Get-PrometheusValue -Reading $r -Name 'yuruna_dockerhub_ratelimit_remaining'
+$present = Get-PrometheusValue -Reading $r -Name 'yuruna_dockerhub_ratelimit_limit'
+"{0}|{1}" -f $(if ($null -eq $absent) { 'null' } else { $absent }), $present
+'@)
+        Assert-StringEqual -Expected 'null|100' -Actual ([string](& $run)) `
+            -Because 'an unpublished reading must not read as zero'
+    }
+
+    It 'classifies from the metric document and never from the health page' {
+        # Both documents come from one exporter. The page is written for a
+        # person opening it during an incident, so its wording is free to
+        # change and to be translated; a check that recognized a sentence
+        # there would go quiet on the day someone improved it -- and go quiet
+        # by reporting nothing wrong.
+        $source = [IO.File]::ReadAllText($script:Diagnostic)
+        Assert-Match 'Get-PrometheusReading -Text \$metaText' $source `
+            'the cache section must classify from the metric document'
+        Assert-False ($source -match '\$healthText\s+-c?match') `
+            'a reading of the health page is a reading of a sentence'
+        foreach ($metric in @('yuruna_zot_manifest_ok', 'yuruna_zot_manifest_ok_under_client_patience',
+                'yuruna_prewarm_images_resident', 'yuruna_dockerhub_ratelimit_probe_ok')) {
+            Assert-Match ([regex]::Escape($metric)) $source `
+                "the classification must name the $metric reading it depends on"
+        }
     }
 }
 

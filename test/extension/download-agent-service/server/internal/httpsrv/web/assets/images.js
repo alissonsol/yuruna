@@ -16,8 +16,7 @@
   // instead of waiting for the next poll.
   var lastImages = [];
 
-  // --- agent header ---------------------------------------------------------
-
+  // --- REGION: Agent header
   function setCard(id, value, sub) {
     var v = document.getElementById(id);
     if (v) v.textContent = value;
@@ -74,8 +73,7 @@
       (totals.images || 0) + ' entries - ' + Y.bytes(totals.currentBytes || 0) + ' current');
   }
 
-  // --- table ----------------------------------------------------------------
-
+  // --- REGION: Table
   function badge(state) {
     return Y.el('span', { class: 'badge ' + state, text: state });
   }
@@ -297,8 +295,7 @@
     ]));
   }
 
-  // --- sorting --------------------------------------------------------------
-
+  // --- REGION: Sorting
   function sortableHeaders() {
     return Array.prototype.slice.call(document.querySelectorAll('th[data-sort]'));
   }
@@ -367,8 +364,7 @@
     document.getElementById('empty').hidden = lastImages.length > 0;
   }
 
-  // --- session --------------------------------------------------------------
-
+  // --- REGION: Session
   function loadSession() {
     // Awaited, not raced: a proof carried in from the dashboard has to be spent
     // before the gate is read, or this would render the lab-token prompt for a
@@ -404,8 +400,7 @@
     });
   });
 
-  // --- polling --------------------------------------------------------------
-
+  // --- REGION: Polling
   // Header version + host id and the footer bar. The countdown drives load()
   // rather than a reload: a reload would wipe a half-typed lab token out of the
   // unlock form. stamp() (not markLoaded) records each poll, because a 5 s poll

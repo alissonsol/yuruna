@@ -17,8 +17,7 @@ import (
 	"time"
 )
 
-// --- the stub that stands in for Fido ---------------------------------------
-
+// --- REGION: Fido stub
 // The suite never runs the real Fido and never reaches Microsoft. What it does
 // run is a real child process through the real spawn path, so exit codes, empty
 // output, garbage output and a run that outlives its timeout are exercised the
@@ -112,8 +111,7 @@ const (
 	signedName = "Win11_26H2_English_x64.iso"
 )
 
-// --- invocation shape --------------------------------------------------------
-
+// --- REGION: Invocation shape
 func TestFidoParametersMirrorTheHostGetImageScripts(t *testing.T) {
 	// Verbatim from host/{windows.hyper-v,macos.utm}/guest.windows.11/Get-Image.ps1:
 	//   & $fidoScript -Win 11 -Lang $languageFilter -Arch x64 -PlatformArch x64 -GetUrl
@@ -181,8 +179,7 @@ func TestFidoSuccessParsesTheURLAndPassesTheHostParameters(t *testing.T) {
 	}
 }
 
-// --- every failure mode is "unavailable", never an error the daemon raises ----
-
+// --- REGION: Unavailable outcomes
 func TestEveryFidoFailureModeLeavesTheFamilyUnavailable(t *testing.T) {
 	cases := []struct {
 		name string
@@ -279,8 +276,7 @@ func TestFidoHangIsCutByTheTimeout(t *testing.T) {
 	}
 }
 
-// --- virtio-win --------------------------------------------------------------
-
+// --- REGION: virtio-win
 func TestVirtioWinResolvesToThePinnedArchiveURLWithoutTouchingTheNetwork(t *testing.T) {
 	// A transport that fails on use: the pin is a constant, so a resolve that
 	// reached out at all would mean the redirect chain is back in play.
@@ -329,8 +325,7 @@ type errRefused struct{}
 
 func (errRefused) Error() string { return "this resolver must not make requests" }
 
-// --- Supported ---------------------------------------------------------------
-
+// --- REGION: Supported images
 func TestSupportedCoversTheNewFamilies(t *testing.T) {
 	cases := []struct {
 		id   ImageID
@@ -365,8 +360,7 @@ func TestSupportedCoversTheNewFamilies(t *testing.T) {
 	}
 }
 
-// --- the signed-URL freshness exception --------------------------------------
-
+// --- REGION: Signed-URL freshness exception
 func TestADifferentURLForTheSameArtifactIsFreshOnlyForTheWindowsFamily(t *testing.T) {
 	// Same upstream filename, same Content-Length, a URL that changed. For a
 	// normal family that is a new artifact; for the signed-URL family it is the
@@ -494,8 +488,7 @@ func TestASignedURLRefreshDoesNotRedownloadUnchangedBytes(t *testing.T) {
 	}
 }
 
-// --- best-effort surfacing ---------------------------------------------------
-
+// --- REGION: Best-effort surfacing
 func TestTheCatalogExplainsAnUnavailableBestEffortFamily(t *testing.T) {
 	cfg := newFidoStub(t, stubEcho).cfg
 	cfg.Script = filepath.Join(t.TempDir(), "Fido.ps1") // never installed

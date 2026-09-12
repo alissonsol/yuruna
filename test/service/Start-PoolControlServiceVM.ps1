@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 421a21ac-638b-4121-a908-7c26df6a9e86
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -71,19 +71,15 @@ param(
     [switch]$AllowPseudoLocale
 )
 
+# --- REGION: Confirm the service operation
+# See https://yuruna.link/42e220c4-0008
+if ((-not $HostSideProof -or $WhatIfPreference) -and -not $PSCmdlet.ShouldProcess($VMName, 'Start or rebuild the service VM and configure host services')) { return }
+
 $InformationPreference = 'Continue'
 
-# --- REGION: https://yuruna.link/42fffc2c-000b
-# Left at the inherited 'Continue' deliberately, and it must stay that way:
-# 'Stop' is not scoped to this script and would promote every helper's
-# non-terminating error. Hard stops here are explicit Write-Error + exit, as the
-# pre-flight hard gates below do.
-
-# --- REGION: https://yuruna.link/42162449-0004
-# After the preference assignments above on purpose: an explicit level is the
-# operator's choice and replaces this script's own default. $InformationPreference
-# is re-read afterwards because the script-scoped assignment above shadows the
-# global the cascade writes.
+# --- REGION: Initialize service runtime
+# See https://yuruna.link/42fffc2c-000b
+# See https://yuruna.link/42162449-0004
 Import-Module (Join-Path $PSScriptRoot '../modules/Test.LogLevel.psm1') -Global -Force -DisableNameChecking
 Use-LogLevelFromEnv
 $InformationPreference = $global:InformationPreference
@@ -96,11 +92,7 @@ $ExitFailure = Get-EntryPointExitCode -Outcome Failure
 $repoRoot   = $paths.RepoRoot
 $ModulesDir = $paths.ModulesDir
 
-# Initialize-YurunaEntryPoint returns only paths -- it imports no modules -- so
-# pull in Test.YurunaDir explicitly for Initialize-YurunaRuntimeDir /
-# Get-YurunaHostId. Initialize-YurunaRuntimeDir DEFAULTS + creates
-# <testRoot>/status/runtime when $env:YURUNA_RUNTIME_DIR is unset, so the marker
-# always has a home on a fresh shell instead of depending on an inherited env var.
+# --- REGION: https://yuruna.link/42e220c4-0008
 Import-Module (Join-Path $ModulesDir 'Test.YurunaDir.psm1') -Global -Force
 Import-Module (Join-Path $ModulesDir 'Test.Config.psm1') -Global -Force
 Import-Module (Join-Path $ModulesDir 'Test.Locale.psm1') -Global -Force
@@ -108,7 +100,6 @@ $runtimeDir = Initialize-YurunaRuntimeDir
 if ([string]::IsNullOrWhiteSpace($runtimeDir)) { Write-Error 'No runtime dir (YURUNA_RUNTIME_DIR).'; exit $ExitFailure }
 
 if (-not $HostSideProof) {
-    # --- REGION: Default -- bring the service up on its OWN VM (guest.pool-control-service)
     # Mirrors Start-StashServiceVM / Start-CachingProxyServiceVM: pool-storage pre-flight, then
     # delegate to the per-host New-VM.ps1 whose cloud-init builds + launches the
     # daemon inside the guest. -HostSideProof (below) is the no-VM fallback.
@@ -117,12 +108,7 @@ if (-not $HostSideProof) {
         exit $ExitFailure
     }
 
-    # Windows has no mid-run elevation: the Hyper-V guest.pool-control-service
-    # New-VM.ps1 refuses without Administrator -- but only after the pool-NAS
-    # mount pre-flight and the status-service start have already run. Check NOW,
-    # while nothing has changed. Inside the -not $HostSideProof branch on
-    # purpose: the host-side proof binds port 8090 and needs no elevation at all.
-    # Windows only -- neither the UTM nor the KVM New-VM.ps1 has such a gate.
+    # --- REGION: https://yuruna.link/42e220c4-0008
     if ($IsWindows -and -not ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")) {
         Write-Output ""
         Write-Output "This script requires elevation (Run as Administrator)."
@@ -142,11 +128,8 @@ if (-not $HostSideProof) {
     Write-Verbose "Host type: $HostType"
     [void](Initialize-YurunaHost -RepoRoot $repoRoot -HostType $HostType)
 
-    # --- REGION: Pool storage pre-flight
-    # The pool-control-service daemon persists its audit log + status.json under the pool
-    # NAS (poolStorageNetworkPath/pool-control-service/). Refuse to bring up a VM that would have
-    # nowhere durable to write: fail fast HERE, before the long VM build, when the
-    # pool storage is unconfigured or its NAS credential is not stored.
+    # --- REGION: Storage preflight
+    # See https://yuruna.link/42e220c4-0008
     Import-Module (Join-Path $ModulesDir 'Test.Config.psm1')      -Global -Force
     Import-Module (Join-Path $ModulesDir 'Test.PoolStorage.psm1') -Global -Force
     Import-Module (Join-Path $ModulesDir 'Test.Extension.psm1')   -Global -Force
@@ -212,7 +195,7 @@ $remedy
 "@
     }
 
-    # --- REGION: Resolve the per-host New-VM
+    # --- REGION: Resolve the VM builder
     $hostFolder = Get-HostFolder $HostType
     $guestDir   = Join-Path -Path $repoRoot -ChildPath $hostFolder -AdditionalChildPath 'guest.pool-control-service'
     $newVm      = Join-Path $guestDir 'New-VM.ps1'
@@ -221,12 +204,8 @@ $remedy
         exit $ExitFailure
     }
 
-    # --- REGION: Host status service (serves the local repo to the guest) -- BEFORE the build
-    # --- REGION: https://yuruna.link/42fffc2c-0013
-    # Best-effort; honors statusService.enabled + port. The {ShouldStart; Port}
-    # record is kept rather than discarded: the framework-source gate below
-    # probes the port THIS decision resolved, so it cannot disagree with the
-    # config reading that started the server.
+    # --- REGION: Start the host status service
+    # See https://yuruna.link/42fffc2c-0013
     $statusDecision = $null
     try {
         $statusScript = Join-Path $repoRoot 'test/service/Start-StatusService.ps1'
@@ -236,12 +215,8 @@ $remedy
         }
     } catch { Write-Verbose "status service ensure: $($_.Exception.Message)" }
 
-    # --- REGION: Framework source -- refuse to build from a snapshot older than this enlistment
-    # --- REGION: https://yuruna.link/42fffc2c-0013
-    # Stopping here costs the operator a message; not stopping costs a half-hour
-    # build and a service nobody has reason to re-examine. The snapshot is
-    # captured for the post-boot check too, which is the half that can prove what
-    # got deployed.
+    # --- REGION: Verify the framework source
+    # See https://yuruna.link/42fffc2c-0013
     Import-Module (Join-Path $ModulesDir 'Test.FrameworkSource.psm1') -Global -Force
     $frameworkExpected = Get-FrameworkSourceSnapshot -RepoRoot $repoRoot
     if (-not (Assert-GuestFrameworkSource -RepoRoot $repoRoot -StatusDecision $statusDecision `
@@ -249,7 +224,7 @@ $remedy
         exit $ExitFailure
     }
 
-    # --- REGION: Delegate to the per-host New-VM (build + start the VM)
+    # --- REGION: Create the VM
     # Each New-VM runs Get-Image auto-fetch when the base image is missing, tears down any
     # prior VM, creates the new one, and (Hyper-V + KVM) starts it. UTM only builds the
     # bundle -- register + start below.
@@ -263,12 +238,8 @@ $remedy
         exit $rc
     }
 
-    # --- REGION: UTM register + start (Hyper-V/KVM already started in New-VM)
-    # Hyper-V and KVM already started the VM inside New-VM.ps1; only UTM needs
-    # registration + start here. The host contract's Start-VM owns the whole UTM
-    # sequence -- VNC-display arbitration, the custom-QEMU-args dialog watchdog
-    # (without which this bring-up cannot run unattended, because UTM blocks on a
-    # modal), open, utmctl start, and the exit-0-but-QEMU-died check.
+    # --- REGION: Register and start the UTM VM
+    # See https://yuruna.link/42e220c4-0008
     if ($HostType -eq 'host.macos.utm') {
         $UtmDir = "$HOME/yuruna/guest.nosync/$VMName.utm"
         if (-not (Test-Path $UtmDir)) {
@@ -283,25 +254,16 @@ $remedy
         }
     }
 
-    # --- REGION: The VM must be RUNNING before the daemon is blamed for anything
-    # `utmctl start` can exit 0 while UTM silently drops the request, and Hyper-V/KVM
-    # start the VM inside New-VM.ps1 without this script ever checking the result.
-    # Without this gate the readiness probe below attributes a VM that never booted
-    # to cloud-init, the go build, or the NAS -- none of which ran -- and the host
-    # advertises a pool-control service that does not exist.
+    # --- REGION: Verify the VM state
+    # See https://yuruna.link/42e220c4-0008
     if (-not (Wait-VMRunning -VMName $VMName -TimeoutSeconds 120)) {
         $observed = try { Get-VMState -VMName $VMName } catch { 'unknown' }
         Write-Error "VM '$VMName' did not reach 'running' (state: $observed); the pool-control service was NOT started. Nothing in the guest -- cloud-init, the go build, the pool NAS mount -- has run yet. Open the VM in the hypervisor UI and start it by hand to see why."
         exit $ExitFailure
     }
 
-    # --- REGION: Shared NAT -> forward a host port so peers can still reach the UI
-    # A Bridged VM takes a LAN lease and peers reach the UI at <vm-lan-ip>:80.
-    # vmnet cannot bridge a Wi-Fi uplink, so on a Wi-Fi host New-VM builds this VM
-    # on UTM Shared NAT instead, where it is invisible to the LAN -- the host's own
-    # LAN address is the only way in. The bundle is the source of truth for which
-    # mode the VM is actually on: a host that has since moved between Wi-Fi and
-    # Ethernet needs a rebuild, not a different guess here.
+    # --- REGION: Configure Shared NAT forwarding
+    # See https://yuruna.link/42e220c4-0008
     if ($HostType -eq 'host.macos.utm') {
         $bundleMode = Get-UtmNetworkModeFromBundle -VMName $VMName
         $uplinkMode = Resolve-UtmNetworkMode
@@ -324,44 +286,17 @@ $remedy
         }
     }
 
-    # --- REGION: Post-boot readiness probe on :80 + on-failure guest diagnostics
-    # New-VM confirmed the VM has an IP, but the daemon still has to build INSIDE
-    # the guest (apt golang + pwsh, go build, systemd start), which takes several
-    # minutes on first boot -- so an IP alone is NOT "the service is up". Probe :80
-    # until it actually serves before declaring success. If it never comes up, pull
-    # the in-guest build log + cloud-init status + service journal over the harness
-    # SSH key so the operator sees WHY without SSHing in blind. pool-control-service-admin
-    # has NOPASSWD sudo in the seed, so `sudo tail` reads
-    # /var/log/cloud-init-output.log (root-only -- a plain `tail` as
-    # pool-control-service-admin returns Permission denied).
+    # --- REGION: Probe service readiness
+    # See https://yuruna.link/42e220c4-0008
     Import-Module (Join-Path $ModulesDir 'Test.Ssh.psm1') -Global -Force
-    # Wait-VMIp, not a single Get-VMIp. A guest that has just been started has no
-    # address for the first several seconds -- on UTM Shared NAT it appears only
-    # once DHCP completes -- and a one-shot call there returns empty, which skips
-    # the readiness probe entirely and reports the service as failed seconds after
-    # the VM booted. "No address yet" and "daemon still building" are the same
-    # wait to an operator, so this draws from the same readiness budget as the
-    # port probe rather than being a separate, invisible give-up.
+    Import-Module (Join-Path $ModulesDir 'Test.ExtensionService.psm1') -Global -Force
+    # --- REGION: https://yuruna.link/42e220c4-0008
     $ipWaitStart = (Get-Date)
     $vmIp = try { Wait-VMIp -VMName $VMName -TimeoutSeconds 120 } catch { Write-Verbose "Wait-VMIp: $($_.Exception.Message)"; $null }
     $ipWaitSeconds = [int]((Get-Date) - $ipWaitStart).TotalSeconds
 
-    # Sized for the SLOW end, not the typical one: a first build (golang + pwsh
-    # install + go build over the caching-proxy service) runs to roughly half an
-    # hour on an Apple Silicon guest against a cold mirror. The probe returns the
-    # instant :80 accepts, so a budget the fast host never spends costs it
-    # nothing, while one sized for the fast host fails the slow host over a build
-    # that was progressing normally. The wait extends itself past this while
-    # cloud-init reports it is still working, so this is the floor rather than
-    # the whole story. YURUNA_POOL_CONTROL_SERVICE_READY_TIMEOUT_SECONDS
-    # overrides (e.g. a short value for a quick re-check on a VM already up).
-    # Same contract as Get-DownloadAgentServiceReadyTimeoutSeconds, kept inline
-    # here; test/service/README.md records the divergence.
-    $readyTimeoutSeconds = 2700
-    if ($env:YURUNA_POOL_CONTROL_SERVICE_READY_TIMEOUT_SECONDS) {
-        $parsed = 0
-        if ([int]::TryParse($env:YURUNA_POOL_CONTROL_SERVICE_READY_TIMEOUT_SECONDS, [ref]$parsed) -and $parsed -gt 0) { $readyTimeoutSeconds = $parsed }
-    }
+    # --- REGION: https://yuruna.link/42e220c4-0008
+    $readyTimeoutSeconds = Get-ExtensionServiceReadyTimeoutSeconds -Area 'pool-control-service'
     $readyTimeoutMinutes = [int]($readyTimeoutSeconds / 60)
     # How long a guest located by the last-resort route below gets to answer on
     # :80. Deliberately short: it runs only after the ordinary wait has already
@@ -369,12 +304,7 @@ $remedy
     # within a few polls or was never there.
     $recoveryProbeSeconds = 60
 
-    # ONE readiness verdict for the whole script, and it starts $false: every
-    # path that never confirmed a listener -- including the paths that never got
-    # far enough to probe one -- must publish an INACTIVE marker rather than an
-    # optimistic one. The aggregator paints the Extension-hosts row and its
-    # deep-link from this value, so a marker that says "active" because the
-    # script merely ran deep-links operators to a UI that is not serving.
+    # --- REGION: https://yuruna.link/42e220c4-0008
     $daemonReady = $false
     # A different question, kept apart from the one above: the daemon can be
     # serving while THIS host has no route to it. That costs this host its local
@@ -385,14 +315,7 @@ $remedy
     # $null until a wait actually runs, which is itself an answer: a verdict that
     # was never taken is not a pass.
     $endpoint = $null
-    # The wait resolves the guest's address on EVERY poll rather than trusting
-    # the one resolved above: a guest re-requests DHCP under a changed client
-    # identity while cloud-init runs, so the address discovered at boot is
-    # frequently one the guest abandons seconds later. Following it also keeps
-    # the host-side forwarder pointed at the live address instead of leaving it
-    # dialing an abandoned one -- a forwarder that accepts and cannot connect is
-    # worse than one that is down, because callers hang for a full timeout
-    # instead of failing fast.
+    # --- REGION: https://yuruna.link/42e220c4-0008
     if ($vmIp) {
         Write-Verbose "VM '$VMName' is at $vmIp. Waiting up to $readyTimeoutMinutes min for the pool-control-service daemon to serve on :80 (first boot builds it in-guest)."
         Write-Verbose "  The wait extends itself while the guest reports it is still building; progress is printed as it happens."
@@ -406,12 +329,7 @@ $remedy
                 }
             }
         }
-        # Wait-YurunaServiceVmDaemon rather than the wait underneath it: the wait
-        # takes a FIXED progress label and prints it unchanged for the whole
-        # budget, so a guest sitting at a login prompt with cloud-init dead reads
-        # identically to one mid-compile -- and the operator waits out the full
-        # budget on the strength of a line nothing measured. This one paints from
-        # what was actually observed of the guest.
+        # --- REGION: https://yuruna.link/42e220c4-0008
         $endpoint = Wait-YurunaServiceVmDaemon -VMName $VMName -Port 80 `
             -TimeoutSeconds $readyTimeoutSeconds -Address $vmIp `
             -GuestKey 'guest.pool-control-service' -User 'pool-control-service-admin' `
@@ -423,15 +341,7 @@ $remedy
                                "$([int]($endpoint.ExtendedSeconds / 60)) min because the guest reported it was still building.") -InformationAction Continue
         }
     } else {
-        # The VM is confirmed RUNNING by the state gate above, so this is a
-        # host-side address-discovery gap, not a VM that failed to start. On UTM
-        # a Bridged guest has no dhcpd lease and no guest agent, so this is the
-        # normal path there rather than an anomaly.
-        #
-        # The elapsed wait is named because the number is the diagnosis: seconds
-        # means address lookup is unsupported for this networking mode, the full
-        # budget means DHCP never completed. Quoting the nominal readiness
-        # timeout for a probe that never ran describes a wait that did not happen.
+        # --- REGION: https://yuruna.link/42e220c4-0008
         Write-Warning ("Could not resolve the VM's IP after waiting ${ipWaitSeconds}s (Wait-VMIp); the VM IS running, so this is " +
                        "address discovery, not a boot failure. Asking the guest itself whether the daemon is up.")
         # Address discovery failing is not the same as the service failing, and
@@ -446,12 +356,7 @@ $remedy
                     -Command 'ss -ltn 2>/dev/null | grep -qE "(^|[^0-9]):80\b" && echo YURUNA_LISTENING || echo YURUNA_NOT_LISTENING'
             } catch { Write-Verbose "pool-control-service in-guest listener probe: $($_.Exception.Message)" }
             if ($inGuest -and "$($inGuest.output)" -match 'YURUNA_LISTENING') {
-                # The guest's own answer IS this path's readiness record. No wait
-                # ran, so there is nothing else to hand the verdict below, and
-                # "bound inside the guest, unreachable from here" is precisely
-                # what the Unreachable outcome names. Shaping it like the wait's
-                # record keeps one decision function for both paths instead of a
-                # second opinion that can disagree with the first.
+                # --- REGION: https://yuruna.link/42e220c4-0008
                 $endpoint = [pscustomobject]@{
                     Ready         = $false
                     Unreachable   = $true
@@ -464,11 +369,8 @@ $remedy
         }
     }
 
-    # --- REGION: One place decides whether this bring-up succeeded
-    # The script routes on that decision instead of each site judging for
-    # itself. A readiness timeout is a FAILURE: a run that records PASS for a
-    # daemon that never started sends the operator looking for the fault in
-    # whatever breaks next, which is the most expensive place to look for it.
+    # --- REGION: Evaluate service readiness
+    # See https://yuruna.link/42e220c4-0008
     $verdict = Get-ServiceVmReadinessVerdict -Endpoint $endpoint
 
     # --- REGION: https://yuruna.link/4220a755-0046
@@ -503,11 +405,7 @@ $remedy
                     StillBuilding = $false
                     Address       = $recoveredIp
                     WaitedSeconds = $(if ($endpoint) { $endpoint.WaitedSeconds } else { $ipWaitSeconds })
-                    # Names the route, not the rung. The last-resort lookup
-                    # tries the ordinary resolver before it reaches the bundle
-                    # MAC, so which one answered is not knowable from here --
-                    # and a record that asserts a mechanism which may not have
-                    # run is the same false lead as a probe that never happened.
+                    # --- REGION: https://yuruna.link/42e220c4-0008
                     ObservedState = 'located by the last-resort guest discovery once the readiness wait had no address for it, then confirmed serving on :80'
                 }
                 $verdict = Get-ServiceVmReadinessVerdict -Endpoint $endpoint
@@ -577,26 +475,7 @@ To hold this script longer next time:
         }
     }
 
-    # Publish the marker + refresh registration: write
-    # runtime/pool-control-service.json, then regenerate host.registration.json
-    # so the aggregator lists this host under Extension hosts on its next poll --
-    # not only after the next test cycle. poolControlServiceBaseUrl gives the Extension
-    # cell a deep-link even before the daemon's first beacon; an IPv6 literal is
-    # bracketed for the URL authority. The registration refresh is best-effort
-    # telemetry and must never fail the bring-up. Write-HostRegistrationRecord reads
-    # $global:__YurunaHostId; Set-Variable -Scope Global keeps PSAvoidGlobalVars quiet.
-    #
     # --- REGION: https://yuruna.link/42fffc2c-0008
-    #
-    # Here the readiness verdict decides whether the dashboard deep-links
-    # operators to a UI that is not serving -- so `active` carries the verdict,
-    # never "the bring-up script ran".
-    #
-    # A URL is published only where THIS host opened the port itself. The
-    # degraded tier -- the guest confirmed the daemon bound, this host has no
-    # route to it -- stays advertised as active with no URL: the service exists
-    # and peers reach it through its own announce, while a link only this host
-    # cannot follow would send every reader to a dead endpoint.
     $poolControlServiceBaseUrl = if (-not $daemonReady -or $listeningButUnreachable -or -not $vmIp) { '' }
                                  elseif ($vmIp -match ':') { "http://[$vmIp]/" } else { "http://$vmIp/" }
     Import-Module (Join-Path $ModulesDir 'Test.ExtensionService.psm1') -Global -Force
@@ -625,14 +504,8 @@ To hold this script longer next time:
     }
 
     if ($daemonReady) {
-        # --- REGION: What actually got deployed
-        # --- REGION: https://yuruna.link/42fffc2c-0013
-        # The daemon is serving, so this is the first point where the framework
-        # it was built from can be answered from evidence rather than prediction.
-        #
-        # Ahead of the proxy alias sync below, deliberately. That reconfigures a
-        # shared serving path on the caching-proxy service, and a build this
-        # script is about to reject should not leave that behind.
+        # --- REGION: Report the deployed source
+        # See https://yuruna.link/42fffc2c-0013
         if (-not (Assert-ServiceVmFrameworkSource -Address ([string]$vmIp) -Port 80 `
                     -GuestKey 'guest.pool-control-service' -User 'pool-control-service-admin' `
                     -Expected $frameworkExpected -ServiceLabel 'pool-control-service' `
@@ -645,13 +518,7 @@ To hold this script longer next time:
             exit $ExitFailure
         }
 
-        # The guest seeds its intent store on the pool NAS; point the proxy's
-        # read-only /pool-intent.git route at that same store so runners pull
-        # exactly what this UI writes. Runs HERE, on the host, because the host
-        # holds the harness SSH key -- a guest carries only an authorized public
-        # key, so doing it from the VM would mean baking a private key with
-        # sudo-capable proxy access into a web-facing guest. Reported, never
-        # fatal: a serving-path optimization must not fail a successful bring-up.
+        # --- REGION: https://yuruna.link/42e220c4-0008
         try {
             Import-Module (Join-Path $ModulesDir 'Test.CachingProxyService.psm1') -Global -Force
             $aliasSync = Sync-PoolIntentAliasOnProxy -Confirm:$false
@@ -682,11 +549,8 @@ To hold this script longer next time:
         exit $ExitOk
     }
 
-    # --- REGION: The daemon never served -- gather the evidence, then FAIL
-    # --- REGION: https://yuruna.link/42fffc2c-000c
-    # -User pins the account the cloud-init seed created: Get-GuestSshUser would
-    # otherwise return a per-cycle cascade override that an earlier run in this
-    # same shell session left registered for guest.pool-control-service.
+    # --- REGION: Collect failure diagnostics
+    # See https://yuruna.link/42fffc2c-000c
     $failureDetail = if ($vmIp -and $recoveredIp -and $recoveredIp -ne [string]$vmIp) {
         "is NOT serving on :80 at $vmIp after $readyTimeoutMinutes min, nor at $recoveredIp, the other address this host could find for the guest"
     } elseif ($vmIp) {
@@ -736,14 +600,7 @@ To hold this script longer next time:
         'echo "=== /var/log/cloud-init-output.log (tail 120) ==="; sudo tail -n 120 /var/log/cloud-init-output.log 2>&1'
     ) -join "`n"
     $diag = $null
-    # Not gated on an address: SSH resolves the guest by name through its own
-    # path, so it often gets in when the lease lookup found nothing -- and "no
-    # address" is exactly the failure whose diagnosis lives inside the guest.
-    # Dialed at the address discovered above whenever there is one:
-    # Invoke-GuestSsh hands a literal address straight back, so a name and an
-    # address are equally acceptable to it, but passing the NAME here would
-    # re-run the very lookup that already came back empty and discard the only
-    # thing that located the guest.
+    # --- REGION: https://yuruna.link/42e220c4-0008
     $sshTarget = if ($diagIp) { $diagIp } else { $VMName }
     if (Get-Command Invoke-GuestSsh -ErrorAction SilentlyContinue) {
         try { $diag = Invoke-GuestSsh -VMName $sshTarget -GuestKey 'guest.pool-control-service' -User 'pool-control-service-admin' -Command $diagCmd -TimeoutSeconds 120 }
@@ -776,7 +633,7 @@ To hold this script longer next time:
     Write-Information "  * a 'go build' / apt error     -> a package or source problem; the log tail shows the line." -InformationAction Continue
     Write-Information "  * 'NAS mount failed'           -> pool NAS unreachable; re-check the pool storage credential." -InformationAction Continue
     Write-Information "  * nothing at all over SSH      -> the console capture above is the remaining evidence." -InformationAction Continue
-    Write-Verbose "See https://yuruna.link/pool-control-service."
+    Write-Verbose "See https://yuruna.link/4207d71a-000c."
     Write-Verbose ""
     Write-Verbose "== pool-control-service start: FAILED (the daemon never served on :80) =="
     Write-Verbose "  VM:   $VMName"
@@ -785,7 +642,7 @@ To hold this script longer next time:
     exit $ExitFailure
 }
 
-# --- REGION: -HostSideProof -- build + run the daemon directly on THIS host (no VM)
+# --- REGION: Build and start the host-side service
 # A quick proof / fallback that needs a local Go toolchain; the VM path above is
 # the default.
 $serverDir = Join-Path $repoRoot 'test/extension/pool-control-service/server'

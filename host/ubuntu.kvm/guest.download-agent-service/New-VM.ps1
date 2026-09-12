@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42e86329-1c8d-47ab-b9aa-49b5bb5ed6e2
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -27,7 +27,7 @@
     runs the bring-up script which builds the daemon, CIFS-mounts the pool
     NAS that holds the pool, and launches it under systemd.
 
-    See https://yuruna.link/download-agent-service for the full specification.
+    See https://yuruna.link/4268e4cb for the full specification.
 
 .PARAMETER VMName
     libvirt domain name. Default: yuruna-download-agent-service.
@@ -38,9 +38,14 @@ param(
     [string]$VMName = 'yuruna-download-agent-service'
 )
 
-# Honor logLevel from Start-TestRunner.ps1 via $env:YURUNA_LOG_LEVEL. See docs/loglevels.md.
+# --- REGION: Log level from environment
+# See https://yuruna.link/42e220c4-0003
+# Reuse the caller's log module; a forced reload discards its state.
 $_logLevelMod = Join-Path $PSScriptRoot '../../../test/modules/Test.LogLevel.psm1'
-if (Test-Path $_logLevelMod) { Import-Module $_logLevelMod -Global -Force; Use-LogLevelFromEnv }
+if (-not (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) -and (Test-Path $_logLevelMod)) {
+    Import-Module $_logLevelMod -Global
+}
+if (Get-Command Use-LogLevelFromEnv -ErrorAction SilentlyContinue) { Use-LogLevelFromEnv }
 
 if ($VMName -notmatch '^[a-zA-Z0-9._-]+$') {
     Write-Error "Invalid VMName '$VMName'. Only alphanumerics, dots, hyphens, underscores."
@@ -76,30 +81,29 @@ $repoRoot = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $ScriptDi
 Import-Module (Join-Path $repoRoot 'test/modules/Test.Provenance.psm1') -Force
 Write-BaseImageProvenance -BaseImagePath $baseImageFile
 
-# --- REGION: Per-VM directory + disk
+# --- REGION: Remove existing VM
+# See https://yuruna.link/42e220c4-0004
+$virshUri = 'qemu:///system'
+$destroyOut = & virsh --connect $virshUri destroy $VMName 2>&1
+Write-Verbose "virsh destroy '$VMName' exit=$LASTEXITCODE output='$($destroyOut -join '; ')'"
+# --- REGION: https://yuruna.link/42d69dfa-001e
+$undefineOut = & virsh --connect $virshUri undefine --nvram --managed-save `
+    --snapshots-metadata --checkpoints-metadata $VMName 2>&1
+Write-Verbose "virsh undefine '$VMName' exit=$LASTEXITCODE output='$($undefineOut -join '; ')'"
+$domainNames = @(& virsh --connect $virshUri list --all --name 2>&1)
+if ($LASTEXITCODE -ne 0) {
+    throw "Cannot verify removal of '$VMName': virsh list failed: $($domainNames -join '; ')"
+}
+if ($domainNames | Where-Object { $_.ToString().Trim() -eq $VMName }) {
+    $dominfo = (& virsh --connect $virshUri dominfo $VMName 2>&1 | Out-String).Trim()
+    throw "virsh destroy + undefine left '$VMName' defined; aborting before re-creation.`ndominfo:`n$dominfo"
+}
+
+# --- REGION: Create copies and files for VM
 $vmDir   = Join-Path $HOME "yuruna/vms/$VMName"
 $diskImg = Join-Path $vmDir "$VMName.qcow2"
 $seedImg = Join-Path $vmDir 'seed.iso'
 New-Item -ItemType Directory -Force -Path $vmDir | Out-Null
-
-# --- REGION: Remove existing VM
-$virshUri = 'qemu:///system'
-$destroyOut = & virsh --connect $virshUri destroy $VMName 2>&1
-Write-Verbose "virsh destroy '$VMName' exit=$LASTEXITCODE output='$($destroyOut -join '; ')'"
-# Snapshot metadata, checkpoint metadata and a managed-save image each
-# pin the domain: undefine refuses ("cannot delete inactive domain with
-# N snapshots") unless asked to drop them, and the re-creation below
-# then fails with "domain already defined". A guest workload that takes
-# a disk snapshot is routine, so clear every kind of metadata here.
-$undefineOut = & virsh --connect $virshUri undefine --nvram --managed-save `
-    --snapshots-metadata --checkpoints-metadata $VMName 2>&1
-Write-Verbose "virsh undefine '$VMName' exit=$LASTEXITCODE output='$($undefineOut -join '; ')'"
-$stillDefined = & virsh --connect $virshUri list --all --name 2>$null |
-    Where-Object { $_.Trim() -eq $VMName }
-if ($stillDefined) {
-    $dominfo = (& virsh --connect $virshUri dominfo $VMName 2>&1 | Out-String).Trim()
-    throw "virsh destroy + undefine left '$VMName' defined; aborting before re-creation.`ndominfo:`n$dominfo"
-}
 
 # --- REGION: Copy base image -> per-VM disk
 if (Test-Path -LiteralPath $diskImg) { Remove-Item -Force -LiteralPath $diskImg }
@@ -115,8 +119,8 @@ if ($LASTEXITCODE -ne 0) {
 # until the download-agent daemon actually stores that much. The pool itself
 # lives on the NAS, not here.
 if (-not (Expand-ExtensionVmDisk -Path $diskImg -SizeBytes 256GB -Format 'qcow2')) {
-    Write-Warning "Resize failed -- continuing with the base cloud-image capacity."
-    Write-Warning "Resize manually with: qemu-img resize -f qcow2 '$diskImg' 256G"
+    Write-Error "Could not resize '$diskImg' to 256 GB; refusing to build the VM on base-capacity disk."
+    exit 1
 }
 
 # --- REGION: Yuruna harness SSH key
@@ -142,7 +146,7 @@ foreach ($f in @($baseUserData, $overlayUserData, $metaDataTemplate)) {
         exit 1
     }
 }
-# --- REGION: Pick a libvirt network (BEFORE building user-data)
+# --- REGION: Select the guest network
 # The baked NAS + source coordinates depend on whether this is NAT
 # 'default' (host = libvirt gateway) or bridged 'yuruna-external' (host =
 # LAN IP), so resolve the network first.
@@ -158,20 +162,8 @@ if ($networkName -eq 'default') {
     Write-Output "Using libvirt network: $networkName (download-agent-service VM will get a LAN-routable IP)"
 
     # --- REGION: Bridge-uplink preflight
-    # Fails fast here instead of leaving the operator a silent 20-minute wait.
-    # A libvirt <forward mode='bridge'/> network stays ACTIVE even after its host
-    # bridge loses its physical uplink (only guest tap ports remain): virsh reports
-    # the network as fine, the guest attaches and boots, but its DHCP request has no
-    # path to the LAN's DHCP server -- so it NEVER leases, cloud-init stalls with no
-    # network (disk growth freezes), and qemu-guest-agent, itself installed over that
-    # network, never comes up. The IP wait below would then burn its whole budget for
-    # nothing. Detect it HERE and stop with the remediation. The bridge lifecycle is
-    # owned by test/service/Start-CachingProxyServiceVM.ps1 (New-YurunaExternalNetwork self-heals or
-    # rebuilds the uplink); this guest script only consumes the network, so it must
-    # not flap host networking itself -- it points at the owner instead. Same brif
-    # check as Test-YurunaBridgeHasUplink; inlined via direct virsh (the module's
-    # bridge probes are internal, not exported). Best-effort: any probe gap leaves
-    # the build to proceed rather than false-fail.
+    # See https://yuruna.link/42e220c4-0004
+    # Reject a confirmed dead bridge; leave network repair to the caching-proxy launcher.
     $netXml = (& virsh --connect $virshUri net-dumpxml $networkName 2>$null) -join "`n"
     if ($netXml -match "<forward\s+mode='bridge'" -and $netXml -match "<bridge\s+name='([^']+)'") {
         $extBridge = $Matches[1]
@@ -218,19 +210,12 @@ $_statusSeed = Get-YurunaStatusServiceSeed -RepoRoot $repoRoot
 $YurunaHostPort = $_statusSeed.Port
 $tc = $_statusSeed.Config
 $poolNas = Get-YurunaPoolSeedValue -Config $tc -GuestReachableAddress $YurunaHostIp
-# Pool-aggregator service base URL for the daemon's presence beacon + the
-# auto-seed roster read; '' (no caching-proxy service known) leaves those
-# features off in-guest. Wait for the aggregator BEFORE resolving: whatever is
-# resolved here is baked into the seed once and never re-resolved in-guest, so
-# an empty value taken while the aggregator is still compiling leaves the
-# beacon permanently off -- the service serves correctly and simply never
-# appears on the dashboard.
-# Returns $false (rather than throwing) when there is no proxy to wait for or
-# the budget expires; the seed then carries '' exactly as it did before.
+# --- REGION: https://yuruna.link/42e220c4-0004
+# Wait before resolving the aggregator URL: an empty value remains baked into the guest seed.
 $null = Wait-YurunaAggregatorReady
 $aggregatorSeedUrl = Get-PoolAggregatorServiceSeedUrl
 
-# --- REGION: Agent tunables + cache-proxy coordinates
+# --- REGION: Download-agent configuration
 # Config seconds become Go durations here because the value lands unmodified on
 # the daemon's flag line. Defaults match the daemon's own frozen defaults, so a
 # host with no downloadAgentService block and a bare daemon behave identically.
@@ -337,8 +322,8 @@ if ($LASTEXITCODE -eq 0) {
     }
 }
 
-# --- REGION: https://yuruna.link/42fa6f45-0016
 # --- REGION: https://yuruna.link/42fa6f45-0015
+# See https://yuruna.link/42fa6f45-0016
 $hostCores = [int](& nproc --all)
 if ($hostCores -lt 4) {
     Write-Error "Host has $hostCores cores; Yuruna requires at least 4. See https://yuruna.link/42fa6f45-0015"
@@ -389,7 +374,7 @@ if ($LASTEXITCODE -ne 0) {
     Write-Warning "virsh autostart '$VMName' failed: $($autostartOut -join '; '). The VM still starts via the service-VM roster."
 }
 
-# --- REGION: Cleanup temporary folders
+# --- REGION: Clean up temporary files
 Remove-Item -LiteralPath $seedDir -Recurse -Force -ErrorAction SilentlyContinue
 
 # --- REGION: Wait for VM IP
@@ -444,5 +429,5 @@ Write-Output "the daemon, CIFS-mounts the pool NAS that holds the download pool,
 Write-Output "launches it under systemd on :80."
 Write-Output "Watch progress:  ssh download-agent-service-admin@$dockIp 'sudo tail -f /var/log/cloud-init-output.log'"
 Write-Output "  (the log is root-only; download-agent-service-admin has NOPASSWD sudo, so 'sudo tail' works over the harness key)"
-Write-Output "See https://yuruna.link/download-agent-service."
+Write-Output "See https://yuruna.link/4268e4cb."
 exit 0

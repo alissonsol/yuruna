@@ -101,7 +101,7 @@ func (s *Server) mcpRegistry() *mcp.Registry {
 			}),
 	})
 
-	// --- Mutating -------------------------------------------------------------
+	// --- REGION: Mutating tools
 	// Only the refresh. DELETE stays off deliberately, and for a reason that is
 	// about the ROUTE rather than about agents being new: it reaches ANY host's
 	// stash on the shared mount, not only this one's, and that asymmetry is

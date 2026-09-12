@@ -166,7 +166,7 @@ acts on anything whose freshness expires within `prefetchLeadSeconds`:
 - **Origin unreachable** -> nothing is stamped. The pool serves stale rather than
   certifying staleness as freshness.
 
-Two caching-proxy-service rules are load-bearing and easy to get backwards:
+Two caching-proxy-service rules are load-bearing and easy to get backward:
 
 | Traffic | Path | Why |
 |---|---|---|
@@ -625,6 +625,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.08
+Last review: 2026.09.12
 
 Back to [Yuruna](../README.md)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42bdbb68-d8ab-4a5d-ab31-5e9f7428a1a6
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -16,18 +16,7 @@
 
 #requires -version 7
 
-# --- REGION: Start-GuestWorkload dispatcher
-#
-# Generic dispatcher that runs a caller-supplied list of workload
-# sequence names via Invoke-SequenceByName -- one entry point regardless
-# of the guest OS, in place of per-OS Test-Workload.guest.*.ps1
-# extension scripts. The cycle planner builds the list by walking each
-# top-level baseline chain and collecting every entry whose name does
-# not start with "start.".
-#
-# Filename = "Test.<exported-cmdlet>.psm1" so grep and status-UI
-# click-through land here; see Test.Start-GuestOS.psm1 for the
-# convention's full statement.
+# Workload dispatcher architecture: ../../docs/test-harness.md#module-responsibilities.
 
 Import-Module (Join-Path $PSScriptRoot "Test.YurunaDir.psm1") -Force -ErrorAction SilentlyContinue -Verbose:$false
 $script:EngineModule = Join-Path $PSScriptRoot "Test.SequenceEngine.psm1"

@@ -2,17 +2,18 @@
 # LICENSEURI https://yuruna.link/license
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 #vim:syntax=yaml
-# --- REGION: https://yuruna.link/vmconfig/caching-proxy-service
-# --- REGION: https://yuruna.link/429f3d06-0033
+# See https://yuruna.link/429f3d06-0032
+# See https://yuruna.link/429f3d06-0033
 hostname: yuruna-caching-proxy-service
-# --- REGION: https://yuruna.link/429f3d06-0034
+# See https://yuruna.link/429f3d06-0034
+# --- REGION: users
 users:
   - name: caching-proxy-service-admin
     gecos: caching-proxy-service debug user
     sudo: ALL=(ALL) NOPASSWD:ALL
     shell: /bin/bash
     lock_passwd: false
-    # --- REGION: https://yuruna.link/429f3d06-000d
+    # See https://yuruna.link/429f3d06-000d
     plain_text_passwd: PASSWORD_PLACEHOLDER
     ssh_authorized_keys:
       - SSH_AUTHORIZED_KEY_PLACEHOLDER
@@ -23,7 +24,7 @@ chpasswd:
       password: PASSWORD_PLACEHOLDER
       type: text
 ssh_pwauth: true
-# --- REGION: https://yuruna.link/429f3d06-0035
+# See https://yuruna.link/429f3d06-0035
 apt:
   sources:
     grafana.list:
@@ -71,6 +72,7 @@ apt:
         =TH3J
         -----END PGP PUBLIC KEY BLOCK-----
 package_update: true
+# --- REGION: packages
 packages:
   # --- REGION: https://yuruna.link/429f3d06-0036
   - squid-openssl
@@ -100,8 +102,9 @@ packages:
   # jq: parse the config service JSON (NAS creds) without shell-quoting the password.
   - jq
   # === YURUNA_OVERLAY_HOST_AGENT_PKG ===
+# --- REGION: write_files
 write_files:
-  # --- REGION: https://yuruna.link/4220a755-004c
+  # See https://yuruna.link/4220a755-004c
   - path: /etc/ssh/sshd_config.d/60-yuruna-keepalive.conf
     permissions: '0644'
     owner: root:root
@@ -110,7 +113,7 @@ write_files:
       ClientAliveCountMax 4
       TCPKeepAlive yes
   # === YURUNA_OVERLAY_NIC_OFFLOAD ===
-  # --- REGION: https://yuruna.link/429f3d06-003e
+  # See https://yuruna.link/429f3d06-003e
   - path: /etc/apt/apt.conf.d/80-yuruna-retries
     permissions: '0644'
     owner: root:root
@@ -121,7 +124,7 @@ write_files:
       // installs unattended-upgrades and arms the apt-daily timers, which can
       // hold the lock during first boot.
       DPkg::Lock::Timeout "300";
-  # --- REGION: https://yuruna.link/429f3d06-003f
+  # See https://yuruna.link/429f3d06-003f
   - path: /etc/apt/apt.conf.d/20auto-upgrades
     permissions: '0644'
     owner: root:root
@@ -129,7 +132,7 @@ write_files:
       APT::Periodic::Update-Package-Lists "1";
       APT::Periodic::Unattended-Upgrade "1";
       APT::Periodic::AutocleanInterval "7";
-  # --- REGION: https://yuruna.link/429f3d06-0040
+  # See https://yuruna.link/429f3d06-0040
   - path: /etc/apache2/conf-available/yuruna-pool-intent.conf
     permissions: '0644'
     owner: root:root
@@ -142,41 +145,15 @@ write_files:
           Require ip 172.16.0.0/12
           Require ip 192.168.0.0/16
       </Directory>
-  # --- REGION: https://yuruna.link/429f3d06-0037
+  # See https://yuruna.link/429f3d06-0037
   - path: /etc/apache2/conf-available/yuruna-landing.conf
     permissions: '0644'
     owner: root:root
     content: |
       # --- REGION: https://yuruna.link/42f6b05f-0044
-      # Bare :80 serves the landing page: an index of this lab's dashboards and
-      # extension services, each linked only where it is actually reachable.
-      #
-      # It PROXIES rather than redirects, and that is the whole design. The page
-      # is served by the caching-proxy-service daemon on 9310, which is not in
-      # the host port-map set (Get-CachingProxyServiceExposedPort) -- a redirect
-      # would hand the browser an address it cannot reach whenever the VM is
-      # behind a port map rather than bridged. Proxying keeps the operator on
-      # :80, which IS mapped everywhere.
-      #
-      # Not a redirect straight into a Grafana dashboard either. Grafana is a
-      # single-page app: a browser too old to run it lands on a blank screen
-      # with nothing to say why. The landing page is plain server-rendered
-      # HTML with no script at all, so it renders on anything.
-      #
-      # ProxyPreserveHost, so the daemon sees the address the OPERATOR typed and
-      # can build links from it; without it every link would point at 127.0.0.1.
       ProxyRequests Off
       ProxyPreserveHost On
-      # <Directory>, not server level: mod_rewrite rules are NOT inherited into
-      # <VirtualHost>, and Ubuntu serves :80 from the stock 000-default vhost --
-      # a server-level rule parses cleanly and then never fires. In this context
-      # the match is relative to the directory, so the empty string is '/'.
-      #
-      # The pattern stays anchored to '/' and '/index.html'. Everything else
-      # under this root is a real file the lab depends on -- the squid CA, the
-      # Prometheus text exporters, cache-health, the pool-intent git tree -- and
-      # a broader rule would proxy those into a daemon that has never heard of
-      # them.
+      # --- REGION: https://yuruna.link/42f6b05f-0044
       <Directory /var/www/html>
           RewriteEngine On
           RewriteRule ^(index\.html)?$ http://127.0.0.1:9310/landing [P,L]
@@ -184,7 +161,7 @@ write_files:
       # The daemon being down must read as an error on the landing page alone,
       # not as a proxy that retries forever while the operator waits.
       ProxyTimeout 5
-  # --- REGION: https://yuruna.link/429f3d06-0041
+  # See https://yuruna.link/429f3d06-0041
   - path: /etc/squid/conf.d/yuruna.conf
     permissions: '0644'
     owner: root:root
@@ -219,11 +196,7 @@ write_files:
       # INCLUSIVE -- anything strictly larger is silently NOT cached.
       maximum_object_size 65 GB
       maximum_object_size_in_memory 32 MB
-      # Swap is masked -- tune VM RAM + cache_mem + zot together (budget
-      # math in the snapshot-cache-tuning topic above). Substituted rather than
-      # literal because the VM's RAM is not fixed: a standalone host carries the
-      # cache beside the stash and the download agent, and the pair has to move
-      # together or the smaller VM OOMs with no swap to absorb it.
+      # --- REGION: https://yuruna.link/42f6b05f-0040
       cache_mem SQUID_CACHE_MEM_PLACEHOLDER
 
       # Never release unless forced -- evict only when disk >99% full,
@@ -236,13 +209,7 @@ write_files:
       # successfully next time.
       negative_ttl 0 seconds
 
-      # Suppresses REVALIDATION, not fetching. A stored object is served
-      # without asking the origin whether it changed; a cache MISS still
-      # falls through to upstream. The name reads like an egress kill
-      # switch and is not one -- the switch that actually refuses upstream
-      # is /etc/squid/conf.d/yuruna-no-upstream.conf, written on demand by
-      # the operator (see the no-upstream topic). Keeping this on is what
-      # holds revalidation traffic off the metered upstreams.
+      # --- REGION: https://yuruna.link/42f6b05f-0015
       offline_mode on
 
       # Expose the RUNTIME config on /squid-internal-mgr/config for
@@ -261,11 +228,7 @@ write_files:
       # populate the cache instead of streaming through it.
       range_offset_limit none
 
-      # Package files are content-addressable (version in URL), so a new
-      # version is a different URL -- no value revalidating what we have.
-      # override/ignore flags keep squid serving regardless of origin or
-      # intermediate cache-control hints (no-store, must-revalidate,
-      # private, reload-from-client). 525600 min = 1 year.
+      # --- REGION: https://yuruna.link/429f3d06-0042
       refresh_pattern -i \.deb$      525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
       refresh_pattern -i \.udeb$     525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
       refresh_pattern -i \.tar\.xz$  525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
@@ -283,16 +246,13 @@ write_files:
       refresh_pattern -i /dep11/.+\.yml(\.gz|\.xz)?$    0 0%  60
 
       # --- REGION: Container registry caching (OCI + Docker v2)
-      # --- REGION: https://yuruna.link/429f3d06-0042
+      # See https://yuruna.link/429f3d06-0042
       # Digest-pinned URLs only (the `sha256:` path segment is immutable);
       # tag-based manifest URLs are governed by the gate below -- tags ARE mutable.
       refresh_pattern -i /(manifests|blobs)/sha256:[0-9a-f]+ 525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
 
       # --- REGION: https://yuruna.link/42f6b05f-0021
-      # Freshness floor on tag -> digest resolution, the metered operation.
-      # Reaches only registries that answer a manifest without a bearer token
-      # (Docker Hub always sends one, so Hub is NOT governed here). Deliberately
-      # not host-scoped, so a registry added upstream is covered the day it appears.
+      # Covers anonymous registries; authenticated Docker Hub has a separate gate.
       refresh_pattern -i /v2/.+/manifests/[^/]+$        60 100% 60 override-expire override-lastmod ignore-reload ignore-no-store ignore-private store-stale max-stale=86400
 
       # Blob bodies are already persisted by the OCI cache that fetched them;
@@ -309,19 +269,12 @@ write_files:
       acl yuruna_registry_auth dstdomain auth.docker.io auth.ghcr.io
       cache deny yuruna_registry_auth
 
-      # Not every registry mints on a separate auth host: the gcr.io family,
-      # mirror.gcr.io included, advertises a realm on its OWN domain, where the
-      # rule above cannot reach it without also refusing to cache that host's
-      # manifests. Matching the path keeps the credential uncacheable and leaves
-      # the rest of the host alone. Neither endpoint sends Cache-Control, so
-      # without this squid is free to apply its heuristic to a 200 that happens
-      # to contain a bearer token. Deliberately not host-scoped, for the same
-      # reason as the freshness floor above.
+      # --- REGION: https://yuruna.link/42f6b05f-0021
       acl yuruna_registry_token_path urlpath_regex ^/v2/token
       cache deny yuruna_registry_token_path
 
       # --- REGION: OpenTofu / Terraform provider + binary caching
-      # --- REGION: https://yuruna.link/42f6b05f-0013
+      # See https://yuruna.link/42f6b05f-0013
       refresh_pattern -i \.zip$                                            525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
       refresh_pattern -i ^https?://registry\.opentofu\.org/                525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
       refresh_pattern -i ^https?://releases\.opentofu\.org/                525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
@@ -329,14 +282,14 @@ write_files:
       refresh_pattern -i ^https?://get\.opentofu\.org/                     525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
 
       # --- REGION: GitHub release binary caching
-      # --- REGION: https://yuruna.link/429f3d06-0044
+      # See https://yuruna.link/429f3d06-0044
       # Release assets are immutable per tag; whole-host match so non-extensioned
       # binaries (raw `kubectl`, `helm`) are covered too.
       refresh_pattern -i ^https?://github\.com/[^/]+/[^/]+/releases/download/ 525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
       refresh_pattern -i ^https?://objects\.githubusercontent\.com/        525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
 
       # --- REGION: Helm chart + repo index caching
-      # --- REGION: https://yuruna.link/429f3d06-0044
+      # See https://yuruna.link/429f3d06-0044
       # `.tgz` is NOT matched by the `\.tar\.gz$` pattern above; chart packages
       # are version-tagged and immutable, so pin the full year.
       refresh_pattern -i \.tgz$                                            525600 100% 525600 override-expire override-lastmod ignore-reload ignore-no-store ignore-private
@@ -346,10 +299,7 @@ write_files:
       refresh_pattern -i ^https?://charts\.jetstack\.io/.*/index\.yaml$    60     20%  60
 
       # --- REGION: https://yuruna.link/42f6b05f-0014
-      # One-hour freshness floor for metered version-lookup endpoints. Each host
-      # needs its own entry: these URLs carry a query string, and the stock
-      # `refresh_pattern -i (/cgi-bin/|\?) 0 0% 0` parsed after this file would
-      # otherwise claim them under first-match-wins and pin them to zero freshness.
+      # Keep these before Squid's stock zero-freshness query-string rule.
       refresh_pattern -i ^https?://api\.github\.com/                       60 100% 60 override-expire override-lastmod ignore-reload ignore-no-store ignore-private store-stale max-stale=86400
       refresh_pattern -i ^https?://www\.powershellgallery\.com/            60 100% 60 override-expire override-lastmod ignore-reload ignore-no-store ignore-private store-stale max-stale=86400
       refresh_pattern -i ^https?://dl\.filippo\.io/                        60 100% 60 override-expire override-lastmod ignore-reload ignore-no-store ignore-private store-stale max-stale=86400
@@ -359,8 +309,9 @@ write_files:
 
       logfile_rotate 2
 
-      # --- REGION: https://yuruna.link/42f6b05f-003a
-      # --- REGION: https://yuruna.link/42f6b05f-003b
+      # --- REGION: TLS interception
+      # See https://yuruna.link/42f6b05f-003a
+      # See https://yuruna.link/42f6b05f-003b
       acl step1 at_step SslBump1
       http_port 3129 ssl-bump generate-host-certificates=on tls-cert=/etc/squid/ssl_cert/ca.pem tls-key=/etc/squid/ssl_cert/ca.key
       sslcrtd_program /usr/lib/squid/security_file_certgen -s /var/lib/squid/ssl_db -M 4MB
@@ -388,50 +339,49 @@ write_files:
       # would clutter the client log, but without it the VM's own egress leaves
       # no trace and a stalled local service cannot be told from a stalled client.
       access_log stdio:/var/log/squid/yuruna_loopback.log yuruna yuruna_selfscrape
-  # --- REGION: https://yuruna.link/42f6b05f-0016
-  # The page a refused fetch returns. Squid resolves an unlocalized template
-  # name from this directory, so no error_directory override is needed -- and
-  # overriding it would replace the whole stock set, not add to it.
+  # See https://yuruna.link/42f6b05f-0016
   - path: /usr/share/squid/errors/templates/ERR_YURUNA_NO_UPSTREAM
     permissions: '0644'
     owner: root:root
     content: |
-      <html><head><title>Upstream fetch refused</title></head>
+      <!doctype html>
+      <html lang="en">
+      <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <title>Upstream fetch refused</title>
+      <style>
+      body { background: #ffffff; color: #111827;
+             font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+             margin: 0; padding: 1.5rem; }
+      main { max-width: 44rem; }
+      h1 { font-size: 1.5rem; margin: 0 0 1rem; }
+      code { background: #f3f4f6; color: #111827; padding: 0 0.25rem; }
+      b { word-break: break-all; }
+      </style>
+      </head>
       <body>
+      <main>
       <h1>Upstream fetch refused</h1>
       <p>This cache is in no-upstream mode. The object below is not stored
       locally, and this cache will not fetch it.</p>
       <p><b>%U</b></p>
       <p>To let it through, run <code>sudo yuruna-no-upstream off</code> on the
       caching-proxy VM, re-run the fetch, then turn it back on.</p>
-      </body></html>
+      </main>
+      </body>
+      </html>
   - path: /usr/local/sbin/yuruna-no-upstream
     permissions: '0755'
     owner: root:root
     content: |
       #!/bin/bash
-      # Turns the cache into a true island: stored objects are served, and
-      # anything else is refused rather than fetched.
-      #
-      # This is a separate switch from `offline_mode`, which despite the name
-      # only suppresses revalidation -- a miss under offline_mode still goes
-      # to the origin. Refusing the miss is what makes the cache's content
-      # the whole of what the lab can see, which is the point of the mode:
-      # an upstream that cannot be reached cannot spend a metered quota and
-      # cannot fail a provisioning run in a new way.
-      #
-      # Off by default. The cost of leaving it on is that the first pull of
-      # anything not already stored fails, and in a lab that provisions
-      # long-tail images on demand that is a frequent event, not a rare one.
+      # --- REGION: https://yuruna.link/42f6b05f-0016
       set -euo pipefail
       CONF=/etc/squid/conf.d/yuruna-no-upstream.conf
       case "${1:-status}" in
         on)
-          # Staged and parsed before it is allowed to take effect. A squid
-          # that FATALs on a bad drop-in does not fall back to the previous
-          # config -- it fails to start and takes the whole lab's proxy with
-          # it, so the validation has to happen while the running daemon is
-          # still untouched.
+          # --- REGION: https://yuruna.link/42f6b05f-0016
           TMP=$(mktemp)
           trap 'rm -f "$TMP"' EXIT
           cat > "$TMP" <<'EOF_NOUP'
@@ -465,7 +415,7 @@ write_files:
           exit 2
           ;;
       esac
-  # --- REGION: https://yuruna.link/429f3d06-0046
+  # See https://yuruna.link/429f3d06-0046
   - path: /etc/default/prometheus
     permissions: '0644'
     owner: root:root
@@ -523,7 +473,22 @@ write_files:
             insecure_skip_verify: true
           static_configs:
             - targets: ['localhost:9400']
-  # --- REGION: https://yuruna.link/429f3d06-0047
+        # --- REGION: https://yuruna.link/429f3d06-0046
+        - job_name: pool-host
+          scrape_interval: 15s
+          scrape_timeout: 10s
+          http_sd_configs:
+            - url: http://127.0.0.1:9400/api/v1/prometheus-targets
+              refresh_interval: 30s
+          relabel_configs:
+            - source_labels: [hostId]
+              target_label: instance
+          metric_relabel_configs:
+            # --- REGION: https://yuruna.link/429f3d06-0046
+            - source_labels: [__name__]
+              regex: 'up|scrape_.*|windows_memory_.*|windows_cpu_time_total|windows_logical_disk_.*|windows_os_(info|hostname)|windows_exporter_(build_info|collector_success|collector_duration_seconds|scrape_collector_success|scrape_duration_seconds)|windows_hyperv_hypervisor_(logical_processor_(time_total|total_run_time_total|context_switches_total)|root_virtual(_processor)?_(time_total|cpu_wait_time_per_dispatch_total)|virtual_processor_((mode_)?time_total|(total_)?run_time_total|cpu_wait_time_per_dispatch_total))'
+              action: keep
+  # See https://yuruna.link/429f3d06-0047
   - path: /etc/loki/config.yml
     permissions: '0644'
     owner: root:root
@@ -555,9 +520,7 @@ write_files:
               prefix: index_
               period: 24h
       limits_config:
-        # 30d default covers transitions (src=cycle) and incidents (src=incident) --
-        # the count_over_time Pass/Fail source plus incident history; per-step events
-        # (src=event) keep the shorter 7d window below.
+        # Retain transitions (src=cycle; count_over_time Pass/Fail) and incidents (src=incident) for 30d; per-step events (src=event) for 7d.
         retention_period: 720h
         retention_stream:
           - selector: '{src="event"}'
@@ -567,7 +530,7 @@ write_files:
         working_directory: /var/lib/loki/compactor
         retention_enabled: true
         delete_request_store: filesystem
-  # --- REGION: https://yuruna.link/429f3d06-0048
+  # See https://yuruna.link/429f3d06-0048
   - path: /etc/promtail/config.yml
     permissions: '0644'
     owner: root:root
@@ -587,9 +550,7 @@ write_files:
                 - localhost
               labels:
                 job: squid
-                # Tail only squid's custom yuruna_access.log (adds a quoted
-                # User-Agent column; see the yuruna.conf logformat comment);
-                # the stock access.log keeps its default format.
+                # Tail only Squid's custom User-Agent-aware log; keep its stock access.log unchanged.
                 __path__: /var/log/squid/yuruna_access.log
           pipeline_stages:
             - regex:
@@ -597,9 +558,7 @@ write_files:
             - timestamp:
                 source: ts
                 format: Unix
-        # Egress originated ON this VM (its own probes and any local service
-        # pointed at the proxy), split out of the client log by the squid ACL.
-        # Separate job label so it never dilutes {job="squid"} client analysis.
+        # Separate VM-originated proxy egress so it cannot dilute client-log analysis.
         - job_name: squid_loopback
           static_configs:
             - targets:
@@ -634,24 +593,19 @@ write_files:
             - template:
                 source: path
                 template: '{{ or .path "NO_HTTP_PATH" }}'
-            # Only the self-scrape is noise. Lines with no HTTP path are the
-            # sync extension's own -- the upstream retry/failure record for a
-            # pull-through miss. They are the ONLY evidence of why a manifest
-            # request took tens of seconds, since the request itself is logged
-            # as a success once it finally answers, and they are rare enough
-            # that keeping them costs nothing.
+            # --- REGION: https://yuruna.link/429f3d06-0048
             - drop:
                 source: path
                 value: /metrics
                 drop_counter_reason: metrics_poll
-  # --- REGION: https://yuruna.link/429f3d06-0049
+  # See https://yuruna.link/429f3d06-0049
   - path: /etc/systemd/system/promtail.service.d/yuruna.conf
     permissions: '0644'
     owner: root:root
     content: |
       [Service]
       SupplementaryGroups=proxy zot
-  # --- REGION: https://yuruna.link/429f3d06-004a
+  # See https://yuruna.link/429f3d06-004a
   - path: /usr/local/bin/squid-meta-exporter.sh
     permissions: '0755'
     owner: root:root
@@ -716,17 +670,13 @@ write_files:
       Unit=squid-meta-exporter.service
       [Install]
       WantedBy=timers.target
-  # --- REGION: https://yuruna.link/429f3d06-004b
+  # See https://yuruna.link/429f3d06-004b
   - path: /usr/local/bin/zot-meta-exporter.sh
     permissions: '0755'
     owner: root:root
     content: |
       #!/bin/bash
-      # Yuruna zot meta exporter: times the cache's MANIFEST path (not just its
-      # liveness), reads the shared Docker Hub budget, and publishes both as Prom
-      # text at /var/www/html/zot-meta plus a human-readable /var/www/html/cache-health.
-      # Driven by zot-meta-exporter.timer. Served by apache, not zot, so the
-      # numbers survive the very failure they describe.
+      # --- REGION: https://yuruna.link/429f3d06-004b
       set +e
       TMP=$(mktemp)
       TMP_TXT=$(mktemp)
@@ -740,11 +690,7 @@ write_files:
       trap 'rm -f "$TMP" "$TMP_TXT" "$TMP_UP" "$TMP_UP_TXT" "$TMP_NETRC" "$TMP_PW"' EXIT
 
       ZOT='http://127.0.0.1:5000'
-      # Addressed by TAG, not digest: only a tag re-runs the on-demand upstream
-      # sync, which is the leg that stalls. dotnet/sdk resolves against the
-      # scoped mcr.microsoft.com entry, which meters nothing -- a repo falling
-      # through to the Docker Hub catch-all would put this probe on the one
-      # metered budget in the lab.
+      # --- REGION: https://yuruna.link/429f3d06-004b
       CANARY_REPO='dotnet/sdk'
       CANARY_TAG='10.0'
       # Spelled out: a manifest request stating no preference gets the registry's
@@ -807,12 +753,7 @@ write_files:
           fi
       done
 
-      # The shared Docker Hub budget. HEAD on ratelimitpreview/test reads the
-      # counters without spending one. Read at most hourly and cached to disk in
-      # between -- the counters describe a one-hour window, so a faster cadence
-      # only mints extra tokens against the upstream this file exists to spare.
-      # Between reads the previous values are republished, so the gauge keeps a
-      # value rather than dropping to zero and painting an exhausted budget.
+      # --- REGION: https://yuruna.link/429f3d06-004b
       HUB_STATE=/var/lib/yuruna/zot-meta-hub.env
       HUB_MIN_INTERVAL=3300
       HUB_PROBE_OK=0
@@ -838,11 +779,7 @@ write_files:
           HUB_TOKEN_AUTHENTICATED=${HUB_STATE_TOKEN_AUTHENTICATED:-0}
       fi
       if [ "$HUB_FRESH" = 1 ]; then
-      # Which budget the counters below describe. Hub meters an authenticated sync
-      # against the account and an anonymous one against the egress IP, and the two
-      # allowances differ in both size and in who else is spending them, so a
-      # remaining count means nothing until the mode is stated alongside it.
-      # The file is absent whenever the lab configured no account.
+      # --- REGION: https://yuruna.link/429f3d06-004b
       HUB_CRED_FILE=/etc/zot/sync-credentials.json
       HUB_USER=''
       HUB_PASS=''
@@ -858,15 +795,7 @@ write_files:
       # boot where package installation is incomplete, and one field out of a
       # flat object does not justify the dependency.
       if [ "$HUB_AUTHENTICATED" = 1 ]; then
-          # A token minted with the account reports the account's budget, which is
-          # the one zot's pulls actually spend. Strictly best-effort: a rotated or
-          # revoked credential must cost the reading its precision, not its
-          # existence, so any failure falls through to the anonymous request and
-          # the page says which budget it ended up reporting.
-          #
-          # Passed through a 0600 file rather than on the command line: argv is
-          # readable by every account on this VM through /proc, and the whole
-          # point of the credential's mode is that the token is not.
+          # --- REGION: https://yuruna.link/429f3d06-004b
           printf 'machine auth.docker.io login %s password %s\n' "$HUB_USER" "$HUB_PASS" > "$TMP_NETRC"
           HUB_TOKEN=$(curl -fsS --noproxy '*' -m 10 --netrc-file "$TMP_NETRC" \
               'https://auth.docker.io/token?service=registry.docker.io&scope=repository:ratelimitpreview/test:pull' 2>/dev/null \
@@ -917,12 +846,7 @@ write_files:
       [ -n "$SQUID_FREE" ] || SQUID_FREE=0
 
       # --- REGION: Warm-set residency
-      # The canary above walks a tag a scheduled poll keeps resident, so it
-      # measures the upstream leg and stays fast while an image the lab does NOT
-      # hold is still being copied. Residency is the reading that shows that
-      # case, and it can only be observed by the job that requests the images a
-      # guest actually pulls -- measuring it here would spend a full cold sync
-      # per probe, every ten minutes.
+      # See https://yuruna.link/42f6b05f-0020
       PW_META=/var/lib/yuruna/prewarm-meta.env
       PW_ROWS=/var/lib/yuruna/prewarm-rows.tsv
       PW_PROGRESS=/var/lib/yuruna/prewarm-progress
@@ -943,17 +867,7 @@ write_files:
       PW_SLOW_SEC=""; PW_SLOW_REF=""
       if [ -r "$PW_ROWS" ]; then
           PW_HAVE=1
-          # A row reaching "cold" completed its fetch: the content moved and is
-          # now held. Only timeout/failed rows are images a guest would still
-          # have to wait for.
-          #
-          # Held and resident are two different facts and are counted apart
-          # here, because one number cannot answer both questions a reader has.
-          # "Held" is what a guest about to pull cares about. "Answered from
-          # storage" is what says whether the cache was already stocked when the
-          # run asked: a set reported entirely held, every image of which the run
-          # had to copy in, was cold for the whole of that run -- and a guest
-          # pulling during it waited out every one of those copies.
+          # --- REGION: https://yuruna.link/42f6b05f-0020
           K8S_TOTAL=$(awk -F'\t' '$1=="k8s"{n++} END{print n+0}' "$PW_ROWS")
           K8S_HELD=$(awk  -F'\t' '$1=="k8s" && ($5=="resident"||$5=="cold"){n++} END{print n+0}' "$PW_ROWS")
           K8S_LOCAL=$(awk -F'\t' '$1=="k8s" && $5=="resident"{n++} END{print n+0}' "$PW_ROWS")
@@ -991,24 +905,7 @@ write_files:
       fi
 
       # --- REGION: Guest-path canary
-      # The request a guest's containerd actually issues, which the canary above
-      # does not make. That one asks for dotnet/sdk:10.0 with no ns=, so zot
-      # resolves the upstream by walking its registry list in file order, and the
-      # entry it lands on has a scheduled poll keeping that tag's content
-      # current: the on-demand sync it triggers finds nothing to copy and settles
-      # as a fast no-op. A guest sends GET with ns=<upstream>, and for the
-      # control-plane set that upstream is registry.k8s.io, whose only entry is
-      # on-demand with no poll behind it. That leg runs in the tens of seconds
-      # whenever the sync has anything to check, against the 30s a pull waits
-      # for response headers -- close enough to the deadline that it has to be
-      # timed rather than inferred from a line that never walks it.
-      #
-      # Asked only for an image the last warm run recorded as held, which keeps
-      # this a revalidation rather than a copy: probing an image the cache does
-      # not hold would spend a full cold sync on every timer tick. ns= also pins
-      # the upstream, so the request cannot fall through to the Docker Hub
-      # catch-all and spend the one metered budget in the lab -- and
-      # registry.k8s.io meters nothing, so the revalidation itself is free.
+      # See https://yuruna.link/429f3d06-004b
       GP_REF=""
       GP_HAVE=0
       GP_CODE=0
@@ -1129,9 +1026,7 @@ write_files:
 
       install -m 0644 "$TMP" /var/www/html/zot-meta
 
-      # Same numbers as plain text. Reachable with curl from any guest and from a
-      # browser with no Grafana session, which is what a first look needs when
-      # the question is whether to debug the guest or the cache.
+      # Mirror the metrics as unauthenticated plain text for first-look cache triage.
       {
           echo "yuruna caching-proxy health -- $(date -u +%Y-%m-%dT%H:%M:%SZ)"
           echo
@@ -1143,14 +1038,7 @@ write_files:
           else
               echo "zot manifest ${CANARY_REPO}:${CANARY_TAG} : HTTP ${MANIFEST_CODE} in ${MANIFEST_SECONDS}s (cap ${PROBE_MAX}s)"
           fi
-          # The verdict the line above cannot give: it reports the answer the
-          # probe waited out under a cap set far wider than any client's, so a
-          # reader sees "HTTP 200" for a manifest no pull can survive.
-          # Named for what it measures. A scheduled poll keeps this tag's content
-          # resident, so its revalidation settles as a fast no-op and the reading
-          # reports the UPSTREAM LEG only. It cannot show a cold image arriving,
-          # and a line that reads "OK for a real pull" while a guest is stalled
-          # on an image the cache does not hold sends the operator to the guest.
+          # --- REGION: https://yuruna.link/429f3d06-004b
           if [ "$MANIFEST_UNDER_PATIENCE" = 1 ]; then
               echo "zot resident-tag revalidation: OK -- answered inside the ${CLIENT_PATIENCE}s a pull waits for response headers"
           else
@@ -1162,11 +1050,7 @@ write_files:
           echo "  walking the registry list, and a scheduled poll keeps that tag's content current -- the"
           echo "  sync it triggers has nothing to copy. This line times a revalidation of content already"
           echo "  held. It walks neither a cold copy nor the ns= form a guest sends: the next line does."
-          # The request a guest's containerd actually issues, on the upstream
-          # that has no scheduled poll behind it. Reported as its own line
-          # because the two readings can disagree, and the one above is the
-          # optimistic half: it stays fast while this leg is what a pull gives
-          # up on.
+          # --- REGION: https://yuruna.link/429f3d06-004b
           if [ "$GP_HAVE" = 0 ]; then
               echo "zot guest-path request       : not probed -- no warm run has left a held registry.k8s.io image to ask for"
           elif [ "$GP_CODE" = "0" ]; then
@@ -1197,11 +1081,7 @@ write_files:
           elif [ "$PW_HAVE" = 1 ]; then
               echo "Warm sets, last warmed ${YURUNA_PREWARM_LAST_RUN:-never} (versions resolved via ${YURUNA_PREWARM_RESOLVE_SRC:-unknown}):"
               echo "  Kubernetes image set (${YURUNA_PREWARM_K8S_PATCH:-unresolved}, pinned minor ${YURUNA_PREWARM_K8S_MINOR:-unknown}):"
-              # The count is images the cache HOLDS, so the word held is on the
-              # line carrying it: a row that arrived cold completed its copy and
-              # is held now, and reporting that number as residency alone tells
-              # a reader the cache was stocked when it was not. The split below
-              # each count is the half that says which.
+              # --- REGION: https://yuruna.link/42f6b05f-0020
               if [ "$K8S_TOTAL" -gt 0 ] && [ "$K8S_HELD" -lt "$K8S_TOTAL" ]; then
                   echo "    resident                 : ${K8S_HELD} of ${K8S_TOTAL} held   <-- a kubeadm init pays $((K8S_TOTAL - K8S_HELD)) cold sync(s)"
               else
@@ -1246,12 +1126,7 @@ write_files:
               echo "  to arrive, and the revalidation line above cannot show it."
           fi
           echo
-          # Mode first, because the count is unreadable without it: the same number
-          # means "the lab's own allowance" (authenticated) or "shared by every
-          # guest behind this IP" (anonymous). The account NAME stays out on
-          # purpose -- apache serves this page to the LAN with no login, and naming
-          # it would publish half of a credential. The name lives in
-          # /etc/zot/sync-credentials.json, readable by root and zot alone.
+          # --- REGION: https://yuruna.link/429f3d06-004b
           if [ "$HUB_TOKEN_AUTHENTICATED" = 1 ]; then
               echo "Docker Hub sync              : authenticated with the seeded account -- budget below is that account's"
           elif [ "$HUB_AUTHENTICATED" = 1 ]; then
@@ -1280,15 +1155,7 @@ write_files:
       After=apache2.service zot.service
       [Service]
       Type=oneshot
-      # Stated rather than left to the systemd default, which is far below what
-      # this script can legitimately take: two manifest probes capped at 120s
-      # each, eight upstream reads at 10s, and the hub budget reads. A run
-      # killed at the default deadline never reaches the install that publishes
-      # the page, so /var/www/html/cache-health silently keeps the previous
-      # run's readings -- and it stalls exactly when the cache is stalling,
-      # which is when a reader most needs the numbers to be current. Set above
-      # the worst case and well under the timer's 10-minute period, so a wedged
-      # run is still reaped before the next one is due.
+      # --- REGION: https://yuruna.link/429f3d06-004b
       TimeoutStartSec=360
       ExecStart=/usr/local/bin/zot-meta-exporter.sh
   - path: /etc/systemd/system/zot-meta-exporter.timer
@@ -1308,29 +1175,13 @@ write_files:
       Unit=zot-meta-exporter.service
       [Install]
       WantedBy=timers.target
-  # --- REGION: https://yuruna.link/429f3d06-004c
+  # See https://yuruna.link/429f3d06-004c
   - path: /usr/local/bin/zot-prewarm.sh
     permissions: '0755'
     owner: root:root
     content: |
       #!/bin/bash
-      # Yuruna zot prewarm: keeps the image sets a Kubernetes guest pulls
-      # resident in this cache, and times every fetch so the health page can
-      # report the path a real pull walks.
-      #
-      # zot resolves a TAG by re-running the on-demand upstream sync before any
-      # local-storage check, and when the content is not already held that sync
-      # copies the whole multi-arch index before the manifest request is
-      # answered. A guest meeting that cold pays minutes per image inside a step
-      # budget sized for a warm cache. Warming on a timer moves the cost off the
-      # critical path.
-      #
-      # Timing it HERE is also the only reading that can show the cold path. A
-      # tag a scheduled poll keeps resident answers from local storage in
-      # milliseconds however badly a cold sync is behaving, so a canary pinned to
-      # such a tag reports green by construction -- it measures the upstream leg
-      # and nothing about how long an image the lab does not hold takes to
-      # arrive.
+      # --- REGION: https://yuruna.link/429f3d06-004c
       set +e
       umask 022
 
@@ -1367,14 +1218,7 @@ write_files:
       fi
 
       # --- REGION: Resolve what to keep warm
-      # Every input below is read from the same source the guest reads, so the
-      # warm set cannot drift from the set a guest pulls. Naming versions in this
-      # file instead would create a second pin that goes stale silently, and the
-      # staleness would only surface as a cold cache during a provisioning run.
-      #
-      # All resolution fetches go direct. Routing them through this VM's own
-      # ssl-bump listener would make a source fetch depend on the proxy it is
-      # meant to keep stocked.
+      # See https://yuruna.link/429f3d06-004c
       YR_BASE="https://raw.githubusercontent.com/alissonsol/yuruna/refs/heads/main/"
       YR_SRC="github"
       # Safe to source: host.env is host-baked IP/PORT only, never operator free text.
@@ -1405,12 +1249,7 @@ write_files:
               "https://dl.k8s.io/release/stable-${K8S_MINOR}.txt" 2>/dev/null | tr -d '\r\n')
       fi
 
-      # kubeadm's image set cannot be derived from the Kubernetes version:
-      # coredns, pause and etcd carry tags of their own, baked into the binary
-      # and moved on their own schedule. Running the same binary the guest runs
-      # is the only way to get the list right -- a tag glob would silently miss
-      # three of the seven images, and those three would then be the ones
-      # arriving cold.
+      # --- REGION: https://yuruna.link/429f3d06-004c
       DEB_ARCH=$(dpkg --print-architecture 2>/dev/null || echo amd64)
       K8S_REFS=""
       if [ -n "$K8S_PATCH" ]; then
@@ -1449,14 +1288,7 @@ write_files:
               | awk '$1=="image:"{print $2}' | sort -u)
       fi
 
-      # A resolution outage must degrade to warming the PREVIOUS set, never to
-      # warming nothing: the images a guest needs did not change because github
-      # was briefly unreachable, and an empty set would quietly stop protecting
-      # the very run about to pull them. Carried per set, so one upstream being
-      # down does not discard the other's resolution.
-      # The flag records whether THIS run resolved the set, not whether it ended
-      # up with a list: a run that resolved nothing and had nothing to fall back
-      # on must not report itself as current.
+      # --- REGION: https://yuruna.link/429f3d06-004c
       K8S_RESOLVED=1
       [ -z "$K8S_REFS" ] && K8S_RESOLVED=0
       if [ "$K8S_RESOLVED" = 0 ] && [ -r "$SET_FILE" ]; then
@@ -1489,12 +1321,7 @@ write_files:
           W_REST=${W_REF#*/}
           W_TAG=${W_REST##*:}
           W_REPO=${W_REST%:*}
-          # ns= names the upstream this repository belongs to. It is the same
-          # parameter containerd's hosts.toml form sends on every pull, and it is
-          # how zot picks which registry entry to sync from. Without it zot walks
-          # its list in file order, where Docker Hub is the `**` catch-all -- so
-          # warming a registry.k8s.io image would spend one of the metered Docker
-          # Hub lookups the whole lab shares, on an image Hub never served.
+          # --- REGION: https://yuruna.link/429f3d06-004c
           printf '%s\t%s\n' "$(date +%s)" "$W_REF" > "$PROGRESS_FILE"
           W_T0=$(date +%s.%N)
           W_CODE=$(curl -s -o /dev/null --noproxy '*' -m "$PREWARM_MAX" \
@@ -1561,11 +1388,7 @@ write_files:
       } > "$META_TMP"
       install -m 0644 "$META_TMP" "$META_FILE"
 
-      # Refresh the published page immediately rather than waiting out the
-      # exporter's next tick: the reading this run just produced is the one an
-      # operator asks for after a provisioning failure, and a ten-minute gap is
-      # long enough for them to read the previous state and conclude the cache
-      # was fine.
+      # --- REGION: https://yuruna.link/429f3d06-004c
       [ -x /usr/local/bin/zot-meta-exporter.sh ] && /usr/local/bin/zot-meta-exporter.sh
       exit 0
   - path: /etc/systemd/system/zot-prewarm.service
@@ -1590,12 +1413,7 @@ write_files:
       [Unit]
       Description=Warm the guest image sets in zot every 6 hours
       [Timer]
-      # 6h matches the scheduled sync entries in zot's own config: both exist to
-      # keep content resident, and running them on different cadences would only
-      # make the health page disagree with the registry about how current it is.
-      # OnBootSec is short because a cache that just rebooted holds nothing a
-      # guest starting now can use, and the first cycle after a rebuild is
-      # exactly when a cold set costs a run.
+      # --- REGION: https://yuruna.link/429f3d06-004c
       OnBootSec=3min
       OnUnitActiveSec=6h
       AccuracySec=1min
@@ -1605,7 +1423,7 @@ write_files:
       Unit=zot-prewarm.service
       [Install]
       WantedBy=timers.target
-  # --- REGION: https://yuruna.link/429f3d06-004d
+  # See https://yuruna.link/429f3d06-004d
   - path: /etc/systemd/system/squid-exporter.service
     permissions: '0644'
     owner: root:root
@@ -1623,7 +1441,7 @@ write_files:
       RestartSec=5
       [Install]
       WantedBy=multi-user.target
-  # --- REGION: https://yuruna.link/429f3d06-004e
+  # See https://yuruna.link/429f3d06-004e
   - path: /etc/systemd/system/grafana-server.service.d/yuruna.conf
     permissions: '0644'
     owner: root:root
@@ -1631,7 +1449,7 @@ write_files:
       [Service]
       Environment=GF_AUTH_ANONYMOUS_ENABLED=true
       Environment=GF_AUTH_ANONYMOUS_ORG_ROLE=Viewer
-  # --- REGION: https://yuruna.link/429f3d06-004f
+  # See https://yuruna.link/429f3d06-004f
   - path: /etc/grafana/provisioning/datasources/yuruna.yaml
     permissions: '0644'
     owner: root:root
@@ -1651,7 +1469,7 @@ write_files:
           access: proxy
           url: http://localhost:3100
           editable: false
-  # --- REGION: https://yuruna.link/429f3d06-0050
+  # See https://yuruna.link/429f3d06-0050
   - path: /usr/local/bin/yuruna-rewrite-zot-dashboard.py
     permissions: '0755'
     owner: root:root
@@ -1814,16 +1632,12 @@ write_files:
       # 6) Stable identity, then strip import-only fields.
       d['uid'] = 'yuruna-zot-official'
       d['title'] = 'Zot (official, Grafana ID 20501)'
-      # The 'community' tag is this board's provenance, declared by the step that
-      # installs it rather than guessed downstream. The uid cannot carry it: this
-      # line rewrites the uid into the yuruna- namespace precisely so the board
-      # has a stable identity, which makes uid useless for telling ours from
-      # upstream. The brand stamper reads this tag.
+      # --- REGION: https://yuruna.link/429f3d06-0051
       d['tags'] = sorted(set((d.get('tags') or []) + ['yuruna', 'community']))
       for k in ('id', '__inputs', '__elements', '__requires'):
           d.pop(k, None)
       json.dump(d, sys.stdout, indent=2)
-  # --- REGION: https://yuruna.link/429f3d06-0052
+  # See https://yuruna.link/429f3d06-0052
   - path: /etc/grafana/provisioning/dashboards/yuruna.yaml
     permissions: '0644'
     owner: root:root
@@ -1837,13 +1651,7 @@ write_files:
           updateIntervalSeconds: 30
           options:
             path: /var/lib/grafana/dashboards
-  # --- REGION: https://yuruna.link/429f3d06-0053
-  # The rule is a PRODUCT of two conditions: an unread budget publishes
-  # remaining=0 too, so gating on the probe gauge keeps a refused credential or
-  # broken egress from being announced as exhaustion.
-  # No contact point is provisioned (delivery is a no-op until one exists), but
-  # the rule still turns a number somebody has to notice into a condition with
-  # a state, a start time, and history, attached to its panel.
+  # See https://yuruna.link/429f3d06-0053
   - path: /etc/grafana/provisioning/alerting/yuruna.yaml
     permissions: '0644'
     owner: root:root
@@ -1874,11 +1682,7 @@ write_files:
                       uid: yuruna-prometheus
                     instant: true
                     range: false
-                    # `== bool` on both halves keeps this a 1/0 series that
-                    # always exists. Written as a plain `and` the vector would
-                    # be EMPTY in the healthy case, which alerting cannot tell
-                    # apart from an exporter that stopped publishing -- the
-                    # quiet failure this rule exists to prevent.
+                    # See https://yuruna.link/429f3d06-0053
                     expr: (yuruna_dockerhub_ratelimit_remaining == bool 0) * (yuruna_dockerhub_ratelimit_probe_ok == bool 1)
                 - refId: C
                   relativeTimeRange:
@@ -1922,7 +1726,7 @@ write_files:
                   registries[] -- a tag-addressed pull re-runs the upstream sync
                   on every single request, so a handful of guests looping on one
                   image holds the hourly allowance at zero indefinitely.
-  # --- REGION: https://yuruna.link/429f3d06-0054
+  # See https://yuruna.link/429f3d06-0054
   - path: /etc/yuruna/host.env
     permissions: '0644'
     owner: root:root
@@ -1931,14 +1735,8 @@ write_files:
       YURUNA_STATUS_SERVICE_PORT=YURUNA_STATUS_SERVICE_PORT_PLACEHOLDER
       YURUNA_HOST_ID=YURUNA_HOST_ID_PLACEHOLDER
       YURUNA_CACHING_PROXY_SERVICE_IP=127.0.0.1
-  # --- REGION: https://yuruna.link/429f3d06-002a
-  # This VM resolves its host through the pool directory like every other
-  # guest -- the difference is that the directory is running on THIS machine,
-  # so the address it asks is loopback. That is not the loopback case the
-  # resolver refuses: the refusal applies to an ANSWER (a host advertising
-  # 127.0.0.1 is advertising the reader's own box), never to the directory
-  # being consulted. Hard-coded rather than seeded because it is a fact about
-  # where the aggregator runs, not about where this lab put its cache.
+  # See https://yuruna.link/429f3d06-002a
+  # See https://yuruna.link/429f3d06-0054
   - path: /usr/local/lib/yuruna/yuruna-host-locate.sh
     encoding: base64
     content: YURUNA_HOST_LOCATE_BASE64_PLACEHOLDER
@@ -1971,7 +1769,7 @@ write_files:
 
       [Install]
       WantedBy=timers.target
-  # --- REGION: https://yuruna.link/429f3d06-005e
+  # See https://yuruna.link/429f3d06-005e
   - path: /etc/yuruna/host-config/config.env
     permissions: '0644'
     owner: root:root
@@ -2104,7 +1902,7 @@ write_files:
       Unit=yuruna-config-fetch@%i.service
       [Install]
       WantedBy=timers.target
-  # --- REGION: https://yuruna.link/429f3d06-0055
+  # See https://yuruna.link/429f3d06-0055
   - path: /var/lib/grafana/dashboards/pool.json
     permissions: '0644'
     owner: root:root
@@ -2142,7 +1940,7 @@ write_files:
             "id": 18,
             "type": "stat",
             "title": "Lab token",
-            "description": "The lab connection token and the collector's health. Blue when enrollment is open: a joining host redeems the 6-character code (pwsh test/lab/Set-LabToken.ps1 -LabToken CODE); the code is select-and-copy text -- there is no need to retype it. It omits i, l, o, 0 and 1, and a code you have just read stays valid for about three minutes, so there is no need to rush it. Red when the collector behind this dashboard has stopped: every panel may be stale. Gray when the token exchange is off. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+            "description": "The lab connection token and the collector's health. Blue when enrollment is open: a joining host redeems the 6-character code (pwsh test/lab/Set-LabToken.ps1 -LabToken CODE); the code is select-and-copy text -- there is no need to retype it. It omits i, l, o, 0 and 1, and a code you have just read stays valid for about three minutes, so there is no need to rush it. Red when the collector behind this dashboard has stopped: every panel may be stale. Gray when the token exchange is off. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
             "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
             "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
             "targets": [
@@ -2156,7 +1954,7 @@ write_files:
             "id": 2,
             "type": "stat",
             "title": "Hosts total",
-            "description": "Distinct pool hosts seen within the aggregator's host TTL (24h by default, -host-ttl), keyed on the stable hostId (reachable or not). Driven by yuruna_pool_hosts_total from the pool-aggregator-service. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+            "description": "Distinct pool hosts seen within the aggregator's host TTL (24h by default, -host-ttl), keyed on the stable hostId (reachable or not). Driven by yuruna_pool_hosts_total from the pool-aggregator-service. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
             "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
             "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
             "targets": [
@@ -2169,7 +1967,7 @@ write_files:
             "id": 19,
             "type": "stat",
             "title": "Success%",
-            "description": "Share of terminal cycles lab-wide that passed, within the selected time range (top-right). Counted from the same log as the Pool hosts table's Pass and Fail columns, so they cannot disagree. Shows 'n/a' when no cycle finished in range -- deliberately not 100%, so an idle pool cannot look healthy. Red below 95%, amber below 100%, green at 100%. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+            "description": "Share of terminal cycles lab-wide that passed, within the selected time range (top-right). Counted from the same log as the Pool hosts table's Pass and Fail columns, so they cannot disagree. Shows 'n/a' when no cycle finished in range -- deliberately not 100%, so an idle pool cannot look healthy. Red below 95%, amber below 100%, green at 100%. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
             "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
             "datasource": { "type": "loki", "uid": "yuruna-loki" },
             "targets": [
@@ -2182,7 +1980,7 @@ write_files:
             "id": 4,
             "type": "stat",
             "title": "Failed cycles",
-            "description": "Cycles that finished 'fail' across the whole LAB within the dashboard's selected time range (top-right) -- the sum of the table's Fail column. Counted from the Loki transition log (exact; reaches back to Loki retention, unlike a Prometheus counter window). Green when zero; red when any. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+            "description": "Cycles that finished 'fail' across the whole LAB within the dashboard's selected time range (top-right) -- the sum of the table's Fail column. Counted from the Loki transition log (exact; reaches back to Loki retention, unlike a Prometheus counter window). Green when zero; red when any. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
             "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
             "datasource": { "type": "loki", "uid": "yuruna-loki" },
             "targets": [
@@ -2195,7 +1993,7 @@ write_files:
             "id": 20,
             "type": "stat",
             "title": "Total cycles",
-            "description": "Terminal cycles lab-wide within the selected time range: the table's Pass plus Fail, and the denominator behind Success%. A still-running cycle has no terminal status and is not counted. The dashboard is lab-wide -- per-pool figures live on the pool-control board. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+            "description": "Terminal cycles lab-wide within the selected time range: the table's Pass plus Fail, and the denominator behind Success%. A still-running cycle has no terminal status and is not counted. The dashboard is lab-wide -- per-pool figures live on the pool-control board. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
             "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
             "datasource": { "type": "loki", "uid": "yuruna-loki" },
             "targets": [
@@ -2208,7 +2006,7 @@ write_files:
             "id": 21,
             "type": "stat",
             "title": "Addresses in use",
-            "description": "MEASURED count of IPv4 addresses the lab holds now: the proxy's observed clients plus registered hosts' addresses, deduplicated. A FLOOR, not a ceiling -- whatever is invisible to both sources is not counted. It says nothing about the DHCP pool: scope size and free leases live on the DHCP server; read those before concluding exhaustion. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+            "description": "MEASURED count of IPv4 addresses the lab holds now: the proxy's observed clients plus registered hosts' addresses, deduplicated. A FLOOR, not a ceiling -- whatever is invisible to both sources is not counted. It says nothing about the DHCP pool: scope size and free leases live on the DHCP server; read those before concluding exhaustion. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
             "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
             "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
             "targets": [
@@ -2221,7 +2019,7 @@ write_files:
             "id": 17,
             "type": "table",
             "title": "Extension hosts",
-            "description": "Hosts self-reporting an extension function (e.g. stash, pool-control, download-agent) -- the same Host ID namespace as Pool hosts. The Extension link opens that service's UI, already unlocked unless the proxy mints no token. Extension-only hosts have no status page: open hosts from the Pool hosts table instead. Click a Host ID for its full GUID form. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+            "description": "Hosts self-reporting an extension function (e.g. stash, pool-control, download-agent) -- the same Host ID namespace as Pool hosts. The Extension link opens that service's UI, already unlocked unless the proxy mints no token. Extension-only hosts have no status page: open hosts from the Pool hosts table instead. Click a Host ID for its full GUID form. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
             "gridPos": { "h": 4, "w": 24, "x": 0, "y": 22 },
             "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
             "targets": [
@@ -2272,7 +2070,7 @@ write_files:
             "id": 6,
             "type": "table",
             "title": "Pool hosts",
-            "description": "One row per discovered host, named only by its opaque Host ID -- hostname-free, safe to expose unauthenticated. Watch Status first: 'runner stopped' means the results below are a record, not a live reading. Control says whether the host link will let you drive the host ('remote' works; 'onsite' will 403); the link always opens read-only. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+            "description": "One row per discovered host, named only by its opaque Host ID -- hostname-free, safe to expose unauthenticated. Watch Status first: 'runner stopped' means the results below are a record, not a live reading. Control says whether the host link will let you drive the host ('remote' works; 'onsite' will 403); the link always opens read-only. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
             "gridPos": { "h": 9, "w": 24, "x": 0, "y": 13 },
             "datasource": { "type": "datasource", "uid": "-- Mixed --" },
             "targets": [
@@ -2439,7 +2237,7 @@ write_files:
             "id": 7,
             "type": "state-timeline",
             "title": "Cycle outcome over time (host x UTC time)",
-            "description": "One row per host, one color per observed cycle status; times are UTC. Click a block for that host's actions: its full GUID id, 'open cycle results' (follows the host's current address, and still works after logs moved to the share), 'share cycle results' (packs the cycle into a tar.gz on the host to mail -- that page uploads nothing). Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+            "description": "One row per host, one color per observed cycle status; times are UTC. Click a block for that host's actions: its full GUID id, 'open cycle results' (follows the host's current address, and still works after logs moved to the share), 'share cycle results' (packs the cycle into a tar.gz on the host to mail -- that page uploads nothing). Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
             "gridPos": { "h": 9, "w": 24, "x": 0, "y": 4 },
             "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
             "targets": [
@@ -2502,7 +2300,7 @@ write_files:
                 "id": 13,
                 "type": "logs",
                 "title": "Incidents (open / resolved)",
-                "description": "Incident lifecycle: a host opens an incident at N or more failed cycles within a trailing window (default 3 in 2h) and resolves once the window clears. Each line carries the incident's failure class; a cross-host incident requires the same class on every host. From the aggregator's incident correlation (src=incident in Loki). Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+                "description": "Incident lifecycle: a host opens an incident at N or more failed cycles within a trailing window (default 3 in 2h) and resolves once the window clears. Each line carries the incident's failure class; a cross-host incident requires the same class on every host. From the aggregator's incident correlation (src=incident in Loki). Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
                 "gridPos": { "h": 8, "w": 24, "x": 0, "y": 24 },
                 "datasource": { "type": "loki", "uid": "yuruna-loki" },
                 "targets": [
@@ -2514,7 +2312,7 @@ write_files:
                 "id": 15,
                 "type": "table",
                 "title": "Failures by class & severity (window)",
-                "description": "The failure-class histogram: step_failure events over the dashboard time range, grouped by failureClass + severity. Driven by the per-step NDJSON tailed into Loki (src=event, event=step_failure). Sorted by count -- the dominant failure modes across the pool. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+                "description": "The failure-class histogram: step_failure events over the dashboard time range, grouped by failureClass + severity. Driven by the per-step NDJSON tailed into Loki (src=event, event=step_failure). Sorted by count -- the dominant failure modes across the pool. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
                 "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 },
                 "datasource": { "type": "loki", "uid": "yuruna-loki" },
                 "targets": [
@@ -2529,7 +2327,7 @@ write_files:
                 "id": 10,
                 "type": "logs",
                 "title": "Recent step failures across the pool (which step failed)",
-                "description": "step_failure events tailed from each host's per-cycle NDJSON: the failing step's action, number, failure class, severity and reason, per host/cycle. Expand a line for full detail; the table's deep-links open that host's full cycle artifacts. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+                "description": "step_failure events tailed from each host's per-cycle NDJSON: the failing step's action, number, failure class, severity and reason, per host/cycle. Expand a line for full detail; the table's deep-links open that host's full cycle artifacts. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
                 "gridPos": { "h": 9, "w": 24, "x": 0, "y": 40 },
                 "datasource": { "type": "loki", "uid": "yuruna-loki" },
                 "targets": [
@@ -2541,7 +2339,7 @@ write_files:
                 "id": 11,
                 "type": "logs",
                 "title": "Cycle event stream across the pool (all steps)",
-                "description": "Every per-cycle NDJSON event (cycle_start / step_end / step_failure / typed sub-events) tailed from each host. Use the Grafana log search to filter, e.g. cycleStartUtc=... or event=step_end. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+                "description": "Every per-cycle NDJSON event (cycle_start / step_end / step_failure / typed sub-events) tailed from each host. Use the Grafana log search to filter, e.g. cycleStartUtc=... or event=step_end. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
                 "gridPos": { "h": 10, "w": 24, "x": 0, "y": 49 },
                 "datasource": { "type": "loki", "uid": "yuruna-loki" },
                 "targets": [
@@ -2553,7 +2351,7 @@ write_files:
                 "id": 9,
                 "type": "logs",
                 "title": "Cycle status transitions across the pool (24h)",
-                "description": "One line each time a host's cycle changes state (running -> pass/fail), from the status.json poll: hostId, cycleStartUtc, overallStatus and a baseUrl for drill-down. The cycle-level audit trail behind the table and timeline above. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+                "description": "One line each time a host's cycle changes state (running -> pass/fail), from the status.json poll: hostId, cycleStartUtc, overallStatus and a baseUrl for drill-down. The cycle-level audit trail behind the table and timeline above. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
                 "gridPos": { "h": 9, "w": 24, "x": 0, "y": 59 },
                 "datasource": { "type": "loki", "uid": "yuruna-loki" },
                 "targets": [
@@ -2565,7 +2363,7 @@ write_files:
                 "id": 16,
                 "type": "table",
                 "title": "Incidents by failure class (window)",
-                "description": "Per-host incidents over the dashboard time range, grouped by the dominant failure class carried ON the incident object (dominantClass on the src=incident open line). Distinct from 'Failures by class & severity' above, which counts step_failure events regardless of whether they formed an incident -- this counts the incidents themselves. Sorted by count. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+                "description": "Per-host incidents over the dashboard time range, grouped by the dominant failure class carried ON the incident object (dominantClass on the src=incident open line). Distinct from 'Failures by class & severity' above, which counts step_failure events regardless of whether they formed an incident -- this counts the incidents themselves. Sorted by count. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
                 "gridPos": { "h": 8, "w": 24, "x": 0, "y": 68 },
                 "datasource": { "type": "loki", "uid": "yuruna-loki" },
                 "targets": [
@@ -2577,10 +2375,45 @@ write_files:
                 "options": { "showHeader": true, "cellHeight": "sm", "footer": { "show": false }, "sortBy": [ { "displayName": "Incidents", "desc": true } ] }
               }
             ]
+          },
+          {
+            "id": 22,
+            "type": "row",
+            "title": "Drill-down: host memory",
+            "collapsed": true,
+            "gridPos": { "h": 1, "w": 24, "x": 0, "y": 27 },
+            "panels": [
+              {
+                "id": 23,
+                "type": "timeseries",
+                "title": "Available memory per host",
+                "description": "Physical memory each pool host has free, read from the metrics exporter running on the host itself; only hosts that run one appear. Series are keyed on hostId -- the identity the tables above use -- so a host keeps one line across an address change.",
+                "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+                "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
+                "targets": [
+                  { "refId": "A", "expr": "windows_memory_available_bytes{pool=\"$pool\"}", "legendFormat": "{{hostId}}", "range": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
+                ],
+                "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "lineWidth": 1, "fillOpacity": 5, "showPoints": "never" } }, "overrides": [] },
+                "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": [ "min", "lastNotNull" ] }, "tooltip": { "mode": "multi", "sort": "desc" } }
+              },
+              {
+                "id": 24,
+                "type": "timeseries",
+                "title": "Commit headroom per host",
+                "description": "Commit limit minus committed bytes: how much more memory a host can still promise before an allocation is refused outright. A virtual machine asks for its whole allocation at once, so this floor -- not free physical memory -- is what such a request is measured against, and it moves while the paging file is being resized.",
+                "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+                "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
+                "targets": [
+                  { "refId": "A", "expr": "windows_memory_commit_limit{pool=\"$pool\"} - windows_memory_committed_bytes{pool=\"$pool\"}", "legendFormat": "{{hostId}}", "range": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
+                ],
+                "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "lineWidth": 1, "fillOpacity": 5, "showPoints": "never" } }, "overrides": [] },
+                "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": [ "min", "lastNotNull" ] }, "tooltip": { "mode": "multi", "sort": "desc" } }
+              }
+            ]
           }
         ]
       }
-  # --- REGION: https://yuruna.link/429f3d06-0056
+  # See https://yuruna.link/429f3d06-0056
   - path: /usr/local/bin/yuruna-fit-pool-dashboard.py
     permissions: '0755'
     owner: root:root
@@ -2793,7 +2626,7 @@ write_files:
     content: |
       [Unit]
       Description=Fit the Yuruna hosts dashboard panels to the live host count
-      Documentation=https://yuruna.link/vmconfig/caching-proxy-service
+      Documentation=https://yuruna.link/429f3d06-0032
       After=grafana-server.service prometheus.service loki.service pool-aggregator-service.service
 
       [Service]
@@ -2828,7 +2661,7 @@ write_files:
       Unit=yuruna-fit-pool-dashboard.service
       [Install]
       WantedBy=timers.target
-  # --- REGION: https://yuruna.link/429f3d06-0057
+  # See https://yuruna.link/429f3d06-0057
   # Which enlistment built this cache. Nothing else on the VM records it: the
   # guest is handed built artifacts, never the framework repository, so the
   # answer has to be seeded or it is unavailable for the life of the VM.
@@ -2838,7 +2671,7 @@ write_files:
     content: |
       YURUNA_BRAND_NAME='YURUNA_BRAND_NAME_PLACEHOLDER'
       YURUNA_BRAND_VERSION='YURUNA_BRAND_VERSION_PLACEHOLDER'
-  # --- REGION: https://yuruna.link/429f3d06-0058
+  # See https://yuruna.link/429f3d06-0058
   - path: /usr/local/bin/yuruna-brand-dashboards.py
     permissions: '0755'
     owner: root:root
@@ -3070,7 +2903,7 @@ write_files:
     content: |
       [Unit]
       Description=Stamp the framework name and version into every Grafana dashboard
-      Documentation=https://yuruna.link/vmconfig/caching-proxy-service
+      Documentation=https://yuruna.link/429f3d06-0032
       After=grafana-server.service
 
       [Service]
@@ -3105,8 +2938,8 @@ write_files:
       Unit=yuruna-brand-dashboards.service
       [Install]
       WantedBy=timers.target
-  # --- REGION: https://yuruna.link/429f3d06-0059
-  # --- REGION: https://yuruna.link/429f3d06-005a
+  # See https://yuruna.link/429f3d06-0059
+  # See https://yuruna.link/429f3d06-005a
   - path: /var/lib/grafana/dashboards/cache-health.json
     permissions: '0644'
     owner: root:root
@@ -3124,7 +2957,7 @@ write_files:
             "id": 1,
             "type": "stat",
             "title": "Manifest latency (canary) -- amber from 5 s, red from 30 s",
-            "description": "Time for a HEAD of the canary tag through this cache, which re-runs the on-demand upstream sync. Amber from 5s; red from 30s, because dockerd abandons a pull whose response headers have not arrived by roughly then -- a cache can sit green on every liveness check and still be past this line. Details: <a href=\"https://yuruna.link/cache-health-dashboard\" target=\"_blank\" rel=\"noopener\">Cache health dashboard</a> guide.",
+            "description": "Time for a HEAD of the canary tag through this cache, which re-runs the on-demand upstream sync. Amber from 5s; red from 30s, because dockerd abandons a pull whose response headers have not arrived by roughly then -- a cache can sit green on every liveness check and still be past this line. Details: <a href=\"https://yuruna.link/4227a895\" target=\"_blank\" rel=\"noopener\">Cache health dashboard</a> guide.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 0, "y": 0, "w": 6, "h": 4},
             "options": {
@@ -3153,7 +2986,7 @@ write_files:
             "id": 11,
             "type": "stat",
             "title": "Manifest path fast enough for a real pull?",
-            "description": "Whether the canary beside this one answered inside the deadline a real client applies (30s for dockerd). Green 'pull-viable' when it did; red 'PULLS FAILING' when it did not -- zot sends no headers until its upstream sync resolves, so a manifest that returns 200 at 55s is one every pull abandons. Details: <a href=\"https://yuruna.link/cache-health-dashboard\" target=\"_blank\" rel=\"noopener\">Cache health dashboard</a> guide.",
+            "description": "Whether the canary beside this one answered inside the deadline a real client applies (30s for dockerd). Green 'pull-viable' when it did; red 'PULLS FAILING' when it did not -- zot sends no headers until its upstream sync resolves, so a manifest that returns 200 at 55s is one every pull abandons. Details: <a href=\"https://yuruna.link/4227a895\" target=\"_blank\" rel=\"noopener\">Cache health dashboard</a> guide.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 6, "y": 0, "w": 6, "h": 4},
             "options": {
@@ -3183,7 +3016,7 @@ write_files:
             "id": 2,
             "type": "stat",
             "title": "Upstream pull budget left -- amber under 25, red under 10",
-            "description": "Anonymous pulls remaining in the current window for this egress IP, shared by the whole lab. Green at 25 or more, amber from 10, red below. Exhaustion never reaches a guest as a clean 429 -- the guest just sees a cache that stopped answering in time. 'No data' means the budget was not read, deliberately not painted as zero. Details: <a href=\"https://yuruna.link/cache-health-dashboard\" target=\"_blank\" rel=\"noopener\">Cache health dashboard</a> guide.",
+            "description": "Anonymous pulls remaining in the current window for this egress IP, shared by the whole lab. Green at 25 or more, amber from 10, red below. Exhaustion never reaches a guest as a clean 429 -- the guest just sees a cache that stopped answering in time. 'No data' means the budget was not read, deliberately not painted as zero. Details: <a href=\"https://yuruna.link/4227a895\" target=\"_blank\" rel=\"noopener\">Cache health dashboard</a> guide.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 12, "y": 0, "w": 6, "h": 4},
             "options": {
@@ -3212,7 +3045,7 @@ write_files:
             "id": 3,
             "type": "stat",
             "title": "zot /v2/ liveness",
-            "description": "The check every client-side gate performs today. Green 'up' when the endpoint answers; red 'DOWN' otherwise. Kept beside the canary on purpose: it answers in milliseconds throughout a manifest stall, so agreement between the two is the point -- 'up' here with a red canary beside it is the fault signature. Details: <a href=\"https://yuruna.link/cache-health-dashboard\" target=\"_blank\" rel=\"noopener\">Cache health dashboard</a> guide.",
+            "description": "The check every client-side gate performs today. Green 'up' when the endpoint answers; red 'DOWN' otherwise. Kept beside the canary on purpose: it answers in milliseconds throughout a manifest stall, so agreement between the two is the point -- 'up' here with a red canary beside it is the fault signature. Details: <a href=\"https://yuruna.link/4227a895\" target=\"_blank\" rel=\"noopener\">Cache health dashboard</a> guide.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 18, "y": 0, "w": 6, "h": 4},
             "options": {
@@ -3236,7 +3069,7 @@ write_files:
             "id": 4,
             "type": "timeseries",
             "title": "Manifest path latency: canary vs what clients actually got",
-            "description": "The canary (one probe every 10 minutes) against the quantiles of every HEAD zot served. The quantiles come from zot's own histogram, so they include the guests' pulls; when they climb together the cache is the cause, when only the guests' climb the load is. Details: <a href=\"https://yuruna.link/cache-health-dashboard\" target=\"_blank\" rel=\"noopener\">Cache health dashboard</a> guide.",
+            "description": "The canary (one probe every 10 minutes) against the quantiles of every HEAD zot served. The quantiles come from zot's own histogram, so they include the guests' pulls; when they climb together the cache is the cause, when only the guests' climb the load is. Details: <a href=\"https://yuruna.link/4227a895\" target=\"_blank\" rel=\"noopener\">Cache health dashboard</a> guide.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 0, "y": 4, "w": 24, "h": 8},
             "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
@@ -3251,7 +3084,7 @@ write_files:
             "id": 5,
             "type": "timeseries",
             "title": "Upstream registries: round trip from this VM",
-            "description": "Unauthenticated GET /v2/ per configured sync upstream, which spends no pull budget. This is the leg zot depends on: flat here while the canary above climbs means the stall is inside the cache, not on the way out of it. Details: <a href=\"https://yuruna.link/cache-health-dashboard\" target=\"_blank\" rel=\"noopener\">Cache health dashboard</a> guide.",
+            "description": "Unauthenticated GET /v2/ per configured sync upstream, which spends no pull budget. This is the leg zot depends on: flat here while the canary above climbs means the stall is inside the cache, not on the way out of it. Details: <a href=\"https://yuruna.link/4227a895\" target=\"_blank\" rel=\"noopener\">Cache health dashboard</a> guide.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 0, "y": 12, "w": 12, "h": 8},
             "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
@@ -3263,7 +3096,7 @@ write_files:
             "id": 6,
             "type": "timeseries",
             "title": "Upstream pull budget over time",
-            "description": "Budget remaining across the window. A sawtooth that reaches zero names rate limiting as the trigger for a cluster of slow-manifest failures. The remaining series is gated on the probe gauge so a window the exporter could not read breaks the line instead of drawing a floor at zero, which would read as the exhaustion this panel exists to spot. Details: <a href=\"https://yuruna.link/cache-health-dashboard\" target=\"_blank\" rel=\"noopener\">Cache health dashboard</a> guide.",
+            "description": "Budget remaining across the window. A sawtooth that reaches zero names rate limiting as the trigger for a cluster of slow-manifest failures. The remaining series is gated on the probe gauge so a window the exporter could not read breaks the line instead of drawing a floor at zero, which would read as the exhaustion this panel exists to spot. Details: <a href=\"https://yuruna.link/4227a895\" target=\"_blank\" rel=\"noopener\">Cache health dashboard</a> guide.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 12, "y": 12, "w": 12, "h": 8},
             "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
@@ -3276,7 +3109,7 @@ write_files:
             "id": 7,
             "type": "timeseries",
             "title": "Cache VM: CPU busy %",
-            "description": "Host-level load for the VM every service here runs on -- the discriminator between a starved box and a service blocked on something remote. Details: <a href=\"https://yuruna.link/cache-health-dashboard\" target=\"_blank\" rel=\"noopener\">Cache health dashboard</a> guide.",
+            "description": "Host-level load for the VM every service here runs on -- the discriminator between a starved box and a service blocked on something remote. Details: <a href=\"https://yuruna.link/4227a895\" target=\"_blank\" rel=\"noopener\">Cache health dashboard</a> guide.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 0, "y": 20, "w": 12, "h": 6},
             "fieldConfig": {"defaults": {"unit": "percent", "max": 100, "min": 0}, "overrides": []},
@@ -3288,7 +3121,7 @@ write_files:
             "id": 8,
             "type": "timeseries",
             "title": "Cache VM: memory available / cache disk free",
-            "description": "Memory headroom and free space under the squid cache_dir and /var/lib/zot. Swap is masked on this VM, so memory exhaustion presents as the OOM killer rather than as slowdown. Details: <a href=\"https://yuruna.link/cache-health-dashboard\" target=\"_blank\" rel=\"noopener\">Cache health dashboard</a> guide.",
+            "description": "Memory headroom and free space under the squid cache_dir and /var/lib/zot. Swap is masked on this VM, so memory exhaustion presents as the OOM killer rather than as slowdown. Details: <a href=\"https://yuruna.link/4227a895\" target=\"_blank\" rel=\"noopener\">Cache health dashboard</a> guide.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 12, "y": 20, "w": 12, "h": 6},
             "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []},
@@ -3302,7 +3135,7 @@ write_files:
             "id": 9,
             "type": "logs",
             "title": "Registry requests slower than 10s",
-            "description": "zot's own request log filtered to slow answers. These return 200 -- they are not errors anywhere else in the stack, which is why a slow cache reads as a healthy one until this panel is consulted. Details: <a href=\"https://yuruna.link/cache-health-dashboard\" target=\"_blank\" rel=\"noopener\">Cache health dashboard</a> guide.",
+            "description": "zot's own request log filtered to slow answers. These return 200 -- they are not errors anywhere else in the stack, which is why a slow cache reads as a healthy one until this panel is consulted. Details: <a href=\"https://yuruna.link/4227a895\" target=\"_blank\" rel=\"noopener\">Cache health dashboard</a> guide.",
             "datasource": {"type": "loki", "uid": "yuruna-loki"},
             "gridPos": {"x": 0, "y": 26, "w": 24, "h": 10},
             "options": {
@@ -3327,7 +3160,7 @@ write_files:
             "id": 10,
             "type": "logs",
             "title": "Sync / upstream lines (no HTTP request attached)",
-            "description": "zot lines that belong to the sync extension rather than to a client request -- the upstream retry and failure record behind a slow manifest. Empty is the normal state; entries here explain the latency the panels above only measure. Details: <a href=\"https://yuruna.link/cache-health-dashboard\" target=\"_blank\" rel=\"noopener\">Cache health dashboard</a> guide.",
+            "description": "zot lines that belong to the sync extension rather than to a client request -- the upstream retry and failure record behind a slow manifest. Empty is the normal state; entries here explain the latency the panels above only measure. Details: <a href=\"https://yuruna.link/4227a895\" target=\"_blank\" rel=\"noopener\">Cache health dashboard</a> guide.",
             "datasource": {"type": "loki", "uid": "yuruna-loki"},
             "gridPos": {"x": 0, "y": 36, "w": 24, "h": 8},
             "options": {
@@ -3363,7 +3196,7 @@ write_files:
             "id": 6,
             "type": "timeseries",
             "title": "Client HTTP(S) data served (kB/s): total vs cached",
-            "description": "Throughput delivered to clients over a 5-minute window: 'Total' (solid) is every response, 'Cached' (dashed) is the subset answered from cache. The gap = upstream bandwidth needed. Details: <a href=\"https://yuruna.link/caching-proxy-dashboard\" target=\"_blank\" rel=\"noopener\">Caching-proxy dashboard</a> guide.",
+            "description": "Throughput delivered to clients over a 5-minute window: 'Total' (solid) is every response, 'Cached' (dashed) is the subset answered from cache. The gap = upstream bandwidth needed. Details: <a href=\"https://yuruna.link/4227a895-000e\" target=\"_blank\" rel=\"noopener\">Caching-proxy dashboard</a> guide.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 0, "y": 0, "w": 24, "h": 8},
             "fieldConfig": {
@@ -3391,7 +3224,7 @@ write_files:
             "id": 7,
             "type": "logs",
             "title": "Recent 100 requests (client IP / status / size / method / URL / User-Agent)",
-            "description": "The last 100 client requests through the proxy -- the per-request forensic view behind the throughput panel above, pulled from squid's access log via Loki. Details: <a href=\"https://yuruna.link/caching-proxy-dashboard\" target=\"_blank\" rel=\"noopener\">Caching-proxy dashboard</a> guide.",
+            "description": "The last 100 client requests through the proxy -- the per-request forensic view behind the throughput panel above, pulled from squid's access log via Loki. Details: <a href=\"https://yuruna.link/4227a895-000e\" target=\"_blank\" rel=\"noopener\">Caching-proxy dashboard</a> guide.",
             "datasource": {"type": "loki", "uid": "yuruna-loki"},
             "gridPos": {"x": 0, "y": 16, "w": 24, "h": 12},
             "options": {
@@ -3416,7 +3249,7 @@ write_files:
             "id": 8,
             "type": "stat",
             "title": "Served (7 days)",
-            "description": "Total bytes squid served to clients over the last 7 days, from cache OR fetched from origin on a miss. Driven by squid_client_http_kbytes_out_kbytes_total from squid-exporter. Details: <a href=\"https://yuruna.link/caching-proxy-dashboard\" target=\"_blank\" rel=\"noopener\">Caching-proxy dashboard</a> guide.",
+            "description": "Total bytes squid served to clients over the last 7 days, from cache OR fetched from origin on a miss. Driven by squid_client_http_kbytes_out_kbytes_total from squid-exporter. Details: <a href=\"https://yuruna.link/4227a895-000e\" target=\"_blank\" rel=\"noopener\">Caching-proxy dashboard</a> guide.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 0, "y": 8, "w": 6, "h": 4},
             "options": {
@@ -3439,7 +3272,7 @@ write_files:
             "id": 9,
             "type": "stat",
             "title": "From cache (7 days)",
-            "description": "Bytes served from cache hits over the last 7 days -- memory (TCP_MEM_HIT) and disk (TCP_HIT). Driven by squid_client_http_hit_kbytes_out_bytes_total from squid-exporter. Details: <a href=\"https://yuruna.link/caching-proxy-dashboard\" target=\"_blank\" rel=\"noopener\">Caching-proxy dashboard</a> guide.",
+            "description": "Bytes served from cache hits over the last 7 days -- memory (TCP_MEM_HIT) and disk (TCP_HIT). Driven by squid_client_http_hit_kbytes_out_bytes_total from squid-exporter. Details: <a href=\"https://yuruna.link/4227a895-000e\" target=\"_blank\" rel=\"noopener\">Caching-proxy dashboard</a> guide.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 6, "y": 8, "w": 6, "h": 4},
             "options": {
@@ -3462,7 +3295,7 @@ write_files:
             "id": 10,
             "type": "stat",
             "title": "Served (24 hours)",
-            "description": "Total bytes squid served to clients over the last 24 hours, from cache OR fetched from origin on a miss. Driven by squid_client_http_kbytes_out_kbytes_total from squid-exporter. Details: <a href=\"https://yuruna.link/caching-proxy-dashboard\" target=\"_blank\" rel=\"noopener\">Caching-proxy dashboard</a> guide.",
+            "description": "Total bytes squid served to clients over the last 24 hours, from cache OR fetched from origin on a miss. Driven by squid_client_http_kbytes_out_kbytes_total from squid-exporter. Details: <a href=\"https://yuruna.link/4227a895-000e\" target=\"_blank\" rel=\"noopener\">Caching-proxy dashboard</a> guide.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 12, "y": 8, "w": 6, "h": 4},
             "options": {
@@ -3485,7 +3318,7 @@ write_files:
             "id": 11,
             "type": "stat",
             "title": "From cache (24 hours)",
-            "description": "Bytes served from cache hits over the last 24 hours -- memory (TCP_MEM_HIT) and disk (TCP_HIT). Driven by squid_client_http_hit_kbytes_out_bytes_total from squid-exporter. Details: <a href=\"https://yuruna.link/caching-proxy-dashboard\" target=\"_blank\" rel=\"noopener\">Caching-proxy dashboard</a> guide.",
+            "description": "Bytes served from cache hits over the last 24 hours -- memory (TCP_MEM_HIT) and disk (TCP_HIT). Driven by squid_client_http_hit_kbytes_out_bytes_total from squid-exporter. Details: <a href=\"https://yuruna.link/4227a895-000e\" target=\"_blank\" rel=\"noopener\">Caching-proxy dashboard</a> guide.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 18, "y": 8, "w": 6, "h": 4},
             "options": {
@@ -3508,7 +3341,7 @@ write_files:
             "id": 12,
             "type": "stat",
             "title": "Internet connectivity",
-            "description": "Whether the cache VM can reach the upstream internet. Green 'On' when a direct no-proxy HTTPS probe succeeds within 5s; red 'Off' when upstream is unreachable, so cache misses cannot be fetched -- what still gets served depends on Offline mode beside this. 'Unknown' means the probe has not reported. Details: <a href=\"https://yuruna.link/caching-proxy-dashboard\" target=\"_blank\" rel=\"noopener\">Caching-proxy dashboard</a> guide.",
+            "description": "Whether the cache VM can reach the upstream internet. Green 'On' when a direct no-proxy HTTPS probe succeeds within 5s; red 'Off' when upstream is unreachable, so cache misses cannot be fetched -- what still gets served depends on Offline mode beside this. 'Unknown' means the probe has not reported. Details: <a href=\"https://yuruna.link/4227a895-000e\" target=\"_blank\" rel=\"noopener\">Caching-proxy dashboard</a> guide.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 0, "y": 12, "w": 6, "h": 4},
             "options": {
@@ -3534,7 +3367,7 @@ write_files:
             "id": 13,
             "type": "stat",
             "title": "Offline mode support",
-            "description": "Whether squid will keep serving cache hits when upstream fails. Green 'On' when the running config has offline_mode on: cache hits are served unconditionally on upstream 5xx. Red 'Off' otherwise. Queried live from the daemon's own config, so it reflects what is actually applied; 'Unknown' means that query has not answered. Details: <a href=\"https://yuruna.link/caching-proxy-dashboard\" target=\"_blank\" rel=\"noopener\">Caching-proxy dashboard</a> guide.",
+            "description": "Whether squid will keep serving cache hits when upstream fails. Green 'On' when the running config has offline_mode on: cache hits are served unconditionally on upstream 5xx. Red 'Off' otherwise. Queried live from the daemon's own config, so it reflects what is actually applied; 'Unknown' means that query has not answered. Details: <a href=\"https://yuruna.link/4227a895-000e\" target=\"_blank\" rel=\"noopener\">Caching-proxy dashboard</a> guide.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 6, "y": 12, "w": 6, "h": 4},
             "options": {
@@ -3560,7 +3393,7 @@ write_files:
             "id": 14,
             "type": "stat",
             "title": "Cached (Mem)",
-            "description": "Currently cached content in memory ready to be served. Driven by squid_info_Storage_Mem_size (KB) from squid-exporter; converted to bytes for display. Details: <a href=\"https://yuruna.link/caching-proxy-dashboard\" target=\"_blank\" rel=\"noopener\">Caching-proxy dashboard</a> guide.",
+            "description": "Currently cached content in memory ready to be served. Driven by squid_info_Storage_Mem_size (KB) from squid-exporter; converted to bytes for display. Details: <a href=\"https://yuruna.link/4227a895-000e\" target=\"_blank\" rel=\"noopener\">Caching-proxy dashboard</a> guide.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 12, "y": 12, "w": 6, "h": 4},
             "options": {
@@ -3583,7 +3416,7 @@ write_files:
             "id": 15,
             "type": "stat",
             "title": "Cached (Disk)",
-            "description": "Currently cached content on disk ready to be served. Driven by squid_info_Storage_Swap_size (KB) from squid-exporter; converted to bytes for display. Details: <a href=\"https://yuruna.link/caching-proxy-dashboard\" target=\"_blank\" rel=\"noopener\">Caching-proxy dashboard</a> guide.",
+            "description": "Currently cached content on disk ready to be served. Driven by squid_info_Storage_Swap_size (KB) from squid-exporter; converted to bytes for display. Details: <a href=\"https://yuruna.link/4227a895-000e\" target=\"_blank\" rel=\"noopener\">Caching-proxy dashboard</a> guide.",
             "datasource": {"type": "prometheus", "uid": "yuruna-prometheus"},
             "gridPos": {"x": 18, "y": 12, "w": 6, "h": 4},
             "options": {
@@ -3604,7 +3437,7 @@ write_files:
           }
         ]
       }
-  # --- REGION: https://yuruna.link/42f6b05f-001f
+  # See https://yuruna.link/42f6b05f-001f
   # ORDER IS THE ROUTING TABLE and the match is first-wins with NO fallthrough:
   # anything ahead of the Docker Hub "**" catch-all owns its glob outright.
   - path: /etc/zot/config.json
@@ -3763,12 +3596,7 @@ write_files:
           }
         }
       }
-  # The Docker Hub account the sync authenticates as -- held apart from the
-  # world-readable config.json because it carries an access token. Root-owned as
-  # it lands (the zot account does not exist yet at write_files time; ownership is
-  # handed over before zot starts). zot opens this file as itself and refuses to
-  # start when it cannot, which is why the no-account boot step deletes the file
-  # AND the config key naming it. Both fields are empty when the lab has no Hub account.
+  # See https://yuruna.link/42f6b05f-0022
   - path: /etc/zot/sync-credentials.json
     permissions: '0600'
     owner: root:root
@@ -3779,7 +3607,7 @@ write_files:
           "password": "YURUNA_DOCKERHUB_TOKEN_PLACEHOLDER"
         }
       }
-  # --- REGION: https://yuruna.link/429f3d06-005b
+  # See https://yuruna.link/429f3d06-005b
   - path: /etc/systemd/system/zot.service
     permissions: '0644'
     owner: root:root
@@ -3798,17 +3626,6 @@ write_files:
       User=zot
       Group=zot
       # --- REGION: https://yuruna.link/42f6b05f-0016
-      # Upstream sync is routed through the local ssl-bump listener to put this
-      # registry behind the same choke point as everything else on the VM -- NOT
-      # for caching (a manifest fetch carries a bearer token, and a shared cache
-      # may not store the reply to an authenticated request). It buys two things:
-      # no-upstream mode becomes true rather than partial (an unrouted registry
-      # would keep reaching Docker Hub while the proxy refuses everything else),
-      # and this registry's egress shows in the loopback access log, so a stalled
-      # sync can be told apart from a stalled cache. Bumped rather than the plain
-      # :3128 listener because a CONNECT tunnel is opaque -- the gate could not
-      # see a refused request to refuse it; the trade is that this VM must trust
-      # its own bump CA, which the boot installs into the system trust store.
       Environment=HTTPS_PROXY=http://127.0.0.1:3129
       Environment=HTTP_PROXY=http://127.0.0.1:3129
       # Loopback and RFC1918 stay direct. Sending them through the proxy would
@@ -3829,7 +3646,7 @@ write_files:
 
       [Install]
       WantedBy=multi-user.target
-  # --- REGION: https://yuruna.link/429f3d06-005c
+  # See https://yuruna.link/429f3d06-005c
   - path: /etc/yuruna/ypool-nas.env
     permissions: '0644'
     owner: root:root
@@ -3842,7 +3659,7 @@ write_files:
   # /etc/yuruna/ypool-nas.cifs.cred is deliberately NOT baked: yuruna-config-fetch.sh
   # writes it (0600) at runtime from the config service (/v1/nas/pool), so
   # rotation needs no rebuild and the plaintext pool password never ships in the seed.iso.
-  # --- REGION: https://yuruna.link/429f3d06-005f
+  # See https://yuruna.link/429f3d06-005f
   - path: /etc/yuruna/internal-auth.key
     permissions: '0640'
     owner: root:proxy
@@ -3853,13 +3670,7 @@ write_files:
     owner: root:root
     content: |
       #!/bin/sh
-      # yuruna networkStorage pool (ypool-nas) service replication. Best-effort, never
-      # fails the timer: mount the optional NAS share over cifs and rsync this VM's
-      # observability data into <share>/<hostId>/services/caching-proxy-service/. Squid
-      # and zot (rebuildable caches) plus promtail (tail cursor) are excluded on purpose.
-      # A breadcrumb at /var/www/html/ypool-nas-status (Apache serves it) makes
-      # "configured but not replicating" -- e.g. a NAT proxy that cannot reach the LAN
-      # NAS -- visible without SSH.
+      # --- REGION: https://yuruna.link/429f3d06-005c
       set -u
       ENVF=/etc/yuruna/ypool-nas.env
       [ -r "$ENVF" ] || exit 0
@@ -3869,22 +3680,13 @@ write_files:
       MOUNT="${YPOOL_NAS_MOUNT:-/mnt/ypool-nas}"
       STATUS=/var/www/html/ypool-nas-status
       mkdir -p "$MOUNT" 2>/dev/null || true
-      # The config service fetch owns the ypool-nas mount + credential: it
-      # (re)mounts $MOUNT read-write with a credential fetched over mTLS and refreshed
-      # on rotation, so a changed NAS password reaches this VM without a rebuild.
-      # Trigger it now (best-effort) in case its timer has not run yet, then replicate
-      # only when the share is actually mounted (mountpoint -q is exact; findmnt
-      # --target would false-pass on the enclosing '/' mount).
+      # --- REGION: https://yuruna.link/429f3d06-005c
       [ -x /usr/local/bin/yuruna-config-fetch.sh ] && /usr/local/bin/yuruna-config-fetch.sh pool >/dev/null 2>&1 || true
       MOUNTED=0
       mountpoint -q "$MOUNT" 2>/dev/null && MOUNTED=1
       RC_LOKI=skip; RC_PROM=skip; RC_GRAF=skip
       if [ "$MOUNTED" = "1" ]; then
-        # hosts/<hostId>/ is the unified per-host root on the share: the host
-        # archives its cycle results under test-cycles/ beside this services/
-        # subtree. A share written before that unification keeps a bare
-        # <hostId>/services/ root -- frozen, never read; restoring from one is a
-        # documented manual path (docs/pool-storage.md).
+        # --- REGION: https://yuruna.link/429f3d06-005c
         DEST="$MOUNT/hosts/$YPOOL_NAS_HOST_ID/services/caching-proxy-service"
         for svc in loki prometheus; do
           [ -d "/var/lib/$svc" ] || continue
@@ -3938,6 +3740,7 @@ write_files:
       Unit=ypool-nas-replicate.service
       [Install]
       WantedBy=timers.target
+# --- REGION: runcmd
 runcmd:
   # sshd is already up by the time write_files lands, so the drop-in above needs
   # a reload to take effect on this boot rather than only on the next one.
@@ -4065,27 +3868,11 @@ runcmd:
   # --- REGION: https://yuruna.link/429f3d06-0068
   - install -m 0644 /etc/squid/ssl_cert/ca.pem /var/www/html/yuruna-pool-ca.crt
   # --- REGION: https://yuruna.link/42f6b05f-0016
-  # This VM trusts its own bump CA, so its own services can be pointed at the
-  # ssl-bump listener and have their TLS verify. The OCI registry's upstream
-  # sync is the consumer that matters: unbumped, its fetches are an opaque
-  # tunnel that no-upstream mode cannot refuse and no log can attribute.
-  #
-  # The extension must be .crt -- update-ca-certificates ignores every other
-  # suffix in this directory and reports success either way, so a .pem here
-  # yields a trust store that silently never gained the certificate.
   - install -m 0644 /etc/squid/ssl_cert/ca.pem /usr/local/share/ca-certificates/yuruna-squid-ca.crt
   - update-ca-certificates
   # --- REGION: https://yuruna.link/429f3d06-0037
   - |
-    # rewrite is not among Ubuntu's default-enabled apache2 modules, and a
-    # RewriteEngine directive from an unloaded module is a hard parse error
-    # that stops apache2 from STARTING -- which would take :80 down with it,
-    # and :80 is where every guest's provisioning fetches the squid CA cert.
-    # A cosmetic landing redirect must not be able to cost that, so the conf
-    # is kept only if the module took AND the whole config still tests clean;
-    # otherwise it is rolled back and the stock page stays.
-    # proxy + proxy_http alongside rewrite: the landing rule uses the [P] flag,
-    # which parses without them and then fails every request at runtime.
+    # --- REGION: https://yuruna.link/42f6b05f-0044
     a2enmod rewrite proxy proxy_http && a2enconf yuruna-landing || true
     if ! apache2ctl configtest >/dev/null 2>&1; then
       a2disconf yuruna-landing >/dev/null 2>&1 || true
@@ -4134,9 +3921,7 @@ runcmd:
   # --- REGION: https://yuruna.link/429f3d06-006e
   - |
     cat > /etc/squid/conf.d/yuruna-offline.conf << 'EOF'
-    # Serve only from cache; never contact origin. Miss returns 504. To
-    # refresh against origin: delete this file and `squid -k reconfigure`
-    # (or `systemctl reload squid`).
+    # Offline mode serves hits only (miss=504); delete this file and run squid -k reconfigure to restore origins.
     offline_mode on
     EOF
   - squid -k reconfigure
@@ -4191,18 +3976,7 @@ runcmd:
     else
         echo "== YURUNA: caching-proxy-parser-service build failed -- Recent 100 requests view will be unavailable =="
     fi
-    # pool-aggregator-service: read-only multi-host pool view. Source under
-    # test/extension/pool-aggregator-service/ in the yuruna repo.
-    # The aggregator links the shared SDK for its MCP mount, so the SDK is
-    # staged one level up from its build dir -- the same relative position it
-    # holds in the enlistment, which is why the module also builds there
-    # untouched. Staged here rather than beside the caching-proxy build below
-    # because this block runs first.
-    #
-    # The staged set is what `go build` RESOLVES, not what the daemons name in
-    # their own import blocks: i18n is here because labgate imports it, and a
-    # package reached only that way is compiled just the same. wget -O cannot
-    # create a directory, so every package staged below needs its mkdir here.
+    # --- REGION: https://yuruna.link/429f3d06-0070
     mkdir -p /opt/pool-aggregator-service /opt/extension-sdk/beacon /opt/extension-sdk/labgate /opt/extension-sdk/pool /opt/extension-sdk/mcp /opt/extension-sdk/i18n
     cd /opt/pool-aggregator-service
     PA_OK=1
@@ -4217,9 +3991,7 @@ runcmd:
       # instead of a generic "build failed".
       if [ ! -s "$f" ]; then PA_OK=0; echo "== YURUNA: pool-aggregator-service source '$f' empty/missing from ${YR_BASE}test/extension/pool-aggregator-service/$f (source=${YR_SRC}) =="; fi
     done
-    # NOTE: the Yuruna hosts dashboard is NOT fetched here -- it ships inline via
-    # write_files (/var/lib/grafana/dashboards/pool.json) so it deploys even if
-    # this collector build fails or the host repo is unreachable.
+    # Keep the inline Yuruna hosts dashboard independent of this collector build and host-repo access.
     PA_VERSION="$(wget $YR_FLAGS --no-cache --timeout=15 --tries=3 -q -O - "${YR_BASE}VERSION" 2>/dev/null | head -n1 | tr -d '[:space:]' || true)"
     [ -n "$PA_VERSION" ] || PA_VERSION=dev
     if [ "$PA_OK" -eq 1 ] && /usr/bin/go build -ldflags "-X main.version=$PA_VERSION" -o pool-aggregator-service . ; then
@@ -4229,13 +4001,7 @@ runcmd:
     else
         echo "== YURUNA: pool-aggregator-service build failed -- pool COLLECTOR unavailable (the Yuruna hosts dashboard still deploys; it shows 'No data' until the collector is up). Source attempted: ${YR_SRC}. =="
     fi
-    # caching-proxy-service: the management plane for this VM -- a read surface
-    # over squid/zot state plus the two operator switches. Source under
-    # test/extension/caching-proxy-service/. Unlike its two neighbors it links
-    # the shared extension SDK, which is a SEPARATE Go module: go.mod resolves
-    # it with `replace ... => ../extension-sdk`, so the SDK is staged one level
-    # up from the daemon's build dir -- the same relative position it occupies
-    # in the enlistment, which is why the module also builds there untouched.
+    # --- REGION: https://yuruna.link/429f3d06-0070
     mkdir -p /opt/caching-proxy-service
     cd /opt/caching-proxy-service
     CPS_OK=1
@@ -4255,20 +4021,7 @@ runcmd:
     if [ "$CPS_OK" -eq 1 ] && /usr/bin/go build -ldflags "-X main.version=$CPS_VERSION" -o caching-proxy-service . ; then
         install -m 0755 caching-proxy-service /usr/local/bin/caching-proxy-service
         install -m 0644 caching-proxy-service.service /etc/systemd/system/caching-proxy-service.service
-        # The unit reads every flag from here. Written as a file rather than
-        # baked into the unit so an operator can retarget one daemon -- most of
-        # all --mode -- without editing a unit an upgrade would replace.
-        # Values are sed-read, never sourced: pool.env and host.env are
-        # host-baked, but a sourced file turns one stray quote into a failed
-        # boot phase for the whole VM.
-        # The aggregator runs on THIS VM, and this VM has no pool.env -- that
-        # file is baked into the service VMs that must be TOLD where the
-        # aggregator is. Point at our own LAN address, not loopback: the
-        # announce handler derives the advertised URL from the request's source
-        # address and refuses a loopback one, so a beacon sent over 127.0.0.1
-        # would be rejected and this area would never appear in the pool.
-        # https first; the beacon downgrades to http by itself when the
-        # aggregator has no TLS leaf.
+        # --- REGION: https://yuruna.link/429f3d06-0073
         CPS_LAN_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
         CPS_AGG=""
         [ -n "$CPS_LAN_IP" ] && CPS_AGG="https://${CPS_LAN_IP}:9400"
@@ -4286,10 +4039,7 @@ runcmd:
     CACHING_PROXY_HOST_ID=$CPS_HOST_ID
     CACHING_PROXY_PRESENCE_INTERVAL=2m
     CACHING_PROXY_AUTH_TOKEN_FILE=/etc/yuruna/internal-auth.key
-    # The sibling parser on this VM, whose recent-request tail this service
-    # republishes as caching_proxy_recent_requests. Loopback: the parser also
-    # listens on the LAN, but a hop between two daemons on one box has no
-    # reason to leave it.
+    # Query the colocated parser on loopback to republish caching_proxy_recent_requests.
     CACHING_PROXY_PARSER_URL=http://127.0.0.1:9302
     EOF
         echo "yuruna: caching-proxy-service ($CPS_VERSION) built and installed at /usr/local/bin/caching-proxy-service"
@@ -4328,11 +4078,7 @@ runcmd:
   - systemctl enable --now caching-proxy-service.service || true
   # --- REGION: https://yuruna.link/429f3d06-0079
   - |
-    # Seed on the pool NAS, where the apache alias above points and where the
-    # pool-control-service VM can also write. Skipped entirely when the share is not
-    # mounted: creating the repo under an unmounted mountpoint would put it on
-    # local disk, and the NAS mounting later would shadow it -- stranding any
-    # intent written in between.
+    # --- REGION: https://yuruna.link/429f3d06-0079
     INTENT_GIT=/mnt/ypool-nas/pool-intent.git
     if ! mountpoint -q /mnt/ypool-nas 2>/dev/null; then
       echo "yuruna: /mnt/ypool-nas not mounted; skipping pool intent seeding (the route 404s until it is)." >&2
@@ -4396,11 +4142,6 @@ runcmd:
         echo "== YURUNA: failed to fetch Grafana dashboard 20501 from grafana.com -- the 'Zot (official)' dashboard will be missing until the next boot retries =="
     fi
   # --- REGION: https://yuruna.link/429f3d06-007d
-  # Last of the dashboard steps, so the community Zot dashboard is already on
-  # disk and gets branded in the same pass as the three inlined ones. The
-  # explicit start is what brands them NOW: enabling the timer only schedules
-  # the next tick, and a proxy whose dashboards are anonymous for the first
-  # minutes of its life is exactly the window an operator watches it in.
   - systemctl enable --now yuruna-brand-dashboards.timer
   # Block scalar, not a plain one: the message carries a ": ", which YAML reads
   # as a mapping key in a plain scalar and would turn this command into a dict.
@@ -4495,12 +4236,7 @@ runcmd:
     with open(cfg_path) as fh:
         cfg = json.load(fh)
     sync = cfg.get('extensions', {}).get('sync', {})
-    # The key is dropped before the file is: zot refuses to start when
-    # credentialsFile names something it cannot open, so a run cut short between
-    # the two steps must leave a config with no key and an unread file, never a
-    # config pointing at a file that is gone. Rewriting the whole document is
-    # safe because json preserves member and array order, and the order of
-    # registries[] IS the upstream routing table.
+    # --- REGION: https://yuruna.link/429f3d06-0082
     if sync.pop('credentialsFile', None) is not None:
         tmp = cfg_path + '.tmp'
         with open(tmp, 'w') as fh:
@@ -4576,15 +4312,9 @@ runcmd:
       setfacl -m u:promtail:r /var/log/zot/zot.log 2>&1 || true
       setfacl -d -m u:promtail:r /var/log/zot/    2>&1 || true
     fi
-    # Prime the manifest canary now that there is a registry to time, so the
-    # health page and the zot_meta scrape carry a real reading from first boot
-    # instead of a gap until the timer's first tick.
+    # Prime the canary so health and zot_meta have a first-boot reading.
     /usr/local/bin/zot-meta-exporter.sh || true
-    # Warming is armed, not run inline: the first pass over a cold registry
-    # takes tens of minutes, and holding cloud-init open for it would delay the
-    # ready banner (and any host waiting on it) behind work that is useful
-    # whenever it lands. The timer's OnBootSec picks it up a few minutes from
-    # here, which still puts it ahead of the first guest.
+    # --- REGION: https://yuruna.link/429f3d06-0082
     systemctl enable --now zot-prewarm.timer || true
     ) || echo "== YURUNA: zot install/activation FAILED -- :5000 pull-through unavailable =="
   # --- REGION: https://yuruna.link/429f3d06-0083
@@ -4594,14 +4324,7 @@ runcmd:
     for svc in squid apache2 grafana-server prometheus prometheus-node-exporter loki promtail zot; do
       printf '  %-16s %s\n' "$svc" "$(systemctl is-active "$svc" 2>/dev/null || echo inactive)"
     done
-    # The canary's first reading, echoed where the boot log already answers
-    # "did this VM come up right". A registry that serves /v2/ but not manifests
-    # passes every other line of this summary. Residency is carried too: a
-    # freshly built cache holds none of the images a guest pulls, and that is a
-    # property of the boot worth stating rather than discovering mid-provision.
-    # The residency alternative matches leading whitespace by shape rather than
-    # by count: the page nests those lines under a set header, and a fixed
-    # indent here silently stops matching the moment that nesting changes.
+    # --- REGION: https://yuruna.link/429f3d06-0083
     if [ -r /var/www/html/cache-health ]; then
       grep -E '^zot (/v2/|manifest|resident-tag|guest-path)|^ +resident ' /var/www/html/cache-health | sed 's/^/  /'
     fi

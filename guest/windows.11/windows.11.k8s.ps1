@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42363f75-1d59-4ac0-a62f-c6d723656b28
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -83,7 +83,7 @@ if (-not $yamlOk) {
 Write-Output "<<< PowerShell module: powershell-yaml installation complete."
 
 # --- REGION: Install cloud CLIs
-
+# See https://yuruna.link/42a76c30-0008
 Write-Output ""
 Write-Output ">>> Installing Azure CLI..."
 winget install --id Microsoft.AzureCLI --accept-source-agreements --accept-package-agreements --silent
@@ -128,6 +128,7 @@ winget install --id OpenTofu.Tofu --accept-source-agreements --accept-package-ag
 Write-Output "<<< OpenTofu installation complete."
 
 # --- REGION: Install Graphviz
+# See https://yuruna.link/42a76c30-0008
 Write-Output ""
 Write-Output ">>> Installing Graphviz..."
 winget install --id Graphviz.Graphviz --accept-source-agreements --accept-package-agreements --silent

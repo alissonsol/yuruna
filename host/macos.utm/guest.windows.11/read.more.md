@@ -68,7 +68,7 @@ via autounattend.xml.
 
 The Guest Tools ISO contains its own `autounattend.xml`. Setup scans
 every attached drive for that file, so attaching `spice.iso` during
-installation aborts unattended mode. Attach it only afterwards.
+installation aborts unattended mode. Attach it only afterward.
 
 After install the VM has no network -- `virtio-net-pci` needs a VirtIO
 driver not built into Windows.
@@ -154,6 +154,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.08
+Last review: 2026.09.12
 
 Back to [Yuruna](../../../README.md)

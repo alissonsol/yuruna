@@ -243,6 +243,37 @@ footer.app a { color: #9ca3af; color: var(--chrome-muted); }
   text-decoration: underline; cursor: pointer;
 }
 #footer-bar .linkish[aria-pressed="true"] { color: #f9fafb; color: var(--chrome-fg); font-weight: 600; }
+/* --------------------------------------------------------------------------
+   The right-to-left mirror for the chrome above.
+
+   Logical properties would express this in one declaration, but they are
+   Safari 14.1 and the floor is 9.0, where the whole declaration is dropped and
+   the offset silently disappears. So each physical side is restated here for
+   the direction the page actually has. Only the sides are mirrored: sizes,
+   colors and the tick glyph are the same in both directions.
+
+   These rules live inside the chrome block because the chrome is shared. Every
+   stylesheet carrying the block carries them byte for byte, which the chrome
+   identity test enforces -- a mirror in one service and not another is how the
+   same header comes out mirrored on one page and not the next.
+   -------------------------------------------------------------------------- */
+[dir="rtl"] header.app > * + * { margin-left: 0; margin-right: 1rem; }
+[dir="rtl"] .menu-button .menu-icon + .menu-label { margin-left: 0; margin-right: .4rem; }
+[dir="rtl"] .menu-panel a[aria-current="page"]::after { float: left; margin-left: 0; margin-right: 1.5rem; }
+[dir="rtl"] #footer-bar { text-align: right; }
+[dir="rtl"] #footer-bar > * + * { margin-left: 0; margin-right: .75rem; }
+[dir="rtl"] #footer-ips > * + * { margin-left: 0; margin-right: .5rem; }
+/* The safe-area pair swaps with the direction too: the notch a phone puts on
+   the physical left still needs the physical left inset, but the padding that
+   opens the row's reading edge moves to the other side. Plain value first, as
+   every env()/max() declaration here does, so the floor keeps the fallback. */
+[dir="rtl"] #footer-bar {
+  padding-left: .5rem;
+  padding-left: max(.5rem, env(safe-area-inset-left));
+  padding-right: .5rem;
+  padding-right: max(.5rem, env(safe-area-inset-right));
+}
+
 /* === end page chrome ====================================================== */
 
 /* Wider than the other Yuruna UIs on purpose. Every page here is a table whose
@@ -372,16 +403,23 @@ input[aria-invalid="true"] { border-color: #b00020; border-color: var(--err); }
   color: var(--muted); font-size: .8rem;
 }
 progress { vertical-align: middle; width: 12rem; max-width: 40vw; }
-/* A host found by scanning, in the Hosts table's first column: id (when it gave
-   one), address, and the marker, reading left to right in that order. */
-.discovered-host { display: inline-flex; flex-wrap: wrap; align-items: baseline; }
+/* The Hosts table's first column when the row carries more than an id: a host
+   found by scanning (id when it gave one, address, marker), or a registered one
+   whose id has been superseded at its address (id, the live id, marker, the
+   repair). Left to right in that order. */
+.discovered-host, .host-flags { display: inline-flex; flex-wrap: wrap; align-items: baseline; }
 /* Margins, not `gap`, for the same reason: below Safari 14.5 the id, the
    address and the marker would run together into one unreadable token. */
-.discovered-host > * + * { margin-left: .4rem; }
+.discovered-host > * + *, .host-flags > * + * { margin-left: .4rem; }
 .badge {
   font-size: .72rem; text-transform: uppercase; letter-spacing: .03em;
   padding: .05rem .35rem; border-radius: 4px; border: 1px solid #e5e7eb; border: 1px solid var(--line); color: #6b7280; color: var(--muted);
 }
+/* The one badge that means a row needs an operator rather than a reading: two
+   ids for one machine, with the pool membership on the wrong one. Carries the
+   error color the notices and row feedback already define, so it reads as
+   actionable in both themes without introducing a token of its own. */
+.badge.rekeyed { border-color: #b00020; border-color: var(--err); color: #b00020; color: var(--err); }
 
 @media (max-width: 600px) {
   /* The 4-6 column tables overflow a 375px phone; scroll the table itself
@@ -480,3 +518,18 @@ progress { vertical-align: middle; width: 12rem; max-width: 40vw; }
 .row-feedback { margin-top: .25rem; font-size: .8rem; }
 .row-feedback.ok { color: #1a7f37; color: var(--ok); }
 .row-feedback.error { color: #b00020; color: var(--err); }
+
+/* --------------------------------------------------------------------------
+   Right-to-left mirror. Logical properties would say this once, but they are
+   Safari 14.1 and the floor is 9.0, where the declaration is dropped and the
+   offset silently disappears -- so each side is restated for the direction the
+   page has. Sides only: sizes and colors are the same either way.
+   -------------------------------------------------------------------------- */
+[dir="rtl"] th, [dir="rtl"] td { text-align: right; }
+[dir="rtl"] th.rownum, [dir="rtl"] td.rownum { text-align: left; }
+[dir="rtl"] .id-toggle { text-align: right; }
+[dir="rtl"] th > button.sort { text-align: right; }
+[dir="rtl"] .row > * + * { margin-left: 0; margin-right: .5rem; }
+[dir="rtl"] .discovered-host > * + * { margin-left: 0; margin-right: .4rem; }
+[dir="rtl"] .loading .loading-text { margin-left: 0; margin-right: .6rem; }
+[dir="rtl"] #footer-busy { margin-left: 0; margin-right: .4rem; }

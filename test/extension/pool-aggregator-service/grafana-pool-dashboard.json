@@ -31,7 +31,7 @@
       "id": 18,
       "type": "stat",
       "title": "Lab token",
-      "description": "The lab connection token and the collector's health. Blue when enrollment is open: a joining host redeems the 6-character code (pwsh test/lab/Set-LabToken.ps1 -LabToken CODE); the code is select-and-copy text -- there is no need to retype it. It omits i, l, o, 0 and 1, and a code you have just read stays valid for about three minutes, so there is no need to rush it. Red when the collector behind this dashboard has stopped: every panel may be stale. Gray when the token exchange is off. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+      "description": "The lab connection token and the collector's health. Blue when enrollment is open: a joining host redeems the 6-character code (pwsh test/lab/Set-LabToken.ps1 -LabToken CODE); the code is select-and-copy text -- there is no need to retype it. It omits i, l, o, 0 and 1, and a code you have just read stays valid for about three minutes, so there is no need to rush it. Red when the collector behind this dashboard has stopped: every panel may be stale. Gray when the token exchange is off. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
       "gridPos": { "h": 4, "w": 4, "x": 0, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
       "targets": [
@@ -45,7 +45,7 @@
       "id": 2,
       "type": "stat",
       "title": "Hosts total",
-      "description": "Distinct pool hosts seen within the aggregator's host TTL (24h by default, -host-ttl), keyed on the stable hostId (reachable or not). Driven by yuruna_pool_hosts_total from the pool-aggregator-service. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+      "description": "Distinct pool hosts seen within the aggregator's host TTL (24h by default, -host-ttl), keyed on the stable hostId (reachable or not). Driven by yuruna_pool_hosts_total from the pool-aggregator-service. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
       "gridPos": { "h": 4, "w": 4, "x": 4, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
       "targets": [
@@ -58,7 +58,7 @@
       "id": 19,
       "type": "stat",
       "title": "Success%",
-      "description": "Share of terminal cycles lab-wide that passed, within the selected time range (top-right). Counted from the same log as the Pool hosts table's Pass and Fail columns, so they cannot disagree. Shows 'n/a' when no cycle finished in range -- deliberately not 100%, so an idle pool cannot look healthy. Red below 95%, amber below 100%, green at 100%. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+      "description": "Share of terminal cycles lab-wide that passed, within the selected time range (top-right). Counted from the same log as the Pool hosts table's Pass and Fail columns, so they cannot disagree. Shows 'n/a' when no cycle finished in range -- deliberately not 100%, so an idle pool cannot look healthy. Red below 95%, amber below 100%, green at 100%. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
       "gridPos": { "h": 4, "w": 4, "x": 8, "y": 0 },
       "datasource": { "type": "loki", "uid": "yuruna-loki" },
       "targets": [
@@ -71,7 +71,7 @@
       "id": 4,
       "type": "stat",
       "title": "Failed cycles",
-      "description": "Cycles that finished 'fail' across the whole LAB within the dashboard's selected time range (top-right) -- the sum of the table's Fail column. Counted from the Loki transition log (exact; reaches back to Loki retention, unlike a Prometheus counter window). Green when zero; red when any. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+      "description": "Cycles that finished 'fail' across the whole LAB within the dashboard's selected time range (top-right) -- the sum of the table's Fail column. Counted from the Loki transition log (exact; reaches back to Loki retention, unlike a Prometheus counter window). Green when zero; red when any. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
       "gridPos": { "h": 4, "w": 4, "x": 12, "y": 0 },
       "datasource": { "type": "loki", "uid": "yuruna-loki" },
       "targets": [
@@ -84,7 +84,7 @@
       "id": 20,
       "type": "stat",
       "title": "Total cycles",
-      "description": "Terminal cycles lab-wide within the selected time range: the table's Pass plus Fail, and the denominator behind Success%. A still-running cycle has no terminal status and is not counted. The dashboard is lab-wide -- per-pool figures live on the pool-control board. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+      "description": "Terminal cycles lab-wide within the selected time range: the table's Pass plus Fail, and the denominator behind Success%. A still-running cycle has no terminal status and is not counted. The dashboard is lab-wide -- per-pool figures live on the pool-control board. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
       "gridPos": { "h": 4, "w": 4, "x": 16, "y": 0 },
       "datasource": { "type": "loki", "uid": "yuruna-loki" },
       "targets": [
@@ -97,7 +97,7 @@
       "id": 21,
       "type": "stat",
       "title": "Addresses in use",
-      "description": "MEASURED count of IPv4 addresses the lab holds now: the proxy's observed clients plus registered hosts' addresses, deduplicated. A FLOOR, not a ceiling -- whatever is invisible to both sources is not counted. It says nothing about the DHCP pool: scope size and free leases live on the DHCP server; read those before concluding exhaustion. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+      "description": "MEASURED count of IPv4 addresses the lab holds now: the proxy's observed clients plus registered hosts' addresses, deduplicated. A FLOOR, not a ceiling -- whatever is invisible to both sources is not counted. It says nothing about the DHCP pool: scope size and free leases live on the DHCP server; read those before concluding exhaustion. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
       "gridPos": { "h": 4, "w": 4, "x": 20, "y": 0 },
       "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
       "targets": [
@@ -110,7 +110,7 @@
       "id": 17,
       "type": "table",
       "title": "Extension hosts",
-      "description": "Hosts self-reporting an extension function (e.g. stash, pool-control, download-agent) -- the same Host ID namespace as Pool hosts. The Extension link opens that service's UI, already unlocked unless the proxy mints no token. Extension-only hosts have no status page: open hosts from the Pool hosts table instead. Click a Host ID for its full GUID form. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+      "description": "Hosts self-reporting an extension function (e.g. stash, pool-control, download-agent) -- the same Host ID namespace as Pool hosts. The Extension link opens that service's UI, already unlocked unless the proxy mints no token. Extension-only hosts have no status page: open hosts from the Pool hosts table instead. Click a Host ID for its full GUID form. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
       "gridPos": { "h": 4, "w": 24, "x": 0, "y": 22 },
       "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
       "targets": [
@@ -161,7 +161,7 @@
       "id": 6,
       "type": "table",
       "title": "Pool hosts",
-      "description": "One row per discovered host, named only by its opaque Host ID -- hostname-free, safe to expose unauthenticated. Watch Status first: 'runner stopped' means the results below are a record, not a live reading. Control says whether the host link will let you drive the host ('remote' works; 'onsite' will 403); the link always opens read-only. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+      "description": "One row per discovered host, named only by its opaque Host ID -- hostname-free, safe to expose unauthenticated. Watch Status first: 'runner stopped' means the results below are a record, not a live reading. Control says whether the host link will let you drive the host ('remote' works; 'onsite' will 403); the link always opens read-only. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
       "gridPos": { "h": 9, "w": 24, "x": 0, "y": 13 },
       "datasource": { "type": "datasource", "uid": "-- Mixed --" },
       "targets": [
@@ -328,7 +328,7 @@
       "id": 7,
       "type": "state-timeline",
       "title": "Cycle outcome over time (host x UTC time)",
-      "description": "One row per host, one color per observed cycle status; times are UTC. Click a block for that host's actions: its full GUID id, 'open cycle results' (follows the host's current address, and still works after logs moved to the share), 'share cycle results' (packs the cycle into a tar.gz on the host to mail -- that page uploads nothing). Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+      "description": "One row per host, one color per observed cycle status; times are UTC. Click a block for that host's actions: its full GUID id, 'open cycle results' (follows the host's current address, and still works after logs moved to the share), 'share cycle results' (packs the cycle into a tar.gz on the host to mail -- that page uploads nothing). Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
       "gridPos": { "h": 9, "w": 24, "x": 0, "y": 4 },
       "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
       "targets": [
@@ -391,7 +391,7 @@
           "id": 13,
           "type": "logs",
           "title": "Incidents (open / resolved)",
-          "description": "Incident lifecycle: a host opens an incident at N or more failed cycles within a trailing window (default 3 in 2h) and resolves once the window clears. Each line carries the incident's failure class; a cross-host incident requires the same class on every host. From the aggregator's incident correlation (src=incident in Loki). Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+          "description": "Incident lifecycle: a host opens an incident at N or more failed cycles within a trailing window (default 3 in 2h) and resolves once the window clears. Each line carries the incident's failure class; a cross-host incident requires the same class on every host. From the aggregator's incident correlation (src=incident in Loki). Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
           "gridPos": { "h": 8, "w": 24, "x": 0, "y": 24 },
           "datasource": { "type": "loki", "uid": "yuruna-loki" },
           "targets": [
@@ -403,7 +403,7 @@
           "id": 15,
           "type": "table",
           "title": "Failures by class & severity (window)",
-          "description": "The failure-class histogram: step_failure events over the dashboard time range, grouped by failureClass + severity. Driven by the per-step NDJSON tailed into Loki (src=event, event=step_failure). Sorted by count -- the dominant failure modes across the pool. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+          "description": "The failure-class histogram: step_failure events over the dashboard time range, grouped by failureClass + severity. Driven by the per-step NDJSON tailed into Loki (src=event, event=step_failure). Sorted by count -- the dominant failure modes across the pool. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
           "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 },
           "datasource": { "type": "loki", "uid": "yuruna-loki" },
           "targets": [
@@ -418,7 +418,7 @@
           "id": 10,
           "type": "logs",
           "title": "Recent step failures across the pool (which step failed)",
-          "description": "step_failure events tailed from each host's per-cycle NDJSON: the failing step's action, number, failure class, severity and reason, per host/cycle. Expand a line for full detail; the table's deep-links open that host's full cycle artifacts. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+          "description": "step_failure events tailed from each host's per-cycle NDJSON: the failing step's action, number, failure class, severity and reason, per host/cycle. Expand a line for full detail; the table's deep-links open that host's full cycle artifacts. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
           "gridPos": { "h": 9, "w": 24, "x": 0, "y": 40 },
           "datasource": { "type": "loki", "uid": "yuruna-loki" },
           "targets": [
@@ -430,7 +430,7 @@
           "id": 11,
           "type": "logs",
           "title": "Cycle event stream across the pool (all steps)",
-          "description": "Every per-cycle NDJSON event (cycle_start / step_end / step_failure / typed sub-events) tailed from each host. Use the Grafana log search to filter, e.g. cycleStartUtc=... or event=step_end. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+          "description": "Every per-cycle NDJSON event (cycle_start / step_end / step_failure / typed sub-events) tailed from each host. Use the Grafana log search to filter, e.g. cycleStartUtc=... or event=step_end. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
           "gridPos": { "h": 10, "w": 24, "x": 0, "y": 49 },
           "datasource": { "type": "loki", "uid": "yuruna-loki" },
           "targets": [
@@ -442,7 +442,7 @@
           "id": 9,
           "type": "logs",
           "title": "Cycle status transitions across the pool (24h)",
-          "description": "One line each time a host's cycle changes state (running -> pass/fail), from the status.json poll: hostId, cycleStartUtc, overallStatus and a baseUrl for drill-down. The cycle-level audit trail behind the table and timeline above. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+          "description": "One line each time a host's cycle changes state (running -> pass/fail), from the status.json poll: hostId, cycleStartUtc, overallStatus and a baseUrl for drill-down. The cycle-level audit trail behind the table and timeline above. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
           "gridPos": { "h": 9, "w": 24, "x": 0, "y": 59 },
           "datasource": { "type": "loki", "uid": "yuruna-loki" },
           "targets": [
@@ -454,7 +454,7 @@
           "id": 16,
           "type": "table",
           "title": "Incidents by failure class (window)",
-          "description": "Per-host incidents over the dashboard time range, grouped by the dominant failure class carried ON the incident object (dominantClass on the src=incident open line). Distinct from 'Failures by class & severity' above, which counts step_failure events regardless of whether they formed an incident -- this counts the incidents themselves. Sorted by count. Details: <a href=\"https://yuruna.link/hosts-dashboard\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
+          "description": "Per-host incidents over the dashboard time range, grouped by the dominant failure class carried ON the incident object (dominantClass on the src=incident open line). Distinct from 'Failures by class & severity' above, which counts step_failure events regardless of whether they formed an incident -- this counts the incidents themselves. Sorted by count. Details: <a href=\"https://yuruna.link/422226cb\" target=\"_blank\" rel=\"noopener\">Hosts dashboard</a> guide.",
           "gridPos": { "h": 8, "w": 24, "x": 0, "y": 68 },
           "datasource": { "type": "loki", "uid": "yuruna-loki" },
           "targets": [
@@ -464,6 +464,41 @@
             { "id": "organize", "options": { "excludeByName": { "Time": true }, "renameByName": { "dominantClass": "Failure class", "Value": "Incidents", "Value #A": "Incidents" } } }
           ],
           "options": { "showHeader": true, "cellHeight": "sm", "footer": { "show": false }, "sortBy": [ { "displayName": "Incidents", "desc": true } ] }
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "type": "row",
+      "title": "Drill-down: host memory",
+      "collapsed": true,
+      "gridPos": { "h": 1, "w": 24, "x": 0, "y": 27 },
+      "panels": [
+        {
+          "id": 23,
+          "type": "timeseries",
+          "title": "Available memory per host",
+          "description": "Physical memory each pool host has free, read from the metrics exporter running on the host itself; only hosts that run one appear. Series are keyed on hostId -- the identity the tables above use -- so a host keeps one line across an address change.",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+          "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
+          "targets": [
+            { "refId": "A", "expr": "windows_memory_available_bytes{pool=\"$pool\"}", "legendFormat": "{{hostId}}", "range": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
+          ],
+          "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "lineWidth": 1, "fillOpacity": 5, "showPoints": "never" } }, "overrides": [] },
+          "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": [ "min", "lastNotNull" ] }, "tooltip": { "mode": "multi", "sort": "desc" } }
+        },
+        {
+          "id": 24,
+          "type": "timeseries",
+          "title": "Commit headroom per host",
+          "description": "Commit limit minus committed bytes: how much more memory a host can still promise before an allocation is refused outright. A virtual machine asks for its whole allocation at once, so this floor -- not free physical memory -- is what such a request is measured against, and it moves while the paging file is being resized.",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 28 },
+          "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" },
+          "targets": [
+            { "refId": "A", "expr": "windows_memory_commit_limit{pool=\"$pool\"} - windows_memory_committed_bytes{pool=\"$pool\"}", "legendFormat": "{{hostId}}", "range": true, "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } }
+          ],
+          "fieldConfig": { "defaults": { "unit": "bytes", "custom": { "lineWidth": 1, "fillOpacity": 5, "showPoints": "never" } }, "overrides": [] },
+          "options": { "legend": { "displayMode": "table", "placement": "right", "calcs": [ "min", "lastNotNull" ] }, "tooltip": { "mode": "multi", "sort": "desc" } }
         }
       ]
     }

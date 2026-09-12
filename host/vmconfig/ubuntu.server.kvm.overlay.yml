@@ -2,20 +2,14 @@
 # Copyright (c) 2019-2026 by Alisson Sol et al.
 # KVM/libvirt overlay for ubuntu.server.base.user-data.
 # Anchor sections in base-file order. An empty section emits nothing at that anchor.
+# === YURUNA_OVERLAY_HOST_AGENT_PKG ===
+    # See https://yuruna.link/429f3d06-0031
+    # Deliberately empty: a retrieval failure in `packages:` is FATAL and loses
+    # the whole build over an optimization.
 # === YURUNA_OVERLAY_NETWORK ===
-  # --- REGION: https://yuruna.link/4220a755-000b
-  # The installer runs its OWN DHCP client, before /target exists, so the
-  # in-target netplan patch in late-commands cannot reach it: without a pin here
-  # the INSTALL asks under a machine-id DUID while the installed system asks
-  # under the MAC. That is two leases drawn from a shared pool for one guest, on
-  # every build, and it is the installer's lease that goes unaccounted for.
-  #
-  # Matched by NAME PATTERN rather than by a literal, and covering both
-  # families. A key that names the wrong interface leaves the installer with no
-  # network at all -- a worse failure than the one being fixed, and one that
-  # strands the install rather than slowing it. The two entries mirror
-  # cloud-init's own fallback config, so an interface matching neither is no
-  # worse off than with no key here.
+  # See https://yuruna.link/4220a755-000b
+  # Pin the installer lease before /target exists.
+  # --- REGION: network
   network:
     version: 2
     ethernets:
@@ -30,25 +24,21 @@
         dhcp4: true
         dhcp-identifier: mac
 # === YURUNA_OVERLAY_EARLY_COMMANDS ===
-  # --- REGION: https://yuruna.link/429f3d06-0012
+  # See https://yuruna.link/429f3d06-0012
+  # --- REGION: early-commands
   early-commands:
     - setterm --blank 0 --powersave off --cursor on > /dev/tty1 2>/dev/null || true
     # --- REGION: https://yuruna.link/429f3d06-0025
-    # The INSTALLED system gets `quiet loglevel=3` from a grub drop-in in
-    # late-commands. That drop-in cannot help the INSTALLER: it governs the kernel
-    # the guest boots after this, while the phase a host has to read by OCR is
-    # this one -- and there is no seam for the installer's own kernel cmdline
-    # short of remastering the ISO. Lower the console log level from inside the
-    # installer environment instead, so kernel and journal-forwarded chatter stops
-    # painting over the prompt the host is waiting to match. What is suppressed
-    # here is still recorded in the journal and in /var/log/installer, which is
-    # what the failure archive collects.
-    #
-    # This does NOT silence everything. The installer's own progress output is not
-    # journal traffic and stays on the console by design, so a console that fills
-    # with repeating installer log lines remains possible -- which is why the OCR
-    # wait has to classify that case rather than only time out on it.
+    # Quiet the installer kernel; installed-system GRUB settings apply only after reboot.
     - dmesg -n 1 2>/dev/null || true
+# === YURUNA_OVERLAY_LATE_HOST_AGENT ===
+    # --- REGION: Install qemu guest agent
+    # See https://yuruna.link/429f3d06-0031
+    # See https://yuruna.link/4220a755-0045
+    # Both commands tolerate failure by design: discovery degrades to the host
+    # neighbor rung, while an aborted late-command fails the entire install.
+    - curtin in-target --target=/target -- env DEBIAN_FRONTEND=noninteractive apt-get install -y qemu-guest-agent || true
+    - curtin in-target --target=/target -- systemctl enable qemu-guest-agent.service || true
 # === YURUNA_OVERLAY_GRUB_PRE_CONSOLE_QUIET ===
     # --- REGION: https://yuruna.link/429f3d06-0024
     - |
@@ -61,14 +51,3 @@
       cat > /target/etc/default/grub.d/99-yuruna-fb-safe.cfg << 'GRUBCFG'
       GRUB_CMDLINE_LINUX_DEFAULT="${GRUB_CMDLINE_LINUX_DEFAULT} nomodeset console=tty0 console=ttyS0,115200"
       GRUBCFG
-# === YURUNA_OVERLAY_HOST_AGENT_PKG ===
-    # --- REGION: https://yuruna.link/429f3d06-0031
-    # Deliberately empty: a retrieval failure in `packages:` is FATAL and loses
-    # the whole build over an optimization.
-# === YURUNA_OVERLAY_LATE_HOST_AGENT ===
-    # --- REGION: https://yuruna.link/429f3d06-0031
-    # --- REGION: https://yuruna.link/4220a755-0045
-    # Both commands tolerate failure by design: discovery degrades to the host
-    # neighbor rung, while an aborted late-command fails the entire install.
-    - curtin in-target --target=/target -- env DEBIAN_FRONTEND=noninteractive apt-get install -y qemu-guest-agent || true
-    - curtin in-target --target=/target -- systemctl enable qemu-guest-agent.service || true

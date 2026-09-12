@@ -254,8 +254,7 @@ func TestAValidLabTokenGrantsASessionForTheGatedRoutes(t *testing.T) {
 	}
 }
 
-// --- the control proof: arriving from the dashboard is enough ---------------
-
+// --- REGION: Control proof
 // labAuthToken stands for the pool-wide shared secret the aggregator mints
 // proofs with. Only the aggregator is assumed to hold it; a service VM normally
 // does not.

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 42db3d20-ddd1-4aab-b78d-7c8fd9fd6f28
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -40,7 +40,6 @@
 #>
 
 # --- REGION: Maps owned by this module
-
 # macOS UTM AppleScript named-key code table.
 $script:UtmNamedKeyMap = @{
     "Enter"=36; "Tab"=48; "Space"=49; "Escape"=53

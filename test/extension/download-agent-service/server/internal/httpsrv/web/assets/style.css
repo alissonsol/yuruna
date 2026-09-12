@@ -242,6 +242,37 @@ footer.app a { color: #9ca3af; color: var(--chrome-muted); }
   text-decoration: underline; cursor: pointer;
 }
 #footer-bar .linkish[aria-pressed="true"] { color: #f9fafb; color: var(--chrome-fg); font-weight: 600; }
+/* --------------------------------------------------------------------------
+   The right-to-left mirror for the chrome above.
+
+   Logical properties would express this in one declaration, but they are
+   Safari 14.1 and the floor is 9.0, where the whole declaration is dropped and
+   the offset silently disappears. So each physical side is restated here for
+   the direction the page actually has. Only the sides are mirrored: sizes,
+   colors and the tick glyph are the same in both directions.
+
+   These rules live inside the chrome block because the chrome is shared. Every
+   stylesheet carrying the block carries them byte for byte, which the chrome
+   identity test enforces -- a mirror in one service and not another is how the
+   same header comes out mirrored on one page and not the next.
+   -------------------------------------------------------------------------- */
+[dir="rtl"] header.app > * + * { margin-left: 0; margin-right: 1rem; }
+[dir="rtl"] .menu-button .menu-icon + .menu-label { margin-left: 0; margin-right: .4rem; }
+[dir="rtl"] .menu-panel a[aria-current="page"]::after { float: left; margin-left: 0; margin-right: 1.5rem; }
+[dir="rtl"] #footer-bar { text-align: right; }
+[dir="rtl"] #footer-bar > * + * { margin-left: 0; margin-right: .75rem; }
+[dir="rtl"] #footer-ips > * + * { margin-left: 0; margin-right: .5rem; }
+/* The safe-area pair swaps with the direction too: the notch a phone puts on
+   the physical left still needs the physical left inset, but the padding that
+   opens the row's reading edge moves to the other side. Plain value first, as
+   every env()/max() declaration here does, so the floor keeps the fallback. */
+[dir="rtl"] #footer-bar {
+  padding-left: .5rem;
+  padding-left: max(.5rem, env(safe-area-inset-left));
+  padding-right: .5rem;
+  padding-right: max(.5rem, env(safe-area-inset-right));
+}
+
 /* === end page chrome ====================================================== */
 
 main {

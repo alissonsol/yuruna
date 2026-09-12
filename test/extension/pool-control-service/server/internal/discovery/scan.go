@@ -27,6 +27,14 @@ const (
 	// DefaultInterval is how often the sweep runs.
 	DefaultInterval = 15 * time.Minute
 
+	// DefaultTTL is how long a discovered host stays on the list after its last
+	// sighting. Deliberately generous next to the aggregator's hours: this list
+	// exists to show machines nothing else knows about, and a host that is off
+	// for a long weekend, or between reimages, must still be there when the
+	// operator comes looking. Long enough to survive that; short enough that a
+	// machine retired a month ago is gone.
+	DefaultTTL = 14 * 24 * time.Hour
+
 	// MaxAddresses caps one scan. A /24 is 254 probes and finishes in seconds;
 	// this allows down to a /20 and refuses anything wider. The cap is not
 	// about this daemon's ability to do the work -- it is that a mistyped
@@ -122,6 +130,12 @@ type Engine struct {
 	mu      sync.Mutex
 	running bool
 	cur     Progress
+	// done is housekeeping the owner wants run once a scan has finished, when
+	// the store is settled and nothing is writing to it. Held here rather than
+	// wired into RunSweep so an operator's own scan tidies up too: they are the
+	// one looking at the list, and a stale row they just watched a scan walk
+	// past is the least explainable kind.
+	done func()
 }
 
 // NewEngine builds an engine over a store. probe and known may be nil, which
@@ -134,6 +148,16 @@ func NewEngine(store *Store, probe Prober, known KnownFunc) *Engine {
 		known = func(context.Context) map[string]struct{} { return nil }
 	}
 	return &Engine{store: store, probe: probe, known: known}
+}
+
+// OnRunComplete registers a callback to run after each scan finishes, replacing
+// any previous one. It runs on the scan's own goroutine, after the engine has
+// released its lock and marked the run finished, so it may call back into the
+// store freely.
+func (e *Engine) OnRunComplete(fn func()) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.done = fn
 }
 
 // ErrScanning is returned when a scan is asked for while one is running.
@@ -236,7 +260,14 @@ feed:
 		// "finished" over a range that was never fully probed.
 		e.cur.Error = "scan stopped early: " + err.Error()
 	}
+	done := e.done
 	e.mu.Unlock()
+	// Outside the lock and after the run is marked finished, so housekeeping
+	// that reads the store cannot deadlock against it and a slow callback
+	// cannot hold the "running" flag up in front of the page.
+	if done != nil {
+		done()
+	}
 }
 
 // probeOne probes a single address and folds the outcome into the snapshot.

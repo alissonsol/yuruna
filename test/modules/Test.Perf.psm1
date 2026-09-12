@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.08
+.VERSION 2026.09.12
 .GUID 423aae05-8d83-44cc-b4aa-068ce46e8c35
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -59,9 +59,9 @@ Import-Module (Join-Path $PSScriptRoot 'Test.Hash.psm1') -Global -Force
 #>
 
 # --- REGION: Module state
-# Schema version: bump on any breaking row-shape change so future
-# readers can branch.
-$script:Schema = 1
+# Schema 2 adds explicit sequence and step invocation identities; readers
+# continue to accept schema 1 records without those fields.
+$script:Schema = 2
 
 # Cycle context (set once per cycle by Start-PerfCycle). $null means
 # perf logging is disabled for this cycle (perf root unresolvable, or
@@ -84,7 +84,6 @@ $script:Sequence = $null
 $script:PerfContextEnvVar = 'YURUNA_PERF_CONTEXT'
 
 # --- REGION: Helpers
-
 function Test-PerfLogEnabled {
 <#
 .SYNOPSIS
@@ -243,6 +242,47 @@ function Get-RuntimeRootDir {
     return (Join-Path -Path $testRoot -ChildPath 'status' -AdditionalChildPath 'runtime')
 }
 
+# Resolve-SeededHostId returns the id this machine's hardware implies, or '' to
+# mean "generate one". Test.HostIdentity owns the derivation and the platform
+# reads behind it; this only reaches them, loading that sibling on demand
+# because it is needed exactly once in a host's life -- the call that brings
+# host.uuid into existence.
+#
+# Test.YurunaDir carries the twin of this helper: both modules create
+# host.uuid, either can be the one that wins the race, and a machine whose
+# identity depended on which one got there first would be exactly the forked
+# identity all of this exists to prevent. The two must agree.
+#
+# Never throws and never blocks on a prompt, matching this module's never-crash
+# contract: an id is always obtainable.
+function Resolve-SeededHostId {
+    [CmdletBinding()]
+    [OutputType([string])]
+    param()
+    # An operator deliberately re-keying a host needs a way to ask for a new
+    # identity rather than the one its hardware implies, since the derivation
+    # would otherwise hand back the same id the removed runtime directory had.
+    if ($env:YURUNA_HOST_ID_SEED -eq 'random') { return '' }
+    if (-not (Get-Command Get-HostIdentitySeedUuid -ErrorAction SilentlyContinue)) {
+        $module = Join-Path $PSScriptRoot 'Test.HostIdentity.psm1'
+        if (-not (Test-Path -LiteralPath $module)) { return '' }
+        # No -Force: this only needs the command reachable from here, and a
+        # forced reload would evict the module from a caller that already holds
+        # it, taking its commands with it.
+        try { Import-Module $module -ErrorAction Stop } catch {
+            Write-Verbose "Resolve-SeededHostId: Test.HostIdentity unavailable: $($_.Exception.Message)"
+            return ''
+        }
+    }
+    # -AllowSudo because the strong keys are root-only on Linux and the sudo
+    # cache is primed during host setup, which is when a fresh host first asks
+    # for an id. Cold, `sudo -n` fails fast rather than prompting.
+    try { return [string](Get-HostIdentitySeedUuid -AllowSudo) } catch {
+        Write-Verbose "Resolve-SeededHostId: derivation failed: $($_.Exception.Message)"
+        return ''
+    }
+}
+
 function Get-PerfHostUuid {
 <#
 .SYNOPSIS
@@ -254,9 +294,10 @@ function Get-PerfHostUuid {
     machines named `localhost`) and rename, MAC moves with NICs.
     A persisted UUID survives rename and is unique by construction.
     Built once per machine and committed to disk inside the runtime
-    dir, so removing the runtime dir effectively "re-keys" the host --
-    intentional, matching how every other piece of cross-cycle state
-    in that folder behaves. Lives in runtime/ rather than perf/ because
+    dir; a machine that loses that dir re-derives the SAME id from its
+    hardware where a stable key can be read, so a reimage does not fork
+    its history (YURUNA_HOST_ID_SEED=random re-keys deliberately).
+    Lives in runtime/ rather than perf/ because
     it is consulted by non-perf code paths (cycle metadata) too.
 #>
     [CmdletBinding()]
@@ -273,9 +314,16 @@ function Get-PerfHostUuid {
             Write-Verbose "Get-PerfHostUuid: read failed, regenerating: $($_.Exception.Message)"
         }
     }
-    $rand = [Guid]::NewGuid().ToString('N')   # 32 hex, no dashes
-    $tail = $rand.Substring(2, 30)            # drop 2 chars to make room for the '42' prefix
-    $uuid = "42$tail"
+    # Derived from a stable hardware key when one can be read, so a machine that
+    # lost this file comes back as the same host instead of forking its history
+    # under a fresh identity. Random is the fallback, and the shape is the same
+    # either way.
+    $uuid = Resolve-SeededHostId
+    if (-not $uuid) {
+        $rand = [Guid]::NewGuid().ToString('N')   # 32 hex, no dashes
+        $tail = $rand.Substring(2, 30)            # drop 2 chars to make room for the '42' prefix
+        $uuid = "42$tail"
+    }
     if (-not (Test-Path -LiteralPath $root)) {
         New-Item -ItemType Directory -Path $root -Force -ErrorAction SilentlyContinue | Out-Null
     }
@@ -370,7 +418,6 @@ function Get-PerfContentHash {
 }
 
 # --- REGION: Lifecycle
-
 function Start-PerfCycle {
 <#
 .SYNOPSIS
@@ -503,13 +550,16 @@ function Set-PerfSequenceContext {
     Revision (author-bumped int). Optionally snapshots the sequence
     file body into perf/sequences/<hash>.yml so a row carrying the
     content hash can be replayed against the exact YAML that ran.
+.PARAMETER PassThru
+    Return the fresh sequence invocation ID to the engine for action/checkpoint correlation.
 #>
     [CmdletBinding(SupportsShouldProcess)]
     param(
         [Parameter(Mandatory)][string]$SequenceName,
         [string]$SequenceGuid,
         [int]$SequenceRevision = 0,
-        [string]$SequenceContent
+        [string]$SequenceContent,
+        [switch]$PassThru
     )
     # Every sequence run passes through here, which makes this the one place
     # that can attach a runspace to the ambient cycle. A child pwsh (host
@@ -525,12 +575,14 @@ function Set-PerfSequenceContext {
         $contentHash = Get-PerfContentHash -Folder 'sequences' -Body $SequenceContent -Extension '.yml'
     }
     $script:Sequence = @{
+        sequenceInvocationId = [Guid]::NewGuid().ToString('N')
         sequenceName        = $SequenceName
         sequenceGuid        = $SequenceGuid
         sequenceRevision    = $SequenceRevision
         sequenceContentHash = $contentHash
         stepOccurrences     = @{}
     }
+    if ($PassThru) { return $script:Sequence.sequenceInvocationId }
 }
 
 function Clear-PerfSequenceContext {
@@ -548,7 +600,6 @@ function Clear-PerfSequenceContext {
 }
 
 # --- REGION: Row emit
-
 function Write-PerfStepRow {
 <#
 .SYNOPSIS
@@ -559,7 +610,8 @@ function Write-PerfStepRow {
     "facts only, never crash the cycle" contract for the perf log.
     StepOccurrence is derived from the rolling per-sequence map so
     callers don't have to track it; pass the same StepName twice and
-    you get 1, 2 automatically.
+    you get 1, 2 automatically. It counts the NAME across the whole
+    sequence run and is NOT a retry attempt index -- ParentAttempt is.
     Uses [File]::AppendAllText for atomic single-line append -- no
     read-modify-write, so concurrent writes from the same process or
     a sibling tail/collector are safe.
@@ -576,7 +628,13 @@ function Write-PerfStepRow {
         [int]$Attempts = 1,
         [int]$RetryCount = 0,
         [int]$ParentStepOrdinal = 0,
-        [string]$ParentAction = ''
+        [string]$ParentAction = '',
+        [int]$ParentAttempt = 0,
+        [string]$StepInvocationId,
+        [string]$CheckpointSourceStepInvocationId,
+        [long]$EvidenceCaptureDurationMs = 0,
+        [ValidateSet('', 'complete', 'partial', 'timeout', 'unavailable')]
+        [string]$DiagnosticOutcome = ''
     )
     if (-not $script:Cycle -or -not $script:Sequence) { return }
 
@@ -599,6 +657,7 @@ function Write-PerfStepRow {
         harnessCommit       = $script:Cycle.harnessCommit
         projectCommit       = $script:Cycle.projectCommit
         sequenceName        = $script:Sequence.sequenceName
+        sequenceInvocationId = $script:Sequence.sequenceInvocationId
         sequenceGuid        = $script:Sequence.sequenceGuid
         sequenceRevision    = $script:Sequence.sequenceRevision
         sequenceContentHash = $script:Sequence.sequenceContentHash
@@ -606,11 +665,18 @@ function Write-PerfStepRow {
         vmName              = if ($script:Guest) { $script:Guest.vmName        } else { $null }
         guestInfoHash       = if ($script:Guest) { $script:Guest.guestInfoHash } else { $null }
         stepOrdinal         = $StepOrdinal
+        stepInvocationId    = $StepInvocationId
         stepOccurrence      = $stepOccurrence
         stepName            = $StepName
         stepKind            = $StepKind
         parentStepOrdinal   = $ParentStepOrdinal
         parentAction        = $ParentAction
+        # 1-based retry attempt; 0 outside a retry. stepOccurrence above counts
+        # the step NAME across the sequence run, so it cannot answer "which
+        # attempt": a step first reached in a later attempt still carries
+        # occurrence 1, and two differently named steps in one attempt are both
+        # occurrence 1. This field is the only one that separates the attempts.
+        parentAttempt       = $ParentAttempt
         startedAtUtc        = $StartedAtUtc.ToUniversalTime().ToString('o')
         endedAtUtc          = $EndedAtUtc.ToUniversalTime().ToString('o')
         durationMs          = $DurationMs
@@ -618,6 +684,9 @@ function Write-PerfStepRow {
         attempts            = $Attempts
         retryCount          = $RetryCount
     }
+    if ($DiagnosticOutcome) { $row.diagnosticOutcome = $DiagnosticOutcome }
+    if ($CheckpointSourceStepInvocationId) { $row.checkpointSourceStepInvocationId = $CheckpointSourceStepInvocationId }
+    if ($EvidenceCaptureDurationMs -gt 0) { $row.evidenceCaptureDurationMs = $EvidenceCaptureDurationMs }
     $line = ConvertTo-Json -InputObject $row -Compress -Depth 5
     try {
         [System.IO.File]::AppendAllText($script:Cycle.cycleFile, $line + "`n")

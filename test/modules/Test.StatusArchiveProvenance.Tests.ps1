@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.12
+.VERSION 2026.09.13
 .GUID 42ebb62d-e1a8-4c57-811c-f982498db617
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -128,10 +128,11 @@ $text
 Send-GitArchive -Response `$response -Request `$request -Context `$context ``
     -RepoDir `$RepoDir -ErrorLabel 'test-archive'
 [pscustomobject]@{
-    StatusCode  = `$response.StatusCode
-    ContentType = `$response.ContentType
-    Bytes       = `$stream.ToArray()
-    ServerErr   = `$script:ServerErr
+    StatusCode      = `$response.StatusCode
+    ContentType     = `$response.ContentType
+    ContentLength64 = [long]`$response.ContentLength64
+    Bytes           = `$stream.ToArray()
+    ServerErr       = `$script:ServerErr
 }
 "@)
 }
@@ -210,6 +211,29 @@ Describe 'the committed-content tarball names the commit it was cut from' {
             'the expanded server here-string does not parse as the status-service child will parse it'
     }
 
+    It 'wires both public archive routes to the shared streamer and the intended repository' {
+        $frameworkRoute = 'if ($path -eq ''yuruna-archive.tar.gz'')'
+        $projectRoute = 'if ($path -eq ''yuruna-project-archive.tar.gz'')'
+        $frameworkCall = 'Send-GitArchive -Response $res -Request $req -Context $ctx -RepoDir $repoRoot -ErrorLabel ''yuruna-archive'''
+        $projectCall = 'Send-GitArchive -Response $res -Request $req -Context $ctx -RepoDir $projectRoot -ErrorLabel ''yuruna-project-archive'''
+
+        $frameworkRouteAt = $script:ServerText.IndexOf($frameworkRoute, [StringComparison]::Ordinal)
+        $projectRouteAt = $script:ServerText.IndexOf($projectRoute, [StringComparison]::Ordinal)
+        $frameworkCallAt = $script:ServerText.IndexOf($frameworkCall, [StringComparison]::Ordinal)
+        $projectCallAt = $script:ServerText.IndexOf($projectCall, [StringComparison]::Ordinal)
+
+        Assert-True ($frameworkRouteAt -ge 0) 'the framework archive route is absent from the emitted server'
+        Assert-True ($projectRouteAt -gt $frameworkRouteAt) `
+            'the project archive route is absent or no longer follows the framework route'
+        Assert-True ($frameworkCallAt -gt $frameworkRouteAt -and $frameworkCallAt -lt $projectRouteAt) `
+            'the framework archive route does not stream the framework repository'
+        Assert-True ($projectCallAt -gt $projectRouteAt) `
+            'the project archive route does not stream the project repository'
+        Assert-Equal -Expected 2 -Actual ([regex]::Matches(
+                $script:ServerText, 'Send-GitArchive\s+-Response').Count) `
+            'an archive endpoint bypasses the shared streamer or an unexpected caller was added'
+    }
+
     It 'archives the resolved object name rather than the moving HEAD' {
         $text = Get-FunctionFromServer -Name 'Send-GitArchive'
 
@@ -270,6 +294,10 @@ Describe 'the committed-content tarball names the commit it was cut from' {
         try {
             $get  = & $script:InvokeArchive $repo.Path 'GET'
             $head = & $script:InvokeArchive $repo.Path 'HEAD'
+            Assert-Equal -Expected $get.Bytes.Length -Actual $get.ContentLength64 `
+                'the GET Content-Length does not describe the emitted archive bytes'
+            Assert-Equal -Expected $get.Bytes.Length -Actual $head.ContentLength64 `
+                'HEAD does not advertise the length of the corresponding GET archive'
             Assert-Equal -Expected 0 -Actual $head.Bytes.Length 'a HEAD response carried a body'
             Assert-StringEqual -Expected 'application/gzip' -Actual $get.ContentType `
                 'the archive is no longer served as a gzip stream'

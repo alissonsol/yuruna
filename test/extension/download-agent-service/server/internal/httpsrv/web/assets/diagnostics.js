@@ -73,6 +73,7 @@
       paint(d.diagnostics || {});
     }, function (e) {
       Y.notice('error', 'Diagnostics load failed: ' + e.message);
+      window.YurunaFirstUsable.mark('test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html', 'error');
     });
   }
 
@@ -118,6 +119,7 @@
     renderErrors(g.recentErrors);
     $('as-of').textContent = g.asOfUtc ? 'As of ' + Y.stamp(g.asOfUtc) : '';
     chrome.markLoaded();
+    window.YurunaFirstUsable.mark('test/extension/download-agent-service/server/internal/httpsrv/web/diagnostics.html', 'data');
   }
 
   // --- REGION: Resolver test
@@ -188,6 +190,7 @@
     });
   });
 
-  loadSession();
+  window.YurunaFirstUsable.hold('session');
+  loadSession().then(function () { window.YurunaFirstUsable.release('session'); });
   load();
 })();

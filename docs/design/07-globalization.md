@@ -1,211 +1,198 @@
 # Globalization
 
-This document maps the globalization behavior implemented in the current Yuruna sources and separates that behavior from localization work that is still planned.
+This document maps the locale decisions, catalog delivery, and localized-content boundaries implemented in Yuruna and yuruna-project.
 
-## 1. Current boundary
+## 1. Implemented scope
 
-The globalization foundation is live, but Yuruna is not yet a generally localized product.
+Globalization infrastructure exists, but it does not make every product surface localized. The current [`locale-manifest.json`](../../globalization/locale-manifest.json) marks only `en-US` as supported. `pt-BR` is planned and has no pinned plural rule. `qps-Ploc` and `qps-Plocm` are test-only expanded and mirrored locales, not public release languages.
 
-| Area | Implemented now | Current boundary |
+The two English source catalogs, [`status.json`](../../globalization/catalogs/en-US/status.json) and [`pool.json`](../../globalization/catalogs/en-US/pool.json), contain 26 messages. Their compiled outputs cover three runtimes. Actual catalog use includes status pause/resume text, generated status listings and errors, and pool repository-access details; it does not cover every label on those pages. Project test-set labels travel separately in localized metadata maps, as shown below. See the scoped source boundaries in [`conversion-authority.json`](../../globalization/manifests/conversion-authority.json), the compiled inventory in [`catalog-set.json`](../../globalization/manifests/catalog-set.json), and the wider candidate census in [`domain-inventory.json`](../../globalization/manifests/domain-inventory.json).
+
+## 2. Locale decisions
+
+```mermaid
+flowchart LR
+    test-config-yml["Language config"] --> new-locale-context["Locale resolver"]
+    user-language["User preference"] --> new-locale-context
+    accept-language["Accept-Language"] --> new-locale-context
+    process-culture["Process culture"] --> new-locale-context
+    locale-manifest-json["Locale manifest"] --> new-locale-context
+    new-locale-context --> locale-context["Locale context"]
+```
+
+This seven-node diagram shows the generic resolver inputs, not five competing live HTTP settings. Sources: PowerShell [`New-LocaleContext`](../../test/modules/Test.Locale.psm1), Go [`NewContextWithUser`](../../test/extension/extension-sdk/i18n/locale.go), and the shared [`locale-matching.json`](../../globalization/fixtures/locale-matching.json) cases.
+
+The precedence is configuration, persisted user preference, `Accept-Language`, process culture, then the manifest default. A nonempty configuration other than `auto` is a lock: an unsupported lock resolves to the default while retaining `config` as its source; lower-priority inputs cannot override it.
+
+Tags are canonicalized, matched exactly, and then matched through declared aliases. There is no prefix-based dialect guess. Header choices are bounded to 512 characters, tags to 35; malformed qualities, zero qualities, wildcards, and unsupported tags do not select a locale. Positive qualities rank descending, with ordinal resolved-tag and requested-tag tie-breaks. The declared `pt` and `pt-PT` aliases cannot select planned `pt-BR` in the normal supported set.
+
+The context carries requested tag, resolved tag, direction, source, time-zone policy, and catalog provenance. PowerShell and Go use UTC policy at these boundaries; browser wall-clock display explicitly uses the reader's local zone. Typed catalog datetime arguments retain a fixed UTC spelling.
+
+The live HTTP paths are narrower:
+
+| Boundary | Configuration read | Other supplied input |
 |---|---|---|
-| Locale authority | One generated manifest drives PowerShell, Go, and browser matching. | `en-US` is the only supported release locale; `pt-BR` is planned. |
-| Pseudo-locales | `qps-Ploc` and `qps-Plocm` exercise converted slices. | They require an explicit test switch and are not release locales. |
-| HTTP negotiation | Status and pool-control select a locale at the request boundary. | Other guest pages still serve their existing English representations. |
-| Runtime catalogs | Status and pool catalogs are compiled for three runtimes. | The two source catalogs contain 26 messages; most candidate strings are not catalog calls. |
-| Project metadata | Localized maps survive planning, host registration, and pool projection. | Existing `pt-BR` sample values are unreviewed and cannot be selected in a normal release. |
-| Documentation | Source hashes, stable anchors, review state, and Portuguese paths are gated. | Documentation uses explicit links, not HTTP language negotiation. |
+| Status service | Read from `test/test.config.yml` for each page request | Request `Accept-Language`; no user preference or process culture |
+| Pool-control | Captured through `-language` at service startup | Request `Accept-Language`; no user preference or process culture |
+| Browser kernel | Server-authored HTML attributes, once | No second header negotiation or persisted-preference lookup |
 
-The release states and aliases come from [`locale-manifest.json`](../../globalization/locale-manifest.json). Converted and deferred surfaces are recorded separately in [`domain-inventory.json`](../../globalization/manifests/domain-inventory.json) and [`affected-slice-authority.json`](../../globalization/manifests/affected-slice-authority.json); those records prevent the existence of infrastructure from being mistaken for complete coverage.
+Sources: status [`Resolve-PageLocale`](../../test/service/Start-StatusService.ps1), pool [`main.go`](../../test/extension/pool-control-service/server/main.go), SDK [`http.go`](../../test/extension/extension-sdk/i18n/http.go), and browser [`yuruna.i18n.js`](../../globalization/kernel/yuruna.i18n.js). Status enables pseudo negotiation only with `YURUNA_ALLOW_PSEUDO_LOCALE=1` or `true`; pool-control requires `-allow-pseudo-locale`.
 
-## 2. Locale authority and selection
-
-The generic resolver has one precedence order. A configured locale is a lock: even an unsupported configured value resolves to the default rather than allowing a lower-priority request value to take over.
+## 3. Catalog build and runtime
 
 ```mermaid
 flowchart LR
-    language-config["Language config"] --> locale-resolver["Locale resolver"]
-    %% planned: live HTTP services do not supply user-preference
-    user-preference["User preference"] -.-> locale-resolver
-    accept-language["Accept-Language"] --> locale-resolver
-    process-culture["Process culture"] --> locale-resolver
-    locale-manifest["Locale manifest"] --> locale-resolver
-    locale-resolver --> locale-context["Locale context"]
+    catalog-schema-json["Catalog schema"] --> invoke-catalog-compile-ps1["Catalog compiler"]
+    locale-manifest-json["Locale manifest"] --> invoke-catalog-compile-ps1
+    catalogs-en-us["Source catalogs"] --> invoke-catalog-compile-ps1
+    invoke-catalog-compile-ps1 --> generated-powershell["PowerShell tables"]
+    invoke-catalog-compile-ps1 --> generated-browser["Browser tables"]
+    invoke-catalog-compile-ps1 --> generated-go["Go tables"]
 ```
 
-The resolver evaluates inputs in this order:
+The seven nodes group all locales and domains by runtime. [`Invoke-CatalogCompile.ps1`](../../tools/Invoke-CatalogCompile.ps1) validates the [`catalog schema`](../../globalization/schema/catalog.schema.json), argument declarations, translated source hashes, variant shape, and supported-locale completeness. It derives pseudo-locales from English and emits deterministic, pretokenized tables plus the catalog-set manifest. Plain messages remain strings; argument-bearing messages and plural/select variants become data that renderers walk without parsing message grammar.
 
-1. lab language configuration;
-2. persisted user preference;
-3. HTTP `Accept-Language`;
-4. process UI culture;
-5. manifest default.
+[`Invoke-CatalogEmbed.ps1`](../../tools/Invoke-CatalogEmbed.ps1) then places the kernel, locale authority, provenance, and English status table into [`yuruna.common.js`](../../test/status/yuruna.common.js) and the SDK's [`yuruna.core.js`](../../test/extension/extension-sdk/webui/assets/yuruna.core.js). Pool's English table goes only into its own [`common.js`](../../test/extension/pool-control-service/server/internal/httpsrv/web/assets/common.js). Generated Go tables are copied into the pool-control module; pseudo browser catalogs remain separate assets.
 
-Persisted preference and process culture are implemented and covered by the shared resolver contract, but the live status and pool HTTP paths currently pass neither. Status reads the language lock for each request; pool-control receives it at service startup. Both then use the request header when the lock is `auto`. See the PowerShell [`Test.Locale` module](../../test/modules/Test.Locale.psm1), Go [`locale.go`](../../test/extension/extension-sdk/i18n/locale.go), browser [`yuruna.i18n.js`](../../globalization/kernel/yuruna.i18n.js), and the cross-runtime [`locale-matching.json`](../../globalization/fixtures/locale-matching.json) fixture.
+| Runtime | Load boundary | Render path |
+|---|---|---|
+| PowerShell | Lazy cached locale/domain table through restricted `Import-PowerShellDataFile` | [`Test.Catalog.psm1`](../../test/modules/Test.Catalog.psm1) walks tokens |
+| Go | JSON decode at catalog registration; pool registers once through `sync.Once` | [`catalog.go`](../../test/extension/extension-sdk/i18n/catalog.go) walks resident tables |
+| Browser | English registered in existing runtime; selected pseudo script registered during document parsing | [`yuruna.i18n.js`](../../globalization/kernel/yuruna.i18n.js) walks resident tables |
 
-Matching is bounded and deterministic:
+The lookup fallback is requested catalog, `en-US`, then the key itself. Missing-key diagnostics are deduplicated by locale and key, not repeated for every rendered row. Numeric separators and plural rules come from the repository's manifest rather than each runtime's locale database.
 
-- tags are canonicalized for case and `_` separators, then matched exactly;
-- only aliases declared by the manifest are followed (`en`, `pt`, and `pt-PT` today);
-- language-prefix guessing is forbidden, so `pt-AO` does not imply `pt-BR`;
-- zero-quality, wildcard, malformed, oversized, or unsupported header choices cannot widen the supported set;
-- the result carries requested and resolved tags, direction, source, time zone, catalog version, and catalog hash.
-
-The browser takes that context from server-authored `<html>` attributes. It does not parse `Accept-Language` again or switch locale after initialization.
-
-## 3. Catalog generation and loading
-
-English source catalogs are validated and compiled before they reach a runtime. Translation entries own translated words and a source hash; they do not redefine message structure.
-
-```mermaid
-flowchart LR
-    catalog-schema["Catalog schema"] --> invoke-catalog-compile["Catalog compiler"]
-    locale-manifest["Locale manifest"] --> invoke-catalog-compile
-    source-catalogs["Source catalogs"] --> invoke-catalog-compile
-    invoke-catalog-compile --> powershell-catalogs["PowerShell catalogs"]
-    invoke-catalog-compile --> browser-catalogs["Browser catalogs"]
-    invoke-catalog-compile --> go-catalogs["Go catalogs"]
-```
-
-[`Invoke-CatalogCompile.ps1`](../../tools/Invoke-CatalogCompile.ps1) validates the [`catalog schema`](../../globalization/schema/catalog.schema.json), completeness, plural rules, and stale source hashes. It generates pseudo-locales, sorts output, fixes UTF-8/LF spelling, omits timestamps, and pretokenizes messages so runtimes do not parse message grammar on a request. [`catalog-set.json`](../../globalization/manifests/catalog-set.json) is the generated inventory and digest boundary.
-
-[`Invoke-CatalogEmbed.ps1`](../../tools/Invoke-CatalogEmbed.ps1) embeds the default browser kernel and English catalogs into the normal assets. Non-default catalogs remain content-addressed assets loaded only when selected. The runtime implementations are:
-
-- PowerShell: [`Test.Catalog.psm1`](../../test/modules/Test.Catalog.psm1), with lazy per-domain loading;
-- Go: [`catalog.go`](../../test/extension/extension-sdk/i18n/catalog.go) and [`format.go`](../../test/extension/extension-sdk/i18n/format.go), with decode-once registration;
-- browser: [`yuruna.i18n.js`](../../globalization/kernel/yuruna.i18n.js), with resident token tables.
-
-All three resolve a missing locale entry through `en-US`, then expose the message key as the final visible failure marker. Missing-key diagnostics are bounded so a repeated miss does not become an unbounded log path.
-
-## 4. Client/server negotiation
-
-Status and pool-control share the matching contract, but deliberately prepare representations at different times.
+## 4. Status request
 
 ```mermaid
 sequenceDiagram
     participant browser as Browser
-    participant status-service as Status service
-    participant pool-control as Pool control
-    participant locale-resolver as Locale resolver
-    participant page-variant as Page variant
-    participant browser-runtime as Browser runtime
-    alt Status request
-        browser->>status-service: GET plus header
-        status-service->>locale-resolver: config plus header
-        locale-resolver-->>status-service: locale context
-        status-service->>page-variant: prepare localized HTML
-        page-variant-->>status-service: localized page
-        status-service-->>browser: language response
-    else Pool request
-        browser->>pool-control: GET plus header
-        pool-control->>locale-resolver: startup config plus header
-        locale-resolver-->>pool-control: locale context
-        pool-control->>page-variant: select prepared page
-        page-variant-->>pool-control: prepared page
-        pool-control-->>browser: language response
+    participant start-status-service-ps1 as Status service
+    participant test-locale-psm1 as Locale resolver
+    participant test-catalog-psm1 as Catalog renderer
+    participant yuruna-i18n-js as Browser kernel
+    browser->>start-status-service-ps1: GET plus Accept-Language
+    start-status-service-ps1->>test-locale-psm1: Current config and header
+    test-locale-psm1-->>start-status-service-ps1: Request locale
+    opt Generated listing or error
+        start-status-service-ps1->>test-catalog-psm1: Keys, arguments, locale
+        test-catalog-psm1-->>start-status-service-ps1: Rendered text
     end
-    browser->>browser-runtime: initialize context
-    browser-runtime->>browser-runtime: Render page messages
+    start-status-service-ps1->>start-status-service-ps1: Prepare representation and validator
+    start-status-service-ps1-->>browser: Localized response or 304
+    opt New document
+        browser->>yuruna-i18n-js: Initialize from HTML
+        opt Selected pseudo locale
+            browser->>start-status-service-ps1: GET hashed catalog
+            start-status-service-ps1-->>browser: Immutable catalog script
+        end
+        browser->>yuruna-i18n-js: Render catalog-backed text
+    end
 ```
 
-The status service localizes HTML, generated directory listings, and generated errors from a request context; see [`Start-StatusService.ps1`](../../test/service/Start-StatusService.ps1). Pool-control enumerates the finite locale page variants at startup and stores body, gzip body, and ETag together; see [`assets.go`](../../test/extension/pool-control-service/server/internal/httpsrv/assets.go) and [`i18nwire.go`](../../test/extension/pool-control-service/server/internal/httpsrv/i18nwire.go).
+The five participants correspond to the browser and the four linked runtime artifacts. [`Start-StatusService.ps1`](../../test/service/Start-StatusService.ps1) emits the detached HTTP server, resolves locale at the relevant response boundary, writes `lang`, `dir`, requested-language and source attributes, and injects the selected pseudo catalog before page-specific scripts. Listings and localized errors use server-side catalog calls; ordinary page text is localized only where the browser code calls the catalog.
 
-Localized page and API representations emit `Content-Language` and `Vary: Accept-Language`, including conditional responses. Ordinary static JS and CSS do not vary by language. Hashed non-default catalogs are immutable. Pool's localized board projection is implemented in [`board.go`](../../test/extension/pool-control-service/server/internal/httpsrv/board.go).
+HTML validators hash the representation after locale-dependent rewriting. Negotiated responses set `Content-Language` and `Vary: Accept-Language` before testing `If-None-Match`, preserving them on `304`. Catalog URLs contain their content hash and use immutable caching; ordinary JS/CSS do not acquire language variation merely because the service can negotiate HTML. See the response helpers and [`Test.StatusServiceLocale.Tests.ps1`](../../test/modules/Test.StatusServiceLocale.Tests.ps1).
 
-## 5. Localized project content
+## 5. Pool request
 
-Project metadata keeps required English scalars and adds locale maps. Resolution is deferred until the reader has a request locale.
+```mermaid
+sequenceDiagram
+    participant browser as Browser
+    participant http-go as Locale middleware
+    participant handlers-go as HTTP handlers
+    participant assets-go as Prepared assets
+    participant board-go as Board projection
+    participant yuruna-i18n-js as Browser kernel
+    Note over handlers-go,assets-go: Variants prepared at startup
+    browser->>http-go: GET plus Accept-Language
+    http-go->>http-go: Resolve request locale
+    http-go->>handlers-go: Context-bearing request
+    handlers-go->>assets-go: Select page variant
+    assets-go-->>handlers-go: Body, gzip, validators
+    handlers-go-->>browser: Localized response or 304
+    opt New document
+        browser->>yuruna-i18n-js: Initialize and render
+    end
+    browser->>http-go: GET board API
+    http-go->>http-go: Resolve request locale
+    http-go->>handlers-go: Context-bearing request
+    handlers-go->>board-go: Project request-local labels
+    board-go-->>browser: Language-labeled JSON
+```
+
+The six participants separate request negotiation from representation selection. Sources: [`httpsrv.go`](../../test/extension/pool-control-service/server/internal/httpsrv/httpsrv.go), [`handlers.go`](../../test/extension/pool-control-service/server/internal/httpsrv/handlers.go), SDK [`http.go`](../../test/extension/extension-sdk/i18n/http.go), [`assets.go`](../../test/extension/pool-control-service/server/internal/httpsrv/assets.go), [`board.go`](../../test/extension/pool-control-service/server/internal/httpsrv/board.go), and the shared browser kernel.
+
+[`i18nwire.go`](../../test/extension/pool-control-service/server/internal/httpsrv/i18nwire.go) builds the service's finite locale set from its embedded English and pseudo tables and the startup switch. Page variants are rendered, hashed, and compressed during initialization. Cache keys use finite normalized context fields, not raw header strings. Each API request negotiates separately through the same startup policy; middleware supplies context but leaves language headers to handlers that actually send negotiated content.
+
+Page handlers and the localized board API apply `Content-Language` and `Vary: Accept-Language`. Asset delivery adds `Vary: Accept-Encoding`, chooses identity or gzip validators, and handles conditional requests. Content-addressed catalogs are immutable. Static assets are not split by browser language.
+
+## 6. Project label transport
 
 ```mermaid
 flowchart LR
-    test-runner-yml["Project test sets"] -->|validated by| project-locale-map["Locale map gate"]
-    test-runner-yml --> sequence-planner["Sequence planner"]
-    sequence-planner --> host-registration["Host registration"]
-    host-registration --> pool-board["Pool projection"]
-    pool-board --> board-api["Board API"]
-    board-api --> browser["Browser"]
+    test-runner-yml["Project test sets"] --> invoke-project-locale-map-ps1["Locale map gate"]
+    test-runner-yml --> test-sequence-planner-psm1["Sequence planner"]
+    test-sequence-planner-psm1 --> test-capability-psm1["Host registration"]
+    test-capability-psm1 --> host-registration-json["Registration JSON"]
+    host-registration-json --> board-go["Board projection"]
+    board-go --> browser["Browser"]
 ```
 
-The additive fields live in the project repository's [`test.runner.yml`](https://github.com/alissonsol/yuruna-project/blob/main/test/test.runner.yml). [`Invoke-ProjectLocaleMap.ps1`](../../tools/Invoke-ProjectLocaleMap.ps1) checks tags, source hashes, and map shape against the project's [`project-locale-source-hashes.json`](https://github.com/alissonsol/yuruna-project/blob/main/globalization/project-locale-source-hashes.json). [`Test.SequencePlanner.psm1`](../../test/modules/Test.SequencePlanner.psm1) and [`Test.Capability.psm1`](../../test/modules/Test.Capability.psm1) preserve the maps through registration; pool-control chooses only an exact resolved tag and otherwise uses the English scalar.
+The seven nodes trace the project-discovery path. The project repository's [`test/test.runner.yml`](https://github.com/alissonsol/yuruna-project/blob/main/test/test.runner.yml) keeps required English `displayName` and `description` scalars beside additive `displayNameLocalized` and `descriptionLocalized` maps. [`Invoke-ProjectLocaleMap.ps1`](../../tools/Invoke-ProjectLocaleMap.ps1) validates shape, tags, and the project's [`source-hash sidecar`](https://github.com/alissonsol/yuruna-project/blob/main/globalization/project-locale-source-hashes.json).
 
-This transport is implemented. The current Portuguese sample records are still marked unreviewed, and `pt-BR` remains planned, so they are not shipping localized UI content.
+[`Test.SequencePlanner.psm1`](../../test/modules/Test.SequencePlanner.psm1) preserves bounded maps; [`Test.Capability.psm1`](../../test/modules/Test.Capability.psm1) carries them into `runtime/host.registration.json` rather than freezing them to the service account's culture. [`board.go`](../../test/extension/pool-control-service/server/internal/httpsrv/board.go) reads member registrations over each host's status HTTP endpoint and the intent library, selecting only an exact resolved-tag entry. Missing or invalid optional maps fall back to the English scalar. Registration discovery can lag a project refresh by one cycle because registration precedes that refresh.
 
-## 6. Stable messages and fallbacks
+The current project supplies two `pt-BR` smoke-test values with `unreviewed` sidecar records. Transport support is implemented; these examples are not evidence of a supported Portuguese release.
 
-Machine boundaries use a namespaced code plus typed, invariant arguments. A rendered sentence is diagnostic convenience, not protocol identity; it is accompanied by locale and catalog hash where the envelope carries a rendering. The schema is [`message.schema.json`](../../globalization/schema/message.schema.json), with PowerShell handling in [`Test.Message.psm1`](../../test/modules/Test.Message.psm1), Go handling in [`message.go`](../../test/extension/extension-sdk/i18n/message.go), and a current producer in [`labgate.go`](../../test/extension/extension-sdk/labgate/labgate.go).
+## 7. Message identity
 
-Fallbacks are intentionally narrow:
+Machine identity is separate from rendered wording. [`message.schema.json`](../../globalization/schema/message.schema.json), PowerShell [`Test.Message.psm1`](../../test/modules/Test.Message.psm1), and Go [`message.go`](../../test/extension/extension-sdk/i18n/message.go) define namespaced codes, typed invariant arguments, bounded external detail, and optional rendered text with locale/catalog provenance. A current producer is SDK [`labgate.go`](../../test/extension/extension-sdk/labgate/labgate.go).
 
-| Boundary | Fallback |
-|---|---|
-| Locale request | Exact tag, declared alias, then `en-US` |
-| Catalog lookup | Resolved locale, `en-US`, then message key |
-| Project field | Exact resolved-tag map entry, then required English scalar |
-| External detail | Bounded and redacted; never used as stable identity |
+The status pause and repository-access paths retain explicit legacy phrase readers beside stable codes for compatibility; [`conversion-authority.json`](../../globalization/manifests/conversion-authority.json) identifies those limited exceptions. Their existence does not imply every CLI, notification, or external-tool parser already uses structured messages.
 
-The legacy message transition is dual-read/dual-write rather than a flag-day protocol change. Infrastructure exists beyond its current producer coverage; inventory and authority manifests remain the source of truth for conversion status.
+## 8. Browser floor and measurement
 
-## 7. Browser floor and performance
+The code targets the whole iOS 9.x line, including iOS 9.0, and desktop Safari 9.0. The authored kernel is ES5, uses pinned formatting data instead of `Intl`, and initializes locale once from the server's markup. The compatibility mechanisms are concrete sources, not a claim of successful native qualification:
 
-The required browser floor is Safari on iOS 9.0 and desktop Safari 9.0, as recorded in [`definition.md`](../definition.md). The implementation holds that floor without locale-dependent platform behavior:
+- [`yuruna.fetch-shim.js`](../../globalization/kernel/yuruna.fetch-shim.js) provides the bounded XHR-backed fetch subset when native fetch is absent.
+- [`yuruna.rawpage.js`](../../globalization/kernel/yuruna.rawpage.js) adds an independent completion timeout for the standalone caching-proxy pages, including when `AbortController` is absent.
+- [`Invoke-CssVarFallback.ps1`](../../tools/Invoke-CssVarFallback.ps1) emits literal CSS declarations before custom-property declarations.
+- [`Invoke-Es5Check.ps1`](../../tools/Invoke-Es5Check.ps1) checks the finite source set in [`browser-sources.json`](../../globalization/manifests/browser-sources.json); [`Test.BrowserBaseline.Tests.ps1`](../../test/modules/Test.BrowserBaseline.Tests.ps1) exercises the browser baseline contract.
 
-- generated and authored browser code is ES5 and avoids `Intl`;
-- locale numbers and plural rules are pinned in the locale manifest;
-- [`yuruna.fetch-shim.js`](../../globalization/kernel/yuruna.fetch-shim.js) supplies the bounded XHR-backed fetch subset when needed;
-- [`yuruna.rawpage.js`](../../globalization/kernel/yuruna.rawpage.js) guarantees bounded completion even without `AbortController`;
-- the shared [`yuruna.core.js`](../../test/extension/extension-sdk/webui/assets/yuruna.core.js) feature-detects the small compatibility surface it uses;
-- [`Invoke-CssVarFallback.ps1`](../../tools/Invoke-CssVarFallback.ps1) emits literal palette declarations before custom-property declarations.
+[`yuruna.first-usable.js`](../../globalization/kernel/yuruna.first-usable.js) records when a page renderer has supplied primary data or an accessible empty/error/static state and released its holds. It also requires language and direction before publishing readiness. It records `performance.now`, falls back to navigation-start timing, or explicitly leaves time unavailable; a document-load event alone is not readiness.
 
-[`Invoke-Es5Check.ps1`](../../tools/Invoke-Es5Check.ps1) checks the registered browser sources and inline scripts, while [`browser-sources.json`](../../globalization/manifests/browser-sources.json) defines that finite set. Capability-off browser tests exercise the fallbacks. There is not yet a real iOS 9/WebKit integration lane, so the floor is enforced by source gates and compatibility tests rather than device evidence.
-
-The hot path avoids repeated work: English is embedded, messages are pretokenized, runtime catalogs are cached, pool pages are prebuilt and compressed, and raw header values never become cache keys. [`perf-baseline.json`](../../globalization/perf-baseline.json) enforces deterministic page and asset budgets; its executable latency ceilings are still provisional.
-
-## 8. Documentation localization
-
-English documents remain the source. [`doc-translations.json`](../../globalization/manifests/doc-translations.json) maps translated paths and records source hashes and review state; [`doc-anchors.json`](../../globalization/manifests/doc-anchors.json) holds stable cross-language anchors. [`Test-DocTranslation.ps1`](../../tools/Test-DocTranslation.ps1) validates freshness, review state, encoding, and repaired relative links.
-
-Portuguese documentation is selected through explicit links from the documentation index, not through `Accept-Language`. A translated file's presence therefore proves neither freshness nor approval; the manifest state does.
+English embedding avoids a locale-catalog request on the default path. Pretokenization, process-local catalog caches, and prepared pool page variants remove repeated work from rendering. [`perf-baseline.json`](../../globalization/perf-baseline.json) records deterministic asset/page budgets, while its executable scenario ceilings are explicitly provisional. Source gates and instrumentation do not establish that an actual iOS 9 device passed or that controlled performance evidence has been collected.
 
 ## 9. Localization delivery
 
 ### 9.1 Terminology
 
-Locale terminology and style records are versioned under [`globalization/terminology`](../../globalization/terminology/). Approval binds both a native translator and an independent reviewer to the recorded evidence digest.
+[`globalization/terminology/`](../../globalization/terminology/) contains locale terms and style rules. [`Test-Terminology.ps1`](../../tools/Test-Terminology.ps1) checks their shape and approval evidence; the presence of a terminology file is not itself an approval.
 
 ### 9.2 Export
 
-[`Export-Localization.ps1`](../../tools/Export-Localization.ps1) produces a deterministic request containing glossary, catalogs, documents, project scalars, and reference fixtures. An unchanged prior answer may be carried forward without silently accepting stale source.
+[`Export-Localization.ps1`](../../tools/Export-Localization.ps1) builds deterministic request bundles from catalogs, terminology, documentation, and project metadata through [`Test.LocalizationExchange.psm1`](../../test/modules/Test.LocalizationExchange.psm1). Request digests distinguish unchanged source from changed rows.
 
 ### 9.3 Import
 
-[`Import-Localization.ps1`](../../tools/Import-Localization.ps1) checks the request digest, source freshness, and reviewer attestation before placing returned material. The approval digest is recomputed from the bytes that actually land.
+[`Import-Localization.ps1`](../../tools/Import-Localization.ps1) reads returned requests, answers, and translator/reviewer attestations, checks digests and source drift, then routes accepted material to catalog, document, terminology, and project-review writers. This describes the existing import path, not a guarantee of complete transactional or interchange support.
 
 ### 9.4 Publish
 
-[`Publish-Localization.ps1`](../../tools/Publish-Localization.ps1) regenerates catalogs, embedded assets, and inventories, then runs the cross-repository gates. It does not turn a planned locale into a supported locale; that remains an explicit manifest decision.
+[`Publish-Localization.ps1`](../../tools/Publish-Localization.ps1) sequences generation and verification tools, including optional full cross-repository checking. It does not automatically promote a planned locale. Documentation uses explicit translated paths recorded in [`doc-translations.json`](../../globalization/manifests/doc-translations.json) and stable anchors in [`doc-anchors.json`](../../globalization/manifests/doc-anchors.json); Markdown is not negotiated by the HTTP locale middleware.
 
 ### 9.5 Interchange format
 
-The implemented exchange format is the repository's deterministic JSON directory bundle. [`tooling-decision.json`](../../globalization/manifests/tooling-decision.json) currently records XLIFF 2.1 as **required but provisional** because no native translator has yet selected a workflow. The exporter warns and writes JSON because XLIFF serialization and import are not implemented; accepting `Xliff` as an option is not evidence that the path ships.
+The implemented exchange is a deterministic JSON directory bundle. [`tooling-decision.json`](../../globalization/manifests/tooling-decision.json) records XLIFF 2.1 as required but provisional. The exporter currently warns and writes JSON when following that decision; XLIFF serialization/import is not an implemented delivery path merely because an option names it.
 
-The booked native translator's answer replaces the provisional record:
+The manifest explicitly leaves the final format decision to the booked native translator. Accepting JSON requires updating that decision; requiring XLIFF or another format requires an actual lossless implementation preserving IDs, source hashes, variants, notes, review evidence, and round-trip behavior. These are pending delivery choices, not runtime components in the diagrams.
 
-- if XLIFF is required, implement XLIFF 2.1 export and import with the same IDs, source hashes, plural data, notes, attestation, and deterministic round-trip gates before using it for a translation round;
-- if JSON is accepted, change the recorded decision, keep the existing bundle contract, and remove the unmet-format warning;
-- if another format is required, record it first and provide equivalent lossless round-trip and review evidence rather than translating through an ad hoc conversion.
+## 10. Coverage boundary
 
-The decision belongs in the manifest so every export, release-preparation run, and operator follows the same answer.
+Full wording conversion, reviewed Portuguese catalogs and project content, a pinned Portuguese plural rule, and promotion of `pt-BR` remain outside the current implemented seed. The generic user-preference resolver input is not a live account-preference feature. Compatibility source checks and timing markers do not substitute for native-device observations or controlled measurements.
 
-## 10. Work not yet implemented
-
-The current sources still mark these as future work:
-
-- promote `pt-BR` only after complete reviewed catalogs, project content, documentation, and release evidence exist;
-- convert deferred UI, CLI, generated-page, and service strings recorded by the authority and inventory manifests;
-- wire persisted user preference into live HTTP services if per-user selection is adopted;
-- implement the interchange decision in section 9.5 when the provisional answer is replaced;
-- add real legacy WebKit evidence and non-provisional executable performance ceilings.
-
-[`Invoke-CrossRepoGate.ps1`](../../tools/Invoke-CrossRepoGate.ps1) is the aggregate verification boundary for the implemented foundation. Passing it proves the recorded slices and invariants, not completion of the planned items above.
+[`Invoke-CrossRepoGate.ps1`](../../tools/Invoke-CrossRepoGate.ps1) checks the recorded cross-repository contracts. A passing gate proves those contracts and declared source slices, not localization of every remaining source string.
 
 ---
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.12
+.VERSION 2026.09.13
 .GUID 42e05a94-3c17-4d6b-81f9-7ab2c6d035e1
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -89,7 +89,7 @@ function New-ExchangeFixture {
     $null = New-Item -ItemType Directory -Path $root -Force
     $null = New-Item -ItemType Directory -Path $project -Force
 
-    Write-FixtureText -Path (Join-Path $root 'VERSION') -Text "2026.09.12`n"
+    Write-FixtureText -Path (Join-Path $root 'VERSION') -Text "2026.09.13`n"
     Write-FixtureJson -Path (Join-Path $root 'globalization/locale-manifest.json') -Value ([ordered]@{
             schema = 'yuruna.locale-manifest/v1'
             default = 'en-US'

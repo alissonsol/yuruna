@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.12
+.VERSION 2026.09.13
 .GUID 42a4c7d2-1f58-4b93-8c07-5e6d2a91f374
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -33,7 +33,7 @@
     That is what lets them sit in an ordinary suite. Timing is a different
     instrument with different failure modes and lives in its own harness.
 
-    Run: Invoke-Pester -Path test/modules/Test.GlobalizationGates.Tests.ps1
+    Run through tools/_InvokeOneSuite.ps1 and inspect its NUnit result file.
 #>
 
 BeforeAll {
@@ -43,6 +43,7 @@ Import-Module (Join-Path $here 'Test.Assert.psm1') -Force -Global -DisableNameCh
 Import-Module PSScriptAnalyzer -ErrorAction SilentlyContinue
 
 $script:RepoRoot = Get-YurunaTestRepoRoot -SuiteDirectory $here
+$script:PowerShell = (Get-Process -Id $PID).Path
 $script:RegistryPath = Join-Path $script:RepoRoot 'globalization/manifests/browser-sources.json'
 $script:Registry = ConvertFrom-Json -InputObject ([IO.File]::ReadAllText($script:RegistryPath))
 $script:CrossRepoPath = Join-Path $script:RepoRoot 'tools/Invoke-CrossRepoGate.ps1'
@@ -121,6 +122,56 @@ function New-PerfFixture {
         '-Update', '-Quiet')
     Assert-Equal -Expected 0 -Actual $result.Code -Because $result.Output
     return @{ Root = $root; Registry = $registryPath; Baseline = $baselinePath }
+}
+
+# --- REGION: New-LintScopeFixture
+function New-LintScopeFixture {
+    <#
+    .SYNOPSIS
+        Create an isolated Git tree whose lint findings and source set are known.
+    #>
+    [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+        Justification = 'Creates only disposable source, tool copies, and a Git index below TestDrive.')]
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param()
+
+    $root = Join-Path $TestDrive ('lint-' + [Guid]::NewGuid().ToString('n'))
+    foreach ($directory in @('tools', 'src', 'src-other', 'ignored', 'notes', 'empty')) {
+        $null = New-Item -ItemType Directory -Path (Join-Path $root $directory) -Force
+    }
+    $tool = Join-Path $root 'tools/Invoke-Lint.ps1'
+    [IO.File]::Copy((Join-Path $script:RepoRoot 'tools/Invoke-Lint.ps1'), $tool)
+    [IO.File]::WriteAllText((Join-Path $root 'PSScriptAnalyzerSettings.psd1'),
+        "@{ IncludeRules = @('PSAvoidUsingWriteHost') }", [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText((Join-Path $root '.gitignore'),
+        "ignored/`ntools/`nPSScriptAnalyzerSettings.psd1`n", [Text.UTF8Encoding]::new($false))
+    [IO.File]::WriteAllText((Join-Path $root 'src/tracked.ps1'), "Write-Output 'fixture'", [Text.UTF8Encoding]::new($false))
+    foreach ($relative in @('src/new.ps1', 'src-other/neighbor.ps1', 'ignored/hidden.ps1')) {
+        [IO.File]::WriteAllText((Join-Path $root $relative), "Write-Host 'fixture'", [Text.UTF8Encoding]::new($false))
+    }
+    [IO.File]::WriteAllText((Join-Path $root 'notes/readme.md'), '# Fixture notes', [Text.UTF8Encoding]::new($false))
+    & git -C $root init --quiet
+    Assert-Equal 0 $LASTEXITCODE 'the disposable lint Git tree could not be initialized'
+    & git -C $root add -- 'src/tracked.ps1'
+    Assert-Equal 0 $LASTEXITCODE 'the disposable tracked lint file could not be indexed'
+    return @{ Root = $root; Tool = $tool }
+}
+
+# --- REGION: Invoke-FixtureLint
+function Invoke-FixtureLint {
+    <#
+    .SYNOPSIS
+        Run the copied real lint wrapper against only its disposable repository.
+    #>
+    [CmdletBinding()]
+    [OutputType([hashtable])]
+    param([Parameter(Mandatory)][hashtable]$Fixture, [AllowEmptyString()][string]$Scope)
+
+    $arguments = @('-NoProfile', '-File', $Fixture.Tool)
+    if ($PSBoundParameters.ContainsKey('Scope')) { $arguments += @('-Path', $Scope) }
+    $output = & $script:PowerShell @arguments 2>&1 | Out-String
+    return @{ Code = $LASTEXITCODE; Output = $output }
 }
 }
 
@@ -882,6 +933,85 @@ Describe 'the generated artifacts match their sources' {
         $result = Invoke-Gate -Script 'tools/Invoke-Es5Check.ps1' -Arguments @('-Quiet')
         Assert-Equal -Expected 0 -Actual $result.Code `
             "a shipped browser source is outside the floor:`n$($result.Output)"
+    }
+}
+
+Describe 'an explicit lint scope actually selects source' {
+
+    It 'normalizes relative slash styles and dot components without turning file scope into directory scope' {
+        $function = Get-LintFunction -Name 'ConvertTo-LintScope'
+        Assert-True ([bool]$function) 'the lint scope normalizer is absent'
+        $normalize = [scriptblock]::Create($function + "`nConvertTo-LintScope -Value `$args[0]")
+
+        foreach ($value in @('src/file.ps1', './src/file.ps1', '.\src\file.ps1', '././src//./file.ps1')) {
+            Assert-StringEqual 'src/file.ps1' ([string](& $normalize $value))
+        }
+        Assert-StringEqual 'src' ([string](& $normalize './src/'))
+        Assert-StringEqual '' ([string](& $normalize '.'))
+        Assert-StringEqual '' ([string](& $normalize './'))
+    }
+
+    It 'rejects blank, rooted, or parent-traversing explicit scopes' {
+        $function = Get-LintFunction -Name 'ConvertTo-LintScope'
+        $normalize = [scriptblock]::Create($function + "`nConvertTo-LintScope -Value `$args[0]")
+        foreach ($value in @('', ' ', '/src', '\src', 'C:\src', '../src', 'src/../other')) {
+            Assert-Throw { & $normalize $value } -Match 'scope' `
+                -Because "invalid explicit scope '$value' must not silently become a whole-tree scan"
+        }
+    }
+
+    It 'matches exact files or directory descendants but not prefix-collision siblings' {
+        $function = Get-LintFunction -Name 'Test-LintPathInScope'
+        Assert-True ([bool]$function) 'the source selector is absent'
+        $matchPath = [scriptblock]::Create($function +
+            "`nTest-LintPathInScope -RelativePath `$args[0] -Scope `$args[1]")
+
+        Assert-True ([bool](& $matchPath 'src/file.ps1' 'src/file.ps1'))
+        Assert-True ([bool](& $matchPath 'src/nested/file.ps1' 'src'))
+        Assert-True ([bool](& $matchPath 'src/file.ps1' ''))
+        Assert-False ([bool](& $matchPath 'src-other/file.ps1' 'src'))
+        Assert-False ([bool](& $matchPath 'src/file.ps1.extra.ps1' 'src/file.ps1'))
+    }
+
+    It 'scans an exact tracked file and reports a real finding in an exact new file' {
+        $fixture = New-LintScopeFixture
+        $tracked = Invoke-FixtureLint -Fixture $fixture -Scope './src/tracked.ps1'
+        Assert-Equal 0 $tracked.Code $tracked.Output
+        Assert-Match '0 finding\(s\) across 1 tracked/new' $tracked.Output
+
+        $untracked = Invoke-FixtureLint -Fixture $fixture -Scope '.\src\new.ps1'
+        Assert-Equal 1 $untracked.Code 'the exact-file scan silently skipped a real analyzer finding'
+        Assert-Match 'PSAvoidUsingWriteHost' $untracked.Output
+        Assert-Match '1 finding\(s\) across 1 tracked/new' $untracked.Output
+    }
+
+    It 'limits directory scope to descendants without scanning a sibling with the same prefix' {
+        $fixture = New-LintScopeFixture
+        $result = Invoke-FixtureLint -Fixture $fixture -Scope './src/'
+
+        Assert-Equal 1 $result.Code $result.Output
+        Assert-Match '1 finding\(s\) across 2 tracked/new' $result.Output
+        Assert-False ($result.Output -match 'neighbor\.ps1') 'the directory scan included a prefix-collision sibling'
+    }
+
+    It 'fails explicit missing, ignored, non-PowerShell, and empty-directory scopes' {
+        $fixture = New-LintScopeFixture
+        foreach ($scope in @('typo.ps1', 'ignored/hidden.ps1', 'ignored', 'notes/readme.md', 'empty')) {
+            $result = Invoke-FixtureLint -Fixture $fixture -Scope $scope
+            Assert-Equal 2 $result.Code "scope '$scope' passed without analyzable source: $($result.Output)"
+            Assert-Match 'No tracked/new, non-ignored PowerShell source matches explicit scope' $result.Output
+        }
+    }
+
+    It 'keeps unscoped and explicit repository-root discovery on the same non-ignored source set' {
+        $fixture = New-LintScopeFixture
+        foreach ($result in @(
+                (Invoke-FixtureLint -Fixture $fixture),
+                (Invoke-FixtureLint -Fixture $fixture -Scope '.'))) {
+            Assert-Equal 1 $result.Code $result.Output
+            Assert-Match '2 finding\(s\) across 3 tracked/new' $result.Output
+            Assert-False ($result.Output -match 'hidden\.ps1') 'an ignored PowerShell file entered source discovery'
+        }
     }
 }
 

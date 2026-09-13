@@ -1,248 +1,227 @@
 # Runtime data flows
 
-Trace the current deployment, supervised test, image-fetch, stash, and shared-storage paths from their producers to their consumers.
+These views trace deployment, test execution, artifact retrieval, and shared storage through the current producers and consumers.
+
+The [canonical architecture](../architecture.md) defines the capabilities and phase model; these diagrams show the runtime exchanges.
 
 ## A. Three-phase deployment
 
-The [architecture](../architecture.md#three-phase-deployment-model) defines the phase model. The three framework entry points are independent; a project flow, such as the [Ubuntu 24 website workload](https://github.com/alissonsol/yuruna-project/blob/main/example/website/test/ubuntu.server.24/ubuntu.server.24.workload.k8s.website.sh), invokes them in this order.
+The caller orders three separate commands; `Set-Resource.ps1` does not invoke the next two. The [website guest workload](https://github.com/alissonsol/yuruna-project/blob/main/example/website/test/ubuntu.server.24/ubuntu.server.24.workload.k8s.website.sh) is a concrete caller of the [localhost configuration](https://github.com/alissonsol/yuruna-project/tree/main/example/website/config/localhost).
 
 ```mermaid
 sequenceDiagram
-    participant project-flow as Project flow
+    participant website-workload as Guest workload
+    participant project-config as Project configuration
     participant set-resource as Set-Resource.ps1
-    participant opentofu as OpenTofu
     participant set-component as Set-Component.ps1
-    participant registry as Image registry
     participant set-workload as Set-Workload.ps1
-    participant target-cluster as Target cluster
-    project-flow->>set-resource: Publish resources
-    Note over set-resource: Read resources.yml
-    loop Configured resources
-        set-resource->>opentofu: Initialize and plan
-    end
-    loop Saved plans
-        set-resource->>opentofu: Apply plan
-    end
-    set-resource->>set-resource: Write resources.output.yml
-    set-resource-->>project-flow: Result manifest
-    project-flow->>set-component: Publish components
-    Note over set-component: Read components.yml, outputs
-    loop Configured components
-        set-component->>set-component: Build image
-        set-component->>registry: Push image
-    end
-    set-component-->>project-flow: Result manifest
-    project-flow->>set-workload: Publish workloads
-    Note over set-workload: Read workloads.yml, outputs
-    set-workload->>set-workload: Run preflight
-    set-workload->>target-cluster: Deploy charts, manifests
-    set-workload-->>project-flow: Result manifest
+    participant registry as Container registry
+    participant kubernetes as Cluster infrastructure
+    website-workload->>set-resource: Deploy resources
+    set-resource->>project-config: Read resources.yml
+    set-resource->>kubernetes: OpenTofu provisioning
+    set-resource->>registry: Provision registry resource
+    set-resource->>project-config: Write resources.output.yml
+    set-resource-->>website-workload: Process exit code
+    website-workload->>set-component: Build components
+    set-component->>project-config: Read configuration outputs
+    set-component->>set-component: Build and tag locally
+    set-component->>registry: Push component images
+    set-component-->>website-workload: Process exit code
+    website-workload->>set-workload: Deploy workloads
+    set-workload->>project-config: Read workloads and outputs
+    set-workload->>kubernetes: Apply configured deployments
+    kubernetes->>registry: Pull workload images
+    set-workload-->>website-workload: Process exit code
 ```
 
-Sources: [Set-Resource.ps1](../../automation/Set-Resource.ps1), [Set-Component.ps1](../../automation/Set-Component.ps1), [Set-Workload.ps1](../../automation/Set-Workload.ps1), [Yuruna.Resource.psm1](../../automation/Yuruna.Resource.psm1), [Yuruna.Component.psm1](../../automation/Yuruna.Component.psm1), [Yuruna.Workload.psm1](../../automation/Yuruna.Workload.psm1), and [Yuruna.DeploymentKind.psm1](../../automation/Yuruna.DeploymentKind.psm1). Resource publishing plans every configured resource before applying saved plans. Component and workload publishing each read `resources.output.yml` independently; shell workload deployments run locally through the deployment-kind module rather than through the cluster participant.
+Seven participants aggregate OpenTofu's resources into the target cluster and its supporting infrastructure. Localhost reuses an existing Kubernetes context and creates its registry resource; the cloud templates can provision cluster infrastructure. Build/tag commands execute on the deploying machine, not the registry. This is the successful path: the shell caller stops on a nonzero exit. Sources: [Set-Resource.ps1](../../automation/Set-Resource.ps1), [Yuruna.Resource.psm1](../../automation/Yuruna.Resource.psm1), [Yuruna.Component.psm1](../../automation/Yuruna.Component.psm1), and [Yuruna.Workload.psm1](../../automation/Yuruna.Workload.psm1).
 
-The architecture is canonical for [resource work-folder staging](../architecture.md#atomic-resource-work-folder-staging) and the [shared transient retry policy](../architecture.md#shared-transient-failure-retry-policy).
+Resource staging first restores a stranded `.old` directory when live is absent, copies the template into `.new`, and carries forward `.terraform`, `.terraform.lock.hcl`, and `tofu.planfile`. It then moves live to `.old` and `.new` to live; a failed second move restores `.old`. `.workfolder.complete` is written after the swap. Template copies use terminating errors. The resource list makes an initialization/plan pass before its apply/output pass; empty output is an error, not a usable dependency result.
 
-### The stderr.log / rc sidecar contract
+The [retry module](../../automation/Yuruna.Retry.psm1) classifies transient failures. Resource init, plan, saved-plan apply, and output have bounded retries; the refreshing apply fallback does not. Retryable Helm/kubectl commands must also match that classifier; local chart and shell deployments do not inherit unconditional retries.
 
-Each producer records combined tool output and the latest exit code below `.yuruna/<cloud>/`. [Get-SystemDiagnostic.ps1](../../automation/Get-SystemDiagnostic.ps1) discovers the pairs recursively and correlates command results with deployment state.
+### The `*.stderr.log` / `*.rc` sidecar contract
 
-| Producer | Folder below `.yuruna/<cloud>/` | Log / sidecar |
+<a id="the-stderrlog--rc-sidecar-contract"></a>
+
+Tool logs retain command output and exit headings. Sidecars hold the most recently recorded exit code, not the complete phase history. Paths are relative to the project root; the phase modules above produce them.
+
+| Producer | Directory | Pair |
 |---|---|---|
-| Resource module | `resources/<resource>/` | `tofu.stderr.log` / `tofu.rc` |
-| Component module | `components/` | `docker.stderr.log` / `docker.rc` |
-| Workload chart | `workloads/<context>/<installName>/` | `helm.stderr.log` / `helm.rc` |
-| Workload tool | `workloads/<context>/` | `<tool>.stderr.log` / `<tool>.rc` |
+| Resource tools | `.yuruna/<cloud>/resources/<resource>/` | `tofu.stderr.log`, `tofu.rc` |
+| Component commands | `.yuruna/<cloud>/components/` | `docker.stderr.log`, `docker.rc` |
+| Local chart | `.yuruna/<cloud>/workloads/<context>/<installName>/` | `helm.stderr.log`, `helm.rc` |
+| Non-chart deployment | `.yuruna/<cloud>/workloads/<context>/` | `<tool>.stderr.log`, `<tool>.rc` |
 
-Resource logs reset per resource pass; component commands share one environment log. Workload tool names are `helm`, `kubectl`, and `shell`.
+[Get-SystemDiagnostic.ps1](../../automation/Get-SystemDiagnostic.ps1) scans logs and sidecars and compares recorded outcomes with actual deployment state. A zero sidecar alone does not prove that a workload exists.
 
-## B. Supervised test cycle
-
-[Start-TestRunner.ps1](../../test/Start-TestRunner.ps1) keeps the outer process alive. Each dispatch starts a fresh [Invoke-TestCycleRunner.ps1](../../test/modules/Invoke-TestCycleRunner.ps1), so the next cycle reloads changed runner code. The outer-runner participant groups that launcher and per-cycle supervisor, which arms the watchdog and spawns the inner runner. The host-provider participant groups the platform implementations behind [Yuruna.Host.Contract.psm1](../../host/Yuruna.Host.Contract.psm1), while status and OCR group their file/status and recognition modules to keep seven participants.
+## B. One test cycle
 
 ```mermaid
 sequenceDiagram
-    participant outer-runner as Outer runner
-    participant watchdog as Watchdog job
-    participant inner-runner as Inner runner
-    participant host-provider as Host provider
-    participant guest-vm as Guest VM
-    participant status-ocr as Status and OCR
-    participant notification as Notification
-    outer-runner->>watchdog: Arm before spawn
-    outer-runner->>inner-runner: Spawn fresh process
-    watchdog->>watchdog: Poll guard files
-    inner-runner->>host-provider: Remove, create, start
-    host-provider->>guest-vm: Provision and boot
-    loop Configured sequences
-        inner-runner->>status-ocr: Publish current step
-        inner-runner->>host-provider: Input or screenshot
-        host-provider->>guest-vm: Console exchange
-        guest-vm-->>host-provider: Console frame
-        host-provider-->>inner-runner: Screenshot path
-        inner-runner->>status-ocr: Recognize screenshot
-        status-ocr-->>inner-runner: Text result
-        opt SSH action
-            inner-runner->>guest-vm: Run SSH command
-        end
+    participant runner-inner-loop as Inner runner
+    participant yuruna-host as Host provider
+    participant guest as Guest VM
+    participant sequence-engine as Sequence and OCR
+    participant test-ssh as SSH client
+    participant test-status as Status document
+    participant test-notify as Notification extensions
+    runner-inner-loop->>yuruna-host: Create and start
+    yuruna-host->>guest: Boot seeded image
+    runner-inner-loop->>sequence-engine: Run guest sequences
+    opt Console sequence
+        sequence-engine->>yuruna-host: Console actions
+        yuruna-host->>guest: Deliver console input
+        guest-->>yuruna-host: Console output
+        sequence-engine->>yuruna-host: Capture console frame
+        yuruna-host-->>sequence-engine: Screenshot
+        sequence-engine->>sequence-engine: Match OCR expectations
     end
-    alt Step failure
-        inner-runner->>status-ocr: Capture failure artifacts
-        opt Alert gate
-            inner-runner->>notification: Send failure event
-        end
-        opt Continue after failure
-            inner-runner->>host-provider: Stop and remove
-            host-provider->>guest-vm: Destroy VM
-        end
+    opt SSH sequence
+        sequence-engine->>test-ssh: Run SSH action
+        test-ssh->>guest: Execute guest command
+        guest-->>test-ssh: SSH result
+        test-ssh-->>sequence-engine: Exit and output
+    end
+    runner-inner-loop->>test-status: Persist step verdicts
+    alt Guest failed
+        runner-inner-loop->>test-ssh: Collect guest diagnostics
+        test-ssh->>guest: Execute diagnostic script
+        guest-->>test-ssh: Diagnostic output
+        test-ssh-->>runner-inner-loop: Diagnostic artifacts
+        runner-inner-loop->>test-status: Attach failure artifacts
     else Guest passed
-        inner-runner->>host-provider: Release, stop, remove
-        host-provider->>guest-vm: Destroy VM
+        runner-inner-loop->>test-status: Record guest pass
     end
-    alt Heartbeat stale
-        watchdog--xinner-runner: Kill process tree
-    else Inner returned
-        inner-runner-->>outer-runner: Return exit code
+    opt Cleanup permitted
+        runner-inner-loop->>yuruna-host: Stop and remove
     end
-    outer-runner->>watchdog: Stop job always
+    runner-inner-loop->>test-status: Complete cycle
+    opt Failure alert permitted
+        runner-inner-loop->>test-notify: Send failure event
+    end
 ```
 
-Sources: [Test.RunnerOuterLoop.psm1](../../test/modules/Test.RunnerOuterLoop.psm1), [Test.RunnerWatchdog.psm1](../../test/modules/Test.RunnerWatchdog.psm1), [Test.RunnerInnerLoop.psm1](../../test/modules/Test.RunnerInnerLoop.psm1), [Test.SequenceEngine.psm1](../../test/modules/Test.SequenceEngine.psm1), [Test.Status.psm1](../../test/modules/Test.Status.psm1), [Test.OcrEngine.psm1](../../test/modules/Test.OcrEngine.psm1), and [Test.Notify.psm1](../../test/modules/Test.Notify.psm1). The watchdog reads `inner.pid`, `runner.stepHeartbeat`, and `runner.phase`, verifies PID plus process start time, and uses the tighter preamble timeout only while the phase marker exists.
+Seven participants separate host-side OCR from the status document: the HTTP status service serves the document and artifacts but does not perform OCR. SSH uses [Test.Ssh.psm1](../../test/modules/Test.Ssh.psm1) directly; the provider can discover an address but does not carry SSH commands. SSH-only sequences need not capture frames. Diagnostics are best-effort; watchdog termination cannot execute inner cleanup. Stop-on-failure can retain a failed guest for investigation and bypass the normal continuing-cycle notification tail. Guest preparation, readiness, and optional workload sequences are expanded in [Lifecycle](04-lifecycle-state.md).
 
-Failure artifacts are captured before notification or ordinary teardown. With `stopOnFailure`, the inner exits the guest sweep without cleanup; the VM may be absent, partly defined, off, or running according to the failed step. A watchdog kill bypasses inner cleanup entirely. The outer always stops the watchdog job in `finally`, restores the status service when needed, runs the storage hooks, and then handles the exit code; [the lifecycle page](04-lifecycle-state.md) shows those outcomes.
+Sources: [Test.RunnerInnerLoop.psm1](../../test/modules/Test.RunnerInnerLoop.psm1), [Test.SequenceEngine.psm1](../../test/modules/Test.SequenceEngine.psm1), [Test.SequenceHandler.psm1](../../test/modules/Test.SequenceHandler.psm1), [Test.Status.psm1](../../test/modules/Test.Status.psm1), [Test.Notify.psm1](../../test/modules/Test.Notify.psm1), and [Start-StatusService.ps1](../../test/service/Start-StatusService.ps1). Notification delivery uses configured extensions and failure/rearm thresholds; a failed cycle does not necessarily send another message.
 
-## C. Host image fetch
+## C. Caching and image retrieval
 
-Agent-enabled `Get-Image` scripts first use the [download-agent client](../../host/modules/Yuruna.DownloadAgent.psm1). An agent may satisfy the request from the pool, populate a generation through Squid, or decline so the host's existing [download helper](../../host/modules/Yuruna.HostDownload.psm1) follows its proxy-first/direct fallback.
+### HTTP and container downloads
 
 ```mermaid
 sequenceDiagram
-    participant get-image as Get-Image
-    participant agent-client as Agent client
-    participant agent-service as Agent service
-    participant pool-images as images/
-    participant host-download as Host download
-    participant squid-cache as Squid cache
-    participant origin as Image origin
-    get-image->>agent-client: Ensure image
-    agent-client->>agent-service: POST ensure
-    agent-service->>pool-images: Read current pointer
-    alt Local current
-        agent-service-->>agent-client: No transfer
-        agent-client-->>get-image: Skip download
-    else Ready or downloading
-        opt Refresh required
-            agent-service->>origin: Resolve metadata direct
-            alt Proxy usable
-                agent-service->>squid-cache: Fetch image bytes
-                squid-cache->>origin: Fetch or revalidate
-                origin-->>squid-cache: Image bytes
-                squid-cache-->>agent-service: Image bytes
-            else Proxy failed
-                agent-service->>origin: Fetch bytes direct
-            end
-            agent-service->>pool-images: Commit generation
+    participant guest as Guest client
+    participant squid as Squid
+    participant zot as zot
+    participant upstream as Upstream services
+    opt HTTP proxy configured
+        guest->>squid: HTTP or bumped HTTPS
+        alt Cache usable
+            squid-->>guest: Cached response
+        else Fetch required
+            squid->>upstream: Fetch response
+            upstream-->>squid: Response bytes
+            squid-->>guest: Forward response
         end
-        loop Until ready
-            agent-client->>agent-service: Poll ensure
-        end
-        agent-client->>agent-service: GET generation range
-        agent-service->>pool-images: Open generation
-        pool-images-->>agent-service: Image bytes
-        agent-service-->>agent-client: Resumable stream
-        agent-client->>agent-client: Verify size and hash
-        agent-client-->>get-image: Staged image
-    else Agent unavailable
-        agent-client-->>get-image: Origin fallback
-        get-image->>host-download: Fetch source URL
-        alt Proxy usable
-            host-download->>squid-cache: Fetch URL
-            squid-cache->>origin: Fetch or revalidate
-            origin-->>squid-cache: Response
-            squid-cache-->>host-download: Response
-        else Proxy unavailable
-            host-download->>origin: Fetch direct
-        end
+    end
+    opt Registry mirror configured
+        guest->>zot: OCI manifest or blob
+        zot->>upstream: Resolve missing content
+        upstream-->>zot: OCI content
+        zot-->>guest: Manifest or blob
     end
 ```
 
-The agent's `ensure` endpoint may start a download and report `downloading`; the client polls with backoff to its deadline. Generation downloads support HTTP Range, and the client promotes bytes only after byte-count and SHA-256 checks. Resolver probes bypass Squid so cached headers cannot certify stale content; bulk bytes use Squid first and fall back direct. Sources: agent [HTTP handlers](../../test/extension/download-agent-service/server/internal/httpsrv/handlers.go), [refresh pipeline](../../test/extension/download-agent-service/server/internal/imagestore/refresh.go), and [image store](../../test/extension/download-agent-service/server/internal/imagestore/store.go).
+Four participants distinguish the HTTP cache from the OCI registry mirror. The [caching VM seed](../../host/vmconfig/caching-proxy-service.base.user-data) configures Squid and zot independently. HTTPS cache use requires the seeded proxy CA; direct-fetch paths remain available to callers without a configured/reachable proxy. Neither download path uploads to stash.
 
-## D. Stash upload and fetch
+### Host image acquisition
 
-SCP, SFTP, and browser uploads enter one staging pipeline. The target is fixed before bytes stream: a live writable stash share is preferred; otherwise the service uses its bounded VM-local buffer.
+```mermaid
+sequenceDiagram
+    participant get-image as Get-Image.ps1
+    participant download-agent-service as Download agent
+    participant images as Image pool
+    participant upstream as Image origin
+    get-image->>download-agent-service: Ensure requested image
+    download-agent-service->>images: Check current pointer
+    opt Refresh required
+        download-agent-service->>upstream: Resolve and download
+        upstream-->>download-agent-service: Image bytes
+        download-agent-service->>images: Commit verified generation
+    end
+    download-agent-service-->>get-image: Generation and digest
+    get-image->>download-agent-service: Fetch generation bytes
+    download-agent-service->>images: Open generation
+    images-->>download-agent-service: Generation bytes
+    download-agent-service-->>get-image: Stream image
+    get-image->>get-image: Verify staged digest
+```
+
+The agent streams pool content over HTTP, so this four-participant path needs no host SMB mount. Pending downloads are polled within a deadline. Unavailability permits origin fallback; corrupt served bytes are a failed acquisition. Origin verification and optional proxy-assisted byte transfer are separate operations. Sources: [Yuruna.DownloadAgent.psm1](../../host/modules/Yuruna.DownloadAgent.psm1), [agent routes](../../test/extension/download-agent-service/server/internal/httpsrv/handlers.go), and [image store](../../test/extension/download-agent-service/server/internal/imagestore/store.go).
+
+## D. Stash ingest and retrieval
 
 ```mermaid
 sequenceDiagram
     participant stash-client as Stash client
     participant stash-service as Stash service
-    participant staging-tree as Staging tree
-    participant local-index as Local index
+    participant stash-local as Local index buffer
     participant stash-share as Stash share
-    participant local-buffer as Local buffer
-    stash-client->>stash-service: Upload artifact
-    stash-service->>staging-tree: Create staging tree
-    stash-service->>local-index: Insert pending row
-    stash-service->>staging-tree: Stream bytes
+    stash-client->>stash-service: SCP, SFTP, HTTP upload
     alt Share writable
-        staging-tree->>stash-share: Finalize artifact
-        stash-service->>local-index: Complete row
-        stash-service->>stash-share: Write sidecar last
+        stash-service->>stash-share: Artifact and sidecar
     else Share offline
-        staging-tree->>local-buffer: Finalize artifact
-        stash-service->>local-index: Mark buffered
-        stash-service->>stash-service: Nudge flush worker
+        stash-service->>stash-local: Bounded offline buffer
     end
-    stash-service-->>stash-client: Upload result
-    opt Share returns
-        stash-service->>local-buffer: Read buffered artifact
-        stash-service->>stash-share: Copy and sidecar
-        stash-service->>local-index: Clear buffered flag
-        stash-service->>local-buffer: Delete local copy
+    stash-service->>stash-local: Record SQLite metadata
+    stash-service-->>stash-client: Stash identifier
+    opt Buffered data pending
+        stash-service->>stash-share: Flush after recovery
     end
-    stash-client->>stash-service: GET download or raw
-    stash-service->>local-index: Resolve local record
-    alt Share artifact
-        stash-service->>stash-share: Read artifact
-        stash-share-->>stash-service: File bytes
-    else Buffered artifact
-        stash-service->>local-buffer: Read artifact
-        local-buffer-->>stash-service: File bytes
-    end
-    stash-service-->>stash-client: Stream file bytes
+    stash-client->>stash-service: Browse or fetch
+    stash-service->>stash-share: Read committed artifact
+    stash-service-->>stash-client: Preview or download
 ```
 
-The pending row is inserted after the target's staging directory is created; the sequence groups both operations around the same staging tree. A share-side upload is successful only after its durable sidecar is written. Flush is copy-sidecar-index-delete and idempotent through a partial retry; deleting the old local copy is best effort. Local fetches resolve through SQLite, while another host's artifact is resolved from the on-share sidecar. Sources: stash [SSH server](../../test/extension/stash-service/server/internal/sshsrv/sshsrv.go), [browser ingest](../../test/extension/stash-service/server/internal/sshsrv/ingest.go), [flush worker](../../test/extension/stash-service/server/internal/sshsrv/flush.go), [HTTP handlers](../../test/extension/stash-service/server/internal/httpsrv/handlers.go), and [metadata](../../test/extension/stash-service/server/internal/meta/meta.go).
+Four participants model stash independently of Squid. The share holds persistent host keys and `files/<year>/<month>/<day>/` artifacts with `.yuruna.meta.json` sidecars. SQLite metadata and the bounded outage buffer remain VM-local; buffered records can be read locally before flush. Sources: [ingest](../../test/extension/stash-service/server/internal/sshsrv/ingest.go), [flush](../../test/extension/stash-service/server/internal/sshsrv/flush.go), [HTTP handlers](../../test/extension/stash-service/server/internal/httpsrv/handlers.go), [store](../../test/extension/stash-service/server/internal/store/store.go), and [storage constants](../../test/extension/stash-service/server/internal/config/config.go).
 
-## E. Pool and stash storage
-
-The diagram keeps the two configured storage tiers separate. `hosts/`, `images/`, service state, and pool intent belong to the pool share; stash artifacts and host keys belong to the stash share.
+## E. Pool storage contents
 
 ```mermaid
-flowchart LR
-    subgraph pool-share["Pool share"]
-        direction TB
-        hosts["hosts/"]
-        images["images/"]
-        download-agent-service["download-agent-service/"]
-        pool-control-service["pool-control-service/"]
-        pool-intent-git["pool-intent.git"]
-    end
-    stash-share["Stash share"]
+flowchart TB
+    yuruna-pool["yuruna-pool share"]
+    hosts["Host records archives"]
+    images["Image generations"]
+    download-agent-service["Download agent state"]
+    pool-control-service["Pool control state"]
+    pool-intent-git["Pool intent Git"]
+    stash["Stash storage"]
+    yuruna-pool --> hosts
+    yuruna-pool --> images
+    yuruna-pool --> download-agent-service
+    yuruna-pool --> pool-control-service
+    yuruna-pool --> pool-intent-git
+    %% optional: stash storage can use a different share
+    yuruna-pool -. "When co-located" .-> stash
 ```
 
-| Storage path | Current contents and producer |
-|---|---|
-| `hosts/info.<hostId>.yml` | Per-host identity and last-seen data from [Test.HostIdentity.psm1](../../test/modules/Test.HostIdentity.psm1). |
-| `hosts/<hostId>/test-cycles/<cycle>/` | Cycle logs and artifacts from [Test.PoolStorage.psm1](../../test/modules/Test.PoolStorage.psm1); `.yuruna-complete` is committed last. |
-| `hosts/<hostId>/services/caching-proxy-service/` | Optional monitoring replication from the [proxy seed](../../host/vmconfig/caching-proxy-service.base.user-data); Squid and zot caches remain VM-local. |
-| `images/<hostType>/<imageKey>/` | Content generations, metadata sidecars, `current.<arch>.<variant>.json`, `manual/`, and `.staging/`; `images/.agent-lease.json` coordinates the writer. |
-| `download-agent-service/` | `audit.jsonl` and `status.json` from the [download-agent state package](../../test/extension/download-agent-service/server/internal/state/state.go). |
-| `pool-control-service/` | `audit.jsonl` and `status.json` from the [pool-control state package](../../test/extension/pool-control-service/server/internal/state/state.go). |
-| `pool-intent.git` | Versioned pool definitions and assignments used by [pool control setup](../../guest/ubuntu.server.26/ubuntu.server.26.pool-control-service.sh). |
-| `<stash-mount>/stash/<hostId>/` | `files/YYYY/MM/DD/` artifacts and sidecars plus persistent `hostkey/`; configured by [stash setup](../../guest/ubuntu.server.26/ubuntu.server.26.stash-service.sh). |
+Seven boxes group host registry files, cycle archives, and optional service archives under `hosts/`. The stash edge denotes optional co-location, not shared configuration.
 
-When pool archiving is configured and `networkStorage.moveLogsToPoolStorage` is false, it runs as a detached, best-effort copy and retains local cycles. When the flag is true and all pool coordinates exist, the outer runs a synchronous bounded copy-verify-delete; insufficient share space prevents deletion and can turn an otherwise passing cycle into a failure. Stash uses separate `networkStorage.stashStorage*` coordinates. Its SQLite index remains at `/var/lib/stash-service/metadata/stash.sqlite`, and its outage buffer remains at `/var/lib/stash-service/buffer`; neither is pool-share content.
+| Relative path | Contents and producer |
+|---|---|
+| `hosts/info.<hostId>.yml` | Identity and last-seen data from [Test.HostIdentity.psm1](../../test/modules/Test.HostIdentity.psm1). |
+| `hosts/<hostId>/test-cycles/<cycle>/` | Logs/artifacts with `.yuruna-complete` written last by [Test.PoolStorage.psm1](../../test/modules/Test.PoolStorage.psm1). |
+| `hosts/<hostId>/services/caching-proxy-service/` | Optional monitoring replication from the [caching VM seed](../../host/vmconfig/caching-proxy-service.base.user-data); not Squid/zot byte caches. |
+| `images/<hostType>/<imageKey>/` | Generations, `.meta.json`, `current.<arch>.<variant>.json`, `manual/`, and `.staging/`; [agent configuration](../../test/extension/download-agent-service/server/internal/config/config.go) places the writer lease at `images/.agent-lease.json`. |
+| `download-agent-service/` | `audit.jsonl` and `status.json` from [agent state](../../test/extension/download-agent-service/server/internal/state/state.go). |
+| `pool-control-service/` | `audit.jsonl` and `status.json` from [pool-control state](../../test/extension/pool-control-service/server/internal/state/state.go). |
+| `pool-intent.git` | Versioned pool definitions and assignments, seeded by [pool-control setup](../../guest/ubuntu.server.26/ubuntu.server.26.pool-control-service.sh). |
+| `<stash-mount>/stash/<hostId>/` | `hostkey/` and `files/`, configured independently by [stash setup](../../guest/ubuntu.server.26/ubuntu.server.26.stash-service.sh). |
+
+Replication is conditional on configuration. Copy mode runs detached and retains local cycles; `networkStorage.moveLogsToPoolStorage` enables bounded copy-verify-delete. A space refusal in move mode prevents starting a cycle or marks its completed result failed. Unverified archives do not authorize local evidence deletion. The [outer loop](../../test/modules/Test.RunnerOuterLoop.psm1) owns archive handoffs and surfaces drain failures.
 
 ---
 

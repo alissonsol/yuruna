@@ -1,88 +1,100 @@
 # Runner and VM lifecycle
 
-Show the persisted outer-runner states and the actual provision, failure, restart, and cleanup paths within one guest iteration.
+These state views distinguish persisted runner states, per-guest execution stages, and watchdog behavior.
+
+The [canonical architecture](../architecture.md) explains the test-harness capability; [data flows](03-data-flows.md) shows the messages exchanged within these lifecycles.
 
 ## Persisted runner states
-
-[Test.RunnerState.psm1](../../test/modules/Test.RunnerState.psm1) defines six values in `runner.state.json`; [Test.RunnerOuterLoop.psm1](../../test/modules/Test.RunnerOuterLoop.psm1) writes them. State identifiers use underscores only because Mermaid state aliases do not accept the source names' hyphens.
 
 ```mermaid
 stateDiagram-v2
     state "idle" as idle
-    state "cycle-start" as cycle_start
-    state "in-cycle" as in_cycle
-    state "cycle-end" as cycle_end
+    state "cycle-start" as start
+    state "in-cycle" as cycle
+    state "cycle-end" as finish
     state "fault" as fault
     state "paused" as paused
-    idle --> cycle_start: Dispatch cycle
-    idle --> fault: Recovery fallback
-    cycle_start --> in_cycle: Before inner spawn
-    cycle_start --> fault: Storage full
-    cycle_start --> paused: Pool hold
-    in_cycle --> cycle_end: Exit zero
-    in_cycle --> fault: Nonzero or watchdog
-    cycle_end --> idle: Record closure
-    fault --> paused: Failure pause
-    fault --> idle: Boot recovery
-    paused --> idle: Pause ends
-    paused --> cycle_start: Pool repoll
+    idle --> start: Dispatch cycle
+    idle --> fault: Recover prior crash
+    start --> cycle: Spawn inner
+    start --> fault: Preflight failure
+    start --> paused: Pool pause
+    cycle --> finish: Exit zero
+    cycle --> fault: Failure or kill
+    finish --> idle: Cleanup complete
+    fault --> paused: Failure hold
+    fault --> idle: Recovery
+    paused --> idle: Resume permitted
+    paused --> start: Recheck pool intent
 ```
 
-The diagram is the module's declared adjacency. The validator warns on an unknown pair but still persists any known target, so transition drift remains observable. On startup, a non-idle state from an earlier run produces synthetic `<prior> -> fault -> idle` events before fresh `idle` state is written. Current early-return paths can expose that guard: a pull error may be followed by `cycle-start -> cycle-start`, a spawn failure by `in-cycle -> cycle-start`, and the pre-spawn storage-full path by `fault -> fault` before failure pause.
+All six displayed names are the persisted enum in [Test.RunnerState.psm1](../../test/modules/Test.RunnerState.psm1). The single-word Mermaid aliases `start`, `cycle`, and `finish` are diagram-only identifiers, not additional runtime states. The module atomically writes `runner.state.json` and emits transition events. Unexpected transitions warn but are still recorded; this telemetry validator is not an execution gate.
 
-The runtime order is more specific than the state labels suggest:
+[Start-TestRunner.ps1](../../test/Start-TestRunner.ps1) retains the outer dispatch loop. [Invoke-TestCycleRunner.ps1](../../test/modules/Invoke-TestCycleRunner.ps1) runs each cycle in a fresh process, and [Test.RunnerOuterLoop.psm1](../../test/modules/Test.RunnerOuterLoop.psm1) pulls the framework, synchronizes optional pool intent, checks storage, arms the watchdog, and spawns the inner runner. The fresh child loads current code without requiring an outer restart.
 
-1. The outer writes `cycle-start`, pulls the framework, synchronizes pool intent, clears stale guard files, and performs the optional move-mode space gate.
-2. It arms [Test.RunnerWatchdog.psm1](../../test/modules/Test.RunnerWatchdog.psm1), writes `in-cycle`, then invokes a fresh inner process.
-3. It always stops the watchdog in `finally`. Cycle-end storage, push, and notifier hooks run while persisted state is still `in-cycle`.
-4. Only after those hooks return does exit zero produce `cycle-end -> idle`. A nonzero exit, watchdog kill, or move-mode storage-full verdict produces `fault -> paused`.
+Operational branches are deliberately not invented enum states:
 
-Pool `desiredState=paused` follows `cycle-start -> paused -> cycle-start` while intent is repolled. `desiredState=drain` stops the outer at a cycle boundary and has no seventh persisted state. Pull, spawn, and pre-outcome aborts use short interruptible holds rather than new state values. Failure pause ends after a framework or project commit, a local configuration edit, a UI restart request, the time cap, or an allowed capped auto-remediation retry; it then writes `idle` before redispatch.
+- `pull-error`, `spawn-failed`, and `cycle-aborted` produce short interruptible retry holds. A configured pool pause repeatedly checks intent without spawning guest work.
+- Pool `drain` stops at a cycle boundary. Ctrl+C requests shutdown and the dispatcher stops the active process tree; neither means a successful cycle.
+- A failed cycle enters a bounded failure pause. New framework/project commits, configuration changes, or `control.cycle-restart` can end that wait early. Eligible transient failures may use the configured auto-remediation retry budget; permanent failures retain the normal hold.
+- Startup recovery detects a prior run's stale state and records a fault/recovery transition. A successful cycle resets the auto-remediation budget.
 
-## Guest iteration
+The source of these decisions is the outer-loop module, not the adjacency map alone. An outer success starts its next dispatch after the inner has completed its own configured cycle delay and cleanup.
 
-[Invoke-GuestProvisionIteration](../../test/modules/Test.RunnerInnerLoop.psm1) executes guests sequentially. These seven groups retain the source ordering: `Start-GuestOS` precedes `Wait-VMRunning`, screenshot checks, and `Start-GuestWorkload`, which are grouped as validation.
+## Per-guest execution stages
 
 ```mermaid
 stateDiagram-v2
-    state "Stale cleanup" as stale_cleanup
-    state "New-VM" as new_vm
-    state "Start-VM" as start_vm
-    state "Guest setup" as guest_setup
-    state "Guest validation" as guest_validation
-    state "Failure artifacts" as failure_artifacts
-    state "Guest teardown" as guest_teardown
-    [*] --> stale_cleanup
-    stale_cleanup --> new_vm: Previous VM removed
-    new_vm --> start_vm: Creation succeeds
-    start_vm --> guest_setup: Start succeeds
-    guest_setup --> guest_validation: Sequences pass
-    guest_validation --> guest_validation: Eligible warm resume
-    guest_validation --> guest_teardown: Validation passes
-    new_vm --> failure_artifacts: Creation fails
-    start_vm --> failure_artifacts: Start fails
-    guest_setup --> failure_artifacts: Setup fails
-    guest_validation --> failure_artifacts: Validation fails
-    failure_artifacts --> [*]: stopOnFailure
-    failure_artifacts --> guest_teardown: Continue cycle
-    guest_setup --> guest_teardown: Cycle restart
-    guest_validation --> guest_teardown: Cycle restart
-    guest_teardown --> [*]: Removal verified
+    state "New-VM" as provision
+    state "Start-VM" as boot
+    state "Start-GuestOS" as prepare
+    state "New-VM.Resource" as ready
+    state "Start-GuestWorkload" as workload
+    state "Failure diagnostics" as diagnostics
+    state "Stop and remove" as cleanup
+    provision --> boot: Definition ready
+    provision --> diagnostics: Definition failed
+    boot --> prepare: Start succeeded
+    boot --> diagnostics: Start failed
+    prepare --> ready: Passed or skipped
+    prepare --> diagnostics: Sequence failed
+    ready --> workload: Ready and captured
+    ready --> diagnostics: Readiness failed
+    workload --> workload: Safe bounded replay
+    workload --> diagnostics: Workload failed
+    workload --> cleanup: Passed or skipped
+    diagnostics --> cleanup: Continuing after failure
+    cleanup --> provision: Next guest permitted
 ```
 
-Sources: [Test.RunnerInnerLoop.psm1](../../test/modules/Test.RunnerInnerLoop.psm1), [Test.Start-GuestOS.psm1](../../test/modules/Test.Start-GuestOS.psm1), [Test.Start-GuestWorkload.psm1](../../test/modules/Test.Start-GuestWorkload.psm1), [Test.WarmResume.psm1](../../test/modules/Test.WarmResume.psm1), and [Yuruna.Host.Contract.psm1](../../host/Yuruna.Host.Contract.psm1).
+Seven states summarize `Invoke-GuestProvisionIteration` in [Test.RunnerInnerLoop.psm1](../../test/modules/Test.RunnerInnerLoop.psm1); they are execution stages, not the hypervisor's power-state enum. The resource stage polls VM readiness and waits the boot delay; screenshot capture precedes optional workload sequences. The planner may supply no preparation or workload sequences, so a skipped optional stage is not a failure. Guest selection and variable cascading come from [Test.SequencePlanner.psm1](../../test/modules/Test.SequencePlanner.psm1).
 
-Every ordinary step failure copies available artifacts before branching. With `stopOnFailure=false`, cleanup stops and removes any partial or complete VM and the sweep continues. With `stopOnFailure=true`, the sweep ends at the failure-artifact state; depending on where failure occurred, there may be no VM, a partial definition, an off VM, or a running VM left for investigation. Warm resume is default-enabled but configurable and applies only to eligible workload failures on the same live VM; unsafe replay without a usable restore boundary is refused.
+The iteration runs guests serially. It cleans stale test VMs before creation and releases the guest DHCP lease before normal force-stop/removal. After successful teardown it probes the VM, retries removal once if still running, and blocks the next guest if that VM remains running. Failure diagnostics are best-effort and preserve console/OCR, execution, and available SSH diagnostic artifacts before cleanup.
 
-Successful teardown deletes the screenshot ring, requests guest DHCP release, force-stops and removes the VM, verifies that it is no longer running, and retries removal once. A VM still running after that retry fails the cycle and blocks the next guest. An operator `control.cycle-restart` exception performs best-effort cleanup of the active VM, seals the cycle as aborted, and returns control for a fresh outer dispatch. An unhandled inner exception also attempts emergency cleanup.
+Warm resume is conditional: the failed workload must satisfy the configured transient-failure policy and attempt budget. A snapshot-backed replay rewinds to a suitable restore boundary; unsafe replay of guest work without a restore boundary is refused. Repeated equivalent guest failures can trigger quarantine, which skips that guest before provisioning until the configured cycle bound or a source change permits another attempt. Stop-on-failure can retain a failed VM for investigation instead of taking the diagnostics-to-cleanup edge, and prevents advancing to another guest.
 
-## Watchdog termination
+## Watchdog supervision
 
-The watchdog polls `runner.stepHeartbeat` independently, using the tighter preamble limit while `runner.phase` exists and the normal step limit after it clears. Before acting, it proves the target with both PID and process start time. A stale heartbeat causes a forced inner-process-tree kill, so no inner `finally` or guest teardown is assumed to run.
+```mermaid
+stateDiagram-v2
+    state "Await inner identity" as waiting
+    state "Watch step heartbeat" as armed
+    state "Kill inner tree" as terminate
+    state "Disarmed" as disarmed
+    state "Unguarded lapse" as lapsed
+    waiting --> armed: Identity established
+    waiting --> lapsed: Identity deadline exceeded
+    armed --> armed: Heartbeat within bound
+    armed --> terminate: Stale, identity confirmed
+    armed --> disarmed: Inner identity ended
+    terminate --> disarmed: Kill attempted
+```
 
-When control returns, the outer records the nonzero outcome, may synthesize `last_failure.json` with `failureClass=wait_timeout` when the killed inner could not write one, re-ensures the status service, and enters failure pause. If the watchdog cannot prove the inner identity or its job fails, it records a lapse and lets the cycle continue unguarded; that lapse alone does not create a runner state transition.
+These five conceptual watchdog stages derive from [Test.RunnerWatchdog.psm1](../../test/modules/Test.RunnerWatchdog.psm1); they are not additional runner-state values. The watchdog runs in a separate PowerShell job, outside the thread blocked waiting for the inner process. It monitors `runner.stepHeartbeat`, not the background liveness heartbeat. `runner.phase` selects the tighter preamble bound until real step execution begins.
 
-[Test.SequenceEngine.psm1](../../test/modules/Test.SequenceEngine.psm1) checks `control.step-pause` at sequence and step boundaries. The inner loop checks `control.cycle-pause` at cycle boundaries. These control files, `control.cycle-restart`, pool `drain`, and watchdog lapse markers are operational signals rather than persisted runner states.
+Before killing, the watchdog checks both PID and process start time. A transient identity-probe failure causes another poll, not a kill of an unproven process. When initial identity cannot be established, the job writes `runner.watchdog.lapsed` and exits without killing; the outer later reports that the cycle ran unguarded. Watchdog cleanup runs in the outer's `finally`.
+
+A forced process-tree kill cannot guarantee inner `finally` execution or VM removal. The outer handles the nonzero result, records missing failure context where possible, re-ensures the status service, and enters failure pause; a later guest iteration performs orphan cleanup. Cooperative `control.step-pause`, `control.cycle-pause`, and restart markers are handled at their respective boundaries by the [sequence engine](../../test/modules/Test.SequenceEngine.psm1) and inner runner, rather than being watchdog power states.
 
 ---
 

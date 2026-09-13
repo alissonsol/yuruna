@@ -66,4 +66,5 @@
   // #countdown, so nothing here auto-refreshes -- a timed reload would discard
   // the form above.
   Y.initFooter();
+  window.YurunaFirstUsable.mark('test/extension/stash-service/server/internal/httpsrv/web/new.html', 'static');
 })();

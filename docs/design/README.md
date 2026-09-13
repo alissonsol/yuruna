@@ -29,28 +29,28 @@ localization does not rename protocol keys or runner state tokens.
 
 | View | Seven-box grouping decision |
 | --- | --- |
-| Context | Seven top-level subgraphs, each containing one representative artifact. |
-| Breakdown | One diagram per context boundary, with at most seven children; modules, guest adapters and extensions are named source-family aggregates. |
-| Flows | Separate sequence diagrams bound the participants for deployment, testing and service access; pool storage uses a hierarchy to separate storage ownership. |
+| Context | Seven empty subgraph placeholders render as seven boundary boxes; their children appear only in the breakdown. |
+| Breakdown | One diagram per context boundary, with at most seven boxes total; modules, guest adapters, extensions and tools are named source-family aggregates. |
+| Flows | Separate sequence diagrams bound participants for deployment, testing, cache, stash and pool access; a separate storage hierarchy identifies ownership. |
 | Lifecycle | Runner state and guest lifecycle are separate views, so process outcomes are not confused with VM power states. |
 | Data model | Related configuration views are separated rather than combining every directory, record and secret into one ER diagram. |
-| Deployment | Seven top-level network groups; individual extension VMs and storage shares are expanded inside their group. Host and caching-proxy process views are separate. |
+| Deployment | Network boundaries and their process/storage detail use separate views so counting group boundaries still stays within seven boxes. |
 | Globalization | Catalog production, HTTP negotiation and localized consumers use separate small diagrams. |
 
 A box or participant maps to a cited artifact or an explicitly named aggregate
 of artifacts. Flowchart IDs use stable kebab-case names derived from source
-paths; labels remain short. State diagrams use underscore aliases because the
-Mermaid state grammar rejects hyphens in identifiers; their visible labels keep
-the exact source state names. Sequence messages and prose carry the details
-omitted from those labels. Arrows are defined per view: dependencies in component
+paths; labels remain short. State diagrams use single-word source-derived
+aliases because the Mermaid state grammar rejects hyphens in identifiers;
+visible labels keep the exact persisted runner state names. Sequence messages
+and prose carry the details omitted from those labels. Arrows are defined per
+view: dependencies in component
 diagrams, actual exchanges in sequence diagrams, allowed execution transitions
 in state diagrams, and network/data direction in deployment diagrams. Dashed
 edges with Mermaid comments identify optional or planned paths where drawn.
 
 The documents use fenced `mermaid` blocks and the standard `flowchart`,
-`sequenceDiagram`, `stateDiagram-v2`, and `erDiagram` types. This follows
-[GitHub's diagram support](https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/creating-diagrams);
-there is no dependency on an experimental component/deployment diagram type,
+`sequenceDiagram`, `stateDiagram-v2`, and `erDiagram` types. There is no
+dependency on an experimental component/deployment diagram type,
 external icon pack, custom theme, or embedded script.
 
 ## Source and regeneration boundaries
@@ -70,8 +70,10 @@ runtime evidence and would create diffs unrelated to the source. Preserve the
 inbound architecture anchors for
 [three-phase deployment](03-data-flows.md#a-three-phase-deployment) and
 [tool sidecars](03-data-flows.md#the-stderrlog--rc-sidecar-contract).
-Verify Mermaid parsing/rendering, parent/participant counts, short labels and
-links after regeneration.
+Verify Mermaid parsing/rendering, total box and child/participant counts, short
+labels and links after regeneration. Count a visible subgraph boundary as a
+box, not as free space for another seven boxes. Do not replace stable source
+IDs or reorder unchanged relationships during regeneration.
 
 Use `docs/design/README.md` for links to this overview, including the
 [design shortcut](https://yuruna.link/design); individual topic links can still

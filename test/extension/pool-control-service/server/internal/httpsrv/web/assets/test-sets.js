@@ -15,12 +15,13 @@
   // screen. Every other read replaces it and says so: the library is read by
   // running a CLI on the server, which is not instant.
   function load(opts) {
+    window.YurunaFirstUsable.hold('primary');
     var quiet = !!(opts && opts.quiet);
     var done = quiet ? function () { } : Y.busy(document.getElementById('ts-rows'), 'Loading test sets...');
     chrome.busy(true);
     // Runs on the failure path too: an indicator left turning over a read that
     // already failed claims progress that is not happening.
-    var finish = function () { done(); chrome.busy(false); };
+    var finish = function () { done(); chrome.busy(false); window.YurunaFirstUsable.release('primary'); };
     return renderSets().then(finish, finish);
   }
 
@@ -31,6 +32,7 @@
       paintSets(data.testSets || []);
     }, function (e) {
       Y.notice('error', 'Could not load test sets: ' + e.message);
+      window.YurunaFirstUsable.mark('test/extension/pool-control-service/server/internal/httpsrv/web/test-sets.html', 'error');
     });
   }
 
@@ -41,11 +43,13 @@
     if (sets.length === 0) {
       sorter.set([]);
       tbody.appendChild(Y.el('tr', {}, [Y.el('td', { colspan: '5', class: 'muted', text: 'No test sets yet.' })]));
+      window.YurunaFirstUsable.mark('test/extension/pool-control-service/server/internal/httpsrv/web/test-sets.html', 'empty');
       return;
     }
     var rows = [];
     for (var i = 0; i < sets.length; i++) { rows.push(buildRow(sets[i])); }
     sorter.set(rows);
+    window.YurunaFirstUsable.mark('test/extension/pool-control-service/server/internal/httpsrv/web/test-sets.html', 'data');
   }
 
   // One row, built in its own call so the handlers below close over THIS test

@@ -292,6 +292,7 @@
   }
 
   function load(reset) {
+    var readyState = 'error';
     if (reset) { offset = 0; rendered = []; Y.replace($('rows')); clearError(); }
     $('status').textContent = 'Loading...';
     // Before the rows, never after: row() reads the gate as it builds each one.
@@ -314,6 +315,7 @@
           }
         }
         offset += list.length;
+        readyState = list.length ? 'data' : 'empty';
         renderStatus();
         footer.markLoaded();
       }, function (e) {
@@ -322,6 +324,7 @@
     }).then(function () {
       renderDeleteNote();
       syncControls();
+      window.YurunaFirstUsable.mark('test/extension/stash-service/server/internal/httpsrv/web/index.html', readyState);
     });
   }
 

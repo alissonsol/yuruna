@@ -121,6 +121,7 @@
     host.textContent = '';
     for (var i = 0; i < state.cards.length; i++) { host.appendChild(cardEl(state.cards[i])); }
     $('empty').hidden = state.cards.length > 0;
+    window.YurunaFirstUsable.mark('test/extension/pool-control-service/server/internal/httpsrv/web/board.html', state.cards.length ? 'data' : 'empty');
   }
 
   // --- REGION: Confirmation
@@ -224,6 +225,7 @@
   // instead: a wall display that blanked every half minute would read as
   // failing rather than as refreshing.
   function load(opts) {
+    window.YurunaFirstUsable.hold('primary');
     var quiet = !!(opts && opts.quiet);
     var done = function () { };
     if (!quiet) {
@@ -233,7 +235,7 @@
       done = Y.busy($('cards'), 'Loading pools...');
     }
     chrome.busy(true);
-    var finish = function () { done(); chrome.busy(false); };
+    var finish = function () { done(); chrome.busy(false); window.YurunaFirstUsable.release('primary'); };
     return Y.api('/api/board?range=' + encodeURIComponent(state.range)).then(function (d) {
       chrome.stamp();
       state.cards = d.cards || [];
@@ -253,6 +255,7 @@
       // A failed poll leaves the cards it could not refresh alone -- they are
       // stale, not wrong, and the footer time says how stale.
       if (!quiet) { showLoadError(e.message); }
+      window.YurunaFirstUsable.mark('test/extension/pool-control-service/server/internal/httpsrv/web/board.html', 'error');
     }).then(finish, finish);
   }
 

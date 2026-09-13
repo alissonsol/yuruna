@@ -125,12 +125,13 @@
   // screen. Every other read replaces it and says so: this page waits on a CLI
   // for pool intent and then on every member for its state.
   function load(opts) {
+    window.YurunaFirstUsable.hold('primary');
     var quiet = !!(opts && opts.quiet);
     var done = quiet ? function () { } : Y.busy(document.getElementById('pool-rows'), 'Loading pools...');
     chrome.busy(true);
     // Runs on the failure path too: an indicator left turning over a read that
     // already failed claims progress that is not happening.
-    var finish = function () { done(); chrome.busy(false); };
+    var finish = function () { done(); chrome.busy(false); window.YurunaFirstUsable.release('primary'); };
     return renderPools().then(finish, finish);
   }
 
@@ -146,6 +147,7 @@
       return paintPools(both[0].pools || []);
     }, function (e) {
       Y.notice('error', 'Could not load pools: ' + e.message);
+      window.YurunaFirstUsable.mark('test/extension/pool-control-service/server/internal/httpsrv/web/pools.html', 'error');
     });
   }
 
@@ -156,6 +158,7 @@
     if (pools.length === 0) {
       sorter.set([]);
       tbody.appendChild(Y.el('tr', {}, [Y.el('td', { colspan: '7', class: 'muted', text: 'No pools yet.' })]));
+      window.YurunaFirstUsable.mark('test/extension/pool-control-service/server/internal/httpsrv/web/pools.html', 'empty');
       return Promise.resolve();
     }
     var statusCells = {};
@@ -183,6 +186,7 @@
       // The column these states feed is sortable, so the table has to answer
       // for the values it just took on. Rows already in order are left alone.
       sorter.refresh();
+      window.YurunaFirstUsable.mark('test/extension/pool-control-service/server/internal/httpsrv/web/pools.html', 'data');
     });
   }
 

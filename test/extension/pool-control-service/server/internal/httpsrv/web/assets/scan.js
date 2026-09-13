@@ -215,9 +215,11 @@
       renderFound(data.scan);
       renderHosts(data.hosts);
       renderSweepNote(data);
+      window.YurunaFirstUsable.mark('test/extension/pool-control-service/server/internal/httpsrv/web/scan.html', data.hosts && data.hosts.length ? 'data' : 'empty');
       return data;
     }, function (e) {
       Y.notice('error', 'Could not read the scan status: ' + e.message);
+      window.YurunaFirstUsable.mark('test/extension/pool-control-service/server/internal/httpsrv/web/scan.html', 'error');
       return null;
     });
   }

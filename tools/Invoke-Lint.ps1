@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.12
+.VERSION 2026.09.13
 .GUID 42bd51d4-c3b9-4fa3-ae75-af2ab0905275
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -39,8 +39,10 @@
     PSUseBOMForUnicodeEncodedFile asks all non-ASCII PowerShell files for a BOM.
     No other path or analyzer rule is suppressed.
 .PARAMETER Path
-    Optional repo-relative subpath to limit the scan (e.g. 'test/modules').
-    Default: the whole repo.
+    Optional literal repo-relative PowerShell file or directory to scan (e.g.
+    'test/modules/Test.Locale.psm1' or 'test/modules'). Leading './' and either
+    slash style are accepted. An explicit scope with no tracked/new,
+    non-ignored PowerShell source fails. Default: the whole repo.
 .PARAMETER Quiet
     Print only the summary line, not each finding.
 .EXAMPLE
@@ -171,6 +173,49 @@ function Test-IsGeneratedCatalogBomConflict {
         $normalized -cmatch '^globalization/generated/powershell/[^/]+\.psd1$'
 }
 
+# --- REGION: ConvertTo-LintScope
+function ConvertTo-LintScope {
+    <#
+    .SYNOPSIS
+        Normalize a literal repository-relative file or directory scope.
+    #>
+    [CmdletBinding()]
+    [OutputType([string])]
+    param([Parameter(Mandatory)][AllowEmptyString()][string]$Value)
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        throw 'An explicit lint scope must name a repository-relative file or directory.'
+    }
+    $normalized = $Value -replace '\\', '/'
+    if ($normalized.StartsWith('/', [StringComparison]::Ordinal) -or
+        $normalized -match '^[A-Za-z]:') {
+        throw "Lint scope must be repository-relative: '$Value'."
+    }
+    $segments = @($normalized -split '/' | Where-Object { $_ -and $_ -cne '.' })
+    if ($segments -contains '..') {
+        throw "Lint scope cannot traverse parent directories: '$Value'."
+    }
+    return ($segments -join '/')
+}
+
+# --- REGION: Test-LintPathInScope
+function Test-LintPathInScope {
+    <#
+    .SYNOPSIS
+        Match one exact file or descendants of one directory, not sibling prefixes.
+    #>
+    [CmdletBinding()]
+    [OutputType([bool])]
+    param(
+        [Parameter(Mandatory)][string]$RelativePath,
+        [Parameter(Mandatory)][AllowEmptyString()][string]$Scope
+    )
+
+    return -not $Scope -or
+        [string]::Equals($RelativePath, $Scope, [StringComparison]::OrdinalIgnoreCase) -or
+        $RelativePath.StartsWith($Scope + '/', [StringComparison]::OrdinalIgnoreCase)
+}
+
 Push-Location $RepoRoot
 try {
     # Tracked + untracked-but-not-ignored, restricted to PowerShell files. This
@@ -186,15 +231,27 @@ try {
     # the expansion entirely; -Path is applied to the same list.
     # Forward slashes: git output is '/'-separated on every platform, so do NOT
     # use Join-Path (it would emit a backslash on Windows that would not match).
-    $prefix = if ($Path) { ($Path -replace '\\', '/').TrimEnd('/') + '/' } else { '' }
+    $explicitScope = $PSBoundParameters.ContainsKey('Path')
+    $scope = ''
+    if ($explicitScope) {
+        try { $scope = ConvertTo-LintScope -Value $Path }
+        catch {
+            Write-Error -Message $_.Exception.Message -ErrorAction Continue
+            exit 2
+        }
+    }
     $files = @(git ls-files --cached --others --exclude-standard |
         Where-Object { $_ -and $_ -match '\.(ps1|psm1|psd1)$' } |
-        Where-Object { -not $prefix -or $_.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) } |
+        Where-Object { Test-LintPathInScope -RelativePath $_ -Scope $scope } |
         Where-Object { Test-Path -LiteralPath $_ } |
         Sort-Object -Unique)
 
     if ($files.Count -eq 0) {
-        Write-Output "No PowerShell files to scan$(if ($Path) { " under '$Path'" })."
+        if ($explicitScope) {
+            Write-Error -Message "No tracked/new, non-ignored PowerShell source matches explicit scope '$Path'." -ErrorAction Continue
+            exit 2
+        }
+        Write-Output 'No PowerShell files to scan.'
         exit 0
     }
 

@@ -1462,7 +1462,7 @@ func fetchCurrentAction(client *http.Client, base string) (bool, error) {
 // served by the status service at /yuruna-repo/VERSION -- the SAME source the
 // host's own status pages read for their header (their getHostInfo() fetches
 // yuruna-repo/VERSION via JS, so the version is not embedded in the HTML). A tiny
-// plain-text file (one CalVer line, e.g. "2026.09.12"), so it is lighter than any
+// plain-text file (one CalVer line, e.g. "2026.09.13"), so it is lighter than any
 // status HTML page and fetchable server-side without a JS engine. Returns
 // ("", err) on any failure; the caller keeps the prior version on a transient
 // miss (the version is stable across polls). The value is capped + first-line
@@ -4904,11 +4904,18 @@ func (s *poolState) handleMetricsBody(w http.ResponseWriter) {
 	// Per-host descriptive series that drive the dashboard's pool table.
 	// host_info carries the table's label cells (name, type, framework version,
 	// commit + its deep-link URLs, other deep-link URLs, current cycle, derived
-	// status); the value is a constant 1. The series churns when
-	// cycleStartUtc/status/IP change -- fine for an INSTANT table query (old label-sets
-	// go stale immediately since only the current set is exported), but is why
-	// status/cycle are NOT labels on the timeline series.
-	b.WriteString("# HELP yuruna_pool_host_info Per-host descriptive labels for the pool table (value always 1).\n# TYPE yuruna_pool_host_info gauge\n")
+	// status). The series churns when cycleStartUtc/status/IP change, and that is
+	// why status/cycle are NOT labels on the timeline series.
+	//
+	// The churn is also why the value is the host's last-seen time rather than a
+	// constant. A replaced label-set does NOT leave the instant query at once: it
+	// keeps its final sample and stays inside the staleness window a table reads,
+	// so for about five minutes both the old and the new series answer and the host
+	// occupies two rows. Exporting last-seen makes the two comparable, so a reader
+	// can take the newest with `topk(1, ...) by (hostId)` -- which is what the Pool
+	// hosts panel does. A constant cannot be ranked, and ties resolve arbitrarily,
+	// so the panel would be as likely to show the stale row as the current one.
+	b.WriteString("# HELP yuruna_pool_host_info Per-host descriptive labels for the pool table; the value is the host's last-seen Unix time, so a reader can select the newest series per host while the labels churn.\n# TYPE yuruna_pool_host_info gauge\n")
 	for _, h := range ids {
 		hv := s.hosts[h]
 		if hv == nil {
@@ -4934,8 +4941,8 @@ func (s *poolState) handleMetricsBody(w http.ResponseWriter) {
 		// hostIdDashed is the same id rendered 8-4-4-4-12: the table shows the short
 		// id and reveals the full one from this label, which it cannot derive from the
 		// shortened cell it displays.
-		fmt.Fprintf(&b, "yuruna_pool_host_info{pool=%q,poolGuid=%q,hostId=%q,hostIdDashed=%q,hostType=%q,version=%q,commit=%q,commitUrl=%q,projectCommitUrl=%q,baseUrl=%q,cycleStartUtc=%q,cycleFolderUrl=%q,status=%q,control=%q} 1\n",
-			s.poolFor(h), hv.PoolGuid, h, dashedHostID(h), hostType, hv.Version, commitDisplay, commitURLVal, projectCommitURL, hv.BaseURL, cycleStartUtc, cfu, hv.statusLabel(), hv.controlLabel())
+		fmt.Fprintf(&b, "yuruna_pool_host_info{pool=%q,poolGuid=%q,hostId=%q,hostIdDashed=%q,hostType=%q,version=%q,commit=%q,commitUrl=%q,projectCommitUrl=%q,baseUrl=%q,cycleStartUtc=%q,cycleFolderUrl=%q,status=%q,control=%q} %d\n",
+			s.poolFor(h), hv.PoolGuid, h, dashedHostID(h), hostType, hv.Version, commitDisplay, commitURLVal, projectCommitURL, hv.BaseURL, cycleStartUtc, cfu, hv.statusLabel(), hv.controlLabel(), hv.LastSeenUnixMs/1000)
 	}
 	// host_status: the numeric twin of host_info's status, keyed on hostId so it
 	// forms one continuous series per host -- the input the state-timeline panel

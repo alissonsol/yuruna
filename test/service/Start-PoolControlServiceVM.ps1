@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.12
+.VERSION 2026.09.13
 .GUID 421a21ac-638b-4121-a908-7c26df6a9e86
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -476,8 +476,15 @@ To hold this script longer next time:
     }
 
     # --- REGION: https://yuruna.link/42fffc2c-0008
+    # No trailing slash, which is not cosmetic: the service's own announce derives
+    # its address from the connection it arrives on and so never carries one. The
+    # aggregator keys a candidate on the exact target string, so the two spellings
+    # of one address register as two candidates for the same host and area, and the
+    # loser is reported as a supersededTarget. Probing already tolerates either
+    # form, which is why nothing failed and the difference showed up only as a
+    # duplicate. The sibling services advertise the bare form as well.
     $poolControlServiceBaseUrl = if (-not $daemonReady -or $listeningButUnreachable -or -not $vmIp) { '' }
-                                 elseif ($vmIp -match ':') { "http://[$vmIp]/" } else { "http://$vmIp/" }
+                                 elseif ($vmIp -match ':') { "http://[$vmIp]" } else { "http://$vmIp" }
     Import-Module (Join-Path $ModulesDir 'Test.ExtensionService.psm1') -Global -Force
     [void](Write-ExtensionServiceMarker -Area 'pool-control-service' -RuntimeDir $runtimeDir `
         -Active $daemonReady -VMName $VMName -HostType $HostType -BaseUrl $poolControlServiceBaseUrl)

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.12
+.VERSION 2026.09.13
 .GUID 42859ca6-4a84-417f-b9e8-f2a3a4dd84a5
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -79,7 +79,11 @@
     (and this script's own suite) check the discovery selector without paying
     for a full run.
 .PARAMETER UpdateBaseline
-    Rewrite the baseline from this run instead of comparing against it.
+    Atomically refresh the baseline only from a passing full run with the
+    default discovery paths and no Filter. The existing baseline still guards
+    against lost suites/tests, and new skips are rejected. Result JSON and all
+    NUnit files are revalidated before replacement. Deliberate test removal or
+    new skip allowances require a separate reviewed baseline edit.
 .PARAMETER PassThru
     Emit the result object on the pipeline.
 .PARAMETER Quiet
@@ -126,6 +130,127 @@ if (-not (Test-Path -LiteralPath $Shim)) {
 }
 if (-not $ResultsPath)  { $ResultsPath  = Join-Path $RepoRoot '.test-results' }
 if (-not $BaselinePath) { $BaselinePath = Join-Path $RepoRoot 'test/modules/suite-baseline.json' }
+
+if ($UpdateBaseline -and ($Filter -or $ListOnly -or
+        @(Compare-Object @('host/modules', 'test/modules') @($Path | Sort-Object)).Count -ne 0)) {
+    Write-Error 'UpdateBaseline requires a full run: default Path, no Filter, and no ListOnly.' -ErrorAction Continue
+    exit 2
+}
+
+# --- REGION: Assert-BaselineCount
+function Assert-BaselineCount {
+    param([AllowNull()]$Value, [string]$Label, [int]$Minimum = 0)
+    if ($null -eq $Value -or $Value -is [bool] -or $Value -is [string] -or
+        $Value -isnot [ValueType]) { throw "$Label is not an integer counter." }
+    $number = [double]$Value
+    if ([double]::IsNaN($number) -or [double]::IsInfinity($number) -or
+        $number -lt $Minimum -or $number -gt [int]::MaxValue -or $number -ne [math]::Truncate($number)) {
+        throw "$Label is not a valid integer counter."
+    }
+    return [int]$number
+}
+
+# --- REGION: Assert-RefreshBaseline
+function Assert-RefreshBaseline {
+    param([Parameter(Mandatory)]$Baseline)
+    if ($Baseline -isnot [pscustomobject] -or $Baseline.schemaVersion -cne 1 -or
+        $Baseline.suites -isnot [pscustomobject] -or $Baseline.totals -isnot [pscustomobject]) {
+        throw 'Existing baseline has an invalid schema.'
+    }
+    $rows = @($Baseline.suites.PSObject.Properties)
+    if ($rows.Count -eq 0) { throw 'Existing baseline contains no suites.' }
+    $tests = $skips = 0L
+    foreach ($row in $rows) {
+        if ($row.Name -notmatch '^(test|host)/modules/.+\.Tests\.ps1$' -or
+            $row.Name -match '(?:^|/)\.\.(?:/|$)' -or $row.Value -isnot [pscustomobject]) {
+            throw 'Existing baseline contains an invalid suite.'
+        }
+        $count = Assert-BaselineCount $row.Value.total "$($row.Name).total" -Minimum 1
+        $skipped = Assert-BaselineCount $row.Value.skipped "$($row.Name).skipped"
+        if ($skipped -gt $count) { throw 'Existing baseline contains impossible skip counts.' }
+        $tests += $count
+        $skips += $skipped
+    }
+    if ((Assert-BaselineCount $Baseline.totals.suites 'baseline.totals.suites' -Minimum 1) -ne $rows.Count -or
+        (Assert-BaselineCount $Baseline.totals.tests 'baseline.totals.tests' -Minimum 1) -ne $tests -or
+        (Assert-BaselineCount $Baseline.totals.skipped 'baseline.totals.skipped') -ne $skips -or
+        (Assert-BaselineCount $Baseline.totals.failed 'baseline.totals.failed') -ne 0) {
+        throw 'Existing baseline totals are inconsistent or contain failures.'
+    }
+}
+
+# --- REGION: Assert-SuiteBaselineRefresh
+function Assert-SuiteBaselineRefresh {
+    param([Parameter(Mandatory)]$Run, [AllowNull()]$Baseline,
+        [Parameter(Mandatory)][string[]]$ExpectedSuites, [Parameter(Mandatory)][string]$ResultsPath)
+
+    if ($Run -isnot [pscustomobject] -or $Run.schemaVersion -cne 1 -or
+        $Run.totals -isnot [pscustomobject] -or $Run.suites -isnot [array] -or
+        $Run.suites.Count -eq 0 -or $Run.problems -isnot [array] -or $Run.problems.Count -ne 0) {
+        throw 'Baseline refresh requires a passing full-suite report.'
+    }
+    if ($Baseline) { Assert-RefreshBaseline -Baseline $Baseline }
+    $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::Ordinal)
+    $sums = @{ suites = 0L; tests = 0L; failed = 0L; errors = 0L; skipped = 0L }
+    foreach ($row in $Run.suites) {
+        if ($row -isnot [pscustomobject] -or $row.path -isnot [string] -or
+            $row.path -cnotin $ExpectedSuites -or -not $seen.Add($row.path) -or
+            $row.haveXml -isnot [bool] -or -not $row.haveXml) {
+            throw 'Baseline refresh report contains an invalid, duplicated, or XML-less suite.'
+        }
+        $counts = @{}
+        foreach ($field in @('total', 'failed', 'errors', 'skipped', 'rc')) {
+            $minimum = if ($field -ceq 'total') { 1 } else { 0 }
+            $counts[$field] = Assert-BaselineCount $row.$field "$($row.path).$field" -Minimum $minimum
+        }
+        if ($counts.rc -ne 0 -or $counts.failed -ne 0 -or $counts.errors -ne 0 -or
+            $counts.skipped -gt $counts.total) { throw "Suite '$($row.path)' did not pass." }
+        $previous = if ($Baseline) { $Baseline.suites.PSObject.Properties[$row.path] } else { $null }
+        $skipBudget = if ($previous) { $previous.Value.skipped } else { 0 }
+        if ($counts.skipped -gt $skipBudget) { throw "Suite '$($row.path)' increased its skip budget ($skipBudget -> $($counts.skipped))." }
+        if ($previous -and $counts.total -lt $previous.Value.total) { throw "Suite '$($row.path)' lost tests." }
+
+        $xmlPath = Join-Path $ResultsPath ('nunit-' + ($row.path -replace '[\\/]', '_') + '.xml')
+        $document = [xml](Get-Content -LiteralPath $xmlPath -Raw -ErrorAction Stop)
+        $xml = $document.'test-results'
+        if (-not $xml) { throw "Missing NUnit test-results in '$xmlPath'." }
+        $xmlCounts = @{}
+        foreach ($field in @('total', 'failures', 'errors', 'skipped', 'ignored', 'not-run', 'inconclusive', 'invalid')) {
+            $number = 0
+            if (-not [int]::TryParse([string]$xml.GetAttribute($field), [ref]$number) -or $number -lt 0) {
+                throw "Invalid NUnit '$field' in '$xmlPath'."
+            }
+            $xmlCounts[$field] = $number
+        }
+        $xmlSkipped = $xmlCounts.skipped + $xmlCounts.ignored + $xmlCounts.'not-run'
+        $cases = @($document.SelectNodes('//test-case'))
+        $unexecuted = @($cases | Where-Object { $_.GetAttribute('executed') -ceq 'False' })
+        $unexpected = @($cases | Where-Object {
+                -not (($_.GetAttribute('executed') -ceq 'True' -and $_.GetAttribute('result') -ceq 'Success' -and
+                    $_.GetAttribute('success') -ceq 'True') -or
+                    ($_.GetAttribute('executed') -ceq 'False' -and $_.GetAttribute('result') -cin @('Ignored', 'Skipped', 'NotRun')))
+            })
+        if ($xmlCounts.total -ne $counts.total -or $xmlCounts.failures -ne 0 -or $xmlCounts.errors -ne 0 -or
+            $xmlCounts.inconclusive -ne 0 -or $xmlCounts.invalid -ne 0 -or $xmlSkipped -ne $counts.skipped -or
+            $cases.Count -ne $counts.total -or $unexecuted.Count -ne $xmlSkipped -or $unexpected.Count -ne 0) {
+            throw "NUnit evidence does not corroborate passing suite '$($row.path)'."
+        }
+        $sums.suites++
+        $sums.tests += $counts.total
+        foreach ($field in @('failed', 'errors', 'skipped')) { $sums[$field] += $counts[$field] }
+    }
+    if ($seen.Count -ne $ExpectedSuites.Count) { throw 'Full-suite report does not cover current discovery.' }
+    if ($Baseline) {
+        foreach ($previous in $Baseline.suites.PSObject.Properties) {
+            if (-not $seen.Contains($previous.Name)) { throw "Baseline suite '$($previous.Name)' disappeared." }
+        }
+    }
+    foreach ($field in @('suites', 'tests', 'failed', 'errors', 'skipped')) {
+        if ((Assert-BaselineCount $Run.totals.$field "totals.$field") -ne $sums[$field]) {
+            throw "Report totals.$field does not match suite evidence."
+        }
+    }
+}
 
 # --- REGION: Discover the suites
 # git ls-files is the same selector tools/Invoke-Lint.ps1 uses, so both gates
@@ -181,9 +306,12 @@ if ($ListOnly) {
 
 # --- REGION: Load the baseline
 $baseline = $null
-if ((Test-Path -LiteralPath $BaselinePath) -and -not $UpdateBaseline) {
+$baselineHash = $null
+if (Test-Path -LiteralPath $BaselinePath) {
     try {
+        $baselineHash = (Get-FileHash -LiteralPath $BaselinePath -Algorithm SHA256).Hash
         $baseline = Get-Content -LiteralPath $BaselinePath -Raw | ConvertFrom-Json
+        if ($UpdateBaseline) { Assert-RefreshBaseline -Baseline $baseline }
     } catch {
         Write-Error "baseline is unreadable ($BaselinePath): $($_.Exception.Message)" -ErrorAction Continue
         exit 2
@@ -281,6 +409,7 @@ $results = @($results | Sort-Object path)
 $problems = [Collections.Generic.List[string]]::new()
 
 foreach ($r in $results) {
+    if ($r.rc -ne 0) { $problems.Add("$($r.path): suite process exited with rc=$($r.rc)") }
     if (-not $r.haveXml) {
         $problems.Add("$($r.path): produced no result file (rc=$($r.rc))$(if ($r.message) { " -- $($r.message)" })")
         continue
@@ -345,12 +474,28 @@ $run = [pscustomobject]@{
 $run | ConvertTo-Json -Depth 6 |
     Set-Content -LiteralPath (Join-Path $ResultsPath 'suite-results.json') -Encoding utf8NoBOM
 
-if ($UpdateBaseline) {
+if ($UpdateBaseline -and $problems.Count -eq 0) {
+    try {
+        $currentSuites = @(Get-SuiteFile -Root $RepoRoot -Under $Path)
+        if (@(Compare-Object $suites $currentSuites).Count -ne 0) { throw 'Suite discovery changed during the run.' }
+        $record = Get-Content -LiteralPath (Join-Path $ResultsPath 'suite-results.json') -Raw | ConvertFrom-Json
+        Assert-SuiteBaselineRefresh -Run $record -Baseline $baseline -ExpectedSuites $suites -ResultsPath $ResultsPath
+        $currentHash = if (Test-Path -LiteralPath $BaselinePath) { (Get-FileHash -LiteralPath $BaselinePath -Algorithm SHA256).Hash } else { $null }
+        if ($currentHash -cne $baselineHash) { throw 'Baseline changed during the run; refusing to overwrite it.' }
+    } catch {
+        $problems.Add("Baseline was not changed: $($_.Exception.Message)")
+        $run.problems = @($problems)
+        $run | ConvertTo-Json -Depth 6 |
+            Set-Content -LiteralPath (Join-Path $ResultsPath 'suite-results.json') -Encoding utf8NoBOM
+    }
+}
+
+if ($UpdateBaseline -and $problems.Count -eq 0) {
     $map = [ordered]@{}
     foreach ($r in $results) {
         $map[$r.path] = [ordered]@{ total = $r.total; skipped = $r.skipped; seconds = $r.seconds }
     }
-    [ordered]@{
+    $newBaseline = [ordered]@{
         schemaVersion = 1
         recordedUtc   = (Get-Date).ToUniversalTime().ToString('o')
         pesterVersion = $run.pesterVersion
@@ -359,8 +504,14 @@ if ($UpdateBaseline) {
             failed = $totals.failed; skipped = $totals.skipped
         }
         suites        = $map
-    } | ConvertTo-Json -Depth 6 |
-        Set-Content -LiteralPath $BaselinePath -Encoding utf8NoBOM
+    } | ConvertTo-Json -Depth 6
+    $temporaryBaseline = "$BaselinePath.$([guid]::NewGuid().ToString('n')).tmp"
+    try {
+        [IO.File]::WriteAllText($temporaryBaseline, $newBaseline + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
+        [IO.File]::Move($temporaryBaseline, $BaselinePath, $true)
+    } finally {
+        if (Test-Path -LiteralPath $temporaryBaseline) { Remove-Item -LiteralPath $temporaryBaseline -Force }
+    }
     Write-Information "baseline written: $BaselinePath ($($totals.suites) suites, $($totals.tests) tests)" -InformationAction Continue
 }
 

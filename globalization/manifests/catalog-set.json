@@ -1,6 +1,6 @@
 {
   "schema": "yuruna.catalog-set/v1",
-  "compilerVersion": "2026.09.12",
+  "compilerVersion": "2026.09.13",
   "catalogSchema": "yuruna.catalog/v1",
   "localeManifest": "834cf02adf1bbe4e7dc1b90919ef3fe3cc220e58c39fecbd042bef8185a885de",
   "inputs": {
@@ -181,12 +181,12 @@
     "globalization/generated/go/catalog/qpsPloc_status.go": "4bf63e6ccd6c3903a70cf1519417a0aea656ef68debdd8103cbf89b6d4278559",
     "globalization/generated/go/catalog/qpsPlocm_pool.go": "0b032b9cfd625c39cc20f206bba55dc12f0b5cb8e6ec4d4a2acd620d671cdfb3",
     "globalization/generated/go/catalog/qpsPlocm_status.go": "13772d286300d7b3c55b99905e600ca82d5f7e37cbe2d013b3d9f766bbbaf45d",
-    "globalization/generated/powershell/en-US.pool.psd1": "999efc7ae51ecbfb995b254bbb85ae65b29e329c9e2b4fca65243a15078ac37e",
-    "globalization/generated/powershell/en-US.status.psd1": "530cf88d6375dfa9625b2a120ce0dbcca038615d80edf70b495b33fc66069e86",
-    "globalization/generated/powershell/qps-Ploc.pool.psd1": "e505cf0410c6aafe0dfb887c3c0512284f809b3479bbfb7b9be7d43c6fa4961f",
-    "globalization/generated/powershell/qps-Ploc.status.psd1": "61c834c382af65a547bcd1a593096adddc273a71ce808146f11fc8b6b7182b54",
-    "globalization/generated/powershell/qps-Plocm.pool.psd1": "51a48645932663e6f26664a157075163c08974664da5d611ec311dce372936e0",
-    "globalization/generated/powershell/qps-Plocm.status.psd1": "cb2cbbe3f95191c27d0ac25e0381fe84f0683a89054c72c99933836942a5c4ec",
+    "globalization/generated/powershell/en-US.pool.psd1": "50121b1f01458757ae7a2c1df1b8e718bcf39eaf8ea3823ebcf263b3bdd9207e",
+    "globalization/generated/powershell/en-US.status.psd1": "fe792892fcf4da8034cb72d347b72dabcf312c761ef5786a22afb3c097f14e1b",
+    "globalization/generated/powershell/qps-Ploc.pool.psd1": "a273a2dd30842c9e52eb0b5f216a1d9fb548ec325f60afd71f431aedc149826a",
+    "globalization/generated/powershell/qps-Ploc.status.psd1": "6a0a158c4910c4b0be6a3d08d21a7ab12a7826b282b9f7d4fad06cc1eb01cea5",
+    "globalization/generated/powershell/qps-Plocm.pool.psd1": "fe1a06f1fee51976bc90bb620d46547bb1bfd66e45c0f53f425e8c64faaa44a1",
+    "globalization/generated/powershell/qps-Plocm.status.psd1": "fe4a7cedae36593825608e6d2f17c6c96c6bf2345b21a2e287a472f800a87b3a",
     "globalization/manifests/inventory.json": "c7a31ed891273c8bbf5be649a171f4841cc7e8a79edd8d3e76d5044a83032ff3"
   },
   "artifactBytes": {

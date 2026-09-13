@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.12
+.VERSION 2026.09.13
 .GUID 424bcbb1-3cf7-435e-a14d-52551096340a
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -111,7 +111,7 @@ $VersionPath    = Join-Path $Root 'VERSION'
 # The calendar version shape a release stamps, including the optional fourth
 # component a patch release adds. A word boundary must never guard it: \b
 # matches between the last digit and the following dot, so a \b-guarded
-# 2026.09.12 also fires inside the patch tag 2026.09.12.1 and rewrites half of
+# 2026.09.13 also fires inside the patch tag 2026.09.13.1 and rewrites half of
 # it. Both patterns below consume the whole version instead, so a longer one
 # cannot be partially matched.
 $script:CalVer = '\d{4}\.\d{2}\.\d{2}(?:\.\d+)?'
@@ -692,17 +692,29 @@ if ($Update -and $declineCount -eq 0) {
 
 # --- REGION: Summary
 $total = $advanceCount + $refuseCount + $declineCount + $currentCount
-$verb = if ($Update) { 'advanced' } else { 'advanceable' }
 Write-Output ''
-Write-Output ("Update-VersionDerivedPin [{0}]: {1} pin(s), {2} {3}, {4} refused, {5} declined, {6} current." -f
-    $NewVersion, $total, $advanceCount, $verb, $refuseCount, $declineCount, $currentCount)
+Write-Output ("Update-VersionDerivedPin [{0}]: {1} pin(s), {2} advanceable, {3} refused, {4} declined, {5} current." -f
+    $NewVersion, $total, $advanceCount, $refuseCount, $declineCount, $currentCount)
+if ($Update) {
+    # Eligibility is not a write: a coupled refusal, declined confirmation or
+    # WhatIf can leave a proven pin unchanged. Count only read-back-verified writes.
+    $advancedCount = 0
+    if ($wrote.Contains('globalization/terminology/pt-BR.terms.json')) { $advancedCount++ }
+    if ($wrote.Contains('globalization/terminology/pt-BR.style-guide.json')) { $advancedCount++ }
+    if ($wrote.Contains('globalization/manifests/doc-translations.json')) { $advancedCount += $report.Count }
+    Write-Output ("Advanced {0} pin(s) after verified writes." -f $advancedCount)
+}
 
 if ($declineCount -gt 0) {
     Write-Output 'Nothing was written: a pin records bytes that are in no commit, so it cannot be proved either way.'
     exit 2
 }
 if (-not $Update) {
-    if ($advanceCount -gt 0) { Write-Output 'Nothing was written. Rerun with -Update to advance the pins the proof accepts.' }
+    if ($report.Count -gt 0 -or $repinStyleGuide) {
+        Write-Output 'Nothing was written. Rerun with -Update to advance the pins the proof accepts.'
+    } elseif ($advanceCount -gt 0) {
+        Write-Output 'Nothing was written. Resolve the refused terminology dependency before its coupled pins can advance.'
+    }
 } elseif ($wrote.Count -gt 0) {
     Write-Output ("Wrote: {0}" -f ($wrote -join ', '))
 }

@@ -8,7 +8,7 @@
   "totals": {
     "domains": 16,
     "files": 396,
-    "candidates": 9300,
+    "candidates": 9306,
     "fragments": 2045,
     "catalogCalls": 18,
     "pages": 17,
@@ -60,7 +60,7 @@
       "repository": "yuruna",
       "present": true,
       "files": 3,
-      "candidates": 116,
+      "candidates": 120,
       "fragments": 54,
       "catalogCalls": 1,
       "pages": 5,
@@ -69,7 +69,7 @@
       "topFiles": [
         {
           "file": "test/status/yuruna.common.js",
-          "candidates": 116
+          "candidates": 120
         }
       ]
     },
@@ -146,7 +146,7 @@
       "repository": "yuruna",
       "present": true,
       "files": 30,
-      "candidates": 255,
+      "candidates": 256,
       "fragments": 23,
       "catalogCalls": 0,
       "pages": 3,
@@ -274,7 +274,7 @@
       "repository": "yuruna",
       "present": true,
       "files": 12,
-      "candidates": 89,
+      "candidates": 90,
       "fragments": 7,
       "catalogCalls": 0,
       "pages": 0,
@@ -291,7 +291,7 @@
         },
         {
           "file": "test/extension/extension-sdk/webui/assets/yuruna.core.js",
-          "candidates": 13
+          "candidates": 14
         },
         {
           "file": "test/extension/extension-sdk/mcp/mcp.go",

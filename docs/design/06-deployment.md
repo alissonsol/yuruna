@@ -1,209 +1,145 @@
 # Deployment topology
 
-These views place the implemented processes, service VMs, storage, and deployment targets on their network nodes.
+These network views show where runners, guests, services, shared storage, and application targets execute when their supported integrations are configured.
 
-This is the configured lab topology supported by the source, not a claim that
-every standalone installation starts every service. The
-[setup entry point](../../install/setup.ps1) chooses the service set, and the
-[service extension metadata](../../test/extension) records health ports and
-placement. Optional integrations below use dashed edges.
+The [canonical architecture](../architecture.md) defines the capabilities; this topology separates network placement from the [component breakdown](02-component-breakdown.md). It is a code-derived supported layout, not a live inventory of a particular lab.
 
-## Network nodes
+## Network overview
 
 ```mermaid
 flowchart TB
-    subgraph operator["Operator host"]
-        test-status["Browser"]
+    subgraph operator-host["Operator host"]
     end
-    subgraph host["Hypervisor hosts"]
-        start-test-runner["Runner, provider, services"]
+    subgraph runner-host["Hypervisor hosts"]
     end
-    subgraph guest["Workload guest VMs"]
-        guest-workload["Guest workload"]
+    subgraph guest["Test guest VMs"]
     end
-    subgraph caching-proxy-service-vm["Caching-proxy VM"]
-        caching-proxy-service["Cache and telemetry"]
+    subgraph caching-proxy-service["Caching proxy VM"]
     end
-    subgraph test-extension["Extension service VMs"]
-        subgraph stash-service-vm["Stash VM"]
-            stash-service["Stash service"]
-        end
-        subgraph pool-control-service-vm["Pool-control VM"]
-            pool-control-service["Pool-control service"]
-        end
-        subgraph download-agent-service-vm["Download-agent VM"]
-            download-agent-service["Download-agent service"]
-        end
+    subgraph service-vms["Extension service VMs"]
     end
-    subgraph network-storage["Storage nodes"]
-        pool-storage["Pool share"]
-        stash-storage["Stash share"]
+    subgraph yuruna-pool["Shared storage"]
     end
-    subgraph global-resources["External targets"]
-        kubernetes["Kubernetes and registry"]
-        origin["Git and publishers"]
+    subgraph deployment-targets["Application targets"]
     end
-    test-status -->|status HTTP 8080| start-test-runner
-    test-status -->|Grafana HTTP 3000| caching-proxy-service
-    test-status -->|HTTP 80| pool-control-service
-    start-test-runner -->|hypervisor API| guest-workload
-    start-test-runner -->|telemetry 9400| caching-proxy-service
-    guest-workload -->|proxy or OCI| caching-proxy-service
-    start-test-runner -->|image API 80| download-agent-service
-    guest-workload -->|SCP or SFTP 22| stash-service
-    caching-proxy-service -->|SMB| pool-storage
-    pool-control-service -->|SMB| pool-storage
-    download-agent-service -->|SMB| pool-storage
-    stash-service -->|SMB| stash-storage
-    start-test-runner -->|SMB| pool-storage
-    caching-proxy-service -->|fetch| origin
-    download-agent-service -->|bulk bytes| caching-proxy-service
-    download-agent-service -->|probe or fallback| origin
-    %% optional: project configuration selects the deployment target
-    guest-workload -.->|deploy and push| kubernetes
+    operator-host -->|CLI and status| runner-host
+    runner-host -->|Provider control| guest
+    operator-host -->|HTTP dashboards| caching-proxy-service
+    operator-host -->|HTTP interfaces| service-vms
+    runner-host -->|HTTP image acquisition| service-vms
+    caching-proxy-service -->|Status polling| runner-host
+    guest -->|HTTP OCI downloads| caching-proxy-service
+    guest -->|Deployment APIs| deployment-targets
+    runner-host -->|SMB cycle archives| yuruna-pool
+    service-vms -->|SMB service data| yuruna-pool
+    service-vms -->|Presence announcements| caching-proxy-service
 ```
 
-There are seven top-level groups. The extension aggregate contains three
-separate network nodes, not three daemons required to share one VM. The storage
-group represents two independently configured shares, which may be hosted on
-the same NAS or on a local lab machine. Kubernetes and its registry are grouped
-as deployment destinations; they can run inside the workload guest for
-`localhost` or in AWS/Azure. The operator and hypervisor roles can also share a
-physical machine.
+Seven empty subgraphs are intentionally aggregate network boxes. `Extension service VMs` comprises the pool-control, download-agent, and stash VMs; `Shared storage` comprises independently configured pool and stash shares. `Application targets` comprises Kubernetes, its supporting cloud resources, and registries. The following views expand these aggregates without exceeding seven visible boxes, including group boundaries.
 
-Sources: the [host contract](../../host/Yuruna.Host.Contract.psm1), the
-[guest workload wrapper](https://github.com/alissonsol/yuruna-project/blob/main/example/website/test/ubuntu.server.26/ubuntu.server.26.workload.k8s.website.sh),
-[Start-CachingProxyServiceVM.ps1](../../test/service/Start-CachingProxyServiceVM.ps1),
-[Start-StashServiceVM.ps1](../../test/service/Start-StashServiceVM.ps1),
-[Start-PoolControlServiceVM.ps1](../../test/service/Start-PoolControlServiceVM.ps1),
-[Start-DownloadAgentServiceVM.ps1](../../test/service/Start-DownloadAgentServiceVM.ps1),
-[Test.PoolStorage.psm1](../../test/modules/Test.PoolStorage.psm1), and
-[global/resources](../../global/resources). Host image consumption is implemented
-in [Yuruna.DownloadAgent.psm1](../../host/modules/Yuruna.DownloadAgent.psm1);
-[pool storage data flows](03-data-flows.md) expand what persists on each share.
+The [runner](../../test/Start-TestRunner.ps1), [caching service launcher](../../test/service/Start-CachingProxyServiceVM.ps1), [pool-control launcher](../../test/service/Start-PoolControlServiceVM.ps1), [download-agent launcher](../../test/service/Start-DownloadAgentServiceVM.ps1), and [stash launcher](../../test/service/Start-StashServiceVM.ps1) establish these roles. Service VMs are long-lived auxiliaries, not the short-lived guests created and deleted by a test cycle. An operator can run the CLI on the hypervisor itself; a separate operator box does not imply a mandatory remote-execution service.
 
-## Host processes and bootstrap
+## Hypervisor and guest boundary
 
 ```mermaid
 flowchart LR
-    subgraph host["Hypervisor host"]
-        start-test-runner["Outer runner"]
-        invoke-test-cycle-runner["Cycle supervisor"]
-        invoke-test-runner-inner-loop["Inner runner"]
+    subgraph operator-host["Operator host"]
+    end
+    subgraph runner-host["Hypervisor host"]
+        start-test-runner["Test runner"]
         yuruna-host["Host provider"]
         start-status-service["Status service"]
-        start-config-service["Config service"]
-        test-yuruna-dir["Runtime and logs"]
     end
-    subgraph guest["Workload guest VM"]
-        guest-workload["Guest workload"]
+    subgraph guest["Guest VM"]
     end
-    subgraph caching-proxy-service-vm["Caching-proxy VM"]
-        caching-proxy-bootstrap["Cache bootstrap"]
-    end
-    start-test-runner -->|fresh pwsh| invoke-test-cycle-runner
-    invoke-test-cycle-runner -->|fresh pwsh| invoke-test-runner-inner-loop
-    invoke-test-runner-inner-loop --> yuruna-host
-    yuruna-host -->|VM and console| guest-workload
-    invoke-test-runner-inner-loop -->|write| test-yuruna-dir
-    start-status-service -->|read and control| test-yuruna-dir
-    %% optional: config service is started by the caching-proxy VM launcher
-    caching-proxy-bootstrap -.->|mTLS 8443| start-config-service
+    operator-host -->|HTTP 8080 default| start-status-service
+    start-test-runner -->|Local dispatch| yuruna-host
+    start-test-runner -->|Status and artifacts| start-status-service
+    yuruna-host -->|Console and lifecycle| guest
+    start-test-runner -->|Sequence SSH actions| guest
+    guest -->|Archives and uploads| start-status-service
 ```
 
-This view has seven host children and one child per guest node. The provider is one of
-[Hyper-V](../../host/windows.hyper-v/modules/Yuruna.Host.psm1),
-[UTM](../../host/macos.utm/modules/Yuruna.Host.psm1), or
-[KVM](../../host/ubuntu.kvm/modules/Yuruna.Host.psm1).
-[Start-TestRunner.ps1](../../test/Start-TestRunner.ps1),
-[Invoke-TestCycleRunner.ps1](../../test/modules/Invoke-TestCycleRunner.ps1), and
-[Invoke-TestRunnerInnerLoop.ps1](../../test/modules/Invoke-TestRunnerInnerLoop.ps1)
-are separate processes: the resident launcher starts a fresh cycle supervisor,
-which reloads cycle logic and starts the inner runner.
-[Start-StatusService.ps1](../../test/service/Start-StatusService.ps1) serves host
-pages, live state, artifacts and control routes; it is not in the caching-proxy
-VM. [Start-ConfigService.ps1](../../test/service/Start-ConfigService.ps1) supplies
-bootstrap credentials over mTLS when started by the caching-proxy VM launcher.
-It is not started on every runner host: the client shown is the
-[caching-proxy seed](../../host/vmconfig/caching-proxy-service.base.user-data),
-which fetches NAS credentials, not a generic workload guest.
-[Test.YurunaDir.psm1](../../test/modules/Test.YurunaDir.psm1) resolves runtime and
-log paths. [Test.ConfigServiceCA.psm1](../../test/modules/Test.ConfigServiceCA.psm1)
-and [Test.ConfigServiceSync.psm1](../../test/modules/Test.ConfigServiceSync.psm1)
-implement certificate and configuration handling.
+Six visible boxes represent three network groupings and three host processes/modules. The status server reads local status/artifact files and serves committed repository archives to guests; the runner is a file producer, not an HTTP client for each status update. Console capture/OCR runs on the host. Sequence SSH actions use [Test.Ssh.psm1](../../test/modules/Test.Ssh.psm1) directly, with provider discovery available for the guest address. See [Start-StatusService.ps1](../../test/service/Start-StatusService.ps1), [Test.Status.psm1](../../test/modules/Test.Status.psm1), and [Test.SequenceEngine.psm1](../../test/modules/Test.SequenceEngine.psm1).
 
-Console control is host-provider I/O; it should not be mistaken for a guest
-HTTP API. [Test.Transport.psm1](../../test/modules/Test.Transport.psm1) also
-supports an SSH lane where the sequence selects it.
+The real providers are [windows.hyper-v](../../host/windows.hyper-v/), [ubuntu.kvm](../../host/ubuntu.kvm/), and [macos.utm](../../host/macos.utm/). Their supported guest/provider combinations differ; this box does not assert a complete cross-product. Hyper-V/KVM networking and UTM bridged/shared networking select guest-reachable addresses. Shared/NAT paths can require host forwarding; [Start-CachingProxyServiceForwarder.ps1](../../host/macos.utm/Start-CachingProxyServiceForwarder.ps1) is the UTM implementation, and the status launcher reconciles platform-specific forwarding. Fixed example IP addresses are not part of this topology.
 
-## Processes in the caching-proxy VM
+## Caching VM services
+
+```mermaid
+flowchart TB
+    subgraph caching-proxy-service-vm["Caching proxy VM"]
+        squid["Squid 3128 3129"]
+        zot["zot 5000"]
+        apache["Apache 80"]
+        caching-proxy-service["Proxy management 9310"]
+        pool-aggregator-service["Pool aggregator 9400"]
+        monitoring["Monitoring stack"]
+        apache -->|Landing page proxy| caching-proxy-service
+        caching-proxy-service -->|Manager and switches| squid
+        monitoring -->|Metrics| squid
+        monitoring -->|Metrics| zot
+        monitoring -->|Pool metrics| pool-aggregator-service
+        pool-aggregator-service -->|Event ingestion| monitoring
+    end
+```
+
+The group plus six children is seven visible boxes. `Monitoring stack` aggregates Grafana, Prometheus, Loki, log shipping, and exporters configured in the [caching VM seed](../../host/vmconfig/caching-proxy-service.base.user-data). Grafana defaults to port 3000; Prometheus and Loki are configured as local backends. Apache serves bootstrap material, the service landing route, and the configured pool-intent Git read path. These are distinct from Squid HTTP caching and zot OCI caching.
+
+The [proxy daemon](../../test/extension/caching-proxy-service/main.go) supplies management and landing behavior. The [pool aggregator](../../test/extension/pool-aggregator-service/main.go) discovers/polls host status services, receives extension announcements, publishes pool metrics, and forwards events to Loki. Its port can accept configured TLS alongside plain HTTP; do not infer universal TLS from the presence of a proxy CA. Management mutations have their own token/proof gates; a trusted-LAN read route does not authorize a write.
+
+Squid and zot byte caches remain on the caching VM. Optional monitoring replication uses `hosts/<hostId>/services/caching-proxy-service/` on pool storage; configuring a share does not automatically make every service's local database or cache durable.
+
+## Extension VMs and storage boundaries
 
 ```mermaid
 flowchart LR
-    subgraph caching-proxy-service-vm["Caching-proxy VM"]
-        squid["Squid"]
-        zot["zot"]
-        caching-proxy-service["Cache control and parser"]
-        pool-aggregator-service["Pool-aggregator service"]
-        prometheus["Prometheus"]
-        loki["Loki"]
-        grafana["Grafana"]
+    subgraph pool-control-service["Pool control VM"]
     end
-    squid -->|access log| caching-proxy-service
-    squid -->|client discovery| pool-aggregator-service
-    zot -->|metrics scrape| prometheus
-    pool-aggregator-service -->|metrics scrape| prometheus
-    pool-aggregator-service -->|events| loki
-    grafana -->|query| prometheus
-    grafana -->|query| loki
+    subgraph download-agent-service["Download agent VM"]
+    end
+    subgraph stash-service["Stash VM"]
+    end
+    subgraph yuruna-pool["Pool share"]
+    end
+    subgraph stash-share["Stash share"]
+    end
+    pool-control-service -->|Intent and audit| yuruna-pool
+    download-agent-service -->|Images and audit| yuruna-pool
+    stash-service -->|Artifacts and hostkey| stash-share
 ```
 
-The seven children are defined by
-[caching-proxy-service.base.user-data](../../host/vmconfig/caching-proxy-service.base.user-data),
-the [cache control source](../../test/extension/caching-proxy-service/main.go),
-the [parser source](../../test/extension/caching-proxy-parser-service), and
-[pool-aggregator-service/main.go](../../test/extension/pool-aggregator-service/main.go).
-Cache control and parser aggregate two cooperating processes: the caching-proxy
-service on `9310` queries the parser's recent-request endpoint on `9302`.
-Grafana's request panel reads Loki, not that parser endpoint.
-The `metrics scrape` arrows show data direction; Prometheus initiates those
-scrapes. The aggregator discovers/polls hosts, accepts telemetry pushes, tracks
-extension announcements and serves pool APIs; it does not own the pool intent
-Git repository. Apache landing pages, Git-over-HTTP serving, promtail and
-exporters are supporting processes in the same seed, omitted to retain seven
-children.
+Five network boxes preserve the separate storage contracts. The shares can be co-located, but their configuration is independent. Each service VM exposes its UI/API on port 80 by default and announces its extension area to the pool aggregator. Stash additionally accepts SCP/SFTP on port 22. The service VM operating system is provisioned through the Ubuntu service-guest definitions, rather than being hosted inside the operator's browser or the pool aggregator.
 
-Prometheus (`127.0.0.1:9090`) and Loki (`127.0.0.1:3100`) are loopback services;
-operators reach their data through Grafana. The aggregator's `9400` listener
-can serve TLS and plain HTTP when provisioned with a certificate; its sensitive
-routes apply their own gates. This does not make every service endpoint TLS.
+The [pool-control guest setup](../../guest/ubuntu.server.26/ubuntu.server.26.pool-control-service.sh) mounts the pool, selects `pool-control-service/` for audit/status, and uses `pool-intent.git` unless another intent URL is configured. Its [intent adapter](../../test/extension/pool-control-service/server/internal/intent/intent.go) invokes the existing PowerShell pool-admin commands.
 
-## Endpoints and storage boundaries
+The [download-agent guest setup](../../guest/ubuntu.server.26/ubuntu.server.26.download-agent-service.sh) mounts the pool and separates image generations under `images/` from operational state under `download-agent-service/`. Hosts fetch bytes over the agent's HTTP routes; they do not have to mount the image pool themselves. A missing pool mount yields unavailable image service behavior, not successful writes into a shadow local mount directory.
 
-| Network endpoint | Implemented purpose and source |
-| --- | --- |
-| Host `8080` | Host pages, status, logs and controls; configurable in [Start-StatusService.ps1](../../test/service/Start-StatusService.ps1). |
-| Host `8443` | mTLS bootstrap configuration; configurable in [Start-ConfigService.ps1](../../test/service/Start-ConfigService.ps1). |
-| Cache VM `3128 / 3129` | Squid HTTP/CONNECT and CA-trusted HTTPS interception, respectively; [seed](../../host/vmconfig/caching-proxy-service.base.user-data). |
-| Cache VM `80 / 3000 / 5000 / 9400` | Landing/Git HTTP, Grafana, zot OCI pull-through, and pool aggregation; [seed](../../host/vmconfig/caching-proxy-service.base.user-data) and [aggregator](../../test/extension/pool-aggregator-service/main.go). |
-| Stash VM `22 / 80` | SCP/SFTP ingest and HTTP UI/API; [stash configuration](../../test/extension/stash-service/server/internal/config/config.go). |
-| Pool-control and download-agent VMs `80` | Each VM has its own UI/API; [pool-control configuration](../../test/extension/pool-control-service/server/internal/config/config.go), [download-agent configuration](../../test/extension/download-agent-service/server/internal/config/config.go). |
-| Storage `SMB/CIFS` | Pool metadata, images and archived cycles are separate from stash artifacts; [Test.PoolStorage.psm1](../../test/modules/Test.PoolStorage.psm1). |
+The [stash guest setup](../../guest/ubuntu.server.26/ubuntu.server.26.stash-service.sh) places host keys and artifacts on its stash share. The [stash store](../../test/extension/stash-service/server/internal/store/store.go) and [constants](../../test/extension/stash-service/server/internal/config/config.go) keep SQLite metadata and the outage buffer on VM-local disk. A configured share outage triggers bounded buffering; an unconfigured stash share can use the explicit local-share fallback. Neither case routes uploads through Squid. File-level layouts and retention handoffs appear in [Pool storage contents](03-data-flows.md#e-pool-storage-contents).
 
-For shared-NAT service VMs, the launchers map host `8081 → 80` for pool control,
-`8082 → 80` for downloads and `2222 → 22` for stash ingest. These are host
-forwarders, not the daemons' listen ports; use the discovered/advertised URL,
-not an assumed guest IP. Bridged guests can be addressed directly. The
-launchers cited above own forwarding and refresh it when guest addresses change.
+## Application deployment targets
 
-Storage placement is not interchangeable: the download agent writes pool image
-generations; pool control commits intent; the stash keeps artifacts and sidecars
-on the stash share but its SQLite index/offline buffer on the VM's local disk.
-The [stash store](../../test/extension/stash-service/server/internal/store/store.go)
-and [download image store](../../test/extension/download-agent-service/server/internal/imagestore/store.go)
-implement these distinctions. Local telemetry disks are not made durable merely
-by configuring a pool share; the seed and individual service settings determine
-what survives a VM rebuild.
+```mermaid
+flowchart LR
+    subgraph automation-host["Operator or guest"]
+        automation["Deployment commands"]
+    end
+    subgraph kubernetes-target["Target infrastructure"]
+        cloud-api["Provisioning APIs"]
+        kubernetes["Kubernetes cluster"]
+    end
+    subgraph registry-host["Registry host"]
+        registry["Application registry"]
+    end
+    automation -->|OpenTofu| cloud-api
+    automation -->|Docker push| registry
+    automation -->|Helm kubectl| kubernetes
+    kubernetes -->|Workload image pulls| registry
+```
+
+Three groups plus four nodes are seven visible boxes. The commands can run on the operator's machine or inside a test guest. The diagram distinguishes the application image registry from zot's upstream pull-through cache; a localhost deployment can place its cluster and registry inside the same guest.
+
+Sources: [Yuruna.Resource.psm1](../../automation/Yuruna.Resource.psm1), [Yuruna.Component.psm1](../../automation/Yuruna.Component.psm1), [Yuruna.Workload.psm1](../../automation/Yuruna.Workload.psm1), [global resources](../../global/resources/), and the project's [website configurations](https://github.com/alissonsol/yuruna-project/tree/main/example/website/config). Localhost, AWS, and Azure have implemented resource paths. GCP remains planned and is intentionally not depicted as a deployed target. Cloud endpoints and external registries are external dependencies; drawing their API boundary does not imply that Yuruna implements those services.
 
 ---
 

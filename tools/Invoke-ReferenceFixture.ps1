@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.12
+.VERSION 2026.09.13
 .GUID 4213717a-c9d8-4963-a773-bbe6c4201235
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -41,6 +41,8 @@
     accident rather than content.
 .PARAMETER Root
     The framework repository root. Defaults to the parent of this script.
+.PARAMETER ProjectRoot
+    The paired project checkout. Defaults to the sibling yuruna-project.
 .PARAMETER Id
     Limit the run to these row identifiers. Every row runs by default.
 .PARAMETER Update
@@ -68,13 +70,16 @@ param(
     [string[]]$Id,
     [switch]$Update,
     [string]$FixtureRoot,
-    [switch]$Quiet
+    [switch]$Quiet,
+    [string]$ProjectRoot
 )
 
 $ErrorActionPreference = 'Stop'
 
 if (-not $Root) { $Root = Split-Path -Parent $PSScriptRoot }
 $Root = [IO.Path]::GetFullPath($Root)
+if (-not $ProjectRoot) { $ProjectRoot = Join-Path (Split-Path -Parent $Root) 'yuruna-project' }
+$ProjectRoot = [IO.Path]::GetFullPath($ProjectRoot)
 if (-not $FixtureRoot) { $FixtureRoot = Join-Path $Root 'globalization/fixtures/reference' }
 $FixtureRoot = [IO.Path]::GetFullPath($FixtureRoot)
 
@@ -322,7 +327,7 @@ try {
     $context = @{
         emptyRoot = $emptyRoot
         manifestCopy = $manifestCopy
-        projectRoot = Join-Path (Split-Path -Parent $Root) 'yuruna-project'
+        projectRoot = $ProjectRoot
         generatedPages = $generated
     }
     # Longest first is handled inside the normalizer; these are the roots whose

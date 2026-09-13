@@ -411,6 +411,7 @@
     ]);
   }
 
+  var primaryLoaded = false;
   function render() {
     var body = document.getElementById('host-rows');
     if (Y.holdRepaint(body, render)) { return; }
@@ -421,6 +422,9 @@
     for (var i = 0; i < ordered.length; i++) { body.appendChild(rowEl(ordered[i], i + 1)); }
     var unlock = document.getElementById('show-hostnames');
     if (unlock) { unlock.hidden = hostnamesVisible; }
+    if (primaryLoaded) {
+      window.YurunaFirstUsable.mark('test/extension/pool-control-service/server/internal/httpsrv/web/hosts.html', hosts.length ? 'data' : 'empty');
+    }
   }
 
   // The header cells carry the sort key; the buttons inside them are what the
@@ -462,10 +466,11 @@
   // other read replaces the table, so it says so: this one fans out to every
   // host in the lab and a silent machine holds it up for seconds.
   function load(opts) {
+    window.YurunaFirstUsable.hold('primary');
     var quiet = !!(opts && opts.quiet);
     var done = quiet ? function () { } : Y.busy(document.getElementById('host-rows'), 'Loading hosts...');
     chrome.busy(true);
-    var finish = function () { done(); chrome.busy(false); };
+    var finish = function () { done(); chrome.busy(false); window.YurunaFirstUsable.release('primary'); };
     // The hostname column turns on a session, and arriving from the dashboard
     // brings one in the URL fragment -- so wait for that exchange to settle
     // rather than fetching first and rendering a locked table to an operator
@@ -483,6 +488,7 @@
       targetPoolId = d.targetPoolId || '';
       hosts = d.hosts || [];
       hostnamesVisible = !!d.hostnamesVisible;
+      primaryLoaded = true;
       render();
       if (d.statusError) {
         Y.notice('warn', 'Aggregator unavailable (' + Y.bidiIsolate(d.statusError) + '); control state is unknown. Moving hosts still works.');
@@ -491,6 +497,7 @@
       }
     }, function (e) {
       Y.notice('error', e.message);
+      window.YurunaFirstUsable.mark('test/extension/pool-control-service/server/internal/httpsrv/web/hosts.html', 'error');
     }).then(finish, finish);
   }
 

@@ -6,7 +6,7 @@
       "source": "docs/authentication.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/authentication.md",
-      "sourceHash": "ea82e0b1165d6d2d050f1cd0feffc77b06544410b0e948197cb0ac83c8d2410e",
+      "sourceHash": "02af674e0012fd4edddbe2230df81370911e64dad3e1c9a69eb86cf30e43460d",
       "status": "reviewed"
     },
     {
@@ -14,7 +14,7 @@
       "source": "docs/install.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/install.md",
-      "sourceHash": "fcc42725a1ed79553590a0549ba3d5edeaec107fcb9d0ff4135d3554d1596624",
+      "sourceHash": "e24617cfc660ac0007adeabc344dfef6bb398151c959595adb34787204a97946",
       "status": "reviewed"
     },
     {
@@ -22,7 +22,7 @@
       "source": "docs/kubernetes.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/kubernetes.md",
-      "sourceHash": "f4e83ce9f74a51eb66893fbc1019b695d8c7628e23b552f77bc1dd4f99d60851",
+      "sourceHash": "e5f6a21e3d654efc636af665e2a149c4e342730f1b053365339c4cf3060cd156",
       "status": "reviewed"
     },
     {
@@ -30,7 +30,7 @@
       "source": "docs/lab-operator.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/lab-operator.md",
-      "sourceHash": "7567f5b6d4e9e47f3d279f326978811eeeb72c345886ca4a9fe0203afb778286",
+      "sourceHash": "a731c6023fdbbe0bde7564b8d96f4b111a5b2134ef7f3b2b405d396d1c7d79a9",
       "status": "reviewed"
     },
     {
@@ -38,7 +38,7 @@
       "source": "docs/operator.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/operator.md",
-      "sourceHash": "077a4f0fd5597684505286e0fd6ecfacb0a0c61cdcde5b2c02cbab943a767f71",
+      "sourceHash": "9cb609b6b2d08446310a1baa242c1daf3f2200cf485cef42908e500a3f6a12cb",
       "status": "reviewed"
     },
     {
@@ -46,7 +46,7 @@
       "source": "docs/workarounds.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/workarounds.md",
-      "sourceHash": "70e31b2ef5099c08f9bac0de0dedcc307ed98fa27523004e4631663ba09af959",
+      "sourceHash": "cf3d6f53e9dda75f2a097e69b6b55a4d2f07750b678f8c529bc09c43d9aeab71",
       "status": "reviewed"
     },
     {
@@ -54,7 +54,7 @@
       "source": "install/README.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/install/README.md",
-      "sourceHash": "cd89b574a5a2668ec19d472ee6be375ee05e43c7d0ba1f638986b5afe5a89ecd",
+      "sourceHash": "306ef1ad5ff8382255b6844a1554eb1eca712342b51e29432ffe49cc761707bb",
       "status": "reviewed"
     },
     {
@@ -62,7 +62,7 @@
       "source": "README.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/README.md",
-      "sourceHash": "2def6f43568c7b0be5e1052b759daf744bf42ab82f56ae06371c53382cf7ecf6",
+      "sourceHash": "b19b15388550637c388e7979bf175ae3ef8cc8a1d2c0d1750d2a98edb7e1980b",
       "status": "reviewed"
     },
     {
@@ -70,7 +70,7 @@
       "source": "example/README.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/example/README.md",
-      "sourceHash": "79ebeecebdad087a341b438f580108228405b874813b3ab0691485dd215ed542",
+      "sourceHash": "49b689c7345806dd58a39ae72c47ad4050039e33d68d6b1029243247501a3ab9",
       "status": "reviewed"
     },
     {
@@ -78,7 +78,7 @@
       "source": "example/text-to-sql/README.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/example/text-to-sql/README.md",
-      "sourceHash": "5cb941161988ee18bf71f37e1194508edb66cc1f55617a3d3143af595f3519d4",
+      "sourceHash": "895b05d887d86444a517a8a5b2c4b4143582779527fa123e944fa76c0beac742",
       "status": "reviewed"
     },
     {
@@ -86,7 +86,7 @@
       "source": "example/website/README.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/example/website/README.md",
-      "sourceHash": "81d5f034b89bedf6acfb0115a1b84e0895b3e74022b72d3a087df56140a31815",
+      "sourceHash": "65592adef674da98a2a9d3f0fd8b483085fc4977ccfa1a6de3cd330e240a1897",
       "status": "reviewed"
     },
     {
@@ -94,7 +94,7 @@
       "source": "README.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/README.md",
-      "sourceHash": "b12a29aac5dc7440d31790eedc4349e016842e92943614153082a872ccc8683c",
+      "sourceHash": "3b0710c4ad9ab5ad5059a246019ddd7838fe0703a88d1d417b78584d0ff20592",
       "status": "reviewed"
     },
     {
@@ -102,7 +102,7 @@
       "source": "template/README.md",
       "locale": "pt-BR",
       "translated": "docs/pt-BR/template/README.md",
-      "sourceHash": "66a61a8b10f70cb0e594167eae888433c8674650eefd71b4dde8411956f141a7",
+      "sourceHash": "3ca4e61c70895a972ca85bb10a2a01038bb5b373120c70b633c259db5adb0dcc",
       "status": "reviewed"
     }
   ]

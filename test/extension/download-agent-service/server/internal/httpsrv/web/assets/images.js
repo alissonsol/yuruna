@@ -355,6 +355,7 @@
   // renderRows redraws the body from the last catalog. Every path that changes
   // what the table shows goes through here, which is why a poll landing between
   // two clicks cannot drop the chosen order.
+  var primaryLoaded = false;
   function renderRows() {
     var body = document.getElementById('image-rows');
     if (Y.holdRepaint(body, renderRows)) { return; }
@@ -362,6 +363,9 @@
     var rows = sort ? YSort.sort(lastImages, sort.col, sort.dir) : lastImages;
     for (var i = 0; i < rows.length; i++) { body.appendChild(rowEl(rows[i], i + 1)); }
     document.getElementById('empty').hidden = lastImages.length > 0;
+    if (primaryLoaded) {
+      window.YurunaFirstUsable.mark('test/extension/download-agent-service/server/internal/httpsrv/web/index.html', lastImages.length ? 'data' : 'empty');
+    }
   }
 
   // --- REGION: Session
@@ -409,10 +413,12 @@
   var chrome = Y.initChrome({ intervalSeconds: 60, refresh: load, refreshOnVisible: false });
 
   function load() {
+    window.YurunaFirstUsable.hold('primary');
     return Promise.all([Y.api('/api/v1/status'), Y.api('/api/v1/images')]).then(function (both) {
       var cat = both[1];
       renderStatus(both[0]);
       lastImages = cat.images || [];
+      primaryLoaded = true;
       renderRows();
       renderTotals(cat.totals || {});
       document.getElementById('as-of').textContent = 'as of ' + Y.stamp(cat.asOfUtc);
@@ -424,6 +430,9 @@
       }
     }, function (e) {
       Y.notice('error', e.message);
+      window.YurunaFirstUsable.mark('test/extension/download-agent-service/server/internal/httpsrv/web/index.html', 'error');
+    }).then(function () {
+      window.YurunaFirstUsable.release('primary');
     });
   }
 

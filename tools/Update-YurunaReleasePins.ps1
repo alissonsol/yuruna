@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.12
+.VERSION 2026.09.13
 .GUID 428d9261-f6c4-49d0-94e9-7a19661cc048
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -47,8 +47,9 @@
 
 .PARAMETER PrivateKeyPath
     Path to the release RSA private key (PEM). Read only at release time from a
-    location the release owner supplies; never stored in the repo. Omit with
-    -SkipSign to regenerate + gate without signing (e.g. a CI dry-run).
+    location the release owner supplies; never stored in the repo. The supplied
+    key must match the public key bundled under install/keys/. Omit with
+    -SkipSign to regenerate + gate without signing.
 
 .PARAMETER RepoRoot
     Repo root. Defaults to the parent of this script's tools/ folder.
@@ -57,6 +58,10 @@
     Regenerate install.sha256 and run the gate, but do not sign. The existing
     .sig is left untouched (and will no longer match -- intended only for a
     dry-run / pre-key bootstrap).
+
+.PARAMETER SkipPins
+    Leave the README verified-download ref unchanged while regenerating and
+    signing the installer manifest. This is the repair path for manifest drift.
 
 .PARAMETER Commit
     After signing, commit the release artifacts (VERSION, the three installers,
@@ -84,7 +89,7 @@
     [int] 0 on success; non-zero on gate failure or a signing/IO error.
 #>
 
-[CmdletBinding()]
+[CmdletBinding(SupportsShouldProcess)]
 param(
     [string]$PrivateKeyPath,
     [string]$RepoRoot,
@@ -97,6 +102,7 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$PSNativeCommandUseErrorActionPreference = $false
 
 # -Push implies -Tag (you cannot validate a tag you did not create).
 if ($Push) { $Tag = $true }
@@ -106,33 +112,12 @@ if ($SkipSign -and ($Commit -or $Tag)) {
     throw "-SkipSign cannot be combined with -Commit/-Tag/-Push: a published release must carry a fresh signature. Drop -SkipSign."
 }
 
-# --- REGION: Signing key preconditions
-# Checked up here, before the gate, the pins and the manifest rewrite, because
-# the signer itself runs last: a key this process cannot read has to fail while
-# the tree is still untouched. Existence is not readability -- Test-Path only
-# stats the inode, so a key whose permission bits carry no read bit passes it and
-# then fails deep inside openssl. Name the mode as well: a key at 0600 that picks
-# up a stray digit (06000) keeps its owner but loses every rwx bit, and the
-# openssl error alone does not say so.
-if (-not $SkipSign) {
-    if (-not $PrivateKeyPath) { throw "-PrivateKeyPath is required to sign (or pass -SkipSign for a dry-run)." }
-    if (-not (Test-Path -LiteralPath $PrivateKeyPath)) { throw "Release private key not found at $PrivateKeyPath" }
-    try { [System.IO.File]::OpenRead($PrivateKeyPath).Dispose() }
-    catch {
-        $modeText = ''
-        if (-not $IsWindows) {
-            $mode = (Get-Item -LiteralPath $PrivateKeyPath).UnixFileMode
-            if ($null -ne $mode) { $modeText = " (mode $([Convert]::ToString([int]$mode, 8)); a signing key needs 0600)" }
-        }
-        throw "Release private key at $PrivateKeyPath is not readable$modeText. $($_.Exception.Message)"
-    }
-}
-
 if (-not $RepoRoot) { $RepoRoot = Split-Path -Parent $PSScriptRoot }
 $installDir   = Join-Path $RepoRoot 'install'
 $versionFile  = Join-Path $RepoRoot 'VERSION'
 $sha256File   = Join-Path $installDir 'install.sha256'
 $sigFile      = Join-Path $installDir 'install.sha256.sig'
+$pubPem       = Join-Path $installDir 'keys/yuruna-release-signing.pub.pem'
 $asciiGate    = Join-Path $RepoRoot 'tools/Test-AsciiNoBom.ps1'
 
 # The three bootstrap installers, repo-relative, in a stable order so the
@@ -142,6 +127,127 @@ $installers = @(
     'install/ubuntu.kvm.sh',
     'install/windows.hyper-v.ps1'
 )
+
+# --- REGION: Signing key preconditions
+# These checks precede every write. Existence is not readability -- Test-Path
+# only stats the inode, so a key whose permission bits carry no read bit passes
+# it and then fails deep inside openssl. Name the mode as well: a key at 0600
+# that picks up a stray digit (06000) keeps its owner but loses every rwx bit,
+# and the openssl error alone does not say so. The cryptographic identity check
+# happens against a disposable candidate below, before either live artifact is
+# replaced.
+$openssl = $null
+if (-not $SkipSign) {
+    if (-not $PrivateKeyPath) { throw "-PrivateKeyPath is required to sign (or pass -SkipSign for unsigned regeneration)." }
+    if (-not (Test-Path -LiteralPath $PrivateKeyPath -PathType Leaf)) {
+        throw "Release private key not found at $PrivateKeyPath"
+    }
+    try { [System.IO.File]::OpenRead($PrivateKeyPath).Dispose() }
+    catch {
+        $modeText = ''
+        if (-not $IsWindows) {
+            $mode = (Get-Item -LiteralPath $PrivateKeyPath).UnixFileMode
+            if ($null -ne $mode) { $modeText = " (mode $([Convert]::ToString([int]$mode, 8)); a signing key needs 0600)" }
+        }
+        throw "Release private key at $PrivateKeyPath is not readable$modeText. $($_.Exception.Message)"
+    }
+
+    if (-not (Test-Path -LiteralPath $pubPem -PathType Leaf)) {
+        throw "Bundled release public key not found at $pubPem"
+    }
+    $openssl = (Get-Command openssl -ErrorAction SilentlyContinue)?.Source
+    if (-not $openssl) {
+        # On Windows the release machine often carries openssl only under Git for Windows.
+        foreach ($c in @(
+                "$env:ProgramFiles\Git\usr\bin\openssl.exe",
+                "$env:ProgramFiles\Git\mingw64\bin\openssl.exe",
+                "${env:ProgramFiles(x86)}\Git\usr\bin\openssl.exe")) {
+            if (Test-Path -LiteralPath $c -PathType Leaf) { $openssl = $c; break }
+        }
+    }
+    if (-not $openssl) {
+        throw "openssl not found on PATH or under Git for Windows; required to sign the release manifest."
+    }
+}
+
+# --- REGION: Publish-VerifiedManifestPair
+function Publish-VerifiedManifestPair {
+    <#
+    .SYNOPSIS
+        Replace a verified manifest/signature pair and restore both on error.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$CandidateManifest,
+        [Parameter(Mandatory)][string]$CandidateSignature,
+        [Parameter(Mandatory)][string]$Manifest,
+        [Parameter(Mandatory)][string]$Signature,
+        [Parameter(DontShow)][scriptblock]$MoveFile = {
+            param([string]$Source, [string]$Destination)
+            [IO.File]::Move($Source, $Destination, $true)
+        }
+    )
+
+    # The candidates and backups share the target directory. That keeps each
+    # rename on one volume; the rollback closes the unavoidable gap between the
+    # two filesystem operations if the second replacement fails.
+    $token = [Guid]::NewGuid().ToString('N')
+    $manifestBackup = Join-Path (Split-Path -Parent $Manifest) ".install.sha256.$token.backup"
+    $signatureBackup = Join-Path (Split-Path -Parent $Signature) ".install.sha256.sig.$token.backup"
+    $hadManifest = [IO.File]::Exists($Manifest)
+    $hadSignature = [IO.File]::Exists($Signature)
+    $preserveBackups = $false
+
+    try {
+        if ($hadManifest) { [IO.File]::Copy($Manifest, $manifestBackup, $false) }
+        if ($hadSignature) { [IO.File]::Copy($Signature, $signatureBackup, $false) }
+    } catch {
+        [IO.File]::Delete($manifestBackup)
+        [IO.File]::Delete($signatureBackup)
+        throw "Could not stage installer-manifest rollback copies; the live pair was not replaced. $($_.Exception.Message)"
+    }
+
+    try {
+        & $MoveFile $CandidateManifest $Manifest
+        & $MoveFile $CandidateSignature $Signature
+    } catch {
+        $publishError = $_.Exception.Message
+        $rollbackErrors = [Collections.Generic.List[string]]::new()
+        foreach ($item in @(
+                @{ Had = $hadSignature; Backup = $signatureBackup; Live = $Signature },
+                @{ Had = $hadManifest; Backup = $manifestBackup; Live = $Manifest })) {
+            try {
+                if ($item.Had) {
+                    & $MoveFile $item.Backup $item.Live
+                } else {
+                    [IO.File]::Delete($item.Live)
+                }
+            } catch {
+                $rollbackErrors.Add("$($item.Live): $($_.Exception.Message)")
+            }
+        }
+        if ($rollbackErrors.Count -gt 0) {
+            $preserveBackups = $true
+            $retained = @(@($manifestBackup, $signatureBackup) |
+                    Where-Object { [IO.File]::Exists($_) })
+            $recovery = if ($retained.Count) {
+                "Recovery copies retained at: $($retained -join ', ')"
+            } else {
+                'No rollback copy survived; preserve the live files for manual recovery.'
+            }
+            throw "Publishing the verified installer-manifest pair failed ($publishError), and rollback also failed: $($rollbackErrors -join '; '). $recovery"
+        }
+        throw "Publishing the verified installer-manifest pair failed; the original pair was restored. $publishError"
+    } finally {
+        foreach ($path in @($CandidateManifest, $CandidateSignature)) {
+            [IO.File]::Delete($path)
+        }
+        if (-not $preserveBackups) {
+            [IO.File]::Delete($manifestBackup)
+            [IO.File]::Delete($signatureBackup)
+        }
+    }
+}
 
 function Update-ReleasePin {
     # Repoint the install/README.md verified-path snippet (the signed-download
@@ -195,20 +301,7 @@ if (Test-Path -LiteralPath $asciiGate) {
     Write-Warning "Test-AsciiNoBom.ps1 not found at $asciiGate; ASCII gate SKIPPED."
 }
 
-# --- REGION: Pin the README verified-download path to the release tag
-# Run by default; -SkipPins regenerates the manifest without touching the ref
-# (why only the README needs repinning: the Update-ReleasePin preamble).
-# The per-release work is: bump VERSION, then run this with `-Commit -Tag -Push`
-# -- which pins, signs, commits, and creates+pushes the bare-CalVer tag for you
-# (no hand-typed tag name; see the publish block).
-if (-not $SkipPins) {
-    Write-Information "Pinning release refs to $version ..." -InformationAction Continue
-    Update-ReleasePin -Root $RepoRoot -Version $version
-} else {
-    Write-Information "-SkipPins: installer/one-liner refs left unchanged." -InformationAction Continue
-}
-
-# --- REGION: Regenerate install.sha256
+# --- REGION: Build install.sha256 candidate
 # Lowercase hex, two-space GNU text format so `sha256sum -c install.sha256`
 # works on the host.
 $lines = foreach ($rel in $installers) {
@@ -218,45 +311,73 @@ $lines = foreach ($rel in $installers) {
     "$h  $rel"
 }
 $content = ($lines -join "`n") + "`n"
-[System.IO.File]::WriteAllText($sha256File, $content, [System.Text.UTF8Encoding]::new($false))
-Write-Information "Wrote $sha256File ($($installers.Count) installers)" -InformationAction Continue
 
-# --- REGION: Sign install.sha256 -> install.sha256.sig
-# Detached PKCS#1 v1.5/SHA-256. openssl is the release-machine signer; the
-# verify side uses openssl (macOS/Linux) or .NET RSACryptoServiceProvider
-# (Windows PS 5.1).
-if ($SkipSign) {
-    Write-Warning "-SkipSign: install.sha256 regenerated but NOT signed; $sigFile is now stale."
+$releaseActions = @('replace install/install.sha256')
+if (-not $SkipSign) { $releaseActions += 'replace its verified detached signature' }
+if (-not $SkipPins) { $releaseActions += "pin the verified-download ref to $version" }
+if ($Commit) { $releaseActions += 'commit the release artifacts' }
+if ($Tag) { $releaseActions += "create or validate tag $version" }
+if ($Push) { $releaseActions += "push and validate tag $version on $Remote" }
+if (-not $PSCmdlet.ShouldProcess($RepoRoot, ($releaseActions -join ', '))) {
     return 0
 }
-$openssl = (Get-Command openssl -ErrorAction SilentlyContinue)?.Source
-if (-not $openssl) {
-    # On Windows the release machine often carries openssl only under Git for Windows.
-    foreach ($c in @(
-            "$env:ProgramFiles\Git\usr\bin\openssl.exe",
-            "$env:ProgramFiles\Git\mingw64\bin\openssl.exe",
-            "${env:ProgramFiles(x86)}\Git\usr\bin\openssl.exe")) {
-        if (Test-Path -LiteralPath $c) { $openssl = $c; break }
+
+$utf8 = [Text.UTF8Encoding]::new($false)
+$candidateToken = [Guid]::NewGuid().ToString('N')
+$candidateManifest = Join-Path $installDir ".install.sha256.$candidateToken.candidate"
+$candidateSignature = Join-Path $installDir ".install.sha256.sig.$candidateToken.candidate"
+
+try {
+    [IO.File]::WriteAllText($candidateManifest, $content, $utf8)
+
+    # --- REGION: Sign and verify the disposable candidate pair
+    # Detached PKCS#1 v1.5/SHA-256. The signature is verified against the
+    # bundled public key while both files still have disposable names. A wrong
+    # key, invalid key, openssl failure, or verification failure therefore
+    # leaves the live pair byte-for-byte unchanged.
+    if (-not $SkipSign) {
+        $signOutput = @(& $openssl dgst -sha256 -sign $PrivateKeyPath -out $candidateSignature $candidateManifest 2>&1)
+        $signExit = $LASTEXITCODE
+        if ($signExit -ne 0) {
+            throw "openssl signing the candidate manifest failed (exit $signExit): $($signOutput -join ' ')"
+        }
+
+        $verifyOutput = @(& $openssl dgst -sha256 -verify $pubPem -signature $candidateSignature $candidateManifest 2>&1)
+        $verifyExit = $LASTEXITCODE
+        if ($verifyExit -ne 0) {
+            throw "The supplied release private key does not match the bundled public key at $pubPem; candidate self-verify failed (openssl exit $verifyExit): $($verifyOutput -join ' ')"
+        }
     }
-}
-if (-not $openssl) { throw "openssl not found on PATH or under Git for Windows; required to sign the release manifest." }
 
-& $openssl dgst -sha256 -sign $PrivateKeyPath -out $sigFile $sha256File
-if ($LASTEXITCODE -ne 0) {
-    # openssl creates -out before it opens the key, so a signing failure leaves a
-    # zero-byte .sig beside a freshly written manifest. Drop it: an empty signature
-    # in a reused work tree is indistinguishable from a stale one, and -SkipSign
-    # only warns that the file is stale.
-    Remove-Item -LiteralPath $sigFile -Force -ErrorAction SilentlyContinue
-    throw "openssl signing failed (exit $LASTEXITCODE)."
-}
+    # --- REGION: Pin the README verified-download path to the release tag
+    # Candidate signing happens first so a bad key cannot leave a pin edit
+    # behind. -SkipPins is the narrow repair path that touches only the signed
+    # manifest pair. See the Update-ReleasePin preamble for why only the README
+    # needs repinning.
+    if (-not $SkipPins) {
+        Write-Information "Pinning release refs to $version ..." -InformationAction Continue
+        Update-ReleasePin -Root $RepoRoot -Version $version -Confirm:$false
+    } else {
+        Write-Information "-SkipPins: installer/one-liner refs left unchanged." -InformationAction Continue
+    }
 
-# Self-verify against the bundled public key so a release never ships a
-# signature the verify path would reject.
-$pubPem = Join-Path $installDir 'keys/yuruna-release-signing.pub.pem'
-& $openssl dgst -sha256 -verify $pubPem -signature $sigFile $sha256File | Out-Null
-if ($LASTEXITCODE -ne 0) { throw "Self-verify FAILED: $sigFile does not verify against $pubPem." }
-Write-Information "Signed + self-verified: $sigFile" -InformationAction Continue
+    # --- REGION: Publish verified artifacts
+    if ($SkipSign) {
+        [IO.File]::Move($candidateManifest, $sha256File, $true)
+        Write-Information "Wrote $sha256File ($($installers.Count) installers)" -InformationAction Continue
+        Write-Warning "-SkipSign: install.sha256 regenerated but NOT signed; $sigFile is now stale."
+    } else {
+        Publish-VerifiedManifestPair -CandidateManifest $candidateManifest `
+            -CandidateSignature $candidateSignature -Manifest $sha256File -Signature $sigFile
+        Write-Information "Wrote $sha256File ($($installers.Count) installers)" -InformationAction Continue
+        Write-Information "Signed + self-verified: $sigFile" -InformationAction Continue
+    }
+} finally {
+    # Candidate cleanup is idempotent: a successful publish moved the files;
+    # every failure path deletes whatever openssl managed to create.
+    [IO.File]::Delete($candidateManifest)
+    [IO.File]::Delete($candidateSignature)
+}
 
 # --- REGION: Publish: commit, tag, push, validate (all opt-in)
 # Slip-proofing for the release tag. The tag name is ALWAYS the bare CalVer

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.12
+.VERSION 2026.09.13
 .GUID 42c6e83b-159d-4f27-8a0e-6b7d2c4901fa
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -145,7 +145,9 @@ foreach ($step in $script:Step) {
     $arguments = [string[]]@('-NoProfile', '-File', $path) + [string[]]@($step.arguments)
     # Only the tools that read the paired checkout are told about it; the rest
     # would refuse an argument they do not declare.
-    if ($name -in 'doc-translation', 'project-locale-map') { $arguments += @('-ProjectRoot', $ProjectRoot) }
+    if ($name -in 'domain-inventory', 'doc-translation', 'project-locale-map', 'reference-fixture', 'cross-repo-gate') {
+        $arguments += @('-ProjectRoot', $ProjectRoot)
+    }
     $global:LASTEXITCODE = 0
     $output = (& $script:PowerShellPath @arguments 2>&1 | Out-String).Trim()
     $code = $LASTEXITCODE

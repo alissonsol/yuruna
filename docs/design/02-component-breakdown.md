@@ -3,7 +3,7 @@
 These seven views expand the context boundaries into concrete scripts, modules, directories, and external integrations.
 
 Names and ordering match [Context and components](01-context-and-components.md).
-Each diagram has at most seven child boxes; directory and module-family
+Each diagram has at most seven boxes total; directory and module-family
 aggregates are explained beside their source links. Edges show invocation,
 consumption, or implementation dependencies, not network placement.
 
@@ -24,7 +24,8 @@ flowchart LR
     setup --> enable-test-automation
     setup --> test-lab
     setup --> test-service
-    test-lab -->|required storage| test-service
+    %% optional: only storage-dependent services consume configured shares
+    test-lab -.->|storage-dependent services| test-service
 ```
 
 The installer-to-setup edges denote setup progression, not a promise that every
@@ -32,13 +33,18 @@ installer invokes setup automatically. The bootstrappers are
 [windows.hyper-v.ps1](../../install/windows.hyper-v.ps1),
 [macos.utm.sh](../../install/macos.utm.sh), and
 [ubuntu.kvm.sh](../../install/ubuntu.kvm.sh).
-[setup.ps1](../../install/setup.ps1) calls the platform's
-`Enable-TestAutomation.ps1`, prepares or mounts storage through
+[setup.ps1](../../install/setup.ps1), when test running is enabled, calls the host-neutral
+[Enable-TestAutomation.ps1](../../test/lab/Enable-TestAutomation.ps1), which
+dispatches to the platform script. Services-only setup skips that call.
+Setup prepares or mounts requested storage through
 [Test.LocalLabStorage.psm1](../../test/modules/Test.LocalLabStorage.psm1) and
 [Test.PoolStorage.psm1](../../test/modules/Test.PoolStorage.psm1), and invokes
-[test/service](../../test/service) launchers. Storage precedes service seeds.
-Standalone and lab modes select different service sets; health checks can adopt
-existing service VMs, while `-Rebuild` requests recreation.
+[test/service](../../test/service) launchers. Requested storage precedes service seeds.
+Standalone and lab modes select different service sets. Stash and download
+services depend on storage; the caching proxy can run without a configured
+share. Health checks can adopt existing service VMs, while `-Rebuild` requests
+recreation. The arrows from setup are responsibilities, not parallel execution:
+host configuration precedes storage and then service bring-up.
 
 ## Deploy engine
 
@@ -95,9 +101,11 @@ cycle. Sequence execution groups
 [Test.SequenceEngine.psm1](../../test/modules/Test.SequenceEngine.psm1), and
 [Test.Orchestrator.psm1](../../test/modules/Test.Orchestrator.psm1).
 [Test.HostIO.psm1](../../test/modules/Test.HostIO.psm1),
-[Test.Transport.psm1](../../test/modules/Test.Transport.psm1), and
+[Test.Transport.psm1](../../test/modules/Test.Transport.psm1),
+[Test.Ssh.psm1](../../test/modules/Test.Ssh.psm1), and
 [Test.OcrEngine.psm1](../../test/modules/Test.OcrEngine.psm1) supply console, SSH,
-and screenshot/OCR paths.
+and screenshot/OCR paths. The Host I/O box groups those transports; SSH
+execution is not a call through the provider's console-I/O contract.
 
 [test/service](../../test/service) groups host status/config services and service
 VM launchers; [test/extension](../../test/extension) groups authentication,
@@ -119,9 +127,9 @@ flowchart TB
     host-guest["Guest installation adapters"]
     host-modules["Shared host modules"]
     guest["Guest scripts"]
-    yuruna-host-contract --> windows-hyper-v
-    yuruna-host-contract --> macos-utm
-    yuruna-host-contract --> ubuntu-kvm
+    windows-hyper-v -->|implements| yuruna-host-contract
+    macos-utm -->|implements| yuruna-host-contract
+    ubuntu-kvm -->|implements| yuruna-host-contract
     windows-hyper-v --> host-guest
     macos-utm --> host-guest
     ubuntu-kvm --> host-guest
@@ -134,7 +142,10 @@ The [contract](../../host/Yuruna.Host.Contract.psm1) is implemented by
 [UTM](../../host/macos.utm/modules/Yuruna.Host.psm1), and
 [KVM](../../host/ubuntu.kvm/modules/Yuruna.Host.psm1). Its operations cover image
 acquisition, VM lifecycle, snapshots, console I/O, address discovery and
-network setup. `host/<provider>/guest.<family>/Get-Image.ps1` and `New-VM.ps1`
+network setup. The contract lists and validates exports; it does not dispatch
+calls. [Test.HostBootstrap.psm1](../../test/modules/Test.HostBootstrap.psm1)
+imports the selected driver into the runner's session.
+`host/<provider>/guest.<family>/Get-Image.ps1` and `New-VM.ps1`
 are installation adapters, for example the
 [KVM Ubuntu 26 adapter](../../host/ubuntu.kvm/guest.ubuntu.server.26/New-VM.ps1).
 [host/modules](../../host/modules) centralizes image downloads, provenance and
@@ -182,29 +193,41 @@ containment.
 
 ```mermaid
 flowchart LR
-    yuruna-common["Yuruna.Common.psm1"]
-    import-yaml["Import.Yaml.psm1"]
-    yuruna-variable-expansion["Yuruna.VariableExpansion.psm1"]
-    yuruna-result["Yuruna.Result.psm1"]
-    yuruna-retry["Yuruna.Retry.psm1"]
-    yuruna-credential-provider["Yuruna.CredentialProvider.psm1"]
+    yuruna-common["Shared automation"]
+    yuruna-result["Results and logging"]
+    yuruna-retry["Retry policies"]
+    yuruna-credential-provider["Registry credentials"]
+    host-modules["Host helpers"]
     globalization["Globalization runtimes"]
+    tools["Build and checks"]
 ```
 
-Sources: [Yuruna.Common.psm1](../../automation/Yuruna.Common.psm1),
+Shared automation groups [Yuruna.Common.psm1](../../automation/Yuruna.Common.psm1),
 [Import.Yaml.psm1](../../automation/Import.Yaml.psm1),
 [Yuruna.VariableExpansion.psm1](../../automation/Yuruna.VariableExpansion.psm1),
-[Yuruna.Result.psm1](../../automation/Yuruna.Result.psm1),
-[Yuruna.Retry.psm1](../../automation/Yuruna.Retry.psm1), and
-[Yuruna.CredentialProvider.psm1](../../automation/Yuruna.CredentialProvider.psm1).
-These are representative modules, not an exhaustive list or an import chain;
-`Yuruna.Common` is a dependency-free leaf. Logging/validation
-and provider/harness helpers retain their source namespaces; `Test.*` denotes
-harness code and `Yuruna.*` product automation. The separate globalization
-aggregate includes [Test.Locale.psm1](../../test/modules/Test.Locale.psm1),
+[Yuruna.Validation.psm1](../../automation/Yuruna.Validation.psm1), and
+[Invoke-DynamicExpression.psm1](../../automation/Invoke-DynamicExpression.psm1).
+Results/logging groups [Yuruna.Result.psm1](../../automation/Yuruna.Result.psm1),
+[Yuruna.Log.psm1](../../automation/Yuruna.Log.psm1), and
+[Yuruna.LogLevel.psm1](../../automation/Yuruna.LogLevel.psm1).
+[Yuruna.Retry.psm1](../../automation/Yuruna.Retry.psm1) owns automation retry
+policy; [Yuruna.CredentialProvider.psm1](../../automation/Yuruna.CredentialProvider.psm1)
+owns registry authenticators, not the test authentication vault.
+[host/modules](../../host/modules) contains shared image/provisioning helpers.
+These are source families, not an import chain; `Yuruna.Common` remains a
+dependency-free leaf. Harness helpers are grouped with the test harness above.
+
+The globalization aggregate includes
+[Test.Locale.psm1](../../test/modules/Test.Locale.psm1),
 [Test.Message.psm1](../../test/modules/Test.Message.psm1), browser helpers and Go
 catalog consumers, with [globalization](../../globalization) as their data
 source. [Globalization](07-globalization.md) expands actual consumer coverage.
+[tools](../../tools) groups catalog compilation/embedding, localization exchange,
+release maintenance, and validation launchers, including
+[Invoke-CatalogCompile.ps1](../../tools/Invoke-CatalogCompile.ps1),
+[Invoke-Preflight.ps1](../../tools/Invoke-Preflight.ps1), and
+[Invoke-TestSuite.ps1](../../tools/Invoke-TestSuite.ps1). Build-time work is not a
+request-time service or a fourth deployment phase.
 
 ## External targets
 
@@ -220,9 +243,6 @@ flowchart LR
     global-resources-localhost --> yuruna-component-registry
     global-resources-aws --> yuruna-component-registry
     global-resources-azure --> yuruna-component-registry
-    yuruna-workload --> global-resources-localhost
-    yuruna-workload --> global-resources-aws
-    yuruna-workload --> global-resources-azure
 ```
 
 Sources: [localhost](../../global/resources/localhost),
@@ -234,7 +254,11 @@ Sources: [localhost](../../global/resources/localhost),
 Cloud providers, OCI registries, Helm repositories, Git endpoints and image
 publishers are aggregates of the integrations those sources consume. Git/image
 sources feed installation and tests as well as deployment; those boxes have no
-implied dependency on each other. GCP is omitted because no checked-in GCP
+implied dependency on each other. Chart repositories are fetched by the
+deploying Helm client, not directly by the target cluster. The website's
+[workloads.yml](https://github.com/alissonsol/yuruna-project/blob/main/example/website/config/localhost/workloads.yml)
+contains both remote `helm` entries and a project-local `chart` entry; not every
+chart requires a repository fetch. GCP is omitted because no checked-in GCP
 resource template implements that target.
 
 ---

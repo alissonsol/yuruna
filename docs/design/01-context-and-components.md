@@ -10,40 +10,32 @@ not a network connection; [deployment](06-deployment.md) shows placement.
 ```mermaid
 flowchart LR
     subgraph install["Provisioning"]
-        install-setup["setup.ps1"]
     end
     subgraph automation["Deploy engine"]
-        set-resource-set-component-set-workload["Set-* phases"]
     end
     subgraph test["Test harness"]
-        start-test-runner["Start-TestRunner.ps1"]
     end
     subgraph host["Providers"]
-        yuruna-host-contract["Yuruna.Host.Contract.psm1"]
     end
     subgraph yuruna-project["Project data"]
-        example-template["example / template"]
     end
     subgraph automation-shared["Shared modules"]
-        yuruna-common["Yuruna.Common.psm1"]
     end
     subgraph global-resources["External targets"]
-        global-resources-cloud-registry["Clouds and registries"]
     end
-    install-setup -->|configure| yuruna-host-contract
-    install-setup -->|prepare| start-test-runner
-    example-template -->|configuration| set-resource-set-component-set-workload
-    example-template -->|sequences| start-test-runner
-    start-test-runner -->|VM operations| yuruna-host-contract
-    start-test-runner -->|workload wrappers| set-resource-set-component-set-workload
-    set-resource-set-component-set-workload -->|use| yuruna-common
-    set-resource-set-component-set-workload -->|deploy| global-resources-cloud-registry
+    install -->|configure| host
+    install -->|prepare| test
+    yuruna-project -->|configuration| automation
+    yuruna-project -->|sequences| test
+    test -->|VM operations| host
+    test -->|guest workload wrappers| automation
+    automation -->|use| automation-shared
+    automation -->|deploy| global-resources
 ```
 
-Each of the seven subgraphs is a collapsed boundary with one representative
-artifact, expanded under the same name in
-[Component breakdown](02-component-breakdown.md). The representative is not the
-only entry point in that boundary.
+Each subgraph is an empty placeholder rendered as one boundary box: seven boxes
+total, with no nested representative boxes. Its actual children are expanded
+under the same name in [Component breakdown](02-component-breakdown.md).
 
 | Boundary | Source anchors and scope |
 | --- | --- |
@@ -52,7 +44,7 @@ only entry point in that boundary.
 | Test harness | [Start-TestRunner.ps1](../../test/Start-TestRunner.ps1), [Test.Prelude.psm1](../../test/modules/Test.Prelude.psm1), [Test.SequenceRunner.psm1](../../test/modules/Test.SequenceRunner.psm1), [test/service](../../test/service), and [test/extension](../../test/extension) own execution and its supporting services. |
 | Providers | [Yuruna.Host.Contract.psm1](../../host/Yuruna.Host.Contract.psm1), [host](../../host), and [guest](../../guest) implement VM operations, installation adapters and guest scripts. |
 | Project data | [example](https://github.com/alissonsol/yuruna-project/tree/main/example), [template](https://github.com/alissonsol/yuruna-project/tree/main/template), and [test/test.runner.yml](https://github.com/alissonsol/yuruna-project/blob/main/test/test.runner.yml) supply application assets and executable test definitions. |
-| Shared modules | [Yuruna.Common.psm1](../../automation/Yuruna.Common.psm1), [automation](../../automation), [host/modules](../../host/modules), and [test/modules](../../test/modules) provide reusable implementation, not separate daemons. |
+| Shared modules | [Yuruna.Common.psm1](../../automation/Yuruna.Common.psm1), [automation](../../automation), [host/modules](../../host/modules), [test/modules](../../test/modules), [globalization](../../globalization), and [tools](../../tools) provide reusable runtime implementation and developer tooling, not another service boundary. |
 | External targets | [global/resources](../../global/resources), [Yuruna.Component.Registry.psm1](../../automation/Yuruna.Component.Registry.psm1), and [Yuruna.Workload.psm1](../../automation/Yuruna.Workload.psm1) define the actual cloud, registry and cluster interactions. |
 
 Directories do not partition the system one-to-one. `automation/` contains both

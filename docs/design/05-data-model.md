@@ -1,389 +1,221 @@
 # Configuration data model
 
-This page maps the current project configuration, generated resource outputs, deployment-secret checks, and test-authentication credential lookups.
+This page maps the current project files, deployment keys, generated outputs, and authentication records to their consumers.
 
-Phase-record attributes name keys read by the validators and publishers.
-Directory, output, secret-file, and resolved-credential entities describe logical
-fields rather than additional authored YAML keys. Entity identifiers use stable
-kebab-case source names, which Mermaid accepts directly, and every diagram stays
-within the seven-entity limit.
+The [architecture](../architecture.md) supplies the system-level concepts. These
+ER views describe directories, YAML maps, and runtime lookups, not database
+tables: solid edges denote file containment; dashed edges denote derived or
+lookup relationships. No edge implies a database foreign-key constraint.
 
-## Project and environment
+## Project and configuration files
+
+The deployment examples live at `yuruna-project/example/<project>/`; the
+scaffold itself is `yuruna-project/template/`, without an extra project-name
+directory. The website example supplies `localhost`, `aws`, and `azure`
+configuration directories. The text-to-sql example and template supply
+`localhost`. `example/nested.host/` instead supplies a test sequence; not every
+example is a three-phase deployment project. No GCP configuration is present.
 
 ```mermaid
 erDiagram
-    project-root ||--|{ cloud-config : contains
-    cloud-config ||--|| resources-yml : requires
-    cloud-config ||--|| components-yml : requires
-    cloud-config ||--|| workloads-yml : requires
-    cloud-config ||--o| resources-output : generates
-    cloud-config ||--o{ deployment-secret : scopes
-
-    project-root {
-        path config
-        path resources
-        path components
-        path workloads
+    project-root["Project root"] {
+        string project_root "CLI path"
     }
-    cloud-config {
-        string config_subfolder UK
+    config-subfolder["Configuration folder"] {
+        string config_subfolder "CLI selector"
     }
-    resources-yml {
+    resources-yml["resources.yml"] {
         map globalVariables
         list resources
     }
-    components-yml {
+    components-yml["components.yml"] {
         map globalVariables
         list components
     }
-    workloads-yml {
+    workloads-yml["workloads.yml"] {
         map globalVariables
         list workloads
     }
-    resources-output {
-        map globalVariables
-        map namedOutputs
-    }
-    deployment-secret {
-        string filename
-        string content
-    }
+    project-root ||--|{ config-subfolder : contains
+    config-subfolder ||--|| resources-yml : contains
+    config-subfolder ||--|| components-yml : contains
+    config-subfolder ||--|| workloads-yml : contains
 ```
 
-Each entry point resolves a project root and one existing
-`config/<config_subfolder>` directory. Full validation then expects
-`resources.yml`, `components.yml`, and `workloads.yml`; the resource phase can
-create `resources.output.yml` beside them. The project source directories are
-separate peers selected by paths inside those YAML records. Sources:
-[root resolution](../../automation/Yuruna.LogLevel.psm1),
-[configuration validation](../../automation/Yuruna.Validation.psm1),
-[project scaffold](https://github.com/alissonsol/yuruna-project/tree/main/template),
-and the scaffold's [localhost configuration](https://github.com/alissonsol/yuruna-project/tree/main/template/config/localhost).
+`project_root` and `config_subfolder` are script arguments, not additional YAML
+fields. The three files are required by `Confirm-Configuration`; their contents
+are validated by PowerShell code, not by a project JSON Schema. This view groups
+the parallel cloud directories into one entity and shows five entities total.
 
-`config_subfolder` is not a hard-coded cloud enum. The checked-in project
-configurations cover localhost, AWS, and Azure, while the framework's shared
-resource templates also contain only those three families. GCP's current
-checked-in capability is narrower: a GCP credential placeholder exists and the
-registry provider can log in to Google Artifact Registry, but there is no GCP
-project configuration or shared GCP resource-template family. Thus GCP registry
-authentication is implemented, while out-of-box GCP infrastructure deployment
-is not. Sources: [website configurations](https://github.com/alissonsol/yuruna-project/tree/main/example/website/config),
-[text-to-SQL configurations](https://github.com/alissonsol/yuruna-project/tree/main/example/text-to-sql/config),
-[shared resource templates](../../global/resources),
-[GCP credential placeholder](../../global/config/gcp/gcp-access-key.json), and
-[registry providers](../../automation/Yuruna.CredentialProvider.psm1).
+Sources: [website configuration](https://github.com/alissonsol/yuruna-project/tree/main/example/website/config),
+[text-to-sql configuration](https://github.com/alissonsol/yuruna-project/tree/main/example/text-to-sql/config),
+[template configuration](https://github.com/alissonsol/yuruna-project/tree/main/template/config),
+[nested-host sequence](https://github.com/alissonsol/yuruna-project/blob/main/example/nested.host/test/nested.host.yml),
+[Test-Configuration.ps1](../../automation/Test-Configuration.ps1), and
+[Yuruna.Validation.psm1](../../automation/Yuruna.Validation.psm1).
 
-## Resource records
+## Deployment entries and output keys
+
+The six entities below expand the configuration lists and the generated
+`config/<cloud>/resources.output.yml`. `name`, `project`, and `context` are the
+respective entry identifiers; the validator rejects duplicate raw and expanded
+values within the relevant list. They are not foreign keys joining the three
+lists: commands and variable expressions carry their runtime dependencies.
 
 ```mermaid
 erDiagram
-    resources-yml ||--o{ resource-global : declares
-    resources-yml ||--o{ resource-record : declares
-    resource-record ||--o{ resource-variable : overrides
-    resource-record }o..o| resource-template : resolves
-    resources-output ||--o{ resource-global : preserves
-    resources-output ||--o{ output-leaf : stores
-    resource-record ||--o{ output-leaf : emits
-
-    resources-yml {
-        map globalVariables
-        list resources
-    }
-    resource-global {
-        string key
-        scalar value
-    }
-    resource-record {
-        string name UK
+    resources["Resource entry"] {
+        string name
         string template
         map variables
     }
-    resource-variable {
-        string key
-        scalar value
-    }
-    resource-template {
-        path projectPath
-        path globalFallback
-    }
-    resources-output {
+    resources-output-yml["Resource outputs"] {
         map globalVariables
-        map resourceNames
     }
-    output-leaf {
-        string outputName
-        scalar value
+    resource-output["Output field"] {
+        bool sensitive
+        object type
+        object value
     }
-```
-
-`resources` must be present, every record needs a `name`, and raw and expanded
-names must be unique. `template` selects `resources/<template>` in the project
-first and `global/resources/<template>` second; an empty template represents a
-named pre-existing resource. Optional record variables must have non-empty
-values. Sources: [resource validation](../../automation/Yuruna.Validation.psm1)
-and the project [resource scaffold](https://github.com/alissonsol/yuruna-project/blob/main/template/config/localhost/resources.yml).
-
-The publisher expands globals once, overlays each resource's variables, writes
-the merged values to `terraform.tfvars`, and stages a separate work directory
-under `.yuruna/<config>/resources/<name>`. A templated resource must expose at
-least one OpenTofu output. The generated `resources.output.yml` preserves the
-expanded globals and stores each resource's raw output object under its expanded
-resource name. Sources: [resource publisher](../../automation/Yuruna.Resource.psm1)
-and [localhost templates](../../global/resources/localhost).
-
-Downstream readers flatten a non-global output as
-`<resourceName>.<outputName>` and use its `value`; output values are transferred
-without another PowerShell expansion. `globalVariables` remains flat. Source:
-[variable expansion](../../automation/Yuruna.VariableExpansion.psm1).
-
-## Component records
-
-```mermaid
-erDiagram
-    components-yml ||--o{ component-global : declares
-    components-yml ||--o{ component-record : declares
-    component-record ||--o{ component-variable : overrides
-    resources-output }o..o{ component-record : supplies
-    component-record ||--|| component-source : builds
-    component-record }o..o| registry-target : pushes
-
-    components-yml {
-        map globalVariables
-        list components
-    }
-    component-global {
-        string key
-        scalar value
-    }
-    component-record {
-        string project UK
+    components["Component entry"] {
+        string project
         string buildPath
         string buildCommand
         string tagCommand
         string pushCommand
-    }
-    component-variable {
-        string key
-        scalar value
-    }
-    resources-output {
-        map globalVariables
-        map resourceNames
-    }
-    component-source {
-        path buildFolder
-        path dockerfile
-    }
-    registry-target {
-        string registryName
-        string registryLocation
-    }
-```
-
-Every component record requires a unique `project`. `buildPath` defaults to
-`project`; the publisher resolves it below `components/` and accepts
-`Dockerfile`, `dockerfile`, or `<project>-dockerfile`. Effective `buildCommand`,
-`tagCommand`, and `pushCommand` values are required, with record values taking
-precedence over globals. `preProcessor` and `postProcessor` are optional values
-resolved from component variables first and globals second. Sources:
-[component validation](../../automation/Yuruna.Validation.psm1),
-[component publisher](../../automation/Yuruna.Component.psm1), and the project
-[component scaffold](https://github.com/alissonsol/yuruna-project/blob/main/template/config/localhost/components.yml).
-
-For each component, the effective environment is layered in this order:
-resource output, component globals, component variables, then the derived
-`project`, `buildPath`, and `dockerfile` values. The registry target is obtained
-through `registryName` and the flattened
-`<registryName>.registryLocation` resource output before the image push. Sources:
-[component publisher](../../automation/Yuruna.Component.psm1),
-[variable expansion](../../automation/Yuruna.VariableExpansion.psm1), and
-[registry dispatch](../../automation/Yuruna.Component.Registry.psm1).
-
-## Workload records
-
-```mermaid
-erDiagram
-    workloads-yml ||--o{ workload-record : declares
-    workload-record ||--o{ workload-variable : overrides
-    workload-record ||--o{ deployment-record : runs
-    deployment-record ||--o{ deployment-variable : overrides
-    deployment-record }o..o| chart-source : selects
-    resources-output }o..o{ workload-record : supplies
-
-    workloads-yml {
-        map globalVariables
-        list workloads
-    }
-    workload-record {
-        string context UK
         map variables
-        list deployments
     }
-    workload-variable {
-        string key
-        scalar value
+    workloads["Workload entry"] {
+        string context
+        map variables
     }
-    deployment-record {
+    deployments["Deployment entry"] {
         string chart
         string kubectl
         string helm
         string shell
+        map variables
     }
-    deployment-variable {
-        string key
-        scalar value
-        string installName
-    }
-    chart-source {
-        path chartFolder
-    }
-    resources-output {
-        map globalVariables
-        map resourceNames
-    }
+    resources ||..o{ resource-output : produces
+    resources-output-yml ||--o{ resource-output : contains
+    resources-output-yml |o..o{ components : supplies
+    resources-output-yml |o..o{ workloads : supplies
+    workloads ||--o{ deployments : contains
 ```
 
-Each workload requires a unique expanded `context` and contains an ordered
-deployment list. Authored configurations use one non-empty `chart`, `kubectl`,
-`helm`, or `shell` key per deployment. If several are present, the resolver
-chooses `chart`; otherwise the last registered non-chart key wins. Chart
-deployments resolve `workloads/<chart>` and require
-`variables.installName`; release names must be unique within their context.
-The other three keys hold the command text that the matching tool runner
-executes. Sources: [workload validation](../../automation/Yuruna.Validation.psm1),
-[deployment-kind catalog](../../automation/Yuruna.DeploymentKind.psm1), and the
-project [workload scaffold](https://github.com/alissonsol/yuruna-project/blob/main/template/config/localhost/workloads.yml).
+An output field is persisted beneath the expanded resource name and output name:
+`<resourceName>: { <outputName>: { sensitive, type, value } }`. Neither name is an
+extra leaf field. The file also retains expanded `globalVariables`. Consumers
+expose each output value as the environment key `<resourceName>.<outputName>`;
+global variable keys remain unprefixed. Output values are imported verbatim,
+without evaluating them as PowerShell expressions. Components read the selected
+configuration's output file; workloads additionally support a parent-directory
+output file when the selected one is absent. The optional cardinality reflects
+that consumers permit an absent output file, although expressions can still
+require its values to perform useful work.
 
-Workload values layer resource output, workload globals, workload variables,
-and deployment variables, with the later layer winning. The normal resource
-output is adjacent to `workloads.yml`; when absent, the publisher can reuse the
-parent configuration's `resources.output.yml`. Chart values are rendered to
-`values.yaml`; command deployments receive the same merged values through the
-environment. Source: [workload publisher](../../automation/Yuruna.Workload.psm1).
+The source locations are resolved by these concrete fields:
 
-## Deployment secret files
+| Field | Consumer resolution |
+|---|---|
+| Resource `template` | `<project>/resources/<template>` first, then `yuruna/global/resources/<template>`. |
+| Component `buildPath` | `<project>/components/<buildPath>`; the publisher falls back to `project` when omitted. |
+| Workload `context` | Expanded name of an existing Kubernetes context; it also selects the workload work directory. |
+| Deployment `chart` | `<project>/workloads/<chart>` copied into the workload work directory. |
+| Deployment `variables.installName` | Required Helm release name for a chart; duplicates within one context are rejected. |
+
+Component build, tag, and push commands may be supplied on the entry or inherited
+from its file's `globalVariables`. Its merged variable bag layers resource
+outputs, component globals, and component locals. Workload rendering layers
+resource outputs, workload globals, workload locals, and deployment locals.
+Later layers replace earlier values. The four deployment command fields in the
+diagram are alternatives, not four required fields. The current kind resolver
+selects `chart` when present; otherwise the last populated kind in registration
+order (`kubectl`, `helm`, `shell`) wins. YAML declaration order preserves the
+deployment sequence.
+
+Sources: [website resources](https://github.com/alissonsol/yuruna-project/blob/main/example/website/config/localhost/resources.yml),
+[website components](https://github.com/alissonsol/yuruna-project/blob/main/example/website/config/localhost/components.yml),
+[website workloads](https://github.com/alissonsol/yuruna-project/blob/main/example/website/config/localhost/workloads.yml),
+[Yuruna.Resource.psm1](../../automation/Yuruna.Resource.psm1),
+[Yuruna.Component.psm1](../../automation/Yuruna.Component.psm1),
+[Yuruna.Workload.psm1](../../automation/Yuruna.Workload.psm1),
+[Yuruna.VariableExpansion.psm1](../../automation/Yuruna.VariableExpansion.psm1),
+[Yuruna.DeploymentKind.psm1](../../automation/Yuruna.DeploymentKind.psm1), and
+[Yuruna.Validation.psm1](../../automation/Yuruna.Validation.psm1).
+
+## Secrets and authentication are separate contracts
+
+Deployment configuration has optional `config/<cloud>/secrets/*.txt` files;
+workload validation also checks `config/secrets/*.txt`. Existing whitespace-only
+files block workload validation, while resource validation only reports them.
+These checks do not turn files into authentication-vault records or implicitly
+inject their contents into every deployment. Project-specific variable
+expressions and commands remain responsible for consuming secret material. For
+example, the website workload explicitly creates Kubernetes TLS and registry
+secrets through its `kubectl` deployment entries.
+
+The harness authentication extension has a separate pair of persisted YAML
+maps, `test/status/extension/authentication/users.yml` and `vault.yml`. The
+committed `test/extension/authentication/users.yml.template` initializes the
+identity map. This five-entity view shows the lookup boundary; the diagram does
+not assert that project deployment entries own these credentials.
 
 ```mermaid
 erDiagram
-    cloud-config ||--o| local-secrets : owns
-    cloud-config }o..o| peer-secrets : shares
-    local-secrets ||--o{ secret-file : contains
-    peer-secrets ||--o{ secret-file : contains
-    resource-validator }o..o| local-secrets : checks
-    workload-validator }o..o| local-secrets : checks
-    workload-validator }o..o| peer-secrets : checks
-
-    cloud-config {
-        string config_subfolder UK
+    sequence-variables["Sequence variables"] {
+        string username
     }
-    local-secrets {
-        path configSecrets
-    }
-    peer-secrets {
-        path parentSecrets
-    }
-    secret-file {
-        string filename
-        string content
-    }
-```
-
-The validator scans immediate `*.txt` children of
-`config/<config_subfolder>/secrets`. Resource validation reports empty content
-but continues; workload validation rejects empty or whitespace-only content and
-also checks `config/<config_subfolder>/../secrets` for a shared parent-level
-set. Missing secret directories are valid. The validator also marks discovered
-files `assume-unchanged`. Source: [secret validation](../../automation/Yuruna.Validation.psm1).
-
-These files currently have a validation relationship only. The three
-publishers build their effective values from phase YAML, generated resource
-output, and derived fields; none implicitly maps a secret filename or its
-content into the phase environment. Any command that reads a file must name
-that behavior explicitly. Sources: [resource publisher](../../automation/Yuruna.Resource.psm1),
-[component publisher](../../automation/Yuruna.Component.psm1),
-[workload publisher](../../automation/Yuruna.Workload.psm1), and
-[variable expansion](../../automation/Yuruna.VariableExpansion.psm1).
-
-## Authentication vault
-
-```mermaid
-erDiagram
-    users-yml ||--o{ user-map : maps
-    user-map ||--o| corporate-id : selects
-    user-map }o..o{ vault-entry : resolves
-    vault-yml ||--o{ vault-entry : stores
-    user-map ||--|| login-credential : renders
-    user-map ||--|| local-password : provisions
-    vault-entry ||--o{ login-credential : supplies
-    vault-entry ||--o{ local-password : supplies
-
-    users-yml {
-        boolean strict
+    users-yml["Identity mappings"] {
+        bool strict
         map users
     }
-    user-map {
-        string logicalUser UK
+    user-mapping["User mapping"] {
         string localOsUser
+        map corporate
         string vaultKey
         string localOsPasswordRef
     }
-    corporate-id {
-        string domain
-        string sam
-        string upn
-    }
-    vault-yml {
+    vault-yml["Credential vault"] {
         map users
     }
-    vault-entry {
-        string vaultKey UK
+    vault-entry["Vault entry"] {
         string password
         string previousPassword
         datetime updatedUtc
     }
-    login-credential {
-        string username
-        string password
-    }
-    local-password {
-        string password
-    }
+    users-yml ||--o{ user-mapping : contains
+    sequence-variables }o..o| user-mapping : resolves
+    user-mapping }o..o{ vault-entry : references
+    vault-yml ||--o{ vault-entry : contains
 ```
 
-`users.yml` maps a sequence-level logical user to a local OS user, an optional
-corporate identity, and two independent vault references. Login identity prefers
-`DOMAIN\\sam`, then `sam`, then `upn`, and finally the local OS name. In strict
-mode, configuration validation rejects sequence users missing from the map and
-populated `vaultKey` values missing from the vault. Sources:
+The identity-map key is the logical sequence username; the vault-map key is the
+resolved credential key. Both are YAML map keys, not extra fields within an
+entry. The optional mapping edge reflects the non-strict local-user fallback;
+strict configuration validation requires declarations and populated referenced
+credentials. `corporate` contains `domain`, `sam`, and `upn`; the resolver prefers
+`domain\sam`, then UPN, then the local identity when constructing `loginUser`.
+
+`Get-Password` uses `vaultKey`, falling back to the logical username when empty.
+It may create a missing fallback credential but refuses to invent a password for
+an explicit `vaultKey`. `Get-LocalOsPassword` independently uses
+`localOsPasswordRef`, also falling back to the logical username; this function
+can generate a missing local-OS credential even for an explicit reference.
+Consequently one mapping can reference two different entries, and multiple
+users can share an entry. `previousPassword` records a prior value after an
+explicit rotation. The runtime retains the plaintext vault across cycles;
+initialization reuses it rather than wiping it after a successful cycle.
+
+Sources: [project secret validation](../../automation/Yuruna.Validation.psm1),
+[website secret commands](https://github.com/alissonsol/yuruna-project/blob/main/example/website/config/localhost/workloads.yml),
 [users schema](../../test/schemas/users.schema.yml),
-[users template](../../test/extension/authentication/users.yml.template),
-[mapping implementation](../../test/extension/authentication/default.psm1), and
-[configuration gate](../../test/Test-Config.ps1).
-
-An empty `vaultKey` resolves to the logical user key and permits lazy password
-generation; a populated `vaultKey` requires an operator-supplied entry and
-throws if it is absent. `localOsPasswordRef` independently selects the password
-seeded into the guest's local account; an empty reference again uses the logical
-key, and this local path may generate a missing value. `Get-LoginCredential`
-combines the resolved login identity and login password. Sources:
-[authentication extension](../../test/extension/authentication/default.psm1)
-and [vault schema](../../test/schemas/vault.schema.yml).
-
-Each vault entry stores `password`, `updatedUtc`, and an optional
-`previousPassword`; password rotation moves the outgoing value into that prior
-field. The current runner intentionally preserves `vault.yml` across cycles,
-despite the older per-cycle wording still present in the schema description.
-Sources: [vault writes](../../test/extension/authentication/default.psm1),
-[runner completion](../../test/modules/Test.RunnerInnerLoop.psm1), and
-[vault schema](../../test/schemas/vault.schema.yml).
-
-The authentication vault is separate from project deployment-secret folders:
-the authentication extension consumes `users.yml` and `vault.yml`, while deploy
-validation only inspects the project `*.txt` files. There is no implicit
-credential transfer between the two models. Sources:
-[authentication extension](../../test/extension/authentication/default.psm1)
-and [deployment validation](../../automation/Yuruna.Validation.psm1).
+[vault field schema](../../test/schemas/vault.schema.yml),
+[identity-map template](../../test/extension/authentication/users.yml.template),
+[authentication implementation](../../test/extension/authentication/default.psm1),
+[sequence identity substitution](../../test/modules/Test.SequenceEngine.psm1), and
+[cycle completion](../../test/modules/Test.RunnerInnerLoop.psm1).
 
 ---
 
-[Architecture](../architecture.md) | [Design overview](README.md)
+Back to [Architecture](../architecture.md) | [Design overview](README.md)

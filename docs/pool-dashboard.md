@@ -114,6 +114,14 @@ unlocked, and only falls back to its ordinary Lab token prompt when the proxy mi
 token at all. The proof mechanics -- fragment delivery, minting, verification -- are in
 [control-routes](https://yuruna.link/42185271).
 
+**One function can legitimately appear twice.** The table lists a row per host and
+function, not per function, so two hosts each running a pool-control service produce two
+Pool-control rows -- differing in Host ID, and in where the Extension link lands. That is
+usually worth acting on rather than reading past: a machine converted into a pool worker
+is meant to have retired its own service VMs
+([lab-operator](https://yuruna.link/42383647)), and a second row for a service the lab
+already provides is how a survivor announces itself.
+
 Panel height tracks the extension-host count, maintained by
 `yuruna-fit-pool-dashboard.timer` on the proxy -- the `gridPos.h` in the dashboard file
 is only the pre-collector default.
@@ -170,6 +178,19 @@ and are never copied into this dashboard; the one way they travel is an operator
 *Share cycle results* on the timeline below, which packs one cycle folder for that
 operator to mail on.
 
+**A host can occupy two rows for a few minutes, and both are current.** Everything the
+table shows apart from Pass and Fail arrives as a Prometheus label on
+`yuruna_pool_host_info`, and a series is identified by its labels -- so the moment a
+host starts a cycle, changes status, or reports a new commit or version, that is a new
+series rather than a new value on the old one. The replaced series keeps its last
+sample and stays inside the staleness window an instant query reads, so for about five
+minutes the host answers twice. The two rows share a Host ID and differ in Status, Last
+cycle, Commit or Version, and the older one disappears on its own. It is worth knowing
+because the reflex -- that a repeated Host ID means a host registered twice -- is wrong
+here: the *Pool hosts* page the pool-control service serves is keyed by host id with
+these values as fields, so it never doubles, and disagreeing with this table is not a
+fault in either.
+
 Panel height tracks the host count (`yuruna-fit-pool-dashboard.timer`) so the table
 never scrolls -- the `gridPos.h` in the dashboard file is only the pre-collector
 default.
@@ -197,9 +218,11 @@ navigates nowhere. The rest are the row's actions:
   `SHORTID.UTCSTART.tar.gz` and hands it to your mail client. The archive is built on
   the host and is not uploaded anywhere by that page.
 
-The panel selects the hostname-free series (`hostname=""`) so a host shows **one** row:
-a legacy hostname-bearing series, retained until it ages out, would otherwise add a
-duplicate row for the same Host ID.
+The panel selects the hostname-free series (`hostname=""`). No series carries a
+`hostname` label any more -- the aggregator stopped emitting one -- and the matcher is
+kept because in PromQL an empty-string match also selects a series that has the label
+absent, so it costs nothing and still excludes a hostname-bearing series should one
+reappear.
 
 Panel height tracks the host count (`yuruna-fit-pool-dashboard.timer`) so rows keep a
 legible height instead of being squeezed -- the `gridPos.h` in the dashboard file is
@@ -293,6 +316,6 @@ LICENSEURI https://yuruna.link/license
 
 Copyright (c) 2019-2026 by Alisson Sol et al.
 
-Last review: 2026.09.12
+Last review: 2026.09.13
 
 Back to [Yuruna](../README.md)

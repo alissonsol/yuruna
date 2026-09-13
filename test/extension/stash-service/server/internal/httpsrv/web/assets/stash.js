@@ -1,16 +1,13 @@
 // LICENSEURI https://yuruna.link/license
 // Copyright (c) 2019-2026 by Alisson Sol et al.
-// Stash detail view. Renders by content class, always offers download, and
-// deletes any stash once this browser is through the lab-token gate.
+// Content-class previews and downloads; deletion requires an unlocked session.
 
 (function () {
   var TEXT_PREVIEW_CAP = 1024 * 1024; // fallback if the server omits inlineTextCap (section 6.2)
   var state = { inlineTextCap: 0 };
   function $(id) { return document.getElementById(id); }
 
-  // Parse /s/<host>/<y>/<m>/<d>/<id> (the canonical permalink, section 4.4). The
-  // local short alias /s/<y>/<m>/<d>/<id> also resolves: it produces a
-  // 4-segment API path that the server's alias route maps to this host.
+  // Removing /s preserves both the full permalink and the host-local alias.
   function apiPath() {
     var parts = window.location.pathname.split('/').filter(Boolean); // [s, ...]
     return '/api/stashes/' + parts.slice(1).join('/');
@@ -108,23 +105,17 @@
     var raw = Y.rawURL(v);
     switch (v.contentClass) {
       case 'image':
-        Y.append(wrap, Y.el('img', { class: 'viewer-img', src: raw, alt: v.originalFilename || v.id }));
-        break;
+        return renderMedia(wrap, Y.el('img', { class: 'viewer-img', alt: v.originalFilename || v.id }), raw, 'load');
       case 'pdf':
         Y.append(wrap, Y.el('embed', { class: 'viewer-frame', src: raw, type: 'application/pdf', title: (v.originalFilename || v.id) + ' (PDF preview)' }));
-        // Neither iOS Safari nor Android Chrome renders a PDF inside <embed>;
-        // both paint an empty frame with no hint that anything is wrong.
-        // Desktop Firefox/Chrome do render it, and then this link is merely
-        // redundant.
+        // The link stays usable when a mobile browser cannot render <embed>.
         Y.append(wrap, Y.el('p', { class: 'notice' },
           Y.el('a', { href: raw, target: '_blank', rel: 'noopener', text: 'Open PDF' })));
         break;
       case 'audio':
-        Y.append(wrap, Y.el('audio', { class: 'viewer-av', controls: 'controls', src: raw }));
-        break;
+        return renderMedia(wrap, Y.el('audio', { class: 'viewer-av', controls: 'controls' }), raw, 'loadedmetadata');
       case 'video':
-        Y.append(wrap, Y.el('video', { class: 'viewer-av', controls: 'controls', src: raw }));
-        break;
+        return renderMedia(wrap, Y.el('video', { class: 'viewer-av', controls: 'controls' }), raw, 'loadedmetadata');
       case 'text':
         return renderText(wrap, raw).then(function () { return wrap; });
       case 'archive':
@@ -135,9 +126,25 @@
     return Promise.resolve(wrap);
   }
 
+  // --- REGION: renderMedia
+  function renderMedia(wrap, media, raw, event) {
+    wrap.yurunaReadyPromise = new Promise(function (resolve) {
+      media.addEventListener(event, function () { resolve(wrap); });
+      media.addEventListener('error', function () {
+        wrap.yurunaReadyState = 'error';
+        Y.append(wrap, Y.el('div', { class: 'notice error', role: 'alert', text: 'Preview unavailable. Use Download to open the file.' }));
+        resolve(wrap);
+      });
+      Y.append(wrap, media);
+      media.src = raw;
+    });
+    return Promise.resolve(wrap);
+  }
+
   function renderText(wrap, raw) {
     return window.fetch(raw).then(function (res) {
       if (!res.ok) {
+        wrap.yurunaReadyState = 'error';
         Y.append(wrap, Y.el('div', { class: 'notice error', text: 'Could not load text: HTTP ' + res.status }));
         return null;
       }
@@ -148,11 +155,13 @@
         if (body.length > cap) { body = body.slice(0, cap); truncated = true; }
         var pre = Y.el('pre', { class: 'viewer wrap', tabindex: '0', role: 'region', 'aria-label': 'Stash text preview' });
         pre.textContent = body; // textContent: never interpret as HTML (section 7.4)
+        if (!body) { wrap.yurunaReadyState = 'empty'; }
         if (truncated) { Y.append(wrap, Y.el('div', { class: 'notice warn', text: 'Preview truncated -- Download for the full content.' })); }
         Y.append(wrap, pre);
         return null;
       });
     }, function (e) {
+      wrap.yurunaReadyState = 'error';
       Y.append(wrap, Y.el('div', { class: 'notice error', text: 'Could not load text: ' + e.message }));
     });
   }
@@ -178,17 +187,14 @@
       Y.append(tbl, tb);
       Y.append(wrap, tbl);
     }, function (e) {
+      wrap.yurunaReadyState = 'error';
       Y.append(wrap, Y.el('div', { class: 'notice error', text: 'Could not list archive: ' + e.message }));
     });
   }
 
   function load() {
-    // Spends a control proof carried in from the dashboard before reading the
-    // gate, so a page opened through that link renders with Delete live.
-    // The failure handler is a SEPARATE link in the chain, not this .then's
-    // second argument: a rejection raised inside the success handler below --
-    // the stash read 404ing, most of all -- would never reach a handler
-    // installed alongside it.
+    // Resolve proof/session before controls. Catch in a separate chain link
+    // so rejected reads and renders both reach the accessible error state.
     return Y.initUnlock(load).then(function (sess) {
       return Y.api(apiPath()).then(function (data) {
         var v = data.stash;
@@ -204,12 +210,16 @@
             actions(v, { canDelete: sess.authed, labToken: sess.labToken }),
             viewer,
             Y.el('div', { class: 'card' }, meta(v)));
+          return (viewer.yurunaReadyPromise || Promise.resolve()).then(function () {
+            window.YurunaFirstUsable.mark('test/extension/stash-service/server/internal/httpsrv/web/stash.html', viewer.yurunaReadyState || 'data');
+          });
         });
       });
     }).then(null, function (e) {
       $('detail').className = '';
       msg('error', e.status === 404 ? 'Stash not found.' : ('Error: ' + e.message));
       $('detail').textContent = '';
+      window.YurunaFirstUsable.mark('test/extension/stash-service/server/internal/httpsrv/web/stash.html', 'error');
     });
   }
 

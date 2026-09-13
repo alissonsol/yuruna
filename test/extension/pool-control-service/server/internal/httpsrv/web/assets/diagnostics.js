@@ -100,24 +100,27 @@
 
     var health = document.getElementById('health');
     health.textContent = d.health ? JSON.stringify(d.health, null, 2) : '(persistence disabled)';
+    window.YurunaFirstUsable.mark('test/extension/pool-control-service/server/internal/httpsrv/web/diagnostics.html', checks.length ? 'data' : 'empty');
   }
 
   // quiet marks the countdown's run, which keeps the last report on screen.
   // Every other run replaces it and says so: each check is a live probe of a
   // dependency, and the ones worth waiting for are the ones timing out.
   function refresh(opts) {
+    window.YurunaFirstUsable.hold('primary');
     var quiet = !!(opts && opts.quiet);
     var done = quiet ? function () { } : Y.busy(document.getElementById('check-rows'), 'Running checks...');
     chrome.busy(true);
     // Run on the failure path too: an indicator left turning over a probe that
     // already failed claims progress that is not happening -- on the one page
     // that has to stay readable during an outage.
-    var finish = function () { done(); chrome.busy(false); };
+    var finish = function () { done(); chrome.busy(false); window.YurunaFirstUsable.release('primary'); };
     return load().then(function (d) {
       render(d);
       chrome.markLoaded();
     }, function (err) {
       Y.notice('error', 'Could not collect diagnostics: ' + err.message);
+      window.YurunaFirstUsable.mark('test/extension/pool-control-service/server/internal/httpsrv/web/diagnostics.html', 'error');
     }).then(finish, finish);
   }
 

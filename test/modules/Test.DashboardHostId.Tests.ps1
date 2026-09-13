@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.12
+.VERSION 2026.09.13
 .GUID 42d2490f-e2d9-4303-a287-fa13182fb811
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -175,6 +175,25 @@ Describe 'the Host ID a dashboard panel shows' {
             Assert-True ($null -ne $organize) -Because "panel $id organizes its columns"
             Assert-True (-not $organize.options.excludeByName.hostIdDashed) -Because "panel $id must not drop the column its links read"
         }
+    }
+
+    It 'asks for one host_info series per host rather than every live label-set' {
+        # host_info's labels carry the cells that change -- status, cycle, commit,
+        # version -- so a host mints a new series whenever one of them moves. The
+        # replaced series keeps its final sample and stays inside the staleness
+        # window this instant query reads, so without a per-host pick the table
+        # shows that host twice for about five minutes, the rows differing only in
+        # the cells that just changed. topk ranks on the value, which the collector
+        # exports as the host's last-seen time, so the newest series is the one that
+        # survives; a plain selector has no ranking to apply and would leave both.
+        $panel = Get-Panel -Id $script:PanelPoolHosts
+        $target = @($panel.targets | Where-Object { $_.expr -and $_.expr -match 'yuruna_pool_host_info' }) |
+            Select-Object -First 1
+        Assert-True ($null -ne $target) -Because 'the Pool hosts table reads yuruna_pool_host_info'
+        Assert-True ($target.expr -match '^\s*topk\(\s*1\s*,') `
+            -Because 'the host_info query must take a single series per host'
+        Assert-True ($target.expr -match 'by\s*\(\s*hostId\s*\)') `
+            -Because 'the single series must be picked per hostId, not pool-wide'
     }
 }
 

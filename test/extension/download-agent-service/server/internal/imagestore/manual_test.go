@@ -46,7 +46,7 @@ func brokenFido(t *testing.T) FidoConfig {
 }
 
 func TestAHandPlacedISOBecomesTheServedArtifact(t *testing.T) {
-	a := newTestAgent(t, Options{PoolDir: t.TempDir(), Fido: brokenFido(t), AgentVersion: "2026.09.12"})
+	a := newTestAgent(t, Options{PoolDir: t.TempDir(), Fido: brokenFido(t), AgentVersion: "2026.09.13"})
 	body := []byte("bytes an operator downloaded from Microsoft by hand")
 	dropFile(t, a.store, windowsID, signedName, body, 10*time.Minute)
 

@@ -1,5 +1,5 @@
 <#PSScriptInfo
-.VERSION 2026.09.12
+.VERSION 2026.09.13
 .GUID 42d7a1c5-8e60-4b3f-9a52-6cb0f4e21d78
 .AUTHOR Alisson Sol et al.
 .COPYRIGHT (c) 2019-2026 by Alisson Sol et al.
@@ -115,6 +115,7 @@ $BrowserCatalogTargets = @(
 # of the runtimes -- shipping it there would put bytes on every extension page
 # for code none of them call.
 $FetchShimSource = 'globalization/kernel/yuruna.fetch-shim.js'
+$FirstUsableSource = 'globalization/kernel/yuruna.first-usable.js'
 $RawPageSource = 'globalization/kernel/yuruna.rawpage.js'
 $RequestAdapterTargets = @(
     @{ Module = 'test/extension/caching-proxy-service';        File = 'requestadapter.go'; Package = 'main' }
@@ -238,6 +239,8 @@ function Get-EmbeddedBlock {
         [void]$sb.AppendLine('// The fetch stand-in, from ' + $FetchShimSource + ' -- see that file for why.')
         [void]$sb.AppendLine((Get-CodeAfterHeader -Text ([IO.File]::ReadAllText((Join-Path $RepoRoot $FetchShimSource)))))
         [void]$sb.AppendLine(([IO.File]::ReadAllText($KernelPath)).TrimEnd())
+        [void]$sb.AppendLine('// Explicit application readiness, from ' + $FirstUsableSource + '.')
+        [void]$sb.AppendLine((Get-CodeAfterHeader -Text ([IO.File]::ReadAllText((Join-Path $RepoRoot $FirstUsableSource)))))
     }
     [void]$sb.Append($EndMarker)
     return ($sb.ToString() -replace "`r`n", "`n")

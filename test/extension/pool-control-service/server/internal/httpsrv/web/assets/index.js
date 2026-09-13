@@ -16,13 +16,14 @@
   // screen. Every other read replaces it and says so: pool intent is read by
   // running a CLI on the server, which is not instant.
   function load(opts) {
+    window.YurunaFirstUsable.hold('primary');
     var quiet = !!(opts && opts.quiet);
     var tbody = document.getElementById('pool-rows');
     var done = quiet ? function () { } : Y.busy(tbody, 'Loading pools...');
     chrome.busy(true);
     // Runs on the failure path too: an indicator left turning over a read that
     // already failed claims progress that is not happening.
-    var finish = function () { done(); chrome.busy(false); };
+    var finish = function () { done(); chrome.busy(false); window.YurunaFirstUsable.release('primary'); };
     return renderPools(tbody).then(finish, finish);
   }
 
@@ -37,6 +38,7 @@
       paintPools(tbody, both[0], both[1].goBaseUrl || '');
     }, function (e) {
       Y.notice('error', 'Could not load pool intent: ' + e.message);
+      window.YurunaFirstUsable.mark('test/extension/pool-control-service/server/internal/httpsrv/web/index.html', 'error');
     });
   }
 
@@ -49,12 +51,14 @@
     if (pools.length === 0) {
       sorter.set([]);
       tbody.appendChild(Y.el('tr', {}, [Y.el('td', { colspan: '7', class: 'muted', text: 'No pools defined. Create one on the Pools page.' })]));
+      window.YurunaFirstUsable.mark('test/extension/pool-control-service/server/internal/httpsrv/web/index.html', 'empty');
       return;
     }
 
     var rows = [];
     for (var i = 0; i < pools.length; i++) { rows.push(buildRow(pools[i], testSets, goBaseUrl)); }
     sorter.set(rows);
+    window.YurunaFirstUsable.mark('test/extension/pool-control-service/server/internal/httpsrv/web/index.html', 'data');
   }
 
   // One row, built in its own call so the picker and the Assign button below

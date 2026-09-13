@@ -177,6 +177,11 @@
       "gzipBytes": 1706,
       "transferDisposition": "deterministic-gzip-estimate"
     },
+    "globalization/kernel/yuruna.first-usable.js": {
+      "rawBytes": 2689,
+      "gzipBytes": 1089,
+      "transferDisposition": "deterministic-gzip-estimate"
+    },
     "globalization/kernel/yuruna.i18n.js": {
       "rawBytes": 14196,
       "gzipBytes": 5169,

@@ -165,7 +165,7 @@
       "gridPos": { "h": 9, "w": 24, "x": 0, "y": 13 },
       "datasource": { "type": "datasource", "uid": "-- Mixed --" },
       "targets": [
-        { "refId": "A", "expr": "yuruna_pool_host_info{pool=~\".+\"}", "instant": true, "format": "table", "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } },
+        { "refId": "A", "expr": "topk(1, yuruna_pool_host_info{pool=~\".+\"}) by (hostId)", "instant": true, "format": "table", "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } },
         { "refId": "B", "expr": "time() - yuruna_pool_host_last_seen_seconds{pool=~\".+\"}", "instant": true, "format": "table", "datasource": { "type": "prometheus", "uid": "yuruna-prometheus" } },
         { "refId": "C", "expr": "sum by (pool, hostId) (count_over_time({pool=~\".+\"} | json | overallStatus=\"pass\" [$__range])) or (sum by (pool, hostId) (count_over_time({pool=~\".+\"} | json | overallStatus=~\"pass|fail\" [$__range])) * 0)", "instant": true, "format": "table", "datasource": { "type": "loki", "uid": "yuruna-loki" } },
         { "refId": "D", "expr": "sum by (pool, hostId) (count_over_time({pool=~\".+\"} | json | overallStatus=\"fail\" [$__range])) or (sum by (pool, hostId) (count_over_time({pool=~\".+\"} | json | overallStatus=~\"pass|fail\" [$__range])) * 0)", "instant": true, "format": "table", "datasource": { "type": "loki", "uid": "yuruna-loki" } }
